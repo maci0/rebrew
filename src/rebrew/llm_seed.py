@@ -72,6 +72,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from rebrew.config import (
+    LLM_PROJECT_ENDPOINT_TRUST_ENV,
     is_key_safe_endpoint,
     llm_max_requests,
     llm_timeout,
@@ -196,8 +197,9 @@ _REDACTED = "redacted"
 #: Operator opt-in that lets ``[llm].endpoint`` from ``rebrew-project.toml``
 #: receive ``REBREW_LLM_API_KEY``.  The project file outranks the environment
 #: for the endpoint, so without this a checked-out project picks where the
-#: operator's bearer key goes.
-_TRUST_ENV_VAR = "REBREW_LLM_ALLOW_PROJECT_ENDPOINT"
+#: operator's bearer key goes.  The name lives in :mod:`rebrew.config` so
+#: ``rebrew cfg effective`` reports a mistyped value against the same string.
+_TRUST_ENV_VAR = LLM_PROJECT_ENDPOINT_TRUST_ENV
 
 
 def sanitize_log_value(value: Any, *, max_len: int = 256, secrets: Sequence[str] = ()) -> str:

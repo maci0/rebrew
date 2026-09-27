@@ -125,6 +125,21 @@ REBREW_PROJECTS_ROOT_ENV = "REBREW_PROJECTS_ROOT"
 the audit walks the parent of the rebrew checkout, so a wrong value reports
 zero projects rather than failing."""
 
+LLM_PROJECT_ENDPOINT_TRUST_ENV = "REBREW_LLM_ALLOW_PROJECT_ENDPOINT"
+"""Env var opting in to sending the env LLM key to a project-supplied
+``[llm].endpoint``.  A cloned project file names the destination, so the
+refusal is the default and this is the only way past it.  Parsed by
+:func:`parse_env_bool`, so ``0``/``false``/``no``/``off`` keep the refusal."""
+
+XVFB_DISPLAY_ENV = "REBREW_XVFB_DISPLAY"
+"""Env var recording the display rebrew's Xvfb lives on.  Written by
+:mod:`rebrew.headless`; an operator may pin it, and only a local ``:N`` /
+``:N.S`` display can ever be adopted."""
+
+#: A local X display, the only form :mod:`rebrew.headless` can resolve: the
+#: socket probe and the ``/proc`` scan both key on ``/tmp/.X11-unix/X<n>``.
+ENV_DISPLAY_RE = re.compile(r":\d+(?:\.\d+)?")
+
 # ---------------------------------------------------------------------------
 # Canonical filename for the function structure cache
 # ---------------------------------------------------------------------------
@@ -1258,6 +1273,22 @@ def check_env_dir(name: str, raw: str) -> None:
         raise ConfigError(f"{name}={value!r} is not a directory")
 
 
+def check_env_display(raw: str) -> None:
+    """Raise unless ``REBREW_XVFB_DISPLAY`` is a local ``:N`` / ``:N.S`` display.
+
+    The headless resolver only ever matches a value against the local
+    ``/tmp/.X11-unix`` socket and the ``:N`` keys its ``/proc`` scan collects,
+    so a hostname display (``host:0``), a missing colon, or an empty-number
+    spelling can never be adopted.  Unset stays valid: the resolver then
+    picks a free display itself.
+    """
+    value = raw.strip()
+    if value and not ENV_DISPLAY_RE.fullmatch(value):
+        raise ConfigError(
+            f"{XVFB_DISPLAY_ENV}={value!r} is not a local X display (use :N, e.g. :99)"
+        )
+
+
 def check_env_wineprefix(raw: str) -> None:
     """Raise when ``REBREW_WINEPREFIX`` is set to a relative path.
 
@@ -1293,9 +1324,13 @@ def _env_knob_parsers() -> tuple[tuple[str, Callable[[str], None]], ...]:
     def _log_level(raw: str) -> None:
         parse_env_log_level(raw, default=DEFAULT_LOG_LEVEL)
 
+    def _project_endpoint_trust(raw: str) -> None:
+        parse_env_bool(LLM_PROJECT_ENDPOINT_TRUST_ENV, raw, default=False)
+
     return (
         ("REBREW_CONTAINER_RUNTIME", _container_runtime),
         (REBREW_FLIRT_SIGS_DIR_ENV, partial(check_env_dir, REBREW_FLIRT_SIGS_DIR_ENV)),
+        (LLM_PROJECT_ENDPOINT_TRUST_ENV, _project_endpoint_trust),
         ("REBREW_LOG_LEVEL", _log_level),
         (REBREW_PROJECTS_ROOT_ENV, partial(check_env_dir, REBREW_PROJECTS_ROOT_ENV)),
         ("REBREW_SKILLS_DIR", partial(check_env_dir, REBREW_SKILLS_DIR_ENV)),
@@ -1303,10 +1338,7 @@ def _env_knob_parsers() -> tuple[tuple[str, Callable[[str], None]], ...]:
         (TOOLCHAINS_DIR_ENV, partial(check_env_dir, TOOLCHAINS_DIR_ENV)),
         ("REBREW_WINEPREFIX", check_env_wineprefix),
         ("REBREW_WINE_HEADLESS", _wine_headless),
-        (
-            "REBREW_LLM_ALLOW_PROJECT_ENDPOINT",
-            partial(parse_env_bool, "REBREW_LLM_ALLOW_PROJECT_ENDPOINT", default=False),
-        ),
+        (XVFB_DISPLAY_ENV, check_env_display),
     )
 
 
@@ -2277,6 +2309,7 @@ __all__ = [
     "KNOWN_FORMATS",
     "KNOWN_PROJECT_KEYS",
     "KNOWN_TARGET_KEYS",
+    "LLM_PROJECT_ENDPOINT_TRUST_ENV",
     "ConfigError",
     "ConfigKeyError",
     "ConfigNotFoundError",
@@ -2289,8 +2322,11 @@ __all__ = [
     "ProjectConfig",
     "REBREW_SKILLS_DIR_ENV",
     "TOOLCHAIN_OVERLAY_ENV",
+    "XVFB_DISPLAY_ENV",
     "arch_byte_order",
     "arch_pointer_size",
+    "check_env_display",
+    "check_env_wineprefix",
     "detect_crt_sources",
     "env_knob_errors",
     "find_root",

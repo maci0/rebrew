@@ -810,6 +810,27 @@ class TestRelativeRunnerResolution:
         assert env["REBREW_COMPILER_RUNNER"] == str(tmp_path / "tools/wibo")
         assert env["WINEDEBUG"] == "-all"
 
+    def test_ambient_runner_is_dropped(self, tmp_path: Path, monkeypatch: Any) -> None:
+        """An exported REBREW_COMPILER_RUNNER never reaches the compile argv.
+
+        The matcher prepends whatever the env names to every compile command,
+        so a shell export / direnv / CI variable would silently run a
+        different program than the project configures. The documented pin is
+        `[compiler] runner`, so the ambient value is popped here.
+        """
+        from rebrew.msvc_env import msvc_env_from_config
+
+        monkeypatch.setenv("REBREW_COMPILER_RUNNER", "wibo")
+        cfg = ProjectConfig(
+            root=tmp_path,
+            compiler_command="toolchain/msvc/5.0-win32/bin/cl.exe",
+            compiler_runner="wine",
+            compiler_includes="toolchain/msvc/5.0-win32/include",
+            compiler_libs="toolchain/msvc/5.0-win32/lib",
+        )
+        env = msvc_env_from_config(cfg)
+        assert env["REBREW_COMPILER_RUNNER"] == "wine"
+
 
 class TestCompileToObjBorlandc55:
     """borland-5.5 routes through the toolchain runner with bcc32 flags

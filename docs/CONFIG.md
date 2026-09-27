@@ -365,6 +365,14 @@ by the CLI layer and win for that invocation.
   run). When set to a non-empty URL, every compile routes through the
   service instead of local docker images. Must be an `http(s)` URL with a
   host (invalid values fail at load / resolve time).
+- `GH_TOKEN` / `GITHUB_TOKEN` — optional GitHub API token, `GH_TOKEN` first.
+  Sent as `Authorization: Bearer` on the toolchain pin-check and update
+  requests only (`rebrew toolchain check-updates` / `update`); unset, those
+  requests are anonymous and the API's unauthenticated rate limit applies.
+  The wibo download and every compile path never see it. Prefer a
+  fine-grained token scoped to read on the toolchain repos: the variable
+  reaches the process environment of an image-less (native) toolchain,
+  which runs on the host.
 
 ### Paths / overlays
 
@@ -392,8 +400,10 @@ by the CLI layer and win for that invocation.
   is on PATH.
 - `REBREW_XVFB_DISPLAY` — display (e.g. `:99`) of the virtual X server
   headless wine uses.  Set by rebrew itself on first use; override to pin
-  a specific display (it must host a live Xvfb this process holds the
-  MIT-MAGICK cookie for — an unauthenticated server is never reused).
+  a specific display, which must be a local `:N` (or `:N.S`) one that hosts
+  a live Xvfb this process holds the MIT-MAGICK cookie for — an
+  unauthenticated server is never reused, and a value the resolver cannot
+  match is reported by `rebrew cfg effective`.
   The Xvfb rebrew starts carries a fresh cookie file exported as
   `XAUTHORITY`, which travels to the wine children with the display.
 - `REBREW_XVFB_AUTH` — path of the MIT-MAGICK cookie file the Xvfb started by
@@ -406,7 +416,11 @@ by the CLI layer and win for that invocation.
   Must be an absolute path (`~` expands); a relative value is an error.
   Default: `$XDG_CACHE_HOME/rebrew-<toolchain>-wineprefix`.
 - `REBREW_TOOLCHAIN` — cmake bridge pin for the active profile name.
-- `REBREW_COMPILER_RUNNER` — host PE runner path/name (set by `msvc_env`).
+- `REBREW_COMPILER_RUNNER` — host PE runner path/name the matcher prepends to
+  the compile argv.  Written by `msvc_env` from `[compiler] runner`; an ambient
+  value is dropped on every compile path, because a shell export would run a
+  different program than the project configures.  Pin the runner in
+  `rebrew-project.toml` (`[compiler] runner = "wibo"`), not in the environment.
 - `REBREW_RUNNER` — PE runner **inside** docker toolchain images
   (`wine` default, `wibo` opt-in).  Not read by the host Python process.
 
@@ -589,14 +603,17 @@ set `[llm] endpoint` / `model` still wins over the matching env var, while
 `REBREW_LLM_API_KEY` and `REBREW_RECOMPILE_URL` win over TOML.
 
 `env_errors` covers the knobs no command reads until the moment of use
-(`REBREW_CONTAINER_RUNTIME`, `REBREW_FLIRT_SIGS_DIR`, `REBREW_LOG_LEVEL`,
-`REBREW_PROJECTS_ROOT`, `REBREW_SKILLS_DIR`, `REBREW_TOOLCHAIN_OVERLAY_DIR`,
-`REBREW_TOOLCHAINS_DIR`, `REBREW_WINE_HEADLESS`, `REBREW_WINEPREFIX`), which a
+(`REBREW_CONTAINER_RUNTIME`, `REBREW_FLIRT_SIGS_DIR`,
+`REBREW_LLM_ALLOW_PROJECT_ENDPOINT`, `REBREW_LOG_LEVEL`, `REBREW_PROJECTS_ROOT`,
+`REBREW_SKILLS_DIR`, `REBREW_TOOLCHAIN_OVERLAY_DIR`, `REBREW_TOOLCHAINS_DIR`,
+`REBREW_WINE_HEADLESS`, `REBREW_WINEPREFIX`, `REBREW_XVFB_DISPLAY`), which a
 mistyped value would otherwise report as a spawn failure from inside a compile,
-or (for the two path knobs the consumers skip) as silently reduced output: a
-`REBREW_FLIRT_SIGS_DIR` that is not a directory drops every standard-library
-signature and a `REBREW_PROJECTS_ROOT` that is not a directory audits nothing.
-The message is the one the code that reads the knob raises, so a name listed
+or (for the knobs whose consumers skip an unusable value) as silently reduced
+output: a `REBREW_FLIRT_SIGS_DIR` that is not a directory drops every
+standard-library signature, a `REBREW_PROJECTS_ROOT` that is not a directory
+audits nothing, and a `REBREW_XVFB_DISPLAY` that is not a local `:N` display
+never matches the running server, so a fresh one is spawned instead. The
+message is the one the code that reads the knob raises, so a name listed
 here is unusable for the next command that touches it. A directory knob absent
 from the environment is not an error.
 

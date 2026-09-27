@@ -2162,6 +2162,33 @@ class TestEnvKnobValidators:
         with pytest.raises(ConfigError, match="is not a level"):
             parse_env_log_level("chatty", default=DEFAULT_LOG_LEVEL)
 
+    def test_display_knob_requires_a_local_display(self) -> None:
+        from rebrew.config import check_env_display
+
+        check_env_display("")
+        check_env_display("  ")
+        check_env_display(":99")
+        check_env_display(":99.0")
+        for bad in ("99", ":", "host:0", "unix:0", "0:99"):
+            with pytest.raises(ConfigError, match="not a local X display"):
+                check_env_display(bad)
+
+    def test_project_endpoint_trust_knob_is_reported(self) -> None:
+        """The env-key opt-in is a strict boolean, reported before first use.
+
+        Without a parser here a typo surfaced only inside an LLM seeding call,
+        and `rebrew cfg effective` listed the variable as present with no
+        error next to it.
+        """
+        from rebrew.config import LLM_PROJECT_ENDPOINT_TRUST_ENV, env_knob_errors
+
+        assert env_knob_errors({LLM_PROJECT_ENDPOINT_TRUST_ENV: "false"}) == {}
+        assert env_knob_errors({LLM_PROJECT_ENDPOINT_TRUST_ENV: "1"}) == {}
+        assert env_knob_errors({LLM_PROJECT_ENDPOINT_TRUST_ENV: ""}) == {}
+        errors = env_knob_errors({LLM_PROJECT_ENDPOINT_TRUST_ENV: "ture"})
+        assert LLM_PROJECT_ENDPOINT_TRUST_ENV in errors
+        assert "is not a boolean" in errors[LLM_PROJECT_ENDPOINT_TRUST_ENV]
+
     def test_bad_knobs_are_named_not_raised(self, tmp_path: Path) -> None:
         from rebrew.config import env_knob_errors
 
@@ -2171,6 +2198,7 @@ class TestEnvKnobValidators:
             "REBREW_TOOLCHAINS_DIR": str(tmp_path / "absent"),
             "REBREW_FLIRT_SIGS_DIR": str(tmp_path / "absent"),
             "REBREW_PROJECTS_ROOT": str(tmp_path / "absent"),
+            "REBREW_XVFB_DISPLAY": "host:0",
         }
         errors = env_knob_errors(env)
         assert set(errors) == {
@@ -2179,6 +2207,7 @@ class TestEnvKnobValidators:
             "REBREW_TOOLCHAINS_DIR",
             "REBREW_FLIRT_SIGS_DIR",
             "REBREW_PROJECTS_ROOT",
+            "REBREW_XVFB_DISPLAY",
         }
 
     def test_unset_path_knob_is_not_an_error(self, tmp_path: Path) -> None:

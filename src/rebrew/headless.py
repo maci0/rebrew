@@ -39,6 +39,8 @@ import threading
 import time
 from pathlib import Path
 
+from rebrew.config import XVFB_DISPLAY_ENV as _XVFB_DISPLAY_ENV
+
 #: Screen geometry for the virtual display.  24-bit depth is required for
 #: some Wine versions (the xvfb-run 8-bit default breaks them).  Kept as
 #: separate argv tokens — Xvfb does NOT shell-split its args, so a single
@@ -48,7 +50,9 @@ _XVFB_SCREEN = ("-screen", "0", "1280x1024x24")
 XVFB_RUN_SERVER_ARGS = " ".join(_XVFB_SCREEN)
 
 #: Env var recording the display our Xvfb (or a reused one) lives on.
-XVFB_DISPLAY_ENV = "REBREW_XVFB_DISPLAY"
+#: Named in :mod:`rebrew.config` so ``rebrew cfg effective`` validates an
+#: operator-pinned value against the same string this module writes.
+XVFB_DISPLAY_ENV = _XVFB_DISPLAY_ENV
 
 #: Env var the spawned Xvfb carries, naming the MIT-MAGICK cookie file it was
 #: started with, so a later rebrew process can authenticate to an orphan
