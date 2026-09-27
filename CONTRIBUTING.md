@@ -105,10 +105,19 @@ import rebrew as a library.
   breaks an existing project (renamed CLI flag, changed default, format bump,
   raised minimum Python, removed install extra) goes under `Changed` prefixed
   with `**Breaking:**`.
+- **A dated section is frozen.**  Release notes move from `[Unreleased]`
+  into `[<version>]` once, at the release commit; after that the published
+  section never gains a line, because a reader of that tag's notes would be
+  describing code it does not contain.  Later work goes back under
+  `[Unreleased]`, even when the gap in the earlier section is obvious.
+  `tests/test_packaging.py::test_notes_added_after_the_tag_stay_unreleased`
+  fails the build when a tagged section grows.
 - **Preflight before tagging with `make release-check`**: verifies
-  `__version__` is bumped past the last tag, the tree is clean, and the
-  changelog has a dated `[<version>]` section — no release can be tagged out
-  of sync with the version or the notes.
+  `__version__` is bumped past the last tag, the tree is clean, the
+  changelog has a dated `[<version>]` section, that section has at least
+  one entry, and `[Unreleased]` is empty — a release whose notes are split
+  across the two headings ships half of them undocumented, so neither can
+  be tagged out of sync with the version or the notes.
 
 ## Before submitting
 

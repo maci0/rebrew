@@ -9,6 +9,14 @@
   hand-written `link_stubs.c` keeps its own tail, and two `.data` addresses
   sharing one name now emit a single stub instead of a TU that does not
   compile.
+- **Skill names survive a Windows save or a macOS checkout.**
+  `SKILL.md` is read as `utf-8-sig` and normalized to NFC, and a skill's
+  identity (frontmatter `name` or directory name) is compared in NFC. A
+  UTF-8 BOM previously made the frontmatter regex miss, so the skill read as
+  unnamed; an NFD spelling of an accented name failed every equality
+  comparison against the NFC one and the skill was listed twice or not found
+  by `rebrew skills show` / `rebrew init` overlay.
+
 ### Changed
 - **The report pages and the coverage dashboard share one chrome token
   set.** Colors, radii, font stacks, and type sizes live in `rebrew.theme`;
