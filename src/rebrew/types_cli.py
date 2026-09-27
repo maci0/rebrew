@@ -27,7 +27,9 @@ def collect_evidence(files: list[Path]) -> dict[str, dict[int, int]]:
     for path in files:
         try:
             text = path.read_text(encoding="utf-8", errors="replace")
-        except OSError:
+        except OSError as exc:
+            # Unreadable evidence reads as "no struct evidence found".
+            logging.getLogger(__name__).warning("skipping unreadable %s: %s", path, exc)
             continue
         try:
             result = parse_decomp_for_structs(text)
@@ -65,7 +67,10 @@ def main(
             from rebrew.utils import read_source_text
 
             text = read_source_text(src)[0]
-        except OSError:
+        except OSError as exc:
+            logging.getLogger(__name__).warning(
+                "skipping unreadable source %s: %s", src, exc
+            )
             continue
         for name, struct in parse_structs(text).items():
             declared.setdefault(name, struct)

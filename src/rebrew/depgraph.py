@@ -14,6 +14,7 @@ Usage:
 
 import bisect
 import contextlib
+import logging
 import re
 from pathlib import Path
 from typing import Any, TypedDict
@@ -35,6 +36,8 @@ from rebrew.sources import (
 )
 from rebrew.status_style import DISPLAY_STATUSES, STATUS_HEX
 from rebrew.utils import atomic_write_text, fold_ident
+
+log = logging.getLogger(__name__)
 
 # Pre-compiled regex for graph node ID sanitization.
 _NODE_ID_RE = re.compile(r"[^a-zA-Z0-9_]")
@@ -150,7 +153,10 @@ def _extract_callees(c_path: Path, text: str | None = None) -> list[str]:
             from rebrew.utils import read_source_text
 
             text = read_source_text(c_path)[0]
-        except OSError:
+        except OSError as exc:
+            # No callee list means no edges, so the file reads as a leaf in
+            # the graph rather than as an unreadable one.
+            log.warning("no callee edges for unreadable source %s: %s", c_path, exc)
             return []
 
     from rebrew.c_parser import find_extern_function_names
@@ -242,7 +248,8 @@ def build_graph(
                 from rebrew.utils import read_source_text
 
                 _file_text_cache[cfile] = read_source_text(cfile)[0]
-            except OSError:
+            except OSError as exc:
+                log.warning("skipping unreadable source %s: %s", cfile, exc)
                 continue
         text = _file_text_cache[cfile]
         blocks = _split_entry_blocks(text)

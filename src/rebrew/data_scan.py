@@ -20,6 +20,8 @@ from rebrew.config import ProjectConfig, inventory_path_for
 from rebrew.data_metadata import module_visible_to_target
 from rebrew.utils import read_source_text
 
+log = logging.getLogger(__name__)
+
 # ---------------------------------------------------------------------------
 # Regexes
 # ---------------------------------------------------------------------------
@@ -261,7 +263,11 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
             # non-ASCII bytes silently deleted, which would corrupt string
             # literals, comments, and GLOBAL:/DATA: scans.
             text, _ = read_source_text(cfile)
-        except OSError:
+        except OSError as exc:
+            # The scan still returns an inventory, just one missing every
+            # marker in this file, so say which file and why rather than
+            # reporting a short list as the whole tree.
+            log.warning("skipping unreadable source %s: %s", cfile, exc)
             continue
 
         lines = text.splitlines()

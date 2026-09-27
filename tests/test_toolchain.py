@@ -1604,6 +1604,80 @@ class TestTrustedToolchainDownload:
             )
         assert not dest.exists()
 
+    def test_mid_stream_failure_unlinks_partial_download(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A transport failure part-way through the body must not leave a
+        short archive at *dest* — a later sha256 check would report a
+        mismatch for a file that looks like a complete download."""
+        import httpx
+
+        from rebrew.toolchain import ToolchainError
+        from rebrew.toolchain_cli import _download_pinned_url
+
+        class _Resp:
+            status_code = 200
+            headers: dict[str, str] = {}
+
+            def __enter__(self) -> _Resp:
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+            def raise_for_status(self) -> None:
+                return None
+
+            def iter_bytes(self):  # type: ignore[no-untyped-def]
+                yield b"partial"
+                raise httpx.ReadError("connection reset")
+
+        monkeypatch.setattr(httpx, "stream", lambda *a, **kw: _Resp())
+        monkeypatch.setattr("rebrew.toolchain_cli.time.sleep", lambda _s: None)
+        dest = tmp_path / "out.bin"
+        with pytest.raises(ToolchainError, match="toolchain download failed"):
+            _download_pinned_url("https://github.com/o/r/releases/download/v1/m.7z", dest)
+        assert not dest.exists()
+
+    def test_transient_transport_failure_is_retried(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import httpx
+
+        from rebrew.toolchain_cli import _download_pinned_url
+
+        class _Resp:
+            status_code = 200
+            headers: dict[str, str] = {}
+
+            def __enter__(self) -> _Resp:
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+            def raise_for_status(self) -> None:
+                return None
+
+            def iter_bytes(self):  # type: ignore[no-untyped-def]
+                return iter([b"payload"])
+
+        calls = 0
+
+        def _stream(*args: object, **kwargs: object) -> _Resp:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise httpx.ConnectError("connection refused")
+            return _Resp()
+
+        monkeypatch.setattr(httpx, "stream", _stream)
+        monkeypatch.setattr("rebrew.toolchain_cli.time.sleep", lambda _s: None)
+        dest = tmp_path / "out.bin"
+        _download_pinned_url("https://github.com/o/r/releases/download/v1/m.7z", dest)
+        assert calls == 2
+        assert dest.read_bytes() == b"payload"
+
 
 class TestVendorRetryAfterPartialFailure:
     """A crashed/failed ``vendor`` must leave the tree retryable — empty or

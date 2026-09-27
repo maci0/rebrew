@@ -23,6 +23,8 @@ from rebrew.utils import (
     strip_generated_timestamp,
 )
 
+log = logging.getLogger(__name__)
+
 _GLOBAL_MARKER_RE = re.compile(r"^\s*(?://|/\*)\s*GLOBAL:\s*\S+\s+0x([0-9a-fA-F]+)")
 _DECL_LINE_RE = re.compile(
     r"^\s*(?:extern\s+)?[\w\s\*]+\s+([A-Za-z_]\w*)(?:\[\d*\])?\s*(?:=\s*[^;]*|\s*;)"
@@ -250,7 +252,10 @@ def _source_decls_by_va(
     for cfile in files:
         try:
             text, _ = read_source_text(cfile)
-        except OSError:
+        except OSError as exc:
+            # The generated header is derived from these decls, so a skipped
+            # file silently drops its globals from it; name the file instead.
+            log.warning("skipping unreadable source %s: %s", cfile, exc)
             continue
         for line in text.splitlines():
             m = _VA_COMMENT_RE.search(line)

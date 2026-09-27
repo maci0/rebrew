@@ -14,6 +14,7 @@ Usage::
 
 import contextlib
 import json
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -53,6 +54,8 @@ from rebrew.present import ratio_bar
 from rebrew.status import effective_status
 from rebrew.utils import floor_pct
 from rebrew.workspace.status import EARNED_STATUSES, MATCHED_STATUSES
+
+log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Category constants
@@ -912,7 +915,10 @@ def _caller_counts(cfg: ProjectConfig, matched_files: set[str] | None = None) ->
             from rebrew.utils import read_source_text
 
             text = read_source_text(path)[0]
-        except OSError:
+        except OSError as exc:
+            # Its externs contribute no call counts, which would misrank the
+            # work list.  Say which file was dropped.
+            log.warning("skipping unreadable source %s: %s", path, exc)
             continue
         for callee in find_extern_function_names(text):
             counts[callee] = counts.get(callee, 0) + 1
