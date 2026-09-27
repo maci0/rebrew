@@ -31,6 +31,7 @@ from typing import Any, Literal, NoReturn, override
 
 import typer
 from rich.console import Console
+from rich.errors import MarkupError
 from rich.markup import escape
 from typer._click.core import Command as TyperBaseCommand
 from typer._click.core import Context as TyperContext
@@ -192,8 +193,6 @@ def require_config(
 # Standardised output helpers
 # ---------------------------------------------------------------------------
 
-console = Console(stderr=True)
-
 #: C0/C1 controls except tab and newline, rendered as ``\xNN``.  Error text
 #: carries remote response bodies and binary-derived names; a raw ESC would
 #: let them drive the terminal (OSC title/clipboard writes, screen clears).
@@ -228,6 +227,49 @@ def untrusted_text(value: object) -> str:
     column to read as a different name or status.
     """
     return escape(untrusted_literal(value))
+
+
+class _TargetSafeConsole(Console):
+    """Console a hostile target string cannot crash or hijack.
+
+    Rich parses every ``[tag]`` in what it prints as markup, and rebrew prints
+    symbol, module, section, and import names read straight out of the target
+    binary. Two consequences a call site can forget to handle:
+
+    - a name carrying ``[/bold]`` or ``[/]`` makes Rich raise
+      :class:`~rich.errors.MarkupError` out of ``print``. No layer above
+      catches it, so one crafted symbol ended any command that printed it
+      with a traceback;
+    - a name carrying ESC (OSC 52 clipboard writes, screen clears) or a
+      right-to-left override reached the terminal verbatim and reordered the
+      column beside it.
+
+    :func:`untrusted_text` is the per-call fix and keeps the intended markup
+    styled. This is the backstop for the calls that do not use it: strings are
+    scrubbed of control and invisible characters (no rebrew-authored output
+    contains one, so styled output is unchanged), and a markup parse failure
+    is re-emitted as literal text instead of propagating.
+    """
+
+    @override
+    def print(self, *objects: Any, **kwargs: Any) -> None:  # (rich API)
+        scrubbed = tuple(untrusted_literal(obj) if isinstance(obj, str) else obj for obj in objects)
+        try:
+            super().print(*scrubbed, **kwargs)
+        except MarkupError:
+            # The offending markup is a hostile (or malformed) tag inside the
+            # data, not rebrew's own styling. Re-emit without markup: the tags
+            # show as the literal text they are, and a table cell's row
+            # survives instead of taking the whole command down.
+            kwargs.pop("markup", None)
+            kwargs.pop("highlight", None)
+            super().print(*scrubbed, markup=False, highlight=False, **kwargs)
+
+
+#: Every tool prints through this one console (see the ``Console(stderr=True)``
+#: it replaces), so the guard covers the whole CLI rather than the commands
+#: that remembered :func:`untrusted_text`.
+console = _TargetSafeConsole(stderr=True)
 
 
 def error_exit(msg: str, *, json_mode: bool = False, code: int = EXIT_ERROR) -> NoReturn:
