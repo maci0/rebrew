@@ -585,6 +585,21 @@ class TestCiPins:
         assert re.search(r"(?m)^\s*entry: make --no-print-directory test\s*$", hook)
         assert "stages: [pre-push]" in hook
 
+    def test_shellcheck_hook_is_installed_before_it_runs(self) -> None:
+        """The hook exits 0 without shellcheck, so CI must install it or the gate is silent."""
+        text = (ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+        hook = text.split("- id: shellcheck\n", 1)[1].split("- id:", 1)[0]
+        assert "command -v shellcheck" in hook
+        assert "types: [shell]" in hook
+        ci = CI_YML.read_text(encoding="utf-8")
+        pre_commit_job = next(
+            block
+            for block in re.split(r"\n(?=  [a-z][a-z-]*:\n)", ci)
+            if block.splitlines()[0].strip().rstrip(":") == "pre-commit"
+        )
+        assert "shellcheck" in pre_commit_job
+        assert pre_commit_job.index("shellcheck") < pre_commit_job.index("make check")
+
     @pytest.mark.parametrize(
         "path",
         [

@@ -167,6 +167,11 @@ jobs:
           key: pre-commit-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml') }}
           restore-keys: |
             pre-commit-${{ runner.os }}-
+      - name: Install shellcheck
+        # The shellcheck hook exits 0 when the binary is absent, so the gate
+        # only exists if this step runs. Install explicitly rather than
+        # trusting the runner image to keep carrying it.
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends shellcheck
       - name: Run pre-commit hooks
         env:
           SKIP: ruff-check,ruff-format,mypy

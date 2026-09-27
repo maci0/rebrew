@@ -1,5 +1,18 @@
 ## [Unreleased]
 ### Added
+- **Shell is linted too.** `tools/ci_clone_resembl.sh` is the one shell
+  script both workflows run, and nothing looked at it: the gate was ruff,
+  ruff format, and mypy, so a quoting or unset-variable regression in the
+  clone helper (the step that pins the sibling `resembl` commit every job
+  depends on) would have merged unseen. A ShellCheck pre-commit hook covers
+  every `*.sh`; the pre-commit job installs the binary first, because the
+  hook exits 0 when ShellCheck is absent and a silent gate is not a gate.
+- **Three more test modules type-check under the strict gate.**
+  `tests/test_span_contains.py`, `tests/test_core.py`, and
+  `tests/test_catalog_models.py` join `files` in `[tool.mypy]`, so a
+  regression in a test's own types fails `make mypy` instead of waiting for
+  a runtime path to reach it. The rest of `tests/` is still unchecked and
+  stays that way until a module comes clean.
 - **The coverage dashboard says so when its client fails to load.** A new
   same-origin `/boot-guard.js` runs deferred after `/app.js` and, when the
   client never set `__rebrewBooted` (aborted transfer, 5xx from a proxy, a
