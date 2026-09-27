@@ -72,6 +72,17 @@ _TOOLCHAIN_DOWNLOAD_HOST_SUFFIXES = frozenset(
 app = typer.Typer(
     help="Standardized toolchain management (Windows/DOS profiles run in docker).",
     rich_markup_mode="rich",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew toolchain list · · · · · · · · List profiles and how each is invoked\n\n"
+        "  rebrew toolchain status msvc-6.0 · · · Is the docker image built?\n\n"
+        "  rebrew toolchain detect build/server.dll · Which profile built a binary?\n\n"
+        "  rebrew toolchain pull msvc-6.0 · · · · · Fetch the image from the registry\n\n"
+        "  rebrew toolchain build msvc-6.0 · · · · Build the image from source\n\n"
+        "[dim]Every shipped toolchain runs in docker: there is no host wine/wibo/\n"
+        "dosbox fallback, and a missing image is a hard error. Image tags and pins\n"
+        "are documented in docs/TOOLCHAIN.md.[/dim]"
+    ),
 )
 
 

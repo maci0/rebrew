@@ -58,6 +58,17 @@ _PULL_COUNTS: tuple[str, ...] = (
 app = typer.Typer(
     help="BinSync state sync: push/pull/summary plus the flat commands.",
     rich_markup_mode="rich",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew binsync init .binsync · · · · Create the state dir (root + user branch)\n\n"
+        "  rebrew binsync summary .binsync · · · Preview push/pull, writes nothing\n\n"
+        "  rebrew binsync push .binsync · · · · · Export the project and commit\n\n"
+        "  rebrew binsync pull .binsync · · · · · Import a state dir back in\n\n"
+        "  rebrew binsync diff .binsync · · · · · Read-only divergence report\n\n"
+        "[dim]Names, comments, prototypes, structs, and globals sync through the state\n"
+        "directory; Ghidra structural edits (create-function, bookmarks) stay on the\n"
+        "MCP side. See the rebrew-ghidra-sync skill.[/dim]"
+    ),
 )
 
 

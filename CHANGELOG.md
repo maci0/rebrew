@@ -39,6 +39,14 @@
   the gate compared a previous wheel against a previous sdist. The file rule
   now carries the build's inputs, with `__pycache__` and egg-info excluded so
   a test run does not force a rebuild on every pass.
+- **`rebrew-objdiff-build -x` names the bad token.** The shim checks its
+  positional arity before its unknown-option check, so a lone stray flag was
+  reported as a bare usage line and the user never learned which argument was
+  wrong. The option check now runs first.
+- **`rebrew library`, `rebrew toolchain`, and `rebrew binsync` print examples.**
+  The three remaining command groups had no `epilog`, so their `--help` was a
+  bare command table while `cfg`, `blocker`, `cache`, and every leaf tool
+  showed usage examples.
 - **`CHANGELOG.md` opens with `[Unreleased]` again.** The 2.14.0 release
   renamed the open heading into the dated section without opening the next
   one, so the file began with `## [2.14.0]` and the three release gates that

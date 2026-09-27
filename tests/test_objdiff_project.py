@@ -223,6 +223,23 @@ class TestObjdiffProject:
         objdiff_project.objdiff_build_entry()
         assert capsys.readouterr().out.startswith("usage: rebrew-objdiff-build")
 
+    @pytest.mark.parametrize("argv", [["-x"], ["-x", "base.o"]])
+    def test_build_entry_names_an_unknown_option(
+        self, argv: list[str], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A lone stray flag must name it, not print a bare usage line.
+
+        The arity check used to run first, so ``-x`` alone read as "too few
+        arguments" and the user never learned which token was wrong.
+        """
+        import sys
+
+        monkeypatch.setattr(sys, "argv", ["rebrew-objdiff-build", *argv])
+        with pytest.raises(SystemExit) as exc:
+            objdiff_project.objdiff_build_entry()
+        assert exc.value.code == 2
+        assert "unknown option '-x'" in capsys.readouterr().err
+
     def test_build_entry_uses_annotation_overrides(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

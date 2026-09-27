@@ -32,7 +32,20 @@ from rebrew.metadata import (
 from rebrew.utils import atomic_write_text
 from rebrew.workspace.config import walk_up_to_root
 
-app = typer.Typer(help="Per-library toolchain/flags overrides.", rich_markup_mode="rich")
+app = typer.Typer(
+    help="Per-library toolchain/flags overrides.",
+    rich_markup_mode="rich",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew library show src/mylib · · Show the override in force for a directory\n\n"
+        "  rebrew library list · · · · · · · · · List every rebrew-libraries.toml\n\n"
+        "  rebrew library set src/mylib --toolchain gcc-14.2.0 --cflags '-O1'\n\n"
+        "  rebrew library rm src/mylib · · · · Revert to the project default\n\n"
+        "[dim]Resolution is most-specific-first: a per-function TOOLCHAIN/CFLAGS in\n"
+        "rebrew-functions.toml, then the nearest rebrew-libraries.toml walking up\n"
+        "toward the project root, then the project default.[/dim]"
+    ),
+)
 
 
 def _resolve_root(dir_arg: str | None) -> Path:
