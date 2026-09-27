@@ -45,3 +45,11 @@ MATCHED_STATUSES: tuple[str, ...] = ("EXACT", "RELOC")
 # proof queue — read this instead of re-spelling ``("EXACT", "RELOC",
 # "PROVEN")`` at each site.
 EARNED_STATUSES: tuple[str, ...] = (*MATCHED_STATUSES, "PROVEN")
+
+# Machine verdicts that only mean "this stub has no real body yet": a
+# documented STUB keeps its classification instead of being demoted to one of
+# these.  Both the writer's promotion policy
+# (``metadata.should_promote_status``) and the status overlay
+# (``status.effective_status``) read this, so the two cannot disagree about
+# which verdicts count as a placeholder.
+STUB_PLACEHOLDER_STATUSES: tuple[str, ...] = ("SIZE_MISMATCH", "MISSING_SIZE")

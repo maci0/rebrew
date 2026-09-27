@@ -38,7 +38,7 @@ from rebrew.present import ratio_bar as _bar
 from rebrew.sources import iter_sources
 from rebrew.status_style import DISPLAY_STATUSES, STATUS_COLORS
 from rebrew.utils import clip_span, floor_pct
-from rebrew.workspace.status import MATCHED_STATUSES
+from rebrew.workspace.status import MATCHED_STATUSES, STUB_PLACEHOLDER_STATUSES
 
 # ---------------------------------------------------------------------------
 # Data model
@@ -261,33 +261,44 @@ def _entry_va(entry_data: dict[str, Any]) -> int | None:
         return None
 
 
+def _load_cache_raw(cfg: ProjectConfig) -> dict[str, Any] | None:
+    """The verify-cache document for *cfg*, or None when it is not ours.
+
+    One guard for every status reader: a cache written for another target,
+    another binary, or another cache schema version must not drive this
+    project's summary or effective statuses.  The version comes from
+    ``CACHE_VERSION`` so a schema bump cannot leave one reader behind.
+    """
+    from rebrew.verify_cache import CACHE_VERSION, binary_id, load_verify_cache_raw
+
+    raw = load_verify_cache_raw(cfg)
+    if not isinstance(raw, dict) or raw.get("version") != CACHE_VERSION:
+        return None
+    if raw.get("target") != getattr(cfg, "target_name", ""):
+        return None
+    raw_bin = raw.get("binary_id")
+    if raw_bin and raw_bin != binary_id(cfg):
+        return None
+    return raw
+
+
 def _load_verify_info(
-    cfg: ProjectConfig, library_vas: frozenset[int] | set[int] = frozenset()
+    cfg: ProjectConfig,
+    library_vas: frozenset[int] | set[int] = frozenset(),
+    raw: dict[str, Any] | None = None,
 ) -> VerifyInfo | None:
     """Load last verify summary from the verify cache file.
 
     Passes on *library_vas* are also counted separately: verify compiles
-    them, but status leaves library code out of progress.
+    them, but status leaves library code out of progress.  *raw* is the
+    already-validated document when the caller has one, so a run that also
+    needs the effective statuses reads the cache once.
     """
-    from rebrew.verify_cache import load_verify_cache_raw
-
     cache_path = cfg.root / ".rebrew" / "verify_cache.json"
-    raw = load_verify_cache_raw(cfg)
+    if raw is None:
+        raw = _load_cache_raw(cfg)
     if raw is None:
         return None
-
-    if not isinstance(raw, dict) or raw.get("version") != 2:
-        return None
-    # A cache written for another target (or with stale compiler/hash state)
-    # must not be presented as this project's verification summary.
-    if raw.get("target") != getattr(cfg, "target_name", ""):
-        return None
-    raw_bin = raw.get("binary_id")
-    if raw_bin:
-        from rebrew.verify_cache import binary_id
-
-        if raw_bin != binary_id(cfg):
-            return None
 
     entries = raw.get("entries")
     if not isinstance(entries, dict) or not entries:
@@ -360,31 +371,20 @@ def load_verify_statuses(cfg: ProjectConfig) -> dict[int, str]:
     return {va: status for va, (status, _effective) in load_verify_details(cfg).items()}
 
 
-def load_verify_details(cfg: ProjectConfig) -> dict[int, tuple[str, bool]]:
+def load_verify_details(
+    cfg: ProjectConfig, raw: dict[str, Any] | None = None
+) -> dict[int, tuple[str, bool]]:
     """Load per-VA ``(status, effective_match)`` from the verify cache.
 
     *effective_match* marks functions whose entire delta is register
     allocation (reccmp's 100% effective-match case) — candidates worth
-    proving even though bytes differ.
+    proving even though bytes differ.  *raw* is the already-validated
+    document when the caller has one.
     """
-    from rebrew.verify_cache import CACHE_VERSION, load_verify_cache_raw
-
-    raw = load_verify_cache_raw(cfg)
+    if raw is None:
+        raw = _load_cache_raw(cfg)
     if raw is None:
         return {}
-
-    if not isinstance(raw, dict) or raw.get("version") != CACHE_VERSION:
-        return {}
-    # Same target guard as _load_verify_info: another target's cache must not
-    # override this project's source statuses.
-    if raw.get("target") != getattr(cfg, "target_name", ""):
-        return {}
-    raw_bin = raw.get("binary_id")
-    if raw_bin:
-        from rebrew.verify_cache import binary_id
-
-        if raw_bin != binary_id(cfg):
-            return {}
 
     entries = raw.get("entries")
     if not isinstance(entries, dict):
@@ -417,7 +417,9 @@ def effective_status(ann_status: str, cached: str | None) -> str:
     """
     if ann_status in ("PROVEN", "SKIP"):
         return ann_status
-    if ann_status == "STUB" and cached in ("SIZE_MISMATCH", "MISSING_SIZE", "STUB"):
+    if ann_status == "STUB" and cached is not None and (
+        cached == "STUB" or cached in STUB_PLACEHOLDER_STATUSES
+    ):
         return ann_status
     return cached or ann_status
 
@@ -535,7 +537,10 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     # Load verify cache to override source statuses.
     # Metadata statuses may be optimistic (e.g. STATUS: RELOC) while
     # the actual verify result is STUB.  Verify results are authoritative.
-    verify_details = load_verify_details(cfg)
+    # One validated read serves both the per-VA details below and the
+    # summary: each load deep-copies the whole document.
+    cache_raw = _load_cache_raw(cfg)
+    verify_details = load_verify_details(cfg, cache_raw)
     verify_statuses = {va: status for va, (status, _eff) in verify_details.items()}
 
     # Single pass: status breakdown + byte-level coverage.
@@ -678,7 +683,7 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     )
 
     # Verify info
-    report.verify_info = _load_verify_info(cfg, library_vas)
+    report.verify_info = _load_verify_info(cfg, library_vas, cache_raw)
 
     # Quick W019 scan: files ``rebrew lint --fix`` can migrate — counted by
     # lint's own rule (shared header parser, no full lint run).
