@@ -561,43 +561,17 @@ def atomic_write_text(
     each write self-contained; it does not serialise read-modify-write
     cycles, so a genuine last-writer-wins update is still possible.
 
-    When the on-disk bytes already match what this call would write, the
-    replace is skipped so a no-op re-run does not bump mtime (verify cache
-    keys and ``git status`` dirty checks).  Encode failures fall through to
-    the write path so the same ``UnicodeEncodeError`` surfaces as before.
+    Encoding up front keeps the caller's line endings byte-exact (no
+    ``newline`` translation) and lets the write reuse
+    :func:`atomic_write_bytes`, which owns the byte-identical short-circuit
+    and the temp-file dance.  An unencodable string raises
+    ``UnicodeEncodeError`` before any file is touched.
 
     *errors* mirrors :meth:`pathlib.Path.write_text`: use
     ``\"surrogateescape\"`` when *text* came from :func:`read_compile_source`
     so lone surrogates from legacy bytes round-trip instead of raising.
     """
-    # Ensure the target directory exists (metadata roots are often created
-    # lazily on first write).
-    filepath.parent.mkdir(parents=True, exist_ok=True)
-    # Byte-identical short-circuit: re-runs of catalog/gen-stubs/exports must
-    # not invalidate mtime-keyed caches when nothing changed.
-    try:
-        new_bytes = text.encode(encoding, errors=errors)
-    except UnicodeError:
-        new_bytes = None
-    if new_bytes is not None and filepath.is_file():
-        try:
-            if filepath.read_bytes() == new_bytes:
-                return
-        except OSError:
-            pass
-    with _atomic_replace(filepath) as tmp_path:
-        # newline="" keeps the caller's line endings byte-exact.  Path.write_text
-        # defaults to newline=None, which on Windows translates ``\n`` to
-        # ``\r\n`` and would CRLF-corrupt every LF source/metadata rewrite.
-        # O_EXCL: a name planted in the target directory as a symlink must not
-        # be followed, or the write lands on the link's target.
-        fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
-        with os.fdopen(fd, "w", encoding=encoding, errors=errors, newline="") as fh:
-            fh.write(text)
-            fh.flush()
-            # fsync the writable descriptor: a re-opened O_RDONLY handle does
-            # not flush the writer's pages on Linux.
-            os.fsync(fh.fileno())
+    atomic_write_bytes(filepath, text.encode(encoding, errors=errors))
     # Drop any stale path+mtime entries so a same-ns rewrite cannot serve
     # pre-write content to a later reader in this process.
     try:

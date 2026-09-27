@@ -757,21 +757,8 @@ def parse_splat_config(path: Path) -> SplatConfig:
         symbol_addrs_paths=resolve_list(symbols),
         undefined_funcs_auto_path=_rel(base_path, undefined_funcs),
         undefined_syms_auto_path=_rel(base_path, undefined_syms),
-        ignored=tuple(_dedupe_ignored(ignored)),
+        ignored=tuple(dict.fromkeys(ignored)),
     )
-
-
-def _dedupe_ignored(items: list[Ignored]) -> list[Ignored]:
-    """One entry per ``(key, reason)`` pair, in first-seen order."""
-    seen: set[tuple[str, str]] = set()
-    out: list[Ignored] = []
-    for item in items:
-        pair = (item.key, item.reason)
-        if pair in seen:
-            continue
-        seen.add(pair)
-        out.append(item)
-    return out
 
 
 # ---------------------------------------------------------------------------

@@ -206,24 +206,6 @@ def parse_matching_all(
     )
 
 
-def parse_size_mismatch_all(
-    filepath: Path,
-    ignored: set[str] | None = None,
-    metadata_dir: Path | None = None,
-    min_va: int = 0x1000,
-    min_size: int = 0,
-) -> list[StubInfo]:
-    """Extract all SIZE_MISMATCH annotations (no delta filter)."""
-    return _parse_annotations(
-        filepath,
-        status_filter={"SIZE_MISMATCH"},
-        ignored=ignored,
-        metadata_dir=metadata_dir,
-        min_va=min_va,
-        min_size=min_size,
-    )
-
-
 def _collect_with_dedup(
     reversed_dir: Path,
     cfg: ProjectConfig | None,
