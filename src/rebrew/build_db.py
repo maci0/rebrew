@@ -1500,6 +1500,22 @@ def _create_schema(c: sqlite3.Cursor, target: str | None) -> None:
     """)
 
 
+def _verify_cache_belongs_to_project(root_dir: Path, target_name: str, raw: dict[str, Any]) -> bool:
+    """Whether a raw verify-cache document holds this project's current verdicts.
+
+    Delegates to the one identity predicate in :mod:`rebrew.verify_cache`, so
+    the rows imported into ``verify_results`` are the same rows ``rebrew
+    verify`` and ``rebrew status`` would serve.  A directory with no project
+    config has no compiler or binary identity to compare and falls back to
+    the target-and-version check.
+    """
+    from rebrew.verify_cache import CACHE_VERSION, cache_identity_matches
+
+    if not (root_dir / "rebrew-project.toml").exists():
+        return raw.get("target") == target_name and raw.get("version") == CACHE_VERSION
+    return cache_identity_matches(raw, load_config(root_dir, target=target_name))
+
+
 def _build_coverage_db(
     root_dir: Path,
     db_path: Path,
@@ -1950,16 +1966,20 @@ def _build_coverage_db(
             # staying empty.  The cache rows ARE the report rows (same shape),
             # and they carry identity guards the old db/verify_results.json
             # snapshot lacked.  Best-effort: a missing cache is fine.
-            from rebrew.verify_cache import CACHE_VERSION, load_verify_cache_raw
+            from rebrew.verify_cache import load_verify_cache_raw
 
             vr_rows = []
             vr_time = now_iso
             raw_cache = load_verify_cache_raw(SimpleNamespace(root=root_dir))
             cache_entries: dict[str, Any] | None = None
-            ours = (
-                isinstance(raw_cache, dict)
-                and raw_cache.get("target") == target_name
-                and raw_cache.get("version") == CACHE_VERSION
+            # The cache stores verdicts measured against one compiler config
+            # and one binary image; the same predicate verify/status use
+            # decides whether those rows are still this project's rows.  A
+            # cache left behind by a rebuild of the target binary must not be
+            # republished as current, so the compiler and binary identity
+            # guards apply here too, not just target and version.
+            ours = isinstance(raw_cache, dict) and _verify_cache_belongs_to_project(
+                root_dir, target_name, raw_cache
             )
             if ours and isinstance(raw_cache, dict):
                 maybe_entries = raw_cache.get("entries")

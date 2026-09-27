@@ -57,6 +57,9 @@ log = logging.getLogger(__name__)
 #: in it is refused before it is spliced into a ``.c`` file or PROTOTYPE.
 _UNSAFE_PROTOTYPE_RE = re.compile(r"[{};#\x00-\x08\x0a-\x1f\x7f]|/\*|\*/|//")
 
+#: A block comment, replaced by a space before the preprocessor-line test.
+_C_COMMENT_RE = re.compile(r"/\*.*?\*/", re.DOTALL)
+
 app = typer.Typer(
     help="Import a BinSync state directory into rebrew metadata.",
     rich_markup_mode="rich",
@@ -1022,12 +1025,24 @@ def _definition_text(name: str, entry: dict[str, object]) -> str:
     return ""
 
 
+def _has_preprocessor_line(definition: str) -> bool:
+    """Whether *definition* carries a preprocessor directive.
+
+    The test runs on the text with comments removed because that is what the
+    preprocessor sees: ``/*x*/ #define FOO 1`` is a directive even though the
+    ``#`` is not the first character of the line.
+    """
+    stripped = _C_COMMENT_RE.sub(" ", definition)
+    stripped = re.sub(r"//[^\n]*", " ", stripped)
+    return bool(re.search(r"^[ \t\f\v]*#", stripped, re.MULTILINE))
+
+
 def _definition_is_valid(definition: str, name: str, entry: dict[str, object]) -> bool:
     """Whether *definition* is a complete, non-breaking declaration for *name*."""
     from rebrew.types import parse_structs
 
     # Shared state must not smuggle preprocessor lines into binsync_types.h.
-    if re.search(r"^\s*#", definition, re.MULTILINE):
+    if _has_preprocessor_line(definition):
         return False
 
     if name in parse_structs(definition):

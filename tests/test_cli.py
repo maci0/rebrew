@@ -342,7 +342,7 @@ class TestLoadVerifyCacheRaw:
         }
         path.write_text(__import__("json").dumps(raw), encoding="utf-8")
         cfg = SimpleNamespace(root=tmp_path, target_name="GAME", reversed_dir=tmp_path)
-        monkeypatch.setattr(vc_mod, "_cache_identity_matches", lambda _raw, _cfg: True)
+        monkeypatch.setattr(vc_mod, "cache_identity_matches", lambda _raw, _cfg: True)
         assert vc_mod.load_verify_cache_raw(cfg)["entries"]["0x00001000"]["status"] == "STUB"
         assert len(vc_mod._VERIFY_CACHE_MEMO) == 1
         vc_mod.patch_verify_cache_entries(
@@ -371,7 +371,7 @@ class TestLoadVerifyCacheRaw:
         entry = {"status": "STUB", "va": "0x00001000", "match_percent": 0.0, "delta": 7}
         path.write_text(json.dumps({"entries": {"0x00001000": entry}}), encoding="utf-8")
         cfg = SimpleNamespace(root=tmp_path, target_name="GAME", reversed_dir=tmp_path)
-        monkeypatch.setattr(vc_mod, "_cache_identity_matches", lambda _raw, _cfg: True)
+        monkeypatch.setattr(vc_mod, "cache_identity_matches", lambda _raw, _cfg: True)
         patch_cache_from_results(
             cfg, [{"va": "0x00001000", "status": "NEAR_MATCHING", "match_percent": 72.3}]
         )

@@ -21,6 +21,7 @@ import tomlkit
 
 from rebrew.catalog import build_function_registry, cached_function_list, scan_reversed_dir
 from rebrew.config import ProjectConfig, inventory_path_for
+from rebrew.utils import is_safe_c_ident
 
 log = logging.getLogger(__name__)
 
@@ -34,6 +35,20 @@ _GHIDRA_PREFIX = "[rebrew:ghidra]"
 ANALYSIS_MARKER_PREFIX = "// ANALYSIS @ "
 
 _ANALYSIS_MARKER_RE = re.compile(r"^//\s*ANALYSIS\s*@\s*(0x[0-9a-fA-F]+)\s*:\s?(.*)$")
+
+#: A comment lands inside a ``//`` line in a real source file, so it must
+#: stay on that one line.  BinSync state is written by collaborators, and a
+#: comment carrying a newline would add live source lines to the file.
+_MARKER_CONTROL_RE = re.compile(r"[\x00-\x08\x0a-\x1f\x7f]")
+
+
+def marker_comment_text(comment: str) -> str:
+    """One-line form of a BinSync comment, safe to splice into a ``.c`` file.
+
+    Line breaks and control characters become spaces, so the text cannot end
+    the ``//`` marker line and start new source of its own.
+    """
+    return _MARKER_CONTROL_RE.sub(" ", str(comment)).rstrip()
 
 
 def parse_analysis_markers(text: str) -> dict[int, str]:
@@ -62,6 +77,10 @@ def write_analysis_markers(path: Path, comments: dict[int, str]) -> bool:
     and separated from the code by one blank line.  Returns True when the file
     changed (a no-op rewrite returns False without touching the file).
 
+    Comment text is flattened to one line by :func:`marker_comment_text`; a
+    comment arriving from a collaborator's state directory never contributes
+    source lines of its own.
+
     Raises:
         OSError: *path* cannot be read or written.  A failed read is not a
             no-op — callers must not treat it as "nothing to merge".
@@ -73,7 +92,7 @@ def write_analysis_markers(path: Path, comments: dict[int, str]) -> bool:
     text, encoding = read_source_text(path)
 
     merged = parse_analysis_markers(text)
-    merged.update(comments)
+    merged.update({addr: marker_comment_text(text) for addr, text in comments.items()})
 
     kept = [
         line for line in split_source_lines(text) if not _ANALYSIS_MARKER_RE.match(line.strip())
@@ -226,6 +245,11 @@ def load_binsync_structs(state_dir: Path) -> dict[str, dict[str, object]]:
         lines: list[str] = []
         for offset in sorted(members):
             member = members[offset]
+            # A member name is spliced into the synthesized declaration, so a
+            # collaborator's struct cannot close the body and add its own code.
+            if not is_safe_c_ident(member.name):
+                log.warning("skipping struct %s member at offset %s: bad name", name, offset)
+                continue
             member_type = member.type or "int"
             fields[member.name] = {
                 "type": member_type,
@@ -251,7 +275,12 @@ def load_binsync_enums(state_dir: Path) -> dict[str, dict[str, object]]:
         name = enum.name
         if not isinstance(name, str) or not name.strip():
             continue
-        members = {str(k): int(v) for k, v in (enum.members or {}).items()}
+        raw_members = {str(k): int(v) for k, v in (enum.members or {}).items()}
+        # As with struct members, a name that is not an identifier would carry
+        # more than a member into the synthesized enumerator list.
+        members = {k: v for k, v in raw_members.items() if is_safe_c_ident(k)}
+        for skipped in raw_members.keys() - members.keys():
+            log.warning("skipping enum %s member %r: not an identifier", name, skipped)
         if not members:
             continue
         body = ", ".join(f"{member} = {value}" for member, value in members.items())

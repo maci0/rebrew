@@ -327,13 +327,13 @@ def _verify_cache_write_lock(cache_path: Path) -> Iterator[None]:
         yield
 
 
-def _cache_identity_matches(raw: dict[str, Any], cfg: ProjectConfig) -> bool:
+def cache_identity_matches(raw: dict[str, Any], cfg: ProjectConfig) -> bool:
     """True when a parsed verify-cache document belongs to *cfg*'s identity.
 
     Single definition of the ``(target, compiler_hash, binary_id)`` check shared by
-    :func:`verify_cache_matches_cfg` (whole-file predicate) and
-    :func:`patch_verify_cache_entries` (in-lock guard), so the two cannot
-    drift.
+    :func:`verify_cache_matches_cfg` (whole-file predicate),
+    :func:`patch_verify_cache_entries` (in-lock guard), and ``build_db``
+    (coverage import), so they cannot drift.
     """
     if raw.get("version") != CACHE_VERSION:
         return False
@@ -369,7 +369,7 @@ def verify_cache_matches_cfg(cache_path: Path, cfg: ProjectConfig) -> bool:
         data = _read_cache_document(cache_path)
     except (OSError, ValueError):
         return False
-    return _cache_identity_matches(data, cfg)
+    return cache_identity_matches(data, cfg)
 
 
 def patch_verify_cache_entries(cfg: ProjectConfig, patches: list[dict[str, Any]]) -> None:
@@ -416,7 +416,7 @@ def patch_verify_cache_entries(cfg: ProjectConfig, patches: list[dict[str, Any]]
             )
             return
 
-        if not _cache_identity_matches(raw, cfg):
+        if not cache_identity_matches(raw, cfg):
             # Wrong identity — patching would misattribute status to the
             # wrong target/compiler.  Nothing to do; the next real verify
             # writes a correct cache.
