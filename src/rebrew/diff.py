@@ -445,7 +445,8 @@ _EPILOG = (
     "[bold]Exit codes:[/bold]\n\n"
     "  0   No structural differences\n\n"
     "  1   Structural differences found (** lines)\n\n"
-    "  2   Build failed\n\n"
+    "  2   Build failed (also a usage error: unknown flag, missing argument)\n\n"
+    "[dim]130 = interrupted (Ctrl+C), 141 = stdout closed early (piped into head).[/dim]\n\n"
     "[dim]Compiles source with the configured toolchain (CFLAGS from metadata) and diffs against the target binary. "
     "Symbol, VA, and size are auto-detected from // FUNCTION markers and rebrew-functions.toml metadata.[/dim]"
 )

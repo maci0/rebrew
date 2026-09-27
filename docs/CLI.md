@@ -38,6 +38,34 @@ over it.
 
 > The same table is shown in `rebrew --help` (source of truth: `src/rebrew/main.py` epilog).
 
+## Exit Codes
+
+Every entry point (`rebrew <cmd>` and the standalone `rebrew-<cmd>` scripts)
+returns the same five codes, enforced by `rebrew.cli.run_cli`:
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success (all functions matched / no errors) |
+| 1 | Mismatch or test failure — actionable, fix your code |
+| 2 | Build error, config error, or usage error (bad flag or argument) |
+| 130 | Interrupted (Ctrl+C) |
+| 141 | stdout closed early — `rebrew … \| head`, or the reader exited |
+
+A tool's own `--help` may document a narrower set (a read-only tool never
+returns 1); the table above is the ceiling, not a promise that every tool uses
+every code.
+
+Status messages, progress, warnings, and errors go to **stderr**; only
+`--json` documents (and piped data like `rebrew cfg show`) go to **stdout**.
+`rebrew <cmd> --json` writes exactly one JSON document to stdout, so
+`rebrew verify --json | jq` and `rebrew test --json | python -c 'json.load(sys.stdin)'`
+work without a `--quiet` flag.
+
+The 141 code matters in pipelines: a reader that exits early
+(`rebrew verify --json | head -20`) must not look like a verification failure
+(1) to the calling shell. Python's default for a broken pipe at interpreter
+exit is 120, and click's is 1; `run_cli` overrides both.
+
 ## Entry Points
 
 | Command | Script | Description |

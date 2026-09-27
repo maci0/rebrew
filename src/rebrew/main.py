@@ -57,7 +57,9 @@ app = typer.Typer(
         "[bold]Exit codes:[/bold]\n\n"
         "0 — Success (all functions matched / no errors)\n\n"
         "1 — Mismatch or test failure (actionable — fix your code)\n\n"
-        "2 — Build error or config error (something is broken)\n\n"
+        "2 — Build error, config error, or usage error (bad flags or arguments)\n\n"
+        "130 — Interrupted (Ctrl+C)\n\n"
+        "141 — stdout closed early (piped into head, or the reader exited)\n\n"
         "[dim]All subcommands read project settings from rebrew-project.toml. "
         "Run 'rebrew init' to create a new project, or 'rebrew <cmd> --help' for details.[/dim]"
     ),
