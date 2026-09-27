@@ -122,3 +122,17 @@ class TestIsJumpTable:
 
     def test_non_pointer_bytes(self) -> None:
         assert is_jump_table(b"\x01\x02\x03\x04\x05\x06\x07\x08", 0x1000, 0x1000) is False
+
+    def test_pointer_width_follows_arch(self) -> None:
+        """A 64-bit table is read at 8-byte stride, not mis-strided as 4."""
+        data = b"".join(struct.pack("<Q", 0x1000 + i * 8) for i in range(4))
+        assert is_jump_table(data, 0x1000, 0x1000, arch="x86_64") is True
+        # Read 4 bytes at a time the low dwords still land in .text, so the
+        # old 4-byte path accepted this too; the reverse is the real trap.
+        assert is_jump_table(data, 0x1000, 0x1000, arch="x86_32") is False
+
+    def test_byte_order_follows_arch(self) -> None:
+        """MIPS is big-endian, so a big-endian table is the one that matches."""
+        data = b"".join(struct.pack(">I", 0x1000 + i * 4) for i in range(4))
+        assert is_jump_table(data, 0x1000, 0x1000, arch="mips32") is True
+        assert is_jump_table(data, 0x1000, 0x1000, arch="x86_32") is False

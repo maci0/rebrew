@@ -56,6 +56,28 @@ _RELOC_TABLES: dict[str, dict[int, str]] = {
     },
 }
 
+# Byte order of the addend slot each table's targets are stored in.  COFF/i386
+# is little-endian; the MIPS and PowerPC ELF objects these tables decode are
+# big-endian, and the IDO/N64 targets that produce them default to big-endian in
+# binary_loader.endian_mode_bits.  Selecting a table picks the semantics, so it
+# picks the byte order too — reading an R_MIPS_32 addend as little-endian turns
+# the patched value byte-reversed and silently mislinks.
+_RELOC_BYTE_ORDER: dict[str, str] = {
+    "coff-i386": "little",
+    "elf-mips": "big",
+    "elf-ppc": "big",
+}
+
+
+def reloc_byte_order(reloc_table: str) -> str:
+    """``struct`` byte-order prefix for *reloc_table*'s on-disk addend slots."""
+    return "<" if _RELOC_BYTE_ORDER.get(reloc_table, "little") == "little" else ">"
+
+
+def _reloc_fmt(reloc_table: str, size: int) -> str:
+    """Format string for a *size*-byte relocation slot in *reloc_table*."""
+    return f"{reloc_byte_order(reloc_table)}{'I' if size == 4 else 'Q'}"
+
 
 @dataclass(frozen=True)
 class CoffRelocRecord:
@@ -277,18 +299,22 @@ def apply_coff_relocations(
 
     For each relocation, read the addend at ``relocs[i].offset``, resolve the
     target VA via ``resolve_va(symbol)``, compute the patched value per the
-    relocation type, and write it back as little-endian 32-bit.
+    relocation type, and write it back in *reloc_table*'s byte order.
 
     :param text: Raw bytes for a single function as compiled.
     :param relocs: Relocation records from ``parse_obj_relocs_full``.
     :param resolve_va: Callable mapping symbol → absolute VA (None if unknown).
     :param section_va: VA of the function's start (used for REL32 PC-relative arithmetic).
+    :param reloc_table: Which relocation-type table decodes the records; it
+        also fixes the byte order of the addend slots (see
+        :func:`reloc_byte_order`).
 
     :raises UnresolvedSymbolError: Symbol not in the catalog.
     :raises NotImplementedError: Unsupported relocation type.
     """
     buf = bytearray(text)
     table = _RELOC_TABLES.get(reloc_table, _RELOC_TABLES["coff-i386"])
+    fmt = _reloc_fmt(reloc_table, 4)
     for r in relocs:
         kind = table.get(r.type)
         if kind == "none":
@@ -304,7 +330,7 @@ def apply_coff_relocations(
             # The record offset is bounded by the compiled bytes, not by the
             # function body handed in (which may be rstrip()ed shorter).
             continue
-        addend = struct.unpack_from("<I", buf, r.offset)[0]
+        addend = struct.unpack_from(fmt, buf, r.offset)[0]
         if kind == "abs32":
             value = (target_va + addend) & 0xFFFFFFFF
         elif kind == "rel32":
@@ -313,7 +339,7 @@ def apply_coff_relocations(
         else:
             raise NotImplementedError(f"reloc kind {kind!r} not supported")
 
-        struct.pack_into("<I", buf, r.offset, value)
+        struct.pack_into(fmt, buf, r.offset, value)
 
     return bytes(buf)
 
@@ -347,12 +373,14 @@ def _validate_dir32(
     name_to_va: dict[str, int],
     catalog_va_set: set[int],
     iat_region: set[int] | None = None,
+    reloc_table: str = "coff-i386",
 ) -> bool:
     """Return True if the DIR32 slot is valid (or uncatalogued)."""
     target_va = _resolve_exact_then_stripped(name_to_va, symbol)
+    fmt = _reloc_fmt(reloc_table, 4)
     try:
-        addend = struct.unpack_from("<I", obj_bytes, offset)[0]
-        actual = struct.unpack_from("<I", target_bytes, offset)[0]
+        addend = struct.unpack_from(fmt, obj_bytes, offset)[0]
+        actual = struct.unpack_from(fmt, target_bytes, offset)[0]
     except struct.error:
         return False
     # A value inside the import-address table is a linker-filled pointer,
@@ -380,14 +408,16 @@ def _validate_rel32(
     symbol: str,
     name_to_va: dict[str, int],
     section_va: int,
+    reloc_table: str = "coff-i386",
 ) -> bool:
     """Return True if the REL32 slot matches ``symbol_va + addend - pc``."""
     target_va = _resolve_exact_then_stripped(name_to_va, symbol)
     if target_va is None:
         return True  # uncatalogued — mask only
+    fmt = _reloc_fmt(reloc_table, 4)
     try:
-        addend = struct.unpack_from("<I", obj_bytes, offset)[0]
-        actual = struct.unpack_from("<I", target_bytes, offset)[0]
+        addend = struct.unpack_from(fmt, obj_bytes, offset)[0]
+        actual = struct.unpack_from(fmt, target_bytes, offset)[0]
     except struct.error:
         return False
     pc = section_va + offset + 4
@@ -530,10 +560,17 @@ def smart_reloc_compare(
                             name_to_va,
                             catalog_va_set,
                             iat_region,
+                            reloc_table,
                         )
                     elif kind == "rel32" and section_va is not None:
                         valid = _validate_rel32(
-                            obj_bytes, target_bytes, r, rec.symbol, name_to_va, section_va
+                            obj_bytes,
+                            target_bytes,
+                            r,
+                            rec.symbol,
+                            name_to_va,
+                            section_va,
+                            reloc_table,
                         )
                     # else: other types / REL32 without section_va → mask only
                 if valid:
@@ -557,6 +594,7 @@ def smart_reloc_compare(
                         name_to_va,
                         catalog_va_set,
                         iat_region,
+                        reloc_table,
                     )
                 if valid:
                     valid_relocs.append(r)
