@@ -14,6 +14,28 @@
   `tests/test_sdk_surface.py` now walks every `from rebrew... import ...` they
   show and every `rebrew.<module>` they name, and fails when one does not
   resolve. A module move can no longer leave a broken quickstart behind.
+- **`rebrew cfg effective` prints the config in force.** `cfg show` echoes
+  `rebrew-project.toml`, so an env override, a built-in default, and a value
+  the loader rejected all read the same in the file. The new subcommand
+  resolves the config the way a compile does and prints one `name = value`
+  per key, so an override is told apart from the default it replaced.
+  `--json` adds `env_overrides`: the names of the `REBREW_*` variables
+  present in the environment, never their values. Credentials stay redacted,
+  and a name alone is not a claim that the value was used (a set `[llm]`
+  endpoint still wins over `REBREW_LLM_ENDPOINT`). `docs/CONFIG.md` and
+  `docs/CLI.md` carry the command.
+- **`rebrew.errors` re-exports every public error type.** The 14 types that
+  were not already listed (`CatalogScanError`, `ComponentError`,
+  `Delphi16Error`, `DosboxError`, `LibraryOverrideError`, `Msvc16Error`,
+  `NeParseError`, `NoDecompilationError`, `NotLzexeError`, `Omf16Error`,
+  `OrphanInventoryError`, `Tc16Error`, and others) were reachable only from
+  the module that defined them, so a consumer's `except RebrewError` handler
+  had to know which submodule a failure came from to name its type. Every
+  public `RebrewError` subclass now imports from `rebrew.errors`; the classes
+  still load on first attribute access, so `import rebrew.errors` stays free
+  of the compile stack. `tests/test_errors.py` scans the package for a
+  `RebrewError` subclass missing from that map, so the next added error
+  cannot ship without its re-export.
 
 ### Fixed
 - **The README quickstart passes the config once.** `iter_sources` accepts a
@@ -124,6 +146,82 @@
   `.eh_frame` reader sizes FDE pointers off the image rather than off an
   arch-name suffix, which is wrong for every machine the ELF header reports
   as `mips32`.
+- **Names, paths, and text read out of a target binary cannot forge a
+  command or a file.** Four sinks took a string that a reviewed binary, a
+  project file, or a remote service controls:
+  - `utils.filename_component` reduces a symbol to one safe path component
+    before it is joined into a run directory. A `../../..` or an absolute
+    name escaped the directory, and a leading `-` read as an option; a name
+    that sanitizes to nothing falls back to a stable digest of the original.
+    `split` and the data/Ghidra regenerators use it.
+  - `cli.untrusted_text` escapes Rich markup and renders C0/C1 control
+    characters as `\xNN`. An import name, a directory, or a security-scan
+    snippet reached a `console.print` raw, so `[bold]` in a binary restyled
+    the table and an `ESC` drove the terminal (OSC title and clipboard
+    writes, screen clears). `imports`, `security_scan`, `crypto_scan`,
+    `flirt`, `doctor`, `decompme`, `data_annotate`, and `decompiler` print
+    through it, and `error_exit` shares the one helper.
+  - The atomic text and byte writers create their temp file with
+    `O_CREAT | O_EXCL` and `fsync` the writer's descriptor. A name planted
+    in the target directory as a symlink is no longer followed, so the write
+    no longer lands on the link's target.
+  - `rebrew rename` and the BinSync overlay reject a name that is not a C
+    identifier before it reaches a generated header or a file path.
+- **One rizin analysis per binary, and a bounded recompile client pool.**
+  Concurrent callers of the same binary (batch `skeleton` and `name-decomp`
+  both fan out over worker threads) each ran a full `aaa` and built a full
+  rizin database, N times the CPU and disk for one answer. The first caller
+  leads per `(binary, tool)` and the others wait for its result, bounded by
+  the analysis timeout plus slack; a failed analysis publishes nothing and a
+  waiter retries for itself. Separately, the pooled `httpx` client map was
+  bounded by the number of distinct `compile_timeout` values, and that is a
+  project config value, so a long-lived process walking many project roots
+  grew one keep-alive connection pool per root. The map is LRU-capped at 4.
+- **A solution is dropped once its source file has moved on.** A solution
+  records the `cflags` and `mutations` that won against specific source
+  bytes; seeding a later GA from a file that has since changed handed back a
+  stale claim, and a stale *successful* seed biases the run harder than no
+  seed. `save_solution` records the file's SHA-256 and `find_similar` drops
+  an entry whose file no longer hashes to it, ranking first so `top_k` fills
+  from the freshest candidates. An entry with no recorded hash (a
+  pre-existing win) is kept. The best-known table in `solutions_db` keys on
+  `(target, va, symbol)`: the log holds a run outcome with a real VA and a
+  solution fingerprint with `va=""`, so keying on the VA alone collapsed
+  every solved function of a target onto one row and the table showed a
+  single arbitrary fingerprint per target. A metadata write also holds the
+  `rebrew-functions.toml` lock across the STATUS update and the field write,
+  so a promotion that clears blockers cannot be observed half-applied.
+- **A seed argument's internal name is out of the usage line.** `diff`,
+  `match`, `rename`, `stack-cmp`, and `types` named the argument after the
+  Python parameter, so `rebrew diff --help` printed `Usage: diff [OPTIONS]
+  SEED_C`. It reads `source`, and the docstrings no longer name the
+  parameter.
+- **A dashboard reload does not show the previous page's rows.** The busy
+  veil is translucent, so a list that was not cleared before its fresh load
+  read as the new page's data: filtering or paging left the old rows under
+  the new heading until the response landed. Functions, globals, and history
+  now drop their rows, count hint, and `Show more` bar first, and the document
+  title names the target and view (`server.dll - Functions - Rebrew
+  coverage`) so a tab with one target per project still says which is on
+  screen.
+- **A hex `SIZE` in a library header is that size.** `parse_library_header`
+  parsed the marker with a decimal-only `int()`, so a `// SIZE: 0x1a4` line
+  that lint's E008 blesses on a FUNCTION marker raised `ValueError`, was
+  suppressed, and landed as `size 0`: a silent `MISSING_SIZE` for a function
+  whose extent the header states. It parses base 0, like the FUNCTION-marker
+  parser and W019's comparison.
+- **A snapshot is stale on a tie, and an empty GA generation is timed.**
+  `build-db` compared `st_mtime` (whole seconds), so a source rewrite and the
+  `data_*.json` regeneration landing in the same tick on a coarse clock (a
+  Docker volume, `cp -p` then `mv`, a git checkout) compared equal and the
+  "snapshot is older than" warning was silently skipped; the comparison is
+  nanosecond-based. A GA generation whose population scored empty cost a full
+  generation of scheduling and dispatch but was not charged to `elapsed_sec`,
+  under-reporting exactly the generation that produced nothing.
+- **`near-diag` reports zero bytes when nothing disassembles.** The divide
+  guard `total = raw_total or 1` was also the reported `bytes` field, so a
+  pair where neither side decoded read `bytes: 1`. The count and the
+  percentage denominator are now separate values.
 
 ### Changed
 - **The two non-`test_` modules under `tests/` are type-checked.**
@@ -138,10 +236,13 @@
   change in one file and the two surfaces cannot drift. The dashboard gains
   the same heading scale the report uses (page title, card value, table
   text, captions) instead of the browser default sizes.
-- **`canonical_va_key` is imported from `rebrew.utils`, where it lives.**
-  `rebrew.verify_cache` re-exported it and three modules reached through that
-  alias, so a helper in `utils` looked like a verify-cache API. The
-  `rebrew_globals.h` / Ghidra data-header regenerators shared a private
+- **Breaking:** **`rebrew.verify_cache.canonical_va_key` is gone; import it
+  from `rebrew.utils`, where it lives.** `rebrew.verify_cache` re-exported it
+  and three modules reached through that alias, so a helper in `utils` looked
+  like a verify-cache API. A library consumer's
+  `from rebrew.verify_cache import canonical_va_key` now raises
+  `ImportError`; `from rebrew.utils import canonical_va_key` is the import.
+  The `rebrew_globals.h` / Ghidra data-header regenerators shared a private
   copy of the `Generated:`-line stripper; it is now
   `rebrew.utils.strip_generated_timestamp`.
 - **`instruction_clones.normalize_operands` passes a `SimpleNamespace`**
