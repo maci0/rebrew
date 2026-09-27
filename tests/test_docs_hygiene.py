@@ -5,7 +5,9 @@ Pins the docs to the code so drift is caught in CI:
 - every lint code emitted by ``src/rebrew/lint.py`` is documented in
   ``docs/ANNOTATIONS.md`` (the linter reference tables);
 - every component in the packaged CLI manifest has a dedicated section in
-  ``docs/CLI.md`` and is covered by a bundled agent skill.
+  ``docs/CLI.md`` and is covered by a bundled agent skill;
+- the decision and requirement sets (``docs/adr/``, ``docs/prd/``) keep
+  their index, lifecycle status, and cross-links intact.
 """
 
 from __future__ import annotations
@@ -182,3 +184,90 @@ def test_option_help_survives_rich_markup() -> None:
     match_result = CliRunner().invoke(app, ["match", "--help"])
     assert match_result.exit_code == 0, match_result.output
     assert "[llm]" in match_result.stdout
+
+
+#: Status values the ADR convention in ``docs/adr/README.md`` defines.  A
+#: record outside these is a decision whose lifecycle state a reader cannot
+#: resolve, which is worse than no record.
+_ADR_STATUS = r"(?:Accepted|Amended by|Superseded by)"
+
+_ADR_REQUIRED_SECTIONS = ("## Context", "## Decision", "## Consequences")
+
+
+def _adr_files() -> list[Path]:
+    return sorted(p for p in (ROOT / "docs" / "adr").glob("[0-9]*.md"))
+
+
+def _prd_files() -> list[Path]:
+    d = ROOT / "docs" / "prd"
+    return sorted(p for p in d.glob("[0-9]*.md") if not p.name.startswith("00-"))
+
+
+def test_every_adr_has_lifecycle_fields() -> None:
+    """Every ADR carries a Status from the convention and a dated header.
+
+    An accepted record that is silently reversed by the code is worse than a
+    missing one, because readers trust the status and build on it.
+    """
+    adrs = _adr_files()
+    assert adrs, "no ADR files found — the glob may be stale"
+    bad: list[str] = []
+    for path in adrs:
+        text = path.read_text(encoding="utf-8")
+        if not re.search(rf"^- \*\*Status\*\*:.*{_ADR_STATUS}", text, re.M):
+            bad.append(f"{path.name}: no Status ({_ADR_STATUS})")
+        if not re.search(r"^- \*\*Date\*\*: *\d{4}-\d{2}", text, re.M):
+            bad.append(f"{path.name}: no `YYYY-MM` Date line")
+        missing = [s for s in _ADR_REQUIRED_SECTIONS if s not in text]
+        if missing:
+            bad.append(f"{path.name}: missing section(s) {missing}")
+    assert not bad, "ADR lifecycle/structure problems:\n  " + "\n  ".join(bad)
+
+
+def test_adr_index_lists_every_record() -> None:
+    """The ADR index carries a row for each record in the directory, and back.
+
+    An index that lags the directory is how a superseded record stays
+    readable as current.
+    """
+    index = (ROOT / "docs" / "adr" / "README.md").read_text(encoding="utf-8")
+    on_disk = {p.name[:3] for p in _adr_files()}
+    listed = set(re.findall(r"^\| (\d{3}) \|", index, re.M))
+    missing = sorted(on_disk - listed)
+    stale = sorted(listed - on_disk)
+    assert not missing and not stale, (
+        f"docs/adr/README.md index drift — records on disk but unlisted: {missing}; "
+        f"rows with no file: {stale}"
+    )
+
+
+def test_adr_cross_references_resolve() -> None:
+    """Every ``NNN-short-title.md`` link in an ADR or its index names a real record."""
+    adr_dir = ROOT / "docs" / "adr"
+    targets = {p.name for p in _adr_files()}
+    dangling: list[str] = []
+    for path in [*_adr_files(), adr_dir / "README.md"]:
+        for link in re.findall(r"\((\d{3}-[\w-]+\.md)\)", path.read_text(encoding="utf-8")):
+            if link not in targets:
+                dangling.append(f"{path.name} -> {link}")
+    assert not dangling, "ADR links to a record that does not exist:\n  " + "\n  ".join(dangling)
+
+
+def test_every_prd_is_listed_and_carries_status() -> None:
+    """Each PRD is in the directory index and declares Status, Date, Owner.
+
+    The PRDs are the record of what ships; a PRD missing from the index or
+    missing a status is a requirement set nobody can date or trust.
+    """
+    prds = _prd_files()
+    assert prds, "no PRD files found — the glob may be stale"
+    index = (ROOT / "docs" / "prd" / "README.md").read_text(encoding="utf-8")
+    unlisted = [p.name for p in prds if p.name not in index]
+    assert not unlisted, f"PRD(s) absent from docs/prd/README.md: {unlisted}"
+    bad = [
+        f"{p.name}: missing {line}"
+        for p in prds
+        for line in ("- **Status**:", "- **Date**:", "- **Owner**:")
+        if line not in p.read_text(encoding="utf-8")
+    ]
+    assert not bad, "PRD header problems:\n  " + "\n  ".join(bad)

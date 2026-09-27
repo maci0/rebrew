@@ -198,7 +198,6 @@ rebrew data [OPTIONS]
       --annotate
       --section TEXT                (default: .data)
       --set-type VA=TYPE
-      --set-name VA=NAME
       --set-section VA=SECTION
       --layout-audit
       --fill-data
