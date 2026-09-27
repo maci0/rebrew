@@ -134,6 +134,24 @@ class TestBreakClassification:
         _, changed = self._classify("def f|a: int|-> object", "def f|a: int|-> int")
         assert changed
 
+    def test_widened_parameter_annotation_is_not_a_break(self) -> None:
+        """``typer.Option(None, ...)`` passed ``None`` whatever the annotation said.
+
+        ``_classify`` splits its spec on ``|``, which a union annotation spells,
+        so the descriptor is built here instead.
+        """
+        old = {"utils": {"f": ("def f", "!va: str=typer(None, '--va')", "-> None")}}
+        new = {"utils": {"f": ("def f", "!va: str | None=typer(None, '--va')", "-> None")}}
+        removed, changed, added = diff_surfaces(old, new)
+        assert (removed, changed, added) == ({}, {}, {})
+
+    def test_widened_return_annotation_is_a_break(self) -> None:
+        """A caller reading the result gets a value it did not get before."""
+        old = {"utils": {"f": ("def f", "a: int", "-> int")}}
+        new = {"utils": {"f": ("def f", "a: int", "-> int | None")}}
+        _, changed, _ = diff_surfaces(old, new)
+        assert changed
+
     def test_renamed_parameter_is_a_break(self) -> None:
         _, changed = self._classify("def f|old: int|-> int", "def f|new: int|-> int")
         assert changed
@@ -236,6 +254,53 @@ class TestBreakClassification:
         }
         surface = public_surface(Path("src/rebrew"), source=source)["utils"]
         assert surface["page"] == ("def page", "size: int=PAGE_SIZE", "-> int")
+
+    def test_redundant_keyword_in_a_constant_is_not_a_break(self) -> None:
+        """``is_group=False`` repeated in the table is the field's own default.
+
+        A component table is a tuple of constructor calls compared as text, so
+        deleting the redundant keyword read as a changed value and demanded a
+        ``**Breaking:**`` note for a spelling nobody can observe.  A keyword
+        carrying a *different* value is what a consumer sees, and still reads as
+        a change.
+        """
+        root = Path("src/rebrew")
+        plugin = (
+            "from dataclasses import dataclass\n\n"
+            "@dataclass(frozen=True)\n"
+            "class CliComponent:\n"
+            "    name: str\n"
+            "    panel: str = 'dev'\n"
+            "    is_group: bool = False\n"
+        )
+
+        def _table(is_group: str, panel: str) -> tuple[str, ...]:
+            source = {
+                Path("src/rebrew/plugin.py"): plugin,
+                Path("src/rebrew/builtins.py"): (
+                    "from rebrew.plugin import CliComponent\n\n"
+                    "BUILTIN_COMPONENTS = (\n"
+                    f"    CliComponent(name='diff', panel={panel}{is_group}),\n"
+                    ")\n"
+                ),
+            }
+            return public_surface(root, source=source)["builtins"]["BUILTIN_COMPONENTS"]
+
+        spelled = _table(", is_group=False", "'dev'")
+        dropped = _table("", "'dev'")
+        assert spelled == dropped
+        assert "is_group" not in dropped[0]
+
+        _, changed, _ = diff_surfaces(
+            {"builtins": {"BUILTIN_COMPONENTS": spelled}},
+            {"builtins": {"BUILTIN_COMPONENTS": _table("", "'sync'")}},
+        )
+        assert changed
+        _, changed, _ = diff_surfaces(
+            {"builtins": {"BUILTIN_COMPONENTS": spelled}},
+            {"builtins": {"BUILTIN_COMPONENTS": _table(", is_group=True", "'dev'")}},
+        )
+        assert changed
 
 
 if __name__ == "__main__":

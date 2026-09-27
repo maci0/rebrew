@@ -21,7 +21,11 @@ Descriptors are compared as text, so a changed default, a dropped parameter, a
 reordered argument, a new base class, and a changed constant all read as a
 change rather than as the same name.  A default written as a module constant
 (``max_size: int = NO_MAX_SIZE``) is resolved to that constant's value first:
-naming it is not a signature change, while a value that moved is.
+naming it is not a signature change, while a value that moved is.  Two
+value-preserving spellings read as the same name for the same reason: a keyword
+argument in a constant's constructor call that repeats the field's own default
+(``CliComponent(..., is_group=False)``), and a parameter annotation widened to
+admit ``None`` where the default already passed one.
 
 Run from the repo root::
 
@@ -38,6 +42,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import copy
 import os
 import subprocess
 import sys
@@ -268,6 +273,64 @@ class _SubstituteConstants(ast.NodeTransformer):
         return ast.copy_location(ast.Constant(self._values[node.id]), node)
 
 
+# --- class field defaults -------------------------------------------------
+
+#: Declared default of each public class field, by bare class name.  A class
+#: defined under one name in two modules is left out: a caller written against
+#: the other one would get the wrong defaults, and the name alone cannot say
+#: which was meant.
+FieldDefaults = dict[str, dict[str, str]]
+
+
+def _class_field_defaults(trees: Mapping[str, ast.Module]) -> FieldDefaults:
+    out: dict[str, dict[str, str]] = {}
+    duplicated: set[str] = set()
+    for tree in trees.values():
+        for node in tree.body:
+            if not isinstance(node, ast.ClassDef) or not _public(node.name):
+                continue
+            if node.name in out:
+                duplicated.add(node.name)
+            out.setdefault(node.name, {}).update(
+                {
+                    field: _render_expr(value)
+                    for field, value in _literal_bindings(node.body).items()
+                }
+            )
+    for name in duplicated:
+        del out[name]
+    return out
+
+
+class _DropRedundantKeywords(ast.NodeTransformer):
+    """Drop a keyword that repeats the field's own default.
+
+    A constant spelled as constructor calls is compared as text, so removing a
+    redundant ``is_group=False`` would read as a changed value.  Only a keyword
+    whose value already equals the declared default is dropped; a keyword that
+    carries a different value is what a consumer sees and stays.
+    """
+
+    def __init__(self, defaults: FieldDefaults) -> None:
+        self._defaults = defaults
+
+    @override
+    def visit_Call(self, node: ast.Call) -> ast.expr:
+        call = self.generic_visit(node)
+        assert isinstance(call, ast.Call)
+        if not isinstance(node.func, ast.Name):
+            return call
+        fields = self._defaults.get(node.func.id)
+        if fields is None:
+            return call
+        call.keywords = [
+            kw
+            for kw in call.keywords
+            if kw.arg is None or fields.get(kw.arg) != _render_expr(kw.value)
+        ]
+        return call
+
+
 # --- module surface -------------------------------------------------------
 
 
@@ -309,15 +372,23 @@ def _literal_bindings(body: Iterable[ast.stmt]) -> dict[str, ast.expr]:
     return out
 
 
-def _literal_constants(body: Iterable[ast.stmt]) -> dict[str, tuple[str, ...]]:
-    return {
-        name: (_render_expr(value),)
-        for name, value in _literal_bindings(body).items()
-        if _public(name)
-    }
+def _literal_constants(
+    body: Iterable[ast.stmt], defaults: FieldDefaults
+) -> dict[str, tuple[str, ...]]:
+    out: dict[str, tuple[str, ...]] = {}
+    for name, value in _literal_bindings(body).items():
+        if not _public(name):
+            continue
+        node = ast.fix_missing_locations(
+            _DropRedundantKeywords(defaults).visit(copy.deepcopy(value))
+        )
+        out[name] = (_render_expr(node),)
+    return out
 
 
-def _module_names(tree: ast.Module, is_package: bool) -> dict[str, tuple[str, ...]]:
+def _module_names(
+    tree: ast.Module, is_package: bool, defaults: FieldDefaults
+) -> dict[str, tuple[str, ...]]:
     """Every public name this module binds at module level, with its descriptor."""
     out: dict[str, tuple[str, ...]] = {}
     for node in tree.body:
@@ -327,7 +398,7 @@ def _module_names(tree: ast.Module, is_package: bool) -> dict[str, tuple[str, ..
             out[node.name] = _class_descriptor(node)
             for member in _body_functions(node.body):
                 out[f"{node.name}.{member.name}"] = _function_descriptor(member)
-            for name, value in _literal_constants(node.body).items():
+            for name, value in _literal_constants(node.body, defaults).items():
                 out[f"{node.name}.{name}"] = value
         elif (
             isinstance(node, ast.ImportFrom)
@@ -338,7 +409,7 @@ def _module_names(tree: ast.Module, is_package: bool) -> dict[str, tuple[str, ..
             for alias in node.names:
                 if _public(alias.asname or alias.name):
                     out[alias.asname or alias.name] = (f"re-export from {origin}",)
-    out.update(_literal_constants(tree.body))
+    out.update(_literal_constants(tree.body, defaults))
     return out
 
 
@@ -353,12 +424,12 @@ def _module_name(path: Path, root: Path) -> str:
 
 
 def _surface_from_source(
-    source: str, is_package: bool, constants: Mapping[str, ConstValue]
+    source: str, is_package: bool, constants: Mapping[str, ConstValue], defaults: FieldDefaults
 ) -> dict[str, tuple[str, ...]]:
     tree = ast.parse(source)
     if constants:
         tree = ast.fix_missing_locations(_SubstituteConstants(constants).visit(tree))
-    return _module_names(tree, is_package)
+    return _module_names(tree, is_package, defaults)
 
 
 def public_surface(
@@ -380,9 +451,13 @@ def public_surface(
         _module_name(p, root): (source[p] if source is not None else p.read_text(encoding="utf-8"))
         for p in paths
     }
-    constants = _constant_values({m: ast.parse(t) for m, t in text.items()})
+    trees = {m: ast.parse(t) for m, t in text.items()}
+    constants = _constant_values(trees)
+    defaults = _class_field_defaults(trees)
     return {
-        module: _surface_from_source(source, p.name == f"{_INIT}.py", constants.get(module, {}))
+        module: _surface_from_source(
+            source, p.name == f"{_INIT}.py", constants.get(module, {}), defaults
+        )
         for (module, source), p in zip(text.items(), paths, strict=True)
     }
 
@@ -396,6 +471,9 @@ Changed = dict[str, dict[str, tuple[tuple[str, ...], tuple[str, ...]]]]
 Added = dict[str, dict[str, tuple[str, ...]]]
 
 _RETURN = "-> "
+
+#: Suffix a parameter annotation gains when it is widened to admit ``None``.
+_OPTIONAL = " | None"
 
 
 def _appends_only_optional(before: tuple[str, ...], after: tuple[str, ...]) -> bool:
@@ -421,11 +499,31 @@ def _appends_only_optional(before: tuple[str, ...], after: tuple[str, ...]) -> b
     return all(not p.startswith("!") and "=" in p for p in rest)
 
 
+def _unwiden(param: str) -> str:
+    """Drop a ``| None`` the parameter annotation gained."""
+    head, sep, default = param.partition("=")
+    return head[: -len(_OPTIONAL)] + sep + default if head.endswith(_OPTIONAL) else param
+
+
+def _widened_only_optional(before: tuple[str, ...], after: tuple[str, ...]) -> bool:
+    """True when the only difference is a parameter annotation admitting ``None``.
+
+    ``va: str = typer.Option(None, ...)`` already hands the callback ``None``
+    when the flag is absent, so declaring it ``str | None`` corrects the
+    annotation without changing what any caller passes.  The return type is
+    compared as spelled: a widened return hands a caller a value it did not get
+    before, and stays a break.
+    """
+    if before[0] != after[0] or before[-1] != after[-1]:
+        return False
+    return [_unwiden(p) for p in before[1:-1]] == [_unwiden(p) for p in after[1:-1]]
+
+
 def _is_breaking(before: tuple[str, ...], after: tuple[str, ...]) -> bool:
     if before == after:
         return False
     if before[0].startswith("def ") and after[0].startswith("def "):
-        return not _appends_only_optional(before, after)
+        return not (_appends_only_optional(before, after) or _widened_only_optional(before, after))
     return True
 
 

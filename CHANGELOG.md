@@ -663,8 +663,48 @@
   block has just been emptied, so
   `test_no_section_glues_a_group_heading_to_its_bullet` now reads every
   section in the file.
+- **The public-surface gate stopped asking for a `**Breaking:**` note over
+  spellings that change no value.** Two deltas since `v2.14.0` failed
+  `TestSurfaceGate::test_broken_symbols_are_flagged_and_named` while breaking
+  no caller: `builtins.BUILTIN_COMPONENTS`, a tuple of `CliComponent(...)`
+  calls compared as text, read as changed when `is_group=False` was dropped
+  although `CliComponent.is_group` still defaults to `False`, and
+  `drift_cli.main`, whose options were corrected from `str` to `str | None`
+  although `typer.Option(None, ...)` already passed `None`. The gate now drops
+  a keyword in a constant's constructor call that repeats the field's declared
+  default, and treats a parameter annotation widened to admit `None` as the
+  same call; a keyword carrying a different value and a widened *return* both
+  still read as breaks, and
+  `tests/test_public_surface.py::TestBreakClassification` pins each side.
 
 ### Changed
+- **Breaking:** **`rebrew cache stats --json` reports `volume_mib` and
+  `size_limit_mib`.** The compile cache sizes were always binary (every figure
+  is `bytes / 1024 / 1024`), but the keys and the two printed lines said
+  `volume_mb` / `size_limit_mb` / `MB`. The fields are renamed, not added: a
+  consumer reading `volume_mb` gets a missing key now, so read `volume_mib`.
+  `volume_bytes` is unchanged and is the figure to prefer where the unit does
+  not matter.
+- **Breaking:** **Ctrl+C exits 130, not 1.** Click's standalone handler turns
+  `KeyboardInterrupt` into `Abort` and calls `sys.exit(1)`, the same code a
+  byte mismatch returns, so a script could not tell a cancelled run from a
+  failed one. `rebrew.cli.run_cli` now wraps every command it resolves, so
+  the umbrella, the flat tool, and the group subcommand all report
+  `EXIT_INTERRUPTED` (130), the code `rebrew.cli` already documents for an
+  interrupted run.
+- **Breaking:** **Every requirement now carries a ceiling at its next breaking
+  major.** Each entry in `[project.dependencies]` and in every extra read
+  `>=floor,<major` where it read `>=floor` before, so `Requires-Dist` states
+  both ends of the range instead of only the floor. A resolver always takes
+  the newest admissible version, so an uncapped floor let the next major of
+  `lief`, `httpx` or `typer` land in an environment the day it published, with
+  no audit in between. The other direction is a user-visible cost: an
+  environment that already holds a newer major of one of these, or another
+  package that requires it, is now a resolver error at install rather than an
+  import-time failure later.
+  `tests/test_package_metadata.py::TestDeclaredDependencies` keeps a ceiling on
+  every runtime requirement, extra, and dependency group, exempting only a
+  `[tool.uv.sources]` entry, which pins the artifact itself.
 - **Four more test modules are type-checked.** `tests/test_binsync_state.py`,
   `tests/test_lint_cflags.py`, `tests/test_probe.py` and
   `tests/test_public_surface.py` pass `mypy --strict` today, so they join the
