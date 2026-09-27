@@ -43,6 +43,7 @@ from rebrew.cli import (
     json_print,
 )
 from rebrew.config import (
+    ARCH_PRESETS,
     KNOWN_PROJECT_KEYS,
     KNOWN_TARGET_KEYS,
     ConfigError,
@@ -511,7 +512,11 @@ def add_target(
         None,
         "--arch",
         "-a",
-        help="Architecture: x86_16, x86_32, x86_64, arm32, arm64 (auto-detected if omitted).",
+        help=(
+            "Architecture: "
+            + ", ".join(ARCH_PRESETS)
+            + " (auto-detected if omitted)."
+        ),
     ),
     fmt: str | None = typer.Option(
         None,
@@ -830,14 +835,15 @@ def set_value(
                 code=EXIT_ERROR,
             )
 
-    if (leaf == "arch" or key == "arch") and parsed_value:
-        from rebrew.config import ARCH_PRESETS
-
-        if parsed_value not in ARCH_PRESETS:
-            error_exit(
-                f"unknown arch {parsed_value!r} (known: {', '.join(sorted(ARCH_PRESETS))})",
-                code=EXIT_ERROR,
-            )
+    if (
+        (leaf == "arch" or key == "arch")
+        and parsed_value
+        and parsed_value not in ARCH_PRESETS
+    ):
+        error_exit(
+            f"unknown arch {parsed_value!r} (known: {', '.join(sorted(ARCH_PRESETS))})",
+            code=EXIT_ERROR,
+        )
 
     if (
         (leaf == "ghidra_backend" or key == "ghidra_backend")

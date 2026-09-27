@@ -1,8 +1,9 @@
 # Function Status Reference
 
 All function statuses are stored in the `rebrew-functions.toml` metadata, keyed by hex VA.
-The `.c` file keeps the stable `// FUNCTION: MODULE 0xVA` marker line (plus co-read
-`// SIZE:` / `// CFLAGS:` when present for reccmp).
+An unmigrated `.c` file keeps the `// FUNCTION: MODULE 0xVA` marker line (plus co-read
+`// SIZE:` / `// CFLAGS:` when present for reccmp); after `rebrew migrate-markers`
+(ADR 023) the file is pure C and its identity lives in the TOML entry's `file` field.
 
 ## Status Overview
 

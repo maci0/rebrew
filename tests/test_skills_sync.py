@@ -22,6 +22,9 @@ _PRINCIPLES_SRC = _REPO_ROOT / "src" / "rebrew" / "PRINCIPLES.md"
 #: Target name this repo's .agents/skills/ copy was rendered with.
 RENDER_TARGET = "bench"
 
+#: PRD 08 success metric: a SKILL.md must load in one agent fetch.
+MAX_SKILL_LINES = 250
+
 
 def _render(text: str) -> str:
     """Mirror the placeholder substitution in rebrew.init._copy_agent_skills."""
@@ -51,6 +54,18 @@ class TestSkillsSync:
                 stale.append(rel)
         assert stale == [], (
             f"{stale} drifted from src/rebrew/agent-skills/; run 'make gen-skills' to re-render"
+        )
+
+    def test_skill_files_stay_under_the_fetch_budget(self) -> None:
+        """PRD 08: SKILL.md stays under 250 lines so an agent loads it whole."""
+        oversized = {
+            rel: len(path.read_text(encoding="utf-8").splitlines())
+            for rel, path in sorted(_files(_SRC).items())
+            if path.suffix == ".md"
+            and len(path.read_text(encoding="utf-8").splitlines()) > MAX_SKILL_LINES
+        }
+        assert oversized == {}, (
+            f"{oversized} exceed the {MAX_SKILL_LINES}-line budget from docs/prd/08-agent-skills.md"
         )
 
 
