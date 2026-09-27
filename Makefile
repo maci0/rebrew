@@ -182,7 +182,8 @@ ensure-resembl: ensure-uv
 	@set -eu; \
 	if [ ! -e "$(RESEMBL_DIR)/pyproject.toml" ]; then \
 	  echo "ERROR: sibling resembl checkout missing at $(RESEMBL_DIR)"; \
-	  echo "uv sync needs it even when you are not using the similarity group"; \
+	  echo "uv sync needs it even when you are not using the similarity group,"; \
+	  echo "and uv audit (make audit) resolves the same path dependency."; \
 	  echo "(pyproject.toml [tool.uv.sources] pins path = \"../resembl\")."; \
 	  echo "Run 'make clone-resembl' or clone manually, then re-run make setup:"; \
 	  echo "  git clone --depth 1 --branch $(RESEMBL_REF) https://github.com/maci0/resembl.git $(RESEMBL_DIR)"; \
@@ -592,7 +593,15 @@ mypy: ensure-extras ensure-uv
 	uv run --frozen mypy
 
 # Dependency advisory gate (CI lint job).
-audit: ensure-uv
+# ensure-resembl, not just ensure-uv: `uv audit` resolves the project
+# workspace, and uv.lock carries resembl as a `../resembl` path
+# dependency, so a checkout without the sibling dies inside uv with a raw
+# "Distribution not found at: file:///.../resembl" naming neither the cause
+# nor the fix.  `uv audit` has no --no-project escape (unlike the sbom
+# recipe), so the sibling is a hard requirement of this gate; the preflight
+# turns that into the named message and clone line.  CI always has the
+# checkout (the uv-env action clones it), so only local runs hit this.
+audit: ensure-resembl ensure-uv
 	uv audit --locked --ignore-until-fixed GHSA-w8v5-vhqr-4h9v
 
 # Release preflight (release-review): verify the version/changelog/tag contract
