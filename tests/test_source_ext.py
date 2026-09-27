@@ -26,8 +26,10 @@ def test_sources_public_all() -> None:
 
     assert sources.__all__ == [
         "files_with_ext",
+        "iter_headers",
         "iter_library_headers",
         "iter_sources",
+        "iter_sources_and_headers",
         "source_exts",
         "source_glob",
         "target_marker",

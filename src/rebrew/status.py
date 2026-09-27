@@ -11,7 +11,6 @@ Usage::
 """
 
 import json
-import struct
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -32,6 +31,7 @@ from rebrew.cli import (
     require_config,
 )
 from rebrew.config import ProjectConfig
+from rebrew.pe_symbols import as_list
 from rebrew.present import BAR_WIDTH as _BAR_WIDTH
 from rebrew.present import filled_cells as _filled
 from rebrew.present import ratio_bar as _bar
@@ -740,20 +740,29 @@ def data_byte_coverage(
     return _covered_bytes(clipped), total
 
 
-def _pe_data_directory(path: Path, index: int) -> tuple[int, int]:
-    """``(rva, size)`` of PE32 data directory *index*, or ``(0, 0)``."""
+def _pe_data_directory(path: Path, name: str, image_base: int) -> tuple[int, int]:
+    """``(va, size)`` of the PE data directory *name*, or ``(0, 0)``.
+
+    LIEF reads the directory for either optional-header magic, so a PE32+
+    image reports its IAT the same way a PE32 one does. A directory the
+    image does not carry is ``(0, 0)``: the caller must not treat that as an
+    address to cut, and ``(0, 0)`` is the only value that says "absent".
+    """
     try:
-        data = path.read_bytes()
-        e_lfanew = struct.unpack_from("<I", data, 0x3C)[0]
-        if struct.unpack_from("<H", data, e_lfanew + 24)[0] != 0x10B:
+        import lief
+
+        pe = lief.PE.parse(str(path))
+        if pe is None:
             return 0, 0
-        image_base = struct.unpack_from("<I", data, e_lfanew + 24 + 28)[0]
-        rva, size = struct.unpack_from("<II", data, e_lfanew + 24 + 96 + index * 8)
-    except (OSError, struct.error):
+        for directory in as_list(pe, "data_directories"):
+            if not str(getattr(directory, "type", "")).endswith(name):
+                continue
+            rva = int(getattr(directory, "rva", 0) or 0)
+            size = int(getattr(directory, "size", 0) or 0)
+            return (image_base + rva, size) if rva and size else (0, 0)
+    except (OSError, ValueError, RuntimeError):
         return 0, 0
-    if rva == 0 or size == 0:
-        return 0, 0
-    return image_base + rva, size
+    return 0, 0
 
 
 def _cut_range(ranges: list[tuple[int, int]], lo: int, hi: int) -> list[tuple[int, int]]:
@@ -807,10 +816,13 @@ def _initialized_data_ranges(cfg: ProjectConfig) -> list[tuple[int, int]]:
         ranges.append((start, start + extent))
         if name == ".rdata":
             rdata_end = start + extent
-    iat_va, iat_size = _pe_data_directory(path, 12)
-    imp_va, _imp_size = _pe_data_directory(path, 1)
-    ranges = _cut_range(ranges, iat_va, iat_va + iat_size)
-    if rdata_end:
+    iat_va, iat_size = _pe_data_directory(path, "IAT", int(info.image_base))
+    imp_va, _imp_size = _pe_data_directory(path, "IMPORT_TABLE", int(info.image_base))
+    if iat_size:
+        ranges = _cut_range(ranges, iat_va, iat_va + iat_size)
+    # An image with no import directory (a static link) has no import tail
+    # to drop: imp_va is 0 there, and cutting from 0 would empty every range.
+    if imp_va and rdata_end:
         ranges = _cut_range(ranges, imp_va, rdata_end)
     return ranges
 
