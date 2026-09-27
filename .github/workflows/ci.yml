@@ -40,7 +40,12 @@ env:
 jobs:
   lint:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    # 20, not 10: `uv sync --all-extras` installs the `prove` extra (angr,
+    # claripy, pyvex), the largest dependency tree in the lock, and `make
+    # audit` is a live PyPI advisory query. On a cold Actions cache that pair
+    # is the whole budget, and killing the job mid-`uv sync` reports a gate
+    # that has not run yet as a lint failure.
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -171,7 +176,14 @@ jobs:
   # uv.lock (--no-install-project + --no-deps wheel overlay), not live PyPI.
   package:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    # 30, not 10: this is the only job that produces the release artifact, and
+    # it runs five separate build/resolve cycles (sdist, wheel, the
+    # `git archive` rebuild's own two, and the wheel built from the sdist),
+    # plus a fresh venv for the smoke install and the SBOM generator.  A
+    # timeout here kills the run after `concurrency` has already declined to
+    # cancel it, so the commit loses its verified wheel rather than failing a
+    # gate.
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

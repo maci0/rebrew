@@ -212,6 +212,35 @@ class TestCiPins:
             assert "runs-on: ubuntu-latest" not in text, path.name
             assert "runs-on: ubuntu-24.04" in text, path.name
 
+    @pytest.mark.parametrize(
+        ("job", "floor"),
+        [
+            # Floors, not the declared values: the gate is "a job needs at
+            # least this long", so raising a timeout is allowed and shrinking
+            # it below the work it does is not. A kill mid-job is reported as
+            # a failure of whichever gate was running, which reads as a code
+            # defect when the cause is a cold cache or a slow index.
+            ("lint", 20),  # `uv sync --all-extras` installs angr, then `uv audit` queries PyPI
+            ("package", 30),  # five build/resolve cycles plus a clean-venv smoke install
+        ],
+    )
+    def test_heavy_jobs_get_a_timeout_above_their_work(self, job: str, floor: int) -> None:
+        """``timeout-minutes`` must cover the steps the job actually runs.
+
+        Every job declares one, but a floor alone does not make it fit: the
+        package job builds the sdist, the wheel, both again in the
+        reproducibility tree, and a wheel from the sdist, then creates a venv
+        for the smoke install. At the original 10 minutes a cold Actions cache
+        killed the run mid-``uv sync`` and the commit lost its verified wheel
+        (that job's artifact is why ``cancel-in-progress`` stays off for
+        pushes) instead of failing a gate.
+        """
+        import yaml
+
+        jobs = yaml.safe_load(CI_YML.read_text(encoding="utf-8"))["jobs"]
+        minutes = jobs[job]["timeout-minutes"]
+        assert minutes >= floor, f"ci.yml:{job} timeout-minutes={minutes} is below {floor}"
+
     def test_both_workflows_can_be_re_run_by_hand(self) -> None:
         """A mirror or runner that stays down past three retries needs a re-run path.
 
