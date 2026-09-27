@@ -193,7 +193,9 @@ class DispatchTable:
             "section": self.section,
             "num_entries": self.num_entries,
             "resolved": self.resolved,
-            "coverage": f"{self.coverage:.0%}",
+            # Floored, like every other coverage figure: 199 of 200 resolved
+            # is 99.5%, which rounds to a "100%" that claims a full table.
+            "coverage": f"{floor_pct(self.resolved, self.num_entries, 0):.0f}%",
             "entries": [
                 {
                     "target_va": f"0x{e.target_va:08x}",

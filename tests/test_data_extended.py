@@ -737,6 +737,25 @@ class TestRenderDispatchAndBss:
         assert "fn_a" in out
         assert "1 resolved (50%)" in out
 
+    def testrender_dispatch_near_total_floors_below_100(self) -> None:
+        """199 of 200 resolved is 99.5%: it must not render as "100%"."""
+        from io import StringIO
+
+        from rebrew.data_render import render_dispatch
+        from rebrew.data_scan import DispatchEntry, DispatchTable
+
+        buf = StringIO()
+        entries = [
+            DispatchEntry(target_va=0x1000 + i, name="fn", status="EXACT") for i in range(199)
+        ]
+        entries.append(DispatchEntry(target_va=0x2000, name="", status=""))
+        tbl = DispatchTable(va=0x4000, section=".rdata", entries=entries)
+        render_dispatch(_console(buf), [tbl])  # type: ignore[arg-type]
+        out = buf.getvalue()
+        assert "199 resolved (99%)" in out
+        assert "100%" not in out
+        assert tbl.to_dict()["coverage"] == "99%"
+
     def testrender_bss_populated(self) -> None:
         from io import StringIO
 

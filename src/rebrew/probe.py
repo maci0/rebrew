@@ -30,6 +30,7 @@ from rebrew.cli import (
     error_exit,
     json_print,
     require_config,
+    require_positive_size,
     select_annotation,
 )
 from rebrew.compile import compile_to_obj
@@ -75,6 +76,7 @@ def main(
         error_exit(
             "Need symbol, VA and SIZE (from the annotation or --va/--size)", json_mode=json_output
         )
+    size_val = require_positive_size(size_val, json_mode=json_output)
 
     from rebrew.analysis import disasm_insns
     from rebrew.coff_reloc import smart_reloc_compare

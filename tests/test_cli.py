@@ -15,6 +15,7 @@ from rebrew.cli import (
     json_print,
     parse_va,
     require_config,
+    require_positive_size,
     resolve_source_arg,
     run_cli,
     select_annotation,
@@ -202,6 +203,29 @@ class TestParseVa:
 
     def test_small_value(self) -> None:
         assert parse_va("ff") == 255
+
+
+class TestRequirePositiveSize:
+    def test_positive_size_passes_through(self) -> None:
+        assert require_positive_size(42) == 42
+
+    def test_negative_size_exits(self, capsys: pytest.CaptureFixture[str]) -> None:
+        # `// SIZE: -4` (or `--size -4`) used to reach `obj_bytes[:-4]` and
+        # the `matched / size * 100` percent, reporting a negative match
+        # percentage with no error.
+        with pytest.raises(typer.Exit):
+            require_positive_size(-4)
+        assert "-4" in capsys.readouterr().err
+
+    def test_zero_size_exits(self) -> None:
+        with pytest.raises(typer.Exit):
+            require_positive_size(0)
+
+    def test_json_mode_reports_the_error(self, capsys: pytest.CaptureFixture[str]) -> None:
+        with pytest.raises(typer.Exit):
+            require_positive_size(-1, json_mode=True)
+        data = json.loads(capsys.readouterr().out)
+        assert "error" in data
 
 
 class TestRequireConfigErrors:

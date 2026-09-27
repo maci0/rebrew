@@ -713,6 +713,19 @@ def require_source_arg(cfg: ProjectConfig, source_arg: str, *, json_mode: bool =
     return path
 
 
+def require_positive_size(size: int, *, json_mode: bool = False) -> int:
+    """Return *size* when it is a positive byte count, exiting when it is not.
+
+    A ``// SIZE: -4`` annotation or a negative ``--size`` otherwise reaches
+    ``bytes[:-4]`` (dropping the last four bytes instead of none) and the
+    ``matched / size * 100`` percent, which reports a negative match
+    percentage with no error.  Zero is the same defect: every slice is empty.
+    """
+    if size <= 0:
+        error_exit(f"Invalid size {size}: pass a positive byte count", json_mode=json_mode)
+    return size
+
+
 def select_annotation(
     cfg: ProjectConfig, source_arg: str, va: str | None, *, json_mode: bool = False
 ) -> tuple[Path, Annotation, int | None]:
@@ -761,6 +774,7 @@ __all__ = [
     "option_default",
     "parse_va",
     "require_config",
+    "require_positive_size",
     "require_source_arg",
     "resolve_binary_arg",
     "resolve_source_arg",

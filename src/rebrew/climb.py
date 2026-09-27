@@ -46,6 +46,7 @@ from rebrew.cli import (
     json_print,
     parse_va,
     require_config,
+    require_positive_size,
 )
 from rebrew.coff_reloc import build_name_to_va
 from rebrew.compile import compile_and_compare, matched_byte_count
@@ -486,6 +487,7 @@ def main(
             "Need symbol, VA and SIZE (from the annotation or --symbol/--va/--size)",
             json_mode=json_output,
         )
+    size_val = require_positive_size(size_val, json_mode=json_output)
     target_bytes = extract_raw_bytes(cfg.target_binary, va_int, size_val)
     toolchain_name, cflags_str = resolve_compile_overrides(
         cfg,

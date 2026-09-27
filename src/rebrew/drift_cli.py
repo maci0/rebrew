@@ -28,6 +28,7 @@ from rebrew.cli import (
     json_print,
     parse_va,
     require_config,
+    require_positive_size,
 )
 from rebrew.compile import compile_and_compare
 from rebrew.compile_overrides import resolve_compile_overrides
@@ -159,6 +160,7 @@ def main(
             error_exit(f"invalid SIZE metadata: {meta['SIZE']!r}", json_mode=json_output)
     if size_val is None:
         error_exit("no size: pass --size or record SIZE metadata", json_mode=json_output)
+    size_val = require_positive_size(size_val, json_mode=json_output)
 
     symbol = (selected.symbol if selected and selected.symbol else "") or (
         meta.get("SYMBOL", "") if selected is None or not annos or selected is annos[0] else ""

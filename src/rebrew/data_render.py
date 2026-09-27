@@ -29,7 +29,7 @@ def render_dispatch(console: Console, tables: list[DispatchTable]) -> None:
 
     total_entries = sum(t.num_entries for t in tables)
     total_resolved = sum(t.resolved for t in tables)
-    coverage_str = f"({total_resolved / total_entries:.0%})" if total_entries else ""
+    coverage_str = f"({floor_pct(total_resolved, total_entries, 0):.0f}%)" if total_entries else ""
     summary_body = (
         f"[bold]{len(tables)}[/] dispatch tables, "
         f"[bold]{total_entries}[/] total entries, "
@@ -41,7 +41,10 @@ def render_dispatch(console: Console, tables: list[DispatchTable]) -> None:
 
     for tbl in tables:
         t = Table(
-            title=f"0x{tbl.va:08x} ({tbl.section}) — {tbl.num_entries} entries, {tbl.coverage:.0%} resolved",
+            title=(
+                f"0x{tbl.va:08x} ({tbl.section}) — {tbl.num_entries} entries, "
+                f"{floor_pct(tbl.resolved, tbl.num_entries, 0):.0f}% resolved"
+            ),
             show_lines=False,
         )
         t.add_column("#", style="dim", width=4)
