@@ -1112,6 +1112,21 @@ class TestCCommentSafe:
 
         assert c_comment_safe("a\r\nb\x00c") == "a  b c"
 
+    def test_convention_note_cannot_break_out_of_its_comment(self) -> None:
+        """A tail-call callee name is binary-derived and reaches a C comment.
+
+        ``_tail_call_arg_count`` only suffix-matches ``@N``, so the rest of the
+        name is unconstrained.  Without ``c_comment_safe`` a symbol named
+        ``x*/system("calc");/*@16`` put ``system("calc");`` in the body of a
+        generated ``.c`` that ``rebrew test`` compiles and runs.
+        """
+        from rebrew.skeleton import c_comment_safe
+
+        callee = 'x*/system("calc");/*@16'
+        note = f"ends in a tail call to {c_comment_safe(callee)} (4 stack arg(s) forwarded)"
+        assert "*/system" not in note
+        assert 'system("calc")' in note  # still readable, just inert
+
 
 class TestSkeletonNameInjection:
     """A hostile symbol name must not be able to close the generated comment

@@ -100,6 +100,71 @@ class TestEmitters:
         out = _resolve_imports([PeImport("KERNEL32.dll", "Nope", None)], set())
         assert out[0]["include"] is None
 
+    def test_import_dll_newline_cannot_inject_c(self) -> None:
+        """A crafted import name must not end the comment that carries it.
+
+        Import-descriptor strings are attacker-controlled whenever the target
+        binary is.  A newline in one would close the ``//`` line and compile
+        the remainder as top-level C in a TU this generator is built from.
+        """
+        text = gen_crt_imports(
+            "T",
+            [
+                {
+                    "dll": "KERNEL32.dll\nint pwn(void){return 1;}",
+                    "name": "ExitProcess",
+                    "ordinal": None,
+                    "include": None,
+                }
+            ],
+            0x2000,
+        )
+        # The property is that the payload gains no line of its own, so the
+        # body stays one comment line and stays inert.  The words survive as
+        # text; what matters is that they can no longer be code.
+        assert len(text.splitlines()) == 5
+        assert text.splitlines()[3].startswith("// KERNEL32.dll")
+        assert "__imp__ExitProcess" in text
+
+    def test_import_include_quote_and_newline_cannot_inject(self) -> None:
+        """The ``/include:`` string is a live quoted directive, not a comment."""
+        text = gen_crt_imports(
+            "T",
+            [
+                {
+                    "dll": "KERNEL32.dll",
+                    "name": "ExitProcess",
+                    "ordinal": None,
+                    "include": '__imp__a\nb"c',
+                }
+            ],
+            0x2000,
+        )
+        assert len(text.splitlines()) == 5
+        assert 'b"c' not in text
+
+    def test_gen_def_export_name_cannot_inject_directive(self) -> None:
+        """A newline in an export name would append a linker directive."""
+        text = gen_def("game.dll", [{"name": "Init\nHEAPSIZE 999999", "ordinal": 1}])
+        # Still exactly one EXPORTS entry, so no directive was appended.
+        assert len(text.splitlines()) == 3
+        assert text.splitlines()[2].startswith("    Init_")
+
+    def test_gen_layout_preserves_ordinary_names(self) -> None:
+        """Sanitizing must not rename anything a real binary carries."""
+        from rebrew.utils import pe_name_token
+
+        for name in (
+            "GetTickCount",
+            "_imp_x",
+            "MSVCRT.dll",
+            "operator new",
+            "name@8",
+            "__imp__ExitProcess@4",
+        ):
+            assert pe_name_token(name) == name
+        assert pe_name_token(None) == ""
+
 
 class TestDeriveLinkOptions:
     def test_mini_pe_delta_is_subsystem_only(self) -> None:

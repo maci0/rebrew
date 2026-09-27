@@ -1247,9 +1247,13 @@ class TestLinkedSpec:
         from rebrew.toolchain_spec import ToolchainSpec
 
         # An image-less plugin spec has no image to run LINK.EXE in.
-        monkeypatch.setitem(
-            TOOLCHAINS, "hostcc", ToolchainSpec(name="hostcc", image=None, binary="hostcc")
-        )
+        # TOOLCHAINS is a read-only mapping, so extend a copy and swap the
+        # module-level binding compile.py reads.
+        registry = {
+            **TOOLCHAINS,
+            "hostcc": ToolchainSpec(name="hostcc", image=None, binary="hostcc"),
+        }
+        monkeypatch.setattr("rebrew.compile.TOOLCHAINS", registry)
         spec, err = _linked_spec(SimpleNamespace(compiler_profile="hostcc"), None)
         assert spec is None
         assert "host-native" in err

@@ -28,7 +28,7 @@ from rebrew.cli import (
 )
 from rebrew.config import module_marker
 from rebrew.import_table import find_import_stubs, parse_imports
-from rebrew.utils import read_source_text
+from rebrew.utils import pe_name_token, read_source_text
 
 
 def imports_payload(
@@ -87,7 +87,10 @@ def mark_import_stubs(
     for va in sorted(stubs):
         if f"0X{va:08X}" in existing_upper:
             continue
-        blocks.append(f"// LIBRARY: {marker} 0x{va:08X}\n// {stubs[va]}\n")
+        # The stub name comes from the target's hint/name table, so it is
+        # attacker-controlled whenever the binary is; a newline would end the
+        # comment and make the rest compile as C in this header.
+        blocks.append(f"// LIBRARY: {marker} 0x{va:08X}\n// {pe_name_token(stubs[va])}\n")
     if not blocks:
         console.print("No new import stubs to annotate.")
         return 0

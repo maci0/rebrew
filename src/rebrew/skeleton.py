@@ -141,7 +141,7 @@ def _render_annotation_block(
             lines.append(f"{_naked_sig}\n{{\n")
             lines.append("    /* TODO: naked body — inline asm (this in ecx),")
             if convention_note:
-                lines.append(f"       {convention_note} */")
+                lines.append(f"       {c_comment_safe(convention_note)} */")
             else:
                 lines.append("       end with `ret N` */")
             lines.append("}\n")
@@ -175,7 +175,7 @@ def _render_annotation_block(
             if todo_text:
                 lines.append(f"    /* TODO: {todo_text} */\n")
                 if convention_note:
-                    lines.append(f"    /* {convention_note} */\n")
+                    lines.append(f"    /* {c_comment_safe(convention_note)} */\n")
                 lines.append(f"    /* Ghidra name: {c_comment_safe(ghidra_name)} */\n")
             else:
                 lines.append(

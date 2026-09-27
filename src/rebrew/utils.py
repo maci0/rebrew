@@ -82,6 +82,16 @@ console = Console(stderr=True)
 #: reject.  Names from linker output, BinSync, or the CLI are external text.
 _C_IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
 
+#: A PE import/export name as a single linker token.  Import-descriptor and
+#: name-table strings are raw bytes from the target binary, decoded latin-1 and
+#: cut only at a NUL, so a newline or quote in a crafted import survives into
+#: the generated scaffolding.  Generated C reaches a compiler, so anything
+#: outside the token set becomes ``_`` rather than being emitted verbatim.
+#: Space is inside the set: a C++ import name may carry one, and a space
+#: cannot end a line or leave a quoted directive.
+_PE_NAME_RE = re.compile(r"[^A-Za-z0-9_.@?$ ]+")
+_PE_NAME_MAX_CHARS = 255
+
 #: Path components are one filesystem entry: no separators, no drive letters,
 #: no leading dot or dash.  200 chars leaves room under the usual 255-byte
 #: NAME_MAX once a suffix such as ``.best.c`` is appended.
@@ -169,6 +179,25 @@ def floor_pct(part: float, whole: float, decimals: int = 1) -> float:
 def is_safe_c_ident(name: str) -> bool:
     """True when *name* can be emitted verbatim as a C identifier."""
     return bool(_C_IDENT_RE.match(name))
+
+
+def pe_name_token(name: str | None) -> str:
+    """Render a PE import/export name as a single linker-safe token.
+
+    A PE name is attacker-controlled whenever the target binary is: it comes
+    from the import descriptor or the hint/name table, so a crafted binary
+    can carry a newline, quote, or brace.  Those reach generated C, which
+    ``rebrew gen-layout`` compiles and links, so a newline would end the
+    enclosing comment and compile its remainder as top-level C.  Substituting
+    every byte outside the token set keeps the import present (the IAT slot
+    ordering the scaffolding exists to force is preserved) while making the
+    rest inert.  A name that is entirely out-of-set collapses to ``_``.
+    """
+    if not name:
+        return ""
+    # No strip: a leading underscore is ordinary in MSVC import names, and
+    # the substitution already guarantees a non-empty result.
+    return _PE_NAME_RE.sub("_", name)[:_PE_NAME_MAX_CHARS]
 
 
 _CHECKOUT = Path(__file__).resolve().parents[2]

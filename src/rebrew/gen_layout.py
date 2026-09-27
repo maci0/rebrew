@@ -60,7 +60,7 @@ from rebrew.config import module_marker
 from rebrew.layout_meta import LayoutMetadata, extract_layout, write_package
 from rebrew.pe_headers import pe_image_base, pe_layout
 from rebrew.pe_image import PeImport, derive_link_options, parse_pe
-from rebrew.utils import atomic_write_text, container_runtime
+from rebrew.utils import atomic_write_text, container_runtime, pe_name_token
 
 app = typer.Typer(
     help="Generate linker-script scaffolding (def, layout manifest, IAT seed, data restore)."
@@ -283,7 +283,7 @@ def gen_def(target: str, exports: list[dict[str, Any]]) -> str:
     """Render the `.def` export block: LIBRARY name + one EXPORTS line per ordinal."""
     lines = [f"LIBRARY {target.rsplit('.', 1)[0]}", "EXPORTS"]
     for ex in exports:
-        name = ex["name"] or f"ORDINAL_{ex['ordinal']}"
+        name = pe_name_token(ex["name"]) or f"ORDINAL_{ex['ordinal']}"
         lines.append(f"    {name} @{ex['ordinal']}")
     return "\n".join(lines) + "\n"
 
@@ -297,18 +297,21 @@ def gen_crt_imports(marker: str, imports: list[dict[str, Any]], iat_va: int | No
     ]
     cur_dll = None
     for imp in imports:
-        if imp["dll"] != cur_dll:
-            cur_dll = imp["dll"]
-            lines.append(f"// {cur_dll}")
+        dll = pe_name_token(imp["dll"])
+        name = pe_name_token(imp["name"])
+        if dll != cur_dll:
+            cur_dll = dll
+            lines.append(f"// {dll}")
         if imp["include"]:
-            lines.append(f'#pragma comment(linker, "/include:{imp["include"]}")')
-        elif imp["name"]:
+            include = pe_name_token(imp["include"])
+            lines.append(f'#pragma comment(linker, "/include:{include}")')
+        elif name:
             lines.append(
-                f'// #pragma comment(linker, "/include:__imp__{imp["name"]}")  /* suffix unknown */'
+                f'// #pragma comment(linker, "/include:__imp__{name}")  /* suffix unknown */'
             )
         else:
             lines.append(
-                f"// #pragma comment(linker, ...)  /* ordinal {imp['ordinal']} of {cur_dll} */"
+                f"// #pragma comment(linker, ...)  /* ordinal {imp['ordinal']} of {dll} */"
             )
     return "\n".join(lines) + "\n"
 
