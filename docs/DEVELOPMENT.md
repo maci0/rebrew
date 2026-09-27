@@ -108,7 +108,8 @@ make test                               # full suite (ANSI-safe; same as CI)
 uv run --frozen ruff check src/ tests/ tools/    # lint
 uv run --frozen ruff format --check src/ tests/ tools/
 uv run --frozen mypy                             # type check (0 issues expected; strict,
-                                        # covers src/rebrew + tools)
+                                        # covers src/rebrew + tools + the two non-test_
+                                        # tests/ modules; the rest of tests/ is not yet clean)
 uv run --frozen pre-commit run --all-files       # 13 of 15 hooks — pytest (pre-push) and
                                         # validate-skill-commands (manual) are stage-gated
 make all                                # local mirror of CI lint + test + cli-contract

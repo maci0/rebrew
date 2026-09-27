@@ -2118,12 +2118,7 @@ def test_update_annotation_key_rejects_multiline_value(tmp_path: Path) -> None:
     """
     from rebrew.annotation import update_annotation_key
 
-    content = (
-        "// LIBRARY: SERVER\n"
-        "// FUNCTION: 0x10001000\n"
-        "// SIZE: 42\n"
-        "int func_a(void) {}\n"
-    )
+    content = "// LIBRARY: SERVER\n// FUNCTION: 0x10001000\n// SIZE: 42\nint func_a(void) {}\n"
     f = tmp_path / "proto.c"
     f.write_text(content, encoding="utf-8")
 

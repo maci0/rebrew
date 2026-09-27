@@ -1777,8 +1777,7 @@ class TestFlagSweepDeadline:
 
         src = inspect.getsource(match_mod)
         assert (
-            "run_single_flag_sweep(params, tier, jobs, json_output, timeout_min=timeout_min)"
-            in src
+            "run_single_flag_sweep(params, tier, jobs, json_output, timeout_min=timeout_min)" in src
         )
 
 
