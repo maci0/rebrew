@@ -19,6 +19,7 @@ no CLI flag toggles it per run.
 from __future__ import annotations
 
 import time
+from collections.abc import Mapping
 from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol, runtime_checkable
@@ -80,6 +81,41 @@ class RecompileResult:
     obj_bytes: bytes | None = None
     log: str = ""
     compiler_version: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to a JSON-safe dict, like :meth:`CompareResult.to_dict`.
+
+        ``obj_bytes`` is the one field left out: it is the compiled object, not
+        a JSON value.  A consumer that stores a remote compile's verdict
+        writes ``log`` and ``compiler_version`` and keeps the bytes itself.
+        """
+        return {
+            "ok": self.ok,
+            "log": self.log,
+            "compiler_version": self.compiler_version,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> RecompileResult:
+        """Rebuild a result from :meth:`to_dict` output (``obj_bytes`` is ``None``).
+
+        A missing ``ok`` is a build error, not a silent ``False``: a verdict
+        that reads as "the remote compile failed" is the wrong default to
+        invent, so this raises :class:`RecompileError` with
+        ``kind="protocol"`` and the caller handles it beside every other
+        malformed-reply case.
+        """
+        raw_ok = data.get("ok")
+        if not isinstance(raw_ok, bool):
+            raise RecompileError(
+                f"RecompileResult.from_dict needs a boolean 'ok', got {raw_ok!r}",
+                kind="protocol",
+            )
+        return cls(
+            ok=raw_ok,
+            log=str(data.get("log", "")),
+            compiler_version=data.get("compiler_version"),
+        )
 
 
 class RecompileError(RebrewError, RuntimeError):

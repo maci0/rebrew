@@ -361,6 +361,80 @@ class TestCompareResultHelpers:
         pytest.fail("an unbuildable payload escaped the RebrewError handler")
 
 
+class TestErrorStructuredRoundTrip:
+    """A persisted failure must still be branchable after a JSON round trip."""
+
+    @staticmethod
+    def _failed_result() -> CompareResult:
+        from rebrew.recompile_client import RecompileError
+
+        return CompareResult(
+            matched=False,
+            status="COMPILE_ERROR",
+            match_percent=0.0,
+            delta=0,
+            obj_bytes=None,
+            reloc_offsets=None,
+            message="compile service unreachable",
+            error=RecompileError("connect error", kind="network", status_code=None, retryable=True),
+        )
+
+    def test_to_dict_serializes_the_structured_error(self) -> None:
+        payload = self._failed_result().to_dict()
+        assert payload["error"] == {
+            "type": "RecompileError",
+            "message": "connect error",
+            "retryable": True,
+            "kind": "network",
+        }
+
+    def test_to_dict_error_is_json_serializable(self) -> None:
+        assert json.loads(json.dumps(self._failed_result().to_dict()))["error"]["kind"] == "network"
+
+    def test_from_dict_restores_the_error_type_and_fields(self) -> None:
+        from rebrew.recompile_client import RecompileError
+
+        restored = CompareResult.from_dict(json.loads(json.dumps(self._failed_result().to_dict())))
+        assert isinstance(restored.error, RecompileError)
+        assert restored.error is not None
+        assert restored.error.retryable is True
+        assert restored.error.kind == "network"
+        assert str(restored.error) == "connect error"
+
+    def test_to_dict_error_none_round_trips_as_none(self) -> None:
+        restored = CompareResult.from_dict(self._failed_result().to_dict())
+        assert restored.error is not None
+        restored.error = None
+        assert CompareResult.from_dict(restored.to_dict()).error is None
+
+    def test_unknown_error_type_degrades_to_the_base_class(self) -> None:
+        payload = self._failed_result().to_dict()
+        payload["error"]["type"] = "ErrorFromANewerRebrew"
+        restored = CompareResult.from_dict(payload)
+        assert type(restored.error) is RebrewError
+        assert restored.error is not None
+        assert restored.error.retryable is True
+
+    def test_non_mapping_error_raises_a_rebrew_error(self) -> None:
+        from rebrew.compile import CompareResultError
+
+        payload = self._failed_result().to_dict()
+        payload["error"] = "connect error"
+        with pytest.raises(CompareResultError) as excinfo:
+            CompareResult.from_dict(payload)
+        assert "error" in str(excinfo.value)
+
+    def test_error_to_dict_from_dict_round_trip_keeps_structured_fields(self) -> None:
+        from rebrew.recompile_client import RecompileError
+
+        exc = RecompileError("503", kind="http", status_code=503, retryable=True)
+        rebuilt = RebrewError.from_dict(exc.to_dict())
+        assert isinstance(rebuilt, RecompileError)
+        assert rebuilt.status_code == 503
+        assert rebuilt.retryable is True
+        assert str(rebuilt) == "503"
+
+
 class TestProjectConfigValidation:
     def test_validate_valid_config(self, tmp_path: Path) -> None:
         cfg = ProjectConfig(
@@ -498,6 +572,40 @@ class TestUrlAndModelValidation:
     def test_validate_llm_model_invalid_characters_rejected(self, bad_name: str) -> None:
         with pytest.raises(ConfigError, match="invalid characters or length"):
             validate_llm_model(bad_name)
+
+
+class TestRecompileResultSerialization:
+    """The remote-compile verdict serializes like the local one does."""
+
+    def test_round_trip_keeps_the_verdict_and_drops_the_bytes(self) -> None:
+        from rebrew.recompile_client import RecompileResult
+
+        res = RecompileResult(ok=True, obj_bytes=b"\x90\x90", log="ok", compiler_version="6.0")
+        payload = res.to_dict()
+        assert "obj_bytes" not in payload
+        assert json.loads(json.dumps(payload)) == {
+            "ok": True,
+            "log": "ok",
+            "compiler_version": "6.0",
+        }
+        restored = RecompileResult.from_dict(payload)
+        assert restored.ok is True
+        assert restored.log == "ok"
+        assert restored.compiler_version == "6.0"
+        assert restored.obj_bytes is None
+
+    def test_failed_result_round_trips(self) -> None:
+        from rebrew.recompile_client import RecompileResult
+
+        res = RecompileResult(ok=False, log="C2065: syntax error")
+        assert RecompileResult.from_dict(res.to_dict()) == res
+
+    def test_missing_ok_raises_a_rebrew_error(self) -> None:
+        from rebrew.recompile_client import RecompileError, RecompileResult
+
+        with pytest.raises(RecompileError) as excinfo:
+            RecompileResult.from_dict({"log": "ok"})
+        assert excinfo.value.kind == "protocol"
 
 
 class TestRecompileClientFlagsFlexibility:

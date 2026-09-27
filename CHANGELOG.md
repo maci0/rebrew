@@ -1,6 +1,26 @@
 ## [Unreleased]
 
 ### Added
+- **`CompareResult.to_dict()` keeps the structured error.** The serialized
+  form dropped `error` while its docstring promised that every non-byte field
+  round-trips, so a consumer that persisted a result and read it back found
+  `result.error is None` and had nothing but `message` to branch on. `error`
+  is now written as `RebrewError.to_dict()` produces (`type`, `message`,
+  `retryable`, plus whichever of `kind` / `name` / `status_code` / `group`
+  the error carries) and rebuilt by `RebrewError.from_dict()`, which
+  resolves the class by name so `isinstance(restored, RecompileError)` still
+  holds and an unknown `type` degrades to a base `RebrewError` rather than
+  raising. `RebrewError.to_dict()` / `.from_dict()` are the reusable pair for
+  any error a consumer wants to persist; an `error` that is neither `None`
+  nor such a mapping now raises `CompareResultError` like every other
+  unbuildable payload instead of landing in the field as a raw dict.
+- **`RecompileResult` serializes the way the other result types do.**
+  `CompareResult`, `FixupResult`, `LintResult` and the scan results all carry
+  `to_dict()`; the remote-compile verdict, the one a service embedding
+  `compile_source` has to persist, was the exception. It gains the same pair
+  (`ok`, `log`, `compiler_version`; `obj_bytes` stays out, it is the object
+  itself), and a payload with no boolean `ok` raises `RecompileError` with
+  `kind="protocol"` rather than defaulting a missing verdict to a failure.
 - **The ReVa MCP client takes a protocol, not `httpx.Client`.**
   `rebrew.ghidra.client` and `rebrew.ghidra.commands` typed every `client=`
   parameter as the concrete `httpx.Client`, so a consumer injecting a
