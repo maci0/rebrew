@@ -776,6 +776,8 @@ def main(
         error_exit(f"Analyze failed: {e}", json_mode=json_output)
 
     if json_output:
+        if fn_dossier is not None:
+            dossier["function"] = fn_dossier
         json_print(dossier)
         return
 

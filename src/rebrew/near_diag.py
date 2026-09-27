@@ -942,7 +942,8 @@ def main(
 ) -> None:
     """Compile SOURCE and classify its byte delta against the target function."""
     if catalog:
-        print(catalog_markdown(), end="")
+        if not json_output:
+            print(catalog_markdown(), end="")
         return
 
     from rebrew.annotation import parse_c_file_multi

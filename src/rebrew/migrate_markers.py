@@ -145,6 +145,7 @@ def _migrate_file(
                     ("size", ann.size),
                     ("cflags", ann.cflags),
                     ("toolchain", ann.toolchain),
+                    ("source", ann.source),
                 )
                 if value
             }
