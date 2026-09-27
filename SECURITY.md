@@ -36,7 +36,11 @@ downloads (wibo, SDK tarballs), docker/podman images (`REBREW_CONTAINER_RUNTIME`
 cmake bridge wineprefix / profile pins (`REBREW_WINEPREFIX`, `REBREW_TOOLCHAIN`),
 `REBREW_SKILLS_DIR` overlays, BinSync state-repo git remotes (`rebrew binsync pull`
 fast-forwards and imports by default), and installed Python entry-point plugins
-(including `rebrew.cache_backends`) as part of the trust boundary.
+(including `rebrew.cache_backends`) as part of the trust boundary. On a
+multi-user host the headless X display is one too: rebrew's `Xvfb` carries a
+per-run MIT-MAGICK cookie and an unauthenticated Xvfb already on the box is
+never adopted, so wine's windows are not readable by another local user
+(`src/rebrew/headless.py`).
 
 CI is a boundary of its own: `pull_request` (never `pull_request_target`),
 workflow `permissions: contents: read`, no `id-token`, `secrets.GITHUB_TOKEN`
@@ -110,6 +114,14 @@ plugin cache backends or remove the open upstream diskcache advisory.
   knob remains a full redirection of every container run.
 - No claim that the project tree cannot redirect outbound traffic. A
   project's `[compiler] recompile_url` applies unless `REBREW_RECOMPILE_URL`
-  is set, and its `[llm] endpoint` overrides `REBREW_LLM_ENDPOINT` while an
-  exported `REBREW_LLM_API_KEY` is still sent to it (`llm_config` in
-  `src/rebrew/llm_seed.py`).
+  is set, and its `[llm] endpoint` overrides `REBREW_LLM_ENDPOINT`, so a
+  cloned project chooses where the function **source** is sent
+  (`recompile_url` in `src/rebrew/compile.py`, `llm_config` in
+  `src/rebrew/llm_seed.py`). The one thing the project cannot take is the
+  operator's **environment** key: `llm_config` refuses to send
+  `REBREW_LLM_API_KEY` to a non-loopback `[llm].endpoint` unless
+  `REBREW_LLM_ALLOW_PROJECT_ENDPOINT=1` is set
+  (`_project_endpoint_allowed` in `src/rebrew/llm_seed.py`). That gate reads
+  the key's provenance, so a key committed in the project TOML still travels
+  to that project's own endpoint, and `[compiler] recompile_url` is not gated
+  at all.
