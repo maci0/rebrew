@@ -21,9 +21,10 @@ the name.
 
 Every toolchain profile is named `"<image-family>-<version>"`, lowercase, with
 version dots kept: `msvc-6.0`, `gcc-14.2.0`, `borland-5.5`.  The target suffix
-is appended only when one family and version exist for more than one target;
-Watcom 2.0 is the only such family, so the profiles are `watcom-2.0-win32` and
-`watcom-2.0-win16`.  Service-pack and variant markers keep their existing
+is appended only when one family and version exist for more than one target:
+Watcom 2.0 (`watcom-2.0-win32`, `watcom-2.0-win16`) and MSVC 6.0
+(`msvc-6.0` on the `6.0-win32` image, `msvc-6.0-win9x` on the
+`6.0-win9x-win32` image).  Service-pack and variant markers keep their existing
 words: `msvc-6.0-sp1`, `msvc-7.0-rtm`, `msvc-6.0-sp5-pp`.
 
 The `gcc-pe` image family is renamed `mingw`, matching what the image actually

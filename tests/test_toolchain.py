@@ -24,6 +24,24 @@ class _FakeProc:
         self.stderr = err
 
 
+def _git_tracked_files(repo: Path) -> set[str] | None:
+    """Repo-relative paths git tracks, or None when git cannot answer.
+
+    The git index is the only record of what a fresh clone receives, so a
+    Dockerfile's mere presence on disk proves nothing about reproducibility.
+    """
+    import subprocess
+
+    proc = subprocess.run(
+        ["git", "-C", str(repo), "ls-files", "-z"],
+        capture_output=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        return None
+    return {p for p in proc.stdout.decode("utf-8", "replace").split("\0") if p}
+
+
 def _monkey_docker(monkeypatch, *, available: bool = True, image: bool = True) -> list[list[str]]:
     """Fake docker availability + image presence + capture invocations."""
     calls: list[list[str]] = []
@@ -1190,6 +1208,7 @@ class TestDockerfileSanity:
         from rebrew.toolchain import TOOLCHAINS
 
         repo = self._repo()
+        tracked = _git_tracked_files(repo)
         missing = []
         for name, spec in TOOLCHAINS.items():
             if spec.image is None:
@@ -1197,9 +1216,11 @@ class TestDockerfileSanity:
             tag, verarch = spec.image.rsplit(":", 1)
             df = repo / spec.family / verarch / "Dockerfile"
             if not df.is_file():
-                missing.append(f"{name} ({df.relative_to(repo)})")
+                missing.append(f"{name} ({df.relative_to(repo)}: absent)")
+            elif tracked is not None and df.relative_to(repo).as_posix() not in tracked:
+                missing.append(f"{name} ({df.relative_to(repo)}: untracked)")
         assert not missing, (
-            "image-backed toolchains without a Dockerfile in the "
+            "image-backed toolchains without a git-tracked Dockerfile in the "
             "rebrew-toolchains checkout (a fresh clone cannot rebuild "
             "them): " + ", ".join(missing)
         )
