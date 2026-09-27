@@ -88,11 +88,19 @@ def parse_obj_symbol_and_relocs(
     """
 
     # OMF objects (Open Watcom / MSVC 1.52) are converted to COFF via the
-    # vendored objconv first — LIEF cannot parse OMF.
-    data = Path(obj_path).read_bytes()
-    if _detect_obj_format_data(data[:4]) == "omf":
+    # vendored objconv first — LIEF cannot parse OMF.  Only the magic prefix
+    # is needed to decide, so read 4 bytes here; LIEF re-reads the file
+    # itself, and a full read_bytes() per parse doubled the object I/O on
+    # every call (``_test_multi`` parses once per function of the file).
+    try:
+        with open(obj_path, "rb") as handle:
+            magic = handle.read(4)
+    except OSError:
+        return None, None, []
+    if _detect_obj_format_data(magic) == "omf":
         from rebrew.omf16 import is_omf16, parse_obj_omf16
 
+        data = Path(obj_path).read_bytes()
         if is_omf16(data):
             code, reloc_dict = parse_obj_omf16(obj_path, symbol)
             if code is not None:

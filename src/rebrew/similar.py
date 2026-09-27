@@ -240,6 +240,8 @@ def cluster_report(
     units, skipped = load_function_units(cfg)
     clusters = cluster_units(units, min_size=min_size)
 
+    size_by_va = {u.va: u.size for u in units}
+
     groups: list[dict[str, Any]] = []
     query_group: int | None = None
     for index, cluster in enumerate(clusters):
@@ -254,7 +256,7 @@ def cluster_report(
                     {
                         "va": f"0x{va:08x}",
                         "name": name,
-                        "size": next(u.size for u in units if u.va == va),
+                        "size": size_by_va[va],
                     }
                     for va, name in zip(cluster.members, cluster.names, strict=True)
                 ],
