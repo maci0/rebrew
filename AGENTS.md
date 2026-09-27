@@ -52,6 +52,8 @@ src/rebrew/          # package; discover modules there; do not rely on an inline
 tests/               # pytest; typically test_<module>.py
 ```
 
+The only shipped packaging format is the PyPI wheel + sdist. `make build` pins the build backend by hash, `make sdist-check` proves the sdist reproduces the wheel, and `tests/test_package_metadata.py` gates the declared metadata: every third-party top-level import under `src/rebrew` needs a `[project].dependencies` floor or a justified `_OPTIONAL_IMPORTS` entry, and every `[project.scripts]` target must import. Both failures otherwise surface only on a user's machine.
+
 Dockerfiles / wrappers / 16-bit media: sibling **rebrew-toolchains** (not vendored here). `rebrew init` renders `agent-skills/` into a project's `.agents/skills/`; this repo's `.agents/skills/` is a rendered copy (target `bench`). Edit `src/rebrew/agent-skills/`, re-render (`make gen-skills`); `tests/test_skills_sync.py` and `tools/validate_skill_commands.py` gate drift.
 
 ## CLI Conventions
