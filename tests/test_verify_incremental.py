@@ -1617,6 +1617,56 @@ class TestCompareLogicHashMembership:
         assert isinstance(h, str) and len(h) == 64
 
 
+class TestNonUtf8PathText:
+    """Path text that is not valid UTF-8 still has to hash.
+
+    A filename is a byte string on POSIX, so ``caf\\xe9.h`` is a legal
+    header.  ``Path.rglob`` decodes it with ``surrogateescape``, and the
+    resulting lone surrogate (U+DCE9) is what reaches the hash; a strict
+    ``encode("utf-8")`` raised UnicodeEncodeError and took the whole verify
+    run with it.
+    """
+
+    @staticmethod
+    def _cfg(tmp_path: Path, includes: str) -> ProjectConfig:
+        cfg = _make_cfg(tmp_path)
+        cfg.compiler_includes = includes  # type: ignore[assignment]
+        return cfg
+
+    def test_headers_hash_accepts_non_utf8_filename(self, tmp_path: Path) -> None:
+        import rebrew.verify_hash as vh
+
+        cfg = _make_cfg(tmp_path)
+        vh._HEADERS_HASH_CACHE.clear()
+        (cfg.reversed_dir / os.fsdecode(b"caf\xe9.h")).write_bytes(b"typedef int A;\n")
+        digest = headers_hash(cfg)
+        assert isinstance(digest, str) and len(digest) == 64
+
+    def test_headers_hash_separates_distinct_non_utf8_names(self, tmp_path: Path) -> None:
+        """Two different legacy names must not fold into one digest."""
+        import rebrew.verify_hash as vh
+
+        cfg = _make_cfg(tmp_path)
+        vh._HEADERS_HASH_CACHE.clear()
+        first_header = cfg.reversed_dir / os.fsdecode(b"caf\xe9.h")
+        first_header.write_bytes(b"typedef int A;\n")
+        first = headers_hash(cfg)
+        vh._HEADERS_HASH_CACHE.clear()
+        first_header.unlink()
+        (cfg.reversed_dir / os.fsdecode(b"caf\xea.h")).write_bytes(b"typedef int A;\n")
+        assert headers_hash(cfg) != first
+
+    def test_compiler_config_hash_accepts_non_utf8_include(self, tmp_path: Path) -> None:
+        cfg = self._cfg(tmp_path, os.fsdecode(b"references/caf\xe9"))
+        digest = compiler_config_hash(cfg)
+        assert isinstance(digest, str) and len(digest) == 64
+
+    def test_compiler_config_hash_separates_non_utf8_includes(self, tmp_path: Path) -> None:
+        first = compiler_config_hash(self._cfg(tmp_path, os.fsdecode(b"references/caf\xe9")))
+        second = compiler_config_hash(self._cfg(tmp_path, os.fsdecode(b"references/caf\xea")))
+        assert first != second
+
+
 class TestCflagsEquivalent:
     """The cache predicate that decides reuse vs recompile of a cached verdict.
 

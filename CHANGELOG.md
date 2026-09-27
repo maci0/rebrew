@@ -144,6 +144,16 @@
   reset each request. No `/api/*` JSON changed.
 
 ### Fixed
+- **A non-UTF-8 filename no longer aborts the verify and compile caches.**
+  A POSIX filename is a byte string, so a header named `caf\xe9.h` is legal
+  and reaches Python as a lone surrogate (U+DCE9). Three hash sites still
+  encoded that text strictly: `headers_hash` over the walked header paths,
+  `compiler_config_hash` over the include/lib/cflags settings, and the
+  per-group object name in `rebrew test`, plus the unreadable-include-dir
+  marker in `compile_cache.include_fingerprint`. Each raised
+  `UnicodeEncodeError` on a tree the rest of the run handles (the same files
+  already use `surrogateescape` a few lines away). They encode with it now,
+  so the digest covers the raw bytes instead of killing the run.
 - **A transient GitHub API failure no longer reddens the nightly drift gate.**
   `rebrew toolchain check-updates` calls `_live_commit_sha` once per codeload
   source, and any exception there became a `check failed` row, which is one of

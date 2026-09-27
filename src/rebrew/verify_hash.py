@@ -230,7 +230,11 @@ def compiler_config_hash(cfg: ProjectConfig) -> str:
     # NUL-joined, not "|": a compiler_command or include path containing the
     # separator would otherwise shift the field boundary and leave the hash
     # unchanged across a real compiler change.
-    return hashlib.sha256("\x00".join(parts).encode("utf-8")).hexdigest()
+    # surrogateescape, like every other hash of path text here: an include dir
+    # named with a byte that is not valid UTF-8 reaches this string as a lone
+    # surrogate, and a strict encode raised UnicodeEncodeError instead of
+    # returning a digest.
+    return hashlib.sha256("\x00".join(parts).encode("utf-8", errors="surrogateescape")).hexdigest()
 
 
 def _external_includes_hash(cfg: ProjectConfig) -> str:
@@ -303,7 +307,10 @@ def headers_hash(cfg: ProjectConfig) -> str:
     for hfile in sorted(src_dir.rglob("*.h")):
         try:
             rel = hfile.relative_to(src_dir).as_posix()
-            h.update(rel.encode("utf-8"))
+            # surrogateescape: a header filename is not required to be valid
+            # UTF-8 (a cp1252 name is legal on Linux), and it arrives here as
+            # a lone surrogate that a strict encode cannot hash.
+            h.update(rel.encode("utf-8", errors="surrogateescape"))
             h.update(b"\x00")  # separator to prevent path/content collision
             h.update(hfile.read_bytes())
             h.update(b"\x01")  # entry separator

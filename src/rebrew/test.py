@@ -1441,9 +1441,13 @@ def _test_multi(
             else:
                 group_key = f"{tc_name or ''}\x00{cf}"
                 group_workdir = workdir
-                obj_name = (
-                    f"{Path(source).stem}_{hashlib.sha256(group_key.encode()).hexdigest()[:8]}.obj"
-                )
+                # surrogateescape: cflags come from an annotation read with
+                # it, so a legacy byte in an -I path arrives here as a lone
+                # surrogate, which a strict encode refuses to hash.
+                group_digest = hashlib.sha256(
+                    group_key.encode("utf-8", errors="surrogateescape")
+                ).hexdigest()[:8]
+                obj_name = f"{Path(source).stem}_{group_digest}.obj"
             obj_path, err = compile_to_obj(
                 cfg,
                 source,

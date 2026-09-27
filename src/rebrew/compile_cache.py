@@ -491,7 +491,9 @@ def include_fingerprint(include_dir: str) -> str:
                 include_dir,
                 exc,
             )
-            return hashlib.sha256(f"\0unreadable\0{include_dir}\0".encode()).hexdigest()
+            return hashlib.sha256(
+                f"\0unreadable\0{include_dir}\0".encode("utf-8", errors="surrogateescape")
+            ).hexdigest()
         paths = tuple(str(p) for p in path_list)
         recorded = tuple(dir_mtimes)
         with _INCLUDE_FP_LOCK:
