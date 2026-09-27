@@ -80,7 +80,9 @@ def _mock_client(status_code: int = 200, text: str = "", content_type: str = "ap
     def _raise_for_status() -> None:
         if status_code >= 400:
             raise httpx.HTTPStatusError(
-                f"HTTP {status_code}", request=None, response=None  # type: ignore[arg-type]
+                f"HTTP {status_code}",
+                request=None,
+                response=None,  # type: ignore[arg-type]
             )
 
     resp = SimpleNamespace(

@@ -891,11 +891,7 @@ def _pattern_vas(
     text: bytes, base_va: int, patterns: tuple[bytes, ...], exclude: list[tuple[int, int]]
 ) -> list[int]:
     """VAs of non-overlapping *patterns* in *text* that fall outside *exclude*."""
-    return [
-        va
-        for pattern in patterns
-        for va in _iter_masked(text, pattern, base_va, exclude)
-    ]
+    return [va for pattern in patterns for va in _iter_masked(text, pattern, base_va, exclude)]
 
 
 def opt_level_from_counts(o2: int, o1: int) -> str:
@@ -951,9 +947,7 @@ def _count_masked(
     """
     if not exclude:
         return sum(text.count(p) for p in patterns)
-    return sum(
-        1 for pattern in patterns for _ in _iter_masked(text, pattern, base_va, exclude)
-    )
+    return sum(1 for pattern in patterns for _ in _iter_masked(text, pattern, base_va, exclude))
 
 
 def _count_codegen_signals(

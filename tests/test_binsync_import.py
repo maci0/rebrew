@@ -1068,7 +1068,9 @@ marker = "V1"
         # shared tree is accepted and one outside every root is not.
         assert _inside_project(
             tmp_path / "src" / "shared",
-            SimpleNamespace(reversed_dir=tmp_path / "src" / "V1", shared_dir=tmp_path / "src" / "shared"),
+            SimpleNamespace(
+                reversed_dir=tmp_path / "src" / "V1", shared_dir=tmp_path / "src" / "shared"
+            ),
         )
         assert not _inside_project(
             tmp_path / "src" / "shared",

@@ -64,6 +64,32 @@ class TestSectionInfo:
 # -------------------------------------------------------------------------
 
 
+def _pe_info(
+    path: Path = Path("/tmp/test"),
+    *,
+    size: int = 0x1000,
+    raw_size: int | None = None,
+) -> BinaryInfo:
+    """A PE image with one ``.text`` section at 0x10001000, file offset 0x400."""
+    return BinaryInfo(
+        path=path,
+        format="pe",
+        image_base=0x10000000,
+        text_va=0x10001000,
+        text_size=size,
+        text_raw_offset=0x400,
+        sections={
+            ".text": SectionInfo(
+                name=".text",
+                va=0x10001000,
+                size=size,
+                file_offset=0x400,
+                raw_size=size if raw_size is None else raw_size,
+            )
+        },
+    )
+
+
 class TestBinaryInfo:
     def test_creation(self) -> None:
         info = BinaryInfo(
@@ -104,19 +130,8 @@ class TestExtractBytesAtVa:
         content = b"\x00" * 0x400 + b"\xab\xcd\xef\x12" + b"\x00" * 100
         f.write_bytes(content)
 
-        info = BinaryInfo(
-            path=f,
-            format="pe",
-            image_base=0x10000000,
-            text_va=0x10001000,
-            text_size=0x1000,
-            text_raw_offset=0x400,
-            sections={
-                ".text": SectionInfo(
-                    name=".text", va=0x10001000, size=0x1000, file_offset=0x400, raw_size=0x1000
-                )
-            },
-        )
+        info = _pe_info(f)
+
         result = extract_bytes_at_va(info, 0x10001000, 4)
         assert result is not None
         assert len(result) == 4
@@ -129,19 +144,8 @@ class TestExtractBytesAtVa:
         content = b"\x00" * 0x400 + b"\xaa" * 0x100 + b"\xbb" * 0x100
         f.write_bytes(content)
 
-        info = BinaryInfo(
-            path=f,
-            format="pe",
-            image_base=0x10000000,
-            text_va=0x10001000,
-            text_size=0x1000,  # virtual size much larger than raw
-            text_raw_offset=0x400,
-            sections={
-                ".text": SectionInfo(
-                    name=".text", va=0x10001000, size=0x1000, file_offset=0x400, raw_size=0x100
-                )
-            },
-        )
+        # A virtual size past raw_size is the BSS tail.
+        info = _pe_info(f, raw_size=0x100)
         # Request 0x200 bytes but only 0x100 of raw data available
         result = extract_bytes_at_va(info, 0x10001000, 0x200)
         assert result is not None
@@ -154,19 +158,7 @@ class TestExtractBytesAtVa:
         content = b"\x00" * 0x400 + b"\x55\x8b\xec\xc3" + b"\xcc" * 4
         f.write_bytes(content)
 
-        info = BinaryInfo(
-            path=f,
-            format="pe",
-            image_base=0x10000000,
-            text_va=0x10001000,
-            text_size=0x1000,
-            text_raw_offset=0x400,
-            sections={
-                ".text": SectionInfo(
-                    name=".text", va=0x10001000, size=0x1000, file_offset=0x400, raw_size=0x1000
-                )
-            },
-        )
+        info = _pe_info(f)
         result = extract_bytes_at_va(info, 0x10001000, 8)
         assert result is not None
         assert result == b"\x55\x8b\xec\xc3"  # padding stripped
@@ -181,19 +173,7 @@ class TestExtractBytesAtVa:
         content = b"\x00" * 0x400 + b"\x55\x8b\xec\xc3" + b"\xcc" * 4
         f.write_bytes(content)
 
-        info = BinaryInfo(
-            path=f,
-            format="pe",
-            image_base=0x10000000,
-            text_va=0x10001000,
-            text_size=0x1000,
-            text_raw_offset=0x400,
-            sections={
-                ".text": SectionInfo(
-                    name=".text", va=0x10001000, size=0x1000, file_offset=0x400, raw_size=0x1000
-                )
-            },
-        )
+        info = _pe_info(f)
         result = extract_bytes_at_va(info, 0x10001000, 8, trim_padding=False)
         assert result is not None
         assert len(result) == 8
@@ -222,90 +202,26 @@ class TestExtractBytesAtVa:
 
 class TestVaToFileOffset:
     def test_basic(self) -> None:
-        info = BinaryInfo(
-            path=Path("/tmp/test"),
-            format="pe",
-            image_base=0x10000000,
-            text_va=0x10001000,
-            text_size=0x5000,
-            text_raw_offset=0x400,
-            sections={
-                ".text": SectionInfo(
-                    name=".text", va=0x10001000, size=0x5000, file_offset=0x400, raw_size=0x5000
-                )
-            },
-        )
-        offset = va_to_file_offset(info, 0x10001000)
-        assert offset == 0x400
+        assert va_to_file_offset(_pe_info(size=0x5000), 0x10001000) == 0x400
 
     def test_with_offset(self) -> None:
-        info = BinaryInfo(
-            path=Path("/tmp/test"),
-            format="pe",
-            image_base=0x10000000,
-            text_va=0x10001000,
-            text_size=0x5000,
-            text_raw_offset=0x400,
-            sections={
-                ".text": SectionInfo(
-                    name=".text", va=0x10001000, size=0x5000, file_offset=0x400, raw_size=0x5000
-                )
-            },
-        )
-        offset = va_to_file_offset(info, 0x10001100)
-        assert offset == 0x500
+        assert va_to_file_offset(_pe_info(size=0x5000), 0x10001100) == 0x500
 
     def test_virtual_size_authoritative(self) -> None:
         """Containment uses the virtual size: a VA past raw_size but inside
         virtual size maps (same rule as extract_bytes_at_va)."""
-        info = BinaryInfo(
-            path=Path("/tmp/test"),
-            format="pe",
-            image_base=0x10000000,
-            text_va=0x10001000,
-            text_size=0x1000,
-            text_raw_offset=0x400,
-            sections={
-                ".text": SectionInfo(
-                    name=".text", va=0x10001000, size=0x1000, file_offset=0x400, raw_size=0x100
-                )
-            },
-        )
-        assert va_to_file_offset(info, 0x10001800) == 0xC00
+        assert va_to_file_offset(_pe_info(raw_size=0x100), 0x10001800) == 0xC00
 
     def test_zero_virtual_falls_back_to_raw(self) -> None:
-        info = BinaryInfo(
-            path=Path("/tmp/test"),
-            format="pe",
-            image_base=0x10000000,
-            text_va=0x10001000,
-            text_size=0x100,
-            text_raw_offset=0x400,
-            sections={
-                ".text": SectionInfo(
-                    name=".text", va=0x10001000, size=0, file_offset=0x400, raw_size=0x100
-                )
-            },
-        )
+        info = _pe_info(size=0x100)
+        info.sections[".text"].size = 0
         assert va_to_file_offset(info, 0x10001080) == 0x480
 
     def test_extract_and_offset_agree(self, tmp_path: Path) -> None:
         """extract_bytes_at_va and va_to_file_offset accept the same VAs."""
         f = tmp_path / "test.bin"
         f.write_bytes(b"\x00" * 0x400 + b"\xaa" * 0x100)
-        info = BinaryInfo(
-            path=f,
-            format="pe",
-            image_base=0x10000000,
-            text_va=0x10001000,
-            text_size=0x1000,
-            text_raw_offset=0x400,
-            sections={
-                ".text": SectionInfo(
-                    name=".text", va=0x10001000, size=0x1000, file_offset=0x400, raw_size=0x100
-                )
-            },
-        )
+        info = _pe_info(f, raw_size=0x100)
         # Inside virtual, past raw: extraction clamps to b"" (no file bytes
         # for the BSS tail) while the offset still maps.
         assert extract_bytes_at_va(info, 0x10001800, 4) == b""

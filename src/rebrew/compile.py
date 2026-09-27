@@ -1766,9 +1766,7 @@ def compile_to_obj(
             return None, err
         if cc is not None and cache_key is not None:
             with contextlib.suppress(OSError):
-                publish_obj_cache(
-                    cc, cache_key, obj_file.read_bytes(), fresh_key=cache_key_now()
-                )
+                publish_obj_cache(cc, cache_key, obj_file.read_bytes(), fresh_key=cache_key_now())
         return str(obj_file), ""
 
     # Unknown/unregistered profile: nothing to run.  Execution is docker-
@@ -2043,9 +2041,7 @@ def precompile_batch(
                         # path unlinked: its siblings then compile against a
                         # tree missing a member.  Drop the member and say so
                         # rather than reporting a wrong object.
-                        log.warning(
-                            "could not stage %s into %s: %s", source, workdir, exc
-                        )
+                        log.warning("could not stage %s into %s: %s", source, workdir, exc)
                         continue
                     staged[rel_s] = [e]
                 # Collect this member's own /I flags for the union below.

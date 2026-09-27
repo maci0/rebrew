@@ -21,6 +21,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
+from rebrew.binary_model import BinaryInfo
 from rebrew.cli import (
     AllTargetsOption,
     TargetOption,
@@ -799,6 +800,19 @@ def _cut_range(ranges: list[tuple[int, int]], lo: int, hi: int) -> list[tuple[in
     return [(a, b) for a, b in out if b > a]
 
 
+def _target_binary(cfg: ProjectConfig) -> tuple[Path, BinaryInfo] | None:
+    """Path and parse of the configured target binary, or None if unusable."""
+    path = getattr(cfg, "target_binary", None)
+    if path is None or not Path(path).is_file():
+        return None
+    try:
+        from rebrew.binary_loader import load_binary
+
+        return Path(path), load_binary(Path(path))
+    except (OSError, KeyError, ValueError):
+        return None
+
+
 def _initialized_data_ranges(cfg: ProjectConfig) -> list[tuple[int, int]]:
     """File-backed ``.data`` and ``.rdata`` the link is responsible for.
 
@@ -811,16 +825,10 @@ def _initialized_data_ranges(cfg: ProjectConfig) -> list[tuple[int, int]]:
     in that overlap. ``postlink`` copies both from the reference, so a raw
     link that differs there has not lost game data.
     """
-    path = getattr(cfg, "target_binary", None)
-    if path is None or not Path(path).is_file():
+    loaded = _target_binary(cfg)
+    if loaded is None:
         return []
-    path = Path(path)
-    try:
-        from rebrew.binary_loader import load_binary
-
-        info = load_binary(path)
-    except (OSError, KeyError, ValueError):
-        return []
+    path, info = loaded
     ranges: list[tuple[int, int]] = []
     rdata_end = 0
     for name in (".data", ".rdata"):
@@ -851,16 +859,10 @@ def postlink_copied_ranges(cfg: ProjectConfig) -> list[tuple[int, int]]:
     ``postlink`` copies both from the reference. A raw-link difference there
     is not a data row the status table should call drift.
     """
-    path = getattr(cfg, "target_binary", None)
-    if path is None or not Path(path).is_file():
+    loaded = _target_binary(cfg)
+    if loaded is None:
         return []
-    path = Path(path)
-    try:
-        from rebrew.binary_loader import load_binary
-
-        info = load_binary(path)
-    except (OSError, KeyError, ValueError):
-        return []
+    path, info = loaded
     rdata = info.sections.get(".rdata")
     rdata_end = 0
     if rdata is not None:
