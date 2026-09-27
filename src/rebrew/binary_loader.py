@@ -618,14 +618,28 @@ def load_binary(path: Path, fmt: str = "auto") -> BinaryInfo:
     result._cache_fsize = fsize
     result._cache_ino = ino
     with _load_binary_lock:
-        if cache_key not in _load_binary_cache:
-            # Evict oldest entry when cache is full.
-            if len(_load_binary_cache) >= _LOAD_BINARY_CACHE_MAX:
-                oldest_key = next(iter(_load_binary_cache))
-                del _load_binary_cache[oldest_key]
-            _load_binary_cache[cache_key] = result
-        else:
-            result = _load_binary_cache[cache_key]
+        existing = _load_binary_cache.get(cache_key)
+        # A racing loader may have published an entry while we parsed.  Reuse
+        # it only when it describes the image we stat'ed: an entry from a
+        # build that started before ours carries a different fingerprint, and
+        # returning it would hand the caller a pre-rebuild parse.  Our own
+        # bytes were read after our stat, so they are at least as fresh as the
+        # fingerprint we publish with them.
+        if (
+            existing is not None
+            and getattr(existing, "_cache_mtime_ns", None) == mtime_ns
+            and getattr(existing, "_cache_fsize", None) == fsize
+            and getattr(existing, "_cache_ino", None) == ino
+        ):
+            return existing
+        # Evict oldest entry when cache is full.
+        if (
+            cache_key not in _load_binary_cache
+            and len(_load_binary_cache) >= _LOAD_BINARY_CACHE_MAX
+        ):
+            oldest_key = next(iter(_load_binary_cache))
+            del _load_binary_cache[oldest_key]
+        _load_binary_cache[cache_key] = result
     return result
 
 
@@ -1043,7 +1057,11 @@ def iat_slot_vas(binary_path: Path | str) -> set[int]:
                 oldest_key = next(iter(_iat_slot_cache))
                 del _iat_slot_cache[oldest_key]
             _iat_slot_cache[cache_key] = set(out)
-        return out
+        # Copy on the miss path too: the hit path hands back a copy, so
+        # returning the stored object would let one caller's in-place edit
+        # (e.g. a caller adding its own thunks) rewrite the memo every later
+        # lookup then copies.
+        return set(out)
     except Exception as exc:
         # A silent empty result here would silently disable IAT reloc
         # masking (DIR32 slots into the IAT then fail validation and
