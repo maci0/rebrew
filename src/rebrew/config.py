@@ -1180,7 +1180,36 @@ def validate_target_name(name: str, label: str = "target name") -> str:
         raise ConfigError(f"{label} {name!r} must not contain a path separator")
     if any(ord(ch) < 0x20 for ch in name):
         raise ConfigError(f"{label} {name!r} must not contain control characters")
-    return name
+    return unicodedata.normalize("NFC", name)
+
+
+def _normalized_targets(targets: Mapping[str, Any]) -> dict[str, Any]:
+    """``targets`` re-keyed to NFC, or a :class:`ConfigError` on a collision.
+
+    A target name is an identity: ``--target`` on the command line, the module
+    marker derived from it, ``db/data_<target>.json`` and the ``[targets.X]``
+    table all have to agree on one spelling.  The marker side already
+    normalizes (:func:`_module_marker_value`), so an NFD key in the TOML would
+    produce an NFC marker that no ``--target`` spelling reaches, and every
+    function under it would drop out of verify/todo.  Normalizing the keys
+    instead makes both sides agree.  Two keys that differ only in normalization
+    are two names for one target: that is a real ambiguity, not a spelling to
+    pick a winner for, so it fails loud.
+    """
+    out: dict[str, Any] = {}
+    seen: dict[str, str] = {}
+    for name, data in targets.items():
+        if not isinstance(name, str):
+            continue
+        key = unicodedata.normalize("NFC", name)
+        if key in out:
+            raise ConfigError(
+                f"rebrew-project.toml [targets] has two keys that are the same name "
+                f"under Unicode normalization: {seen[key]!r} and {name!r}"
+            )
+        out[key] = data
+        seen[key] = name
+    return out
 
 
 def is_key_safe_endpoint(endpoint: str) -> bool:
@@ -1835,7 +1864,7 @@ def load_config(
         raise ConfigError(f"{toml_path}: {exc}") from exc
 
     project_raw = _as_table(raw.get("project", {}), "project")
-    targets_dict = _as_table(raw.get("targets", {}), "targets")
+    targets_dict = _normalized_targets(_as_table(raw.get("targets", {}), "targets"))
     global_compiler_raw = _as_table(raw.get("compiler", {}), "compiler")
 
     # --- Validate known keys to catch typos ---
@@ -1903,6 +1932,10 @@ def load_config(
                 "rebrew-project.toml [project].default_target must not be empty. "
                 f'Add: default_target = "{all_target_names[0]}"'
             )
+    # Same reason the keys are NFC: a target name copied off a macOS volume
+    # arrives NFD, and a byte comparison against the NFC key reports a target
+    # that exists as missing.
+    target = unicodedata.normalize("NFC", target)
     if target not in targets_dict:
         raise ConfigKeyError(
             f"Target '{target}' not found in rebrew-project.toml.  Available targets: {all_target_names}"

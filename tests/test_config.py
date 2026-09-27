@@ -30,6 +30,10 @@ from rebrew.errors import RebrewError
 # ---------------------------------------------------------------------------
 
 
+NFC_NAME = "caf\u00e9"
+NFD_NAME = "cafe\u0301"
+
+
 def _make_project(tmp_path: Path, toml_content: str) -> Path:
     """Write a rebrew-project.toml and return the directory."""
     (tmp_path / "rebrew-project.toml").write_text(toml_content, encoding="utf-8")
@@ -2103,6 +2107,45 @@ class TestTargetNameValidation:
     def test_plain_names_accepted(self) -> None:
         for name in ("main", "SERVER.DLL", "client_exe", "game-1"):
             assert validate_target_name(name) == name
+
+    def test_decomposed_name_is_returned_composed(self) -> None:
+        """A name spelled NFD comes back NFC, the form the marker uses."""
+        assert validate_target_name(NFD_NAME) == NFC_NAME
+
+    def test_nfd_key_loads_and_nfd_argument_selects_it(self, tmp_path: Path) -> None:
+        """Both sides normalize: an NFD key and an NFD --target are one target."""
+        toml = (
+            "[project]\n"
+            f'default_target = "{NFD_NAME}"\n'
+            "\n"
+            f'[targets."{NFD_NAME}"]\n'
+            'binary = "original/game.dll"\n'
+            'format = "pe"\n'
+            'arch = "x86_32"\n'
+            f'reversed_dir = "src/{NFC_NAME}"\n'
+        )
+        root = _make_project(tmp_path, toml)
+        cfg = load_config(root)
+        assert cfg.target_name == NFC_NAME
+        assert cfg.all_targets == [NFC_NAME]
+        picked = load_config(root, target=NFD_NAME)
+        assert picked.target_name == cfg.target_name
+        assert picked.reversed_dir == cfg.reversed_dir
+
+    def test_two_keys_differing_only_in_normalization_fail_loud(self, tmp_path: Path) -> None:
+        toml = (
+            "[project]\n"
+            f'default_target = "{NFC_NAME}"\n'
+            "\n"
+            f'[targets."{NFC_NAME}"]\n'
+            'binary = "a.exe"\n'
+            "\n"
+            f'[targets."{NFD_NAME}"]\n'
+            'binary = "b.exe"\n'
+        )
+        root = _make_project(tmp_path, toml)
+        with pytest.raises(ConfigError, match="same name"):
+            load_config(root)
 
     @pytest.mark.parametrize("bad", ["../x", "a/b", "a\\b", ".", "..", "", " x", "x\n"])
     def test_rejected(self, bad: str) -> None:
