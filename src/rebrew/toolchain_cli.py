@@ -33,6 +33,19 @@ from rebrew.utils import SOURCE_CHECKOUT, atomic_write_text, container_runtime
 #: an unzip prompting for an encrypted-archive password hangs forever.
 _EXTRACT_TIMEOUT_S = 1800
 
+#: Tracked repo metadata kept when a vendored host tree is cleared or
+#: refreshed.  Docker build inputs, wrapper scripts, the pinned media and the
+#: per-toolchain docs are repo content, never vendored payload.
+_TRACKED_META_PATTERNS = (
+    "Dockerfile",
+    "pak_extract.py",
+    "wrapper-common.sh",
+    ".dockerignore",
+    "*.sh",
+    "*.tar.xz",
+    "*.md",
+)
+
 #: Host suffixes pinned toolchain media may resolve to (and redirect through).
 #: A compromised CDN Location must not pivot ``httpx`` at link-local /
 #: intranet listeners (same SSRF class as :mod:`rebrew.wibo`).
@@ -93,8 +106,6 @@ def status_cmd(
     Execution is docker-only for every Windows/DOS toolchain, so the image
     state is the primary signal; the vendored tree is informational (it is
     the byte-identical source the image builds from)."""
-    import shutil
-
     from rebrew.toolchain import get_toolchain, vendored_binary
 
     try:
@@ -119,7 +130,7 @@ def status_cmd(
         host_ok = shutil.which(spec.binary) is not None
     image_ok: bool | None = None
     if spec.image is not None and docker_available():
-        r = __import__("subprocess").run(
+        r = subprocess.run(
             [container_runtime(), "image", "inspect", spec.image],
             capture_output=True,
             text=True,
@@ -177,7 +188,7 @@ def detect_cmd(
 ) -> None:
     """Detect which compiler/toolchain built a binary; check profile alignment."""
     from rebrew.toolchain_detect import (
-        _PROFILE_COMPAT,
+        _PROFILE_COMPAT_ALL,
         detect_toolchain,
         profile_matches_detection,
     )
@@ -201,7 +212,10 @@ def detect_cmd(
     except Exception as exc:  # detection is best-effort
         error_exit(f"Detection failed: {exc}", json_mode=json_output, code=EXIT_ERROR)
 
-    compat: set[str] | None = _PROFILE_COMPAT.get(info.family)
+    # The plugin-merged table, the same one profile_matches_detection
+    # reads: the packaged-only table would report a plugin family as
+    # unmatchable while the alignment check right below calls it aligned.
+    compat: set[str] | None = _PROFILE_COMPAT_ALL.get(info.family)
     data: dict[str, Any] = {
         "binary": str(binary_path),
         "family": info.family,
@@ -484,13 +498,6 @@ def vendor_cmd(
     # wrapper scripts, the pinned tarball, pak_extract.py) lives beside it
     # and is not vendored content, so a dir holding only those is empty for
     # clobber purposes.
-    _META = {
-        "Dockerfile",
-        "pak_extract.py",
-        "wrapper-common.sh",
-        ".dockerignore",
-        *("*.sh", "*.tar.xz", "*.md"),
-    }
     # Complete tree: re-run is a no-op success (same posture as ``pull``).
     if host.exists() and _vendor_tree_complete(host, name):
         spec = get_toolchain(name)
@@ -512,7 +519,9 @@ def vendor_cmd(
     if host.exists() and extract_dir.exists() and not _vendor_tree_complete(host, name):
         shutil.rmtree(extract_dir)
     content = (
-        [p for p in host.iterdir() if not any(p.match(m) for m in _META)] if host.exists() else []
+        [p for p in host.iterdir() if not any(p.match(m) for m in _TRACKED_META_PATTERNS)]
+        if host.exists()
+        else []
     )
     if content:
         msg = f"{host} already has files — refusing to clobber"
@@ -605,7 +614,7 @@ def vendor_cmd(
         vc98 = extract_dir / "VC98"
         vc98.mkdir()
         for child in list(extract_dir.iterdir()):
-            if child == vc98 or any(child.match(m) for m in _META):
+            if child == vc98 or any(child.match(m) for m in _TRACKED_META_PATTERNS):
                 continue
             child.rename(vc98 / child.name)
 
@@ -1118,11 +1127,11 @@ def build_cmd(
     if spec.image is None:
         msg = f"toolchain {name!r} is host-only (no image to build)"
         error_exit(msg, json_mode=json_output)
-    if spec.image is None or ":" not in spec.image:
+    if ":" not in spec.image:
         msg = f"toolchain {name!r} image tag {spec.image!r} has no version-arch tag"
         error_exit(msg, json_mode=json_output)
     repo = require_toolchains_repo()
-    tag, verarch = spec.image.rsplit(":", 1)
+    verarch = spec.image.rsplit(":", 1)[1]
     image = spec.image  # narrowed local — mypy does not narrow into the closure
     # ``family`` and the image tag come from the toolchain registry, which a
     # plugin or an overlay dir can define.  Both become directories in the
@@ -1229,9 +1238,6 @@ def _run_smoke_container(
             errors="replace",
             timeout=_SMOKE_TIMEOUT_S,
         )
-    except subprocess.TimeoutExpired:
-        kill_container(container)
-        raise
     except BaseException:
         kill_container(container)
         raise
@@ -1578,16 +1584,9 @@ def update_cmd(
             SOURCES[name] = replace(src, sha256=actual_sha, commit=live_commit)
             # 2. clear the vendored host tree (keep Dockerfile/wrappers) + re-vendor.
             host = repo / src.host_dir
-            _META_PATTERNS = (
-                "Dockerfile",
-                "pak_extract.py",
-                "wrapper-common.sh",
-                "*.sh",
-                "*.tar.xz",
-            )
             if host.exists():
                 for child in list(host.iterdir()):
-                    if any(child.match(p) for p in _META_PATTERNS):
+                    if any(child.match(p) for p in _TRACKED_META_PATTERNS):
                         continue
                     if child.is_dir():
                         shutil.rmtree(child, ignore_errors=True)

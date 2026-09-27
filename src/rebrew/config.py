@@ -1405,15 +1405,10 @@ def find_root(start: Path | str | None = None) -> Path:
     (no walk-up); load_config(root=X) expects X to contain the toml.
     """
     if start is not None:
-        start_p = Path(start)
-        # Treat as explicit project root only when it looks like one
-        if (start_p / "rebrew-project.toml").is_file():
-            return start_p
-        if not start_p.is_dir():
-            return start_p
-        # Bare temp dir without toml: legacy callers (e.g. find_root(tmp_path))
-        # expect pass-through; let load_config raise the proper error
-        return start_p
+        # Verbatim, whether or not it holds a toml: a bare temp dir from
+        # find_root(tmp_path) expects pass-through, and load_config raises
+        # the proper error.  There is no walk-up from an explicit root.
+        return Path(start)
     found = walk_up_to_root(Path.cwd())
     if found is None:
         raise ConfigNotFoundError(

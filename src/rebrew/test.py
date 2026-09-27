@@ -55,7 +55,6 @@ from rebrew.compile import (
     UNCLASSIFIED_DIFF,
     CompareResult,
     classify_compare_result,
-    classify_match_status,
     clears_blocker,
     compile_and_compare,
     compile_to_obj,
@@ -1059,7 +1058,6 @@ def _run_test_impl(
             toolchain=toolchain_name,
             context=compile_context,
         )
-    matched = cmp.matched
     relocs = cmp.reloc_offsets or []
     # Reconstruct match_count/total for cache + display from CompareResult.
     # Prefer full_obj_size for total (SIZE_MISMATCH truncates obj_bytes) but
@@ -1108,7 +1106,6 @@ def _run_test_impl(
                 f"[dim]would fix SIZE {size_val or 0} → {new_size} for "
                 f"0x{section_va:x} ({'--dry-run' if dry_run else '--no-promote'})[/dim]"
             )
-        matched = True
         total = new_size
         match_count = new_size
         size_val = new_size
@@ -1236,8 +1233,9 @@ def _run_test_impl(
                     exc,
                 )
         old_status = promote_ann.status if promote_ann else ""
-        # Prefer CompareResult.status so SIZE_MISMATCH / COMPILE_ERROR are preserved.
-        new_status = cmp.status or classify_match_status(matched, match_count, total, relocs)
+        # CompareResult.status is the one classification point, so
+        # SIZE_MISMATCH / COMPILE_ERROR survive unchanged.
+        new_status = cmp.status
         if not force_status and not should_promote_status(old_status, new_status):
             if is_status_parked(old_status) and not json_output:
                 console.print(f"[dim]STATUS → skipped ({old_status})[/dim]")
@@ -1383,25 +1381,33 @@ def _test_multi(
     # a CI script must not read them as "fix your code" (exit 1).
     any_extract_error = False
 
-    from rebrew.utils import writable_temp_dir
+    from rebrew.toolchain import TOOLCHAINS
+    from rebrew.utils import safe_shlex_split, writable_temp_dir
 
     workdir = writable_temp_dir("test_multi_")
     try:
         objs: dict[tuple[str | None, str], Any] = {}
-        for tc_name, cf in {_effective_overrides(a) for a in annotations}:
-            # Distinct obj name per (toolchain, cflags) group — compile_to_obj
-            # derives the .obj name from the source stem, so without this every
-            # group would overwrite the same obj and all but the last would
-            # compare against the wrong bytes.
-            group_key = f"{tc_name or ''}\x00{cf}"
-            obj_name = (
-                f"{Path(source).stem}_{hashlib.sha256(group_key.encode()).hexdigest()[:8]}.obj"
-            )
+        for group_idx, (tc_name, cf) in enumerate(_effective_overrides(a) for a in annotations):
+            # A per-group object, so groups never read each other's bytes.
+            # Only msvc (/Fo) and posix (-o) honor an explicit name; borland
+            # and dos name the object after the source stem, so those groups
+            # get their own workdir and the compiler-chosen name instead.
+            spec = TOOLCHAINS.get(tc_name) if tc_name else None
+            if spec is not None and spec.effective_arg_style not in ("msvc", "posix"):
+                group_workdir = workdir / f"g{group_idx}"
+                group_workdir.mkdir(parents=True, exist_ok=True)
+                obj_name = None
+            else:
+                group_key = f"{tc_name or ''}\x00{cf}"
+                group_workdir = workdir
+                obj_name = (
+                    f"{Path(source).stem}_{hashlib.sha256(group_key.encode()).hexdigest()[:8]}.obj"
+                )
             obj_path, err = compile_to_obj(
                 cfg,
                 source,
-                cf.split(),
-                workdir,
+                safe_shlex_split(cf),
+                group_workdir,
                 obj_name=obj_name,
                 toolchain=tc_name,
                 context=context,

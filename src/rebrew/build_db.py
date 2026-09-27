@@ -1324,10 +1324,12 @@ def _build_coverage_db(
     regen: bool,
 ) -> None:
     """Body of :func:`build_db`.  Caller holds :func:`coverage_db_lock`."""
-    preserved_rows = _check_db_version(db_path, force=force, json_output=json_output)
     # Catalog scan and JSON parsing stay outside the write transaction: a
     # long --regen must not hold BEGIN IMMEDIATE, and a bad snapshot must
-    # not delete rows that the rollback would then have to restore.
+    # not delete rows that the rollback would then have to restore.  They
+    # also run before the version check, because --force unlinks the
+    # database and the salvaged rows live only in memory until it is
+    # rebuilt: erroring after the unlink would drop them for good.
     datasets = _load_coverage_datasets(
         root_dir,
         db_path,
@@ -1335,6 +1337,7 @@ def _build_coverage_db(
         json_output=json_output,
         regen=regen,
     )
+    preserved_rows = _check_db_version(db_path, force=force, json_output=json_output)
 
     conn: sqlite3.Connection | None = None
     try:

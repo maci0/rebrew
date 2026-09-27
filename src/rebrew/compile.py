@@ -1933,13 +1933,16 @@ def precompile_batch(
                     allowed.append(root_p)
             inc_path = str(getattr(cfg, "compiler_includes", ""))
             if inc_path:
-                flags = [f"/I{inc_path}"] + flags
+                inc_prefix = "/I" if spec.flags_style == "msvc" else "-I"
+                flags = [f"{inc_prefix}{inc_path}"] + flags
             flags, extra_mounts = _docker_include_rewrite(flags, workdir, allowed_roots=allowed)
             batch_mounts += extra_mounts
 
+            # The spec guard above returned on a missing toolchain and the
+            # tempdir is created before any other work, so the workdir is
+            # set for everything below.
+            assert workdir is not None
             stage_dir = workdir
-            if stage_dir is None:
-                return group_out
 
             def _staged_cache_key(entry: Any, staged_name: str) -> str:
                 src = Path(cfg.reversed_dir) / entry.filepath
@@ -1966,7 +1969,7 @@ def precompile_batch(
             # changes the post-compile key; publishing under either key would
             # pin the object to a fingerprint it was not built against.
             pre_keys: dict[int, str] = {}
-            if cache is not None and workdir is not None:
+            if cache is not None:
                 for staged_name, group_entries in staged.items():
                     for entry in group_entries:
                         with contextlib.suppress(OSError, ValueError):
@@ -2008,7 +2011,7 @@ def precompile_batch(
                         if own_includes != union_includes:
                             continue
                         pre_key = pre_keys.get(id(e))
-                        if pre_key is None or workdir is None:
+                        if pre_key is None:
                             continue
                         # Re-key the staged bytes (not a fresh read of a
                         # source rewritten since staging).  Publish only
