@@ -138,6 +138,16 @@ def _requirement_name(spec: str) -> str:
     return re.split(r"[\s\[<>=!~@;]", spec, maxsplit=1)[0].strip().lower()
 
 
+def _unbounded(specs: list[str]) -> list[str]:
+    """Requirements with a floor but no ceiling.
+
+    A resolver takes the newest admissible version, so an uncapped floor lets
+    the next major of the package land in a user's environment the day it is
+    publishes, with no review step in between.
+    """
+    return [s for s in specs if ">=" in s and "<" not in s and "==" not in s]
+
+
 def _unpinned(specs: list[str]) -> list[str]:
     """Requirements a resolver can move without the manifest changing.
 
@@ -207,6 +217,33 @@ class TestDeclaredDependencies:
             if " @ " not in spec and _requirement_name(spec) not in sources
         ]
         assert not unpinned, f"unversioned requirements in the {group} group: {unpinned}"
+
+    @pytest.mark.parametrize("group", sorted(_pyproject()["dependency-groups"]))
+    def test_group_requirements_have_a_ceiling(self, group: str) -> None:
+        """Same rule as the runtime list: a floor with no ceiling lets the
+        next major resolve itself.  A `[tool.uv.sources]` entry is exempt: it
+        pins the artifact itself, by path or by a commit-pinned reference.
+        """
+        sources = _pyproject().get("tool", {}).get("uv", {}).get("sources", {})
+        assert isinstance(sources, dict)
+        unbounded = [
+            spec
+            for spec in _unbounded(_pyproject()["dependency-groups"][group])
+            if _requirement_name(spec) not in sources
+        ]
+        assert not unbounded, f"uncapped requirements in the {group} group: {unbounded}"
+
+    def test_runtime_and_extra_requirements_have_a_ceiling(self) -> None:
+        """Both lists reach a user as Requires-Dist, where an uncapped floor
+        is the whole compatibility contract the resolver sees."""
+        project = _pyproject()["project"]
+        assert isinstance(project, dict)
+        unbounded = _unbounded(project["dependencies"])
+        for extra, specs in project["optional-dependencies"].items():
+            assert not _unbounded(specs), (
+                f"uncapped requirements in the {extra} extra: {_unbounded(specs)}"
+            )
+        assert not unbounded, f"uncapped runtime requirements: {unbounded}"
 
     def test_vcs_requirements_are_commit_pinned(self) -> None:
         """A git requirement is the one dependency a lock can silently re-point

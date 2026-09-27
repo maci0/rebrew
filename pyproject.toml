@@ -33,20 +33,27 @@ classifiers = [
 dependencies = [
     # Floors track the audited uv.lock versions: a lock-free `pip install`
     # cannot resolve older advisories this tree already left behind.
-    "capstone>=5.0.9",  # PYSEC-2026-3544 fixed in 5.0.8; lock is 5.0.9
-    "click>=8.5.0",  # direct import (init.py shell completion); 8.3.3 fixes CVE-2025-6143/6144
-    "diskcache>=5.6.3",  # GHSA-w8v5-vhqr-4h9v unfixed upstream; NoPickleDisk + chmod 0o700 mitigate (compile_cache / matcher.core)
-    "httpx>=0.28.1",  # ReVa MCP / remote-tooling HTTP client (ghidra/, skeleton.py, decompiler.py, wibo.py)
-    "idna>=3.19",  # NO direct import — transitive security pin: idna <3.15 has a Unicode-property DoS advisory; this floor forces the fixed version through httpx's tree
-    "lief>=1.0.0",  # 1.0 verified: full suite green (was held at <1 on breaking rumors)
-    "numpy>=2.5.3",  # byte/structural similarity scoring (matcher/scoring.py, core/matching.py, binary_similarity.py)
-    "python-flirt>=0.10.0",  # FLIRT .sig signature scanning (flirt.py; imports as `flirt`)
-    "rich>=15.0.0",  # console rendering (Console(stderr=True) convention) and typer's markup backend
-    "tomlkit>=0.15.1",  # round-trip-preserving TOML writes (metadata.py, cfg.py, library.py)
-    "tree-sitter>=0.26.0",  # C AST parsing (c_parser.py, struct_parser.py, matcher/ast_engine.py) — never regex-parse C
-    "tree-sitter-c>=0.24.2",  # C grammar for tree-sitter
-    "typer>=0.27.2",  # CLI framework (every main_entry); floor tracks lock
-    "zstandard>=0.25.0",  # coverage.db codec for the materialized per-section cell JSON (build_db), and the dashboard's wire compression
+    # Ceilings sit at the next breaking major.  A resolver always takes the
+    # newest admissible version, so a floor alone lets a new major land in
+    # every user's environment on the day it is published — a 1.0 LIEF or a
+    # tree-sitter binding rewrite breaks the wheel at import, with no review
+    # step in between.  The cap turns that into a resolver error the tree can
+    # re-audit, and tests/test_package_metadata.py keeps one on every
+    # requirement added later.
+    "capstone>=5.0.9,<6",  # PYSEC-2026-3544 fixed in 5.0.8; lock is 5.0.9
+    "click>=8.5.0,<9",  # direct import (init.py shell completion); 8.3.3 fixes CVE-2025-6143/6144
+    "diskcache>=5.6.3,<6",  # GHSA-w8v5-vhqr-4h9v unfixed upstream; NoPickleDisk + chmod 0o700 mitigate (compile_cache / matcher.core)
+    "httpx>=0.28.1,<1",  # ReVa MCP / remote-tooling HTTP client (ghidra/, skeleton.py, decompiler.py, wibo.py)
+    "idna>=3.19,<4",  # NO direct import — transitive security pin: idna <3.15 has a Unicode-property DoS advisory; this floor forces the fixed version through httpx's tree
+    "lief>=1.0.0,<2",  # 1.0 verified: full suite green (was held at <1 on breaking rumors)
+    "numpy>=2.5.3,<3",  # byte/structural similarity scoring (matcher/scoring.py, core/matching.py, binary_similarity.py)
+    "python-flirt>=0.10.0,<1",  # FLIRT .sig signature scanning (flirt.py; imports as `flirt`)
+    "rich>=15.0.0,<16",  # console rendering (Console(stderr=True) convention) and typer's markup backend
+    "tomlkit>=0.15.1,<1",  # round-trip-preserving TOML writes (metadata.py, cfg.py, library.py)
+    "tree-sitter>=0.26.0,<1",  # C AST parsing (c_parser.py, struct_parser.py, matcher/ast_engine.py) — never regex-parse C
+    "tree-sitter-c>=0.24.2,<1",  # C grammar for tree-sitter
+    "typer>=0.27.2,<1",  # CLI framework (every main_entry); floor tracks lock
+    "zstandard>=0.25.0,<1",  # coverage.db codec for the materialized per-section cell JSON (build_db), and the dashboard's wire compression
 ]
 
 [project.optional-dependencies]
@@ -55,15 +62,15 @@ dependencies = [
 # [dependency-groups] so a `pip install rebrew[...]` / PyPI upload cannot
 # resolve the wrong package or reject a direct URL.
 prove = [
-    "angr>=9.3.4",  # BSD-2-Clause; pulls pyvex (LibVEX is GPL-2.0-or-later, see NOTICE)
-    "claripy>=9.3.4",  # direct import in prove.py / doctor.py; same release train as angr
-    "gitpython>=3.1.62",  # angr→gitpython transitively; 3.1.58+ fixes the RCE-class advisories
+    "angr>=9.3.4,<10",  # BSD-2-Clause; pulls pyvex (LibVEX is GPL-2.0-or-later, see NOTICE)
+    "claripy>=9.3.4,<10",  # direct import in prove.py / doctor.py; same release train as angr
+    "gitpython>=3.1.62,<4",  # angr→gitpython transitively; 3.1.58+ fixes the RCE-class advisories
 ]
 # BinSync state I/O: declib is BinSync's artifact layer.  rebrew.binsync.serial
 # is the single module that touches it; the CLIs raise a clear install error
 # when the extra is absent.
 binsync = [
-    "declib>=4.5.0",
+    "declib>=4.5.0,<5",
 ]
 
 [project.scripts]
@@ -325,13 +332,13 @@ resembl = { path = "../resembl" }
 [dependency-groups]
 dev = [
     "mypy>=2.3.1,<3",
-    "pytest>=9.1.1",  # CVE-2025-71176 (tmpdir) fixed in 9.0.3; floor tracks lock
-    "slipcover>=1.1.0",
-    "ruff>=0.16.7",  # floor tracks lock; older minors shipped years-old lint rulesets
-    "pre-commit>=4.6.2",
-    "hypothesis>=6.168.0",
-    "skills-ref>=0.1.1",  # the pre-commit "Validate Agent Skills" hook binary
-    "pyyaml>=6.0.3",  # direct import in tests/test_ci_pins.py; was only reachable via pre-commit
+    "pytest>=9.1.1,<10",  # CVE-2025-71176 (tmpdir) fixed in 9.0.3; floor tracks lock
+    "slipcover>=1.1.0,<2",
+    "ruff>=0.16.7,<1",  # floor tracks lock; older minors shipped years-old lint rulesets
+    "pre-commit>=4.6.2,<5",
+    "hypothesis>=6.168.0,<7",
+    "skills-ref>=0.1.1,<1",  # the pre-commit "Validate Agent Skills" hook binary
+    "pyyaml>=6.0.3,<7",  # direct import in tests/test_ci_pins.py; was only reachable via pre-commit
 ]
 # Optional code-similarity scoring (rebrew verify "Sim %"): sibling `resembl`
 # scoring core + rapidfuzz.  Path-pinned via [tool.uv.sources] — never an
@@ -340,7 +347,7 @@ dev = [
 # resembl 3.0.0 declares License: GPL-3.0-only. See NOTICE.
 similarity = [
     "resembl",
-    "rapidfuzz>=3.14.6",  # direct import in matcher/scoring.py code_similarity
+    "rapidfuzz>=3.14.6,<4",  # direct import in matcher/scoring.py code_similarity
 ]
 # m2c decompiler backend (decompiler.py fetch_m2c).  Not on PyPI under this
 # name (the PyPI `m2c` is an unrelated OpenAPI package) — git-only, so it
