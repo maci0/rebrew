@@ -158,6 +158,7 @@ from rich.markup import escape
 from rebrew import theme
 from rebrew.build_db import FUNCTION_ROWS_SQL, resolve_db_dir
 from rebrew.cli import console, error_exit, json_print
+from rebrew.compression import precompress
 from rebrew.metadata import canonical_status
 from rebrew.status_style import status_mark_groups
 from rebrew.utils import floor_pct, strip_bidi_format
@@ -276,10 +277,9 @@ _MIN_COMPRESS_BYTES = 256
 # Per-request dynamic JSON: mid effort (bodies are rebuilt every request).
 _GZIP_LEVEL = 5
 _ZSTD_LEVEL = 5
-# Static HTML shell: max effort once at import; served precompressed thereafter.
-_GZIP_PRECOMPRESS_LEVEL = 9
-_ZSTD_PRECOMPRESS_LEVEL = 19
-# JSON the cold start cannot paint without, compressed at the same max effort.
+# The static HTML shell and the cold-start body take their max effort from
+# rebrew.compression, which the report sidecars share.
+# JSON the cold start cannot paint without, compressed at that same max effort.
 # The entry assets are precompressed because they are fixed for the process;
 # this body is rebuilt per request, but a client sends it about once per load
 # and revalidates every one after that (ETag -> 304, no body).  Mid effort
@@ -1574,26 +1574,12 @@ _CACHE_REVALIDATE = "private, no-cache"
 _CACHE_IMMUTABLE = "private, max-age=31536000, immutable"
 
 
-def _precompress(raw: bytes, encoding: _WireEncoding) -> bytes | None:
-    """Return a max-effort blob when it shrinks *raw*, else ``None``.
-
-    Gzip ``mtime=0`` so the bytes depend only on *raw*.  The ETag is the
-    uncompressed hash; a restarted process must not serve a different gzip
-    body for that same tag.
-    """
-    if encoding == "zstd":
-        compressed = zstandard.ZstdCompressor(level=_ZSTD_PRECOMPRESS_LEVEL).compress(raw)
-    else:
-        compressed = gzip.compress(raw, compresslevel=_GZIP_PRECOMPRESS_LEVEL, mtime=0)
-    return compressed if len(compressed) < len(raw) else None
-
-
-_INDEX_HTML_ZSTD = _precompress(_INDEX_HTML_BYTES, "zstd")
-_INDEX_HTML_GZIP = _precompress(_INDEX_HTML_BYTES, "gzip")
-_APP_JS_ZSTD = _precompress(_APP_JS_BYTES, "zstd")
-_APP_JS_GZIP = _precompress(_APP_JS_BYTES, "gzip")
-_BOOT_GUARD_JS_ZSTD = _precompress(_BOOT_GUARD_JS_BYTES, "zstd")
-_BOOT_GUARD_JS_GZIP = _precompress(_BOOT_GUARD_JS_BYTES, "gzip")
+_INDEX_HTML_ZSTD = precompress(_INDEX_HTML_BYTES, "zstd")
+_INDEX_HTML_GZIP = precompress(_INDEX_HTML_BYTES, "gzip")
+_APP_JS_ZSTD = precompress(_APP_JS_BYTES, "zstd")
+_APP_JS_GZIP = precompress(_APP_JS_BYTES, "gzip")
+_BOOT_GUARD_JS_ZSTD = precompress(_BOOT_GUARD_JS_BYTES, "zstd")
+_BOOT_GUARD_JS_GZIP = precompress(_BOOT_GUARD_JS_BYTES, "gzip")
 
 
 def _int_param(params: dict[str, list[str]], name: str, default: int) -> int:
@@ -2414,18 +2400,6 @@ def _compress(body: bytes, encoding: _WireEncoding) -> bytes:
     return gzip.compress(body, compresslevel=_GZIP_LEVEL)
 
 
-def _compress_cold_start(body: bytes, encoding: _WireEncoding) -> bytes:
-    """Compress the cold-start JSON body at max effort for *encoding*.
-
-    Same levels the import-time static blobs use: this body goes out once per
-    load and is a 304 on every load after, so the extra effort is paid about
-    once and buys bytes inside the initial congestion window.
-    """
-    if encoding == "zstd":
-        return zstandard.ZstdCompressor(level=_ZSTD_PRECOMPRESS_LEVEL).compress(body)
-    return gzip.compress(body, compresslevel=_GZIP_PRECOMPRESS_LEVEL, mtime=0)
-
-
 def _maybe_compress(
     body: bytes, accept_encoding: str, *, cold_start: bool = False
 ) -> tuple[bytes, _WireEncoding | None]:
@@ -2439,8 +2413,14 @@ def _maybe_compress(
     encoding = _negotiate_encoding(accept_encoding)
     if encoding is None:
         return body, None
-    compress = _compress_cold_start if cold_start else _compress
-    compressed = compress(body, encoding)
+    if cold_start:
+        # Same levels the import-time static blobs use, and the same
+        # "did it shrink" rule: this body goes out once per load and is a 304
+        # on every load after, so the extra effort is paid about once and buys
+        # bytes inside the initial congestion window.
+        compressed = precompress(body, encoding)
+        return (body, None) if compressed is None else (compressed, encoding)
+    compressed = _compress(body, encoding)
     if len(compressed) >= len(body):
         return body, None
     return compressed, encoding

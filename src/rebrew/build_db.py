@@ -39,6 +39,7 @@ from rebrew.workspace import (
     SECTION_CELLS_AGG_SQL,
     SECTION_CELLS_COLUMN,
     SECTION_CELLS_TABLE,
+    SQLITE_TIMEOUT_SECONDS,
     coverage_db_lock,
     db_dir,
     encode_section_cells,
@@ -194,8 +195,6 @@ _EMPTY_CELLS_JSON = "[]"
 #: the newest 100 (max 5000) — keeping 10k per target preserves 2+ full
 #: pages of history while bounding unbounded growth.
 _HISTORY_RETENTION = 10_000
-
-_SQLITE_TIMEOUT_SECONDS = 30.0
 
 #: Fallback cell geometry for a section row whose hand-edited JSON omits
 #: ``unitBytes``/``columns`` or carries a non-positive value (the schema CHECK
@@ -1635,7 +1634,7 @@ def _build_coverage_db(
 
     conn: sqlite3.Connection | None = None
     try:
-        conn = sqlite3.connect(db_path, timeout=_SQLITE_TIMEOUT_SECONDS)
+        conn = sqlite3.connect(db_path, timeout=SQLITE_TIMEOUT_SECONDS)
         c: sqlite3.Cursor = conn.cursor()
         # WAL + relaxed sync trade durability for throughput on a rebuildable
         # cache DB; foreign_keys=ON enforces cells/section_cells_json/section_cell_stats

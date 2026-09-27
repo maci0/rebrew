@@ -1973,13 +1973,11 @@ class TestEncodingNegotiation:
         """
         import zstandard
 
-        from rebrew.dashboard import (
-            _GZIP_LEVEL,
-            _GZIP_PRECOMPRESS_LEVEL,
-            _ZSTD_LEVEL,
-            _ZSTD_PRECOMPRESS_LEVEL,
-            _maybe_compress,
+        from rebrew.compression import (
+            GZIP_PRECOMPRESS_LEVEL,
+            ZSTD_PRECOMPRESS_LEVEL,
         )
+        from rebrew.dashboard import _GZIP_LEVEL, _ZSTD_LEVEL, _maybe_compress
 
         # A 100-function first page, the shape the cold start actually sends.
         body = json.dumps(
@@ -1995,8 +1993,8 @@ class TestEncodingNegotiation:
         assert len(body) > 256
 
         for accept, effort, max_effort in (
-            ("gzip", _GZIP_LEVEL, _GZIP_PRECOMPRESS_LEVEL),
-            ("zstd", _ZSTD_LEVEL, _ZSTD_PRECOMPRESS_LEVEL),
+            ("gzip", _GZIP_LEVEL, GZIP_PRECOMPRESS_LEVEL),
+            ("zstd", _ZSTD_LEVEL, ZSTD_PRECOMPRESS_LEVEL),
         ):
             mid, encoding = _maybe_compress(body, accept)
             cold, cold_encoding = _maybe_compress(body, accept, cold_start=True)

@@ -33,7 +33,6 @@ Usage:
     rebrew report --json                # Machine-readable summary
 """
 
-import gzip
 import html
 import json
 import logging
@@ -55,6 +54,7 @@ from rebrew.cli import (
     require_config,
 )
 from rebrew.config import ProjectConfig
+from rebrew.compression import precompress
 from rebrew.depgraph import NodeInfo, build_graph, render_mermaid
 from rebrew.import_table import find_import_stubs, parse_imports
 from rebrew.sources import (
@@ -93,9 +93,6 @@ _REFS_CELL_COUNT = 5
 # Mermaid past this stays out of graph.html.  A few thousand functions is
 # hundreds of KB of source; the page keeps the opening lines and links the file.
 _MERMAID_INLINE_MAX = 32 * 1024
-# Max-effort gzip/zstd for build-once static assets (mirrors dashboard precompress).
-_GZIP_PRECOMPRESS_LEVEL = 9
-_ZSTD_PRECOMPRESS_LEVEL = 19
 # Files this command owns inside the output directory (plus .gz / .zst sidecars).
 # Anything else in --output is left alone.
 _OWNED_REPORT_FILE = re.compile(
@@ -303,8 +300,9 @@ def _write_static(path: Path, content: str | bytes, *, encoding: str = "utf-8") 
 
     Sidecars that do not shrink the body are removed.  A static server that
     prefers ``name.gz`` over ``name`` would otherwise keep serving the previous
-    page after this one stopped compressing.  Gzip ``mtime=0`` so an unchanged
-    page keeps a byte-identical sidecar across rebuilds.
+    page after this one stopped compressing.  :func:`rebrew.compression.precompress`
+    pins gzip ``mtime=0``, so an unchanged page keeps a byte-identical sidecar
+    across rebuilds.
     """
     if isinstance(content, str):
         atomic_write_text(path, content, encoding=encoding)
@@ -312,14 +310,8 @@ def _write_static(path: Path, content: str | bytes, *, encoding: str = "utf-8") 
     else:
         atomic_write_bytes(path, content)
         raw = content
-    gzipped = gzip.compress(raw, compresslevel=_GZIP_PRECOMPRESS_LEVEL, mtime=0)
-    _write_sidecar(Path(str(path) + ".gz"), gzipped if len(gzipped) < len(raw) else None)
-    # Deferred import: report is a CLI component; keep zstandard off the
-    # cold path of unrelated commands that never call generate_report.
-    import zstandard
-
-    zstd = zstandard.ZstdCompressor(level=_ZSTD_PRECOMPRESS_LEVEL).compress(raw)
-    _write_sidecar(Path(str(path) + ".zst"), zstd if len(zstd) < len(raw) else None)
+    _write_sidecar(Path(str(path) + ".gz"), precompress(raw, "gzip"))
+    _write_sidecar(Path(str(path) + ".zst"), precompress(raw, "zstd"))
 
 
 def _owned_report_name(name: str) -> str | None:

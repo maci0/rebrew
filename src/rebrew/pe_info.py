@@ -45,6 +45,7 @@ from rich.table import Table
 
 from rebrew.binary_loader import decode_binary_name, detect_format_and_arch
 from rebrew.cli import EXIT_ERROR, TargetOption, console, error_exit, json_print, resolve_binary_arg
+from rebrew.pe_headers import PE32_PLUS_MAGIC
 from rebrew.pe_symbols import (
     PeDirectories,
     export_table,
@@ -151,9 +152,6 @@ _SECURITY_ITEM_COUNT = len(_SECURITY_ITEMS) + 1
 
 #: The bound-import directory type name the checklist reads.
 _BOUND_IMPORT_DIRECTORY = "BOUND_IMPORT"
-
-#: PE32+ optional-header magic (`IMAGE_NT_OPTIONAL_HDR64_MAGIC`).
-_PE32_PLUS_MAGIC = 0x20B
 
 #: Security flag key → human label, in the order ``flags_summary`` reports
 #: them.  Only these keys reach the summary; ``certificate_table`` is a
@@ -589,7 +587,7 @@ def _is_pe32_plus(magic: Any) -> bool:
     """True when the optional-header magic marks a PE32+ (64-bit) image."""
     if _text(magic) == "PE32_PLUS":
         return True
-    return _to_int(magic) == _PE32_PLUS_MAGIC
+    return _to_int(magic) == PE32_PLUS_MAGIC
 
 
 def _elf_bits(header: Any) -> int | None:

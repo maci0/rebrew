@@ -13,8 +13,10 @@ import sqlite3
 from collections.abc import Iterator
 from pathlib import Path
 
-#: Busy-wait budget for read-only opens (matches build_db / dashboard).
-_SQLITE_TIMEOUT_SECONDS = 30.0
+#: Busy-wait budget for every coverage.db open, read-only or not, so a
+#: writer holding the file does not surface as a different failure depending
+#: on which entry point reached it.
+SQLITE_TIMEOUT_SECONDS = 30.0
 
 #: ``metadata.target`` value carrying database-level (not per-target) rows.
 SCHEMA_TARGET = "__schema__"
@@ -170,7 +172,7 @@ def open_sqlite_ro(path: Path) -> sqlite3.Connection:
     cannot mutate the file.  Callers must close the connection (prefer
     ``contextlib.closing``).
     """
-    conn = sqlite3.connect(sqlite_ro_uri(path), uri=True, timeout=_SQLITE_TIMEOUT_SECONDS)
+    conn = sqlite3.connect(sqlite_ro_uri(path), uri=True, timeout=SQLITE_TIMEOUT_SECONDS)
     try:
         conn.execute("PRAGMA query_only=ON")
     except BaseException:

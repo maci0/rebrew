@@ -16,11 +16,9 @@ import threading
 from pathlib import Path
 from typing import Any
 
-log = logging.getLogger(__name__)
+from rebrew.pe_headers import PE32_PLUS_MAGIC, pe_layout
 
-#: IMAGE_NT_OPTIONAL_HDR64_MAGIC — a PE32+ optional header, whose ``FF 25``
-#: stub operand is RIP-relative rather than an absolute slot VA.
-_PE32_PLUS_MAGIC = 0x20B
+log = logging.getLogger(__name__)
 
 #: Parsed import tables by file identity.  A run has one target, so a handful
 #: of entries is all this ever holds; the bound only guards a long-lived
@@ -276,7 +274,6 @@ def find_import_stubs(binary_path: Path) -> dict[int, str]:
     if not table:
         return {}
     from rebrew.binary_loader import load_binary
-    from rebrew.pe_headers import pe_layout
 
     try:
         info = load_binary(binary_path)
@@ -286,7 +283,7 @@ def find_import_stubs(binary_path: Path) -> dict[int, str]:
     if text is None or text.file_offset < 0 or text.size <= 0:
         return {}
     layout = pe_layout(info.data)
-    rip_relative = layout is not None and layout.magic == _PE32_PLUS_MAGIC
+    rip_relative = layout is not None and layout.magic == PE32_PLUS_MAGIC
     stub_va = text.va
     blob = info.data[text.file_offset : text.file_offset + text.size]
     stubs: dict[int, str] = {}

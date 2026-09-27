@@ -66,8 +66,8 @@ SECTION_ENTRY_SIZE = 40
 #: Optional-header magic values: IMAGE_NT_OPTIONAL_HDR32_MAGIC and
 #: IMAGE_NT_OPTIONAL_HDR64_MAGIC.  They select the optional header's field
 #: widths (a PE32+ ImageBase is 8 bytes and starts four bytes earlier).
-_PE32_MAGIC = 0x10B
-_PE32_PLUS_MAGIC = 0x20B
+PE32_MAGIC = 0x10B
+PE32_PLUS_MAGIC = 0x20B
 
 #: COFF field offsets, relative to e_lfanew.
 _COFF_NUMBER_OF_SECTIONS = 0x06
@@ -202,11 +202,11 @@ def pe_image_base(data: bytes | bytearray) -> int | None:
     if layout is None:
         return None
     pos = layout.optional_header_offset
-    if layout.magic == _PE32_PLUS_MAGIC:
+    if layout.magic == PE32_PLUS_MAGIC:
         if pos + 32 > len(data):
             return None
         return int.from_bytes(data[pos + 24 : pos + 32], "little")
-    if layout.magic != _PE32_MAGIC or pos + 32 > len(data):
+    if layout.magic != PE32_MAGIC or pos + 32 > len(data):
         return None
     return int.from_bytes(data[pos + 28 : pos + 32], "little")
 
@@ -214,7 +214,7 @@ def pe_image_base(data: bytes | bytearray) -> int | None:
 def _field_specs(data: bytes) -> list[tuple[int, int, str]]:
     """The header-field table matching *data*'s optional-header magic."""
     layout = pe_layout(data)
-    if layout is not None and layout.magic == _PE32_PLUS_MAGIC:
+    if layout is not None and layout.magic == PE32_PLUS_MAGIC:
         return _FIELD_SPECS_PE32_PLUS
     return _FIELD_SPECS
 
@@ -333,6 +333,8 @@ def header_parity(
 
 __all__ = [
     "PATCHABLE",
+    "PE32_MAGIC",
+    "PE32_PLUS_MAGIC",
     "SECTION_ENTRY_SIZE",
     "PeLayout",
     "PeSection",
