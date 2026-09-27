@@ -46,7 +46,8 @@ same tiers and the data/globals/layout pipeline.
    CFLAGS value; without one it is deprecated and migrated like the rest.  `// SOURCE: naked` is likewise
    file-borne and exempt (it must travel with the file; self-clears when the
    C body replaces it).  The `.c` marker line keeps only identity: `// FUNCTION: MODULE 0xVA`.
-2. **STATUS display precedence**: metadata STATUS > `.rebrew/verify_cache.json`
+2. **STATUS display precedence**: metadata `PROVEN`/`SKIP` (and `STUB` over
+   the cache's `SIZE_MISMATCH`/`MISSING_SIZE`/`STUB`) > `.rebrew/verify_cache.json`
    measured result (the cache holds byte verdicts only, never PROVEN)
    > grid/DB snapshot.
 3. **Per-function > per-library > project** for toolchain/cflags
