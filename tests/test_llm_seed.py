@@ -43,6 +43,7 @@ from rebrew.llm_seed import (
     chat_messages,
     extract_seeds,
     llm_config,
+    merge_usage,
     request_seeds,
     sanitize_log_value,
     seed_usage_total,
@@ -1452,6 +1453,91 @@ class TestSeedUsage:
         assert _PROMPT_VERSION in text
         assert "33 tokens" in text
         assert "1.2s" in text
+
+    def test_describe_reports_what_the_spend_bought(self) -> None:
+        """Cost alone cannot say whether seeding earned its keep."""
+        usage = SeedUsage(
+            model="gpt-4o-mini-2024-07-18",
+            prompt_version=_PROMPT_VERSION,
+            prompt_tokens=11,
+            completion_tokens=22,
+            total_tokens=33,
+            duration_s=1.25,
+            seeds=2,
+            rejected=5,
+        )
+        text = usage.describe()
+        assert "2 seed(s) kept" in text
+        assert "5 rejected by the C gate" in text
+
+    def test_describe_omits_the_rejection_count_when_nothing_was_rejected(self) -> None:
+        usage = SeedUsage(
+            model="gpt-4o-mini-2024-07-18",
+            prompt_version=_PROMPT_VERSION,
+            prompt_tokens=11,
+            completion_tokens=22,
+            total_tokens=33,
+            duration_s=1.25,
+            seeds=2,
+        )
+        assert "rejected by the C gate" not in usage.describe()
+
+    def test_merge_sums_the_yield_counts(self) -> None:
+        base = SeedUsage(
+            model="m",
+            prompt_version=_PROMPT_VERSION,
+            prompt_tokens=1,
+            completion_tokens=2,
+            total_tokens=3,
+            duration_s=1.0,
+            seeds=1,
+            rejected=1,
+        )
+        other = SeedUsage(
+            model="m",
+            prompt_version=_PROMPT_VERSION,
+            prompt_tokens=1,
+            completion_tokens=2,
+            total_tokens=3,
+            duration_s=1.0,
+            seeds=2,
+            rejected=4,
+        )
+        merged = merge_usage(base, other)
+        assert (merged.seeds, merged.rejected) == (3, 5)
+
+    def test_a_billed_run_records_seeds_kept_and_candidates_rejected(self) -> None:
+        """A response that costs tokens and yields nothing must say so."""
+        client = _FakeClient(
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": (
+                                "```c\nint f(void) { return 0; }\n```\n"
+                                "```c\nthis is not valid c ```\n"
+                            )
+                        }
+                    }
+                ],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
+            }
+        )
+        assert request_seeds(_cfg("https://llm/v1"), "int f(void){return 0;}", client=client) == [
+            "int f(void) { return 0; }"
+        ]
+        usage = seed_usage_total()
+        assert usage is not None
+        assert (usage.seeds, usage.rejected) == (1, 1)
+        assert "1 seed(s) kept" in usage.describe()
+
+    def test_a_failed_request_records_no_yield(self) -> None:
+        """A request with no response kept nothing; the counts say zero, not None."""
+        client = _EchoingClient("connection reset by peer")
+        assert request_seeds(_cfg("https://llm/v1"), "int f(void){return 0;}", client=client) == []
+        usage = seed_usage_total()
+        assert usage is not None
+        assert (usage.seeds, usage.rejected) == (0, 0)
 
     def test_a_request_that_failed_after_leaving_the_process_still_records_cost(
         self, caplog: pytest.LogCaptureFixture

@@ -45,7 +45,9 @@ that ``rebrew match --seed-llm`` prints in the run summary, because the
 INFO log line carrying the same numbers is invisible without ``-v``.  A
 request that left the process and then failed (timeout, 5xx after
 generation) is recorded too, with unreported tokens, so an endpoint that
-charges for work whose answer never arrived is not read as a free run.  A
+charges for work whose answer never arrived is not read as a free run.  The
+same record carries what the spend bought (seeds kept, candidates the C gate
+rejected), because tokens alone cannot say whether seeding earned its keep.  A
 bearer key that reaches the transport inside an exception message (an illegal
 header value comes back quoted) is redacted before any log or console line.
 ``--seed-llm --dry-run`` previews the exact ``messages`` array (each turn
@@ -248,6 +250,13 @@ class SeedUsage:
     object; the request was billed either way.  In a merged record the counts
     sum what *was* reported and ``unreported`` says how many requests reported
     nothing, so a partial total never reads as a whole one.
+
+    ``seeds`` and ``rejected`` carry what the spend bought: seeds that passed
+    the C gate and entered the GA population, and fenced candidates the gate
+    turned away.  Cost alone does not say whether seeding earned its keep, and
+    a model that answers on-topic with unusable C bills exactly like one that
+    answers with a matching implementation.  Both are 0 for a request that
+    never produced a response (see :func:`_record_attempt`).
     """
 
     model: str
@@ -258,6 +267,8 @@ class SeedUsage:
     duration_s: float
     requests: int = 1
     unreported: int = 0
+    seeds: int = 0
+    rejected: int = 0
 
     def describe(self) -> str:
         """One-line cost summary for the ``match --seed-llm`` run output."""
@@ -271,11 +282,17 @@ class SeedUsage:
             if self.unreported:
                 # A sum that silently omits a billed request understates spend.
                 tokens = f"{tokens} +{self.unreported} request(s) unreported"
+        yield_summary = f", {self.seeds} seed(s) kept"
+        if self.rejected:
+            yield_summary += f", {self.rejected} rejected by the C gate"
         if self.requests == 1:
-            return f"{self.model}, prompt {self.prompt_version}, {tokens}, {self.duration_s:.1f}s"
+            return (
+                f"{self.model}, prompt {self.prompt_version}, {tokens}, "
+                f"{self.duration_s:.1f}s{yield_summary}"
+            )
         return (
             f"{self.requests} requests, {self.model}, prompt {self.prompt_version}, "
-            f"{tokens}, {self.duration_s:.1f}s"
+            f"{tokens}, {self.duration_s:.1f}s{yield_summary}"
         )
 
 
@@ -292,6 +309,8 @@ def merge_usage(into: SeedUsage, other: SeedUsage) -> SeedUsage:
         duration_s=into.duration_s + other.duration_s,
         requests=into.requests + other.requests,
         unreported=into.unreported + other.unreported,
+        seeds=into.seeds + other.seeds,
+        rejected=into.rejected + other.rejected,
     )
 
 
@@ -758,7 +777,14 @@ def _parse_response(data: Any) -> str:
     return ""
 
 
-def _log_usage(data: Any, model: str, *, duration_s: float | None = None) -> SeedUsage | None:
+def _log_usage(
+    data: Any,
+    model: str,
+    *,
+    duration_s: float | None = None,
+    seeds: int = 0,
+    rejected: int = 0,
+) -> SeedUsage | None:
     """Log token counts and latency, and record them for the run summary.
 
     A request is billed whether or not the provider returns a ``usage``
@@ -766,6 +792,10 @@ def _log_usage(data: Any, model: str, *, duration_s: float | None = None) -> See
     makes the record: without it there is no cost worth reporting and None is
     returned.  Non-integer provider fields become None rather than being
     formatted into the record.
+
+    *seeds* / *rejected* are what the billed tokens bought, and the caller
+    knows them only after the C gate has run, so the record is made once, at
+    the end of the request.
     """
     if duration_s is None:
         return None
@@ -780,26 +810,33 @@ def _log_usage(data: Any, model: str, *, duration_s: float | None = None) -> See
         total_tokens=total,
         duration_s=duration_s,
         unreported=1 if total is None else 0,
+        seeds=seeds,
+        rejected=rejected,
     )
     _record_usage(record)
     if usage:
         reported = sanitize_log_value(data.get("model") or model)
         logging.info(
             "LLM seed usage: model=%s prompt=%s prompt_tokens=%s completion_tokens=%s "
-            "total_tokens=%s latency=%.2fs",
+            "total_tokens=%s latency=%.2fs seeds=%d rejected=%d",
             reported,
             _PROMPT_VERSION,
             sanitize_log_value(usage.get("prompt_tokens")),
             sanitize_log_value(usage.get("completion_tokens")),
             sanitize_log_value(usage.get("total_tokens")),
             duration_s,
+            seeds,
+            rejected,
         )
     else:
         logging.info(
-            "LLM seed usage: model=%s prompt=%s tokens unreported latency=%.2fs",
+            "LLM seed usage: model=%s prompt=%s tokens unreported latency=%.2fs "
+            "seeds=%d rejected=%d",
             sanitize_log_value(data.get("model") or model) if isinstance(data, dict) else model,
             _PROMPT_VERSION,
             duration_s,
+            seeds,
+            rejected,
         )
     return record
 
@@ -1019,7 +1056,6 @@ def _request(
         data = _load_response_json(resp)
     duration_s = time.monotonic() - t0
     _warn_on_substituted_model(data.get("model") if isinstance(data, dict) else None, model)
-    _log_usage(data, model, duration_s=duration_s)
     text = _parse_response(data)
     # Drop whitespace-insensitive repeats: duplicates waste population slots.
     seen: set[str] = set()
@@ -1033,6 +1069,17 @@ def _request(
             break
         if _accepts_seed(s, expect, seen):
             seeds.append(s)
+    # Recorded here, not at the HTTP boundary: the run summary reports what the
+    # spend bought, and the gate verdict is only known once the loop is done.
+    # Both are safe to reach — ``valid_c_source`` swallows its own failures —
+    # so a request that reaches here always produces exactly one record.
+    _log_usage(
+        data,
+        model,
+        duration_s=duration_s,
+        seeds=len(seeds),
+        rejected=len(checked) - len(seeds),
+    )
     if not seeds:
         # --seed-llm was asked for: say why nothing arrived instead of
         # silently running the GA as if seeding had never been requested.  The

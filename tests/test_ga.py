@@ -1707,6 +1707,36 @@ class TestOutDirRejection:
         assert seen[0]["json_output"] is False
 
 
+class TestSeedLlmRejection:
+    """--seed-llm is single-function only; batch mode must reject it, not
+    silently drop a flag the operator asked a paid endpoint for."""
+
+    @pytest.mark.parametrize("mode", ["--all", "--all-targets"])
+    def test_batch_rejects_seed_llm(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: str
+    ) -> None:
+        from types import SimpleNamespace
+
+        from typer.testing import CliRunner
+
+        from rebrew.match import app
+
+        monkeypatch.setattr(
+            "rebrew.match.require_config",
+            lambda target=None, json_mode=False: SimpleNamespace(
+                root=tmp_path,
+                default_jobs=2,
+                reversed_dir=tmp_path / "src",
+                metadata_dir=tmp_path,
+                marker="SERVER",
+                target_binary=tmp_path / "x.dll",
+            ),
+        )
+        result = CliRunner().invoke(app, [mode, "--seed-llm"])
+        assert result.exit_code != 0
+        assert "--seed-llm is single-function only" in result.output
+
+
 class TestGaHistory:
     """match --ga-history summarizes .rebrew/ga_runs.jsonl."""
 

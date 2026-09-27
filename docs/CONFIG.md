@@ -361,6 +361,11 @@ by the CLI layer and win for that invocation.
   endpoint, so a `--watch` rerun that leaves the function under match
   unchanged costs no request slot and no tokens; only non-empty answers are
   cached, so a refusal or an outage is retried rather than remembered.
+  Whatever the requests cost, `rebrew match --seed-llm` prints one
+  `LLM cost:` line per run carrying the model, prompt version, token
+  counts, latency, and what the spend bought (`N seed(s) kept`, plus
+  candidates the C gate rejected), so a run that bills without seeding is
+  visible as such.
 - `REBREW_LLM_TIMEOUT` — per-request HTTP budget for one LLM seeding call,
   in seconds (default `90`). A timed-out request is still billed and its
   seeds are lost, so raise it for a local model that needs minutes for a

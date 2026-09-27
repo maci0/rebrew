@@ -412,6 +412,16 @@ def main(
     if (all_mode or all_targets) and out_dir != "output/ga_runs":
         # Batch mode hardcodes cfg.root/output/ga_runs — reject a silent no-op.
         error_exit("--out-dir only applies to single-function mode", json_mode=json_output)
+    if llm_seed and (all_mode or all_targets):
+        # Batch mode seeds from the run log and extra files only, so the flag
+        # would be dropped without a word.  An operator who asked for a paid
+        # LLM call and got a silent no-op has no way to tell the two apart from
+        # "the endpoint returned nothing usable".
+        error_exit(
+            "--seed-llm is single-function only (batch mode seeds from "
+            "--seed-solutions-file and --extra-seed); run one target at a time",
+            json_mode=json_output,
+        )
 
     # --mutation-focus in batch mode applies one explicit category to every
     # stub ("auto" is per-function — the BLOCKER lives in the stub's metadata).

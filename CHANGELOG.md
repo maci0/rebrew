@@ -173,6 +173,23 @@
   reset each request. No `/api/*` JSON changed.
 
 ### Changed
+- **The LLM cost line now reports what the spend bought.** `rebrew match
+  --seed-llm` printed tokens, latency, and the model pin, which says how much
+  a run cost but nothing about whether it earned its keep: an endpoint that
+  answers on-topic with unusable C bills exactly like one that answers with a
+  matching implementation. `SeedUsage` now also carries the yield (seeds that
+  passed the C gate, candidates it turned away), recorded once the gate has
+  run rather than at the HTTP boundary, summed by `merge_usage`, and rendered
+  by `describe()` as `N seed(s) kept` / `N rejected by the C gate`. Both are
+  `0` for a request that produced no response, so a failed call cannot read
+  as a productive one.
+- **`rebrew match --all` / `--all-targets` now reject `--seed-llm` instead of
+  dropping it.** Batch mode seeds from `--seed-solutions-file` and
+  `--extra-seed`, so the flag was accepted and then ignored: an operator who
+  asked a paid endpoint for seeds got neither seeds nor an error, and had no
+  way to tell that apart from "the endpoint returned nothing usable". It now
+  exits through `error_exit` naming the single-function restriction, alongside
+  the existing `--out-dir` and `--mutation-focus auto` combination guards.
 - **Breaking:** **`parse_size_mismatch_all` is gone from
   `rebrew.match_batch`.** It
   was the last of the three `parse_*_info` helpers over the shared
