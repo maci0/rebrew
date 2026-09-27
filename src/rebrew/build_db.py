@@ -182,6 +182,11 @@ _SECTION_CELL_STATS_SELECT = """
 #: materialized; see _SECTION_CELL_STATS_SELECT).
 SECTION_CELL_STATS_TABLE = "section_cell_stats"
 
+#: Cell array stored for a section that has a `sections` row but no cell.
+#: Empty, not absent: the reader gets the section it asked for with nothing in
+#: it, which is what a cell-less section actually holds.
+_EMPTY_CELLS_JSON = "[]"
+
 #: Per-target retention cap for the history table: only the newest N status-
 #: change rows per target are kept after each rebuild.  The dashboard pages
 #: the newest 100 (max 5000) — keeping 10k per target preserves 2+ full
@@ -1302,12 +1307,27 @@ def _create_schema(c: sqlite3.Cursor, target: str | None) -> None:
     # The dashboard filters by status or module and pages ORDER BY va; the
     # trailing va lets the index serve the sort, so the planner seeks the
     # filter instead of walking idx_functions_list over the whole target.
-    # Scoped rebuilds keep the table: drop the (target, status|module)
-    # copies older builds created.
+    # Both carry the SAME partial predicate as idx_functions_list, because
+    # every query that reaches for them also carries it: `functions()` appends
+    # FUNCTION_ROWS_SQL to its WHERE for the row list and the COUNT alike, so
+    # data rows the UI never lists are dead weight in the b-tree (measured on
+    # a 20k-row target at 43% code rows: 524 KB -> 229 KB, module index
+    # likewise) and pure write cost on every rebuild.  Dropped and recreated
+    # every run, like idx_functions_list, so a scoped rebuild cannot keep a
+    # full copy older builds created, which would then be used instead of the
+    # partial one (the name is all the version gate checks).
     c.execute("DROP INDEX IF EXISTS idx_functions_status")
     c.execute("DROP INDEX IF EXISTS idx_functions_module")
-    c.execute("CREATE INDEX IF NOT EXISTS idx_functions_status_va ON functions(target, status, va)")
-    c.execute("CREATE INDEX IF NOT EXISTS idx_functions_module_va ON functions(target, module, va)")
+    c.execute("DROP INDEX IF EXISTS idx_functions_status_va")
+    c.execute("DROP INDEX IF EXISTS idx_functions_module_va")
+    c.execute(
+        f"CREATE INDEX idx_functions_status_va ON functions(target, status, va) "
+        f"WHERE {FUNCTION_ROWS_SQL}"
+    )
+    c.execute(
+        f"CREATE INDEX idx_functions_module_va ON functions(target, module, va) "
+        f"WHERE {FUNCTION_ROWS_SQL}"
+    )
     # Dashboard + _function_stats list only FUNCTION_ROWS_SQL rows and
     # ORDER BY va: a partial (target, va) index matches that filter+sort
     # without scanning data rows that the UI never lists.  It also serves
@@ -2109,6 +2129,28 @@ def _build_coverage_db(
         # whole (like the cell JSON) so a scoped --target rebuild also leaves
         # sibling targets with correct rows.
         c.execute(f"INSERT INTO {SECTION_CELL_STATS_TABLE} {_SECTION_CELL_STATS_SELECT}")
+
+        # Both tables above are filled from `cells`, so a section that
+        # contributed no cell (a zero-size section, or one whose cells are all
+        # malformed and dropped) kept its `sections` row but got no derived
+        # row in either table.  That is the section the database says it has
+        # and the dashboard cannot show: `/api/sections` reads
+        # section_cell_stats, so the section vanished from the UI, and a
+        # reader resolving a section by name got nothing back from
+        # section_cells_json.  Seed the missing pairs from `sections`, which
+        # is the set the FKs to it already promise: zero counts, and an empty
+        # cell array (what a cell-less section aggregates to).  OR IGNORE
+        # because the rows that do have cells are already in.
+        c.execute(
+            f"INSERT OR IGNORE INTO {SECTION_CELL_STATS_TABLE} (target, section_name) "
+            "SELECT target, name FROM sections"
+        )
+        c.execute(
+            f"INSERT OR IGNORE INTO {SECTION_CELLS_TABLE} "
+            f"(target, section_name, {SECTION_CELLS_COLUMN}) "
+            "SELECT target, name, ? FROM sections",
+            (encode_section_cells(_EMPTY_CELLS_JSON),),
+        )
 
         c.execute("COMMIT")
 

@@ -123,23 +123,18 @@ class TestRecoveryContract:
         """The dashboard's verify_results rows come from .rebrew/verify_cache.json."""
         import rebrew.verify_cache as vc
         from rebrew.annotation import Annotation
+        from rebrew.config import load_config
 
         root = _build_fixture_project(tmp_path, monkeypatch)
         cache_path = root / ".rebrew" / "verify_cache.json"
         cache_path.parent.mkdir(parents=True, exist_ok=True)
 
-        class _Cfg:
-            target_name = "SERVER"
-            compiler_command = "cmd"
-            compiler_runner = ""
-            base_cflags = ""
-            compiler_includes = ""
-            compiler_libs = ""
-            defines = []
-
-        _Cfg.root = root
-        _Cfg.reversed_dir = root / "src" / "SERVER"
-        _Cfg.target_binary = root / "original" / "mini_pe.exe"
+        # The project's OWN config, not a hand-rolled stand-in: build_db
+        # imports the cache only when cache_identity_matches accepts it, and
+        # that check spans the compiler identity. A cache written by a config
+        # that merely looks like this one is correctly refused, which is the
+        # point of the check and not what this test is about.
+        cfg = load_config(root, target="SERVER")
 
         entries = [
             Annotation(
@@ -167,7 +162,7 @@ class TestRecoveryContract:
                 "delta": 0,
             }
         ]
-        vc.save_verify_cache(cache_path, _Cfg(), results, entries)
+        vc.save_verify_cache(cache_path, cfg, results, entries)
         build_db(root, regen=True)
         conn = sqlite3.connect(root / "db" / "coverage.db")
         c = conn.cursor()

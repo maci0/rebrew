@@ -1095,6 +1095,32 @@ binary = "test.exe"
         assert row[0].endswith(f"WHERE {FUNCTION_ROWS_SQL}")
         conn.close()
 
+    def test_functions_filter_indexes_are_partial_too(self, project_root: Path) -> None:
+        """The status and module filter indexes carry idx_functions_list's predicate.
+
+        Every query that reaches for them appends FUNCTION_ROWS_SQL to its
+        WHERE, so a full copy indexes data rows the UI never lists and,
+        being usable for the same queries, would be picked in its place.
+        """
+        build_db(project_root)
+        with contextlib.closing(sqlite3.connect(project_root / "db" / "coverage.db")) as conn:
+            c = conn.cursor()
+            for name in ("idx_functions_status_va", "idx_functions_module_va"):
+                row = c.execute(
+                    "SELECT sql FROM sqlite_master WHERE type='index' AND name=?", (name,)
+                ).fetchone()
+                assert row is not None, name
+                assert row[0].endswith(f"WHERE {FUNCTION_ROWS_SQL}"), name
+            # And the dashboard's own status-filtered query still seeks it.
+            plan = c.execute(
+                "EXPLAIN QUERY PLAN "
+                f"SELECT va FROM functions WHERE target = ? AND status = ? AND {FUNCTION_ROWS_SQL} "
+                "ORDER BY va LIMIT 100",
+                ("testbin", "EXACT"),
+            ).fetchall()
+        assert any("idx_functions_status_va" in r[3] for r in plan)
+        assert not any("TEMP B-TREE" in r[3] for r in plan)
+
     def test_section_cells_agg_orders_by_start(self, project_root: Path) -> None:
         """SECTION_CELLS_AGG_SQL must emit cells in spatial order, not rowid."""
         from rebrew.workspace import SECTION_CELLS_AGG_SQL
@@ -1626,6 +1652,59 @@ binary = "test.exe"
         rows = c.fetchall()
         conn.close()
         assert any(row[2] == "sections" for row in rows)
+
+    def test_cell_less_section_gets_zero_stats_and_empty_cell_json(self, tmp_path: Path) -> None:
+        """A section with no cells keeps its row in BOTH derived tables.
+
+        Both are filled from `cells`, so a zero-size section used to keep its
+        `sections` row and get no derived row: it dropped out of `/api/sections`
+        (which reads section_cell_stats) and a reader resolving it by name got
+        nothing from section_cells_json.
+        """
+        from rebrew.workspace import SECTION_CELLS_COLUMN, SECTION_CELLS_TABLE, decode_section_cells
+
+        db_dir = tmp_path / "db"
+        db_dir.mkdir()
+        data = copy.deepcopy(SAMPLE_DATA)
+        data["sections"][".bss"] = {
+            "va": 0x10003000,
+            "size": 0,
+            "fileOffset": 0,
+            "unitBytes": 64,
+            "columns": 64,
+            "cells": [],
+        }
+        (db_dir / "data_testbin.json").write_text(json.dumps(data), encoding="utf-8")
+
+        build_db(tmp_path)
+        with contextlib.closing(sqlite3.connect(tmp_path / "db" / "coverage.db")) as conn:
+            c = conn.cursor()
+            assert c.execute("SELECT name FROM sections WHERE name = '.bss'").fetchone()
+            stats = c.execute(
+                "SELECT total_cells, exact_count FROM section_cell_stats "
+                "WHERE section_name = '.bss'"
+            ).fetchone()
+            blob = c.execute(
+                f"SELECT {SECTION_CELLS_COLUMN} FROM {SECTION_CELLS_TABLE} "
+                "WHERE section_name = '.bss'"
+            ).fetchone()
+        assert stats == (0, 0)
+        assert blob is not None
+        assert decode_section_cells(blob[0]) == "[]"
+
+    def test_section_with_cells_keeps_its_own_cell_json(self, project_root: Path) -> None:
+        """The empty-section seed must never overwrite a section's real cells."""
+        from rebrew.workspace import SECTION_CELLS_COLUMN, SECTION_CELLS_TABLE, decode_section_cells
+
+        build_db(project_root)
+        with contextlib.closing(sqlite3.connect(project_root / "db" / "coverage.db")) as conn:
+            blob = conn.execute(
+                f"SELECT {SECTION_CELLS_COLUMN} FROM {SECTION_CELLS_TABLE} "
+                "WHERE section_name = '.text'"
+            ).fetchone()
+        assert blob is not None
+        cells = json.loads(decode_section_cells(blob[0]))
+        assert [cell["start"] for cell in cells] == [0, 64, 128, 192, 256, 320]
 
     def test_duplicate_cell_starts_after_clamp_do_not_abort(
         self, tmp_path: Path, caplog: Any

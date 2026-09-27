@@ -81,9 +81,18 @@ Stores details regarding decompiled and original functions.
 
 **Primary Key**: `(target, va)`
 **Indexes**:
-- `idx_functions_status_va` on `(target, status, va)`: serves the dashboard's status-filtered page (`ORDER BY va`) without a sort
-- `idx_functions_module_va` on `(target, module, va)`: same for the module filter
-- `idx_functions_list` on `(target, va) WHERE markerType IN ('FUNCTION', 'LIBRARY', 'STUB')` — serves the dashboard / `_function_stats` list path (`WHERE target = ? AND markerType IN (…) ORDER BY va`); dropped and recreated on every build
+- `idx_functions_status_va` on `(target, status, va) WHERE markerType IN ('FUNCTION', 'LIBRARY', 'STUB')`: serves the dashboard's status-filtered page (`ORDER BY va`) without a sort
+- `idx_functions_module_va` on `(target, module, va)` with the same predicate: same for the module filter
+- `idx_functions_list` on `(target, va) WHERE markerType IN ('FUNCTION', 'LIBRARY', 'STUB')`: serves the dashboard / `_function_stats` list path (`WHERE target = ? AND markerType IN (…) ORDER BY va`)
+
+All three carry the same predicate, because every query that reaches for them
+carries it: `functions()` appends the code-row filter to its `WHERE` for the
+row list and the `COUNT` alike, so data rows the UI never lists are dead
+weight in the b-tree (measured on a 20k-row target at 43% code rows:
+524 KB → 229 KB) and pure write cost on every rebuild. All three are dropped
+and recreated on every build, so a scoped `--target` rebuild cannot leave a
+full copy behind, and since the version gate checks index *names*, a full
+copy would be picked in place of the partial one.
 
 ### `globals` Table
 Tracks global variables mapped during the decompilation effort.
@@ -343,6 +352,12 @@ explicit schema on every build (not `CREATE TABLE AS SELECT`), so the serving
 
 > [!NOTE]
 > Derived from `cells` and rebuilt whole on every build — do not write to it.
+> A section with a `sections` row but no cell (a zero-size section, or one
+> whose cells were all dropped as malformed) still gets a row, with every
+> count `0`: the aggregate above is seeded from `sections` with `INSERT OR
+> IGNORE`, so the table holds one row per section the database has rather than
+> only the sections that contributed a cell. Without that row the section
+> dropped out of `/api/sections`, which reads this table.
 
 ### `section_cells_json` Table
 One row per target+section holding that section's cells already aggregated to
@@ -387,7 +402,11 @@ level 3 gives 176 KB in 3 ms, levels 9 and 15 give *more* bytes (205 KB /
 > `--target` one. Since v7 it is also part of the versioned schema (listed in
 > `_missing_required_objects`), which is what makes the stamp meaningful; the
 > live-query fallback is what keeps a *pre-v7* database readable rather than
-> merely rejected.
+> merely rejected. A cell-less section (a zero-size section, or one whose
+> cells were all dropped as malformed) gets a row holding the empty array
+> `[]`: the rows are seeded from `sections` with `INSERT OR IGNORE` after the
+> per-section aggregate, so the table holds one row per section the database
+> has instead of only the sections that contributed a cell.
 
 ---
 

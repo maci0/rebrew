@@ -371,6 +371,31 @@
   said so comes later.
 
 ### Fixed
+- **A section with no cells disappeared from the coverage DB's derived
+  tables.** `section_cell_stats` and `section_cells_json` were both filled
+  from `cells`, so a section that contributed none (a zero-size section, or
+  one whose cells were all dropped as malformed) kept its `sections` row and
+  got no derived row in either. `/api/sections` reads `section_cell_stats`,
+  so that section was gone from the dashboard, and a reader resolving it by
+  name got nothing back from `section_cells_json`. Both are now seeded from
+  `sections` with `INSERT OR IGNORE` after the aggregate: zero counts and the
+  empty cell array `[]`, which is what a cell-less section holds.
+- **The two `functions` filter indexes are partial.** `idx_functions_status_va`
+  and `idx_functions_module_va` indexed every row, including the
+  `GLOBAL`/`DATA`/`VTABLE`/`STRING` rows no query that reaches for them ever
+  returns: `functions()` appends the code-row predicate to its `WHERE` for the
+  page and the `COUNT` alike. They now carry the same predicate as
+  `idx_functions_list` (524 KB → 229 KB on a 20k-row target at 43% code rows)
+  and, like it, are dropped and recreated every build so a scoped `--target`
+  rebuild cannot leave a usable full copy behind: the version gate checks
+  index names, so a full copy would silently be picked instead.
+- **`test_verify_cache_feeds_verify_results` built its verify cache from a
+  hand-rolled config stand-in.** `build_db` imports `.rebrew/verify_cache.json`
+  only when `cache_identity_matches` accepts it, and that check spans the
+  compiler identity, so a cache written by a config that merely resembles the
+  project is (correctly) refused and the table stayed empty. The test now
+  writes the cache through the project's own config, which is the contract it
+  means to pin.
 - **`VTABLE` and `STRING` markers no longer fail the size check.**
   `Annotation.validate` exempted data markers by re-spelling a two-element
   subset of `DATA_MARKERS` instead of using it, so the two markers added
