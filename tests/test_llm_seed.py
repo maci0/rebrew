@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -1682,6 +1683,57 @@ class TestLoadResponseJson:
         payload = {"choices": [{"message": {"content": "ok"}}]}
         resp = _FakeResponse(payload, headers={"content-length": "not-a-number"})
         assert _load_response_json(resp) == payload
+
+    def test_body_read_stops_at_the_wall_clock_deadline(self) -> None:
+        """A body trickled past the deadline is dropped, not waited on.
+
+        The transport timeout is rearmed per chunk, so only the wall clock
+        bounds the whole request.
+        """
+        resp = _FakeResponse({"choices": []}, body=b"{}")
+        with pytest.raises(TimeoutError, match="time budget"):
+            _load_response_json(resp, deadline_s=time.monotonic() - 1.0)
+
+    def test_deadline_in_the_future_reads_the_body(self) -> None:
+        payload = {"choices": [{"message": {"content": "ok"}}]}
+        resp = _FakeResponse(payload)
+        assert _load_response_json(resp, deadline_s=time.monotonic() + 60.0) == payload
+
+
+class TestRequestDeadline:
+    def test_request_passes_a_wall_clock_deadline(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The budget reaches the body read, not just the transport timeout."""
+        seen: dict[str, float | None] = {}
+
+        class _DeadlineClient(_FakeClient):
+            @contextmanager
+            def stream(  # type: ignore[override]
+                self,
+                method: str,
+                url: str,
+                json: dict | None = None,
+                headers: dict | None = None,
+                timeout: int | None = None,
+            ) -> Iterator[_FakeResponse]:
+                real_load = rebrew.llm_seed._load_response_json
+
+                def _record(resp: object, *, deadline_s: float | None = None) -> object:
+                    seen["deadline_s"] = deadline_s
+                    return real_load(resp, deadline_s=deadline_s)
+
+                monkeypatch.setattr(rebrew.llm_seed, "_load_response_json", _record)
+                with super().stream(
+                    method, url, json=json, headers=headers, timeout=timeout
+                ) as resp:
+                    yield resp
+
+        monkeypatch.setenv("REBREW_LLM_TIMEOUT", "600")
+        client = _DeadlineClient({"choices": [{"message": {"content": "no fence here"}}]})
+        before = time.monotonic()
+        request_seeds(_cfg("https://llm/v1", "k"), "int f(void){return 0;}", client=client)
+        deadline = seen["deadline_s"]
+        assert deadline is not None
+        assert before + 599.0 <= deadline <= time.monotonic() + 600.0
 
 
 class TestMatchGlue:

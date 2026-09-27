@@ -273,7 +273,13 @@ def split_annotation_sections(text: str) -> tuple[str, list[str]]:
     # deduplication.  A commented-out KV line stays in the preamble: lifting it
     # to the head of block 0 reads it there as a live annotation, and moves a
     # marker the source deliberately disabled into a block that carries it.
-    if blocks and preamble_lines:
+    #
+    # An empty block 0 is the stacked-marker case the collapse above makes (its
+    # start was pulled back to the first marker's start), and it carries no
+    # marker: prepending to it would build a block of source lines belonging to
+    # no function, which every reader of a block treats as that function's
+    # header.  The annotations stay in the preamble instead.
+    if blocks and preamble_lines and blocks[0].strip():
         rescued: list[str] = []
         kept: list[str] = []
         for offset, line in enumerate(preamble_lines):

@@ -370,9 +370,11 @@ by the CLI layer and win for that invocation.
 - `REBREW_LLM_TIMEOUT` — per-request HTTP budget for one LLM seeding call,
   in seconds (default `90`). A timed-out request is still billed and its
   seeds are lost, so raise it for a local model that needs minutes for a
-  capped completion. Below `5` is a `ConfigError`; above `1800` clamps to
-  `1800` with a warning. The resolved budget is reported as `llm_timeout` by
-  `rebrew cfg effective`.
+  capped completion. It bounds the whole request, not each socket read: the
+  transport timeout is rearmed per chunk, so the response body is also read
+  against a wall-clock deadline. Below `5` is a `ConfigError`; above `1800`
+  clamps to `1800` with a warning. The resolved budget is reported as
+  `llm_timeout` by `rebrew cfg effective`.
 - `REBREW_RECOMPILE_URL` — base URL of the recompile compile service
   (e.g. `http://localhost:8000`). Same effect as `[compiler] recompile_url`;
   when the variable is present it wins (empty forces local docker for the

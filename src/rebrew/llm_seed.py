@@ -11,7 +11,10 @@ degrades to a warning and the GA runs unchanged.  The endpoint is taken from
 ``REBREW_LLM_ENDPOINT`` / ``REBREW_LLM_API_KEY`` / ``REBREW_LLM_MODEL``
 environment variables.  The per-request HTTP budget is
 ``REBREW_LLM_TIMEOUT`` (default 90s), because a local model can need minutes
-for a capped completion and a timed-out request is billed anyway.
+for a capped completion and a timed-out request is billed anyway.  It is a
+ceiling on the whole request, not on each socket read: the transport timeout
+is rearmed per chunk, so the body read also compares the wall clock against
+the deadline the request started with.
 
 Untrusted boundaries: the seed source is project C (may contain adversarial
 fence breakouts if copied from elsewhere); the model response is never executed
@@ -953,13 +956,23 @@ def _warn_on_substituted_model(served: Any, requested: str) -> None:
     )
 
 
-def _load_response_json(resp: Any) -> Any:
+def _load_response_json(resp: Any, *, deadline_s: float | None = None) -> Any:
     """Parse the HTTP body with a hard size ceiling before ``json.loads``.
 
     An unbounded provider payload would otherwise allocate and parse first,
     then only truncate the extracted chat text — too late for cost/memory.
     The body is capped while streaming, so a hostile or buggy endpoint cannot
     buffer megabytes before the size check runs.
+
+    *deadline_s* is a :func:`time.monotonic` instant, not a duration, and it
+    closes a hole the httpx timeout leaves open: that timeout is a *per
+    operation* read timeout, rearmed on every chunk, so an endpoint (or a
+    stalled proxy in front of one) that trickles a byte per interval never
+    trips it and the read runs for as long as it likes.  ``--seed-llm --watch``
+    would then sit in a request that ``REBREW_LLM_TIMEOUT`` says is bounded
+    and that keeps billing.  Comparing the wall clock between chunks makes the
+    documented per-request budget an actual ceiling.  Omitted by direct
+    callers that read a body already in hand.
     """
     headers = getattr(resp, "headers", None) or {}
     cl_raw = None
@@ -979,6 +992,8 @@ def _load_response_json(resp: Any) -> Any:
 
     content = bytearray()
     for chunk in resp.iter_bytes():
+        if deadline_s is not None and time.monotonic() > deadline_s:
+            raise TimeoutError("LLM response body exceeded the per-request time budget")
         if len(content) + len(chunk) > _MAX_HTTP_BODY_BYTES:
             raise ValueError(f"LLM response body exceeds {_MAX_HTTP_BODY_BYTES} bytes")
         content.extend(chunk)
@@ -1049,11 +1064,14 @@ def _request(
         "stream": False,
     }
     t0 = time.monotonic()
+    timeout = _request_timeout()
     with client.stream(
-        "POST", conf["endpoint"], json=payload, headers=headers, timeout=_request_timeout()
+        "POST", conf["endpoint"], json=payload, headers=headers, timeout=timeout
     ) as resp:
         resp.raise_for_status()
-        data = _load_response_json(resp)
+        # The httpx timeout is rearmed per chunk, so the wall-clock deadline is
+        # what makes the budget a ceiling on the whole request.
+        data = _load_response_json(resp, deadline_s=t0 + timeout)
     duration_s = time.monotonic() - t0
     _warn_on_substituted_model(data.get("model") if isinstance(data, dict) else None, model)
     text = _parse_response(data)
