@@ -322,13 +322,14 @@ def _objdiff_build() -> None:
     if len(sys.argv) >= 2 and sys.argv[1] in ("-h", "--help"):
         print(_OBJDIFF_BUILD_USAGE)
         return
-    if len(sys.argv) < 3:
-        error_exit(_OBJDIFF_BUILD_USAGE)
-    if sys.argv[1].startswith("-"):
+    if len(sys.argv) >= 2 and sys.argv[1].startswith("-"):
         # This shim takes two positionals and nothing else, so a flag here is
         # a typo. Say so instead of reading it as a target name and failing
-        # later with a config error.
+        # later with a config error.  Checked before the arity test so a lone
+        # `-x` names the flag instead of printing a bare usage line.
         error_exit(f"unknown option '{sys.argv[1]}'; {_OBJDIFF_BUILD_USAGE}")
+    if len(sys.argv) < 3:
+        error_exit(_OBJDIFF_BUILD_USAGE)
     target_name = sys.argv[1]
     base_object = Path(sys.argv[2])
     cfg = require_config(target=target_name)
