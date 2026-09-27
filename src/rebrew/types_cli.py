@@ -68,9 +68,7 @@ def main(
 
             text = read_source_text(src)[0]
         except OSError as exc:
-            logging.getLogger(__name__).warning(
-                "skipping unreadable source %s: %s", src, exc
-            )
+            logging.getLogger(__name__).warning("skipping unreadable source %s: %s", src, exc)
             continue
         for name, struct in parse_structs(text).items():
             declared.setdefault(name, struct)

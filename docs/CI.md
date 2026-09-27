@@ -16,7 +16,9 @@ that builds the sdist/wheel via `make build` (SOURCE_DATE_EPOCH, umask 022, C/UT
 `PYTHONHASHSEED=0`; `tools/normalize_sdist.py` rewrites sdist tar metadata and
 wheel entry modes), checks both artifacts hash the same when
 `make build` reruns from a `git archive` copy extracted under umask 077 at
-another path under another TZ and locale, emits a CycloneDX 1.5 SBOM
+another path under another TZ and locale (an EXIT trap removes that copy on
+every exit path, so a failed comparison does not leave a second source tree
+beside the workspace), emits a CycloneDX 1.5 SBOM
 (`dist/rebrew.cdx.json` from `uv.lock` via `tools/generate_sbom.py`, with the
 MIT license on the rebrew component, a `pkg:github/maci0/rebrew` purl at the
 `v` tag for `__version__`, project URLs as external references, and each
@@ -104,6 +106,15 @@ artifact (`rebrew-dist-<sha>`, 14-day retention). The test job checks out with `
 between them have to be in the clone. Tag refs alone are not enough.
 Dev installs use `uv sync --frozen --all-extras --group similarity` (Makefile
 `make setup`); the `m2c` git dep is a separate `--group m2c` opt-in.
+
+The workflow runs three distinct sync shapes, so the environment a gate sees
+is not the same everywhere:
+
+| Job | Sync | Why |
+|-----|------|-----|
+| `lint`, `test`, `pre-commit` | `uv sync --frozen --all-extras --group similarity` | the contributor env: extras on, so mypy sees the `prove` stubs and the `resembl` path dep resolves |
+| `package` | `UV_PROJECT_ENVIRONMENT=.venv-pkg uv sync --frozen --no-dev --no-default-groups --no-install-project`, then `uv pip install --no-deps dist/*.whl` | runtime deps from the lock, then the built wheel layered on top; nothing from `src/` |
+| `cli-contract`, `toolchain-sync` | `uv sync --frozen` | default groups only: the CLI surface being grepped and the toolchain drift check need no extra |
 
 The workflow sets `_TYPER_FORCE_DISABLE_TERMINAL`, typer's switch for the
 forced-ANSI mode it enables whenever `GITHUB_ACTIONS` is set. Without it the

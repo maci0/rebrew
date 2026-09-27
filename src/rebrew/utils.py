@@ -145,6 +145,7 @@ def _memo_store(memo_key: tuple[str, int, int, int], value: tuple[str, str]) -> 
     _SOURCE_TEXT_MEMO[memo_key] = value
     _SOURCE_TEXT_MEMO_BY_PATH.setdefault(memo_key[0], set()).add(memo_key)
 
+
 #: Comment opener of the stamp line both generated headers carry.
 _GENERATED_STAMP_PREFIX = "* Generated:"
 

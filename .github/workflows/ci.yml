@@ -207,6 +207,11 @@ jobs:
           set -euo pipefail
           SOURCE_DATE_EPOCH="$(git log -1 --pretty=%ct)"
           export SOURCE_DATE_EPOCH
+          repro=../rebrew-repro
+          # A hash mismatch or a build failure exits non-zero and ends the
+          # step, so the second source tree would otherwise outlive it in the
+          # parent of the workspace. Remove it on every exit path.
+          trap 'rm -rf -- "${repro}"' EXIT
           umask 077
           mkdir ../rebrew-repro
           git archive HEAD | tar -x -C ../rebrew-repro
@@ -220,7 +225,6 @@ jobs:
             fi
             echo "$ext reproducible: $first_sha"
           done
-          rm -rf ../rebrew-repro
       - name: Install wheel into clean venv and smoke-import
         # Hermetic: install runtime deps from uv.lock, then overlay the just-
         # built wheel with --no-deps so a live PyPI resolve cannot drift past
