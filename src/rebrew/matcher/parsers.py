@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from rebrew.binary_loader import PADDING_BYTES as _PADDING_BYTES
+from rebrew.binary_loader import decode_binary_name
 from rebrew.coff_reloc import CoffRelocRecord
 
 _PADDING_STRIP = bytes(_PADDING_BYTES)
@@ -43,10 +44,7 @@ def _next_symbol_end(sec_offsets: list[int], func_start: int, fallback: int) -> 
 def _extract_reloc_name(reloc: Any) -> str:
     """Extract target symbol name from a relocation entry."""
     if hasattr(reloc, "symbol") and reloc.symbol is not None:
-        name = getattr(reloc.symbol, "name", "")
-        if isinstance(name, bytes):
-            name = name.decode("utf-8", errors="replace")
-        return name
+        return decode_binary_name(getattr(reloc.symbol, "name", ""))
     return ""
 
 

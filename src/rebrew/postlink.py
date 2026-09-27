@@ -65,7 +65,7 @@ if TYPE_CHECKING:
 
 import typer
 
-from rebrew.binary_loader import BinaryInfo, SectionInfo, load_binary
+from rebrew.binary_loader import BinaryInfo, SectionInfo, decode_binary_name, load_binary
 from rebrew.cli import EXIT_ERROR, console, error_exit, json_print
 from rebrew.layout_meta import ImportMeta, LayoutMetadata, extract_layout, load_package
 from rebrew.pe_headers import find_section, pe_layout, pe_lfanew, sections_at
@@ -132,12 +132,7 @@ def binary_info_from_bytes(raw: bytes, path: Path) -> BinaryInfo:
     text_size = 0
     text_raw_offset = 0
     for section in pe.sections:
-        raw_name = section.name
-        name = (
-            raw_name.decode("utf-8", errors="replace")
-            if isinstance(raw_name, (bytes, bytearray))
-            else str(raw_name)
-        ).rstrip("\x00")
+        name = decode_binary_name(section.name).rstrip("\x00")
         va = pe.optional_header.imagebase + section.virtual_address
         sections[name] = SectionInfo(
             name=name,

@@ -43,7 +43,7 @@ from typing import Any
 import typer
 from rich.table import Table
 
-from rebrew.binary_loader import detect_format_and_arch
+from rebrew.binary_loader import decode_binary_name, detect_format_and_arch
 from rebrew.cli import EXIT_ERROR, TargetOption, console, error_exit, json_print, resolve_binary_arg
 from rebrew.pe_symbols import (
     PeDirectories,
@@ -258,7 +258,7 @@ def _to_int(value: Any) -> int | None:
 def _text(value: Any) -> str:
     """Display string for a LIEF name/enum: its ``name`` when it has one."""
     if isinstance(value, bytes):
-        return value.decode("utf-8", errors="replace")
+        return decode_binary_name(value)
     name = getattr(value, "name", None)
     if isinstance(name, str):
         return name

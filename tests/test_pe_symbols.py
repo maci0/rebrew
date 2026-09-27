@@ -367,3 +367,27 @@ class TestSymbolNaming:
             delay_import_symbol_name(r"C:\SDK\KERNEL32.dll", "Sleep", None)
             == "__dimp_kernel32_Sleep"
         )
+
+
+class TestImportNameDecoding:
+    """PE import names are raw bytes in the toolchain codepage, not ASCII."""
+
+    def test_cp1252_import_name_keeps_its_accent(self) -> None:
+        from rebrew.pe_symbols import _read_hint_name
+
+        class _Image:
+            def read(self, va: int, size: int) -> bytes:
+                return b"\x34\x12" + "Caf\xe9".encode("cp1252") + b"\x00"
+
+        assert _read_hint_name(_Image(), 0) == "Café"  # type: ignore[arg-type]
+
+    def test_dll_name_keeps_its_accent(self) -> None:
+        from rebrew.pe_symbols import _read_c_string
+
+        class _Image:
+            image_base = 0x400000
+
+            def read(self, va: int, size: int) -> bytes:
+                return "Café.dll".encode("cp1252") + b"\x00"
+
+        assert _read_c_string(_Image(), 0x1000, rva_based=True) == "Café.dll"  # type: ignore[arg-type]
