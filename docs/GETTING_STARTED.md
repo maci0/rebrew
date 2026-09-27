@@ -76,7 +76,7 @@ skeleton for each one. You will see something like:
 
 ```
 Intake complete: game (msvc-8.0)
-  detected family: msvc (MSVC 8.0 (cl 14.00))
+  detected family: msvc (MSVC 8.0)
   functions: 259, documented: 259
   next: rebrew doctor && rebrew status --json
 ```

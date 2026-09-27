@@ -18,7 +18,7 @@ covers the external tools rebrew interoperates with — most notably
 ```mermaid
 flowchart TB
     subgraph L0["Toolchain layer"]
-        RT["rebrew-toolchains<br/>Dockerfiles · wrappers · sources.json<br/>build source for 35 compiler images"]
+        RT["rebrew-toolchains<br/>Dockerfiles · wrappers · sources.json<br/>build source for 46 compiler images"]
         IMG[("docker images<br/>rebrew/msvc:6.0-win32<br/>rebrew/borland:3.1-win16<br/>rebrew/watcom:2.0-win32 …")]
     end
 
@@ -375,7 +375,7 @@ Decoupling is by stable contract, not shared code:
 ```
 ~/Desktop/Projects/relumea/
 ├── rebrew/              # the core workbench (this repo)
-├── rebrew-toolchains/   # docker image build source (35 images)
+├── rebrew-toolchains/   # docker image build source (46 images)
 ├── rebrew-flirt-sigs/   # FLIRT signatures merged into project flirt_sigs/
 ├── rebrew-projects/     # *-rebrew project instances (win2k-*, skifree16/32,
 │                        #   test_*, bench, smygb, makehm, ...)

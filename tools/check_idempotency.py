@@ -276,7 +276,7 @@ DEFAULT_COMMANDS = [
     "doctor --json",
     "cache stats --json",
     "cfg show --json",
-    "flirt --exe original/mini_pe.exe --json",
+    "flirt --binary original/mini_pe.exe --json",
 ]
 
 

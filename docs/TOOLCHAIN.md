@@ -257,15 +257,17 @@ resembl-clone and `check-updates` steps for generous API limits.
 
 > **Headless by construction:** every Windows/DOS compile runs inside a
 > docker container — wine runs headless inside the image (no desktop
-> window, no `DISPLAY` needed on the host), so the old host-side Xvfb /
-> xvfb-run / wibo dance is gone.  The images set `WINEDEBUG=-all` and a
+> window, no `DISPLAY` needed on the host), so no shipped image-backed profile
+> reaches the host Xvfb path (`rebrew/headless.py` stays live for a plugin
+> toolchain registered without an `image` whose command is `wine`).  The images set `WINEDEBUG=-all` and a
 > fixed wine prefix; nothing wine-related runs on the host.
 >
 > **wine is the default runtime.**  The shared wrapper (`base/wrapper-common.sh`)
 > selects the PE runtime per run via `REBREW_RUNNER`, defaulting to **wine**
 > (`${REBREW_RUNNER:-wine}`) — the most compatible option.  `wibo` is opt-in
 > (`REBREW_RUNNER=wibo`) and faster for plain console tools, but **fails on
-> some tools**, so rebrew never steers projects toward it: `rebrew doctor`
+> some tools**, so rebrew never steers projects toward it: the only shipped
+> wibo-runtime profile is the opt-in `msvc-6.0-win9x`, `rebrew doctor`
 > reports a present wibo binary as informational only, and
 > `rebrew doctor --install-wibo` downloads it but leaves a docker-backed
 > project's `runner` config untouched (the config runner is obsolete for
@@ -301,8 +303,8 @@ checkout) provides the shared entrypoint machinery — `rebrew_pick_source`
 instead of re-implementing the sandbox logic.
 
 **Image entry convention:** every image's `ENTRYPOINT` *is* the compiler
-wrapper (`cl`, `cl16`, `cl15`, `cl10`, `dcc`, `wcc386` — all current
-specs).  The registry publishes each image's wrapper as
+wrapper (`cl`, `cl10`, `cl15`, `cl16`, `tcc`, `bcc`, `wcc`, `wcc386`, `dcc`,
+`gcc`, `clang`, `cc`, `mingw`).  The registry publishes each image's wrapper as
 `ToolchainSpec.image_entrypoint`, and the docker runner passes it explicitly
 with `--entrypoint` immediately before the image, so a consumer that
 overrides the entrypoint still names the same wrapper; the wrapper itself
@@ -730,9 +732,12 @@ Notes:
 
 #### Service packs: what differs, and how to tell which one a target used
 
-The seven VC 6.0 images ship two compilers but three different include/library
-trees and, notably, not all of them export `INCLUDE`/`LIB`.  Measured from the
-images on this workstation:
+The VC 6.0 images ship two compilers but three different include/library
+trees and, notably, not all of them export `INCLUDE`/`LIB`.  The seven
+`6.0` through `6.0-sp6` images are in the table below; `6.0-sp5-pp` and
+`6.0-win9x` reuse the SP5 12.00.8804 compiler under
+`/opt/msvc6.0-sp5-pp/VC98/Bin` and `/opt/msvc6.0-win9x/Bin`. Measured from
+the images on this workstation:
 
 | Image | CL.EXE | Container toolchain root | Wrapper exports INCLUDE/LIB | LIBCMT.LIB sha256 |
 |---|---|---|---|---|

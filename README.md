@@ -249,7 +249,7 @@ so pin the minor version if you import rebrew as a library. See
 
 ## Usage & Workflow
 
-All CLI tools must be run **from within a project directory** that contains a `rebrew-project.toml` config file.
+Most CLI tools must be run **from within a project directory** that contains a `rebrew-project.toml` config file. The analysis-only commands (`analyze`, `toolchain detect`) also work standalone against a binary path.
 
 ```bash
 cd /path/to/your-decomp-project    # must contain rebrew-project.toml
@@ -362,7 +362,7 @@ Only `EXACT` and `RELOC` count as matched; `PROVEN` functions stay on
 | Architecture | Binary Format | Compiler | Binary Loading | Object Parsing | GA Matching | Verification |
 |:------------|:-------------|:---------|:--------------:|:--------------:|:-----------:|:------------:|
 | x86 (16-bit) | NE (Windows 3.x) | Borland Delphi 1.0 / Turbo Pascal | ✅ | ⬜ | ⬜ | ⬜ |
-| x86 (16-bit) | NE (Windows 3.x) | MSVC 16-bit (C 7.0 / VC 1.x) | ✅ | ⬜ | ⬜ | ⬜ |
+| x86 (16-bit) | NE (Windows 3.x) | MSVC 16-bit (C 7.0 / VC 1.x) | ✅ | ✅ | ✅ | ✅ |
 | x86 (32-bit) | PE (`.exe`/`.dll`) | MSVC 5.0 / 6.0 | ✅ | ✅ | ✅ | ✅ |
 | x86 (32-bit) | PE | MSVC 7.x+ | ✅ | ✅ | ✅ | ✅ |
 | x86 (32-bit) | PE | MinGW GCC / Zig (`mingw-16.2.0` profile) | ✅ | ✅ | ✅ | ✅ |
@@ -375,7 +375,7 @@ Only `EXACT` and `RELOC` count as matched; `PROVEN` functions stay on
 | ARM64      | ELF | GCC/Clang| ✅ | ✅ | ⬜ | ⬜ |
 | ARM64      | Mach-O| Clang    | ✅ | ✅ | ⬜ | ⬜ |
 
-**Legend:** ✅ Supported  ⬜ Planned / Not yet implemented
+**Legend:** ✅ Supported  ⬜ Planned / Not yet implemented (a linked output with no per-function object, such as `delphi-1.0`, also has no byte-matching path)
 
 16-bit NE targets are parsed, enumerated, and analyzed natively (intake,
 analyze, asm, describe, data, report — see `docs/TOOLCHAIN.md`). Byte
