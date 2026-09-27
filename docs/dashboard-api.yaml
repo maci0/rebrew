@@ -16,6 +16,13 @@ info:
     Row lists are compact JSON arrays positioned by `cols`, never per-row
     objects.  Every text column in a row is a JSON string: a database NULL is
     sent as `""`.
+
+    Every route can answer 500, in the same `Error` envelope: a database that
+    cannot be read is `database_error`, any other fault in a route is
+    `internal_error`, and `/api/summary` adds `corrupt_function_stats` for a
+    target that exists but whose stats row cannot be parsed.  A 500 is a
+    server-side failure a client cannot fix, so it retries later rather than
+    changing the request.
 servers:
   - url: http://127.0.0.1:8000
     description: Default bind (`rebrew dashboard --host/--port`).
@@ -38,6 +45,7 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/HtmlOk"
+        "500": { $ref: "#/components/responses/DatabaseError" }
     head:
       tags: [assets]
       operationId: headIndex
@@ -45,6 +53,7 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/HtmlOk"
+        "500": { $ref: "#/components/responses/DatabaseError" }
 
   /app.js:
     get:
@@ -60,6 +69,7 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/ScriptOk"
+        "500": { $ref: "#/components/responses/DatabaseError" }
     head:
       tags: [assets]
       operationId: headAppJs
@@ -69,6 +79,7 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/ScriptOk"
+        "500": { $ref: "#/components/responses/DatabaseError" }
 
   /boot-guard.js:
     get:
@@ -80,6 +91,7 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/ScriptOk"
+        "500": { $ref: "#/components/responses/DatabaseError" }
     head:
       tags: [assets]
       operationId: headBootGuardJs
@@ -89,6 +101,7 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/ScriptOk"
+        "500": { $ref: "#/components/responses/DatabaseError" }
 
   /api/health:
     get:
@@ -104,6 +117,10 @@ paths:
       responses:
         "200":
           description: The database was read.
+          headers:
+            Cache-Control: { $ref: "#/components/headers/CacheControl" }
+            Vary: { $ref: "#/components/headers/Vary" }
+            Server-Timing: { $ref: "#/components/headers/ServerTiming" }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Health" }
@@ -116,6 +133,10 @@ paths:
       responses:
         "200":
           description: The database was read.
+          headers:
+            Cache-Control: { $ref: "#/components/headers/CacheControl" }
+            Vary: { $ref: "#/components/headers/Vary" }
+            Server-Timing: { $ref: "#/components/headers/ServerTiming" }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Health" }
@@ -130,9 +151,15 @@ paths:
       responses:
         "200":
           description: The target list.
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+            Cache-Control: { $ref: "#/components/headers/CacheControl" }
+            Vary: { $ref: "#/components/headers/Vary" }
+            Server-Timing: { $ref: "#/components/headers/ServerTiming" }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Targets" }
+        "500": { $ref: "#/components/responses/DatabaseError" }
     head:
       tags: [database]
       operationId: headTargets
@@ -140,9 +167,15 @@ paths:
       responses:
         "200":
           description: The target list.
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+            Cache-Control: { $ref: "#/components/headers/CacheControl" }
+            Vary: { $ref: "#/components/headers/Vary" }
+            Server-Timing: { $ref: "#/components/headers/ServerTiming" }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Targets" }
+        "500": { $ref: "#/components/responses/DatabaseError" }
 
   /api/bootstrap:
     get:
@@ -159,9 +192,15 @@ paths:
       responses:
         "200":
           description: The target list and the first target's data.
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+            Cache-Control: { $ref: "#/components/headers/CacheControl" }
+            Vary: { $ref: "#/components/headers/Vary" }
+            Server-Timing: { $ref: "#/components/headers/ServerTiming" }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Bootstrap" }
+        "500": { $ref: "#/components/responses/DatabaseError" }
     head:
       tags: [database]
       operationId: headBootstrap
@@ -169,9 +208,15 @@ paths:
       responses:
         "200":
           description: The target list and the first target's data.
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+            Cache-Control: { $ref: "#/components/headers/CacheControl" }
+            Vary: { $ref: "#/components/headers/Vary" }
+            Server-Timing: { $ref: "#/components/headers/ServerTiming" }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Bootstrap" }
+        "500": { $ref: "#/components/responses/DatabaseError" }
 
   /api/summary:
     get:
@@ -187,6 +232,11 @@ paths:
       responses:
         "200":
           description: The target's stats.
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+            Cache-Control: { $ref: "#/components/headers/CacheControl" }
+            Vary: { $ref: "#/components/headers/Vary" }
+            Server-Timing: { $ref: "#/components/headers/ServerTiming" }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Summary" }
@@ -202,6 +252,11 @@ paths:
       responses:
         "200":
           description: The target's stats.
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+            Cache-Control: { $ref: "#/components/headers/CacheControl" }
+            Vary: { $ref: "#/components/headers/Vary" }
+            Server-Timing: { $ref: "#/components/headers/ServerTiming" }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Summary" }
@@ -228,11 +283,17 @@ paths:
       responses:
         "200":
           description: One page of function rows.
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+            Cache-Control: { $ref: "#/components/headers/CacheControl" }
+            Vary: { $ref: "#/components/headers/Vary" }
+            Server-Timing: { $ref: "#/components/headers/ServerTiming" }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Functions" }
         "400": { $ref: "#/components/responses/InvalidRequest" }
         "404": { $ref: "#/components/responses/UnknownTarget" }
+        "500": { $ref: "#/components/responses/DatabaseError" }
     head:
       tags: [database]
       operationId: headFunctions
@@ -247,11 +308,17 @@ paths:
       responses:
         "200":
           description: One page of function rows.
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+            Cache-Control: { $ref: "#/components/headers/CacheControl" }
+            Vary: { $ref: "#/components/headers/Vary" }
+            Server-Timing: { $ref: "#/components/headers/ServerTiming" }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Functions" }
         "400": { $ref: "#/components/responses/InvalidRequest" }
         "404": { $ref: "#/components/responses/UnknownTarget" }
+        "500": { $ref: "#/components/responses/DatabaseError" }
 
   /api/sections:
     get:
@@ -267,9 +334,15 @@ paths:
       responses:
         "200":
           description: Every section row.
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+            Cache-Control: { $ref: "#/components/headers/CacheControl" }
+            Vary: { $ref: "#/components/headers/Vary" }
+            Server-Timing: { $ref: "#/components/headers/ServerTiming" }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Sections" }
+        "500": { $ref: "#/components/responses/DatabaseError" }
         "400": { $ref: "#/components/responses/MissingTarget" }
         "404": { $ref: "#/components/responses/UnknownTarget" }
     head:
@@ -281,9 +354,15 @@ paths:
       responses:
         "200":
           description: Every section row.
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+            Cache-Control: { $ref: "#/components/headers/CacheControl" }
+            Vary: { $ref: "#/components/headers/Vary" }
+            Server-Timing: { $ref: "#/components/headers/ServerTiming" }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Sections" }
+        "500": { $ref: "#/components/responses/DatabaseError" }
         "400": { $ref: "#/components/responses/MissingTarget" }
         "404": { $ref: "#/components/responses/UnknownTarget" }
 
@@ -301,9 +380,15 @@ paths:
       responses:
         "200":
           description: One page of global rows.
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+            Cache-Control: { $ref: "#/components/headers/CacheControl" }
+            Vary: { $ref: "#/components/headers/Vary" }
+            Server-Timing: { $ref: "#/components/headers/ServerTiming" }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Globals" }
+        "500": { $ref: "#/components/responses/DatabaseError" }
         "400": { $ref: "#/components/responses/MissingTarget" }
         "404": { $ref: "#/components/responses/UnknownTarget" }
     head:
@@ -319,9 +404,15 @@ paths:
       responses:
         "200":
           description: One page of global rows.
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+            Cache-Control: { $ref: "#/components/headers/CacheControl" }
+            Vary: { $ref: "#/components/headers/Vary" }
+            Server-Timing: { $ref: "#/components/headers/ServerTiming" }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Globals" }
+        "500": { $ref: "#/components/responses/DatabaseError" }
         "400": { $ref: "#/components/responses/MissingTarget" }
         "404": { $ref: "#/components/responses/UnknownTarget" }
 
@@ -340,9 +431,15 @@ paths:
       responses:
         "200":
           description: One page of history rows.
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+            Cache-Control: { $ref: "#/components/headers/CacheControl" }
+            Vary: { $ref: "#/components/headers/Vary" }
+            Server-Timing: { $ref: "#/components/headers/ServerTiming" }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/History" }
+        "500": { $ref: "#/components/responses/DatabaseError" }
         "400": { $ref: "#/components/responses/MissingTarget" }
         "404": { $ref: "#/components/responses/UnknownTarget" }
     head:
@@ -356,9 +453,15 @@ paths:
       responses:
         "200":
           description: One page of history rows.
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+            Cache-Control: { $ref: "#/components/headers/CacheControl" }
+            Vary: { $ref: "#/components/headers/Vary" }
+            Server-Timing: { $ref: "#/components/headers/ServerTiming" }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/History" }
+        "500": { $ref: "#/components/responses/DatabaseError" }
         "400": { $ref: "#/components/responses/MissingTarget" }
         "404": { $ref: "#/components/responses/UnknownTarget" }
 
@@ -378,9 +481,11 @@ components:
       in: query
       required: false
       description: |
-        A match status.  A value outside the vocabulary is 400
-        `invalid_status` rather than an empty page, which would read as
-        "this target has no functions in that status".
+        A match status, matched case-insensitively and trimmed.  The legacy
+        spelling `NEAR_MATCH` is accepted as an alias of `NEAR_MATCHING`, so
+        the accepted set is the enum below plus that one value.  A value
+        outside it is 400 `invalid_status` rather than an empty page, which
+        would read as "this target has no functions in that status".
       schema:
         type: string
         enum: [EXACT, RELOC, PROVEN, NEAR_MATCHING, STUB, SKIP, INVALID_VA, MISSING_FILE, MISSING_SIZE, SIZE_MISMATCH, COMPILE_ERROR, EXTRACT_ERROR]
@@ -390,8 +495,10 @@ components:
       required: false
       description: |
         A module name as stored.  Omitting it does not filter; a *present*
-        empty value (`module=`) matches rows with a blank module.  LIKE
-        wildcards in the value are escaped, so it matches literally.
+        empty value (`module=`) matches rows with a blank module.  The value
+        is compared for equality, so `%` and `_` in it are ordinary
+        characters and need no escaping.  A repeated parameter takes its
+        first value.
       schema: { type: string }
     Query:
       name: q
@@ -669,9 +776,11 @@ components:
     Va:
       type: string
       description: |
-        Virtual address as `0x` plus eight lowercase hex digits, or `???` when
-        the database holds no address.
-      pattern: '^(0x[0-9a-f]{8}|\?\?\?)$'
+        Virtual address as `0x` plus at least eight lowercase hex digits, or
+        `???` when the database holds no address.  A 32-bit target pads to
+        eight; an address above `0xffffffff` keeps every digit it has, up to
+        the 16 the int64 range allows.
+      pattern: '^(0x[0-9a-f]{8,16}|\?\?\?)$'
 
   responses:
     HtmlOk:
@@ -716,13 +825,20 @@ components:
       description: |
         The target's `function_stats` row exists but is unreadable
         (`corrupt_function_stats`).  Not 404: the target is present, its
-        value is not.
+        value is not.  The handler guard can answer this status on the same
+        route with `database_error` or `internal_error`; all three share the
+        `Error` envelope, so branch on `code`.
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
 
     DatabaseError:
-      description: 'The database could not be read (`database_error`).'
+      description: |
+        A server-side failure the client cannot fix, in the `Error`
+        envelope: `database_error` when the coverage database could not be
+        read, `internal_error` for any other fault in a route.  A client
+        that cannot branch any finer treats every 500 alike and retries
+        later; the `code` is what distinguishes them.
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
@@ -745,4 +861,12 @@ components:
       schema: { type: string }
     Vary:
       description: '`Accept-Encoding`; the body is served zstd or gzip.'
+      schema: { type: string }
+    ServerTiming:
+      description: |
+        `route;dur=<ms>`, the server time the route itself took, so a
+        client can separate query time from transfer time.  Absent on the
+        three entry assets (`/`, `/app.js`, `/boot-guard.js`), whose cold
+        flight is budgeted against the initial congestion window and would
+        read as a constant anyway.  Absent on every error and on 304.
       schema: { type: string }

@@ -3118,3 +3118,79 @@ class TestOpenApiSpec:
         assert set(schemas["Bootstrap"]["properties"]) == set(payload)
         _, _, body = dashboard.handle("GET", "/api/targets", {})
         assert set(schemas["Targets"]["properties"]) == set(json.loads(body))
+
+    def test_every_ref_resolves(self) -> None:
+        """A dangling `$ref` makes the spec unusable for a generated client.
+
+        Nothing else in this class resolves the pointers, so a renamed
+        response or schema would pass every check here and fail only in the
+        consumer's code generator.
+        """
+        spec = _spec()
+
+        def resolve(ref: str) -> object:
+            node: object = spec
+            for part in ref.removeprefix("#/").split("/"):
+                assert isinstance(node, dict), ref
+                assert part in node, ref
+                node = node[part]
+            return node
+
+        def walk(node: object) -> None:
+            if isinstance(node, dict):
+                for key, value in node.items():
+                    if key == "$ref":
+                        assert isinstance(value, str) and value.startswith("#/"), value
+                        resolve(value)
+                    else:
+                        walk(value)
+            elif isinstance(node, list):
+                for item in node:
+                    walk(item)
+
+        walk(spec)
+
+    def test_every_route_declares_a_500(self) -> None:
+        """The handler guard wraps every route, so no route is 500-free.
+
+        A route with no declared 500 leaves a generated client with no
+        branch for a server-side failure, and a client that treats it as
+        an unlisted status either drops the body or reports success.
+        """
+        responses = _spec()["components"]["responses"]
+        for path, item in _spec()["paths"].items():
+            for method in ("get", "head"):
+                ref = item[method]["responses"]["500"]["$ref"]
+                name = ref.rsplit("/", 1)[-1]
+                assert name in ("DatabaseError", "CorruptStats"), (path, method, name)
+                assert (
+                    responses[name]["content"]["application/json"]["schema"]["$ref"]
+                    == "#/components/schemas/Error"
+                ), (path, method, name)
+
+    def test_va_pattern_accepts_a_64_bit_address(self, dashboard: Dashboard) -> None:
+        """A `va` past 32 bits serializes to more than eight hex digits.
+
+        The query layer pads to eight with ``:08x``, which is a minimum and
+        not a width, and ``VA_MAX`` is the int64 range.  A pattern pinned to
+        exactly eight digits would reject a perfectly valid response from a
+        64-bit target and break a generated client's validator.
+        """
+        import re
+
+        high = 0x140001000
+        with sqlite3.connect(dashboard.db_path) as conn:
+            conn.execute(
+                "INSERT INTO functions (target, va, name, size, status) "
+                "VALUES ('server_dll', ?, 'func_high', 16, 'EXACT')",
+                (high,),
+            )
+        pattern = re.compile(_spec()["components"]["schemas"]["Va"]["pattern"])
+        rows = dashboard.functions("server_dll")["functions"]
+        assert high == 0x140001000  # the literal survives a round trip through SQLite
+        rendered = {row[1]: row[0] for row in rows}["func_high"]
+        assert rendered == "0x140001000"
+        assert pattern.fullmatch(rendered), rendered
+        # The 32-bit rows the dashboard actually serves still match.
+        assert pattern.fullmatch("0x10001000")
+        assert pattern.fullmatch("???")
