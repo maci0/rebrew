@@ -1173,8 +1173,8 @@ __STATUS_CSS__
   .table-scroll { overflow-x: auto; position: relative; min-height: 6rem; -webkit-overflow-scrolling: touch; }
   .table-scroll[aria-busy="true"]::after {
     content: "Loading…"; position: absolute; inset: 0; display: flex; align-items: center;
-    justify-content: center; background: var(--rb-veil); font-size: .95rem;
-    color: var(--rb-muted);
+    justify-content: center; background: var(--rb-veil);
+    font-size: var(--rb-size-note); color: var(--rb-muted);
   }
   .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
     overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
