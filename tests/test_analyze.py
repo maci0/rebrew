@@ -19,6 +19,47 @@ def _cfg() -> SimpleNamespace:
     return SimpleNamespace(root=Path("/nonexistent"), target_binary=FIXTURES / "mini_pe.exe")
 
 
+def _write_project(root: Path, binary: str = "mini_pe.exe") -> Path:
+    """Scaffold a one-target project whose target binary is *binary*.
+
+    The fixture named by *binary* is copied into ``original/`` when it exists;
+    a name with no fixture (e.g. ``missing.exe``) leaves the binary absent.
+    """
+    (root / "original").mkdir(parents=True)
+    (root / "src" / "S").mkdir(parents=True)
+    (root / "bin" / "S").mkdir(parents=True)
+    fixture = FIXTURES / binary
+    if fixture.exists():
+        (root / "original" / binary).write_bytes(fixture.read_bytes())
+    (root / "rebrew-project.toml").write_text(
+        f"""\
+[project]
+name = "p"
+default_target = "S"
+jobs = 1
+
+[targets."S"]
+binary = "original/{binary}"
+format = "pe"
+arch = "x86_32"
+reversed_dir = "src/S"
+bin_dir = "bin/S"
+marker = "S"
+
+[compiler]
+profile = "mingw-16.2.0"
+command = "i686-w64-mingw32-gcc"
+includes = ""
+libs = ""
+cflags = "-O2"
+base_cflags = ""
+timeout = 60
+""",
+        encoding="utf-8",
+    )
+    return root
+
+
 class TestCollectFunctions:
     def test_ghidra_functions_preferred(self, tmp_path: Path, monkeypatch) -> None:
         """A Ghidra export takes precedence for functions.total."""
@@ -168,37 +209,7 @@ class TestBuildDossier:
 class TestAnalyzeCli:
     def test_json_purity_and_schema(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """The dossier CLI emits pure JSON with the expected top-level keys."""
-        root = tmp_path / "proj"
-        (root / "original").mkdir(parents=True)
-        (root / "src" / "S").mkdir(parents=True)
-        (root / "bin" / "S").mkdir(parents=True)
-        (root / "original" / "mini_pe.exe").write_bytes((FIXTURES / "mini_pe.exe").read_bytes())
-        (root / "rebrew-project.toml").write_text(
-            """\
-[project]
-name = "p"
-default_target = "S"
-jobs = 1
-
-[targets."S"]
-binary = "original/mini_pe.exe"
-format = "pe"
-arch = "x86_32"
-reversed_dir = "src/S"
-bin_dir = "bin/S"
-marker = "S"
-
-[compiler]
-profile = "mingw-16.2.0"
-command = "i686-w64-mingw32-gcc"
-includes = ""
-libs = ""
-cflags = "-O2"
-base_cflags = ""
-timeout = 60
-""",
-            encoding="utf-8",
-        )
+        root = _write_project(tmp_path / "proj")
         monkeypatch.chdir(root)
         result = CliRunner().invoke(app, ["analyze", "--json"])
         assert result.exit_code == 0, result.output
@@ -219,36 +230,7 @@ timeout = 60
     def test_missing_binary_errors_as_json(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        root = tmp_path / "proj"
-        (root / "original").mkdir(parents=True)
-        (root / "src" / "S").mkdir(parents=True)
-        (root / "bin" / "S").mkdir(parents=True)
-        (root / "rebrew-project.toml").write_text(
-            """\
-[project]
-name = "p"
-default_target = "S"
-jobs = 1
-
-[targets."S"]
-binary = "original/missing.exe"
-format = "pe"
-arch = "x86_32"
-reversed_dir = "src/S"
-bin_dir = "bin/S"
-marker = "S"
-
-[compiler]
-profile = "mingw-16.2.0"
-command = "i686-w64-mingw32-gcc"
-includes = ""
-libs = ""
-cflags = "-O2"
-base_cflags = ""
-timeout = 60
-""",
-            encoding="utf-8",
-        )
+        root = _write_project(tmp_path / "proj", binary="missing.exe")
         monkeypatch.chdir(root)
         result = CliRunner().invoke(app, ["analyze", "--json"])
         assert result.exit_code == 2  # error_exit convention
@@ -303,37 +285,7 @@ class TestAnalyzeV2:
     """analyze v2: --output Markdown report and --function drill."""
 
     def _project(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-        root = tmp_path / "proj"
-        (root / "original").mkdir(parents=True)
-        (root / "src" / "S").mkdir(parents=True)
-        (root / "bin" / "S").mkdir(parents=True)
-        (root / "original" / "mini_pe.exe").write_bytes((FIXTURES / "mini_pe.exe").read_bytes())
-        (root / "rebrew-project.toml").write_text(
-            """\
-[project]
-name = "p"
-default_target = "S"
-jobs = 1
-
-[targets."S"]
-binary = "original/mini_pe.exe"
-format = "pe"
-arch = "x86_32"
-reversed_dir = "src/S"
-bin_dir = "bin/S"
-marker = "S"
-
-[compiler]
-profile = "mingw-16.2.0"
-command = "i686-w64-mingw32-gcc"
-includes = ""
-libs = ""
-cflags = "-O2"
-base_cflags = ""
-timeout = 60
-""",
-            encoding="utf-8",
-        )
+        root = _write_project(tmp_path / "proj")
         monkeypatch.chdir(root)
         return root
 

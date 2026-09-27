@@ -129,14 +129,13 @@ def _generate_bss_fix(
                 return
             console.print(f"[yellow]{message}[/yellow]")
             return
-        else:
-            for line in text.splitlines():
-                m = re.match(r"// DATA: \S+ 0x([0-9a-fA-F]{8})", line)
-                if m:
-                    existing_decls[int(m.group(1), 16)] = 0
-            # char gap_XXXXXXXX[N]; — recover the declared size
-            for m in re.finditer(r"char gap_([0-9a-fA-F]{8})\[(\d+)\];", text):
-                existing_decls[int(m.group(1), 16)] = int(m.group(2))
+        for line in text.splitlines():
+            m = re.match(r"// DATA: \S+ 0x([0-9a-fA-F]{8})", line)
+            if m:
+                existing_decls[int(m.group(1), 16)] = 0
+        # char gap_XXXXXXXX[N]; — recover the declared size
+        for m in re.finditer(r"char gap_([0-9a-fA-F]{8})\[(\d+)\];", text):
+            existing_decls[int(m.group(1), 16)] = int(m.group(2))
 
     if not report.gaps and not existing_decls:
         if json_output:
