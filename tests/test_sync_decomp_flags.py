@@ -70,4 +70,4 @@ class TestGenerateFlagDataPy:
         assert "Synced: 2026-08-07" in out
         assert "COMMON_MSVC_FLAGS: Flags = [" in out
         assert "MSVC6_FLAGS: Flags = [" in out
-        assert "MSVC_SWEEP_TIERS = {" in out
+        assert "MSVC_SWEEP_TIERS: dict[str, list[str] | None] = {" in out

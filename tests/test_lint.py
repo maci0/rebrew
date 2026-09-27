@@ -954,6 +954,12 @@ class TestW020AsmDump:
         result = self._lint(tmp_path, body)
         assert not any(c == "W020" for _, c, _ in result.warnings)
 
+    def test_bare_emit_spelling_warns(self, tmp_path: Path) -> None:
+        """`rebrew asm` writes the bare `_emit 0xNN` form, so W020 must match it."""
+        body = "int f(void) {\n    __asm { _emit 0x55 }\n    return 0;\n}\n"
+        result = self._lint(tmp_path, body)
+        assert any(c == "W020" for _, c, _ in result.warnings)
+
     def test_asm_in_comment_does_not_warn(self, tmp_path: Path) -> None:
         # "// __asm" in a comment is not an implementation.
         body = "// __asm notes about the original\nint f(void) { return 0; }\n"

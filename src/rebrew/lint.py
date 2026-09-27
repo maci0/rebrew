@@ -1117,19 +1117,21 @@ def _check_W020_asm_dump(
             return
     claimed = sorted((claimed_statuses or set()) - {"STUB", "SKIP"})
     for i, code in enumerate(code_lines, start=1):
-        if "__emit" in code:
+        # "_emit", not "__emit": `rebrew asm` writes the bare spelling, so
+        # matching only the old prefixed form missed every dump it produced.
+        if "_emit" in code:
             if claimed:
                 result.warning(
                     i,
                     "W020",
-                    f"__emit byte dump but STATUS claims {', '.join(claimed)} — an asm "
+                    f"_emit byte dump but STATUS claims {', '.join(claimed)} — an asm "
                     "placeholder cannot be a byte-match; fix the STATUS or mark BLOCKER",
                 )
             else:
                 result.warning(
                     i,
                     "W020",
-                    "__emit byte dump — function is an asm placeholder, not real C "
+                    "_emit byte dump — function is an asm placeholder, not real C "
                     "source; rewrite it as C (or mark it STUB/BLOCKER with a note)",
                 )
             return
