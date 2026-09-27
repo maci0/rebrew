@@ -33,6 +33,7 @@ import re
 import struct
 import time
 import warnings
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, override
@@ -538,6 +539,7 @@ def _run_simulation(
     *,
     loop_bound: int,
     timeout: int,
+    clock: Callable[[], float] | None = None,
 ) -> tuple[list[Any], bool]:
     """Run symbolic execution and return (satisfiable terminal states, timed_out).
 
@@ -546,6 +548,9 @@ def _run_simulation(
     flag is True when the monotonic budget expired while states were still
     active — callers must treat that as an inconclusive proof (fail closed),
     never as equivalence, because unexplored paths may still differ.
+
+    *clock* is the budget's only time source: inject it to run the same
+    states for a step-bounded budget instead of a wall-clock one.
     """
     import angr  # # lazy import (angr is an optional extra)
 
@@ -556,11 +561,12 @@ def _run_simulation(
     # so we step manually and check the monotonic clock each iteration
     # (wall-clock steps from NTP must not shrink or expand the budget).
 
-    deadline = time.monotonic() + timeout
+    now = clock if clock is not None else time.monotonic
+    deadline = now() + timeout
     timed_out = False
 
     while sm.active:
-        if time.monotonic() > deadline:
+        if now() > deadline:
             timed_out = True
             break
         sm.step()

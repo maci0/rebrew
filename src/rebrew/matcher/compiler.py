@@ -19,6 +19,7 @@ import subprocess
 import tempfile
 import time
 import warnings
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -745,6 +746,8 @@ def flag_sweep(
     profile: str = "",
     cfg: Any = None,
     deadline: float | None = None,
+    *,
+    clock: Callable[[], float] | None = None,
 ) -> list[tuple[float, str]]:
     """Sweep compiler flags to find the best match.
 
@@ -770,14 +773,19 @@ def flag_sweep(
             selects the flag set and (for toolchain-backed profiles) the
             compile runner.
         cfg: Optional project config for toolchain-backed compile routing.
-        deadline: ``time.monotonic()`` value after which no further combination
-            is started; ``None`` means no wall-clock bound.  Combinations
+        deadline: *clock* value after which no further combination is
+            started; ``None`` means no wall-clock bound.  Combinations
             already in flight still finish.
+        clock: Time source the deadline is read from.  Injecting it lets a
+            replayed run bound the sweep by virtual time instead of by
+            however long the compiles happen to take.
 
     """
     from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
     from .scoring import precompute_target, score_candidate
+
+    now = clock if clock is not None else time.monotonic
 
     if (posix_style or profile_flags_style(profile) == "posix") and profile not in _TIERS_MAP:
         # The sweep needs a flag database for the profile.  A posix profile
@@ -884,7 +892,7 @@ def flag_sweep(
                 # a thorough tier (258k combos) ran unbounded.  Measured on
                 # guild-rebrew: `--timeout-min 6` was still going after 13
                 # minutes and had to be killed.
-                if deadline is not None and time.monotonic() >= deadline:
+                if deadline is not None and now() >= deadline:
                     combo_iter = iter(())
                 with contextlib.suppress(StopIteration):
                     pending.add(executor.submit(_eval_flags, next(combo_iter)))

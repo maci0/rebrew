@@ -14,6 +14,7 @@ import re
 import subprocess
 import threading
 import time
+from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -861,22 +862,33 @@ class BinaryMatchingGA:
                 ),
             )
 
-    def run(self, deadline: float | None = None) -> tuple[str | None, float]:
+    def run(
+        self,
+        deadline: float | None = None,
+        *,
+        clock: Callable[[], float] | None = None,
+    ) -> tuple[str | None, float]:
         """Run the GA and return ``(best_source, best_score)``.
 
-        *deadline* is a ``time.monotonic()`` timestamp; when reached, the
-        loop stops between generations and returns the best result so far.
-        This is a cooperative, thread-safe timeout (unlike SIGALRM, which
-        only fires in the main thread) — it exists so parallel batch runs
-        can bound each stub without signals.
+        *deadline* is a *clock* timestamp; when reached, the loop stops
+        between generations and returns the best result so far.  This is a
+        cooperative, thread-safe timeout (unlike SIGALRM, which only fires
+        in the main thread) — it exists so parallel batch runs can bound
+        each stub without signals.
+
+        *clock* is the only time source the loop reads, deadline checks and
+        ``elapsed_sec`` alike, so a caller replaying a seed can drive the
+        generation budget from virtual time and get the same run every
+        time instead of one cut short by wall-clock speed.
         """
         last_generation = self._start_generation
+        now = clock if clock is not None else time.monotonic
         # One executor for the whole run, not one pool per generation.
         with ThreadPoolExecutor(max_workers=self.num_jobs) as executor:
             for gen in range(self._start_generation, self.num_generations):
-                if deadline is not None and time.monotonic() > deadline:
+                if deadline is not None and now() > deadline:
                     break
-                gen_start = time.monotonic()
+                gen_start = now()
                 scored_pop = []
                 # Consult the in-process fitness memo BEFORE
                 # submitting — elite/unchanged sources keep their score across
@@ -918,7 +930,7 @@ class BinaryMatchingGA:
                     # scheduling and dispatch; charging it keeps elapsed_sec
                     # a true total instead of under-reporting exactly the
                     # generation that produced nothing.
-                    self.elapsed_sec += time.monotonic() - gen_start
+                    self.elapsed_sec += now() - gen_start
                     continue
                 best_score, best_src = scored_pop[0]
                 diversity = compute_population_diversity(self.population)
@@ -945,7 +957,7 @@ class BinaryMatchingGA:
                     best_score < EXACT_SCORE_THRESHOLD
                     or self.stagnant_gens >= self.stagnation_limit
                 ):
-                    self.elapsed_sec += time.monotonic() - gen_start
+                    self.elapsed_sec += now() - gen_start
                     break
 
                 # Distinct sources only: an unchanged child is a clone of its
@@ -1009,7 +1021,7 @@ class BinaryMatchingGA:
                 # Accumulate the FULL generation time (scoring + mutation +
                 # crossover) — stopping at the break above under-reported GA
                 # time by ~99% on cache-warm runs (mutation dominates).
-                self.elapsed_sec += time.monotonic() - gen_start
+                self.elapsed_sec += now() - gen_start
 
                 # Persist a checkpoint every _CHECKPOINT_INTERVAL generations so
                 # an interrupted batch resumes from here instead of restarting

@@ -550,6 +550,40 @@ class TestGADeadline:
         # passed even when no generation ran. Require elapsed time from a gen.
         assert ga.elapsed_sec > 0
 
+    def test_deadline_reads_the_injected_clock(self, tmp_path: Path) -> None:
+        """The generation budget comes from *clock*, not from wall time.
+
+        Two readings per generation (start and end), so a clock advancing by
+        1 per reading stops the run at the same generation on any machine,
+        at any load, and the same seed replays to the same numbers.
+        """
+
+        def _run() -> tuple[int, float]:
+            from rebrew.match_ga import BinaryMatchingGA
+
+            readings = iter(float(i) for i in range(1, 1000))
+            ga = BinaryMatchingGA(
+                seed_source="int f(void) { return 0; }",
+                target_bytes=b"\xc3",
+                cl_cmd="cl",
+                inc_dir="",
+                cflags="/O2",
+                symbol="_f",
+                out_dir=tmp_path,
+                num_generations=50,
+                pop_size=2,
+                num_jobs=1,
+            )
+            ga.run(deadline=9, clock=lambda: next(readings))
+            return ga.generation, ga.elapsed_sec
+
+        first = _run()
+        # The budget bit before the generation limit, and every charged
+        # generation ended one reading after it started.
+        assert 0 < first[0] < 50
+        assert first[1] == float(first[0])
+        assert first == _run()
+
     @pytest.mark.parametrize("score", [0.0, 10.0, float("inf")])
     def test_elapsed_sec_includes_terminating_generation(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, score: float
@@ -993,6 +1027,40 @@ class TestFlagSweepIncludeDirs:
     """flag_sweep must pass the source directory through so relative
     includes (e.g. `#include "../../Units/Error/error.h"`) resolve."""
 
+    def test_deadline_reads_the_injected_clock(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The sweep's submit budget comes from *clock*, not from wall time.
+
+        A clock already past the deadline leaves only the first ``n_jobs``
+        batches, so the same call compiles the same combinations whatever the
+        machine does.
+        """
+        from rebrew.matcher.compiler import flag_sweep, generate_flag_combinations
+
+        combos = generate_flag_combinations(tier="quick")
+        assert len(combos) > 2
+        built: list[str] = []
+
+        def _fake_build(src: str, cl: str, inc: str, flags: str, *a: Any, **k: Any) -> Any:
+            built.append(flags)
+            return SimpleNamespace(ok=True, obj_bytes=b"\x55\x8b\xec\x5d\xc3", reloc_offsets=None)
+
+        monkeypatch.setattr("rebrew.matcher.compiler.build_candidate_obj_only", _fake_build)
+        flag_sweep(
+            "int f(void){return 0;}",
+            b"\x55\x8b\xec\x5d\xc3",
+            "cl",
+            "",
+            "/O2",
+            "_f",
+            n_jobs=1,
+            tier="quick",
+            deadline=10.0,
+            clock=lambda: 11.0,
+        )
+        assert len(built) == 1
+
     def test_extra_include_dirs_forwarded(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -1367,6 +1435,42 @@ class TestSkipRecent:
             encoding="utf-8",
         )
         assert _filter_recently_run(stubs, cfg, hours=2, json_output=True) == stubs
+
+    def test_window_end_is_injectable(self, tmp_path: Path) -> None:
+        """The skip window reads *now*, so the same log gives the same answer.
+
+        A record inside the window when the run happened is skipped; hours
+        later, replaying against a fixed *now* still reproduces that answer
+        instead of letting the wall clock age the record out of the window.
+        """
+        from datetime import UTC, datetime, timedelta
+
+        from rebrew.match_batch import StubInfo
+        from rebrew.match_run import _filter_recently_run
+
+        cfg = SimpleNamespace(root=tmp_path, target_name="SERVER")
+        stubs = [
+            StubInfo(
+                filepath=tmp_path / "s.c",
+                va="0x10001000",
+                size=64,
+                symbol="_s",
+                cflags="/O2",
+                status="STUB",
+                module="SERVER",
+            )
+        ]
+        runs = tmp_path / ".rebrew"
+        runs.mkdir(parents=True)
+        run_time = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
+        (runs / "ga_runs.jsonl").write_text(
+            f'{{"ts": "{run_time.isoformat()}", "target": "SERVER", '
+            f'"va": "0x10001000", "symbol": "_s", "matched": false}}\n',
+            encoding="utf-8",
+        )
+        assert _filter_recently_run(stubs, cfg, hours=2, json_output=True, now=run_time) == []
+        much_later = run_time + timedelta(days=365)
+        assert _filter_recently_run(stubs, cfg, hours=2, json_output=True, now=much_later) == stubs
 
     def test_no_records_keeps_all(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.match_batch import StubInfo
