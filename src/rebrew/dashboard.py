@@ -317,8 +317,8 @@ const loadErrors = { summary: "", functions: "", view: "" };
 const busyCounts = new Map();
 const viewLoaded = { functions: false, sections: false, globals: false, history: false };
 async function get(path, signal) {
-  // Default credentials ("same-origin") match <link rel=preload as=fetch
-  // crossorigin> (anonymous), so the cold-start bootstrap reuses the preload.
+  // Default credentials ("same-origin") match the anonymous crossorigin
+  // preload, so the cold-start bootstrap reuses it.
   let r;
   try {
     r = await fetch(path, { signal });
@@ -360,8 +360,8 @@ function esc(s) {
 }
 function formatWhen(value) {
   if (!value) return "";
-  // Rebrew stores UTC instants; a zone-less date-time reads as local wall
-  // time under Date.parse, so pin it with Z.
+  // Rebrew stores UTC instants; a zone-less date-time reads as local wall time
+  // under Date.parse, so pin it with Z.
   let raw = String(value).trim();
   if (/^\\d{4}-\\d{2}-\\d{2}[Tt ]\\d{2}:\\d{2}(:\\d{2}(\\.\\d+)?)?$/.test(raw)) {
     raw += "Z";
@@ -369,9 +369,9 @@ function formatWhen(value) {
   const parsed = Date.parse(raw);
   if (Number.isNaN(parsed)) return String(value);
   try {
-    // One shared formatter: toLocaleString(options) builds a new
-    // Intl.DateTimeFormat per call (~117 ms vs 3 ms for 5000 history rows).
-    // timeZoneName is required: without it a fall-back hour prints twice.
+    // One shared formatter: toLocaleString(options) builds one per call
+    // (~117 ms vs 3 ms for 5000 rows).  timeZoneName is required: without it
+    // a fall-back hour prints twice.
     whenFormat ??= new Intl.DateTimeFormat(undefined, {
       year: "numeric", month: "short", day: "numeric",
       hour: "numeric", minute: "2-digit",
@@ -428,8 +428,8 @@ function syncError() {
   else if (currentView === "history") $("retry-view").textContent = "Retry history";
   else $("retry-view").textContent = "Retry";
 }
-// A control that hides or disables itself on activation drops focus to <body>
-// (WCAG 2.4.3); move it to the first usable id. No-op when focus is held.
+// Hiding or disabling the focused control drops focus to <body> (WCAG 2.4.3),
+// so move it to the first usable id.  No-op when focus is held.
 function restoreFocus(ids) {
   const active = document.activeElement;
   if (active && active !== document.body) return;
@@ -474,8 +474,7 @@ function updateFilterActions() {
   $("filter-actions").hidden = !canFilter;
   $("clear-filters").disabled = !filtersActive();
   $("clear-filters").textContent = currentView === "globals" ? "Clear search" : "Clear filters";
-  // Orientation cue: with a target per browser tab, the title is the only place
-  // that says which target and view are on screen.
+  // With a target per tab, the title is the only orientation cue.
   const t = $("target").value;
   if (t) {
     document.title = t + " - " + currentView[0].toUpperCase() + currentView.slice(1)
@@ -513,10 +512,13 @@ function syncViewChrome() {
     btn.tabIndex = on ? 0 : -1;
   });
   updateFilterActions();
+  syncCardActive();
   syncError();
 }
 function syncCardActive() {
-  const current = $("status").value;
+  // Status cards filter Functions only; pressed on another view, a card would
+  // claim a filter that view is not applying.
+  const current = currentView === "functions" ? $("status").value : "";
   document.querySelectorAll("#cards button[data-status]").forEach(btn => {
     const on = btn.getAttribute("data-status") === current;
     btn.classList.toggle("active", on);
@@ -555,8 +557,7 @@ function setListPageMessage(opts) {
   const hint = $(hintId);
   const more = moreWrapId ? $(moreWrapId) : null;  // null: sections is unpaged
   if (!total) {
-    // Say whether rows were wanted: "No functions match" is a claim about
-    // the filters, not about the target.
+    // "No functions match" is a claim about the filters, not the target.
     $("results-status").textContent = "No " + noun + (filtersActive() ? " match" : " yet");
     hint.hidden = true;
     hint.textContent = "";
@@ -571,8 +572,7 @@ function setListPageMessage(opts) {
     hint.hidden = false;
     const next = Math.min(count + PAGE_STEP, total, PAGE_MAX);
     more.hidden = capped;
-    // The label counts the rows this click adds; the running total is already
-    // in the hint above the table.
+    // The label counts this click; the running total is in the hint.
     const step = next - count;
     $(moreBtnId).textContent = "Show " + step + " more " + (step === 1 ? nounOne : noun);
   } else {
@@ -582,8 +582,8 @@ function setListPageMessage(opts) {
     if (more) more.hidden = true;
   }
 }
-// Drop rows, count hint, and Show more before a fresh (non-append) load: the
-// busy veil is translucent, so stale rows would read as the new page's data.
+// Drop rows, hint, and Show more before a fresh load: the busy veil is
+// translucent, so stale rows would read as the new page's data.
 function resetList(tableId, hintId, moreWrapId) {
   $(tableId).querySelector("tbody").innerHTML = "";
   $(hintId).hidden = true;
@@ -610,8 +610,7 @@ function statusText(s) {
   const mark = statusMark(s);
   return mark ? "<span class='" + mark + "'>" + text + "</span>" : text;
 }
-// Rows are positional arrays named by the response's ``cols``; the server
-// sends no other shape, so the renderers index them directly.
+// Rows are positional arrays named by the response's ``cols``.
 const rowHtml = (r) => {
   return "<tr><td class=va>" + esc(r[0] ?? "") + "</td><td>" + esc(r[1] || "")
     + "</td><td>" + esc(r[2] || "") + "</td><td>" + esc(r[3] ?? "")
@@ -669,8 +668,8 @@ async function loadFunctions(options) {
     $("results").hidden = false;
     $("empty-state").hidden = true;
     if (!grow) resetList("rows", "results-hint", "show-more-wrap");
-    // Busy state via aria-busy only — avoid polite-live "Loading…" chatter on
-    // every debounced search keystroke (WCAG 4.1.3).
+    // aria-busy only: a polite-live "Loading…" per debounced keystroke is
+    // chatter (WCAG 4.1.3).
     const data = await whileBusy("results", () => get("/api/functions?" + params, signal));
     if (seq !== functionsSeq || signal.aborted) return;
     viewLoaded.functions = true;
@@ -711,15 +710,15 @@ function renderSummary(s) {
       "Share of .text bytes covered by any known function, including stubs"],
   ];
   // Same order as the Status select.
-  for (const k of Object.keys(byStatus).sort()) cards.push([k, byStatus[k], k, "Filter by " + k]);
+  for (const k of Object.keys(byStatus).sort()) cards.push([k, byStatus[k], k, "Filter Functions by " + k]);
   // A div cannot be named, so title rides in a visually-hidden span after the
-  // visible text (WCAG 2.5.3); a button already exposes title as a description.
+  // visible text (WCAG 2.5.3); a button exposes title as a description.
   $("cards").innerHTML = cards.map(([k, v, status, title]) => {
     const mark = status ? statusMark(status) : "";
     const label = mark ? "<span class='label " + mark + "'>" : "<span class=label>";
     const inner = "<span class=value>" + esc(v) + "</span>" + label + esc(k) + "</span>";
     if (status) {
-      const pressed = $("status").value === status;
+      const pressed = currentView === "functions" && $("status").value === status;
       const active = pressed ? " active" : "";
       return "<button type=button class='card" + active + "' data-status='" + esc(status)
         + "' title='" + esc(title) + "' aria-pressed='" + (pressed ? "true" : "false") + "'>"
@@ -849,8 +848,9 @@ const historyRowHtml = (h) => {
   const r = Array.isArray(h)
     ? h
     : [h.va, h.name, h.old_status, h.new_status, h.changed_at];
+  // A blank old status is the first recorded change, not a missing value.
   return "<tr><td class=va>" + esc(r[0] ?? "") + "</td><td>" + esc(r[1] || "")
-    + "</td><td>" + statusText(r[2] || "") + "</td><td>" + statusText(r[3] || "")
+    + "</td><td>" + statusText(r[2] || "(first change)") + "</td><td>" + statusText(r[3] || "")
     + "</td><td>" + esc(formatWhen(r[4])) + "</td></tr>";
 };
 function renderHistory(data, options) {
@@ -1254,8 +1254,8 @@ function start() {
     $("retry-summary").focus();
   });
 }
-// Set before start() so the deferred boot guard sees a client that ran; it must
-// be synchronous, as /boot-guard.js executes immediately after this file.
+// Set before start() so the boot guard sees a client that ran; synchronous, as
+// /boot-guard.js executes immediately after this file.
 globalThis.__rebrewBooted = true;
 start();
 """
@@ -1269,6 +1269,12 @@ _BOOT_GUARD_JS = """
 if (!globalThis.__rebrewBooted) {
   const s = document.getElementById("boot-status");
   if (s) s.textContent = "The dashboard client failed to load. Reload to retry.";
+  // The failed client is what normally reveals the Reload button.
+  const b = document.getElementById("reload");
+  if (b) {
+    b.hidden = false;
+    b.onclick = () => location.reload();
+  }
 }
 """
 

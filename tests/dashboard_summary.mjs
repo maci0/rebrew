@@ -35,13 +35,16 @@ globalThis.AbortController = class {
     this.aborted = true;
   }
 };
-const { loadSummary, bindControls, renderSections, renderGlobals, renderHistory } = await loadApp([
-  "loadSummary",
-  "bindControls",
-  "renderSections",
-  "renderGlobals",
-  "renderHistory",
-]);
+const { loadSummary, bindControls, renderSections, renderGlobals, renderHistory, renderSummary, setView } =
+  await loadApp([
+    "loadSummary",
+    "bindControls",
+    "renderSections",
+    "renderGlobals",
+    "renderHistory",
+    "renderSummary",
+    "setView",
+  ]);
 const element = (id) => document.getElementById(id);
 const summary = (status) => ({
   function_stats: { total: 1, by_status: { [status]: 1 } },
@@ -71,7 +74,7 @@ for (const staleFailure of [false, true]) {
   assert.equal(element("status").disabled, false);
   assert.match(element("cards").innerHTML, /EXACT/);
   // Button cards: hint only in title (the description), never repeated in the name.
-  assert.match(element("cards").innerHTML, /<button[^>]*title='Filter by EXACT'[^>]*><span class=value>1<\/span><span class='label st status-EXACT'>EXACT<\/span><\/button>/);
+  assert.match(element("cards").innerHTML, /<button[^>]*title='Filter Functions by EXACT'[^>]*><span class=value>1<\/span><span class='label st status-EXACT'>EXACT<\/span><\/button>/);
   assert.match(element("cards").innerHTML, /<div class=card title='Total functions for this target'>.*<span class=visually-hidden>, Total functions for this target<\/span><\/div>/);
   const options = element("status").innerHTML;
   const cards = element("cards").innerHTML;
@@ -275,3 +278,22 @@ assert.match(element("history-rows").innerHTML, /<span class='st status-EXACT'>E
 assert.match(element("history-rows").innerHTML, /<span class='st status-RELOC'>RELOC<\/span>/);
 const stamps = [...element("history-rows").innerHTML.matchAll(/<td>([^<]*)<\/td><\/tr>/g)].map(m => m[1]);
 assert.deepEqual(stamps, [when("2026-01-02T03:04:05Z"), when("2026-03-04T05:06:00Z"), "not a date"]);
+
+// A VA's first recorded transition has no old status, and the server sends ""
+// for it.  An empty status cell reads as a missing value, so the cell says
+// what it means instead.
+renderHistory({ total: 1, history: [["0x1c", "i", "", "EXACT", "2026-01-02T03:04:05"]] });
+assert.match(element("history-rows").innerHTML, /<td>\(first change\)<\/td>/);
+assert.doesNotMatch(element("history-rows").innerHTML, /status-\(first change\)/);
+
+// A status card filters the Functions view only.  On Globals the Status select
+// is hidden and the rows are not filtered, so no card may read as pressed
+// there; a summary that arrives while Globals is on screen must paint the
+// same way, or the highlight claims a filter the table is not applying.
+setView("globals");
+element("status").value = "EXACT";
+renderSummary(summary("EXACT"));
+assert.match(element("cards").innerHTML, /aria-pressed='false'/);
+setView("functions");
+renderSummary(summary("EXACT"));
+assert.match(element("cards").innerHTML, /aria-pressed='true'/);
