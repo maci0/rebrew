@@ -48,18 +48,34 @@ def _extract_reloc_name(reloc: Any) -> str:
     return ""
 
 
-def _collect_reloc_offsets(
+def _collect_relocs(
     relocations: Iterable[Any],
     func_start: int,
     func_end: int,
-) -> dict[int, str]:
-    """Collect relocation offsets within a function's byte range."""
+) -> tuple[dict[int, str], list[CoffRelocRecord]]:
+    """Relocations inside a function's byte range, as offsets and as records.
+
+    Both come from the same range filter, and both need the decoded symbol
+    name, so one walk builds them.  Iterating ``section.relocations`` twice ran
+    the filter and the name decode twice per in-range entry on a path the GA
+    walks once per candidate.
+    """
     offsets: dict[int, str] = {}
+    records: list[CoffRelocRecord] = []
     for reloc in relocations:
         rva = reloc.address
-        if func_start <= rva < func_end:
-            offsets[rva - func_start] = _extract_reloc_name(reloc) or ""
-    return offsets
+        if not func_start <= rva < func_end:
+            continue
+        name = _extract_reloc_name(reloc)
+        offsets[rva - func_start] = name or ""
+        records.append(
+            CoffRelocRecord(
+                offset=rva - func_start,
+                type=int(reloc.type) & 0xFFFF,
+                symbol=name,
+            )
+        )
+    return offsets, records
 
 
 # ---------------------------------------------------------------------------
@@ -185,30 +201,22 @@ def _parse_coff(
     # section_number on symbols and returns a fresh Section object per
     # access, so compare the stable section file offset instead.
     target_off = getattr(section, "offset", None)
-    sec_offsets = sorted(
-        s.value
-        for s in symbols
-        if s.section is not None
-        and not str(s.name).startswith("$")
-        and (getattr(s.section, "offset", None) == target_off if target_off is not None else True)
-    )
+    # One access per symbol, not two: LIEF builds a fresh Section on each
+    # `symbol.section` read, so the `is not None` test and the offset compare
+    # each paid for a construction on every symbol of the object.
+    sec_offsets: list[int] = []
+    for s in symbols:
+        sym_section = s.section
+        if sym_section is None or str(s.name).startswith("$"):
+            continue
+        if target_off is not None and getattr(sym_section, "offset", None) != target_off:
+            continue
+        sec_offsets.append(s.value)
+    sec_offsets.sort()
     func_end = _next_symbol_end(sec_offsets, func_start, len(content))
 
     code = content[func_start:func_end].rstrip(_PADDING_STRIP)
-    reloc_offsets = _collect_reloc_offsets(section.relocations, func_start, func_end)
-
-    records: list[CoffRelocRecord] = []
-    for r in section.relocations:
-        rva = r.address
-        if func_start <= rva < func_end:
-            raw_type = int(r.type) & 0xFFFF
-            records.append(
-                CoffRelocRecord(
-                    offset=rva - func_start,
-                    type=raw_type,
-                    symbol=_extract_reloc_name(r),
-                )
-            )
+    reloc_offsets, records = _collect_relocs(section.relocations, func_start, func_end)
     return code, reloc_offsets, records
 
 
@@ -385,7 +393,7 @@ def _parse_elf_symbol_bytes(
         for r in elf.relocations
         if hasattr(r, "section") and r.section is not None and r.section.name == section.name
     )
-    reloc_offsets = _collect_reloc_offsets(section_relocs, func_start, func_end)
+    reloc_offsets, _records = _collect_relocs(section_relocs, func_start, func_end)
     return code, reloc_offsets
 
 
@@ -469,7 +477,7 @@ def _parse_macho_symbol_bytes(
     func_end = _next_symbol_end(sec_offsets, func_start, len(content))
 
     code = content[func_start:func_end].rstrip(_PADDING_STRIP)
-    reloc_offsets = _collect_reloc_offsets(section.relocations, func_start, func_end)
+    reloc_offsets, _records = _collect_relocs(section.relocations, func_start, func_end)
     return code, reloc_offsets
 
 

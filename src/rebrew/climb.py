@@ -32,11 +32,13 @@ import os
 import re
 import signal
 from collections.abc import Callable
+from functools import lru_cache, partial
 from pathlib import Path
 from typing import Any
 
 import typer
 
+from rebrew.analysis import Insn
 from rebrew.annotation import parse_c_file_multi
 from rebrew.binary_loader import extract_raw_bytes
 from rebrew.cli import (
@@ -123,18 +125,29 @@ def _code_lines(lines: list[str]) -> list[str]:
     return out
 
 
-def function_span(lines: list[str], symbol: str) -> tuple[int, int]:
-    """Return the line indices of the definition of *symbol* and its closing brace.
+#: A climb visits one function, so the definition matcher cache never needs to
+#: hold more than a handful of symbols; the bound keeps a long-lived process
+#: from accumulating one pattern per source file it has ever climbed.
+_DEFINITION_RE_CACHE_SIZE = 64
 
-    Raises:
-        ValueError: when no definition or no matching closing brace is found.
+
+@lru_cache(maxsize=_DEFINITION_RE_CACHE_SIZE)
+def _definition_re(name: str) -> re.Pattern[str]:
+    """Header matcher for the definition of *name*, cached per symbol.
+
+    A climb calls this once per accepted move, and every accepted move re-runs
+    the whole search, so recompiling the same pattern is pure overhead.
     """
+    return re.compile(rf"^[\w\s\*]+?\b{re.escape(name)}\s*\(")
+
+
+def _span_of(code: list[str], symbol: str) -> tuple[int, int]:
+    """function_span over an already comment-stripped copy of the source."""
     name = symbol[1:] if symbol.startswith("_") else symbol
     # A __stdcall/__fastcall definition carries an "@<bytes>" decoration, which
     # the compiler adds and the source never writes: `_foo@8` defines `foo`.
     name = _AT_DECORATION_RE.sub("", name)
-    head = re.compile(rf"^[\w\s\*]+?\b{re.escape(name)}\s*\(")
-    code = _code_lines(lines)
+    head = _definition_re(name)
     # A file may declare the symbol before defining it; a definition is the
     # match that does not end in ';'.  Taking the first match would climb the
     # prototype's neighbourhood -- file-scope structs included.
@@ -152,14 +165,29 @@ def function_span(lines: list[str], symbol: str) -> tuple[int, int]:
     raise ValueError(f"closing brace of {name} not found")
 
 
-def _statements(lines: list[str], lo: int, hi: int) -> list[tuple[int, int]]:
+def function_span(lines: list[str], symbol: str) -> tuple[int, int]:
+    """Return the line indices of the definition of *symbol* and its closing brace.
+
+    Raises:
+        ValueError: when no definition or no matching closing brace is found.
+    """
+    return _span_of(_code_lines(lines), symbol)
+
+
+def _statements(
+    lines: list[str], lo: int, hi: int, code: list[str] | None = None
+) -> list[tuple[int, int]]:
     """Top-level statements in lines[lo:hi] as inclusive (first, last) index pairs.
 
     A statement ends where the brace depth returns to the function's own depth,
     so multi-line blocks move as a unit.  Trailing blank lines stay with the
     statement they follow.
+
+    *code* is the comment-stripped copy of *lines*, which costs a whole-file
+    scan; a caller that also needs the span passes the one it already built.
     """
-    code = _code_lines(lines)
+    if code is None:
+        code = _code_lines(lines)
     brace = next((i for i in range(lo, hi) if "{" in code[i]), None)
     if brace is None:
         raise ValueError("function body not found")
@@ -203,6 +231,43 @@ _SHORT_ADDEND_RE = re.compile(r"\[0x[0-9a-f]{1,5}\]")
 
 #: MSVC stdcall decoration (`foo@8`) — never appears in C source.
 _AT_DECORATION_RE = re.compile(r"@\d+$")
+
+
+def _norm_text(insn: Insn) -> str:
+    """Instruction text as the alignment compares it.
+
+    Address-sized immediates fold to ``g``, and the operands an object
+    carries for a relocation — a bare ``[0]`` or a short addend — fold
+    onto ``g`` too, because the target side has the resolved address
+    there.  guild-rebrew's ``scripts/seqdiff.py:norm`` applies the same
+    folds; without them the aligner paired 624 of the target's
+    instructions where the sequence diff pairs 740.
+    """
+    text = _ADDRESS_RE.sub("g", f"{insn.mnemonic} {insn.op_str}")
+    text = text.replace("[0]", "[g]")
+    return _SHORT_ADDEND_RE.sub("[g]", text).strip()
+
+
+def target_texts(cfg: ProjectConfig, target_bytes: bytes, section_va: int) -> list[str]:
+    """The target's normalized instruction texts, built once per climb.
+
+    The target bytes are fixed for the whole search while the scorer runs once
+    per candidate swap, so disassembling and re-normalizing them inside the
+    scorer repeated ``statements x passes`` of constant work.  The architecture
+    and mode are read the way :func:`_score_aligned` reads them, so the two
+    sides of the alignment cannot drift apart.
+    """
+    # Imported here, not at module scope, so a test that swaps the disassembler
+    # on rebrew.analysis is seen by the call that follows.
+    from rebrew.analysis import disasm_insns
+
+    insns = disasm_insns(
+        target_bytes,
+        section_va,
+        getattr(cfg, "capstone_arch", "CS_ARCH_X86"),
+        getattr(cfg, "capstone_mode", "CS_MODE_32"),
+    )
+    return [_norm_text(i) for i in insns]
 
 
 def _compile_candidate(
@@ -303,8 +368,13 @@ def _score_aligned(
     name_to_va: dict[str, int],
     section_va: int,
     toolchain: str | None,
+    target_texts: list[str],
 ) -> tuple[float, int]:
     """Aligned-pair score for *path*, or ``(-1.0, 0)``.
+
+    *target_texts* is the target side of the alignment, built once per climb by
+    :func:`target_texts`; the target bytes do not change between candidates,
+    so re-disassembling them here would repeat constant work per scored swap.
 
     The compile path is :func:`_score`'s; the comparison is the mnemonic
     alignment ``.scratch/ndiff.py`` reports instead of the positional byte
@@ -336,36 +406,19 @@ def _score_aligned(
     if candidate is None:
         return -1.0, 0
     obj_bytes, result, obj_len = candidate
-    from rebrew.analysis import Insn, disasm_insns
+    from rebrew.analysis import disasm_insns
 
     arch = getattr(cfg, "capstone_arch", "CS_ARCH_X86")
     mode = getattr(cfg, "capstone_mode", "CS_MODE_32")
 
-    def text(insn: Insn) -> str:
-        """Instruction text as the alignment compares it.
-
-        Address-sized immediates fold to ``g``, and the operands an object
-        carries for a relocation — a bare ``[0]`` or a short addend — fold
-        onto ``g`` too, because the target side has the resolved address
-        there.  guild-rebrew's ``scripts/seqdiff.py:norm`` applies the same
-        folds; without them the aligner paired 624 of the target's
-        instructions where the sequence diff pairs 740.
-        """
-        text = _ADDRESS_RE.sub("g", f"{insn.mnemonic} {insn.op_str}")
-        text = text.replace("[0]", "[g]")
-        return _SHORT_ADDEND_RE.sub("[g]", text).strip()
-
-    compiled_insns = disasm_insns(obj_bytes, section_va, arch, mode)
-    target = disasm_insns(target_bytes, section_va, arch, mode)
+    compiled_texts = [_norm_text(i) for i in disasm_insns(obj_bytes, section_va, arch, mode)]
     # autojunk=False: difflib's default drops "popular" elements, which on a
     # 1000-instruction stream collapses the alignment (523 pairs against the
     # 740 the same streams pair with the heuristic off).
-    aligner = difflib.SequenceMatcher(
-        a=[text(i) for i in compiled_insns], b=[text(i) for i in target], autojunk=False
-    )
+    aligner = difflib.SequenceMatcher(a=compiled_texts, b=target_texts, autojunk=False)
     pairs = sum(block.size for block in aligner.get_matching_blocks())
     hunks = sum(1 for op in aligner.get_opcodes() if op[0] != "equal")
-    scale = len(target) + 2
+    scale = len(target_texts) + 2
     return float((pairs + 1) * scale - hunks), obj_len
 
 
@@ -445,7 +498,10 @@ def _climb(
             if score > best:
                 best = score
                 lines = candidate
-                chunks = _statements(lines, *function_span(lines, symbol))
+                # One comment-stripping pass feeds both the span and the
+                # rechunk; _statements scanned the whole file a second time.
+                moved = _code_lines(lines)
+                chunks = _statements(lines, *_span_of(moved, symbol), moved)
                 improved += 1
                 move: dict[str, int | float] = {"pass": sweep, "index": k, "after": best}
                 moves.append(move)
@@ -490,7 +546,7 @@ def main(
             f"unknown --objective {objective!r} (use 'positional' or 'aligned')",
             json_mode=json_output,
         )
-    scorer = _score_aligned if objective == "aligned" else _score
+    scorer: Callable[..., tuple[float, int]] = _score
 
     anns = parse_c_file_multi(path, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir)
     if not anns:
@@ -532,13 +588,26 @@ def main(
 
     original, encoding = read_source_text(path)
     lines = original.splitlines(keepends=True)
+    # One comment-stripping pass feeds both the span and the chunking below.
+    code = _code_lines(lines)
     try:
-        lo, hi = function_span(lines, sym)
+        lo, hi = _span_of(code, sym)
     except ValueError as exc:
         error_exit(str(exc), json_mode=json_output)
-    chunks = _statements(lines, lo, hi)
+    chunks = _statements(lines, lo, hi, code)
     if len(chunks) < 2:
         error_exit("nothing to climb: fewer than two top-level statements", json_mode=json_output)
+
+    # The aligned objective compares against the target's disassembly, which is
+    # constant for the whole climb, so it is built once here rather than inside
+    # the scorer, which runs once per candidate swap.
+    if objective == "aligned":
+        scorer = partial(
+            _score_aligned,
+            target_texts=target_texts(cfg, target_bytes, va_int),
+        )
+    else:
+        scorer = _score
 
     def score_fn(candidate: list[str]) -> float:
         atomic_write_text(path, "".join(candidate), encoding=encoding)

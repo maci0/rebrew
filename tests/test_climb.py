@@ -132,7 +132,15 @@ class TestScoreAligned:
         cfg = SimpleNamespace(capstone_arch="CS_ARCH_X86", capstone_mode="CS_MODE_32")
 
         score, obj_len = rebrew.climb._score_aligned(
-            cfg, tmp_path / "f.c", "_f", b"target", "/O2", {}, 0x1000, None
+            cfg,
+            tmp_path / "f.c",
+            "_f",
+            b"target",
+            "/O2",
+            {},
+            0x1000,
+            None,
+            rebrew.climb.target_texts(cfg, b"target", 0x1000),
         )
 
         assert score == (2 + 1) * 5 - 1  # two pairs, one hunk, scale len(target) + 2
@@ -163,7 +171,15 @@ class TestScoreAligned:
         def score_of(obj: bytes) -> float:
             _result.obj_bytes = obj
             return rebrew.climb._score_aligned(
-                cfg, tmp_path / "f.c", "_f", b"target", "/O2", {}, 0x1000, None
+                cfg,
+                tmp_path / "f.c",
+                "_f",
+                b"target",
+                "/O2",
+                {},
+                0x1000,
+                None,
+                rebrew.climb.target_texts(cfg, b"target", 0x1000),
             )[0]
 
         assert score_of(b"scattered") > score_of(b"deleted") > 0.0
