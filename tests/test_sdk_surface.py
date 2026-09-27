@@ -133,7 +133,27 @@ class TestErrorsLazyExports:
         d = dir(err_mod)
         assert "ConfigError" in d
         assert "DecompmeError" in d
-        assert err_mod.__all__ == ["RebrewError"]
+        assert err_mod.__all__ == [
+            "DecompmeErrorKind",
+            "McpErrorKind",
+            "RebrewError",
+            "RecompileErrorKind",
+            "ToolchainErrorKind",
+        ]
+
+    def test_error_kind_aliases_import_from_rebrew_errors(self) -> None:
+        """Branching on ``exc.kind`` needs its alias from the same place."""
+        import importlib
+
+        import rebrew.errors as err_mod
+        from rebrew.ghidra.client import McpErrorKind
+        from rebrew.toolchain import ToolchainErrorKind
+
+        assert err_mod.McpErrorKind is McpErrorKind
+        assert err_mod.ToolchainErrorKind is ToolchainErrorKind
+        for name, (module_name, attr) in err_mod._LAZY_ERROR_KINDS.items():
+            assert getattr(err_mod, name) is getattr(importlib.import_module(module_name), attr)
+            assert name in dir(err_mod)
 
     def test_errors_unknown_attribute_raises(self) -> None:
         import rebrew.errors as err_mod
@@ -266,6 +286,34 @@ class TestCompareResultHelpers:
         assert res.status == "NEAR_MATCHING"
         assert res.delta == 4
         assert res.match_percent == 80.0
+
+    def test_compare_result_from_dict_missing_required_field_raises_rebrew_error(self) -> None:
+        from rebrew.compile import CompareResultError
+
+        with pytest.raises(CompareResultError) as excinfo:
+            CompareResult.from_dict({"matched": False, "status": "EXACT", "delta": 0})
+        assert "from_dict" in str(excinfo.value)
+
+    def test_compare_result_from_dict_unknown_status_raises_rebrew_error(self) -> None:
+        from rebrew.compile import CompareResultError
+
+        with pytest.raises(CompareResultError) as excinfo:
+            CompareResult.from_dict(
+                {
+                    "matched": False,
+                    "status": "MOSTLY_MATCHED",
+                    "match_percent": 90.0,
+                    "delta": 1,
+                }
+            )
+        assert "MOSTLY_MATCHED" in str(excinfo.value)
+
+    def test_unbuildable_payload_is_caught_by_one_rebrew_error_clause(self) -> None:
+        try:
+            CompareResult.from_dict({"status": "EXACT"})
+        except RebrewError:
+            return
+        pytest.fail("an unbuildable payload escaped the RebrewError handler")
 
 
 class TestProjectConfigValidation:

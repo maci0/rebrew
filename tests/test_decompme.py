@@ -289,6 +289,26 @@ class TestUpload:
     def test_scratch_url(self) -> None:
         assert decompme.scratch_url("abc", "tok") == "https://decomp.me/scratch/abc/claim?token=tok"
 
+    def test_injected_client_replaces_the_transport(self) -> None:
+        """A consumer test injects a client and never reaches decomp.me."""
+        calls: list[tuple[str, dict]] = []
+
+        class FakeClient:
+            def post(self, url: str, **kwargs: object) -> object:
+                calls.append((url, kwargs))
+                return SimpleNamespace(
+                    status_code=201,
+                    json=lambda: {"slug": "abc123", "claim_token": "tok"},
+                    close=lambda: None,
+                )
+
+        result = decompme.upload_scratch(
+            {"data": {"compiler": "x"}, "files": {}}, client=FakeClient()
+        )
+        assert result == {"slug": "abc123", "claim_token": "tok"}
+        assert calls[0][0] == "https://decomp.me/api/scratch"
+        assert "timeout" not in calls[0][1]  # the caller owns the client's timeout
+
 
 class TestCli:
     def _patch(
@@ -466,3 +486,18 @@ class TestVerifyCompiler:
             lambda url, timeout: SimpleNamespace(status_code=403, text="cf", close=lambda: None),
         )
         assert decompme.verify_compiler("msvc6.0") is None
+
+    def test_injected_client_replaces_the_transport(self) -> None:
+        calls: list[str] = []
+
+        class FakeClient:
+            def get(self, url: str, **kwargs: object) -> object:
+                calls.append(url)
+                return SimpleNamespace(
+                    status_code=200,
+                    json=lambda: {"compilers": {"msvc6.0": {}}, "platforms": {}},
+                    close=lambda: None,
+                )
+
+        assert decompme.verify_compiler("msvc6.0", client=FakeClient()) is None
+        assert calls == ["https://decomp.me/api/compiler"]

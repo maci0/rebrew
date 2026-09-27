@@ -33,7 +33,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, Protocol, runtime_checkable
 
 import typer
 
@@ -193,6 +193,19 @@ def build_scratch_payload(
 DecompmeErrorKind = Literal["network", "http", "validation", "protocol"]
 
 
+@runtime_checkable
+class HttpClient(Protocol):
+    """Minimal HTTP surface :func:`upload_scratch` / :func:`verify_compiler` use.
+
+    Matches an ``httpx.Client`` and any stand-in exposing ``.post`` / ``.get``,
+    so a consumer test injects a fake instead of reaching the live service.
+    """
+
+    def post(self, url: str, **kwargs: Any) -> Any: ...
+
+    def get(self, url: str, **kwargs: Any) -> Any: ...
+
+
 class DecompmeError(RebrewError, RuntimeError):
     """Failure communicating with or creating scratches on decomp.me.
 
@@ -222,7 +235,7 @@ def upload_scratch(
     api: str = _DEFAULT_API,
     timeout: float = 60.0,
     *,
-    client: Any = None,
+    client: HttpClient | None = None,
 ) -> dict[str, Any]:
     """POST the scratch to decomp.me; returns the response dict.
 
@@ -291,7 +304,7 @@ def verify_compiler(
     api: str = _DEFAULT_API,
     timeout: float = 15.0,
     *,
-    client: Any = None,
+    client: HttpClient | None = None,
 ) -> None:
     """Verify *compiler* exists in the decomp.me registry.
 
@@ -562,6 +575,7 @@ __all__ = [
     "DecompmeErrorKind",
     "build_scratch_payload",
     "extract_function_text",
+    "HttpClient",
     "map_compiler",
     "map_platform",
     "scratch_url",

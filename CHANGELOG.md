@@ -15,6 +15,17 @@
   Separately, `tools/ci_clone_resembl.sh` runs under bash, which `make help`
   and CONTRIBUTING now list as a bootstrap requirement instead of leaving a
   bare `bash: not found` as the first-run failure.
+- **`CompareResult.from_dict` failed with a bare `TypeError`.** A payload
+  missing a required field, or carrying a `status` outside `CompareStatus`,
+  built through `cls(**kwargs)` and raised whatever the dataclass raised: a
+  `TypeError` that no `except RebrewError` clause catches, and an unknown status
+  that sailed past the `CompareStatus` annotation into a result the consumer
+  cannot match on. Both now raise `CompareResultError`, so a consumer parsing
+  foreign JSON recovers in the same handler as a contradictory result.
+- **`decompme`'s injected HTTP client was typed `Any`.** `upload_scratch` and
+  `verify_compiler` took `client: Any = None` while the sibling
+  `recompile_client` typed the same idea as an `HttpClient` protocol. Both take
+  an `HttpClient | None` now, exported for the fakes a consumer test injects.
 - **`pe_image.parse_pe` no longer emits a nameless import.** A lookup-table slot
   whose hint/name RVA resolves outside the image was appended with neither a
   name nor an ordinal, so `gen-layout` wrote an import record that names no API
@@ -501,6 +512,11 @@
   the pair fails at config resolve with the message, not silently.
 
 ### Added
+- **`rebrew.errors` re-exports the `kind` aliases.** `ToolchainErrorKind`,
+  `RecompileErrorKind`, `DecompmeErrorKind` and `McpErrorKind` are the types
+  that annotate the `exc.kind` branch rebrew's own docs tell a consumer to
+  write, and each lived in a different submodule. They import from
+  `rebrew.errors` beside the classes they type.
 
 - **Breaking:** **`apply_commands_via_mcp` returns a named count pair.** The
   return was a

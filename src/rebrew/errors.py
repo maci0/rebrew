@@ -21,7 +21,10 @@ release that added a new error type escaped those handlers silently.
 
 This module is the single import point for those types: every public
 subclass is re-exported here (``from rebrew.errors import DosboxError``), so a
-consumer never has to know which submodule defines which error.  The classes
+consumer never has to know which submodule defines which error.  The
+``kind`` aliases that type those subclasses' ``kind`` field
+(``ToolchainErrorKind`` and friends) come from the same place, because
+annotating an ``exc.kind`` branch needs the alias too.  The classes
 load on first attribute access, keeping ``import rebrew.errors`` free of the
 compile stack.
 
@@ -48,10 +51,12 @@ if TYPE_CHECKING:
     from rebrew.config import ConfigKeyError as ConfigKeyError
     from rebrew.config import ConfigNotFoundError as ConfigNotFoundError
     from rebrew.decompme import DecompmeError as DecompmeError
+    from rebrew.decompme import DecompmeErrorKind as DecompmeErrorKind
     from rebrew.delphi16 import Delphi16Error as Delphi16Error
     from rebrew.dosbox import DosboxError as DosboxError
     from rebrew.ghidra.client import McpApplyAborted as McpApplyAborted
     from rebrew.ghidra.client import McpError as McpError
+    from rebrew.ghidra.client import McpErrorKind as McpErrorKind
     from rebrew.lzexe import NotLzexeError as NotLzexeError
     from rebrew.matcher.scoring import SimilarityUnavailable as SimilarityUnavailable
     from rebrew.metadata import LibraryOverrideError as LibraryOverrideError
@@ -62,10 +67,12 @@ if TYPE_CHECKING:
     from rebrew.orphans import OrphanInventoryError as OrphanInventoryError
     from rebrew.plugin import ComponentError as ComponentError
     from rebrew.recompile_client import RecompileError as RecompileError
+    from rebrew.recompile_client import RecompileErrorKind as RecompileErrorKind
     from rebrew.registry import RegistryError as RegistryError
     from rebrew.struct_recover import NoDecompilationError as NoDecompilationError
     from rebrew.tc16 import Tc16Error as Tc16Error
     from rebrew.toolchain import ToolchainError as ToolchainError
+    from rebrew.toolchain import ToolchainErrorKind as ToolchainErrorKind
     from rebrew.workspace.config import WorkspaceNotFound as WorkspaceNotFound
 
 
@@ -116,6 +123,19 @@ _LAZY_ERRORS: dict[str, tuple[str, str]] = {
 }
 
 
+#: The ``kind`` vocabularies, keyed by the name a consumer imports from
+#: ``rebrew.errors``.  They sit beside the classes in :data:`_LAZY_ERRORS`
+#: because branching on ``exc.kind`` (the documented alternative to matching
+#: the message) needs the alias that types the field, and the consumer should
+#: not have to know that ``RecompileErrorKind`` lives in ``rebrew.recompile_client``.
+_LAZY_ERROR_KINDS: dict[str, tuple[str, str]] = {
+    "DecompmeErrorKind": ("rebrew.decompme", "DecompmeErrorKind"),
+    "McpErrorKind": ("rebrew.ghidra.client", "McpErrorKind"),
+    "RecompileErrorKind": ("rebrew.recompile_client", "RecompileErrorKind"),
+    "ToolchainErrorKind": ("rebrew.toolchain", "ToolchainErrorKind"),
+}
+
+
 def __getattr__(name: str) -> object:
     if name in _LAZY_ERRORS:
         mod_name, attr_name = _LAZY_ERRORS[name]
@@ -125,11 +145,27 @@ def __getattr__(name: str) -> object:
         val: object = getattr(mod, attr_name)
         globals()[name] = val
         return val
+    if name in _LAZY_ERROR_KINDS:
+        mod_name, attr_name = _LAZY_ERROR_KINDS[name]
+        import importlib
+
+        mod = importlib.import_module(mod_name)
+        val = getattr(mod, attr_name)
+        globals()[name] = val
+        return val
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def __dir__() -> list[str]:
-    return sorted(list(globals().keys()) + list(_LAZY_ERRORS.keys()))
+    return sorted(
+        list(globals().keys()) + list(_LAZY_ERRORS.keys()) + list(_LAZY_ERROR_KINDS.keys())
+    )
 
 
-__all__ = ["RebrewError"]
+__all__ = [
+    "DecompmeErrorKind",
+    "McpErrorKind",
+    "RebrewError",
+    "RecompileErrorKind",
+    "ToolchainErrorKind",
+]
