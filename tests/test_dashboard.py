@@ -1786,6 +1786,68 @@ class TestEncodingNegotiation:
         )
 
 
+class TestServerTiming:
+    """``Server-Timing`` reports route cost on API responses, not entry assets.
+
+    The Network panel then separates the query from the transfer, and the
+    three cold-load assets keep the header bytes their window budget pays for.
+    """
+
+    @staticmethod
+    def _headers(dashboard: Dashboard, path: str) -> dict[str, str]:
+        from io import BytesIO
+        from unittest.mock import Mock
+
+        from rebrew.dashboard import _Handler, allowed_hosts_for
+
+        handler = _Handler.__new__(_Handler)
+        handler.headers = {"Host": "127.0.0.1:8000", "Accept-Encoding": "gzip"}
+        handler.path = path
+        handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
+        handler.dashboard = dashboard
+        handler.send_response = Mock()
+        handler.send_header = Mock()
+        handler.end_headers = Mock()
+        handler.wfile = BytesIO()
+        handler._respond("GET")
+        return dict(call.args for call in handler.send_header.call_args_list)
+
+    def test_api_response_reports_route_duration(self, dashboard: Dashboard) -> None:
+        from rebrew.dashboard import _APP_JS_URL
+
+        timing = self._headers(dashboard, "/api/targets")["Server-Timing"]
+        assert timing.startswith("route;dur=")
+        assert float(timing.removeprefix("route;dur=")) >= 0.0
+        # The shell and the content-hashed clients are on the congestion
+        # window budget: no extra header bytes there.
+        for path in ("/", _APP_JS_URL, "/boot-guard.js"):
+            assert "Server-Timing" not in self._headers(dashboard, path), path
+
+    def test_route_duration_tracks_the_query(self, dashboard: Dashboard) -> None:
+        """The reported duration is the time the route actually took."""
+        import time
+
+        real_handle = dashboard.handle
+        real_etag = dashboard.response_etag
+
+        def slow_handle(*args: object, **kwargs: object) -> tuple[int, str, str]:
+            time.sleep(0.05)
+            return real_handle(*args, **kwargs)  # type: ignore[arg-type]
+
+        def slow_etag(*args: object, **kwargs: object) -> str:
+            time.sleep(0.05)
+            return real_etag(*args, **kwargs)
+
+        dashboard.handle = slow_handle  # type: ignore[method-assign]
+        dashboard.response_etag = slow_etag  # type: ignore[method-assign]
+        try:
+            timing = self._headers(dashboard, "/api/targets")["Server-Timing"]
+        finally:
+            dashboard.handle = real_handle  # type: ignore[method-assign]
+            dashboard.response_etag = real_etag  # type: ignore[method-assign]
+        assert float(timing.removeprefix("route;dur=")) >= 50.0
+
+
 class TestHostValidation:
     """Requests with a foreign Host header must be rejected (DNS rebinding)."""
 

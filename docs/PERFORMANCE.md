@@ -115,17 +115,23 @@ precompressed at both codecs at import. Measured 500-row functions JSON:
 gzip-5 4728 → zstd-5 2912 bytes. Gates: `TestEncodingNegotiation`,
 `test_handler_serves_precompressed_static`.
 
-Shell HTML (zstd-19): 3398 bytes on the wire (was ~8.2 KB with inlined JS).
-All three entry assets total 12069 bytes zstd / 12673 gzip, inside the RFC 6928
+Shell HTML (zstd-19): 3352 bytes on the wire (was ~8.2 KB with inlined JS).
+All three entry assets total 12088 bytes zstd / 12669 gzip, inside the RFC 6928
 14600-byte initial window less a 640-byte-per-response header reserve
 (`_ENTRY_WIRE_BUDGET_BYTES`, 12680), so the loading chrome paints before
-`/app.js` (8528 zstd) and `/boot-guard.js` (143 zstd) finish. Gate:
+`/app.js` (8593 zstd) and `/boot-guard.js` (143 zstd) finish. Gate:
 `test_entry_assets_fit_initial_congestion_window`.
 
-The gzip path is the binding one: 12673 of 12680 budgeted bytes, 7 to spare
-(zstd has 611). With the measured 1728 bytes of response headers the cold
-flight is 14401 of the 14600-byte window. Any shell or client growth has to
-come out of those 7 gzip bytes, so trim copy before adding an asset.
+The gzip path is the binding one: 12669 of 12680 budgeted bytes, 11 to spare
+(zstd has 592). With the measured 1728 bytes of response headers the cold
+flight is 14397 of the 14600-byte window. Any shell or client growth has to
+come out of those 11 gzip bytes, so trim copy before adding an asset.
+
+Every non-entry 200 answers `Server-Timing: route;dur=<ms>`, so the browser's
+Network panel separates the query from the transfer and a slow route shows up
+before the access log does. The three entry assets omit it: their cold flight
+is budgeted to the byte, and the value is a constant there. Gate:
+`TestServerTiming`.
 
 Two per-response costs came off that same window. `send_response` is overridden
 to send the status line and `Date` only, dropping the stdlib
@@ -164,7 +170,7 @@ functions, `/api/functions` CPU / 100: 500 rows 0.059 s / 32 KB → 100 rows
 Remaining: 100-row HTML join. Table virtualization and cross-request pooling
 were not measured.
 
-Dashboard shell gzip is 3485 bytes, `/app.js` gzip is 9030 bytes, and
+Dashboard shell gzip is 3433 bytes, `/app.js` gzip is 9078 bytes, and
 `/boot-guard.js` gzip is 158 (same
 lengths as a timestamped header; the mtime field is 4 bytes either way).
 `mtime=0` makes those bytes a function of the content, so a restart does
