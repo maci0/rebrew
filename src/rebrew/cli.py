@@ -200,6 +200,18 @@ _TERMINAL_CONTROL_CHARS = {
 }
 
 
+def untrusted_literal(value: object) -> str:
+    """*value* as terminal-safe text with its own characters left alone.
+
+    Same stripping as :func:`untrusted_text` (no invisible bidi or zero-width
+    formatting characters, C0/C1 controls other than tab/newline shown as
+    ``\\xNN``) but without Rich markup escaping, for a block printed with
+    ``markup=False``: an LLM prompt preview or a C snippet, where ``a[i]`` and
+    ``[bold]`` are the text under review and escaping them would misreport it.
+    """
+    return strip_bidi_format(str(value)).translate(_TERMINAL_CONTROL_CHARS)
+
+
 def untrusted_text(value: object) -> str:
     """*value* as literal terminal text.
 
@@ -211,7 +223,7 @@ def untrusted_text(value: object) -> str:
     screen clears), and a right-to-left override would reorder a neighbouring
     column to read as a different name or status.
     """
-    return escape(strip_bidi_format(str(value)).translate(_TERMINAL_CONTROL_CHARS))
+    return escape(untrusted_literal(value))
 
 
 def error_exit(msg: str, *, json_mode: bool = False, code: int = EXIT_ERROR) -> NoReturn:

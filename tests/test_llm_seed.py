@@ -26,9 +26,11 @@ from rebrew.config import (
 )
 from rebrew.llm_seed import (
     _DEFAULT_MODEL,
+    _MAX_COMPLETION_TOKENS,
     _MAX_HTTP_BODY_BYTES,
     _MAX_SOURCE_CHARS,
     _PROMPT_VERSION,
+    _TOKENS_PER_SEED,
     SeedUsage,
     _load_response_json,
     _log_usage,
@@ -37,6 +39,7 @@ from rebrew.llm_seed import (
     _resolve_model,
     _sanitize_source,
     build_prompt,
+    chat_messages,
     extract_seeds,
     llm_config,
     request_seeds,
@@ -510,6 +513,26 @@ class TestSanitizeSource:
         prompt_low = build_prompt("int f(void) { return 0; }", count=-5)
         assert "Return exactly 1 alternative C implementations" in prompt_low
 
+    def test_build_prompt_shows_the_turns_that_are_sent(self) -> None:
+        """The dry-run preview is the wire payload, role headers and all.
+
+        A preview that flattens both turns into one string describes a prompt
+        the endpoint never receives, which defeats the point of previewing the
+        one request a paid endpoint sees.
+        """
+        source = "int f(void) { /* ``` */ return 0; }"
+        messages = chat_messages(source)
+        prompt = build_prompt(source)
+        assert [message["role"] for message in messages] == ["system", "user"]
+        for message in messages:
+            assert f"[{message['role']}]\n{message['content']}" in prompt
+
+    def test_chat_messages_sanitizes_the_user_turn_only(self) -> None:
+        messages = chat_messages("int f(void) { /* ``` */ return 0; }")
+        assert "```" not in messages[1]["content"]
+        # The system turn is a trusted constant and must keep its own fence.
+        assert "```c" in messages[0]["content"]
+
 
 class TestSanitizeLogValue:
     def test_collapses_control_characters(self) -> None:
@@ -678,6 +701,26 @@ class TestRequestSeeds:
         assert client.last_payload["model"] == _DEFAULT_MODEL
         assert client.last_payload["n"] == 1
         assert client.last_payload["stream"] is False
+
+    def test_completion_cap_covers_every_requested_seed(self) -> None:
+        """A cap below ``count * _TOKENS_PER_SEED`` bills the request and returns nothing.
+
+        The endpoint stops at the cap and answers ``finish_reason=length``, and
+        the completion gate drops a clipped answer whole, so the ask and the cap
+        have to agree at every count the flag permits.
+        """
+        source = "int f(void) { return 0; }"
+        for count in range(1, 9):
+            client = _FakeClient({"choices": [{"message": {"content": ""}}]})
+            request_seeds(_cfg("https://llm/v1", "k"), source, count, client=client)
+            assert client.last_payload is not None
+            assert client.last_payload["max_tokens"] >= count * _TOKENS_PER_SEED, count
+
+    def test_completion_cap_stays_below_the_hard_ceiling(self) -> None:
+        client = _FakeClient({"choices": [{"message": {"content": ""}}]})
+        request_seeds(_cfg("https://llm/v1", "k"), "int f(void) { return 0; }", 99, client=client)
+        assert client.last_payload is not None
+        assert client.last_payload["max_tokens"] <= _MAX_COMPLETION_TOKENS
 
     def test_duplicate_seeds_dropped(self) -> None:
         source = "int f(void) { return 0; }"
@@ -1753,6 +1796,62 @@ class TestLlmSeedDryRun:
         assert "return b[i]+b[/*x*/0];" in out  # preview is verbatim
         assert "LLM seed prompt (dry-run)" in out
         assert "no LLM request" in out
+
+    def test_dry_run_strips_terminal_controls_from_the_preview(
+        self, tmp_path: Path, monkeypatch, capsys
+    ) -> None:
+        """A raw ESC or RLO in the source must not reach the operator's terminal."""
+        from types import SimpleNamespace as NS
+
+        from rebrew import match_run as match_mod
+
+        monkeypatch.setattr(
+            match_mod,
+            "BinaryMatchingGA",
+            lambda *a, **k: pytest.fail("GA must not run in dry-run mode"),
+        )
+        p = NS(
+            cfg=NS(
+                root=tmp_path,
+                compile_timeout=30,
+                posix_style=False,
+                llm_endpoint="https://llm/v1",
+                llm_api_key="k",
+            ),
+            seed_src="int f(int *b){\n/* \x1b[2J \u202e reversed \u202c */\nreturn b[0];}",
+            seed_c=tmp_path / "f.c",
+            target_bytes=b"\xc3",
+            cl="cl",
+            inc=[],
+            cflags="/O2",
+            symbol="_f",
+            msvc_env={},
+            cc=None,
+            timeout=30,
+            va_int=0x1000,
+            target_size=5,
+        )
+        match_mod.run_single_ga(
+            p,
+            str(tmp_path / "out"),
+            1,
+            4,
+            1,
+            False,
+            None,
+            None,
+            1,
+            False,
+            None,
+            False,
+            llm_seed=True,
+            dry_run=True,
+        )
+        out = capsys.readouterr().err
+        assert "\x1b" not in out
+        assert "\\x1b" in out  # shown escaped, not swallowed
+        assert "\u202e" not in out
+        assert "return b[0];" in out  # the C is still readable
 
     def test_dry_run_without_llm_seed_still_rejected(self, tmp_path: Path, monkeypatch) -> None:
         """--dry-run alone in single mode keeps its batch-only error."""

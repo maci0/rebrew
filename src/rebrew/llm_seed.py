@@ -44,7 +44,9 @@ generation) is recorded too, with unreported tokens, so an endpoint that
 charges for work whose answer never arrived is not read as a free run.  A
 bearer key that reaches the transport inside an exception message (an illegal
 header value comes back quoted) is redacted before any log or console line.
-``--seed-llm --dry-run`` previews the prompt without calling the endpoint.
+``--seed-llm --dry-run`` previews the exact ``messages`` array (each turn
+behind its role header) without calling the endpoint, so the preview cannot
+describe a prompt the endpoint never receives.
 Each billed request adds to a running :class:`SeedUsage` total for the thread
 that made it, which ``rebrew match --seed-llm`` prints, so a ``--watch`` run
 reports every call it made rather than the last one, and a parallel batch
@@ -88,7 +90,16 @@ _MAX_HTTP_BODY_BYTES = 256_000  # reject before json.loads blows memory/budget
 #: already holds.  Bounded so a long watch loop cannot grow it without limit;
 #: the oldest entry is dropped.
 _MAX_CACHED_PROMPTS = 64
-_DEFAULT_MAX_TOKENS = 2_048
+#: Completion tokens reserved per requested seed.  A seed is a whole function
+#: definition, so the cap has to cover the number of seeds the system prompt
+#: asks for: a cap below that earns ``finish_reason=length``, and the
+#: completion gate drops a clipped answer whole, so the request is billed and
+#: not one seed survives.
+_TOKENS_PER_SEED = 512
+#: Hard ceiling on a single completion, whatever the seed count asks for.
+_MAX_COMPLETION_TOKENS = 4_096
+_MIN_COUNT = 1
+_MAX_COUNT = 8
 _DEFAULT_COUNT = 3
 _DEFAULT_MODEL = "gpt-4o-mini-2024-07-18"  # dated snapshot; bare alias floats
 # Bump when the prompt text changes, so a GA run can be traced back to the
@@ -343,11 +354,37 @@ def _sanitize_source(source: str) -> str:
     return text
 
 
-def build_prompt(source: str, count: int = _DEFAULT_COUNT) -> str:
-    """The exact prompt sent to the endpoint (exposed for --seed-llm --dry-run)."""
-    count = max(1, min(int(count), 8))
+def _clamp_count(count: int) -> int:
+    """Requested seed count, clamped to :data:`_MIN_COUNT`..:data:`_MAX_COUNT`."""
+    return max(_MIN_COUNT, min(int(count), _MAX_COUNT))
+
+
+def chat_messages(source: str, count: int = _DEFAULT_COUNT) -> list[dict[str, str]]:
+    """The exact ``messages`` array sent to the endpoint.
+
+    One source of truth for the request body: ``_request`` posts it and
+    :func:`build_prompt` previews it, so ``--seed-llm --dry-run`` shows the
+    role split the endpoint actually receives rather than a flattened string
+    that reads as one user turn.
+    """
+    count = _clamp_count(count)
     safe = _sanitize_source(source)
-    return (_SYSTEM_PROMPT + "\n" + _USER_PROMPT).format(source=safe, count=count)
+    return [
+        {"role": "system", "content": _SYSTEM_PROMPT.format(count=count)},
+        {"role": "user", "content": _USER_PROMPT.format(source=safe)},
+    ]
+
+
+def build_prompt(source: str, count: int = _DEFAULT_COUNT) -> str:
+    """The exact prompt sent to the endpoint (exposed for --seed-llm --dry-run).
+
+    Renders :func:`chat_messages` verbatim behind its role headers, so the
+    preview is the wire payload: the ``system`` turn holds the instructions and
+    every untrusted character lives inside the ``user`` turn's data fence.
+    """
+    return "".join(
+        f"[{message['role']}]\n{message['content']}\n\n" for message in chat_messages(source, count)
+    )
 
 
 def llm_config(cfg: Any) -> dict[str, str] | None:
@@ -903,16 +940,14 @@ def _request(
     headers = {"Content-Type": "application/json"}
     if conf.get("api_key"):
         headers["Authorization"] = f"Bearer {conf['api_key']}"
-    safe = _sanitize_source(source)
     expect_name, expect_proto = expect
-    # Cap completion size: ~count seeds × a modest function body.
-    max_tokens = min(_DEFAULT_MAX_TOKENS, max(256, count * 512))
+    # Cap completion size so the ask and the cap agree: a cap under
+    # count * _TOKENS_PER_SEED returns a clipped answer, which the completion
+    # gate then discards in full.
+    max_tokens = min(_MAX_COMPLETION_TOKENS, max(256, count * _TOKENS_PER_SEED))
     payload = {
         "model": model,
-        "messages": [
-            {"role": "system", "content": _SYSTEM_PROMPT.format(count=count)},
-            {"role": "user", "content": _USER_PROMPT.format(source=safe)},
-        ],
+        "messages": chat_messages(source, count),
         "temperature": 0.8,
         "max_tokens": max_tokens,
         # Pin n=1: extra completions multiply spend for no GA benefit.
@@ -995,7 +1030,7 @@ def request_seeds(
         return []
     if conf is None:
         return []
-    count = max(1, min(int(count), 8))
+    count = _clamp_count(count)
     model = _resolve_model(cfg)
     # Without the source's name + prototype the response cannot be checked
     # against it, so any function the model invents would enter the GA.
