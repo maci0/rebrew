@@ -2482,6 +2482,16 @@ def run_verification(
 
     fail_details.sort(key=_entry_order)
     deferred_fixes.sort(key=_entry_order)
+    # The JSON payload is read in the same order by anyone diffing two runs
+    # (or replaying one under an injected clock), so it gets the same sort:
+    # in completion order it is a diff of thread timing, not of the corpus.
+    results.sort(
+        key=lambda row: (
+            str(row.get("module", "")),
+            int(str(row.get("va", "0")), 16),
+            str(row.get("name", "")),
+        )
+    )
 
     return passed, failed, fail_details, results, deferred_fixes
 

@@ -1367,10 +1367,14 @@ class TestSweepThenGa:
         ]
         monkeypatch.setattr("rebrew.match_run.find_all_stubs", lambda *a, **k: stubs)
 
-        clock = {"now": 100.0}
+        clock_ref = {"now": 100.0}
         seen: dict[str, Any] = {}
+
+        def fake_clock() -> float:
+            return clock_ref["now"]
+
         monkeypatch.setattr(
-            "rebrew.match_run.time", SimpleNamespace(monotonic=lambda: clock["now"])
+            "rebrew.match_run.time", SimpleNamespace(monotonic=lambda: clock_ref["now"])
         )
 
         def _fake_sweep(
@@ -1379,9 +1383,14 @@ class TestSweepThenGa:
             tier: str = "targeted",
             jobs: int = 4,
             deadline: float | None = None,
+            *,
+            clock: Any = None,
         ) -> Any:
             seen["sweep_deadline"] = deadline
-            clock["now"] += sweep_seconds
+            # A replayed batch drives the sweep from the injected clock too,
+            # so it must reach the sweep and not fall back to the wall clock.
+            seen["sweep_clock"] = clock
+            clock_ref["now"] += sweep_seconds
             if isinstance(sweep_outcome, Exception):
                 raise sweep_outcome
             return sweep_outcome
@@ -1424,8 +1433,10 @@ class TestSweepThenGa:
             json_output=True,
             tier="targeted",
             flag_sweep_then_ga=True,
+            clock=fake_clock,
         )
         assert seen.get("override") == expected_override
+        assert seen.get("sweep_clock") is fake_clock
 
 
 class TestSkipRecent:
