@@ -66,7 +66,7 @@ a bare `uv: not found`.
 ```bash
 make help                     # list contributor make targets
 make clone-resembl            # clone sibling resembl pin into ../resembl (required for uv sync)
-make setup                    # frozen sync + pre-commit install (checks uv + ../resembl first)
+make setup                    # locked sync (extras + similarity) + pre-commit install (checks uv + ../resembl first)
 make clean                    # remove build/dist artifacts and caches
 make test-one T=tests/test_annotation.py  # single file / nodeid (fast edit-test loop; defaults to test_annotation.py)
 make test                     # full suite (a few minutes; needs nasm)
