@@ -423,6 +423,21 @@
   pseudo `.text` `file_offset`, `text_raw_offset`) was then handed a file
   position that does not exist. The offset is now clamped to the last byte, so
   the whole region stays inside the image.
+- **`uv.lock` recorded none of the dependency ceilings the manifest sets.**
+  The commit that capped every requirement at its next breaking major edited
+  `pyproject.toml` and left the lock behind, so the `requires-dist` and
+  `requires-dev` blocks in `uv.lock` still held floor-only specifiers for all
+  24 of them. The resolved versions were the pinned ones, so nothing installed
+  the wrong package, but `uv sync --locked` (every CI job, and `make`'s
+  `UV_SYNC_FLAGS`) asserts the lock matches the manifest and fails on the
+  mismatch, and a plain `uv sync` re-resolved against the floor-only text, so
+  a new major could land in the lock the next time anyone regenerated it.
+  Regenerated with `uv lock`: only those specifier strings changed, no package
+  was added, removed, or re-versioned. `docs/THREAT_MODEL.md` claimed
+  `uv sync --frozen` in both workflows; every workflow and the Makefile's
+  `UV_SYNC_FLAGS` use `--locked`, and the difference is exactly the one that
+  let this land, so the threat model now names the flag CI actually runs and
+  says why the weaker one would not have caught it.
 - **The SBOM asserted two license grants no artifact declares.** The
   expression/name form was picked by a regex over the recorded string, so any
   single bare token read as an SPDX identifier. `resembl` states the trove
