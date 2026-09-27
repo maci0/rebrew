@@ -183,14 +183,18 @@ def _obj_section_sizes(obj: Path) -> tuple[dict[int, str], dict[str, int]]:
     return secname, sizes
 
 
+_OBJ_SEC_RE = re.compile(r"\[ *\d+\]\(sec +(-?\d+)\)")
+_OBJ_VALUE_RE = re.compile(r"\s(?:0x)?([0-9a-fA-F]+)\s+(\S+)\s*$")
+
+
 def _iter_obj_symbols(obj: Path) -> Iterator[tuple[int, int, str]]:
     """Yield ``(section index, value, raw name)`` for each ``objdump -t`` symbol line."""
     t = _run_objdump(obj, "-t")
     for line in t.splitlines():
-        m = re.match(r"\[ *\d+\]\(sec +(-?\d+)\)", line)
+        m = _OBJ_SEC_RE.match(line)
         if not m:
             continue
-        vm = re.search(r"\s(?:0x)?([0-9a-fA-F]+)\s+(\S+)\s*$", line[m.end() :])
+        vm = _OBJ_VALUE_RE.search(line[m.end() :])
         if not vm:
             continue
         yield int(m.group(1)), int(vm.group(1), 16), vm.group(2)
@@ -1084,14 +1088,28 @@ def _find_definition(text: str, name: str) -> tuple[int, int, str, str] | None:
     return start, len(text), typ, sz
 
 
+@functools.lru_cache(maxsize=512)
+def _decl_re(name: str) -> re.Pattern[str]:
+    """Declaration matcher for *name*; cached per symbol name.
+
+    ``_decl_info`` runs once per data symbol and once per moved extern, and
+    ``re.escape(name)`` defeats the module-level pattern cache, so an uncached
+    pattern recompiled a fresh regex per symbol.
+    """
+    return re.compile(
+        r"^[ \t]*([\w\s\*]+?)\s+" + re.escape(name) + r"(\[\s*\d*\s*\])?\s*(?:=|;)", re.M
+    )
+
+
+_ARRAY_SIZE_RE = re.compile(r"\[(\d+)\]")
+
+
 def _decl_info(text: str, name: str) -> tuple[str, int | None] | None:
     """(type, array size or None) of *name*'s existing declaration, or None."""
-    m = re.search(
-        r"^[ \t]*([\w\s\*]+?)\s+" + re.escape(name) + r"(\[\s*\d*\s*\])?\s*(?:=|;)", text, re.M
-    )
+    m = _decl_re(name).search(text)
     if not m:
         return None
-    size_m = re.search(r"\[(\d+)\]", m.group(2) or "")
+    size_m = _ARRAY_SIZE_RE.search(m.group(2) or "")
     return m.group(1).strip(), (int(size_m.group(1)) if size_m else None)
 
 

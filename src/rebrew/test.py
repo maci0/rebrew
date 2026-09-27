@@ -132,6 +132,7 @@ def _patch_verify_cache(
     delta: int | None = None,
     match_percent: float | None = None,
     context_hash: str | None = None,
+    pending: list[dict[str, object]] | None = None,
 ) -> None:
     """Update the verify cache entry for *va* so status/todo stay in sync.
 
@@ -153,6 +154,12 @@ def _patch_verify_cache(
     source) and is part of the cache row's identity, so the patched entry
     records it rather than inheriting the previous run's.
 
+    *pending* collects the patch instead of writing it.  One write costs a
+    full read, JSON decode, identity check, re-serialize and locked rewrite
+    of a document that grows with the function count, so a per-function loop
+    hands each patch to this list and applies the whole batch once via
+    :func:`rebrew.verify_cache.patch_verify_cache_entries`.
+
     Thin local wrapper over the single shared implementation
     :func:`rebrew.verify_cache.patch_verify_cache_entries` (identity check +
     cross-process lock included).
@@ -169,6 +176,9 @@ def _patch_verify_cache(
     }
     if match_percent is not None:
         patch["match_percent"] = match_percent
+    if pending is not None:
+        pending.append(patch)
+        return
     patch_verify_cache_entries(cfg, [patch])
 
 
@@ -1412,6 +1422,7 @@ def _test_multi(
     workdir = writable_temp_dir("test_multi_")
     try:
         objs: dict[tuple[str | None, str], Any] = {}
+        cache_patches: list[dict[str, object]] = []
         for group_idx, (tc_name, cf) in enumerate(_effective_overrides(a) for a in annotations):
             # One compile per distinct (toolchain, cflags): every annotation
             # resolves the same override for most of a file, and a compile is a
@@ -1711,6 +1722,7 @@ def _test_multi(
                             delta=cmp.delta,
                             match_percent=cmp.match_percent,
                             context_hash=cmp.context_hash,
+                            pending=cache_patches,
                         )
                 elif dry_run:
                     # --dry-run must not write: preview (compile already ran).
@@ -1748,9 +1760,15 @@ def _test_multi(
                             delta=cmp.delta,
                             match_percent=cmp.match_percent,
                             context_hash=cmp.context_hash,
+                            pending=cache_patches,
                         )
                     if not json_output:
                         console.print(f"[dim]  STATUS → {new_status}[/dim]")
+
+        if cache_patches:
+            from rebrew.verify_cache import patch_verify_cache_entries
+
+            patch_verify_cache_entries(cfg, cache_patches)
 
         if json_output:
             json_print({"source": source, "results": results_list})

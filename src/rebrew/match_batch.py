@@ -6,6 +6,7 @@ lists and writes the resulting STATUS and CFLAGS back to the metadata.
 
 from __future__ import annotations
 
+import functools
 import logging
 import re
 import shutil
@@ -442,6 +443,25 @@ def update_cflags_annotation(
     return True
 
 
+@functools.lru_cache(maxsize=512)
+def _stub_marker_re(va: str) -> re.Pattern[str]:
+    """Annotation marker matcher for *va*; cached per stub address.
+
+    ``update_stub_to_matched`` runs once per spliced stub, and ``re.escape(va)``
+    defeats the module-level pattern cache, so each call recompiled a pattern.
+
+    The trailing lookahead is load-bearing: without it, stub.va="0x401000"
+    would also match a marker "0x4010000" (hex-prefix collision), splicing the
+    wrong function and writing STATUS/CFLAGS to the wrong module.
+    """
+    return re.compile(
+        r"(?://|/\*)\s*(?:FUNCTION|STUB|LIBRARY|DATA|GLOBAL):\s*(\S+)\s+"
+        + re.escape(va)
+        + r"(?![0-9a-fA-F])",
+        re.IGNORECASE,
+    )
+
+
 def update_stub_to_matched(
     filepath: Path, best_src: str, stub: StubInfo, metadata_dir: Path | None = None
 ) -> bool:
@@ -468,16 +488,7 @@ def update_stub_to_matched(
 
     original, encoding = read_source_text(filepath)
 
-    m = re.search(
-        # Trailing lookahead: without it, stub.va="0x401000" would also match
-        # a marker "0x4010000" (hex-prefix collision), splicing the wrong
-        # function and writing STATUS/CFLAGS to the wrong module.
-        r"(?://|/\*)\s*(?:FUNCTION|STUB|LIBRARY|DATA|GLOBAL):\s*(\S+)\s+"
-        + re.escape(stub.va)
-        + r"(?![0-9a-fA-F])",
-        original,
-        re.IGNORECASE,
-    )
+    m = _stub_marker_re(stub.va).search(original)
     module = m.group(1) if m else None
     va_int = int(stub.va, 16) if m else None
 

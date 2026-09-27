@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import struct
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +21,13 @@ log = logging.getLogger(__name__)
 #: IMAGE_NT_OPTIONAL_HDR64_MAGIC — a PE32+ optional header, whose ``FF 25``
 #: stub operand is RIP-relative rather than an absolute slot VA.
 _PE32_PLUS_MAGIC = 0x20B
+
+#: Parsed import tables by file identity.  A run has one target, so a handful
+#: of entries is all this ever holds; the bound only guards a long-lived
+#: process walking many images.
+_IMPORTS_CACHE_MAX = 8
+_imports_cache: dict[str, list[dict[str, Any]]] = {}
+_imports_lock = threading.Lock()
 
 
 def parse_imports(binary_path: Path) -> list[dict[str, Any]]:
@@ -35,7 +43,42 @@ def parse_imports(binary_path: Path) -> list[dict[str, Any]]:
     precede its symbols.  ``iat_va`` is 0 for NE imports (Win16 uses
     per-segment thunks, not an IAT).  Empty list for unrecognized files or
     parse failures.
+
+    Memoized per ``(resolved path, mtime_ns, size, ino)`` (bounded dict +
+    lock, mirroring ``rebrew.binary_loader.iat_slot_vas``): one run parses the
+    target from the report, pe_symbols, the binary gate, the decompiler
+    dossier and the toolchain detector, and each miss re-ran a full LIEF parse
+    of the same multi-megabyte image.  A rebuild at the same path invalidates
+    via mtime/size/inode.  The caller gets fresh dicts, so a consumer that
+    annotates a record cannot poison the cache.
     """
+    key = _cache_key(binary_path)
+    if key is not None:
+        with _imports_lock:
+            cached = _imports_cache.get(key)
+            if cached is not None:
+                _imports_cache[key] = _imports_cache.pop(key)
+                return [dict(record) for record in cached]
+    records = _parse_imports(binary_path)
+    if key is not None:
+        with _imports_lock:
+            _imports_cache[key] = [dict(record) for record in records]
+            if len(_imports_cache) > _IMPORTS_CACHE_MAX:
+                _imports_cache.pop(next(iter(_imports_cache)))
+    return records
+
+
+def _cache_key(binary_path: Path) -> str | None:
+    """Identity of *binary_path* for the import memo, or None if unstattable."""
+    try:
+        st = binary_path.stat()
+    except OSError:
+        return None
+    return f"{binary_path.resolve()}:{st.st_mtime_ns}:{st.st_size}:{st.st_ino}"
+
+
+def _parse_imports(binary_path: Path) -> list[dict[str, Any]]:
+    """Uncached import-table parse; see :func:`parse_imports` for the shape."""
     from rebrew.binary_loader import is_ne, load_binary
 
     if is_ne(binary_path):

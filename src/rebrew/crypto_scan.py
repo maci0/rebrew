@@ -228,21 +228,32 @@ def constant_findings(sections: Sequence[tuple[str, int, bytes]]) -> list[dict[s
 # ---------------------------------------------------------------------------
 
 
-def _pattern_matches(pattern: str, candidate: str) -> bool:
-    """Match a curated *pattern* against *candidate*, case-insensitively."""
-    lowered = candidate.lower()
-    pattern = pattern.lower()
-    if "*" not in pattern:
-        return pattern in lowered
-    parts = [re.escape(part) for part in pattern.split("*")]
-    return re.fullmatch(".*".join(parts), lowered) is not None
+def _glob_matcher(pattern: str) -> re.Pattern[str]:
+    """Compile a ``*``-anchored *pattern* into a case-insensitive glob regex."""
+    return re.compile(".*".join(re.escape(part) for part in pattern.split("*")), re.IGNORECASE)
+
+
+#: ``(group, pattern, needle, glob)`` per entry of ``_NAME_PATTERNS``, in table
+#: order.  A ``*`` pattern gets a precompiled glob; a pattern without one gets a
+#: lowercased substring *needle*.  Name detection runs the whole table per
+#: import and per project function, so re-splitting, re-escaping and
+#: re-compiling the same fixed patterns on every call was repeated work.
+_NAME_MATCHERS: tuple[tuple[str, str, str, re.Pattern[str] | None], ...] = tuple(
+    (group, pattern, pattern.lower(), None if "*" not in pattern else _glob_matcher(pattern))
+    for group, pattern in _NAME_PATTERNS
+)
 
 
 def _match_pattern(name: str) -> tuple[str, str] | None:
     """Return ``(group, pattern)`` for the first pattern matching *name*."""
-    for group, pattern in _NAME_PATTERNS:
-        if _pattern_matches(pattern, name):
-            return group, pattern
+    lowered = name.lower()
+    for group, pattern, needle, glob in _NAME_MATCHERS:
+        if glob is not None:
+            if glob.fullmatch(lowered) is None:
+                continue
+        elif needle not in lowered:
+            continue
+        return group, pattern
     return None
 
 

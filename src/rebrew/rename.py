@@ -440,7 +440,7 @@ def _rename_data(
             # old name in the tree while rebrew-data.toml already carries the
             # new one (source/metadata split).
             error_exit(f"Cannot read {src}: {exc}", json_mode=json_output)
-        new_content = substitute_name(_name_pattern(old_name), new_name, content)
+        new_content = substitute_name(pattern, new_name, content)
         if new_content != content:
             try:
                 atomic_write_text(src, new_content, encoding=encoding)

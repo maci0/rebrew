@@ -92,7 +92,7 @@ from rebrew.toolchain import (
     cached_image_digest,
     run_toolchain,
 )
-from rebrew.utils import container_runtime, safe_shlex_split
+from rebrew.utils import container_runtime, read_source_text, safe_shlex_split
 from rebrew.workspace.config import config_path
 from rebrew.workspace.status import MATCHED_STATUSES
 
@@ -418,7 +418,7 @@ def clears_blocker(status: str, source: Path) -> bool:
     if not is_matched(status):
         return False
     try:
-        text = source.read_text(encoding="utf-8", errors="replace")
+        text, _encoding = read_source_text(source)
     except OSError as exc:
         # Clearing the blocker is the destructive choice: an unreadable
         # source may still hold the inline asm the note documents, and a

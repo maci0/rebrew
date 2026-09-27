@@ -74,6 +74,10 @@ _EXCLUDED_SUFFIX = ".c.off"
 
 _DEMANGLE_RE = re.compile(r"@\d+$")
 
+#: Every ``identifier(`` call site in a source, for the no-declaration stub
+#: fallback; one compile per run, so it lives beside the other module patterns.
+_CALL_RE = re.compile(r"\b([A-Za-z_]\w*)\s*\(")
+
 
 def demangle_cdecl(mangled: str) -> str:
     """Strip MSVC cdecl/stdcall mangling: ``_name`` -> ``name``, ``_name@N`` -> ``name``."""
@@ -367,9 +371,8 @@ def collect_called_symbols(src_dir: Path) -> set[str]:
     declaration at all.
     """
     called: set[str] = set()
-    call_re = re.compile(r"\b([A-Za-z_]\w*)\s*\(")
     for _src_file, text in _stripped_sources(src_dir):
-        for m in call_re.finditer(text):
+        for m in _CALL_RE.finditer(text):
             name = m.group(1)
             if name not in _NON_CALL_KEYWORDS:
                 called.add(name)

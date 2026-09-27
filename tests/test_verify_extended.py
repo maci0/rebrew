@@ -1085,14 +1085,16 @@ class TestApplyStatusUpdates:
             "// FUNCTION: SERVER 0x1000\nvoid a(void) { __asm { nop } }\n", encoding="utf-8"
         )
         update_field(cfg.metadata_dir, 0x1000, "blocker", "kept asm", "SERVER")
-        real_read = Path.read_text
+        real_read = Path.read_bytes
 
-        def _unreadable(self: Path, *args: object, **kwargs: object) -> str:
+        def _unreadable(self: Path, *args: object, **kwargs: object) -> bytes:
             if self.name == "a.c":
                 raise OSError("permission denied")
             return real_read(self, *args, **kwargs)
 
-        monkeypatch.setattr(Path, "read_text", _unreadable)
+        # ``read_source_text`` (the memoized reader every source scan uses)
+        # reads bytes, so the simulated failure has to land on that call.
+        monkeypatch.setattr(Path, "read_bytes", _unreadable)
         entry = _ann(0x1000)
         entry.filepath = "a.c"
         with caplog.at_level(logging.WARNING):
