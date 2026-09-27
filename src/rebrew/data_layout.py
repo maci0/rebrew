@@ -1211,6 +1211,7 @@ def fix_ownership(
 # data --converge: fixed-point .data placement via leading _dlead_ pads
 # ---------------------------------------------------------------------------
 
+
 def _find_dlead_pad(text: str) -> tuple[int, int, str, int, str] | None:
     """Find an existing ``_dlead_`` pad definition/declaration in *text*.
 

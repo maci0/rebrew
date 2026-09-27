@@ -413,9 +413,7 @@ class TestParseMetadataDocDuplicates:
 
         assert caplog.text == ""
 
-    def test_unknown_key_warns_when_field_set_known(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_unknown_key_warns_when_field_set_known(self, caplog: pytest.LogCaptureFixture) -> None:
         """A hand-edited CFLAGSS is dropped by every reader: say so."""
         from rebrew.utils import parse_metadata_doc
 
