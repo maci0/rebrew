@@ -2163,6 +2163,43 @@ class TestHostValidation:
         assert dashboard.response_etag(handler.path) != before
         assert ("ETag", before) in sent
 
+    def test_etag_separates_targets_and_filters(self, dashboard: Dashboard) -> None:
+        """One validator per representation, not one per database file."""
+        st = dashboard.db_path.stat()
+        bare = f'W/"{st.st_mtime_ns:x}-{st.st_size:x}"'
+        targets = dashboard.response_etag("/api/summary?target=server_dll")
+        assert targets != dashboard.response_etag("/api/summary?target=other_dll")
+        assert targets != dashboard.response_etag("/api/summary?target=server_dll&limit=5")
+        # A different route on the same target answers a different body.
+        assert targets != dashboard.response_etag("/api/functions?target=server_dll")
+        # A query-less route has nothing to scope, so it keeps the bare DB tag.
+        assert dashboard.response_etag("/api/targets") == bare
+        assert dashboard.response_etag("/api/bootstrap") == bare
+
+    def test_etag_of_one_route_does_not_304_another(self, dashboard: Dashboard) -> None:
+        """A validator held from one route must not stand in for another."""
+        from rebrew.dashboard import _Handler, allowed_hosts_for
+
+        handler = _Handler.__new__(_Handler)
+        handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
+        handler.dashboard = dashboard
+        sent: list[tuple] = []
+        handler.send_response = lambda status: sent.append(("status", status))  # type: ignore[method-assign]
+        handler.send_header = lambda name, value: sent.append((name, value))  # type: ignore[method-assign]
+        handler.end_headers = lambda: sent.append(("end", None))  # type: ignore[method-assign]
+
+        class _FakeWFile:
+            def write(self, data: bytes) -> int:
+                return len(data)
+
+        handler.wfile = _FakeWFile()
+        held = dashboard.response_etag("/api/functions?target=server_dll")
+        handler.path = "/api/summary?target=server_dll"
+        handler.headers = {"Host": "127.0.0.1:8000", "If-None-Match": held}
+        handler._respond("GET")
+        assert [v for k, v in sent if k == "status"] == [200]
+        assert ("ETag", dashboard.response_etag(handler.path)) in sent
+
     def test_functions_omit_unused_marker_type(self, dashboard: Dashboard) -> None:
         """The table never reads markerType; keep it off the JSON wire."""
         row = dashboard.functions("server_dll")["functions"][0]
@@ -2943,3 +2980,82 @@ class TestInvisibleControlScrub:
         )
         assert not _BIDI_FORMAT_CHARS.intersection(body)
         assert json.loads(body)["functions"]
+
+
+_SPEC = Path(__file__).resolve().parents[1] / "docs" / "dashboard-api.yaml"
+
+
+def _spec() -> dict:
+    import yaml
+
+    return yaml.safe_load(_SPEC.read_text(encoding="utf-8"))
+
+
+class TestOpenApiSpec:
+    """The published contract is checked against the code, not trusted."""
+
+    def test_spec_lists_exactly_the_served_routes(self) -> None:
+        from rebrew.dashboard import _KNOWN_ROUTES
+
+        assert set(_spec()["paths"]) == set(_KNOWN_ROUTES)
+
+    def test_every_route_is_get_and_head_only(self) -> None:
+        for path, item in _spec()["paths"].items():
+            assert set(item) == {"get", "head"}, path
+            # A HEAD response carries the same headers as its GET, so the
+            # documented statuses and parameters must match.
+            assert set(item["get"]["responses"]) == set(item["head"]["responses"]), path
+            assert item["get"].get("parameters") == item["head"].get("parameters"), path
+
+    def test_status_vocabulary_matches(self) -> None:
+        from rebrew.workspace import KNOWN_STATUSES
+
+        declared = _spec()["components"]["parameters"]["Status"]["schema"]["enum"]
+        assert sorted(declared) == sorted(KNOWN_STATUSES)
+
+    def test_error_codes_are_all_reachable(self) -> None:
+        """A documented code the server can never emit is a lie to branch on."""
+        from rebrew import dashboard
+
+        from_http = set(dashboard._HTTP_ERROR_CODES.values()) | {"request_error"}
+        source = Path(dashboard.__file__).read_text(encoding="utf-8")
+        declared = _spec()["components"]["schemas"]["ErrorCode"]["enum"]
+        for code in declared:
+            assert code in from_http or f'"{code}"' in source, code
+
+    def test_documented_envelope_fields_match_the_query_layer(self, dashboard: Dashboard) -> None:
+        """The fields a schema declares are the fields the server populates."""
+        schemas = _spec()["components"]["schemas"]
+        for path, schema_name, payload in (
+            ("/api/functions", "Functions", dashboard.functions("server_dll")),
+            ("/api/sections", "Sections", dashboard.sections("server_dll")),
+            ("/api/globals", "Globals", dashboard.globals("server_dll")),
+            ("/api/history", "History", dashboard.history("server_dll")),
+        ):
+            declared = set(schemas[schema_name]["allOf"][1]["properties"])
+            meta = set(schemas["ListMeta"]["properties"])
+            assert declared | meta == set(payload), path
+            assert declared <= set(payload), path
+
+    def test_documented_cols_match_the_row_layout(self, dashboard: Dashboard) -> None:
+        from rebrew import dashboard as module
+
+        schemas = _spec()["components"]["schemas"]
+        for schema_name, key, cols in (
+            ("Functions", "functions", module._FUNCTION_COLS),
+            ("Sections", "sections", module._SECTION_COLS),
+            ("Globals", "globals", module._GLOBAL_COLS),
+            ("History", "history", module._HISTORY_COLS),
+        ):
+            body = schemas[schema_name]["allOf"][1]["properties"]
+            assert tuple(body["cols"]["const"]) == cols
+            row = body[key]["items"]
+            assert row["minItems"] == row["maxItems"] == len(cols)
+
+    def test_bootstrap_and_targets_envelopes_match(self, dashboard: Dashboard) -> None:
+        schemas = _spec()["components"]["schemas"]
+        _, _, body = dashboard.handle("GET", "/api/bootstrap", {})
+        payload = json.loads(body)
+        assert set(schemas["Bootstrap"]["properties"]) == set(payload)
+        _, _, body = dashboard.handle("GET", "/api/targets", {})
+        assert set(schemas["Targets"]["properties"]) == set(json.loads(body))
