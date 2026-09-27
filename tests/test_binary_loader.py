@@ -5,12 +5,11 @@ from pathlib import Path
 import pytest
 
 from rebrew.binary_loader import (
-    BinaryInfo,
-    SectionInfo,
     detect_format_and_arch,
     extract_bytes_at_va,
     va_to_file_offset,
 )
+from rebrew.binary_model import BinaryInfo, SectionInfo
 
 # -------------------------------------------------------------------------
 # SectionInfo
@@ -584,7 +583,8 @@ class TestNEDetection:
     def test_load_binary_parses_ne(self, tmp_path: Path) -> None:
         """A minimal NE loads as format='ne' with parsed tables (the old
         behavior rejected NE outright — the 16-bit path is now supported)."""
-        from rebrew.binary_loader import BinaryInfo, load_binary
+        from rebrew.binary_loader import load_binary
+        from rebrew.binary_model import BinaryInfo
 
         ne = self._write_ne(tmp_path)
         info = load_binary(ne)

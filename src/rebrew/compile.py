@@ -64,7 +64,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, Self, cast, get_args
 
-from rebrew.binary_loader import BinaryInfo, SectionInfo, load_binary
+from rebrew.binary_loader import load_binary
+from rebrew.binary_model import BinaryInfo, SectionInfo
 from rebrew.coff_reloc import build_iat_region, smart_reloc_compare
 from rebrew.compile_cache import (
     DEFAULT_CACHE_BACKEND,

@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from rebrew.binary_loader import BinaryInfo
+    from rebrew.binary_model import BinaryInfo
     from rebrew.catalog.models import GhidraDataLabel
 
 from rebrew.annotation import Annotation

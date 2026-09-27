@@ -4,7 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from rebrew.binary_loader import BinaryInfo, SectionInfo, extract_bytes_at_va
+from rebrew.binary_loader import extract_bytes_at_va
+from rebrew.binary_model import BinaryInfo, SectionInfo
 from rebrew.extract import cmd_list, detect_reversed_vas
 
 # ---------------------------------------------------------------------------

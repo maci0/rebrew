@@ -21,7 +21,8 @@ if TYPE_CHECKING:
 
 from rebrew.analysis import capstone_handle
 from rebrew.annotation import min_valid_va_for, parse_c_file_multi, parse_library_header
-from rebrew.binary_loader import BinaryInfo, extract_bytes_at_va
+from rebrew.binary_loader import extract_bytes_at_va
+from rebrew.binary_model import BinaryInfo
 from rebrew.config import ProjectConfig, inventory_path_for, module_marker
 from rebrew.sources import (
     iter_library_headers,

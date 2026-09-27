@@ -2,7 +2,7 @@
 
 Architecture notes:
 
-- Every helper takes a ``BinaryInfo`` (from ``rebrew.binary_loader``) so the
+- Every helper takes a ``BinaryInfo`` (from ``rebrew.binary_model``) so the
   caller controls when the binary is parsed — the "lazy LIEF" pattern.  Parse
   once, reuse across tools.
 - ``scan_references`` walks the code sections once with capstone and classifies
@@ -29,11 +29,11 @@ from typing import Any, Protocol
 import capstone
 
 from rebrew.binary_loader import (
-    BinaryInfo,
     capstone_config_for,
     section_extent,
     va_to_file_offset,
 )
+from rebrew.binary_model import BinaryInfo
 
 DEFAULT_CS_ARCH = "CS_ARCH_X86"
 DEFAULT_CS_MODE = "CS_MODE_32"

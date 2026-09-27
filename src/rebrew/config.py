@@ -89,6 +89,31 @@ def _config_warn(msg: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Canonical project filenames and env-var names
+#
+# These live here because config is the layer every other module is allowed to
+# import.  Each constant is *used* by a higher layer (``rebrew.metadata``,
+# ``rebrew.toolchain``, ``rebrew.skills``) but is part of the project layout
+# and environment this module describes, so a reader that needed it used to
+# import the higher module and closed an import cycle.
+# ---------------------------------------------------------------------------
+
+METADATA_FILENAME = "rebrew-functions.toml"
+"""Function metadata TOML, read and written through ``ProjectConfig.metadata_dir``."""
+
+TOOLCHAIN_OVERLAY_ENV = "REBREW_TOOLCHAIN_OVERLAY_DIR"
+"""Env var naming a directory of project-level toolchain ``*.toml`` overlays.
+
+Each file holds one or more ``name = { … }`` tables of :class:`ToolchainSpec`
+fields: the project-level overlay that adds custom compilers without touching
+rebrew source.
+"""
+
+REBREW_SKILLS_DIR_ENV = "REBREW_SKILLS_DIR"
+"""Env var naming a directory of user/community skills (one SKILL.md dir per
+skill).  Unset means packaged skills only."""
+
+# ---------------------------------------------------------------------------
 # Canonical filename for the function structure cache
 # ---------------------------------------------------------------------------
 
@@ -541,8 +566,6 @@ class ProjectConfig:
         parent does not.  All metadata reads/writes must go through this
         property so the location is centralized.
         """
-        from rebrew.metadata import METADATA_FILENAME
-
         parent = self.reversed_dir.parent
         if (
             not (parent / METADATA_FILENAME).exists()
@@ -1246,8 +1269,6 @@ def _env_knob_parsers() -> tuple[tuple[str, Callable[[str], None]], ...]:
     Imports are deferred: ``rebrew.utils`` imports this module, so a
     top-level import would be a cycle.
     """
-    from rebrew.skills import REBREW_SKILLS_DIR_ENV
-    from rebrew.toolchain import TOOLCHAIN_OVERLAY_ENV
     from rebrew.utils import container_runtime
 
     def _container_runtime(raw: str) -> None:
@@ -2238,7 +2259,10 @@ __all__ = [
     "DEFAULT_LINT_MAX_LINE_LENGTH",
     "FUNCTION_STRUCTURE_JSON",
     "LinkConfig",
+    "METADATA_FILENAME",
     "ProjectConfig",
+    "REBREW_SKILLS_DIR_ENV",
+    "TOOLCHAIN_OVERLAY_ENV",
     "arch_byte_order",
     "arch_pointer_size",
     "detect_crt_sources",

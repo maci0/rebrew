@@ -39,7 +39,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Literal
 
-from rebrew.config import ConfigError, check_env_dir
+from rebrew.config import TOOLCHAIN_OVERLAY_ENV, ConfigError, check_env_dir
 from rebrew.errors import RebrewError
 from rebrew.registry import RegistryError, merge_provider_dict
 from rebrew.toolchain_data import BUILTIN_TOOLCHAINS, IMAGE_ENTRYPOINTS
@@ -138,12 +138,6 @@ def require_toolchains_repo() -> Path:
 #: setuptools entry-point group whose providers yield toolchain specs.  A
 #: provider is a zero-arg callable returning ``dict[str, ToolchainSpec]``.
 TOOLCHAIN_ENTRY_POINT_GROUP = "rebrew.toolchains"
-
-#: Env var pointing at a directory of project-level toolchain ``*.toml``
-#: files.  Each file is one or more ``name = { … }`` tables of
-#: :class:`ToolchainSpec` fields — the project-level overlay that adds
-#: custom compilers without touching rebrew source.
-TOOLCHAIN_OVERLAY_ENV = "REBREW_TOOLCHAIN_OVERLAY_DIR"
 
 
 def toolchain_from_toml(name: str, table: dict[str, Any], source: str) -> ToolchainSpec:
@@ -1304,7 +1298,6 @@ def pull_toolchain(name: str, timeout: int = 1200) -> tuple[str, bool]:
 
 __all__ = [
     "RunResult",
-    "TOOLCHAIN_OVERLAY_ENV",
     "TOOLCHAINS",
     "ToolchainError",
     "ToolchainErrorKind",

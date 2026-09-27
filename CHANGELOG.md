@@ -577,6 +577,20 @@
   (`tests/test_property_catalog_loaders.py`).
 
 ### Changed
+- **Breaking:** **The parsed-binary types and the project-layout constants
+  moved down a layer.** `BinaryInfo` and `SectionInfo` lived in
+  `rebrew.binary_loader`, the dispatcher that selects a format loader, so
+  `rebrew.ne_loader` had to import the module that imports it and the import
+  graph held a cycle between the two. They now live in `rebrew.binary_model`
+  (with the lazy `data` read and its size cap), and
+  `rebrew.binary_loader` imports them: `from rebrew.binary_model import
+  BinaryInfo, SectionInfo`. Separately, `rebrew.config` owns the project
+  layout and environment every module already imports, so it no longer
+  reaches up for three string literals: `METADATA_FILENAME` moved from
+  `rebrew.metadata` (still importable there, since it is that module's
+  metadata filename), `TOOLCHAIN_OVERLAY_ENV` moved from `rebrew.toolchain`,
+  and `REBREW_SKILLS_DIR_ENV` moved from `rebrew.skills`; all three are
+  `from rebrew.config import <NAME>` now.
 - **Breaking:** **A dashboard request for a path the server does not serve
   answers 404, not 405.** `Dashboard.handle` checked the method before the
   path, so a `POST` to an endpoint that does not exist came back `405` with

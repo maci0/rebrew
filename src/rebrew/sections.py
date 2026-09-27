@@ -75,7 +75,7 @@ _DECL_NAME_RE = re.compile(r"([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:\[.*\])?\s*;")
 
 
 if TYPE_CHECKING:
-    from rebrew.binary_loader import BinaryInfo
+    from rebrew.binary_model import BinaryInfo
 
 
 def sections_from_info(info: "BinaryInfo") -> dict[str, dict[str, int]]:

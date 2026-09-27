@@ -53,7 +53,8 @@ import typer
 from rich.table import Table
 
 from rebrew.analysis import data_references, section_range
-from rebrew.binary_loader import BinaryInfo, extract_bytes_at_va, load_binary
+from rebrew.binary_loader import extract_bytes_at_va, load_binary
+from rebrew.binary_model import BinaryInfo
 from rebrew.catalog import (
     RegistryEntry,
     build_function_registry,

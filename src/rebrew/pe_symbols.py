@@ -48,7 +48,8 @@ from dataclasses import dataclass, field
 from pathlib import Path, PureWindowsPath
 from typing import Any
 
-from rebrew.binary_loader import BinaryInfo, decode_binary_name, extract_bytes_at_va, load_binary
+from rebrew.binary_loader import decode_binary_name, extract_bytes_at_va, load_binary
+from rebrew.binary_model import BinaryInfo
 from rebrew.import_table import parse_imports
 from rebrew.pe_headers import pe_layout
 
