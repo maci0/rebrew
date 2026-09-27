@@ -69,6 +69,43 @@ class TestGACheckpointData:
         h3 = _ga_args_hash(_SOURCE, _TARGET, "_f", "/O2", 4, 5, 1, mutation_weights={"mut_a": 1.0})
         assert h1 != h3  # different weights still invalidate
 
+    def test_args_hash_covers_compile_inputs(self) -> None:
+        """The compile inputs belong to the checkpoint identity.
+
+        A resumed run continues a population selected by scoring candidates
+        from one compiler with candidates from another; ``best_score`` and
+        ``best.c`` would then describe a compile that never happened.  The
+        compile cache already keys on all of these (``_ga_cache_key``).
+        """
+        base = {
+            "profile": "msvc-6.0",
+            "extra_include_dirs": ["inc", "vendor"],
+            "defines": ["A=1", "B=2"],
+        }
+        baseline = _ga_args_hash(_SOURCE, _TARGET, "_f", "/O2", 4, 5, 1, **base)
+        for changed in (
+            {"profile": "borland-5.5"},
+            {"compare_obj": False},
+            {"cs_mode": 32},
+            {"posix_style": True},
+            {"extra_include_dirs": ["inc"]},
+            {"defines": ["A=1"]},
+        ):
+            assert _ga_args_hash(
+                _SOURCE, _TARGET, "_f", "/O2", 4, 5, 1, **{**base, **changed}
+            ) != baseline, changed
+        # Reordered include/define lists are the same compile input.
+        assert (
+            _ga_args_hash(
+                _SOURCE, _TARGET, "_f", "/O2", 4, 5, 1,
+                extra_include_dirs=["vendor", "inc"], defines=["B=2", "A=1"],
+            )
+            == _ga_args_hash(
+                _SOURCE, _TARGET, "_f", "/O2", 4, 5, 1,
+                extra_include_dirs=["inc", "vendor"], defines=["A=1", "B=2"],
+            )
+        )
+
 
 class TestCheckpointIO:
     def test_save_and_read(self, tmp_path: Path) -> None:

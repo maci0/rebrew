@@ -33,6 +33,7 @@ from rebrew.data_metadata import (
 from rebrew.metadata import METADATA_FILENAME, canonical_status
 from rebrew.utils import clip_span
 from rebrew.workspace import (
+    DB_VERSION_KEY,
     SCHEMA_TARGET,
     SECTION_CELLS_AGG_SQL,
     SECTION_CELLS_COLUMN,
@@ -2046,12 +2047,12 @@ def _build_coverage_db(
             # --target rebuild leaves other targets at their older version).
             c.execute(
                 "INSERT OR REPLACE INTO metadata (target, key, value) VALUES (?, ?, ?)",
-                (SCHEMA_TARGET, "db_version", json.dumps(_CURRENT_DB_VERSION)),
+                (SCHEMA_TARGET, DB_VERSION_KEY, json.dumps(_CURRENT_DB_VERSION)),
             )
             # Keep the legacy per-target stamp for older dashboard versions.
             c.execute(
                 "INSERT OR REPLACE INTO metadata (target, key, value) VALUES (?, ?, ?)",
-                (target_name, "db_version", json.dumps(_CURRENT_DB_VERSION)),
+                (target_name, DB_VERSION_KEY, json.dumps(_CURRENT_DB_VERSION)),
             )
 
         # Materialize the per-section cell JSON every dashboard grid serves.

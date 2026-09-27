@@ -84,6 +84,12 @@ CAT_START_DATA = "start-data"
 # delta for measured (verify-cached) candidates; unmeasured ones stay eligible.
 _PROVE_MAX_DIFF_BYTES = 8
 
+#: Largest function the angr prover is offered.  Symbolic execution over a
+#: multi-kilobyte body exhausts its timeout regardless of how few bytes
+#: differ, so the queue is capped by extent as well as by delta.  Unrelated to
+#: the ROI size bands in ``calculate_roi``, which rank effort, not feasibility.
+_PROVE_MAX_FUNC_BYTES = 500
+
 #: Blocker substrings that mark a STUB as a documented *non-target* (intake /
 #: document-unmatched write these for IAT import thunks and Delphi application
 #: code).  Such functions are explicitly not decomp work — they must never be
@@ -564,8 +570,11 @@ def _collect_prover_candidates(
             continue
         va_key = f"0x{va:08x}"
         cached = verify_entries.get(va_key)
-        effective_status = cached.status if cached else ann_status
-        if effective_status != "NEAR_MATCHING":
+        # The shared overlay, not a bare "cache wins": a metadata STUB keeps
+        # its classification over a placeholder verdict.  The local used to be
+        # named ``effective_status``, shadowing the imported policy.
+        reported = effective_status(ann_status, cached.status if cached else None)
+        if reported != "NEAR_MATCHING":
             continue
         # Metadata SIZE is authoritative (the real function extent — Ghidra's
         # can be stale, e.g. 340 vs the actual 752 for GetCommandPayloadSize);
@@ -574,7 +583,7 @@ def _collect_prover_candidates(
             size = int(info.get("size") or 0) or size_by_va.get(va) or 0
         except (TypeError, ValueError):
             size = size_by_va.get(va) or 0
-        if size > 500 or size == 0:
+        if size > _PROVE_MAX_FUNC_BYTES or size == 0:
             continue
 
         filename = info.get("filename", "")
@@ -602,7 +611,7 @@ def _collect_prover_candidates(
                 filename=filename,
                 description="NEAR_MATCHING + small — prove semantic equivalence",
                 command=f"rebrew prove 0x{va:08x}",
-                status=effective_status,
+                status=reported,
                 match_percent=match_pct,
                 byte_delta=byte_delta,
             )

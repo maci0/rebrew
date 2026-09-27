@@ -50,6 +50,7 @@ from rebrew.match_sweep import (
     run_single_toolchain_flag_sweep,
     run_single_toolchain_sweep,
 )
+from rebrew.skeleton import NO_MAX_SIZE
 from rebrew.utils import preset_module_key
 
 log = logging.getLogger(__name__)
@@ -317,7 +318,7 @@ def main(
         rich_help_panel="Batch Mode",
     ),
     max_size: int = typer.Option(
-        9999,
+        NO_MAX_SIZE,
         "--max-size",
         help="--all: max target size to attempt",
         rich_help_panel="Batch Mode",

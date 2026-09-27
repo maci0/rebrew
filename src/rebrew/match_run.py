@@ -27,6 +27,7 @@ from rebrew.cli import EXIT_MISMATCH, console, json_print, untrusted_literal
 from rebrew.compile import resolve_compiler_env
 from rebrew.config import ProjectConfig
 from rebrew.match_batch import (
+    NO_DELTA,
     StubInfo,
     find_all_matching,
     find_all_stubs,
@@ -49,6 +50,7 @@ from rebrew.match_sweep import (
 )
 from rebrew.matcher import GACheckpoint, SolutionEntry, load_ga_runs
 from rebrew.matcher.core import EXACT_SCORE_THRESHOLD
+from rebrew.skeleton import NO_MAX_SIZE
 from rebrew.utils import (
     atomic_write_text,
     filename_component,
@@ -1011,7 +1013,7 @@ def run_all(
         )
         mode_label = "STUB"
 
-    if max_size < 9999:
+    if max_size < NO_MAX_SIZE:
         stubs = [s for s in stubs if s.size <= max_size]
     if filter_str:
         stubs = [s for s in stubs if filter_str in str(s.filepath)]
@@ -1028,7 +1030,7 @@ def run_all(
     if not json_output:
         console.print(f"\nFound [bold]{len(stubs)}[/] {mode_label} function(s) to process:\n")
         for i, stub in enumerate(stubs, 1):
-            delta_str = f"  Δ{stub.delta}B" if stub.delta != 9999 else ""
+            delta_str = f"  Δ{stub.delta}B" if stub.delta != NO_DELTA else ""
             display = rel_display_path(stub.filepath, reversed_dir)
             console.print(
                 f"  {i:3d}. [magenta]{display:45s}[/]  {stub.size:4d}B  "
@@ -1047,7 +1049,7 @@ def run_all(
                     "symbol": stub.symbol,
                     "cflags": stub.cflags,
                 }
-                if stub.delta != 9999:
+                if stub.delta != NO_DELTA:
                     item["delta"] = stub.delta
                 items.append(item)
             json_print({"mode": mode_label, "dry_run": True, "count": len(stubs), "items": items})
@@ -1341,7 +1343,7 @@ def run_all(
             "symbol": stub.symbol,
             "matched": matched,
         }
-        if stub.delta != 9999:
+        if stub.delta != NO_DELTA:
             result_entry["delta"] = stub.delta
 
         if matched:
@@ -1468,7 +1470,7 @@ def _run_batch_flag_sweep(
             "best_flags": best_flags or None,
             "exact": is_exact,
         }
-        if stub.delta != 9999:
+        if stub.delta != NO_DELTA:
             result_entry["delta"] = stub.delta
 
         cflags_updated = False

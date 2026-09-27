@@ -548,6 +548,67 @@ class TestPatchVerifyCacheEntries:
         assert entry["match_percent"] == 92.0
         assert entry["delta"] == 8
 
+    def test_patch_refreshes_context_hash(self, tmp_path: Path) -> None:
+        """A patch carries the digest its metrics were earned under.
+
+        ``context_hash`` is part of the row's cache identity: a patch that
+        refreshed percent/delta but left the previous run's digest would let a
+        later bare ``rebrew verify`` serve a verdict compiled under
+        declarations.
+        """
+        from rebrew.verify_cache import patch_verify_cache_entries
+
+        cfg = _make_cfg(tmp_path)
+        cache_path = self._make_cache(tmp_path, cfg, status="NEAR_MATCHING")
+        data = json.loads(cache_path.read_text(encoding="utf-8"))
+        data["entries"]["0x00001000"]["context_hash"] = "stale-digest"
+        cache_path.write_text(json.dumps(data), encoding="utf-8")
+
+        patch_verify_cache_entries(
+            cfg,
+            [
+                {
+                    "va": 0x1000,
+                    "status": "NEAR_MATCHING",
+                    "match_count": 92,
+                    "total": 100,
+                    "delta": 8,
+                    "context_hash": None,
+                }
+            ],
+        )
+        entry = json.loads(cache_path.read_text(encoding="utf-8"))["entries"]["0x00001000"]
+        assert entry["context_hash"] is None
+
+    def test_patch_absent_context_hash_leaves_entry_alone(self, tmp_path: Path) -> None:
+        """A patch with no context key is not allowed to clear a stored one.
+
+        ``None`` is a reported value (bare source); an absent key means the
+        caller had no context to report, which must not be read as "bare".
+        """
+        from rebrew.verify_cache import patch_verify_cache_entries
+
+        cfg = _make_cfg(tmp_path)
+        cache_path = self._make_cache(tmp_path, cfg, status="NEAR_MATCHING")
+        data = json.loads(cache_path.read_text(encoding="utf-8"))
+        data["entries"]["0x00001000"]["context_hash"] = "kept-digest"
+        cache_path.write_text(json.dumps(data), encoding="utf-8")
+
+        patch_verify_cache_entries(
+            cfg,
+            [
+                {
+                    "va": 0x1000,
+                    "status": "NEAR_MATCHING",
+                    "match_count": 92,
+                    "total": 100,
+                    "delta": 8,
+                }
+            ],
+        )
+        entry = json.loads(cache_path.read_text(encoding="utf-8"))["entries"]["0x00001000"]
+        assert entry["context_hash"] == "kept-digest"
+
     def test_patch_honors_explicit_match_percent(self, tmp_path: Path) -> None:
         """CompareResult percent wins over match_count/total recomputation.
 

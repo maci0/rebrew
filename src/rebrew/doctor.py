@@ -33,7 +33,13 @@ from rich.table import Table
 from rich.text import Text
 
 from rebrew.cli import EXIT_MISMATCH, TargetOption, console, json_print, require_config
-from rebrew.config import ProjectConfig, inventory_path_for, load_config
+from rebrew.config import (
+    ARCH_PRESETS,
+    KNOWN_FORMATS,
+    ProjectConfig,
+    inventory_path_for,
+    load_config,
+)
 from rebrew.utils import md5_file
 
 logger = logging.getLogger(__name__)
@@ -117,20 +123,12 @@ class DoctorReport:
 # Individual checks
 # ---------------------------------------------------------------------------
 
-_KNOWN_FORMATS = {"pe", "elf", "macho", "ne", "mz"}
-
-_KNOWN_ARCHES = {
-    "x86_16",
-    "x86_32",
-    "x86_64",
-    "arm32",
-    "arm64",
-    "mips32",
-    "mips64",
-    "ppc32",
-    "ppc64",
-    "sh2",
-}
+# The vocabulary is owned by rebrew.config, which already rejects a value
+# outside it at load.  A private copy here could only ever agree or disagree
+# with the loader, and a newly added arch or format would leave this check
+# reporting a value the loader accepts.
+_KNOWN_FORMATS = KNOWN_FORMATS
+_KNOWN_ARCHES = set(ARCH_PRESETS)
 
 
 def check_config_parse(target: str | None) -> tuple[CheckResult, ProjectConfig | None]:
