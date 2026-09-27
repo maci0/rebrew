@@ -30,7 +30,10 @@ so ``--seed-llm --watch`` cannot bill unboundedly.  A prompt this process
 already sent is answered from an in-process cache instead of the endpoint, so
 a watch rerun that leaves the function under match byte-identical costs
 nothing (only non-empty results are cached: an empty answer is a refusal, a
-truncation, or an outage, and re-asking can succeed).  Rate limits / overload
+truncation, or an outage, and re-asking can succeed).  A cache hit is
+re-checked against the same name-and-prototype gate a live response passes,
+because the key carries a source truncated at a fixed length and a collision
+would otherwise hand one function's seeds to another.  Rate limits / overload
 (429/503/529) are never retried, so the GA continues with empty seeds.  A
 response whose reported ``model`` differs from the pinned id warns (a
 substituted model means different cost and different seeds),
@@ -812,15 +815,31 @@ def _count(usage: dict[str, Any], field: str) -> int | None:
     return value
 
 
-def _cache_key(conf: dict[str, str], model: str, source: str, count: int) -> str:
+def _cache_key(
+    conf: dict[str, str], model: str, source: str, count: int, expect: tuple[str, str]
+) -> str:
     """Identity of one seed request: everything the endpoint would see.
 
     Endpoint, model, prompt version, seed count, and the *sanitized* source
     (the exact user message).  A hit therefore means byte-identical prompt
     text to the one already billed, not merely the same C function.
+
+    The signature the response was gated against is part of the identity too.
+    The user message is truncated at :data:`_MAX_SOURCE_CHARS`, so two
+    different functions whose sources share that prefix (a long leading
+    comment block or data table) produce the same key, and a hit would then
+    hand one function's seeds to the other.
     """
     return "\x00".join(
-        (conf["endpoint"], model, _PROMPT_VERSION, str(count), _sanitize_source(source))
+        (
+            conf["endpoint"],
+            model,
+            _PROMPT_VERSION,
+            str(count),
+            expect[0],
+            _normalize_proto(expect[1]),
+            _sanitize_source(source),
+        )
     )
 
 
@@ -938,6 +957,26 @@ def _http_status(exc: BaseException) -> int | None:
     return int(status) if isinstance(status, int) else None
 
 
+def _accepts_seed(seed: str, expect: tuple[str, str], seen: set[str]) -> bool:
+    """True when *seed* is a fresh, well-formed implementation of *expect*.
+
+    The single gate every seed passes, whichever route produced it: a fenced
+    block out of a live response or an entry read back from the in-process
+    cache.  A cache hit is model output like any other, and a truncated
+    :func:`_cache_key` can collide across functions, so the name and
+    prototype are re-checked rather than trusted to the key.  Adds *seed* to
+    *seen* once accepted, so a repeat spends no second parse.
+    """
+    key = " ".join(seed.split())
+    if key in seen:
+        return False
+    expect_name, expect_proto = expect
+    if not valid_c_source(seed, expect_name=expect_name, expect_proto=expect_proto):
+        return False
+    seen.add(key)
+    return True
+
+
 def _request(
     client: Any,
     conf: dict[str, str],
@@ -955,7 +994,7 @@ def _request(
     headers = {"Content-Type": "application/json"}
     if conf.get("api_key"):
         headers["Authorization"] = f"Bearer {conf['api_key']}"
-    expect_name, expect_proto = expect
+    expect_name = expect[0]
     # Cap completion size so the ask and the cap agree: a cap under
     # count * _TOKENS_PER_SEED returns a clipped answer, which the completion
     # gate then discards in full.
@@ -990,11 +1029,8 @@ def _request(
         # rather than parsing the rest of a body that already has enough.
         if len(seeds) >= count:
             break
-        key = " ".join(s.split())
-        if key in seen or not valid_c_source(s, expect_name=expect_name, expect_proto=expect_proto):
-            continue
-        seen.add(key)
-        seeds.append(s)
+        if _accepts_seed(s, expect, seen):
+            seeds.append(s)
     if not seeds:
         # --seed-llm was asked for: say why nothing arrived instead of
         # silently running the GA as if seeding had never been requested.  The
@@ -1059,14 +1095,24 @@ def request_seeds(
             "so model output could not be validated against it"
         )
         return []
-    key = _cache_key(conf, model, source, count)
+    key = _cache_key(conf, model, source, count, expect)
     cached = _cached_seeds(key)
     if cached is not None:
+        # Re-run the C gate: the cache holds model output, so a hit is no more
+        # trusted than the response it replaces, and a truncated key can name a
+        # different function than the one the entry was gated against.
+        seen: set[str] = set()
+        seeds: list[str] = []
+        for seed in cached:
+            if len(seeds) >= count:
+                break
+            if _accepts_seed(seed, expect, seen):
+                seeds.append(seed)
         # Nothing left the process, so nothing was billed: no slot consumed
         # and no cost record, which is why the run total still names only the
         # requests the operator actually paid for.
-        logging.debug("LLM seeding: %d cached seed(s) for an identical prompt", len(cached))
-        return cached
+        logging.debug("LLM seeding: %d cached seed(s) for an identical prompt", len(seeds))
+        return seeds
     if not _consume_request_slot():
         logging.warning(
             "LLM seeding request budget exhausted (%s calls this process; "

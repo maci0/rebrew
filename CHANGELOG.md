@@ -176,6 +176,16 @@
   breaks on U+0085. A source that falls back to Latin-1 decodes byte `0x85`
   as NEL, so the parser saw a line that is not one. They use
   `split_source_lines`, the pair `join_source_lines` is written against.
+- **A cached LLM seed no longer skips the signature gate.** `--seed-llm`
+  answers an identical prompt from `_seed_cache` so a `--watch` rerun over
+  unchanged source bills nothing, and a hit returned those snippets as they
+  were first validated. The key covered the sanitized source, which
+  `llm_seed._sanitize_source` truncates at 16 000 characters, so two
+  different functions sharing that prefix (a long leading comment or data
+  table) hashed to one key and the second function's population received the
+  first one's seeds, gated against a name and prototype that were never its
+  own. The key now carries the signature the response was checked against,
+  and a hit runs the same `valid_c_source` gate a live response does.
 - **The data section summary agrees with the coverage-floor rule.**
   `rebrew data` reports byte coverage through `floor_pct`, so 4 annotated
   bytes of a 256-byte `.data` reads 1.5% in the table and the progress bar.

@@ -65,6 +65,11 @@ def _cfg(endpoint: str = "", api_key: str = "", model: str = "") -> SimpleNamesp
     return SimpleNamespace(llm_endpoint=endpoint, llm_api_key=api_key, llm_model=model)
 
 
+def _padded(source: str) -> str:
+    """*source* behind enough leading comment to survive a tiny source cap."""
+    return "/* " + "x" * 200 + " */\n" + source
+
+
 class TestLlmConfig:
     def test_no_config_returns_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("REBREW_LLM_ENDPOINT", raising=False)
@@ -1186,6 +1191,47 @@ class TestSeedCache:
         # The oldest entry was dropped, so its prompt is asked for again.
         request_seeds(_cfg("https://llm/v1"), "int f(void) { int x = 0; return x; }", client=client)
         assert client.calls == 4
+
+    def test_truncated_source_collision_does_not_cross_seeds(self) -> None:
+        """Two functions sharing a truncated prefix must not swap seeds.
+
+        The user message stops at ``_MAX_SOURCE_CHARS``, so a long leading
+        comment makes two different functions byte-identical as far as the
+        prompt goes.  Their names differ, so each still has to be asked for.
+        """
+        monkey = pytest.MonkeyPatch()
+        monkey.setattr("rebrew.llm_seed._MAX_SOURCE_CHARS", 64)
+        client = self._client("int f(void) { int r = 0; return r; }")
+        try:
+            first = request_seeds(
+                _cfg("https://llm/v1"), _padded("int f(void) { return 0; }"), client=client
+            )
+            second = request_seeds(
+                _cfg("https://llm/v1"), _padded("int g(void) { return 0; }"), client=client
+            )
+        finally:
+            monkey.undo()
+        assert first == ["int f(void) { int r = 0; return r; }"]
+        # The endpoint answered the same prompt with f's seeds; the g gate
+        # rejects them, so nothing enters g's population.
+        assert second == []
+        assert client.calls == 2
+
+    def test_cached_seeds_are_rechecked_against_the_signature(self) -> None:
+        """A cache hit is model output and gets the same gate a response does.
+
+        The cache is overwritten with a snippet for a different function, so
+        the assertion is about the hit path alone and not about which key the
+        prompt happens to hash to.
+        """
+        source = "int f(void) { return 0; }"
+        client = self._client("int f(void) { int r = 0; return r; }")
+        assert request_seeds(_cfg("https://llm/v1"), source, client=client)
+        rebrew.llm_seed._seed_cache.update(
+            {key: ["int g(void) { return 0; }"] for key in rebrew.llm_seed._seed_cache}
+        )
+        assert request_seeds(_cfg("https://llm/v1"), source, client=client) == []
+        assert client.calls == 1
 
 
 class TestSecretRedaction:
