@@ -111,7 +111,9 @@ class TestParseTreeMemo:
         first = ast_engine._parse_c_ast_cached(b"int f(void) { return 1; }")
         second = ast_engine._parse_c_ast_cached(b"int g(int x) { return x; }")
         assert first is not second
-        assert b"g" in second.root_node.text
+        text = second.root_node.text
+        assert text is not None
+        assert b"g" in text
         ast_engine.clear_parse_tree_memo()
 
     def test_retained_bytes_stay_within_the_budget(self, monkeypatch: pytest.MonkeyPatch) -> None:

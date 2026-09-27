@@ -565,7 +565,10 @@ class TestCycloneDxSbom:
         import importlib.metadata as importlib_metadata
 
         resembl_meta = importlib_metadata.metadata("resembl")
-        assert resembl_meta.get("License") == "GPLv3"
+        # The pinned sibling moved to PEP 639, so the free-text field is gone
+        # and the expression above is what the artifact declares; a pin that
+        # predates it would have to bring "License: GPLv3" back.
+        assert resembl_meta.get("License-Expression") == "GPL-3.0-only"
         pyvex_meta = importlib_metadata.metadata("pyvex")
         assert pyvex_meta.get("License-Expression") == "BSD-2-Clause AND GPL-2.0-or-later"
         # certifi predates PEP 639 and still uses the free-text field.
