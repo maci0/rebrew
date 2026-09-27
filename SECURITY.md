@@ -92,6 +92,12 @@ plugin cache backends or remove the open upstream diskcache advisory.
   same image-less path (`check_compiler`); a docker-backed profile returns
   before the smoke. Treat a project tree from an untrusted source as able
   to run code on the host through the paths that do execute.
+- No claim that `REBREW_CONTAINER_RUNTIME` is restricted to a container
+  runtime rebrew trusts. `container_runtime` (`src/rebrew/utils.py`) rejects
+  characters outside `^[a-zA-Z0-9_\-\./]+$` and, for a value with no path
+  separator, any name outside `docker` / `podman` / `nerdctl`. That is a typo
+  guard: a value containing `/` is spawned as a path to the binary, so the
+  knob remains a full redirection of every container run.
 - No claim that the project tree cannot redirect outbound traffic. A
   project's `[compiler] recompile_url` applies unless `REBREW_RECOMPILE_URL`
   is set, and its `[llm] endpoint` overrides `REBREW_LLM_ENDPOINT` while an
