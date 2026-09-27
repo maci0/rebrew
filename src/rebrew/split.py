@@ -40,6 +40,7 @@ from rebrew.utils import (
     preset_module_key,
     read_source_text,
     rel_display_path,
+    source_newline,
     strip_comment_blocks,
 )
 
@@ -251,8 +252,11 @@ def main(
             va_out_dir.mkdir(parents=True, exist_ok=True)
             out_preamble = strip_comment_blocks(preamble)
             # strip_comment_blocks removes the trailing newline; re-add a
-            # separator so the marker is not glued onto the last preamble line.
-            out_content = out_preamble + "\n" + matched_block if out_preamble else matched_block
+            # separator so the marker is not glued onto the last preamble line,
+            # in the source's own line ending (a hardcoded "\n" left a CRLF
+            # source with mixed endings).
+            eol = source_newline(preamble + matched_block)
+            out_content = out_preamble + eol + matched_block if out_preamble else matched_block
             atomic_write_text(out_path, out_content, encoding=encoding)
             try:
                 # Remove the extracted block from the source file (by index,
@@ -390,8 +394,9 @@ def main(
     if not dry_run and to_write:
         out_dir.mkdir(parents=True, exist_ok=True)
         out_preamble = strip_comment_blocks(preamble)
+        eol = source_newline(preamble)
         for block, out_path in to_write:
-            out_content = out_preamble + "\n" + block if out_preamble else block
+            out_content = out_preamble + eol + block if out_preamble else block
             atomic_write_text(out_path, out_content, encoding=encoding)
 
     if json_output:

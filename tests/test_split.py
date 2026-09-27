@@ -649,6 +649,28 @@ class TestPreambleStripping:
         assert strip_comment_blocks(preamble) == "#include <stdio.h>\n#define MAGIC 7"
 
 
+class TestSplitCrlfSource:
+    """A CRLF source keeps CRLF in what the split writes (no mixed endings)."""
+
+    def test_split_outputs_keep_crlf(self, tmp_path: Path, monkeypatch: Any) -> None:
+        _write(tmp_path / "multi.c", _multi_two().replace("\n", "\r\n"))
+
+        result, src = _invoke(tmp_path, monkeypatch)
+        assert result.exit_code == 0
+        raw = (tmp_path / "func_a.c").read_bytes()
+        assert b"\r\n" in raw
+        assert raw.replace(b"\r\n", b"").count(b"\n") == 0
+
+    def test_va_extract_output_keeps_crlf(self, tmp_path: Path, monkeypatch: Any) -> None:
+        _write(tmp_path / "multi.c", _multi_two().replace("\n", "\r\n"))
+
+        result, src = _invoke(tmp_path, monkeypatch, "--va", "0x10001000", "--force")
+        assert result.exit_code == 0
+        raw = (tmp_path / "multi_c" / "func_a.c").read_bytes()
+        assert b"\r\n" in raw
+        assert raw.replace(b"\r\n", b"").count(b"\n") == 0
+
+
 class TestSplitStackedMarkers:
     """--va on a shared file matches any stacked marker, not just the first."""
 

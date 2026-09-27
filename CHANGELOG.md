@@ -84,6 +84,15 @@
   cannot ship without its re-export.
 
 ### Fixed
+- **A CRLF source keeps CRLF in everything written back into it.**
+  `split`, `skeleton --append`, and `merge` spliced a hardcoded `"\n"`
+  separator (and an LF-only block, for the append) into the target file, so
+  every generated file that started CRLF came back with mixed endings, and the
+  next read/rewrite propagated them. `merge` also joined CRLF blocks with an
+  LF and left the `\r` that `strip("\n")` leaves at each block's tail. All
+  three now derive the ending from the file they write, through one
+  `utils.source_newline` helper that `cross_import` had been re-deriving
+  twice. New files still start LF; a CRLF project tree stays CRLF.
 - **A scoped `build-db --target` no longer keeps a dead `history` index.**
   `idx_history_target_va` was superseded by `idx_history_target_id` but only
   dropped on a full rebuild. `history` is never dropped, so a database that
