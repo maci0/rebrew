@@ -999,6 +999,59 @@ class TestSeedUsage:
         assert "33 tokens" in text
         assert "1.2s" in text
 
+    def test_a_request_that_failed_after_leaving_the_process_still_records_cost(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A timeout or 5xx is billed and returns no usage, so it must still show.
+
+        Without the record the run summary prints no cost line at all and a
+        paid endpoint looks free.
+        """
+        client = _EchoingClient("connection reset by peer")
+        with caplog.at_level(logging.WARNING, logger="rebrew.llm_seed"):
+            assert (
+                request_seeds(_cfg("https://llm/v1"), "int f(void){return 0;}", client=client) == []
+            )
+        usage = last_seed_usage()
+        assert usage is not None
+        assert usage.model == _DEFAULT_MODEL
+        assert (usage.prompt_tokens, usage.completion_tokens, usage.total_tokens) == (
+            None,
+            None,
+            None,
+        )
+        assert usage.duration_s >= 0.0
+        # Unreported, not zero: a zero would read as a measured free request.
+        assert "token usage unreported" in usage.describe()
+        assert "connection reset by peer" in caplog.text
+
+
+class TestMisconfigurationDoesNotRaise:
+    """``request_seeds`` documents that it never raises; config errors must not.
+
+    A bad endpoint, an unpinned model alias, or an unparsable budget is a
+    configuration mistake, and unwinding out of it kills a GA that has
+    already burned hours of Wine compiles over one config line.
+    """
+
+    @pytest.mark.parametrize(
+        ("var", "value"),
+        [
+            ("REBREW_LLM_ENDPOINT", "ftp://evil.example/v1"),
+            ("REBREW_LLM_MODEL", "latest"),
+            ("REBREW_LLM_MAX_REQUESTS", "many"),
+        ],
+    )
+    def test_returns_no_seeds(self, monkeypatch: pytest.MonkeyPatch, var: str, value: str) -> None:
+        monkeypatch.setenv("REBREW_LLM_ENDPOINT", "https://llm.example/v1")
+        monkeypatch.setenv(var, value)
+        client = _FakeClient(
+            {"choices": [{"message": {"content": "```c\nint f(void){return 0;}\n```"}}]}
+        )
+        assert request_seeds(_cfg(), "int f(void){return 0;}", client=client) == []
+        assert client.last_payload is None
+        assert last_seed_usage() is None
+
 
 class TestRequestTimeout:
     """A timed-out request is billed and its seeds are lost, so the budget moves."""
