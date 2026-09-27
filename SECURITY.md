@@ -106,6 +106,19 @@ plugin cache backends or remove the open upstream diskcache advisory.
   same image-less path (`check_compiler`); a docker-backed profile returns
   before the smoke. Treat a project tree from an untrusted source as able
   to run code on the host through the paths that do execute.
+- No claim that every metadata-supplied path is contained inside the project.
+  The `file` identity field is a path, and the containment check is per call
+  site, not a property of the field. `rebrew rename` resolves its source path
+  (`src/rebrew/rename.py`) and its destination name
+  (`rebrew/rename_ops.py`), `rebrew merge-sweep` re-roots a stored path under
+  the project, and `rebrew match`'s batch compile skips a `file` outside the
+  reversed dir; `rebrew verify` (`cfg.reversed_dir / entry.filepath` in
+  `verify.py` `verify_entry`, plus the cache `stat()` and the deferred STATUS
+  pass) and `rebrew test`'s blocker clear do not. An entry in a cloned
+  `rebrew-functions.toml` naming an absolute or `../` path therefore makes
+  `rebrew verify` read that path with the analyst's privileges. Fix direction
+  and full call-site list: [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) §4
+  and §5.
 - No claim that `REBREW_CONTAINER_RUNTIME` is restricted to a container
   runtime rebrew trusts. `container_runtime` (`src/rebrew/utils.py`) rejects
   characters outside `^[a-zA-Z0-9_\-\./]+$` and, for a value with no path
