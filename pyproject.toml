@@ -412,6 +412,7 @@ files = [
     "tests/test_data_annotations.py",
     "tests/test_data_layout.py",
     "tests/test_docs_hygiene.py",
+    "tests/test_docs_links.py",
     "tests/test_document_unmatched.py",
     "tests/test_elf_fixture.py",
     "tests/test_env_docs.py",
