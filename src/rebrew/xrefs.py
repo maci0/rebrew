@@ -21,7 +21,7 @@ from typing import Any
 import typer
 from rich.table import Table
 
-from rebrew.analysis import Xref, iter_instructions, scan_references
+from rebrew.analysis import Xref, iter_instruction_stream, iter_instructions, scan_references
 from rebrew.binary_loader import BinaryInfo, load_binary
 from rebrew.cli import (
     EXIT_ERROR,
@@ -70,19 +70,31 @@ def _looks_like_va(arg: str) -> bool:
     return len(low) >= _MIN_BARE_HEX_LETTERS
 
 
-def _insn_text_by_va(info: BinaryInfo) -> dict[int, str]:
-    """Map instruction VA -> disassembly text for the ``.text`` section.
+def _insn_text_by_va(info: BinaryInfo, wanted: set[int]) -> dict[int, str]:
+    """Disassembly text for the instruction starting at each VA in *wanted*.
 
-    Disassembles the section once; VAs not covered (e.g. a missing section)
-    simply have no entry, so callers can render a blank cell / null.
+    Streams the ``.text`` scan and keeps only the requested addresses, stopping
+    past the last one: the reference list is a handful of sites, so
+    materialising every instruction in the section (and a dict entry for each)
+    was pure waste.  VAs not covered (e.g. a missing section, or a byte the
+    linear scan skipped) simply have no entry, so callers can render a blank
+    cell / null.
     """
+    if not wanted:
+        return {}
     text = info.sections.get(".text")
     if text is None:
         return {}
-    return {
-        insn.va: f"{insn.mnemonic} {insn.op_str}".strip()
-        for insn in iter_instructions(info, text.va, text.size)
-    }
+    last = max(wanted)
+    out: dict[int, str] = {}
+    for insn in iter_instruction_stream(info, text.va, text.size):
+        if insn.va in wanted:
+            out[insn.va] = f"{insn.mnemonic} {insn.op_str}".strip()
+            if len(out) == len(wanted):
+                break
+        elif insn.va > last:
+            break
+    return out
 
 
 def _payload(
@@ -198,7 +210,7 @@ def build_xrefs_payload(
         target_va,
         parse_import_table(binary).get(target_va),
         refs,
-        _insn_text_by_va(info),
+        _insn_text_by_va(info, {ref.from_va for ref in refs}),
     )
 
 

@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import re
 import threading
+from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -242,27 +243,34 @@ def _op_constants() -> tuple[Any, Any, Any]:
         return _OP_CONSTANTS
 
 
+def iter_instruction_stream(info: BinaryInfo, va: int, size: int) -> Iterator[Insn]:
+    """Yield ``Insn`` records for *size* bytes at *va*, one at a time.
+
+    Same scan as :func:`iter_instructions`, as a generator: a caller that only
+    wants a few addresses out of a whole code section can stop early instead of
+    paying for the full section's list.  Undecodable bytes are emitted as
+    ``.byte`` rather than ending the scan.
+    """
+    if size <= 0:
+        return
+    raw = extract_bytes(info, va, size)
+    md = _capstone(info)
+    for insn in md.disasm(raw, va):
+        yield Insn(
+            va=insn.address,
+            size=insn.size,
+            mnemonic=insn.mnemonic,
+            op_str=insn.op_str,
+            raw=raw[insn.address - va : insn.address - va + insn.size],
+        )
+
+
 def iter_instructions(info: BinaryInfo, va: int, size: int) -> list[Insn]:
     """Disassemble *size* bytes at *va*, returning ``Insn`` records.
 
     Undecodable bytes are emitted as ``.byte`` rather than ending the scan.
     """
-    if size <= 0:
-        return []
-    raw = extract_bytes(info, va, size)
-    md = _capstone(info)
-    out: list[Insn] = []
-    for insn in md.disasm(raw, va):
-        out.append(
-            Insn(
-                va=insn.address,
-                size=insn.size,
-                mnemonic=insn.mnemonic,
-                op_str=insn.op_str,
-                raw=raw[insn.address - va : insn.address - va + insn.size],
-            )
-        )
-    return out
+    return list(iter_instruction_stream(info, va, size))
 
 
 def extract_bytes(info: BinaryInfo, va: int, size: int) -> bytes:

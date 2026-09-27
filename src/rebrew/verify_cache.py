@@ -504,11 +504,26 @@ def patch_verify_cache_entries(cfg: ProjectConfig, patches: list[dict[str, Any]]
 
 
 def _load_verify_cache(cache_path: Path, cfg: ProjectConfig) -> VerifyCache | None:
-    if not cache_path.exists():
+    # The canonical path goes through the memoized raw loader: status/todo call
+    # it in the same process before report/verify ask here, and re-reading +
+    # JSON-decoding the whole document a second time was a full redundant pass
+    # over every cached entry.  Any other path is read directly.
+    root = getattr(cfg, "root", None)
+    if root is not None and cache_path == Path(root) / ".rebrew" / "verify_cache.json":
+        raw = load_verify_cache_raw(cfg)
+        if raw is None:
+            return None
+    elif cache_path.exists():
+        try:
+            raw = _read_cache_document(cache_path)
+        except (OSError, ValueError) as exc:
+            logging.warning("Ignoring corrupt verify cache %s: %s", cache_path, exc)
+            return None
+    else:
         return None
     try:
-        data = VerifyCache.from_dict(_read_cache_document(cache_path))
-    except (OSError, ValueError, TypeError, AttributeError) as exc:
+        data = VerifyCache.from_dict(raw)
+    except (ValueError, TypeError, AttributeError) as exc:
         # A corrupt cache must not look like a cold start: status/todo would
         # silently fall back to metadata and the next verify would recompile
         # everything without explaining why the on-disk cache was ignored.

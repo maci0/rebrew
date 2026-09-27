@@ -387,6 +387,19 @@ def _replace_matching_line(
     return False
 
 
+@functools.lru_cache(maxsize=512)
+def _name_line_re(name: str, *, is_array: bool, extern: bool) -> re.Pattern[str]:
+    """Line matcher for a declaration of *name*; cached per symbol name.
+
+    ``insert_definition`` runs once per data symbol, and each call used to
+    compile a fresh pattern (``re.escape(name)`` defeats the module-level
+    pattern cache), so a fill pass recompiled every regex per symbol.
+    """
+    suffix = r"\s*(?:\[\s*\d*\s*\])\s*;\s*$" if is_array else r"\s*;\s*$"
+    prefix = r"^(\s*)extern\s+" if extern else r"^(\s*)(?!extern\b)"
+    return re.compile(prefix + r"([A-Za-z_][\w\s]*\**)\s+" + re.escape(name) + suffix)
+
+
 def insert_definition(
     f: Path,
     name: str,
@@ -409,18 +422,8 @@ def insert_definition(
     # annotation / climb / rename write-backs.
     text, encoding = read_source_text(f)
     lines = text.splitlines()
-    if is_array:
-        extern_re = re.compile(
-            r"^(\s*)extern\s+([A-Za-z_][\w\s]*\**)\s+"
-            + re.escape(name)
-            + r"\s*(?:\[\s*\d*\s*\])\s*;\s*$"
-        )
-        def_line = f"{ctype} {name}[{size}]"
-    else:
-        extern_re = re.compile(
-            r"^(\s*)extern\s+([A-Za-z_][\w\s]*\**)\s+" + re.escape(name) + r"\s*;\s*$"
-        )
-        def_line = f"{ctype} {name}"
+    extern_re = _name_line_re(name, is_array=is_array, extern=True)
+    def_line = f"{ctype} {name}[{size}]" if is_array else f"{ctype} {name}"
     if init_text:
         def_line += f" = {init_text}"
     def_line += ";"
@@ -446,16 +449,7 @@ def insert_definition(
 
     # No-init pads / tentative defs (``unsigned char _dpad_N[K];``) are not
     # matched by ``_find_definition`` (it requires ``=``) — replace those too.
-    if is_array:
-        existing_re = re.compile(
-            r"^(\s*)(?!extern\b)([A-Za-z_][\w\s]*\**)\s+"
-            + re.escape(name)
-            + r"\s*(?:\[\s*\d*\s*\])\s*;\s*$"
-        )
-    else:
-        existing_re = re.compile(
-            r"^(\s*)(?!extern\b)([A-Za-z_][\w\s]*\**)\s+" + re.escape(name) + r"\s*;\s*$"
-        )
+    existing_re = _name_line_re(name, is_array=is_array, extern=False)
     if _replace_matching_line(lines, existing_re, def_line, f, encoding, dry_run):
         return True
 

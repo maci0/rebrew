@@ -49,6 +49,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import threading
 import unicodedata
 from collections.abc import Iterator
 from pathlib import Path
@@ -188,6 +189,32 @@ def iter_data_symbols(
 # ---------------------------------------------------------------------------
 
 
+_SCOPE_LOCK = threading.Lock()
+_scope_memo: tuple[Any, str, frozenset[str]] | None = None
+
+
+def _target_scope(cfg: Any) -> tuple[str, frozenset[str]]:
+    """``(active marker key, set of every target marker key)`` for *cfg*.
+
+    Both are config-constant for the process, but this predicate runs once per
+    data row, so the derivation (including the ``all_markers`` set build) is
+    memoised against the last config seen.  A single slot bounds the memory.
+    """
+    global _scope_memo
+    from rebrew.config import module_marker
+    from rebrew.utils import preset_module_key
+
+    with _SCOPE_LOCK:
+        memo = _scope_memo
+        if memo is not None and memo[0] is cfg:
+            return memo[1], memo[2]
+    active = preset_module_key(module_marker(cfg))
+    others = frozenset(preset_module_key(m) for m in (getattr(cfg, "all_markers", None) or ()))
+    with _SCOPE_LOCK:
+        _scope_memo = (cfg, active, others)
+    return active, others
+
+
 def module_visible_to_target(module: str, cfg: Any) -> bool:
     """Whether a data row's module belongs on the active target's reports.
 
@@ -200,16 +227,14 @@ def module_visible_to_target(module: str, cfg: Any) -> bool:
     """
     if cfg is None:
         return True
-    from rebrew.config import module_marker
     from rebrew.utils import preset_module_key
 
-    active = preset_module_key(module_marker(cfg))
+    active, others = _target_scope(cfg)
     if not active:
         return True
     mod = preset_module_key(module)
     if not mod or mod == active:
         return True
-    others = {preset_module_key(m) for m in (getattr(cfg, "all_markers", None) or ())}
     if not others:
         return False
     return mod not in others
