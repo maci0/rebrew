@@ -378,6 +378,11 @@ class TestCiPins:
         assert "core.fsmonitor=" in text
         assert "GIT_LFS_SKIP_SMUDGE=1" in text
         assert 'rm -rf -- "${dest}"' in text
+        # The clone lands beside dest and is renamed over it only after the SHA
+        # check, so a rejected or failed attempt cannot delete a checkout.
+        assert text.index('staging="$(dirname -- "${dest}")') < text.index(
+            'rm -rf -- "${dest}"\n    mv -- "${staging}" "${dest}"'
+        )
         assert "bash tools/ci_clone_resembl.sh" in UV_ENV_ACTION.read_text(encoding="utf-8")
         for path in (CI_YML, SYNC_YML):
             wf = path.read_text(encoding="utf-8")
@@ -510,6 +515,52 @@ class TestCiPins:
         cfg_line = next(line for line in recorded.splitlines() if line.startswith("CFG "))
         assert not Path(cfg_line.removeprefix("CFG ")).exists()
         assert dest.is_dir()
+
+    def test_clone_keeps_the_previous_checkout_when_the_tag_moved(self, tmp_path: Path) -> None:
+        """A retargeted tag must not cost a local mirror its checkout.
+
+        The attempt clones beside dest and replaces it only after the SHA
+        check, so the rejected clone exits 1 with the old tree intact.
+        """
+        bindir = tmp_path / "bin"
+        bindir.mkdir()
+        fake = bindir / "git"
+        fake.write_text(
+            "#!/usr/bin/env python3\n"
+            "import sys\n"
+            "from pathlib import Path\n"
+            "args = sys.argv[1:]\n"
+            "if 'rev-parse' in args:\n"
+            f"    print({'b' * 40!r})\n"
+            "    raise SystemExit(0)\n"
+            "if 'clone' in args:\n"
+            "    Path(args[-1]).mkdir(parents=True, exist_ok=True)\n"
+            "    (Path(args[-1]) / 'cloned.txt').write_text('new')\n"
+            "    raise SystemExit(0)\n"
+            "raise SystemExit('unexpected git args')\n",
+            encoding="utf-8",
+        )
+        fake.chmod(0o755)
+        dest = tmp_path / "resembl"
+        dest.mkdir()
+        (dest / "kept.txt").write_text("old", encoding="utf-8")
+        result = subprocess.run(
+            ["bash", str(ROOT / "tools" / "ci_clone_resembl.sh"), str(dest)],
+            env={
+                **os.environ,
+                "PATH": f"{bindir}{os.pathsep}{os.environ.get('PATH', '')}",
+                "RESEMBL_REF": "v2.0.0",
+                "RESEMBL_SHA": "a" * 40,
+            },
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        assert result.returncode == 1, result.stdout + result.stderr
+        assert (dest / "kept.txt").read_text(encoding="utf-8") == "old"
+        assert not (dest / "cloned.txt").exists()
+        assert [p.name for p in tmp_path.iterdir()] == ["bin", "resembl"]
 
     def test_test_job_fetches_tags(self) -> None:
         """Packaging CHANGELOG↔tag contract needs each tag commit on this branch.

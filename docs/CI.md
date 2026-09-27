@@ -98,7 +98,10 @@ Every job that runs `uv sync` first clones the sibling `resembl` repo
 (`maci0/resembl`, tag from the action's `resembl-ref` input, currently
 `v3.0.0`) into the
 directory above the workspace via `tools/ci_clone_resembl.sh` (retries on
-network flake; the job passes `secrets.GITHUB_TOKEN` as the action's
+network flake; each attempt clones into a sibling staging directory that
+replaces `../resembl` by rename only after the SHA check, so a retargeted tag
+or an exhausted retry leaves an existing checkout in place; the job passes
+`secrets.GITHUB_TOKEN` as the action's
 `github-token` input, which reaches only the clone step — header auth in a
 gitconfig created under umask 077, with the token unset before `git` runs,
 and hooks / fsmonitor / LFS smudge disabled before the SHA check — so
@@ -135,7 +138,7 @@ is not the same everywhere:
 | Job | Sync | Why |
 |-----|------|-----|
 | `lint`, `test`, `pre-commit` | `uv sync --locked --all-extras --group similarity` | the contributor env: extras on, so mypy sees the `prove` stubs and the `resembl` path dep resolves; `--locked` fails a `pyproject.toml` edit that never reached `uv.lock` |
-| `package` | `UV_PROJECT_ENVIRONMENT=.venv-pkg uv sync --frozen --no-dev --no-default-groups --no-install-project`, then `UV_PROJECT_ENVIRONMENT=.venv-pkg uv pip install --no-deps dist/*.whl` | runtime deps from the lock, then the built wheel layered on top; nothing from `src/`; `--frozen` rather than `--locked` because re-resolving reads `[tool.uv.sources]` and this job has no `../resembl` |
+| `package` | `UV_PROJECT_ENVIRONMENT=.venv-pkg uv sync --frozen --no-dev --no-default-groups --no-install-project`, then `uv pip install --python .venv-pkg --no-deps dist/*.whl` | runtime deps from the lock, then the built wheel layered on top; nothing from `src/`; `--frozen` rather than `--locked` because re-resolving reads `[tool.uv.sources]` and this job has no `../resembl` |
 | `cli-contract`, `toolchain-sync` | `uv sync --locked` | default groups only: the CLI surface being grepped and the toolchain drift check need no extra |
 
 The workflow sets `_TYPER_FORCE_DISABLE_TERMINAL`, typer's switch for the

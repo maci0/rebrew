@@ -19,7 +19,9 @@
 # runs, so the child does not inherit them via the environment.
 # The tag SHA is checked only after clone.  Hooks, fsmonitor, ext:: remotes,
 # and LFS smudge are disabled so that checkout cannot run a program from the
-# tree being verified.
+# tree being verified.  A rejected or failed clone never touches dest: the
+# attempt lands in a sibling staging directory that is renamed over dest only
+# after the SHA check passes, so a local mirror keeps the checkout it had.
 set -euo pipefail
 
 ref="${RESEMBL_REF:?RESEMBL_REF is required (e.g. v3.0.0)}"
@@ -64,11 +66,17 @@ git_safe=(
   -c filter.lfs.required=false
 )
 
+# Each attempt clones into this sibling of dest, never into dest itself: a run
+# that exhausts its retries must not leave a local mirror without the checkout
+# it already had.  Same parent directory, so the accepted clone is a rename.
+staging="$(dirname -- "${dest}")/.resembl.clone.$$"
+
 git_config_tmp=""
 cleanup() {
   if [[ -n "${git_config_tmp}" && -f "${git_config_tmp}" ]]; then
     rm -f -- "${git_config_tmp}"
   fi
+  rm -rf -- "${staging}"
 }
 trap cleanup EXIT
 
@@ -98,16 +106,19 @@ fi
 unset token
 
 for ((attempt = 1; attempt <= MAX_ATTEMPTS; attempt++)); do
-  rm -rf -- "${dest}"
+  rm -rf -- "${staging}"
   if git "${git_safe[@]}" clone --depth 1 --branch "${ref}" -- \
-      https://github.com/maci0/resembl.git "${dest}"; then
-    got_sha="$(git "${git_safe[@]}" -C "${dest}" rev-parse HEAD)"
+      https://github.com/maci0/resembl.git "${staging}"; then
+    got_sha="$(git "${git_safe[@]}" -C "${staging}" rev-parse HEAD)"
     if [[ "${got_sha}" != "${want_sha}" ]]; then
       echo "resembl ${ref} resolves to ${got_sha}, expected ${want_sha}" >&2
       exit 1
     fi
+    rm -rf -- "${dest}"
+    mv -- "${staging}" "${dest}"
     exit 0
   fi
+  rm -rf -- "${staging}"
   if [[ "${attempt}" -eq "${MAX_ATTEMPTS}" ]]; then
     echo "git clone resembl (${ref} -> ${dest}) failed after ${attempt} attempts" >&2
     exit 1
