@@ -26,7 +26,7 @@ class TestStats:
         r = runner.invoke(cache_cli.app, ["stats", "--json"])
         assert r.exit_code == 0
         payload = json.loads(r.stdout)
-        assert payload == {"exists": False, "entries": 0, "volume_mb": 0}
+        assert payload == {"exists": False, "entries": 0, "volume_mib": 0}
 
     def test_no_cache_dir_human(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _patch_cfg(monkeypatch, tmp_path)
@@ -45,8 +45,8 @@ class TestStats:
                     stats_called.append(True)
                     or {
                         "entries": 3,
-                        "volume_mb": 1.5,
-                        "size_limit_mb": 100,
+                        "volume_mib": 1.5,
+                        "size_limit_mib": 100,
                         "session_hits": 2,
                         "session_misses": 1,
                         "session_hit_rate_pct": 66.7,

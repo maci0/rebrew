@@ -31,8 +31,8 @@ def _patch_cache(
                 if stats is not None
                 else {
                     "entries": 3,
-                    "volume_mb": 1.5,
-                    "size_limit_mb": 512,
+                    "volume_mib": 1.5,
+                    "size_limit_mib": 512,
                     "session_hits": 2,
                     "session_misses": 1,
                     "session_hit_rate_pct": 66.7,
@@ -91,8 +91,8 @@ class TestCacheCli:
             monkeypatch,
             stats={
                 "entries": 0,
-                "volume_mb": 0.0,
-                "size_limit_mb": 512,
+                "volume_mib": 0.0,
+                "size_limit_mib": 512,
                 "session_hits": 0,
                 "session_misses": 0,
                 "session_hit_rate_pct": 0.0,

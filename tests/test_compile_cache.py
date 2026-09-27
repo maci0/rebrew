@@ -55,8 +55,9 @@ class TestCompileCache:
         info = cache.stats()
         assert info["entries"] == 1
         assert info["volume_bytes"] > 0
-        assert info["volume_mb"] >= 0
-        assert "size_limit_mb" in info
+        # Binary, not decimal: a 1 MiB footprint reports 1.0, not 0.95.
+        assert info["volume_mib"] == round(info["volume_bytes"] / (1024 * 1024), 2)
+        assert "size_limit_mib" in info
         cache.close()
 
     def test_type_safety_returns_none_for_non_bytes(self, tmp_path: Path) -> None:

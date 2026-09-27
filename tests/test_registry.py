@@ -1219,7 +1219,7 @@ class TestCacheBackendRegistry:
             return None
 
         def stats(self) -> dict[str, int | float]:
-            return {"entries": self.count, "volume_mb": 0.0, "size_limit_mb": 0}
+            return {"entries": self.count, "volume_mib": 0.0, "size_limit_mib": 0}
 
     def _patch(self, monkeypatch: pytest.MonkeyPatch) -> None:
         def _factory(

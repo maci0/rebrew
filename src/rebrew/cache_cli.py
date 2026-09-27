@@ -40,7 +40,7 @@ def stats(
     cache_dir = cfg.root / ".rebrew" / "compile_cache"
     if backend == "diskcache" and not cache_dir.exists():
         if json_output:
-            json_print({"exists": False, "entries": 0, "volume_mb": 0})
+            json_print({"exists": False, "entries": 0, "volume_mib": 0})
         else:
             console.print("No compile cache found (not yet created).")
         return
@@ -54,8 +54,8 @@ def stats(
             console.print(f"Cache backend:  {backend}")
             console.print(f"Cache directory: {cache_dir}")
             console.print(f"Entries:         {info['entries']}")
-            console.print(f"Disk usage:      {info['volume_mb']} MB")
-            console.print(f"Size limit:      {info['size_limit_mb']} MB")
+            console.print(f"Disk usage:      {info['volume_mib']} MiB")
+            console.print(f"Size limit:      {info['size_limit_mib']} MiB")
             hits = int(info["session_hits"])
             misses = int(info["session_misses"])
             if hits + misses > 0:

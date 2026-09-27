@@ -99,8 +99,12 @@ def _warn_cache_failure(op: str, exc: Exception) -> None:
 # Extensions treated as headers when fingerprinting an include directory.
 _HEADER_SUFFIXES = frozenset({".h", ".hpp", ".hxx", ".inl", ".hh"})
 
-# Default size limit: 500 MB with LRU eviction when the limit is reached.
-_DEFAULT_SIZE_LIMIT = 500 * 1024 * 1024
+#: Bytes per mebibyte.  Every byte figure this module reports is binary
+#: (1024-based), so the display unit is MiB, not the decimal MB.
+_BYTES_PER_MIB = 1024 * 1024
+
+# Default size limit: 500 MiB with LRU eviction when the limit is reached.
+_DEFAULT_SIZE_LIMIT = 500 * _BYTES_PER_MIB
 
 
 class NoPickleDisk(diskcache.Disk):  # type: ignore[misc]
@@ -299,8 +303,8 @@ class CompileCache:
         return {
             "entries": self.count,
             "volume_bytes": self.volume,
-            "volume_mb": round(self.volume / (1024 * 1024), 2),
-            "size_limit_mb": round(size_limit / (1024 * 1024), 2),
+            "volume_mib": round(self.volume / _BYTES_PER_MIB, 2),
+            "size_limit_mib": round(size_limit / _BYTES_PER_MIB, 2),
             "session_hits": hits,
             "session_misses": misses,
             "session_hit_rate_pct": hit_rate,
