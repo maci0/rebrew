@@ -477,12 +477,17 @@ def generate_data_json(
         else:
             for va, gdata in globals_dict.items():
                 off = va - sec_va
-                size = gdata.get("size", 4)
                 # A zero-length declaration (`extern char g_pad[0];` ->
                 # estimate_type_size 0) would emit a zero-length cell: `e == off`
                 # never advances the segment loop below, so the grid build spun
                 # forever appending empty segments.  No byte evidence, no item.
-                if size is None or int(size) <= 0:
+                # The converted int is what gets stored: a numeric string would
+                # otherwise pass the guard and reach the cell arithmetic below.
+                try:
+                    size = int(gdata.get("size", 4))
+                except (TypeError, ValueError):
+                    size = 0
+                if size <= 0:
                     continue
                 if 0 <= off < sec_size:
                     items_by_off[off] = {

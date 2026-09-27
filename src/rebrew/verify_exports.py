@@ -20,6 +20,11 @@ import typer
 from rebrew.binary_loader import parse_exports
 from rebrew.cli import EXIT_MISMATCH, TargetOption, console, error_exit, json_print, require_config
 
+#: Names printed per direction before the listing is cut; a fully renamed
+#: export table is thousands of lines, and the counts above already say how
+#: big it is.
+_PRINT_LIMIT = 15
+
 
 def compare_exports(original: Path, recomp: Path) -> dict[str, Any]:
     """Compare the export sets of *original* and *recomp*.
@@ -75,9 +80,9 @@ def main(
         console.print(
             f"[bold]Recomp:[/bold]   {result['recompiled']} ({result['recompiled_count']} exports)"
         )
-        for name in result["missing"]:
+        for name in result["missing"][:_PRINT_LIMIT]:
             console.print(f"  [red]missing:[/red] {name}")
-        for name in result["added"]:
+        for name in result["added"][:_PRINT_LIMIT]:
             console.print(f"  [yellow]added:[/yellow] {name}")
         if result["match"]:
             console.print("[green]Export tables match.[/green]")

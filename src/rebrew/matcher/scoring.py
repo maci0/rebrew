@@ -77,7 +77,14 @@ _PROLOGUE_BONUS = -100.0  # score reduction (improvement) when first 20 bytes ma
 # preventing a single long match from overwhelming all other signals.
 _CONTINUITY_CAP = 20.0  # maximum continuity bonus (points)
 _CONTINUITY_PER_INSN = 0.5  # bonus per instruction in longest matching run
-_CONTINUITY_MIN_RUN = 4  # minimum run length to qualify for bonus
+_CONTINUITY_MIN_RUN = 4  # a run must be LONGER than this to earn the bonus
+
+# Magnitude thresholds for "this constant looks like a relocatable address".
+# A PE image is based at 0x400000 and the 16-bit variants above it, so an
+# immediate or displacement past these bounds is an address, not a small
+# number the two sides merely spell differently.
+_PUSH_IMM_MIN = 0x10000000  # push imm32 / mov reg,imm32
+_DISP_ABS_MIN = 0x10000  # |disp32| on a memory operand
 
 # Final score = weighted sum of component scores.  Lower is better.
 # These weights control the relative importance of each signal:
@@ -177,7 +184,7 @@ def _zero_reloc_common(
     if op0 == 0x68 or 0xB8 <= op0 <= 0xBF:
         if after + 4 <= len(b):
             imm = int.from_bytes(b[after : after + 4], byteorder="little")
-            if imm > 0x10000000:
+            if imm > _PUSH_IMM_MIN:
                 _zero_u32_at(out, addr, after)
         return True
     # call/jmp dword ptr [abs32] (FF 15/25) or mov reg,[abs32] / mov [abs32],reg
@@ -225,7 +232,7 @@ def _zero_reloc_fields(insn: capstone.CsInsn, out: bytearray) -> None:
     if _zero_reloc_common(addr, size, b, op0, after, out):
         return
 
-    # General fallback: Any instruction with a 32-bit displacement that looks like an address (> 0x10000)
+    # General fallback: Any instruction with a 32-bit displacement that looks like an address (> _DISP_ABS_MIN)
     # Handles SIB+disp32, lea reg, [reg*scale + disp32], and other indirect addressing modes.
     # A 32-bit displacement needs at least 6 bytes (opcode + modrm + disp32), so
     # smaller instructions skip the detail attribute reads entirely.
@@ -233,7 +240,7 @@ def _zero_reloc_fields(insn: capstone.CsInsn, out: bytearray) -> None:
         for op in insn.operands:
             if op.type == capstone.x86.X86_OP_MEM:
                 disp = op.mem.disp
-                if disp > 0x10000 or disp < -0x10000:
+                if disp > _DISP_ABS_MIN or disp < -_DISP_ABS_MIN:
                     _zero_u32_at(out, addr, insn.disp_offset)
 
 

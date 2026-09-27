@@ -135,6 +135,8 @@ def _entry_from_record(item: dict[str, Any]) -> SolutionEntry | None:
     # JSON round-trips the tuple-typed `mutations` field as a list —
     # normalize it so downstream seeding reads a tuple.
     if not isinstance(entry.mutations, tuple):
+        if isinstance(entry.mutations, str):
+            return None  # a bare string would splat per character
         try:
             entry = dataclasses.replace(entry, mutations=tuple(entry.mutations))
         except TypeError:
@@ -152,11 +154,32 @@ def _entry_from_record(item: dict[str, Any]) -> SolutionEntry | None:
         or not isinstance(entry.target, str)
         or not isinstance(entry.size, int)
         or isinstance(entry.size, bool)
-        or not isinstance(entry.score, (int, float))
-        or isinstance(entry.score, bool)
     ):
         return None
+    # A null score is a win whose GA fitness was not finite; the fingerprint
+    # is still good, so the record seeds later runs with the field default
+    # rather than being dropped.
+    if entry.score is None:
+        entry = dataclasses.replace(entry, score=0.0)
+    elif not isinstance(entry.score, (int, float)) or isinstance(entry.score, bool):
+        return None
     return entry
+
+
+def _wins_from_records(path: Path) -> list[SolutionEntry]:
+    """Newest winning entry per ``(target, symbol)`` from the run log at *path*.
+
+    Records that are not usable wins are skipped; the log order makes the
+    last entry for a key win.
+    """
+    wins: dict[tuple[str, str], SolutionEntry] = {}
+    for rec in _iter_run_records(path):
+        if not rec.get("matched"):
+            continue
+        entry = _entry_from_record(rec)
+        if entry is not None:
+            wins[(entry.target, entry.symbol)] = entry
+    return sorted(wins.values(), key=lambda e: (e.target, e.symbol))
 
 
 def load_solutions(project_root: Path) -> list[SolutionEntry]:
@@ -165,17 +188,10 @@ def load_solutions(project_root: Path) -> list[SolutionEntry]:
     Derived from ``.rebrew/ga_runs.jsonl`` win records.  Returns [] when
     nothing is stored (never raises).
     """
-    wins: dict[tuple[str, str], SolutionEntry] = {}
-    for rec in _iter_run_records(_runs_path(project_root)):
-        if not rec.get("matched"):
-            continue
-        entry = _entry_from_record(rec)
-        if entry is not None:
-            wins[(entry.target, entry.symbol)] = entry  # log order: newest wins
-    return sorted(wins.values(), key=lambda e: (e.target, e.symbol))
+    return _wins_from_records(_runs_path(project_root))
 
 
-def _iter_run_records(path: Path) -> Any:
+def _iter_run_records(path: Path) -> Iterator[dict[str, Any]]:
     """Yield dict records from a JSONL file (skips malformed lines)."""
     if not path.exists():
         return
@@ -218,14 +234,7 @@ def load_solutions_file(path: Path) -> list[SolutionEntry]:
     """
     if not path.exists():
         return []
-    wins: dict[tuple[str, str], SolutionEntry] = {}
-    for rec in _iter_run_records(path):
-        if not rec.get("matched"):
-            continue
-        entry = _entry_from_record(rec)
-        if entry is not None:
-            wins[(entry.target, entry.symbol)] = entry
-    return sorted(wins.values(), key=lambda e: (e.target, e.symbol))
+    return _wins_from_records(path)
 
 
 #: Bounded ``(path, mtime_ns, size, ino) -> sha256`` memo for
@@ -458,6 +467,8 @@ def record_ga_run(
         "matched": bool(matched),
     }
     if score is not None:
+        # A non-finite score is stored as null: json.dumps would write a bare
+        # Infinity, which is not valid JSON and breaks every later reader.
         record["score"] = round(float(score), 2) if math.isfinite(score) else None
     if generations:
         record["generations"] = int(generations)

@@ -121,12 +121,16 @@ class GACheckpoint:
         raw_state = d.get("rng_state", [])
         mutations = d.get("applied_mutations", [])
         seed = d.get("rng_seed")
+        raw_population = d.get("population", [])
         return cls(
             generation=int(d["generation"]),
             best_score=float(d["best_score"]),
             best_source=d.get("best_source"),
-            population=list(d.get("population", [])),
-            rng_state=_to_tuple(raw_state) if isinstance(raw_state, list) else raw_state,
+            # A non-list population (a hand-edited string would split into
+            # characters) and a non-list rng_state (setstate would raise mid
+            # resume) are dropped rather than passed through.
+            population=list(raw_population) if isinstance(raw_population, list) else [],
+            rng_state=_to_tuple(raw_state) if isinstance(raw_state, list) else None,
             args_hash=str(d.get("args_hash", "")),
             applied_mutations={str(m) for m in mutations},
             restarts=int(d.get("restarts", 0)),
