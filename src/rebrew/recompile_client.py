@@ -43,11 +43,15 @@ RecompileErrorKind = Literal[
     "protocol",
 ]
 
+#: Retryable statuses that may arrive AFTER the service already ran the
+#: compile (and already appended to train.jsonl).
+_MAY_HAVE_COMPILED = frozenset({500, 502, 504})
+
 #: Subset of :data:`RETRYABLE_HTTP_STATUS` meaning the service never ran the
-#: compile.  500/502/504 may arrive after the compile (and its train.jsonl
-#: append) already happened, so an ``emit_assembly`` POST is re-sent only on
-#: these or on a connect failure.
-_UNPROCESSED_HTTP = frozenset({408, 425, 429, 503})
+#: compile.  Derived, not re-spelled: a new transient code added to the shared
+#: set must default to "worth another attempt", not silently become a
+#: re-POSTed ``emit_assembly`` that duplicates a train.jsonl row.
+_UNPROCESSED_HTTP = RETRYABLE_HTTP_STATUS - _MAY_HAVE_COMPILED
 
 #: Base delay (seconds) for exponential backoff between retryable attempts.
 #: ``delay = min(_RETRY_BACKOFF_BASE * 2**attempt, _RETRY_BACKOFF_CAP)``.

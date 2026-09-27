@@ -131,6 +131,7 @@ def _patch_verify_cache(
     *,
     delta: int | None = None,
     match_percent: float | None = None,
+    context_hash: str | None = None,
 ) -> None:
     """Update the verify cache entry for *va* so status/todo stay in sync.
 
@@ -148,6 +149,10 @@ def _patch_verify_cache(
     when omitted the cache recomputes from ``match_count / total``, which
     drifts on SIZE_MISMATCH / truncated compares.
 
+    *context_hash* is the digest the verdict was earned under (None = bare
+    source) and is part of the cache row's identity, so the patched entry
+    records it rather than inheriting the previous run's.
+
     Thin local wrapper over the single shared implementation
     :func:`rebrew.verify_cache.patch_verify_cache_entries` (identity check +
     cross-process lock included).
@@ -160,6 +165,7 @@ def _patch_verify_cache(
         "match_count": match_count,
         "total": total,
         "delta": delta,
+        "context_hash": context_hash,
     }
     if match_percent is not None:
         patch["match_percent"] = match_percent
@@ -1274,6 +1280,7 @@ def _run_test_impl(
                     total,
                     delta=cmp.delta,
                     match_percent=cmp.match_percent,
+                    context_hash=cmp.context_hash,
                 )
         elif dry_run:
             # --dry-run must not write: preview the STATUS change (the compile
@@ -1307,6 +1314,7 @@ def _run_test_impl(
                     # a "0B diff — try flag sweep" quick-win.
                     delta=cmp.delta,
                     match_percent=cmp.match_percent,
+                    context_hash=cmp.context_hash,
                 )
             if not json_output:
                 console.print(f"[dim]STATUS → {new_status}[/dim]")
@@ -1702,6 +1710,7 @@ def _test_multi(
                             total,
                             delta=cmp.delta,
                             match_percent=cmp.match_percent,
+                            context_hash=cmp.context_hash,
                         )
                 elif dry_run:
                     # --dry-run must not write: preview (compile already ran).
@@ -1738,6 +1747,7 @@ def _test_multi(
                             # try flag sweep" quick-win.
                             delta=cmp.delta,
                             match_percent=cmp.match_percent,
+                            context_hash=cmp.context_hash,
                         )
                     if not json_output:
                         console.print(f"[dim]  STATUS → {new_status}[/dim]")

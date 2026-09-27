@@ -396,7 +396,13 @@ class TestInvalidateToolchainDigest:
         assert calls["n"] == 1
 
     def test_invalidate_during_inspect_does_not_store_old_digest(self, monkeypatch) -> None:
-        """A swap landing mid-inspect must not let the pre-swap id be cached."""
+        """A swap landing mid-inspect must not let the pre-swap id be used.
+
+        The digest is half the compile-cache key.  Serving the pre-swap id
+        files a post-swap compile under the old image, which is the stale-key
+        case ``invalidate_toolchain_digest`` exists to prevent — so the result
+        degrades to the bare tag and nothing is cached.
+        """
         import rebrew.toolchain as toolchain_mod
         from rebrew.toolchain import cached_image_digest, invalidate_toolchain_digest
 
@@ -407,8 +413,24 @@ class TestInvalidateToolchainDigest:
             return SimpleNamespace(returncode=0, stdout="sha256:0ld0ld0ld0ld99\n", stderr="")
 
         monkeypatch.setattr(toolchain_mod.subprocess, "run", _swap_mid_inspect)
-        assert cached_image_digest("rebrew/msvc:6.0-win32") == "0ld0ld0ld0ld"
+        assert cached_image_digest("rebrew/msvc:6.0-win32") == ""
         assert "rebrew/msvc:6.0-win32" not in toolchain_mod._toolchain_digest_cache
+
+    def test_invalidate_during_inspect_prefers_post_swap_refill(self, monkeypatch) -> None:
+        """A worker that already re-inspected wins over degrading to the tag."""
+        import rebrew.toolchain as toolchain_mod
+        from rebrew.toolchain import cached_image_digest, invalidate_toolchain_digest
+
+        toolchain_mod._toolchain_digest_cache.clear()
+
+        def _swap_then_refill(*_a, **_k):
+            invalidate_toolchain_digest("rebrew/msvc:6.0-win32")
+            # Another worker post-swap refilled the memo.
+            toolchain_mod._toolchain_digest_cache["rebrew/msvc:6.0-win32"] = "newnewnewnew"
+            return SimpleNamespace(returncode=0, stdout="sha256:0ld0ld0ld0ld99\n", stderr="")
+
+        monkeypatch.setattr(toolchain_mod.subprocess, "run", _swap_then_refill)
+        assert cached_image_digest("rebrew/msvc:6.0-win32") == "newnewnewnew"
 
     def test_image_present_does_not_cache_misses(self, monkeypatch) -> None:
         """A miss must re-inspect so an external pull is visible mid-process."""

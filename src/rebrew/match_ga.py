@@ -501,6 +501,12 @@ class BinaryMatchingGA:
             elitism=elitism,
             num_jobs=num_jobs,
             stagnation_limit=stagnation_limit,
+            profile=self.profile,
+            compare_obj=self.compare_obj,
+            cs_mode=self.cs_mode,
+            posix_style=self.posix_style,
+            extra_include_dirs=self.extra_include_dirs,
+            defines=list(getattr(self.cfg, "defines", None) or []),
         )
         self._start_generation = 0
         # Generations actually executed by the last run() (resume-aware), read
@@ -1116,6 +1122,12 @@ def _ga_args_hash(
     elitism: int = 4,
     num_jobs: int = 4,
     stagnation_limit: int = 40,
+    profile: str = "",
+    compare_obj: bool = True,
+    cs_mode: int = 0,
+    posix_style: bool = False,
+    extra_include_dirs: list[str] | None = None,
+    defines: list[str] | None = None,
 ) -> str:
     """Stable fingerprint of the GA parameters — invalidates stale checkpoints.
 
@@ -1123,6 +1135,17 @@ def _ga_args_hash(
     after changing --mutation-focus / --generations / --elitism etc. must
     reject the old checkpoint instead of silently continuing the previous
     population with stale RNG state.
+
+    The compile inputs are folded in for the same reason.  A checkpoint
+    restores a population selected by *scoring* candidates this run will
+    produce with a different compiler or disassembler, so resuming across a
+    toolchain change (``profile``), a compare-object switch
+    (``compare_obj``), a 16-bit switch (``cs_mode``), a posix toolchain
+    switch (``posix_style``), or a different include/define set continues a
+    search whose ``best_score`` and ``best.c`` describe a compile that never
+    happened.  ``_ga_cache_key`` already keys the compile cache on exactly
+    these; a checkpoint that survived what the cache rejects would be the
+    inconsistent half of the pair.
 
     The params tuple is JSON-encoded with sorted keys and compact separators:
     the old ``str(tuple_with_dict)`` inherited dict insertion order and
@@ -1146,6 +1169,15 @@ def _ga_args_hash(
                 "elitism": elitism,
                 "num_jobs": num_jobs,
                 "stagnation_limit": stagnation_limit,
+                # Compile-side identity, matching _ga_cache_key: a checkpoint
+                # resumed under a different compiler or disassembler carries a
+                # best_score measured on the previous one's output.
+                "profile": profile,
+                "compare_obj": compare_obj,
+                "cs_mode": cs_mode,
+                "posix_style": posix_style,
+                "extra_include_dirs": sorted(extra_include_dirs or []),
+                "defines": sorted(defines or []),
                 # Loop-shape constants.  They come from the module rather than
                 # the call, but a release that changes selection, the
                 # mutation-rate ramp, or the restart policy must not resume a

@@ -775,8 +775,14 @@ def cached_image_digest(image: str) -> str:
     if digest:
         with _DOCKER_MEMO_LOCK:
             if generation != _toolchain_digest_generation:
-                # Invalidated mid-inspect: the id may predate the swap.
-                return digest
+                # Invalidated mid-inspect: this id predates the swap, and it is
+                # half the compile-cache key.  Do not store it and do not
+                # return it — serving it would file the post-swap compile under
+                # the pre-swap image, which is exactly the stale-key case
+                # invalidate_toolchain_digest exists to prevent.  A worker that
+                # re-inspected after the swap may already have refilled the
+                # cache; prefer that, and otherwise degrade to the bare tag.
+                return _toolchain_digest_cache.get(image, "")
             # Another worker may have filled it while we inspected.
             if image not in _toolchain_digest_cache:
                 if len(_toolchain_digest_cache) >= _TOOLCHAIN_DIGEST_CACHE_MAX:

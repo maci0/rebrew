@@ -1737,6 +1737,10 @@ def patch_cache_from_results(cfg: Any, v_results: list[dict[str, Any]]) -> None:
                 # 100 - percent (todo.py's ROI thresholds read it as bytes).
                 "match_percent": pct,
                 "delta": r.get("delta"),
+                # Cache identity: the row's own context digest, so a patch
+                # never leaves the entry pointing at the context of an
+                # earlier run.
+                "context_hash": r.get("context_hash"),
             }
         )
     patch_verify_cache_entries(cfg, patches)

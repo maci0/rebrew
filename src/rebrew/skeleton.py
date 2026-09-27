@@ -862,12 +862,20 @@ def _is_thunk(cfg: ProjectConfig, va: int) -> bool:
     return False
 
 
+#: "No upper bound" for the ``--max-size`` family of filters.  Deliberately
+#: well above any real function extent, so ``size <= max_size`` is always true
+#: when the option is left at its default; callers that need to recognize
+#: "unset" compare against this instead of hardcoding the number.  Unrelated to
+#: ``match_batch.NO_DELTA``, which is a byte delta rather than a size.
+NO_MAX_SIZE = 9999
+
+
 def list_uncovered(
     ghidra_funcs: list[FunctionEntry],
     existing_vas: dict[int, str],
     cfg: ProjectConfig,
     min_size: int = 10,
-    max_size: int = 9999,
+    max_size: int = NO_MAX_SIZE,
     skip_fragments: bool = False,
 ) -> list[tuple[int, int, str]]:
     """List uncovered functions. Returns [(va, size, name)].
@@ -1344,7 +1352,7 @@ def main(
         "(no common function-start prefix) — don't waste skeleton slots on non-code",
     ),
     min_size: int = typer.Option(10, "--min-size", help="Minimum function size"),
-    max_size: int = typer.Option(9999, "--max-size", help="Maximum function size"),
+    max_size: int = typer.Option(NO_MAX_SIZE, "--max-size", help="Maximum function size"),
     force: bool = typer.Option(False, "--force", help="Overwrite existing files"),
     append: str | None = typer.Option(
         None,

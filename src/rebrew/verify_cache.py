@@ -458,17 +458,26 @@ def patch_verify_cache_entries(cfg: ProjectConfig, patches: list[dict[str, Any]]
                 if cached_pct is None or match_pct is None
                 else math.isclose(float(cached_pct), float(match_pct), rel_tol=1e-7, abs_tol=1e-7)
             )
+            # ``context_hash`` is cache identity (see the writer), so a patch
+            # that earned its metrics under a different compile context must
+            # overwrite the stored one.  Absent key means "the caller has no
+            # context to report", which is NOT the same as a reported ``None``
+            # (bare source); only a present key is written.
+            ctx_matches = "context_hash" not in p or entry.get("context_hash") == p["context_hash"]
             if (
                 entry.get("status", "") == p["status"]
                 and pct_matches
                 and entry.get("passed") == passed
                 and entry.get("delta") == delta
+                and ctx_matches
             ):
                 continue  # Already in sync
             entry["status"] = p["status"]
             entry["match_percent"] = match_pct
             entry["passed"] = passed
             entry["delta"] = delta
+            if "context_hash" in p:
+                entry["context_hash"] = p["context_hash"]
             entries[va_key] = entry
             changed = True
 

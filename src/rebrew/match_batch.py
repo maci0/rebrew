@@ -35,6 +35,13 @@ log = logging.getLogger(__name__)
 #: either direction, so a genuine 5-9 byte function is reachable.
 _MIN_STUB_SIZE_FLOOR = 10
 
+#: ``StubInfo.delta`` sentinel for "no byte delta measured".  A STUB, a PROVEN
+#: function, or a NEAR_MATCHING with no ``blocker_delta`` carries no delta, and
+#: ``--max-delta`` must not filter it out.  Distinct from skeleton.py's
+#: ``NO_MAX_SIZE``, which happens to be the same number for the same reason
+#: (an unset bound); the two are unrelated limits.
+NO_DELTA = 9999
+
 
 @dataclass
 class StubInfo:
@@ -47,7 +54,7 @@ class StubInfo:
     cflags: str
     status: str
     module: str
-    delta: int = 9999
+    delta: int = NO_DELTA
     #: Per-function TOOLCHAIN metadata (rebrew-functions.toml).  Batch paths
     #: must resolve it like the single-function path, or a library compiled
     #: with a different compiler is recompiled with the project default.
@@ -125,12 +132,12 @@ def _parse_annotations(
         # Pass STUB and PROVEN directly.
         # NEAR_MATCHING functions need delta checks:
         if parsed_status in ("NEAR_MATCHING",):
-            d = ann.blocker_delta or 9999
+            d = ann.blocker_delta or NO_DELTA
             if max_delta is not None and d > max_delta:
                 continue
             delta = d
         else:
-            delta = 9999
+            delta = NO_DELTA
 
         stubs.append(
             StubInfo(
