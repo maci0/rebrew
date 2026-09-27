@@ -22,6 +22,22 @@
   module name instead of checking anything after it.
 
 ### Fixed
+- **`status --json` emitted a verify timestamp no ISO parser accepts.**
+  `last_verify.timestamp` was rendered as `2026-09-27 08:08 UTC`: the trailing
+  ` UTC` makes `datetime.fromisoformat` raise, and the minute truncation
+  reports one instant for two runs a second apart. It is now the same
+  `isoformat()` UTC instant every other emitted timestamp uses.
+- **An annotation note containing "Generated:" froze the generated globals
+  header.** The idempotency gate dropped any line containing that word from
+  both sides of the comparison, so a declaration whose note said
+  `Generated: by mapconv 3.2` was removed from the old file *and* the new one:
+  editing the note regenerated as "unchanged" and the header kept the stale
+  text with no warning. Only the header's own `* Generated:` stamp line is
+  stripped now.
+- **`--timeout-min` granted a flat extra minute on the GA path.** The flag
+  budget was `timeout_min * 60 + 60` in `_run_one_stub_ga` and exactly
+  `timeout_min * 60` in the two sibling call sites, so `--timeout-min 1` ran
+  for two minutes through the GA and one through the flag sweep.
 - **A declined or unanswerable confirmation prompt exited 1, not 2.** The six
   destructive commands that ask before writing (`cfg remove-target`,
   `cfg remove-module`, `merge --delete`, `split --va`, `cache clear`,

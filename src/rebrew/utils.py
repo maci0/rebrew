@@ -145,6 +145,9 @@ def _memo_store(memo_key: tuple[str, int, int, int], value: tuple[str, str]) -> 
     _SOURCE_TEXT_MEMO[memo_key] = value
     _SOURCE_TEXT_MEMO_BY_PATH.setdefault(memo_key[0], set()).add(memo_key)
 
+#: Comment opener of the stamp line both generated headers carry.
+_GENERATED_STAMP_PREFIX = "* Generated:"
+
 
 _CONTAINER_RUNTIME_RE = re.compile(r"^[a-zA-Z0-9_\-\./]+$")
 DEFAULT_CONTAINER_RUNTIME = "docker"
@@ -646,8 +649,15 @@ def strip_generated_timestamp(text: str) -> str:
 
     Header regenerators rewrite that line on every run; comparing the rest is
     what makes a rewrite idempotent and free of git churn.
+
+    Only the header stamp matches, never any line that merely mentions the
+    word: an annotation note is free text, and a bare substring test dropped
+    the declaration carrying it from both sides of the comparison, so a
+    changed note regenerated as "unchanged".
     """
-    return "\n".join(line for line in text.splitlines() if "Generated:" not in line)
+    return "\n".join(
+        line for line in text.splitlines() if not line.lstrip().startswith(_GENERATED_STAMP_PREFIX)
+    )
 
 
 def filename_component(name: str) -> str:

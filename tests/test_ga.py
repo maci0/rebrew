@@ -2084,8 +2084,10 @@ class TestRunOneStubGaPersistsFlags:
 
         M._run_one_stub_ga(stub, self._cfg(tmp_path), 1, 4, 1, 5)
         assert seen[1] is not None
-        # time.monotonic() now, plus 5 min of budget and the 60 s slack.
-        assert seen[1] > time.monotonic() + 300
+        # time.monotonic() now, plus exactly 5 min of budget: the same flag
+        # grants 5 min on the flag-sweep path, so a flat slack minute here made
+        # --timeout-min 1 run twice its wall time on the GA path only.
+        assert seen[1] > time.monotonic() + 240
 
     def test_splice_failure_does_not_claim_match(self, tmp_path: Path, monkeypatch: Any) -> None:
         import rebrew.match_run as M

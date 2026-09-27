@@ -483,9 +483,10 @@ def _run_one_stub_ga(
     # are individually bounded by compile_timeout, so the worst-case
     # overshoot past the deadline is one in-flight compile.
     # timeout_min == 0 means unbounded, the convention the flag sweep uses
-    # (run_single_flag_sweep); without this the GA silently stopped after
-    # the 60 s slack.
-    deadline = time.monotonic() + timeout_min * 60 + 60 if timeout_min > 0 else None
+    # (run_single_flag_sweep).  The budget is exactly the flag, matching
+    # run_single_flag_sweep and run_all: a flat slack minute made --timeout-min
+    # 1 run for twice its wall time on this path only.
+    deadline = time.monotonic() + timeout_min * 60 if timeout_min > 0 else None
     try:
         best_src, best_score = ga.run(deadline=deadline)
         matched = best_score < EXACT_SCORE_THRESHOLD
