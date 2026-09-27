@@ -120,7 +120,9 @@ def test_data_summary_bar_matches_section(monkeypatch: pytest.MonkeyPatch) -> No
     render_summary(console, scan, {".data": {"va": 0x1000, "size": 256}})
     out = buf.getvalue()
     assert "/home/" not in out
-    assert "1.6%" in out
+    # 4 of 256 bytes is 1.5625%, reported as 1.5%: progress floors, so a
+    # partly-covered section never reads as more covered than it is.
+    assert "1.5%" in out
     assert ".data" in out
     bar = _bar_line(out)
     assert "█" in bar and "░" in bar

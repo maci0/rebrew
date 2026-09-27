@@ -432,9 +432,11 @@ def _run_one_stub_ga(
     (see ``_save_solution``); when None the entry is written immediately.
 
     *clock* is the time source the timeout budget is stamped from and the GA
-    loop reads it back from.  It defaults to the wall clock; injecting one
-    (virtual time) makes the generation count a function of the seed rather
-    than of how fast the compiles ran, so a replay reproduces the run exactly.
+    loop reads it back from.  It defaults to :func:`time.monotonic`, so an NTP
+    step or a manual clock change cannot stretch or invert the budget;
+    injecting one (virtual time) makes the generation count a function of the
+    seed rather than of how fast the compiles ran, so a replay reproduces the
+    run exactly.
     """
     from rebrew.metadata import METADATA_FILENAME
 
@@ -959,9 +961,9 @@ def run_all(
     and flag-sweep early paths.
 
     *clock* is the time source every stub's budget is stamped from and read
-    back from (the default is the wall clock), so a batch replayed under one
-    seed runs the same generations for the same stubs however fast the
-    machine compiles them.
+    back from (the default is :func:`time.monotonic`), so a batch replayed
+    under one seed runs the same generations for the same stubs however fast
+    the machine compiles them.
     """
     reversed_dir = cfg.reversed_dir
     ignored = set(cfg.ignored_symbols or [])
@@ -1405,8 +1407,8 @@ def _run_batch_flag_sweep(
     aggregation reports real numbers instead of a hardcoded ``(0, 0)``.
 
     *clock* is the time source the per-stub sweep budget is stamped from and
-    read back from (the default is the wall clock), so a replayed batch
-    sweeps the same number of combinations whatever the machine's speed.
+    read back from (the default is :func:`time.monotonic`), so a replayed
+    batch sweeps the same number of combinations whatever the machine's speed.
     """
     from rebrew.matcher import SolutionEntry, save_solutions
     from rebrew.metadata import update_source_status

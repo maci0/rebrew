@@ -1898,6 +1898,83 @@ class TestFlagSweepDeadline:
         assert "deadline" in inspect.signature(run_flag_sweep).parameters
         assert "timeout_min" in inspect.signature(run_single_flag_sweep).parameters
 
+    def test_non_positive_timeout_min_means_unbounded_not_expired(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """A non-positive budget must leave the sweep unbounded, never pre-expired.
+
+        0 is the documented "no bound" value and the GA and batch-sweep paths
+        both read it as unbounded.  This path used a truthiness test, so a
+        negative `--timeout-min` stamped a deadline already in the past:
+        `flag_sweep` submitted one combination, stopped, and the sweep
+        reported "no flag combination matched" for a tier that was never
+        searched.
+        """
+        from types import SimpleNamespace
+
+        import typer
+
+        from rebrew import match_sweep as sweep_mod
+
+        seed_c = tmp_path / "seed.c"
+        seed_c.write_text("int f(void) { return 1; }\n", encoding="utf-8")
+        params = SimpleNamespace(
+            seed_src=seed_c.read_text(encoding="utf-8"),
+            target_bytes=b"\x00\x01",
+            cl=["cl.exe"],
+            inc=[tmp_path],
+            cflags="",
+            symbol="_f",
+            msvc_env={},
+            cc=tmp_path / "ccache",
+            seed_c=seed_c,
+            cfg=SimpleNamespace(
+                compile_timeout=60,
+                arch="",
+                pointer_size=4,
+                compiler_profile="msvc-6.0",
+            ),
+        )
+
+        seen: list[float | None] = []
+
+        def _record(*args: Any, **kwargs: Any) -> list[tuple[float, str]]:
+            seen.append(kwargs["deadline"])
+            return []
+
+        monkeypatch.setattr(sweep_mod, "flag_sweep", _record)
+        monkeypatch.setattr(
+            sweep_mod, "build_candidate_obj_only", lambda *a, **k: SimpleNamespace(ok=False)
+        )
+
+        clock: list[float] = [100.0]
+        for timeout_min in (0, -5):
+            seen.clear()
+            with pytest.raises(typer.Exit):
+                sweep_mod.run_single_flag_sweep(
+                    params,
+                    "quick",
+                    1,
+                    json_output=True,
+                    timeout_min=timeout_min,
+                    clock=lambda: clock[0],
+                )
+            assert seen == [None], timeout_min
+
+        # A positive budget still bounds the sweep, measured on the injected
+        # clock rather than the wall clock.
+        seen.clear()
+        with pytest.raises(typer.Exit):
+            sweep_mod.run_single_flag_sweep(
+                params,
+                "quick",
+                1,
+                json_output=True,
+                timeout_min=2,
+                clock=lambda: clock[0],
+            )
+        assert seen == [100.0 + 2 * 60]
+
     def test_cli_passes_timeout_min_to_the_single_sweep(self) -> None:
         """The single-function path must forward the flag, not drop it."""
         import inspect

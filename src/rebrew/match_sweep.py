@@ -355,15 +355,18 @@ def run_single_flag_sweep(
     ``timeout_min`` bounds the sweep itself: the budget is checked as combos
     are fed to the pool, so in-flight compiles drain and 0 (no bound) runs the
     whole tier.  A thorough tier is 258k combos, so the caller's own deadline
-    is the only guard when 0 is passed.
+    is the only guard when 0 is passed.  Any non-positive value means
+    unbounded, matching the GA and batch-sweep budgets; a negative one must
+    not become a deadline already in the past, which would silently report an
+    empty sweep as "no flag combination matched".
 
     *clock* is the time source both the deadline and the sweep's own budget
-    checks are read from (the default is the wall clock).  Injecting it makes
-    the sweep replayable: the same virtual clock yields the same combo count
-    on a fast and a slow machine alike.
+    checks are read from (the default is :func:`time.monotonic`).  Injecting
+    it makes the sweep replayable: the same virtual clock yields the same
+    combo count on a fast and a slow machine alike.
     """
     now = clock if clock is not None else time.monotonic
-    deadline = now() + timeout_min * 60 if timeout_min else None
+    deadline = now() + timeout_min * 60 if timeout_min > 0 else None
     try:
         results = flag_sweep(
             p.seed_src,

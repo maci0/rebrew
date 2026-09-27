@@ -138,6 +138,17 @@
   helper, and the three are listed in `_OPTIONAL_IMPORTS` with the reason
   each is undeclared. `docs/CLI.md` names the two PyPI distributions, since
   the bundle keys them `tlsh` / `ssdeep` while the import is `ppdeep`.
+- **A negative `--timeout-min` no longer reports an unsearched tier as a
+  failed sweep.** `0` is the documented "no bound" value and the GA and
+  batch-sweep budgets both read a non-positive value that way, but
+  `run_single_flag_sweep` used a truthiness test and stamped a deadline
+  already in the past. `flag_sweep` then submitted one combination, stopped,
+  and `--flag-sweep-only` reported "no flag combination matched" for a tier it
+  never searched. It now reads the budget the same way as the other two.
+- **The injected-clock docstrings named the wrong default.** Four of them
+  said the budget clock defaults to the wall clock while every one defaults
+  to `time.monotonic`; a maintainer following one would have swapped a clock
+  that survives an NTP step for one that does not.
 - **Names read out of a binary decode through one shared helper.**
   `rebrew.binary_loader` already detected a legacy codepage for a name LIEF
   returned as bytes, but four other paths decoded the same kind of name as
