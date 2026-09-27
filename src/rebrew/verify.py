@@ -62,12 +62,11 @@ from rebrew.compile import (
 from rebrew.config import ProjectConfig, inventory_path_for, module_marker
 from rebrew.match_semantics import EFFECTIVE_MATCH_NOTE, is_effective_match
 from rebrew.metadata import should_promote_status
-from rebrew.utils import atomic_write_text, floor_pct, preset_module_key
+from rebrew.utils import atomic_write_text, canonical_va_key, floor_pct, preset_module_key
 from rebrew.verify_cache import (
     VerifyCacheEntry,
     _load_verify_cache,
     _save_verify_cache,
-    canonical_va_key,
 )
 
 #: Re-exported for tests/consumers (canonical home: verify_hash).

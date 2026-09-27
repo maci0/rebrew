@@ -24,6 +24,15 @@
   change in one file and the two surfaces cannot drift. The dashboard gains
   the same heading scale the report uses (page title, card value, table
   text, captions) instead of the browser default sizes.
+- **`canonical_va_key` is imported from `rebrew.utils`, where it lives.**
+  `rebrew.verify_cache` re-exported it and three modules reached through that
+  alias, so a helper in `utils` looked like a verify-cache API. The
+  `rebrew_globals.h` / Ghidra data-header regenerators shared a private
+  copy of the `Generated:`-line stripper; it is now
+  `rebrew.utils.strip_generated_timestamp`.
+- **`instruction_clones.normalize_operands` passes a `SimpleNamespace`**
+  instead of a private one-method class that held a single `op_str`; the
+  stripper it feeds is already typed on the `_OperandCarrier` protocol.
 
 ## [2.13.1] - 2026-09-27
 ### Fixed

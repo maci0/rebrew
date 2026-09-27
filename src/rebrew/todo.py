@@ -267,7 +267,7 @@ def _collect_active_functions(
     # 1. Gather all unique VAs between metadata and verify cache
     metadata_vas = set(existing.keys())
     verify_vas = set()
-    from rebrew.verify_cache import canonical_va_key
+    from rebrew.utils import canonical_va_key
 
     for va_str in verify_entries:
         va = canonical_va_key(va_str)
@@ -647,7 +647,7 @@ def _load_verify_entries(cfg: ProjectConfig) -> dict[str, "VerifyCacheEntry"]:
     # with `canonical_va_key`, and every consumer looks entries up with
     # `f"0x{va:08x}"` — an unnormalized key was seen by the coverage header but
     # missed by the category/delta selection and the prove queue).
-    from rebrew.verify_cache import canonical_va_key
+    from rebrew.utils import canonical_va_key
 
     normalized: dict[str, VerifyCacheEntry] = {}
     for key, entry in data.entries.items():

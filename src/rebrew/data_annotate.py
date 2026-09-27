@@ -15,7 +15,13 @@ from typing import Any
 
 from rebrew.config import ProjectConfig, module_marker
 from rebrew.data_metadata import iter_data_symbols
-from rebrew.utils import atomic_write_text, is_safe_c_ident, load_tomllib, read_source_text
+from rebrew.utils import (
+    atomic_write_text,
+    is_safe_c_ident,
+    load_tomllib,
+    read_source_text,
+    strip_generated_timestamp,
+)
 
 _GLOBAL_MARKER_RE = re.compile(r"^\s*(?://|/\*)\s*GLOBAL:\s*\S+\s+0x([0-9a-fA-F]+)")
 _DECL_LINE_RE = re.compile(
@@ -434,14 +440,11 @@ def gen_globals_header(
     # Idempotency: regeneration only bumps the "Generated:" timestamp —
     # skip the write when the body is otherwise identical to avoid
     # needless git churn on every run.
-    def _strip_timestamp(text: str) -> str:
-        return "\n".join(line for line in text.splitlines() if "Generated:" not in line)
-
     is_identical = False
     if out.exists():
         try:
             existing = out.read_text(encoding="utf-8")
-            is_identical = _strip_timestamp(existing) == _strip_timestamp(content)
+            is_identical = strip_generated_timestamp(existing) == strip_generated_timestamp(content)
         except OSError:
             existing = ""
         if not is_identical and not force:
