@@ -1938,6 +1938,28 @@ class TestPerFunctionToolchain:
         assert captured["profile"] == "msvc-5.0"
 
 
+def _fake_ga(champion: str) -> type:
+    """A ``BinaryMatchingGA`` stand-in whose ``run`` returns *champion*."""
+
+    class FakeGA:
+        elapsed_sec = 1.0
+        stagnant_gens = 0
+        _pairs_count = 0
+        generation = 3
+        rng_seed = 0
+
+        def __init__(self, *a: Any, **k: Any) -> None:
+            pass
+
+        def run(self, deadline: Any = None) -> tuple[str, float]:
+            return champion, 0.0
+
+        def close(self) -> None:
+            pass
+
+    return FakeGA
+
+
 class TestRunOneStubGaPersistsFlags:
     """_run_one_stub_ga must persist the RAW swept flags (not the
     base-prefixed compile string) and only claim a match when the splice
@@ -1955,11 +1977,19 @@ class TestRunOneStubGaPersistsFlags:
             compile_timeout=60,
         )
 
-    def test_sweep_then_ga_persists_raw_override(self, tmp_path: Path, monkeypatch: Any) -> None:
-        import rebrew.match_run as M
+    def _stub(self, tmp_path: Path, best: str) -> Any:
+        """The stub under test, with *best* already in its GA output dir.
+
+        ``_run_one_stub_ga`` computes out_dir as root/output/ga_runs/<stem>
+        (``Path.with_suffix("")`` strips ``.c``).
+        """
         from rebrew.match_batch import StubInfo
 
-        stub = StubInfo(
+        (tmp_path / "s.c").write_text("// FUNCTION: SERVER 0x10001000\nint s(void) { return 0; }\n")
+        out = tmp_path / "output" / "ga_runs" / "s"
+        out.mkdir(parents=True)
+        (out / "best.c").write_text(best)
+        return StubInfo(
             filepath=tmp_path / "s.c",
             va="0x10001000",
             size=16,
@@ -1968,31 +1998,13 @@ class TestRunOneStubGaPersistsFlags:
             status="STUB",
             module="SERVER",
         )
-        src = tmp_path / "s.c"
-        src.write_text("// FUNCTION: SERVER 0x10001000\nint s(void) { return 0; }\n")
-        # _run_one_stub_ga computes out_dir as root/output/ga_runs/<stem>
-        # (Path.with_suffix("") strips ".c").
-        out = tmp_path / "output" / "ga_runs" / "s"
-        out.mkdir(parents=True)
-        (out / "best.c").write_text("int s(void) { return 42; }\n")
 
-        class FakeGA:
-            elapsed_sec = 1.0
-            stagnant_gens = 0
-            _pairs_count = 0
-            generation = 3
-            rng_seed = 0
+    def test_sweep_then_ga_persists_raw_override(self, tmp_path: Path, monkeypatch: Any) -> None:
+        import rebrew.match_run as M
 
-            def __init__(self, *a: Any, **k: Any) -> None:
-                pass
-
-            def run(self, deadline: Any = None) -> tuple[str, float]:
-                return "int s(void) { return 42; }\n", 0.0
-
-            def close(self) -> None:
-                pass
-
-        monkeypatch.setattr(M, "BinaryMatchingGA", FakeGA)
+        champion = "int s(void) { return 42; }\n"
+        stub = self._stub(tmp_path, champion)
+        monkeypatch.setattr(M, "BinaryMatchingGA", _fake_ga(champion))
         monkeypatch.setattr(M, "extract_raw_bytes", lambda *a, **k: b"\xc3" * 16)
         monkeypatch.setattr(M, "resolve_compiler_env", lambda cfg: ("cl", "", {}, None))
         # Confirmation must succeed for the splice to run (an unconfirmed
@@ -2024,39 +2036,11 @@ class TestRunOneStubGaPersistsFlags:
     def test_validation_ignores_sibling_best_c(self, tmp_path: Path, monkeypatch: Any) -> None:
         """A sibling stub's champion in the shared best.c must not be validated."""
         import rebrew.match_run as M
-        from rebrew.match_batch import StubInfo
 
-        stub = StubInfo(
-            filepath=tmp_path / "s.c",
-            va="0x10001000",
-            size=16,
-            symbol="_s",
-            cflags="/O2",
-            status="STUB",
-            module="SERVER",
-        )
-        (tmp_path / "s.c").write_text("// FUNCTION: SERVER 0x10001000\nint s(void) { return 0; }\n")
-        out = tmp_path / "output" / "ga_runs" / "s"
-        out.mkdir(parents=True)
-        # Written by a concurrent GA for another stub of the same file.
-        (out / "best.c").write_text("int s(void) { return 0; } int t(void) { return 7; }\n")
         champion = "int s(void) { return 42; }\n"
-
-        class FakeGA:
-            elapsed_sec = 1.0
-            stagnant_gens = 0
-            _pairs_count = 0
-            generation = 3
-            rng_seed = 0
-
-            def __init__(self, *a: Any, **k: Any) -> None:
-                pass
-
-            def run(self, deadline: Any = None) -> tuple[str, float]:
-                return champion, 0.0
-
-            def close(self) -> None:
-                pass
+        # best.c also holds a concurrent GA's champion for another stub of the
+        # same file.
+        stub = self._stub(tmp_path, "int s(void) { return 0; } int t(void) { return 7; }\n")
 
         import rebrew.coff_reloc as core
 
@@ -2066,7 +2050,7 @@ class TestRunOneStubGaPersistsFlags:
             validated.append(Path(path).read_text())
             return SimpleNamespace(matched=True, status="EXACT", message="")
 
-        monkeypatch.setattr(M, "BinaryMatchingGA", FakeGA)
+        monkeypatch.setattr(M, "BinaryMatchingGA", _fake_ga(champion))
         monkeypatch.setattr(M, "extract_raw_bytes", lambda *a, **k: b"\xc3" * 16)
         monkeypatch.setattr(M, "resolve_compiler_env", lambda cfg: ("cl", "", {}, None))
         monkeypatch.setattr(core, "build_name_to_va", lambda cfg: {"_s": 0x10001000})
@@ -2082,42 +2066,10 @@ class TestRunOneStubGaPersistsFlags:
 
     def test_splice_failure_does_not_claim_match(self, tmp_path: Path, monkeypatch: Any) -> None:
         import rebrew.match_run as M
-        from rebrew.match_batch import StubInfo
 
-        stub = StubInfo(
-            filepath=tmp_path / "s.c",
-            va="0x10001000",
-            size=16,
-            symbol="_s",
-            cflags="/O2",
-            status="STUB",
-            module="SERVER",
-        )
-        src = tmp_path / "s.c"
-        src.write_text("// FUNCTION: SERVER 0x10001000\nint s(void) { return 0; }\n")
-        # _run_one_stub_ga computes out_dir as root/output/ga_runs/<stem>
-        # (Path.with_suffix("") strips ".c").
-        out = tmp_path / "output" / "ga_runs" / "s"
-        out.mkdir(parents=True)
-        (out / "best.c").write_text("int s(void) { return 42; }\n")
-
-        class FakeGA:
-            elapsed_sec = 1.0
-            stagnant_gens = 0
-            _pairs_count = 0
-            generation = 3
-            rng_seed = 0
-
-            def __init__(self, *a: Any, **k: Any) -> None:
-                pass
-
-            def run(self, deadline: Any = None) -> tuple[str, float]:
-                return "int s(void) { return 42; }\n", 0.0
-
-            def close(self) -> None:
-                pass
-
-        monkeypatch.setattr(M, "BinaryMatchingGA", FakeGA)
+        champion = "int s(void) { return 42; }\n"
+        stub = self._stub(tmp_path, champion)
+        monkeypatch.setattr(M, "BinaryMatchingGA", _fake_ga(champion))
         monkeypatch.setattr(M, "extract_raw_bytes", lambda *a, **k: b"\xc3" * 16)
         monkeypatch.setattr(M, "resolve_compiler_env", lambda cfg: ("cl", "", {}, None))
         # The splice fails (typedef return, no match) — the batch must NOT
@@ -2148,39 +2100,10 @@ class TestRunOneStubGaPersistsFlags:
         the next test/verify demotes."""
         import rebrew.coff_reloc as core
         import rebrew.match_run as M
-        from rebrew.match_batch import StubInfo
 
-        stub = StubInfo(
-            filepath=tmp_path / "s.c",
-            va="0x10001000",
-            size=16,
-            symbol="_s",
-            cflags="/O2",
-            status="STUB",
-            module="SERVER",
-        )
-        (tmp_path / "s.c").write_text("// FUNCTION: SERVER 0x10001000\nint s(void) { return 0; }\n")
-        out = tmp_path / "output" / "ga_runs" / "s"
-        out.mkdir(parents=True)
-        (out / "best.c").write_text("int s(void) { return 42; }\n")
-
-        class FakeGA:
-            elapsed_sec = 1.0
-            stagnant_gens = 0
-            _pairs_count = 0
-            generation = 3
-            rng_seed = 0
-
-            def __init__(self, *a: Any, **k: Any) -> None:
-                pass
-
-            def run(self, deadline: Any = None) -> tuple[str, float]:
-                return "int s(void) { return 42; }\n", 0.0
-
-            def close(self) -> None:
-                pass
-
-        monkeypatch.setattr(M, "BinaryMatchingGA", FakeGA)
+        champion = "int s(void) { return 42; }\n"
+        stub = self._stub(tmp_path, champion)
+        monkeypatch.setattr(M, "BinaryMatchingGA", _fake_ga(champion))
         monkeypatch.setattr(M, "extract_raw_bytes", lambda *a, **k: b"\xc3" * 16)
         monkeypatch.setattr(M, "resolve_compiler_env", lambda cfg: ("cl", "", {}, None))
         monkeypatch.setattr(core, "build_name_to_va", lambda cfg: {"_s": 0x10001000})

@@ -6,6 +6,7 @@ import os
 import time
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from typer.testing import CliRunner
@@ -40,6 +41,35 @@ def _make_cfg(tmp_path: Path) -> ProjectConfig:
         compiler_includes=tmp_path / "include",
         compiler_libs=tmp_path / "lib",
     )
+
+
+def _func_b_row(cfg: ProjectConfig) -> tuple[list[Any], list[dict[str, Any]]]:
+    """Write ``func_b.c`` and return the (entries, results) pair for it."""
+    (cfg.reversed_dir / "func_b.c").write_text("int func_b(void) { return 2; }\n", encoding="utf-8")
+    entries = [
+        SimpleNamespace(
+            va=0x2000,
+            name="func_b",
+            filepath="func_b.c",
+            size=8,
+            origin="GAME",
+            cflags="",
+            symbol="",
+        )
+    ]
+    results = [
+        {
+            "va": "0x00002000",
+            "name": "func_b",
+            "filepath": "func_b.c",
+            "size": 8,
+            "status": "EXACT",
+            "passed": True,
+            "match_percent": 100.0,
+            "delta": 0,
+        }
+    ]
+    return entries, results
 
 
 class TestCompilerConfigHash:
@@ -613,31 +643,7 @@ class TestPatchVerifyCacheEntries:
 
         cfg = _make_cfg(tmp_path)
         cache_path = self._make_cache(tmp_path, cfg, status="STUB")
-        source = cfg.reversed_dir / "func_b.c"
-        source.write_text("int func_b(void) { return 2; }\n", encoding="utf-8")
-        entries = [
-            SimpleNamespace(
-                va=0x2000,
-                name="func_b",
-                filepath="func_b.c",
-                size=8,
-                origin="GAME",
-                cflags="",
-                symbol="",
-            )
-        ]
-        results = [
-            {
-                "va": "0x00002000",
-                "name": "func_b",
-                "filepath": "func_b.c",
-                "size": 8,
-                "status": "EXACT",
-                "passed": True,
-                "match_percent": 100.0,
-                "delta": 0,
-            }
-        ]
+        entries, results = _func_b_row(cfg)
         waiting = Event()
         resume = Event()
         real_lock = cache_mod._verify_cache_write_lock
@@ -686,31 +692,7 @@ class TestPatchVerifyCacheEntries:
         prior = '{"version":2,"entries":{"0x00001000":{"status":"EXACT"}},'
         cache_path.write_text(prior, encoding="utf-8")
 
-        source = cfg.reversed_dir / "func_b.c"
-        source.write_text("int func_b(void) { return 2; }\n", encoding="utf-8")
-        entries = [
-            SimpleNamespace(
-                va=0x2000,
-                name="func_b",
-                filepath="func_b.c",
-                size=8,
-                origin="GAME",
-                cflags="",
-                symbol="",
-            )
-        ]
-        results = [
-            {
-                "va": "0x00002000",
-                "name": "func_b",
-                "filepath": "func_b.c",
-                "size": 8,
-                "status": "EXACT",
-                "passed": True,
-                "match_percent": 100.0,
-                "delta": 0,
-            }
-        ]
+        entries, results = _func_b_row(cfg)
         _save_verify_cache(
             cache_path,
             cfg,
@@ -737,31 +719,7 @@ class TestPatchVerifyCacheEntries:
         )
         cache_path.write_text(prior, encoding="utf-8")
 
-        source = cfg.reversed_dir / "func_b.c"
-        source.write_text("int func_b(void) { return 2; }\n", encoding="utf-8")
-        entries = [
-            SimpleNamespace(
-                va=0x2000,
-                name="func_b",
-                filepath="func_b.c",
-                size=8,
-                origin="GAME",
-                cflags="",
-                symbol="",
-            )
-        ]
-        results = [
-            {
-                "va": "0x00002000",
-                "name": "func_b",
-                "filepath": "func_b.c",
-                "size": 8,
-                "status": "EXACT",
-                "passed": True,
-                "match_percent": 100.0,
-                "delta": 0,
-            }
-        ]
+        entries, results = _func_b_row(cfg)
         _save_verify_cache(
             cache_path,
             cfg,

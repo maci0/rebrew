@@ -686,8 +686,7 @@ def _run_round_trip(
     # Passthrough fallbacks keep the SHA equal even when a splice fails, but a
     # mismatch (compile drift, oversize, reloc failure, drift) means a function
     # in the splice set was not verified — the round trip is incomplete, so the
-    # CLI exits non-zero (docs: "exit 1 on mismatch").  Catalog gaps are
-    # informational unless --strict-catalog is set.
+    # CLI exits non-zero (docs: "exit 1 on mismatch").
     # Catalog gaps are informational unless --strict-catalog is set.  Under
     # --strict-catalog, an entry that neither spliced nor mismatched went to
     # skipped_catalog, so `catalog_ok` alone already fails the run — a

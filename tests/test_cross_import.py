@@ -55,6 +55,20 @@ def _sig(blob: bytes, va: int = 0) -> dict[str, Any]:
     return sig
 
 
+def _dst_cfg(tmp_path: Path, rev: Path) -> Any:
+    """Import-destination config over an already-created *rev* directory."""
+    return SimpleNamespace(
+        root=tmp_path,
+        target_name="DST",
+        reversed_dir=rev,
+        metadata_dir=tmp_path,
+        target_binary=tmp_path / "b.exe",
+        source_ext=".c",
+        marker="DST",
+        posix_style=False,
+    )
+
+
 class TestCrossMatch:
     """The pure matching core — no cfg, hand-crafted signatures."""
 
@@ -1044,16 +1058,7 @@ class TestSharedImport:
         )
         dst_rev = tmp_path / "src_DST"
         dst_rev.mkdir(parents=True)
-        cfg_dst = SimpleNamespace(
-            root=tmp_path,
-            target_name="DST",
-            reversed_dir=dst_rev,
-            metadata_dir=tmp_path,
-            target_binary=tmp_path / "b.exe",
-            source_ext=".c",
-            marker="DST",
-            posix_style=False,
-        )
+        cfg_dst = _dst_cfg(tmp_path, dst_rev)
 
         from rebrew.compile import CompareResult
 
@@ -1166,16 +1171,7 @@ class TestPromoteToShared:
         )
         dst_rev = tmp_path / "src_DST"
         dst_rev.mkdir(parents=True)
-        cfg_dst = SimpleNamespace(
-            root=tmp_path,
-            target_name="DST",
-            reversed_dir=dst_rev,
-            metadata_dir=tmp_path,
-            target_binary=tmp_path / "b.exe",
-            source_ext=".c",
-            marker="DST",
-            posix_style=False,
-        )
+        cfg_dst = _dst_cfg(tmp_path, dst_rev)
         from rebrew.compile import CompareResult
 
         monkeypatch.setattr(
@@ -1279,16 +1275,7 @@ class TestSharedSupersede:
             marker="SRC",
             posix_style=False,
         )
-        cfg_dst = SimpleNamespace(
-            root=tmp_path,
-            target_name="DST",
-            reversed_dir=dst_rev,
-            metadata_dir=tmp_path,
-            target_binary=tmp_path / "b.exe",
-            source_ext=".c",
-            marker="DST",
-            posix_style=False,
-        )
+        cfg_dst = _dst_cfg(tmp_path, dst_rev)
         return cfg_src, cfg_dst
 
     def _ok_verify(self, monkeypatch) -> None:
@@ -1474,16 +1461,7 @@ class TestSharedCflagsPortable:
             marker="SRC",
             posix_style=False,
         )
-        cfg_dst = SimpleNamespace(
-            root=tmp_path,
-            target_name="DST",
-            reversed_dir=dst_rev,
-            metadata_dir=tmp_path,
-            target_binary=tmp_path / "b.exe",
-            source_ext=".c",
-            marker="DST",
-            posix_style=False,
-        )
+        cfg_dst = _dst_cfg(tmp_path, dst_rev)
         from rebrew.compile import CompareResult
 
         monkeypatch.setattr(
