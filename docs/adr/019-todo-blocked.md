@@ -1,6 +1,8 @@
 # ADR-019: Todo blocked category
 
 - **Status**: Superseded by [ADR-025](025-remove-todo-blocked-lens.md)
+  (the `blocked` category below was removed from `rebrew todo`; read the
+  Decision as history, not as the current rule)
 - **Date**: 2026-09
 
 ## Context
