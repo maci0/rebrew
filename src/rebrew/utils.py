@@ -636,11 +636,22 @@ def atomic_write_locked(filepath: Path | str, text: str, encoding: str = "utf-8"
         # Re-lock whatever is still at the path (the pre-write content when
         # atomic_write_text rolled back the temp file).  Missing path is fine
         # on a first-write failure — suppress covers that.
-        with contextlib.suppress(OSError):
-            os.chmod(filepath, 0o444)
+        _relock_quietly(filepath)
         raise
-    with contextlib.suppress(OSError):
-        os.chmod(filepath, 0o444)  # chmod after touching — direct edits now fail
+    # os.replace installs the temp's 0644 inode, so this chmod is the only
+    # thing restoring the 0444 invariant; a silent failure would leave a
+    # tool-owned store world-writable for the rest of the run.
+    _relock_quietly(filepath)
+
+
+def _relock_quietly(filepath: Path) -> None:
+    """chmod *filepath* to 0444, reporting rather than swallowing a failure."""
+    try:
+        os.chmod(filepath, 0o444)
+    except FileNotFoundError:
+        return  # first-write failure: nothing at the path to re-lock
+    except OSError as exc:
+        logger.warning("could not re-lock %s to 0444: %s", filepath, exc)
 
 
 def fold_ident(value: str) -> str:

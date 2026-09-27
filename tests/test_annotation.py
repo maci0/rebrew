@@ -809,6 +809,27 @@ class TestHasSkipAnnotation:
         f.write_text("// FUNCTION: SERVER 0x10001000\nint x() {}\n", encoding="utf-8")
         assert has_skip_annotation(f) is False
 
+    def test_unreadable_metadata_is_reported(self, tmp_path: Path, monkeypatch, caplog) -> None:
+        """A failed read must not report every parked entry as unparked.
+
+        Returning False makes the batch compile and then promote SKIP
+        functions, so the read failure has to reach the operator.
+        """
+        import logging
+
+        from rebrew import annotation, metadata
+
+        f = tmp_path / "skipped.c"
+        f.write_text("// FUNCTION: SERVER 0x10001000\nint x() {}\n", encoding="utf-8")
+
+        def _boom(*a, **kw):
+            raise OSError(5, "Input/output error")
+
+        monkeypatch.setattr(metadata, "load_metadata", _boom)
+        with caplog.at_level(logging.WARNING, logger="rebrew.annotation"):
+            assert annotation.has_skip_annotation(f, metadata_dir=tmp_path) is False
+        assert any("read as unparked" in r.message for r in caplog.records)
+
     def test_skip_false_values(self, tmp_path: Path) -> None:
         from rebrew.annotation import has_skip_annotation
 

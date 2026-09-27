@@ -60,12 +60,12 @@ def parse_imports(binary_path: Path) -> list[dict[str, Any]]:
                 _imports_cache[key] = _imports_cache.pop(key)
                 return [dict(record) for record in cached]
     records = _parse_imports(binary_path)
-    if key is not None:
+    if key is not None and records is not None:
         with _imports_lock:
             _imports_cache[key] = [dict(record) for record in records]
             if len(_imports_cache) > _IMPORTS_CACHE_MAX:
                 _imports_cache.pop(next(iter(_imports_cache)))
-    return records
+    return [] if records is None else records
 
 
 def _cache_key(binary_path: Path) -> str | None:
@@ -77,15 +77,22 @@ def _cache_key(binary_path: Path) -> str | None:
     return f"{binary_path.resolve()}:{st.st_mtime_ns}:{st.st_size}:{st.st_ino}"
 
 
-def _parse_imports(binary_path: Path) -> list[dict[str, Any]]:
-    """Uncached import-table parse; see :func:`parse_imports` for the shape."""
+def _parse_imports(binary_path: Path) -> list[dict[str, Any]] | None:
+    """Uncached import-table parse; see :func:`parse_imports` for the shape.
+
+    Returns ``None`` when the image could not be parsed at all, which is not
+    the same answer as an image with no imports: the toolchain detector picks
+    a different, confident-looking profile from a zero-import target.  A
+    failure is never memoized, so a later call in the same run retries it.
+    """
     from rebrew.binary_loader import is_ne, load_binary
 
     if is_ne(binary_path):
         try:
             info = load_binary(binary_path)
-        except (OSError, KeyError, ValueError):
-            return []
+        except (OSError, KeyError, ValueError) as exc:
+            log.warning("NE import parse failed for %s: %s", binary_path, exc)
+            return None
         ne_out: list[dict[str, Any]] = []
         for mod in getattr(info, "ne_imports", []) or []:
             if mod.imports:
@@ -104,23 +111,31 @@ def _parse_imports(binary_path: Path) -> list[dict[str, Any]]:
     if lief.is_elf(str(binary_path)):
         try:
             elf = lief.ELF.parse(str(binary_path))
-        except Exception:  # best-effort symbol recovery: LIEF raises on a malformed image
-            return []
-        return [] if elf is None else elf_import_records(elf)
+        except Exception as exc:  # LIEF raises on a malformed image
+            log.warning("ELF import parse failed for %s: %s", binary_path, exc)
+            return None
+        if elf is None:
+            log.warning("ELF import parse returned nothing for %s", binary_path)
+            return None
+        return elf_import_records(elf)
 
     try:
         pe = lief.PE.parse(str(binary_path))
-    except Exception:  # best-effort symbol recovery
-        return []
+    except Exception as exc:
+        log.warning("PE import parse failed for %s: %s", binary_path, exc)
+        return None
     if pe is None:
-        return []
+        log.warning("PE import parse returned nothing for %s", binary_path)
+        return None
     opt = getattr(pe, "optional_header", None)
     if opt is None:
-        return []
+        log.warning("PE image base unavailable for %s", binary_path)
+        return None
     try:
         imagebase = int(opt.imagebase)
-    except (AttributeError, TypeError, ValueError):
-        return []
+    except (AttributeError, TypeError, ValueError) as exc:
+        log.warning("PE image base unreadable for %s: %s", binary_path, exc)
+        return None
     out: list[dict[str, Any]] = []
     try:
         for entry in pe.imports:

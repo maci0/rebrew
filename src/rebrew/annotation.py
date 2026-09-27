@@ -402,8 +402,15 @@ def has_skip_annotation(
             # Metadata-overlaid parses already put STATUS on the Annotation.
             if canonical_status(getattr(ann, "status", "") or "") == "SKIP":
                 return True
-    except Exception:  # metadata read failure is non-fatal
-        logger.debug("Metadata read failed for skip check in %s", metadata_dir, exc_info=True)
+    except Exception as exc:
+        # Falling through to False reports every parked entry as unparked, so
+        # the batch would compile and promote SKIP functions on a store that
+        # simply failed to read.  Loud, because the consequence is silent.
+        logger.warning(
+            "Metadata read failed for skip check in %s: %s; SKIP entries read as unparked",
+            metadata_dir,
+            exc,
+        )
     return False
 
 
@@ -713,7 +720,14 @@ def module_for_va(filepath: Path, va: int) -> str:
     """
     try:
         text, _ = read_source_text(filepath)
-    except OSError:
+    except OSError as exc:
+        # An empty string also means "no marker line", so an unreadable
+        # source would be reported as "nothing to key the write on" (or, on
+        # the removal paths, as a metadata validation error naming the wrong
+        # file).  Say which it was.
+        warnings.warn(
+            f"Cannot read {filepath} to resolve the module for va {va:#x}: {exc}", stacklevel=2
+        )
         return ""
     return _module_for_va_in_text(text, va)
 
@@ -1317,8 +1331,16 @@ def _annotations_from_metadata(
 
     try:
         entries_by_key = load_metadata(metadata_dir, deepcopy=False)
-    except Exception:  # unreadable metadata → behave like the inline path
-        logger.debug("metadata load failed for %s", metadata_dir, exc_info=True)
+    except Exception as exc:
+        # A marker-less file's function identities live only in the metadata
+        # store, so an unreadable store drops every one of them from catalog,
+        # verify, todo and status with no other signal.  The inline route
+        # warns on the same failure (see _finalize_entries), and so does this.
+        logger.warning(
+            "metadata load failed for %s: %s; functions in this file are omitted",
+            metadata_dir,
+            exc,
+        )
         return []
     if not entries_by_key:
         return []
@@ -2017,7 +2039,11 @@ def remove_inline_annotation_key(filepath: Path, va: int, key: str) -> bool:
     """
     try:
         text, encoding = read_source_text(filepath)
-    except OSError:
+    except OSError as exc:
+        # False also means "the key was not in the file", so an unreadable
+        # source would record a completed migration with the key still on
+        # disk.  Both sibling mutators warn on this exact failure.
+        warnings.warn(f"Cannot read {filepath} for inline annotation removal: {exc}", stacklevel=2)
         return False
 
     return _strip_key_lines(filepath, va, key, text, encoding=encoding)

@@ -1206,7 +1206,7 @@ class TestCacheDegradation:
         """Each test sees its own warn-once budget (the flag is module-global)."""
         import rebrew.compile_cache as cc_mod
 
-        monkeypatch.setattr(cc_mod, "_degraded_logged", False)
+        monkeypatch.setattr(cc_mod, "_degraded_logged", set())
 
     def test_corrupt_store_disables_cache(self, tmp_path: Path) -> None:
         cache_dir = tmp_path / "cc"
@@ -1259,6 +1259,45 @@ class TestCacheDegradation:
         monkeypatch.setattr(cache._cache, "set", _full)
         with caplog.at_level(logging.WARNING, logger="rebrew.compile_cache"):
             cache.put("k", b"\x01")  # must not raise
+        assert any("Compile cache store failed" in r.message for r in caplog.records)
+        cache.close()
+
+    def test_repeat_failure_of_one_op_warns_once(self, tmp_path: Path, monkeypatch, caplog) -> None:
+        """Repeat suppression is per operation, so a GA batch does not flood."""
+        import logging
+
+        cache = CompileCache(tmp_path / "cc")
+
+        def _boom(*a: object, **kw: object) -> bytes:
+            raise sqlite3.DatabaseError("database disk image is malformed")
+
+        monkeypatch.setattr(cache._cache, "get", _boom)
+        with caplog.at_level(logging.WARNING, logger="rebrew.compile_cache"):
+            cache.get("a")
+            cache.get("b")
+        assert sum("Compile cache lookup failed" in r.message for r in caplog.records) == 1
+        cache.close()
+
+    def test_a_new_failure_op_is_reported_after_the_first(
+        self, tmp_path: Path, monkeypatch, caplog
+    ) -> None:
+        """A failure mode the process has not reported yet still gets a line."""
+        import logging
+
+        cache = CompileCache(tmp_path / "cc")
+
+        def _boom_get(*a: object, **kw: object) -> bytes:
+            raise sqlite3.DatabaseError("database disk image is malformed")
+
+        def _boom_set(*a: object, **kw: object) -> None:
+            raise OSError(28, "No space left on device")
+
+        monkeypatch.setattr(cache._cache, "get", _boom_get)
+        monkeypatch.setattr(cache._cache, "set", _boom_set)
+        with caplog.at_level(logging.WARNING, logger="rebrew.compile_cache"):
+            cache.get("k")
+            cache.put("k", b"\x01")
+        assert any("Compile cache lookup failed" in r.message for r in caplog.records)
         assert any("Compile cache store failed" in r.message for r in caplog.records)
         cache.close()
 

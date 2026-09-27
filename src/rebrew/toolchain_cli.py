@@ -156,6 +156,7 @@ def status_cmd(
         error_exit(str(exc), json_mode=json_output)
     host_ok: bool | None = None
     resolved_cmd: str | None = None
+    host_probe_error: str | None = None
     if spec.host_path is not None:
         # Informational: the vendored tree (source for image builds) —
         # nothing executes from it anymore.
@@ -164,8 +165,11 @@ def status_cmd(
             host_ok = hit is not None
             if hit is not None:
                 resolved_cmd = str(hit)
-        except Exception:
-            host_ok = False
+        except Exception as exc:
+            # "absent" would tell the operator to rebuild a toolchain that is
+            # installed; the failure to probe is the fact worth reporting.
+            host_ok = None
+            host_probe_error = str(exc)
     elif spec.image is None:
         # An image-less spec (a plugin toolchain) execs its binary directly —
         # that IS the execution path.
@@ -186,6 +190,7 @@ def status_cmd(
         "image": spec.image,
         "image_pulled": image_ok,
         "host_binary_present": host_ok,
+        "host_probe_error": host_probe_error,
         "resolved_host": resolved_cmd,
         "binary": spec.binary,
         "description": spec.description,
@@ -199,6 +204,10 @@ def status_cmd(
     )
     if resolved_cmd:
         console.print(f"  host:   {resolved_cmd}  ✅ present (resolved mirror)")
+    elif host_probe_error is not None:
+        console.print(
+            f"  host:   {spec.host_path or spec.binary}  ⚠️ probe failed: {host_probe_error}"
+        )
     else:
         console.print(
             f"  host:   {spec.host_path or spec.binary}  {'✅ present' if host_ok else '⬜ absent'}"

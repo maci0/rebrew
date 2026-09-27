@@ -30,6 +30,7 @@ Usage::
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -49,6 +50,8 @@ from rebrew.cli import (
 )
 from rebrew.config import inventory_path_for
 from rebrew.similar import disasm_signature
+
+log = logging.getLogger(__name__)
 
 
 def _pair_ratio(a: np.ndarray, b: np.ndarray) -> np.ndarray:
@@ -229,6 +232,7 @@ def _load_side(
         else []
     )
     out: list[dict[str, Any]] = []
+    skipped: list[int] = []
     for f in funcs:
         va = f.get("va")
         size = int(f.get("size", 0) or 0)
@@ -238,12 +242,24 @@ def _load_side(
             continue
         try:
             code = extract_raw_bytes(binary, va, size)
-        except Exception:  # noqa: S112  # one bad function must not kill the report
+        except Exception as exc:  # one bad function must not kill the report
+            skipped.append(va)
+            log.debug("skipped function at %#x: %s", va, exc)
             continue
         if not code:
             continue
         sig = disasm_signature(code, va, cs_arch, cs_mode)
         out.append({"va": va, "size": size, "name": str(f.get("name", "")), "signature": sig})
+    if skipped:
+        # A truncated scan reads as a complete one, and every skipped function
+        # is a candidate the report silently dropped.
+        log.warning(
+            "%d of %d functions could not be read from %s and are absent from the report: %s",
+            len(skipped),
+            len(funcs),
+            binary,
+            ", ".join(f"{va:#x}" for va in skipped[:10]) + (" ..." if len(skipped) > 10 else ""),
+        )
     return out
 
 

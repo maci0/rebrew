@@ -271,7 +271,11 @@ def _find_function_range(source: str, symbol: str) -> tuple[int, int] | None:
     """
     try:
         from rebrew.matcher import parse_c_ast
-    except Exception:  # tree-sitter unavailable: no scoping
+    except Exception as exc:  # tree-sitter unavailable: no scoping
+        log.warning(
+            "tree-sitter unavailable (%s); GA mutations are scored against the whole file",
+            exc,
+        )
         return None
     try:
         tree = parse_c_ast(source)
@@ -293,7 +297,15 @@ def _find_function_range(source: str, symbol: str) -> tuple[int, int] | None:
                 and name_node.start_byte != name_node.end_byte
             ):
                 return node.start_byte, node.end_byte
-    except Exception:  # parse failure: no scoping
+    except Exception as exc:
+        # An unscoped range scores the whole file, so a mutated sibling can
+        # earn the target's fitness and the GA will drift it.  Worth a line
+        # on the run, since the result still looks like a normal search.
+        log.warning(
+            "could not locate %s in the source (%s); GA mutations are scored against the whole file",
+            symbol,
+            exc,
+        )
         return None
     return None
 

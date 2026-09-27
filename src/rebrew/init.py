@@ -620,7 +620,10 @@ def _suggested_profile(cwd: Path, binary_name: str) -> tuple[str | None, str]:
         summary += f" — {detected[0]}/{detected[1]}"
     try:
         tc = detect_toolchain(binary_path)
-    except Exception:  # detection is best-effort — bad/unknown binaries OK
+    except Exception as exc:  # bad/unknown binaries are fine, but say so
+        # Without a suggestion the prompt falls back to the shipped default,
+        # so Enter would write a profile detection never endorsed.
+        summary += f"; toolchain detection failed: {exc}"
         return None, summary
     if tc.family or tc.version_hint:
         summary += f"; toolchain: {tc.family} {tc.version_hint} ({tc.confidence})".strip()

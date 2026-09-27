@@ -1012,7 +1012,10 @@ def processor_pack_profiles() -> set[str]:
     """
     try:
         from rebrew.toolchain import TOOLCHAINS
-    except Exception:  # pragma: no cover - registry always importable
+    except Exception as exc:  # pragma: no cover - registry always importable
+        logger.warning(
+            "toolchain registry unavailable (%s); pack profiles fall back to defaults", exc
+        )
         return {"msvc-6.0-sp5-pp"}
     return {str(name) for name in TOOLCHAINS if str(name).endswith("-pp")}
 
@@ -1403,9 +1406,14 @@ def _detect_toolchain_core(
 
     try:
         binfo = load_binary(path)
-    except Exception:
+    except Exception as exc:
         # Unparseable format (16-bit NE, unknown) — string evidence still
         # identifies the family; only section/import/codegen signals are lost.
+        # The result is printed like a complete analysis, so the missing
+        # signals have to be on the record.
+        logger.warning(
+            "binary parse failed for %s (%s); detection uses string evidence only", path, exc
+        )
         if info.family == "unknown":
             if delphi_hits:
                 info.family = "delphi"

@@ -184,6 +184,32 @@ class TestAtomicWriteLocked:
         assert f.read_text() == 'status = "EXACT"\n'
         assert (f.stat().st_mode & 0o777) == 0o444
 
+    def test_failed_relock_is_reported(self, tmp_path: Path, monkeypatch, caplog) -> None:
+        """A chmod that fails leaves the store world-writable; say so.
+
+        os.replace installs the temp's 0644 inode, so the trailing chmod is
+        the only thing restoring 0444.  A silent failure would leave every
+        tool-owned metadata file editable by hand for the rest of the run.
+        """
+        import logging
+        import os
+
+        from rebrew import utils
+
+        f = tmp_path / "meta.toml"
+        real_chmod = os.chmod
+
+        def _chmod(path, mode, *a, **kw):
+            if Path(path) == f and mode == 0o444:
+                raise OSError(30, "Read-only file system")
+            return real_chmod(path, mode, *a, **kw)
+
+        monkeypatch.setattr(utils.os, "chmod", _chmod)
+        with caplog.at_level(logging.WARNING, logger="rebrew.utils"):
+            utils.atomic_write_locked(f, 'status = "EXACT"\n')
+        assert f.read_text() == 'status = "EXACT"\n'
+        assert any("could not re-lock" in r.message for r in caplog.records)
+
     def test_rewrite_works_via_chmod_before(self, tmp_path: Path) -> None:
         """Repeated tool writes chmod writable before touching, so the lock
         never blocks the sanctioned path."""

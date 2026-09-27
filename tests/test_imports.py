@@ -481,6 +481,53 @@ def test_parse_imports_random_bytes_no_crash(blob: bytes) -> None:
         tmp.unlink(missing_ok=True)
 
 
+class TestParseFailureIsNotMemoized:
+    """A failed parse must not be cached as "this image has no imports".
+
+    ``parse_imports`` memoizes per (path, mtime, size, ino), and the toolchain
+    detector reads an empty import table as evidence about the compiler.  A
+    transient parse failure pinned in the memo would feed the detector a
+    confident, wrong answer for the rest of the run.
+    """
+
+    def test_failed_parse_is_retried_not_cached(self, tmp_path, monkeypatch, caplog) -> None:
+        import logging
+
+        from rebrew import import_table
+
+        target = tmp_path / "app.exe"
+        target.write_bytes(b"MZ" + b"\x00" * 64)
+        calls = {"n": 0}
+
+        def _fail(_path: Path) -> None:
+            # _parse_imports' "the image did not parse" answer is None.
+            calls["n"] += 1
+
+        monkeypatch.setattr(import_table, "_parse_imports", _fail)
+        with caplog.at_level(logging.WARNING, logger="rebrew.import_table"):
+            assert import_table.parse_imports(target) == []
+        assert calls["n"] == 1
+        assert import_table.parse_imports(target) == []
+        assert calls["n"] == 2, "a failed parse was memoized as an empty import table"
+
+    def test_successful_parse_is_memoized(self, tmp_path, monkeypatch) -> None:
+        from rebrew import import_table
+
+        target = tmp_path / "app.exe"
+        target.write_bytes(b"MZ" + b"\x00" * 64)
+        calls = {"n": 0}
+        record = {"dll": "KERNEL32.dll", "name": "Sleep", "iat_va": 0x1000, "ordinal": None}
+
+        def _ok(_path: Path):
+            calls["n"] += 1
+            return [record]
+
+        monkeypatch.setattr(import_table, "_parse_imports", _ok)
+        assert import_table.parse_imports(target) == [record]
+        assert import_table.parse_imports(target) == [record]
+        assert calls["n"] == 1
+
+
 @settings(max_examples=100, deadline=None)
 @given(st.binary(min_size=1, max_size=64), st.integers(min_value=1, max_value=8))
 def test_imports_fixture_mutation_no_crash(noise: bytes, n_flips: int) -> None:

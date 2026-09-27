@@ -67,26 +67,28 @@ logger = logging.getLogger(__name__)
 # Bump on key semantics changes to invalidate stale entries.
 CACHE_SCHEMA_VERSION = 6
 
-# Warn once per process: a corrupt/contended store degrades every get/put,
-# and one line per lookup would flood a GA batch's log without adding info.
-# A GA batch has every worker hitting the same store, so the latch is a
-# check-then-act and needs the lock to admit exactly one of them.
+# Warn once per process *and per operation*: a corrupt/contended store
+# degrades every get/put, and one line per lookup would flood a GA batch's
+# log without adding info.  Keying on the op keeps the repeat-suppression
+# while still surfacing a failure mode the process has not reported yet (a
+# close that fails long after the first get).  A GA batch has every worker
+# hitting the same store, so the latch is a check-then-act and needs the
+# lock to admit exactly one of them.
 _degraded_lock = threading.Lock()
-_degraded_logged = False
+_degraded_logged: set[str] = set()
 
 
 def _warn_cache_failure(op: str, exc: Exception) -> None:
-    """Log the first cache failure per process at WARNING.
+    """Log the first cache failure per process and per operation at WARNING.
 
     The cache is an accelerator: any failure must degrade to a miss/skip,
     never break compilation — but silently losing it would leave the user
     wondering why every compile suddenly pays full subprocess cost.
     """
-    global _degraded_logged
     with _degraded_lock:
-        if _degraded_logged:
+        if op in _degraded_logged:
             return
-        _degraded_logged = True
+        _degraded_logged.add(op)
     logger.warning(
         "Compile cache %s failed (%s: %s) — continuing with degraded/no cache; "
         "delete .rebrew/compile_cache/ to reset a corrupted store",
