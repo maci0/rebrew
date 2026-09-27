@@ -766,6 +766,8 @@ class TestHandle:
         assert 'retry-summary").focus()' in body
         assert "No status changes recorded yet" in body
         assert "No section stats for this target" in body
+        # An empty result says whether the filters or the target emptied it.
+        assert '(filtersActive() ? " match" : " yet")' in body
         assert "setGlobalsEmptyMessage" in body
         assert "setFunctionsEmptyMessage" in body
         assert 'id="retry-summary"' in body
