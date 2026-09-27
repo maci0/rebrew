@@ -47,13 +47,12 @@ COV_FLOOR ?= 85
 # mtimes, fixed modes; sdist owner 0:0). Wheel modes otherwise follow the
 # checkout umask: setuptools copies each source file's mode, and git fills
 # the non-executable bits from umask.
+# `?=` alone would leave SOURCE_DATE_EPOCH a recursively expanded variable, so
+# every $(SOURCE_DATE_EPOCH) below re-ran git.  `override :=` collapses the
+# result to a simple variable: one git call, and an empty commit date (a
+# non-git tree) becomes 0.
 SOURCE_DATE_EPOCH ?= $(shell git log -1 --pretty=%ct 2>/dev/null)
-ifeq ($(strip $(SOURCE_DATE_EPOCH)),)
-  override SOURCE_DATE_EPOCH := $(shell git log -1 --pretty=%ct 2>/dev/null)
-  ifeq ($(strip $(SOURCE_DATE_EPOCH)),)
-    override SOURCE_DATE_EPOCH := 0
-  endif
-endif
+override SOURCE_DATE_EPOCH := $(or $(SOURCE_DATE_EPOCH),0)
 
 help:
 	@printf '%s\n' \
@@ -321,18 +320,33 @@ sbom: warn-uv-version
 # from MANIFEST.in plus the post-build rewrite in normalize_sdist.py rather
 # than from package-data.  Build a wheel *from* the sdist through the same
 # hash-pinned build constraints `make build` uses, then diff the two member
-# lists.  Runs after `build`; the intermediate wheel lands in .sdist-check/.
-sdist-check: build
+# lists.  The intermediate wheel lands in .sdist-check/.
+#
+# The prerequisite is the buildinfo *file*, not the phony `build` target:
+# `build` opens by deleting dist/*.whl, dist/*.tar.gz, dist/*.buildinfo and
+# dist/*.cdx.json, so a `make sdist-check` of its own (the CI package job runs
+# it as a separate invocation, and so does anyone following the help text)
+# would wipe the SBOM and buildinfo `make build` / `make sbom` had just
+# produced.  Depending on the file builds only when dist/ is empty, and it
+# carries the ordering under `make -j`, where a bare prerequisite list would
+# not.
+dist/rebrew.buildinfo:
+	@$(MAKE) --no-print-directory build
+
+sdist-check: dist/rebrew.buildinfo
 	@set -eu; \
 	for f in dist/*.tar.gz; do set -- "$$@" "$$f"; done; \
-	[ $$# -eq 1 ] || { echo "ERROR: expected exactly one sdist in dist/ (run make build)"; exit 1; }; \
+	[ $$# -eq 1 ] || { echo "ERROR: expected exactly one sdist in dist/ (run 'make build')"; exit 1; }; \
 	sdist=$$1; \
-	for f in dist/*.whl; do set -- "$$f"; done; \
+	set --; \
+	for f in dist/*.whl; do set -- "$$@" "$$f"; done; \
+	[ $$# -eq 1 ] || { echo "ERROR: expected exactly one wheel in dist/ (run 'make build')"; exit 1; }; \
+	wheel=$$1; \
 	rm -rf .sdist-check; mkdir .sdist-check; \
 	umask 022 && SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) TZ=UTC LC_ALL=C PYTHONHASHSEED=0 \
 	  uv build --wheel --out-dir .sdist-check --build-constraints build-constraints.txt \
 	  --require-hashes "$$sdist"; \
-	uv run --no-project --offline python tools/check_sdist_wheel.py "$$1" .sdist-check/*.whl; \
+	uv run --no-project --offline python tools/check_sdist_wheel.py "$$wheel" .sdist-check/*.whl; \
 	rm -rf .sdist-check
 
 # Run all non-mutating verification gates (mirrors CI lint + test +
@@ -356,13 +370,15 @@ gen-fixtures-check: ensure-uv
 	uv run --frozen python tools/gen_fixtures.py --check
 
 # Regenerate rendered agent skills from src/rebrew/agent-skills/ (target bench).
-gen-skills:
-	rm -rf .agents/skills
-	cp -r src/rebrew/agent-skills .agents/skills
-	find .agents/skills -name '*.md' -exec sed -i 's/<target>/bench/g' {} +
+# tools/render_skills.py owns the render so the substitution is deterministic
+# and its failure names a file; a `cp -r` + `sed -i` pipeline depended on GNU
+# sed, on find's traversal order, and on nothing failing in between.
+gen-skills: ensure-uv
+	uv run --frozen python tools/render_skills.py
 
 # Verify rendered agent skills match packaged source (same as tests/test_skills_sync.py).
 gen-skills-check: ensure-uv
+	uv run --frozen python tools/render_skills.py --check
 	NO_COLOR=1 TERM=dumb _TYPER_FORCE_DISABLE_TERMINAL=1 \
 		uv run --frozen pytest tests/test_skills_sync.py -v --tb=short
 

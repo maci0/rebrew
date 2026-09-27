@@ -51,8 +51,9 @@ ignored with a warning — built-ins win.
 - Agent skill: name the command in a `SKILL.md` or `references/*.md`
   under `src/rebrew/agent-skills/`, or add the carve-out to
   `_SKILL_OUT_OF_SCOPE` in `tests/test_docs_hygiene.py` with a reason.
-  Then re-render with `make gen-skills` (copies `src/rebrew/agent-skills`
-  to `.agents/skills` with target substitution; tested by `tests/test_skills_sync.py`).
+  Then re-render with `make gen-skills` (renders `src/rebrew/agent-skills`
+  into `.agents/skills` with target substitution via `tools/render_skills.py`;
+  tested by `tests/test_render_skills.py` and `tests/test_skills_sync.py`).
 - `CHANGELOG.md` Unreleased: one entry (Added for commands, Fixed
   otherwise).
 
