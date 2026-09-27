@@ -312,12 +312,13 @@ def _load_verify_info(
             failed += 1
 
     # Try to get a last-modified timestamp from the file.
-    # Rendered in UTC with an explicit suffix: an unlabeled wall time is
-    # read as local, so a host in America/New_York would mis-age the cache
-    # by several hours relative to the UTC instant we store.
+    # ISO-8601 with an explicit offset, like every other instant the package
+    # emits: a trailing " UTC" would make the field unreadable by
+    # ``datetime.fromisoformat``, and minute truncation reports the same
+    # instant for two consecutive runs.
     try:
         mtime = cache_path.stat().st_mtime
-        timestamp = datetime.fromtimestamp(mtime, tz=UTC).strftime("%Y-%m-%d %H:%M UTC")
+        timestamp = datetime.fromtimestamp(mtime, tz=UTC).isoformat(timespec="seconds")
     except OSError:
         timestamp = ""
 

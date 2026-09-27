@@ -1,6 +1,7 @@
 """Tests for rebrew status overview command."""
 
 import json
+from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -1085,10 +1086,10 @@ class TestVerifyCacheHelpers:
         assert info.passed == 1
         assert info.failed == 1
         assert info.total == 2
-        # Cache mtime is shown in UTC with an explicit zone label so a host
-        # in a non-UTC TZ cannot misread the age as local wall time.
-        assert info.timestamp.endswith(" UTC")
-        assert len(info.timestamp) == len("YYYY-MM-DD HH:MM UTC")
+        # Cache mtime is an explicit UTC instant, not local wall time, so a
+        # host in a non-UTC TZ cannot misread the age, and the field stays
+        # parseable by datetime.fromisoformat for JSON consumers.
+        assert datetime.fromisoformat(info.timestamp).utcoffset() == timedelta(0)
 
     def test_verify_statuses_hex_and_decimal(self, tmp_path: Path) -> None:
         from rebrew.status import load_verify_statuses

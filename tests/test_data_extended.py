@@ -337,6 +337,38 @@ class TestGenGlobalsHeader:
         assert res2["written"] is False
         assert out.read_text(encoding="utf-8") == first
 
+    def test_changed_note_regenerates_when_note_says_generated(self, tmp_path: Path) -> None:
+        """A note containing "Generated:" is content, not a timestamp.
+
+        The idempotency gate drops the header's own ``* Generated:`` line from
+        both sides; matching the bare word instead also dropped the
+        declaration carrying the note, so an edited note regenerated as
+        "unchanged" and the header kept the old text forever.
+        """
+        cfg = _cfg(tmp_path)
+        (cfg.reversed_dir / "globals.c").write_text(
+            "// DATA: SERVER 0x1000\nint g_counter;\n", encoding="utf-8"
+        )
+        meta = cfg.metadata_dir / "rebrew-data.toml"
+        meta.write_text(
+            '["SERVER.0x1000"]\ntype = "int"\nsection = ".data"\n'
+            'note = "Generated: by mapconv 3.2"\n',
+            encoding="utf-8",
+        )
+        gen_globals_header(cfg, cfg.reversed_dir)
+        out = cfg.reversed_dir / "rebrew_globals.h"
+        first = out.read_text(encoding="utf-8")
+        assert "mapconv 3.2" in first, first
+
+        meta.write_text(
+            '["SERVER.0x1000"]\ntype = "int"\nsection = ".data"\n'
+            'note = "Generated: by mapconv 4.0"\n',
+            encoding="utf-8",
+        )
+        res = gen_globals_header(cfg, cfg.reversed_dir, force=True)
+        assert res["written"] is True
+        assert "mapconv 4.0" in out.read_text(encoding="utf-8")
+
 
 class TestRenderers:
     def testrender_globals_empty(self) -> None:
