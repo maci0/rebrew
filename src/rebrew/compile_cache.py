@@ -55,7 +55,7 @@ import logging
 import re
 import threading
 import unicodedata
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from functools import lru_cache
 from pathlib import Path
 from typing import Protocol
@@ -670,11 +670,17 @@ def _find_in_dirs(name: Path, dirs: list[Path]) -> Path | None:
 
 
 # Include-closure memo for :func:`_resolve_include_paths`:
-# ``(source, source_dir, include_dirs, dir_mtimes) → (paths, fallback, header_stats)``.
+# ``(source, source_dir, include_dirs, dir_mtimes) →
+#   (paths, fallback, header_stats, unresolved)``.
 # Bounded + locked: verify -j N and GA workers share this map.
 _INCLUDE_CLOSURE_MEMO: dict[
     tuple[str, str | None, tuple[str, ...], tuple[int, ...]],
-    tuple[tuple[str, ...], bool, tuple[tuple[int, int], ...]],
+    tuple[
+        tuple[str, ...],
+        bool,
+        tuple[tuple[int, int], ...],
+        tuple[tuple[str, tuple[str, ...]], ...],
+    ],
 ] = {}
 _INCLUDE_CLOSURE_MEMO_MAX = 1024
 _INCLUDE_CLOSURE_LOCK = threading.Lock()
@@ -697,6 +703,22 @@ def _search_dir_mtimes(source_dir: str | None, include_dirs: tuple[str, ...]) ->
     return tuple(mtimes)
 
 
+def _unresolved_still_missing(
+    unresolved: Sequence[tuple[str, tuple[str, ...]]],
+) -> bool:
+    """True while every include that missed on the last scan still misses.
+
+    A header created in a searched directory's *subdirectory* bumps no
+    mtime the memo is keyed on, so without this recheck the closure would
+    stay empty for the life of the process and every later edit to the new
+    header would be a cache hit.
+    """
+    for name, dirs in unresolved:
+        if _find_in_dirs(Path(name), [Path(d) for d in dirs]) is not None:
+            return False
+    return True
+
+
 def _resolve_include_paths(
     source_content: str, source_dir: str | None, include_dirs: tuple[str, ...]
 ) -> tuple[tuple[str, ...], bool]:
@@ -710,8 +732,9 @@ def _resolve_include_paths(
     the key) or the compile errors and nothing is cached.
 
     Memoized on ``(source, dirs, dir_mtimes)`` and reused only while every
-    reached header keeps its ``(mtime_ns, size)``: a header created later in
-    a searched dir bumps that directory's mtime, and an in-place header edit
+    reached header keeps its ``(mtime_ns, size)`` and every missed include
+    still misses: a header created later in a searched dir bumps that
+    directory's mtime, an in-place header edit
     (which may add or drop an ``#include``) changes that header's stat, so
     either forces a re-resolve.  A scan that races an edit is returned for
     this call but not published: storing the post-edit stats next to the
@@ -722,25 +745,34 @@ def _resolve_include_paths(
     key = (source_content, source_dir, include_dirs, _search_dir_mtimes(source_dir, include_dirs))
     with _INCLUDE_CLOSURE_LOCK:
         cached = _INCLUDE_CLOSURE_MEMO.get(key)
-    if cached is not None and _header_stats(cached[0]) == cached[2]:
+    if (
+        cached is not None
+        and _header_stats(cached[0]) == cached[2]
+        and _unresolved_still_missing(cached[3])
+    ):
         return cached[0], cached[1]
+    misses: list[tuple[str, tuple[str, ...]]] = []
     paths, fallback, observed, consistent = _scan_include_closure(
-        source_content, source_dir, include_dirs
+        source_content, source_dir, include_dirs, unresolved=misses
     )
-    if not consistent or _header_stats(paths) != observed:
+    if not consistent or _header_stats(paths) != observed or not _unresolved_still_missing(misses):
         return paths, fallback
     with _INCLUDE_CLOSURE_LOCK:
         existing = _INCLUDE_CLOSURE_MEMO.get(key)
-        if existing is not None and _header_stats(existing[0]) == existing[2]:
+        if (
+            existing is not None
+            and _header_stats(existing[0]) == existing[2]
+            and _unresolved_still_missing(existing[3])
+        ):
             return existing[0], existing[1]
-        if _header_stats(paths) != observed:
+        if _header_stats(paths) != observed or not _unresolved_still_missing(misses):
             return paths, fallback
         if (
             len(_INCLUDE_CLOSURE_MEMO) >= _INCLUDE_CLOSURE_MEMO_MAX
             and key not in _INCLUDE_CLOSURE_MEMO
         ):
             _INCLUDE_CLOSURE_MEMO.pop(next(iter(_INCLUDE_CLOSURE_MEMO)), None)
-        _INCLUDE_CLOSURE_MEMO[key] = (paths, fallback, observed)
+        _INCLUDE_CLOSURE_MEMO[key] = (paths, fallback, observed, tuple(misses))
     return paths, fallback
 
 
@@ -761,6 +793,8 @@ def _scan_include_closure(
     source_content: str,
     source_dir: str | None,
     include_dirs: tuple[str, ...],
+    *,
+    unresolved: list[tuple[str, tuple[str, ...]]] | None = None,
 ) -> tuple[tuple[str, ...], bool, tuple[tuple[int, int], ...], bool]:
     """Uncached body of :func:`_resolve_include_paths`.
 
@@ -768,12 +802,19 @@ def _scan_include_closure(
     read, in the same order as the returned paths.  The fourth is False when
     a header's stat changed between the read's bracketing stats — the bytes
     and the snapshot do not describe the same file, so the caller must not
-    memoize them.
+    memoize them.  Each include that resolved nowhere is appended to
+    *unresolved* as ``(name, directories searched)``, so the caller can
+    revalidate the memo when one of those headers is created later.
     """
     search_dirs: list[Path] = []
     if source_dir:
         search_dirs.append(Path(source_dir))
     search_dirs += [Path(d) for d in include_dirs]
+    # Angle includes (and #include_next) never see the including file's own
+    # directory, matching the compiler: pinning the source-dir copy of a
+    # header the compiler ignores tracks the wrong file, so an edit to the
+    # one actually read left the cache key unmoved.
+    misses: list[tuple[str, tuple[str, ...]]] = [] if unresolved is None else unresolved
 
     reached: set[str] = set()
     observed: dict[str, tuple[int, int]] = {}
@@ -791,10 +832,18 @@ def _scan_include_closure(
             # #include_next is treated as an angle search of all dirs (an
             # over-approximation — never a stale hit).
             if kind == "quote" and base_dir is not None:
-                found = _find_in_dirs(Path(name), [base_dir, *search_dirs])
+                dirs = [base_dir, *search_dirs]
             else:
-                found = _find_in_dirs(Path(name), search_dirs)
+                dirs = [Path(d) for d in include_dirs]
+            found = _find_in_dirs(Path(name), dirs)
             if found is None:
+                # Creating a header bumps the mtime of its immediate parent,
+                # which may sit below a searched directory and so never reach
+                # the directory mtimes the memo is keyed on.  Record the miss
+                # instead: re-running these lookups is a few stats per
+                # unresolved include, and it is what makes a header added
+                # mid-run invalidate the memo.
+                misses.append((name, tuple(str(d) for d in dirs)))
                 continue
             found_str = str(found)
             if found_str in reached:

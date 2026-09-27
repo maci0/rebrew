@@ -354,6 +354,45 @@
   said so comes later.
 
 ### Fixed
+- **`VTABLE` and `STRING` markers no longer fail the size check.**
+  `Annotation.validate` exempted data markers by re-spelling a two-element
+  subset of `DATA_MARKERS` instead of using it, so the two markers added
+  later were still rejected with `Invalid SIZE: 0`, and `rebrew match`
+  aborted on the whole file for a marker that describes a global.
+- **The compile cache tracked the wrong copy of an angle-included header,
+  and never learned about a header created mid-run.** `#include <x.h>`
+  resolved against the including file's own directory first, so with the
+  same name in both places the cache fingerprinted a file the compiler
+  never reads and edits to the real one left the key unmoved. An include
+  that resolved nowhere was also never retried: a header created later in
+  a searched directory's *subdirectory* bumps no directory mtime the
+  resolution memo is keyed on, so the closure stayed empty for the life of
+  the process. Unresolved includes are now recorded with the directories
+  searched for them and re-checked on every memo hit.
+- **`rebrew verify -o FILE` writes the report for scope-filtered runs.**
+  The export was nested inside the guard that protects the `--compare`
+  baseline, so `rebrew verify --dir ...`, `rebrew verify FILE`, and a
+  failing `--compare` gate wrote no file and printed nothing.
+- **`rebrew test FILE` records the verdict for a function with no STATUS
+  yet.** The batch path defaulted the old status to `STUB`, which
+  `should_promote_status` protects from a placeholder size mismatch, so
+  the result was printed and then dropped: no metadata write, no verify
+  cache row. The single-function path uses the empty string, which is what
+  a never-classified function actually has.
+- **`[link]` numeric fields accept a leading zero.** `_parse_optional_int`
+  used `int(value, 0)`, so `stack_reserve = "01024"` warned and left the
+  field unset, and the header patch was silently skipped. It uses
+  `parse_int_literal`, as the rest of the config parsers do.
+- **`rebrew lint FILE` matches suffixes case-insensitively.** The explicit
+  file branch compared a lowercased suffix against the un-lowercased
+  configured extension, so `rebrew lint FOO.C` with `source_ext = ".C"`
+  checked 0 files while a bare run found it.
+- **`source_exts` / `source_glob` fall back when the attribute is
+  missing,** as their docstrings state, instead of raising
+  `AttributeError` on a config object without `source_ext`.
+- **`update_annotation_key("STATUS", ...)` reports whether it wrote.**
+  The branch returned True unconditionally, so a same-value write or one
+  the promotion gate refused claimed a write it never made.
 - **The threat model records where a recompile endpoint's bytes land.** The
   remote backend's returned object is now published into the local compile
   cache (`publish_obj_cache` in `compile.py`) so verify stops re-POSTing, which

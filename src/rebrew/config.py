@@ -1044,7 +1044,7 @@ def _parse_optional_int(value: Any, field_name: str) -> int | None:
         parsed = value
     elif isinstance(value, str):
         try:
-            parsed = int(value, 0)
+            parsed = parse_int_literal(value)
         except ValueError:
             _config_warn(f"Invalid integer {value!r} for {field_name}; ignoring")
             return None

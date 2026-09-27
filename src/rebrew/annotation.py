@@ -604,13 +604,13 @@ class Annotation:
         if self.va < min_va:
             errors.append(f"VA 0x{self.va:x} is suspicious (below 0x{min_va:x})")
 
-        # Only code annotations carry a byte size.  A `// DATA:` or
-        # `// GLOBAL:` marker describes a global whose extent lives in
+        # Only code annotations carry a byte size.  A data marker (DATA,
+        # GLOBAL, VTABLE, STRING) describes a global whose extent lives in
         # rebrew-data.toml, so demanding size > 0 here rejected files that
         # `rebrew lint` accepts: one DATA marker in an otherwise-valid source
         # made `rebrew diff --fix-blocker` abort with "Invalid SIZE: 0" and
         # refuse to refresh that function's blocker at all.
-        if self.marker_type not in ("DATA", "GLOBAL") and self.size <= 0:
+        if self.marker_type not in DATA_MARKERS and self.size <= 0:
             errors.append(f"Invalid SIZE: {self.size}")
 
         # Validate CFLAGS format if present (not required — falls back to target default)
@@ -1644,6 +1644,12 @@ def update_annotation_key(
             # only byte-identical EXACT/RELOC wipe blockers; PROVEN and
             # unmatched verdicts keep them.
             canon = canonical_status(new_value)
+            # Idempotent like the branch below: a same-value write, or one
+            # the promotion gate refuses (parked SKIP, a documented STUB
+            # facing a placeholder verdict), stores nothing.
+            entry = MetadataEntry.load(_dir, va, module)
+            if canonical_status(entry.status or "") == canon:
+                return False
             update_source_status(
                 _dir,
                 canon,

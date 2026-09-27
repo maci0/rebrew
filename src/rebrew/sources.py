@@ -28,7 +28,7 @@ def source_exts(cfg: ProjectConfig | None) -> list[str]:
     list (``".c,.cpp"``); falls back to ``[".c"]`` when the attribute is
     missing or empty.
     """
-    raw = cfg.source_ext if cfg is not None else ".c"
+    raw = getattr(cfg, "source_ext", None) if cfg is not None else None
     if not raw:
         return [".c"]
     return [ext for ext in (part.strip() for part in raw.split(",")) if ext]

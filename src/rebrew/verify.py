@@ -1534,10 +1534,19 @@ def _save_report(
             # report was already earned; losing the baseline only weakens
             # the next --compare gate.
             logging.warning("Could not write verify baseline: %s", exc)
-        if output_path:
-            out_file = Path(output_path)
+
+    # `-o` is an explicit export of the report just computed, independent of
+    # the baseline: it was nested in the baseline guard above, so every
+    # scope-filtered run (`--dir`, `--nolib`, a positional FILE) and a
+    # failing --compare gate silently wrote no file and printed nothing.
+    if not dry_run and output_path:
+        out_file = Path(output_path)
+        try:
             out_file.parent.mkdir(parents=True, exist_ok=True)
             atomic_write_text(out_file, json.dumps(report, indent=2), encoding="utf-8")
+        except OSError as exc:
+            logging.warning("Could not write verify report to %s: %s", out_file, exc)
+        else:
             if not json_output:
                 console.print(f"Report written to {out_file}")
 

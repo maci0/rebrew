@@ -1719,7 +1719,12 @@ def _test_multi(
                         color = "bold yellow"
                 console.print(f"[{color}]{new_status}[/{color}] {sym} — {match_count}/{total}B")
 
-            old_status = ann.status or "STUB"
+            # No STATUS recorded yet is "", not "STUB": should_promote_status
+            # protects a *documented* STUB, and a function the user never
+            # classified has none to protect.  Defaulting to "STUB" here
+            # (the single-function path at _promote_status does not) made the
+            # batch path drop the verdict into no metadata write at all.
+            old_status = ann.status or ""
 
             # Auto-promote: update STATUS in metadata (mirrors single-function path)
             if not no_promote:
@@ -1940,7 +1945,7 @@ def print_test_summary(deferred: list[tuple[Annotation, str, int]], total_files:
     """Compact batch summary for ``rebrew test --all`` (STATUS transitions)."""
     transitions: list[tuple[str, str]] = []
     for entry, status, _delta in deferred:
-        old_status = getattr(entry, "status", "") or "STUB"
+        old_status = getattr(entry, "status", "") or ""
         # Mirror should_promote_status: parked SKIP never moves.
         if should_promote_status(old_status, status):
             transitions.append((old_status, status))
@@ -1972,8 +1977,10 @@ def print_test_summary(deferred: list[tuple[Annotation, str, int]], total_files:
         console.print()
         console.print("  [bold]Status changes:[/bold]")
         for (old, new), count in sorted(transition_counts.items(), key=lambda x: -x[1]):
+            # An unclassified function (no STATUS yet) has no name to print.
+            old_label = old or "NEW"
             console.print(
-                f"    [{STATUS_COLORS.get(old, 'dim')}]{old}[/{STATUS_COLORS.get(old, 'dim')}] → "
+                f"    [{STATUS_COLORS.get(old, 'dim')}]{old_label}[/{STATUS_COLORS.get(old, 'dim')}] → "
                 f"[{STATUS_COLORS.get(new, 'dim')}]{new}[/{STATUS_COLORS.get(new, 'dim')}]  ×{count}"
             )
     else:

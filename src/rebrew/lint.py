@@ -2091,7 +2091,12 @@ def main(
         # `source_ext` may hold several comma-separated extensions; comparing
         # the raw string against `f.suffix` matched nothing, so `rebrew lint
         # foo.cpp` with `source_ext = ".c,.cpp"` silently checked 0 files.
-        c_files = [f for f in files if f.suffix.lower() in exts]
+        # Both sides are lowercased: `_parse_source_ext` keeps the configured
+        # spelling, and `iter_sources` matches suffixes case-insensitively
+        # (sources.files_with_ext), so `rebrew lint FOO.C` with
+        # `source_ext = ".C"` must find the same file as a bare run.
+        lowered = {ext.lower() for ext in exts}
+        c_files = [f for f in files if f.suffix.lower() in lowered]
     elif reversed_dir:
         c_files = iter_sources(reversed_dir, cfg)
     elif no_config:
