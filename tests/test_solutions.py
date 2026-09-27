@@ -1,5 +1,6 @@
 """Tests for rebrew.matcher.solutions — cross-function solution transfer database."""
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -572,3 +573,46 @@ class TestMutationsProvenance:
         assert "Infinity" not in content
         record = json.loads(content.strip())
         assert record["score"] is None
+
+
+# -------------------------------------------------------------------------
+# Source pinning: a solution is a claim about specific bytes
+# -------------------------------------------------------------------------
+
+
+class TestSourcePinning:
+    def test_win_records_source_sha(self, project_root: Path) -> None:
+        src = project_root / "solved.c"
+        src.write_text("int f(void) { return 1; }\n", encoding="utf-8")
+        save_solution(
+            project_root,
+            SolutionEntry(symbol="_f", cflags="/O2", size=8, source_file="solved.c"),
+        )
+        (rec,) = [json.loads(line) for line in (project_root / ".rebrew/ga_runs.jsonl").read_text().splitlines()]
+        assert rec["source_sha"] == hashlib.sha256(src.read_bytes()).hexdigest()
+
+    def test_edited_source_is_not_seeded(self, project_root: Path) -> None:
+        src = project_root / "solved.c"
+        src.write_text("int f(void) { return 1; }\n", encoding="utf-8")
+        save_solution(
+            project_root,
+            SolutionEntry(symbol="_f", cflags="/O2", size=8, source_file="solved.c"),
+        )
+        assert [e.symbol for e in find_similar(project_root, size=8)] == ["_f"]
+
+        src.write_text("int f(void) { return 2; }\n", encoding="utf-8")
+        assert find_similar(project_root, size=8) == []
+
+    def test_unpinned_legacy_record_is_kept(self, project_root: Path) -> None:
+        (project_root / "legacy.c").write_text("int g(void) { return 3; }\n", encoding="utf-8")
+        record_ga_run(
+            project_root,
+            target="",
+            va="",
+            symbol="_legacy",
+            matched=True,
+            score=0.0,
+            size=9,
+            source_file="legacy.c",
+        )
+        assert [e.symbol for e in find_similar(project_root, size=9)] == ["_legacy"]

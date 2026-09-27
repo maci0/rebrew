@@ -15,10 +15,12 @@ from __future__ import annotations
 
 import contextlib
 import dataclasses
+import hashlib
 import json
 import logging
 import math
 import threading
+from collections import OrderedDict
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -92,6 +94,18 @@ class SolutionEntry:
     function solved from a similar source can bias its own GA toward the
     operators that worked here (see ``rebrew match`` similar-solution
     seeding)."""
+
+    source_sha: str = ""
+    """SHA-256 of ``source_file`` at win time; empty when it could not be read.
+
+    A solution is a claim about a specific source: its ``cflags`` and
+    ``mutations`` were derived from those exact bytes.  Seeding a later GA
+    from a file that has since changed hands back a stale, and a
+    stale *successful* seed biases the run harder than no seed at all, so
+    :func:`find_similar` drops a solution whose file no longer hashes to
+    this value.  Empty means "unpinned" (a legacy record, or an unreadable
+    file at win time) and is kept — the store degrades to its old
+    behaviour instead of discarding every pre-existing win."""
 
 
 def _runs_path(project_root: Path) -> Path:
@@ -213,6 +227,60 @@ def load_solutions_file(path: Path) -> list[SolutionEntry]:
     return sorted(wins.values(), key=lambda e: (e.target, e.symbol))
 
 
+#: Bounded ``(path, mtime_ns, size, ino) -> sha256`` memo for
+#: :func:`_source_sha`.  Batch seeding calls :func:`find_similar` once per
+#: stub with the same preloaded entry list, so without this the same handful
+#: of sources would be re-hashed once per stub.
+_SOURCE_SHA_CACHE_MAX = 128
+_SOURCE_SHA_CACHE: OrderedDict[tuple[str, int, int, int], str] = OrderedDict()
+_SOURCE_SHA_LOCK = threading.Lock()
+
+
+def _source_sha(path: Path) -> str:
+    """SHA-256 of *path*, or "" when it cannot be read.
+
+    Keyed on the file's inode metadata, so an edit that keeps size and
+    restores mtime still re-hashes; a missing or unreadable file returns "",
+    which :func:`_is_stale` treats as "unverifiable, keep".
+    """
+    try:
+        st = path.stat()
+    except OSError:
+        return ""
+    key = (str(path), st.st_mtime_ns, st.st_size, st.st_ino)
+    with _SOURCE_SHA_LOCK:
+        hit = _SOURCE_SHA_CACHE.get(key)
+        if hit is not None:
+            _SOURCE_SHA_CACHE.move_to_end(key)
+            return hit
+    try:
+        with path.open("rb") as fh:
+            digest = hashlib.file_digest(fh, "sha256").hexdigest()
+    except OSError:
+        return ""
+    with _SOURCE_SHA_LOCK:
+        if key not in _SOURCE_SHA_CACHE and len(_SOURCE_SHA_CACHE) >= _SOURCE_SHA_CACHE_MAX:
+            _SOURCE_SHA_CACHE.popitem(last=False)
+        _SOURCE_SHA_CACHE[key] = digest
+    return digest
+
+
+def _is_stale(project_root: Path, entry: SolutionEntry) -> bool:
+    """Whether *entry*'s source file changed since the win.
+
+    Unpinned entries (no ``source_sha``, or a source that cannot be read) are
+    never stale: the store keeps every pre-existing win rather than
+    discarding wins it cannot verify.
+    """
+    if not entry.source_sha or not entry.source_file:
+        return False
+    p = Path(entry.source_file)
+    if not p.is_absolute():
+        p = project_root / p
+    current = _source_sha(p)
+    return bool(current) and current != entry.source_sha
+
+
 def _relative_source(project_root: Path, source_file: str) -> str:
     """Normalize *source_file* to a path relative to *project_root*.
 
@@ -238,8 +306,11 @@ def save_solution(project_root: Path, entry: SolutionEntry) -> None:
     the log, so no dedup rewrite is needed here.
 
     ``entry.source_file`` is normalized to a project-root-relative path so all
-    writers agree on the base the reader assumes.
+    writers agree on the base the reader assumes.  The file's content hash is
+    recorded at win time so :func:`find_similar` can drop the solution once
+    the source moves on.
     """
+    relative = _relative_source(project_root, entry.source_file)
     record_ga_run(
         project_root,
         target=entry.target,
@@ -250,7 +321,8 @@ def save_solution(project_root: Path, entry: SolutionEntry) -> None:
         generations=entry.generations,
         cflags=entry.cflags,
         size=entry.size,
-        source_file=_relative_source(project_root, entry.source_file),
+        source_file=relative,
+        source_sha=entry.source_sha or _source_sha(project_root / relative),
         mutations=list(entry.mutations),
         solved_at=entry.solved_at,
     )
@@ -292,9 +364,15 @@ def find_similar(
     calling in a loop (e.g. the batch seeding loop), avoiding one file read
     + parse per stub.
 
+    A solution whose source file has changed since the win is dropped: its
+    ``cflags`` and ``mutations`` describe bytes that no longer exist, and
+    seeding from it biases the run toward flags the file no longer needs.
+    Ranking happens first, so *top_k* is filled from the freshest
+    candidates rather than short when a near-size match went stale.
+
     Returns up to *top_k* entries, sorted by similarity (best first).
     """
-    all_entries = load_solutions(project_root) if entries is None else entries
+    all_entries = list(load_solutions(project_root) if entries is None else entries)
     if not all_entries:
         return []
     # Normalize cflags for comparison
@@ -309,7 +387,13 @@ def find_similar(
         return (same_target, size_diff, cflags_match)
 
     all_entries.sort(key=_sort_key)
-    return all_entries[:top_k]
+    fresh: list[SolutionEntry] = []
+    for e in all_entries:
+        if len(fresh) == top_k:
+            break
+        if not _is_stale(project_root, e):
+            fresh.append(e)
+    return fresh
 
 
 def _normalize_cflags(cflags: str) -> str:
@@ -345,6 +429,7 @@ def record_ga_run(
     cflags: str = "",
     size: int = 0,
     source_file: str = "",
+    source_sha: str = "",
     mutations: list[str] | None = None,
     solved_at: str = "",
 ) -> Path:
@@ -374,6 +459,8 @@ def record_ga_run(
         record["size"] = size if isinstance(size, int) and not isinstance(size, bool) else 0
         if source_file:
             record["source_file"] = source_file
+        if source_sha:
+            record["source_sha"] = source_sha
         if mutations:
             record["mutations"] = list(mutations)
         record["solved_at"] = solved_at or datetime.now(UTC).isoformat()
