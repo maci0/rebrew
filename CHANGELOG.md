@@ -1,3 +1,24 @@
+## [Unreleased]
+
+### Fixed
+- **`CHANGELOG.md` opens with `[Unreleased]` again.** The 2.14.0 release
+  renamed the open heading into the dated section without opening the next
+  one, so the file began with `## [2.14.0]` and the three release gates that
+  slice the pending notes with `text.split("## [Unreleased]")` failed on the
+  default branch. The heading is restored; the next release renames it again.
+- **A PE import descriptor whose hint/name string runs past the end of the
+  image no longer yields an import with neither a name nor an ordinal.**
+  `parse_pe` maps an import slot's RVA through the section table, and a forged
+  section header can map it to a `raw_ptr` beyond EOF: `rva_to_off` succeeded,
+  the 2-byte hint plus name did not, and the slot was appended as
+  `PeImport(dll, None, None)` — breaking the exactly-one-of-name/ordinal
+  invariant that `rebrew gen-layout` and the fuzz gates rely on. The slot is
+  now skipped like any other name that resolves nowhere.
+- **tqdm's `MPL-2.0 AND MIT` grant is named.** The package arrives with the
+  `binsync` extra through declib, so the SBOM's copyleft table and `NOTICE`
+  both missed it and the declared inventory called a reciprocal-licensed
+  component unattributed.
+
 ## [2.14.0] - 2026-09-27
 
 ### Added

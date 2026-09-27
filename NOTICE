@@ -49,6 +49,15 @@ metadata carries only the trove text ``OSI Approved :: BSD License``; the
 SBOM records that string verbatim rather than choosing a clause count the
 artifact does not state. ``rebrew[binsync]`` installs this tree.
 
+binsync extra — tqdm
+--------------------
+
+tqdm 4.70.1 is declib's progress-bar dependency and is installed by the same
+``binsync`` extra. It declares ``License-Expression: MPL-2.0 AND MIT``. The
+MIT half needs no attribution beyond the licence file the wheel already
+carries; the MPL-2.0 half carries the file-level obligation described under
+"Every resolve" below, and Rebrew redistributes tqdm unmodified.
+
 Every resolve: certifi and hypothesis
 ------------------------------------
 

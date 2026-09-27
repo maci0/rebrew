@@ -69,10 +69,11 @@ def _license_field(source_kind: str, name: str, version: str) -> dict[str, Any]:
 # Copyleft dependencies pinned in uv.lock.  Expressions were read from the
 # locked artifacts: resembl 2.0.0 ``License: GPLv3`` with no later-version
 # clause, m2c aa869da ``License-Expression: GPL-3.0-only``, pyvex 9.3.4
-# ``License-Expression: BSD-2-Clause AND GPL-2.0-or-later``, and the two
-# MPL-2.0 packages below, which every resolve pulls in (certifi 2026.7.22
-# declares ``License: MPL-2.0`` in the legacy free-text field, hypothesis
-# 6.168.0 declares ``License-Expression: MPL-2.0``).  See NOTICE.
+# ``License-Expression: BSD-2-Clause AND GPL-2.0-or-later``, and the MPL-2.0
+# packages below.  certifi 2026.7.22 and hypothesis 6.168.0 declare
+# ``MPL-2.0`` and every resolve pulls them in; tqdm 4.70.1 declares
+# ``License-Expression: MPL-2.0 AND MIT`` and arrives with the ``binsync``
+# extra (declib's progress bars).  See NOTICE.
 # Permissive dependencies keep the license metadata inside their own wheels.
 #
 # ``tests/test_packaging.py`` fails when the resolved environment holds a
@@ -84,6 +85,7 @@ _COPYLEFT_EXPRESSIONS = {
     "pyvex": "BSD-2-Clause AND GPL-2.0-or-later",
     "certifi": "MPL-2.0",
     "hypothesis": "MPL-2.0",
+    "tqdm": "MPL-2.0 AND MIT",
 }
 #: License families that oblige downstream consumers beyond the MIT grant the
 #: wheel ships under: NOTICE attribution, source availability, or a

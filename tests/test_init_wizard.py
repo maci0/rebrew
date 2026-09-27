@@ -139,8 +139,9 @@ class TestWizardFlow:
         image_present(monkeypatch, True)
         monkeypatch.chdir(tmp_path)
         # binary: pick 1, profile: <enter> (suggestion), target: <enter>
-        # (binary stem), confirm: y, completions: n
-        result = CliRunner().invoke(app, [], input="1\n\n\ny\nn\n")
+        # (binary stem), completions: n, confirm: y  (every question is asked
+        # before the settings summary)
+        result = CliRunner().invoke(app, [], input="1\n\n\nn\ny\n")
         assert result.exit_code == 0, result.output + result.stderr
         content = (tmp_path / "rebrew-project.toml").read_text(encoding="utf-8")
         assert 'profile = "msvc-8.0"' in content
@@ -156,7 +157,7 @@ class TestWizardFlow:
         _force_wizard(monkeypatch)
         image_present(monkeypatch, True)
         monkeypatch.chdir(tmp_path)
-        result = CliRunner().invoke(app, ["--toolchain", "msvc-6.0"], input="1\n\ny\nn\n")
+        result = CliRunner().invoke(app, ["--toolchain", "msvc-6.0"], input="1\n\nn\ny\n")
         assert result.exit_code == 0, result.output + result.stderr
         content = (tmp_path / "rebrew-project.toml").read_text(encoding="utf-8")
         assert 'profile = "msvc-6.0"' in content
@@ -169,7 +170,7 @@ class TestWizardFlow:
         _force_wizard(monkeypatch)
         image_present(monkeypatch, True)
         monkeypatch.chdir(tmp_path)
-        result = CliRunner().invoke(app, [], input="1\nmsvc-6.0-sp6\n\ny\nn\n")
+        result = CliRunner().invoke(app, [], input="1\nmsvc-6.0-sp6\n\nn\ny\n")
         assert result.exit_code == 0, result.output + result.stderr
         content = (tmp_path / "rebrew-project.toml").read_text(encoding="utf-8")
         assert 'profile = "msvc-6.0-sp6"' in content
@@ -181,7 +182,7 @@ class TestWizardFlow:
         _force_wizard(monkeypatch)
         image_present(monkeypatch, True)
         monkeypatch.chdir(tmp_path)
-        result = CliRunner().invoke(app, [], input="1\njunk1\njunk2\n\ny\nn\n")
+        result = CliRunner().invoke(app, [], input="1\njunk1\njunk2\n\nn\ny\n")
         assert result.exit_code == 0, result.output + result.stderr
         content = (tmp_path / "rebrew-project.toml").read_text(encoding="utf-8")
         assert 'profile = "msvc-6.0"' in content  # fallback: the current default
@@ -200,7 +201,7 @@ class TestWizardFlow:
         _force_wizard(monkeypatch)
         image_present(monkeypatch, True)
         monkeypatch.chdir(tmp_path)
-        result = CliRunner().invoke(app, [], input="m\ncustom.exe\n\n\ny\nn\n")
+        result = CliRunner().invoke(app, [], input="m\ncustom.exe\n\n\nn\ny\n")
         assert result.exit_code == 0, result.output + result.stderr
         content = (tmp_path / "rebrew-project.toml").read_text(encoding="utf-8")
         assert 'binary = "original/custom.exe"' in content
@@ -215,7 +216,9 @@ class TestWizardConfirmAbort:
         _place_mini_pe(tmp_path)
         _force_wizard(monkeypatch)
         monkeypatch.chdir(tmp_path)
-        result = CliRunner().invoke(app, [], input="1\n\n\nn\n")
+        # binary: pick 1, profile/target/completions: <enter>/<enter>/n,
+        # then decline the settings summary.
+        result = CliRunner().invoke(app, [], input="1\n\n\nn\nn\n")
         assert result.exit_code == 0
         assert "Aborted" in result.stderr
         assert not (tmp_path / "rebrew-project.toml").exists()
