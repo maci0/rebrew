@@ -77,18 +77,18 @@ libs = "toolchain/msvc/6.0-win32/source/VC98/Lib"
 
 ## Architecture Presets
 
-| Arch | Capstone | Pointer Size | Padding | Symbol Prefix |
-|------|----------|-------------|---------|---------------|
-| `x86_16` | `CS_ARCH_X86, CS_MODE_16` | 2 | `0x90, 0x00` | `_` |
-| `x86_32` | `CS_ARCH_X86, CS_MODE_32` | 4 | `0xCC, 0x90` | `_` |
-| `x86_64` | `CS_ARCH_X86, CS_MODE_64` | 8 | `0xCC, 0x90` | (empty) |
-| `arm32` | `CS_ARCH_ARM, CS_MODE_ARM` | 4 | `0x00` | (empty) |
-| `arm64` | `CS_ARCH_ARM64, CS_MODE_ARM` | 8 | `0x00` | (empty) |
-| `mips32` | `CS_ARCH_MIPS, CS_MODE_MIPS32 \| CS_MODE_BIG_ENDIAN` | 4 | `0x00` | (empty) |
-| `mips64` | `CS_ARCH_MIPS, CS_MODE_MIPS64 \| CS_MODE_BIG_ENDIAN` | 8 | `0x00` | (empty) |
-| `ppc32` | `CS_ARCH_PPC, CS_MODE_32 \| CS_MODE_BIG_ENDIAN` | 4 | `0x60, 0x00, 0x00, 0x00` (`nop`) | (empty) |
-| `ppc64` | `CS_ARCH_PPC, CS_MODE_64 \| CS_MODE_BIG_ENDIAN` | 8 | `0x60, 0x00, 0x00, 0x00` (`nop`) | (empty) |
-| `sh2` | `CS_ARCH_SH, CS_MODE_SH2 \| CS_MODE_BIG_ENDIAN` | 4 | `0x00` | (empty) |
+| Arch | Capstone | Pointer Size | Padding |
+|------|----------|-------------|---------|
+| `x86_16` | `CS_ARCH_X86, CS_MODE_16` | 2 | `0x90, 0x00` |
+| `x86_32` | `CS_ARCH_X86, CS_MODE_32` | 4 | `0xCC, 0x90` |
+| `x86_64` | `CS_ARCH_X86, CS_MODE_64` | 8 | `0xCC, 0x90` |
+| `arm32` | `CS_ARCH_ARM, CS_MODE_ARM` | 4 | `0x00` |
+| `arm64` | `CS_ARCH_ARM64, CS_MODE_ARM` | 8 | `0x00` |
+| `mips32` | `CS_ARCH_MIPS, CS_MODE_MIPS32 \| CS_MODE_BIG_ENDIAN` | 4 | `0x00` |
+| `mips64` | `CS_ARCH_MIPS, CS_MODE_MIPS64 \| CS_MODE_BIG_ENDIAN` | 8 | `0x00` |
+| `ppc32` | `CS_ARCH_PPC, CS_MODE_32 \| CS_MODE_BIG_ENDIAN` | 4 | `0x60, 0x00, 0x00, 0x00` (`nop`) |
+| `ppc64` | `CS_ARCH_PPC, CS_MODE_64 \| CS_MODE_BIG_ENDIAN` | 8 | `0x60, 0x00, 0x00, 0x00` (`nop`) |
+| `sh2` | `CS_ARCH_SH, CS_MODE_SH2 \| CS_MODE_BIG_ENDIAN` | 4 | `0x00` |
 
 `x86_16` targets are 16-bit binaries — Windows 3.x NE executables (Borland Delphi 1.0 /
 MSVC 16-bit) or plain DOS MZ; `rebrew intake` sets `format = "ne"` (or `"mz"`) +
@@ -418,7 +418,7 @@ by the CLI layer and win for that invocation.
   explicit `-v` / `-q` outranks it.  An unknown name warns and keeps the
   default, so a typo is reported by `cfg effective` rather than aborting the
   run that would have named it.
-- `_REBREW_COMPLETE` — shell-completion mode marker (probed during `rebrew init` shell-completion scaffolding; there is no `rebrew completion` command).
+- `_REBREW_COMPLETE` — click's shell-completion mode marker, set by the completion scripts `rebrew init --install-completions` writes. Rebrew never reads it itself, and there is no `rebrew completion` command.
 - `GH_TOKEN` / `GITHUB_TOKEN` — optional GitHub auth for `rebrew toolchain`
   downloads that need a token (not a rebrew-prefixed name; standard gh env).
 
@@ -502,9 +502,9 @@ All tools read from `rebrew-project.toml`. Key tools and the config values they 
 
 | Tool | Config Values Used |
 |------|--------------------|
-| `verify.py` | `image_base`, `text_va`, `target_binary`, `reversed_dir`, `db_dir` (`text_raw_offset` lives on `binary_loader.BinaryInfo`, not the config) |
-| `test.py` | `target_binary`, `text_va`, compiler paths |
-| `match.py` | `reversed_dir`, `target_binary`, `compiler.includes`, `compiler.command` |
+| `verify.py` | `target_binary`, `reversed_dir`, `root`, `marker`, `metadata_dir`, `default_jobs` (no longer writes reports into `db_dir`; `text_raw_offset` and `image_base` live on `binary_loader.BinaryInfo`, not the config) |
+| `test.py` | `target_binary`, `reversed_dir`, `metadata_dir`, `default_jobs` (compiler settings are resolved in `compile.py`) |
+| `match.py` | `root`, `metadata_dir` (the GA reads `reversed_dir` / `target_binary` / `compiler.*` via `matcher/`) |
 | `ghidra/cli.py` | `reversed_dir` |
 | `todo.py` | `reversed_dir`, `target_binary` |
 | `skeleton.py` | `reversed_dir` |
@@ -512,23 +512,23 @@ All tools read from `rebrew-project.toml`. Key tools and the config values they 
 | `asm.py` | `target_binary`, `capstone_arch`, `capstone_mode` |
 | `annotation.py` | Canonical source marker parser — used by verify, extract, sync, match |
 | `binary_loader.py` | LIEF-based binary loading — used by extract, flirt |
-| `matcher/scoring.py` | `capstone_arch`, `capstone_mode` |
+| `matcher/scoring.py` | none directly — takes `cs_arch` / `cs_mode` ints from the caller (`match`/`diff` pass `cfg.capstone_arch` / `capstone_mode`) |
 | `matcher/compiler.py` | `compiler_profile` (drives flag axes) |
 | `matcher/parsers.py` | `padding_bytes` |
-| `catalog/` | `image_base`, `text_va`, `db_dir` |
-| `data.py` | `reversed_dir`, `target_binary`, `image_base` |
+| `catalog/` | `text_va`, `db_dir`, `reversed_dir`, `target_binary`, `metadata_dir`, `shared_dir`, `iat_thunks`, `dll_exports` (`image_base` comes from `binary_loader.BinaryInfo`) |
+| `data.py` | `reversed_dir`, `target_binary`, `marker`, `root`, `metadata_dir` |
 | `depgraph.py` | `reversed_dir` |
-| `lint.py` | `reversed_dir`, module name |
+| `lint.py` | `reversed_dir`, `source_ext`, `target_binary`, `metadata_dir`, `cflags`, `base_cflags`, `library_modules` |
 | `init.py` | All target config (scaffolding) |
 | `rename.py` | `reversed_dir` |
 | `doctor.py` | `target_binary`, `reversed_dir`, `bin_dir`, compiler paths, `arch`, `binary_format` |
 | `flirt.py` | `target_binary`, `root` |
-| `crt_match.py` | `crt_sources`, `reversed_dir`, `target_binary` |
+| `crt_match.py` | `crt_sources`, `reversed_dir`, `source_ext`, `root` |
 | `build_db.py` | `root`, `db_dir` |
 | `cache_cli.py` | `root` (cache directory location) |
 | `cfg.py` | `rebrew-project.toml` (tomlkit read/write) |
 | `split.py` | `marker`, `source_ext`, `reversed_dir` |
-| `merge.py` | `marker`, `source_ext`, `reversed_dir` |
+| `merge.py` | `marker`, `reversed_dir`, `metadata_dir` |
 | `binsync/export.py` | `reversed_dir` |
 
 ## Config Editor (`rebrew cfg`)

@@ -17,7 +17,7 @@ Rebrew is a reusable Python tooling package for reconstructing exact C source co
 | `rebrew test` | Compile your C and diff it byte-by-byte against the original binary |
 | `rebrew match` | GA engine — single file or batch (`--all`); brute-force compiler flags and mutate source to find exact byte matches |
 | `rebrew climb` | Deterministic hill-climb over adjacent statements in one function body — the complement to `match` when the residual is statement order |
-| `rebrew verify` | Bulk compile + report match status; always auto-updates metadata; `--compare` for CI regression checks; `--watch` re-verifies on every change |
+| `rebrew verify` | Bulk compile + report match status; auto-updates metadata unless `--no-promote`; `--compare` for CI regression checks; `--watch` re-verifies on every change |
 | `rebrew prove` | Symbolic equivalence via angr + Z3 — mathematically prove NEAR_MATCHING functions are equivalent |
 | `rebrew near-diag` | Classify *why* a NEAR_MATCHING function misses: register allocation, equivalent instruction selection, relocation masking, or structural layout |
 | `rebrew probe` | Measure one function against the reference without writing metadata |
@@ -257,7 +257,7 @@ cd /path/to/your-decomp-project    # must contain rebrew-project.toml
 # Project Setup
 rebrew init --target mygame --binary mygame.exe --toolchain msvc-6.0 # initialize project
 rebrew cfg list-targets              # list configured targets
-rebrew cfg set-cflags ZLIB "/O3"        # set cflags for origin
+rebrew cfg set-cflags ZLIB "/O3"        # set the cflags preset for module ZLIB
 rebrew cfg set compiler.cflags "/O1" # set a config value
 rebrew cfg show targets.main.arch     # read a value (supports dotted target names)
 rebrew cfg raw                       # dump config as JSON
@@ -299,7 +299,7 @@ rebrew match --all                          # batch GA on all STUB functions
 rebrew match --all --improve                # batch GA on all NEAR_MATCHING functions
 rebrew match --all --near-miss --threshold 5 # batch GA on NEAR_MATCHING with ≤5B delta
 rebrew match --all --flag-sweep             # batch flag sweep on all NEAR_MATCHING functions
-rebrew match --all --flag-sweep --fix-cflags  # targeted sweep, auto-update CFLAGS
+rebrew match --all --flag-sweep --fix-cflags  # sweep NEAR_MATCHING, write CFLAGS on an exact match
 
 # Semantic Equivalence (requires angr: uv tool install --reinstall 'rebrew[prove] @ git+https://github.com/maci0/rebrew.git')
 rebrew prove src/server.dll/calculate_physics.c      # prove NEAR_MATCHING function equivalent

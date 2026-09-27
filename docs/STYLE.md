@@ -18,7 +18,7 @@ Each fact lives in exactly one document; everywhere else links there.
 | `docs/*.md` topical | One subject each (config, toolchain, metadata…) | Other subjects' facts |
 | `docs/adr/` | Why a decision was made, what was given up | Current behavior narration |
 | `CHANGELOG.md` | What changed per release | How-to (→ guides) |
-| `src/rebrew/agent-skills/` | Agent workflows, not contracts | Runtime contracts (→ docs/source) |
+| `src/rebrew/agent-skills/` | Agent workflows, not contracts | Runtime contracts (→ `docs/CLI.md`) |
 
 When a review finds the same fact in two places, delete the copy that is
 farther from the code and link the survivor. `test_docs_hygiene.py` already

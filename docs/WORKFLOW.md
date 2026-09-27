@@ -46,8 +46,8 @@ rebrew todo --stats              # coverage summary
 ```
 
 `rebrew todo` evaluates the entire project and surfaces the highest Return-on-Investment
-tasks: compile errors, symbol-extraction errors (EXTRACT_ERROR), 1–4 byte near-misses,
-and easy new starts.  Each item carries a ready-to-run `command` — follow it verbatim.
+tasks: compile errors, symbol-extraction errors (EXTRACT_ERROR), near-misses of ≤20 bytes
+(`fix-delta`), and easy new starts.  Each item carries a ready-to-run `command` — follow it verbatim.
 
 ### 2. Generate skeleton
 
@@ -102,7 +102,7 @@ rebrew test src/target_name/my_func.c
 | `EXACT MATCH` | Byte-for-byte identical | STATUS auto-promoted to EXACT |
 | `RELOC-NORMALIZED MATCH` | Identical except relocations | STATUS auto-promoted to RELOC |
 | `MISMATCH` with same size | Logic matches but some bytes differ | Auto-promoted to NEAR_MATCHING if ≥60%; investigate diffs |
-| `MISMATCH` with different size | Significantly different codegen | Investigate with diff mode |
+| `MISMATCH` below 60% byte match | Significantly different codegen | Auto-demoted to STUB; investigate with diff mode |
 | `COMPILE ERROR` | C code doesn't compile | Fix syntax errors |
 | `Symbol not found` | Wrong symbol name | Check the decorated name |
 
@@ -260,7 +260,7 @@ rebrew todo --stats --json | jq '.pct_matched'
 # List prioritized action items as JSON
 rebrew todo --json -n 10 | jq '.items[] | {category, roi_score, name}'
 
-# List tiny-byte-diff quick wins (fix-delta category, ≤5B)
+# List tiny-byte-diff quick wins (fix-delta is ≤20B; this filter narrows to ≤5B)
 rebrew todo -c fix-delta --json | jq '.items[] | select(.byte_delta != null and .byte_delta <= 5)'
 
 # Structured diff output
@@ -311,7 +311,9 @@ compiler overrides. Global `[compiler]` settings are inherited unless overridden
 See [CONFIG.md](CONFIG.md) for the full `rebrew-project.toml` key reference and
 architecture presets.
 
-Tools default to the **first** target. Use `--target` to select another:
+Tools default to `[project] default_target`, which is required: config load raises
+`ConfigKeyError` when it is missing, suggesting the first `[targets.*]` key. Use
+`--target` to select another:
 
 ```bash
 rebrew test --target Europa1400Gold_TL.exe src/Europa1400Gold_TL.exe/my_func.c

@@ -15,11 +15,11 @@ see [`AGENTS.md`](../AGENTS.md); for the CLI surface see [`CLI.md`](CLI.md).
 
 ## Typer quirks (learned the hard way)
 
-1. **Options after positionals break the callback.**  In this codebase's
-   `@app.callback(invoke_without_command=True)` pattern, `runner.invoke(app,
-   ["0x1000", "--json"])` fails with a typer parse error, while
-   `["--json", "0x1000"]` works.  Always pass options **before** positional
-   arguments in CLI tests.
+1. **Options after positionals are fine.**  Interspersed args parse normally
+   in the `@app.callback(invoke_without_command=True)` commands: both
+   `runner.invoke(app, ["0x1000", "--json"])` (`tests/test_asm_extended.py`) and
+   `["show", "0x1000", "--json"]` (`tests/test_extract_cli.py`) exit 0.  Do not
+   contort an argv list to hoist options ahead of positionals.
 2. **`main()` direct calls misbind partial kwargs.**  Prefer
    `CliRunner().invoke(app, [...])` over calling `main(...)` directly.  Worse,
    typer's wrapper **leaks `typer.models.OptionInfo` as the value of omitted

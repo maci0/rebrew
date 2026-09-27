@@ -34,8 +34,8 @@ for op in m.get_opcodes():  # DiffOpcode(tag, a_start, a_end, b_start, b_end, a,
 - Invalid (out-of-range) pins are dropped; non-monotonic pins raise
   `ValueError`.
 - `ratio()` is the size-weighted mean of the island ratios.
-- The module-level `get_grouped_opcodes(opcodes, n)` trims long `equal` runs
-  to *n* lines of context, difflib-style, for renderers.
+- There is no difflib-style opcode-grouping helper here: renderers trim long
+  `equal` runs to *n* lines of context themselves.
 
 **near-diag integration.** `align_and_classify` computes `_auto_pins`:
 instructions whose raw encoding is byte-identical AND unique on both sides

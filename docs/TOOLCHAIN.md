@@ -73,12 +73,13 @@ profile = "mingw-16.2.0"
 command = ""             # image-backed: the image IS the compiler
 includes = ""            # mingw ships its own headers inside the image
 libs = ""
-cflags = "-O2 -march=pentium4"
+cflags = "-O2"   # add target-specific tuning by hand, e.g. -march=pentium4
 base_cflags = ""         # -c is added by rebrew for posix-style profiles
 ```
 
-`rebrew init --toolchain mingw-16.2.0` creates this configuration (it writes the
-empty `command`/`runner` every image-backed profile gets).  The compile
+`rebrew init --toolchain mingw-16.2.0` creates this configuration apart from the
+`-march` tuning, which init does not add (it writes the empty `command`/`runner`
+every image-backed profile gets).  The compile
 pipeline is profile-aware: `-I/-c/-o` flag style, and the image
 `rebrew/mingw:16.2.0-win32` — whose wrapper runs the Windows PE driver
 through wine — compiles the source.  `mingw-14.2.0` selects the 14.2.0 build
@@ -248,11 +249,11 @@ docker image and regenerates the smoke golden (verified stable across
 two compiles).  The image swap is transactional: a failed build/pull
 restores the previously registered image under the tag, and a failed
 `update --apply` restores the previous source pin — the pin never stays
-ahead of the image.  A pin that can move (a `refs/heads/...` branch
-tarball) is re-downloaded and re-hashed; release assets (the dated Open
-Watcom snapshots, decomp.me / archive.org payloads) and the pinned 16-bit
-media in the rebrew-toolchains checkout are immutable and reported as
-static.  Runs on a schedule (or ad-hoc) with `GH_TOKEN` mapped onto the
+ahead of the image.  A `Last-CI-build` release tag is re-downloaded and
+re-hashed; a `refs/heads/...` branch tarball is resolved by asking the
+GitHub API for the branch head (no download).  Every other pin (the dated
+Open Watcom snapshots, decomp.me / archive.org payloads, the 16-bit media
+in the rebrew-toolchains checkout) is immutable and reported as static.  Runs on a schedule (or ad-hoc) with `GH_TOKEN` mapped onto the
 resembl-clone and `check-updates` steps for generous API limits.
 
 > **Headless by construction:** every Windows/DOS compile runs inside a
@@ -523,7 +524,7 @@ The check fails when the detected family has no compatible profile
 (Delphi: document blockers) and passes with a warning for families that may
 only match structurally (Zig under `mingw-16.2.0`).  The check is **arch-aware**:
 a 16-bit NE/DOS binary (e.g. Windows 3.x games) only accepts 16-bit-capable
-profiles (`msvc-1.52`, `msvc-1.5`, `msvc-1.0`, `borland-3.1`, `borland-2.0`, `watcom-2.0-win16`;
+profiles (the `bits = 16` registry entries: `msvc-1.52`, `msvc-1.5`, `msvc-1.0`, `borland-3.1`, `borland-2.0`, `watcom-2.0-win16`, `delphi-1.0`;
 `watcom-2.0-win32`'s wcc386 is a 32-bit compiler) — configuring `msvc-6.0` on an NE
 project passes the family check but would silently produce
 `COMPILE_ERROR` for every function, so the arch check catches it with a
@@ -672,7 +673,7 @@ pull these images without rebrew itself.
 | `msvc-6.0-sp4` | 6.0 SP4 | 12.00.8804 | | archaic-toolchains `msvc600_sp4` (headers/libs + Bin) | docker |
 | `msvc-6.0-sp5` | 6.0 SP5 | 12.00.8804 | (same CL) | archaic-msvc `msvc600_sp5` | docker |
 | `msvc-6.0-sp6` | 6.0 SP6 | 12.00.8804 | (same CL) | archaic-msvc `msvc600_sp6` | docker |
-| `msvc-6.0-win9x` | 6.0 (Win9x target) | 12.00.8804 | SP5 tree, wibo runtime | vendored `msvc/6.0-win9x-win32` | docker (wibo) |
+| `msvc-6.0-win9x` | 6.0 (Win9x target) | 12.00.8168 | distinct C2.DLL, wibo runtime | vendored `msvc/6.0-win9x-win32` | docker (wibo) |
 | `msvc-7.0` | 7.0 (2002) | 13.10.3077 | .NET 2003 build | archaic-msvc `msvc-7.1` | docker |
 | `msvc-7.0-rtm` | 7.0 RTM | 13.00.9466 | true 7.0 | archaic-msvc `msvc-7.0-rtm` | docker |
 | `msvc-7.0-sp1` | 7.0 SP1 | 13.00.9466 | (same CL) | archaic-msvc `msvc700_sp1` | docker |
@@ -734,17 +735,19 @@ Notes:
 
 The VC 6.0 images ship two compilers but three different include/library
 trees and, notably, not all of them export `INCLUDE`/`LIB`.  The seven
-`6.0` through `6.0-sp6` images are in the table below; `6.0-sp5-pp` and
-`6.0-win9x` reuse the SP5 12.00.8804 compiler under
-`/opt/msvc6.0-sp5-pp/VC98/Bin` and `/opt/msvc6.0-win9x/Bin`. Measured from
-the images on this workstation:
+`6.0` through `6.0-sp6` images are in the table below; `6.0-sp5-pp` reuses the
+SP5 12.00.8804 compiler under `/opt/msvc6.0-sp5-pp/VC98/Bin`, while
+`6.0-win9x` ships its own 12.00.8168 build under `/opt/msvc6.0-win9x/Bin`.
+Container roots below are the registry's `tool_root` values
+(`src/rebrew/toolchain_data.py`). Measured from the images on this
+workstation:
 
 | Image | CL.EXE | Container toolchain root | Wrapper exports INCLUDE/LIB | LIBCMT.LIB sha256 |
 |---|---|---|---|---|
 | `rebrew/msvc:6.0-win32` | 12.00.8168 | `/opt/msvc6.0/VC98` | yes | `1ef9c27b4f76…` |
 | `rebrew/msvc:6.0-sp1-win32` | 12.00.8168 | `/opt/msvc6.0-sp1/VC98` | **no** | `1ef9c27b4f76…` |
 | `rebrew/msvc:6.0-sp2-win32` | 12.00.8168 | `/opt/msvc6.0-sp2/VC98` | **no** | `1ef9c27b4f76…` |
-| `rebrew/msvc:6.0-sp3-win32` | 12.00.8168 | `/opt/msvc6.0-sp3` (no `VC98`) | **no** | (ships no `Lib`) |
+| `rebrew/msvc:6.0-sp3-win32` | 12.00.8168 | `/opt/msvc6.0-sp3/VC98` | **no** | (ships no `Lib`) |
 | `rebrew/msvc:6.0-sp4-win32` | 12.00.8804 | `/opt/msvc6.0-sp4/VC98` | **no** | `5dc8e4bc5377…` |
 | `rebrew/msvc:6.0-sp5-win32` | 12.00.8804 | `/opt/msvc6.0-sp5/VC98` | **no** | `28b9f0496237…` |
 | `rebrew/msvc:6.0-sp6-win32` | 12.00.8804 | `/opt/msvc6.0/VC98` | yes | `a541c95e5ffd…` |
@@ -907,9 +910,10 @@ Borland ABI has no matchable rebrew compiler profile — functions are
 documented as blockers, but the toolchain is used for verification-style
 research (compile + NE parse).
 
-Layout: `bin/cl.exe` + `include/` + `lib/` (case varies by version).  The
-`msvc-4.2` profile is backed by this source; `msvc-5.0` (VC 5.0, 11.00.7022) is
-validated against real Microsoft VC5.0 product binaries (e.g. `BIND.EXE`).
+The MSVC layout the vendored trees share is `bin/cl.exe` + `include/` +
+`lib/` (case varies by version).  `msvc-4.2` is backed by the pinned
+`archaic-msvc/msvc420` tarball; `msvc-5.0` (VC 5.0, 11.00.7022) is validated
+against real Microsoft VC5.0 product binaries (e.g. `BIND.EXE`).
 
 decomp.me also maintains win32 compiler data (`github.com/decompme/compilers`,
 `platforms/win32/`); its toolchains are published by
@@ -960,20 +964,16 @@ toolchain, link against a full toolchain's Lib, intake the result, and
 
 ### Ghidra (Primary)
 
-Connected via ReVa MCP (Model Context Protocol). Rebrew uses the following MCP tools:
+Connected via ReVa MCP (Model Context Protocol). These are the only MCP tools
+rebrew calls (`ghidra/client.py` is the single call site):
 
-| Capability | MCP Tool |
-|------------|----------|
-| Decompilation | `get-decompilation` |
-| Cross-references | `find-cross-references` |
-| Memory reads | `read-memory` |
-| String search | `search-strings-regex`, `get-strings-by-similarity` |
-| Labels and comments | `create-label`, `set-comment`, `set-bookmark` |
-| Structure editing | `parse-c-structure`, `modify-structure-from-c` |
-| Data flow | `trace-data-flow-backward`, `trace-data-flow-forward` |
-| Imports/exports | `list-imports`, `list-exports`, `find-import-references` |
-| Call graph | `get-call-graph`, `get-call-tree` |
-| Vtable analysis | `analyze-vtable` |
+| Capability | MCP Tool | Caller |
+|------------|----------|--------|
+| Decompilation | `get-decompilation` | `decompiler.py`, `skeleton.py --decomp` |
+| Cross-references | `find-cross-references` | `skeleton.py --xrefs` |
+| Function creation | `create-function` | `rebrew sync --create-functions` |
+| Labels and comments | `create-label`, `set-comment`, `set-bookmark` | `rebrew sync` (BinSync state push/pull) |
+| Structure editing | `parse-c-structure` | `struct_parser.py` |
 
 See [BINSYNC_INTEGRATION.md](BINSYNC_INTEGRATION.md) for the sync feature matrix and known issues.
 
@@ -1052,7 +1052,7 @@ yara /tmp/test.yar target.dll
 | **capstone** | x86 disassembly in matcher scoring |
 | **diskcache** | Persistent shared compile cache (`.rebrew/compile_cache/` via `compile_cache.py`; GA same-run memo is in-memory) |
 | **httpx** | HTTP client for Ghidra/ReVa MCP communication (`ghidra/cli.py`, `skeleton.py`, `decompiler.py`) |
-| **lief** | PE/ELF/Mach-O parsing — core dependency for `binary_loader.py`, `matcher/parsers.py`, `test.py` |
+| **lief** | PE/ELF/Mach-O parsing — core dependency for `binary_loader.py`, `matcher/parsers.py` |
 | **numpy** | Numeric computation |
 | **python-flirt** | FLIRT signature matching for library identification (`flirt.py`) |
 | **rich** | Terminal formatting |
@@ -1065,7 +1065,8 @@ yara /tmp/test.yar target.dll
 
 | Library | Purpose | Install |
 |---------|---------|--------|
-| **angr** | Symbolic execution + Z3 for `rebrew prove` | `uv sync --all-extras` |
+| **angr** (with **claripy**, **gitpython**) | Symbolic execution + Z3 for `rebrew prove` — the `prove` extra | `uv sync --extra prove` |
+| **declib** | BinSync state I/O for `rebrew binsync*` — the `binsync` extra | `uv sync --extra binsync` |
 
 ### Not Installed (could be added)
 
@@ -1119,5 +1120,5 @@ are normalized.
 4. Re-sync flags from decomp.me: `uv run --frozen python tools/sync_decomp_flags.py`
 
 ### For Structure Recovery
-1. **Ghidra** structure editor via MCP (`parse-c-structure`, `get-structure-info`)
+1. **Ghidra** structure editor via MCP (`parse-c-structure`)
 2. **DUMPBIN /RAWDATA** for raw data inspection at specific offsets

@@ -8,7 +8,9 @@ read defaults (binary path, reversed_dir, compiler settings) from the project co
 The ones that do not (`postlink`, `cmake-toolchain`, `build-check`, `order-sources`,
 `gen-link-stubs`, `gen-stubs`, `pdb-info`, `discover-functions`, `unpack-lzexe`,
 `gen-flirt-pat`, `dashboard`, plus the `library`, `resource`, and `skills` groups)
-take their input paths directly.
+take their input paths directly.  `rebrew init` and `rebrew intake` also take a
+`-t/--target`, but it names the target being created rather than selecting one
+from the config.
 
 Run any tool with `--help` to see usage examples and context
 (typer `rich_markup_mode="rich"` with epilog text).
@@ -283,7 +285,7 @@ skills.
 | `--link COMMAND` | Linker command (auto from rebrew-project.toml) |
 | `--ldflags FLAGS` | Linker flags (for non-obj comparison) |
 | `--flag-sweep-only` | Exhaustive flag-combination sweep; skip GA (**MSVC-only** — posix profiles like mingw-16.2.0 refuse with a clear error) |
-| `--flag-sweep-toolchains` | Try each vendored MSVC toolchain (the full 4.0→7.0 line: 6.0-sp3/sp6, 7.0, 4.2, 5.0, 4.0); combine with `--flag-sweep-only` to flag-sweep with each toolchain ("which MSVC version + flags built this function?" — the combined mode reports the best flags per toolchain) |
+| `--flag-sweep-toolchains` | Try each vendored MSVC toolchain (every image-backed `cl` profile, msvc-2.0 through msvc-11.0); combine with `--flag-sweep-only` to flag-sweep with each toolchain ("which MSVC version + flags built this function?" — the combined mode reports the best flags per toolchain).  The configured profile is added as a baseline and is subject to the sweep/exclude filters |
 | `--sweep-toolchains CSV` / `--toolchain CSV` | Sweep only these toolchains (comma-separated profile names or version prefixes) |
 | `--sweep-exclude-toolchains CSV` | Skip these toolchains in the sweep (comma-separated profile names or version prefixes) |
 | `--seed-llm` | Ask a configured LLM endpoint for alternative C implementations and inject them into the GA's initial population (see `[llm]` config / `REBREW_LLM_ENDPOINT`) |
@@ -505,7 +507,7 @@ carry a `mutations` array in `--json` (the GA operators to try next) and a
 |------|-------------|
 | `VA` | Function VA in hex (positional) |
 | `--decomp` | Embed inline decompilation |
-| `--decomp-backend BACKEND` | Decompiler backend: `kuna` (default), `r2ghidra`, `r2dec`, `ghidra`, `m2c`, `auto` |
+| `--decomp-backend BACKEND` | Decompiler backend: `auto` (default), `r2ghidra`, `r2dec`, `ghidra`, `kuna`, `m2c` |
 | `--xrefs` | Fetch cross-references and caller decompilation from Ghidra via ReVa MCP |
 | `--endpoint URL` | ReVa MCP endpoint URL (for `--xrefs` and `--decomp-backend ghidra`) |
 | `--append FILE` | Append to existing multi-function file |
@@ -515,8 +517,9 @@ carry a `mutations` array in `--json` (the GA operators to try next) and a
 
 The generated stub signature follows the target's calling convention
 (thiscall → `__fastcall`/naked `__declspec(naked)` with `ret N`, stdcall →
-`__stdcall` with N args), inferred from the disassembly extent — functions
-longer than a fixed 48-byte window no longer fall back to a wrong
+`__stdcall` with N args), inferred from the disassembly extent: the window is
+`extent + 96` bytes, floored at 48 and capped at 256.  The flat 64-byte slice
+this replaced truncated longer functions mid-code and reported a wrong
 `int __cdecl f(void)` default.  When the resolved size is stale (the
 disassembly extent runs past it — a truncated discovery entry),
 skeleton warns with the real extent and suggests `rebrew asm --size <extent>` /
@@ -722,6 +725,10 @@ count the same rows.  `rebrew catalog` writes the same set into
 |------|-------------|
 | `-f FORMAT` / `--format FORMAT` | Output format: `mermaid` (default), `dot`, `summary` |
 | `--cu-map` | Infer compilation unit boundaries (clusters by .text contiguity + call graph). Two further signals exist on `cu_map.cluster_functions`: `jump_table_alignment` (off; measurement on the MSVC targets here shows only the 4-byte pointer alignment holds, so any larger modulus fires on noise) and `single_ref_data` (off; vetoes a split when two consecutive functions' exclusively-owned `.rdata`/`.data` objects are contiguous). `rebrew graph --cu-map` forwards only this flag set and does not expose them |
+| `--include-dispatch` | Augment the call graph with dispatch-table edges; adds a `virtual_dispatch_0x<VA>` node per table, drawn dashed in mermaid/dot |
+| `--min-table-len N` | Minimum entries to qualify as a dispatch table (`--include-dispatch`, default 3) |
+| `--max-pointer-stride N` | Maximum byte stride between pointer slots when scanning tables (`--include-dispatch`, default 4) |
+| `--from-binary` | Build call edges from the target binary's xrefs instead of the reversed C sources (16-bit NE included, where the source graph is empty) |
 | `--focus NAME` | Neighbourhood of a specific function |
 | `--depth N` | Depth for focus mode |
 | `-o FILE` / `--output FILE` | Output file (default: stdout) |
@@ -1845,7 +1852,7 @@ host binary).  See [TOOLCHAIN.md](TOOLCHAIN.md) for the full model.
 | `pull NAME` | Pull a toolchain's docker image (locally-built images are reported as already present, not re-pulled; a failed pull on an absent image points at `toolchain build`, since rebrew images are built from pinned sources, not hosted on a registry) |
 | `build NAME` | Build a toolchain's docker image from its `<family>/<ver>-<arch>/Dockerfile` in the rebrew-toolchains checkout (builds the shared `rebrew/base` dependency first) |
 | `vendor NAME` | Assemble the host tree from the pinned source — a 16-bit media tarball (msvc-1.52/15/10, delphi, borland-3.1, borland-2.0) next to its Dockerfile in the rebrew-toolchains checkout, or a sha256-verified download (borland 5.5, watcom, msvc-6.0, msvc-4.0/4.2/5.0 via the archaic-msvc / itsmattkc codeload snapshots).  MSVC 6.0 is wrapped into the classic `VC98/` layout; the tree lands in `<family>/<ver>-<arch>/source` under that checkout.  Refuses to clobber an existing tree; fails loudly if the compiler binary is missing |
-| `smoke [NAME]` | Compile the fixed smoke source in each image and verify the object sha256 against the golden bytes — the byte-reproducibility gate (all toolchains pass: msvc-6.0/5/4.2/4.0/1.52, borland-5.5, watcom/watcom-2.0-win16, borland-3.1/borland-2.0, delphi-1.0 — image-only; MSVC's COFF and Turbo C's COMENT build-time stamps are masked).  `--print-goldens` recomputes the masked hashes WITHOUT comparing, so bumping a pinned source is a mechanical two-step (run twice, verify stable, paste into `_SMOKE_GOLDEN`) |
+| `smoke [NAME]` | Compile the fixed smoke source in each image and verify the object sha256 against the golden bytes — the byte-reproducibility gate (48 profiles: the MSVC 1.0–11.0 line, borland-2.0/3.1/5.5, watcom-2.0 on win32 and win16, delphi-1.0, ido-5.3/7.1, gcc 12.3/14.2, clang 16.0/18.1, mingw 14.2/16.2 — all image-only; MSVC's COFF and Turbo C's COMENT build-time stamps are masked).  `--print-goldens` recomputes the masked hashes WITHOUT comparing, so bumping a pinned source is a mechanical two-step (run twice, verify stable, paste into `_SMOKE_GOLDEN`) |
 
 ### `rebrew binsync-export`
 

@@ -516,7 +516,7 @@ Warnings indicate style issues, missing optional fields, or format migration opp
 | `--fix` | Migrate leftover inline metadata keys into `rebrew-functions.toml` / `rebrew-data.toml`; strip redundant inline lines (retired `SYMBOL`/`PROTOTYPE` keys, legacy `ORIGIN`, inline `// CFLAGS:` that only repeat the inherited flags, copies already in metadata); backfill missing W016 `SECTION` from the target binary; drop W029-redundant per-function `cflags` and matching `cflags_presets` |
 | `--quiet` | Suppress warnings, show errors only |
 | `--json` | Machine-readable JSON output (schema below) |
-| `--summary` | Print status × origin breakdown table after results |
+| `--summary` | Print a status/marker-type breakdown table after results |
 | `FILE [FILE...]` | Check specific files (positional) instead of scanning the entire directory |
 | `--target NAME` | Select a target from `rebrew-project.toml` (for config-aware checks) |
 

@@ -20,8 +20,8 @@ Three ideas carry the whole tool:
    (`STUB` → `NEAR_MATCHING` → `EXACT`/`RELOC`). You never set it by hand —
    `rebrew test` / `rebrew verify` compute it from a real byte comparison
    and write it for you. If you hand-edit a STATUS, the next verify demotes
-   it back with a `metadata:` warning. Trust the ladder: it tells you
-   exactly how done each function is.
+   it back (a `verify --dry-run` shows the `would update STATUS → ...` line).
+   Trust the ladder: it tells you exactly how done each function is.
 2. **The compiler is the ground truth.** You are not writing "equivalent" C.
    You are writing the C that makes *that specific compiler version, with
    those specific flags,* emit *those exact bytes*. This is why rebrew runs
@@ -39,14 +39,18 @@ Three ideas carry the whole tool:
 | Linux x86_64 | all compiler images target it | — |
 | Python 3.13+ and `uv` | runs rebrew | [uv installer](https://docs.astral.sh/uv/getting-started/installation/); `uv python install 3.13` |
 | docker | **every** compiler runs inside an image (wine/DOSBox live there; there is no host-wine path) | your distro's `docker` |
-| rizin | the packaged function discoverer | `apt install rizin` |
+| rizin | the main function discoverer (capstone sweep / eh_frame / pdata are fallbacks) | `apt install rizin` |
+| rebrew-flirt-sigs | signature sets for `rebrew flirt --init-matched` (a sibling checkout, or point `REBREW_FLIRT_SIGS_DIR` at it) | `git clone https://github.com/maci0/rebrew-flirt-sigs` next to this project |
 | A binary | the thing you are reversing | yours |
 
 Install rebrew itself:
 
 ```bash
-uv tool install git+https://github.com/maci0/rebrew.git
+uv tool install 'rebrew[prove] @ git+https://github.com/maci0/rebrew.git'
 ```
+
+The `[prove]` extra is what installs angr; without it `rebrew prove` exits
+with that install hint. Drop the extra if you never want symbolic proof.
 
 ## The 15-minute walkthrough
 
@@ -95,11 +99,13 @@ A checklist with a fix for every red line. On a fresh intake the usual red
 is **Toolchain**: the docker image isn't built yet. Fix it as instructed:
 
 ```bash
-rebrew toolchain build msvc-8.0
+rebrew toolchain pull msvc-8.0    # prebuilt image
+rebrew toolchain build msvc-8.0   # or build it from the rebrew-toolchains checkout
 ```
 
-(This downloads/pins the exact compiler. It takes a few minutes once, then
-never again.) Re-run `rebrew doctor` until the board is green — a red
+(`build` needs the sibling **rebrew-toolchains** checkout, or
+`REBREW_TOOLCHAINS_DIR` pointing at it; `pull` is the download. Either way it
+takes a few minutes once, then never again.) Re-run `rebrew doctor` until the board is green — a red
 `Toolchain alignment` means the detected compiler and the configured
 profile disagree, and everything downstream will silently compare against
 the wrong codegen.
@@ -125,9 +131,11 @@ rebrew flirt --init-matched   # fetch the signature set matching your CRT linkag
 rebrew flirt                  # identify library functions
 ```
 
-Functions flagged as library (MSVCRT, zlib, …) get annotated as such and
-leave your queue. On a typical game binary this removes a third of the
-work before you start.
+`flirt` only reports matches; it writes nothing. To actually annotate them
+and drop them from your queue, run `rebrew identify-library` (or settle them
+by byte comparison against the archives you link with `rebrew lib-match
+--lib <archive>`). On a typical game binary this removes a third of the work
+before you start.
 
 ### 6. Match your first function
 
@@ -187,8 +195,8 @@ rebrew verify            # bulk: every function, STATUS auto-updated
 rebrew verify --compare  # CI mode: fail on regressions vs last report
 ```
 
-`verify --full` forces everything (cold: ~17s on 283 functions; warm:
-~2s). Plain `verify` is incremental — only changed functions recompile.
+`verify --full` forces everything, ignoring the cache (it has no warm path).
+Plain `verify` is incremental — only changed functions recompile.
 
 ## The core loop (your daily driver)
 
@@ -227,7 +235,7 @@ rebrew todo → rebrew skeleton → edit C → rebrew test → rebrew diff → �
 | Right logic, statement-order delta | adjacent statements swapped | `rebrew climb` |
 | Gap grows along the function | length drift (short COMDAT, early table) | `rebrew gap-trace` |
 | Function looks like gibberish | it's library code | `rebrew flirt`, `rebrew crt-match --all` |
-| `verify` disagrees with your edit | stale STATUS claim | let `verify` rewrite it; read the `metadata:` warning |
+| `verify` disagrees with your edit | stale STATUS claim | let `verify` rewrite it; `verify --dry-run` shows the pending transition |
 | BSS/layout bytes differ, code matches | data placement, not code | `rebrew data`, `rebrew verify-placement` |
 
 ## What's next
