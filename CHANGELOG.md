@@ -1,6 +1,23 @@
 ## [Unreleased]
 
+### Fixed
+- **A CRLF checkout shipped CRLF bytes in the sdist and wheel.**
+  `.gitattributes` said `* text=auto`, which normalizes the index but leaves
+  the working tree to `core.autocrlf`. The byte-for-byte second build CI
+  proves (`make build` from a `git archive` copy under a different path,
+  umask, TZ, and locale) varied everything except line endings, so a
+  contributor on a CRLF checkout produced artifacts CI would have rejected.
+  The rule is now `* text=auto eol=lf`: the project ships POSIX/Linux only, and
+  the checkout no longer feeds the host's line-ending policy into the archive.
+
 ### Changed
+- **`dist/rebrew.buildinfo` names the artifact it describes.** The manifest a
+  rebuild is attempted from recorded toolchain versions and the epoch knobs
+  but not which release those were, and nothing tied the build to the
+  hash-pinned backend constraints it verified. It now carries `name` and
+  `version` (read from `src/rebrew/__init__.py`, the single source of truth) and
+  the sha256 of `build-constraints.txt`, so a rebuild knows both the version
+  being reproduced and the backend pins that produced it.
 - **`/api/sections` rows ship as arrays under `cols`.** It was the one list
   route still sending a keyed object per row, so every section repeated 14
   field names ahead of its numbers: a 2000-section payload was 346 KB where it
