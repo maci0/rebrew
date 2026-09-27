@@ -775,8 +775,6 @@ def _fix_size_evidence_ok(
 
 def _disasm_extent(cfg: ProjectConfig, va: int) -> int | None:
     """Disassembly-derived function extent at *va* (best-effort)."""
-    import logging
-
     from rebrew.binary_loader import function_extent_from_disasm
 
     try:
@@ -1091,7 +1089,6 @@ def _run_test_impl(
             toolchain=toolchain_name,
             context=compile_context,
         )
-    relocs = cmp.reloc_offsets or []
     # Reconstruct match_count/total for cache + display from CompareResult.
     # Prefer full_obj_size for total (SIZE_MISMATCH truncates obj_bytes) but
     # take match_count from CompareResult when present (avoids float round-trip).
@@ -1265,7 +1262,11 @@ def _run_test_impl(
                     va_int_for_promote,
                     exc,
                 )
-        old_status = promote_ann.status if promote_ann else ""
+        # An unmarked function reads as STUB, matching the multi-function
+        # path and print_test_summary: an empty status is a placeholder
+        # verdict, not a free pass to write SIZE_MISMATCH over a function
+        # the user never classified.
+        old_status = (promote_ann.status if promote_ann else "") or "STUB"
         # CompareResult.status is the one classification point, so
         # SIZE_MISMATCH / COMPILE_ERROR survive unchanged.
         new_status = cmp.status

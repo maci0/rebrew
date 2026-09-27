@@ -1161,6 +1161,20 @@ class TestW021W022:
             r = lint_file(f, seen_globals=seen)
             assert not any(c == "W021" for _, c, _ in r.warnings)
 
+    def test_block_comment_marker_across_files(self, tmp_path: Path) -> None:
+        """`/* DATA: */` is a marker form the parser accepts, so W021 must see
+        it too. Recognising only `//` left every C89-strict block
+        unreported."""
+        from rebrew.lint import lint_file
+
+        seen: dict[str, str] = {}
+        f1 = _write_c(tmp_path, "one.c", "/* DATA: SERVER 0x1000 */\nextern int g_counter;\n")
+        r1 = lint_file(f1, seen_globals=seen)
+        assert not any(c == "W021" for _, c, _ in r1.warnings)
+        f2 = _write_c(tmp_path, "two.c", "/* DATA: SERVER 0x2000 */\nextern int g_counter;\n")
+        r2 = lint_file(f2, seen_globals=seen)
+        assert any(c == "W021" for _, c, _ in r2.warnings)
+
     def test_zero_init_global_warns(self, tmp_path: Path) -> None:
         from rebrew.lint import lint_file
 

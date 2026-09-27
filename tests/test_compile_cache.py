@@ -1023,6 +1023,39 @@ class TestCompileToObjCacheIntegration:
 
         cache.close()
 
+    def test_unreadable_source_returns_error_tuple(self, tmp_path: Path) -> None:
+        """An unreadable source is a compile failure, not an exception.
+
+        compile_to_obj documents `(obj_path, error_msg)` with obj_path None on
+        failure, and every other failure on the path returns that tuple. The
+        source read sat outside any try, so a missing or unreadable file
+        raised OSError out of the ~14 direct callers instead."""
+        from rebrew.compile import compile_to_obj
+
+        cfg: Any = SimpleNamespace(
+            compiler_includes=tmp_path,
+            base_cflags="/nologo /c",
+            compile_timeout=3,
+            msvc_env=lambda: {},
+            compiler_command="CL.EXE",
+            compiler_libs=tmp_path,
+            compiler_runner="",
+            root=tmp_path,
+            compiler_profile="msvc-6.0",
+            posix_style=False,
+        )
+        workdir = tmp_path / "w"
+        workdir.mkdir()
+        obj, err = compile_to_obj(
+            cast(ProjectConfig, cfg),
+            tmp_path / "does_not_exist.c",
+            ["/O2"],
+            workdir,
+            cache=CompileCache(tmp_path / "test_cache"),
+        )
+        assert obj is None
+        assert "Failed to read source" in err
+
     def test_failed_compile_not_cached(self, tmp_path: Path, monkeypatch) -> None:
         from rebrew.compile import compile_to_obj
 

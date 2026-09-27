@@ -88,6 +88,17 @@ log = logging.getLogger(__name__)
 # lint must not report E001/E002 on a file the parser reads fine.
 _HEADER_MARKER_RE = re.compile(r"(?://|/\*)\s*(\w+):\s*(\S+)\s+(0x[0-9a-fA-F]+)")
 _SIZE_ANNOTATION_RE = re.compile(r"//\s*SIZE\s+0x[0-9a-fA-F]+")
+# The two comment styles a marker header can wear (see _HEADER_MARKER_RE).
+# A check that recognizes only `//` silently skips a whole `/*` marker block.
+_DATA_MARKER_RE = re.compile(r"(?://|/\*)\s*(DATA|GLOBAL):")
+
+
+def _is_comment_line(text: str) -> bool:
+    """True when *text* is a whole-line comment in either supported style."""
+    stripped = text.lstrip()
+    return stripped.startswith(("//", "/*"))
+
+
 # Patterns for default function names (to be used with --pedantic flag).
 # Pre-compiled: W023 runs ``fullmatch`` per function in the TU.
 DEFAULT_FUNC_NAME_PATTERNS = [
@@ -330,7 +341,12 @@ def count_migratable_files(src_dir: Path, cfg: Any) -> int:
             va_hex = found_keys.get("VA", "")
             if not (marker and module and va_hex):
                 continue
-            block = (marker, module, int(va_hex, 16))
+            # Guarded like every other VA conversion in this module: a
+            # malformed VA must skip the block, not raise out of a counter.
+            try:
+                block = (marker, module, int(va_hex, 16))
+            except ValueError:
+                continue
             for key, value in found_keys.items():
                 if key not in _W019_MIGRATABLE_KEYS:
                     continue
@@ -678,6 +694,11 @@ def _check_W018_cflags(
 # warned about — it may be a typo of a real key or a prose note, and
 # deleting it would destroy information.
 _FIXABLE_UNKNOWN_KEYS = frozenset({"SYMBOL", "PROTOTYPE"})
+
+# Statuses that carry no claim about a function's body, so they cannot
+# contradict what a check found. A file claiming only these does not gain
+# a "but STATUS claims ..." suffix.
+_UNCLAIMED_STATUSES = frozenset({"STUB", "SKIP"})
 
 
 def _check_W010_unknown_keys(
@@ -1042,7 +1063,7 @@ def _check_E023_naked_asm(
                 # After removing _emit, if nothing left (or just hex) it's not a separate asm mnemonic.
                 if (
                     payload_no_emit
-                    and payload_no_emit not in ("", ",", "0x90", "0xcc", "0x90,", "0x90,")
+                    and payload_no_emit not in ("", ",", "0x90", "0xcc", "0x90,")
                     and not all(
                         tok.strip() in ("", "0x90", "0xcc", ",")
                         for tok in payload_no_emit.replace(",", " , ").split()
@@ -1077,7 +1098,7 @@ def _check_E023_naked_asm(
         if padding_only:
             return
 
-    claimed = sorted((claimed_statuses or set()) - {"STUB", "SKIP"})
+    claimed = sorted((claimed_statuses or set()) - _UNCLAIMED_STATUSES)
     suffix = f" but STATUS claims {', '.join(claimed)}" if claimed else ""
     result.error(
         naked_line,
@@ -1121,7 +1142,7 @@ def _check_W020_asm_dump(
     for code in code_lines:
         if "__declspec(naked)" in code:
             return
-    claimed = sorted((claimed_statuses or set()) - {"STUB", "SKIP"})
+    claimed = sorted((claimed_statuses or set()) - _UNCLAIMED_STATUSES)
     for i, code in enumerate(code_lines, start=1):
         # "_emit", not "__emit": `rebrew asm` writes the bare spelling, so
         # matching only the old prefixed form missed every dump it produced.
@@ -1183,14 +1204,14 @@ def _check_W021_duplicate_globals(
     marker = ""
     for i, line in enumerate(lines, start=1):
         s = line.strip()
-        if s.startswith(("// DATA:", "// GLOBAL:")):
+        ds_match = _DATA_MARKER_RE.match(s)
+        if ds_match:
             pending = True
-            parts = s.split(":", 1)[1].split()
-            marker = parts[0] if parts else ""
+            marker = ds_match.group(1)
             continue
         if not pending:
             continue
-        if not s or s.startswith(("//", "/*")):
+        if not s or _is_comment_line(s):
             continue  # comment/blank lines inside the block
         pending = False
         m = _GLOBAL_NAME_RE.search(s)
@@ -1845,6 +1866,14 @@ def lint_file(
             # as function metadata above.
             elif va_int is not None and mod:
                 _ds_override = _data_metadata_entries.get((mod, va_int), {})
+                # A data symbol's SIZE lives in rebrew-data.toml, so W019 must
+                # compare the inline copy against THAT store. Left at the
+                # function-store value it saw, a DATA/GLOBAL block reported a
+                # disagreement against a size it never read, and the
+                # already-migrated hint from `_w019_key_backed` suppressed
+                # the very warning that would have shown it.
+                if "size" in _ds_override:
+                    _metadata_size = str(_ds_override["size"]).strip() or None
                 _DS_TO_FOUND = {"size": "SIZE", "section": "SECTION", "note": "NOTE"}
                 for _ds_key, _ds_found_key in _DS_TO_FOUND.items():
                     if _ds_key not in _ds_override:

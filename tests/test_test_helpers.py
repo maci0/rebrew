@@ -216,6 +216,57 @@ class TestSizePersistence:
     """`rebrew test --va --size` must persist the resolved SIZE to metadata so
     downstream tools (diff, near-diag) can resolve it without re-supplying it."""
 
+    def test_unmarked_function_keeps_stub_verdict(self, tmp_path: Path, monkeypatch: Any) -> None:
+        """A function with no recorded STATUS must not gain SIZE_MISMATCH.
+
+        The single-function and multi-function paths derived ``old_status``
+        differently (`""` vs `ann.status or "STUB"`), so an unmarked function
+        in a single-annotation file was written STATUS = "SIZE_MISMATCH"
+        while the same function in a multi-annotation file was not. An empty
+        status is a placeholder, so both paths now read it as STUB."""
+        import shutil
+
+        from typer.testing import CliRunner
+
+        from rebrew.compile import CompareResult
+        from rebrew.main import app as umbrella
+
+        fixture = Path(__file__).parent / "fixtures" / "mini_pe.exe"
+        (tmp_path / "original").mkdir()
+        shutil.copy(fixture, tmp_path / "original" / "x.exe")
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "rebrew-project.toml").write_text(
+            '[project]\ndefault_target = "x"\n'
+            '[targets.x]\nbinary = "original/x.exe"\nmarker = ""\n'
+            '[compiler]\nprofile = "msvc-6.0"\n'
+        )
+        src_dir = tmp_path / "src" / "x"
+        src_dir.mkdir(parents=True)
+        (src_dir / "single.c").write_text(
+            "// FUNCTION: SERVER 0x1000\nint f1(void) { return 1; }\n"
+        )
+
+        monkeypatch.setattr(
+            "rebrew.test.compile_and_compare",
+            lambda *a, **k: CompareResult(
+                matched=False,
+                status="SIZE_MISMATCH",
+                match_percent=90.0,
+                delta=4,
+                obj_bytes=b"\xc3\xc3\xc3\xc3",
+                reloc_offsets=[],
+            ),
+        )
+        result = CliRunner().invoke(
+            umbrella, ["test", "src/x/single.c", "--size", "4", "--symbol", "_f1"]
+        )
+        # Exit 1: SIZE_MISMATCH fails the gate; the verdict is still the
+        # interesting part, and it is not written to metadata.
+        assert result.exit_code == 1, result.output
+        meta = (tmp_path / "src" / "rebrew-functions.toml").read_text()
+        assert "size = 4" in meta
+        assert "status" not in meta, meta
+
     def test_persists_size_on_promote(self, tmp_path: Path, monkeypatch: Any) -> None:
         import shutil
 

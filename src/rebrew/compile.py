@@ -1604,8 +1604,14 @@ def compile_to_obj(
     # or (with a context) the context's declarations merged into it under
     # #line directives.  It is also the compile-cache key's source input, so
     # a cached object is pinned to the exact context it was built under.
+    # An unreadable source is a compile failure like any other, not an
+    # exception: every other failure on this path returns the tuple.
+    try:
+        source_bytes = source_path.read_bytes()
+    except OSError as e:
+        return None, f"Failed to read source: {e}"
     compile_text = contextualized_source(
-        context, source_path.read_bytes().decode("utf-8", errors="surrogateescape"), src_name
+        context, source_bytes.decode("utf-8", errors="surrogateescape"), src_name
     )
 
     # Snapshot the flags the key was computed from.  The docker path rebinds
@@ -2211,7 +2217,14 @@ def precompile_batch(
     # whole reversed tree and must be removed as soon as the compile finishes,
     # so survivors are copied here (small).  Swept by :func:`cleanup_batch_obj_dirs`
     # (verify calls it after extracting) and by atexit as a backstop.
-    lasting_root = writable_temp_dir("rebrew_batch_objs_")
+    # Guarded like every other step here: batch is an optimization, so a
+    # temp dir this process cannot create falls back to per-file compiles
+    # rather than raising out of a function documented never to raise.
+    try:
+        lasting_root = writable_temp_dir("rebrew_batch_objs_")
+    except OSError as exc:
+        log.debug("batch obj dir unavailable, falling back to per-file compile: %s", exc)
+        return out
     with _BATCH_OBJ_DIRS_LOCK:
         _BATCH_OBJ_DIRS.append(lasting_root)
     _register_batch_obj_atexit()
@@ -2744,7 +2757,12 @@ def compile_and_compare_linked(
             None,
         )
 
-    source = Path(source_path).read_text(encoding="utf-8", errors="surrogateescape")
+    try:
+        source = Path(source_path).read_text(encoding="utf-8", errors="surrogateescape")
+    except OSError as exc:
+        return classify_compare_result(
+            False, f"COMPILE_ERROR: cannot read source: {exc}", target_bytes, None, None
+        )
     shell = linked_shell_source(source, pad)
     cflags_list = safe_shlex_split(cflags) if isinstance(cflags, str) else list(cflags)
 
