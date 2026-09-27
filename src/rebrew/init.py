@@ -463,12 +463,18 @@ def _link_toolchain(
     return target
 
 
-def _rewrite_compiler_paths(toml_path: Path, layout: tuple[str, str, str]) -> None:
-    """Point the generated ``[compiler]`` section at *layout* (command,
-    includes, libs) — used after ``--link-tools-from`` may have surfaced a
-    better toolchain layout than the pre-write resolution saw."""
+def _rewrite_compiler_paths(toml_content: str, layout: tuple[str, str, str]) -> str:
+    """Point the generated ``[compiler]`` section of *toml_content* at *layout*
+    (command, includes, libs) and return the rewritten text.
+
+    Used after ``--link-tools-from`` may have surfaced a better toolchain
+    layout than the pre-write resolution saw.  Rewriting the content rather
+    than the file keeps every fallible step ahead of the guard write: a second
+    read-modify-write of the written TOML could fail with the "already
+    initialized" marker in place, stranding the project.
+    """
     cmd, inc, lib = layout
-    doc = tomlkit.parse(toml_path.read_text(encoding="utf-8-sig"))
+    doc = tomlkit.parse(toml_content)
     compiler = doc.get("compiler", tomlkit.table())
     compiler["command"] = cmd
     if inc:
@@ -476,7 +482,7 @@ def _rewrite_compiler_paths(toml_path: Path, layout: tuple[str, str, str]) -> No
     if lib:
         compiler["libs"] = lib
     doc["compiler"] = compiler
-    atomic_write_text(toml_path, tomlkit.dumps(doc), encoding="utf-8")
+    return tomlkit.dumps(doc)
 
 
 # ---------------------------------------------------------------------------
@@ -1263,29 +1269,31 @@ def main(
     if toolchain_dir is not None:
         linked_toolchain = _link_toolchain(cwd, compiler_profile, toolchain_dir, json_output)
 
-    # The TOML is the "already initialized" guard, so it lands only after
-    # every step that can fail (wibo download, toolchain link): a failed init
-    # leaves no TOML and a rerun finishes the job.  The steps before it all
-    # converge on rerun.
-    atomic_write_text(toml_path, toml_content, encoding="utf-8")
-    console.print(f"[green]Created {toml_path.name}[/]")
-
-    # The link may have just created a better layout than the pre-write
-    # resolution saw (e.g. a master toolchain/msvc/6.0-win32) — re-resolve and
-    # point the written [compiler] section at it.
-    if toolchain_dir is not None and compiler_profile in ("msvc-6.0", "msvc-7.0"):
-        from rebrew.utils import resolve_msvc_toolchain
-
-        layout = resolve_msvc_toolchain(cwd, compiler_profile)
-        if layout is not None:
-            _rewrite_compiler_paths(toml_path, layout)
-
     # 10. Optionally write shell completion scripts
     completion_paths: list[Path] = []
     if install_completions:
         completion_paths = _write_completion_scripts(cwd)
         for p in completion_paths:
             console.print(f"[green]Created {p.relative_to(cwd)}[/] (source this for completions)")
+
+    # The TOML is the "already initialized" guard, so it lands only after
+    # every step that can fail (wibo download, toolchain link, completion
+    # render): a failed init leaves no TOML and a rerun finishes the job.  The
+    # steps before it all converge on rerun.  Anything fallible placed after
+    # this write strands the project half-initialized with no way to finish
+    # it, because the guard turns the next run into "already exists".
+    if toolchain_dir is not None and compiler_profile in ("msvc-6.0", "msvc-7.0"):
+        # The link may have just created a better layout than the pre-write
+        # resolution saw (e.g. a master toolchain/msvc/6.0-win32) — re-resolve
+        # and point the content being written at it.
+        from rebrew.utils import resolve_msvc_toolchain
+
+        layout = resolve_msvc_toolchain(cwd, compiler_profile)
+        if layout is not None:
+            toml_content = _rewrite_compiler_paths(toml_content, layout)
+
+    atomic_write_text(toml_path, toml_content, encoding="utf-8")
+    console.print(f"[green]Created {toml_path.name}[/]")
 
     # Wizard-only: report the toolchain image state (present/build command)
     # right after the project is written.  Non-wizard runs stay untouched.
