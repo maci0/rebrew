@@ -1,5 +1,6 @@
 """Tests for the rebrew init command."""
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -1388,3 +1389,96 @@ class TestRefreshAgents:
         with pytest.raises(typer.Exit) as exc:
             _refresh_agents(root, root / "rebrew-project.toml", json_output=False, check=True)
         assert exc.value.exit_code == 1
+
+
+class TestRefreshAgentsPrunesStaleSkills:
+    """A skill the packaged tree no longer ships must not survive a refresh.
+
+    Without a record of what rebrew wrote, an upgrade that drops a skill leaves
+    the old SKILL.md on disk and still served to the agent, and `--check`
+    reports no drift.
+    """
+
+    def _project(self, tmp_path: Path) -> Path:
+        root = tmp_path / "proj"
+        root.mkdir()
+        (root / "rebrew-project.toml").write_text(
+            '[compiler]\nprofile = "msvc-5.0"\n\n'
+            '[targets."main"]\n'
+            'binary = "original/a.exe"\n'
+            'format = "pe"\narch = "x86_32"\n',
+            encoding="utf-8",
+        )
+        return root
+
+    def _render(self, root: Path, skills: dict[str, bytes], monkeypatch: pytest.MonkeyPatch) -> None:
+        from rebrew import init as init_mod
+
+        monkeypatch.setattr(init_mod, "_agent_skill_files", lambda _target: dict(skills))
+        init_mod._refresh_agents(root, root / "rebrew-project.toml", json_output=False)
+
+    def test_refresh_removes_a_dropped_skill(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        root = self._project(tmp_path)
+        self._render(
+            root,
+            {"old-skill/SKILL.md": b"---\nname: old-skill\n---\n# old\n", "keep/SKILL.md": b"# k\n"},
+            monkeypatch,
+        )
+        assert (root / ".agents/skills/old-skill/SKILL.md").is_file()
+
+        self._render(root, {"keep/SKILL.md": b"# k\n"}, monkeypatch)
+
+        assert not (root / ".agents/skills/old-skill/SKILL.md").exists()
+        assert not (root / ".agents/skills/old-skill").exists()
+        assert (root / ".agents/skills/keep/SKILL.md").is_file()
+
+    def test_second_refresh_is_a_no_op(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        import typer
+
+        root = self._project(tmp_path)
+        self._render(root, {"keep/SKILL.md": b"# k\n"}, monkeypatch)
+        first = (root / ".agents/skills/.rebrew-scaffold.json").read_text(encoding="utf-8")
+
+        self._render(root, {"keep/SKILL.md": b"# k\n"}, monkeypatch)
+        assert (root / ".agents/skills/.rebrew-scaffold.json").read_text(encoding="utf-8") == first
+        with pytest.raises(typer.Exit) as exc:
+            from rebrew.init import _refresh_agents
+
+            _refresh_agents(root, root / "rebrew-project.toml", json_output=False, check=True)
+        assert exc.value.exit_code == 0
+
+    def test_edited_stale_skill_is_kept_and_reported(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import typer
+
+        from rebrew import init as init_mod
+
+        root = self._project(tmp_path)
+        self._render(root, {"old-skill/SKILL.md": b"# old\n", "keep/SKILL.md": b"# k\n"}, monkeypatch)
+        edited = root / ".agents/skills/old-skill/SKILL.md"
+        edited.write_text("# old, hand-edited\n", encoding="utf-8")
+
+        with pytest.raises(typer.Exit) as exc:
+            init_mod._refresh_agents(root, root / "rebrew-project.toml", json_output=False, check=True)
+        assert exc.value.exit_code == 1
+
+        self._render(root, {"keep/SKILL.md": b"# k\n"}, monkeypatch)
+        assert edited.read_text(encoding="utf-8") == "# old, hand-edited\n"
+
+    def test_manifest_outside_the_project_is_ignored(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        root = self._project(tmp_path)
+        self._render(root, {"keep/SKILL.md": b"# k\n"}, monkeypatch)
+        outside = tmp_path / "outside.txt"
+        outside.write_text("keep me\n", encoding="utf-8")
+        manifest = root / ".agents/skills/.rebrew-scaffold.json"
+        payload = json.loads(manifest.read_text(encoding="utf-8"))
+        payload["files"]["../outside.txt"] = payload["files"][".agents/skills/keep/SKILL.md"]
+        manifest.write_text(json.dumps(payload), encoding="utf-8")
+
+        self._render(root, {"keep/SKILL.md": b"# k\n"}, monkeypatch)
+        assert outside.read_text(encoding="utf-8") == "keep me\n"

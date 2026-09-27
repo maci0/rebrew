@@ -1876,6 +1876,58 @@ class TestBuildDbForceFlag:
         build_db(project_root, force=False)
         assert (project_root / "db" / "coverage.db").exists()
 
+    def test_force_preserves_history_and_verify_rows(self, tmp_path: Path) -> None:
+        """A --force rebuild replaces the file but must not discard the tables
+        it cannot re-derive: history and verify_results have no other source."""
+        db_dir = tmp_path / "db"
+        db_dir.mkdir()
+        (db_dir / "data_testbin.json").write_text(json.dumps(SAMPLE_DATA), encoding="utf-8")
+        db_path = db_dir / "coverage.db"
+        build_db(tmp_path)
+
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "INSERT INTO history (target, va, old_status, new_status, changed_at, updated_by)"
+            " VALUES ('testbin', 4096, 'STUB', 'EXACT', '2026-01-01T00:00:00', 'test')"
+        )
+        conn.commit()
+        conn.close()
+
+        _write_stale_db(db_path, stale_version="0")
+        conn = sqlite3.connect(db_path)
+        conn.execute("DELETE FROM verify_results")
+        conn.execute(
+            "INSERT INTO verify_results (target, va, verified_at)"
+            " VALUES ('testbin', 4096, '2026-01-01T00:00:00')"
+        )
+        conn.commit()
+        conn.close()
+
+        build_db(tmp_path, force=True)
+
+        conn = sqlite3.connect(db_path)
+        history = conn.execute(
+            "SELECT target, va, old_status, new_status FROM history"
+        ).fetchall()
+        verify = conn.execute(
+            "SELECT target, va, verified_at FROM verify_results"
+        ).fetchall()
+        conn.close()
+        assert history == [("testbin", 4096, "STUB", "EXACT")]
+        assert verify == [("testbin", 4096, "2026-01-01T00:00:00")]
+
+        # A second --force run over the already-restored DB adds no duplicate.
+        _write_stale_db(db_path, stale_version="0")
+        build_db(tmp_path, force=True)
+        conn = sqlite3.connect(db_path)
+        history = conn.execute("SELECT target, va, old_status, new_status FROM history").fetchall()
+        verify = conn.execute(
+            "SELECT target, va, verified_at FROM verify_results"
+        ).fetchall()
+        conn.close()
+        assert history == [("testbin", 4096, "STUB", "EXACT")]
+        assert verify == [("testbin", 4096, "2026-01-01T00:00:00")]
+
 
 class TestBuildDbCorruptInput:
     """Corrupt or mis-shaped data_*.json must fail cleanly with file context."""

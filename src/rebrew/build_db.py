@@ -483,22 +483,90 @@ def resolve_db_dir(root_dir: Path, *, json_output: bool = False) -> Path:
 #: by a killed build is replayed into whatever database next opens that path.
 _SQLITE_SIDECAR_SUFFIXES = ("-wal", "-shm", "-journal")
 
+#: Tables that survive a destructive rebuild.  Everything else is re-derived
+#: from db/data_*.json on every run, so deleting it is a no-op in effect; these
+#: two accumulate and have no other source, so an --force rebuild must carry
+#: them across the delete.
+_PERSISTENT_TABLES: dict[str, tuple[str, ...]] = {
+    "history": ("target", "va", "old_status", "new_status", "changed_at", "updated_by"),
+    "verify_results": ("target", "va"),
+}
 
-def _unlink_db(db_path: Path) -> None:
-    """Delete *db_path* and its SQLite side files."""
+
+def _unlink_db(db_path: Path) -> dict[str, list[tuple[Any, ...]]]:
+    """Delete *db_path* and its SQLite side files, returning the rows of
+    :data:`_PERSISTENT_TABLES` so the rebuild can restore them.
+
+    Deleting the file is how a stale schema is replaced, but ``history`` and
+    ``verify_results`` are never re-derived: dropping them silently discards
+    every status change and every verify result, and a second ``--force`` run
+    compounds the loss.  Returns an empty mapping when the tables are absent
+    or unreadable, in which case there is nothing worth restoring.
+    """
+    saved: dict[str, list[tuple[Any, ...]]] = {}
+    try:
+        with contextlib.closing(open_sqlite_ro(db_path)) as conn:
+            present = {
+                row[0]
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+                )
+            }
+            for table, columns in _PERSISTENT_TABLES.items():
+                if table in present:
+                    saved[table] = conn.execute(f"SELECT {', '.join(columns)} FROM {table}").fetchall()
+    except sqlite3.Error:
+        saved = {}
     db_path.unlink()
     for suffix in _SQLITE_SIDECAR_SUFFIXES:
         db_path.with_name(db_path.name + suffix).unlink(missing_ok=True)
+    return saved
 
 
-def _check_db_version(db_path: Path, *, force: bool = False, json_output: bool = False) -> None:
+def _restore_persistent_rows(
+    c: sqlite3.Cursor, saved: dict[str, list[tuple[Any, ...]]]
+) -> None:
+    """Re-insert rows saved by :func:`_unlink_db`, skipping ones already present.
+
+    Both restores are naturally idempotent, so a second --force rebuild over an
+    already-restored database adds nothing:
+    ``verify_results`` is keyed ``(target, va)``; a ``history`` row is the
+    status transition it records, and an identical transition at the same
+    ``changed_at`` is the same fact.
+    """
+    rows = saved.get("verify_results")
+    if rows:
+        c.executemany(
+            "INSERT OR IGNORE INTO verify_results (target, va) VALUES (?, ?)",
+            rows,
+        )
+    rows = saved.get("history")
+    if rows:
+        c.executemany(
+            """
+            INSERT INTO history (target, va, old_status, new_status, changed_at, updated_by)
+            SELECT ?, ?, ?, ?, ?, ?
+            WHERE NOT EXISTS (
+                SELECT 1 FROM history h
+                WHERE h.target IS ? AND h.va IS ? AND h.changed_at IS ?
+                  AND h.old_status IS ? AND h.new_status IS ? AND h.updated_by IS ?
+            )
+            """,
+            rows,
+        )
+
+
+def _check_db_version(
+    db_path: Path, *, force: bool = False, json_output: bool = False
+) -> dict[str, list[tuple[Any, ...]]]:
     """Raise SystemExit (via error_exit) if DB exists with an incompatible schema version.
 
     On mismatch without ``--force``: emit a clear error.
-    With ``--force``: delete the DB file so it is recreated from scratch.
+    With ``--force``: delete the DB file so it is recreated from scratch, and
+    return the :data:`_PERSISTENT_TABLES` rows the caller must restore.
     """
     if not db_path.exists():
-        return
+        return {}
     try:
         with contextlib.closing(open_sqlite_ro(db_path)) as conn:
             c = conn.cursor()
@@ -545,8 +613,7 @@ def _check_db_version(db_path: Path, *, force: bool = False, json_output: bool =
             "[yellow]warning:[/yellow] existing database has no schema (likely a "
             "failed build); deleting and rebuilding."
         )
-        _unlink_db(db_path)
-        return
+        return _unlink_db(db_path)
 
     if stored_version == _CURRENT_DB_VERSION:
         # The version string alone is not proof of shape: a DB stamped "4" can
@@ -578,7 +645,8 @@ def _check_db_version(db_path: Path, *, force: bool = False, json_output: bool =
             f"[yellow]warning:[/yellow] schema mismatch (stored={stored_version!r}, "
             f"required={_CURRENT_DB_VERSION!r}); deleting '{db_path}' and rebuilding (--force)."
         )
-        _unlink_db(db_path)
+        return _unlink_db(db_path)
+    return {}
 
 
 def _missing_required_objects(db_path: Path) -> set[str]:
@@ -1222,7 +1290,7 @@ def _build_coverage_db(
     regen: bool,
 ) -> None:
     """Body of :func:`build_db`.  Caller holds :func:`coverage_db_lock`."""
-    _check_db_version(db_path, force=force, json_output=json_output)
+    preserved_rows = _check_db_version(db_path, force=force, json_output=json_output)
     # Catalog scan and JSON parsing stay outside the write transaction: a
     # long --regen must not hold BEGIN IMMEDIATE, and a bad snapshot must
     # not delete rows that the rollback would then have to restore.
@@ -1268,6 +1336,7 @@ def _build_coverage_db(
                 old_statuses[(row[0], row[1])] = row[2]
 
         _create_schema(c, target)
+        _restore_persistent_rows(c, preserved_rows)
 
         # Scoped rebuild: delete only this target's rows (sections first so
         # the cells FK CASCADE clears cell rows too).  Runs after all tables
