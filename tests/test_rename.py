@@ -265,6 +265,20 @@ class TestRenameCli:
         assert result.exit_code == 0, result.output
         assert "new_fn" in result.output
 
+    def test_source_file_outside_reversed_dir_errors(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """A metadata filepath escaping reversed_dir must fail before any write."""
+        outside = tmp_path / "outside.c"
+        outside.write_text("int old_fn(void) { return 0; }\n", encoding="utf-8")
+        entries = [
+            SimpleNamespace(name="old_fn", symbol="_old_fn", filepath="../outside.c", va=0x1000)
+        ]
+        result = self._invoke(tmp_path, monkeypatch, "--json", "old_fn", "new_fn", entries=entries)
+        assert result.exit_code != 0
+        assert "escapes reversed_dir" in result.output
+        assert outside.read_text(encoding="utf-8") == "int old_fn(void) { return 0; }\n"
+
     def test_multiple_matches_errors(self, tmp_path: Path, monkeypatch: Any) -> None:
         from typer.testing import CliRunner
 

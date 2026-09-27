@@ -151,9 +151,10 @@ def _re_init_project(binary: Path, tool: str, root: Path) -> str | None:
         warnings.warn(f"{tool} could not create project dir: {e}", stacklevel=3)
         return None
     # The project dir is spliced into an r2 ``-c`` command script, where ``;``
-    # separates commands and ``!`` runs a host shell.  It comes from TMPDIR, so
-    # it is untrusted text even though mkdtemp picked the name.
-    if any(ch in proj_dir for ch in "; \t\n"):
+    # separates commands, ``!`` runs a host shell, and the shell metacharacters
+    # reach a further shell.  It comes from TMPDIR, so it is untrusted text even
+    # though mkdtemp picked the name.
+    if any(ch in proj_dir for ch in "; \t\n!\"'`$&|<>()"):
         shutil.rmtree(proj_dir, ignore_errors=True)
         warnings.warn(
             f"{tool} skipped project reuse: TMPDIR path has unsafe characters", stacklevel=3
