@@ -337,11 +337,13 @@ app = typer.Typer(
 
 @app.callback(invoke_without_command=True)
 def main(
-    seed_c: str = typer.Argument(..., help="C source file, symbol name, or VA (hex)"),
+    seed_c: str = typer.Argument(
+        ..., metavar="source", help="C source file, symbol name, or VA (hex)"
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
-    """Compile SEED_C and compare its stack frame against the target function."""
+    """Compile a seed source and compare its stack frame against the target function."""
     run_stack_cmp(seed_c, json_output, target)
 
 

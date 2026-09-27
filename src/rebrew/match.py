@@ -83,7 +83,9 @@ app = typer.Typer(
 
 @app.callback(invoke_without_command=True)
 def main(
-    seed_c: str | None = typer.Argument(None, help="Seed source file (.c) — omit for --all mode"),
+    seed_c: str | None = typer.Argument(
+        None, metavar="source", help="Seed source file (.c) — omit for --all mode"
+    ),
     # Single-function options
     cl: str | None = typer.Option(
         None,

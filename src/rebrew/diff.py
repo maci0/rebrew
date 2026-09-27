@@ -448,7 +448,9 @@ app = typer.Typer(
 
 @app.callback(invoke_without_command=True)
 def main(
-    seed_c: str = typer.Argument(..., help="C source file, symbol name, or VA (hex)"),
+    seed_c: str = typer.Argument(
+        ..., metavar="source", help="C source file, symbol name, or VA (hex)"
+    ),
     mismatches_only: bool = typer.Option(
         False,
         "--mismatches-only",
