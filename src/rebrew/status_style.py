@@ -6,13 +6,14 @@ terminal tools print, the hex mark the report, dashboard and call graph fill
 with, the canonical display order, and the grouping the report stylesheet and
 dashboard shell iterate to colour body text.
 
-It is a leaf, importing nothing from rebrew but the vocabulary, so any surface
-can read a mark without pulling in the Typer toolkit or the analysis engine
-that produced the status.
+It is a leaf, importing nothing from rebrew but the status vocabulary and the
+chrome tokens, so any surface can read a mark without pulling in the Typer
+toolkit or the analysis engine that produced the status.
 """
 
 from __future__ import annotations
 
+from rebrew.theme import TOKENS
 from rebrew.workspace.status import MATCHED_STATUSES
 
 # Canonical Rich colour tags for status strings, used across CLI tools for
@@ -35,8 +36,8 @@ STATUS_COLORS: dict[str, str] = {
 
 # Page and call-graph marks for the same statuses. Text on white (report,
 # dashboard) and white on the fill (Mermaid, DOT) both meet WCAG AA.
-# STUB is slate, like the dim terminal tag, not an error red. DISPATCH is
-# the report header ink: a jump table is structure, not a match status.
+# STUB is slate, like the dim terminal tag, not an error red. DISPATCH is the
+# chrome ink token: a jump table is structure, not a match status.
 # Every KNOWN_STATUS has a mark: the report table, the dashboard cards and
 # the call-graph labels all emit ``status-<STATUS>`` for whatever STATUS a
 # row carries, so a machine verdict (COMPILE_ERROR, MISSING_SIZE, ...) with
@@ -57,7 +58,7 @@ STATUS_HEX: dict[str, str] = {
     "INTERNAL_ERROR": "#b91c1c",
     "SKIP": "#556070",
     "UNKNOWN": "#555",
-    "DISPATCH": "#1a1a1a",
+    "DISPATCH": TOKENS["ink"],
 }
 
 # User-visible classification statuses, in canonical display order: the
