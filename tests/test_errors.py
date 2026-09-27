@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 
@@ -244,7 +245,7 @@ class TestSerializationRoundTrip:
         # `kind` is a structured field subclasses declare, so the base class has
         # no attribute for the type checker to see; from_dict still set it from
         # the payload, which is the survival this test is about.
-        assert (str(rebuilt), rebuilt.retryable, getattr(rebuilt, "kind")) == ("new", True, "network")
+        assert (str(rebuilt), rebuilt.retryable, cast(Any, rebuilt).kind) == ("new", True, "network")
 
 
 #: Constructor keywords for the error classes that require more than a message.
