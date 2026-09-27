@@ -25,7 +25,9 @@ class TestNormalize:
 
 
 class TestOutputsIdentical:
-    def _install_rebrew(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, script: str) -> None:
+    def _install_rebrew(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, script: str
+    ) -> None:
         """Install a fake `rebrew` on PATH that runs *script*."""
         bin_dir = tmp_path / "bin"
         bin_dir.mkdir()
@@ -34,11 +36,17 @@ class TestOutputsIdentical:
         script_path.chmod(0o755)
         monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ.get('PATH', '')}")
 
-    def test_identical_outputs(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        self._install_rebrew(tmp_path, monkeypatch, 'echo \'{"timestamp": "t", "a": 1}\'')
+    def test_identical_outputs(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._install_rebrew(
+            tmp_path, monkeypatch, 'echo \'{"timestamp": "t", "a": 1}\''
+        )
         assert outputs_identical("status --json", tmp_path)
 
-    def test_differing_outputs(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_differing_outputs(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         self._install_rebrew(
             tmp_path,
             monkeypatch,
@@ -47,7 +55,9 @@ class TestOutputsIdentical:
         # A different nanosecond value → not identical.
         assert not outputs_identical("status --json", tmp_path)
 
-    def test_differing_exit_codes(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_differing_exit_codes(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         # First invocation exits 0, second exits 1 (count via a marker file
         # in the sandbox — $HOME is unreliable in the test subprocess).
         marker = tmp_path / "count"
@@ -74,6 +84,85 @@ class TestCliArgEdgeCases:
         assert "--cwd requires a directory" in out
 
 
+class TestTreeDigest:
+    def test_ignores_mtime_but_not_content(self, tmp_path: Path) -> None:
+        from tools.check_idempotency import tree_digest
+
+        target = tmp_path / "a.c"
+        target.write_text("x\n", encoding="utf-8")
+        before = tree_digest(tmp_path)
+        target.touch()
+        assert tree_digest(tmp_path) == before
+        target.write_text("y\n", encoding="utf-8")
+        assert tree_digest(tmp_path) != before
+
+    def test_lists_added_and_removed_paths(self, tmp_path: Path) -> None:
+        from tools.check_idempotency import _tree_diff
+
+        diff = _tree_diff({"a.c": "1", "b.c": "2"}, {"a.c": "9", "c.c": "3"})
+        assert "added: c.c" in diff
+        assert "removed: b.c" in diff
+        assert "changed: a.c" in diff
+
+
+class TestWriteIdempotency:
+    """A mutating command must leave the same project behind on its second run."""
+
+    def _install_rebrew(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, script: str
+    ) -> None:
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        script_path = bin_dir / "rebrew"
+        script_path.write_text("#!/bin/sh\n" + script + "\n", encoding="utf-8")
+        script_path.chmod(0o755)
+        monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ.get('PATH', '')}")
+
+    def test_convergent_command_passes(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from tools.check_idempotency import check_write_idempotency
+
+        project = tmp_path / "proj"
+        project.mkdir()
+        self._install_rebrew(
+            tmp_path,
+            monkeypatch,
+            'if [ -f note.c ]; then rm -f note.c; fi; echo "// once" > note.c',
+        )
+        assert check_write_idempotency("migrate-markers", project) == (True, "")
+
+    def test_appending_command_fails(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from tools.check_idempotency import check_write_idempotency
+
+        project = tmp_path / "proj"
+        project.mkdir()
+        self._install_rebrew(
+            tmp_path, monkeypatch, 'echo "// GLOBAL: SERVER 0x401000" >> note.c'
+        )
+        ok, reason = check_write_idempotency("document-unmatched", project)
+        assert not ok
+        assert "note.c" in reason
+
+    def test_exit_code_mismatch_fails(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from tools.check_idempotency import check_write_idempotency
+
+        project = tmp_path / "proj"
+        project.mkdir()
+        self._install_rebrew(
+            tmp_path,
+            monkeypatch,
+            f"if [ -f {project}/ran ]; then exit 3; fi; touch {project}/ran",
+        )
+        ok, reason = check_write_idempotency("gen-link-stubs", project)
+        assert not ok
+        assert "exit code mismatch" in reason
+
+
 class TestFixtureProject:
     def test_write_fixture_project_assembles_project(self, tmp_path: Path) -> None:
         from tools.check_idempotency import write_fixture_project
@@ -82,7 +171,9 @@ class TestFixtureProject:
         assert (project / "rebrew-project.toml").is_file()
         assert (project / "original" / "mini_pe.exe").is_file()
         assert (project / "src" / "SERVER" / "fcn.c").is_file()
-        assert "mini_pe.exe" in (project / "rebrew-project.toml").read_text(encoding="utf-8")
+        assert "mini_pe.exe" in (project / "rebrew-project.toml").read_text(
+            encoding="utf-8"
+        )
 
     def test_fixture_dir_without_value_errors(self, capsys) -> None:
         from tools.check_idempotency import main
@@ -91,10 +182,12 @@ class TestFixtureProject:
         assert "--fixture-dir requires a directory" in capsys.readouterr().out
 
     def test_fixture_dir_sweep_runs_against_real_rebrew(self, tmp_path: Path) -> None:
-        """End-to-end: the full default sweep passes on the fixture project.
+        """End-to-end: the read-only and write sweeps pass on the fixture project.
 
-        Uses the real `rebrew` CLI via uv run (the fixture project's config is
-        deliberately minimal so every offline --json command works).
+        Uses the real `rebrew` CLI (the fixture project's config is deliberately
+        minimal so every offline --json command works).  The write sweep also
+        proves the mutating commands leave the project byte-identical when run
+        a second time.
         """
 
         project = tmp_path / "proj"
