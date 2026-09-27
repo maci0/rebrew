@@ -19,6 +19,7 @@ import bisect
 import contextlib
 import logging
 import re
+import threading
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -1556,6 +1557,11 @@ def _check_body_rules(result: LintResult, lines: list[str], has_new: bool) -> No
 _DATA_SECTION_NAMES: dict[int, frozenset[str]] = {}
 _DATA_SECTION_NAMES_OWNER: dict[int, dict[tuple[str, int], dict[str, Any]]] = {}
 _DATA_SECTION_NAMES_MAX = 4
+# The owner hit, the two eviction clears, and the two stores are one
+# check-then-act over two parallel dicts — the same discipline as
+# ``annotation._metadata_file_index``.  Held only for the dict work; the name
+# set is built outside it.
+_DATA_SECTION_NAMES_LOCK = threading.Lock()
 
 
 def _data_section_names_for(entries: dict[tuple[str, int], dict[str, Any]]) -> frozenset[str]:
@@ -1566,23 +1572,25 @@ def _data_section_names_for(entries: dict[tuple[str, int], dict[str, Any]]) -> f
     every ``rebrew-data.toml`` entry for every file in the tree.
     """
     key = id(entries)
-    # The eviction below clears both dicts, so a concurrent clear between the
-    # owner check and the index read loses the entry: rebuild instead of a
-    # KeyError.
-    if _DATA_SECTION_NAMES_OWNER.get(key) is entries:
-        cached = _DATA_SECTION_NAMES.get(key)
-        if cached is not None:
-            return cached
+    with _DATA_SECTION_NAMES_LOCK:
+        # The eviction below clears both dicts, so a concurrent clear between
+        # the owner check and the index read loses the entry: rebuild instead
+        # of a KeyError.
+        if _DATA_SECTION_NAMES_OWNER.get(key) is entries:
+            cached = _DATA_SECTION_NAMES.get(key)
+            if cached is not None:
+                return cached
     names = frozenset(
         str(entry["name"])
         for entry in entries.values()
         if entry.get("section") in (".data", ".bss") and entry.get("name")
     )
-    if len(_DATA_SECTION_NAMES) >= _DATA_SECTION_NAMES_MAX:
-        _DATA_SECTION_NAMES.clear()
-        _DATA_SECTION_NAMES_OWNER.clear()
-    _DATA_SECTION_NAMES[key] = names
-    _DATA_SECTION_NAMES_OWNER[key] = entries
+    with _DATA_SECTION_NAMES_LOCK:
+        if len(_DATA_SECTION_NAMES) >= _DATA_SECTION_NAMES_MAX:
+            _DATA_SECTION_NAMES.clear()
+            _DATA_SECTION_NAMES_OWNER.clear()
+        _DATA_SECTION_NAMES[key] = names
+        _DATA_SECTION_NAMES_OWNER[key] = entries
     return names
 
 
