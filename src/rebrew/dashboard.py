@@ -1040,10 +1040,7 @@ function bindControls() {
     $("q").value = "";
     $("gq").value = "";
     // Every view now shows the old target; each reloads when next shown.
-    viewLoaded.functions = false;
-    viewLoaded.sections = false;
-    viewLoaded.globals = false;
-    viewLoaded.history = false;
+    VIEWS.forEach((name) => (viewLoaded[name] = false));
     resetPaging();
     resetGlobalsPaging();
     resetHistoryPaging();
@@ -1207,14 +1204,12 @@ async function init() {
   const boot = await get("/api/bootstrap");
   $("boot-status").hidden = true;
   // A reload re-reads coverage.db, so nothing already painted counts as loaded.
-  viewLoaded.functions = false;
-  viewLoaded.sections = false;
-  viewLoaded.globals = false;
-  viewLoaded.history = false;
+  VIEWS.forEach((name) => (viewLoaded[name] = false));
   $("reload").hidden = false;
   targets = boot.targets || [];
+  bindControls();
+  $("no-targets").hidden = !!targets.length;
   if (!targets.length) {
-    $("no-targets").hidden = false;
     $("results-status").textContent = "No targets in coverage.db";
     return;
   }
@@ -1232,7 +1227,6 @@ async function init() {
   $("gq").value = saved.get("gq") || "";
   // The bootstrap payload covers the first target with no filters.
   const bootFits = $("target").value === targets[0];
-  bindControls();
   syncViewChrome();
   let summaryLoad = null;
   if (boot.summary && bootFits) {

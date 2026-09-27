@@ -437,6 +437,20 @@
   agree. A command that declares a flag itself keeps its own meaning:
   `rebrew lint --quiet` is still "errors only", and the injector only adds
   `--verbose` there.
+- **The dashboard's empty-database state sent the user to a button that did
+  nothing.** With no targets, `init` returned before `bindControls`, so the
+  `Reload` button the empty state tells the reader to press ("Run `rebrew
+  build-db` for this project, then choose Reload") had no handler at all. The
+  only instruction on that screen could not be carried out from the screen.
+  `bindControls` now runs before the early return; every other handler it
+  binds guards on an empty target select, so the populated path is unchanged.
+- **The dashboard kept "No targets found" on screen over a populated
+  dashboard.** `#no-targets` was only ever set visible, never hidden, so a
+  reload that found targets left the empty-state message standing above the
+  rows it contradicted. It now takes its one value from the same test that
+  gates the early return, so the message is the exact complement of the
+  target list. The four hand-written `viewLoaded` resets, whose keys are
+  `VIEWS`, derive from that list instead, which pays for the line.
 - **A header that could not be read no longer vanishes from a cache key.**
   `verify_hash.headers_hash`, its stat fingerprint, and
   `compile_cache._header_key_entries` all skipped a header whose `read_bytes`

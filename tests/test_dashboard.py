@@ -57,6 +57,13 @@ def _run_script(script: str, **env: str) -> None:
     assert result.returncode == 0, result.stdout + result.stderr
 
 
+def _js_list(body: str, name: str) -> list[str]:
+    """Names in a JS ``const`` array or flat object literal, sorted."""
+    match = re.search(rf"const {name} = [\{{\[]+(.*?)[\}}\]]+;", body, re.S)
+    assert match, f"const {name} literal not found"
+    return sorted(a or b for a, b in re.findall(r'"([^"]+)"|([A-Za-z_]\w*)\s*:', match.group(1)))
+
+
 def _write_data(db_dir: Path, target: str = "server_dll") -> Path:
     db_dir.mkdir(parents=True, exist_ok=True)
     data = {
@@ -732,7 +739,10 @@ class TestHandle:
         # A reload must drop what the previous boot marked as loaded, or a
         # second visit to a view would keep showing the rows it was painted with.
         assert "nothing already painted counts as loaded" in body
-        assert body.count("viewLoaded.sections = false;") >= 1
+        assert "VIEWS.forEach((name) => (viewLoaded[name] = false));" in body
+        # That reset only covers every view because the two lists name the same
+        # ones; a view in one and not the other would never load again.
+        assert _js_list(body, "VIEWS") == _js_list(body, "viewLoaded")
         assert "border: 1px solid #767676" in body  # WCAG 1.4.11 non-text contrast
         assert "#ccc" not in body
         assert ".status-EXACT" in html  # same marks as the report
