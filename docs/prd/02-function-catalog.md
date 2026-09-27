@@ -218,6 +218,8 @@ rebrew flirt [SIG_DIR]
       --binary PATH
       --min-size N           (default 16)
       --va VA
+      --init
+      --init-matched
       --show-ambiguous
       --json
   -t, --target TEXT

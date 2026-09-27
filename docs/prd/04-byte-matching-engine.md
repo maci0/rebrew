@@ -220,6 +220,8 @@ rebrew prove [SOURCE]
       --start-offset N (default 0)
       --end-offset N (default 0)
       --check-edx
+      --ceiling N
+      --stub-thunks
       --watch-va VA
       --dry-run
       --watch

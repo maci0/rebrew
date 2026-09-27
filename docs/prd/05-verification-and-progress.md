@@ -234,10 +234,12 @@ rebrew verify [file.c] [OPTIONS]
       --context PATH
       --json
   -t, --target TEXT
+      --all-targets
 
 rebrew status [OPTIONS]
       --json
   -t, --target TEXT
+      --all-targets
 
 rebrew graph [OPTIONS]
   -f, --format mermaid|dot|summary (default mermaid)
