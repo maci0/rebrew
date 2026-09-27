@@ -9,6 +9,8 @@ config decision.
 
 from __future__ import annotations
 
+import threading
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
@@ -132,3 +134,86 @@ def resolve_compile_overrides(
         cfg, source_dir, per_function_toolchain, per_function_cflags, module
     )
     return toolchain, cflags
+
+
+#: Bounded memo for :func:`resolve_compile_overrides`, which walks the
+#: ``rebrew-libraries.toml`` parents (a stat per level) on every call.
+#: Batch paths (verify, test) resolve once per function over the same handful
+#: of (config, source dir, toolchain, cflags, module) tuples, so a large
+#: project pays the same walk thousands of times.
+_OVERRIDE_MEMO_MAX = 512
+_override_memo: OrderedDict[tuple[Any, ...], tuple[str | None, str]] = OrderedDict()
+_override_memo_lock = threading.Lock()
+
+
+def _override_memo_key(
+    cfg: ProjectConfig | None, source_dir: str | Path, toolchain: str, cflags: str, module: str
+) -> tuple[Any, ...]:
+    """Cache key carrying every input ``resolve_compile_overrides`` reads.
+
+    The resolution falls back per-function metadata → nearest
+    ``rebrew-libraries.toml`` → per-module preset → project defaults, so the
+    key must span all four levels:
+
+    * the target and the project-default flags (``cflags``,
+      ``cflags_explicit``, ``posix_style``, ``compiler_profile``, the module
+      preset) — ``verify --all-targets`` builds one config per target in a
+      single process, and without them a shared source resolves against the
+      FIRST target's flags for every later target.
+    * the stat fingerprint of the nearest library file — a ``rebrew library
+      set`` write (or a hand edit during ``verify --watch``) otherwise leaves
+      the pre-write toolchain/CFLAGS in force for the process lifetime.
+    """
+    from rebrew.metadata import library_override_fingerprint
+
+    return (
+        str(getattr(cfg, "root", "")),
+        str(getattr(cfg, "target_name", "")),
+        str(source_dir),
+        toolchain,
+        cflags,
+        module,
+        str(getattr(cfg, "compiler_profile", "")),
+        str(getattr(cfg, "cflags", "")),
+        bool(getattr(cfg, "cflags_explicit", False)),
+        bool(getattr(cfg, "posix_style", False)),
+        str(getattr(cfg, "cflags_presets", {}).get(preset_module_key(module), "")),
+        library_override_fingerprint(Path(source_dir), getattr(cfg, "root", None)),
+    )
+
+
+def resolve_compile_overrides_cached(
+    cfg: ProjectConfig | None,
+    source_dir: str | Path,
+    per_function_toolchain: str | None,
+    per_function_cflags: str | None,
+    module: str = "",
+) -> tuple[str | None, str]:
+    """:func:`resolve_compile_overrides` behind a bounded memo.
+
+    Same answers as the uncached call; the key spans every input the
+    resolution reads (see :func:`_override_memo_key`), so a library
+    override write, a different target's config, or a different source
+    directory never reads another entry's value.
+    """
+    key = _override_memo_key(
+        cfg,
+        source_dir,
+        per_function_toolchain or "",
+        per_function_cflags or "",
+        module,
+    )
+    with _override_memo_lock:
+        hit = _override_memo.get(key)
+        if hit is not None:
+            _override_memo.move_to_end(key)
+            return hit
+    resolved = resolve_compile_overrides(
+        cfg, source_dir, per_function_toolchain, per_function_cflags, module
+    )
+    with _override_memo_lock:
+        _override_memo[key] = resolved
+        _override_memo.move_to_end(key)
+        while len(_override_memo) > _OVERRIDE_MEMO_MAX:
+            _override_memo.popitem(last=False)
+    return resolved
