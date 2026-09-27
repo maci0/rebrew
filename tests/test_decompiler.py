@@ -1241,6 +1241,23 @@ class TestReSessionReuse:
         monkeypatch.setattr("rebrew.decompiler.run_process_group", fake_run)
         return calls, binary
 
+    def test_unsafe_tmpdir_project_path_is_refused(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A TMPDIR with r2/shell metacharacters must not reach the ``-c`` script."""
+        import rebrew.decompiler as dc
+
+        calls, binary = self._setup(tmp_path, monkeypatch)
+        unsafe = tmp_path / "tmp; rm -rf ~"
+        unsafe.mkdir()
+        monkeypatch.setattr(dc.tempfile, "mkdtemp", lambda prefix="": str(unsafe / f"{prefix}x"))
+        try:
+            assert dc._re_init_project(binary, "rz", tmp_path) is None
+            assert not list(unsafe.iterdir()), "refused project dir leaked"
+        finally:
+            dc._clear_re_projects()
+        assert calls == [], "r2 must not run with an unsafe project path"
+
     def test_analysis_runs_once_across_calls(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

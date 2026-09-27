@@ -221,7 +221,18 @@ def main(
                 json_mode=json_output,
             )
 
-    filepath = cfg.reversed_dir / old_fp
+    # The rename rewrites and moves this file, so it must resolve inside
+    # reversed_dir like the destination name does in rename_ops.rename_one.
+    # old_fp is metadata-supplied (MARKER_IDENTITY_FIELDS carries "file"),
+    # so an absolute or "../" value would put the write outside the project.
+    try:
+        filepath = (cfg.reversed_dir / old_fp).resolve()
+        filepath.relative_to(Path(cfg.reversed_dir).resolve())
+    except (ValueError, OSError, TypeError):
+        error_exit(
+            f"function file escapes reversed_dir: {old_fp!r}",
+            json_mode=json_output,
+        )
 
     if not json_output:
         if dry_run:
