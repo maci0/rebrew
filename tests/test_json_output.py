@@ -1066,12 +1066,16 @@ class TestSinglePathExitCodes:
             message=status,
         )
 
-    def test_extract_error_exits_2(self, tmp_path: Path, monkeypatch: Any) -> None:
+    @pytest.mark.parametrize(
+        ("status", "exit_code"),
+        [("EXTRACT_ERROR", EXIT_ERROR), ("NEAR_MATCHING", EXIT_MISMATCH)],
+    )
+    def test_exit_code(self, tmp_path: Path, monkeypatch: Any, status: str, exit_code: int) -> None:
         import typer
 
         import rebrew.test as testmod
 
-        self._cfg(tmp_path, monkeypatch, self._cmp("EXTRACT_ERROR"))
+        self._cfg(tmp_path, monkeypatch, self._cmp(status))
         with pytest.raises(typer.Exit) as exc:
             testmod.main(
                 str(tmp_path / "f.c"),
@@ -1095,38 +1099,7 @@ class TestSinglePathExitCodes:
                 json_output=True,
                 target=None,
             )
-        assert exc.value.exit_code == EXIT_ERROR
-
-    def test_near_matching_exits_1(self, tmp_path: Path, monkeypatch: Any) -> None:
-        import typer
-
-        import rebrew.test as testmod
-
-        self._cfg(tmp_path, monkeypatch, self._cmp("NEAR_MATCHING"))
-        with pytest.raises(typer.Exit) as exc:
-            testmod.main(
-                str(tmp_path / "f.c"),
-                va="0x1000",
-                size=8,
-                symbol="_f",
-                target_bin=None,
-                cflags=None,
-                toolchain=None,
-                all_sources=False,
-                batch_dir=None,
-                origin=None,
-                dry_run=False,
-                jobs=None,
-                no_promote=True,
-                force_status=False,
-                fix_sizes=False,
-                linked=False,
-                watch=False,
-                context=None,
-                json_output=True,
-                target=None,
-            )
-        assert exc.value.exit_code == EXIT_MISMATCH
+        assert exc.value.exit_code == exit_code
 
     def test_multi_isolates_unexpected_exception(self, tmp_path: Path, monkeypatch: Any) -> None:
         """A non-(ValueError, OSError) raise in one symbol's parse/compare is

@@ -27,7 +27,6 @@ from rebrew.matcher.mutations.queries import (
     _QUERY_ADJACENT_DECL,
     _QUERY_ADJACENT_EXPR_STMTS,
     _QUERY_ARRAY_INDEX,
-    _QUERY_ASSIGN_ZERO,
     _QUERY_BARE_CHAR_TYPE,
     _QUERY_BITAND,
     _QUERY_CALL_ASSIGN,
@@ -95,6 +94,7 @@ from rebrew.matcher.mutations.runtime import (
     _RE_RET_FALSE_LABEL_NL,
     _RE_SINK_RETURN,
     _apply_query_once,
+    _assign_zero_targets,
     _cap_bytes,
     _capture,
     _commute_operands,
@@ -620,30 +620,27 @@ def mut_toggle_signedness(s: str, rng: random.Random) -> str | None:
     return res_str if res_str != s else None
 
 
-def mut_swap_adjacent_declarations(s: str, rng: random.Random) -> str | None:
-    """Swap two adjacent variable declarations."""
+def _swap_decl_pair(s: str, query: ts.Query | _LazyQuery, rng: random.Random) -> str | None:
+    """Swap the two declarations captured as ``d1``/``d2`` by *query*."""
     b_source = encode_source(s)
-    cursor = _cursor(_QUERY_ADJACENT_DECL)
-
     tree = parse_c_ast(b_source)
-    matches = cursor.matches(tree.root_node)
-
+    matches = _cursor(query).matches(tree.root_node)
     if not matches:
         return None
 
-    match = rng.choice(matches)
-    captures = _first_caps(match[1])
-
+    captures = _first_caps(rng.choice(matches)[1])
     d1 = captures["d1"]
     d2 = captures["d2"]
-
     d1_text = b_source[d1.start_byte : d1.end_byte]
     d2_text = b_source[d2.start_byte : d2.end_byte]
     mid_text = b_source[d1.end_byte : d2.start_byte]
+    swapped = d2_text + mid_text + d1_text
+    return decode_source(b_source[: d1.start_byte] + swapped + b_source[d2.end_byte :])
 
-    replacement = d2_text + mid_text + d1_text
-    res = b_source[: d1.start_byte] + replacement + b_source[d2.end_byte :]
-    return decode_source(res)
+
+def mut_swap_adjacent_declarations(s: str, rng: random.Random) -> str | None:
+    """Swap two adjacent variable declarations."""
+    return _swap_decl_pair(s, _QUERY_ADJACENT_DECL, rng)
 
 
 def mut_split_declaration_init(s: str, rng: random.Random) -> str | None:
@@ -1273,29 +1270,8 @@ def mut_introduce_local_alias(s: str, rng: random.Random) -> str | None:
 
 
 def mut_reorder_declarations(s: str, rng: random.Random) -> str | None:
-    """Swap two adjacent declarations in a compound statement."""
-    b_source = encode_source(s)
-
-    tree = parse_c_ast(b_source)
-    q = _QUERY_REORDER_DECLARATIONS
-    cursor = _cursor(q)
-    matches = cursor.matches(tree.root_node)
-    if not matches:
-        return None
-    match = rng.choice(matches)
-    captures = _first_caps(match[1])
-    d1 = captures["d1"]
-    d2 = captures["d2"]
-    d1_text = b_source[d1.start_byte : d1.end_byte]
-    d2_text = b_source[d2.start_byte : d2.end_byte]
-    result = (
-        b_source[: d1.start_byte]
-        + d2_text
-        + b_source[d1.end_byte : d2.start_byte]
-        + d1_text
-        + b_source[d2.end_byte :]
-    )
-    return decode_source(result)
+    """Swap two declarations anywhere in a compound statement."""
+    return _swap_decl_pair(s, _QUERY_REORDER_DECLARATIONS, rng)
 
 
 # ---------------------------------------------------------------------------
@@ -2016,16 +1992,7 @@ def mut_xor_zero_toggle(s: str, rng: random.Random) -> str | None:
 
     candidates: list[tuple[dict[str, ts.Node], bytes, str]] = []
 
-    zero_cursor = _cursor(_QUERY_ASSIGN_ZERO)
-    for m in zero_cursor.matches(tree.root_node):
-        caps = _first_caps(m[1])
-        # Skip if inside a for-loop initializer
-        parent = caps["expr"].parent
-        if parent and parent.type == "for_statement":
-            continue
-        var = b_source[caps["var"].start_byte : caps["var"].end_byte]
-        if b"." in var or b"->" in var or b"[" in var:
-            continue
+    for caps, var in _assign_zero_targets(b_source, tree):
         candidates.append((caps, var + b" ^= " + var + b";", "expr"))
 
     xor_cursor = _cursor(_QUERY_XOR_SELF)
