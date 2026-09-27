@@ -214,6 +214,19 @@ _TEMP_VAR_RE = re.compile(r"^(?:v\d+|(?:local|var)_[0-9a-fA-F_]+h?|[A-Za-z]{1,3}
 #: ``global_base + index`` into ``var + 0xADDR``), not struct members.
 _MAX_MEMBER_OFFSET = 0x1000000  # 16 MiB — far above any real x86-32 struct
 
+#: Longest array index converted to evidence.  A nine-digit index is already
+#: past ``_MAX_MEMBER_OFFSET`` at every element width, so the extra digits
+#: only reach ``int()`` — which rejects a decimal run past CPython's
+#: conversion limit with a bare ``ValueError``.
+_MAX_INDEX_DIGITS = 8
+
+
+def _parse_index(text: str) -> int | None:
+    """An array index as evidence, or ``None`` when it cannot be a member offset."""
+    if len(text) > _MAX_INDEX_DIGITS:
+        return None
+    return int(text)
+
 
 def _member_offset_cap(cfg: Any) -> int:
     """Member-offset cap for evidence parsing: image base, else the 16 MiB fallback.
@@ -370,15 +383,17 @@ def parse_decomp_for_structs(text: str, max_offset: int = _MAX_MEMBER_OFFSET) ->
         width = type_width(m.group("type"))
         var = m.group("var")
         elem = TYPE_WIDTHS.get(var_types.get(var, ""))
-        if width is None or elem is None:
+        index = _parse_index(m.group("idx"))
+        if width is None or elem is None or index is None:
             continue
-        _record(var, int(m.group("idx")) * elem, width)
+        _record(var, index * elem, width)
     for m in ARRAY_IDX_RE.finditer(text):
         var = m.group("var")
         elem = TYPE_WIDTHS.get(var_types.get(var, ""))
-        if elem is None:
+        index = _parse_index(m.group("idx"))
+        if elem is None or index is None:
             continue
-        _record(var, int(m.group("idx")) * elem, elem)
+        _record(var, index * elem, elem)
 
     return ParseResult(named=named, anonymous=anonymous)
 

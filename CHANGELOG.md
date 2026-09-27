@@ -414,6 +414,20 @@
   metadata now runs for the distributions the environment actually has, and
   still asserts that `certifi` and `hypothesis`, which ride every resolve,
   were among them.
+- **A long digit run in a decompilation aborted `rebrew recover-structs`.**
+  An array index is converted with `int()`, which rejects a decimal run past
+  CPython's conversion limit with a bare `ValueError`; the run came from the
+  decompiler text, so a single oversized `a0[…]` killed the whole recovery
+  pass instead of contributing nothing. An index longer than eight digits is
+  now dropped up front: nine digits already exceed the member-offset cap at
+  every element width, so no usable evidence is lost.
+- **`rebrew fix` rewrote string and char literals.** The pseudo-type,
+  qualified-name and junk-specifier passes ran over the whole source, so a
+  decompilation carrying the literal `"undefined4"` — a name it prints, a
+  string the program compares against — had those bytes replaced, and a char
+  literal holding a pseudo-type word changed the program's meaning. All three
+  passes now substitute outside literal and macro spans, as the
+  qualified-name pass already did.
 - **A section with no cells disappeared from the coverage DB's derived
   tables.** `section_cell_stats` and `section_cells_json` were both filled
   from `cells`, so a section that contributed none (a zero-size section, or

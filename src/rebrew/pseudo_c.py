@@ -18,7 +18,7 @@ from collections.abc import Callable
 #: Decompiler pseudo-types → C89 types.  Order matters (longest first).
 _PSEUDO_TYPE_RE = re.compile(
     r"\b(undefined8|undefined4|undefined2|undefined1|undefined|"
-    r"ulonglong|longlong|ulong|uint|ushort|uchar|ushort|"
+    r"ulonglong|longlong|ulong|uint|ushort|uchar|"
     r"qword|dword|word|byte)\b"
 )
 _PSEUDO_TYPE_MAP: dict[str, str] = {
@@ -84,6 +84,11 @@ def sanitize_tokens(source: str) -> tuple[str, list[str]]:
     ``"pseudo-type 'undefined4' -> 'int'"`` style descriptions (empty when
     the source needed no repairs).  Never raises; degenerate input is
     returned unchanged.
+
+    Every pass skips literal and macro spans: a decompilation carrying the
+    literal ``"undefined4"`` (a field name it prints, a string the program
+    compares against) must keep those bytes, and a char literal holding a
+    pseudo-type word would otherwise change what the program does.
     """
     changes: list[str] = []
 
@@ -92,7 +97,7 @@ def sanitize_tokens(source: str) -> tuple[str, list[str]]:
         changes.append(f"pseudo-type '{m.group(1)}' -> '{rep}'")
         return rep
 
-    out = _PSEUDO_TYPE_RE.sub(_sub_pseudo, source)
+    out = _sub_outside_literals(source, _PSEUDO_TYPE_RE, _sub_pseudo)
 
     def _sub_qualified(m: re.Match[str]) -> str:
         name = m.group(0).rsplit("::", 1)[1]
@@ -105,7 +110,7 @@ def sanitize_tokens(source: str) -> tuple[str, list[str]]:
         changes.append(f"removed specifier '{m.group(0)}'")
         return ""
 
-    out = _JUNK_SPECIFIER_RE.sub(_sub_junk, out)
+    out = _sub_outside_literals(out, _JUNK_SPECIFIER_RE, _sub_junk)
 
     def _sub_star(m: re.Match[str]) -> str:
         changes.append("normalized leading '* cast")

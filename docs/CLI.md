@@ -2106,7 +2106,9 @@ so rebrew can byte-match it — the DecBench fairness pass:
 - **sanitize** — decompiler pseudo-types (`undefined4` → `int`,
   `undefined1` → `char`, `byte` → `unsigned char`, `qword` → `unsigned long long`),
   qualified symbols (`GLIBC_2.2.5::stderr` → `stderr`), junk
-  specifiers, leading `*` casts.
+  specifiers, leading `*` casts. String, character and macro text is left
+  byte-for-byte alone, so a literal that happens to spell a pseudo-type
+  survives.
 - **inject** — from compiler errors: missing typedefs for undeclared type
   names and prototypes for implicitly-declared functions, never redefining
   what the source declared.
