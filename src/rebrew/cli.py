@@ -434,6 +434,28 @@ def _stdout_pipe_closed(stdout_was_fifo: bool) -> bool:
     return stdout_was_fifo and not _stdout_is_fifo()
 
 
+def exit_130_on_interrupt(cmd: TyperBaseCommand) -> TyperBaseCommand:
+    """Make *cmd* report Ctrl+C as :data:`EXIT_INTERRUPTED` instead of click's 1.
+
+    click's standalone handler catches ``KeyboardInterrupt``, converts it to
+    ``Abort`` and calls ``sys.exit(1)`` — the same code a byte mismatch
+    returns, so a shell cannot tell "you stopped it" from "it did not match".
+    :data:`SystemExit` is a ``BaseException`` that none of click's handlers
+    match, so raising it from ``invoke`` reaches the shell untouched.
+    """
+    original = cmd.invoke
+
+    def invoke(ctx: TyperContext) -> Any:
+        try:
+            return original(ctx)
+        except KeyboardInterrupt:
+            console.print("[red]error:[/red] Interrupted by user")
+            raise SystemExit(EXIT_INTERRUPTED) from None
+
+    cmd.invoke = invoke  # type: ignore[method-assign]
+    return cmd
+
+
 def run_cli(app: Callable[[], Any]) -> None:
     """Run a Typer *app* as a process entry point with rebrew's exit contract.
 
@@ -455,7 +477,7 @@ def run_cli(app: Callable[[], Any]) -> None:
 
     def entry() -> None:
         if isinstance(app, typer.Typer):
-            add_version_option(typer.main.get_command(app))()
+            add_version_option(exit_130_on_interrupt(typer.main.get_command(app)))()
         else:
             app()
 
@@ -734,6 +756,7 @@ __all__ = [
     "confirm_abort",
     "console",
     "error_exit",
+    "exit_130_on_interrupt",
     "json_print",
     "option_default",
     "parse_va",

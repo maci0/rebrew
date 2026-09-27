@@ -877,7 +877,7 @@ class TestForceStatus:
         update_source_status(cfg.metadata_dir, seed, "SERVER", 0x1000)
 
         monkeypatch.setattr("rebrew.test.require_config", lambda target=None, json_mode=False: cfg)
-        monkeypatch.setattr("rebrew.test.resolve_source_arg", lambda cfg, s: s)
+        monkeypatch.setattr("rebrew.test.require_source_arg", lambda cfg, s, **_kw: s)
         monkeypatch.setattr("rebrew.test.build_name_to_va", lambda cfg: {})
         monkeypatch.setattr("rebrew.test.extract_raw_bytes", lambda *a, **k: b"\x55\x8b\xec")
         ann = Annotation(
@@ -1045,7 +1045,7 @@ class TestSinglePathExitCodes:
         src = tmp_path / "f.c"
         src.write_text("// FUNCTION: X 0x1000\nint f(void) { return 1; }\n", encoding="utf-8")
         monkeypatch.setattr("rebrew.test.require_config", lambda target=None, json_mode=False: cfg)
-        monkeypatch.setattr("rebrew.test.resolve_source_arg", lambda cfg, s: s)
+        monkeypatch.setattr("rebrew.test.require_source_arg", lambda cfg, s, **_kw: s)
         monkeypatch.setattr("rebrew.test.build_name_to_va", lambda cfg: {"_f": 0x1000})
         monkeypatch.setattr("rebrew.test.extract_raw_bytes", lambda *a, **k: b"\x90" * 8)
         monkeypatch.setattr("rebrew.test.parse_source_metadata", lambda *a, **k: {})
