@@ -396,6 +396,12 @@ by the CLI layer and win for that invocation.
   MIT-MAGICK cookie for — an unauthenticated server is never reused).
   The Xvfb rebrew starts carries a fresh cookie file exported as
   `XAUTHORITY`, which travels to the wine children with the display.
+- `REBREW_XVFB_AUTH` — path of the MIT-MAGICK cookie file the Xvfb started by
+  rebrew was launched with.  Set by rebrew alongside
+  `REBREW_XVFB_DISPLAY` so a later process can authenticate to an orphaned
+  server instead of trusting any Xvfb it finds on that display.  An
+  unreadable or missing value is ignored (the server is not reused); do not
+  set it yourself.
 - `REBREW_WINEPREFIX` — Wine prefix for cmake toolchain bridge scripts.
   Must be an absolute path (`~` expands); a relative value is an error.
   Default: `$XDG_CACHE_HOME/rebrew-<toolchain>-wineprefix`.

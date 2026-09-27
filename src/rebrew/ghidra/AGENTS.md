@@ -19,3 +19,4 @@ Externals (the only packages this one may import): `binary_loader`, `binsync.exp
 - **Two transports, one command list.** `commands.py` builds the operation list; `client.py` (MCP) or `cli_backend.py` (`ghidra-cli`) executes it. Adding an op means adding a builder, not a transport branch.
 - **`cli.py` is the only Typer surface here.** Library modules stay transport-free so a host other than the CLI can drive the sync.
 - **`models.py` holds the wire types.** A response field is added there, never re-declared at the call site.
+- **`client=` is typed `McpHttpClient`,** a `runtime_checkable` Protocol (`post` / `delete`, replies carrying `status_code`, `headers`, `text`, `json()`, `raise_for_status()`). A new HTTP call in this package takes the protocol, not `httpx.Client`, so a consumer's stand-in stays type-checked and needs no live Ghidra.

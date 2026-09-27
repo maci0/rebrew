@@ -71,6 +71,7 @@ if TYPE_CHECKING:
     from rebrew.recompile_client import RecompileError as RecompileError
     from rebrew.recompile_client import RecompileErrorKind as RecompileErrorKind
     from rebrew.registry import RegistryError as RegistryError
+    from rebrew.residue import ResidueError as ResidueError
     from rebrew.struct_recover import NoDecompilationError as NoDecompilationError
     from rebrew.tc16 import Tc16Error as Tc16Error
     from rebrew.toolchain import ToolchainError as ToolchainError
@@ -118,6 +119,7 @@ _LAZY_ERRORS: dict[str, tuple[str, str]] = {
     "OrphanInventoryError": ("rebrew.orphans", "OrphanInventoryError"),
     "RecompileError": ("rebrew.recompile_client", "RecompileError"),
     "RegistryError": ("rebrew.registry", "RegistryError"),
+    "ResidueError": ("rebrew.residue", "ResidueError"),
     "SimilarityUnavailable": ("rebrew.matcher.scoring", "SimilarityUnavailable"),
     "Tc16Error": ("rebrew.tc16", "Tc16Error"),
     "ToolchainError": ("rebrew.toolchain", "ToolchainError"),
@@ -192,6 +194,7 @@ __all__ = [
     "RecompileError",
     "RecompileErrorKind",
     "RegistryError",
+    "ResidueError",
     "SimilarityUnavailable",
     "Tc16Error",
     "ToolchainError",
