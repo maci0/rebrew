@@ -336,7 +336,7 @@ def profile_flags_style(profile: str) -> FlagsStyle | None:
     from rebrew.toolchain import TOOLCHAINS
 
     spec = TOOLCHAINS.get(profile)
-    return getattr(spec, "flags_style", None) if spec is not None else None
+    return getattr(spec, "flags_style", None)
 
 
 @dataclass
@@ -757,8 +757,8 @@ def inventory_path_for(reversed_dir: Path | str, cfg: Any = None) -> Path:
     stay at the call sites); mock-safe via getattr.
     """
     rd = Path(reversed_dir)
-    override = str(getattr(cfg, "inventory_file", "") or "").strip() if cfg is not None else ""
-    cfg_reversed = getattr(cfg, "reversed_dir", "") if cfg is not None else ""
+    override = str(getattr(cfg, "inventory_file", "") or "").strip()
+    cfg_reversed = getattr(cfg, "reversed_dir", "")
     if override and cfg_reversed:
         try:
             if rd.resolve() == Path(cfg_reversed).resolve():

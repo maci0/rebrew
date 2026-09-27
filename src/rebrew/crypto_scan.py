@@ -35,7 +35,7 @@ from rebrew.cli import (
     console,
     error_exit,
     json_print,
-    require_config,
+    resolve_binary_arg,
     untrusted_text,
 )
 
@@ -359,7 +359,7 @@ def crypto_scan(
 # ---------------------------------------------------------------------------
 
 
-def _project_function_names(cfg: Any) -> list[str]:
+def _project_function_names(target: str | None) -> list[str]:
     """Function names from the project's function list, or ``[]``.
 
     Best-effort: a missing or unreadable list leaves the name signal with
@@ -367,8 +367,9 @@ def _project_function_names(cfg: Any) -> list[str]:
     """
     try:
         from rebrew.catalog import cached_function_list
+        from rebrew.config import load_config
 
-        functions = cached_function_list(cfg)
+        functions = cached_function_list(load_config(target=target))
     except (ImportError, AttributeError, OSError, ValueError, KeyError):
         return []
     return [str(entry["name"]) for entry in functions if entry.get("name")]
@@ -408,23 +409,8 @@ def main(
     target: str | None = TargetOption,
 ) -> None:
     """Detect crypto constant tables, crypto imports, and crypto-named functions."""
-    cfg: Any = None
-    if binary is None:
-        cfg = require_config(target=target, json_mode=json_output)
-        binary = cfg.target_binary
-        if not binary.exists():
-            error_exit(f"target binary missing: {binary}", json_mode=json_output, code=EXIT_ERROR)
-    else:
-        try:
-            from rebrew.config import load_config
-
-            cfg = load_config(target=target)
-        except (FileNotFoundError, OSError, KeyError, ValueError):
-            cfg = None
-    if not binary.exists():
-        error_exit(f"binary not found: {binary}", json_mode=json_output)
-
-    function_names = _project_function_names(cfg) if cfg is not None else []
+    binary = resolve_binary_arg(binary, target=target, json_mode=json_output)
+    function_names = _project_function_names(target)
     try:
         result = crypto_scan(binary, function_names)
     except (OSError, ValueError) as exc:

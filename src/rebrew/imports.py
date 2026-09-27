@@ -23,6 +23,7 @@ from rebrew.cli import (
     error_exit,
     json_print,
     require_config,
+    resolve_binary_arg,
     untrusted_text,
 )
 from rebrew.config import module_marker
@@ -144,12 +145,9 @@ def main(
     cfg: Any = None
     if binary is None or mark:
         cfg = require_config(target=target, json_mode=json_output)
-    if binary is None:
-        binary = cfg.target_binary
-        if not binary.exists():
-            error_exit(f"target binary missing: {binary}", json_mode=json_output, code=EXIT_ERROR)
-    if not binary.exists():
-        error_exit(f"binary not found: {binary}", json_mode=json_output)
+        if binary is None:
+            binary = cfg.target_binary
+    binary = resolve_binary_arg(binary, target=target, json_mode=json_output)
 
     imports = parse_imports(binary)
     stubs = find_import_stubs(binary)
