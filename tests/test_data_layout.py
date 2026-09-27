@@ -740,7 +740,9 @@ class TestObjSectionSymbols:
         assert buckets[".bss"] == {"g_bss"}
         assert buckets[".rdata"] == {"g_const"}
 
-    def test_legacy_wrapper_unchanged(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_legacy_wrapper_unchanged(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         from rebrew.data_layout import obj_data_symbols
 
         def fake_run(obj: Path, flag: str) -> str:
@@ -768,7 +770,9 @@ class TestObjdumpHexSpellings:
         _secname, sizes = _obj_section_sizes(tmp_path / "f.obj")
         assert sizes == {".data": 0x1A, ".rdata": 0xDEADBEEF, ".bss": 0x4}
 
-    def test_symbols_uppercase_and_short(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_symbols_uppercase_and_short(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         from rebrew.data_layout import obj_section_symbols
 
         def fake_run(obj: Path, flag: str) -> str:
