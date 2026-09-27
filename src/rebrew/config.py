@@ -206,6 +206,32 @@ ARCH_PRESETS: dict[str, _ArchPreset] = {
     },
 }
 
+#: Arches whose data (not the host) is big-endian by default.  The IDO/Saturn
+#: and PowerPC targets are; x86, ARM, and SH2 images are little-endian.  A
+#: target that reverses the default (a little-endian MIPS build) overrides this
+#: with the image header, the way capstone_mode does.
+_ARCH_BIG_ENDIAN = frozenset({"mips32", "mips64", "ppc32", "ppc64"})
+
+#: Pointer width assumed for an arch string with no preset.  x86_32 is the
+#: documented default profile (see AGENTS.md), so an unknown arch sizes like it
+#: rather than failing; every preset arch carries its real width.
+_DEFAULT_POINTER_SIZE = 4
+
+
+def arch_pointer_size(arch: str) -> int:
+    """On-disk pointer width in bytes for *arch*.
+
+    The single source of truth for how wide a pointer-sized slot is in a
+    target's data, so a reader cannot disagree with the preset table.
+    """
+    preset = ARCH_PRESETS.get(arch)
+    return int(preset["pointer_size"]) if preset else _DEFAULT_POINTER_SIZE
+
+
+def arch_is_big_endian(arch: str) -> bool:
+    """True when *arch* stores data big-endian by default."""
+    return arch in _ARCH_BIG_ENDIAN
+
 
 #: IMAGE_DLLCHARACTERISTICS_TERMINAL_SERVER_AWARE, the one bit ``link.tsaware``
 #: owns.  Every other bit of DllCharacteristics (DYNAMIC_BASE, NX_COMPAT, ...)

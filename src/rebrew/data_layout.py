@@ -728,6 +728,12 @@ _TYPE_SIZES: dict[str, int] = {
     "__int64": 8,
     "unsigned __int64": 8,
     "LONGLONG": 8,
+    "long long": 8,
+    "signed long long": 8,
+    "unsigned long long": 8,
+    "long long int": 8,
+    "signed long long int": 8,
+    "unsigned long long int": 8,
 }
 
 _ARRAY_SUFFIX_RE = re.compile(r"\[\s*((?:0[xX][0-9a-fA-F]+|\d+)[uUlL]*)\s*\]")
@@ -773,6 +779,9 @@ _TYPE_PHRASES = frozenset(
         "signed int",
         "unsigned long",
         "long",
+        "long long",
+        "unsigned long long",
+        "signed long long",
         "unsigned __int64",
     }
 )
@@ -793,7 +802,7 @@ def c_type_size(ctype: str) -> int:
         words.pop()
     if not words:
         return 4
-    for width in (3, 2, 1):
+    for width in (4, 3, 2, 1):
         if len(words) >= width and " ".join(words[-width:]) in _TYPE_SIZES:
             return _TYPE_SIZES[" ".join(words[-width:])]
     return 4

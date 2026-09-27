@@ -9,7 +9,7 @@ import struct
 from pathlib import Path
 from typing import Any, TypedDict
 
-from rebrew.config import ProjectConfig
+from rebrew.config import ProjectConfig, arch_is_big_endian, arch_pointer_size
 from rebrew.sections import has_back_jumps, trim_trailing_padding
 
 logger = logging.getLogger(__name__)
@@ -62,40 +62,45 @@ def is_jump_table(data: bytes, section_va: int, section_size: int, arch: str = "
 
     Skips leading alignment bytes (NOP 0x90, INT3 0xCC, ``mov edi,edi`` 0x8BFF)
     before checking for a run of at least 2 consecutive .text pointers.
-    Validates 4-byte alignment of pointer array.
+    Validates that the pointer array is *arch*-aligned and reads each entry at
+    the target's pointer width and byte order, so a 64-bit table is not
+    mis-strided and a big-endian one is not read byte-reversed.
 
     The x86 alignment-prefix heuristics apply only to x86 arches; other
     arches (multi-arch P0) get the plain aligned-pointer-array check until
     their own jump-table conventions land (Phase 1).
     """
     is_x86 = arch.startswith("x86")
-    if len(data) < 8:
+    ptr_size = arch_pointer_size(arch)
+    order = ">" if arch_is_big_endian(arch) else "<"
+    fmt = f"{order}{'H' if ptr_size == 2 else 'I' if ptr_size == 4 else 'Q'}"
+    if len(data) < 2 * ptr_size:
         return False
-    # Jump table must be 4-byte aligned worth of pointers
-    if len(data) % 4 != 0:
+    # The table is a whole number of pointer-sized entries.
+    if len(data) % ptr_size != 0:
         return False
     # Skip alignment prefix (x86-only: NOP 0x90 / INT3 0xCC).
     off = 0
     if is_x86:
         while off < len(data) and data[off] in (0x90, 0xCC):
             off += 1
-    # The prefix must keep the remaining pointer array 4-byte aligned —
-    # 1–3 NOP/INT3 bytes before the table would misalign every read below.
-    if (len(data) - off) % 4 != 0:
+    # The prefix must keep the remaining pointer array pointer-aligned —
+    # 1..ptr_size-1 NOP/INT3 bytes before the table would misalign every read.
+    if (len(data) - off) % ptr_size != 0:
         return False
     # Also skip ``mov edi, edi`` (8B FF) — common MSVC hotpatch 2-byte NOP
     if is_x86 and off + 1 < len(data) and data[off] == 0x8B and data[off + 1] == 0xFF:
         off += 2
         # Re-check alignment after skipping hotpatch bytes
-        if (len(data) - off) % 4 != 0:
+        if (len(data) - off) % ptr_size != 0:
             return False
     remaining = data[off:]
-    if len(remaining) < 8:
+    if len(remaining) < 2 * ptr_size:
         return False
-    n_ptrs = len(remaining) // 4
+    n_ptrs = len(remaining) // ptr_size
     count = 0
     for i in range(n_ptrs):
-        val = struct.unpack_from("<I", remaining, i * 4)[0]
+        val = struct.unpack_from(fmt, remaining, i * ptr_size)[0]
         if section_va <= val < section_va + section_size:
             count += 1
         else:

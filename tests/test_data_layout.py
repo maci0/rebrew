@@ -7,7 +7,9 @@ from pathlib import Path
 import pytest
 
 from rebrew.data_layout import (
+    c_type_size,
     data_symbols,
+    estimate_type_size,
     fill_data,
     hex_list,
     insert_definition,
@@ -1188,3 +1190,31 @@ def test_converge_layout_shrinks_to_zero_removes_pad(
     assert "_dlead_a" not in content
     assert "= {0x00};" not in content
     assert content == "// Header\nint g_a = 1;\n"
+
+
+class TestLongLongSize:
+    """`long long` is 8 bytes on every target; sizing it as 4 mis-strides a
+    `long long` table so every element after the first is garbage."""
+
+    def test_base_type_is_eight(self) -> None:
+        for spelling in (
+            "long long",
+            "signed long long",
+            "unsigned long long",
+            "long long int",
+            "unsigned long long int",
+            "__int64",
+        ):
+            assert c_type_size(spelling) == 8, spelling
+
+    def test_declarator_and_array(self) -> None:
+        assert c_type_size("long long g_qpc") == 8
+        assert c_type_size("static unsigned long long tbl[4]") == 8
+        assert estimate_type_size("long long tbl[4]") == 32
+
+    def test_narrower_types_unchanged(self) -> None:
+        assert c_type_size("int") == 4
+        assert c_type_size("long") == 4
+        assert c_type_size("short") == 2
+        assert c_type_size("char") == 1
+        assert estimate_type_size("int tbl[4]") == 16

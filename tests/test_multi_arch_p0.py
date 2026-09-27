@@ -248,13 +248,33 @@ class TestRelocTables:
         from rebrew.coff_reloc import CoffRelocRecord
 
         out = self._apply([CoffRelocRecord(0, 2, "sym")], "elf-mips")  # R_MIPS_32
-        assert out == (0x2000).to_bytes(4, "little")
+        assert out == (0x2000).to_bytes(4, "big")
 
     def test_elf_ppc_abs32(self) -> None:
         from rebrew.coff_reloc import CoffRelocRecord
 
         out = self._apply([CoffRelocRecord(0, 1, "sym")], "elf-ppc")  # R_PPC_ADDR32
+        assert out == (0x2000).to_bytes(4, "big")
+
+    def test_coff_abs32_stays_little_endian(self) -> None:
+        from rebrew.coff_reloc import CoffRelocRecord
+
+        out = self._apply([CoffRelocRecord(0, 0x0006, "sym")], "coff-i386")  # DIR32
         assert out == (0x2000).to_bytes(4, "little")
+
+    def test_big_endian_addend_is_read_in_target_order(self) -> None:
+        """An R_MIPS_32 slot holding addend 0x10 must read as 0x10, not 0x10000000."""
+        from rebrew.coff_reloc import CoffRelocRecord, apply_coff_relocations
+
+        text = (0x10).to_bytes(4, "big")
+        out = apply_coff_relocations(
+            text,
+            [CoffRelocRecord(0, 2, "sym")],
+            lambda sym: 0x2000,
+            section_va=0x1000,
+            reloc_table="elf-mips",
+        )
+        assert out == (0x2010).to_bytes(4, "big")
 
     def test_unsupported_mips_type_raises(self) -> None:
         from rebrew.coff_reloc import CoffRelocRecord, apply_coff_relocations
