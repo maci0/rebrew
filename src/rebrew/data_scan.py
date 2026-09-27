@@ -23,7 +23,7 @@ from rebrew.config import (
     inventory_path_for,
 )
 from rebrew.data_metadata import module_visible_to_target
-from rebrew.utils import read_source_text
+from rebrew.utils import floor_pct, merged_span_bytes, read_source_text
 
 log = logging.getLogger(__name__)
 
@@ -856,7 +856,7 @@ class BssReport:
     @property
     def coverage_pct(self) -> float:
         """BSS coverage as a percentage."""
-        return self.coverage_bytes / self.bss_size * 100 if self.bss_size else 0.0
+        return floor_pct(self.coverage_bytes, self.bss_size)
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a plain dict for JSON output."""
@@ -953,7 +953,11 @@ def verify_bss_layout(
                     )
                 )
 
-    # Calculate coverage
-    report.coverage_bytes = min(sum(e.size_hint for e in bss_entries), bss_size)
+    # Calculate coverage: the union of the entries' spans, clipped to .bss.
+    # Summing double-counts two names for one address (an alias, a struct and
+    # its first member) and the min() cap only hid the overshoot.
+    report.coverage_bytes = merged_span_bytes(
+        [(e.va, e.va + max(e.size_hint, 0)) for e in bss_entries], (bss_va, bss_size)
+    )
 
     return report

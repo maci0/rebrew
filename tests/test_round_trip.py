@@ -215,6 +215,53 @@ class TestSplicePipeline:
 
         assert _source_is_naked_fenced(tmp_path / "missing.c") is False
 
+    def test_byte_coverage_is_a_clipped_union(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Overlapping and section-overrunning spans cannot push coverage past 100%."""
+        cfg = _make_fake_cfg(tmp_path)
+        cfg.posix_style = False
+        fn = SimpleNamespace(
+            symbol="_myfunc",
+            va=0x10000100,
+            size=5,
+            status="EXACT",
+            path=cfg.reversed_dir / "myfunc.c",
+            module="FAKE",
+            cflags=["/O2"],
+        )
+        # A PROVEN entry whose SIZE overlaps the spliced one and runs past .text.
+        proven = SimpleNamespace(
+            symbol="_proven", va=0x10000102, size=0x400, status="PROVEN", path=Path("p.c")
+        )
+        monkeypatch.setattr(
+            "rebrew.round_trip._collect_splice_set", lambda cfg, f: ([fn], [proven], 0)
+        )
+        monkeypatch.setattr("rebrew.round_trip._load_catalogs", lambda cfg: ({}, {}))
+        original_slice = cfg.target_binary.read_bytes()[0x100:0x105]
+        monkeypatch.setattr(
+            "rebrew.round_trip._compile_and_extract",
+            lambda cfg, fn, work_dir: (original_slice, [], {}, {}, True, ""),
+        )
+        monkeypatch.setattr(
+            "rebrew.round_trip.load_binary",
+            lambda p: SimpleNamespace(text_size=0x100, text_va=0x10000100),
+        )
+        monkeypatch.setattr("rebrew.round_trip.va_to_file_offset", lambda info, va: 0x100)
+        captured: dict = {}
+        monkeypatch.setattr("rebrew.round_trip.json_print", lambda d: captured.update(d))
+
+        _run_round_trip(
+            cfg, output=None, no_write=True, symbol_filter=None, json_output=True, allow_naked=True
+        )
+        cov = captured["byte_coverage"]
+        assert cov["spliced_bytes"] == 5
+        # The PROVEN span starts inside the spliced one and overruns .text:
+        # it adds 0x102..0x200, i.e. 0x100 minus the 5 spliced bytes.
+        assert cov["proven_bytes"] == 0x100 - 5
+        assert cov["spliced_bytes"] + cov["proven_bytes"] + cov["passthrough_bytes"] == 0x100
+        assert cov["spliced_pct"] + cov["passthrough_pct"] <= 100.0
+
     def test_clean_round_trip_writes_reasm(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -240,7 +287,7 @@ class TestSplicePipeline:
         # Stub the PE loader so we don't need a real PE to compute file offset.
         from types import SimpleNamespace as SN
 
-        fake_info = SN(text_size=0x100)
+        fake_info = SN(text_size=0x100, text_va=0x10000100)
         monkeypatch.setattr("rebrew.round_trip.load_binary", lambda p: fake_info)
         monkeypatch.setattr("rebrew.round_trip.va_to_file_offset", lambda info, va: 0x100)
 
@@ -300,7 +347,8 @@ class TestSplicePipeline:
 
         monkeypatch.setattr("rebrew.round_trip.apply_coff_relocations", _boom)
         monkeypatch.setattr(
-            "rebrew.round_trip.load_binary", lambda p: SimpleNamespace(text_size=0x100)
+            "rebrew.round_trip.load_binary",
+            lambda p: SimpleNamespace(text_size=0x100, text_va=0x10000100),
         )
 
         code = _run_round_trip(
@@ -340,7 +388,8 @@ class TestSplicePipeline:
             lambda text, relocs, resolve_va, **kw: text,
         )
         monkeypatch.setattr(
-            "rebrew.round_trip.load_binary", lambda p: SimpleNamespace(text_size=0x100)
+            "rebrew.round_trip.load_binary",
+            lambda p: SimpleNamespace(text_size=0x100, text_va=0x10000100),
         )
         monkeypatch.setattr("rebrew.round_trip.va_to_file_offset", lambda info, va: 0x100)
 
@@ -878,7 +927,8 @@ class TestPaddingInclusiveSize:
             lambda text, relocs, resolve_va, **kw: text,
         )
         monkeypatch.setattr(
-            "rebrew.round_trip.load_binary", lambda p: SimpleNamespace(text_size=0x100)
+            "rebrew.round_trip.load_binary",
+            lambda p: SimpleNamespace(text_size=0x100, text_va=0x10000100),
         )
         monkeypatch.setattr("rebrew.round_trip.va_to_file_offset", lambda info, va: 0x100)
 
@@ -922,7 +972,8 @@ class TestPaddingInclusiveSize:
             lambda text, relocs, resolve_va, **kw: text,
         )
         monkeypatch.setattr(
-            "rebrew.round_trip.load_binary", lambda p: SimpleNamespace(text_size=0x100)
+            "rebrew.round_trip.load_binary",
+            lambda p: SimpleNamespace(text_size=0x100, text_va=0x10000100),
         )
         monkeypatch.setattr("rebrew.round_trip.va_to_file_offset", lambda info, va: 0x100)
 
@@ -969,7 +1020,8 @@ class TestPaddingInclusiveSize:
             lambda text, relocs, resolve_va, **kw: text,
         )
         monkeypatch.setattr(
-            "rebrew.round_trip.load_binary", lambda p: SimpleNamespace(text_size=0x100)
+            "rebrew.round_trip.load_binary",
+            lambda p: SimpleNamespace(text_size=0x100, text_va=0x10000100),
         )
         monkeypatch.setattr("rebrew.round_trip.va_to_file_offset", lambda info, va: 0x100)
 
@@ -1041,7 +1093,8 @@ class TestDriftDetail:
             lambda text, relocs, resolve_va, **kw: text,
         )
         monkeypatch.setattr(
-            "rebrew.round_trip.load_binary", lambda p: SimpleNamespace(text_size=0x100)
+            "rebrew.round_trip.load_binary",
+            lambda p: SimpleNamespace(text_size=0x100, text_va=0x10000100),
         )
         monkeypatch.setattr("rebrew.round_trip.va_to_file_offset", lambda info, va: 0x100)
 
@@ -1128,7 +1181,8 @@ class TestReasonCounts:
 
         monkeypatch.setattr("rebrew.round_trip.apply_coff_relocations", _boom)
         monkeypatch.setattr(
-            "rebrew.round_trip.load_binary", lambda p: SimpleNamespace(text_size=0x100)
+            "rebrew.round_trip.load_binary",
+            lambda p: SimpleNamespace(text_size=0x100, text_va=0x10000100),
         )
         result = runner.invoke(app, ["--json", "--dry-run"])
         assert result.exit_code == EXIT_OK

@@ -29,7 +29,8 @@ it belongs to rather than starting a sixth.
   ``SOURCE_CHECKOUT`` (the contributor checkout, ``None`` in an install),
   ``xdg_cache_home``, ``writable_temp_dir``, ``remove_temp_dir``,
   ``rel_display_path``
-- **Presentation helpers**: ``clip_span``, ``floor_pct``, ``close_response``
+- **Presentation helpers**: ``clip_span``, ``merged_span_bytes``, ``floor_pct``,
+  ``close_response``
   (plus ``RETRYABLE_HTTP_STATUS``)
 
 ``utils`` is not a place for domain logic.  A helper that knows about a
@@ -121,6 +122,36 @@ def clip_span(starts: list[int], va: int, size: int) -> int:
     """
     i = bisect.bisect_right(starts, va)
     return min(size, starts[i] - va) if i < len(starts) else size
+
+
+def merged_span_bytes(ranges: list[tuple[int, int]], section: tuple[int, int] | None = None) -> int:
+    """Total bytes of the union of the ``(start, end)`` *ranges*.
+
+    Overlapping and empty ranges count once, so two names for one address do
+    not inflate a coverage figure.  With *section* ``(va, size)`` the union is
+    clipped to it, which keeps a size that runs past the section from reporting
+    coverage above 100%.
+    """
+    if section is not None:
+        section_va, section_size = section
+        limit = section_va + section_size
+        ranges = [
+            (max(start, section_va), min(end, limit))
+            for start, end in ranges
+            if min(end, limit) > max(start, section_va)
+        ]
+    spans = sorted((start, end) for start, end in ranges if end > start)
+    if not spans:
+        return 0
+    total = 0
+    current_start, current_end = spans[0]
+    for start, end in spans[1:]:
+        if start <= current_end:
+            current_end = max(current_end, end)
+        else:
+            total += current_end - current_start
+            current_start, current_end = start, end
+    return total + (current_end - current_start)
 
 
 def floor_pct(part: float, whole: float, decimals: int = 1) -> float:

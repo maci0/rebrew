@@ -21,6 +21,7 @@ from rebrew.utils import (
     filename_component,
     floor_pct,
     load_tomllib,
+    merged_span_bytes,
     read_compile_source,
     read_source_text,
     read_toml_text,
@@ -1512,6 +1513,21 @@ class TestFloorPct:
 
     def test_zero_whole(self) -> None:
         assert floor_pct(5, 0) == 0.0
+
+
+class TestMergedSpanBytes:
+    def test_overlapping_spans_count_once(self) -> None:
+        # Two names for one address, plus a neighbour that overlaps the first.
+        assert merged_span_bytes([(0x1000, 0x1010), (0x1008, 0x1020)]) == 0x20
+
+    def test_empty_and_inverted_spans_are_dropped(self) -> None:
+        assert merged_span_bytes([]) == 0
+        assert merged_span_bytes([(0x10, 0x10), (0x20, 0x18)]) == 0
+
+    def test_section_clips_and_never_exceeds_it(self) -> None:
+        spans = [(0x1000, 0x1100)]
+        assert merged_span_bytes(spans, (0x1000, 0x10)) == 0x10
+        assert merged_span_bytes(spans, (0x2000, 0x10)) == 0
 
 
 class TestSourceLines:

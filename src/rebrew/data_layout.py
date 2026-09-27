@@ -636,6 +636,10 @@ def fill_data(
                 n_pad += 1
 
     for i, (name, addr) in enumerate(by_addr):
+        if addr < data_base:
+            # Below the section base there are no bytes in ``orig``: slicing
+            # with a negative start would copy the section's tail into the pad.
+            continue
         nxt_addr = by_addr[i + 1][1] if i + 1 < len(by_addr) else section_end
         gap = nxt_addr - addr
         if gap <= 0x40:

@@ -64,7 +64,7 @@ from rebrew.sources import (
     target_marker,
 )
 from rebrew.status_style import STATUS_COLORS
-from rebrew.utils import atomic_write_bytes, floor_pct, safe_shlex_split
+from rebrew.utils import atomic_write_bytes, floor_pct, merged_span_bytes, safe_shlex_split
 
 app = typer.Typer(
     help="Splice every matched function back into the target PE and verify byte equality.",
@@ -524,7 +524,8 @@ def _run_round_trip(
     mismatches: list[dict[str, str | None]] = []
     skipped_catalog: list[dict[str, str | None]] = []  # entries we can't splice due to catalog gaps
     spliced_vas: set[str] = set()
-    spliced_actual_bytes = 0
+    # .text-relative spans, for the byte-coverage union below.
+    spliced_ranges: list[tuple[int, int]] = []
     extra_string_syms: dict[str, int] = {}
     from rebrew.utils import remove_temp_dir, writable_temp_dir
 
@@ -643,7 +644,7 @@ def _run_round_trip(
             # original), so SHA equality is preserved by construction.
             reasm[offset : offset + trimmed_size] = patched[:trimmed_size]
             spliced_vas.add(f"0x{fn.va:08x}")
-            spliced_actual_bytes += trimmed_size
+            spliced_ranges.append((fn.va - info.text_va, fn.va - info.text_va + trimmed_size))
     finally:
         remove_temp_dir(work_dir)
 
@@ -703,13 +704,24 @@ def _run_round_trip(
     # Byte-coverage accounting: how much of .text came from our compilation
     # versus passthrough from the input PE.  Uses the actual spliced span
     # (trimmed of padding), not the metadata SIZE which can include trailing
-    # NOP/INT3 bytes the compiler never emits.
-    spliced_bytes = spliced_actual_bytes
-    proven_bytes = sum(fn.size for fn in proven_set if fn.size > 0)
+    # NOP/INT3 bytes the compiler never emits.  Both sets are merged and
+    # clipped to .text: a SIZE that overruns the section (or a neighbour)
+    # otherwise reported coverage above 100%.
     # Keep the lazy-LIEF contract (see the `info` comment above): when nothing
     # reached the file-offset lookup, don't parse the binary — coverage is 0.
     text_size = info.text_size if info is not None else 0
-    passthrough_bytes = max(text_size - spliced_bytes - proven_bytes, 0)
+    text_clip = (0, text_size) if text_size else None
+    text_va = info.text_va if info is not None else 0
+    proven_ranges = [
+        (fn.va - text_va, fn.va - text_va + fn.size) for fn in proven_set if fn.size > 0
+    ]
+    spliced_bytes = merged_span_bytes(spliced_ranges, text_clip)
+    # PROVEN is reported as the bytes it adds, so the three figures partition
+    # .text: a PROVEN SIZE that reaches into a spliced span (or past the
+    # section) is not counted twice.
+    covered_bytes = merged_span_bytes([*spliced_ranges, *proven_ranges], text_clip)
+    proven_bytes = max(covered_bytes - spliced_bytes, 0)
+    passthrough_bytes = max(text_size - covered_bytes, 0)
 
     # Aggregate reason breakdown for at-a-glance triage (e.g. "92 skipped:
     # 85 unresolved_symbol, 5 size_mismatch, 2 ...").

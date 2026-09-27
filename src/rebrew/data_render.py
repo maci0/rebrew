@@ -15,6 +15,7 @@ from rich.table import Table
 from rich.text import Text
 
 from rebrew.present import bar_plain, count_column, ratio_bar
+from rebrew.utils import floor_pct, merged_span_bytes
 
 if TYPE_CHECKING:
     from rebrew.data_scan import BssReport, DispatchTable, ScanResult
@@ -184,12 +185,16 @@ def section_summary(scan: ScanResult, sections: dict[str, dict[str, Any]]) -> li
             continue
         sec_name = entry.section or "unknown"
         s = per_section.setdefault(
-            sec_name, {"name": sec_name, "globals": 0, "annotated": 0, "annotated_bytes": 0}
+            sec_name,
+            {"name": sec_name, "globals": 0, "annotated": 0, "annotated_bytes": 0, "ranges": []},
         )
         s["globals"] += 1
         if entry.annotated:
             s["annotated"] += 1
-            s["annotated_bytes"] += estimate_type_size(entry.type_str) if entry.type_str else 4
+            size_hint = estimate_type_size(entry.type_str) if entry.type_str else 4
+            s["annotated_bytes"] += size_hint
+            if entry.va and size_hint > 0:
+                s["ranges"].append((entry.va, entry.va + size_hint))
 
     out: list[dict[str, Any]] = []
     for sec_name in [".data", ".rdata", ".bss", "unknown"]:
@@ -198,7 +203,11 @@ def section_summary(scan: ScanResult, sections: dict[str, dict[str, Any]]) -> li
             continue
         sec = sections.get(sec_name)
         size = int(sec.get("size", 0)) if sec else 0
-        coverage = (sec_data["annotated_bytes"] / size * 100.0) if size else 0.0
+        # Coverage measures the union of the annotated spans, clipped to the
+        # section: a stale `extern char g[0x8000]` in a 16 KB .data and two
+        # names for one address both used to push the ratio past 100%.
+        sec_va = int(sec.get("va", 0)) if sec else 0
+        covered = merged_span_bytes(sec_data["ranges"], (sec_va, size) if size else None)
         out.append(
             {
                 "name": sec_name,
@@ -206,7 +215,7 @@ def section_summary(scan: ScanResult, sections: dict[str, dict[str, Any]]) -> li
                 "annotated": sec_data["annotated"],
                 "annotated_bytes": sec_data["annotated_bytes"],
                 "section_size": size,
-                "coverage_pct": round(coverage, 1),
+                "coverage_pct": floor_pct(covered, size),
             }
         )
     return out
