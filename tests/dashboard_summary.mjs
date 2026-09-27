@@ -210,18 +210,51 @@ assert.equal(element("retry-functions").hidden, true);
 assert.equal(pending.length, 0);
 
 // Every counted cell state gets a column, so a row's cells sum to its Cells total.
+// Sections has no filters of its own, so the shared message reports a bare
+// count: clear the function filters this harness left on the controls.
+element("status").value = "";
+element("q").value = "";
 renderSections({ sections: [[
   ".text", 64, 66, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
 ]] });
 const cells = [...element("sections-rows").innerHTML.matchAll(/<td>([^<]*)<\/td>/g)].map(m => m[1]);
 assert.deepEqual(cells, [".text", "64", "66", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"]);
 assert.equal(cells.slice(3).reduce((sum, n) => sum + Number(n), 0), 66);
+// Sections counts itself like every other view ("1 section shown", not "1
+// sections"), and an empty list reads the same way the others do.
+assert.equal(element("results-status").textContent, "1 section shown");
+assert.equal(element("sections-hint").textContent, "Showing 1 section");
+assert.equal(element("sections-hint").hidden, false);
+renderSections({ sections: [] });
+assert.equal(element("results-status").textContent, "No sections yet");
+assert.equal(element("sections-hint").hidden, true);
+assert.equal(element("sections-empty").hidden, false);
 
 // One row reads "1 global shown", not "1 globals shown".
 renderGlobals({ total: 1, globals: [["0x10", "g_one", "int g_one", 4, ""]] });
 assert.equal(element("results-status").textContent, "1 global shown");
 renderGlobals({ total: 2, globals: [["0x10", "g_a", "", 4, ""], ["0x14", "g_b", "", 4, ""]] });
 assert.equal(element("results-status").textContent, "2 globals shown");
+renderGlobals({ total: 3, globals: [["0x10", "g_a", "", 4, ""], ["0x14", "g_b", "", 4, ""]] });
+
+// Show more on a paged list keeps the rows it already counted, so the count
+// hint above them stays on screen (and true) while the next page loads.
+bindControls();
+const hintBefore = element("globals-hint").textContent;
+assert.match(hintBefore, /Showing 2 of 3 globals/);
+const growing = element("show-more-globals").onclick();
+const growResponse = pending.shift();
+assert.match(growResponse.path, /limit=500&offset=2/);
+assert.equal(element("globals-hint").hidden, false, "the count hint survives the grow");
+assert.equal(element("globals-hint").textContent, hintBefore);
+growResponse.resolve({
+  ok: true,
+  json: async () => ({ count: 1, total: 3, globals: [["0x18", "g_c", "", 4, ""]] }),
+});
+await growing;
+assert.equal(element("globals-hint").hidden, false);
+assert.equal(element("globals-hint").textContent, "Showing 3 globals");
+assert.equal(element("results-status").textContent, "3 globals shown");
 
 // History timestamps: zone-less UTC instants go through the shared formatter
 // (zone abbreviation included); unparseable values pass through.
