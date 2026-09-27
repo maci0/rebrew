@@ -501,6 +501,51 @@ def load_tomllib(path: Path) -> Any:
     return tomllib.loads(read_toml_text(path))
 
 
+def _fsync_path(path: Path) -> None:
+    """Best-effort ``fsync`` of an openable file or directory path.
+
+    A filesystem that refuses the open or the sync (some container overlay
+    mounts, Windows without ``O_RDONLY`` on a directory) must not fail an
+    otherwise successful write.
+    """
+    with contextlib.suppress(OSError):
+        fd = os.open(path, os.O_RDONLY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+
+
+@contextlib.contextmanager
+def _atomic_replace(filepath: Path) -> Iterator[Path]:
+    """Yield a sibling temp path that is published onto *filepath* on a clean exit.
+
+    On any failure the temp file is removed and the original exception is
+    re-raised, so a crash or a full disk never leaves a partial write (or a
+    stray ``.tmp`` sibling) at the target.  A read-only destination directory
+    is reported with the target path instead of a bare errno 13.
+    """
+    tmp_path = filepath.with_name(
+        f"{filepath.name}.{os.getpid()}.{threading.get_ident()}.{time.monotonic_ns()}.tmp"
+    )
+    try:
+        yield tmp_path
+        _fsync_path(tmp_path)
+        os.replace(tmp_path, filepath)
+    except PermissionError as exc:
+        with contextlib.suppress(OSError):
+            tmp_path.unlink()
+        raise PermissionError(
+            f"{exc}: cannot write next to {filepath} (directory is read-only?) — "
+            "pass an explicit output path"
+        ) from exc
+    except BaseException:
+        with contextlib.suppress(OSError):
+            tmp_path.unlink()
+        raise
+    _fsync_path(filepath.parent)
+
+
 def atomic_write_text(
     filepath: Path,
     text: str,
@@ -529,11 +574,6 @@ def atomic_write_text(
     *errors* mirrors :meth:`pathlib.Path.write_text`: use
     ``\"surrogateescape\"`` when *text* came from :func:`read_compile_source`
     so lone surrogates from legacy bytes round-trip instead of raising.
-
-    The ``contextlib.suppress(OSError)`` in the except path is safe because
-    it only guards the cleanup unlink: if the temp file was already removed
-    (race, OS cleanup) the unlink would raise, but we don't care — the
-    original exception is re-raised regardless.
     """
     # Ensure the target directory exists (metadata roots are often created
     # lazily on first write).
@@ -550,42 +590,22 @@ def atomic_write_text(
                 return
         except OSError:
             pass
-    tmp_path = filepath.with_name(
-        f"{filepath.name}.{os.getpid()}.{threading.get_ident()}.{time.monotonic_ns()}.tmp"
-    )
-    try:
+    with _atomic_replace(filepath) as tmp_path:
         # newline="" keeps the caller's line endings byte-exact.  Path.write_text
         # defaults to newline=None, which on Windows translates ``\n`` to
         # ``\r\n`` and would CRLF-corrupt every LF source/metadata rewrite.
         tmp_path.write_text(text, encoding=encoding, errors=errors, newline="")
-        with contextlib.suppress(OSError):
-            fd = os.open(tmp_path, os.O_RDONLY)
-            try:
-                os.fsync(fd)
-            finally:
-                os.close(fd)
-        os.replace(tmp_path, filepath)
-        with contextlib.suppress(OSError):
-            dfd = os.open(filepath.parent, os.O_RDONLY)
-            try:
-                os.fsync(dfd)
-            finally:
-                os.close(dfd)
-        # Drop any stale path+mtime entries so a same-ns rewrite cannot
-        # serve pre-write content to a later reader in this process.
-        try:
-            resolved = str(filepath.resolve())
-        except OSError:
-            resolved = ""
-        if resolved:
-            with _SOURCE_TEXT_MEMO_LOCK:
-                stale = [k for k in _SOURCE_TEXT_MEMO if k[0] == resolved]
-                for k in stale:
-                    _SOURCE_TEXT_MEMO.pop(k, None)
-    except BaseException:
-        with contextlib.suppress(OSError):
-            tmp_path.unlink()
-        raise
+    # Drop any stale path+mtime entries so a same-ns rewrite cannot serve
+    # pre-write content to a later reader in this process.
+    try:
+        resolved = str(filepath.resolve())
+    except OSError:
+        resolved = ""
+    if resolved:
+        with _SOURCE_TEXT_MEMO_LOCK:
+            stale = [k for k in _SOURCE_TEXT_MEMO if k[0] == resolved]
+            for k in stale:
+                _SOURCE_TEXT_MEMO.pop(k, None)
 
 
 def atomic_write_bytes(filepath: Path, data: bytes) -> None:
@@ -599,7 +619,7 @@ def atomic_write_bytes(filepath: Path, data: bytes) -> None:
     When the on-disk bytes already match *data*, the replace is skipped so a
     no-op re-run (a second ``postlink`` of an already-converged binary, a
     report sidecar rebuild) does not bump mtime.  Same contract as
-    :func:`atomic_write_text`.
+    :func:`atomic_write_text`, including the read-only-directory message.
     """
     filepath.parent.mkdir(parents=True, exist_ok=True)
     if filepath.is_file():
@@ -608,38 +628,8 @@ def atomic_write_bytes(filepath: Path, data: bytes) -> None:
                 return
         except OSError:
             pass
-    tmp_path = filepath.with_name(
-        f"{filepath.name}.{os.getpid()}.{threading.get_ident()}.{time.monotonic_ns()}.tmp"
-    )
-    try:
+    with _atomic_replace(filepath) as tmp_path:
         tmp_path.write_bytes(data)
-        with contextlib.suppress(OSError):
-            fd = os.open(tmp_path, os.O_RDONLY)
-            try:
-                os.fsync(fd)
-            finally:
-                os.close(fd)
-        os.replace(tmp_path, filepath)
-        with contextlib.suppress(OSError):
-            dfd = os.open(filepath.parent, os.O_RDONLY)
-            try:
-                os.fsync(dfd)
-            finally:
-                os.close(dfd)
-    except PermissionError as exc:
-        # A read-only destination dir (e.g. a versioned originals/ tree)
-        # rejects even the sibling temp file; the final replace would fail
-        # too, so say where to put the output instead of leaking errno 13.
-        with contextlib.suppress(OSError):
-            tmp_path.unlink()
-        raise PermissionError(
-            f"{exc}: cannot write next to {filepath} (directory is read-only?) — "
-            "pass an explicit output path"
-        ) from exc
-    except BaseException:
-        with contextlib.suppress(OSError):
-            tmp_path.unlink()
-        raise
 
 
 def atomic_write_locked(filepath: Path | str, text: str, encoding: str = "utf-8") -> None:
@@ -1397,6 +1387,12 @@ def watch_files(
 # ---------------------------------------------------------------------------
 
 
+#: Transient HTTP statuses a remote compile service may be retried on after a
+#: backoff.  Shared by ``recompile_client`` and ``decompme`` so the two
+#: clients cannot drift on which failures are worth another attempt.
+RETRYABLE_HTTP_STATUS = frozenset({408, 425, 429, 500, 502, 503, 504})
+
+
 def close_response(resp: Any) -> None:
     """Release an HTTP response so its connection returns to the pool.
 
@@ -1566,7 +1562,6 @@ def remove_temp_dir(path: Path, retries: int = 5, delay: float = 0.2) -> None:
     the dir is still busy after *retries*.
     """
     import shutil
-    import time
 
     for attempt in range(retries):
         try:

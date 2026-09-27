@@ -25,7 +25,7 @@ from typing import Any, Literal, Protocol, runtime_checkable
 from urllib.parse import urljoin, urlparse
 
 from rebrew.errors import RebrewError
-from rebrew.utils import close_response
+from rebrew.utils import RETRYABLE_HTTP_STATUS, close_response
 
 #: Request cap mirrored from the service (recompile ``_MAX_FLAGS``): longer
 #: flag lists 422 instead of compiling.
@@ -43,10 +43,7 @@ RecompileErrorKind = Literal[
     "protocol",
 ]
 
-#: Transient HTTP statuses that are safe to retry after a backoff.
-_RETRYABLE_HTTP = frozenset({408, 425, 429, 500, 502, 503, 504})
-
-#: Subset of :data:`_RETRYABLE_HTTP` meaning the service never ran the
+#: Subset of :data:`RETRYABLE_HTTP_STATUS` meaning the service never ran the
 #: compile.  500/502/504 may arrive after the compile (and its train.jsonl
 #: append) already happened, so an ``emit_assembly`` POST is re-sent only on
 #: these or on a connect failure.
@@ -163,7 +160,7 @@ def _download_artifact(
                 f"recompile artifact download returned HTTP {art.status_code}: {art.text[:200]}",
                 kind="http",
                 status_code=art.status_code,
-                retryable=art.status_code in _RETRYABLE_HTTP,
+                retryable=art.status_code in RETRYABLE_HTTP_STATUS,
             )
         version = body.get("compiler_version") or None
         return RecompileResult(
@@ -284,7 +281,7 @@ def compile_source(
                                 kind="http",
                                 status_code=resp.status_code,
                                 retryable=resp.status_code
-                                in (_UNPROCESSED_HTTP if emit_assembly else _RETRYABLE_HTTP),
+                                in (_UNPROCESSED_HTTP if emit_assembly else RETRYABLE_HTTP_STATUS),
                             )
                         try:
                             body = resp.json()
