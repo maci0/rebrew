@@ -16,7 +16,7 @@ license: MIT
 graph TD
     Place[Place binary<br/>mkdir -p original && cp game.exe original/] --> Init
     Init{rebrew init<br/>--target + --guess-compiler} -->|done| Doctor{Doctor passes?<br/>rebrew doctor}
-    Doctor -->|fail| Fix[Repair from doctor report<br/>rebrew toolchain build <profile>]
+    Doctor -->|fail| Fix[Repair from doctor report<br/>rebrew toolchain pull &lt;profile&gt;]
     Fix --> Doctor
     Doctor -->|pass| Skills[Check skill rendering<br/>.agents/skills/]
     Skills --> Handoff[Hand off to rebrew-intake]
@@ -45,7 +45,7 @@ mkdir -p original && cp /path/to/<binary> original/
 rebrew init --target <name> --binary <filename> --guess-compiler --no-wizard
 ```
 
-Target naming: bare binary stem, no extension (`server.dll` → `server`, `game.exe` → `game`; lowercased, non-alnum → `_`). Same default as `rebrew intake`. Override with `--target` only when MODULE markers already use a different form (e.g. legacy `server.dll`). Paths are `layout/<target>/`, `src/<target>/`.
+Target naming: bare binary stem, no extension (`server.dll` → `server`, `game.exe` → `game`; lowercased, non-alnum → `_`), and a name becomes a path component, so no separators. With `--no-wizard` nothing derives it: `--target` defaults to `main` and you must pass the name. The wizard prompt and `rebrew intake` default to the binary stem. Override with `--target` when MODULE markers already use a different form (e.g. legacy `server.dll`). Paths are `layout/<target>/`, `src/<target>/`.
 
 Starting from a splat YAML instead of a bare binary:
 `rebrew import-splat <config>` plans names, layout, and annotations, and writes
@@ -77,7 +77,10 @@ rebrew doctor
 Run it right after `rebrew init`. Doctor must report healthy
 (warnings for unconfigured optionals — FLIRT, Ghidra, BinSync — are fine;
 failures are not) before handing off. The commonest failure is the toolchain
-image missing — fix with `rebrew toolchain build <profile>` (or `pull`).
+image missing: run `rebrew toolchain pull <profile>` (a docker image pull).
+`rebrew toolchain build <profile>` compiles the image from the sibling
+rebrew-toolchains checkout, which is a long job and fails without that
+checkout, so ask the user before starting one.
 
 ## Skill rendering check
 

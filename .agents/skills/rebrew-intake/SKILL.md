@@ -16,7 +16,7 @@ license: MIT
 ```mermaid
 graph TD
     OneShot[One-shot optional<br/>rebrew intake binary] --> Doctor
-    Doctor{Doctor passes?<br/>rebrew doctor} -->|fail| Fix[Repair from doctor report<br/>rebrew toolchain build <profile>]
+    Doctor{Doctor passes?<br/>rebrew doctor} -->|fail| Fix[Repair from doctor report<br/>rebrew toolchain pull &lt;profile&gt;]
     Fix --> Doctor
     Doctor -->|pass| Flirt[FLIRT library scan<br/>rebrew cfg detect-crt --write<br/>rebrew flirt --json]
     Flirt --> CrtMatch[Annotate library sources<br/>rebrew crt-match --all --fix-source]
@@ -53,7 +53,7 @@ rebrew intake <path-to-binary> --toolchain <profile>   # pin profile; --dry-run 
 
 # B) Explicit scaffold (when teaching init / overriding guess):
 rebrew init --target <name> --binary <filename> --guess-compiler
-rebrew toolchain build <profile>          # docker image for the profile (required; no host wine/wibo)
+rebrew toolchain pull <profile>           # docker image for the profile (required; no host wine/wibo)
 ```
 
 `rebrew intake` does **not** run FLIRT, catalog, or `build-db` — continue with
@@ -92,12 +92,14 @@ Optional fingerprints / `pe-info` / crypto-scan / `security-scan`:
 ```bash
 rebrew doctor                           # validate config, binary, toolchain, metadata
 rebrew doctor --json                    # machine-readable per-check report
-rebrew toolchain build <profile>        # build the profile's docker image (or `pull`) when the toolchain check fails
+rebrew toolchain pull <profile>         # fetch the profile's docker image when the toolchain check fails
 rebrew cfg list-targets                 # confirm target is configured
 ```
 
 Exit 1 on any `fail`. `--json` → `checks[].fix` repair commands. Missing image →
-`rebrew toolchain build <profile>`. Config fail → `rebrew init` or `rebrew intake`.
+`rebrew toolchain pull <profile>`; `build` compiles it from the sibling
+rebrew-toolchains checkout (long, and it fails without that checkout), so ask
+first. Config fail → `rebrew init` or `rebrew intake`.
 Missing binary → place at configured path. Missing FLIRT →:
 
 ```bash

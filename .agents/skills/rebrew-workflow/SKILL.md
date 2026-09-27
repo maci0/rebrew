@@ -35,7 +35,9 @@ graph TD
 
 All commands run from a directory containing `rebrew-project.toml`; every one of them
 exits non-zero with a config error when it is missing. Use `--json` for structured
-output. For annotation syntax details, see `references/annotation-format.md`.
+output. In a multi-target project pass `--target NAME` (before `--json`); the
+default target is used otherwise. For annotation syntax details, see
+`references/annotation-format.md`.
 
 ## When NOT to use this skill
 
