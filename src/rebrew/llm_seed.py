@@ -22,7 +22,12 @@ truncation, ``max_tokens``, ``n=1``, an HTTP body ceiling before JSON parse,
 and a process-wide request budget (``REBREW_LLM_MAX_REQUESTS``, default 32;
 ``0`` disables further calls; a set-but-invalid value raises ``ValueError``)
 so ``--seed-llm --watch`` cannot bill unboundedly.  Rate limits / overload
-(429/503/529) are never retried — empty seeds, GA continues.
+(429/503/529) are never retried, so the GA continues with empty seeds.  A
+response whose reported ``model`` differs from the pinned id warns (a
+substituted model means different cost and different seeds),
+``finish_reason=length`` warns that the token cap cut the answer, and every
+provider-controlled value (error text, usage fields, model ids) is
+control-character-sanitized before it is logged.
 ``--seed-llm --dry-run`` previews the prompt without calling the endpoint.
 """
 
@@ -407,7 +412,9 @@ def valid_c_source(
             return False
         result = extract_function_name_and_proto(src)
     except Exception as exc:  # garbage must never break seeding
-        logging.getLogger(__name__).debug("seed parse failed: %s", exc)
+        # The parse error can quote the snippet being checked, which is model
+        # output: sanitize before it lands in a log.
+        logging.getLogger(__name__).debug("seed parse failed: %s", _sanitize_log_value(exc))
         return False
     if result is None:
         return False
@@ -459,8 +466,12 @@ def _chat_choice_message(data: Any) -> dict[str, Any] | None:
         return None
     finish_reason = first.get("finish_reason")
     if finish_reason not in (None, "stop"):
-        logging.info(
-            "LLM choice dropped due to finish_reason=%s", _sanitize_log_value(finish_reason)
+        # ``length`` means the token cap cut the answer, so the seed set is
+        # incomplete and the request was still billed: warn, and drop the
+        # partial completion rather than feed a clipped function to the GA.
+        level = logging.WARNING if finish_reason == "length" else logging.INFO
+        logging.log(
+            level, "LLM choice dropped due to finish_reason=%s", _sanitize_log_value(finish_reason)
         )
         return None
     msg = first.get("message") or first.get("delta")
@@ -509,6 +520,27 @@ def _log_usage(data: Any, model: str, *, duration_s: float | None = None) -> Non
         _sanitize_log_value(usage.get("completion_tokens")),
         _sanitize_log_value(usage.get("total_tokens")),
         latency_str,
+    )
+
+
+def _warn_on_substituted_model(served: Any, requested: str) -> None:
+    """Warn when the provider served a different model than the pinned one.
+
+    A pinned id is only half a pin: a gateway or an alias can answer with a
+    different (often dearer) model, which silently changes both cost and the
+    seeds the GA gets.  Compare case-insensitively; gateways commonly prefix
+    the vendor name, so warn rather than reject.  A non-string ``served``
+    carries no id and is ignored.
+    """
+    if not isinstance(served, str) or not served.strip():
+        return
+    if served.strip().lower() == requested.strip().lower():
+        return
+    logging.warning(
+        "LLM provider served model %s, but %s was requested (pinned model "
+        "substituted: seeding cost and results may differ)",
+        _sanitize_log_value(served),
+        _sanitize_log_value(requested),
     )
 
 
@@ -593,6 +625,7 @@ def _request(
         resp.raise_for_status()
         data = _load_response_json(resp)
     duration_s = time.monotonic() - t0
+    _warn_on_substituted_model(data.get("model") if isinstance(data, dict) else None, model)
     _log_usage(data, model, duration_s=duration_s)
     text = _parse_response(data)
     # Drop whitespace-insensitive repeats: duplicates waste population slots.
@@ -667,13 +700,17 @@ def request_seeds(
         # misconfigured endpoint/key.  Warn so the user knows seeds were asked
         # for but never arrived (still return [] — the GA must run unchanged).
         status = _http_status(exc)
+        # The message can embed provider-controlled text (a JSON decode error
+        # quotes the body), so it gets the same log sanitizing as response
+        # fields: a hostile endpoint must not forge log lines.
+        detail = _sanitize_log_value(exc)
         if status in _NO_RETRY_HTTP:
             logging.warning(
                 "LLM seeding HTTP %s (rate-limit/overload); not retrying — "
                 "GA continues without seeds: %s",
                 status,
-                exc,
+                detail,
             )
         else:
-            logging.warning("LLM seeding requested but failed: %s", exc)
+            logging.warning("LLM seeding requested but failed: %s", detail)
         return []

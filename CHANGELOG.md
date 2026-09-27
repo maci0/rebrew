@@ -1,5 +1,15 @@
 ## [Unreleased]
 ### Fixed
+- **Provider-controlled text cannot forge LLM log lines.** A transport
+  failure that echoes the response body (and a tree-sitter error quoting the
+  snippet it rejected) reached `logging` verbatim, while every other
+  provider-controlled value went through `_sanitize_log_value`. Both now do.
+- **A substituted LLM model is reported instead of assumed.** `[llm] model`
+  pins a dated id, but a gateway may serve a different one, which changes
+  both the cost and the seeds the GA receives; `llm_seed` now compares the
+  response's `model` against the pin and warns on a mismatch. A completion
+  cut off by the `max_tokens` cap (`finish_reason=length`) also warns at
+  warning level: the seed set is incomplete and the request was still billed.
 - **`gen-link-stubs` no longer throws away a calibrated BSS tail.**
   `calibrate-bss` tunes `g_bss_tail[<size>]` in the generated TU and leaves
   it there; regenerating the TU reset it to the `0x400000` placeholder, so
