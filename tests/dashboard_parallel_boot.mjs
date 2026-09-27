@@ -60,7 +60,9 @@ assert.ok(
   "active view requested while the summary is in flight: " + paths,
 );
 
-held.forEach((release) => release());
+held.forEach((release) => {
+  release();
+});
 await booted;
 const el = (id) => document.getElementById(id);
 assert.equal(el("status").disabled, false, "status select enabled after the summary renders");
