@@ -341,6 +341,7 @@ def _run_one_stub_ga(
     mutation_weights: dict[str, float] | None = None,
     solutions_out: list[SolutionEntry] | None = None,
     collect_pairs_path: Path | None = None,
+    name_to_va: dict[str, int] | None = None,
 ) -> tuple[bool, str, float, int, int | None]:
     """Run one GA pass for a single stub in-process.
 
@@ -464,7 +465,9 @@ def _run_one_stub_ga(
                 from rebrew.coff_reloc import build_name_to_va
                 from rebrew.compile import compile_and_compare
 
-                n2v = build_name_to_va(cfg)
+                # A batch hands in the catalog it already built; a single-stub
+                # call builds it here.
+                n2v = name_to_va if name_to_va is not None else build_name_to_va(cfg)
                 if n2v and best_c.exists():
                     # The GA ran with compile_cflags(resolved_cflags, base);
                     # pass the raw resolved user-facing flags
@@ -976,6 +979,8 @@ def run_all(
     matched_count = 0
     failed_count = 0
     ga_results: list[dict[str, Any]] = []
+    # Filled on the first stub that reaches the GA; shared by every later one.
+    batch_catalog: list[dict[str, int]] = []
 
     # Print the run header for every stub up front (deterministic order).
     for i, stub in enumerate(stubs, 1):
@@ -1136,6 +1141,17 @@ def run_all(
                 console.print(
                     f"  [dim]Resuming {stub.symbol} from generation {resume_from.generation}[/dim]"
                 )
+        # The reloc-validation catalog is the same for every stub, and building
+        # it re-walks and re-parses the whole reversed tree (tree-sitter per
+        # source).  Build it once per batch, on the first stub that reaches the
+        # GA, instead of once per stub.
+        if not batch_catalog:
+            try:
+                from rebrew.coff_reloc import build_name_to_va
+
+                batch_catalog.append(build_name_to_va(cfg))
+            except Exception as exc:
+                log.warning("reloc-validation catalog unavailable: %s", exc)
         try:
             matched, output_summary, best_score, generations_run, used_seed = _run_one_stub_ga(
                 stub,
@@ -1151,6 +1167,7 @@ def run_all(
                 mutation_weights=stub_weights,
                 solutions_out=solutions_out,
                 collect_pairs_path=Path(collect_pairs) if collect_pairs else None,
+                name_to_va=batch_catalog[0] if batch_catalog else None,
             )
         except Exception as exc:  # one bad stub must not abort the batch
             log.debug("GA run failed for %s", stub.symbol, exc_info=True)

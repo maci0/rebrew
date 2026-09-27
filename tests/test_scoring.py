@@ -628,7 +628,7 @@ class TestScoreFastPaths:
         exactly what the SequenceMatcher walk yields on equal sequences."""
         import difflib
 
-        from rebrew.matcher.scoring import _get_cs, score_candidate
+        from rebrew.matcher.scoring import get_cs, score_candidate
 
         # Two functions differing only in immediate bytes.
         a = b"\x55\x8b\xec\xb8\x10\x00\x00\x00\x5d\xc3"  # mov eax, 0x10
@@ -637,7 +637,7 @@ class TestScoreFastPaths:
         assert s.mnemonic_score == 0.0
 
         # Reference: SequenceMatcher on the mnemonic lists (identical).
-        md = _get_cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
+        md = get_cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
         mnems_a = [i.mnemonic for i in md.disasm(a, 0x1000)]
         mnems_b = [i.mnemonic for i in md.disasm(b, 0x1000)]
         assert mnems_a == mnems_b

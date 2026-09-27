@@ -47,12 +47,14 @@ def disasm_signature(
     """
     import capstone
 
+    from rebrew.matcher.scoring import get_cs
+
     # cfg.capstone_arch/capstone_mode return ints; the defaults are the
     # constant-name strings.  Accept either form.
     def _resolve(value: int | str) -> int:
         return value if isinstance(value, int) else int(getattr(capstone, value))
 
-    md = capstone.Cs(_resolve(cs_arch), _resolve(cs_mode))
+    md = get_cs(_resolve(cs_arch), _resolve(cs_mode))
     mnemonics: dict[str, int] = {}
     calls = 0
     branches = 0

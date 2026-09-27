@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import struct
+import threading
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -390,6 +391,30 @@ def _validate_rel32(
     return bool(actual == expected)
 
 
+_CATALOG_VA_SET_LOCK = threading.Lock()
+_catalog_va_set_memo: tuple[dict[str, int], set[int]] | None = None
+
+
+def _catalog_va_set(name_to_va: dict[str, int] | None) -> set[int]:
+    """``set(name_to_va.values())``, memoised against the last map seen.
+
+    Identity, not equality: the caller owns the dict and may mutate it, so the
+    memo holds a reference to the exact object and is reused only for that
+    object.  A single slot bounds the memory to one map and one set.
+    """
+    global _catalog_va_set_memo
+    if not name_to_va:
+        return set()
+    with _CATALOG_VA_SET_LOCK:
+        memo = _catalog_va_set_memo
+        if memo is not None and memo[0] is name_to_va:
+            return memo[1]
+    result = set(name_to_va.values())
+    with _CATALOG_VA_SET_LOCK:
+        _catalog_va_set_memo = (name_to_va, result)
+    return result
+
+
 def smart_reloc_compare(
     obj_bytes: bytes,
     target_bytes: bytes,
@@ -450,8 +475,11 @@ def smart_reloc_compare(
     valid_relocs: list[int] = []
     invalid_relocs: list[int] = []
 
-    # Fast set lookup for absolute-address validation (built once per compare).
-    catalog_va_set: set[int] = set(name_to_va.values()) if name_to_va else set()
+    # Fast set lookup for absolute-address validation.  One ``name_to_va`` map is
+    # threaded through a whole compare run (it is built once per config, not per
+    # function), so the derived set is memoised against that exact object instead
+    # of being rebuilt for every function compared.
+    catalog_va_set: set[int] = _catalog_va_set(name_to_va)
 
     if coff_relocs is not None:
         # Prefer typed CoffRelocRecord sequence when present.  Fail closed on

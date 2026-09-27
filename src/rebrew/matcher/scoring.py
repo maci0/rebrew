@@ -23,11 +23,13 @@ _DEFAULT_CS_MODE = capstone.CS_MODE_32
 # mutated on every ``disasm`` call, so a single instance cannot be shared
 # across threads safely.  ``score_candidate`` runs concurrently in
 # ``flag_sweep`` / ``BinaryMatchingGA`` worker pools; per-thread caching keeps
-# the construction-elision win without inviting handle-level races.
+# the construction-elision win without inviting handle-level races.  Other
+# per-function disassembly sites (``rebrew.similar.disasm_signature``) build a
+# handle per function too and share this cache.
 _cs_tls = threading.local()
 
 
-def _get_cs(cs_arch: int, cs_mode: int, *, detail: bool = False) -> capstone.Cs:
+def get_cs(cs_arch: int, cs_mode: int, *, detail: bool = False) -> capstone.Cs:
     """Return a per-thread cached Capstone disassembler instance.
 
     Each thread keeps its own dict keyed by (arch, mode, detail) so that
@@ -226,7 +228,7 @@ def _normalize_reloc_x86_32(
     cs_mode: int = _DEFAULT_CS_MODE,
 ) -> bytes:
     """Zero out relocatable fields in x86-32 machine code."""
-    md = _get_cs(cs_arch, cs_mode, detail=True)
+    md = get_cs(cs_arch, cs_mode, detail=True)
     out = bytearray(code)
     for insn in md.disasm(code, 0):
         _zero_reloc_fields(insn, out)
@@ -257,8 +259,8 @@ def _normalize_and_mnems_x86_32(
     ``disasm_lite`` yields plain tuples instead of CsInsn objects, skipping
     capstone's per-instruction ctypes marshaling entirely.
     """
-    md = _get_cs(cs_arch, cs_mode, detail=False)
-    md_det = _get_cs(cs_arch, cs_mode, detail=True)
+    md = get_cs(cs_arch, cs_mode, detail=False)
+    md_det = get_cs(cs_arch, cs_mode, detail=True)
     out = bytearray(code)
     mnems: list[str] = []
     for addr, size, mnem, _op in md.disasm_lite(code, 0):
@@ -398,7 +400,7 @@ def _mask_registers_x86_32(
     cs_mode: int = _DEFAULT_CS_MODE,
 ) -> bytes:
     """Mask out register encodings in ModR/M and opcode bytes for register-aware diff."""
-    md = _get_cs(cs_arch, cs_mode, detail=True)
+    md = get_cs(cs_arch, cs_mode, detail=True)
     out = bytearray(code)
     _mask_registers_inplace(list(md.disasm(code, 0)), out)
     return bytes(out)
@@ -522,7 +524,7 @@ def score_candidate(
     # contiguous matching blocks.  This rewards long matching runs and
     # penalises isolated insertions/deletions more precisely.
     # A single extra PUSH at the top no longer tanks the entire score.
-    md = _get_cs(cs_arch, cs_mode)
+    md = get_cs(cs_arch, cs_mode)
     # Reuse pre-computed target mnemonics if available (GA hot path); the
     # candidate mnemonics may already exist from the merged reloc-fallback
     # disassembly above, and the target mnemonics from the same pass.
@@ -663,7 +665,7 @@ def diff_functions(
 
     """
     as_dict = as_dict or summary_only
-    md = _get_cs(cs_arch, cs_mode)
+    md = get_cs(cs_arch, cs_mode)
 
     # Disassemble at base 0 so instruction addresses equal byte offsets
     # in the human-readable diff output. Shape discipline: the lists
@@ -687,7 +689,7 @@ def diff_functions(
         norm_cand_buf = bytearray(candidate_bytes)
         # Cached detail handle for the rare SIB/disp32 fallback in the raw
         # zeroing (only actually disassembles when such an instruction appears).
-        _md_det_fallback = _get_cs(cs_arch, cs_mode, detail=True)
+        _md_det_fallback = get_cs(cs_arch, cs_mode, detail=True)
         for addr, size, _mnem, _op, b in target_insns:
             _zero_reloc_fields_raw(addr, size, b, norm_target_buf, _md_det_fallback)
         for addr, size, _mnem, _op, b in cand_insns:
@@ -697,7 +699,7 @@ def diff_functions(
     if register_aware and norm_target:
         _t_buf = bytearray(norm_target)
         _mask_registers_inplace(
-            list(_get_cs(cs_arch, cs_mode, detail=True).disasm(target_bytes, 0)), _t_buf
+            list(get_cs(cs_arch, cs_mode, detail=True).disasm(target_bytes, 0)), _t_buf
         )
         reg_norm_target = bytes(_t_buf)
     else:
@@ -705,7 +707,7 @@ def diff_functions(
     if register_aware and norm_cand:
         _c_buf = bytearray(norm_cand)
         _mask_registers_inplace(
-            list(_get_cs(cs_arch, cs_mode, detail=True).disasm(candidate_bytes, 0)), _c_buf
+            list(get_cs(cs_arch, cs_mode, detail=True).disasm(candidate_bytes, 0)), _c_buf
         )
         reg_norm_cand = bytes(_c_buf)
     else:
@@ -977,7 +979,7 @@ def structural_similarity(
     target_mnems = mnemonic_map.get("target")
     cand_mnems = mnemonic_map.get("candidate")
     if not target_mnems or not cand_mnems:
-        md = _get_cs(cs_arch, cs_mode)
+        md = get_cs(cs_arch, cs_mode)
         target_mnems = [m for (_a, _s, m, _o) in md.disasm_lite(target_bytes, 0)]
         cand_mnems = [m for (_a, _s, m, _o) in md.disasm_lite(candidate_bytes, 0)]
     sm = difflib.SequenceMatcher(None, target_mnems, cand_mnems)
@@ -1062,7 +1064,7 @@ def code_similarity(
             "(uv sync --group similarity; needs ../resembl checked out)"
         ) from exc
 
-    md = _get_cs(cs_arch, cs_mode)
+    md = get_cs(cs_arch, cs_mode)
     text_a = _nasm_text(target_bytes, md)
     text_b = _nasm_text(candidate_bytes, md)
     if not text_a or not text_b:

@@ -23,6 +23,7 @@ are left untouched and reported.
 
 from __future__ import annotations
 
+import heapq
 import re
 import shutil
 from dataclasses import replace
@@ -86,9 +87,12 @@ def cross_match(
     """
     out: dict[int, tuple[int, float]] = {}
     for d_va, d_sig in dest_sigs.items():
-        ranked = sorted(
+        # Only the top two scores are read, so select them instead of sorting
+        # every source signature: same tie-break (descending ``(score, va)``),
+        # O(S) instead of O(S log S) per destination.
+        ranked = heapq.nlargest(
+            2,
             ((similarity_score(d_sig, s_sig), s_va) for s_va, s_sig in src_sigs.items()),
-            reverse=True,
         )
         if not ranked:
             continue
