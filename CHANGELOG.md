@@ -371,6 +371,19 @@
   The rule is now `* text=auto eol=lf`: the project ships POSIX/Linux only, and
   the checkout no longer feeds the host's line-ending policy into the archive.
 
+### Removed
+- **`ProjectConfig.to_dict()`.** It was a one-line alias for
+  `ProjectConfig.as_dict()` kept "for API consistency across SDK models", and
+  the only caller in the tree was a test asserting the alias equalled the
+  method it aliased. `as_dict()` is the one name; use it.
+- **`ARCH_PRESETS[...]["symbol_prefix"]`.** The key was written for all ten
+  arch presets and read by nothing, so every arch declared a symbol-mangling
+  convention that no disassembler, matcher, or exporter ever applied. A
+  consumer that needs one reads the target's own symbol table, not a guess
+  keyed off the architecture.
+- **`llm_seed._key_safe_endpoint()`.** A private one-line wrapper around
+  `config.is_key_safe_endpoint` with a single caller in the same module.
+
 ### Changed
 - **`dist/rebrew.buildinfo` names the artifact it describes.** The manifest a
   rebuild is attempted from recorded toolchain versions and the epoch knobs

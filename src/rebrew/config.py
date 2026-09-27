@@ -130,7 +130,6 @@ class _ArchPreset(TypedDict):
     capstone_mode: str
     pointer_size: int
     padding_bytes: list[int]
-    symbol_prefix: str
 
 
 ARCH_PRESETS: dict[str, _ArchPreset] = {
@@ -139,70 +138,60 @@ ARCH_PRESETS: dict[str, _ArchPreset] = {
         "capstone_mode": "CS_MODE_16",
         "pointer_size": 2,
         "padding_bytes": [0x90, 0x00],
-        "symbol_prefix": "_",
     },
     "x86_32": {
         "capstone_arch": "CS_ARCH_X86",
         "capstone_mode": "CS_MODE_32",
         "pointer_size": 4,
         "padding_bytes": [0xCC, 0x90],
-        "symbol_prefix": "_",
     },
     "x86_64": {
         "capstone_arch": "CS_ARCH_X86",
         "capstone_mode": "CS_MODE_64",
         "pointer_size": 8,
         "padding_bytes": [0xCC, 0x90],
-        "symbol_prefix": "",
     },
     "arm32": {
         "capstone_arch": "CS_ARCH_ARM",
         "capstone_mode": "CS_MODE_ARM",
         "pointer_size": 4,
         "padding_bytes": [0x00],
-        "symbol_prefix": "",
     },
     "arm64": {
         "capstone_arch": "CS_ARCH_ARM64",
         "capstone_mode": "CS_MODE_ARM",
         "pointer_size": 8,
         "padding_bytes": [0x00],
-        "symbol_prefix": "",
     },
     "mips32": {
         "capstone_arch": "CS_ARCH_MIPS",
         "capstone_mode": "CS_MODE_MIPS32",
         "pointer_size": 4,
         "padding_bytes": [0x00],
-        "symbol_prefix": "",
     },
     "mips64": {
         "capstone_arch": "CS_ARCH_MIPS",
         "capstone_mode": "CS_MODE_MIPS64",
         "pointer_size": 8,
         "padding_bytes": [0x00],
-        "symbol_prefix": "",
     },
     "ppc32": {
         "capstone_arch": "CS_ARCH_PPC",
         "capstone_mode": "CS_MODE_32",
         "pointer_size": 4,
         "padding_bytes": [0x60, 0x00, 0x00, 0x00],  # `nop`
-        "symbol_prefix": "",
     },
     "ppc64": {
         "capstone_arch": "CS_ARCH_PPC",
         "capstone_mode": "CS_MODE_64",
         "pointer_size": 8,
         "padding_bytes": [0x60, 0x00, 0x00, 0x00],
-        "symbol_prefix": "",
     },
     "sh2": {
         "capstone_arch": "CS_ARCH_SH",
         "capstone_mode": "CS_MODE_SH2",
         "pointer_size": 4,
         "padding_bytes": [0x00],
-        "symbol_prefix": "",
     },
 }
 
@@ -603,10 +592,6 @@ class ProjectConfig:
             "lint_indent_style": self.lint_indent_style,
             "lint_max_line_length": self.lint_max_line_length,
         }
-
-    def to_dict(self, redact_secrets: bool = True) -> dict[str, Any]:
-        """Alias for :meth:`as_dict` for API consistency across SDK models."""
-        return self.as_dict(redact_secrets=redact_secrets)
 
     def validate(self) -> None:
         """Validate configuration settings, raising :class:`ConfigError` on invalid values."""

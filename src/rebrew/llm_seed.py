@@ -329,7 +329,7 @@ def llm_config(cfg: Any) -> dict[str, str] | None:
     if not endpoint:
         return None
     endpoint = validate_http_url(endpoint, "LLM endpoint")
-    if api_key and not _key_safe_endpoint(endpoint):
+    if api_key and not is_key_safe_endpoint(endpoint):
         raise ValueError(
             "LLM endpoint must use https when an API key is set "
             "(plain http is allowed only for loopback hosts)"
@@ -349,11 +349,6 @@ def llm_config(cfg: Any) -> dict[str, str] | None:
     _request_timeout()
     _resolve_model(cfg)
     return {"endpoint": endpoint, "api_key": api_key}
-
-
-def _key_safe_endpoint(endpoint: str) -> bool:
-    """True when a bearer key may be sent to *endpoint*: https, or http to loopback."""
-    return is_key_safe_endpoint(endpoint)
 
 
 def _project_endpoint_allowed(endpoint: str) -> bool:

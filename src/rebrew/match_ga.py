@@ -1062,7 +1062,7 @@ class BinaryMatchingGA:
                 )
 
     def close(self) -> None:
-        """Release per-run state (kept for call-site compat; the memo is in-memory)."""
+        """Drop the in-memory compile cache and fitness memo held for the run."""
         with self._memo_lock:
             self.cache.clear()
             self._fitness_memo.clear()
