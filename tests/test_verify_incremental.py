@@ -74,6 +74,36 @@ def _func_b_row(cfg: ProjectConfig) -> tuple[list[Any], list[dict[str, Any]]]:
     return entries, results
 
 
+def _row(name: str, va: int) -> tuple[list[Any], list[dict[str, Any]]]:
+    """Return the (entries, results) pair for an EXACT match on *name* at *va*."""
+    filepath = f"{name}.c"
+    entries = [
+        SimpleNamespace(
+            va=va,
+            name=name,
+            filepath=filepath,
+            size=16,
+            origin="GAME",
+            cflags="",
+            symbol="",
+        )
+    ]
+    results = [
+        {
+            "va": f"0x{va:08X}",
+            "name": name,
+            "filepath": filepath,
+            "size": 16,
+            "status": "EXACT",
+            "message": "EXACT MATCH",
+            "passed": True,
+            "match_percent": 100.0,
+            "delta": 0,
+        }
+    ]
+    return entries, results
+
+
 class TestCompilerConfigHash:
     def test_changes_when_compiler_settings_change(self, tmp_path: Path) -> None:
         cfg_a = _make_cfg(tmp_path)
@@ -985,30 +1015,7 @@ class TestPatchVerifyCacheEntries:
         source_path = cfg.reversed_dir / "func_a.c"
         source_path.write_text("int func_a(void) { return 1; }\n", encoding="utf-8")
 
-        results = [
-            {
-                "va": "0x10001000",
-                "name": "func_a",
-                "filepath": "func_a.c",
-                "size": 16,
-                "status": "EXACT",
-                "message": "EXACT MATCH",
-                "passed": True,
-                "match_percent": 100.0,
-                "delta": 0,
-            }
-        ]
-        entries = [
-            SimpleNamespace(
-                va=0x10001000,
-                name="func_a",
-                filepath="func_a.c",
-                size=16,
-                origin="GAME",
-                cflags="",
-                symbol="",
-            )
-        ]
+        entries, results = _row("func_a", 0x10001000)
         cache_path = tmp_path / ".rebrew" / "verify_cache.json"
 
         save_verify_cache(cache_path, cfg, results, entries)
@@ -1601,30 +1608,7 @@ class TestHeadersHashCacheInvalidation:
 
         source_path = cfg.reversed_dir / "func.c"
         source_path.write_text("int func(void) { return 0; }\n", encoding="utf-8")
-        results = [
-            {
-                "va": "0x10001000",
-                "name": "func",
-                "filepath": "func.c",
-                "size": 16,
-                "status": "EXACT",
-                "message": "EXACT MATCH",
-                "passed": True,
-                "match_percent": 100.0,
-                "delta": 0,
-            }
-        ]
-        entries = [
-            SimpleNamespace(
-                va=0x10001000,
-                name="func",
-                filepath="func.c",
-                size=16,
-                origin="GAME",
-                cflags="",
-                symbol="",
-            )
-        ]
+        entries, results = _row("func", 0x10001000)
         save_verify_cache(cache_path, cfg, results, entries)
 
         raw = json.loads(cache_path.read_text(encoding="utf-8"))
@@ -1681,30 +1665,7 @@ class TestEntryHeadersFp:
         (cfg.reversed_dir / "types.h").write_text("typedef int BOOL;\n", encoding="utf-8")
         cache_path = tmp_path / ".rebrew" / "verify_cache.json"
 
-        results = [
-            {
-                "va": "0x10001000",
-                "name": "func",
-                "filepath": "func.c",
-                "size": 16,
-                "status": "EXACT",
-                "message": "EXACT MATCH",
-                "passed": True,
-                "match_percent": 100.0,
-                "delta": 0,
-            }
-        ]
-        entries = [
-            SimpleNamespace(
-                va=0x10001000,
-                name="func",
-                filepath="func.c",
-                size=16,
-                origin="GAME",
-                cflags="",
-                symbol="",
-            )
-        ]
+        entries, results = _row("func", 0x10001000)
         save_verify_cache(cache_path, cfg, results, entries)
 
         raw = json.loads(cache_path.read_text(encoding="utf-8"))

@@ -973,21 +973,12 @@ def _kv_to_annotation(
     c_func_proto = kv.get("_C_FUNC_PROTO", "")
     func_name_hint = kv.get("_FUNC_NAME_HINT", "")
 
-    # Derive name: prefer C definition > hint comment
-    if c_func_name:
-        name = c_func_name
-    elif func_name_hint:
-        name = func_name_hint
-    else:
-        name = ""
+    name = c_func_name or func_name_hint
 
     # Derive symbol: "_" + name for __cdecl (default), "_" + name + "@N" for
     # __stdcall/WINAPI, "@" + name + "@N" for __fastcall (ecx/edx args are
     # still counted in the decoration's N on MSVC).
     symbol = _derive_c_symbol(name, c_func_proto)
-
-    # Derive prototype from C definition
-    prototype = c_func_proto
 
     size_str = kv.get("SIZE", "0")
     try:
@@ -1015,7 +1006,7 @@ def _kv_to_annotation(
     ann.section = kv.get("SECTION", "")
     ann.blocker_delta = None
     ann.ghidra = ""
-    ann.prototype = prototype
+    ann.prototype = c_func_proto
     ann.struct = kv.get("STRUCT", "")
     ann.callers = kv.get("CALLERS", "")
     return ann
