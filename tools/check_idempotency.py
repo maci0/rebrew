@@ -45,6 +45,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from rebrew.utils import run_process_group
+
 _PROJECT_TOML = """\
 [project]
 name = "idemprobe"
@@ -157,7 +159,10 @@ def _run(cmd: str, cwd: Path) -> tuple[int, str]:
     """
     full = ["rebrew", *cmd.split()]
     try:
-        proc = subprocess.run(
+        # run_process_group, not subprocess.run: the 600s timeout must take
+        # the child's whole process group with it, or a `rebrew` that spawned
+        # a compiler leaves that compiler orphaned.
+        proc = run_process_group(
             full,
             cwd=str(cwd),
             capture_output=True,

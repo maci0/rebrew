@@ -31,6 +31,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from rebrew.utils import run_process_group
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 _COMMANDS = [
@@ -89,7 +91,10 @@ def check_project(rebrew: str, project: Path) -> list[tuple[str, int, str]]:
     results: list[tuple[str, int, str]] = []
     for cmd in _COMMANDS:
         try:
-            proc = subprocess.run(
+            # run_process_group, not subprocess.run: a 300s timeout must take
+            # the child's whole process group with it, or a `rebrew` that
+            # spawned a compiler leaves that compiler orphaned per project.
+            proc = run_process_group(
                 [rebrew, *cmd.split()],
                 cwd=str(project),
                 capture_output=True,

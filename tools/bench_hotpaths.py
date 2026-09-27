@@ -164,21 +164,24 @@ def bench_catalog_grid() -> dict[str, float]:
         import os
 
         os.chdir(root)
-        # Warm once (writes db/data_*.json); measure a second invocation.
-        assert (
-            runner.invoke(
-                app, ["catalog", "--data-json", "--json"], catch_exceptions=False
-            ).exit_code
-            == 0
-        )
+        try:
+            # Warm once (writes db/data_*.json); measure a second invocation.
+            assert (
+                runner.invoke(
+                    app, ["catalog", "--data-json", "--json"], catch_exceptions=False
+                ).exit_code
+                == 0
+            )
 
-        def run() -> None:
-            r = runner.invoke(app, ["catalog", "--data-json", "--json"], catch_exceptions=False)
-            assert r.exit_code == 0
+            def run() -> None:
+                r = runner.invoke(app, ["catalog", "--data-json", "--json"], catch_exceptions=False)
+                assert r.exit_code == 0
 
-        result = {"ops": 1, "seconds": _timeit(run, repeat=5)}
-        os.chdir(_REPO_ROOT)
-        return result
+            return {"ops": 1, "seconds": _timeit(run, repeat=5)}
+        finally:
+            # Restore on every path: a failed assert would leave the process
+            # standing in a directory the enclosing TemporaryDirectory removes.
+            os.chdir(_REPO_ROOT)
 
 
 def bench_verify_cache() -> dict[str, float]:
@@ -421,18 +424,19 @@ def bench_compile_cache() -> dict[str, float]:
 
     with tempfile.TemporaryDirectory() as d:
         cc = CompileCache(Path(d) / "cache")
-        keys = [f"k{i}" for i in range(1000)]
-        blobs = [f"obj{i}".encode() * 32 for i in range(1000)]
-        for k, b in zip(keys, blobs, strict=True):
-            cc.put(k, b)
+        try:
+            keys = [f"k{i}" for i in range(1000)]
+            blobs = [f"obj{i}".encode() * 32 for i in range(1000)]
+            for k, b in zip(keys, blobs, strict=True):
+                cc.put(k, b)
 
-        def run() -> None:
-            for k in keys:
-                assert cc.get(k) is not None
+            def run() -> None:
+                for k in keys:
+                    assert cc.get(k) is not None
 
-        result = {"ops": len(keys), "seconds": _timeit(run, repeat=5)}
-        cc.close()
-        return result
+            return {"ops": len(keys), "seconds": _timeit(run, repeat=5)}
+        finally:
+            cc.close()
 
 
 def bench_verify_cached() -> dict[str, float]:
