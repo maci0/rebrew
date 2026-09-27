@@ -161,6 +161,20 @@
   `clear_parse_tree_memo()` for a caller that wants them dropped. A miss is
   only a re-strip or a re-parse, so the working set that actually earns
   hits (one unchanged body per running worker) is unchanged.
+- **`make lint` failed on a clean tree.** `.scratch_d.py`, a one-off AST probe
+  committed at the repository root, raised six `E701`/`E702` findings. Scratch
+  work belongs in the gitignored `.scratch/`; the file had no caller and no
+  role in the package, so it is gone and the gate is green again.
+
+- **The lint set grew three ratchets over findings it already had.**
+  `RUF007` (a `zip()` over consecutive pairs is an `itertools.pairwise()`),
+  `RET505` (an `else`/`elif` after a `return`) and `PYI056` (`__all__.extend()`
+  is not portable across checkers, `+=` is) were selected with the findings
+  already fixed rather than left to rot: the three pairwise loops in
+  `cu_map.py` and `merge_sweep.py`, the five `else`-after-`return` branches
+  in `ghidra/commands.py` and `matcher/mutations/basic.py`, and the
+  `__all__` extension in `matcher/mutator.py`. `RET504` stays off: the named
+  intermediate reads better than the comprehension its fix would inline.
 
 - **`make format-check` failed on two committed files.** `src/rebrew/cfg.py`
   and `tests/test_ga_checkpoint.py` carried formatting that the pinned ruff

@@ -409,7 +409,7 @@ __all__ = [
     "mutate_code",
     "quick_validate",
 ]
-__all__.extend(m.__name__ for m in _BUILTIN_MUTATIONS)
+__all__ += [m.__name__ for m in _BUILTIN_MUTATIONS]
 
 
 @lru_cache(maxsize=64)

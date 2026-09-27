@@ -46,6 +46,7 @@ alignment signal), so neither runs unless asked for.
 """
 
 from dataclasses import dataclass
+from itertools import pairwise
 from typing import Any
 
 import typer
@@ -381,7 +382,7 @@ def _jump_table_split_vas(
 
     ordered = sorted(first_by_owner.items())
     splits: dict[int, str] = {}
-    for (prev_owner, prev), (owner, curr) in zip(ordered, ordered[1:], strict=False):
+    for (prev_owner, prev), (owner, curr) in pairwise(ordered):
         if prev % alignment == curr % alignment:
             continue
         splits[owner] = (
@@ -459,7 +460,7 @@ def _single_ref_data_bonds(
     """
     owned = _exclusive_data_owners(info, functions)
     bonds: dict[int, int] = {}
-    for (prev_va, _), (curr_va, _) in zip(functions, functions[1:], strict=False):
+    for (prev_va, _), (curr_va, _) in pairwise(functions):
         prev_owned = owned.get(prev_va)
         curr_owned = owned.get(curr_va)
         if not prev_owned or not curr_owned:

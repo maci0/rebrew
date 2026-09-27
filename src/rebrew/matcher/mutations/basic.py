@@ -120,8 +120,7 @@ def mut_flip_eq_zero(s: str, rng: random.Random) -> str | None:
 
         if op == b"==":
             return b"!" + left
-        else:
-            return b"!!" + left
+        return b"!!" + left
 
     res = _apply_query_once(b_source, _QUERY_EQ_ZERO, _repl, rng)
     return decode_source(res) if res else None
@@ -610,8 +609,7 @@ def mut_toggle_signedness(s: str, rng: random.Random) -> str | None:
         decl = _cap_bytes(b_source, captures, "expr")
         if b"unsigned " in decl:
             return decl.replace(b"unsigned ", b"")
-        else:
-            return b"unsigned " + decl
+        return b"unsigned " + decl
 
     res = _apply_query_once(b_source, _QUERY_DECLARATION, _repl, rng)
     if not res:
@@ -1156,7 +1154,7 @@ def mut_toggle_calling_convention(s: str, rng: random.Random) -> str | None:
         conv = _cap_bytes(b_source, captures, "expr")
         if conv == b"__cdecl":
             return b"__stdcall"
-        elif conv == b"__stdcall":
+        if conv == b"__stdcall":
             return b"__cdecl"
         return conv
 
@@ -1210,11 +1208,11 @@ def mut_comparison_boundary(s: str, rng: random.Random) -> str | None:
             return _cap_bytes(b_source, captures, "expr")
         if op == b">" and num == 0:
             return left + b" >= 1"
-        elif op == b">=" and num == 1:
+        if op == b">=" and num == 1:
             return left + b" > 0"
-        elif op == b"<" and num == 1:
+        if op == b"<" and num == 1:
             return left + b" <= 0"
-        elif op == b"<=" and num == 0:
+        if op == b"<=" and num == 0:
             return left + b" < 1"
         return _cap_bytes(b_source, captures, "expr")
 
