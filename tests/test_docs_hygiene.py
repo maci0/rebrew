@@ -10,7 +10,10 @@ Pins the docs to the code so drift is caught in CI:
   their index, lifecycle status, and cross-links intact;
 - every package whose ``AGENTS.md`` declares an ``Externals`` allowlist imports
   only the packages on it;
-- every ``make <target>`` the ``AGENTS.md`` files name is a Makefile target.
+- every ``make <target>`` the ``AGENTS.md`` files name is a Makefile target;
+- every repo path, ``rebrew <command>``, and make target a rule file cites
+  resolves, in the repo's own ``AGENTS.md``, each subpackage's, and the
+  ``AGENTS.md.template`` that ``rebrew init`` renders into a user project.
 """
 
 from __future__ import annotations
@@ -28,8 +31,15 @@ PACKAGE_ROOT = ROOT / "src" / "rebrew"
 #: ``Externals (the only ... one may import): `a`, `b.sub`, and `c`.``
 _EXTERNALS_RE = re.compile(r"^Externals \(the only [^\n]*?\): (.+)$", re.M)
 
-#: Rule files loaded into an agent session on every visit.
-RULE_FILES = (ROOT / "AGENTS.md", *sorted(PACKAGE_ROOT.glob("*/AGENTS.md")))
+#: Rule files loaded into an agent session on every visit: the repo's own, each
+#: subpackage's, and the template ``rebrew init`` renders into a user project.
+#: The template is the one that drifts furthest from the CLI, because nothing
+#: in this repo runs its command table.
+RULE_FILES = (
+    ROOT / "AGENTS.md",
+    PACKAGE_ROOT / "AGENTS.md.template",
+    *sorted(PACKAGE_ROOT.glob("*/AGENTS.md")),
+)
 
 #: Words that follow "make" in prose without naming a target.
 _PROSE_AFTER_MAKE = frozenset({"a", "an", "each", "it", "sure", "that", "the", "this"})
@@ -395,8 +405,8 @@ def test_rule_files_cite_real_repo_paths() -> None:
 
     A moved or renamed doc is cited by every future session and resolves to
     nothing. Globs and placeholders (``tests/test_mutator*.py``,
-    ``docs/adr/NNN-short-title.md``) name a pattern, not a file, and are
-    exempt.
+    ``docs/adr/NNN-short-title.md``, ``src/<target>/function_structure.json``)
+    name a pattern, not a file, and are exempt.
     """
     missing: list[str] = []
     cited = 0
@@ -404,7 +414,7 @@ def test_rule_files_cite_real_repo_paths() -> None:
         where = doc.relative_to(ROOT)
         text = doc.read_text(encoding="utf-8")
         for ref in re.findall(r"`([\w./-]+\.(?:md|py|toml|json|cmake))`", text):
-            placeholder = any(c in ref for c in "*{}") or re.search(r"[A-Z]{2,}", ref)
+            placeholder = any(c in ref for c in "*{}<>") or re.search(r"[A-Z]{2,}", ref)
             if not ref.startswith(_PATH_PREFIXES) or placeholder:
                 continue
             cited += 1
