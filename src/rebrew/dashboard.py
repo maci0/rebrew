@@ -485,7 +485,9 @@ function setListPageMessage(opts) {
   const hint = $(hintId);
   const more = $(moreWrapId);
   if (!total) {
-    $("results-status").textContent = "No " + noun + " match";
+    // Nothing on screen, so say whether rows were wanted at all: "No
+    // functions match" is a claim about the filters, not about the target.
+    $("results-status").textContent = "No " + noun + (filtersActive() ? " match" : " yet");
     hint.hidden = true;
     hint.textContent = "";
     more.hidden = true;
@@ -1250,24 +1252,14 @@ __STATUS_CSS__
     color: var(--rb-faint); font-size: var(--rb-size-note); margin: .25rem 0 .5rem; }
   #filter-actions, #show-more-wrap, #globals-show-more-wrap, #history-show-more-wrap,
   #retry-bar { margin: .35rem 0 .75rem; }
-  #clear-filters, #show-more, #show-more-globals, #show-more-history,
-  #retry-functions, #retry-summary, #retry-view {
-    min-height: 2.75rem; padding: .3rem .75rem; border: 1px solid var(--rb-line);
+  .btn { min-height: 2.75rem; padding: .3rem .75rem; border: 1px solid var(--rb-line);
     border-radius: var(--rb-radius); background: var(--rb-surface);
     color: inherit; font: inherit; cursor: pointer; }
-  :is(#clear-filters, #show-more, #show-more-globals, #show-more-history,
-  #retry-functions, #retry-summary, #retry-view):hover:not(:disabled) {
-    border-color: var(--rb-line-hi); background: var(--rb-hover); }
-  :is(#clear-filters, #show-more, #show-more-globals, #show-more-history,
-  #retry-functions, #retry-summary, #retry-view):active:not(:disabled) {
-    background: var(--rb-pressed); }
+  .btn:hover:not(:disabled) { border-color: var(--rb-line-hi); background: var(--rb-hover); }
+  .btn:active:not(:disabled) { background: var(--rb-pressed); }
   button:disabled { opacity: .55; cursor: not-allowed; }
   .views { display: flex; flex-wrap: wrap; gap: .35rem; margin: .75rem 0 .25rem; }
-  .views button { min-height: 2.75rem; padding: .3rem .85rem; font: inherit; cursor: pointer;
-    border: 1px solid var(--rb-line); border-radius: var(--rb-radius);
-    background: var(--rb-surface); color: inherit; }
-  .views button:hover { border-color: var(--rb-line-hi); background: var(--rb-hover); }
-  .views button:active { background: var(--rb-pressed); }
+  .views .btn { padding: .3rem .85rem; }
   .views button.active { border-color: var(--rb-accent); border-width: 2px;
     box-shadow: 0 0 0 2px var(--rb-ring); }
   .view-panel[hidden] { display: none; }
@@ -1279,7 +1271,7 @@ __STATUS_CSS__
     select, input { min-width: 0; width: 100%; }
     .filters > div { flex: 1 1 100%; }
     .card { min-width: 0; flex: 1 1 calc(50% - 1rem); }
-    .views button { flex: 1 1 auto; text-align: center; }
+    .views .btn { flex: 1 1 auto; text-align: center; }
   }
   @media (forced-colors: active) {
     button.card.active, .views button.active {
@@ -1335,16 +1327,16 @@ __STATUS_FORCED__
 </div>
 </div>
 <div id="filter-actions" hidden>
-<button type="button" id="clear-filters">Clear filters</button>
+<button type="button" class="btn" id="clear-filters">Clear filters</button>
 </div>
 <div id="views" class="views" hidden role="tablist" aria-label="Coverage views">
 <button type="button" role="tab" id="tab-functions" data-view="functions"
-  aria-controls="view-functions" class="active" aria-selected="true" tabindex="0">Functions</button>
-<button type="button" role="tab" id="tab-sections" data-view="sections"
+  aria-controls="view-functions" class="btn active" aria-selected="true" tabindex="0">Functions</button>
+<button type="button" class="btn" role="tab" id="tab-sections" data-view="sections"
   aria-controls="view-sections" aria-selected="false" tabindex="-1">Sections</button>
-<button type="button" role="tab" id="tab-globals" data-view="globals"
+<button type="button" class="btn" role="tab" id="tab-globals" data-view="globals"
   aria-controls="view-globals" aria-selected="false" tabindex="-1">Globals</button>
-<button type="button" role="tab" id="tab-history" data-view="history"
+<button type="button" class="btn" role="tab" id="tab-history" data-view="history"
   aria-controls="view-history" aria-selected="false" tabindex="-1">History</button>
 </div>
 <section id="summary" aria-labelledby="summary-heading" aria-busy="false" hidden>
@@ -1354,9 +1346,9 @@ __STATUS_FORCED__
 <p class="visually-hidden" id="results-status" role="status" aria-live="polite"></p>
 <p id="dashboard-error" role="alert" hidden></p>
 <div id="retry-bar" role="group" aria-label="Retry failed loads">
-<button type="button" id="retry-summary" hidden>Retry summary</button>
-<button type="button" id="retry-functions" hidden>Retry functions</button>
-<button type="button" id="retry-view" hidden>Retry</button>
+<button type="button" class="btn" id="retry-summary" hidden>Retry summary</button>
+<button type="button" class="btn" id="retry-functions" hidden>Retry functions</button>
+<button type="button" class="btn" id="retry-view" hidden>Retry</button>
 </div>
 <div id="view-functions" class="view-panel" role="tabpanel" tabindex="0" aria-labelledby="tab-functions">
 <p id="results-hint" hidden></p>
@@ -1370,7 +1362,7 @@ __STATUS_FORCED__
 </tr></thead><tbody></tbody></table>
 </div>
 <div id="show-more-wrap" hidden>
-<button type="button" id="show-more">Show more functions</button>
+<button type="button" class="btn" id="show-more">Show more functions</button>
 </div>
 </div>
 <div id="view-sections" class="view-panel" role="tabpanel" tabindex="0" aria-labelledby="tab-sections" hidden>
@@ -1399,7 +1391,7 @@ __STATUS_FORCED__
 </tr></thead><tbody></tbody></table>
 </div>
 <div id="globals-show-more-wrap" hidden>
-<button type="button" id="show-more-globals">Show more globals</button>
+<button type="button" class="btn" id="show-more-globals">Show more globals</button>
 </div>
 </div>
 <div id="view-history" class="view-panel" role="tabpanel" tabindex="0" aria-labelledby="tab-history" hidden>
@@ -1415,7 +1407,7 @@ __STATUS_FORCED__
 </tr></thead><tbody></tbody></table>
 </div>
 <div id="history-show-more-wrap" hidden>
-<button type="button" id="show-more-history">Show more history</button>
+<button type="button" class="btn" id="show-more-history">Show more history</button>
 </div>
 </div>
 </main>
