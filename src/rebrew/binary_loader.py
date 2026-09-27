@@ -132,8 +132,8 @@ _data_load_lock = threading.Lock()
 PADDING_BYTES: tuple[int, ...] = (0xCC, 0x90)
 
 
-def _decode_lief_name(raw: str | bytes) -> str:
-    """Decode a LIEF name, which may be returned as ``bytes`` or ``str``.
+def decode_binary_name(raw: str | bytes) -> str:
+    """Decode a name out of a parsed binary, returned as ``bytes`` or ``str``.
 
     Byte names carry no encoding declaration, so they are read the same way a
     legacy source file is (:func:`detect_source_encoding`): UTF-8 first, then
@@ -257,7 +257,7 @@ def _load_pe(binary: lief.PE.Binary, path: Path) -> BinaryInfo:
     text_raw_offset = 0
 
     for section in binary.sections:
-        name = _decode_lief_name(section.name).rstrip("\x00")
+        name = decode_binary_name(section.name).rstrip("\x00")
         va = image_base + section.virtual_address
         vsize = section.virtual_size
         raw_offset = section.pointerto_raw_data
@@ -339,7 +339,7 @@ def _load_elf(binary: lief.ELF.Binary, path: Path) -> BinaryInfo:
         raw_name: str | bytes = section.name
         if not raw_name:
             continue
-        name: str = _decode_lief_name(raw_name)
+        name: str = decode_binary_name(raw_name)
         va = section.virtual_address
         vsize = section.size
         raw_offset = section.offset
@@ -373,7 +373,7 @@ def _load_elf(binary: lief.ELF.Binary, path: Path) -> BinaryInfo:
         ]
         if code_sections:
             best_raw = max(code_sections, key=lambda sec: sec.size)
-            alias = sections.get(_decode_lief_name(best_raw.name))
+            alias = sections.get(decode_binary_name(best_raw.name))
             if alias is not None:
                 sections[".text"] = _text_alias(alias)
                 text_va, text_size, text_raw_offset = alias.va, alias.size, alias.file_offset
@@ -454,8 +454,8 @@ def _load_macho(fat_or_binary: lief.MachO.FatBinary | lief.MachO.Binary, path: P
         raw_seg_name = section.segment_name if hasattr(section, "segment_name") else ""
         raw_sec_name = section.name
 
-        seg_name = _decode_lief_name(raw_seg_name)
-        sec_name = _decode_lief_name(raw_sec_name)
+        seg_name = decode_binary_name(raw_seg_name)
+        sec_name = decode_binary_name(raw_sec_name)
 
         name = f"{seg_name}.{sec_name}" if seg_name else sec_name
         va = section.virtual_address
@@ -1124,7 +1124,7 @@ def detect_source_language(binary_path: Path) -> tuple[str, str]:
         for sec in parsed.sections:
             if not hasattr(sec, "name"):
                 continue
-            name = _decode_lief_name(sec.name).rstrip("\x00")
+            name = decode_binary_name(sec.name).rstrip("\x00")
             if name:
                 section_names.append(name)
     except (AttributeError, TypeError) as exc:
@@ -1141,14 +1141,14 @@ def detect_source_language(binary_path: Path) -> tuple[str, str]:
         if hasattr(parsed, "symbols"):
             for sym in parsed.symbols:
                 if sym.name:
-                    symbols.append(_decode_lief_name(sym.name))
+                    symbols.append(decode_binary_name(sym.name))
     except (AttributeError, TypeError) as exc:
         log.debug("symbol table of %s unreadable while guessing language: %s", binary_path, exc)
     try:
         if hasattr(parsed, "exported_functions"):
             for func in parsed.exported_functions:
                 if hasattr(func, "name") and func.name:
-                    symbols.append(_decode_lief_name(func.name))
+                    symbols.append(decode_binary_name(func.name))
     except (AttributeError, TypeError) as exc:
         log.debug("export table of %s unreadable while guessing language: %s", binary_path, exc)
 

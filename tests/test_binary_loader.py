@@ -17,37 +17,37 @@ from rebrew.binary_loader import (
 # -------------------------------------------------------------------------
 
 
-class TestDecodeLiefName:
+class TestDecodeBinaryName:
     """A byte name from the binary is decoded with the project's legacy chain."""
 
     def test_ascii_names_are_unchanged(self) -> None:
-        from rebrew.binary_loader import _decode_lief_name
+        from rebrew.binary_loader import decode_binary_name
 
-        assert _decode_lief_name(b"CODE") == "CODE"
-        assert _decode_lief_name(b".rdata") == ".rdata"
-        assert _decode_lief_name("already str") == "already str"
+        assert decode_binary_name(b"CODE") == "CODE"
+        assert decode_binary_name(b".rdata") == ".rdata"
+        assert decode_binary_name("already str") == "already str"
 
     def test_cp1252_name_keeps_its_accent(self) -> None:
-        from rebrew.binary_loader import _decode_lief_name
+        from rebrew.binary_loader import decode_binary_name
 
-        assert _decode_lief_name(b"Caf\xe9") == "Caf\u00e9"
+        assert decode_binary_name(b"Caf\xe9") == "Caf\u00e9"
 
     def test_shift_jis_name_decodes(self) -> None:
-        from rebrew.binary_loader import _decode_lief_name
+        from rebrew.binary_loader import decode_binary_name
 
-        assert _decode_lief_name(b"\x83e\x83X\x83g") == "\u30c6\u30b9\u30c8"
+        assert decode_binary_name(b"\x83e\x83X\x83g") == "\u30c6\u30b9\u30c8"
 
     def test_utf8_name_still_wins(self) -> None:
-        from rebrew.binary_loader import _decode_lief_name
+        from rebrew.binary_loader import decode_binary_name
 
-        assert _decode_lief_name(b"caf\xc3\xa9") == "caf\u00e9"
+        assert decode_binary_name(b"caf\xc3\xa9") == "caf\u00e9"
 
     def test_no_byte_is_ever_replaced(self) -> None:
         """Whatever the guess, Latin-1 fallback keeps every byte recoverable."""
-        from rebrew.binary_loader import _decode_lief_name
+        from rebrew.binary_loader import decode_binary_name
 
         for raw in (b"\x81", b"\xff\xfe", b"\xe9\xff", b"\x00\x81"):
-            assert "\ufffd" not in _decode_lief_name(raw)
+            assert "\ufffd" not in decode_binary_name(raw)
 
 
 class TestSectionInfo:

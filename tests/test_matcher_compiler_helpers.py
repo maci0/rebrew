@@ -1,6 +1,9 @@
 """Tests for matcher/compiler.py pure helpers."""
 
 import re
+from pathlib import Path
+
+import pytest
 
 from rebrew.flags import Checkbox, FlagSet
 from rebrew.matcher.compiler import _flags_to_axes, _map_symbol_re, generate_flag_combinations
@@ -140,3 +143,42 @@ class TestMalformedFlagSetProvider:
         )
         flags, _tiers = compiler_mod._merged_flag_sets()
         assert flags["msvc-6.0"] is compiler_mod._FLAGS_MAP["msvc-6.0"]
+
+
+class TestBuildCandidateMap:
+    """The linker writes its MAP in the toolchain codepage, not UTF-8."""
+
+    def test_symbol_is_found_in_a_legacy_encoded_map(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import subprocess
+
+        from rebrew.matcher import compiler as compiler_mod
+
+        def _fake_run(cmd, workdir, env, timeout, desc):  # type: ignore[no-untyped-def]
+            # 0xE9 is the CP1252 accented e the linker logged for the symbol.
+            (Path(workdir) / "cand.map").write_bytes(
+                b"  0001:00000000       Caf\xe9      00401000 f    cand.obj\n"
+            )
+            (Path(workdir) / "cand.exe").write_bytes(b"MZ")
+            return subprocess.CompletedProcess(cmd, 0, b"", b"")
+
+        monkeypatch.setattr(compiler_mod, "_run_compiler", _fake_run)
+        monkeypatch.setattr(compiler_mod, "_ensure_wine_env", lambda env, cmd: env)
+        monkeypatch.setattr(compiler_mod, "_maybe_headless_wine", lambda cmd, env: (cmd, env))
+        monkeypatch.setattr(compiler_mod, "_get_pe_symbol_size", lambda exe, sym: 4)
+        monkeypatch.setattr(
+            compiler_mod, "extract_function_from_binary", lambda exe, va, size: b"\x55\x8b\xec"
+        )
+
+        result = compiler_mod.build_candidate(
+            source_code="int f(void){return 0;}",
+            cl_cmd="cl",
+            inc_dir="",
+            lib_dir="",
+            cflags="",
+            ldflags="",
+            symbol="Café",
+        )
+        assert result.ok, result.error_msg
+        assert result.obj_bytes == b"\x55\x8b\xec"

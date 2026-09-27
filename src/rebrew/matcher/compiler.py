@@ -40,7 +40,7 @@ from rebrew.flag_data import (
 )
 from rebrew.flags import Checkbox, Flags, FlagSet
 from rebrew.toolchain_spec import FlagsStyle
-from rebrew.utils import run_process_group, safe_shlex_split
+from rebrew.utils import read_source_text, run_process_group, safe_shlex_split
 
 from .core import BuildResult
 from .parsers import extract_function_from_binary, parse_obj_symbol_bytes
@@ -704,7 +704,11 @@ def build_candidate(
             )[:400]
             return BuildResult(ok=False, error_msg=err_output)
 
-        map_text = map_path.read_text(encoding="utf-8", errors="replace")
+        # The MAP is written by the linker in its own codepage.  Decoding it
+        # as UTF-8 with ``errors="replace"`` puts U+FFFD where an accented
+        # symbol's byte was, so the lookup below can never match and the build
+        # reports "Symbol not found in MAP" for a symbol that is right there.
+        map_text = read_source_text(map_path)[0]
 
         # MSVC MAP format: "  SSSS:OOOOOOOO  _symbol  VVVVVVVV  f  obj"
         m = _map_symbol_re(symbol).search(map_text)

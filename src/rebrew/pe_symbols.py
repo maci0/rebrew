@@ -48,7 +48,7 @@ from dataclasses import dataclass, field
 from pathlib import Path, PureWindowsPath
 from typing import Any
 
-from rebrew.binary_loader import BinaryInfo, extract_bytes_at_va, load_binary
+from rebrew.binary_loader import BinaryInfo, decode_binary_name, extract_bytes_at_va, load_binary
 from rebrew.import_table import parse_imports
 from rebrew.pe_headers import pe_layout
 
@@ -327,21 +327,27 @@ def _iter_name_table(image: _Image, table_va: int) -> Iterator[int]:
 
 
 def _read_hint_name(image: _Image, entry_va: int) -> str:
-    """The ASCII name of a hint/name table entry (a WORD hint then the name)."""
+    """The name of a hint/name table entry (a WORD hint then the name).
+
+    The name is raw bytes in the toolchain's codepage, so it goes through
+    :func:`decode_binary_name`: decoding as ASCII with ``errors="replace"``
+    turned a CP1252 ``Caf\\xe9`` into ``Caf\\ufffd``, a name that then matches
+    nothing in the source or the metadata that names it.
+    """
     raw = image.read(entry_va, _MAX_NAME_BYTES)
     if len(raw) < 3:
         return ""
     terminator = raw.find(b"\x00", 2)
     body = raw[2:] if terminator < 0 else raw[2:terminator]
-    return body.decode("ascii", errors="replace")
+    return decode_binary_name(body)
 
 
 def _read_c_string(image: _Image, field: int, rva_based: bool) -> str:
-    """An ASCII string at a descriptor field, empty when unmapped."""
+    """A name string at a descriptor field, empty when unmapped."""
     va = _resolve_field(image, field, rva_based)
     if va is None:
         return ""
-    return image.read(va, _MAX_NAME_BYTES).split(b"\x00")[0].decode("ascii", errors="replace")
+    return decode_binary_name(image.read(va, _MAX_NAME_BYTES).split(b"\x00")[0])
 
 
 def _resolve_field(image: _Image, field: int, rva_based: bool) -> int | None:

@@ -114,6 +114,26 @@
   reset each request. No `/api/*` JSON changed.
 
 ### Fixed
+- **Names read out of a binary decode through one shared helper.**
+  `rebrew.binary_loader` already detected a legacy codepage for a name LIEF
+  returned as bytes, but four other paths decoded the same kind of name as
+  UTF-8 with `errors="replace"`: a relocation target in
+  `rebrew.matcher.parsers`, a PE section name in `rebrew.postlink` and
+  `rebrew.gap_trace`, and a LIEF name in `rebrew.pe_info`. A CP1252
+  `Caf\xe9` became `Caf\ufffd` there, which matches no identifier in the
+  source it names, and the replacement is not recoverable. PE import
+  hint/name and descriptor strings in `rebrew.pe_symbols` had the same
+  problem one level down (`errors="replace"` on an ASCII decode). The
+  private `_decode_lief_name` is now the public `decode_binary_name`, and
+  every one of those call sites goes through it.
+- **A linker MAP written in the toolchain codepage resolves its symbols.**
+  `matcher.compiler.build_candidate` read the MAP as UTF-8 with
+  `errors="replace"` and then searched it for a symbol name that may
+  itself hold a non-ASCII code point. The replacement character stood where
+  the accented byte was, the regex never matched, and the build failed with
+  "Symbol not found in MAP" for a symbol the MAP contains. Read with
+  `read_source_text`, which detects the encoding the way the rest of the
+  legacy-source paths do.
 - **`make format-check` failed on two committed files.** `src/rebrew/cfg.py`
   and `tests/test_ga_checkpoint.py` carried formatting the pinned ruff
   (`ruff format --check . --exclude docs`, the lint job's gate) rejects, so

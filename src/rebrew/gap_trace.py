@@ -21,7 +21,7 @@ from typing import Any
 import typer
 
 from rebrew.analysis import Insn, iter_instructions
-from rebrew.binary_loader import load_binary
+from rebrew.binary_loader import decode_binary_name, load_binary
 from rebrew.cli import (
     TargetOption,
     console,
@@ -155,8 +155,7 @@ def _obj_text(obj_path: str) -> tuple[bytes, set[int]]:
     if binary is None:
         return b"", set()
     for section in binary.sections:
-        name = section.name
-        name = name.decode("utf-8", errors="replace") if isinstance(name, bytes) else str(name)
+        name = decode_binary_name(section.name)
         if not name.startswith(".text"):
             continue
         rels: set[int] = set()

@@ -480,3 +480,13 @@ def test_parse_obj_fixture_mutation_no_crash(noise: bytes, n_flips: int) -> None
             assert isinstance(r.symbol, str)
     finally:
         tmp.unlink(missing_ok=True)
+
+
+def test_reloc_name_decodes_a_legacy_encoded_symbol() -> None:
+    """A CP1252 symbol name keeps its accent instead of becoming U+FFFD."""
+    from types import SimpleNamespace
+
+    from rebrew.matcher.parsers import _extract_reloc_name
+
+    reloc = SimpleNamespace(symbol=SimpleNamespace(name=b"initCaf\xe9"))
+    assert _extract_reloc_name(reloc) == "initCafé"
