@@ -21,7 +21,7 @@ import re
 import threading
 import unicodedata
 import warnings
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any, ClassVar, Final
@@ -222,29 +222,7 @@ def split_annotation_sections(text: str) -> tuple[str, list[str]]:
     merge/split operations.
     """
     lines = text.splitlines(keepends=True)
-    marker_indexes: list[int] = []
-    in_block_comment = False
-    for idx, line in enumerate(lines):
-        # Marker regex accepts `//` and `/*` (C89-strict 16-bit skeletons
-        # emit `/* FUNCTION: ... */`) — quick reject avoids the `.strip()`
-        # + regex on the vast majority of source lines.
-        stripped = line.strip()
-        # Track /* */ comments so a marker inside one (e.g. an old disabled
-        # copy of a function) does not create a phantom block — mirrors
-        # parse_c_file_multi, which skips them.  This must run before the
-        # `//`-or-`/*` pre-filter or a bare ``*/`` closing line is rejected
-        # too early and the comment state never clears.
-        if in_block_comment:
-            if "*/" in stripped:
-                in_block_comment = False
-            continue
-        if not stripped.startswith(("//", "/*")):
-            continue
-        if stripped.startswith("/*") and "*/" not in stripped:
-            in_block_comment = True
-            continue
-        if NEW_FUNC_CAPTURE_RE.match(stripped):
-            marker_indexes.append(idx)
+    marker_indexes, in_block_comment = _scan_annotation_lines(lines)
 
     if not marker_indexes:
         return text, []
@@ -253,11 +231,16 @@ def split_annotation_sections(text: str) -> tuple[str, list[str]]:
     # key-value lines (// KEY: value) in the block.  Blank lines between
     # annotations and marker are consumed too.  The scan never goes past
     # the previous marker to avoid stealing from another block.
+    # A commented-out line stops the scan as well: pulling one out of its
+    # ``/* ... */`` run put it at the head of this block, where the block's
+    # own scan reads it as a live marker the source never had.
     adjusted_starts: list[int] = []
     for i, marker_idx in enumerate(marker_indexes):
         start = marker_idx
         lower_bound = marker_indexes[i - 1] if i > 0 else 0
         while start > lower_bound:
+            if in_block_comment[start - 1]:
+                break
             prev_line = lines[start - 1].strip()
             if not prev_line:
                 start -= 1
@@ -267,6 +250,15 @@ def split_annotation_sections(text: str) -> tuple[str, list[str]]:
             else:
                 break
         adjusted_starts.append(start)
+
+    # A marker line matches NEW_KV_RE too (``FUNCTION: MODULE 0xVA`` reads as
+    # key/value), so the scan above reaches back over the previous marker and
+    # the two share a block — that is the stacked-marker form (ADR-010/022).
+    # Drop the boundary between them, or the block before the pair ends up
+    # holding the earlier marker's key-value lines and no marker at all.
+    for i, marker_idx in enumerate(marker_indexes[:-1]):
+        if adjusted_starts[i + 1] <= marker_idx:
+            adjusted_starts[i + 1] = adjusted_starts[i]
 
     preamble_lines = lines[: adjusted_starts[0]]
     blocks: list[str] = []
@@ -278,13 +270,15 @@ def split_annotation_sections(text: str) -> tuple[str, list[str]]:
     # This happens when a source file has annotations at the top separated
     # from the FUNCTION marker by non-annotation lines (includes, externs).
     # Without this fix, merge would discard those annotations during preamble
-    # deduplication.
+    # deduplication.  A commented-out KV line stays in the preamble: lifting it
+    # to the head of block 0 reads it there as a live annotation, and moves a
+    # marker the source deliberately disabled into a block that carries it.
     if blocks and preamble_lines:
         rescued: list[str] = []
         kept: list[str] = []
-        for line in preamble_lines:
+        for offset, line in enumerate(preamble_lines):
             stripped = line.strip()
-            if stripped and NEW_KV_RE.match(stripped):
+            if stripped and not in_block_comment[offset] and NEW_KV_RE.match(stripped):
                 rescued.append(line)
             else:
                 kept.append(line)
@@ -296,17 +290,54 @@ def split_annotation_sections(text: str) -> tuple[str, list[str]]:
     return preamble, blocks
 
 
+def _scan_annotation_lines(lines: Sequence[str]) -> tuple[list[int], list[bool]]:
+    """Marker line indexes, and per line whether a ``/* ... */`` run covers it.
+
+    One definition of "is this a marker" and of "is this line commented out",
+    shared by the splitter and :func:`block_markers`: a marker commented out
+    inside a ``/* ... */`` run (an old disabled copy of a function) is not a
+    marker, and a reader that disagreed with the splitter saw blocks holding
+    no marker at all.  The splitter's back-scan needs the second list too.
+    """
+    marker_indexes: list[int] = []
+    in_block_comment: list[bool] = []
+    inside = False
+    for idx, line in enumerate(lines):
+        # Marker regex accepts `//` and `/*` (C89-strict 16-bit skeletons
+        # emit `/* FUNCTION: ... */`) — quick reject avoids the `.strip()`
+        # + regex on the vast majority of source lines.
+        stripped = line.strip()
+        # This must run before the `//`-or-`/*` pre-filter or a bare ``*/``
+        # closing line is rejected too early and the comment state never
+        # clears.  Mirrors parse_c_file_multi, which skips commented markers.
+        in_block_comment.append(inside)
+        if inside:
+            if "*/" in stripped:
+                inside = False
+            continue
+        if not stripped.startswith(("//", "/*")):
+            continue
+        if stripped.startswith("/*") and "*/" not in stripped:
+            inside = True
+            continue
+        if NEW_FUNC_CAPTURE_RE.match(stripped):
+            marker_indexes.append(idx)
+    return marker_indexes, in_block_comment
+
+
 def block_markers(block: str) -> list[tuple[str, int]]:
     """Every ``// FUNCTION: <MODULE> 0x<VA>`` marker in one block, in order.
 
     A shared source stacks one marker per target above a single body
     (ADR-010/022), so callers must not stop at the first marker.
     """
+    lines = block.splitlines()
+    marker_indexes, _ = _scan_annotation_lines(lines)
     out: list[tuple[str, int]] = []
-    for line in block.splitlines():
-        m = NEW_FUNC_CAPTURE_RE.match(line.strip())
-        if m:
-            out.append((unicodedata.normalize("NFC", m.group("module")), int(m.group("va"), 16)))
+    for idx in marker_indexes:
+        m = NEW_FUNC_CAPTURE_RE.match(lines[idx].strip())
+        assert m is not None  # _scan_annotation_lines matched this very line
+        out.append((unicodedata.normalize("NFC", m.group("module")), int(m.group("va"), 16)))
     return out
 
 
@@ -1212,6 +1243,11 @@ _METADATA_FILE_INDEX_MAX = 4
 #: Pins each indexed document so a freed entry's ``id`` is never reused as a
 #: live cache key.
 _METADATA_FILE_INDEX_OWNER: dict[int, dict[tuple[str, int], dict[str, Any]]] = {}
+#: The owner hit, the two eviction clears, and the two stores are one
+#: check-then-act over two parallel dicts; ``rebrew match --all -j N`` reaches
+#: this from pool threads.  Held only for the dict work — the index build below
+#: walks the whole entry table and stays outside.
+_METADATA_FILE_INDEX_LOCK = threading.Lock()
 
 
 def _metadata_file_index(
@@ -1224,23 +1260,22 @@ def _metadata_file_index(
     its own.
     """
     key = id(entries_by_key)
-    # ``rebrew match --all -j N`` runs this from pool threads: the eviction
-    # below clears both dicts, so a hit on the owner map can lose its index
-    # between the two reads.  Fall through to a rebuild instead of raising.
-    if _METADATA_FILE_INDEX_OWNER.get(key) is entries_by_key:
-        cached = _METADATA_FILE_INDEX.get(key)
-        if cached is not None:
-            return cached
+    with _METADATA_FILE_INDEX_LOCK:
+        if _METADATA_FILE_INDEX_OWNER.get(key) is entries_by_key:
+            cached = _METADATA_FILE_INDEX.get(key)
+            if cached is not None:
+                return cached
     index: dict[str, list[tuple[str, int, dict[str, Any]]]] = {}
     for (module, va), entry in entries_by_key.items():
         stored = str(entry.get("file", "")).replace("\\", "/")
         if stored:
             index.setdefault(stored, []).append((module, va, entry))
-    if len(_METADATA_FILE_INDEX) >= _METADATA_FILE_INDEX_MAX:
-        _METADATA_FILE_INDEX.clear()
-        _METADATA_FILE_INDEX_OWNER.clear()
-    _METADATA_FILE_INDEX[key] = index
-    _METADATA_FILE_INDEX_OWNER[key] = entries_by_key
+    with _METADATA_FILE_INDEX_LOCK:
+        if len(_METADATA_FILE_INDEX) >= _METADATA_FILE_INDEX_MAX:
+            _METADATA_FILE_INDEX.clear()
+            _METADATA_FILE_INDEX_OWNER.clear()
+        _METADATA_FILE_INDEX[key] = index
+        _METADATA_FILE_INDEX_OWNER[key] = entries_by_key
     return index
 
 
