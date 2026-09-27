@@ -848,6 +848,8 @@ class TestGetCompileCache:
         cache = get_compile_cache(tmp_path)
         cache.put("test", b"\x00")
         assert (tmp_path / ".rebrew" / "compile_cache").exists()
+        # The dir holds the live store, so a round trip must survive it.
+        assert cache.get("test") == b"\x00"
         close_all_caches()
 
     def test_evicts_oldest_when_over_cap(self, tmp_path: Path, monkeypatch) -> None:

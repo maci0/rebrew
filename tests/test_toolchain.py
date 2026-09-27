@@ -1411,14 +1411,17 @@ class TestVendorFlatten:
 
         payload = tmp_path / "payload"
         (payload / "bin").mkdir(parents=True)
+        (payload / "bin" / "gcc.exe").write_bytes(b"MZ")
         (payload / "README").write_text("x", encoding="utf-8")
         dest = tmp_path / "dest"
         dest.mkdir()
 
         _flatten_wrapper_dir(payload, dest)
 
-        assert (dest / "bin").is_dir()
-        assert (dest / "README").is_file()
+        # Contents, not just entries: an emptied dir would pass an is_dir check.
+        assert (dest / "bin" / "gcc.exe").read_bytes() == b"MZ"
+        assert (dest / "README").read_text(encoding="utf-8") == "x"
+        assert {p.name for p in dest.iterdir()} == {"bin", "README"}
 
     def test_moves_across_filesystems(self, tmp_path: Path, monkeypatch: Any) -> None:
         """The payload is staged in the system temp dir (tmpfs on many hosts)

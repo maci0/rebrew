@@ -166,9 +166,12 @@ def test_read_db_version_integer_column(tmp_path: Path) -> None:
 
 
 def test_read_db_version_opens_read_only(tmp_path: Path) -> None:
+    """A read must not write: byte-for-byte, a journal must not appear either."""
     db = make_db(tmp_path / "coverage.db", [(SCHEMA_TARGET, "db_version", json.dumps(6))])
-    read_db_version(db)
-    assert db.exists()
+    before = db.read_bytes()
+    assert read_db_version(db) == 6
+    assert db.read_bytes() == before
+    assert not list(db.parent.glob(db.name + "-*"))
 
 
 @pytest.mark.parametrize(

@@ -722,11 +722,24 @@ class TestInitAgentSkills:
             assert "<target>" not in content
 
     def test_copies_idempotent(self, tmp_path: Path) -> None:
+        """Re-running init must rewrite the same bytes, not append or duplicate."""
         from rebrew.init import _copy_agent_skills
 
         _copy_agent_skills(tmp_path, "test")
+        skills = tmp_path / ".agents" / "skills"
+        first = {
+            p.relative_to(skills).as_posix(): p.read_bytes()
+            for p in skills.rglob("*")
+            if p.is_file()
+        }
+        assert first, "no skill files were rendered"
         _copy_agent_skills(tmp_path, "test")
-        assert (tmp_path / ".agents" / "skills").is_dir()
+        second = {
+            p.relative_to(skills).as_posix(): p.read_bytes()
+            for p in skills.rglob("*")
+            if p.is_file()
+        }
+        assert second == first
 
     def test_skips_traversing_skill_paths(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -870,7 +883,7 @@ class TestInitCompletions:
         ).read_bytes()
 
     def test_json_reports_completions(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         import json
 
@@ -1420,18 +1433,9 @@ class TestRefreshAgents:
         assert skill.is_file()
         assert "<target>" not in skill.read_text(encoding="utf-8")
 
-    def test_check_is_clean_after_refresh(self, tmp_path: Path) -> None:
-        import typer
-
-        from rebrew.init import _refresh_agents
-
-        root = self._project(tmp_path, "msvc-5.0")
-        _refresh_agents(root, root / "rebrew-project.toml", json_output=False)
-        with pytest.raises(typer.Exit) as exc:
-            _refresh_agents(root, root / "rebrew-project.toml", json_output=False, check=True)
-        assert exc.value.exit_code == 0
-
-    def test_check_flags_a_stale_skill(self, tmp_path: Path) -> None:
+    def test_check_flags_a_stale_skill(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         import typer
 
         from rebrew.init import _refresh_agents
@@ -1443,8 +1447,16 @@ class TestRefreshAgents:
         with pytest.raises(typer.Exit) as exc:
             _refresh_agents(root, root / "rebrew-project.toml", json_output=False, check=True)
         assert exc.value.exit_code == 1
+        # The report must name the one file that drifted, and how.
+        report = capsys.readouterr().err
+        assert "1 generated file(s) drifted" in report
+        assert ".agents/skills/rebrew-workflow/SKILL.md (differs)" in report
+        # check never writes.
+        assert skill.read_text(encoding="utf-8").endswith("\nstale\n")
 
-    def test_check_flags_a_missing_agents_md(self, tmp_path: Path) -> None:
+    def test_check_flags_a_missing_agents_md(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         import typer
 
         from rebrew.init import _refresh_agents
@@ -1455,6 +1467,23 @@ class TestRefreshAgents:
         with pytest.raises(typer.Exit) as exc:
             _refresh_agents(root, root / "rebrew-project.toml", json_output=False, check=True)
         assert exc.value.exit_code == 1
+        assert "AGENTS.md (missing)" in capsys.readouterr().err
+        assert not (root / "AGENTS.md").exists()
+
+    def test_check_is_clean_after_refresh(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """The clean report is a claim too: a check that finds nothing says so."""
+        import typer
+
+        from rebrew.init import _refresh_agents
+
+        root = self._project(tmp_path, "msvc-5.0")
+        _refresh_agents(root, root / "rebrew-project.toml", json_output=False)
+        with pytest.raises(typer.Exit) as exc:
+            _refresh_agents(root, root / "rebrew-project.toml", json_output=False, check=True)
+        assert exc.value.exit_code == 0
+        assert "matches the packaged sources" in capsys.readouterr().err
 
 
 class TestRefreshAgentsPrunesStaleSkills:

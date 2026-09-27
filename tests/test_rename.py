@@ -80,7 +80,9 @@ class TestRenameFunctionEverywhere:
         rename_function_everywhere(
             _cfg(tmp_path), a, "func_a", "_func_a", "renamed_fn", new_filename="custom"
         )
-        assert (tmp_path / "custom.c").exists()
+        # The explicit stem names the file, and the body is rewritten inside it.
+        assert (tmp_path / "custom.c").read_text() == "int renamed_fn(void) { return 1; }\n"
+        assert not (tmp_path / "func_a.c").exists()
 
     def test_target_exists_raises(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         a = _src(tmp_path, "func_a.c", "int func_a(void) { return 1; }\n")
@@ -192,7 +194,8 @@ class TestRenameEdgeCases:
         rename_function_everywhere(
             cfg, primary, "old_fn", "_old_fn", "new_fn", new_filename="sub/new_file"
         )
-        assert (src / "sub" / "new_file.c").exists()
+        assert (src / "sub" / "new_file.c").read_text() == "int new_fn(void) { return 0; }\n"
+        assert not primary.exists()
 
     def test_stem_not_matching_keeps_file(self, tmp_path: Path, monkeypatch: Any) -> None:
         from rebrew.rename_ops import rename_function_everywhere
@@ -203,7 +206,9 @@ class TestRenameEdgeCases:
         primary.write_text("int old_fn(void) { return 0; }\n", encoding="utf-8")
         cfg = SimpleNamespace(reversed_dir=src, source_ext=".c")
         rename_function_everywhere(cfg, primary, "old_fn", "_old_fn", "new_fn")
-        assert (src / "unrelated.c").exists()  # stem != old name → no rename
+        # stem != old name → the file keeps its name, but the body still renames.
+        assert (src / "unrelated.c").read_text() == "int new_fn(void) { return 0; }\n"
+        assert [p.name for p in src.iterdir()] == ["unrelated.c"]
 
 
 class TestRenameCli:

@@ -756,7 +756,32 @@ class TestBssFixDryRun:
             gaps=[type("Gap", (), {"offset": 0x5000, "size": 0x100, "before": "a", "after": "b"})()]
         )
         _generate_bss_fix(report, tmp_path, "SERVER")
-        assert (tmp_path / "bss_padding.c").exists()
+        text = (tmp_path / "bss_padding.c").read_text(encoding="utf-8")
+        assert "// DATA: SERVER 0x00005000" in text
+        assert "char gap_00005000[256];" in text
+        # Metadata lands in the metadata root with the gap's size and section.
+        meta = (tmp_path / "rebrew-data.toml").read_text(encoding="utf-8")
+        assert "size = 256" in meta
+        assert 'section = ".bss"' in meta
+
+    def test_fix_rerun_keeps_existing_arrays(self, tmp_path: Path) -> None:
+        """A second run must preserve the first run's array: regenerating from
+        scratch deletes declarations its own metadata still claims."""
+        from rebrew.data import _generate_bss_fix
+        from rebrew.data_scan import BssReport
+
+        def _report(offset: int) -> BssReport:
+            return BssReport(
+                gaps=[
+                    type("Gap", (), {"offset": offset, "size": 0x10, "before": "a", "after": "b"})()
+                ]
+            )
+
+        _generate_bss_fix(_report(0x5000), tmp_path, "SERVER")
+        _generate_bss_fix(_report(0x6000), tmp_path, "SERVER")
+        text = (tmp_path / "bss_padding.c").read_text(encoding="utf-8")
+        assert "char gap_00005000[16];" in text
+        assert "char gap_00006000[16];" in text
 
 
 class TestBuildDispatchKnownFunctions:

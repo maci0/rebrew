@@ -74,9 +74,14 @@ class TestCmdExtract:
         import rebrew.extract as extract_mod
 
         monkeypatch.setattr(extract_mod, "extract_bytes_at_va", lambda _info, va, size: b"\x55\xc3")
-        monkeypatch.setattr(extract_mod, "disasm_bytes", lambda code, va, cfg=None: "push ebp\nret")
+        seen: list[tuple[int, bytes]] = []
+        monkeypatch.setattr(
+            extract_mod, "disasm_bytes", lambda code, va, cfg=None: seen.append((va, code)) or "asm"
+        )
         extract_mod.cmd_extract(self._info(), [(0x1000, 4, "f")], 0x1000, tmp_path)
-        assert (tmp_path / "func_0x00001000.bin").exists()
+        # The file must hold the bytes at the VA, not just exist.
+        assert (tmp_path / "func_0x00001000.bin").read_bytes() == b"\x55\xc3"
+        assert seen == [(0x1000, b"\x55\xc3")]
 
     def test_empty_extraction_errors(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         import typer
@@ -164,7 +169,8 @@ class TestCmdBatch:
         monkeypatch.setattr(extract_mod, "extract_bytes_at_va", lambda *a, **k: b"\x55")
         monkeypatch.setattr(extract_mod, "disasm_bytes", lambda *a, **k: "push ebp")
         extract_mod.cmd_batch(self._info(), [(0x1000, 4, "f")], count=1, start=0, bin_dir=tmp_path)
-        assert (tmp_path / "func_0x00001000.bin").exists()
+        # Each candidate's own bytes land under its own VA-named file.
+        assert (tmp_path / "func_0x00001000.bin").read_bytes() == b"\x55"
 
     def test_batch_start_offset(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         import rebrew.extract as extract_mod

@@ -5,6 +5,7 @@ schema and populates all columns (including the new detected_by, size_by_tool,
 textOffset, globals origin/size, and the section_cell_stats view).
 """
 
+import contextlib
 import copy
 import json
 import re
@@ -185,6 +186,14 @@ class TestBuildDbRoundTrip:
         build_db(project_root)
         db_path = project_root / "db" / "coverage.db"
         assert db_path.exists()
+        with contextlib.closing(sqlite3.connect(db_path)) as conn:
+            tables = {
+                row[0]
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type IN ('table', 'view')"
+                )
+            }
+        assert {"metadata", "functions", "history", "verify_results"} <= tables
 
     def test_function_stats_stop_at_next_function(self, tmp_path: Path) -> None:
         """A size running through the next function (a missed start) counts

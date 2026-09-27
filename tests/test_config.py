@@ -78,9 +78,11 @@ class TestFindRoot:
         (tmp_path / "rebrew-project.toml").write_text(
             "[targets.main]\nbinary = 'test.exe'\n", encoding="utf-8"
         )
-        monkeypatch.chdir(tmp_path)
-        root = find_root()
-        assert (root / "rebrew-project.toml").exists()
+        sub = tmp_path / "src"
+        sub.mkdir()
+        monkeypatch.chdir(sub)
+        # The walk goes up, so the marker file's directory is the root.
+        assert find_root() == tmp_path
 
 
 # ---------------------------------------------------------------------------
