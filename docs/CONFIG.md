@@ -337,6 +337,12 @@ by the CLI layer and win for that invocation.
   header to the configured endpoint, never logged. Prefer these env vars over
   `[llm] api_key` in TOML. Endpoint must be an `http(s)` URL with a host;
   with a key set it must be `https` unless the host is loopback.
+- `REBREW_LLM_ALLOW_PROJECT_ENDPOINT` — set to `1` to let an `[llm] endpoint`
+  written in `rebrew-project.toml` receive `REBREW_LLM_API_KEY`. The project
+  file outranks the environment for the endpoint, so without this a checked-out
+  project could aim the analyst's key at its own host. Loopback endpoints
+  (local ollama / vllm) need no opt-in, and a key that came from the project
+  TOML is not affected. Unset or `0` keeps the refusal.
 - `REBREW_LLM_MAX_REQUESTS` — process-wide ceiling on LLM HTTP calls
   (default `32`). Stops `--watch` / batch seeding from burning a paid
   endpoint. `0` disables further calls for the process. A set-but-non-integer

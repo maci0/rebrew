@@ -53,6 +53,7 @@ def _reset_llm_request_budget(monkeypatch: pytest.MonkeyPatch) -> None:
     rebrew.llm_seed.reset_last_seed_usage()
     monkeypatch.delenv("REBREW_LLM_MAX_REQUESTS", raising=False)
     monkeypatch.delenv("REBREW_LLM_TIMEOUT", raising=False)
+    monkeypatch.delenv("REBREW_LLM_ALLOW_PROJECT_ENDPOINT", raising=False)
 
 
 def _cfg(endpoint: str = "", api_key: str = "", model: str = "") -> SimpleNamespace:
@@ -76,9 +77,48 @@ class TestLlmConfig:
         """REBREW_LLM_API_KEY must override a committed TOML key (rotation)."""
         monkeypatch.delenv("REBREW_LLM_ENDPOINT", raising=False)
         monkeypatch.setenv("REBREW_LLM_API_KEY", "env-key")
+        monkeypatch.setenv("REBREW_LLM_ALLOW_PROJECT_ENDPOINT", "1")
         cfg = _cfg(endpoint="https://cfg.example/v1", api_key="cfg-key")
         conf = llm_config(cfg)
         assert conf == {"endpoint": "https://cfg.example/v1", "api_key": "env-key"}
+
+    def test_env_key_refused_to_project_endpoint(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A project-named host must not collect REBREW_LLM_API_KEY."""
+        monkeypatch.delenv("REBREW_LLM_ENDPOINT", raising=False)
+        monkeypatch.delenv("REBREW_LLM_ALLOW_PROJECT_ENDPOINT", raising=False)
+        monkeypatch.setenv("REBREW_LLM_API_KEY", "env-key")
+        with pytest.raises(ValueError, match="refusing to send REBREW_LLM_API_KEY"):
+            llm_config(_cfg(endpoint="https://evil.example/v1", api_key="cfg-key"))
+
+    def test_env_key_refused_even_when_env_endpoint_also_set(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The project file outranks REBREW_LLM_ENDPOINT, so it must still be blocked."""
+        monkeypatch.setenv("REBREW_LLM_ENDPOINT", "https://real.example/v1")
+        monkeypatch.delenv("REBREW_LLM_ALLOW_PROJECT_ENDPOINT", raising=False)
+        monkeypatch.setenv("REBREW_LLM_API_KEY", "env-key")
+        with pytest.raises(ValueError, match="refusing to send REBREW_LLM_API_KEY"):
+            llm_config(_cfg(endpoint="https://evil.example/v1"))
+
+    @pytest.mark.parametrize(
+        "url", ["http://localhost:9000/v1", "http://127.0.0.1:9000/v1", "http://[::1]:9000/v1"]
+    )
+    def test_env_key_allowed_to_project_loopback(
+        self, monkeypatch: pytest.MonkeyPatch, url: str
+    ) -> None:
+        """A local inference server is on this host, so it needs no opt-in."""
+        monkeypatch.delenv("REBREW_LLM_ENDPOINT", raising=False)
+        monkeypatch.delenv("REBREW_LLM_ALLOW_PROJECT_ENDPOINT", raising=False)
+        monkeypatch.setenv("REBREW_LLM_API_KEY", "env-key")
+        assert llm_config(_cfg(endpoint=url)) == {"endpoint": url, "api_key": "env-key"}
+
+    def test_toml_key_to_project_endpoint_allowed(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Both from the project file: no operator secret leaves the machine."""
+        monkeypatch.delenv("REBREW_LLM_ENDPOINT", raising=False)
+        monkeypatch.delenv("REBREW_LLM_ALLOW_PROJECT_ENDPOINT", raising=False)
+        monkeypatch.delenv("REBREW_LLM_API_KEY", raising=False)
+        cfg = _cfg(endpoint="https://cfg.example/v1", api_key="cfg-key")
+        assert llm_config(cfg) == {"endpoint": "https://cfg.example/v1", "api_key": "cfg-key"}
 
     def test_api_key_empty_env_clears_toml(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Present-but-empty REBREW_LLM_API_KEY overrides a committed TOML key."""
