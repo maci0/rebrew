@@ -24,6 +24,8 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, overload
 
+from rebrew.utils import detect_source_encoding
+
 if TYPE_CHECKING:
     import lief
 
@@ -131,8 +133,21 @@ PADDING_BYTES: tuple[int, ...] = (0xCC, 0x90)
 
 
 def _decode_lief_name(raw: str | bytes) -> str:
-    """Decode a LIEF name, which may be returned as ``bytes`` or ``str``."""
-    return raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else str(raw)
+    """Decode a LIEF name, which may be returned as ``bytes`` or ``str``.
+
+    Byte names carry no encoding declaration, so they are read the same way a
+    legacy source file is (:func:`detect_source_encoding`): UTF-8 first, then
+    Shift-JIS, then CP1252, then Latin-1.  Decoding as UTF-8 with
+    ``errors="replace"`` turned ``Caf\\xe9`` into ``Caf\\ufffd``, which is
+    lossy in both directions: the name no longer matches the ``Café``
+    identifier in the source it names, and the original bytes are gone for
+    good once the replacement reaches the metadata TOML.  The Latin-1
+    fallback decodes every byte to its own code point, so no name is ever
+    mangled even when the guess above it is wrong.
+    """
+    if not isinstance(raw, bytes):
+        return str(raw)
+    return raw.decode(detect_source_encoding(raw))
 
 
 # ---------------------------------------------------------------------------

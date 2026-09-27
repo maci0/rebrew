@@ -38,7 +38,7 @@ if TYPE_CHECKING:
     from rebrew.toolchain_detect import ToolchainInfo
 from rebrew.cli import console
 from rebrew.toolchain import toolchain_link_candidates
-from rebrew.utils import atomic_write_text
+from rebrew.utils import ascii_slug, atomic_write_text
 
 logger = logging.getLogger(__name__)
 
@@ -540,9 +540,15 @@ def _wizard_param_explicit(ctx: typer.Context, param_name: str) -> bool:
 
 
 def _binary_stem_target(binary_name: str) -> str | None:
-    """Sanitized target name from the binary stem (``mini_pe.exe`` -> ``mini_pe``)."""
-    stem = Path(binary_name).stem.lower()
-    stem = re.sub(r"[^a-z0-9_]+", "_", stem).strip("_")
+    """Sanitized target name from the binary stem (``mini_pe.exe`` -> ``mini_pe``).
+
+    ``ascii_slug`` keeps accented Latin letters (``Café.exe`` -> ``cafe``,
+    ``Über.exe`` -> ``uber``) instead of deleting them, and expands sharp s
+    (``straße.exe`` -> ``strasse``).  A stem with no Latin to keep at all
+    (``日本語.exe``) yields ``None`` so the caller keeps its own default
+    rather than being offered a name that is not the binary's.
+    """
+    stem = re.sub(r"[^a-z0-9_]+", "_", ascii_slug(Path(binary_name).stem)).strip("_")
     return stem or None
 
 

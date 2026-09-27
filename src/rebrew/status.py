@@ -168,12 +168,22 @@ class StatusReport:
         return floor_pct(decompiled, self.total_functions)
 
     @property
+    def accounted_text_bytes(self) -> int:
+        """Matched function bytes plus the alignment fill between them."""
+        return self.matched_bytes + (self.padding_bytes or 0)
+
+    @property
     def byte_coverage_pct(self) -> float:
-        """Percentage of ``.text`` bytes in byte-matched (EXACT/RELOC) functions,
-        library attributions included."""
+        """Share of ``.text`` that is a matched function or alignment fill.
+
+        Library attributions count with the matched functions. ``CC``,
+        ``NOP``, and zero bytes sitting between those functions are alignment,
+        so they count too. Bytes that belong to no function stay outside the
+        percentage.
+        """
         if self.total_text_bytes == 0:
             return 0.0
-        return floor_pct(self.matched_bytes, self.total_text_bytes)
+        return floor_pct(self.accounted_text_bytes, self.total_text_bytes)
 
     @property
     def data_total(self) -> int:
@@ -650,10 +660,19 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     from rebrew.data_metadata import load_data_metadata, module_visible_to_target
 
     verified_spans: list[tuple[int, int]] = []
+    copied = _postlink_copied_ranges(cfg)
     for (module, va), fields in load_data_metadata(cfg.metadata_dir).items():
         if not module_visible_to_target(module, cfg):
             continue
         if not fields.get("name"):
+            continue
+        try:
+            size = int(fields.get("size") or 0)
+        except (TypeError, ValueError):
+            size = 0
+        if size <= 0 and fields.get("type"):
+            size = estimate_type_size(str(fields["type"]))
+        if _span_is_copied(va, size, copied):
             continue
         verdict = str(fields.get("status") or "UNCHECKED").upper()
         if verdict == "VERIFIED":
@@ -670,15 +689,7 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
             section, {"verified": 0, "drift": 0, "unchecked": 0}
         )
         counts[bucket] += 1
-        if bucket != "verified":
-            continue
-        try:
-            size = int(fields.get("size") or 0)
-        except (TypeError, ValueError):
-            size = 0
-        if size <= 0 and fields.get("type"):
-            size = estimate_type_size(str(fields["type"]))
-        if size > 0:
+        if bucket == "verified" and size > 0:
             verified_spans.append((va, va + size))
     report.data_verified_bytes, report.data_total_bytes = data_byte_coverage(
         verified_spans, _initialized_data_ranges(cfg)
@@ -834,6 +845,46 @@ def _initialized_data_ranges(cfg: ProjectConfig) -> list[tuple[int, int]]:
     return ranges
 
 
+def _postlink_copied_ranges(cfg: ProjectConfig) -> list[tuple[int, int]]:
+    """IAT, and the import directory through the end of ``.rdata``.
+
+    ``postlink`` copies both from the reference. A raw-link difference there
+    is not a data row the status table should call drift.
+    """
+    path = getattr(cfg, "target_binary", None)
+    if path is None or not Path(path).is_file():
+        return []
+    path = Path(path)
+    try:
+        from rebrew.binary_loader import load_binary
+
+        info = load_binary(path)
+    except (OSError, KeyError, ValueError):
+        return []
+    rdata = info.sections.get(".rdata")
+    rdata_end = 0
+    if rdata is not None:
+        extent = min(int(rdata.size), int(rdata.raw_size))
+        if extent > 0:
+            rdata_end = int(rdata.va) + extent
+    copied: list[tuple[int, int]] = []
+    iat_va, iat_size = _pe_data_directory(path, "IAT", int(info.image_base))
+    imp_va, _imp_size = _pe_data_directory(path, "IMPORT_TABLE", int(info.image_base))
+    if iat_size:
+        copied.append((iat_va, iat_va + iat_size))
+    if imp_va and rdata_end > imp_va:
+        copied.append((imp_va, rdata_end))
+    return copied
+
+
+def _span_is_copied(va: int, size: int, copied: list[tuple[int, int]]) -> bool:
+    """True when ``[va, va + size)`` sits entirely inside a copied range."""
+    if size <= 0:
+        return False
+    end = va + size
+    return any(lo <= va and end <= hi for lo, hi in copied)
+
+
 def _ticks(part: float, whole: float) -> str:
     """Proportional tick marks for a table row. No empty trail."""
     return "█" * _filled(part, whole, _TICK_WIDTH)
@@ -936,12 +987,13 @@ def _headline(report: StatusReport) -> tuple[Text, Text | None]:
     """
     if report.total_text_bytes > 0:
         text = Text()
+        accounted = report.accounted_text_bytes
         text.append(f"{report.byte_coverage_pct}% of .text", style="bold green")
         text.append(
-            f"    {report.matched_bytes:,}B / {report.total_text_bytes:,}B",
+            f"    {accounted:,}B / {report.total_text_bytes:,}B",
             style="dim",
         )
-        return text, _bar(report.matched_bytes, report.total_text_bytes, _BAR_WIDTH)
+        return text, _bar(accounted, report.total_text_bytes, _BAR_WIDTH)
     text = Text(
         f"{report.matched_functions}/{report.total_functions} functions  ({report.matched_pct}%)",
         style="bold green",

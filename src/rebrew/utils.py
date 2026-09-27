@@ -947,6 +947,25 @@ def fold_ident(value: str) -> str:
     return unicodedata.normalize("NFC", value).casefold()
 
 
+def ascii_slug(value: str) -> str:
+    """*value* reduced to the ASCII a C identifier, path, or target name can hold.
+
+    ``casefold`` first, then NFKD, then drop what is not ASCII.  The order
+    matters: casefold expands sharp s (``"straße"`` -> ``"strasse"``) and
+    NFKD splits the accents off ``é`` so the base letter survives
+    (``"Café"`` -> ``"cafe"``, not ``"caf"``).  Dropping non-ASCII without
+    decomposing first silently deletes letters, so ``"Über"`` would collapse
+    to ``"ber"`` and ``"日本語"`` to ``""``.
+
+    Returns ``""`` when nothing ASCII is left (CJK, emoji, or a name written
+    entirely in a script with no Latin decomposition); callers decide the
+    fallback rather than receiving a name that is neither the input nor a
+    prefix of it.
+    """
+    decomposed = unicodedata.normalize("NFKD", value.casefold())
+    return decomposed.encode("ascii", "ignore").decode("ascii")
+
+
 def preset_module_key(name: str) -> str:
     """Key spelling for ``cflags_presets`` and origin lists.
 

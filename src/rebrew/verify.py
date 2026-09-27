@@ -894,7 +894,7 @@ def main(
     data_report: dict[str, Any] | None = None
     if data:
         from rebrew.data_verify import (
-            drop_uncovered_zero_fill,
+            fill_uncovered_zero_fill,
             section_symbol_bytes,
             verify_data_bytes,
         )
@@ -918,7 +918,7 @@ def main(
         built_bytes, built_sizes = section_symbol_bytes(
             metadata_path=metadata_path, binary_path=built_path, cfg=cfg
         )
-        drop_uncovered_zero_fill(ref_bytes, ref_sizes, built_sizes, ref_zero_fill)
+        fill_uncovered_zero_fill(ref_bytes, ref_sizes, built_bytes, built_sizes, ref_zero_fill)
         data_report = verify_data_bytes(
             metadata_path=metadata_path,
             expected=ref_bytes,

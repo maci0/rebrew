@@ -284,6 +284,26 @@ class TestFoldIdent:
         assert fold_ident("SERVER") == fold_ident("server")
 
 
+class TestAsciiSlug:
+    def test_accents_keep_their_base_letter(self) -> None:
+        from rebrew.utils import ascii_slug
+
+        assert ascii_slug("Café") == "cafe"
+        assert ascii_slug("Über") == "uber"
+        assert ascii_slug("CAFÉ") == ascii_slug("CAFE\u0301") == "cafe"
+
+    def test_sharp_s_expands(self) -> None:
+        from rebrew.utils import ascii_slug
+
+        assert ascii_slug("straße") == ascii_slug("STRASSE") == "strasse"
+
+    def test_no_latin_left_is_empty_not_a_prefix(self) -> None:
+        from rebrew.utils import ascii_slug
+
+        assert ascii_slug("日本語") == ""
+        assert ascii_slug("🎮") == ""
+
+
 class TestQualifiedKey:
     def test_with_module(self) -> None:
         from rebrew.utils import qualified_key

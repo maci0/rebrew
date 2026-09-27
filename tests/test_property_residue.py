@@ -19,6 +19,7 @@ from hypothesis import strategies as st
 
 from rebrew.residue import (
     ResidueError,
+    _name_column,
     _sections,
     layout_map_gate_note,
     residue_report,
@@ -157,3 +158,28 @@ def test_layout_map_gate_flags_a_real_shortfall_and_passes_a_full_map() -> None:
     assert below is not None
     assert "50.00% below gate" in below
     assert layout_map_gate_note((10, 10, 5, 5)) is None
+
+
+@given(st.text())
+@settings(max_examples=200)
+def test_name_column_is_exactly_the_declared_width(text: str) -> None:
+    """The name column holds ``_NAME_COLUMN`` terminal columns, whatever the text.
+
+    Padding by code points (``f"{name:40s}"``) let a CJK or emoji symbol name
+    push the byte counts to its right out of alignment, because those occupy
+    two columns per code point.
+    """
+    from rich.cells import cell_len
+
+    from rebrew.residue import _NAME_COLUMN
+
+    assert cell_len(_name_column(text)) == _NAME_COLUMN
+
+
+def test_name_column_keeps_a_wide_name_and_cuts_a_long_one() -> None:
+    """Wide characters are not dropped, and an over-long name is still cut."""
+    from rich.cells import cell_len
+
+    assert _name_column("日本語テスト").startswith("日本語")
+    assert cell_len(_name_column("🎮" * 40)) == 40
+    assert len(_name_column("🎮" * 40)) < 40

@@ -6,7 +6,10 @@ Two directions, both over the names the code actually mentions:
   defines, CMake variables emitted for generated projects, and C header guards
   below) appears in ``docs/CONFIG.md`` *and* in ``.env.example``;
 * every ``REBREW_*`` name in ``.env.example`` is read somewhere, so the
-  template cannot advertise a knob that does not exist.
+  template cannot advertise a knob that does not exist.  The names below that
+  never reach the process environment are exempt from both directions:
+  ``.env.example`` lists some of them precisely to say "not a knob"
+  (``REBREW_XVFB_AUTH``).
 """
 
 from __future__ import annotations
@@ -61,6 +64,6 @@ class TestEnvVarDocs:
 
     def test_env_example_has_no_phantom_vars(self) -> None:
         example = (_REPO / ".env.example").read_text(encoding="utf-8")
-        known = _source_names()
+        known = _source_names() | _NOT_ENV_VARS
         phantom = sorted({name for name in _NAME_RE.findall(example) if name not in known})
         assert not phantom, f".env.example documents vars the code never reads: {phantom}"

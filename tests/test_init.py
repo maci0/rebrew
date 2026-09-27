@@ -244,6 +244,28 @@ def mock_download_wibo(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("rebrew.wibo.download_wibo", lambda *args, **kwargs: "v1.2.3")
 
 
+class TestBinaryStemTarget:
+    """The wizard's target-name default is derived from the binary name."""
+
+    def test_ascii_stem_is_kept(self) -> None:
+        from rebrew.init import _binary_stem_target
+
+        assert _binary_stem_target("mini_pe.exe") == "mini_pe"
+        assert _binary_stem_target("CAVE.EXE") == "cave"
+
+    def test_accents_keep_their_base_letter(self) -> None:
+        from rebrew.init import _binary_stem_target
+
+        assert _binary_stem_target("Café.exe") == "cafe"
+        assert _binary_stem_target("Über.exe") == "uber"
+        assert _binary_stem_target("straße.exe") == "strasse"
+
+    def test_non_latin_stem_defers_to_the_caller_default(self) -> None:
+        from rebrew.init import _binary_stem_target
+
+        assert _binary_stem_target("日本語.exe") is None
+
+
 class TestInit:
     """Tests for the main() function using tmp_path."""
 
