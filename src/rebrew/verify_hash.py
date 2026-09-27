@@ -187,7 +187,7 @@ def compiler_config_hash(cfg: ProjectConfig) -> str:
     # Do NOT inline target binary mtime/size here — compiler config is an
     # input to the cache predicate, not a per-call probe of the binary.  The
     # binary identity is guarded separately via VerifyCache.binary_id and
-    # _cache_identity_matches; mixing it in would bust the cache on
+    # cache_identity_matches; mixing it in would bust the cache on
     # every run that touches the binary even when nothing relevant changed.
     parts = [
         cfg.compiler_command,

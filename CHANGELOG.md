@@ -190,6 +190,22 @@
   function whose `BLOCKER` lives in `rebrew-functions.toml` rendered an empty
   cell; the same function also dereferenced `cfg.metadata_dir` directly after
   defensively reading it with `getattr` two loops earlier.
+- **Shared BinSync state cannot inject source lines, preprocessor directives,
+  or declarations.** A BinSync state directory is written by collaborators, and
+  three of its fields are spliced into local files as code: an ANALYSIS comment
+  is written into a `.c` on a `//` line (a comment carrying a newline added
+  live source lines that survived every later rewrite), struct and enum member
+  names are pasted into a synthesized declaration, and a type definition is
+  tested for smuggling with `^\s*#`, a check the preprocessor defeats by
+  putting the `#` behind a comment. Comments are now flattened to one line
+  (`state.marker_comment_text`), a member name that is not a C identifier is
+  skipped with a warning, and the directive test runs on the definition with
+  its comments removed.
+- **`build-db` no longer republishes a verify cache from another binary.**
+  Importing `.rebrew/verify_cache.json` into `verify_results` checked only
+  `(target, version)`, so verdicts measured against a rebuilt target binary
+  landed in the coverage database as current. It now uses the same
+  `verify_cache.cache_identity_matches` predicate `verify` and `status` use.
 - **The LLM seed prompt preview is the request, and the completion cap covers
   the seed count it asks for.** `build_prompt` flattened the system and user
   turns into one string, so `--seed-llm --dry-run` showed a prompt the endpoint
