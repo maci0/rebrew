@@ -836,6 +836,91 @@ class TestInitCompletions:
         assert (tmp_path / "completions" / "rebrew.fish").is_file()
 
 
+class TestWizardPromptOrder:
+    """Every wizard question is asked before the settings summary, and the
+    summary shows the completion choice the user is about to confirm."""
+
+    def _run(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[list[str], str]:
+        from rebrew import init as init_mod
+
+        order: list[str] = []
+        printed: list[str] = []
+
+        def ask(prompt: str = "", **kwargs: Any) -> str:
+            order.append(prompt)
+            if "Completion" in prompt:
+                return "y"
+            if "Binary path or name" in prompt:
+                return "app.exe"
+            return str(kwargs.get("default", ""))
+
+        def confirm(prompt: str = "", **kwargs: Any) -> bool:
+            order.append(prompt)
+            return True
+
+        real_print = init_mod.console.print
+        monkeypatch.setattr(init_mod.Confirm, "ask", staticmethod(confirm))
+        monkeypatch.setattr(init_mod.Prompt, "ask", staticmethod(ask))
+
+        def capture(*args: Any, **kwargs: Any) -> None:
+            text = " ".join(str(a) for a in args)
+            if "Project settings" in text or "shell completions" in text:
+                printed.append(text)
+            real_print(*args, **kwargs)
+
+        monkeypatch.setattr(init_mod.console, "print", capture)
+        monkeypatch.setattr(init_mod, "_wizard_param_explicit", lambda ctx, name: False)
+        init_mod._run_wizard(SimpleNamespace(), tmp_path, "main", "program.exe", "msvc-6.0", False)
+        return order, "\n".join(printed)
+
+    def test_completions_asked_before_confirmation(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        order, summary = self._run(tmp_path, monkeypatch)
+        completions = order.index("Write shell completion scripts into completions/?")
+        confirm = order.index("Create project with these settings?")
+        assert completions < confirm
+        assert "completions/ (bash, zsh, fish)" in summary
+
+    def test_completion_declined_says_no(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew import init as init_mod
+
+        monkeypatch.setattr(
+            init_mod.Confirm,
+            "ask",
+            staticmethod(lambda prompt="", **kw: "completion" not in prompt),
+        )
+        monkeypatch.setattr(
+            init_mod.Prompt,
+            "ask",
+            staticmethod(lambda prompt="", **kw: str(kw.get("default", ""))),
+        )
+        monkeypatch.setattr(init_mod, "_wizard_param_explicit", lambda ctx, name: False)
+        result = init_mod._run_wizard(
+            SimpleNamespace(), tmp_path, "main", "program.exe", "msvc-6.0", False
+        )
+        assert result[3] is False
+
+    def test_binary_prompt_defaults_to_the_listed_choice(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew import init as init_mod
+
+        (tmp_path / "original").mkdir()
+        (tmp_path / "original" / "app.exe").write_bytes(b"MZ")
+        asked: dict[str, Any] = {}
+
+        def ask(prompt: str = "", **kwargs: Any) -> str:
+            asked.update(kwargs)
+            return str(kwargs.get("default", ""))
+
+        monkeypatch.setattr(init_mod.Prompt, "ask", staticmethod(ask))
+        assert init_mod._prompt_binary(tmp_path, "program.exe") == "app.exe"
+        assert asked["default"] == "1"
+
+
 class TestBinaryFormatDetection:
     """rebrew init auto-detects format/arch from a binary already in
     original/ instead of hardcoding the profile's pe/x86_32 defaults."""

@@ -38,6 +38,18 @@
   cannot ship without its re-export.
 
 ### Fixed
+- **The init wizard asks every question before it asks for confirmation.**
+  "Write shell completion scripts into completions/?" was asked *after*
+  "Create project with these settings?", so the user confirmed a summary and
+  was then asked about a setting the summary never showed. The prompt moved
+  above the summary, the summary lists the completion choice, and the abort
+  hint repeats it, so declining and re-running reproduces the same project.
+- **The init wizard's binary prompt defaults to a listed binary.** Enter at the
+  numbered list used to pick the "enter a path/name manually" option and then
+  ask the user to type the file that was just listed; it now takes the first
+  candidate. The dashboard's "Show more" button also counts the rows a click
+  adds ("Show 50 more functions") instead of a running total the hint above
+  the table already carries.
 - **The README quickstart passes the config once.** `iter_sources` accepts a
   `ProjectConfig` directly, so the snippet reads `iter_sources(cfg)` instead of
   passing `cfg.reversed_dir` and `cfg` for the same object.

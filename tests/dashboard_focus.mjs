@@ -73,6 +73,11 @@ await new Promise((resolve) => setTimeout(resolve, 0));
 
 const el = (id) => document.getElementById(id);
 assert.equal(el("show-more-wrap").hidden, false, "Show more is offered for a partial page");
+assert.equal(
+  el("show-more").textContent,
+  "Show 50 more functions",
+  "the label counts the rows the click adds, not the running total"
+);
 el("show-more").focus();
 const click = el("show-more").onclick();
 await new Promise((resolve) => setTimeout(resolve, 0));
