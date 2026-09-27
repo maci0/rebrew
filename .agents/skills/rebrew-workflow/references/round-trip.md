@@ -18,6 +18,11 @@ rebrew round-trip --output <path>       # override output path
 - **`catalog_resolution_drift` with CRT names** (e.g. `_fread`): the library header
   can list both `fread` (wrapper) and `_fread` (real impl) at different VAs.
   Correct the `library_*.h` VA mapping or annotate call sites; drift is never silent.
+- **`compile_drift` means the wrong code was compiled, not the wrong symbol**: it is
+  the reason when no relocation was applied, so the mismatch is in the source,
+  its CFLAGS, or its SIZE. Re-run `rebrew test <file>.c` to reach EXACT/RELOC first;
+  round-trip will not resolve it. `oversize` is a separate case (compiled output
+  longer than the metadata SIZE).
 - **Resolution fallbacks** when the catalog cannot resolve by name: Ghidra auto-names
   with trailing hex (`_g_1003546c`), MSVC `$L<N>` / `$cleanup_loop$<N>` jump tables
   mapped from the compiled .obj, and string literals whose compiled copy is a strict

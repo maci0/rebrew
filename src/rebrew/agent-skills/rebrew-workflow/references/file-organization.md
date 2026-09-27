@@ -35,4 +35,4 @@ rebrew graph --cu-map --json            # infer compilation unit boundaries
 
 `--cu-map` clusters functions into inferred translation units from gap
 analysis plus call-graph signals; high-confidence clusters are the merge
-candidates. `rebrew-intake` §5 covers `--cu-map` during onboarding.
+candidates. `rebrew-intake` runs the same pass during onboarding.
