@@ -83,6 +83,7 @@ from rebrew.compile_cache import (
 from rebrew.compile_context import CONTEXT_UNIT_NAME, CompileContext
 from rebrew.config import (
     DEFAULT_COMPILE_TIMEOUT,
+    DEFAULT_RECOMPILE_RETRIES,
     ProjectConfig,
     parse_env_bool,
     validate_http_url,
@@ -1341,9 +1342,11 @@ def _compile_via_recompile(
             emit_assembly=emit_assembly,
             client=client,
             # Transient 503/timeout on the compile service is common under
-            # load; two retries with backoff beat a hard COMPILE_ERROR that
-            # would demote STATUS for a healthy source.
-            retries=2,
+            # load; retries with backoff beat a hard COMPILE_ERROR that would
+            # demote STATUS for a healthy source.  The count is
+            # `[compiler] recompile_retries` (default 2) so a deployment
+            # pointing at a slow or flaky service can raise or drop it.
+            retries=int(getattr(cfg, "recompile_retries", DEFAULT_RECOMPILE_RETRIES)),
         )
     except RecompileError as exc:
         if backend_errors is not None:

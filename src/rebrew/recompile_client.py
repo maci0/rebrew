@@ -26,7 +26,7 @@ from typing import Any, Literal, Protocol, runtime_checkable
 from urllib.parse import urljoin, urlparse
 
 from rebrew.errors import RebrewError
-from rebrew.utils import RETRYABLE_HTTP_STATUS, close_response
+from rebrew.utils import RETRYABLE_HTTP_STATUS, close_response, retry_backoff_delay
 
 #: Request cap mirrored from the service (recompile ``_MAX_FLAGS``): longer
 #: flag lists 422 instead of compiling.
@@ -53,11 +53,6 @@ _MAY_HAVE_COMPILED = frozenset({500, 502, 504})
 #: set must default to "worth another attempt", not silently become a
 #: re-POSTed ``emit_assembly`` that duplicates a train.jsonl row.
 _UNPROCESSED_HTTP = RETRYABLE_HTTP_STATUS - _MAY_HAVE_COMPILED
-
-#: Base delay (seconds) for exponential backoff between retryable attempts.
-#: ``delay = min(_RETRY_BACKOFF_BASE * 2**attempt, _RETRY_BACKOFF_CAP)``.
-_RETRY_BACKOFF_BASE = 0.25
-_RETRY_BACKOFF_CAP = 8.0
 
 
 @runtime_checkable
@@ -393,7 +388,7 @@ def compile_source(
                 raise
             # Immediate re-POST of a 503/timeout hammers a recovering service;
             # exponential backoff (capped) gives it room without unbounded wait.
-            delay = min(_RETRY_BACKOFF_BASE * (2**attempt), _RETRY_BACKOFF_CAP)
+            delay = retry_backoff_delay(attempt)
             time.sleep(delay)
             continue
     assert last_exc is not None  # attempts >= 1

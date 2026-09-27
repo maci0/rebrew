@@ -169,6 +169,10 @@ timeout = 60
 # Default: false
 # recompile_emit_assembly = false
 
+# Re-attempts of a retryable remote-compile failure (blips, 5xx/429/408/425).
+# Default: 2
+# recompile_retries = 2
+
 # Per-module CFLAGS presets for functions without per-function metadata.
 [compiler.cflags_presets]
 GAME = "/O2 /Gd"

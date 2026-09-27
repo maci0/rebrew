@@ -14,7 +14,7 @@ from types import SimpleNamespace
 import pytest
 
 import rebrew
-from rebrew.compile import CompareResult
+from rebrew.compile import CompareResult, CompareStatus
 from rebrew.config import (
     ConfigError,
     ProjectConfig,
@@ -48,6 +48,7 @@ class TestTopLevelPackageExports:
         assert rebrew.RebrewError is RebrewError
         assert rebrew.ProjectConfig is ProjectConfig
         assert rebrew.CompareResult is CompareResult
+        assert rebrew.CompareStatus is CompareStatus
         assert rebrew.compile_and_compare is compile_and_compare
         assert rebrew.ToolchainError is ToolchainError
         assert rebrew.get_toolchain is get_toolchain
@@ -58,6 +59,7 @@ class TestTopLevelPackageExports:
         """Gating: prevent accidental dropping or renaming of top-level exports."""
         expected = {
             "CompareResult",
+            "CompareStatus",
             "ConfigError",
             "ProjectConfig",
             "RebrewError",

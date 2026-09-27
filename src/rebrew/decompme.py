@@ -63,6 +63,7 @@ from rebrew.utils import (
     close_response,
     file_lock,
     read_source_text,
+    retry_backoff_delay,
 )
 
 app = typer.Typer(
@@ -268,35 +269,15 @@ class DecompmeError(RebrewError, RuntimeError):
         self.retryable = retryable
 
 
-def upload_scratch(
+def _post_scratch(
+    post_fn: Any,
+    url: str,
     payload: dict[str, Any],
-    api: str = _DEFAULT_API,
-    timeout: float = 60.0,
-    *,
-    client: HttpClient | None = None,
+    kw: dict[str, Any],
 ) -> dict[str, Any]:
-    """POST the scratch to decomp.me; returns the response dict.
-
-    Raises :class:`DecompmeError` (inherits :class:`RebrewError` and
-    :class:`RuntimeError`) on transport failure, a non-2xx response
-    (the body is included — decomp.me validation errors explain the reason),
-    or a reply whose ``slug`` / ``claim_token`` are not URL-safe tokens.
-
-    *client*, when given, must provide a ``.post(...)`` method.
-    """
-    import httpx  # deferred: ~46 ms of startup for non-decomp.me commands
-
-    post_fn = client.post if client is not None else httpx.post
-    kw: dict[str, Any] = {}
-    if client is None:
-        kw["timeout"] = timeout
+    """One upload attempt: POST *payload* and validate the reply."""
     try:
-        resp = post_fn(
-            f"{api}/api/scratch",
-            data=payload["data"],
-            files=payload["files"],
-            **kw,
-        )
+        resp = post_fn(url, data=payload["data"], files=payload["files"], **kw)
     except Exception as exc:
         raise DecompmeError(
             f"decomp.me request failed: {exc}", kind="network", retryable=True
@@ -330,6 +311,50 @@ def upload_scratch(
         return data
     finally:
         close_response(resp)
+
+
+def upload_scratch(
+    payload: dict[str, Any],
+    api: str = _DEFAULT_API,
+    timeout: float = 60.0,
+    *,
+    client: HttpClient | None = None,
+    retries: int = 0,
+) -> dict[str, Any]:
+    """POST the scratch to decomp.me; returns the response dict.
+
+    Raises :class:`DecompmeError` (inherits :class:`RebrewError` and
+    :class:`RuntimeError`) on transport failure, a non-2xx response
+    (the body is included — decomp.me validation errors explain the reason),
+    or a reply whose ``slug`` / ``claim_token`` are not URL-safe tokens.
+
+    *client*, when given, must provide a ``.post(...)`` method.
+
+    *retries* re-attempts a :class:`DecompmeError` with ``retryable=True``
+    (transport blips and the transient HTTP statuses in
+    ``RETRYABLE_HTTP_STATUS``), sleeping :func:`rebrew.utils.retry_backoff_delay`
+    between attempts.  A rejection decomp.me explained (validation, other
+    4xx) fails immediately; ``retries=0`` (default) is a single attempt.
+    """
+    import httpx  # deferred: ~46 ms of startup for non-decomp.me commands
+
+    post_fn = client.post if client is not None else httpx.post
+    kw: dict[str, Any] = {}
+    if client is None:
+        kw["timeout"] = timeout
+    url = f"{api}/api/scratch"
+    attempts = retries + 1
+    last_exc: DecompmeError | None = None
+    for attempt in range(attempts):
+        try:
+            return _post_scratch(post_fn, url, payload, kw)
+        except DecompmeError as exc:
+            last_exc = exc
+            if not exc.retryable or attempt + 1 >= attempts:
+                raise
+            time.sleep(retry_backoff_delay(attempt))
+    assert last_exc is not None  # attempts >= 1
+    raise last_exc
 
 
 def scratch_url(slug: str, claim_token: str, api: str = _DEFAULT_API) -> str:

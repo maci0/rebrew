@@ -11,6 +11,7 @@ import pytest
 
 import rebrew.compile as compile_mod
 from rebrew.compile import _compile_via_recompile, recompile_url
+from rebrew.config import DEFAULT_RECOMPILE_RETRIES
 from rebrew.recompile_client import RecompileError, _same_origin_artifact_url, compile_source
 
 
@@ -460,6 +461,49 @@ class TestCompileViaRecompile:
         assert seen["emit_assembly"] is True
         assert seen["filename"] == "f.c"
         assert seen["retries"] == 2
+
+    def test_retry_count_comes_from_the_config(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``[compiler] recompile_retries`` is the retry count, 0 included."""
+        import rebrew.recompile_client as rc
+
+        seen: dict[str, Any] = {}
+
+        def fake(url: str, **kwargs: Any) -> Any:
+            seen.update(kwargs)
+            return rc.RecompileResult(ok=True, obj_bytes=b"\x01")
+
+        monkeypatch.setattr(rc, "compile_source", fake)
+        src = tmp_path / "f.c"
+        src.write_text("int f(void) { return 0; }")
+
+        cfg = self._cfg()
+        cfg.recompile_retries = 0
+        _compile_via_recompile(cfg, src, ["/c"], tmp_path, "f.obj", "msvc-6.0", False)
+        assert seen["retries"] == 0
+
+        cfg.recompile_retries = 4
+        _compile_via_recompile(cfg, src, ["/c"], tmp_path, "g.obj", "msvc-6.0", False)
+        assert seen["retries"] == 4
+
+    def test_retry_count_falls_back_without_the_config_key(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A config object predating the field keeps the documented default."""
+        import rebrew.recompile_client as rc
+
+        seen: dict[str, Any] = {}
+
+        def fake(url: str, **kwargs: Any) -> Any:
+            seen.update(kwargs)
+            return rc.RecompileResult(ok=True, obj_bytes=b"\x01")
+
+        monkeypatch.setattr(rc, "compile_source", fake)
+        src = tmp_path / "f.c"
+        src.write_text("int f(void) { return 0; }")
+        _compile_via_recompile(self._cfg(), src, ["/c"], tmp_path, "f.obj", "msvc-6.0", False)
+        assert seen["retries"] == DEFAULT_RECOMPILE_RETRIES
 
     def test_compiles_share_one_http_client(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

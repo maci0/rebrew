@@ -320,6 +320,74 @@ class TestUpload:
     def test_scratch_url(self) -> None:
         assert decompme.scratch_url("abc", "tok") == "https://decomp.me/scratch/abc/claim?token=tok"
 
+    def test_retries_a_transient_status_then_succeeds(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        attempts: list[int] = []
+
+        def _fake_post(url, **kwargs):
+            attempts.append(len(attempts))
+            if len(attempts) == 1:
+                return SimpleNamespace(status_code=503, text="busy", close=lambda: None)
+            return SimpleNamespace(
+                status_code=201,
+                json=lambda: {"slug": "abc123", "claim_token": "tok"},
+                close=lambda: None,
+            )
+
+        monkeypatch.setattr("httpx.post", _fake_post)
+        monkeypatch.setattr("time.sleep", lambda _s: None)
+        result = decompme.upload_scratch({"data": {}, "files": {}}, retries=1)
+        assert result == {"slug": "abc123", "claim_token": "tok"}
+        assert len(attempts) == 2
+
+    def test_retries_a_transport_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import httpx
+
+        calls: list[int] = []
+
+        def _fake_post(url, **kwargs):
+            calls.append(1)
+            if len(calls) == 1:
+                raise httpx.ConnectError("boom")
+            return SimpleNamespace(
+                status_code=201,
+                json=lambda: {"slug": "abc123", "claim_token": "tok"},
+                close=lambda: None,
+            )
+
+        monkeypatch.setattr("httpx.post", _fake_post)
+        monkeypatch.setattr("time.sleep", lambda _s: None)
+        decompme.upload_scratch({"data": {}, "files": {}}, retries=1)
+        assert len(calls) == 2
+
+    def test_retries_stop_on_a_rejection(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        calls: list[int] = []
+
+        def _fake_post(url, **kwargs):
+            calls.append(1)
+            return SimpleNamespace(status_code=400, text="bad", close=lambda: None)
+
+        monkeypatch.setattr("httpx.post", _fake_post)
+        with pytest.raises(RuntimeError, match="bad"):
+            decompme.upload_scratch({"data": {}, "files": {}}, retries=3)
+        assert len(calls) == 1  # an explained rejection is not worth another attempt
+
+    def test_retries_give_up_after_the_configured_attempts(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        calls: list[int] = []
+
+        def _fake_post(url, **kwargs):
+            calls.append(1)
+            return SimpleNamespace(status_code=503, text="busy", close=lambda: None)
+
+        monkeypatch.setattr("httpx.post", _fake_post)
+        monkeypatch.setattr("time.sleep", lambda _s: None)
+        with pytest.raises(RuntimeError, match="busy"):
+            decompme.upload_scratch({"data": {}, "files": {}}, retries=2)
+        assert len(calls) == 3  # retries counts re-attempts, not the first try
+
     def test_injected_client_replaces_the_transport(self) -> None:
         """A consumer test injects a client and never reaches decomp.me."""
         calls: list[tuple[str, dict]] = []

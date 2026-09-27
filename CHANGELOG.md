@@ -1,6 +1,29 @@
 ## [Unreleased]
 
 ### Added
+- **`retries` on the decomp.me upload client.** `upload_scratch` had no retry
+  knob, so a Cloudflare 503 or a dropped connection on a scratch upload
+  failed outright while the recompile client re-attempted the same class of
+  blip. `retries=N` (default 0, a single attempt, as before) re-raises only a
+  `DecompmeError` with `retryable=True`, and the delay comes from the shared
+  `rebrew.utils.retry_backoff_delay`, so the two service clients cannot drift
+  on the backoff or on the transient status set. A rejection decomp.me
+  explained (validation, other 4xx) still fails on the first attempt.
+  `rebrew.recompile_client` now imports that same helper instead of keeping
+  its own private constants.
+- **`CompareStatus` at the package root.** `CompareResult.status` is a
+  `CompareStatus`, and branching on it needs the alias, but only
+  `rebrew.compile` exported it, so a consumer annotating the field had to
+  know which submodule defined it. It joins `CompareResult` on the lazy
+  top-level exports and in the README's library snippet.
+- **`[compiler] recompile_retries` configures the remote-compile retry
+  count.** The recompile backend retried twice, hardcoded, so a deployment
+  pointing at a slow or flaky compile service could not raise the count (to
+  ride out a longer outage) or drop it (to fail a doomed compile fast). The
+  new key takes a non-negative integer, `0` disables retries, and the
+  loader rejects a negative or unparseable value with the same warning the
+  other numeric keys use. A config object with no such attribute still
+  compiles with the documented default of 2.
 - **An index for the functions page filtered by status *and* module.** The
   dashboard's status and module dropdowns are independent controls, so the
   list query can carry both equality terms at once. The two single-filter

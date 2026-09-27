@@ -159,9 +159,11 @@ except ToolchainError as exc:
     raise
 
 # Byte-level matching uses the same entry as the CLI:
-#   from rebrew.compile import CompareResult, compile_and_compare
+#   from rebrew.compile import CompareResult, CompareStatus, compile_and_compare
 #   result = compile_and_compare(cfg, source_path, symbol, target_bytes, cflags)
 #   result.matched / result.status / result.match_percent / result.message
+#   `status` is a `CompareStatus` ("EXACT" / "RELOC" / "NEAR_MATCHING" /
+#   "COMPILE_ERROR" / ...), so an annotation on it type-checks.
 ```
 
 Remote compile transport, registry plugins, workspace helpers, and the GA
@@ -257,6 +259,12 @@ result.ok / result.obj_bytes / result.log / result.compiler_version
 # "validation" / "protocol" and `status_code` is set for the "http" ones.
 # `result.to_dict()` / `RecompileResult.from_dict()` store the verdict (not
 # the object bytes) the way `CompareResult` does.
+#
+# `rebrew.decompme`'s `upload_scratch` is the same shape: `client=` injects a
+# stand-in, and `retries=N` re-attempts a retryable `DecompmeError` on the
+# same backoff (`retry_backoff_delay` in `rebrew.utils`) and the same
+# transient status set, so both service clients recover from a blip the
+# same way.
 ```
 
 The ReVa MCP client (`rebrew.ghidra.client`, the transport behind

@@ -204,6 +204,7 @@ profile = "msvc-7.0"
 | `runner` | `string` | `""` | Win32 PE runner (`wine`, `wibo`, or empty). Auto-detected from `command` if not set explicitly. Under docker-only execution the runner is empty for image-backed profiles; `rebrew init --install-wibo` writes `tools/wibo` only for native (non-image) profiles — it is ignored for docker-backed ones. A relative runner path resolves against the project root and needs a `command` without the runner prefix |
 | `recompile_url` | `string` | `""` | Base URL of the recompile compile service (e.g. `http://localhost:8000`). When set (or `REBREW_RECOMPILE_URL`), every compile routes through `POST /api/v1/compile` instead of local docker images: the same pinned images, plus the opt-in training tap |
 | `recompile_emit_assembly` | `bool` | `false` | Pass `emit_assembly=true` on remote compiles (the training-data tap). Off by default; when on, every remote compile sends it (`match --collect-pairs` is unrelated) |
+| `recompile_retries` | `integer` | `2` | Re-attempts of a retryable remote-compile failure (transport blips, `408/425/429/500/502/503/504`), with the backoff in `rebrew.utils.retry_backoff_delay`. `0` disables retries; a compile the service ran and rejected is never re-POSTed |
 | `timeout` | `integer` | `60` | Compile subprocess timeout in seconds |
 
 Per-target compiler settings (`rebrew cfg set-compiler <target> <profile>`) are

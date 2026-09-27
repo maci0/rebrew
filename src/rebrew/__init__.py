@@ -7,7 +7,7 @@ reconstructing exact C source from compiled binaries.
 Library consumers typically import submodules directly, for example:
 
 * ``rebrew.errors`` — ``RebrewError``, the base of every error raised below
-* ``rebrew.compile`` — ``CompareResult``, ``compile_and_compare``
+* ``rebrew.compile`` — ``CompareResult``, ``CompareStatus``, ``compile_and_compare``
 * ``rebrew.config`` — ``ProjectConfig``, ``load_config``, ``ConfigError``
 * ``rebrew.sources`` — ``iter_sources``, ``iter_library_headers``
 * ``rebrew.toolchain`` — ``ToolchainError``, ``get_toolchain``, ``require_toolchains_repo``
@@ -29,6 +29,7 @@ from typing import TYPE_CHECKING
 # ``__getattr__`` so importing the package does not load the compile stack.
 if TYPE_CHECKING:
     from rebrew.compile import CompareResult as CompareResult
+    from rebrew.compile import CompareStatus as CompareStatus
     from rebrew.compile import compile_and_compare as compile_and_compare
     from rebrew.config import ConfigError as ConfigError
     from rebrew.config import ProjectConfig as ProjectConfig
@@ -53,6 +54,7 @@ __version__ = "2.14.0"
 
 _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
     "CompareResult": ("rebrew.compile", "CompareResult"),
+    "CompareStatus": ("rebrew.compile", "CompareStatus"),
     "ConfigError": ("rebrew.config", "ConfigError"),
     "ProjectConfig": ("rebrew.config", "ProjectConfig"),
     "RebrewError": ("rebrew.errors", "RebrewError"),

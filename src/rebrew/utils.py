@@ -1110,6 +1110,21 @@ def watch_files(
 #: clients cannot drift on which failures are worth another attempt.
 RETRYABLE_HTTP_STATUS = frozenset({408, 425, 429, 500, 502, 503, 504})
 
+#: Base delay (seconds) for exponential backoff between retryable attempts,
+#: and the ceiling that keeps a long backoff bounded.
+RETRY_BACKOFF_BASE = 0.25
+RETRY_BACKOFF_CAP = 8.0
+
+
+def retry_backoff_delay(attempt: int) -> float:
+    """Seconds to wait before retry *attempt* (zero-based) of a retryable call.
+
+    The one backoff policy the service clients share, so ``recompile_client``
+    and ``decompme`` cannot drift on how hard they hammer a recovering
+    service: ``delay = min(RETRY_BACKOFF_BASE * 2**attempt, RETRY_BACKOFF_CAP)``.
+    """
+    return min(RETRY_BACKOFF_BASE * (2.0**attempt), RETRY_BACKOFF_CAP)
+
 
 def close_response(resp: Any) -> None:
     """Release an HTTP response so its connection returns to the pool.

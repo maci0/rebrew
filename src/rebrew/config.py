@@ -160,6 +160,11 @@ for naming.
 #: different budget than a configured one.
 DEFAULT_COMPILE_TIMEOUT = 60
 
+#: Re-attempts of a retryable remote-compile failure, and the single source
+#: for ``ProjectConfig.recompile_retries``, its ``[compiler]`` fallback, and
+#: the ``getattr`` fallback in ``rebrew.compile``.
+DEFAULT_RECOMPILE_RETRIES = 2
+
 #: Maximum C source line length for lint W027 (0 disables the check).  Single
 #: source for ``ProjectConfig.lint_max_line_length``, the
 #: ``[project.lint] max_line_length`` fallback, and ``rebrew.lint``.
@@ -467,6 +472,14 @@ class ProjectConfig:
     match) sends it; ``match --collect-pairs`` writes local pairs and does
     not touch this flag.
     """
+    recompile_retries: int = DEFAULT_RECOMPILE_RETRIES
+    """Re-attempts of a retryable remote-compile failure (``0`` disables).
+
+    Only transport blips and the transient HTTP statuses
+    (``rebrew.utils.RETRYABLE_HTTP_STATUS``) are retried, with the backoff
+    ``rebrew.utils.retry_backoff_delay``; a compile the service ran and
+    rejected is never re-POSTed.  ``0`` means one attempt.
+    """
 
     # --- per-target version defines ---
     defines: list[str] = field(default_factory=list)
@@ -674,6 +687,7 @@ class ProjectConfig:
             "compile_timeout": self.compile_timeout,
             "recompile_url": self.recompile_url,
             "recompile_emit_assembly": self.recompile_emit_assembly,
+            "recompile_retries": self.recompile_retries,
             "defines": list(self.defines),
             "llm_endpoint": self.llm_endpoint,
             "llm_api_key": ("***" if self.llm_api_key else "")
@@ -1795,6 +1809,7 @@ _KNOWN_COMPILER_KEYS = {
     "timeout",
     "recompile_url",  # remote compile backend (or REBREW_RECOMPILE_URL env)
     "recompile_emit_assembly",  # training-data tap for remote compiles
+    "recompile_retries",  # re-attempts of a retryable remote-compile failure
     "cflags_presets",  # written by `rebrew cfg set-cflags` without --target (per-origin compiler flag overrides)
 }
 
@@ -2168,6 +2183,11 @@ def load_config(
         recompile_emit_assembly=_as_bool(
             compiler.get("recompile_emit_assembly"), False, "compiler.recompile_emit_assembly"
         ),
+        recompile_retries=_non_negative_int(
+            compiler.get("recompile_retries", DEFAULT_RECOMPILE_RETRIES),
+            DEFAULT_RECOMPILE_RETRIES,
+            "compiler.recompile_retries",
+        ),
         # arch-derived
         pointer_size=arch_preset["pointer_size"],
         padding_bytes=arch_preset["padding_bytes"],
@@ -2385,6 +2405,7 @@ __all__ = [
     "ConfigWarning",
     "DEFAULT_COMPILE_TIMEOUT",
     "DEFAULT_LINT_MAX_LINE_LENGTH",
+    "DEFAULT_RECOMPILE_RETRIES",
     "FUNCTION_STRUCTURE_JSON",
     "LinkConfig",
     "METADATA_FILENAME",

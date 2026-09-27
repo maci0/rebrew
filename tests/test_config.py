@@ -1003,6 +1003,54 @@ binary = "test.exe"
             cfg = load_config(root)
         assert cfg.recompile_emit_assembly is False
 
+    def test_recompile_retries_defaults_and_overrides(self, tmp_path: Path) -> None:
+        toml = """\
+[project]
+default_target = "main"
+
+[compiler]
+recompile_retries = 5
+
+[targets.main]
+binary = "test.exe"
+"""
+        cfg = load_config(_make_project(tmp_path, toml))
+        assert cfg.recompile_retries == 5
+        assert cfg.as_dict()["recompile_retries"] == 5
+
+    def test_recompile_retries_accepts_zero(self, tmp_path: Path) -> None:
+        """0 disables retries, so it must survive the loader as 0, not the default."""
+        toml = """\
+[project]
+default_target = "main"
+
+[compiler]
+recompile_retries = 0
+
+[targets.main]
+binary = "test.exe"
+"""
+        cfg = load_config(_make_project(tmp_path, toml))
+        assert cfg.recompile_retries == 0
+
+    def test_recompile_retries_rejects_negative(self, tmp_path: Path) -> None:
+        toml = """\
+[project]
+default_target = "main"
+
+[compiler]
+recompile_retries = -1
+
+[targets.main]
+binary = "test.exe"
+"""
+        root = _make_project(tmp_path, toml)
+        with pytest.warns(
+            UserWarning, match=r"Expected non-negative integer for compiler\.recompile_retries"
+        ):
+            cfg = load_config(root)
+        assert cfg.recompile_retries == 2  # DEFAULT_RECOMPILE_RETRIES
+
     def test_dead_config_keys_warn(self, tmp_path: Path) -> None:
         """Reserved/no-op keys ([compiler.profiles]) must warn at load — a user
         configuring them gets zero effect, so the no-op must be visible, not
