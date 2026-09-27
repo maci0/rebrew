@@ -21,6 +21,7 @@ from rebrew.dashboard import (
     _BOOT_GUARD_JS,
     _BOOT_GUARD_JS_VERSION,
     Dashboard,
+    _DashboardServer,
     _files_display,
 )
 
@@ -2498,6 +2499,118 @@ class TestServedCounters:
         assert _Handler._requests == 2
         assert _Handler._server_errors == 1
         assert _Handler._slowest_ms >= 50.0
+
+
+class TestThreadFaults:
+    """socketserver's default handle_error prints an unstampable traceback."""
+
+    @staticmethod
+    def _server() -> _DashboardServer:
+        # handle_error reports through the module logger and _Handler's
+        # counters only, so a server with no bound socket reports just as well.
+        return _DashboardServer.__new__(_DashboardServer)
+
+    def test_fault_is_logged_with_the_request_id(
+        self, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.dashboard import _Handler, _stamp_request
+
+        monkeypatch.setattr(_Handler, "_server_errors", 0)
+        _stamp_request("r42", "GET /api/targets HTTP/1.1\x1b")
+        with caplog.at_level(logging.ERROR, logger="rebrew.dashboard"):
+            try:
+                raise RuntimeError("boom")
+            except RuntimeError:
+                self._server().handle_error(None, ("127.0.0.1", 51234))  # type: ignore[arg-type]
+
+        errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+        assert len(errors) == 1
+        text = errors[0].getMessage()
+        assert text.startswith("r42 unhandled RuntimeError from ('127.0.0.1', 51234) serving ")
+        assert "/api/targets HTTP/1.1\\x1b" in text
+        assert "RuntimeError: boom" in text
+        assert _Handler._server_errors == 1
+
+    def test_client_disconnect_is_info_and_not_a_server_error(
+        self, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.dashboard import _Handler, _stamp_request
+
+        monkeypatch.setattr(_Handler, "_server_errors", 0)
+        _stamp_request("r43", "GET /api/functions HTTP/1.1")
+        with caplog.at_level(logging.INFO, logger="rebrew.dashboard"):
+            try:
+                raise BrokenPipeError(32, "Broken pipe")
+            except BrokenPipeError:
+                self._server().handle_error(None, ("127.0.0.1", 51235))  # type: ignore[arg-type]
+
+        assert [r.getMessage() for r in caplog.records] == [
+            "r43 client disconnected serving GET /api/functions HTTP/1.1"
+        ]
+        assert _Handler._server_errors == 0
+
+    def test_request_line_is_stamped_for_the_next_request(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A keep-alive thread must not blame the previous request's line."""
+        from io import BytesIO
+
+        from rebrew.dashboard import _Handler, _stamp_request
+
+        _stamp_request("r44", "GET /api/globals HTTP/1.1")
+        handler = _Handler.__new__(_Handler)
+        handler.rfile = BytesIO(b"")  # no request: the handler returns at once
+        handler.handle_one_request()
+        with caplog.at_level(logging.ERROR, logger="rebrew.dashboard"):
+            try:
+                raise RuntimeError("boom")
+            except RuntimeError:
+                self._server().handle_error(None, ("127.0.0.1", 51236))  # type: ignore[arg-type]
+        text = caplog.records[-1].getMessage()
+        assert text.startswith(f"{handler._request_id} unhandled RuntimeError")
+        assert "serving -\n" in text
+
+    def test_fault_on_a_live_connection_names_its_request(
+        self, dashboard: Dashboard, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The whole wiring, on a real socket: request line, id, and ERROR level."""
+        import http.client
+        import threading
+
+        from rebrew.dashboard import _Handler, allowed_hosts_for
+
+        class _FaultingHandler(_Handler):
+            def _respond(self, method: str) -> None:
+                super()._respond(method)
+                raise RuntimeError("boom after the response")
+
+        server = _DashboardServer(("127.0.0.1", 0), _FaultingHandler)
+        server.daemon_threads = True
+        _FaultingHandler.dashboard = dashboard
+        _FaultingHandler.allowed_hosts = allowed_hosts_for("127.0.0.1", server.server_port)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            with caplog.at_level(logging.ERROR, logger="rebrew.dashboard"):
+                conn = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=5)
+                conn.request("GET", "/", headers={"Host": f"127.0.0.1:{server.server_port}"})
+                assert conn.getresponse().status == 200
+                conn.close()
+                # The fault is reported on the handler thread after the response
+                # is written, so the log line arrives a moment later.
+                deadline = time.monotonic() + 5.0
+                while time.monotonic() < deadline and not caplog.records:
+                    time.sleep(0.02)
+        finally:
+            server.shutdown()
+            thread.join(timeout=5)
+            server.server_close()
+        assert not thread.is_alive()
+        errors = [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
+        assert len(errors) == 1
+        assert "unhandled RuntimeError" in errors[0]
+        assert "serving GET / HTTP/1.1\n" in errors[0]
+        assert "RuntimeError: boom after the response" in errors[0]
 
 
 class TestHealthRoute:

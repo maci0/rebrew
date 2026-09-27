@@ -103,7 +103,9 @@ import hashlib
 import itertools
 import json
 import logging
+import socket
 import sqlite3
+import sys
 import threading
 import time
 import traceback
@@ -137,6 +139,25 @@ _LOG_CONTROL_CHARS[ord("\\")] = "\\\\"
 #: traceback all carry it, so an operator can pivot from a failure back to the
 #: request that produced it even while other threads interleave their lines.
 _REQUEST_IDS = itertools.count(1)
+#: The request in flight on this thread.  ``socketserver`` hands a fault to
+#: ``handle_error`` on the handler's own thread but not the handler instance,
+#: so this is what lets that fault name the request it belongs to.
+_REQUEST_LOCAL = threading.local()
+
+
+def _stamp_request(request_id: str, line: str) -> None:
+    """Record the correlation id and request line for the current thread."""
+    _REQUEST_LOCAL.request_id = request_id
+    _REQUEST_LOCAL.request_line = line
+
+
+def _request_context() -> tuple[str, str]:
+    """The stamped ``(request_id, request_line)``, escaped for the log stream."""
+    request_id = getattr(_REQUEST_LOCAL, "request_id", "-")
+    line = _escape_log_text(getattr(_REQUEST_LOCAL, "request_line", ""))
+    return request_id, line or "-"
+
+
 #: Both log streams (access lines on ``console``, errors on ``log``) start with
 #: this stamp, so one grep orders the whole server output.
 _LOG_TIME_FORMAT = "%H:%M:%S"
@@ -2378,6 +2399,9 @@ class _Handler(BaseHTTPRequestHandler):
     _slowest_ms: ClassVar[float] = 0.0
 
     def _respond(self, method: str) -> None:
+        # getattr: requestline is set by parse_request, and a handler built
+        # without a socket (tests) has none to correlate on.
+        _stamp_request(self._request_id, getattr(self, "requestline", ""))
         if not _host_allowed(self.headers.get("Host", ""), self.allowed_hosts):
             status, content_type, body = self.dashboard._error(
                 403, "host_not_allowed", "request Host not allowed (wrong or missing Host header)"
@@ -2599,6 +2623,7 @@ class _Handler(BaseHTTPRequestHandler):
         if code == HTTPStatus.NOT_IMPLEMENTED and self.command:
             self._respond(self.command)
             return
+        _stamp_request(self._request_id, getattr(self, "requestline", ""))
         self.log_error("code %d, message %s", code, message)
         status = HTTPStatus(code)
         # Scrub like every routed body (``Dashboard._json``): http.server's own
@@ -2646,6 +2671,10 @@ class _Handler(BaseHTTPRequestHandler):
         # produces.
         self._request_started = time.perf_counter()
         self._request_id = f"r{next(_REQUEST_IDS)}"
+        # Reset the line with the id: a parse error never reaches ``_respond``,
+        # and a stale line from the previous request on this keep-alive thread
+        # would point a fault at the wrong request.
+        _stamp_request(self._request_id, "")
         super().handle_one_request()
 
     @override
@@ -2668,6 +2697,43 @@ class _Handler(BaseHTTPRequestHandler):
             str(code),
             str(size),
             elapsed_ms,
+        )
+
+
+class _DashboardServer(ThreadingHTTPServer):
+    """Server that reports a fault on the same stream as the access log.
+
+    ``socketserver.BaseServer.handle_error`` prints a bare rule-bracketed
+    traceback straight to stderr: no stamp, no level, no correlation id, and
+    no counter.  A client that closed the connection between our status line and
+    its body (routine on a keep-alive server) therefore dumped a stack trace an
+    operator could neither read as part of the request stream nor pivot back
+    to.  The override sends both cases through ``log`` with the stamped request
+    id, and keeps a vanished client out of the server-error total that the
+    shutdown line reports.
+    """
+
+    @override
+    def handle_error(
+        self, request: socket.socket | tuple[bytes, socket.socket], client_address: Any
+    ) -> None:
+        exc = sys.exc_info()[1]
+        request_id, line = _request_context()
+        if isinstance(exc, (BrokenPipeError, ConnectionResetError)):
+            # The peer hung up before the response was written.  Nothing the
+            # server can do about it, so it is not a fault: INFO, and no
+            # contribution to the error count.
+            log.info("%s client disconnected serving %s", request_id, line)
+            return
+        with _Handler._stats_lock:
+            _Handler._server_errors += 1
+        log.error(
+            "%s unhandled %s from %s serving %s\n%s",
+            request_id,
+            type(exc).__name__,
+            _escape_log_text(str(client_address)),
+            line,
+            _escape_log_text(traceback.format_exc().rstrip()),
         )
 
 
@@ -2740,7 +2806,7 @@ def main(
         )
 
     try:
-        server = ThreadingHTTPServer((host, port), _Handler)
+        server = _DashboardServer((host, port), _Handler)
     except OSError as exc:
         if exc.errno == errno.EADDRINUSE:
             error_exit(

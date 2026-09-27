@@ -471,5 +471,9 @@ The `recovery` server exposes the following endpoints. All data endpoints return
 > and every error line `HH:MM:SS ERROR   rebrew.dashboard r<N> <reason> <path>`
 > (plus an escaped single-line traceback), so `r<N>` pivots from a failure to
 > its request; a 500 the route raised itself is logged the same way with no
-> traceback. Totals (`requests`, `server errors`, `slowest ms`) print once on
+> traceback. A fault that escapes the handler reaches the same stream as
+> `r<N> unhandled <Exc> from <peer> serving <request line>` (ERROR, counted in
+> `server errors`); a client that closed the connection mid-response is
+> `r<N> client disconnected serving <request line>` (INFO, not counted).
+> Totals (`requests`, `server errors`, `slowest ms`) print once on
 > shutdown. See [`dashboard.py`](../src/rebrew/dashboard.py).
