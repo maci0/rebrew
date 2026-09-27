@@ -1,5 +1,7 @@
 """Tests for rebrew.matcher.scoring — score_candidate, diff_functions."""
 
+import random
+
 import capstone
 import pytest
 
@@ -7,6 +9,7 @@ from rebrew.matcher.core import EXACT_SCORE_THRESHOLD, Score, StructuralSimilari
 from rebrew.matcher.scoring import (
     _mask_registers_x86_32,
     _normalize_reloc_x86_32,
+    _register_mask_plan,
     diff_functions,
     precompute_target,
     score_candidate,
@@ -38,6 +41,53 @@ class TestMaskRegisters:
         res4 = _mask_registers_x86_32(b"\xb9\x00\x00\x00\x00")
         assert res3 == b"\xb8\x00\x00\x00\x00"
         assert res3 == res4
+
+    def test_matches_the_detail_disassembly_reference(self) -> None:
+        """The memoized mask plan reproduces the capstone detail walk byte for byte.
+
+        The plan is a cache, so an error in it is invisible: the same bytes
+        would mask the same way forever. The reference below is the detail-mode
+        walk the plan replaced, run over a byte sweep that reaches prefixed
+        opcodes, no-ModR/M opcodes, SIB forms and 0F two-byte opcodes.
+        """
+        md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
+        md.detail = True
+
+        def reference(code: bytes) -> bytes:
+            out = bytearray(code)
+            for insn in md.disasm(code, 0):
+                if insn.modrm_offset > 0 and insn.address + insn.modrm_offset < len(out):
+                    out[insn.address + insn.modrm_offset] &= 0xC0
+                if not insn.opcode:
+                    continue
+                op0 = insn.opcode[0]
+                if 0x40 <= op0 <= 0x5F or 0x90 <= op0 <= 0x97 or 0xB8 <= op0 <= 0xBF:
+                    for i in range(insn.size):
+                        if out[insn.address + i] == op0:
+                            out[insn.address + i] &= 0xF8
+                            break
+            return bytes(out)
+
+        rng = random.Random(3)
+        bodies = [
+            bytes(range(256)),
+            b"\x66\x8b\xc3" + b"\x0f\x1f\x84\x00\x00\x00\x00" + b"\xf3\xa4",
+            b"\x8b\x45\xfc\x03\x45\x08\x89\x45\xf8\xc1\xe0\x02",
+            b"\x55\x8b\xec\x83\xec\x20\x56\x57\xb9\x10\x00\x00\x00\x01\x4d\xfc\x49\x75\xfa",
+        ]
+        bodies += [
+            bytes(rng.randrange(256) for _ in range(rng.randrange(1, 24))) for _ in range(300)
+        ]
+        for code in bodies:
+            assert _mask_registers_x86_32(code) == reference(code), code.hex()
+
+    def test_plan_is_reused_across_calls(self) -> None:
+        """The same bytes reuse one plan object, so the target side of a sweep is a dict hit."""
+        code = b"\x8b\xc3\x8b\xd1"
+        first = _register_mask_plan(code, capstone.CS_ARCH_X86, capstone.CS_MODE_32)
+        second = _register_mask_plan(code, capstone.CS_ARCH_X86, capstone.CS_MODE_32)
+        assert first is second
+        assert first
 
 
 # -------------------------------------------------------------------------

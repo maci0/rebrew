@@ -209,6 +209,15 @@
   reset each request. No `/api/*` JSON changed.
 
 ### Changed
+- **Breaking:** **`theme.TOKENS` is one size ladder, not a per-component
+  scale.** `rebrew.theme.TOKENS` dropped `size-bar` and moved every other
+  `size-*` entry onto a 24/20/18 display and 15/14/13 text ladder, so a
+  stylesheet that asked for `rb-size-bar` resolves to nothing and the rest
+  render a step smaller or larger than before. A consumer picks the level it
+  wants (`size-title`, `size-value`, `size-heading`, `size-note`, `size-cell`,
+  `size-caption`, `size-code`); the role names (`ink`, `surface`, `accent`,
+  `line`, ...) did not move. `theme.inline` still resolves every
+  `var(--rb-*)` it is handed.
 - **`rebrew cfg effective` reports the LLM budget it resolved.**
   `REBREW_LLM_MAX_REQUESTS` and `REBREW_LLM_TIMEOUT` decide whether seeding
   runs and what it can bill, and both are env-only, so nothing outside a debug

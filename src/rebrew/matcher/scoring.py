@@ -8,6 +8,7 @@ Uses capstone for x86 disassembly and numpy for vectorized byte comparison.
 import difflib
 import threading
 from collections.abc import Callable
+from functools import lru_cache
 from typing import Any
 
 import capstone
@@ -388,34 +389,71 @@ def _zero_reloc_fields_raw(
             _zero_reloc_fields(det, out)
 
 
-def _mask_registers_inplace(insns: list[capstone.CsInsn], buf: bytearray) -> None:
-    """Apply the register-encoding mask to *buf* using ALREADY-disassembled
-    (detail) instructions, so a caller that holds the disassembly does not pay
-    for a second detail pass.
+#: ``_register_mask_plan`` entries — the offset the ModR/M mask applies to, or
+#: 0 for an instruction with no ModR/M byte.
+_MODRM_OFFSET_MASK = 0xC0
+#: Opcode classes whose register field lives in the opcode byte itself.
+_OPCODE_MASK = 0xF8
 
-    Mask semantics are identical: reg (bits 3-5) and rm (bits 0-2) of the
-    ModR/M byte are cleared (mod bits kept), and the opcode byte of
-    inc/dec/push/pop-reg, xchg-reg, and mov-reg-imm32 instructions has its
-    register field masked.
+#: The mask plan is a pure function of the code bytes, but the verify and
+#: flag-sweep hot paths re-mask the SAME target once per candidate (only the
+#: candidate side changes).  The detail-mode disassembly that produced the
+#: offsets was ~35 % of ``diff_functions``, and every ``CsInsn`` it built cost
+#: capstone a ctypes marshaling pass.  Memoizing the plan by code bytes turns
+#: the repeated target side into a dict hit.
+_REG_MASK_PLAN_MAX = 64
+
+
+@lru_cache(maxsize=_REG_MASK_PLAN_MAX)
+def _register_mask_plan(
+    code: bytes, cs_arch: int, cs_mode: int
+) -> tuple[tuple[int, int, int, int], ...]:
+    """Return the per-instruction register-mask sites for *code*.
+
+    One ``(address, size, modrm_offset, opcode0)`` tuple per instruction, with
+    ``modrm_offset`` 0 when the instruction has no ModR/M byte and ``opcode0``
+    0 unless the opcode byte itself carries a register field.  The plan is the
+    part of the mask that depends only on the bytes; the byte *value* scan it
+    feeds happens in :func:`_apply_register_mask` against the caller's buffer,
+    which may already be reloc-normalized.
     """
-    for insn in insns:
-        modrm_offset = insn.modrm_offset
-        if modrm_offset > 0:
-            offset = insn.address + modrm_offset
-            if offset < len(buf):
-                buf[offset] &= 0xC0
-
-        if not insn.opcode:
-            continue
-        op0 = insn.opcode[0]
-        if (
+    md = get_cs(cs_arch, cs_mode, detail=True)
+    plan: list[tuple[int, int, int, int]] = []
+    for insn in md.disasm(code, 0):
+        op0 = insn.opcode[0] if insn.opcode else 0
+        if not (
             (0x40 <= op0 <= 0x5F)  # inc/dec/push/pop reg
             or (0x90 <= op0 <= 0x97)  # xchg eax, reg
             or (0xB8 <= op0 <= 0xBF)  # mov reg, imm32
         ):
-            for i in range(insn.size):
-                if buf[insn.address + i] == op0:
-                    buf[insn.address + i] &= 0xF8
+            op0 = 0
+        plan.append((insn.address, insn.size, insn.modrm_offset, op0))
+    return tuple(plan)
+
+
+def _apply_register_mask(
+    code: bytes,
+    buf: bytearray,
+    cs_arch: int = _DEFAULT_CS_ARCH,
+    cs_mode: int = _DEFAULT_CS_MODE,
+) -> None:
+    """Mask register encodings in *buf* (a copy of *code*) in place.
+
+    reg (bits 3-5) and rm (bits 0-2) of the ModR/M byte are cleared (mod bits
+    kept), and the opcode byte of inc/dec/push/pop-reg, xchg-reg, and
+    mov-reg-imm32 instructions has its register field masked.  The opcode scan
+    reads *buf*, not *code*, so a reloc-normalized buffer behaves exactly as it
+    did before the plan was memoized.
+    """
+    for address, size, modrm_offset, op0 in _register_mask_plan(code, cs_arch, cs_mode):
+        if modrm_offset > 0:
+            offset = address + modrm_offset
+            if offset < len(buf):
+                buf[offset] &= _MODRM_OFFSET_MASK
+        if op0:
+            for i in range(size):
+                if buf[address + i] == op0:
+                    buf[address + i] &= _OPCODE_MASK
                     break
 
 
@@ -425,9 +463,8 @@ def _mask_registers_x86_32(
     cs_mode: int = _DEFAULT_CS_MODE,
 ) -> bytes:
     """Mask out register encodings in ModR/M and opcode bytes for register-aware diff."""
-    md = get_cs(cs_arch, cs_mode, detail=True)
     out = bytearray(code)
-    _mask_registers_inplace(list(md.disasm(code, 0)), out)
+    _apply_register_mask(code, out, cs_arch, cs_mode)
     return bytes(out)
 
 
@@ -723,17 +760,13 @@ def diff_functions(
         norm_cand = bytes(norm_cand_buf)
     if register_aware and norm_target:
         _t_buf = bytearray(norm_target)
-        _mask_registers_inplace(
-            list(get_cs(cs_arch, cs_mode, detail=True).disasm(target_bytes, 0)), _t_buf
-        )
+        _apply_register_mask(target_bytes, _t_buf, cs_arch, cs_mode)
         reg_norm_target = bytes(_t_buf)
     else:
         reg_norm_target = None
     if register_aware and norm_cand:
         _c_buf = bytearray(norm_cand)
-        _mask_registers_inplace(
-            list(get_cs(cs_arch, cs_mode, detail=True).disasm(candidate_bytes, 0)), _c_buf
-        )
+        _apply_register_mask(candidate_bytes, _c_buf, cs_arch, cs_mode)
         reg_norm_cand = bytes(_c_buf)
     else:
         reg_norm_cand = None
