@@ -56,6 +56,7 @@ from typing import Any
 import typer
 
 from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
+from rebrew.config import module_marker
 from rebrew.layout_meta import LayoutMetadata, extract_layout, write_package
 from rebrew.pe_headers import pe_image_base, pe_layout
 from rebrew.pe_image import PeImport, derive_link_options, parse_pe
@@ -500,7 +501,7 @@ def main(
             print(layout_toml)
         return
 
-    marker = cfg.marker or cfg.target_name.upper()
+    marker = module_marker(cfg)
     out_dir = cfg.reversed_dir
 
     result = {

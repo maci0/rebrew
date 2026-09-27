@@ -831,7 +831,22 @@ def main(
             ranges: list[tuple[int, int, str]] = []
             if info.format == "ne":
                 for f in enumerate_ne_functions(info):
-                    ranges.append((f.va, f.va + f.size, f"fcn_{f.va:08x}"))
+                    name = f"fcn_{f.va:08x}"
+                    ranges.append((f.va, f.va + f.size, name))
+                    # The binary is the only source of these functions, so
+                    # they have no entry in the source graph: without a node
+                    # every edge below dangles, and a stub-only project (the
+                    # case this option exists for) reports no functions at all.
+                    nodes.setdefault(
+                        name,
+                        {
+                            "status": "UNKNOWN",
+                            "va": f.va,
+                            "size": f.size,
+                            "file": "",
+                            "symbol": name,
+                        },
+                    )
             else:
                 for name, n in nodes.items():
                     va = int(n["va"]) if n.get("va") else 0

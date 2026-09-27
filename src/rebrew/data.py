@@ -580,7 +580,7 @@ def main(
         metadata = cfg.metadata_dir / "rebrew-data.toml"
         if not metadata.exists():
             error_exit(f"data metadata not found: {metadata}", json_mode=json_output)
-        marker = cfg.marker or cfg.target_name.upper()
+        marker = module_marker(cfg)
         per_file, skipped_unnamed = annotate_globals(
             src_dir, metadata, marker, dry_run=dry_run, cfg=cfg
         )

@@ -20,6 +20,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import capstone
 import typer
 
 from rebrew.binary_loader import capstone_mode_for_arch
@@ -289,6 +290,10 @@ def run_diff(
     if len(obj_bytes) > len(p.target_bytes):
         obj_bytes = obj_bytes[: len(p.target_bytes)]
 
+    # Both halves of the capstone engine: the mode alone still decodes with
+    # the x86 architecture, so a MIPS/PPC/ARM/SH target disassembles as
+    # garbage and every row below (and the structural exit code) is wrong.
+    cs_arch = getattr(p.cfg, "capstone_arch", capstone.CS_ARCH_X86)
     cs_mode = capstone_mode_for_arch(getattr(p.cfg, "arch", ""))
     ptr_size = getattr(p.cfg, "pointer_size", 4)
     summary = diff_functions(
@@ -298,6 +303,7 @@ def run_diff(
         mismatches_only=mismatches_only,
         register_aware=register_aware,
         as_dict=True,
+        cs_arch=cs_arch,
         cs_mode=cs_mode,
         pointer_size=ptr_size,
     )
@@ -329,6 +335,7 @@ def run_diff(
             p.target_bytes,
             obj_bytes,
             res.reloc_offsets,
+            cs_arch=cs_arch,
             cs_mode=cs_mode,
             pointer_size=ptr_size,
             _summary=summary if register_aware else None,

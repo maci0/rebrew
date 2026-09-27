@@ -969,7 +969,10 @@ def own_data_globals(
         base = _ARRAY_SUFFIX_RE.sub("", ctype).strip()
         elemsize = c_type_size(base)
         cap = min(toml_next.get(name, raw_end), raw_end) - addr
-        if cap <= 0:
+        if cap <= 0 or addr < data_base:
+            # Below the section base there are no bytes in ``orig``: slicing
+            # with a negative start would copy the section's tail into the
+            # symbol, and the scalar path would unpack_from a short buffer.
             continue
         off = addr - data_base
         dim = 0
@@ -992,7 +995,7 @@ def own_data_globals(
             data_end = orig.find(b"\x00", off, off + cap)
             if elemsize == 1 and data_end >= 0:
                 size = data_end - off + 1
-            elif decl_n > 1:
+            elif decl_n is not None:
                 size = decl_n * elemsize
             else:
                 size = cap
@@ -1209,6 +1212,10 @@ def fix_ownership(
         if tu is None:
             continue
         if addr < raw_end:
+            if addr < data_base:
+                # Below the section base ``orig`` has no bytes at this
+                # address; a negative offset would read the section tail.
+                continue
             elemsize = c_type_size(typ)
             off = addr - data_base
             cap = min(next_va.get(name, raw_end), raw_end) - addr

@@ -1653,6 +1653,7 @@ def update_annotation_key(
     from rebrew.metadata import (
         canonical_status,
         is_metadata_key,
+        should_promote_status,
         update_source_status,
     )
     from rebrew.metadata_model import FIELD_TO_ATTR, MetadataEntry
@@ -1670,7 +1671,10 @@ def update_annotation_key(
             # the promotion gate refuses (parked SKIP, a documented STUB
             # facing a placeholder verdict), stores nothing.
             entry = MetadataEntry.load(_dir, va, module)
-            if canonical_status(entry.status or "") == canon:
+            # should_promote_status is the same gate the writer applies, so
+            # asking it here reports the refusal to the caller instead of
+            # claiming a write that stored nothing.
+            if not should_promote_status(entry.status or "", canon):
                 return False
             update_source_status(
                 _dir,

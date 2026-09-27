@@ -2090,7 +2090,15 @@ class Dashboard:
         target = _opt_query(query, "target") or ""
         if path == "/api/summary":
             return bool(target) and self._summary_lookup(target)[0] == "ok"
-        return self.target_known(target)
+        if not self.target_known(target):
+            return False
+        if path == "/api/functions":
+            # A status outside the DB vocabulary makes the route answer 400,
+            # not an empty page, so no representation exists to stand in for.
+            status = _opt_query(query, "status")
+            if status is not None and canonical_status(status) not in COVERAGE_DB_STATUSES:
+                return False
+        return True
 
     def response_etag(self, path: str) -> str:
         """Strong shell/asset etag; weak DB+request etag so rebuilds invalidate JSON caches.

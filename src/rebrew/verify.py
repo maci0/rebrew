@@ -31,6 +31,7 @@ if TYPE_CHECKING:
     from rebrew.compile_cache import CacheBackend
     from rebrew.compile_context import CompileContext
 
+import capstone
 import typer
 from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn
 from rich.table import Table
@@ -298,7 +299,10 @@ def verify_entry(
                 # fall back to the plain structural diff.
                 register_aware=getattr(cfg, "arch", "") == "x86_32",
                 # Same arch wiring as diff.py / match_sweep: 16-bit targets
-                # need cs_mode + 2-byte reloc slots, not the 32-bit defaults.
+                # need cs_mode + 2-byte reloc slots, not the 32-bit defaults,
+                # and a non-x86 arch needs its own CS_ARCH or the counts come
+                # from a mis-decode.
+                cs_arch=getattr(cfg, "capstone_arch", capstone.CS_ARCH_X86),
                 cs_mode=capstone_mode_for_arch(getattr(cfg, "arch", "")),
                 pointer_size=getattr(cfg, "pointer_size", 4),
             )
