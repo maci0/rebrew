@@ -60,11 +60,13 @@ plugin cache backends or remove the open upstream diskcache advisory.
   (`run_toolchain` in `src/rebrew/toolchain.py`).
 - No claim that optional wibo / toolchain-media downloads are attested beyond
   the in-code host allow-list and hash checks described in
-  [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md). Wibo integrity uses the live
-  GitHub release `digest`. That digest is fetched with redirects followed
-  (`wibo.py` `_read_release_metadata`); the allow-list and per-hop redirect
-  check apply to the asset GET (`_get_with_trusted_redirects`), not to the
-  metadata GET. Wibo does not consume `GH_TOKEN`/`GITHUB_TOKEN`
+  [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md). Wibo asset bytes are
+  allow-listed, redirect-checked per hop, and checked against the release
+  `digest`; the release-metadata GET that supplies that digest is pinned to
+  `api.github.com` per hop (`wibo.py` `_trusted_wibo_metadata_url` /
+  `_read_release_metadata`, which uses `follow_redirects=False`). None of that
+  is content attestation: the digest is whatever the current GitHub release
+  publishes. Wibo does not consume `GH_TOKEN`/`GITHUB_TOKEN`
   (those tokens are used only by toolchain pin-check/update HTTP to GitHub).
 - No claim that dependency CVEs are absent; pin rationale lives in
   `pyproject.toml` comments and the changelog. In particular, diskcache's
