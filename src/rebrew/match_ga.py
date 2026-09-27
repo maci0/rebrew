@@ -47,6 +47,60 @@ log = logging.getLogger(__name__)
 #: are serialized by a ``flock`` on a ``.lock`` sidecar (see ``_write_pair``).
 _COLLECT_PAIRS_LOCK = threading.Lock()
 
+#: Parsed ``--collect-pairs`` fingerprints per path, so a ``match --all``
+#: batch pays the corpus parse once per process instead of once per stub.
+#: One entry per path: a collect run appends continuously, so keeping every
+#: stat generation of the same corpus would grow with the stub count.
+_PAIR_KEYS_MEMO: dict[str, tuple[int, int, frozenset[str]]] = {}
+
+
+def _pair_fingerprint(src: str, obj_bytes: bytes, cflags: str, symbol: str) -> str:
+    """Stable content key for one training pair (excludes score)."""
+    h = hashlib.sha256()
+    h.update(src.encode("utf-8", errors="surrogateescape"))
+    h.update(b"\0")
+    h.update(obj_bytes)
+    h.update(b"\0")
+    h.update(cflags.encode("utf-8", errors="surrogateescape"))
+    h.update(b"\0")
+    h.update(symbol.encode("utf-8", errors="surrogateescape"))
+    return h.hexdigest()
+
+
+def _scan_pair_keys(path: Path) -> set[str]:
+    """Fingerprint every record in the ``--collect-pairs`` JSONL at *path*.
+
+    Streams line by line: the corpus embeds full source plus hex obj bytes
+    per record, so reading it whole cost two copies of the file (text plus
+    ``splitlines()`` list) for a value that is one 64-char string per record.
+    """
+    keys: set[str] = set()
+    with open(path, encoding="utf-8", errors="surrogateescape") as handle:
+        for line in handle:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(rec, dict):
+                continue
+            src = rec.get("source")
+            compiled = rec.get("compiled_bytes")
+            if not isinstance(src, str) or not isinstance(compiled, str):
+                continue
+            try:
+                obj = bytes.fromhex(compiled)
+            except ValueError:
+                continue
+            keys.add(
+                _pair_fingerprint(
+                    src, obj, str(rec.get("cflags", "")), str(rec.get("symbol", ""))
+                )
+            )
+    return keys
+
 
 def ga_runs_dir(cfg: ProjectConfig, rel: Path | None = None) -> Path:
     """Resolve the GA run output directory, honoring ``[project].output_dir``.
@@ -728,61 +782,20 @@ class BinaryMatchingGA:
 
         return total
 
-    def _pair_fingerprint(self, src: str, obj_bytes: bytes) -> str:
-        """Stable content key for one training pair (excludes score)."""
-        import hashlib
-
-        h = hashlib.sha256()
-        h.update(src.encode("utf-8", errors="surrogateescape"))
-        h.update(b"\0")
-        h.update(obj_bytes)
-        h.update(b"\0")
-        h.update(self.cflags.encode("utf-8", errors="surrogateescape"))
-        h.update(b"\0")
-        h.update(self.symbol.encode("utf-8", errors="surrogateescape"))
-        return h.hexdigest()
-
     def _load_pair_keys(self) -> set[str]:
         """Return fingerprints already on disk for ``collect_pairs_path``."""
-        import hashlib
-
-        keys: set[str] = set()
         path = self.collect_pairs_path
-        if path is None or not path.exists():
-            return keys
+        if path is None:
+            return set()
         try:
-            text = path.read_text(encoding="utf-8")
+            st = path.stat()
         except OSError:
-            return keys
-        for line in text.splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                rec = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if not isinstance(rec, dict):
-                continue
-            src = rec.get("source")
-            compiled = rec.get("compiled_bytes")
-            cflags = rec.get("cflags", "")
-            symbol = rec.get("symbol", "")
-            if not isinstance(src, str) or not isinstance(compiled, str):
-                continue
-            try:
-                obj = bytes.fromhex(compiled)
-            except ValueError:
-                continue
-            h = hashlib.sha256()
-            h.update(src.encode("utf-8", errors="surrogateescape"))
-            h.update(b"\0")
-            h.update(obj)
-            h.update(b"\0")
-            h.update(str(cflags).encode("utf-8", errors="surrogateescape"))
-            h.update(b"\0")
-            h.update(str(symbol).encode("utf-8", errors="surrogateescape"))
-            keys.add(h.hexdigest())
+            return set()
+        memo = _PAIR_KEYS_MEMO.get(str(path))
+        if memo is not None and memo[0] == st.st_mtime_ns and memo[1] == st.st_size:
+            return set(memo[2])
+        keys = _scan_pair_keys(path)
+        _PAIR_KEYS_MEMO[str(path)] = (st.st_mtime_ns, st.st_size, frozenset(keys))
         return keys
 
     def _write_pair(self, src: str, obj_bytes: bytes, score: float) -> None:
@@ -795,7 +808,7 @@ class BinaryMatchingGA:
         pollute the training corpus.
         """
         assert self.collect_pairs_path is not None  # caller guards it
-        key = self._pair_fingerprint(src, obj_bytes)
+        key = _pair_fingerprint(src, obj_bytes, self.cflags, self.symbol)
         pairs_lock = Path(str(self.collect_pairs_path) + ".lock")
         with (
             _COLLECT_PAIRS_LOCK,
@@ -819,6 +832,18 @@ class BinaryMatchingGA:
                 f.write(json.dumps(record) + "\n")
             self._pair_keys.add(key)
             self._pairs_count += 1
+            # Keep the corpus memo in step with our own append so the next
+            # stub in this process reuses it instead of re-parsing the file
+            # it just grew.
+            try:
+                st = self.collect_pairs_path.stat()
+            except OSError:
+                return
+            _PAIR_KEYS_MEMO[str(self.collect_pairs_path)] = (
+                st.st_mtime_ns,
+                st.st_size,
+                frozenset(self._pair_keys),
+            )
 
     def run(self, deadline: float | None = None) -> tuple[str | None, float]:
         """Run the GA and return ``(best_source, best_score)``.
@@ -910,6 +935,7 @@ class BinaryMatchingGA:
                 # Distinct sources only: an unchanged child is a clone of its
                 # parent, and clones of the best would fill every elite slot.
                 next_pop = list(dict.fromkeys(s for _, s in scored_pop))[: self.elitism]
+                next_pop_keys = {source_digest(s) for s in next_pop}
 
                 # Stagnation restart: once half the stagnation budget has
                 # elapsed without a new best, reseed a quarter of the
@@ -952,11 +978,15 @@ class BinaryMatchingGA:
                         for _ in range(n_muts):
                             child = self._mutate(child)
 
-                    if child not in next_pop and quick_validate(child):
+                    child_key = source_digest(child)
+                    if child_key not in next_pop_keys and quick_validate(child):
                         next_pop.append(child)
+                        next_pop_keys.add(child_key)
 
                 while len(next_pop) < self.pop_size:
-                    next_pop.append(self._tournament(scored_pop))
+                    fill = self._tournament(scored_pop)
+                    next_pop.append(fill)
+                    next_pop_keys.add(source_digest(fill))
 
                 self.population = next_pop
 
