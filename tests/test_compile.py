@@ -360,6 +360,111 @@ class TestCompileToObj:
         assert obj_path is not None
         assert stored == {}
 
+    def test_remote_backend_publishes_to_the_cache(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A remote compile must publish its artifact under the same key the
+        lookup uses.  The remote branch returns before the local publish, so
+        without this its lookup missed on every run and each verify re-POSTed
+        every function to the service."""
+        import rebrew.recompile_client as rc
+
+        posted: list[str] = []
+        stored: dict[str, bytes] = {}
+
+        def _fake_compile_source(url: str, **kwargs: Any) -> Any:
+            posted.append(url)
+            return rc.RecompileResult(ok=True, obj_bytes=b"\xaa\xbb")
+
+        monkeypatch.setattr(rc, "compile_source", _fake_compile_source)
+        monkeypatch.delenv("REBREW_RECOMPILE_URL", raising=False)
+
+        class _FakeCache:
+            def get(self, key: str) -> None:
+                return None
+
+            def put(self, key: str, data: bytes) -> None:
+                stored[key] = data
+
+        cfg: Any = SimpleNamespace(
+            root=tmp_path,
+            compiler_includes=tmp_path,
+            base_cflags="/nologo",
+            compile_timeout=3,
+            compiler_command="CL.EXE",
+            compiler_runner="",
+            compiler_libs=tmp_path,
+            compiler_profile="msvc-6.0",
+            posix_style=False,
+            msvc_env=lambda: {},
+            recompile_url="http://svc",
+        )
+        src_dir = tmp_path / "src"
+        src_dir.mkdir()
+        source = src_dir / "f.c"
+        source.write_text("int f(void){return 1;}\n", encoding="utf-8")
+        workdir = tmp_path / "work"
+        workdir.mkdir()
+
+        obj_path, err = compile_to_obj(
+            cast(ProjectConfig, cfg), source, ["/O2"], workdir, cache=_FakeCache()
+        )
+
+        assert err == ""
+        assert obj_path is not None
+        assert posted == ["http://svc"]
+        assert list(stored.values()) == [b"\xaa\xbb"]
+
+    def test_remote_failure_is_not_cached(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A service error has no object; it must never become a cache entry
+        that later serves as a durable compile failure."""
+        import rebrew.recompile_client as rc
+
+        stored: dict[str, bytes] = {}
+
+        def _fake_compile_source(url: str, **kwargs: Any) -> Any:
+            return rc.RecompileResult(ok=False, log="error C2065")
+
+        monkeypatch.setattr(rc, "compile_source", _fake_compile_source)
+        monkeypatch.delenv("REBREW_RECOMPILE_URL", raising=False)
+
+        class _FakeCache:
+            def get(self, key: str) -> None:
+                return None
+
+            def put(self, key: str, data: bytes) -> None:
+                stored[key] = data
+
+        cfg: Any = SimpleNamespace(
+            root=tmp_path,
+            compiler_includes=tmp_path,
+            base_cflags="/nologo",
+            compile_timeout=3,
+            compiler_command="CL.EXE",
+            compiler_runner="",
+            compiler_libs=tmp_path,
+            compiler_profile="msvc-6.0",
+            posix_style=False,
+            msvc_env=lambda: {},
+            recompile_url="http://svc",
+        )
+        src_dir = tmp_path / "src"
+        src_dir.mkdir()
+        source = src_dir / "f.c"
+        source.write_text("int f(void){return 1;}\n", encoding="utf-8")
+        workdir = tmp_path / "work"
+        workdir.mkdir()
+
+        obj_path, err = compile_to_obj(
+            cast(ProjectConfig, cfg), source, ["/O2"], workdir, cache=_FakeCache()
+        )
+
+        assert obj_path is None
+        assert "C2065" in err
+        assert stored == {}
+
 
 class TestCompileToObjPosix:
     """mingw-16.2.0 / mingw (POSIX-style) compiler routing."""

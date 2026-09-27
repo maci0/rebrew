@@ -1316,6 +1316,83 @@ class TestIncrementalVerify:
 
         assert without_timestamp(fresh) == without_timestamp(cached)
 
+    def test_reannotated_module_is_reverified(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A marker moved to a new module at the same VA and source is a
+        different function identity.  The stored row carries the module name
+        in the report, so serving the old row re-reports the function under
+        the previous module and the writer persists that name."""
+        cfg = _make_cfg(tmp_path)
+        (cfg.reversed_dir / "func_a.c").write_text(
+            "int func_a(void) { return 1; }\n", encoding="utf-8"
+        )
+        entries = [
+            Annotation(
+                va=0x10001000,
+                name="func_a",
+                filepath="func_a.c",
+                size=16,
+                cflags="",
+                symbol="",
+                module="OLD",
+                status="EXACT",
+                marker_type="FUNCTION",
+            )
+        ]
+
+        def fake_require_config(*args: object, **kwargs: object) -> ProjectConfig:
+            return cfg
+
+        def fake_scan_reversed_dir(*args: object, **kwargs: object) -> list[dict[str, object]]:
+            return entries
+
+        def fake_cached_function_list(*args: object, **kwargs: object) -> list[dict[str, object]]:
+            return []
+
+        def fake_build_registry(*args: object, **kwargs: object) -> dict[int, dict[str, object]]:
+            return {}
+
+        calls: list[int] = []
+
+        def fake_verify_entry(
+            entry: Annotation,
+            _cfg: ProjectConfig,
+            cache: object = None,
+            **_kwargs: object,
+        ) -> CompareResult:
+            calls.append(int(entry.va))
+            return CompareResult(
+                matched=True,
+                status="EXACT",
+                match_percent=100.0,
+                delta=0,
+                obj_bytes=b"\x90",
+                reloc_offsets=[],
+                message="EXACT MATCH",
+            )
+
+        monkeypatch.setattr("rebrew.verify.require_config", fake_require_config)
+        monkeypatch.setattr("rebrew.verify.scan_reversed_dir", fake_scan_reversed_dir)
+        monkeypatch.setattr("rebrew.verify.cached_function_list", fake_cached_function_list)
+        monkeypatch.setattr("rebrew.verify.build_function_registry", fake_build_registry)
+        monkeypatch.setattr("rebrew.verify.verify_entry", fake_verify_entry)
+
+        first = runner.invoke(app, ["--json"])
+        assert first.exit_code == 0, first.output
+        assert calls == [0x10001000]
+
+        calls.clear()
+        second = runner.invoke(app, ["--json"])
+        assert second.exit_code == 0, second.output
+        assert calls == []
+
+        entries[0].module = "NEW"
+        calls.clear()
+        third = runner.invoke(app, ["--json"])
+        assert third.exit_code == 0, third.output
+        assert calls == [0x10001000]
+
 
 class TestHeadersHash:
     def test_empty_when_no_headers(self, tmp_path: Path) -> None:

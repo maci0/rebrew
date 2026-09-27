@@ -1647,7 +1647,7 @@ def compile_to_obj(
         # Remote backend: one POST carries source text + resolved flags; the
         # artifact bytes come back over HTTP.  No mounts, no local image.
         active = toolchain or profile
-        return _compile_via_recompile(
+        obj_path, remote_err = _compile_via_recompile(
             cfg,
             source_path,
             all_flags,
@@ -1658,6 +1658,39 @@ def compile_to_obj(
             source_text=compile_text if context is not None else None,
             backend_errors=backend_errors,
         )
+        if obj_path is None or cc is None or cache_key is None:
+            return obj_path, remote_err
+        # Publish what the remote run produced, under the same guard the local
+        # path uses.  This branch returns before reaching the publish below, so
+        # without it the lookup above missed on every run and each verify
+        # re-POSTed every function: the cache was read but never written, and
+        # the remote service paid for identical work.
+        try:
+            remote_obj = Path(obj_path).read_bytes()
+        except OSError as exc:
+            import logging
+
+            logging.getLogger(__name__).debug(
+                "recompile artifact %s unreadable, not caching: %s", obj_path, exc
+            )
+            return obj_path, remote_err
+        publish_obj_cache(
+            cc,
+            cache_key,
+            remote_obj,
+            fresh_key=_cache_key_for(
+                cfg,
+                spec,
+                compile_text,
+                src_name,
+                key_flags,
+                inc_path,
+                src_parent,
+                extra_include_dirs,
+                source_ext,
+            ),
+        )
+        return obj_path, remote_err
 
     if spec is not None and (spec.image is not None or spec.runtime == "native"):
         """The standardized runner: the toolchain's docker image, or native
