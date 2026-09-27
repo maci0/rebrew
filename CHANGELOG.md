@@ -1,6 +1,13 @@
 ## [Unreleased]
 
 ### Added
+- **`make build-repro` runs the package job's reproducibility check.** The
+  wheel/sdist byte-reproducibility gate was an inline bash step in
+  `.github/workflows/ci.yml`, so a non-reproducible artifact surfaced only
+  after the push. The recipe now lives in a `build-repro` target (second
+  `git archive HEAD` copy under `.scratch/rebuild`, extracted under
+  `umask 077`, built at another path with another timezone and locale, hashes
+  compared), CI calls the target, and `make pr-check` includes it.
 - **`REBREW_LOG_LEVEL`.** Log level was reachable only through the global
   `-v` / `-q`, so a container or CI job wrapping several rebrew commands had
   to edit verbosity into every command it invokes. The variable takes
