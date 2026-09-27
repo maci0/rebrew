@@ -322,7 +322,11 @@ def count_migratable_files(src_dir: Path, cfg: Any) -> int:
     for src in iter_sources(src_dir, cfg):
         try:
             lines = split_source_lines(read_source_text(src)[0])
-        except OSError:
+        except OSError as exc:
+            # A file that cannot be read would otherwise contribute zero
+            # inline keys and no diagnostics, so lint would call the tree
+            # clean and `--fix` would report nothing to migrate.
+            logging.getLogger(__name__).warning("could not read %s: %s", src, exc)
             continue
         for found_keys, _flags in _parse_multi_headers(lines):
             marker = found_keys.get("MARKER", "")

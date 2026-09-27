@@ -1903,8 +1903,10 @@ def _run_all_batch(
     for src in sources:
         try:
             annos = parse_c_file_multi(src, target_name=tm, metadata_dir=cfg.metadata_dir)
-        except Exception:
-            log.debug("Skipping %s: annotation parse failed", src, exc_info=True)
+        except Exception as exc:
+            # Dropping the file quietly makes a batch run indistinguishable
+            # from one where every function was already out of scope.
+            log.warning("Skipping %s: annotation parse failed: %s", src, exc, exc_info=True)
             continue
         for a in annos:
             if a.status not in ("NEAR_MATCHING", "SIZE_MISMATCH") or not a.size:

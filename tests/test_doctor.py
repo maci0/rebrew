@@ -1000,6 +1000,23 @@ class TestCheckBinsyncState:
         assert r.status == _WARN
         assert "different binary" in r.message
 
+    def test_unreadable_binary_hash_never_passes(self, tmp_path: Path) -> None:
+        """A present-but-unreadable binary_hash is not the same as an absent
+        one: reading it as "" would skip the mismatch check and report a state
+        dir whose addresses may name another binary as ready."""
+        (tmp_path / "test.exe").write_bytes(b"pe-this-binary")
+        state = tmp_path / "state"
+        state.mkdir()
+        hash_file = state / "binary_hash"
+        hash_file.write_text("0" * 32, encoding="utf-8")
+        hash_file.chmod(0o000)
+        try:
+            r = self._check(tmp_path, binsync_state_dir=str(state))
+        finally:
+            hash_file.chmod(0o644)
+        assert r.status == _WARN
+        assert "could not read" in r.message
+
     def test_binary_hash_match_passes(self, tmp_path: Path) -> None:
         import hashlib
         import subprocess

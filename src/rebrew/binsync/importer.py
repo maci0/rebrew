@@ -122,10 +122,24 @@ def _global_field_updates(local: Any, bs_entry: dict[str, str]) -> list[tuple[st
     if bs_size:
         try:
             size_val = int(bs_size, 0)
-            if size_val != int(getattr(local, "size", 0) or 0):
+        except ValueError:
+            # bs_size comes from the remote state, which is untrusted.  An
+            # unparsable value is not "no drift": reporting none would let the
+            # global be counted as synced while its SIZE stays stale, and every
+            # later byte comparison measures against the wrong length.
+            logging.getLogger(__name__).warning(
+                "ignoring unparsable BinSync size %r: expected an integer (0x/0o/0b prefixed "
+                "or decimal)",
+                bs_size,
+            )
+        else:
+            local_size = getattr(local, "size", 0) or 0
+            try:
+                local_val = int(local_size)
+            except (TypeError, ValueError):
+                local_val = -1
+            if size_val != local_val:
                 updates.append(("size", size_val))
-        except (TypeError, ValueError):
-            pass
     bs_section = (bs_entry.get("section") or "").strip()
     if bs_section and bs_section != str(getattr(local, "section", "") or "").strip():
         updates.append(("section", bs_section))

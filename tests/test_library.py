@@ -39,6 +39,26 @@ class TestLibraryMetadata:
         with pytest.raises(LibraryOverrideError, match=r"bad rebrew-libraries\.toml at"):
             parse_library_metadata(bad)
 
+    def test_unstatable_file_raises_not_empty(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A present-but-unstatable file is not an absent one.  Returning {}
+        would tell the caller the library file was consulted and had no
+        overrides, so every function below it silently compiled with the
+        project default flags and the resulting SIZE_MISMATCH looked like a
+        source regression."""
+        from rebrew.metadata import LibraryOverrideError
+
+        bad = tmp_path / LIBRARY_METADATA_FILE
+        bad.write_text('toolchain = "msvc-6.0"\n', encoding="utf-8")
+
+        def _boom(_self: Path) -> object:
+            raise PermissionError(13, "Permission denied")
+
+        monkeypatch.setattr(Path, "stat", _boom)
+        with pytest.raises(LibraryOverrideError, match=r"cannot stat rebrew-libraries\.toml"):
+            parse_library_metadata(bad)
+
     def test_non_string_field_raises(self, tmp_path: Path) -> None:
         """A table where a string belongs would be str()'d into the argv."""
         from rebrew.metadata import LibraryOverrideError

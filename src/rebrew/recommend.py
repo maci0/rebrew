@@ -890,14 +890,12 @@ def _collect_hygiene(
                     recs.append(rec)
 
     with _lane("orphans"):
-        from rebrew.orphans import find_orphans, split_prunable
+        from rebrew.orphans import find_orphans, orphan_dicts, split_prunable
 
         fn, data = find_orphans(cfg)
         rec = recommend_orphans(split_prunable(cfg, fn, data))
         if rec:
             recs.append(rec)
-        from rebrew.orphans import orphan_dicts
-
         recs.extend(recommend_matched_orphans(orphan_dicts(cfg, fn, data)))
 
     with _lane("lint"):

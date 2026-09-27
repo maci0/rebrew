@@ -66,7 +66,7 @@ from rebrew.cli import (
     require_config,
 )
 from rebrew.errors import RebrewError
-from rebrew.utils import fold_ident, parse_int_literal
+from rebrew.utils import atomic_write_text, fold_ident, parse_int_literal
 
 # ---------------------------------------------------------------------------
 # Evidence parsing
@@ -668,8 +668,11 @@ def recover_project_structs(
         to_write = [r for r in new_structs if r["name"] not in already]
         if to_write:
             block = "\n\n".join(r["definition"] for r in to_write)
-            with apply.open("a", encoding="utf-8") as fh:
-                fh.write("\n" + block)
+            # Rewrite atomically: a crash or a full disk mid-append would leave
+            # a half-written typedef, and the dedup belt above would then skip
+            # that name forever because it already registers as present.
+            previous = apply.read_text(encoding="utf-8") if apply.is_file() else ""
+            atomic_write_text(apply, previous + "\n" + block)
             console.print(f"[green]Appended {len(to_write)} struct(s) to {apply}[/green]")
             applied = str(apply)
         else:

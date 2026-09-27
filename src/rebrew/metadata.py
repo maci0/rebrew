@@ -1465,10 +1465,16 @@ def parse_library_metadata(path: Path) -> dict[str, Any]:
     key = str(path.resolve())
     try:
         st = path.stat()
-    except OSError:
+    except FileNotFoundError:
         with _LIBRARY_CACHE_LOCK:
             _LIBRARY_META_CACHE.pop(key, None)
         return {}
+    except OSError as exc:
+        # A present-but-unreadable file is not an absent one: returning {}
+        # here makes the caller believe the library file was consulted and had
+        # no overrides, so every function in the directory silently compiles
+        # with the project default flags.  Fail loud, like a malformed file.
+        raise LibraryOverrideError(f"cannot stat {LIBRARY_METADATA_FILE} at {path}: {exc}") from exc
     fp = (st.st_mtime_ns, st.st_size, st.st_ino)
     with _LIBRARY_CACHE_LOCK:
         cached = _LIBRARY_META_CACHE.get(key)

@@ -21,8 +21,10 @@ so flags, toolchain, and reloc masking resolve per project.
 from __future__ import annotations
 
 import concurrent.futures as cf
+import contextlib
 import re
 import tempfile
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -97,6 +99,22 @@ def _is_decl(unit: str) -> bool:
             s,
         )
     )
+
+
+@contextlib.contextmanager
+def _restore_source_on_error(path: Path, original: str, encoding: str) -> Iterator[None]:
+    """Restore *path* to *original* if the body unwinds.
+
+    The sweep writes each round's best-so-far candidate straight to the
+    project ``.c``, so a ``KeyboardInterrupt`` or a toolchain failure partway
+    through would otherwise leave a partially swept declaration on disk with
+    no record of how it got there.
+    """
+    try:
+        yield
+    except BaseException:
+        atomic_write_text(path, original, encoding=encoding)
+        raise
 
 
 def score_fn(
@@ -212,64 +230,67 @@ def main(
 
     sweep_root = Path(cfg.root) / ".rebrew" / "qualsweep"
     sweep_root.mkdir(parents=True, exist_ok=True)
-    for rnd in range(rounds):
-        cands = [(k, lab, new) for k in decls for lab, new in variants(units[k])]
+    with _restore_source_on_error(path, original, encoding):
+        for rnd in range(rounds):
+            cands = [(k, lab, new) for k in decls for lab, new in variants(units[k])]
 
-        def submit(
-            c: tuple[int, str, str], _tmpdir: Path
-        ) -> tuple[tuple[int, str, str], tuple[float, int]]:
-            k, lab, new = c
-            alt = units[:]
-            alt[k] = new
-            # Compile a copy: parallel candidates must not share one path.
-            tmp = _tmpdir / f"{sym_file}_{k}_{lab}.c"
-            tmp.write_text("".join(head) + "".join(alt) + "".join(tail), encoding=encoding)
-            return (k, lab, new), score_fn(cfg, tmp, va_int, size, sym, toolchain, cflags)
+            def submit(
+                c: tuple[int, str, str], _tmpdir: Path
+            ) -> tuple[tuple[int, str, str], tuple[float, int]]:
+                k, lab, new = c
+                alt = units[:]
+                alt[k] = new
+                # Compile a copy: parallel candidates must not share one path.
+                tmp = _tmpdir / f"{sym_file}_{k}_{lab}.c"
+                tmp.write_text("".join(head) + "".join(alt) + "".join(tail), encoding=encoding)
+                return (k, lab, new), score_fn(cfg, tmp, va_int, size, sym, toolchain, cflags)
 
-        # Private dir per round: a concurrent sweep of the same symbol (another
-        # target sharing this root) would otherwise overwrite a candidate
-        # between its write and its compile, scoring the wrong source.
-        # -j 0 (or negative) bypasses config's _positive_int validation, so
-        # clamp before the pool: max_workers=0 raises ValueError.
-        with (
-            tempfile.TemporaryDirectory(dir=sweep_root, prefix=f"{sym_file}-") as rnd_dir,
-            cf.ThreadPoolExecutor(max_workers=max(1, jobs)) as ex,
-        ):
-            # Drain every future, one at a time, in submission order: a
-            # candidate that raises (a write error, an unexpected toolchain
-            # failure) must not abort the round, and an undrained future is
-            # reported as "never retrieved" at exit. Order matters because
-            # the winner is picked with a strict `>`, so candidates tying on
-            # score are separated by iteration order alone, and the winner's
-            # declaration is written back into the .c. Submission order makes
-            # that choice a function of the candidate list, not of how the
-            # pool happened to schedule.
-            futures = {ex.submit(submit, c, Path(rnd_dir)): c for c in cands}
-            results = []
-            for fut, cand in futures.items():
-                try:
-                    results.append(fut.result())
-                except Exception as exc:
-                    console.print(
-                        f"  candidate {cand[0]} ({cand[1]}) failed, scoring it as no improvement: {exc}"
-                    )
-                    results.append((cand, (0.0, 0)))
+            # Private dir per round: a concurrent sweep of the same symbol (another
+            # target sharing this root) would otherwise overwrite a candidate
+            # between its write and its compile, scoring the wrong source.
+            # -j 0 (or negative) bypasses config's _positive_int validation, so
+            # clamp before the pool: max_workers=0 raises ValueError.
+            with (
+                tempfile.TemporaryDirectory(dir=sweep_root, prefix=f"{sym_file}-") as rnd_dir,
+                cf.ThreadPoolExecutor(max_workers=max(1, jobs)) as ex,
+            ):
+                # Drain every future, one at a time, in submission order: a
+                # candidate that raises (a write error, an unexpected toolchain
+                # failure) must not abort the round, and an undrained future is
+                # reported as "never retrieved" at exit. Order matters because
+                # the winner is picked with a strict `>`, so candidates tying on
+                # score are separated by iteration order alone, and the winner's
+                # declaration is written back into the .c. Submission order makes
+                # that choice a function of the candidate list, not of how the
+                # pool happened to schedule.
+                futures = {ex.submit(submit, c, Path(rnd_dir)): c for c in cands}
+                results = []
+                for fut, cand in futures.items():
+                    try:
+                        results.append(fut.result())
+                    except Exception as exc:
+                        console.print(
+                            f"  candidate {cand[0]} ({cand[1]}) failed, scoring it as no improvement: {exc}"
+                        )
+                        results.append((cand, (0.0, 0)))
 
-        best, best_c = base, None
-        for (_k, _lab, _new), sc in results:
-            if sc[0] > best[0] and sc[1] >= size:
-                best, best_c = sc, (_k, _lab, _new)
-        if best_c is None:
-            console.print(
-                f"round {rnd}: no improving qualifier among {len(cands)}; converged at {base[0]}"
+            best, best_c = base, None
+            for (_k, _lab, _new), sc in results:
+                if sc[0] > best[0] and sc[1] >= size:
+                    best, best_c = sc, (_k, _lab, _new)
+            if best_c is None:
+                console.print(
+                    f"round {rnd}: no improving qualifier among {len(cands)}; converged at {base[0]}"
+                )
+                break
+            k, lab, new = best_c
+            units[k] = new
+            base = best
+            atomic_write_text(
+                path, "".join(head) + "".join(units) + "".join(tail), encoding=encoding
             )
-            break
-        k, lab, new = best_c
-        units[k] = new
-        base = best
-        atomic_write_text(path, "".join(head) + "".join(units) + "".join(tail), encoding=encoding)
-        moves.append({"round": rnd, "index": k, "qualifier": lab, "matched": base[0]})
-        console.print(f"round {rnd}: {lab} on [{k}] -> {base[0]} matched (object {base[1]})")
+            moves.append({"round": rnd, "index": k, "qualifier": lab, "matched": base[0]})
+            console.print(f"round {rnd}: {lab} on [{k}] -> {base[0]} matched (object {base[1]})")
 
     payload = {
         "source": str(path),

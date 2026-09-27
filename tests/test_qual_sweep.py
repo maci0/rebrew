@@ -12,6 +12,8 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 import rebrew.qual_sweep
 from rebrew.qual_sweep import main
 
@@ -82,3 +84,31 @@ class TestWinnerIsIndependentOfThreadOrder:
         text = src.read_text(encoding="utf-8")
         assert "volatile int a;" in text
         assert "volatile int b;" not in text
+
+    def test_interrupted_sweep_restores_the_source(self, monkeypatch, tmp_path) -> None:
+        """A round writes its winner straight into the project .c. An
+        interrupt partway through used to leave a partially swept
+        declaration on disk with no record of how it got there."""
+        calls = {"n": 0}
+
+        def score(cfg: object, path: Path, *args: object) -> tuple[float, int]:
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return (50.0, 12)
+            raise KeyboardInterrupt
+
+        src = _prepare(monkeypatch, tmp_path, score)
+
+        with pytest.raises(KeyboardInterrupt):
+            main(
+                source=str(src),
+                va=None,
+                symbol=None,
+                rounds=2,
+                jobs=1,
+                dry_run=False,
+                json_output=False,
+                target=None,
+            )
+
+        assert src.read_text(encoding="utf-8") == SOURCE

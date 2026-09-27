@@ -1549,8 +1549,17 @@ def check_binsync_state(cfg: ProjectConfig) -> CheckResult:
     if hash_file.exists() and binary is not None and Path(binary).exists():
         try:
             stored = hash_file.read_text(encoding="utf-8").strip()
-        except OSError:
-            stored = ""
+        except OSError as exc:
+            # Present but unreadable is not the same as absent: reading it as
+            # "" would short-circuit the comparison below and fall through to
+            # PASS, hiding a state dir whose addresses may name another binary.
+            return CheckResult(
+                name="BinSync sync",
+                status=_WARN,
+                message=f"could not read {hash_file} in BinSync state dir {state}: {exc}",
+                fix="Fix the file's permissions, or point binsync_state_dir at a "
+                "readable state dir for this target.",
+            )
         if stored and stored.lower() != md5_file(Path(binary)):
             return CheckResult(
                 name="BinSync sync",

@@ -183,7 +183,16 @@ def _findings(cfg: Any, index: Index, allow: set[int]) -> list[dict[str, str]]:
         try:
             data = extract_raw_bytes(cfg.target_binary, va, entry.size or PREFIX_BYTES)
         except Exception as exc:
-            logging.getLogger(__name__).debug("byte extract failed for 0x%x: %s", va, exc)
+            # A VA outside the image is a stale catalog entry.  Dropping it
+            # quietly would report the function as "not found in a library",
+            # a different conclusion from "could not be read", so name it.
+            logging.getLogger(__name__).warning(
+                "could not extract bytes for %s at 0x%08x from %s: %s",
+                module,
+                va,
+                cfg.target_binary,
+                exc,
+            )
             continue
         hit = match_bytes(index, data)
         if hit is None and (entry.size or 0) > PREFIX_BYTES:
@@ -192,7 +201,9 @@ def _findings(cfg: Any, index: Index, allow: set[int]) -> list[dict[str, str]]:
             try:
                 hit = match_bytes(index, extract_raw_bytes(cfg.target_binary, va, PREFIX_BYTES))
             except Exception as exc:
-                logging.getLogger(__name__).debug("prefix retry failed for 0x%x: %s", va, exc)
+                logging.getLogger(__name__).warning(
+                    "prefix retry failed for %s at 0x%08x: %s", module, va, exc
+                )
                 hit = None
         if hit is not None:
             sym, obj_name = hit

@@ -538,7 +538,16 @@ def patch_verify_cache_entries(cfg: ProjectConfig, patches: list[dict[str, Any]]
                 continue
             try:
                 st = fspath.stat()
-            except OSError:
+            except OSError as exc:
+                # The entry keeps the guards the patch was measured against.
+                # Consumption re-stats and re-hashes, so a changed source is
+                # still caught, but an operator debugging a stale verdict needs
+                # to know the refresh was skipped.
+                logging.warning(
+                    "verify cache entry for %s keeps its pre-patch freshness guards: %s",
+                    fspath,
+                    exc,
+                )
                 continue
             entry["mtime_ns"] = st.st_mtime_ns
             try:
@@ -546,7 +555,12 @@ def patch_verify_cache_entries(cfg: ProjectConfig, patches: list[dict[str, Any]]
 
                 entry["source_hash"] = source_hash(fspath)
                 entry["headers_fp"] = entry_headers_fp(cfg, fspath, entry.get("cflags", ""))
-            except OSError:
+            except OSError as exc:
+                logging.warning(
+                    "verify cache entry for %s keeps its pre-patch freshness guards: %s",
+                    fspath,
+                    exc,
+                )
                 continue
             entries[va_key] = entry
 
