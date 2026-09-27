@@ -34,13 +34,14 @@ Usage:
 
 from __future__ import annotations
 
-import functools
 import os
 import re
 import shlex
 import subprocess
 import sys
+import threading
 import typing
+from collections import OrderedDict
 from collections.abc import Iterable, Iterator
 from pathlib import Path
 
@@ -236,7 +237,26 @@ def _is_file_scope_decl(line: str) -> bool:
     return not line.startswith(_SKIP_DECL_PREFIXES)
 
 
-@functools.lru_cache(maxsize=1024)
+#: Retained stripped-source bodies, keyed by (path, mtime_ns, size, inode),
+#: in LRU order.  The bound is on retained characters, not entries: the key
+#: carries the source text, so an entry-count bound let one walk pin every
+#: source it stripped (plus the stripped copy) for the process lifetime, and a
+#: process touching several trees grew with the number of files seen rather
+#: than with a fixed budget.  Same discipline as ``verify_hash._SOURCE_MEMO``.
+_STRIPPED_SOURCE_MAX_CHARS = 16 * 1024 * 1024
+_STRIPPED_SOURCE_MEMO: OrderedDict[tuple[str, int, int, int], tuple[str, str, int]] = OrderedDict()
+_STRIPPED_SOURCE_MEMO_CHARS = 0
+_STRIPPED_SOURCE_LOCK = threading.Lock()
+
+
+def clear_stripped_source_memo() -> None:
+    """Drop every retained stripped-source body."""
+    global _STRIPPED_SOURCE_MEMO_CHARS
+    with _STRIPPED_SOURCE_LOCK:
+        _STRIPPED_SOURCE_MEMO.clear()
+        _STRIPPED_SOURCE_MEMO_CHARS = 0
+
+
 def _stripped_source(path_str: str, mtime_ns: int, size: int, ino: int, text: str) -> str:
     """``strip_comment_blocks`` of a source, memoized on its stat identity.
 
@@ -245,7 +265,29 @@ def _stripped_source(path_str: str, mtime_ns: int, size: int, ino: int, text: st
     line of every file, so the second walk re-did the first one's work.  The
     stat identity and the text are both in the key, so an edit re-strips.
     """
-    return strip_comment_blocks(text)
+    key = (path_str, mtime_ns, size, ino)
+    with _STRIPPED_SOURCE_LOCK:
+        hit = _STRIPPED_SOURCE_MEMO.get(key)
+        if hit is not None and hit[0] == text:
+            _STRIPPED_SOURCE_MEMO.move_to_end(key)
+            return hit[1]
+    stripped = strip_comment_blocks(text)
+    cost = len(text) + len(stripped)
+    global _STRIPPED_SOURCE_MEMO_CHARS
+    with _STRIPPED_SOURCE_LOCK:
+        stale = _STRIPPED_SOURCE_MEMO.pop(key, None)
+        if stale is not None:
+            _STRIPPED_SOURCE_MEMO_CHARS -= stale[2]
+        _STRIPPED_SOURCE_MEMO[key] = (text, stripped, cost)
+        _STRIPPED_SOURCE_MEMO_CHARS += cost
+        # The newest entry survives even when it alone exceeds the budget, so
+        # one oversized source is still memoized for the second walk.
+        while len(_STRIPPED_SOURCE_MEMO) > 1 and _STRIPPED_SOURCE_MEMO_CHARS > (
+            _STRIPPED_SOURCE_MAX_CHARS
+        ):
+            _, evicted = _STRIPPED_SOURCE_MEMO.popitem(last=False)
+            _STRIPPED_SOURCE_MEMO_CHARS -= evicted[2]
+    return stripped
 
 
 def _stripped_sources(src_dir: Path) -> Iterator[tuple[Path, str]]:

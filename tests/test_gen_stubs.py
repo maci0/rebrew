@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
+from rebrew import gen_stubs
 from rebrew.gen_stubs import (
     collect_extern_info,
     demangle_cdecl,
@@ -16,6 +17,7 @@ from rebrew.gen_stubs import (
     parse_unresolved_symbols,
     simplify_type_for_stub,
 )
+from rebrew.utils import strip_comment_blocks
 
 
 def _write_src(tmp_path: Path, content: str) -> Path:
@@ -586,3 +588,44 @@ def test_parse_extern_decl_structured_no_crash() -> None:
             assert info["full_decl"] == decl
 
     _probe()
+
+
+class TestStrippedSourceMemo:
+    """The stripped-source memo is bounded by retained characters.
+
+    The key carries the source text, so an entry-count bound let one walk pin
+    every source it stripped (plus the stripped copy) for the process lifetime;
+    a gen-stubs run over a large tree, or one process touching several trees,
+    grew with the number of files seen rather than with a fixed budget.
+    """
+
+    def test_an_edit_re_strips(self, tmp_path: Path) -> None:
+        gen_stubs.clear_stripped_source_memo()
+        src = tmp_path / "a.c"
+        src.write_text("/* old */\nint f(void);\n", encoding="utf-8")
+        st = src.stat()
+        old_text = "/* old */\nint f(void);\n"
+        new_text = "/* new */\nint g(void);\n"
+        before = gen_stubs._stripped_source(
+            str(src), st.st_mtime_ns, st.st_size, st.st_ino, old_text
+        )
+        after = gen_stubs._stripped_source(
+            str(src), st.st_mtime_ns, st.st_size, st.st_ino, new_text
+        )
+        assert before == strip_comment_blocks(old_text)
+        assert after == strip_comment_blocks(new_text)
+        assert after != before
+        gen_stubs.clear_stripped_source_memo()
+
+    def test_retained_characters_stay_within_the_budget(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        gen_stubs.clear_stripped_source_memo()
+        monkeypatch.setattr(gen_stubs, "_STRIPPED_SOURCE_MAX_CHARS", 1024)
+        text = "int f(void);\n"
+        for i in range(64):
+            gen_stubs._stripped_source(str(tmp_path / f"{i}.c"), i, len(text), i, text)
+        assert gen_stubs._STRIPPED_SOURCE_MEMO_CHARS <= 1024
+        assert len(gen_stubs._STRIPPED_SOURCE_MEMO) < 64
+        gen_stubs.clear_stripped_source_memo()
+        assert gen_stubs._STRIPPED_SOURCE_MEMO_CHARS == 0

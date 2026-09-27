@@ -151,6 +151,17 @@
   moved to `rebrew.config` (`check_env_wineprefix`, `check_env_dir`), the
   point-of-use sites call them so the message has one source, and
   `_env_knob_parsers` now covers the five path/bool knobs.
+- **Two memos were bounded by entry count while pinning whole sources.**
+  `gen_stubs._stripped_source` and `matcher.ast_engine._parse_c_ast_cached`
+  both key on the source text itself, so an LRU sized in entries let a
+  gen-stubs walk retain every source it stripped (plus the stripped copy)
+  and let a flag sweep park a full tree-sitter tree per distinct mutant,
+  for the process lifetime. Both are now LRU by retained characters/bytes
+  under a named budget, with `clear_stripped_source_memo()` /
+  `clear_parse_tree_memo()` for a caller that wants them dropped. A miss is
+  only a re-strip or a re-parse, so the working set that actually earns
+  hits (one unchanged body per running worker) is unchanged.
+
 - **`make format-check` failed on two committed files.** `src/rebrew/cfg.py`
   and `tests/test_ga_checkpoint.py` carried formatting that the pinned ruff
   (`ruff format --check . --exclude docs`, the lint job's gate) rejects, so

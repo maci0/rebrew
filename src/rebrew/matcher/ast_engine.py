@@ -4,8 +4,8 @@ Provides tree-sitter C parsing, node extraction, and source-level
 manipulation helpers used by :mod:`rebrew.matcher.mutator`.
 """
 
-import functools
 import threading
+from collections import OrderedDict
 
 import tree_sitter as ts
 import tree_sitter_c as tsc
@@ -28,7 +28,27 @@ def _get_parser() -> ts.Parser:
     return parser
 
 
-@functools.lru_cache(maxsize=256)
+#: Retained parse trees, keyed by source bytes, in LRU order.  The bound is on
+#: source bytes, not entries: a tree costs far more than the text it was
+#: parsed from, so a sweep that mutates a function through 258k combinations
+#: parks a full tree per distinct mutant until the process exits, and an
+#: entry-count bound made the real limit the heap.  Measuring by source size
+#: keeps the memo's working set (one unchanged body per running worker) inside
+#: the budget at any ``-j``, and a miss is only a re-parse, never a wrong tree.
+_PARSE_TREE_MAX_BYTES = 16 * 1024 * 1024
+_PARSE_TREE_MEMO: OrderedDict[bytes, tuple[ts.Tree, int]] = OrderedDict()
+_PARSE_TREE_MEMO_BYTES = 0
+_PARSE_TREE_LOCK = threading.Lock()
+
+
+def clear_parse_tree_memo() -> None:
+    """Drop every retained parse tree."""
+    global _PARSE_TREE_MEMO_BYTES
+    with _PARSE_TREE_LOCK:
+        _PARSE_TREE_MEMO.clear()
+        _PARSE_TREE_MEMO_BYTES = 0
+
+
 def _parse_c_ast_cached(source: bytes) -> ts.Tree:
     """Parse C source into a tree-sitter AST, memoized by source text.
 
@@ -39,7 +59,25 @@ def _parse_c_ast_cached(source: bytes) -> ts.Tree:
     cache naturally.  ``tree-sitter`` trees are read-only after creation, so
     sharing a cached tree is safe.
     """
-    return _get_parser().parse(source)
+    with _PARSE_TREE_LOCK:
+        hit = _PARSE_TREE_MEMO.get(source)
+        if hit is not None:
+            _PARSE_TREE_MEMO.move_to_end(source)
+            return hit[0]
+    tree = _get_parser().parse(source)
+    global _PARSE_TREE_MEMO_BYTES
+    with _PARSE_TREE_LOCK:
+        stale = _PARSE_TREE_MEMO.pop(source, None)
+        if stale is not None:
+            _PARSE_TREE_MEMO_BYTES -= stale[1]
+        _PARSE_TREE_MEMO[source] = (tree, len(source))
+        _PARSE_TREE_MEMO_BYTES += len(source)
+        # The newest entry survives even when it alone exceeds the budget, so
+        # one oversized body is still memoized for the next mutation attempt.
+        while len(_PARSE_TREE_MEMO) > 1 and _PARSE_TREE_MEMO_BYTES > _PARSE_TREE_MAX_BYTES:
+            _, evicted = _PARSE_TREE_MEMO.popitem(last=False)
+            _PARSE_TREE_MEMO_BYTES -= evicted[1]
+    return tree
 
 
 def encode_source(source: str) -> bytes:
