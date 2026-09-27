@@ -12,6 +12,7 @@ component's declared service dependencies decide activation order.
 from __future__ import annotations
 
 import logging
+import os
 import time
 
 import typer
@@ -19,6 +20,7 @@ from rich.console import Console
 
 from rebrew.builtins import BUILTIN_COMPONENTS
 from rebrew.cli import console, run_cli
+from rebrew.config import DEFAULT_LOG_LEVEL, ConfigError, parse_env_log_level
 from rebrew.plugin import (
     CLI_SERVICE,
     CONSOLE_SERVICE,
@@ -117,7 +119,16 @@ def _global_options(
     elif verbose == 1:
         log_level = logging.INFO
     else:
-        log_level = logging.WARNING
+        try:
+            log_level = parse_env_log_level(
+                os.environ.get("REBREW_LOG_LEVEL", ""), default=DEFAULT_LOG_LEVEL
+            )
+        except ConfigError as exc:
+            # Warn and keep the default rather than exit: `rebrew cfg effective`
+            # is the command that names the bad knob, and it is unusable while
+            # every run aborts on one.
+            console.print(f"[yellow]warning:[/yellow] {exc}")
+            log_level = DEFAULT_LOG_LEVEL
     # Force UTC asctime: the default converter is localtime, so a host in
     # Europe/Warsaw (or any DST zone) stamps verbose logs with a wall clock
     # that jumps or repeats on transition nights and disagrees with CI

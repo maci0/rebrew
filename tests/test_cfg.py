@@ -1652,6 +1652,27 @@ class TestCLIEffective:
         assert "dockre" in errors["REBREW_CONTAINER_RUNTIME"]
         assert "flase" in errors["REBREW_WINE_HEADLESS"]
 
+    def test_path_env_knobs_are_reported(self, tmp_path: Path, monkeypatch) -> None:
+        """A wineprefix and a skills dir the code would reject are named here too."""
+        _make_project(tmp_path, '[project]\ndefault_target = "server.dll"\n\n' + SAMPLE_TOML)
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("REBREW_WINEPREFIX", "relative/prefix")
+        monkeypatch.setenv("REBREW_SKILLS_DIR", str(tmp_path / "absent"))
+        result = runner.invoke(cfg_app, ["effective", "--json"])
+        assert result.exit_code == 0
+        errors = json.loads(result.stdout)["env_errors"]
+        assert "absolute" in errors["REBREW_WINEPREFIX"]
+        assert "not a directory" in errors["REBREW_SKILLS_DIR"]
+
+    def test_good_path_env_knobs_report_no_errors(self, tmp_path: Path, monkeypatch) -> None:
+        _make_project(tmp_path, '[project]\ndefault_target = "server.dll"\n\n' + SAMPLE_TOML)
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("REBREW_WINEPREFIX", str(tmp_path / "prefix"))
+        monkeypatch.setenv("REBREW_SKILLS_DIR", str(tmp_path))
+        result = runner.invoke(cfg_app, ["effective", "--json"])
+        assert result.exit_code == 0
+        assert json.loads(result.stdout)["env_errors"] == {}
+
     def test_valid_env_knobs_report_no_errors(self, tmp_path: Path, monkeypatch) -> None:
         _make_project(tmp_path, '[project]\ndefault_target = "server.dll"\n\n' + SAMPLE_TOML)
         monkeypatch.chdir(tmp_path)

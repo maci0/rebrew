@@ -39,6 +39,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Literal
 
+from rebrew.config import ConfigError, check_env_dir
 from rebrew.errors import RebrewError
 from rebrew.registry import RegistryError, merge_provider_dict
 from rebrew.toolchain_data import BUILTIN_TOOLCHAINS, IMAGE_ENTRYPOINTS
@@ -218,11 +219,10 @@ def _toolchain_overlay_dir() -> Path | None:
     if not env:
         return None
     path = Path(env)
-    if not path.is_dir():
-        raise ToolchainError(
-            f"{TOOLCHAIN_OVERLAY_ENV}={env} is not a directory",
-            kind="validation",
-        )
+    try:
+        check_env_dir(TOOLCHAIN_OVERLAY_ENV, env)
+    except ConfigError as exc:
+        raise ToolchainError(str(exc), kind="validation") from exc
     return path
 
 

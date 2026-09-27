@@ -1,6 +1,13 @@
 ## [Unreleased]
 
 ### Added
+- **`REBREW_LOG_LEVEL`.** Log level was reachable only through the global
+  `-v` / `-q`, so a container or CI job wrapping several rebrew commands had
+  to edit verbosity into every command it invokes. The variable takes
+  `debug`, `info`, `warning`, `error`, or `critical` (`warning` by default);
+  an explicit flag outranks it, and an unknown name warns and keeps the
+  default rather than aborting the run, since `rebrew cfg effective` is the
+  command that names the bad knob.
 - **`CompareResult.to_dict()` keeps the structured error.** The serialized
   form dropped `error` while its docstring promised that every non-byte field
   round-trips, so a consumer that persisted a result and read it back found
@@ -134,8 +141,18 @@
   "Symbol not found in MAP" for a symbol the MAP contains. Read with
   `read_source_text`, which detects the encoding the way the rest of the
   legacy-source paths do.
+- **`rebrew cfg effective` under-reported the env knobs it promises to name.**
+  `env_errors` validated `REBREW_CONTAINER_RUNTIME` and
+  `REBREW_WINE_HEADLESS` and nothing else, so a `REBREW_WINEPREFIX` set to a
+  relative path (which `rebrew cmake-toolchain` rejects deep in the bridge,
+  with the same "must be an absolute path" text) and a `REBREW_SKILLS_DIR` or
+  `REBREW_TOOLCHAIN_OVERLAY_DIR` naming something that is not a directory were
+  absent from the one command whose job is to report them. The validators
+  moved to `rebrew.config` (`check_env_wineprefix`, `check_env_dir`), the
+  point-of-use sites call them so the message has one source, and
+  `_env_knob_parsers` now covers the five path/bool knobs.
 - **`make format-check` failed on two committed files.** `src/rebrew/cfg.py`
-  and `tests/test_ga_checkpoint.py` carried formatting the pinned ruff
+  and `tests/test_ga_checkpoint.py` carried formatting that the pinned ruff
   (`ruff format --check . --exclude docs`, the lint job's gate) rejects, so
   the gate was red on a clean tree. Reformatted; no behavior change.
 
