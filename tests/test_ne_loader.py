@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import struct
 import tempfile
+import time
 from contextlib import suppress
 from pathlib import Path
 
@@ -16,6 +17,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from rebrew.ne_loader import (
+    NeFunction,
     NeParseError,
     parse_exports,
     parse_imports,
@@ -419,3 +421,70 @@ def test_ne_fixture_mutation_no_crash(noise: bytes) -> None:
                 assert sec.raw_size >= 0
     finally:
         tmp.unlink(missing_ok=True)
+
+
+_PROLOG_HEAVY = st.lists(
+    st.sampled_from([b"\x55", b"\xc8", b"\x00", b"\x8b\xec"]), max_size=48
+).map(b"".join)
+_SEGMENT_BODY = st.one_of(
+    st.binary(max_size=256),
+    _PROLOG_HEAVY,
+    st.sampled_from([_CODE, _DATA]),
+)
+
+
+@settings(max_examples=100, deadline=None)
+@given(body=_SEGMENT_BODY)
+def test_enumerate_ne_functions_invariants(body: bytes) -> None:
+    """The linear sweep returns sorted, non-overlapping, in-segment spans.
+
+    Segment bytes are attacker-controlled (a scrambled or data-only code
+    segment yields a prolog candidate at nearly every offset), so this
+    checks the output contract rather than just the absence of a crash.
+    """
+    from rebrew.binary_loader import BinaryInfo
+    from rebrew.ne_loader import NeSegment, enumerate_ne_functions
+
+    segment = body + b"\x55\x8b\xec\xc3"  # ensure at least one real prolog+ret
+    info = BinaryInfo(path=Path("fuzz.ne"), format="ne", _data=segment)
+    info.ne_segments = [
+        NeSegment(
+            index=1, file_offset=0, length=len(segment), flags=0, min_allocation=0, is_code=True
+        )
+    ]
+
+    funcs = enumerate_ne_functions(info)
+    previous: NeFunction | None = None
+    for func in funcs:
+        assert func.name == f"sub_{func.va:05x}"
+        assert func.segment == 1
+        assert 0 <= func.offset < len(segment)
+        assert 3 <= func.size <= len(segment) - func.offset
+        assert func.va == (1 << 16) + func.offset
+        if previous is not None:
+            assert func.va >= previous.va + previous.size
+        previous = func
+
+
+@settings(max_examples=20, deadline=None)
+@given(fill=st.sampled_from([b"\x55", b"\xc3", b"\x90", b"\x00"]))
+def test_enumerate_ne_functions_sweep_is_bounded(fill: bytes) -> None:
+    """A ret-free segment must not make the sweep quadratic.
+
+    Every offset is a prolog candidate and none of them reaches a ``ret``,
+    so each candidate decodes the rest of the segment.  The decode budget
+    caps that; without it a 64 KiB segment takes hours.
+    """
+    from rebrew.binary_loader import BinaryInfo
+    from rebrew.ne_loader import NeSegment, enumerate_ne_functions
+
+    segment = fill * 4096
+    info = BinaryInfo(path=Path("fuzz.ne"), format="ne", _data=segment)
+    info.ne_segments = [
+        NeSegment(
+            index=1, file_offset=0, length=len(segment), flags=0, min_allocation=0, is_code=True
+        )
+    ]
+    started = time.monotonic()
+    assert isinstance(enumerate_ne_functions(info), list)
+    assert time.monotonic() - started < 30.0
