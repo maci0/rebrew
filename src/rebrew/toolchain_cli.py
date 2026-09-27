@@ -429,7 +429,9 @@ def _download_pinned_url(
     flaky link is the common case, and the caller's sha256 check makes a
     re-fetch safe).  Each attempt truncates *dest*, so a failed or abandoned
     attempt unlinks the partial file rather than leaving a short archive that
-    reads as a complete download.
+    reads as a complete download.  The retry budget is per redirect target:
+    following a redirect does not spend an attempt, so a multi-hop chain
+    still gets the full budget on the hop that actually transfers bytes.
     """
     from urllib.parse import urljoin
 
@@ -437,32 +439,39 @@ def _download_pinned_url(
 
     current = _trusted_toolchain_download_url(url)
     last: httpx.HTTPError | None = None
-    for attempt in range(_DOWNLOAD_REDIRECT_LIMIT):
-        try:
-            with httpx.stream("GET", current, timeout=timeout, follow_redirects=False) as resp:
-                if resp.status_code in {301, 302, 303, 307, 308}:
-                    location = resp.headers.get("location")
-                    if not location:
-                        raise ToolchainError(
-                            f"toolchain download redirect missing Location from {current!r}"
-                        )
-                    current = _trusted_toolchain_download_url(urljoin(current, location))
-                    continue
-                resp.raise_for_status()
-                with dest.open("wb") as fh:
-                    for chunk in resp.iter_bytes():
-                        fh.write(chunk)
-                return
-        except httpx.HTTPError as exc:
-            last = exc
-            if attempt + 1 >= attempts:
-                break
-            time.sleep(backoff * 2**attempt)
+    for _hop in range(_DOWNLOAD_REDIRECT_LIMIT):
+        redirected = False
+        for attempt in range(max(1, attempts)):
+            try:
+                with httpx.stream("GET", current, timeout=timeout, follow_redirects=False) as resp:
+                    if resp.status_code in {301, 302, 303, 307, 308}:
+                        location = resp.headers.get("location")
+                        if not location:
+                            raise ToolchainError(
+                                f"toolchain download redirect missing Location from {current!r}"
+                            )
+                        current = _trusted_toolchain_download_url(urljoin(current, location))
+                        redirected = True
+                        break
+                    resp.raise_for_status()
+                    with dest.open("wb") as fh:
+                        for chunk in resp.iter_bytes():
+                            fh.write(chunk)
+                    return
+            except httpx.HTTPError as exc:
+                last = exc
+                dest.unlink(missing_ok=True)
+                if attempt + 1 >= max(1, attempts):
+                    break
+                time.sleep(backoff * 2**attempt)
+        if redirected:
+            # A redirect consumed this hop without transferring bytes; the
+            # next hop starts a fresh transport budget.  A chain longer
+            # than the limit still terminates.
             continue
-        # A redirect used this iteration without returning; a transport
-        # failure restarts it at the redirect target, so a redirect chain
-        # longer than the limit still terminates.
-        continue
+        if last is not None:
+            raise ToolchainError(f"toolchain download failed from {current!r}: {last}") from last
+        break
     dest.unlink(missing_ok=True)
     if last is not None:
         raise ToolchainError(f"toolchain download failed from {current!r}: {last}") from last

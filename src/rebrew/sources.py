@@ -11,11 +11,14 @@ without pulling in the presentation layer.
 
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import Callable
 from pathlib import Path
 
 from rebrew.config import ProjectConfig
+
+logger = logging.getLogger(__name__)
 
 
 def source_exts(cfg: ProjectConfig | None) -> list[str]:
@@ -73,10 +76,21 @@ _EXCLUDE_DIRS = {
 
 
 def _files_matching(directory: Path | str, predicate: Callable[[Path], bool]) -> list[Path]:
-    """Sorted non-symlink files under *directory* matching *predicate*, skipping :data:`_EXCLUDE_DIRS`."""
+    """Sorted non-symlink files under *directory* matching *predicate*, skipping :data:`_EXCLUDE_DIRS`.
+
+    A directory the walk cannot enter is logged and skipped rather than
+    silently dropped: every consumer (``verify``, ``test``, ``rename``,
+    orphan pruning) treats the result as the complete inventory, so a
+    permission-denied or stale-mount subtree would otherwise look like an
+    absent one.
+    """
     dir_path = Path(directory)
+
+    def _on_walk_error(exc: OSError) -> None:
+        logger.warning("skipping unreadable source directory %s: %s", exc.filename, exc)
+
     matches: list[Path] = []
-    for root, dirs, files in os.walk(dir_path):
+    for root, dirs, files in os.walk(dir_path, onerror=_on_walk_error):
         dirs[:] = [name for name in dirs if name not in _EXCLUDE_DIRS]
         for f in files:
             p = Path(root) / f

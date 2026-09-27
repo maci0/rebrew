@@ -124,6 +124,12 @@ def _package_source_fingerprint() -> tuple[tuple[str, int, int], ...]:
         try:
             st = path.stat()
         except OSError:
+            # Dropping the module makes this digest identical to a tree that
+            # never contained it, so a verify result earned before it
+            # existed is re-served as current.  An unreadable marker keeps
+            # the key distinct (same rule as
+            # ``compile_cache.include_fingerprint``).
+            entries.append((f"{path}\0unreadable", 0, 0))
             continue
         entries.append((str(path), st.st_mtime_ns, st.st_size))
     return tuple(sorted(entries))
@@ -172,10 +178,16 @@ def _compare_logic_hash() -> str:
     # Deterministic order; only .py source (skip vendored binaries,
     # __pycache__, .so/.pyd extensions).
     for path_str, _mtime_ns, _size in fingerprint:
+        if path_str.endswith("\0unreadable"):
+            h.update(f"\0unreadable\0{path_str}\0".encode("utf-8", errors="surrogateescape"))
+            h.update(b"\x00")
+            continue
         try:
             h.update(Path(path_str).read_bytes())
         except OSError:
-            continue
+            # The stat succeeded but the read did not: fold the same
+            # unreadable marker in rather than skipping the module.
+            h.update(f"\0unreadable\0{path_str}\0".encode("utf-8", errors="surrogateescape"))
         h.update(b"\x00")
     digest = h.hexdigest()
     with _COMPARE_LOGIC_MEMO_LOCK:
