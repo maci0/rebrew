@@ -1093,6 +1093,17 @@
   block has just been emptied, so
   `test_no_section_glues_a_group_heading_to_its_bullet` now reads every
   section in the file.
+- **The release preflight counts the version's section instead of finding the
+  first one.** `make release-check` proved `## [<version>]` existed with a
+  date, then counted the entries under the first heading it matched, so a
+  second `## [<version>]` heading further down the file (an abandoned cut
+  whose heading was never removed) made the rest of that release's notes
+  unreadable to a reader and uncounted by the preflight, which then shipped
+  the section as complete. The recipe fails when the dated heading for the
+  version is not present exactly once, and
+  `tests/test_packaging.py::test_each_version_has_exactly_one_changelog_section`
+  holds the same invariant over every section in the file, so the split is a
+  red test rather than a half-documented release.
 - **The public-surface gate stopped asking for a `**Breaking:**` note over
   spellings that change no value.** Two deltas since `v2.14.0` failed
   `TestSurfaceGate::test_broken_symbols_are_flagged_and_named` while breaking

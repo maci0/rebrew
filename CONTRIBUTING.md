@@ -169,10 +169,11 @@ no `**Breaking:**` entry naming it.
   that was checked.
 - **Preflight before tagging with `make release-check`**: verifies
   `__version__` is bumped past the last tag, the tree is clean, the
-  changelog has a dated `[<version>]` section, that section has at least
-  one entry, and `[Unreleased]` is empty — a release whose notes are split
-  across the two headings ships half of them undocumented, so neither can
-  be tagged out of sync with the version or the notes.
+  changelog has exactly one dated `[<version>]` section, that section has at
+  least one entry, and `[Unreleased]` is empty — a release whose notes are
+  split across the two headings, or across two headings for the same version,
+  ships half of them undocumented, so neither can be tagged out of sync with
+  the version or the notes.
 
 ## Before submitting
 

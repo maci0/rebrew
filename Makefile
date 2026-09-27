@@ -715,6 +715,10 @@ release-check: ensure-uv
 	if [ -n "$$(git status --porcelain)" ]; then \
 	  echo "ERROR: working tree not clean (commit first)"; exit 1; \
 	fi; \
+	SECTIONS=$$(grep -Ec "^## \[$$V\] - " CHANGELOG.md || true); \
+	if [ "$$SECTIONS" -ne 1 ]; then \
+	  echo "ERROR: CHANGELOG.md has $$SECTIONS '## [$$V] - ' headings, not 1 (merge the split notes)"; exit 1; \
+	fi; \
 	if ! grep -Eq "^## \[$$V\] - [0-9]{4}-[0-9]{2}-[0-9]{2}$$" CHANGELOG.md; then \
 	  echo "ERROR: CHANGELOG.md has no dated [$$V] - YYYY-MM-DD section (date the [Unreleased] block)"; exit 1; \
 	fi; \

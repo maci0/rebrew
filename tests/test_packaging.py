@@ -120,6 +120,22 @@ class TestPackagingMetadata:
         missing = [t for t in tags if f"## [{t.lstrip('v')}]" not in text]
         assert missing == [], f"CHANGELOG.md missing sections for tags: {missing}"
 
+    def test_each_version_has_exactly_one_changelog_section(self) -> None:
+        """Two ``## [x.y.z]`` headings split one release's notes in half.
+
+        ``make release-check`` counts the entries of the first
+        ``## [<version>]`` it finds and every consumer reads the first one
+        too, so a second heading for the same version (an abandoned cut whose
+        heading stayed below the older releases) makes the rest of the notes
+        unreachable and lets the release ship with a partial section.
+        """
+        text = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+        counts: dict[str, int] = {}
+        for match in re.finditer(r"^## \[(\d+\.\d+\.\d+)\]", text, flags=re.M):
+            counts[match.group(1)] = counts.get(match.group(1), 0) + 1
+        repeated = sorted(v for v, n in counts.items() if n > 1)
+        assert repeated == [], f"CHANGELOG.md has more than one section for: {repeated}"
+
     def test_patch_release_never_ships_a_breaking_entry(self) -> None:
         """A patch carries fixes; a behavior change needs at least a minor.
 
