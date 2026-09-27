@@ -1030,9 +1030,15 @@ def main(
     # typer.OptionInfo for omitted params — a documented typer quirk (see
     # docs/DEVELOPMENT.md).  Normalize to the declared default.
     toolchain_dir = option_default(toolchain_dir, None)
+    binary_name = option_default(binary_name, "program.exe")
+    compiler_profile = option_default(compiler_profile, "msvc-6.0")
     guess_compiler = option_default(guess_compiler, False)
     dry_run = option_default(dry_run, False)
+    json_output = option_default(json_output, False)
     wizard = option_default(wizard, True)
+    install_wibo = option_default(install_wibo, False)
+    install_completions = option_default(install_completions, False)
+    target_name = option_default(target_name, "main")
 
     # Accept both "original/bench.exe" and "bench.exe" — the config already
     # prefixes binary = "original/<name>", so a user-supplied original/
