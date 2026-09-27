@@ -398,8 +398,9 @@ def section_entropies(path: str | Path) -> list[dict[str, object]]:
 def _optional_backend(module: str) -> Any | None:
     """Import *module* when it is installed, else ``None``.
 
-    TLSH and ssdeep are optional; a missing backend leaves its key out of
-    the fingerprint bundle instead of failing the run.
+    The fuzzy-hash backends are optional; a missing one leaves its key out
+    of the fingerprint bundle instead of failing the run.  The distributions
+    are ``tlsh`` and ``ppdeep`` on PyPI, both imported under their own names.
     """
     try:
         if importlib.util.find_spec(module) is None:

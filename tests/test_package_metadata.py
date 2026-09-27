@@ -47,11 +47,25 @@ _OPTIONAL_IMPORTS = {
     "claripy": "prove extra; direct import in prove.py / doctor.py",
     "declib": "binsync extra; only rebrew.binsync.serial touches it",
     "git": "prove extra, angr's own dependency",
+    "m2c": "m2c dependency group (commit-pinned), never in wheel METADATA; "
+    "decompiler.py find_spec-probes it and drops the backend when absent",
+    "ppdeep": "no requirement ships it: a user-installed PyPI distribution for "
+    "the ssdeep family; fingerprints.py probes it and omits the key when absent",
     "pypcode": "no requirement ships it: a `prove` extra install via angr, or a "
     "kuna tool env; decompiler.py probes uv tool roots and falls back",
     "rapidfuzz": "similarity dependency group, never in wheel METADATA",
     "resembl": "similarity dependency group, never in wheel METADATA",
+    "tlsh": "no requirement ships it: a user-installed PyPI distribution for "
+    "TLSH; fingerprints.py probes it and omits the key when absent",
 }
+
+# Helpers that take a module name and import it, so the module name never
+# appears in an `import` statement the scan above can read.  Each literal
+# passed to one of these is a dependency edge the manifest must account for.
+# A new optional-import helper joins this set when it lands.
+_DYNAMIC_IMPORT_HELPERS = frozenset(
+    {"__import__", "_optional_backend", "find_spec", "import_module"}
+)
 
 # ``rebrew`` itself is the package under test, not a dependency of itself.
 _LOCAL_IMPORTS = {"rebrew"}
@@ -95,6 +109,30 @@ def _top_level_imports() -> set[str]:
     return found
 
 
+def _dynamic_imports() -> set[str]:
+    """Top-level modules named by a literal handed to an import helper.
+
+    `importlib.import_module("m2c")` resolves a third-party package with no
+    `import` statement for the scan in ``_top_level_imports`` to read, so an
+    undeclared distribution would reach a user only as a runtime ImportError.
+    """
+    found: set[str] = set()
+    for path in SRC.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+                continue
+            if node.func.id not in _DYNAMIC_IMPORT_HELPERS:
+                continue
+            for arg in node.args:
+                if not isinstance(arg, ast.Constant) or not isinstance(arg.value, str):
+                    continue
+                if arg.value.startswith("."):
+                    continue
+                found.add(arg.value.split(".", 1)[0])
+    return found
+
+
 def _requirement_name(spec: str) -> str:
     """The distribution name of one requirement specifier, lowercased."""
     return re.split(r"[\s\[<>=!~@;]", spec, maxsplit=1)[0].strip().lower()
@@ -117,7 +155,7 @@ class TestDeclaredDependencies:
         stdlib = set(sys.stdlib_module_names)
         declared = _declared_distributions()
         undeclared = set()
-        for name in _top_level_imports():
+        for name in _top_level_imports() | _dynamic_imports():
             if name in stdlib or name in _LOCAL_IMPORTS or name in _OPTIONAL_IMPORTS:
                 continue
             if name in declared or _IMPORT_NAME_TO_DISTRIBUTION.get(name, name) in declared:

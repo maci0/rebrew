@@ -1415,7 +1415,9 @@ sorted, lowercased `<ordinal>:<name>` lines of the PE export table, or over
 the empty string when the image has no exports), the `rich_header_hash`
 (MD5 over the canonical MSVC Rich-header bytes), `section_entropies`
 (per-section Shannon entropy over the raw bytes), and `tlsh` / `ssdeep`
-when their optional backend is installed.  A field that cannot be derived
+when their optional backend is installed (the PyPI distributions are `tlsh`
+and `ppdeep`; neither is a requirement of any rebrew group or extra, so
+`uv pip install tlsh ppdeep` adds them).  A field that cannot be derived
 is `null` (`export_hash` is `null` when the export table cannot be read);
 a missing binary exits `EXIT_ERROR` (2), as does a PE whose header is
 present but which no format backend can parse (`FingerprintError`): that is

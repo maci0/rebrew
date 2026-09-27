@@ -121,6 +121,16 @@
   reset each request. No `/api/*` JSON changed.
 
 ### Fixed
+- **Dynamically imported packages reach the declared-dependency gate.**
+  `tests/test_package_metadata.py` proved every third-party top-level import
+  in `src/rebrew` had a `Requires-Dist` line, by reading `import` statements.
+  Three distributions resolve their imports through `importlib` and had no
+  statement to read: `m2c` (`decompiler.py` find_spec-probes it), and the
+  fuzzy-hash backends `tlsh` and `ppdeep` (`fingerprints.py` probes them per
+  key). The scan now also collects the string literals passed to an import
+  helper, and the three are listed in `_OPTIONAL_IMPORTS` with the reason
+  each is undeclared. `docs/CLI.md` names the two PyPI distributions, since
+  the bundle keys them `tlsh` / `ssdeep` while the import is `ppdeep`.
 - **Names read out of a binary decode through one shared helper.**
   `rebrew.binary_loader` already detected a legacy codepage for a name LIEF
   returned as bytes, but four other paths decoded the same kind of name as
