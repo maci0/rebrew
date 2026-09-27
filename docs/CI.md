@@ -76,7 +76,12 @@ Lint, pre-commit, package, cli-contract, and toolchain-sync pin the exact
 Python patch from `.python-version`; the test matrix pins that patch for its
 3.13 entry (the coverage gate) and floats on the 3.14 minor for forward-compat
 coverage. Jobs run on pinned `ubuntu-24.04` (not
-`ubuntu-latest`). Workflow `permissions` are `contents: read` only:
+`ubuntu-latest`). Both workflows also take `workflow_dispatch`: the apt and
+codeload helpers retry three times, so a mirror that stays down past that
+needs a manual re-run, and re-running a failed job alone cannot pick up a
+fixed mirror or a new runner image. `setup-uv` runs with `enable-cache` and
+`cache-python`, so the pinned managed CPython is cached alongside the uv
+cache. Workflow `permissions` are `contents: read` only:
 `setup-uv`'s `enable-cache` saves through the runner's cache token, not
 `GITHUB_TOKEN`. It does **not**
 require a target binary or MSVC toolchain.

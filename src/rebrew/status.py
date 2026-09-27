@@ -417,8 +417,10 @@ def effective_status(ann_status: str, cached: str | None) -> str:
     """
     if ann_status in ("PROVEN", "SKIP"):
         return ann_status
-    if ann_status == "STUB" and cached is not None and (
-        cached == "STUB" or cached in STUB_PLACEHOLDER_STATUSES
+    if (
+        ann_status == "STUB"
+        and cached is not None
+        and (cached == "STUB" or cached in STUB_PLACEHOLDER_STATUSES)
     ):
         return ann_status
     return cached or ann_status
