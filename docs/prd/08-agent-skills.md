@@ -103,10 +103,11 @@ deep matching, individual function reversing.
 
 ### `rebrew-matching` (deep byte matching)
 
-Trigger keywords: `match`, `diff`, `GA`, `genetic algorithm`, `byte
-diff`, `MATCHING status`, `near-miss`, `BLOCKER`, `structural
-similarity`, `compiler flags`, `CFLAGS`, `prove`, `symbolic execution`,
-`angr`, `semantic equivalence`.
+Trigger keywords: the shipped `description` frontmatter in
+`src/rebrew/agent-skills/rebrew-matching/SKILL.md` (`stuck`, `almost
+matches`, `byte match`, `flag tuning`, `flag sweep`, `GA`, `near-miss`,
+`prove`, `angr`, `objdiff`, `gap-trace`, `climb`, `qual-sweep`, …). That
+file is the single source of truth for the trigger list.
 
 Scope:
 

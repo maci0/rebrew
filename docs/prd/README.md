@@ -27,4 +27,5 @@ PRDs are organised by feature area:
 
 For source-side gaps discovered while validating these PRDs see
 [`00-source-gap-report.md`](00-source-gap-report.md) — last audited
-2026-08-22, every recorded gap is marked fixed with evidence.
+2026-08-22, re-audited 2026-09: 33 recorded gaps, all closed (30 fixed in
+place, 3 resolved by the BinSync-primary rework).

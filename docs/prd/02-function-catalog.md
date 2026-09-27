@@ -259,9 +259,11 @@ rebrew build-db
 
 ## Open Questions / Known Limitations
 
-- FLIRT signatures must be supplied by the user; Rebrew ships none.
-  `gen_flirt_pat.py` can build `.pat` files from `.lib` archives, but
-  converting `.pat` → `.sig` still requires the upstream `sigmake` tool.
+- Rebrew ships no `.sig` files of its own. `rebrew flirt --init` copies the
+  sibling `rebrew-flirt-sigs` checkout into the project's `flirt_sigs/`
+  (`--init-matched` copies only the sigs matching the target), and
+  `gen_flirt_pat.py` can build `.pat` files from `.lib` archives. Converting
+  `.pat` → `.sig` still requires the upstream `sigmake` tool.
 - CRT matching relies on symbol heuristics; ambiguous names yield multiple
   candidates and require manual disambiguation.
 - The function list ingester reads `function_structure.json` (discovery /

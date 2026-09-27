@@ -1,6 +1,6 @@
 # ADR-018: Single-file verify scope and baseline
 
-- **Status**: Accepted
+- **Status**: Accepted, partially implemented (the scoped-run baseline merge recorded under Decision is open; `save_baseline` still writes the run's report wholesale)
 - **Date**: 2026-09
 
 ## Context

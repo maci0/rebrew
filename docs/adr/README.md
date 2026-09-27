@@ -13,7 +13,9 @@ itself, and the consequences (including trade-offs accepted).
   **Decision**, **Consequences**.
 - Status values: `Accepted` (in force), `Amended by NNN` (partially
   superseded — read the citing ADR for the current shape), `Superseded by
-  NNN`. A decision still being made is an RFC, not a proposed ADR.
+  NNN`. A record whose decision is only partly implemented says so in its
+  status line and names the open half. A decision still being made is an
+  RFC, not a proposed ADR.
 - Write a new ADR when a change is architectural: a new format/profile/
   backend, a behavioral contract change, or a deliberate trade-off that
   future readers must not silently undo.  Small fixes and polish do not
@@ -40,7 +42,7 @@ itself, and the consequences (including trade-offs accepted).
 | 015 | Compile backends: local docker images plus the recompile service *(amended by 016)* |
 | 016 | Image-backed native compiler profiles (gcc-14.2.0, clang-18.1.8, mingw-16.2.0, watcom-2.0-win16) *(amended by 017)* |
 | 017 | Standardized toolchain profile names (`<image-family>-<version>`) |
-| 018 | Single-file verify scope and baseline (`rebrew verify <file.c> --compare`) |
+| 018 | Single-file verify scope and baseline (`rebrew verify <file.c> --compare`) *(scoped-baseline merge open)* |
 | 019 | Todo blocked category (`rebrew todo -c blocked`) *(superseded by 025)* |
 | 020 | Init scaffolding skill (`rebrew-init`) |
 | 021 | Batch container compiles (`compile_batch_objs` / `precompile_batch`) |

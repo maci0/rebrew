@@ -104,7 +104,9 @@ you what to attack next.
 - `--no-promote` disables STATUS auto-update (also auto-skipped for files
   outside the project).
 - Batch mode: `--all` (+ optional `--dir`, `--origin`, `-j JOBS`, `--dry-run`).
-- Exit codes: 0=EXACT/RELOC, 1=NEAR_MATCHING/STUB, 2=BUILD_ERROR.
+- Exit codes: 0=EXACT/RELOC, 1=NEAR_MATCHING/STUB/SIZE_MISMATCH,
+  2=tooling error (compile failure, unextractable target bytes, VA-map scan
+  failure, or a usage error).
 - On a byte match (EXACT/RELOC) the writer clears BLOCKER, except when the
   source still contains inline asm (`__asm`, `_asm`, or `__emit`): that note
   is what lint W020 requires on a matched function.
@@ -128,13 +130,15 @@ you what to attack next.
   `// DATA:` / `// VTABLE:` / `// STRING:` markers (and validates pure-C
   files whose annotations are stored in metadata per ADR-023).
 - Error codes: `E000` (cannot read file), `E001` (missing or invalid marker),
-  `E002` (invalid VA), `E004` (invalid SIZE syntax), `E008` (metadata SIZE not an integer),
-  `E012` (module mismatch), `E013` (duplicate VA), `E015` (marker without prototype/definition),
+  `E002` (invalid VA), `E004` (persisted STATUS outside the known values),
+  `E008` (metadata SIZE not an integer),
+  `E012` (module mismatch), `E013` (duplicate VA), `E015` (marker inconsistent with the module),
   `E017` (contradictory STUB marker on earned status), `E023` (whole-function
   `__declspec(naked)` + `__asm`/`__emit` block instead of real C).
 - Warnings: `W003` (file has no function implementation), `W005` (STUB without BLOCKER),
-  `W006` (duplicate marker key), `W007` (missing function name), `W010` (unknown marker key),
-  `W015` (suspicious size), `W016` (DATA/GLOBAL missing SECTION), `W018` (missing CFLAGS),
+  `W006` (library module missing `// SOURCE:` marker), `W007` (struct(s) defined without a
+  `// SIZE` marker), `W010` (unknown marker key),
+  `W015` (mixed-case VA hex digits), `W016` (DATA/GLOBAL missing SECTION), `W018` (missing CFLAGS),
   `W019` (inline metadata should be in `rebrew-functions.toml`), `W020` (asm-dump
   placeholder instead of real C source), `W021` (duplicate global symbol across files),
   `W022` (zero-initializer forces `.data` not `.bss`), `W023` (default function name),
