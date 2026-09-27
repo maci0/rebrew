@@ -277,21 +277,8 @@ setup: ensure-resembl warn-nasm warn-uv-version
 # when the group is absent.  rapidfuzz and resembl ship type information and
 # [[tool.mypy.overrides]] deliberately does not silence them, so the fix is
 # installing the group, not muting the checker.
-ensure-extras:
-	@set -eu; \
-	if ! uv run --frozen --no-sync python -c 'import angr, claripy' >/dev/null 2>&1; then \
-	  echo "ERROR: the 'prove' extra (angr, claripy) is not installed in .venv."; \
-	  echo "mypy reports phantom type errors without it (CI's lint job syncs --all-extras)."; \
-	  echo "Run 'make setup', or 'uv sync --locked --all-extras --group similarity', then re-run."; \
-	  exit 1; \
-	fi; \
-	if ! uv run --frozen --no-sync python -c 'import rapidfuzz, resembl' >/dev/null 2>&1; then \
-	  echo "ERROR: the 'similarity' group (rapidfuzz, resembl) is not installed in .venv."; \
-	  echo "mypy reports import-not-found in src/rebrew/matcher/scoring.py without it (CI's lint job syncs --group similarity)."; \
-	  echo "Run 'make setup', or 'uv sync --frozen --all-extras --group similarity', then re-run."; \
-	  echo "(make setup also needs the sibling $(RESEMBL_DIR) checkout; 'make clone-resembl' fetches the pinned ref.)"; \
-	  exit 1; \
-	fi
+ensure-extras: ensure-uv
+	uv run --frozen --no-sync python tools/require_extras.py $(RESEMBL_DIR)
 
 # Whole-environment preflight.  Every other target checks one prerequisite and
 # names it when it is missing, so a host without nasm, without shellcheck, or
@@ -710,49 +697,19 @@ mypy: ensure-extras ensure-uv
 audit: ensure-resembl ensure-uv
 	uv audit --locked --ignore-until-fixed GHSA-w8v5-vhqr-4h9v
 
-# Release preflight (release-review): verify the version/changelog/tag contract
-# from CONTRIBUTING.md without mutating anything.  Passes only when a release
-# is actually being prepared: __version__ bumped past the last tag, a dated
-# [<version>] section that has at least one entry, an empty [Unreleased]
-# block (notes split across the two headings ship half undocumented), and a
-# clean tree to tag.
+# Release preflight: verify the version/changelog/tag contract from
+# CONTRIBUTING.md without mutating anything.  Passes only when a release is
+# actually being prepared: __version__ bumped past the last tag, a dated
+# [<version>] section that has at least one entry, an empty [Unreleased] block
+# (notes split across the two headings ship half undocumented), and a clean
+# tree to tag.
 # Manual gate by design (CONTRIBUTING.md): wiring it into CI would fail every
 # push except the release commit, since __version__ stays equal to the last
 # tag during normal development. Run `make release-check` before tagging.
-# Notes split across the two headings ship half the release undocumented: the
-# [Unreleased] block ends at the next "## " heading, so anything but blank
-# lines under it belongs in the dated [version] section below.
 #
-# No `#` comment line may sit inside a recipe below.  Make hands a
-# backslash-continued recipe to one shell, so such a line comments out the rest
-# of the joined line: the notes-split check carried its comment there, which
-# swallowed the UNREL assignment and made this target die on an unbound
-# variable instead of naming the changelog problem it exists to report.
+# The checks live in tools/release_check.py: the version comes out of the
+# package and the changelog sections are parsed, which a POSIX-sh recipe could
+# only reach with an inline interpreter call and a chain of awk/grep.  One
+# language per command, and a failure names a file and a line.
 release-check: ensure-uv
-	@set -eu; \
-	V=$$(uv run --frozen python -c "from rebrew import __version__; print(__version__)"); \
-	LAST=$$(git describe --tags --abbrev=0 2>/dev/null || echo v0.0.0); \
-	LASTV=$${LAST#v}; \
-	HIGH=$$(printf '%s\n%s\n' "$$LASTV" "$$V" | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1); \
-	if [ "$$V" = "$$LASTV" ] || [ "$$HIGH" != "$$V" ]; then \
-	  echo "ERROR: __version__ ($$V) not bumped past last tag ($$LAST)"; exit 1; \
-	fi; \
-	if [ -n "$$(git status --porcelain)" ]; then \
-	  echo "ERROR: working tree not clean (commit first)"; exit 1; \
-	fi; \
-	SECTIONS=$$(grep -Ec "^## \[$$V\] - " CHANGELOG.md || true); \
-	if [ "$$SECTIONS" -ne 1 ]; then \
-	  echo "ERROR: CHANGELOG.md has $$SECTIONS '## [$$V] - ' headings, not 1 (merge the split notes)"; exit 1; \
-	fi; \
-	if ! grep -Eq "^## \[$$V\] - [0-9]{4}-[0-9]{2}-[0-9]{2}$$" CHANGELOG.md; then \
-	  echo "ERROR: CHANGELOG.md has no dated [$$V] - YYYY-MM-DD section (date the [Unreleased] block)"; exit 1; \
-	fi; \
-	UNREL=$$(awk '/^## \[Unreleased\]$$/{f=1; next} f && /^## /{exit} f && NF{print}' CHANGELOG.md); \
-	if [ -n "$$UNREL" ]; then \
-	  echo "ERROR: CHANGELOG.md [Unreleased] still has entries; move them into [$$V]"; exit 1; \
-	fi; \
-	COUNT=$$(awk -v v="$$V" '$$0 ~ "^## \\[" v "\\] - " {f=1; next} f && /^## /{exit} f && /^- /{c++} END{print c+0}' CHANGELOG.md); \
-	if [ "$$COUNT" -eq 0 ]; then \
-	  echo "ERROR: CHANGELOG.md [$$V] section has no entries"; exit 1; \
-	fi; \
-	echo "release preflight OK: version $$V (last tag $$LAST)"
+	uv run --frozen python tools/release_check.py

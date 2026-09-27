@@ -21,6 +21,8 @@ from pathlib import Path
 
 import pytest
 
+from tools import require_extras
+
 ROOT = Path(__file__).resolve().parents[1]
 CI_YML = ROOT / ".github" / "workflows" / "ci.yml"
 SYNC_YML = ROOT / ".github" / "workflows" / "toolchain-sync.yml"
@@ -1082,6 +1084,20 @@ class TestCiPins:
         assert "make smoke-wheel" in package_job
         assert (ROOT / "tools" / "smoke_wheel_install.py").is_file()
 
+    def test_makefile_recipes_inline_no_python(self) -> None:
+        """Same rule as the workflows, same reason: a recipe is one shell string.
+
+        `ensure-extras` probed the extras with `python -c 'import angr,
+        claripy'` and `release-check` read the version the same way before
+        shelling out to awk and grep for the changelog. Neither had a traceback
+        when it broke, and both now call a tools/ script. Pin the Makefile to
+        the same policy the workflows already hold.
+        """
+        text = MAKEFILE.read_text(encoding="utf-8")
+        assert "python -c" not in text, "move the check into tools/ and call it"
+        for script in ("require_extras.py", "release_check.py"):
+            assert (ROOT / "tools" / script).is_file(), f"{script} is missing"
+
     def test_readme_development_uv_runs_are_frozen(self) -> None:
         """README Development is the clean-clone path — bare ``uv run`` can rewrite the lock."""
         text = (ROOT / "README.md").read_text(encoding="utf-8")
@@ -1193,9 +1209,9 @@ class TestCiPins:
 
     def test_mypy_preflights_the_similarity_group(self) -> None:
         """scoring.py imports rapidfuzz/resembl, both typed: silence would hide a real gap."""
-        text = MAKEFILE.read_text(encoding="utf-8")
-        guard = text.split("ensure-extras:\n", 1)[1].split("\n\n", 1)[0]
-        assert "import rapidfuzz, resembl" in guard
+        assert "ensure-extras" in _makefile_prereqs("mypy")
+        guard = (ROOT / "tools" / "require_extras.py").read_text(encoding="utf-8")
+        assert '"rapidfuzz", "resembl"' in guard
         assert "--group similarity" in guard
         pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
         overrides = pyproject.split("[[tool.mypy.overrides]]", 1)[1]
@@ -1532,3 +1548,46 @@ uv() {
             assert f"  compiler: {status}" in result.stderr, result.stderr
         else:
             assert "neither current nor static" not in result.stderr, result.stderr
+
+
+class TestRequireExtras:
+    """tools/require_extras.py — the `ensure-extras` preflight behind `make mypy`.
+
+    Without the extras, mypy's failure is a wall of phantom import errors with
+    no cause; this names the missing group and the command that installs it.
+    """
+
+    def test_missing_group_is_named_with_its_fix(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        monkeypatch.setattr(require_extras, "_satisfied", lambda modules: False)
+        assert require_extras.main([str(tmp_path / "resembl")]) == 1
+        out = capsys.readouterr().out
+        assert "'prove' extra" in out
+        assert "uv sync --locked --all-extras" in out
+
+    def test_similarity_failure_names_the_sibling_checkout(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        # angr and claripy resolve, the similarity group does not: the message
+        # has to point at the sibling path dependency, which is the fix half
+        # the prove extra's message does not mention.
+        monkeypatch.setattr(
+            require_extras, "_satisfied", lambda modules: "rapidfuzz" not in modules
+        )
+        sibling = tmp_path / "resembl"
+        assert require_extras.main([str(sibling)]) == 1
+        assert str(sibling) in capsys.readouterr().out
+
+    def test_satisfied_groups_pass(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        monkeypatch.setattr(require_extras, "_satisfied", lambda modules: True)
+        assert require_extras.main() == 0
+        assert capsys.readouterr().out == ""
+
+    def test_probe_resolves_without_importing(self) -> None:
+        """find_spec, not import: mypy only needs the package to resolve, and
+        importing angr costs seconds on every `make mypy`."""
+        assert require_extras._satisfied(("json", "os", "re"))
+        assert not require_extras._satisfied(("rebrew_no_such_module",))

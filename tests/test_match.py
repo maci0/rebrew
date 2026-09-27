@@ -1790,9 +1790,7 @@ class TestGaCeiling:
         )
         assert seen["code"] == b"\x8b\xc1"
 
-    def test_compile_source_use_memo_false_rebuilds_stripped_entry(
-        self, monkeypatch: Any
-    ) -> None:
+    def test_compile_source_use_memo_false_rebuilds_stripped_entry(self, monkeypatch: Any) -> None:
         """`use_memo=False` skips the memo in both directions: a consumer that
         needs the code bytes must not be handed a stripped entry, and its
         rebuild must not overwrite the memoized result either."""

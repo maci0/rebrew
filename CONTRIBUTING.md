@@ -167,7 +167,8 @@ no `**Breaking:**` entry naming it.
   one real command against a project; `make sdist-check` proves the sdist
   reproduces the wheel, but nothing here proves the uploaded file is the one
   that was checked.
-- **Preflight before tagging with `make release-check`**: verifies
+- **Preflight before tagging with `make release-check`** (which runs
+  `tools/release_check.py`): verifies
   `__version__` is bumped past the last tag, the tree is clean, the
   changelog has exactly one dated `[<version>]` section, that section has at
   least one entry, and `[Unreleased]` is empty — a release whose notes are

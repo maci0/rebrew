@@ -19,6 +19,8 @@ from typing import Any
 
 import pytest
 
+from tools import release_check
+
 ROOT = Path(__file__).resolve().parents[1]
 PYPROJECT = ROOT / "pyproject.toml"
 MANIFEST = ROOT / "MANIFEST.in"
@@ -1092,3 +1094,62 @@ class TestSdistManifest:
             info.filename for info in zf.infolist() if (info.external_attr >> 16) & 0o111
         ]
         assert exec_wheel_files == [], f"wheel has executable files: {exec_wheel_files}"
+
+
+class TestReleaseCheck:
+    """tools/release_check.py — the preflight `make release-check` runs.
+
+    The target is a manual gate (CONTRIBUTING.md), so nothing else exercises
+    its logic; a rewrite that silently stopped catching a half-documented
+    release would only show up on the one push a release is cut from.
+    """
+
+    @staticmethod
+    def _check(tmp_path: Path, monkeypatch: Any, changelog: str, version: str = "1.2.3") -> int:
+        (tmp_path / "CHANGELOG.md").write_text(changelog, encoding="utf-8")
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(release_check, "CHANGELOG", tmp_path / "CHANGELOG.md")
+        monkeypatch.setattr(release_check, "_package_version", lambda: version)
+        monkeypatch.setattr(release_check, "_last_tag", lambda: "v1.2.2")
+        return release_check.main()
+
+    def test_clean_release_passes(self, tmp_path: Path, monkeypatch: Any) -> None:
+        changelog = "## [Unreleased]\n\n## [1.2.3] - 2026-01-02\n\n### Fixed\n- a thing\n\n## [1.2.2] - 2026-01-01\n"
+        assert self._check(tmp_path, monkeypatch, changelog) == 0
+
+    def test_version_not_bumped_fails(self, tmp_path: Path, monkeypatch: Any) -> None:
+        changelog = "## [Unreleased]\n\n## [1.2.3] - 2026-01-02\n\n### Fixed\n- a thing\n"
+        assert self._check(tmp_path, monkeypatch, changelog, version="1.2.2") == 1
+
+    @pytest.mark.parametrize(
+        "changelog",
+        [
+            pytest.param(
+                "## [Unreleased]\n\n### Fixed\n- not moved yet\n\n## [1.2.3] - 2026-01-02\n"
+                "\n### Fixed\n- a thing\n",
+                id="unreleased-not-empty",
+            ),
+            pytest.param(
+                "## [Unreleased]\n\n## [1.2.3] - 2026-01-02\n\n### Fixed\n\n## [1.2.2] - 2026-01-01\n",
+                id="no-entries",
+            ),
+            pytest.param(
+                "## [Unreleased]\n\n## [1.2.3]\n\n### Fixed\n- a thing\n",
+                id="undated",
+            ),
+            pytest.param(
+                "## [Unreleased]\n\n## [1.2.3] - 2026-01-02\n\n### Fixed\n- a thing\n"
+                "\n## [1.2.3] - 2026-01-03\n\n### Fixed\n- another\n",
+                id="split-heading",
+            ),
+        ],
+    )
+    def test_changelog_contract_failures(
+        self, tmp_path: Path, monkeypatch: Any, changelog: str
+    ) -> None:
+        assert self._check(tmp_path, monkeypatch, changelog) == 1
+
+    def test_version_compares_numerically_not_lexically(self) -> None:
+        assert release_check._is_bumped_past("0.10.0", "v0.9.0")
+        assert not release_check._is_bumped_past("0.9.1", "v0.9.1")
+        assert not release_check._is_bumped_past("0.9.0", "v0.10.0")

@@ -50,10 +50,11 @@ the import resolves to the wheel's site-packages rather than `src/`: it
 reports the installed version and path and exits non-zero naming any of
 `agent-skills/`, `AGENTS.md.template`, `PRINCIPLES.md`, `py.typed`, or
 `workspace/py.typed` the wheel failed to ship. A `cli-contract`
-job that greps the high-value `--help` surfaces. No pipeline step inlines
-Python in a `run:` block: each check is a `tools/` script or a Makefile
-target, so a failure names a file and a line instead of an anonymous exit
-code. The package job also runs
+job that greps the high-value `--help` surfaces. No pipeline step and no
+Makefile recipe inlines Python: each check is a `tools/` script
+(`release_check.py` for the release preflight, `require_extras.py` for the
+`ensure-extras` mypy guard) or a Makefile target, so a failure names a file and
+a line instead of an anonymous exit code. The package job also runs
 `make sdist-check`: it builds a wheel *from* the shipped sdist through the
 same hash-pinned build constraints and diffs the archive member lists
 (`tools/check_sdist_wheel.py`). The wheel is smoke-installed, but the sdist is
