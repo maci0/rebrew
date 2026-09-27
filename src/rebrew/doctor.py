@@ -1199,6 +1199,9 @@ def main(
 
         cfg = require_config(target=target, json_mode=json_output)
         wibo_path = cfg.root / "tools" / "wibo"
+        if wibo_path.exists():
+            console.print(f"wibo already installed at {wibo_path}")
+            return
         tag_name = download_wibo(wibo_path)
         console.print(f"Downloaded wibo {tag_name} to {wibo_path}")
 

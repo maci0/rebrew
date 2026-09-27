@@ -593,6 +593,23 @@ class TestDataCli:
         assert result.exit_code == 0
         assert (cfg.reversed_dir / "bss_padding.c").exists()
 
+    def test_fix_bss_leaves_handwritten_padding_alone(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        cfg = _cfg(tmp_path)
+        self._write_global(cfg)
+        padding = cfg.reversed_dir / "bss_padding.c"
+        padding.write_text("char my_own_pad[8];\n")
+        report = BssReport(
+            bss_va=0x1000,
+            bss_size=0x200,
+            gaps=[BssGap(offset=0x1004, size=16, before="g_counter", after="next")],
+        )
+        monkeypatch.setattr("rebrew.data.verify_bss_layout", lambda scan, sections: report)
+        result = self._invoke(tmp_path, monkeypatch, ["--fix-bss"])
+        assert result.exit_code == 0
+        assert padding.read_text(encoding="utf-8") == "char my_own_pad[8];\n"
+
     def test_dispatch_missing_binary_errors(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
