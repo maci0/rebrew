@@ -99,7 +99,7 @@ def _suggest_profile(binary: Path) -> tuple[str, str, str, list[str]]:
     elif family == "watcom":
         notes.append(
             "binary looks Watcom C/C++ — byte matching works via the watcom-2.0-win32 "
-            "profile (OMF objects, see docs/OMF_NOTES.md)"
+            "profile (OMF objects, see the rebrew repo's docs/OMF_NOTES.md)"
         )
     elif family == "delphi":
         notes.append(
@@ -114,7 +114,7 @@ def _suggest_profile(binary: Path) -> tuple[str, str, str, list[str]]:
     elif family == "borlandc":
         notes.append(
             f"binary looks Borland C/C++ — using the {profile} profile "
-            "(Turbo C++ 3.1 / bcc32 objects, see docs/TOOLCHAIN.md)"
+            "(Turbo C++ 3.1 / bcc32 objects, see the rebrew repo's docs/TOOLCHAIN.md)"
         )
     return profile, family, hint, notes
 
@@ -607,7 +607,7 @@ def main(
         for note in notes:
             console.print(f"  [yellow]note:[/yellow] {note}")
         console.print("  next: rebrew doctor && rebrew status --json")
-        console.print("  first run? see docs/ONBOARDING.md for the walkthrough")
+        console.print("  first run? see the rebrew repo's docs/ONBOARDING.md for the walkthrough")
 
 
 def main_entry() -> None:

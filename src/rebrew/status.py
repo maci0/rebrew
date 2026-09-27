@@ -997,7 +997,8 @@ def _render_terminal(report: StatusReport) -> None:
         if report.verify_overrides:
             summary_lines.append(
                 f"[dim]Effective status: {report.verify_overrides} function(s) overridden"
-                " by verify cache (metadata says otherwise — see docs/ANNOTATIONS.md)[/dim]"
+                " by verify cache (metadata says otherwise — see the rebrew repo's"
+                " docs/ANNOTATIONS.md)[/dim]"
             )
         if report.verify_missing_size:
             summary_lines.append(

@@ -659,6 +659,16 @@
   it failed on the tree), scattering the staged `**Breaking:**` entries across
   a second copy of each heading. The entries are unchanged, merged under one
   `Added` / `Changed` / `Fixed` each.
+
+- **User-facing text pointed at a `docs/` tree the install does not carry.**
+  `docs/` is pruned from the sdist and never enters the wheel, so `rebrew
+  init`'s "Next steps", `rebrew intake`'s family notes, `rebrew toolchain`'s
+  compatibility hints, `rebrew status`'s verify-cache line, the
+  `rebrew import-splat` unknown-option reason, and the generated
+  `rebrew-project.toml` comment all named a file an installed rebrew does not
+  have (a scaffolded project has no `docs/` either). Each now reads "the
+  rebrew repo's docs/…", the wording the packaged agent skills already use,
+  and `tests/test_packaging.py` fails on any new unqualified pointer.
 - **Public docstrings described code that does not run.** `iter_sources`
   credited `rglob` for the scan that `os.walk` performs (and named no skip
   list, where `_EXCLUDE_DIRS` is applied at every level); `print_diff_summary`

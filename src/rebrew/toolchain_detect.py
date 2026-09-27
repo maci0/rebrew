@@ -2004,7 +2004,8 @@ def profile_matches_detection(profile: str, info: ToolchainInfo) -> tuple[bool, 
         return (
             False,
             f"configured profile '{profile}' does not align with detected family '{info.family}' "
-            f"({', '.join(sorted(compatible))} would fit) — see docs/TOOLCHAIN.md",
+            f"({', '.join(sorted(compatible))} would fit) — see the rebrew repo's"
+            " docs/TOOLCHAIN.md",
         )
     # Version-exact check: when the PE metadata pinned the exact MSVC build
     # (Rich header / linker), a different-compiler profile cannot byte-match
@@ -2066,7 +2067,7 @@ def profile_matches_detection(profile: str, info: ToolchainInfo) -> tuple[bool, 
         return (
             True,
             "binary looks Zig-built (LLVM codegen) — mingw-16.2.0 may only match structurally; "
-            "see docs/TOOLCHAIN.md",
+            "see the rebrew repo's docs/TOOLCHAIN.md",
         )
     return True, None
 

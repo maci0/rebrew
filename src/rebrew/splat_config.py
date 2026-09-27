@@ -206,7 +206,7 @@ _IGNORED_OPTION_REASONS: dict[str, str] = {
 
 UNKNOWN_OPTION_REASON = (
     "not a splat option this importer consumes; rebrew has no equivalent "
-    "(see docs/CLI.md `rebrew import-splat`)"
+    "(see the rebrew repo's docs/CLI.md `rebrew import-splat`)"
 )
 
 #: Top-level keys (outside ``options``) splat writes or accepts.
