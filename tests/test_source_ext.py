@@ -14,10 +14,18 @@ from rebrew.sources import source_glob
 
 
 def test_sources_public_all() -> None:
-    """Star-imports must not leak typing/stdlib names into consumer namespaces."""
+    """Star-imports must not leak typing/stdlib names into consumer namespaces.
+
+    ``files_with_ext`` belongs to the declared surface: the cross-module
+    private-import refactor promoted it (``data_layout`` imports it, which an
+    underscore name forbids) and listed it in ``sources.__all__``.  This
+    literal mirrors that declaration so dropping it narrows the surface
+    visibly.
+    """
     import rebrew.sources as sources
 
     assert sources.__all__ == [
+        "files_with_ext",
         "iter_library_headers",
         "iter_sources",
         "source_exts",

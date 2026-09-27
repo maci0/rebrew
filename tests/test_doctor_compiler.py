@@ -191,8 +191,6 @@ class TestCheckDelphi16Toolchain:
         assert "wcc11.0.tar.gz" in result.fix
 
     def test_wine_smoke_test_pass(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        import subprocess
-
         cl = Path("/tmp/proj/tools/CL.EXE")
         cl.parent.mkdir(parents=True, exist_ok=True)
         cl.touch()
@@ -204,7 +202,10 @@ class TestCheckDelphi16Toolchain:
         def _run(*a, **k):
             return SimpleNamespace(returncode=0, stdout=b"", stderr=b"")
 
-        monkeypatch.setattr(subprocess, "run", _run)
+        # The smoke test runs through rebrew.utils.run_process_group (it kills
+        # the whole process group on timeout), not subprocess.run: patch the
+        # seam the check actually calls, or the real wine runs.
+        monkeypatch.setattr("rebrew.utils.run_process_group", _run)
         result = check_compiler(_cfg(compiler_command=f"wine {cl}", root=Path("/tmp/proj")))
         assert result.status == _PASS
         assert "reachable" in result.message
@@ -222,14 +223,12 @@ class TestCheckDelphi16Toolchain:
         def _run(*a, **k):
             raise subprocess.TimeoutExpired("wine", 10)
 
-        monkeypatch.setattr(subprocess, "run", _run)
+        monkeypatch.setattr("rebrew.utils.run_process_group", _run)
         result = check_compiler(_cfg(compiler_command=f"wine {cl}", root=Path("/tmp/proj")))
         assert result.status == _WARN
         assert "timed out" in result.message
 
     def test_wine_smoke_filenotfound_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        import subprocess
-
         cl = Path("/tmp/proj/tools/CL.EXE")
         cl.parent.mkdir(parents=True, exist_ok=True)
         cl.touch()
@@ -240,7 +239,7 @@ class TestCheckDelphi16Toolchain:
         def _run(*a, **k):
             raise FileNotFoundError("wine")
 
-        monkeypatch.setattr(subprocess, "run", _run)
+        monkeypatch.setattr("rebrew.utils.run_process_group", _run)
         result = check_compiler(_cfg(compiler_command=f"wine {cl}", root=Path("/tmp/proj")))
         assert result.status == _FAIL
         assert "Failed to invoke Wine" in result.message

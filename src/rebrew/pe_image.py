@@ -203,9 +203,15 @@ def parse_pe(
                     # whose RVA resolves outside the image names nothing, so
                     # it is skipped (as layout_meta.extract_layout does)
                     # rather than appended with neither name nor ordinal.
+                    # ``rva_to_off`` maps a forged section header's RVA to a
+                    # ``raw_ptr`` past EOF, so the hint/name read can fail even
+                    # when the RVA itself resolved; that slot names nothing
+                    # either, and appending it broke the
+                    # exactly-one-of-name/ordinal invariant.
                     no = rva_to_off(nm)
-                    if no is not None:
-                        imports.append(PeImport(dll, cstr(no + 2), None))
+                    name = cstr(no + 2) if no is not None else None
+                    if name is not None:
+                        imports.append(PeImport(dll, name, None))
 
     # ---- PE normalization params ----
     reloc_rva = struct.unpack_from("<I", data, opt + 96 + 5 * 8)[0]

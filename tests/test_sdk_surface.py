@@ -94,7 +94,14 @@ class TestErrorsLazyExports:
         assert issubclass(err_mod.ToolchainError, RebrewError)
 
     def test_lazy_errors_snapshot(self) -> None:
-        """Gating: prevent accidental removal of lazy error exports."""
+        """Gating: prevent accidental removal of lazy error exports.
+
+        The expected set is the module's own surface from 2.14.0 on, when
+        ``__all__`` was widened to name every lazy export
+        (``tests/test_errors.py::test_all_covers_every_lazy_export`` pins it to
+        ``_LAZY_ERRORS`` / ``_LAZY_ERROR_KINDS``); this literal stays an
+        independent copy so a removal on either side fails a test.
+        """
         import rebrew.errors as err_mod
 
         expected = {
@@ -107,6 +114,7 @@ class TestErrorsLazyExports:
             "DecompmeError",
             "Delphi16Error",
             "DosboxError",
+            "FingerprintError",
             "LibraryOverrideError",
             "McpApplyAborted",
             "McpError",
@@ -128,17 +136,51 @@ class TestErrorsLazyExports:
         assert set(err_mod._LAZY_ERRORS.keys()) == expected
 
     def test_errors_dir_and_all(self) -> None:
+        """``__all__`` is the declared star-import surface, not the 5 aliases.
+
+        2.14.0 widened it to every lazy export: a star-import or docs
+        generator reading it saw 5 of the 32 names the module documents as
+        importable from this one place.  The literal below mirrors
+        ``rebrew.errors.__all__`` so narrowing it again is a test failure.
+        """
         import rebrew.errors as err_mod
 
         d = dir(err_mod)
         assert "ConfigError" in d
         assert "DecompmeError" in d
         assert err_mod.__all__ == [
+            "CatalogScanError",
+            "CompareResultError",
+            "ComponentError",
+            "ConfigError",
+            "ConfigKeyError",
+            "ConfigNotFoundError",
+            "DecompmeError",
             "DecompmeErrorKind",
+            "Delphi16Error",
+            "DosboxError",
+            "FingerprintError",
+            "LibraryOverrideError",
+            "McpApplyAborted",
+            "McpError",
             "McpErrorKind",
+            "MetadataValidationError",
+            "Msvc16Error",
+            "NeParseError",
+            "NoDecompilationError",
+            "NotLzexeError",
+            "Omf16Error",
+            "OrphanInventoryError",
             "RebrewError",
+            "RecompileError",
             "RecompileErrorKind",
+            "RegistryError",
+            "SimilarityUnavailable",
+            "Tc16Error",
+            "ToolchainError",
             "ToolchainErrorKind",
+            "UnresolvedSymbolError",
+            "WorkspaceNotFound",
         ]
 
     def test_error_kind_aliases_import_from_rebrew_errors(self) -> None:
