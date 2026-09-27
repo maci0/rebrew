@@ -34,6 +34,7 @@ import tomllib
 import unicodedata
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
 from typing import Any, TypedDict, override
 from urllib.parse import urlparse
@@ -1179,6 +1180,61 @@ def parse_env_bool(name: str, raw: str, *, default: bool) -> bool:
     raise ConfigError(f"{name}={raw!r} is not a boolean (use 1/true/yes/on or 0/false/no/off)")
 
 
+#: ``REBREW_LOG_LEVEL`` spellings, and the level each selects.
+ENV_LOG_LEVELS: Mapping[str, int] = {
+    "debug": logging.DEBUG,
+    "info": logging.INFO,
+    "warning": logging.WARNING,
+    "error": logging.ERROR,
+    "critical": logging.CRITICAL,
+}
+
+#: The level a rebrew run logs at when neither ``-v``/``-q`` nor
+#: ``REBREW_LOG_LEVEL`` says otherwise.
+DEFAULT_LOG_LEVEL = logging.WARNING
+
+
+def parse_env_log_level(raw: str, *, default: int) -> int:
+    """Parse ``REBREW_LOG_LEVEL`` into a logging level, or raise ``ConfigError``.
+
+    The base level for a run that passes no ``-v``/``-q``; an explicit flag
+    outranks it.  A container or CI job wraps several rebrew commands, so
+    verbosity has to be settable once in the environment rather than edited
+    into every command.  An unknown name raises instead of falling back, or a
+    typo would silently leave the run at the default.
+    """
+    value = raw.strip().lower()
+    if not value:
+        return default
+    if value not in ENV_LOG_LEVELS:
+        raise ConfigError(f"REBREW_LOG_LEVEL={raw!r} is not a level ({', '.join(ENV_LOG_LEVELS)})")
+    return ENV_LOG_LEVELS[value]
+
+
+def check_env_dir(name: str, raw: str) -> None:
+    """Raise unless a directory-valued env knob names a directory.
+
+    Single source for every ``REBREW_*`` path knob the point of use probes
+    with ``is_dir()``.  A mistyped path otherwise degrades quietly: the
+    consuming command runs with that knob silently out of play.
+    """
+    value = raw.strip()
+    if value and not Path(value).is_dir():
+        raise ConfigError(f"{name}={value!r} is not a directory")
+
+
+def check_env_wineprefix(raw: str) -> None:
+    """Raise when ``REBREW_WINEPREFIX`` is set to a relative path.
+
+    A relative prefix would resolve against CMake's per-target build dir and
+    reach ``docker -v`` as a named volume instead of a bind mount, so the
+    value is only ever usable as an absolute path.
+    """
+    value = raw.strip()
+    if value and not Path(value).expanduser().is_absolute():
+        raise ConfigError(f"REBREW_WINEPREFIX={value!r} must be an absolute path")
+
+
 #: ``REBREW_*`` knobs whose value is only read at the point of use, so
 #: ``load_config`` never sees them and a typo surfaces as a spawn failure from
 #: inside a compile.  Each parser takes the raw value and returns ``None``; it
@@ -1190,6 +1246,8 @@ def _env_knob_parsers() -> tuple[tuple[str, Callable[[str], None]], ...]:
     Imports are deferred: ``rebrew.utils`` imports this module, so a
     top-level import would be a cycle.
     """
+    from rebrew.skills import REBREW_SKILLS_DIR_ENV
+    from rebrew.toolchain import TOOLCHAIN_OVERLAY_ENV
     from rebrew.utils import container_runtime
 
     def _container_runtime(raw: str) -> None:
@@ -1198,8 +1256,15 @@ def _env_knob_parsers() -> tuple[tuple[str, Callable[[str], None]], ...]:
     def _wine_headless(raw: str) -> None:
         parse_env_bool("REBREW_WINE_HEADLESS", raw, default=True)
 
+    def _log_level(raw: str) -> None:
+        parse_env_log_level(raw, default=DEFAULT_LOG_LEVEL)
+
     return (
         ("REBREW_CONTAINER_RUNTIME", _container_runtime),
+        ("REBREW_LOG_LEVEL", _log_level),
+        ("REBREW_SKILLS_DIR", partial(check_env_dir, REBREW_SKILLS_DIR_ENV)),
+        ("REBREW_TOOLCHAIN_OVERLAY_DIR", partial(check_env_dir, TOOLCHAIN_OVERLAY_ENV)),
+        ("REBREW_WINEPREFIX", check_env_wineprefix),
         ("REBREW_WINE_HEADLESS", _wine_headless),
     )
 

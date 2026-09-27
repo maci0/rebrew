@@ -2125,3 +2125,50 @@ binary = "original/evil.dll"
         root = _make_project(tmp_path, toml)
         with pytest.raises(ConfigError, match="path separator|plain file name"):
             load_config(root)
+
+
+class TestEnvKnobValidators:
+    """The validators `env_knob_errors` reports through, one per knob shape."""
+
+    def test_wineprefix_must_be_absolute(self) -> None:
+        from rebrew.config import check_env_wineprefix
+
+        with pytest.raises(ConfigError, match="absolute path"):
+            check_env_wineprefix("relative/prefix")
+
+    def test_wineprefix_unset_or_absolute_passes(self, tmp_path: Path) -> None:
+        from rebrew.config import check_env_wineprefix
+
+        check_env_wineprefix("")
+        check_env_wineprefix("  ")
+        check_env_wineprefix(str(tmp_path / "prefix"))
+
+    def test_dir_knob_rejects_a_non_directory(self, tmp_path: Path) -> None:
+        from rebrew.config import check_env_dir
+
+        with pytest.raises(ConfigError, match="not a directory"):
+            check_env_dir("REBREW_SKILLS_DIR", str(tmp_path / "absent"))
+        check_env_dir("REBREW_SKILLS_DIR", "")
+        check_env_dir("REBREW_SKILLS_DIR", str(tmp_path))
+
+    def test_log_level_parsing(self) -> None:
+        import logging
+
+        from rebrew.config import DEFAULT_LOG_LEVEL, parse_env_log_level
+
+        assert parse_env_log_level("debug", default=DEFAULT_LOG_LEVEL) == logging.DEBUG
+        assert parse_env_log_level("  INFO ", default=DEFAULT_LOG_LEVEL) == logging.INFO
+        assert parse_env_log_level("", default=DEFAULT_LOG_LEVEL) == DEFAULT_LOG_LEVEL
+        with pytest.raises(ConfigError, match="is not a level"):
+            parse_env_log_level("chatty", default=DEFAULT_LOG_LEVEL)
+
+    def test_bad_knobs_are_named_not_raised(self, tmp_path: Path) -> None:
+        from rebrew.config import env_knob_errors
+
+        env = {
+            "REBREW_WINEPREFIX": "relative/prefix",
+            "REBREW_LOG_LEVEL": "chatty",
+            "REBREW_TOOLCHAINS_DIR": str(tmp_path / "absent"),
+        }
+        errors = env_knob_errors(env)
+        assert set(errors) == {"REBREW_WINEPREFIX", "REBREW_LOG_LEVEL"}

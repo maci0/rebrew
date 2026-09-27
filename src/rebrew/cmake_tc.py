@@ -34,6 +34,7 @@ from pathlib import Path
 import typer
 
 from rebrew.cli import console, error_exit, json_print
+from rebrew.config import ConfigError, check_env_wineprefix
 from rebrew.toolchain import TOOLCHAINS, ToolchainSpec, kill_container
 from rebrew.utils import (
     atomic_write_text,
@@ -251,10 +252,11 @@ def _wineprefix(spec: ToolchainSpec) -> Path:
     """
     env = os.environ.get("REBREW_WINEPREFIX", "").strip()
     if env:
-        path = Path(env).expanduser()
-        if not path.is_absolute():
-            error_exit(f"REBREW_WINEPREFIX={env!r} must be an absolute path")
-        return path
+        try:
+            check_env_wineprefix(env)
+        except ConfigError as exc:
+            error_exit(str(exc))
+        return Path(env).expanduser()
     return xdg_cache_home() / f"rebrew-{spec.name}-wineprefix"
 
 

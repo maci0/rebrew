@@ -412,8 +412,12 @@ by the CLI layer and win for that invocation.
 
 ### Other
 
-- `REBREW_PROJECTS_ROOT` — root directory scanned by `tools/audit_projects.py`
-  (default: parent of this install).
+- `REBREW_PROJECTS_ROOT` — root directory scanned by `tools/audit_projects.py`  (default: parent of this install).
+- `REBREW_LOG_LEVEL` — base log level for a run that passes no `-v` / `-q`:
+  `debug`, `info`, `warning`, `error`, or `critical` (default: `warning`).  An
+  explicit `-v` / `-q` outranks it.  An unknown name warns and keeps the
+  default, so a typo is reported by `cfg effective` rather than aborting the
+  run that would have named it.
 - `_REBREW_COMPLETE` — shell-completion mode marker (probed during `rebrew init` shell-completion scaffolding; there is no `rebrew completion` command).
 - `GH_TOKEN` / `GITHUB_TOKEN` — optional GitHub auth for `rebrew toolchain`
   downloads that need a token (not a rebrew-prefixed name; standard gh env).
@@ -585,10 +589,12 @@ set `[llm] endpoint` / `model` still wins over the matching env var, while
 `REBREW_LLM_API_KEY` and `REBREW_RECOMPILE_URL` win over TOML.
 
 `env_errors` covers the knobs no command reads until the moment of use
-(`REBREW_CONTAINER_RUNTIME`, `REBREW_WINE_HEADLESS`), which a mistyped value
-would otherwise report as a spawn failure from inside a compile. The message is
-the one the code that reads the knob raises, so a name listed here is unusable
-for the next command that touches it.
+(`REBREW_CONTAINER_RUNTIME`, `REBREW_LOG_LEVEL`, `REBREW_WINE_HEADLESS`,
+`REBREW_SKILLS_DIR`, `REBREW_TOOLCHAIN_OVERLAY_DIR`, `REBREW_WINEPREFIX`),
+which a mistyped value would otherwise report as a spawn failure from inside a
+compile. The message is the one the code that reads the knob raises, so a name
+listed here is unusable for the next command that touches it. A directory knob
+absent from the environment is not an error.
 
 ## Compiler profiles from `rebrew init`
 
