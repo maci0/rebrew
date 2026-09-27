@@ -23,8 +23,10 @@ every exit path, so a failed comparison does not leave a second source tree
 beside the workspace), emits a CycloneDX 1.5 SBOM
 (`dist/rebrew.cdx.json` from `uv.lock` via `tools/generate_sbom.py`, with the
 MIT license on the rebrew component, a `pkg:github/maci0/rebrew` purl at the
-`v` tag for `__version__`, project URLs as external references, and each
-locked distribution's own declared license from `tools/licenses.py`; the
+`v` tag for `__version__`, project URLs as external references, each
+locked distribution's own declared license from `tools/licenses.py`, and the
+copyleft expressions listed in `NOTICE` — certifi and hypothesis (MPL-2.0,
+in every resolve) plus the optional resembl, m2c, and pyvex; the
 generator validates the document it emits, so a lock that parsed short, or a
 component whose grant nobody recorded, fails the build instead of shipping a
 BOM that reads to a scanner as a clean bill of health), writes

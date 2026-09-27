@@ -26,9 +26,8 @@ mismatch cannot scramble the alignment of surrounding known-good spans.
 ```python
 from rebrew.pinned_diff import SequenceMatcherWithPins
 
-m = SequenceMatcherWithPins(target_mnemonics, compiled_mnemonics,
-                            pinned_lines=[(4, 4), (12, 11)])
-for op in m.get_opcodes():   # DiffOpcode(tag, a_start, a_end, b_start, b_end, a, b)
+m = SequenceMatcherWithPins(target_mnemonics, compiled_mnemonics, pinned_lines=[(4, 4), (12, 11)])
+for op in m.get_opcodes():  # DiffOpcode(tag, a_start, a_end, b_start, b_end, a, b)
     ...
 ```
 
@@ -69,8 +68,8 @@ to the base implementation. Three shapes: `{disp, 0}` (8 bytes),
 from rebrew.vtordisp import find_vtordisps
 
 for t in find_vtordisps(code, base_addr):
-    t.disp, t.addend   # MSVC spells this thunk "vtordisp{16, 0}"
-    t.func_addr        # resolved jump target
+    t.disp, t.addend  # MSVC spells this thunk "vtordisp{16, 0}"
+    t.func_addr  # resolved jump target
 ```
 
 Byte-pattern scan (no disassembly) — thunks are 8-14 byte islands the
@@ -89,10 +88,10 @@ in a read-only data region and (optionally) sits at a relocation site.
 from rebrew.float_const import find_float_consts
 
 consts = find_float_consts(
-    code_regions,        # [(va, bytes)] per executable section
-    const_regions,       # [(start_va, end_va)] read-only spans
-    read_at,             # (va, size) -> bytes over the image
-    reloc_sites=None,    # optional set of reloc VAs — filters immediates
+    code_regions,  # [(va, bytes)] per executable section
+    const_regions,  # [(start_va, end_va)] read-only spans
+    read_at,  # (va, size) -> bytes over the image
+    reloc_sites=None,  # optional set of reloc VAs — filters immediates
 )
 # -> FloatConstant(address, size=4|8, value)
 ```

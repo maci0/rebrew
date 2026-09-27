@@ -518,6 +518,8 @@ class TestCycloneDxSbom:
         assert by_name["resembl"]["licenses"] == [{"expression": "GPL-3.0-only"}]
         assert by_name["m2c"]["licenses"] == [{"expression": "GPL-3.0-only"}]
         assert by_name["pyvex"]["licenses"] == [{"expression": "BSD-2-Clause AND GPL-2.0-or-later"}]
+        assert by_name["certifi"]["licenses"] == [{"expression": "MPL-2.0"}]
+        assert by_name["hypothesis"]["licenses"] == [{"expression": "MPL-2.0"}]
         # The expressions above are the locked artifacts' own declarations.
         # A lock bump that changes either string has to update NOTICE too.
         import importlib.metadata as importlib_metadata
@@ -526,6 +528,12 @@ class TestCycloneDxSbom:
         assert resembl_meta.get("License") == "GPLv3"
         pyvex_meta = importlib_metadata.metadata("pyvex")
         assert pyvex_meta.get("License-Expression") == "BSD-2-Clause AND GPL-2.0-or-later"
+        # certifi predates PEP 639 and still uses the free-text field.
+        certifi_meta = importlib_metadata.metadata("certifi")
+        assert certifi_meta.get("License") == "MPL-2.0"
+        assert certifi_meta.get("License-Expression") is None
+        hypothesis_meta = importlib_metadata.metadata("hypothesis")
+        assert hypothesis_meta.get("License-Expression") == "MPL-2.0"
         names = {c["name"] for c in bom["components"]}
         assert "httpx" in names
         assert "typer" in names
@@ -693,6 +701,33 @@ class TestWheelSmokeScript:
         for entry, kind in RUNTIME_ENTRIES:
             path = package / entry
             assert path.is_dir() if kind == "dir" else path.is_file(), path
+
+    def test_every_copyleft_dependency_is_named_in_the_sbom(self) -> None:
+        """A copyleft package absent from ``_COPYLEFT_EXPRESSIONS`` is unattributed.
+
+        The SBOM names copyleft components by hand because ``uv.lock`` records
+        no license.  The three expressions above are asserted individually,
+        which cannot catch a *new* one: a lock bump that pulls in another
+        reciprocal-license package would ship a CycloneDX document that calls
+        the whole tree MIT-permissive, and NOTICE would stop being a complete
+        attribution.  Resolve the environment instead and require every
+        copyleft distribution found there to be declared.
+        """
+        from tools.generate_sbom import (
+            _COPYLEFT_EXPRESSIONS,
+            copyleft_names_in_environment,
+        )
+
+        found = copyleft_names_in_environment()
+        # resembl / pyvex / m2c live in non-default groups, so they are absent
+        # from a plain `uv sync`. certifi and hypothesis are not, and without
+        # them the loop below would never run and the gate would be vacuous.
+        assert {"certifi", "hypothesis"} <= {n for n, _ in found}, found
+        undeclared = [(n, lic) for n, lic in found if n not in _COPYLEFT_EXPRESSIONS]
+        assert undeclared == [], (
+            "copyleft dependencies missing from _COPYLEFT_EXPRESSIONS (add the "
+            "SPDX expression and a NOTICE entry): " + repr(undeclared)
+        )
 
 
 class TestPackagedDataFiles:

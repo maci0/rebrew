@@ -48,3 +48,18 @@ declib 4.5.0 declares ``License-Expression: BSD-2-Clause``. It pulls
 metadata carries only the trove text ``OSI Approved :: BSD License``; the
 SBOM records that string verbatim rather than choosing a clause count the
 artifact does not state. ``rebrew[binsync]`` installs this tree.
+
+Every resolve: certifi and hypothesis
+------------------------------------
+
+certifi 2026.7.22 declares ``License: MPL-2.0`` (free-text field, no PEP 639
+expression) and hypothesis 6.168.0 declares ``License-Expression: MPL-2.0``.
+MPL-2.0 is file-level reciprocal: it obliges a distributor of a *modified*
+file to publish that file's source under MPL-2.0. Rebrew vendors neither
+package's files nor any modification of them; both are installed unmodified
+from their own wheels, which already carry the licence text, so the grant
+Rebrew redistributes here is the original MPL-2.0 one. The two entries are
+listed so a consumer reading ``dist/rebrew.cdx.json`` can trace that grant
+back to its origin. ``tests/test_packaging.py`` fails when the resolved
+environment holds a copyleft package missing from
+``tools/generate_sbom._COPYLEFT_EXPRESSIONS``.

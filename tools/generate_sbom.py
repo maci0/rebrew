@@ -66,6 +66,65 @@ def _license_field(source_kind: str, name: str, version: str) -> dict[str, Any]:
     return {"license": {"name": declared}}
 
 
+# Copyleft dependencies pinned in uv.lock.  Expressions were read from the
+# locked artifacts: resembl 2.0.0 ``License: GPLv3`` with no later-version
+# clause, m2c aa869da ``License-Expression: GPL-3.0-only``, pyvex 9.3.4
+# ``License-Expression: BSD-2-Clause AND GPL-2.0-or-later``, and the two
+# MPL-2.0 packages below, which every resolve pulls in (certifi 2026.7.22
+# declares ``License: MPL-2.0`` in the legacy free-text field, hypothesis
+# 6.168.0 declares ``License-Expression: MPL-2.0``).  See NOTICE.
+# Permissive dependencies keep the license metadata inside their own wheels.
+#
+# ``tests/test_packaging.py`` fails when the resolved environment holds a
+# copyleft distribution missing from this table, so a lock bump cannot drop
+# the attribution silently.
+_COPYLEFT_EXPRESSIONS = {
+    "resembl": "GPL-3.0-only",
+    "m2c": "GPL-3.0-only",
+    "pyvex": "BSD-2-Clause AND GPL-2.0-or-later",
+    "certifi": "MPL-2.0",
+    "hypothesis": "MPL-2.0",
+}
+#: License families that oblige downstream consumers beyond the MIT grant the
+#: wheel ships under: NOTICE attribution, source availability, or a
+#: reciprocal-license clause on derived work.  Used only to decide which
+#: distributions the SBOM must name explicitly; the emitted expression always
+#: comes from ``_COPYLEFT_EXPRESSIONS``.
+_COPYLEFT_FAMILIES = re.compile(r"AGPL|GPL|LGPL|MPL|CDDL|CECILL|EUPL|OSL|SSPL")
+
+
+def canonicalize(name: str) -> str:
+    """PEP 503 name normalization, so ``Tree_Sitter`` and ``tree-sitter`` agree."""
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def copyleft_names_in_environment() -> list[tuple[str, str]]:
+    """Installed distributions whose own license metadata is copyleft.
+
+    ``uv.lock`` carries no license field, so the SBOM's copyleft expressions
+    can only be audited against the resolved environment.  Returns
+    ``(canonical name, declared license)`` pairs sorted by name; PEP 639
+    ``License-Expression`` wins over the legacy free-text ``License`` header.
+
+    The SBOM generator stays offline and lock-driven, so this is a
+    verification helper for tests rather than part of ``build_bom``.
+    """
+    import importlib.metadata as importlib_metadata
+
+    found: dict[str, str] = {}
+    for dist in importlib_metadata.distributions():
+        name = (dist.metadata["Name"] or "").strip()
+        if not name:
+            continue
+        meta = dist.metadata
+        declared = (meta.get("License-Expression") or meta.get("License") or "").strip()
+        # A multi-line License header is the full licence text, not a field.
+        if "\n" in declared or not _COPYLEFT_FAMILIES.search(declared):
+            continue
+        found[canonicalize(name)] = declared
+    return sorted(found.items())
+
+
 def _project_version() -> str:
     text = _INIT.read_text(encoding="utf-8")
     match = _VERSION_RE.search(text)
