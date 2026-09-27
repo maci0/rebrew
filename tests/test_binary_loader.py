@@ -401,6 +401,43 @@ class TestLoadBinaryCache:
         assert info2.data == bytes(swapped)
         assert info2.data != old
 
+    def test_load_binary_never_publishes_a_foreign_fingerprint(self, tmp_path: Path) -> None:
+        """An entry a racing loader published for another image is not reused.
+
+        The publish path used to return whatever sat under the key without
+        re-checking its stat tag, so a thread that parsed before a rebuild
+        could hand a caller the pre-rebuild image after the caller had already
+        stat'ed the new one.
+        """
+        from rebrew.binary_loader import _load_binary_cache, load_binary
+
+        f = _make_pe_stub(tmp_path / "test.exe")
+        st = f.stat()
+        foreign = load_binary(_make_pe_stub(tmp_path / "other.exe"))
+        foreign._cache_mtime_ns = st.st_mtime_ns - 1
+        foreign._cache_fsize = st.st_size
+        foreign._cache_ino = st.st_ino
+        key = (str(f.resolve()), "auto")
+        _load_binary_cache[key] = foreign
+
+        info = load_binary(f)
+        assert info is not foreign
+        assert info._cache_mtime_ns == st.st_mtime_ns
+
+    def test_iat_slot_vas_returns_a_private_set(self, tmp_path: Path) -> None:
+        """A caller's in-place edit must not rewrite the memo.
+
+        The hit path already returned a copy; the miss path returned the
+        stored object, so the first caller of a cold memo held the cache's own
+        set and every later lookup copied the mutation.
+        """
+        from rebrew.binary_loader import iat_slot_vas
+
+        f = _make_pe_stub(tmp_path / "test.exe")
+        first = iat_slot_vas(f)
+        first.add(0xDEAD)
+        assert iat_slot_vas(f) == set()
+
     def test_iat_cache_misses_same_size_rename_over(self, tmp_path: Path) -> None:
         """IAT slot memo must not keep slots from the pre-replace image."""
         import os
