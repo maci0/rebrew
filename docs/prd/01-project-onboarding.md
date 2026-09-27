@@ -141,7 +141,8 @@ commands that round-trip TOML.
 
 - `list-targets` enumerates `[targets.*]` entries with binary + arch.
 - `show [KEY]` prints the parsed config, or one value if a dotted key is given.
-- `raw [--format json|toml]` dumps the raw file untouched.
+- `raw [--format json|toml]` dumps the whole file (default `json`), with
+  values under secret keys redacted.
 - `path` prints the absolute path to the discovered `rebrew-project.toml`.
 - `add-target NAME --binary FILE` adds a new target stanza idempotently and
   auto-detects format/arch from the binary using LIEF (`--arch`/`--format`

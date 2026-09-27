@@ -184,9 +184,10 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
 ### Story 3 — Visualising progress
 
 1. User runs `rebrew graph --format mermaid -o docs/graph.md`.
-2. The Mermaid diagram highlights EXACT (green), NEAR_MATCHING (yellow),
-   STUB (red) nodes and shows call edges, making the missing pieces
-   visually obvious.
+2. The Mermaid diagram colors nodes by STATUS from `status_style.STATUS_HEX`
+   (EXACT green, RELOC blue, NEAR_MATCHING amber, STUB slate, machine
+   verdicts such as COMPILE_ERROR red) and shows call edges, making the
+   missing pieces visually obvious.
 3. They focus on a specific subtree: `rebrew graph --focus _Init --depth 2`.
 
 ### Story 4 — Cleaning a stale cache
@@ -295,8 +296,8 @@ rebrew round-trip [OPTIONS]
   guards — first run warns + skips); branching workflows may need
   per-branch artifacts (left to CI to manage).
 - `status` percentages are computed from `function_structure.json` if
-  available, else from the function list. With neither, % coverage shows
-  N/A.
+  available, else from the function list. With neither, the denominator is
+  zero and every percentage reports `0.0` (headline `0/0 functions (0%)`).
 - `graph` direct call edges rely on identifier matching; macros and inline
   assembly are not resolved. (Partially fixed: function-pointer targets are
   now recoverable via `--include-dispatch` dispatch-table scanning of the
