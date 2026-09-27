@@ -42,6 +42,14 @@ from rebrew.sources import iter_sources
 app = typer.Typer(
     help="Explain why a function compiles with its toolchain+flags (resolution trace).",
     rich_markup_mode="rich",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew diagnose src/f.c · · · · · · · · · Trace toolchain, flags, and library overrides\n\n"
+        "  rebrew diagnose src/f.c --json · · · · · Machine-readable resolution steps to stdout\n\n"
+        "  rebrew diagnose src/f.c -t mygame · · · Trace a specific target's resolution\n\n"
+        "[dim]The trace names every step in order: project default, per-function TOOLCHAIN/CFLAGS, "
+        "the nearest rebrew-libraries.toml, then the preset that filled the gaps.[/dim]"
+    ),
 )
 
 

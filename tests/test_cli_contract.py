@@ -156,6 +156,57 @@ class TestEntryPointDocstrings:
         assert not bad, f"standalone app not runnable: {bad}"
 
 
+class TestVersionFlag:
+    def test_every_command_offers_version(self) -> None:
+        """`--version` works on each tool, not just the `rebrew` group.
+
+        Every tool also ships as its own console script (`rebrew-diff`,
+        `rebrew-test`, ...). Asking one of those for its version used to
+        return click's ``No such option: --version`` with exit 2.
+        """
+        import typer
+
+        from rebrew.cli import add_version_option
+
+        bad = []
+        for comp in BUILTIN_COMPONENTS:
+            app = getattr(importlib.import_module(comp.module), "app", None)
+            if app is None:
+                continue
+            cmd = add_version_option(typer.main.get_command(app))
+            names = {opt for param in cmd.params for opt in param.opts}
+            if "--version" not in names:
+                bad.append(comp.name)
+        assert not bad, f"command without --version: {bad}"
+
+    def test_umbrella_subcommand_reports_version(self) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew import __version__
+        from rebrew.main import app as umbrella
+
+        result = CliRunner().invoke(umbrella, ["diff", "--version"])
+        assert result.exit_code == 0
+        assert __version__ in result.stdout
+
+    def test_version_is_eager_over_a_missing_argument(self) -> None:
+        """`rebrew diff --version` reports the version, not a usage error.
+
+        ``diff`` requires SOURCE; an eager flag answers before the parser
+        reaches the missing argument, so a script probing the install never
+        sees a spurious exit 2.
+        """
+        from typer.testing import CliRunner
+
+        from rebrew import __version__
+        from rebrew.main import app as umbrella
+
+        result = CliRunner().invoke(umbrella, ["diff", "--version"])
+        assert result.exit_code == 0, result.output
+        assert "Missing argument" not in result.output
+        assert __version__ in result.stdout
+
+
 class TestGroupHelpEpilog:
     def test_every_group_help_shows_examples(self) -> None:
         """A group's `--help` is a landing page: it names the common invocations.

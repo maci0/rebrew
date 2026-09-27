@@ -19,7 +19,7 @@ import typer
 from rich.console import Console
 
 from rebrew.builtins import BUILTIN_COMPONENTS
-from rebrew.cli import console, run_cli
+from rebrew.cli import VersionedGroup, console, run_cli
 from rebrew.config import DEFAULT_LOG_LEVEL, ConfigError, parse_env_log_level
 from rebrew.plugin import (
     CLI_SERVICE,
@@ -35,6 +35,7 @@ from rebrew.plugin import (
 _stdout_console = Console()
 
 app = typer.Typer(
+    cls=VersionedGroup,
     help="Compiler-in-the-loop decompilation workbench for binary-matching reversing.",
     rich_markup_mode="rich",
     epilog=(

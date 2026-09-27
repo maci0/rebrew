@@ -8,6 +8,22 @@
   `git archive HEAD` copy under `.scratch/rebuild`, extracted under
   `umask 077`, built at another path with another timezone and locale, hashes
   compared), CI calls the target, and `make pr-check` includes it.
+- **`--version` on every command, not just `rebrew`.** The umbrella parsed
+  `rebrew --version` from its group callback, but every tool also ships as
+  its own console script, and `rebrew-diff --version` (like `rebrew-climb`,
+  `rebrew toolchain list`, and the rest) answered click's `No such option:
+  --version` with exit 2. `rebrew.cli.run_cli` now attaches an eager
+  `--version` / `-V` to every command it resolves, groups included, so the
+  umbrella, the flat tool, and the group subcommand all report the same
+  `rebrew <version>` on stdout with exit 0. Being eager, it answers before a
+  required argument is checked, so `rebrew diff --version` is 0 rather than
+  a usage error.
+- **`Examples:` sections in the help of the matching and recon commands.**
+  `rebrew match` carried a usage epilog under a `Batch mode (--all):`
+  heading, and `climb`, `qual-sweep`, `diagnose` and `strings` had none at
+  all, so the commands a session spends its time in were the ones whose
+  `--help` never showed a working invocation. Each now ends with an
+  `Examples:` block, matching the convention every group already follows.
 - **`REBREW_LOG_LEVEL`.** Log level was reachable only through the global
   `-v` / `-q`, so a container or CI job wrapping several rebrew commands had
   to edit verbosity into every command it invokes. The variable takes
@@ -128,6 +144,11 @@
   reset each request. No `/api/*` JSON changed.
 
 ### Fixed
+- **The data section summary agrees with the coverage-floor rule.**
+  `rebrew data` reports byte coverage through `floor_pct`, so 4 annotated
+  bytes of a 256-byte `.data` reads 1.5% in the table and the progress bar.
+  The visual test still asserted the old round-to-nearest 1.6% and had been
+  failing since coverage became a clipped union.
 - **Dynamically imported packages reach the declared-dependency gate.**
   `tests/test_package_metadata.py` proved every third-party top-level import
   in `src/rebrew` had a `Requires-Dist` line, by reading `import` statements.

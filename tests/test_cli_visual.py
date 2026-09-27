@@ -120,8 +120,9 @@ def test_data_summary_bar_matches_section(monkeypatch: pytest.MonkeyPatch) -> No
     render_summary(console, scan, {".data": {"va": 0x1000, "size": 256}})
     out = buf.getvalue()
     assert "/home/" not in out
-    # 4 of 256 bytes is 1.5625%, reported as 1.5%: progress floors, so a
-    # partly-covered section never reads as more covered than it is.
+    # floor_pct: 4 of 256 bytes is 1.5625%, and progress figures must not
+    # round up, so a partly-covered section never reads as more covered
+    # than it is: the table and the bar line both report 1.5%.
     assert "1.5%" in out
     assert ".data" in out
     bar = _bar_line(out)
