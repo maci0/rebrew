@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import os
 import re
+import subprocess
+import sys
 import tomllib
 from pathlib import Path
 
@@ -436,6 +438,92 @@ class TestCycloneDxSbom:
         for c in bom["components"]:
             assert c["purl"].startswith("pkg:")
             assert c["version"]
+
+    def test_generated_bom_passes_its_own_validator(self) -> None:
+        """`make sbom` gates on this, so the real lock must clear it."""
+        from tools.generate_sbom import _project_version, build_bom, validate_bom
+
+        validate_bom(build_bom((ROOT / "uv.lock").read_text(encoding="utf-8"), _project_version()))
+
+    def test_validator_rejects_an_empty_inventory(self) -> None:
+        """A BOM that inventories nothing reads to a scanner as a clean result."""
+        from tools.generate_sbom import MIN_COMPONENTS, validate_bom
+
+        empty = {
+            "bomFormat": "CycloneDX",
+            "specVersion": "1.5",
+            "metadata": {"component": {"name": "rebrew"}},
+            "components": [],
+        }
+        with pytest.raises(ValueError, match=f"at least {MIN_COMPONENTS}"):
+            validate_bom(empty)
+
+    def test_validator_rejects_a_wrong_format_or_spec(self) -> None:
+        from tools.generate_sbom import validate_bom
+
+        base = {
+            "metadata": {"component": {"name": "rebrew"}},
+            "components": [{"name": "x"}] * 10,
+        }
+        with pytest.raises(ValueError, match="bomFormat"):
+            validate_bom({**base, "bomFormat": "SPDX", "specVersion": "1.5"})
+        with pytest.raises(ValueError, match="specVersion"):
+            validate_bom({**base, "bomFormat": "CycloneDX", "specVersion": "1.4"})
+        with pytest.raises(ValueError, match="metadata.component"):
+            validate_bom({**base, "bomFormat": "CycloneDX", "specVersion": "1.5", "metadata": {}})
+
+
+class TestWheelSmokeScript:
+    """The package job runs tools/smoke_wheel_install.py under the wheel's own
+    interpreter, so the script has to be runnable that way and has to name the
+    file it cannot find."""
+
+    def test_runs_clean_against_an_installed_package(self) -> None:
+        """The CI invocation, end to end: exit 0 and the version on stderr."""
+        import rebrew
+
+        result = subprocess.run(
+            [sys.executable, str(ROOT / "tools" / "smoke_wheel_install.py")],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert "rebrew" in result.stderr
+        assert str(Path(rebrew.__file__).resolve().parent) in result.stderr
+
+    def test_names_every_missing_runtime_file(self, tmp_path: Path) -> None:
+        """A wheel that imports but ships no agent-skills must fail the gate."""
+        import rebrew
+        from tools.smoke_wheel_install import RUNTIME_ENTRIES, check
+
+        package = tmp_path / "pkg"
+        package.mkdir()
+        (package / "__init__.py").write_text("", encoding="utf-8")
+        monkey = pytest.MonkeyPatch()
+        monkey.setattr(rebrew, "__file__", str(package / "__init__.py"))
+        try:
+            missing = check()
+        finally:
+            monkey.undo()
+        assert [message.split(" ", 2)[2] for message in missing] == [
+            str(package / entry) for entry, _ in RUNTIME_ENTRIES
+        ]
+
+    def test_every_expected_runtime_entry_is_declared(self) -> None:
+        from tools.smoke_wheel_install import RUNTIME_ENTRIES
+
+        entries = dict(RUNTIME_ENTRIES)
+        assert entries["agent-skills"] == "dir"
+        assert entries["AGENTS.md.template"] == "file"
+        assert entries["PRINCIPLES.md"] == "file"
+        # The script must assert exactly what the source tree ships, or the
+        # wheel gate quietly stops covering a packaged runtime file.
+        package = ROOT / "src" / "rebrew"
+        for entry, kind in RUNTIME_ENTRIES:
+            path = package / entry
+            assert path.is_dir() if kind == "dir" else path.is_file(), path
 
 
 class TestPackagedDataFiles:

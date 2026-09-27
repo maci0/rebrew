@@ -7,6 +7,9 @@ re-resolving PyPI.  The rebrew component's purl is the GitHub repository
 (``pkg:github/maci0/rebrew@v<version>``); dependency components keep
 ``pkg:pypi`` when the lock fetched them from the index.
 
+Every emitted document passes ``validate_bom``; a lock that parsed to a near
+empty inventory exits 1 rather than writing a BOM a scanner reads as clean.
+
 Usage::
 
     uv run --no-project --offline python tools/generate_sbom.py
@@ -204,6 +207,34 @@ def _purl(name: str, version: str, kind: str, extra: str) -> str:
     return f"pkg:pypi/{dist}@{version}"
 
 
+# A BOM that parses but inventories nothing is worse than no BOM: a scanner
+# reads it as a clean bill of health.  Every emitted document goes through
+# this, so `make sbom` and the package job share one contract.
+MIN_COMPONENTS = 10
+
+
+def validate_bom(bom: dict[str, Any]) -> None:
+    """Raise ValueError unless ``bom`` is a scannable CycloneDX document.
+
+    Checks the format header, the spec version, and a non-trivial component
+    list.  Deliberately structural: field-level schema validation belongs to
+    the CycloneDX validator, not to this generator.
+    """
+    if bom.get("bomFormat") != "CycloneDX":
+        raise ValueError(f"bomFormat is {bom.get('bomFormat')!r}, expected 'CycloneDX'")
+    if bom.get("specVersion") != "1.5":
+        raise ValueError(f"specVersion is {bom.get('specVersion')!r}, expected '1.5'")
+    if "component" not in bom.get("metadata", {}):
+        raise ValueError("metadata.component is missing: the document describes no subject")
+    components = bom.get("components")
+    if not isinstance(components, list) or len(components) < MIN_COMPONENTS:
+        found = len(components) if isinstance(components, list) else "absent"
+        raise ValueError(
+            f"components lists {found} entries, expected at least {MIN_COMPONENTS}: "
+            f"the lock parsed short, so the inventory would read as complete"
+        )
+
+
 def build_bom(lock_text: str, project_version: str) -> dict[str, Any]:
     components = _parse_lock(lock_text)
     return {
@@ -237,6 +268,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: lockfile not found: {args.lock}", file=sys.stderr)
         return 1
     bom = build_bom(args.lock.read_text(encoding="utf-8"), _project_version())
+    try:
+        validate_bom(bom)
+    except ValueError as exc:
+        print(f"error: generated SBOM is not scannable: {exc}", file=sys.stderr)
+        return 1
     payload = json.dumps(bom, indent=2, sort_keys=False) + "\n"
     if args.output is None:
         sys.stdout.write(payload)

@@ -509,6 +509,20 @@ class TestCiPins:
         )
         assert result.returncode == 0, result.stdout + result.stderr
 
+    def test_package_job_inlines_no_python(self) -> None:
+        """Python in a `run:` block is a shell string with an exit code and no
+        traceback; the checks live in tools/ so a failure names a file and a
+        line, and the repo keeps one language per command.
+        """
+        text = CI_YML.read_text(encoding="utf-8")
+        assert "python -c" not in text, "move the check into tools/ and call it"
+        package_job = text.split("\n  package:\n", 1)[1].split("\n  cli-contract:\n", 1)[0]
+        # make sbom owns the SBOM build; generate_sbom.py validates its own
+        # output, so the job needs no second inline parse to gate the document.
+        assert "make sbom" in package_job
+        assert ".venv-pkg/bin/python tools/smoke_wheel_install.py" in package_job
+        assert (ROOT / "tools" / "smoke_wheel_install.py").is_file()
+
     def test_readme_development_uv_runs_are_frozen(self) -> None:
         """README Development is the clean-clone path — bare ``uv run`` can rewrite the lock."""
         text = (ROOT / "README.md").read_text(encoding="utf-8")
@@ -597,6 +611,10 @@ class TestCiPins:
             if not line.lstrip().startswith("#")
             for match in re.finditer(r"\buv run\s+(\S+)", line)
         ]
+        # A workflow delegates to the Makefile / tools/ and may legitimately
+        # carry no `uv run` at all; the guard is that none is lock-unsafe.
+        if path.suffix == ".yml":
+            return
         assert commands, path
         # --no-project never reads or writes uv.lock (uv warns that --frozen
         # is a no-op beside it).
