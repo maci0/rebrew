@@ -35,6 +35,7 @@ from rebrew.sources import (
     target_marker,
 )
 from rebrew.status_style import DISPLAY_STATUSES, STATUS_HEX
+from rebrew.theme import TOKENS
 from rebrew.utils import atomic_write_text, fold_ident
 
 log = logging.getLogger(__name__)
@@ -472,7 +473,8 @@ def _mermaid_class_defs() -> list[str]:
     for status, cls in (*_MERMAID_CLASS.items(), *_MERMAID_SHARED_CLASS.items()):
         fills.setdefault(cls, STATUS_HEX[status])
     return [
-        f"    classDef {cls} fill:{fill},stroke:#1a1a1a,color:#fff" for cls, fill in fills.items()
+        f"    classDef {cls} fill:{fill},stroke:{TOKENS['ink']},color:{TOKENS['surface']}"
+        for cls, fill in fills.items()
     ]
 
 
@@ -551,7 +553,8 @@ def render_dot(
         shown = info.get("symbol", "") or name
         label = f"{shown}\\n[{status}]" if status not in ("UNKNOWN", "DISPATCH") else shown
         lines.append(
-            f'    {nid} [label="{label}", fillcolor="{color}", color="#1a1a1a", fontcolor="white"];'
+            f'    {nid} [label="{label}", fillcolor="{color}", color="{TOKENS["ink"]}", '
+            f'fontcolor="{TOKENS["surface"]}"];'
         )
 
     lines.append("")

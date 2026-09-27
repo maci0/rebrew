@@ -1,10 +1,13 @@
-"""Chrome design tokens shared by the HTML surfaces (report pages, dashboard).
+"""Chrome design tokens shared by the HTML surfaces (report pages, dashboard)
+and the exported call graph.
 
 Plain tool chrome: a system font stack, one link/focus blue, grey borders,
 one 6px radius. Deliberately not a component-library palette, and small on
 purpose: these surfaces are read for addresses and bytes, so nothing here
 competes with the data. Status marks are ``status_style.STATUS_HEX``, the same values
-the call graph uses, and are not repeated here.
+the call graph uses, and are not repeated here; the graph's node stroke and
+label colour read the ``ink`` and ``surface`` tokens here instead of their own
+literals, so a graph exported beside its report is painted the same chrome.
 
 Both stylesheets write ``var(--rb-<name>)`` and pass the result through
 :func:`inline`, so a surface ships one self-contained file. Resolving here

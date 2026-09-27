@@ -371,6 +371,26 @@ class TestRenderers:
         assert "n_FuncB_" in result
         assert "classDef exact" in result
 
+    def test_graph_chrome_comes_from_the_token_set(self) -> None:
+        """Node stroke, node label and the dispatch mark read rebrew.theme.
+
+        The exported graph ships beside the report, so its chrome is the same
+        chrome; a literal here would drift the moment a token changes.
+        """
+        from rebrew.status_style import STATUS_HEX
+        from rebrew.theme import TOKENS
+
+        nodes, edges = self._sample()
+        nodes["Jtbl"] = {"status": "DISPATCH", "va": 3, "file": ""}
+        edges.append(("FuncA", "Jtbl"))
+        mermaid = render_mermaid(nodes, edges)
+        dot = render_dot(nodes, edges)
+        for chrome in (f"stroke:{TOKENS['ink']}", f"color:{TOKENS['surface']}"):
+            assert chrome in mermaid
+        assert f'color="{TOKENS["ink"]}"' in dot
+        assert f'fontcolor="{TOKENS["surface"]}"' in dot
+        assert f"fill:{STATUS_HEX['DISPATCH']}" in mermaid
+
     def test_mermaid_dispatch_style(self) -> None:
         """Dispatch edges render as dashed arrows (..>) in mermaid output."""
         nodes: dict[str, NodeInfo] = {
@@ -398,13 +418,14 @@ class TestRenderers:
         assert "->" in result
 
     def test_dot_matching_reloc_color(self) -> None:
-        """NEAR_MATCHING uses the report amber, with white type (AA on that fill)."""
+        """NEAR_MATCHING uses the report amber, with surface type (AA on that fill)."""
         from rebrew.status_style import STATUS_HEX
+        from rebrew.theme import TOKENS
 
         nodes: dict[str, NodeInfo] = {"FuncM": {"status": "NEAR_MATCHING", "va": 1, "file": "m.c"}}
         result = render_dot(nodes, [])
         assert STATUS_HEX["NEAR_MATCHING"] in result
-        assert 'fontcolor="white"' in result
+        assert f'fontcolor="{TOKENS["surface"]}"' in result
         assert "#f39c12" not in result
 
     def test_dot_dispatch_style(self) -> None:
@@ -432,6 +453,7 @@ class TestRenderers:
     def test_status_fills_match_report_marks(self) -> None:
         """Graph fills are the report marks. STUB is slate, not an error red."""
         from rebrew.status_style import STATUS_HEX
+        from rebrew.theme import TOKENS
 
         nodes: dict[str, NodeInfo] = {
             "FuncA": {"status": "EXACT", "va": 1, "file": "a.c"},
@@ -441,7 +463,7 @@ class TestRenderers:
         dot = render_dot(nodes, [])
         assert f"fill:{STATUS_HEX['EXACT']}" in mermaid
         assert f"fill:{STATUS_HEX['STUB']}" in mermaid
-        assert "stroke:#1a1a1a" in mermaid
+        assert f"stroke:{TOKENS['ink']}" in mermaid
         assert STATUS_HEX["STUB"] in dot
         for stale in ("#e74c3c", "#2ecc71", "#9b59b6", "#3498db", "#f39c12"):
             assert stale not in mermaid
