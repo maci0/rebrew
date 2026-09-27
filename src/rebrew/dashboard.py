@@ -262,6 +262,10 @@ _HTTP_ERROR_CODES: dict[int, str] = {
 }
 # Seconds a keep-alive connection may sit idle before its handler thread exits.
 _KEEPALIVE_IDLE_TIMEOUT_S = 30.0
+# Concurrent connections the server admits.  Each one costs a handler thread and a
+# descriptor until the peer closes or the idle timeout fires, so the cap bounds
+# both.  A browser holds a handful; 64 leaves room for parallel reloads.
+_MAX_ACTIVE_CONNECTIONS = 64
 # Below this size framing usually costs more than it saves on a LAN.
 _MIN_COMPRESS_BYTES = 256
 # Per-request dynamic JSON: mid effort (bodies are rebuilt every request).
@@ -2917,6 +2921,60 @@ class _DashboardServer(ThreadingHTTPServer):
     shutdown line reports.
     """
 
+    #: Connections allowed to hold a handler thread at once; see
+    #: ``_MAX_ACTIVE_CONNECTIONS``.  Instance-level so a test can lower it.
+    _max_active_connections: int = _MAX_ACTIVE_CONNECTIONS
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        self._active_lock = threading.Lock()
+        self._active = 0
+        super().__init__(*args, **kwargs)
+
+    @override
+    def process_request(
+        self, request: socket.socket | tuple[bytes, socket.socket], client_address: Any
+    ) -> None:
+        """Admit a connection only while a handler slot is free.
+
+        ``ThreadingHTTPServer`` spends one OS thread and one descriptor per
+        accepted socket, for as long as the peer holds it, and the per-handler
+        idle timeout is the only thing that ends that.  A client that opens
+        connections and then says nothing therefore grows both counts without
+        bound, so the connection past the cap is closed on arrival.
+        """
+        with self._active_lock:
+            admitted = self._active < self._max_active_connections
+            if admitted:
+                self._active += 1
+        if not admitted:
+            log.warning(
+                "%s refusing connection from %s: %d already in flight (cap %d)",
+                _request_context()[0],
+                _escape_log_text(str(client_address)),
+                self._active,
+                self._max_active_connections,
+            )
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            self._release_connection()
+            raise
+
+    @override
+    def process_request_thread(
+        self, request: socket.socket | tuple[bytes, socket.socket], client_address: Any
+    ) -> None:
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._release_connection()
+
+    def _release_connection(self) -> None:
+        with self._active_lock:
+            self._active -= 1
+
     @override
     def handle_error(
         self, request: socket.socket | tuple[bytes, socket.socket], client_address: Any
@@ -3021,10 +3079,10 @@ def main(
                 "Stop it, or pick a free port with --port.",
             )
         raise
-    # Request handlers must not keep the process alive after Ctrl+C:
-    # ThreadingMixIn defaults to non-daemon threads + block_on_close, so
-    # server_close() waited on every in-flight (or stuck) client until the
-    # OS closed the socket.  Daemon threads die with the main thread.
+    # Request handlers must not keep the process alive after Ctrl+C.  A daemon
+    # thread is left out of ThreadingMixIn._threads, so server_close()'s join
+    # has nothing to wait on and returns while an idle keep-alive client is
+    # still up; block_on_close is deliberately not set either.
     server.daemon_threads = True
     _Handler.dashboard = Dashboard(db_path, served=served_totals)
     _Handler.allowed_hosts = allowed_hosts_for(host, port)

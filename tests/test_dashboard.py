@@ -8,6 +8,7 @@ import re
 import shutil
 import sqlite3
 import subprocess
+import threading
 import time
 from pathlib import Path
 
@@ -3157,6 +3158,66 @@ class TestKeepAliveTimeout:
                 # Send nothing: the server must hang up once its idle timeout
                 # fires, well before the client's own 5s guard.
                 assert client.recv(1) == b""
+        finally:
+            server.shutdown()
+            server.server_close()
+            serve.join(timeout=5)
+
+
+class TestConnectionCap:
+    """Each accepted socket costs a thread and a descriptor, so admission is bounded."""
+
+    @staticmethod
+    def _server(dashboard: Dashboard, cap: int) -> tuple[_DashboardServer, threading.Thread]:
+        from rebrew.dashboard import allowed_hosts_for
+
+        server = _DashboardServer(("127.0.0.1", 0), _Handler)
+        server.daemon_threads = True
+        server._max_active_connections = cap
+        _Handler.dashboard = dashboard
+        _Handler.allowed_hosts = allowed_hosts_for("127.0.0.1", server.server_port)
+        serve = threading.Thread(target=server.serve_forever, daemon=True)
+        serve.start()
+        return server, serve
+
+    def test_connection_past_the_cap_is_closed_on_arrival(
+        self, dashboard: Dashboard, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A held-open connection must not buy a second thread and a second fd."""
+        import socket
+
+        monkeypatch.setattr(_Handler, "timeout", 5.0)
+        server, serve = self._server(dashboard, 1)
+        try:
+            with socket.create_connection(server.server_address[:2], timeout=5) as first:
+                # Say nothing: the first handler thread stays parked in readline,
+                # so the cap is spent for as long as the peer holds the socket.
+                with socket.create_connection(server.server_address[:2], timeout=5) as second:
+                    assert second.recv(1) == b""
+                first.settimeout(0.5)
+                with pytest.raises(TimeoutError):
+                    first.recv(1)
+        finally:
+            server.shutdown()
+            server.server_close()
+            serve.join(timeout=5)
+
+    def test_slot_comes_back_when_the_handler_thread_ends(self, dashboard: Dashboard) -> None:
+        import http.client
+
+        server, serve = self._server(dashboard, 1)
+        try:
+            for _ in range(2):
+                conn = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=5)
+                host = f"127.0.0.1:{server.server_port}"
+                conn.request("GET", "/api/health", headers={"Host": host})
+                assert conn.getresponse().status == 200
+                conn.close()
+                # The handler thread ends once the peer closes, not at once.
+                deadline = time.monotonic() + 5.0
+                while server._active and time.monotonic() < deadline:
+                    time.sleep(0.02)
+                assert server._active == 0
         finally:
             server.shutdown()
             server.server_close()

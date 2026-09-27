@@ -138,6 +138,13 @@ def coverage_db_lock(path: Path, *, shared: bool = False) -> Iterator[None]:
     has it open lets the new file and the previous connection's WAL share a
     path and corrupt the rebuild.
     """
+    # Imported here, not at module scope: rebrew.utils pulls tomlkit and rich,
+    # and importing this module must stay free of that stack
+    # (test_workspace_public_api::test_submodules_import_without_rebrew_stack).
+    # It runs before the sidecar is opened, so the descriptor below reaches
+    # the ``with`` on the very next statement.
+    from rebrew.utils import file_handle_lock
+
     lock_path = Path(path).with_name(Path(path).name + ".lock")
     try:
         lock_path.parent.mkdir(parents=True, exist_ok=True)
@@ -150,10 +157,6 @@ def coverage_db_lock(path: Path, *, shared: bool = False) -> Iterator[None]:
             yield
             return
         raise
-    # Imported here, not at module scope: rebrew.utils pulls tomlkit and rich,
-    # and importing this module must stay free of that stack
-    # (test_workspace_public_api::test_submodules_import_without_rebrew_stack).
-    from rebrew.utils import file_handle_lock
 
     with lock_fh, file_handle_lock(lock_fh, shared=shared):
         yield
