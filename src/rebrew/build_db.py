@@ -2153,18 +2153,24 @@ def _build_coverage_db(
             # Otherwise (no cache, or another target's): leave rows alone —
             # the table is never dropped on rebuild.
 
-            # Schema version stamp: written under a reserved __schema__ row so
-            # readers never depend on an arbitrary target's stamp (a scoped
-            # --target rebuild leaves other targets at their older version).
-            c.execute(
-                "INSERT OR REPLACE INTO metadata (target, key, value) VALUES (?, ?, ?)",
-                (SCHEMA_TARGET, DB_VERSION_KEY, json.dumps(_CURRENT_DB_VERSION)),
-            )
             # Keep the legacy per-target stamp for older dashboard versions.
             c.execute(
                 "INSERT OR REPLACE INTO metadata (target, key, value) VALUES (?, ?, ?)",
                 (target_name, DB_VERSION_KEY, json.dumps(_CURRENT_DB_VERSION)),
             )
+
+        # Schema version stamp, under a reserved __schema__ row so readers
+        # never depend on an arbitrary target's stamp (a scoped --target
+        # rebuild leaves other targets at their older version).  Written once
+        # per build, OUTSIDE the target loop above: a build with no datasets
+        # (no data_*.json yet, every snapshot deleted) used to leave the
+        # database unstamped, and the version gate treats an unstamped
+        # database as compatible with anything, so the shape check that backs
+        # the stamp never ran against it.
+        c.execute(
+            "INSERT OR REPLACE INTO metadata (target, key, value) VALUES (?, ?, ?)",
+            (SCHEMA_TARGET, DB_VERSION_KEY, json.dumps(_CURRENT_DB_VERSION)),
+        )
 
         # Materialize the per-section cell JSON every dashboard grid serves.
         # Rebuilt WHOLE (not per rebuilt target) from `cells` on every run, so
