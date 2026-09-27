@@ -21,6 +21,13 @@
   (`ok`, `log`, `compiler_version`; `obj_bytes` stays out, it is the object
   itself), and a payload with no boolean `ok` raises `RecompileError` with
   `kind="protocol"` rather than defaulting a missing verdict to a failure.
+- **The coverage dashboard has a Reload control.** Every empty state said to
+  run `rebrew build-db` and reload, and nothing on the page could: a rebuild
+  from another terminal stayed invisible until the analyst reloaded the tab by
+  hand, losing the filters and the view the URL hash had kept. The control
+  re-runs the bootstrap in place (it also drops the per-view loaded flags, so a
+  view already visited comes back with fresh rows instead of the ones it was
+  painted with), and the empty states now name it.
 - **The ReVa MCP client takes a protocol, not `httpx.Client`.**
   `rebrew.ghidra.client` and `rebrew.ghidra.commands` typed every `client=`
   parameter as the concrete `httpx.Client`, so a consumer injecting a
@@ -124,6 +131,12 @@
   the earlier single-case test did not: a span the built image *does* cover
   keeps its own bytes, so drift there is still reported.
 
+- **Status colours reach the function and history tables again.** The client
+  built the mark as `<span class=st status-EXACT>`; an unquoted attribute value
+  ends at the space, so the browser read `class="st"` and a stray
+  `statusexact` attribute, and every status in those two tables rendered in the
+  default ink while the summary cards (which quote) were coloured. The value is
+  quoted now, and `dashboard_summary.mjs` asserts the quoted markup.
 - **The GA splice took a second, hand-written lock name for the metadata
   store.** `_run_one_stub_ga` passed the literal `"rebrew-functions.toml"` to
   `metadata_write_lock`, which keys both its thread lock and its `flock` sidecar

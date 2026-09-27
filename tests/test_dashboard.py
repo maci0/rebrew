@@ -642,6 +642,11 @@ class TestHistoryClock:
         _run_script("dashboard_time.mjs", TZ="America/New_York")
 
 
+class TestReload:
+    def test_reload_rereads_the_database(self) -> None:
+        _run_script("dashboard_reload.mjs")
+
+
 class TestHandle:
     def test_index_html(self, dashboard: Dashboard) -> None:
         status, content_type, body = dashboard.handle("GET", "/", {})
@@ -686,7 +691,12 @@ class TestHandle:
         assert body.count('role="tabpanel" tabindex="0"') == 4
         assert "aria-pressed" in body
         assert "ArrowRight" in body  # tablist keyboard nav
-        assert 'aria-label="Retry failed loads"' in body
+        assert 'aria-label="Reload and retry"' in body
+        assert 'id="reload"' in body  # re-reads coverage.db without a browser reload
+        # A reload must drop what the previous boot marked as loaded, or a
+        # second visit to a view would keep showing the rows it was painted with.
+        assert "nothing already painted counts as loaded" in body
+        assert body.count("viewLoaded.sections = false;") >= 1
         assert "border: 1px solid #767676" in body  # WCAG 1.4.11 non-text contrast
         assert "#ccc" not in body
         assert ".status-EXACT" in html  # same marks as the report
@@ -695,6 +705,10 @@ class TestHandle:
         assert "#e74c3c" not in body
         assert "#9b59b6" not in body
         assert "function statusText" in js
+        # A status mark renders two classes ("st status-EXACT"); an unquoted
+        # class value ends at the space and the colour class is dropped, so
+        # every status in the tables renders in the default ink.
+        assert "class=st" not in js
         assert "forced-colors" in body
         assert "prefers-reduced-motion" in body
         assert 'name="viewport"' in body
