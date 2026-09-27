@@ -159,8 +159,12 @@ def _request_context() -> tuple[str, str]:
 
 
 #: Both log streams (access lines on ``console``, errors on ``log``) start with
-#: this stamp, so one grep orders the whole server output.
-_LOG_TIME_FORMAT = "%H:%M:%S"
+#: this stamp, so one grep orders the whole server output.  Both are stamped in
+#: UTC and label it: ``%(asctime)s`` defaults to localtime, so on a host in a
+#: DST zone the error lines would sit an hour away from the access lines for
+#: half the year and repeat a stamp on a fall-back night, and neither would
+#: line up with the UTC stamps ``main`` writes.
+_LOG_TIME_FORMAT = "%H:%M:%S UTC"
 #: Level column, padded to the width of the longest name we emit (CRITICAL).
 _LOG_LEVEL_FORMAT = "%(levelname)-8s"
 
@@ -2337,9 +2341,11 @@ def _attach_server_log_handler() -> None:
     so the server's whole output is one greppable stream.
     """
     handler = logging.StreamHandler(console.file)
-    handler.setFormatter(
-        logging.Formatter(f"%(asctime)s {_LOG_LEVEL_FORMAT} %(message)s", _LOG_TIME_FORMAT)
+    handler_formatter = logging.Formatter(
+        f"%(asctime)s {_LOG_LEVEL_FORMAT} %(message)s", _LOG_TIME_FORMAT
     )
+    handler_formatter.converter = time.gmtime
+    handler.setFormatter(handler_formatter)
     handler.set_name("rebrew-dashboard")
     for existing in list(log.handlers):
         if existing.get_name() == handler.get_name():
@@ -2651,7 +2657,8 @@ class _Handler(BaseHTTPRequestHandler):
         # error line for one request sort and read as one stream.
         console.print(
             _escape_log_text(
-                f"{time.strftime(_LOG_TIME_FORMAT)} {'INFO':<8} {self.address_string()} {fmt % args}"
+                f"{time.strftime(_LOG_TIME_FORMAT, time.gmtime())} {'INFO':<8} "
+                f"{self.address_string()} {fmt % args}"
             ),
             markup=False,
             soft_wrap=True,

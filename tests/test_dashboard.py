@@ -2209,6 +2209,69 @@ class TestHostValidation:
         assert "127.0.0.1" in rendered
         assert "200" in rendered
 
+    def test_handler_log_stamps_utc_not_host_local(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Access and error lines share one UTC stamp whatever TZ the host has.
+
+        A Europe/Warsaw host in summer is +02:00, so a localtime stamp puts the
+        two streams an hour apart and a fall-back night repeats one.
+        """
+        import re
+        from datetime import UTC, datetime
+        from io import StringIO
+
+        from rich.console import Console
+
+        from rebrew.dashboard import _attach_server_log_handler, _Handler
+
+        # TZ is set by hand: monkeypatch would restore the variable only after
+        # the test body, leaving the process on Warsaw time for later tests.
+        previous_tz = os.environ.get("TZ")
+        os.environ["TZ"] = "Europe/Warsaw"
+        time.tzset()
+        try:
+            access_out = StringIO()
+            monkeypatch.setattr(
+                "rebrew.dashboard.console",
+                Console(file=access_out, width=200, color_system=None, highlight=False),
+            )
+            handler = _Handler.__new__(_Handler)
+            handler.client_address = ("127.0.0.1", 8000)
+            handler.log_message('"%s" %s', "GET / HTTP/1.1", 200)
+
+            error_out = StringIO()
+            _attach_server_log_handler()
+            server_log = logging.getLogger("rebrew.dashboard")
+            attached = [h for h in server_log.handlers if h.get_name() == "rebrew-dashboard"]
+            try:
+                for h in attached:
+                    h.stream = error_out
+                server_log.error("boom")
+            finally:
+                for h in attached:
+                    server_log.removeHandler(h)
+        finally:
+            if previous_tz is None:
+                os.environ.pop("TZ", None)
+            else:
+                os.environ["TZ"] = previous_tz
+            time.tzset()
+
+        stamp = re.compile(r"(\d{2}):(\d{2}):(\d{2}) UTC")
+        now = datetime.now(UTC)
+        for rendered, level in ((access_out.getvalue(), "INFO"), (error_out.getvalue(), "ERROR")):
+            match = stamp.search(rendered)
+            assert match is not None, rendered
+            assert f" {level}" in rendered
+            hh, mm, ss = (int(part) for part in match.groups())
+            # The line was written at most a second ago: the stamp is UTC, not
+            # the host's Europe/Warsaw wall clock.
+            delta = abs(
+                (
+                    now - datetime(now.year, now.month, now.day, hh, mm, ss, tzinfo=UTC)
+                ).total_seconds()
+            )
+            assert delta < 5, rendered
+
     def test_handler_unexpected_error_answers_500(self) -> None:
         """An unexpected route error must answer 500 JSON, not reset the connection."""
         from rebrew.dashboard import Dashboard, _Handler, allowed_hosts_for
