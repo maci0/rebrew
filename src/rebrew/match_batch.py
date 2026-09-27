@@ -472,13 +472,20 @@ def update_stub_to_matched(
         delete_on_close=False,
         encoding=encoding,
     ) as tmp:
-        tmp.write(updated)
-        tmp.close()
-        annos = parse_c_file_multi(Path(tmp.name))
-        if not annos:
-            raise RuntimeError(
-                f"Post-write validation failed: {filepath} would not re-parse after stub update"
-            )
+        scratch = Path(tmp.name)
+        try:
+            tmp.write(updated)
+            tmp.close()
+            annos = parse_c_file_multi(scratch)
+            if not annos:
+                raise RuntimeError(
+                    f"Post-write validation failed: {filepath} would not re-parse after stub update"
+                )
+        finally:
+            # The scratch copy sits in the reversed dir, so a leftover
+            # tmp*.c is discovered by iter_sources as a real source on the
+            # next run; one per promoted function would accumulate there.
+            scratch.unlink(missing_ok=True)
 
     # Fail closed: if the stub's own block could not be located (no marker, or
     # a return type _FUNC_START_RE does not recognise), do NOT write, backup,

@@ -10,6 +10,7 @@ from __future__ import annotations
 import functools
 import hashlib
 import threading
+from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -60,7 +61,9 @@ def entry_fingerprint(cfg: ProjectConfig, entry: Any) -> EntryFingerprint | None
     except OSError:
         return None
     try:
-        source_bytes = _source_bytes(str(filepath.resolve()), st.st_mtime_ns, st.st_size, st.st_ino)
+        source_bytes, source_digest = _source_body(
+            str(filepath.resolve()), st.st_mtime_ns, st.st_size, st.st_ino
+        )
     except OSError:
         return None
     toolchain, cflags = resolve_compile_overrides(
@@ -77,9 +80,7 @@ def entry_fingerprint(cfg: ProjectConfig, entry: Any) -> EntryFingerprint | None
         defines=defines,
         size=getattr(entry, "size", 0) or 0,
         headers_fp=entry_headers_fp(cfg, filepath, cflags, source_bytes=source_bytes),
-        source_hash=_source_hash(
-            str(filepath.resolve()), st.st_mtime_ns, st.st_size, st.st_ino, source_bytes
-        ),
+        source_hash=source_digest,
         mtime_ns=st.st_mtime_ns,
     )
 
@@ -298,45 +299,69 @@ def _headers_stat_fingerprint(src_dir: Path) -> tuple[tuple[str, int, int], ...]
     return tuple(sorted(entries))
 
 
-@functools.lru_cache(maxsize=4096)
-def _source_bytes(path_str: str, _mtime_ns: int, _size: int, _ino: int) -> bytes:
-    """Read *path_str* once per (path, mtime, size, inode) — multi-function files share it.
+#: Retained source bodies, keyed by (resolved path, mtime_ns, size, inode), in
+#: LRU order.  The value is ``(bytes, sha256)``: one read serves the digest
+#: and the header-dependency fingerprint, and the digest is memoized beside
+#: the bytes it was taken from instead of in a second cache keyed on those
+#: same bytes — such a key pins a file body for as long as its digest entry
+#: lives, so the bodies outlive their own read cache and every revision of
+#: every source a watch session touched stays resident.
+#: The bound is on retained bytes, not entries: an edit re-keys (see below),
+#: so ``verify --watch`` adds a fresh body per save and an entry count would
+#: let the total grow with the length of the session.
+#: Guarded: ``verify -j N`` fingerprints entries from worker threads.
+_SOURCE_MEMO_MAX_BYTES = 64 * 1024 * 1024
+_SOURCE_MEMO: OrderedDict[tuple[str, int, int, int], tuple[bytes, str]] = OrderedDict()
+_SOURCE_MEMO_BYTES = 0
+_SOURCE_MEMO_LOCK = threading.Lock()
 
-    *_mtime_ns* and *_size* are part of the key so an edit within the process
-    invalidates the cached bytes without clearing the whole LRU.  Size alone
+
+def clear_source_memo() -> None:
+    """Drop every retained source body."""
+    global _SOURCE_MEMO_BYTES
+    with _SOURCE_MEMO_LOCK:
+        _SOURCE_MEMO.clear()
+        _SOURCE_MEMO_BYTES = 0
+
+
+def _source_body(path_str: str, mtime_ns: int, size: int, ino: int) -> tuple[bytes, str]:
+    """``(bytes, sha256)`` for *path_str*, memoized per stat identity.
+
+    *mtime_ns* and *size* are part of the key so an edit within the process
+    invalidates the cached bytes without clearing the whole memo.  Size alone
     catches same-ns rewrites and ``cp -p`` / restored-mtime copies that
     ``read_source_text`` already guards against; mtime alone does not.
-    *_ino* catches a same-size rename-over (editor save, ``atomic_write_text``)
+    *ino* catches a same-size rename-over (editor save, ``atomic_write_text``)
     landing in the same mtime tick.
     """
-    return Path(path_str).read_bytes()
-
-
-@functools.lru_cache(maxsize=4096)
-def _source_hash(path_str: str, mtime_ns: int, size: int, ino: int, source_bytes: bytes) -> str:
-    """SHA-256 of a source's bytes, memoized on the same key as :func:`_source_bytes`.
-
-    Every entry of a multi-function file shares one read of the file, so the
-    digest was recomputed from those identical bytes once per entry (twice per
-    run: the hit check and the save each call :func:`entry_fingerprint`).
-    The stat identity and the bytes are both in the key, so an edit within
-    the process rehashes.
-    """
-    return hashlib.sha256(source_bytes).hexdigest()
+    global _SOURCE_MEMO_BYTES
+    key = (path_str, mtime_ns, size, ino)
+    with _SOURCE_MEMO_LOCK:
+        hit = _SOURCE_MEMO.get(key)
+        if hit is not None:
+            _SOURCE_MEMO.move_to_end(key)
+            return hit
+    data = Path(path_str).read_bytes()
+    digest = hashlib.sha256(data).hexdigest()
+    with _SOURCE_MEMO_LOCK:
+        if key in _SOURCE_MEMO:  # raced with another thread's read of the same file
+            _SOURCE_MEMO.move_to_end(key)
+            return _SOURCE_MEMO[key]
+        _SOURCE_MEMO[key] = (data, digest)
+        _SOURCE_MEMO_BYTES += len(data)
+        # Keep at least the newest entry: a source larger than the budget
+        # would otherwise be evicted the moment it is stored.
+        while _SOURCE_MEMO_BYTES > _SOURCE_MEMO_MAX_BYTES and len(_SOURCE_MEMO) > 1:
+            _, (evicted, _) = _SOURCE_MEMO.popitem(last=False)
+            _SOURCE_MEMO_BYTES -= len(evicted)
+    return data, digest
 
 
 def source_hash(filepath: Path) -> str:
     # Callers already catch OSError.  A failed stat almost always means
     # read_bytes would fail too — do not pretend a fallback hash exists.
     st = filepath.stat()
-    path_str = str(filepath.resolve())
-    return _source_hash(
-        path_str,
-        st.st_mtime_ns,
-        st.st_size,
-        st.st_ino,
-        _source_bytes(path_str, st.st_mtime_ns, st.st_size, st.st_ino),
-    )
+    return _source_body(str(filepath.resolve()), st.st_mtime_ns, st.st_size, st.st_ino)[1]
 
 
 def entry_headers_fp(
