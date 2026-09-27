@@ -728,22 +728,27 @@ def _classify_ga_ceiling(
 ) -> str | None:
     """The ceiling kind of the GA champion's residual, or None.
 
-    Compiles the champion once (warm-cached — it was just scored) and runs
-    the near-diag classifier on the extracted code.  ``"register"`` is a
-    register-only delta with zero structural bytes (the effective-match
-    case); ``"encoding"`` is the same with only re-encoded opcode bytes.  Both
-    are unreachable from portable C, so further GA search cannot succeed:
-    register allocation and encoding choice are compiler-internal decisions.
-    An ``equivalent`` byte (instruction selection) is C-fixable and clears the
-    ceiling.
+    Compiles the champion once and runs the near-diag classifier on the
+    extracted code.  ``"register"`` is a register-only delta with zero
+    structural bytes (the effective-match case); ``"encoding"`` is the same
+    with only re-encoded opcode bytes.  Both are unreachable from portable C,
+    so further GA search cannot succeed: register allocation and encoding
+    choice are compiler-internal decisions.  An ``equivalent`` byte
+    (instruction selection) is C-fixable and clears the ceiling.
 
     ``BuildResult.obj_bytes`` is the extracted FUNCTION CODE (not a COFF
     object), so it is classified in memory.  The previous version wrote it to
     a ``.obj`` and re-parsed it with LIEF, which failed every time, so the
     ceiling was never documented.
+
+    ``use_memo=False`` is required, not an optimisation: the champion is
+    exactly the source the GA last scored, so the in-memory memo holds it
+    with ``obj_bytes`` stripped, and the classifier would see an empty
+    result and report no ceiling.  The shared compile cache still serves the
+    build, so this is a cache lookup rather than a compile.
     """
     try:
-        res = ga._compile_source(best_src)
+        res = ga._compile_source(best_src, use_memo=False)
         if not res.ok or not res.obj_bytes:
             return None
 

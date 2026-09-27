@@ -61,12 +61,16 @@ _COLLECT_PAIRS_LOCK = threading.Lock()
 #: grows by one per stub, so a batch over many projects (or a long-lived
 #: process) would otherwise retain all of them until exit.  Eviction is FIFO
 #: on insertion order, matching the other per-path memos in the tree.
-_PAIR_KEYS_MEMO: dict[str, tuple[int, int, frozenset[str]]] = {}
+#: The stat fingerprint is ``(mtime_ns, size, inode)``, matching every other
+#: per-path memo in the tree: the inode is what catches a corpus replaced by
+#: rename-over at the same size inside one mtime tick, which mtime and size
+#: alone cannot see.
+_PAIR_KEYS_MEMO: dict[str, tuple[int, int, int, frozenset[str]]] = {}
 _PAIR_KEYS_MEMO_MAX = 8
 _PAIR_KEYS_MEMO_LOCK = threading.Lock()
 
 
-def _memo_pair_keys(key: str, entry: tuple[int, int, frozenset[str]]) -> None:
+def _memo_pair_keys(key: str, entry: tuple[int, int, int, frozenset[str]]) -> None:
     """Store one corpus-key memo, evicting the oldest path when full."""
     with _PAIR_KEYS_MEMO_LOCK:
         if key not in _PAIR_KEYS_MEMO and len(_PAIR_KEYS_MEMO) >= _PAIR_KEYS_MEMO_MAX:
@@ -658,7 +662,7 @@ class BinaryMatchingGA:
             table.pop(next(iter(table)))
         table[key] = value
 
-    def _compile_source(self, src: str) -> BuildResult:
+    def _compile_source(self, src: str, *, use_memo: bool = True) -> BuildResult:
         # Same-run memo (plain dict): elites persist across generations
         # unchanged, and a resumed run replays its population.  Cross-run
         # persistence is the shared compile cache's job (`self.compile_cache`,
@@ -666,11 +670,19 @@ class BinaryMatchingGA:
         # The key must cover everything that changes the .obj, not just
         # the source, so a sweep-then-GA or CFLAGS-metadata change never
         # reuses the previous flag combination's .obj.
+        #
+        # The memo stores results with ``obj_bytes`` stripped (see
+        # ``_compute_fitness``) to bound RSS, so a memo hit carries no code
+        # bytes.  A consumer that needs them must pass ``use_memo=False``:
+        # the call then skips the memo in both directions and rebuilds the
+        # result, which still hits the shared compile cache on disk, so it
+        # costs a lookup rather than a compile.
         src_hash = self._cache_key(src)
-        with self._memo_lock:
-            cached = self._lru_get(self.cache, src_hash)
-        if cached is not None:
-            return cast(BuildResult, cached)
+        if use_memo:
+            with self._memo_lock:
+                cached = self._lru_get(self.cache, src_hash)
+            if cached is not None:
+                return cast(BuildResult, cached)
 
         if self.compare_obj:
             res = build_candidate_obj_only(
@@ -720,7 +732,7 @@ class BinaryMatchingGA:
         # writing now would double every candidate's writes.
         # Failures never reach that put (they return early there), so they
         # are stored here instead: one write per candidate either way.
-        if not res.ok:
+        if not res.ok and use_memo:
             with self._memo_lock:
                 self._lru_put(self.cache, src_hash, res)
         return res
@@ -824,10 +836,15 @@ class BinaryMatchingGA:
             return set()
         with _PAIR_KEYS_MEMO_LOCK:
             memo = _PAIR_KEYS_MEMO.get(str(path))
-        if memo is not None and memo[0] == st.st_mtime_ns and memo[1] == st.st_size:
-            return set(memo[2])
+        if (
+            memo is not None
+            and memo[0] == st.st_mtime_ns
+            and memo[1] == st.st_size
+            and memo[2] == st.st_ino
+        ):
+            return set(memo[3])
         keys = _scan_pair_keys(path)
-        _memo_pair_keys(str(path), (st.st_mtime_ns, st.st_size, frozenset(keys)))
+        _memo_pair_keys(str(path), (st.st_mtime_ns, st.st_size, st.st_ino, frozenset(keys)))
         return keys
 
     def _write_pair(self, src: str, obj_bytes: bytes, score: float) -> None:
@@ -889,6 +906,7 @@ class BinaryMatchingGA:
             (
                 st.st_mtime_ns,
                 st.st_size,
+                st.st_ino,
                 frozenset(keys),
             ),
         )

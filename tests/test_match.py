@@ -1690,7 +1690,8 @@ class TestGaCeiling:
         class _GA:
             cs_mode = "CS_MODE_32"
 
-            def _compile_source(self, src: str) -> Any:
+            def _compile_source(self, src: str, *, use_memo: bool = True) -> Any:
+                self.use_memo_seen = use_memo
                 from rebrew.matcher.core import BuildResult
 
                 return BuildResult(ok=True, obj_bytes=b"\x8b\xc1", reloc_offsets={0: "_g"})
@@ -1722,7 +1723,8 @@ class TestGaCeiling:
         class _GA:
             cs_mode = "CS_MODE_32"
 
-            def _compile_source(self, src: str) -> Any:
+            def _compile_source(self, src: str, *, use_memo: bool = True) -> Any:
+                self.use_memo_seen = use_memo
                 from rebrew.matcher.core import BuildResult
 
                 return BuildResult(ok=True, obj_bytes=b"\x8b\xc1", reloc_offsets={})
@@ -1753,6 +1755,88 @@ class TestGaCeiling:
             )
             is None
         )
+
+    def test_classify_ga_ceiling_bypasses_the_stripped_memo(self, monkeypatch: Any) -> None:
+        """The champion is the source the GA last scored, so the in-memory
+        memo holds it with `obj_bytes` dropped. Reading the memo made the
+        classifier see an empty result and report no ceiling; `use_memo=False`
+        keeps it reading the code."""
+        from rebrew.match_run import _classify_ga_ceiling
+        from rebrew.matcher.core import BuildResult
+
+        stripped = BuildResult(ok=True, obj_bytes=None, reloc_offsets={})
+        full = BuildResult(ok=True, obj_bytes=b"\x8b\xc1", reloc_offsets={})
+
+        class _GA:
+            cs_mode = "CS_MODE_32"
+
+            def _compile_source(self, src: str, *, use_memo: bool = True) -> Any:
+                return stripped if use_memo else full
+
+        seen: dict[str, Any] = {}
+
+        def _fake_analyze(
+            target: bytes, code: bytes, relocs: set[int], va: int, **kw: Any
+        ) -> dict[str, Any]:
+            seen["code"] = code
+            return {
+                "verdict": "NEAR_MATCHING",
+                "categories": {"register": {"bytes": 2}, "structural": {"bytes": 0}},
+            }
+
+        monkeypatch.setattr("rebrew.near_diag.analyze", _fake_analyze)
+        assert _classify_ga_ceiling(_GA(), "int f(void){return 0;}", b"\x8b\xc3", 0x1000) == (
+            "register"
+        )
+        assert seen["code"] == b"\x8b\xc1"
+
+    def test_compile_source_use_memo_false_rebuilds_stripped_entry(
+        self, monkeypatch: Any
+    ) -> None:
+        """`use_memo=False` skips the memo in both directions: a consumer that
+        needs the code bytes must not be handed a stripped entry, and its
+        rebuild must not overwrite the memoized result either."""
+        from rebrew.match_ga import BinaryMatchingGA
+        from rebrew.matcher.core import BuildResult
+
+        engine = BinaryMatchingGA.__new__(BinaryMatchingGA)
+        engine.compare_obj = True
+        engine.cl_cmd = ["cl"]
+        engine.inc_dir = "inc"
+        engine.cflags = []
+        engine.symbol = "f"
+        engine.env = {}
+        engine.compile_cache = None
+        engine.compile_timeout = 1
+        engine.extra_include_dirs = []
+        engine.profile = ""
+        engine.cfg = None
+        engine.collect_pairs_path = None
+        engine._memo_lock = __import__("threading").Lock()
+        engine._memo_max = 16
+        engine.cache = {}
+        engine._fitness_memo = {}
+        engine._cache_key = lambda src: "k"  # type: ignore[method-assign]
+
+        # The GA scored this source and stripped its bytes before memoizing.
+        engine.cache["k"] = BuildResult(ok=True, obj_bytes=None, reloc_offsets={})
+
+        built: list[str] = []
+
+        def _fake_build(src: str, *a: Any, **kw: Any) -> BuildResult:
+            built.append(src)
+            return BuildResult(ok=True, obj_bytes=b"\x90", reloc_offsets={})
+
+        monkeypatch.setattr("rebrew.match_ga.build_candidate_obj_only", _fake_build)
+        res = engine._compile_source("int f(void){return 0;}", use_memo=False)
+        assert res.obj_bytes == b"\x90"
+        assert built == ["int f(void){return 0;}"]
+        # The memoized (stripped) entry is left alone.
+        assert engine.cache["k"].obj_bytes is None
+        # The default path still takes the warm hit and skips the build.
+        warm = engine._compile_source("int f(void){return 0;}")
+        assert warm.obj_bytes is None
+        assert len(built) == 1
 
 
 class TestLiveMutationFocus:
