@@ -75,7 +75,7 @@ All rebrew-specific keys use unique names that reccmp's parser safely ignores, s
 Every `.c` file containing a reversed function must begin with a **marker line**:
 
 ```c
-// MARKER: MODULE 0xVA
+// FUNCTION: MODULE 0xVA
 ```
 
 That's it. Volatile per-function fields (STATUS, BLOCKER, NOTE, GHIDRA, …)
@@ -120,8 +120,9 @@ size = 31
 | `LIBRARY` | Third-party library code (modules configured as `library_modules` in config) |
 | `STUB` | Incomplete implementation (`STATUS: STUB`) |
 
-Format: `// MARKER: MODULE 0xVA`
+Format: `// <MARKER TYPE>: MODULE 0xVA`
 
+- **MARKER TYPE** — one of the types in the table above
 - **MODULE** — the target identifier from `rebrew-project.toml` (e.g. `SERVER`, `CLIENT`)
 - **VA** — virtual address in the original binary, hex with `0x` prefix
 
@@ -191,9 +192,9 @@ per comment, sorted by address, separated from the code by one blank line):
 ```
 
 The address is the anchor; rebrew has no source line table, so the block is
-file-level and never touches a function body. `rebrew binsync import`/`pull`
-write these markers for comments that fall inside a function's range, and
-`rebrew binsync export`/`push` scan them back out; a source marker wins over
+file-level and never touches a function body. `rebrew binsync pull`
+writes these markers for comments that fall inside a function's range, and
+`rebrew binsync push` scans them back out; a source marker wins over
 the metadata `comments` store for the same address.
 
 ### STATUS Values

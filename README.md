@@ -211,7 +211,7 @@ rebrew cfg detect-crt --write        # auto-detect MSVC CRT source directories
 
 # Development
 rebrew skeleton 0x10003DA0          # generate C skeleton from disassembly
-rebrew skeleton 0x10003DA0 --xrefs  # skeleton with Ghidra cross-reference context
+rebrew skeleton --xrefs 0x10003DA0  # skeleton with Ghidra cross-reference context
 rebrew test src/target_name/f.c     # test implementation against target
 rebrew todo                         # see highest ROI action items
 rebrew todo --stats                 # show overall progress statistics
@@ -227,14 +227,14 @@ rebrew graph --cu-map --json        # JSON output for scripting
 rebrew lint                         # lint source markers in your files
 rebrew split src/target_name/multi.c           # split multi-function file into individual files
 rebrew split --va 0x10003DA0 src/target_name/multi.c  # extract one function into multi_c/
-rebrew merge a.c b.c --output merged.c         # merge files into one multi-function file
-rebrew merge multi_c/ multi.c -o multi.c --force --delete  # merge extracted function back
+rebrew merge --output merged.c a.c b.c          # merge files into one multi-function file
+rebrew merge -o multi.c --force --delete multi_c/ multi.c  # merge extracted function back
 rebrew catalog                      # regenerate the function catalog and coverage JSON
 rebrew catalog --data-json          # write db/data_<target>.json
 rebrew catalog --export-ghidra-labels  # generate ghidra_data_labels.json from detected tables
 rebrew build-db                     # build SQLite coverage database from catalog
 rebrew binsync-export ./binsync_out # export source markers and metadata to BinSync state directory
-rebrew binsync-import ./binsync_out --dry-run # import names + prototypes + globals from a BinSync state (dry-run)
+rebrew binsync-import --dry-run ./binsync_out # import names + prototypes + globals from a BinSync state (dry-run)
 
 # Matching
 rebrew diff src/target_name/f.c                     # side-by-side disassembly diff
@@ -248,16 +248,16 @@ rebrew match --all --flag-sweep --fix-cflags  # targeted sweep, auto-update CFLA
 
 # Semantic Equivalence (requires angr: uv tool install --reinstall 'rebrew[prove] @ git+https://github.com/maci0/rebrew.git')
 rebrew prove src/server.dll/calculate_physics.c      # prove NEAR_MATCHING function equivalent
-rebrew prove src/server.dll/calculate_physics.c --json  # JSON output
-rebrew prove my_func --dry-run                        # find by symbol, preview only
+rebrew prove --json src/server.dll/calculate_physics.c  # JSON output
+rebrew prove --dry-run my_func                       # find by symbol, preview only
 
 # Export & Sync
 rebrew verify                       # bulk compile and auto-update STATUS/BLOCKER metadata
 rebrew verify --json                # structured JSON report to stdout
 rebrew verify --compare             # detect regressions against last saved report
-rebrew split src/target_name/multi.c --dry-run  # preview split without writing
+rebrew split --dry-run src/target_name/multi.c  # preview split without writing
 rebrew split --va 0x10003DA0 --dry-run src/target_name/multi.c  # preview single extraction
-rebrew merge a.c b.c -o merged.c --delete       # merge and delete originals
+rebrew merge -o merged.c --delete a.c b.c       # merge and delete originals
 rebrew extract list                 # list un-reversed candidates
 rebrew extract batch 20             # extract and disassemble first 20 smallest
 rebrew asm                          # quick offline disassembly
