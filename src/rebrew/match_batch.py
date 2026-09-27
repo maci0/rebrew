@@ -25,6 +25,7 @@ from rebrew.annotation import (
 )
 from rebrew.cli import console
 from rebrew.config import ProjectConfig
+from rebrew.limits import NO_DELTA
 from rebrew.metadata import update_source_status
 from rebrew.sources import iter_sources
 from rebrew.utils import atomic_write_text, read_source_text
@@ -35,13 +36,6 @@ log = logging.getLogger(__name__)
 #: would be a handful of placeholder bytes.  ``--min-size`` overrides it in
 #: either direction, so a genuine 5-9 byte function is reachable.
 _MIN_STUB_SIZE_FLOOR = 10
-
-#: ``StubInfo.delta`` sentinel for "no byte delta measured".  A STUB, a PROVEN
-#: function, or a NEAR_MATCHING with no ``blocker_delta`` carries no delta, and
-#: ``--max-delta`` must not filter it out.  Distinct from skeleton.py's
-#: ``NO_MAX_SIZE``, which happens to be the same number for the same reason
-#: (an unset bound); the two are unrelated limits.
-NO_DELTA = 9999
 
 
 @dataclass

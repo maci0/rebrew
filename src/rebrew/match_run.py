@@ -25,8 +25,8 @@ from rebrew.binary_loader import capstone_mode_for_arch, extract_raw_bytes
 from rebrew.cli import EXIT_MISMATCH, console, json_print, untrusted_literal
 from rebrew.compile import resolve_compiler_env
 from rebrew.config import ProjectConfig
+from rebrew.limits import NO_DELTA, NO_MAX_SIZE
 from rebrew.match_batch import (
-    NO_DELTA,
     StubInfo,
     find_all_matching,
     find_all_stubs,
@@ -49,7 +49,6 @@ from rebrew.match_sweep import (
 )
 from rebrew.matcher import GACheckpoint, SolutionEntry, load_ga_runs
 from rebrew.matcher.core import EXACT_SCORE_THRESHOLD
-from rebrew.skeleton import NO_MAX_SIZE
 from rebrew.utils import (
     atomic_write_text,
     filename_component,

@@ -53,6 +53,7 @@ from rebrew.config import (
     validate_http_url,
 )
 from rebrew.decompiler import fetch_decompilation
+from rebrew.limits import NO_MAX_SIZE
 from rebrew.naming import (
     load_existing_vas,
     make_filename,
@@ -864,14 +865,6 @@ def _is_thunk(cfg: ProjectConfig, va: int) -> bool:
         logger.debug("thunk probe failed at 0x%08x", va, exc_info=True)
         return False
     return False
-
-
-#: "No upper bound" for the ``--max-size`` family of filters.  Deliberately
-#: well above any real function extent, so ``size <= max_size`` is always true
-#: when the option is left at its default; callers that need to recognize
-#: "unset" compare against this instead of hardcoding the number.  Unrelated to
-#: ``match_batch.NO_DELTA``, which is a byte delta rather than a size.
-NO_MAX_SIZE = 9999
 
 
 def list_uncovered(

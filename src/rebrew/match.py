@@ -34,6 +34,7 @@ from rebrew.cli import (
     require_config,
     resolve_source_arg,
 )
+from rebrew.limits import NO_MAX_SIZE
 from rebrew.match_ga import (
     MUTATION_FOCUS_WEIGHT,
     live_mutation_weights,
@@ -50,7 +51,6 @@ from rebrew.match_sweep import (
     run_single_toolchain_flag_sweep,
     run_single_toolchain_sweep,
 )
-from rebrew.skeleton import NO_MAX_SIZE
 from rebrew.utils import interruptible_pool, preset_module_key
 
 log = logging.getLogger(__name__)
