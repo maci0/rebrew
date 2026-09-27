@@ -776,6 +776,18 @@ class TestKunaBackend:
         found = [d for d in dc._kuna_spec_dirs() if str(d).startswith(str(tool_root))]
         assert found == [dirs["python3.12"], dirs["python3.9"]]
 
+    def test_rizin_sleigh_dirs_probe_the_host_multiarch_triplet(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The multiarch libdir comes from the interpreter, not a hardcoded triplet."""
+        import rebrew.decompiler as dc
+
+        triplet = "zzz-host-triplet"
+        monkeypatch.setattr(dc.sysconfig, "get_config_var", lambda var: triplet)
+        monkeypatch.setattr(dc.shutil, "which", lambda n: None)
+        dirs = dc._rizin_sleigh_dirs()
+        assert Path("/usr/lib") / triplet / "rizin/plugins/rz_ghidra_sleigh" in dirs
+
     def test_uv_tool_roots_honors_xdg_data_home(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

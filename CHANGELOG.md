@@ -1,6 +1,11 @@
 ## [Unreleased]
 
 ### Fixed
+- **The rizin SLEIGH plugin dir is probed for the host's multiarch triplet.**
+  `decompiler._rizin_sleigh_dirs` named `x86_64-linux-gnu` outright, so a
+  kuna spec dir was never found on any other host architecture. The triplet now
+  comes from `sysconfig` (`MULTIARCH`) with a `/usr/lib/*/rizin/plugins` glob
+  behind it, next to the existing `lib`/`lib64`/bindir probes.
 - **`pe_image.parse_pe` no longer emits a nameless import.** A lookup-table slot
   whose hint/name RVA resolves outside the image was appended with neither a
   name nor an ordinal, so `gen-layout` wrote an import record that names no API
