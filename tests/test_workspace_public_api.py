@@ -52,6 +52,7 @@ def test_workspace_public_api_snapshot() -> None:
         "project_table",
         "read_config",
         "read_db_version",
+        "read_stored_db_version",
         "sqlite_ro_uri",
         "target_binary",
         "target_marker",

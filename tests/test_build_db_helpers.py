@@ -313,6 +313,9 @@ class TestCheckDbVersion:
                     ON functions(target, status, va);
                 CREATE INDEX idx_functions_module_va
                     ON functions(target, module, va);
+                CREATE INDEX idx_functions_status_module_va
+                    ON functions(target, status, module, va)
+                    WHERE markerType IN ('FUNCTION', 'LIBRARY', 'STUB');
                 CREATE INDEX idx_functions_list
                     ON functions(target, va)
                     WHERE markerType IN ('FUNCTION', 'LIBRARY', 'STUB');

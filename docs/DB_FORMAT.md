@@ -83,13 +83,14 @@ Stores details regarding decompiled and original functions.
 **Indexes**:
 - `idx_functions_status_va` on `(target, status, va) WHERE markerType IN ('FUNCTION', 'LIBRARY', 'STUB')`: serves the dashboard's status-filtered page (`ORDER BY va`) without a sort
 - `idx_functions_module_va` on `(target, module, va)` with the same predicate: same for the module filter
+- `idx_functions_status_module_va` on `(target, status, module, va)` with the same predicate: serves the page when the status and module filters are both set, which neither single-filter index covers
 - `idx_functions_list` on `(target, va) WHERE markerType IN ('FUNCTION', 'LIBRARY', 'STUB')`: serves the dashboard / `_function_stats` list path (`WHERE target = ? AND markerType IN (…) ORDER BY va`)
 
-All three carry the same predicate, because every query that reaches for them
+All four carry the same predicate, because every query that reaches for them
 carries it: `functions()` appends the code-row filter to its `WHERE` for the
 row list and the `COUNT` alike, so data rows the UI never lists are dead
 weight in the b-tree (measured on a 20k-row target at 43% code rows:
-524 KB → 229 KB) and pure write cost on every rebuild. All three are dropped
+524 KB → 229 KB) and pure write cost on every rebuild. All four are dropped
 and recreated on every build, so a scoped `--target` rebuild cannot leave a
 full copy behind, and since the version gate checks index *names*, a full
 copy would be picked in place of the partial one.
@@ -227,7 +228,8 @@ The version stamp alone is not treated as proof of shape: after reading the
 stamp, `build-db` also verifies the required tables, the query-critical
 columns, and the indexes the shipped queries depend on
 (`idx_metadata_key`, `idx_functions_status_va`, `idx_functions_module_va`,
-`idx_functions_list`, `idx_globals_module_va`, `idx_history_target_id`). Any
+`idx_functions_status_module_va`, `idx_functions_list`,
+`idx_globals_module_va`, `idx_history_target_id`). Any
 gap is reported as a version mismatch, so it takes the same `--force` path.
 
 | Version | Change |

@@ -180,29 +180,32 @@ def open_sqlite_ro(path: Path) -> sqlite3.Connection:
     return conn
 
 
-def read_db_version(db_path: Path) -> int | str | None:
-    """The schema version stamped in *db_path*, or ``None`` when unstamped.
+def read_stored_db_version(conn: sqlite3.Connection) -> int | str | None:
+    """The schema version stamped in an already-open database, or ``None``.
 
     Prefers the ``__schema__`` row; falls back to any per-target ``db_version``
-    row for databases written before the schema-level row existed.  The value
-    is JSON-decoded, so both ``6`` and ``"6"`` round-trip as stored.  A missing
-    file, a missing ``metadata`` table or a missing row all yield ``None``.
+    row for databases written before the schema-level row existed.  A missing
+    table, a missing column, or a missing row all yield ``None``.
+
+    Takes the connection rather than a path so a caller that is already
+    holding one (the version gate in ``build_db``, which inspects
+    ``sqlite_master`` on the same handle) does not open a second one and
+    re-implement this query.
     """
     row: tuple[object, ...] | None = None
     try:
-        with contextlib.closing(open_sqlite_ro(db_path)) as conn:
-            cursor = conn.cursor()
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT value FROM metadata WHERE target = ? AND key = ? LIMIT 1",
+            (SCHEMA_TARGET, DB_VERSION_KEY),
+        )
+        row = cursor.fetchone()
+        if row is None:
             cursor.execute(
-                "SELECT value FROM metadata WHERE target = ? AND key = ? LIMIT 1",
-                (SCHEMA_TARGET, DB_VERSION_KEY),
+                "SELECT value FROM metadata WHERE key = ? LIMIT 1",
+                (DB_VERSION_KEY,),
             )
             row = cursor.fetchone()
-            if row is None:
-                cursor.execute(
-                    "SELECT value FROM metadata WHERE key = ? LIMIT 1",
-                    (DB_VERSION_KEY,),
-                )
-                row = cursor.fetchone()
     except sqlite3.Error:
         return None
     if row is None:
@@ -220,6 +223,20 @@ def read_db_version(db_path: Path) -> int | str | None:
     if isinstance(loaded, int | str):
         return loaded
     return str(raw)
+
+
+def read_db_version(db_path: Path) -> int | str | None:
+    """The schema version stamped in *db_path*, or ``None`` when unstamped.
+
+    A missing file, a missing ``metadata`` table or a missing row all yield
+    ``None``.  The value is JSON-decoded, so both ``6`` and ``"6"`` round-trip
+    as stored.
+    """
+    try:
+        with contextlib.closing(open_sqlite_ro(db_path)) as conn:
+            return read_stored_db_version(conn)
+    except sqlite3.Error:
+        return None
 
 
 def db_version_matches(stored: int | str | None, current: int | str) -> bool:

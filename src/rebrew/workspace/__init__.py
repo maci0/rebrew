@@ -43,6 +43,7 @@ from rebrew.workspace.db import (
     encode_section_cells,
     open_sqlite_ro,
     read_db_version,
+    read_stored_db_version,
     sqlite_ro_uri,
 )
 from rebrew.workspace.status import EARNED_STATUSES, KNOWN_STATUSES, MATCHED_STATUSES
@@ -77,6 +78,7 @@ __all__ = [
     "project_table",
     "read_config",
     "read_db_version",
+    "read_stored_db_version",
     "sqlite_ro_uri",
     "target_binary",
     "target_marker",

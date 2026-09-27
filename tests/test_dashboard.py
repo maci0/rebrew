@@ -530,6 +530,32 @@ class TestQueryLayer:
         assert any(index in row[3] for row in plan)
         assert not any("TEMP B-TREE" in row[3] for row in plan)
 
+    def test_status_and_module_filtered_list_seeks_composite_index(
+        self,
+        dashboard: Dashboard,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Both filters at once seek the composite index, not a per-row fallback."""
+        import sqlite3
+
+        import rebrew.dashboard as dashboard_mod
+
+        statements: list[str] = []
+        real_open = dashboard_mod.open_sqlite_ro
+
+        def _traced_open(path: Path) -> sqlite3.Connection:
+            conn = real_open(path)
+            conn.set_trace_callback(statements.append)
+            return conn
+
+        monkeypatch.setattr(dashboard_mod, "open_sqlite_ro", _traced_open)
+        dashboard.functions("server_dll", status="EXACT", module="SERVER")
+        list_sql = next(s for s in statements if s.startswith("SELECT va, name"))
+        with sqlite3.connect(dashboard.db_path) as conn:
+            plan = conn.execute(f"EXPLAIN QUERY PLAN {list_sql}").fetchall()
+        assert any("idx_functions_status_module_va" in row[3] for row in plan)
+        assert not any("TEMP B-TREE" in row[3] for row in plan)
+
     def test_filtered_globals_list_seeks_filter_index(
         self,
         dashboard: Dashboard,

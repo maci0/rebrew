@@ -42,6 +42,7 @@ from rebrew.workspace import (
     db_dir,
     encode_section_cells,
     open_sqlite_ro,
+    read_stored_db_version,
 )
 from rebrew.workspace.status import COVERAGE_DB_STATUSES, KNOWN_STATUSES, MATCHED_STATUSES
 
@@ -709,23 +710,11 @@ def _check_db_version(
                 "SELECT name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'"
             ).fetchall()
             empty_schema = not objects
-            row = None
-            if ("metadata",) in objects:
-                c.execute(
-                    "SELECT value FROM metadata WHERE target = ? AND key = 'db_version' LIMIT 1",
-                    (SCHEMA_TARGET,),
-                )
-                row = c.fetchone()
-                if row is None:
-                    c.execute("SELECT value FROM metadata WHERE key = 'db_version' LIMIT 1")
-                    row = c.fetchone()
-        if row is None:
-            stored_version = "<unknown>"
-        else:
-            try:
-                stored_version = json.loads(row[0])
-            except (json.JSONDecodeError, TypeError):
-                stored_version = str(row[0])
+            # The gate's own stamp reader, so the key name and the
+            # schema-row-then-any-row fallback live in one place rather than
+            # drifting from the reader every dashboard request shares.
+            stored = read_stored_db_version(conn) if ("metadata",) in objects else None
+        stored_version = "<unknown>" if stored is None else str(stored)
     except sqlite3.Error as exc:
         if "locked" in str(exc).lower():
             # A live DB under contention (concurrent build-db, recovery
@@ -917,6 +906,7 @@ def _missing_required_objects(db_path: Path) -> set[str]:
             "idx_metadata_key",
             "idx_functions_status_va",
             "idx_functions_module_va",
+            "idx_functions_status_module_va",
             "idx_functions_list",
             "idx_globals_module_va",
             "idx_history_target_id",
@@ -1327,6 +1317,20 @@ def _create_schema(c: sqlite3.Cursor, target: str | None) -> None:
     c.execute(
         f"CREATE INDEX idx_functions_module_va ON functions(target, module, va) "
         f"WHERE {FUNCTION_ROWS_SQL}"
+    )
+    # The dashboard's function list can carry BOTH filters at once (the
+    # status dropdown and the module dropdown are independent controls), and
+    # neither single-column index is then a full match: the planner falls back
+    # to the (target, va) primary key range and tests `module` (or `status`)
+    # per row across the whole target.  (target, status, module, va) is the
+    # only column order that serves that shape, with `va` trailing so the
+    # index also satisfies ORDER BY va.  Same partial predicate as its two
+    # siblings, and dropped and recreated every run with them, so a scoped
+    # rebuild cannot keep a full copy older builds created.
+    c.execute("DROP INDEX IF EXISTS idx_functions_status_module_va")
+    c.execute(
+        f"CREATE INDEX idx_functions_status_module_va "
+        f"ON functions(target, status, module, va) WHERE {FUNCTION_ROWS_SQL}"
     )
     # Dashboard + _function_stats list only FUNCTION_ROWS_SQL rows and
     # ORDER BY va: a partial (target, va) index matches that filter+sort

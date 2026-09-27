@@ -1,6 +1,19 @@
 ## [Unreleased]
 
 ### Added
+- **An index for the functions page filtered by status *and* module.** The
+  dashboard's status and module dropdowns are independent controls, so the
+  list query can carry both equality terms at once. The two single-filter
+  partial indexes (`idx_functions_status_va`, `idx_functions_module_va`) are
+  then neither a full match, and the planner fell back to the `(target, va)`
+  primary key range and tested the second predicate on every row of the
+  target. `idx_functions_status_module_va` on
+  `(target, status, module, va)` with the same `markerType` predicate is the
+  only column order that serves that shape, and the trailing `va` keeps the
+  index serving the `ORDER BY va` with no temp b-tree. It is dropped and
+  recreated with its siblings on every build and named in the version gate's
+  required-index list, so a database predating it takes the same `--force`
+  path as any other missing index.
 - **A gate for the dependency this project cannot see going stale.** The
   manifest was already gated in one direction: an import with no
   `Requires-Dist` line fails at the user's first run. The other direction, a
@@ -450,6 +463,18 @@
   accepts it. `tests/test_public_surface.py::TestNoteNaming` pins the
   spellings, and the coincidence case (one leaf name added to two modules is
   not a destination) stays a failure.
+- **The schema-version gate read the version stamp through its own copy of
+  the query.** `build_db`'s `_check_db_version` issued the
+  `metadata` -> `db_version` lookup inline, with the key and the
+  `__schema__`-row-then-any-row fallback spelled out, while
+  `rebrew.workspace.read_db_version` held a second copy of the same statement
+  for every other reader. A change to the key or to the fallback order would
+  have landed in one of them and left the other reading a database the gate no
+  longer recognises. The connection-taking half is now
+  `read_stored_db_version`, exported from `rebrew.workspace`, and both the
+  path-based reader and the gate call it. The gate also compares the stamp as
+  a string now, so an integer-stamped database matches the same way
+  `db_version_matches` already did rather than reading as a mismatch.
 - **The SBOM asserted two license grants no artifact declares.** The
   expression/name form was picked by a regex over the recorded string, so any
   single bare token read as an SPDX identifier. `resembl` states the trove
