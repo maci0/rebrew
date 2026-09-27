@@ -14,11 +14,11 @@ first. `thorough`/`full` product counts are huge; the engine stride-samples to a
 
 ```bash
 rebrew match src/<target>/<file>.c --flag-sweep-only                      # targeted tier (default)
-rebrew match src/<target>/<file>.c --flag-sweep-only --tier quick         # 192 combos, < 1 min
-rebrew match src/<target>/<file>.c --flag-sweep-only --tier targeted      # 1,152 combos, adds /Oy /Op
-rebrew match src/<target>/<file>.c --flag-sweep-only --tier normal        # 5,376 combos, adds /ML-/MTd
-rebrew match src/<target>/<file>.c --flag-sweep-only --tier thorough      # product 258k; auto-sampled — ask first
-rebrew match src/<target>/<file>.c --flag-sweep-only --tier full          # product 6.2M; auto-sampled to ~100k — ask first
+rebrew match src/<target>/<file>.c --flag-sweep-only --tier quick         # first pass
+rebrew match src/<target>/<file>.c --flag-sweep-only --tier targeted
+rebrew match src/<target>/<file>.c --flag-sweep-only --tier normal
+rebrew match src/<target>/<file>.c --flag-sweep-only --tier thorough      # ask user first
+rebrew match src/<target>/<file>.c --flag-sweep-only --tier full          # ask user first
 ```
 
 | Tier | Combinations (product) | When to use |

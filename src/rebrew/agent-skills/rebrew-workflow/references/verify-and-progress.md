@@ -40,8 +40,13 @@ rebrew build-db
 rebrew symbol-addrs --output symbol_addrs.csv
 rebrew context --output ctx.c
 rebrew report --decomp-dev report.json
-rebrew decompme <file>.c                # upload scratch to decomp.me; prints claim URL
+rebrew decompme <file>.c --dry-run     # payload summary, no upload
+rebrew decompme <file>.c                # uploads the function + context to decomp.me; prints claim URL
 ```
+
+`decompme` sends the function body, its context, and the target object bytes to a
+third-party site. Run it only when the user asks for a decomp.me scratch, and
+`--dry-run` first if they have not said where the source may go.
 
 `rebrew verify --compare` uses `.rebrew/verify_baseline.json` (exit 1 on
 regression). First run warns and skips the diff.

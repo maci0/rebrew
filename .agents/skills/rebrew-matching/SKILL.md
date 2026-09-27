@@ -8,7 +8,9 @@ description: >-
   'close diff', 'drift', 'flag tuning', 'register allocation', 'GA',
   'genetic algorithm', 'flag sweep', 'near-diag', 'near-miss', 'prove',
   'angr', 'symbolic equivalence', 'objdiff', 'gap-trace', 'climb',
-  'qual-sweep', 'solutions', or 'rebrew match'. For first-pass
+  'qual-sweep', 'solutions', 'rebrew match', 'rebrew library set',
+  'rebrew-libraries.toml', 'library preset', 'msvcrt-static', or a
+  per-library CFLAGS override. For first-pass
   test/verify/todo, use rebrew-workflow instead.
 license: MIT
 ---
@@ -167,8 +169,8 @@ qualifier variants. Batch flag/GA details: `references/flag-sweep.md`.
 ## 5. Tips
 
 - For library-origin functions (MSVCRT, ZLIB), use `rebrew crt-match` to identify the reference source first.
-- Common CFLAGS: `/O2 /Gd` (GAME); a library subtree takes its flags from
-  `rebrew library set <dir> --preset msvcrt-static` (`/O2 /Gd /MT`), not per-function CFLAGS.
+- Common CFLAGS: `/O2 /Gd` (GAME); a library subtree takes its flags from a
+  preset (§8), not from per-function CFLAGS.
 - While iterating on a single function, `--watch` (on `diff`, `prove`, or `match`) re-runs on every
   file save — faster than re-typing the command.
 - Do not start long GA (`-g` large / `--all`) without user confirmation.
@@ -194,3 +196,22 @@ angr mechanics: `references/prove.md`. Needs the `[prove]` extra (angr); if
 `compile_drift` / `catalog_resolution_drift` triage: the `rebrew-workflow`
 skill, whose Round-trip Validation section carries the same rules. Use in CI
 alongside `verify --compare`.
+
+## 8. Library Flag Overrides
+
+A library subtree compiles as one unit, so its flags come from
+`rebrew-libraries.toml` instead of per-function CFLAGS:
+
+```bash
+rebrew library set src/bench/crt --preset msvcrt-static   # /O2 /Gd /MT
+rebrew library set src/bench/crt --cflags "/O1 /Gd"      # explicit flags win over the preset
+rebrew library set src/bench/crt --dry-run               # preview the write
+rebrew library show src/bench/crt                       # effective override (walk-up from here)
+rebrew library list                                        # every rebrew-libraries.toml under the root
+rebrew library rm src/bench/crt                         # drop the override (back to project defaults)
+```
+
+Resolution runs most-specific-first: per-function `TOOLCHAIN`/`CFLAGS` in
+`rebrew-functions.toml`, then the nearest `rebrew-libraries.toml` (walk-up),
+then the project default. `--library` and `--preset` both set the same key and
+are mutually exclusive; an unknown preset or profile is a hard error.

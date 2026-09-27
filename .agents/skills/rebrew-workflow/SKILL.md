@@ -4,7 +4,8 @@ description: >-
   Use for day-to-day reversing on an onboarded target: matching C against
   target functions — pick work (`todo`), skeleton, edit, `test`/`diff`, verify,
   lint, round-trip, progress. Triggers on 'reverse', 'reversing',
-  'reverse function', 'match function', 'implement function', 'decompile',
+  'reverse function', 'reverse engineer', 'match function',
+  'implement function', 'decompile',
   'skeleton', 'test function', 'verify', 'lint', 'next function', 'workflow',
   'todo', 'diff', 'asm', 'status', 'coverage', 'progress', 'blocker',
   'rebrew test', 'rebrew verify', 'rebrew skeleton', 'rebrew todo',
@@ -107,6 +108,8 @@ Rebrew filters annotations by the active `--target`. Multiple `// FUNCTION: <MOD
 // FUNCTION: BETA10 0x101832f7
 void my_func() {}
 ```
+
+### Volatile Metadata
 
 > [!CAUTION]
 > **Volatile metadata lives only in `rebrew-functions.toml` at `cfg.metadata_dir`
