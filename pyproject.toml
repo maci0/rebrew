@@ -244,8 +244,12 @@ extend-exclude = [".hypothesis", ".scratch"]
 # class/static method returns).  D100/D104/D106 enforce the module-docstring
 # rule (AGENTS.md); the D2xx/D4xx, COM818, pep8-naming (N), flake8-pyi (PYI), TD,
 # TID252 and FIX001/003/004 (FIXME/XXX/HACK markers) codes below are the
-# zero-finding subset.  Still off: D101-D103/D205/D209/D401 (thousands of findings), N802/N806/N814 (Win32 API names), PYI034/
-# PYI036/PYI056, D203/D206/D213/D300 (formatter or D211/D212 conflicts), and
+# zero-finding subset.  RUF007 (zip over `itertools.pairwise`), RET505 (else
+# after return) and PYI056 (`__all__` += instead of .extend) joined after
+# their 3/5/1 findings were fixed.  Still off: RET504 (the named intermediate
+# reads better than an inlined comprehension), D101-D103/D205/D209/D401
+# (thousands of findings), N802/N806/N814 (Win32 API names), PYI034/
+# PYI036, D203/D206/D213/D300 (formatter or D211/D212 conflicts), and
 # D415 (41 findings: docstring summary lines ending without punctuation).
 select = [
     "E", "F", "W", "I", "UP", "B", "SIM", "C4", "DTZ", "RSE", "EXE", "Q",
@@ -258,7 +262,7 @@ select = [
     "PLC2401", "PLC2403", "PLC3002",
     "PLR0124", "PLR0133", "PLR0206", "PLR1704", "PLR1708", "PLR1716", "PLR1722",
     "PLR1730", "PLR1733", "PLR1736", "PLR2044",
-    "RUF006", "RUF008", "RUF009", "RUF013", "RUF015", "RUF016", "RUF017",
+    "RUF006", "RUF007", "RUF008", "RUF009", "RUF013", "RUF015", "RUF016", "RUF017",
     "RUF018", "RUF019", "RUF020", "RUF024", "RUF026", "RUF028", "RUF030",
     "RUF100",
     "RUF032", "RUF033", "RUF034", "RUF036", "RUF037", "RUF040", "RUF041",
@@ -275,7 +279,7 @@ select = [
     "FURB105", "FURB116", "FURB122", "FURB129", "FURB132", "FURB157", "FURB161",
     "FURB162", "FURB163", "FURB164", "FURB166", "FURB168", "FURB169", "FURB177",
     "FURB181", "FURB187", "FURB192",
-    "PERF101", "PERF102", "PERF203", "RET501", "RET502", "RET503", "RET506",
+    "PERF101", "PERF102", "PERF203", "RET501", "RET502", "RET503", "RET505", "RET506",
     "RET507", "RET508",
     "PIE790", "PIE794", "PIE796", "PIE800", "PIE804", "PIE808",
     "A001", "A003", "A004", "A005", "A006",
@@ -302,7 +306,7 @@ select = [
     "PYI017", "PYI018", "PYI019", "PYI020", "PYI021", "PYI024", "PYI025", "PYI026",
     "PYI029", "PYI030", "PYI032", "PYI033", "PYI035", "PYI041", "PYI042", "PYI043",
     "PYI044", "PYI045", "PYI046", "PYI047", "PYI048", "PYI049", "PYI050", "PYI051",
-    "PYI052", "PYI053", "PYI054", "PYI055", "PYI057", "PYI058", "PYI059", "PYI061",
+    "PYI052", "PYI053", "PYI054", "PYI055", "PYI056", "PYI057", "PYI058", "PYI059", "PYI061",
     "PYI062", "PYI063", "PYI064", "PYI066",
 ]
 # E501: formatter owns wrapping (line-length=100).  B008: Typer Option/Argument

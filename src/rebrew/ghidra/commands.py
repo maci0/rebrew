@@ -291,7 +291,7 @@ def pull_data(
             is_string_type = lower in {"string", "terminatedcstring"}
             if is_string_type and length > 0:
                 return f"extern {c_type} {symbol_name}[{length}];", ""
-            elif is_string_type:
+            if is_string_type:
                 return f"extern {c_type} {symbol_name}[];", ""
             return f"extern {c_type} {symbol_name};", ""
 
