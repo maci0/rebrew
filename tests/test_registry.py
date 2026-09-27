@@ -77,6 +77,66 @@ def _install_fake_module(name: str, **attrs: Any) -> types.ModuleType:
     return mod
 
 
+#: Module globals that ``refresh_*()`` rebinds.  A plugin test that calls a
+#: refresh with a fake entry point would otherwise leave that plugin in the
+#: process-wide registry for every test that runs after it.  The mutation
+#: weight memo is positional over ``ALL_MUTATIONS``, so it is cleared with it.
+_REGISTRY_SNAPSHOTS: tuple[tuple[str, str], ...] = (
+    ("rebrew.binary_loader", "_PLUGIN_LOADERS"),
+    ("rebrew.compile_cache", "_CACHE_BACKENDS"),
+    ("rebrew.decompiler", "_BACKEND_MAP"),
+    ("rebrew.decompiler", "_AUTO_PROBE_BACKENDS"),
+    ("rebrew.discover", "_DISCOVERER_MAP"),
+    ("rebrew.matcher.compiler", "_FLAGS_MAP"),
+    ("rebrew.matcher.compiler", "_TIERS_MAP"),
+    ("rebrew.matcher.mutator", "ALL_MUTATIONS"),
+    ("rebrew.metadata", "_LIBRARY_PRESETS_ALL"),
+    ("rebrew.registry", "_entry_points_snapshot"),
+    ("rebrew.toolchain", "TOOLCHAINS"),
+    ("rebrew.toolchain", "TOOLCHAIN_ORIGINS"),
+    ("rebrew.toolchain_detect", "_LINKER_ERA_PROFILES_ALL"),
+    ("rebrew.toolchain_detect", "_PLUGIN_DETECTORS"),
+    ("rebrew.toolchain_detect", "_PROFILE_COMPAT_ALL"),
+    ("rebrew.toolchain_detect", "_RICH_BUILD_PROFILES_ALL"),
+)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_registry_state() -> Any:
+    """Keep refresh-induced registry changes test-local.
+
+    The ``refresh_*`` functions rebind module globals, so without this a
+    plugin registered by one test stays in the process-wide registry for
+    every test that runs after it.
+    """
+    import importlib
+
+    from rebrew.matcher import mutator
+
+    saved: list[tuple[Any, str, Any]] = []
+    for mod_name, attr in _REGISTRY_SNAPSHOTS:
+        module = importlib.import_module(mod_name)
+        if hasattr(module, attr):
+            saved.append((module, attr, getattr(module, attr)))
+    yield
+    for module, attr, value in saved:
+        setattr(module, attr, value)
+    mutator._mutation_weight_list.cache_clear()
+
+
+def test_registry_snapshot_table_matches_production() -> None:
+    """Every entry in the isolation table must resolve, or a renamed global
+    silently drops out of the fixture and plugin tests start leaking again."""
+    import importlib
+
+    missing = [
+        f"{mod_name}.{attr}"
+        for mod_name, attr in _REGISTRY_SNAPSHOTS
+        if not hasattr(importlib.import_module(mod_name), attr)
+    ]
+    assert not missing, missing
+
+
 def _activate_cli_plugins(app: typer.Typer, existing: set[str] | None = None) -> Any:
     """Mount third-party CLI components onto *app*.
 

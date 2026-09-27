@@ -304,6 +304,63 @@ def _mcp_result(text_content: str) -> dict:
 
 
 class TestGhidraBackend:
+    def test_requests_get_decompilation_for_the_address(self) -> None:
+        """The ReVa tool name and argument keys are the whole contract with
+        Ghidra; a canned-response mock would hide a typo in either."""
+        import json
+
+        mock_client = _mock_httpx_client(_mcp_result(json.dumps("int foo(void) { return 42; }")))
+
+        with (
+            patch(
+                "rebrew.decompiler.importlib.import_module",
+                side_effect=_make_sync_import_mock(),
+            ),
+            patch("httpx.Client", return_value=mock_client),
+        ):
+            assert fetch_ghidra(Path("/fake/target.dll"), 0x1000) == "int foo(void) { return 42; }"
+
+        calls = [c for c in mock_client.post.call_args_list if c.kwargs.get("json")]
+        methods = [c.kwargs["json"].get("method") for c in calls]
+        assert methods == ["initialize", "tools/call"], methods
+        assert calls[0].args[0] == "http://localhost:8080/mcp/message"
+        assert calls[1].args[0] == "http://localhost:8080/mcp/message"
+        assert calls[1].kwargs["json"]["params"] == {
+            "name": "get-decompilation",
+            "arguments": {"programPath": "/target.dll", "functionNameOrAddress": "0x00001000"},
+        }
+
+    def test_explicit_program_path_and_endpoint_are_forwarded(self) -> None:
+        import json
+
+        mock_client = _mock_httpx_client(_mcp_result(json.dumps("int bar(void) { return 1; }")))
+
+        with (
+            patch(
+                "rebrew.decompiler.importlib.import_module",
+                side_effect=_make_sync_import_mock(),
+            ),
+            patch("httpx.Client", return_value=mock_client),
+        ):
+            fetch_ghidra(
+                Path("/fake/target.dll"),
+                0x20,
+                program_path="/srv/target.dll",
+                endpoint="http://g:9999/mcp",
+            )
+
+        urls = {c.args[0] for c in mock_client.post.call_args_list if c.args}
+        assert urls == {"http://g:9999/mcp"}, urls
+        tool_call = next(
+            c
+            for c in mock_client.post.call_args_list
+            if c.kwargs.get("json", {}).get("method") == "tools/call"
+        )
+        assert tool_call.kwargs["json"]["params"]["arguments"] == {
+            "programPath": "/srv/target.dll",
+            "functionNameOrAddress": "0x00000020",
+        }
+
     def test_returns_string_result(self) -> None:
         import json
 
