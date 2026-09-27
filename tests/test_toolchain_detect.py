@@ -647,7 +647,12 @@ class TestOptLevelFingerprint:
     def _msvc_die() -> ToolchainInfo:
         return ToolchainInfo(family="msvc", confidence="high", detected_by="die")
 
-    def _run(self, monkeypatch: object, text_bytes: bytes) -> ToolchainInfo:
+    def _run(
+        self,
+        monkeypatch: object,
+        text_bytes: bytes,
+        exclude: list[tuple[int, int]] | None = None,
+    ) -> ToolchainInfo:
         import rebrew.toolchain_detect as td
 
         monkeypatch.setattr(td, "_run_diec", lambda *a, **k: None)
@@ -662,7 +667,7 @@ class TestOptLevelFingerprint:
         )
         from rebrew.toolchain_detect import detect_toolchain
 
-        return detect_toolchain(Path("/tmp/nonexistent-prog.exe"))
+        return detect_toolchain(Path("/tmp/nonexistent-prog.exe"), exclude_ranges=exclude)
 
     def test_o2_style(self, monkeypatch: object, tmp_path: Path) -> None:
         wrapper = bytes.fromhex("8b 44 24 04 50 e8 00 00 00 00 83 c4 04 c3")
@@ -679,6 +684,28 @@ class TestOptLevelFingerprint:
         o2 = bytes.fromhex("8b 44 24 04 50 e8 00 00 00 00 83 c4 04 c3")
         info = self._run(monkeypatch, (o1 + o2) * 4)
         assert info.opt_level.startswith("mixed")
+
+    def test_library_band_does_not_make_the_program_mixed(
+        self, monkeypatch: object, tmp_path: Path
+    ) -> None:
+        o1 = bytes.fromhex("ff 74 24 04 e8 00 00 00 00 59 c3")
+        o2 = bytes.fromhex("8b 44 24 04 50 e8 00 00 00 00 83 c4 04 c3")
+        text = o1 * 4 + o2 * 4
+        # text_va is 0x1000. The /O1 copies occupy the first band.
+        info = self._run(monkeypatch, text, exclude=[(0x1000, 0x1000 + len(o1) * 4 - 1)])
+        assert info.opt_level == "/O2"
+        assert info.o1_wrapper_sites == []
+        assert len(info.o2_wrapper_sites) == 4
+
+    def test_opt_level_without_library_keeps_program_style(self) -> None:
+        from rebrew.toolchain_detect import opt_level_without_library
+
+        # 3 /O2 sites, one of them in the CRT; all 4 /O1 sites in the CRT.
+        assert opt_level_without_library(3, 4, 1, 4) == "/O2"
+        assert opt_level_without_library(4, 3, 4, 1) == "/O1"
+        assert opt_level_without_library(4, 4, 4, 4) == ""
+        assert opt_level_without_library(3, 4, 0, 0) is None
+        assert opt_level_without_library(4, 4, 1, 1) == "mixed (/O1 + /O2)"
 
     def test_no_wrapper_evidence_inconclusive(self, monkeypatch: object, tmp_path: Path) -> None:
         info = self._run(monkeypatch, b"\x55\x8b\xec" * 10)

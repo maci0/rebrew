@@ -575,6 +575,25 @@ class TestBuildSigsRobustness:
         assert n == 1  # the good lib still produced a .pat
         assert (cfg.root / "flirt_sigs" / "good_vc6.pat").is_file()
 
+    def test_import_lib_keeps_no_pat(self, tmp_path: Path) -> None:
+        """An archive with no code must not leave the ``---``-only file doctor flags."""
+        from rebrew.identify_library import build_flirt_sigs
+
+        lib_dir = tmp_path / "tools" / "msvc-6.0-win32" / "VC98" / "Lib"
+        lib_dir.mkdir(parents=True)
+        (lib_dir / "KERNEL32.lib").write_bytes(b"!<arch>\n")
+        cfg = SimpleNamespace(
+            root=tmp_path,
+            target_binary=tmp_path / "x.exe",
+            reversed_dir=tmp_path / "src",
+            metadata_dir=tmp_path,
+        )
+        pat = cfg.root / "flirt_sigs" / "kernel32_vc6.pat"
+        pat.parent.mkdir(parents=True)
+        pat.write_text("---\n", encoding="utf-8")
+        assert build_flirt_sigs(cfg) == 0
+        assert not pat.is_file()
+
 
 @given(st.from_regex(r"[a-z0-9_]+_vc\d+\.(?:pat|sig)", fullmatch=True))
 @settings(max_examples=100, deadline=None)
