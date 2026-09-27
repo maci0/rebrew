@@ -425,389 +425,117 @@ class TestRebrewTestBatchJson:
 
 
 # ---------------------------------------------------------------------------
-# rebrew-next JSON modes (unit tests on data structures)
-# ---------------------------------------------------------------------------
-
-
-class TestNextJsonSchemas:
-    # Schema contract test — validates expected structure
-    """Validate JSON schema shapes for rebrew-next modes."""
-
-    def test_stats_schema(self) -> None:
-        """Stats mode JSON should have expected keys."""
-        stats = {
-            "mode": "stats",
-            "total": 1200,
-            "covered": 450,
-            "coverage_pct": 37.5,
-            "by_status": {"EXACT": 200, "RELOC": 150},
-            "by_origin": {"GAME": 300},
-            "unmatchable": 120,
-            "actionable": 630,
-        }
-        serialized = json.dumps(stats)
-        parsed = json.loads(serialized)
-        assert parsed["mode"] == "stats"
-        assert "coverage_pct" in parsed
-        assert "by_status" in parsed
-
-    def test_recommendations_schema(self) -> None:
-        """Recommendations mode JSON should have expected keys."""
-        recs = {
-            "mode": "recommendations",
-            "total_uncovered": 342,
-            "count": 1,
-            "items": [
-                {
-                    "rank": 1,
-                    "va": "0x10003da0",
-                    "size": 160,
-                    "difficulty": 3,
-                    "origin": "GAME",
-                    "name": "func_name",
-                    "reason": "medium function",
-                    "neighbor_file": None,
-                }
-            ],
-        }
-        serialized = json.dumps(recs)
-        parsed = json.loads(serialized)
-        assert parsed["mode"] == "recommendations"
-        assert len(parsed["items"]) == 1
-        assert "rank" in parsed["items"][0]
-
-    def test_improving_schema(self) -> None:
-        improving = {
-            "mode": "improving",
-            "total": 5,
-            "count": 1,
-            "items": [
-                {
-                    "va": "0x10003da0",
-                    "size": 160,
-                    "byte_delta": 2,
-                    "origin": "GAME",
-                    "filename": "func.c",
-                    "blocker": "register allocation",
-                }
-            ],
-        }
-        parsed = json.loads(json.dumps(improving))
-        assert parsed["mode"] == "improving"
-        assert parsed["items"][0]["byte_delta"] == 2
-        assert parsed["total"] >= parsed["count"]
-
-    def test_unmatchable_schema(self) -> None:
-        unmatchable = {
-            "mode": "unmatchable",
-            "total": 120,
-            "count": 1,
-            "items": [{"va": "0x10001000", "size": 6, "name": "thunk", "reason": "IAT jmp"}],
-        }
-        parsed = json.loads(json.dumps(unmatchable))
-        assert parsed["mode"] == "unmatchable"
-        assert "reason" in parsed["items"][0]
-        assert parsed["total"] >= parsed["count"]
-
-    def test_groups_schema(self) -> None:
-        groups = {
-            "mode": "groups",
-            "group_count": 1,
-            "singleton_count": 5,
-            "groups": [
-                {
-                    "group_id": 1,
-                    "function_count": 2,
-                    "total_size": 320,
-                    "va_range": ["0x10001000", "0x100010a0"],
-                    "neighbor_file": None,
-                    "functions": [
-                        {
-                            "va": "0x10001000",
-                            "size": 160,
-                            "difficulty": 2,
-                            "origin": "GAME",
-                            "name": "func_a",
-                        },
-                    ],
-                }
-            ],
-        }
-        parsed = json.loads(json.dumps(groups))
-        assert parsed["mode"] == "groups"
-        assert parsed["groups"][0]["function_count"] == 2
-
-
-# ---------------------------------------------------------------------------
-# rebrew-asm JSON schema
+# rebrew-asm / rebrew-flirt --json schema
 # ---------------------------------------------------------------------------
 
 
 class TestAsmJsonSchema:
-    # Schema contract test — validates expected structure
-    """Validate JSON schema shape for rebrew-asm."""
+    """``rebrew asm --json`` payload, built by the real dump path.
 
-    def test_asm_schema(self) -> None:
-        asm_output = {
-            "va": "0x10003da0",
-            "size": 8,
-            "instruction_count": 3,
-            "instructions": [
-                {"address": "0x10003da0", "bytes": "55", "mnemonic": "push", "operands": "ebp"},
-                {
-                    "address": "0x10003da1",
-                    "bytes": "8bec",
-                    "mnemonic": "mov",
-                    "operands": "ebp, esp",
-                },
-                {"address": "0x10003da3", "bytes": "c3", "mnemonic": "ret", "operands": ""},
-            ],
-        }
-        parsed = json.loads(json.dumps(asm_output))
-        assert parsed["instruction_count"] == 3
-        assert parsed["instructions"][0]["mnemonic"] == "push"
+    The keys are the ones ``rebrew.asm._run_hex_mode`` prints; a field rename
+    or a dropped annotation must fail here.
+    """
 
-    def test_asm_required_keys(self) -> None:
-        """Each instruction should have all required keys."""
-        asm_output = {
-            "va": "0x10003da0",
-            "size": 5,
-            "instruction_count": 1,
-            "instructions": [
-                {"address": "0x10003da0", "bytes": "55", "mnemonic": "push", "operands": "ebp"},
-            ],
-        }
-        required_top = {"va", "size", "instruction_count", "instructions"}
-        assert required_top == set(asm_output.keys())
-        required_insn = {"address", "bytes", "mnemonic", "operands"}
-        assert required_insn == set(asm_output["instructions"][0].keys())
+    _CODE = b"\x55\x8b\xec\x5d\xc3"
 
+    def _cfg(self, tmp_path: Path) -> SimpleNamespace:
+        from capstone import CS_ARCH_X86, CS_MODE_32
 
-# ---------------------------------------------------------------------------
-# rebrew-flirt --json schema
-# ---------------------------------------------------------------------------
+        src = tmp_path / "src" / "SERVER"
+        src.mkdir(parents=True, exist_ok=True)
+        return SimpleNamespace(
+            root=tmp_path,
+            target_name="SERVER",
+            target_binary=tmp_path / "fake.dll",
+            reversed_dir=src,
+            metadata_dir=tmp_path,
+            marker="SERVER",
+            source_ext=".c",
+            compiler_profile="msvc",
+            capstone_arch=CS_ARCH_X86,
+            capstone_mode=CS_MODE_32,
+        )
+
+    def test_asm_schema(self, tmp_path: Path, monkeypatch: Any, capsys: Any) -> None:
+        from rebrew.asm import _run_hex_mode
+
+        cfg = self._cfg(tmp_path)
+        (tmp_path / "fake.dll").write_bytes(b"MZ")
+        monkeypatch.setattr("rebrew.binary_loader.extract_raw_bytes", lambda *a, **k: self._CODE)
+        _run_hex_mode(0x10003DA0, len(self._CODE), cfg, False, True)
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["va"] == "0x10003da0"
+        assert payload["size"] == len(self._CODE)
+        assert payload["truncated"] is False
+        assert payload["instruction_count"] == len(payload["instructions"])
+        assert payload["instruction_count"] == 4  # push/mov/pop/ret
+        first = payload["instructions"][0]
+        assert set(first) == {"address", "bytes", "mnemonic", "operands"}
+        assert first["address"] == "0x10003da0"
+        assert first["mnemonic"] == "push"
+        assert first["bytes"] == "55"
+
+    def test_asm_truncation_fields(self, tmp_path: Path, monkeypatch: Any, capsys: Any) -> None:
+        """A short image reports the request and the truncation, not a short dump."""
+        from rebrew.asm import _run_hex_mode
+
+        cfg = self._cfg(tmp_path)
+        (tmp_path / "fake.dll").write_bytes(b"MZ")
+        monkeypatch.setattr("rebrew.binary_loader.extract_raw_bytes", lambda *a, **k: self._CODE)
+        _run_hex_mode(0x10003DA0, 100, cfg, False, True)
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["truncated"] is True
+        assert payload["requested_size"] == 100
+        assert payload["size"] == len(self._CODE)
 
 
 class TestFlirtJsonSchema:
-    # Schema contract test — validates expected structure
-    """Validate JSON schema shapes for rebrew-flirt --json output."""
+    """``rebrew flirt --json`` payloads, produced by the real command."""
 
-    def test_full_output_schema(self) -> None:
-        """Full --json output should have all expected top-level keys."""
-        output = {
-            "binary": "original/server.dll",
-            "sig_dir": "flirt_sigs",
-            "signature_count": 42,
-            "text_size": 524288,
-            "min_size": 16,
-            "match_count": 15,
-            "skipped_ambiguous": 3,
-            "matches": [
-                {"va": "0x10003da0", "size": 160, "names": ["_malloc"]},
-            ],
-        }
-        serialized = json.dumps(output)
-        parsed = json.loads(serialized)
-        required_keys = {
-            "binary",
-            "sig_dir",
-            "signature_count",
-            "text_size",
-            "min_size",
-            "match_count",
-            "skipped_ambiguous",
-            "matches",
-        }
-        assert required_keys == set(parsed.keys())
+    _PROJECT_TOML = """\
+[project]
+name = "flirt-probe"
+default_target = "SERVER"
+jobs = 1
 
-    def test_match_entry_structure(self) -> None:
-        # Schema contract test — documents expected shape of a match entry
-        """Each match entry should have va, size, and names."""
-        entry = {"va": "0x10003da0", "size": 160, "names": ["_malloc", "__alloca"]}
-        assert isinstance(entry["va"], str)
-        assert entry["va"].startswith("0x")
-        assert isinstance(entry["size"], int)
-        assert isinstance(entry["names"], list)
-        assert len(entry["names"]) > 0
+[targets."SERVER"]
+binary = "original/mini_pe.exe"
+format = "pe"
+arch = "x86_32"
+reversed_dir = "src/SERVER"
+bin_dir = "bin/SERVER"
+source_ext = ".c"
+marker = "SERVER"
+"""
 
-    def test_empty_matches(self) -> None:
-        """Output with zero matches should be valid JSON with empty matches list."""
-        output = {
-            "binary": "original/server.dll",
-            "sig_dir": "flirt_sigs",
-            "signature_count": 42,
-            "text_size": 524288,
-            "min_size": 16,
-            "match_count": 0,
-            "skipped_ambiguous": 0,
-            "matches": [],
-        }
-        parsed = json.loads(json.dumps(output))
-        assert parsed["match_count"] == 0
-        assert parsed["matches"] == []
+    def _project(self, tmp_path: Path) -> Path:
+        from bin_util import make_pe
 
-    def test_error_json_shape(self) -> None:
-        """Error JSON should have 'error' and 'sig_dir' keys."""
-        error_output = {"error": "No signatures loaded", "sig_dir": "flirt_sigs"}
-        parsed = json.loads(json.dumps(error_output))
-        assert "error" in parsed
-        assert "sig_dir" in parsed
+        root = tmp_path / "project"
+        (root / "original").mkdir(parents=True)
+        (root / "src" / "SERVER").mkdir(parents=True)
+        (root / "rebrew-project.toml").write_text(self._PROJECT_TOML, encoding="utf-8")
+        (root / "original" / "mini_pe.exe").write_bytes(make_pe(b"\xc3"))
+        return root
 
-    def test_json_serializable(self) -> None:
-        """Full output should round-trip through JSON."""
-        output = {
-            "binary": "original/server.dll",
-            "sig_dir": "flirt_sigs",
-            "signature_count": 10,
-            "text_size": 1024,
-            "min_size": 16,
-            "match_count": 2,
-            "skipped_ambiguous": 1,
-            "matches": [
-                {"va": "0x10001000", "size": 32, "names": ["_free"]},
-                {"va": "0x10002000", "size": 64, "names": ["_malloc", "_realloc"]},
-            ],
-        }
-        serialized = json.dumps(output)
-        parsed = json.loads(serialized)
-        assert parsed["match_count"] == 2
-        assert len(parsed["matches"]) == 2
-        assert parsed["matches"][0]["names"] == ["_free"]
-        assert parsed["matches"][1]["size"] == 64
+    def test_missing_signatures_error_json(self, tmp_path: Path, monkeypatch: Any) -> None:
+        """No signatures loaded is a JSON error object, not a bare traceback."""
+        from typer.testing import CliRunner
 
+        import rebrew.flirt as flirt_mod
+        from rebrew.flirt import app
 
-# ---------------------------------------------------------------------------
-# rebrew-promote --json schema
-# ---------------------------------------------------------------------------
-
-
-class TestPromoteJsonSchema:
-    # Schema contract test — validates expected structure
-    """Validate JSON schema shapes for rebrew promote --json output."""
-
-    def test_promote_success_schema(self) -> None:
-        output = {
-            "source": "src/server.dll/func.c",
-            "results": [
-                {
-                    "va": "0x10003da0",
-                    "symbol": "_func",
-                    "status": "RELOC",
-                    "previous_status": "STUB",
-                    "new_status": "RELOC",
-                    "action": "promoted",
-                    "match_count": 160,
-                    "total": 160,
-                    "reloc_count": 3,
-                }
-            ],
-        }
-        parsed = json.loads(json.dumps(output))
-        assert parsed["results"][0]["action"] == "promoted"
-        assert parsed["results"][0]["new_status"] == "RELOC"
-
-    def test_promote_no_change_schema(self) -> None:
-        output = {
-            "source": "src/server.dll/func.c",
-            "results": [
-                {
-                    "va": "0x10003da0",
-                    "symbol": "_func",
-                    "status": "MISMATCH",
-                    "previous_status": "STUB",
-                    "new_status": "STUB",
-                    "action": "no_change",
-                    "match_count": 100,
-                    "total": 160,
-                    "reloc_count": 0,
-                }
-            ],
-        }
-        parsed = json.loads(json.dumps(output))
-        assert parsed["results"][0]["action"] == "no_change"
-
-    def test_promote_json_serializable(self) -> None:
-        output = {
-            "source": "src/server.dll/func.c",
-            "results": [],
-        }
-        serialized = json.dumps(output)
-        parsed = json.loads(serialized)
-        assert parsed["source"] == "src/server.dll/func.c"
-
-
-# ---------------------------------------------------------------------------
-# rebrew-triage --json schema
-# ---------------------------------------------------------------------------
-
-
-class TestTriageJsonSchema:
-    # Schema contract test — validates expected structure
-    """Validate JSON schema shapes for rebrew triage --json output."""
-
-    def test_triage_full_schema(self) -> None:
-        output = {
-            "coverage": {
-                "total": 1200,
-                "covered": 450,
-                "coverage_pct": 37.5,
-                "exact": 200,
-                "reloc": 150,
-                "matching": 80,
-                "stub": 20,
-                "unmatchable": 120,
-                "actionable": 630,
-            },
-            "near_miss": [
-                {
-                    "va": "0x10003da0",
-                    "size": 160,
-                    "byte_delta": 2,
-                    "filename": "func.c",
-                    "blocker": "",
-                },
-            ],
-            "near_miss_total": 80,
-            "recommendations": [
-                {
-                    "va": "0x10004000",
-                    "size": 64,
-                    "difficulty": 2,
-                    "origin": "GAME",
-                    "name": "small_func",
-                    "reason": "small function",
-                    "suggested_file": "src/server.dll/func.c",
-                    "suggested_action": "create",
-                },
-            ],
-        }
-        parsed = json.loads(json.dumps(output))
-        assert "coverage" in parsed
-        assert "near_miss" in parsed
-        assert "recommendations" in parsed
-        assert parsed["coverage"]["coverage_pct"] == 37.5
-        assert parsed["near_miss_total"] >= len(parsed["near_miss"])
-
-    def test_triage_with_flirt(self) -> None:
-        output = {
-            "coverage": {
-                "total": 100,
-                "covered": 50,
-                "coverage_pct": 50.0,
-                "exact": 30,
-                "reloc": 15,
-                "matching": 5,
-                "stub": 0,
-                "unmatchable": 10,
-                "actionable": 40,
-            },
-            "near_miss": [],
-            "near_miss_total": 0,
-            "recommendations": [],
-            "flirt_matches": 25,
-        }
-        parsed = json.loads(json.dumps(output))
-        assert parsed["flirt_matches"] == 25
+        root = self._project(tmp_path)
+        monkeypatch.chdir(root)
+        monkeypatch.setattr(flirt_mod, "_flirt_sigs_repo", lambda: root / "no-sigs")
+        monkeypatch.setattr(flirt_mod, "flirt", object())
+        monkeypatch.delenv("REBREW_FLIRT_SIGS_DIR", raising=False)
+        # A wide terminal keeps rich from wrapping the JSON across lines.
+        result = CliRunner().invoke(app, ["--json"], env={"COLUMNS": "400"})
+        assert result.exit_code != 0
+        payload = json.loads(result.output[result.output.index("{") :])
+        assert "error" in payload
+        assert "signature" in payload["error"].lower()
 
 
 class TestRebrewTestBatchDir:
@@ -1203,7 +931,8 @@ class TestForceStatus:
         cfg = self._patch(monkeypatch, tmp_path, "STUB", seed="SKIP")
         src = cfg.reversed_dir / "my_func.c"
         args = ["--va", "0x1000", "--size", "3", "--json", str(src)]
-        CliRunner().invoke(app, args)
+        first = CliRunner().invoke(app, args)
+        assert first.exit_code == 1
         assert get_entry(cfg.metadata_dir, 0x1000, "SERVER").get("status") == "SKIP"
         CliRunner().invoke(app, ["--force-status", *args])
         assert get_entry(cfg.metadata_dir, 0x1000, "SERVER").get("status") == "STUB"

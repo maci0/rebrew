@@ -1985,6 +1985,9 @@ profile = "msvc-6.0"
         cfg.llm_api_key = "super-secret-key-123"
         repr_str = repr(cfg)
         assert "super-secret-key-123" not in repr_str
+        # A repr that redacted everything would pass the line above alone.
+        assert "target_name='main'" in repr_str
+        assert str(root) in repr_str
 
     def test_project_config_as_dict_redaction(self, tmp_path: Path) -> None:
         root = _make_project(tmp_path, self.BASE_TOML)

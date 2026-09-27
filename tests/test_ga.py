@@ -1,5 +1,6 @@
 """Tests for batch GA and flag sweep logic in rebrew.match."""
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -712,21 +713,7 @@ class TestRunAllParallel:
         monkeypatch.setattr("rebrew.match_run.find_all_stubs", lambda *a, **k: stubs)
         seen: list[tuple[str, int]] = []
 
-        def _fake_run(
-            stub,
-            cfg,
-            generations,
-            pop,
-            jobs,
-            timeout,
-            seeds=None,
-            cflags_override=None,
-            rng_seed=None,
-            resume_from=None,
-            mutation_weights=None,
-            solutions_out=None,
-            collect_pairs_path=None,
-        ):
+        def _fake_run(stub, cfg, generations, pop, jobs, timeout, *args, **kwargs):
             seen.append((stub.symbol, jobs))
             return False, "best_score=5.00", 5.0, 3, None
 
@@ -756,6 +743,10 @@ class TestRunAllParallel:
         # concurrency at ~jobs in the parallel path.
         assert sorted(s for s, _j in seen) == ["_s0", "_s1", "_s2"]
         assert all(j == 1 for _, j in seen)
+        # The JSON results array keeps submission order, which the parallel
+        # path only holds if results are collected through ``executor.map``.
+        payload = json.loads(capsys.readouterr().out)
+        assert [r["symbol"] for r in payload["results"]] == ["_s0", "_s1", "_s2"]
 
     def test_write_pair_dedups_across_reruns(self, tmp_path: Path) -> None:
         """Re-appending the same source/bytes/cflags/symbol must be a no-op."""
@@ -942,21 +933,7 @@ class TestRunAllParallel:
         monkeypatch.setattr("rebrew.match_run.find_all_stubs", lambda *a, **k: stubs)
         seen: list[int] = []
 
-        def _fake_run(
-            stub,
-            cfg,
-            generations,
-            pop,
-            jobs,
-            timeout,
-            seeds=None,
-            cflags_override=None,
-            rng_seed=None,
-            resume_from=None,
-            mutation_weights=None,
-            solutions_out=None,
-            collect_pairs_path=None,
-        ):
+        def _fake_run(stub, cfg, generations, pop, jobs, timeout, *args, **kwargs):
             seen.append(jobs)
             return False, "best_score=5.00", 5.0, 3, None
 
@@ -1206,21 +1183,8 @@ class TestSweepThenGa:
 
         monkeypatch.setattr("rebrew.match_run.run_flag_sweep", _fake_sweep)
 
-        def _fake_run(
-            stub,
-            cfg,
-            generations,
-            pop,
-            jobs,
-            timeout,
-            seeds=None,
-            cflags_override=None,
-            rng_seed=None,
-            resume_from=None,
-            mutation_weights=None,
-            solutions_out=None,
-            collect_pairs_path=None,
-        ):
+        def _fake_run(stub, cfg, generations, pop, jobs, timeout, *args, **kwargs):
+            cflags_override = kwargs.get("cflags_override")
             seen["override"] = cflags_override
             return False, "best_score=5.00", 5.0, 3, None
 
@@ -2192,23 +2156,11 @@ class TestCrossProjectSeeding:
         monkeypatch.setattr("rebrew.matcher.load_solutions_file", lambda p: extra)
         seen: dict[str, Any] = {}
 
-        def _fake_run(
-            stub,
-            cfg,
-            generations,
-            pop,
-            jobs,
-            timeout,
-            seeds=None,
-            cflags_override=None,
-            rng_seed=None,
-            resume_from=None,
-            mutation_weights=None,
-            solutions_out=None,
-            collect_pairs_path=None,
-        ):
+        def _fake_run(stub, cfg, generations, pop, jobs, timeout, *args, **kwargs):
+            cflags_override = kwargs.get("cflags_override")
             seen["cflags_override"] = cflags_override
-            seen["seeds"] = seeds
+            # extra_seed_paths is the first argument after timeout.
+            seen["seeds"] = args[0] if args else kwargs.get("extra_seed_paths")
             return False, "best_score=5.00", 5.0, 3, None
 
         monkeypatch.setattr("rebrew.match_run._run_one_stub_ga", _fake_run)

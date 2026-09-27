@@ -95,7 +95,7 @@ class TestCountDetectionSources:
     def test_empty_registry(self) -> None:
         assert count_detection_sources({}) == (0, 0, 0, 0)
 
-    def test_breakdown(self) -> None:
+    def test_breakdown(self, tmp_path: Path) -> None:
         cfg = ProjectConfig(
             root=Path("/tmp"),
             iat_thunks=[0x10004000],
@@ -106,7 +106,7 @@ class TestCountDetectionSources:
             {"va": 0x10001000, "size": 64, "name": "_a"},  # list only
             {"va": 0x10002000, "size": 64, "name": "_b"},  # list + ghidra
         ]
-        ghidra_json = Path("/tmp") / "function_structure.json"
+        ghidra_json = tmp_path / "function_structure.json"
         ghidra_json.write_text(
             json.dumps(
                 [
@@ -340,6 +340,13 @@ class TestCatalogFunctional:
         (tmp_path / "readme.txt").write_text("ignore me", encoding="utf-8")
         entries = scan_reversed_dir(tmp_path)
         assert len(entries) == 1
+        e = entries[0]
+        assert e.va == 0x10001000
+        assert e.name == "_my_func"
+        assert e.module == "SERVER"
+        assert e.size == 64
+        assert e.cflags == "/O2 /Gd"
+        assert e.marker_type == "FUNCTION"
 
     def test_r2_bogus_vas_via_config(self, tmp_path: Path) -> None:
         from pathlib import Path

@@ -1212,15 +1212,12 @@ class TestHandle:
         """A rogue query cannot mutate the database (mode=ro)."""
         import sqlite3
 
-        from rebrew.workspace import open_sqlite_ro
-
         status, _, _ = dashboard.handle("GET", "/api/targets", {})
         assert status == 200
-        # Attempt a write through a fresh ro connection must fail.
-        with pytest.raises(sqlite3.OperationalError):
-            conn = open_sqlite_ro(dashboard.db_path)
-            with conn:
-                conn.execute("CREATE TABLE evil (x)")
+        # The connection the dashboard itself hands out must be read-only;
+        # a read-write handle here would let any query mutate the workspace.
+        with pytest.raises(sqlite3.OperationalError), dashboard._conn() as conn:
+            conn.execute("CREATE TABLE evil (x)")
 
     def test_reserved_path_chars_open_read_only(self, tmp_path: Path) -> None:
         """DB filenames with ``?``/``#`` must still open via the percent-encoded URI."""

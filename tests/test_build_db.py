@@ -1406,7 +1406,27 @@ binary = "test.exe"
         c.execute("PRAGMA foreign_key_list(cells)")
         rows = c.fetchall()
         conn.close()
-        assert any(row[2] == "sections" for row in rows)
+        assert any(row[2] == "sections" and row[6].upper() == "CASCADE" for row in rows)
+
+    def test_deleting_sections_cascades_to_cell_rows(self, project_root: Path) -> None:
+        """A scoped rebuild deletes the target's sections; cells must follow.
+
+        ``build-db --target X`` runs ``PRAGMA foreign_keys=ON`` and then
+        ``DELETE FROM sections WHERE target = ?``.  Without the cascade the
+        stale rows survive and the rebuild reports the old coverage.
+        """
+        from rebrew.workspace import SECTION_CELLS_TABLE
+
+        build_db(project_root)
+        conn = sqlite3.connect(project_root / "db" / "coverage.db")
+        c = conn.cursor()
+        assert c.execute("SELECT COUNT(*) FROM cells").fetchone()[0] > 0
+        assert c.execute(f"SELECT COUNT(*) FROM {SECTION_CELLS_TABLE}").fetchone()[0] > 0
+        c.execute("PRAGMA foreign_keys = ON")
+        c.execute("DELETE FROM sections WHERE target = 'testbin'")
+        assert c.execute("SELECT COUNT(*) FROM cells").fetchone()[0] == 0
+        assert c.execute(f"SELECT COUNT(*) FROM {SECTION_CELLS_TABLE}").fetchone()[0] == 0
+        conn.close()
 
     def test_section_cells_json_references_sections(self, project_root: Path) -> None:
         """Derived cell-JSON cache must CASCADE with sections like cells do."""
@@ -1418,7 +1438,7 @@ binary = "test.exe"
         c.execute(f"PRAGMA foreign_key_list({SECTION_CELLS_TABLE})")
         rows = c.fetchall()
         conn.close()
-        assert any(row[2] == "sections" for row in rows)
+        assert any(row[2] == "sections" and row[6].upper() == "CASCADE" for row in rows)
 
     def test_section_cell_stats_references_sections(self, project_root: Path) -> None:
         """Derived cell stats must CASCADE with sections like cells and section_cells_json do."""
