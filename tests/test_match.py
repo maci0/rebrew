@@ -392,6 +392,93 @@ class TestGAReplay:
         assert snapshots[0] == snapshots[1] == snapshots[2] == snapshots[3]
 
 
+class TestGAVirtualClockReplay:
+    """``run(clock=)`` is the whole time budget seam: a replay driven by a
+    virtual clock must land on the same generation, population, and bytes as
+    the run it replays, however long the compiles really took."""
+
+    @staticmethod
+    def _virtual_clock(step: float) -> Any:
+        """A clock that advances by *step* on every read."""
+        now = 0.0
+
+        def clock() -> float:
+            nonlocal now
+            value = now
+            now += step
+            return value
+
+        return clock
+
+    @staticmethod
+    def _seeded_run(
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        clock: Any,
+        deadline: float,
+    ) -> tuple[Any, ...]:
+        from rebrew.matcher import BuildResult
+
+        ga = _make_ga(tmp_path, num_jobs=4, num_generations=8)
+        ga.population = [f"int f(void) {{ return {i}; }}" for i in range(8)]
+        # Flat fitness: no generation can beat generation 0, so the run is
+        # ended by the deadline alone and never by stagnation or a match.
+        monkeypatch.setattr(
+            ga,
+            "_compile_source",
+            lambda src: BuildResult(ok=True, obj_bytes=b"\x90", fitness=100.0),
+        )
+        with ga:
+            result = ga.run(deadline=deadline, clock=clock)
+            return (
+                result,
+                ga.generation,
+                ga.elapsed_sec,
+                list(ga.population),
+                ga.rng.getstate(),
+                (ga.out_dir / "best.c").read_bytes(),
+                (ga.out_dir / "checkpoints" / "_f.json").read_bytes(),
+            )
+
+    def test_same_seed_and_virtual_time_replay_byte_for_byte(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        first = self._seeded_run(tmp_path / "a", monkeypatch, self._virtual_clock(1.0), 10.0)
+        second = self._seeded_run(tmp_path / "b", monkeypatch, self._virtual_clock(1.0), 10.0)
+        assert first == second
+
+    def test_deadline_ends_the_run_before_the_generation_budget(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A budget expressed in virtual time, not in generations: the same
+        seed stops at the same generation on a machine that compiles slowly
+        and on one that compiles fast."""
+        ga_generation = self._seeded_run(tmp_path, monkeypatch, self._virtual_clock(1.0), 10.0)[1]
+        assert 0 < ga_generation < 8
+
+    def test_injected_clock_is_the_only_time_source(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A stray wall-clock read inside the loop would re-decouple a replay
+        from its seed, so the fallback must stay unreferenced once ``clock``
+        is supplied."""
+
+        def _boom() -> float:
+            raise AssertionError("run() read the wall clock despite an injected clock")
+
+        monkeypatch.setattr(time, "monotonic", _boom)
+        self._seeded_run(tmp_path, monkeypatch, self._virtual_clock(1.0), 10.0)
+
+    def test_frozen_virtual_clock_runs_the_full_generation_budget(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A clock that never advances is the purest replay: no deadline can
+        fire, so the run is bounded by ``num_generations`` alone."""
+        frozen = self._seeded_run(tmp_path, monkeypatch, lambda: 0.0, 10.0)
+        assert frozen[1] == 8
+        assert frozen[2] == 0.0
+
+
 class TestGATournamentSelection:
     """Parents are chosen by tournament over the whole scored population,
     not uniformly among the elite — elite-only breeding collapses the gene
