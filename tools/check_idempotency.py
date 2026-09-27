@@ -231,11 +231,20 @@ def check_write_idempotency(cmd: str, project_dir: Path) -> tuple[bool, str]:
     state.  Both runs execute the same command: an exit-code difference means
     the command is not even repeatable, and a content difference in the tree
     means the second execution left something behind.
+
+    A command that fails identically on every run proves nothing (a missing
+    reference binary, a bad flag) yet passes every comparison below, so a
+    first run that did not succeed is a failure in its own right.
     """
     code1, _ = _run(cmd, project_dir)
     after_first = tree_digest(project_dir)
     code2, _ = _run(cmd, project_dir)
     after_second = tree_digest(project_dir)
+    if code1 != 0:
+        return (
+            False,
+            f"first run exited {code1} (second {code2}): nothing was proved",
+        )
     if code1 != code2:
         return (
             False,
@@ -288,16 +297,25 @@ WRITE_COMMANDS = [
     "document-unmatched",
     # Regenerates the link_stubs.c BSS placeholder TU from rebrew-data.toml.
     "gen-link-stubs",
-    # Writes one skeleton .c + metadata row per uncovered function.
-    "skeleton",
+    # Writes one skeleton .c + metadata row per uncovered function.  Absent:
+    # the fixture's lone source file carries no rebrew-functions.toml row, so
+    # ``catalog`` reports zero functions and ``skeleton`` has nothing to write
+    # (it exited 2 on every run, which the comparisons could not tell from a
+    # pass).  Give the fixture a metadata row to cover it.
     # Regenerates db/data_<target>.json and the reccmp CSV from the sources.
     "catalog",
     # Rewrites the splat-style symbol_addrs file from the annotations.
     "symbol-addrs",
-    # Inlines s_<hint>_<ADDR> string globals into the reversed sources.
-    "inline-strings",
     # Renders the CMake toolchain file driving the docker bridge scripts.
     "cmake-toolchain",
+    # Sanitizes raw decompiler output into <file>.fixed.c beside the source.
+    "fix src/SERVER/fcn.c",
+    # Emits the universal decompilation context file into the source tree.
+    "context",
+    # ``inline-strings`` is deliberately absent: it reads the layout package
+    # that ``gen-layout`` writes, and that needs a reference binary the
+    # read-only fixture does not ship.  It exited 2 on every run, which the
+    # comparisons below could not tell from a pass.
 ]
 
 #: One ``.data`` symbol, so the gen-link-stubs sweep has metadata to generate
