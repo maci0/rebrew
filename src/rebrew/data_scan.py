@@ -265,7 +265,8 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
     conflict with a ``.c`` declaration of the same name, and the ``.c``
     type is the one kept for size: ``extern int g[]`` in a header beside
     ``unsigned int g[4]`` in a source is one global. Two headers that
-    disagree, with no ``.c`` declaration, still conflict.
+    disagree, with no ``.c`` declaration, still conflict, and so do two
+    ``.c`` markers that spell the same global differently.
     """
     from rebrew.c_parser import find_extern_variables
     from rebrew.sources import iter_sources_and_headers
@@ -293,11 +294,19 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
         if not any(e is entry for e in bucket):
             bucket.append(entry)
 
+    # Types spelled on a .c GLOBAL/DATA marker's own declaration line, in file
+    # order.  These are the reference descriptions of the global, and the first
+    # is the one the size ruler uses.  An unmarked spelling of the same name
+    # (a link stand-in, or a header's incomplete redeclaration) is not compared
+    # against them: it is not a second description of the object.
+    marked_types: dict[str, list[str]] = {}
+
+    def _mark(name: str, type_str: str) -> None:
+        spelled = marked_types.setdefault(name, [])
+        if type_str not in spelled:
+            spelled.append(type_str)
+
     header_files: set[str] = set()
-    # Type taken from the line under a GLOBAL/DATA marker. An unmarked
-    # definition of the same name (a link stand-in, or a header that spells
-    # the array differently) does not override it and is not a second global.
-    annotated_type: dict[str, str] = {}
     for cfile in iter_sources_and_headers(src_dir, cfg):
         is_header = cfile.suffix.lower() == ".h"
         try:
@@ -437,9 +446,9 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
                 if type_str:
                     type_by_name[name][type_str].append(fname)
                     # A .c marker is the definition's reference type. A header
-                    # marker fills it in only when no source marker did.
-                    if not is_header or name not in annotated_type:
-                        annotated_type[name] = type_str
+                    # marker is a redeclaration, so it never contributes one.
+                    if not is_header:
+                        _mark(name, type_str)
 
                 continue
 
@@ -448,9 +457,9 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
             if ev_name in annotated_names:
                 # The marker already named it. Keep that spelling when it
                 # parsed a type: a second form in the same file (`[88]` and
-                # `[0x58]`) is one object. Fill the type only when the marker
-                # line did not parse one, so a header's `T[]` cannot become
-                # the size.
+                # `[0x58]`) is one object. Fill the type only when no source
+                # marker spelled one, so a header's `T[]` cannot become the
+                # size.
                 if not is_header and ev.type_str:
                     known = type_by_name[ev_name]
                     c_known = [
@@ -460,7 +469,7 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
                     ]
                     if not c_known:
                         type_by_name[ev_name][ev.type_str].append(fname)
-                        annotated_type[ev_name] = ev.type_str
+                        _mark(ev_name, ev.type_str)
                         for entry in entries_by_name.get(ev_name, ()):
                             if not entry.type_str:
                                 entry.type_str = ev.type_str
@@ -508,14 +517,15 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
     for name, types in type_by_name.items():
         # A header is a redeclaration. It must not invent a conflict against
         # the .c definition, and it must not replace that definition's type.
-        # A marker type wins over every unmarked spelling of the same name:
-        # the marker is the reference description, the other file is often a
-        # link stand-in with a different bound.
-        marked = annotated_type.get(name)
+        # The same goes for an unmarked definition: the marker is the
+        # reference description, the other file is often a link stand-in with
+        # a different bound.  Two .c markers that disagree are a real
+        # conflict, and the first one in file order is the reported type.
+        marked = marked_types.get(name)
         if marked:
             for entry in entries_by_name.get(name, ()):
-                entry.type_str = marked
-            compared = {marked: types.get(marked, [])}
+                entry.type_str = marked[0]
+            compared = {type_str: types.get(type_str, []) for type_str in marked}
         else:
             c_types = {t: files for t, files in types.items() if not _header_only(files)}
             compared = c_types or types

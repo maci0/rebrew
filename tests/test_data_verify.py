@@ -388,3 +388,21 @@ def test_size_falls_back_to_declared_type(tmp_path: Path, monkeypatch) -> None:
     assert sizes[0x10001000] == 4, "declared type must size the symbol"
     assert sizes[0x10001004] == 4
     assert 0x10001008 not in sizes
+
+
+class TestDropUncoveredZeroFill:
+    """A zero-fill span past the built image's virtual size was never
+    compared, so it is dropped instead of reported as missing. A span the
+    built image does cover stays, and its zero bytes still compare."""
+
+    def test_uncovered_span_is_dropped_and_covered_span_kept(self) -> None:
+        from rebrew.data_verify import drop_uncovered_zero_fill
+
+        ref_bytes = {0x1100: b"\x00\x00\x00\x00", 0x1200: b"\x00\x00\x00\x00"}
+        ref_sizes = {0x1100: 4, 0x1200: 4}
+        zero_fill = {0x1100, 0x1200}
+
+        drop_uncovered_zero_fill(ref_bytes, ref_sizes, {0x1100: 4}, zero_fill)
+
+        assert ref_bytes == {0x1100: b"\x00\x00\x00\x00"}
+        assert ref_sizes == {0x1100: 4}

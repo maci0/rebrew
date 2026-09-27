@@ -1596,6 +1596,31 @@ class TestDataByteCoverage:
 
         assert data_byte_coverage([(0, 10)], []) == (0, 0)
 
+    def test_image_without_an_import_directory_keeps_its_ranges(self, tmp_path: Path) -> None:
+        """A static link has no import directory, so nothing may be cut from 0."""
+        from bin_util import append_pe_section, make_pe
+
+        from rebrew.status import _initialized_data_ranges
+
+        pe = append_pe_section(
+            append_pe_section(make_pe(b"\xc3"), ".data", b"\x01" * 16), ".rdata", b"\x02" * 16
+        )
+        target = tmp_path / "static.exe"
+        target.write_bytes(pe)
+
+        ranges = _initialized_data_ranges(_make_cfg(tmp_path, target_binary=target))  # type: ignore[arg-type]
+
+        assert len(ranges) == 2
+        assert all(hi > lo for lo, hi in ranges)
+
+    def test_data_directory_of_a_non_pe_is_absent(self, tmp_path: Path) -> None:
+        from rebrew.status import _pe_data_directory
+
+        not_pe = tmp_path / "notes.bin"
+        not_pe.write_bytes(b"not a PE" * 8)
+
+        assert _pe_data_directory(not_pe, "IAT", 0x400000) == (0, 0)
+
 
 class TestDataVerdicts:
     def test_counts_status_values(self, tmp_path: Path) -> None:

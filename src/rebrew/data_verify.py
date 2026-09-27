@@ -113,22 +113,21 @@ def _section_selected(declared: str, sections: tuple[str, ...]) -> bool:
     return declared in sections or _canonical_section(declared) in sections
 
 
-def omit_uncovered_zero_fill(
+def drop_uncovered_zero_fill(
     ref_bytes: dict[int, bytes],
     ref_sizes: dict[int, int],
     built_sizes: dict[int, int],
     ref_zero_fill: set[int],
-) -> list[int]:
+) -> None:
     """Drop reference zero-fill spans the built image does not cover.
 
     Those addresses sit past the built virtual size. They were not compared,
     so the caller leaves them UNCHECKED instead of reporting them missing.
+    A span the built image does cover stays, and its zero bytes still compare.
     """
-    uncovered = [va for va in ref_zero_fill if va not in built_sizes]
-    for va in uncovered:
+    for va in [va for va in ref_zero_fill if va not in built_sizes]:
         ref_bytes.pop(va, None)
         ref_sizes.pop(va, None)
-    return uncovered
 
 
 def section_symbol_bytes(

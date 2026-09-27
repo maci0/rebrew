@@ -7,6 +7,22 @@
   `uv sync --frozen` could not resolve: bootstrap and every syncing CI job
   failed on the path dependency. `RESEMBL_REF` and `RESEMBL_SHA` (Makefile and
   the composite action) now name `v3.0.0` and its commit.
+- **`rebrew data --conflicts` reports a disagreement between two `.c`
+  markers again.** The header-aware conflict rule let one marked type win
+  outright, so `extern int g_x;` under one `// GLOBAL:` and
+  `extern float g_x;` under another compared as a single type and the
+  conflict vanished. Only unmarked spellings (a header redeclaration, a
+  link stand-in) are dropped now; marked `.c` spellings still compare
+  against each other, and the first in file order is the reported type.
+- **`rebrew status` kept its data byte ranges on an image with no import
+  directory.** `_initialized_data_ranges` cuts the import directory through
+  the end of `.rdata` from the image, and took the cut address as given: a
+  static link has no import directory, so the address was 0 and the cut
+  removed every `.data` and `.rdata` range, reporting 0 of 0 coverable bytes
+  for a target whose data was never checked. Both cuts now run only when the
+  directory is present. The directory lookup also moves from a hand-rolled
+  PE32 header parse to LIEF, so a PE32+ image reports its IAT instead of
+  silently skipping the cut.
 - **`CHANGELOG.md` opens with `[Unreleased]` again.** The 2.14.0 release
   renamed the open heading into the dated section without opening the next
   one, so the file began with `## [2.14.0]` and the three release gates that
