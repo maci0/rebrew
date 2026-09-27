@@ -12,7 +12,7 @@ from io import StringIO
 import pytest
 from rich.console import Console
 
-from rebrew.present import BAR_WIDTH, filled_cells
+from rebrew.present import BAR_WIDTH, bar_plain, filled_cells
 
 
 def _console(monkeypatch: pytest.MonkeyPatch, module: object) -> StringIO:
@@ -37,16 +37,18 @@ def _bar_line(text: str) -> str:
 
 def test_full_bar_has_no_empty_cells() -> None:
     assert filled_cells(10, 10) == BAR_WIDTH
-    assert "░" not in ("█" * filled_cells(10, 10) + "░" * (BAR_WIDTH - filled_cells(10, 10)))
+    assert bar_plain(10, 10) == "█" * BAR_WIDTH
 
 
 def test_zero_bar_has_no_filled_cells() -> None:
     assert filled_cells(0, 10) == 0
+    assert bar_plain(0, 10) == "░" * BAR_WIDTH
 
 
 def test_partial_bar_is_mixed() -> None:
-    filled = filled_cells(1, 2)
-    assert 0 < filled < BAR_WIDTH
+    bar = bar_plain(1, 2)
+    assert 0 < bar.count("█") < BAR_WIDTH
+    assert bar.count("█") + bar.count("░") == BAR_WIDTH
 
 
 def test_status_bars_are_labeled(monkeypatch: pytest.MonkeyPatch) -> None:

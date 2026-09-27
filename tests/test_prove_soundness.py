@@ -92,7 +92,7 @@ def _install_fake_angr(monkeypatch: pytest.MonkeyPatch) -> types.ModuleType:
     fake.factory = _unavailable  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "angr", fake)
     monkeypatch.setattr(prove_mod, "_run_simulation", real_simulation)
-    simprocs_mod._WIN32_SIMPROCS = None
+    monkeypatch.setattr(simprocs_mod, "_WIN32_SIMPROCS", None)
     monkeypatch.setattr(prove_mod, "_get_win32_simprocs", lambda: {})
     return fake
 
@@ -115,6 +115,7 @@ def _fake_run_simulation(
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.skipif(not has_claripy, reason="claripy not installed")
 class TestTimeoutFailClosed:
     """A timed-out side must yield INCONCLUSIVE (never PROVEN), even when the
     partial terminal states happen to compare equal."""
@@ -221,6 +222,7 @@ class TestCopyLengthBound:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.skipif(not has_claripy, reason="claripy not installed")
 class TestOffsetMismatchInconclusive:
     """Call-site count mismatch must refuse the proof instead of patching
     the original blob at compiled offsets."""

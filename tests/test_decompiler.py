@@ -3,6 +3,7 @@
 import importlib.util
 import subprocess
 import threading
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
@@ -47,6 +48,19 @@ class TestCleanOutput:
 
 
 class TestBackendDispatch:
+    @pytest.fixture(autouse=True)
+    def _no_project_cache(self) -> Iterator[None]:
+        """The rizin project cache is module state; drop it around every test.
+
+        ``fetch_r2ghidra`` registers a project dir on success, so a test that
+        fails before its own cleanup would leak the entry into the next one.
+        """
+        import rebrew.decompiler as dc
+
+        dc._clear_re_projects()
+        yield
+        dc._clear_re_projects()
+
     def test_backends_list(self) -> None:
         assert "r2ghidra" in BACKENDS
         assert "r2dec" in BACKENDS
@@ -104,9 +118,6 @@ class TestBackendDispatch:
         assert query_args[0][6] == str(binary)
         assert query_kwargs["cwd"] == tmp_path
         assert query_kwargs["timeout"] == 120
-        import rebrew.decompiler as dc
-
-        dc._clear_re_projects()
 
     @patch(
         "rebrew.decompiler.shutil.which", side_effect=lambda x: "/usr/bin/rz" if x == "rz" else None

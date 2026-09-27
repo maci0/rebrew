@@ -239,8 +239,11 @@ class TestApplyOrPreviewStatus:
             "rebrew.verify.apply_status_updates",
             lambda fixes, cfg: calls.append(fixes),
         )
-        _apply_or_preview_status([(self._entry(), "EXACT", 0)], object(), dry_run=False)
-        assert len(calls) == 1
+        entry = self._entry()
+        cfg = object()
+        _apply_or_preview_status([(entry, "EXACT", 0)], cfg, dry_run=False)
+        # The payload, not just its cardinality, is what lands in the TOML.
+        assert calls == [[(entry, "EXACT", 0)]]
 
     def test_dry_run_preview_skips_refused_updates(self, capsys: pytest.CaptureFixture) -> None:
         """The preview must only claim updates a real run would write.
