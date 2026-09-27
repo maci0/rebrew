@@ -341,7 +341,9 @@ by the CLI layer and win for that invocation.
   file outranks the environment for the endpoint, so without this a checked-out
   project could aim the analyst's key at its own host. Loopback endpoints
   (local ollama / vllm) need no opt-in, and a key that came from the project
-  TOML is not affected. Unset or `0` keeps the refusal.
+  TOML is not affected. Unset or `0` keeps the refusal. Booleans are parsed
+  strictly (`1`/`true`/`yes`/`on`, `0`/`false`/`no`/`off`); any other value is
+  a `ConfigError`, so a mistyped opt-in never reads as consent.
 - `REBREW_LLM_MAX_REQUESTS` — process-wide ceiling on LLM HTTP calls
   (default `32`). Stops `--watch` / batch seeding from burning a paid
   endpoint. `0` disables further calls for the process. A set-but-non-integer

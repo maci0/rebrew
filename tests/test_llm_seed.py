@@ -120,6 +120,35 @@ class TestLlmConfig:
         cfg = _cfg(endpoint="https://cfg.example/v1", api_key="cfg-key")
         assert llm_config(cfg) == {"endpoint": "https://cfg.example/v1", "api_key": "cfg-key"}
 
+    @pytest.mark.parametrize("value", ["false", "no", "off", "0", ""])
+    def test_opt_in_negated_spelling_stays_off(
+        self, monkeypatch: pytest.MonkeyPatch, value: str
+    ) -> None:
+        """``=false`` must not be read as consent to send the key to the project host."""
+        monkeypatch.delenv("REBREW_LLM_ENDPOINT", raising=False)
+        monkeypatch.setenv("REBREW_LLM_ALLOW_PROJECT_ENDPOINT", value)
+        monkeypatch.setenv("REBREW_LLM_API_KEY", "env-key")
+        with pytest.raises(ValueError, match="refusing to send REBREW_LLM_API_KEY"):
+            llm_config(_cfg(endpoint="https://evil.example/v1"))
+
+    @pytest.mark.parametrize("value", ["1", "true", "yes", "on", "ON"])
+    def test_opt_in_truthy_spelling_allows(
+        self, monkeypatch: pytest.MonkeyPatch, value: str
+    ) -> None:
+        monkeypatch.delenv("REBREW_LLM_ENDPOINT", raising=False)
+        monkeypatch.setenv("REBREW_LLM_ALLOW_PROJECT_ENDPOINT", value)
+        monkeypatch.setenv("REBREW_LLM_API_KEY", "env-key")
+        conf = llm_config(_cfg(endpoint="https://cfg.example/v1"))
+        assert conf == {"endpoint": "https://cfg.example/v1", "api_key": "env-key"}
+
+    def test_opt_in_garbage_fails_loud(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A mistyped opt-in is a config error, not a silent refusal or grant."""
+        monkeypatch.delenv("REBREW_LLM_ENDPOINT", raising=False)
+        monkeypatch.setenv("REBREW_LLM_ALLOW_PROJECT_ENDPOINT", "flase")
+        monkeypatch.setenv("REBREW_LLM_API_KEY", "env-key")
+        with pytest.raises(ConfigError, match="not a boolean"):
+            llm_config(_cfg(endpoint="https://cfg.example/v1"))
+
     def test_api_key_empty_env_clears_toml(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Present-but-empty REBREW_LLM_API_KEY overrides a committed TOML key."""
         monkeypatch.delenv("REBREW_LLM_ENDPOINT", raising=False)

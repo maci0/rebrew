@@ -1622,6 +1622,21 @@ class TestCLIEffective:
         assert "REBREW_LLM_API_KEY" in payload["env_overrides"]
         assert "REBREW_LLM_MODEL" not in payload["env_overrides"]
 
+    def test_json_names_the_project_endpoint_opt_in(self, tmp_path: Path, monkeypatch) -> None:
+        """The opt-in decides where the key may go, so `effective` must name it."""
+        _make_project(
+            tmp_path,
+            '[project]\ndefault_target = "server.dll"\n\n'
+            + SAMPLE_TOML
+            + '\n[llm]\nendpoint = "https://toml.example/v1"\n',
+        )
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("REBREW_LLM_API_KEY", raising=False)
+        monkeypatch.setenv("REBREW_LLM_ALLOW_PROJECT_ENDPOINT", "1")
+        result = runner.invoke(cfg_app, ["effective", "--json"])
+        assert result.exit_code == 0
+        assert "REBREW_LLM_ALLOW_PROJECT_ENDPOINT" in json.loads(result.stdout)["env_overrides"]
+
     def test_every_env_var_reaches_effective(self) -> None:
         """Every env knob `load_config` reads is named by `cfg effective`.
 
