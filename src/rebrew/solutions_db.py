@@ -50,11 +50,15 @@ def _collect_solutions(cfg: Any) -> list[dict[str, Any]]:
 
 
 def _collect_best(cfg: Any) -> list[dict[str, Any]]:
-    """Best-known GA outcome per function (latest score wins on ties)."""
-    from rebrew.matcher import load_ga_runs
+    """Best-known GA outcome per function (lowest score wins, newest on ties)."""
+    from rebrew.matcher import iter_ga_runs
 
     best: dict[tuple[str, str, str], dict[str, Any]] = {}
-    for rec in load_ga_runs(cfg.root, limit=100000):
+    # Streamed, not windowed: the aggregate folds every record the log ever
+    # held, so a long log cannot hide a function's best older run behind the
+    # newest N records.  Records arrive oldest first, so a later record
+    # replaces the incumbent on an equal score.
+    for rec in iter_ga_runs(cfg.root):
         # Key on (target, va, symbol), not (target, va): the log holds two
         # record shapes — a run outcome with a real VA, and a solution
         # fingerprint written by ``save_solution`` with va="" (the function is
@@ -69,7 +73,7 @@ def _collect_best(cfg: Any) -> list[dict[str, Any]]:
         cur = best.get(key)
         score = rec.get("score")
         if cur is None or (
-            score is not None and (cur.get("score") is None or score < cur["score"])
+            score is not None and (cur.get("score") is None or score <= cur["score"])
         ):
             best[key] = dict(rec)
     return [best[k] for k in sorted(best)]

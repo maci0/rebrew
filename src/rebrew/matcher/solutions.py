@@ -506,7 +506,8 @@ def load_ga_runs(
     chronological, so only the newest ``limit`` records can be returned —
     keeping the whole (unbounded) history in memory per call was wasted
     work once the log grows past thousands of runs (``--ga-history`` and
-    batch ``--skip-recent`` read it every run).
+    batch ``--skip-recent`` read it every run).  A consumer that needs the
+    whole log (an aggregate, not a tail) iterates :func:`iter_ga_runs`.
     """
     from collections import deque
 
@@ -519,32 +520,27 @@ def load_ga_runs(
     # target" (a filtered target must not lose its older records to other
     # targets' newer ones).
     records: deque[dict[str, Any]] = deque(maxlen=limit)
-    bad_lines = 0
     try:
-        with p.open(encoding="utf-8", errors="replace") as fh:
-            for line in fh:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    record = json.loads(line)
-                except json.JSONDecodeError:
-                    bad_lines += 1
-                    continue
-                if not isinstance(record, dict):
-                    continue
-                if target and record.get("target") != target:
-                    continue
-                records.append(record)
+        for record in iter_ga_runs(project_root, target=target):
+            records.append(record)
     except OSError:
         log.warning("Cannot read GA run log %s", p, exc_info=True)
         return []
-    if bad_lines:
-        log.warning(
-            "Skipped %d malformed line(s) in GA run log %s — check for truncated writes",
-            bad_lines,
-            p,
-        )
     out = list(records)
     out.reverse()  # newest first
     return out
+
+
+def iter_ga_runs(project_root: Path, *, target: str = "") -> Iterator[dict[str, Any]]:
+    """Yield every GA run record in *project_root*'s log, oldest first.
+
+    Streams the append-only log, so a consumer that folds the records into
+    an aggregate (the best score per function) sees the whole history
+    instead of a newest-N window that silently drops an older, better run
+    once the log grows past that N.  The filter is per record, so a
+    targeted consumer never pays to decode another target's records.
+    """
+    for record in _iter_run_records(_runs_path(project_root)):
+        if target and record.get("target") != target:
+            continue
+        yield record

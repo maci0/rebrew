@@ -120,6 +120,9 @@ if TYPE_CHECKING:
         find_similar as find_similar,
     )
     from .solutions import (
+        iter_ga_runs as iter_ga_runs,
+    )
+    from .solutions import (
         load_ga_runs as load_ga_runs,
     )
     from .solutions import (
@@ -162,6 +165,7 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
     "structural_similarity": (".scoring", "structural_similarity"),
     "SolutionEntry": (".solutions", "SolutionEntry"),
     "find_similar": (".solutions", "find_similar"),
+    "iter_ga_runs": (".solutions", "iter_ga_runs"),
     "load_ga_runs": (".solutions", "load_ga_runs"),
     "load_solutions": (".solutions", "load_solutions"),
     "load_solutions_file": (".solutions", "load_solutions_file"),
@@ -203,6 +207,7 @@ __all__ = [
     "flag_sweep",
     "generate_flag_combinations",
     "list_obj_symbols",
+    "iter_ga_runs",
     "load_ga_runs",
     "load_solutions",
     "load_solutions_file",

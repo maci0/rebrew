@@ -1774,7 +1774,8 @@ Query the GA solutions database.  Default mode lists winning solution
 fingerprints from `.rebrew/ga_runs.jsonl` (target, symbol,
 size, cflags, score, solved_at); `--symbol`/`--min-size`/`--max-size`
 filter.  `--best` instead shows the best-known GA outcome per function from
-the append-only run history (same file).  Read-only.
+the append-only run history (same file, folded over every record in it).
+Read-only.
 
 ### `rebrew cfg`
 
