@@ -733,6 +733,19 @@ class TestCiPins:
         )
         assert re.search(r"(?m)^\s*entry: make --no-print-directory mypy\s*$", hook)
 
+    def test_mypy_preflights_the_similarity_group(self) -> None:
+        """scoring.py imports rapidfuzz/resembl, both typed: silence would hide a real gap."""
+        text = MAKEFILE.read_text(encoding="utf-8")
+        guard = text.split("ensure-extras:\n", 1)[1].split("\n\n", 1)[0]
+        assert "import rapidfuzz, resembl" in guard
+        assert "--group similarity" in guard
+        pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+        overrides = pyproject.split("[[tool.mypy.overrides]]", 1)[1]
+        assert '"rapidfuzz"' not in overrides, (
+            "rapidfuzz ships type information; an ignore_missing_imports entry would "
+            "mute the check instead of asking for the group to be installed"
+        )
+
     def test_pre_push_pytest_hook_runs_make_test(self) -> None:
         """Pre-push must hit ``ensure-nasm``; a bare pytest skips asm tests CI runs."""
         text = (ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8")

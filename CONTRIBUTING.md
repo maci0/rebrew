@@ -53,8 +53,11 @@ GPLv3 `resembl`). Rebrew's own source stays under [`LICENSE`](LICENSE).
 `make mypy` type-checks against: a bare `uv sync` never installs optional
 extras, and without angr every `angr`/`claripy` reference collapses to `Any`
 (unknown `SimProcedure` base, `import-not-found`, unused `type: ignore`).
-`make mypy` checks for that first and names the fix instead of printing the
-cascade; the same check runs in the pre-commit `mypy` hook. Every target that
+The `similarity` group (`rapidfuzz`, `resembl`) is the same class of gap:
+`matcher/scoring.py` imports both, and both ship type information, so without
+them mypy reports `import-not-found` there. `make mypy` checks for both
+before running and names the fix instead of printing the cascade; the same
+check runs in the pre-commit `mypy` hook. Every target that
 shells out to `uv run` likewise fails with `ERROR: uv not on PATH` rather than
 a bare `uv: not found`.
 

@@ -207,12 +207,25 @@ setup: ensure-resembl warn-nasm warn-uv-version
 # by a bare `uv sync` has no angr.  mypy then reports a wall of phantom errors
 # (unknown SimProcedure, import-not-found, unused-ignore) whose real cause is
 # the missing extra.  Name it before the run instead of after.
+#
+# The `similarity` group is the same class of gap: scoring.py imports
+# rapidfuzz and resembl lazily, so mypy reports one import-not-found there
+# when the group is absent.  rapidfuzz and resembl ship type information and
+# [[tool.mypy.overrides]] deliberately does not silence them, so the fix is
+# installing the group, not muting the checker.
 ensure-extras:
 	@set -eu; \
 	if ! uv run --frozen --no-sync python -c 'import angr, claripy' >/dev/null 2>&1; then \
 	  echo "ERROR: the 'prove' extra (angr, claripy) is not installed in .venv."; \
 	  echo "mypy reports phantom type errors without it (CI's lint job syncs --all-extras)."; \
 	  echo "Run 'make setup', or 'uv sync --frozen --all-extras --group similarity', then re-run."; \
+	  exit 1; \
+	fi; \
+	if ! uv run --frozen --no-sync python -c 'import rapidfuzz, resembl' >/dev/null 2>&1; then \
+	  echo "ERROR: the 'similarity' group (rapidfuzz, resembl) is not installed in .venv."; \
+	  echo "mypy reports import-not-found in src/rebrew/matcher/scoring.py without it (CI's lint job syncs --group similarity)."; \
+	  echo "Run 'make setup', or 'uv sync --frozen --all-extras --group similarity', then re-run."; \
+	  echo "(make setup also needs the sibling $(RESEMBL_DIR) checkout; 'make clone-resembl' fetches the pinned ref.)"; \
 	  exit 1; \
 	fi
 
