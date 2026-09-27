@@ -171,6 +171,14 @@
   literals in `tests/test_sdk_surface.py` mirroring `rebrew.errors.__all__`
   were not updated when `RenameError` joined it, so the gate reported a
   removed public error on a clean tree.
+- **`rebrew library set` / `rm` take the metadata write lock.** The library
+  store was the one canonical TOML written outside `metadata_write_lock`, so
+  two writers (or a second process) could interleave a read-modify-write and
+  drop one side's key. `set` now edits in place through `load_toml_for_write`
+  under the shared thread + flock lock, which also keeps the comments and key
+  order of a hand-written file instead of rewriting it from a bare dict, and
+  refuses a malformed store rather than replacing it. `rm` unlinks under the
+  same lock.
 - **A transient GitHub API failure no longer reddens the nightly drift gate.**
   `rebrew toolchain check-updates` calls `_live_commit_sha` once per codeload
   source, and any exception there became a `check failed` row, which is one of

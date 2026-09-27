@@ -122,6 +122,7 @@ from rebrew.utils import (
     load_tomllib,
     metadata_write_lock,
     pop_metadata_doc_cache,
+    read_toml_text,
     resolve_metadata_key,
 )
 from rebrew.workspace.status import KNOWN_STATUSES as KNOWN_STATUSES
@@ -1474,7 +1475,7 @@ def parse_library_metadata(path: Path) -> dict[str, Any]:
         if cached is not None and cached[0] == fp:
             return dict(cached[1])
     try:
-        raw = tomllib.loads(path.read_text(encoding="utf-8-sig"))
+        raw = tomllib.loads(read_toml_text(path))
     except (OSError, tomllib.TOMLDecodeError) as exc:
         raise LibraryOverrideError(f"bad {LIBRARY_METADATA_FILE} at {path}: {exc}") from exc
     if not isinstance(raw, dict):

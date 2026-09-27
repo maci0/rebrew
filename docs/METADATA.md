@@ -116,9 +116,11 @@ whenever the reference binary changes — the layout files carry
    for BLOCKER), `set_data_field` / `set_data_fields_batch` (data metadata;
    keys limited to `DATA_METADATA_FIELDS`, STATUS to the three data
    verdicts, so a function-only field such as BLOCKER raises), `rebrew library set`
-   (library overrides).  **Do not hand-edit `rebrew-functions.toml` or
-   `rebrew-data.toml`** — every write goes through `metadata_write_lock` +
-   `atomic_write_locked` (see `rebrew/metadata.py`, `rebrew/data_metadata.py`).
+   (library overrides).  **Do not hand-edit `rebrew-functions.toml`,
+   `rebrew-data.toml`, or `rebrew-libraries.toml`** — every write goes
+   through `metadata_write_lock`, and the two function/data stores use
+   `atomic_write_locked` on top (see `rebrew/metadata.py`,
+   `rebrew/data_metadata.py`, `rebrew/library.py`).
    No module-less metadata keys: the writers reject an empty module (a bare
    `0xVA` key was once writable but never readable — the guard now raises
    instead).

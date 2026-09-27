@@ -29,7 +29,11 @@ from rebrew.metadata import (
     find_library_override,
     parse_library_metadata,
 )
-from rebrew.utils import atomic_write_text
+from rebrew.utils import (
+    atomic_write_text,
+    load_toml_for_write,
+    metadata_write_lock,
+)
 from rebrew.workspace.config import walk_up_to_root
 
 app = typer.Typer(
@@ -167,35 +171,40 @@ def set_cmd(
             msg = f"unknown toolchain {toolchain!r} (known: {sorted(TOOLCHAINS)})"
             error_exit(msg, json_mode=json_output)
     path = target / LIBRARY_METADATA_FILE
-    doc = tomlkit.document()
-    if path.exists():
-        existing = parse_library_metadata(path)
-        for k, v in existing.items():
-            doc[k] = v
-    if library is not None:
-        doc["library"] = library
-    if preset is not None:
-        doc["library"] = preset
-    if toolchain is not None:
-        doc["toolchain"] = toolchain
-    if cflags is not None:
-        doc["cflags"] = cflags
-    merged, presets = apply_library_presets({k: doc[k] for k in doc})
-    payload: dict[str, Any] = {
-        "file": str(path),
-        "library": str(merged.get("library", "")),
-        "toolchain": str(merged.get("toolchain", "")),
-        "cflags": str(merged.get("cflags", "")),
-        "presets": list(presets),
-    }
-    if dry_run:
-        if json_output:
-            payload["dry_run"] = True
-            json_print(payload)
-        else:
-            console.print(f"[yellow]would write {path}[/yellow]")
-        return
-    atomic_write_text(path, tomlkit.dumps(doc), encoding="utf-8")
+    doc_library = library if library is not None else preset
+    # One locked read-modify-write, like every other canonical TOML store
+    # (rebrew-functions.toml, rebrew-data.toml): a second process editing a
+    # different key in the same file must not lose this write, and the
+    # in-place tomlkit edit keeps the comments and key order of a
+    # hand-written file instead of rewriting it from a bare dict.
+    with metadata_write_lock(target, LIBRARY_METADATA_FILE):
+        # A malformed store refuses the write outright rather than being
+        # replaced from an empty document.
+        if path.exists():
+            parse_library_metadata(path)
+        doc = load_toml_for_write(path, "library override")
+        if doc_library is not None:
+            doc["library"] = doc_library
+        if toolchain is not None:
+            doc["toolchain"] = toolchain
+        if cflags is not None:
+            doc["cflags"] = cflags
+        merged, presets = apply_library_presets({str(k): doc[k] for k in doc})
+        payload: dict[str, Any] = {
+            "file": str(path),
+            "library": str(merged.get("library", "")),
+            "toolchain": str(merged.get("toolchain", "")),
+            "cflags": str(merged.get("cflags", "")),
+            "presets": list(presets),
+        }
+        if dry_run:
+            if json_output:
+                payload["dry_run"] = True
+                json_print(payload)
+            else:
+                console.print(f"[yellow]would write {path}[/yellow]")
+            return
+        atomic_write_text(path, tomlkit.dumps(doc), encoding="utf-8")
     clear_library_override_cache()
     if json_output:
         json_print(payload)
@@ -216,7 +225,8 @@ def rm_cmd(
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
     """Remove a rebrew-libraries.toml (revert to project defaults)."""
-    path = _resolve_root(directory) / LIBRARY_METADATA_FILE
+    target = _resolve_root(directory)
+    path = target / LIBRARY_METADATA_FILE
     if not path.exists():
         msg = f"no {LIBRARY_METADATA_FILE} at {path.parent}"
         if json_output:
@@ -230,7 +240,10 @@ def rm_cmd(
         else:
             console.print(f"[yellow]would remove {path}[/yellow]")
         return
-    path.unlink()
+    # Unlink under the same lock `set` writes under, so a removal cannot
+    # interleave with a concurrent `rebrew library set` on the same file.
+    with metadata_write_lock(target, LIBRARY_METADATA_FILE):
+        path.unlink(missing_ok=True)
     clear_library_override_cache()
     if json_output:
         json_print({"removed": True, "file": str(path)})

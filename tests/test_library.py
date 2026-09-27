@@ -277,6 +277,73 @@ class TestLibraryCli:
         res = self._invoke("set", str(lib), "--preset", "nope")
         assert res.exit_code == 2
 
+    def test_set_preserves_comments_and_key_order(self, tmp_path: Path) -> None:
+        """An in-place edit keeps what a hand-written file carries."""
+        lib = tmp_path / "lib"
+        lib.mkdir()
+        meta = lib / LIBRARY_METADATA_FILE
+        meta.write_text(
+            "# MSVC CRT, built with the static multithreaded runtime\n"
+            'library = "msvcrt-static"\n'
+            'toolchain = "msvc-6.0"\n',
+            encoding="utf-8",
+        )
+        res = self._invoke("set", str(lib), "--cflags", "/O1")
+        assert res.exit_code == 0, res.output
+        text = meta.read_text(encoding="utf-8")
+        assert "# MSVC CRT" in text
+        assert text.index("library") < text.index("cflags")
+
+    def test_set_refuses_malformed_store(self, tmp_path: Path) -> None:
+        """A bad file is never silently replaced by a fresh document."""
+        lib = tmp_path / "lib"
+        lib.mkdir()
+        meta = lib / LIBRARY_METADATA_FILE
+        bad = "toolchain = \n"
+        meta.write_text(bad, encoding="utf-8")
+        res = self._invoke("set", str(lib), "--toolchain", "msvc-6.0")
+        assert res.exit_code != 0
+        assert meta.read_text(encoding="utf-8") == bad
+
+    def test_set_writes_under_the_metadata_write_lock(self, tmp_path: Path) -> None:
+        """The read-modify-write is serialized against a competing writer."""
+        import threading
+
+        from rebrew.utils import file_lock
+
+        lib = tmp_path / "lib"
+        lib.mkdir()
+        meta = lib / LIBRARY_METADATA_FILE
+        meta.write_text('toolchain = "msvc-6.0"\n', encoding="utf-8")
+
+        held = threading.Event()
+        release = threading.Event()
+        errors: list[BaseException] = []
+
+        def _hold() -> None:
+            try:
+                with file_lock(meta.with_suffix(meta.suffix + ".lock")):
+                    held.set()
+                    release.wait(10)
+            except BaseException as exc:  # pragma: no cover - reported below
+                errors.append(exc)
+
+        holder = threading.Thread(target=_hold)
+        holder.start()
+        assert held.wait(10)
+        writer = threading.Thread(target=lambda: self._invoke("set", str(lib), "--cflags", "/O1"))
+        writer.start()
+        try:
+            writer.join(2)
+            assert writer.is_alive(), "set completed while another writer held the lock"
+            assert 'cflags = "/O1"' not in meta.read_text(encoding="utf-8")
+        finally:
+            release.set()
+            holder.join(10)
+            writer.join(10)
+        assert errors == []
+        assert 'cflags = "/O1"' in meta.read_text(encoding="utf-8")
+
 
 class TestLibraryCacheConcurrency:
     def test_negative_miss_sees_newly_created_file(self, tmp_path: Path) -> None:
