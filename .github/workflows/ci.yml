@@ -98,34 +98,11 @@ jobs:
       - name: Install dependencies
         run: uv sync --frozen --all-extras --group similarity
       - name: Install nasm (NASM round-trip verification in asm tests)
-        # apt mirrors flake under load; retry update and install before failing the job.
+        # apt mirrors flake under load; the helper retries update and install
+        # (same posture as the resembl clone) instead of failing the job.
         run: |
           set -euo pipefail
-          if command -v nasm >/dev/null 2>&1; then
-            nasm -v
-            exit 0
-          fi
-          for attempt in 1 2 3; do
-            if sudo apt-get update -qq; then
-              break
-            fi
-            if [[ "$attempt" -eq 3 ]]; then
-              echo "apt-get update failed after ${attempt} attempts" >&2
-              exit 1
-            fi
-            sleep $((attempt * 5))
-          done
-          for attempt in 1 2 3; do
-            if sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends nasm; then
-              break
-            fi
-            if [[ "$attempt" -eq 3 ]]; then
-              echo "apt-get install nasm failed after ${attempt} attempts" >&2
-              exit 1
-            fi
-            sleep $((attempt * 5))
-            sudo apt-get update -qq || true
-          done
+          bash tools/ci_apt_install.sh nasm
           nasm -v
       - name: Run tests
         if: matrix.python-version != '3.13.15'
@@ -170,8 +147,9 @@ jobs:
       - name: Install shellcheck
         # The shellcheck hook exits 0 when the binary is absent, so the gate
         # only exists if this step runs. Install explicitly rather than
-        # trusting the runner image to keep carrying it.
-        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends shellcheck
+        # trusting the runner image to keep carrying it, through the same
+        # retrying helper the test job installs nasm with.
+        run: bash tools/ci_apt_install.sh shellcheck
       - name: Run pre-commit hooks
         env:
           SKIP: ruff-check,ruff-format,mypy

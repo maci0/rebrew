@@ -552,9 +552,7 @@ def _unlink_db(db_path: Path) -> dict[str, list[tuple[Any, ...]]]:
     return saved
 
 
-def _restore_persistent_rows(
-    c: sqlite3.Cursor, saved: dict[str, list[tuple[Any, ...]]]
-) -> None:
+def _restore_persistent_rows(c: sqlite3.Cursor, saved: dict[str, list[tuple[Any, ...]]]) -> None:
     """Re-insert rows saved by :func:`_unlink_db`, skipping ones already present.
 
     Both restores are naturally idempotent, so a second --force rebuild over an

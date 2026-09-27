@@ -1922,9 +1922,7 @@ class TestBuildDbForceFlag:
         build_db(tmp_path, force=True)
 
         conn = sqlite3.connect(db_path)
-        history = conn.execute(
-            "SELECT target, va, old_status, new_status FROM history"
-        ).fetchall()
+        history = conn.execute("SELECT target, va, old_status, new_status FROM history").fetchall()
         verify = conn.execute(
             "SELECT target, va, verified_at, byte_delta, diff_lines, similarity,"
             " reg_delta, effective_match FROM verify_results"
@@ -2159,9 +2157,7 @@ class TestPersistentRowSalvage:
         finally:
             conn.close()
         assert verify == [("alpha", 4096, "2026-01-01T00:00:00+00:00", 3, 7, 0.9, 2, 1)]
-        assert history == [
-            ("alpha", 4096, "STUB", "EXACT", "2026-01-01T00:00:00+00:00", "test")
-        ]
+        assert history == [("alpha", 4096, "STUB", "EXACT", "2026-01-01T00:00:00+00:00", "test")]
 
     def test_restore_is_idempotent_for_null_statuses(self, tmp_path: Path) -> None:
         """A transition recorded with a NULL old_status must not be duplicated

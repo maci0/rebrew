@@ -140,7 +140,9 @@ def make_sandbox_dir(prefix: str) -> Path:
     # the project-dir refusal in decompiler.py.
     if any(ch in str(sandbox) for ch in '"\r\n'):
         shutil.rmtree(sandbox, ignore_errors=True)
-        raise DosboxError(f"temp base directory {str(sandbox)!r} has unsafe characters for a DOSBox conf")
+        raise DosboxError(
+            f"temp base directory {str(sandbox)!r} has unsafe characters for a DOSBox conf"
+        )
     with _SANDBOX_LOCK:
         # Re-check: another worker may have published the same key while
         # we created a dir — keep theirs and drop the orphan.

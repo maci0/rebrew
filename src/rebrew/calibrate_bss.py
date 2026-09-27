@@ -229,7 +229,14 @@ def main(
             obj = target_dir / stub.relative_to(root).with_suffix(".obj")
             try:
                 run_process_group(
-                    [compile_cmd, "/nologo", "/c", *safe_shlex_split(cflags), f"/Fo{obj}", str(stub)],
+                    [
+                        compile_cmd,
+                        "/nologo",
+                        "/c",
+                        *safe_shlex_split(cflags),
+                        f"/Fo{obj}",
+                        str(stub),
+                    ],
                     cwd=root,
                     capture_output=True,
                     timeout=300,
