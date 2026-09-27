@@ -515,6 +515,25 @@ class _FakeResponse:
         yield self.content
 
 
+class _EchoingClient:
+    """Client whose transport failure echoes provider-controlled text."""
+
+    def __init__(self, message: str) -> None:
+        self.message = message
+
+    @contextmanager
+    def stream(
+        self,
+        method: str,
+        url: str,
+        json: dict | None = None,
+        headers: dict | None = None,
+        timeout: int | None = None,
+    ) -> Iterator[None]:
+        raise RuntimeError(self.message)
+        yield  # pragma: no cover - unreachable, keeps the generator typed
+
+
 class TestRequestSeeds:
     def test_returns_validated_seeds(self) -> None:
         client = _FakeClient(
@@ -591,6 +610,58 @@ class TestRequestSeeds:
         assert "prompt_tokens=10" in caplog.text
         assert "total_tokens=30" in caplog.text
         assert "latency=1.23s" in caplog.text
+
+    def test_truncated_completion_warns_and_drops(self, caplog: pytest.LogCaptureFixture) -> None:
+        snippet = "int f(void) { return 0; }"
+        client = _FakeClient(
+            {
+                "choices": [
+                    {
+                        "finish_reason": "length",
+                        "message": {"content": f"```c\n{snippet}\n```"},
+                    }
+                ]
+            }
+        )
+        with caplog.at_level(logging.WARNING):
+            assert request_seeds(_cfg("https://llm/v1"), snippet, client=client) == []
+        assert "finish_reason=length" in caplog.text
+
+    def test_served_model_substitution_warns(self, caplog: pytest.LogCaptureFixture) -> None:
+        snippet = "int f(void) { return 1; }"
+        client = _FakeClient(
+            {
+                "model": "gpt-4o",
+                "choices": [{"message": {"content": f"```c\n{snippet}\n```"}}],
+            }
+        )
+        with caplog.at_level(logging.WARNING):
+            seeds = request_seeds(_cfg("https://llm/v1"), snippet, client=client)
+        assert seeds == [snippet]
+        assert "served model gpt-4o" in caplog.text
+        assert _DEFAULT_MODEL in caplog.text
+
+    def test_served_model_match_is_silent(self, caplog: pytest.LogCaptureFixture) -> None:
+        snippet = "int f(void) { return 1; }"
+        client = _FakeClient(
+            {
+                "model": _DEFAULT_MODEL,
+                "choices": [{"message": {"content": f"```c\n{snippet}\n```"}}],
+            }
+        )
+        with caplog.at_level(logging.WARNING):
+            assert request_seeds(_cfg("https://llm/v1"), snippet, client=client) == [snippet]
+        assert "served model" not in caplog.text
+
+    def test_provider_failure_text_is_log_sanitized(self, caplog: pytest.LogCaptureFixture) -> None:
+        """A provider error message can echo the response body: no forged lines."""
+        snippet = "int f(void) { return 0; }"
+        client = _EchoingClient("upstream said\n2026-01-01 forged admin line\x00")
+        with caplog.at_level(logging.WARNING):
+            assert request_seeds(_cfg("https://llm/v1"), snippet, client=client) == []
+        assert "forged admin line" in caplog.text
+        assert "\n2026-01-01" not in caplog.text
+        assert "\x00" not in caplog.text
 
     def test_refused_completion_dropped(self) -> None:
         snippet = "int f(void) { return 0; }"
