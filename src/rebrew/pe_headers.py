@@ -39,12 +39,35 @@ _FIELD_SPECS: list[tuple[int, int, str]] = [
     (0x3C, 4, "file_align"),  # parity only — needs relink to change
 ]
 
+#: The same fields for a PE32+ (64-bit) optional header.  Everything up to
+#: DllCharacteristics shares the PE32 offsets because the ImageBase widening
+#: is offset by PE32's missing BaseOfData; past it the stack/heap sizes are
+#: 8 bytes each, which pushes HeapReserve and HeapCommit eight bytes later.
+_PE32_PLUS_STACK_HEAP: dict[str, tuple[int, int]] = {
+    "stack_reserve": (0x60, 8),
+    "stack_commit": (0x68, 8),
+    "heap_reserve": (0x70, 8),
+    "heap_commit": (0x78, 8),
+}
+_FIELD_SPECS_PE32_PLUS: list[tuple[int, int, str]] = [
+    (*_PE32_PLUS_STACK_HEAP[label], label)
+    if label in _PE32_PLUS_STACK_HEAP
+    else (offset, size, label)
+    for offset, size, label in _FIELD_SPECS
+]
+
 # Fields --fix-headers actually patches (everything except file_align).
 PATCHABLE = {label for _o, _s, label in _FIELD_SPECS if label != "file_align"}
 
 
 #: Section-table entry size, fixed by the PE/COFF spec.
 SECTION_ENTRY_SIZE = 40
+
+#: Optional-header magic values: IMAGE_NT_OPTIONAL_HDR32_MAGIC and
+#: IMAGE_NT_OPTIONAL_HDR64_MAGIC.  They select the optional header's field
+#: widths (a PE32+ ImageBase is 8 bytes and starts four bytes earlier).
+_PE32_MAGIC = 0x10B
+_PE32_PLUS_MAGIC = 0x20B
 
 #: COFF field offsets, relative to e_lfanew.
 _COFF_NUMBER_OF_SECTIONS = 0x06
@@ -167,6 +190,35 @@ def find_section(data: bytes | bytearray, name: str) -> PeSection | None:
     return None
 
 
+def pe_image_base(data: bytes | bytearray) -> int | None:
+    """The image base, or None when *data* is not a PE with a known optional header.
+
+    The field is 4 bytes at optional-header offset 28 on PE32 and 8 bytes at
+    offset 24 on PE32+ (which has no BaseOfData in its place), so the width
+    follows the magic rather than being assumed: a PE32+ base read at offset
+    28 as a u32 returns the high half of the address.
+    """
+    layout = pe_layout(data)
+    if layout is None:
+        return None
+    pos = layout.optional_header_offset
+    if layout.magic == _PE32_PLUS_MAGIC:
+        if pos + 32 > len(data):
+            return None
+        return int.from_bytes(data[pos + 24 : pos + 32], "little")
+    if layout.magic != _PE32_MAGIC or pos + 32 > len(data):
+        return None
+    return int.from_bytes(data[pos + 28 : pos + 32], "little")
+
+
+def _field_specs(data: bytes) -> list[tuple[int, int, str]]:
+    """The header-field table matching *data*'s optional-header magic."""
+    layout = pe_layout(data)
+    if layout is not None and layout.magic == _PE32_PLUS_MAGIC:
+        return _FIELD_SPECS_PE32_PLUS
+    return _FIELD_SPECS
+
+
 def read_pe_header_fields(data: bytes) -> dict[str, int] | None:
     """Parse every known header field from *data*.  None if not a PE.
 
@@ -178,7 +230,7 @@ def read_pe_header_fields(data: bytes) -> dict[str, int] | None:
     if lfanew is None:
         return None
     values: dict[str, int] = {}
-    for offset, size, label in _FIELD_SPECS:
+    for offset, size, label in _field_specs(data):
         pos = lfanew + offset
         if pos + size > len(data):
             continue
@@ -228,7 +280,7 @@ def patch_pe_headers(data: bytes, fields: dict[str, int]) -> bytes:
     lfanew = pe_lfanew(out)
     if lfanew is None:
         return bytes(out)
-    for offset, size, label in _FIELD_SPECS:
+    for offset, size, label in _field_specs(data):
         if label not in PATCHABLE or label not in fields:
             continue
         pos = lfanew + offset
@@ -262,7 +314,7 @@ def header_parity(
     if orig is None or cand is None:
         return []
     out: list[dict[str, object]] = []
-    for _offset, _size, label in _FIELD_SPECS:
+    for _offset, _size, label in _field_specs(original):
         o = orig.get(label)
         c = cand.get(label)
         if o is None or c is None:
@@ -287,6 +339,7 @@ __all__ = [
     "find_section",
     "header_parity",
     "patch_pe_headers",
+    "pe_image_base",
     "pe_layout",
     "pe_lfanew",
     "read_pe_header_fields",

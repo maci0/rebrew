@@ -313,3 +313,56 @@ def test_pe_headers_patch_read_roundtrip(label: str, value: int) -> None:
         if other in (label, "checksum"):
             continue
         assert after.get(other) == before.get(other)
+
+
+class TestPeImageBase:
+    def test_pe32(self) -> None:
+        from rebrew.pe_headers import pe_image_base
+
+        assert pe_image_base(_fixture()) == 0x400000
+
+    def test_pe32_plus(self) -> None:
+        """A PE32+ base is 8 bytes at offset 24, not 4 bytes at offset 28."""
+        import sys
+
+        sys.path.insert(0, str(Path(__file__).parent))  # tests/ on path for bin_util
+        from bin_util import make_pe
+
+        from rebrew.pe_headers import pe_image_base
+
+        data = make_pe(b"\x90" * 8, image_base=0x140000000, pe32_plus=True)
+        assert pe_image_base(data) == 0x140000000
+        assert pe_image_base(make_pe(b"\x90" * 8, image_base=0x400000)) == 0x400000
+
+    def test_non_pe(self) -> None:
+        from rebrew.pe_headers import pe_image_base
+
+        assert pe_image_base(b"\x00" * 256) is None
+
+
+class TestPe32PlusFieldWidths:
+    def test_stack_heap_fields_are_eight_bytes(self) -> None:
+        """A PE32+ stack/heap size is 8 bytes; the PE32 offsets read 4 of it."""
+        import sys
+
+        sys.path.insert(0, str(Path(__file__).parent))  # tests/ on path for bin_util
+        from bin_util import make_pe
+
+        from rebrew.pe_headers import header_parity, patch_pe_headers, read_pe_header_fields
+
+        data = make_pe(b"\x90" * 8, image_base=0x140000000, pe32_plus=True)
+        fields = read_pe_header_fields(data)
+        assert fields is not None
+        assert fields["stack_reserve"] == 0x100000
+        assert fields["stack_commit"] == 0x1000
+        assert fields["heap_reserve"] == 0x100000
+        assert fields["heap_commit"] == 0x1000
+        patched = patch_pe_headers(data, {"stack_reserve": 0x200000, "heap_commit": 0x2000})
+        after = read_pe_header_fields(patched)
+        assert after is not None
+        assert after["stack_reserve"] == 0x200000
+        assert after["heap_commit"] == 0x2000
+        # The neighbouring fields the wider writes could clobber stay put.
+        assert after["dll_characteristics"] == fields["dll_characteristics"]
+        parity = {row["field"]: row["match"] for row in header_parity(data, patched)}
+        assert parity["stack_reserve"] is False

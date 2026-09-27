@@ -2,8 +2,9 @@
 
 Parses an import table via LIEF — a PE's DLL name → API name → IAT slot VA, or
 an ELF's DT_NEEDED libraries and undefined dynamic symbols — and detects the
-classic MSVC import stubs in ``.text``: ``jmp dword ptr [iat]`` sequences
-(``FF 25 <va>``).  Library layer under the ``rebrew imports`` command
+classic MSVC import stubs in ``.text``: ``jmp [iat]`` sequences (``FF 25``,
+an absolute slot VA on PE32 and a RIP-relative displacement on PE32+).
+Library layer under the ``rebrew imports`` command
 (:mod:`rebrew.imports`) and every analysis pass that names imported APIs.
 """
 
@@ -12,6 +13,10 @@ from __future__ import annotations
 import struct
 from pathlib import Path
 from typing import Any
+
+#: IMAGE_NT_OPTIONAL_HDR64_MAGIC — a PE32+ optional header, whose ``FF 25``
+#: stub operand is RIP-relative rather than an absolute slot VA.
+_PE32_PLUS_MAGIC = 0x20B
 
 
 def parse_imports(binary_path: Path) -> list[dict[str, Any]]:
@@ -184,16 +189,23 @@ def parse_import_table(binary_path: Path) -> dict[int, str]:
 
 
 def find_import_stubs(binary_path: Path) -> dict[int, str]:
-    """Detect ``jmp dword ptr [iat]`` import stubs in ``.text``.
+    """Detect ``jmp [iat]`` import stubs in ``.text``.
 
-    Returns ``{stub_va: api_name}`` for every ``FF 25 <iat_va>`` sequence
-    whose target matches the import table.  These stubs are what the linker
+    Returns ``{stub_va: api_name}`` for every ``FF 25`` sequence whose target
+    resolves to an import-table slot.  These stubs are what the linker
     generates for each imported API, so the VA maps 1:1 to a function.
+
+    The operand is 32 bits either way but means different things: a PE32 stub
+    carries the slot's absolute VA (``jmp dword ptr [iat_va]``), a PE32+ stub a
+    RIP-relative displacement (``jmp qword ptr [rip + disp32]``, resolved from
+    the address of the following instruction).  A PE32+ read as absolute finds
+    nothing, which is how x64 images silently reported zero stubs.
     """
     table = parse_import_table(binary_path)
     if not table:
         return {}
     from rebrew.binary_loader import load_binary
+    from rebrew.pe_headers import pe_layout
 
     try:
         info = load_binary(binary_path)
@@ -202,13 +214,17 @@ def find_import_stubs(binary_path: Path) -> dict[int, str]:
     text = info.sections.get(".text")
     if text is None or text.file_offset < 0 or text.size <= 0:
         return {}
+    layout = pe_layout(info.data)
+    rip_relative = layout is not None and layout.magic == _PE32_PLUS_MAGIC
+    stub_va = text.va
     blob = info.data[text.file_offset : text.file_offset + text.size]
     stubs: dict[int, str] = {}
     for i in range(len(blob) - 5):
         if blob[i] != 0xFF or blob[i + 1] != 0x25:
             continue
-        target = struct.unpack("<I", blob[i + 2 : i + 6])[0]
+        operand = struct.unpack("<i", blob[i + 2 : i + 6])[0]
+        target = (stub_va + i + 6 + operand) & 0xFFFFFFFFFFFFFFFF if rip_relative else operand
         name = table.get(target)
         if name is not None:
-            stubs[text.va + i] = name
+            stubs[stub_va + i] = name
     return stubs

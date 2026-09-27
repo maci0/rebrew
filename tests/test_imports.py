@@ -144,6 +144,41 @@ class TestFindImportStubs:
         plain.write_bytes(make_pe(b"\x90" * 16))
         assert find_import_stubs(plain) == {}
 
+    def test_detects_pe32_plus_rip_relative_stub(self, tmp_path: Path) -> None:
+        """A PE32+ stub's ``FF 25`` operand is a RIP-relative displacement.
+
+        Read as an absolute slot VA the operand names nothing, so a
+        PE32-only reader reports zero stubs for every 64-bit image.
+        """
+        stub_len = 6
+        tail = b"\x55\x8b\xec\x5d\xc3"
+        imports = [("KERNEL32.dll", ["MessageBoxA", "GetProcAddress"])]
+        probe_path = tmp_path / "probe64.exe"
+        probe_path.write_bytes(
+            make_pe(
+                b"\x90" * stub_len + tail,
+                image_base=IMAGE_BASE,
+                text_va=TEXT_VA,
+                imports=imports,
+                pe32_plus=True,
+            )
+        )
+        iat_va = min(parse_import_table(probe_path))
+        disp = iat_va - (IMAGE_BASE + TEXT_VA + stub_len)
+        stub = b"\xff\x25" + struct.pack("<i", disp)
+        path = tmp_path / "game64.exe"
+        path.write_bytes(
+            make_pe(
+                stub + tail,
+                image_base=IMAGE_BASE,
+                text_va=TEXT_VA,
+                imports=imports,
+                pe32_plus=True,
+            )
+        )
+        stubs = find_import_stubs(path)
+        assert stubs == {IMAGE_BASE + TEXT_VA: parse_import_table(path)[iat_va]}
+
 
 class TestImportsCli:
     def test_terminal_output(self, pe_path: Path) -> None:
