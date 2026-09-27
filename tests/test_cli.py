@@ -758,6 +758,52 @@ class TestUntrustedLiteral:
         assert untrusted_literal("a\tb\nc") == "a\tb\nc"
 
 
+class TestConsoleBackstop:
+    """`console` keeps a target-supplied string from crashing or hijacking the terminal.
+
+    The per-call fix is `untrusted_text`; these pin the backstop for the calls
+    that print a binary-derived name without it.
+    """
+
+    @staticmethod
+    def _capture(*objects: object, **kwargs: object) -> str:
+        from rebrew.cli import console
+
+        with console.capture() as buf:
+            console.print(*objects, **kwargs)  # type: ignore[arg-type]
+        return buf.get()
+
+    def test_intended_markup_still_renders(self) -> None:
+        """The scrub is a no-op on rebrew's own output, so styling is unchanged."""
+        assert self._capture("[bold]EXACT[/bold] 0x401000") == "EXACT 0x401000\n"
+
+    @pytest.mark.parametrize("hostile", ["sub_[/bold]name", "sub_[/]name", "a[/nope]b"])
+    def test_bad_closing_tag_does_not_raise(self, hostile: str) -> None:
+        """Rich raises MarkupError out of print() for these; the tool used to traceback."""
+        assert self._capture(f"sym {hostile} 0x401000") == f"sym {hostile} 0x401000\n"
+
+    def test_terminal_driver_in_a_printed_name_is_neutralized(self) -> None:
+        out = self._capture("sym_\x1b]52;c;SEVCRAU\x07name")
+        assert "\x1b" not in out and "\x07" not in out
+        assert out == "sym_\\x1b]52;c;SEVCRAU\\x07name\n"
+
+    def test_bidi_override_in_a_printed_name_is_dropped(self) -> None:
+        assert self._capture("sub_A\u202etxt_b") == "sub_Atxt_b\n"
+
+    def test_table_with_a_hostile_cell_still_renders(self) -> None:
+        """A cell carrying a bad tag must not take the whole listing down."""
+        from rich.table import Table
+
+        table = Table()
+        table.add_column("symbol")
+        table.add_row("sub_[/bold]name")
+        out = self._capture(table)
+        assert "sub_[/bold]name" in out
+
+    def test_sep_and_end_still_honoured(self) -> None:
+        assert self._capture("a", "b", sep="-", end="!\n") == "a-b!\n"
+
+
 # ---------------------------------------------------------------------------
 # confirm_abort()
 # ---------------------------------------------------------------------------
