@@ -14,7 +14,7 @@ CLI surface twice for output determinism and each mutating command twice
 against its own scratch project, requiring the first run to actually change
 it), both version-independent, so the 3.14 entry
 skips them — a pre-commit hook-parity job (`make check` with
-the ruff and mypy hooks skipped, since the lint job runs them; it installs
+the two ruff hooks and the mypy hook skipped, since the lint job runs them; it installs
 shellcheck first through `tools/ci_apt_install.sh`, so the shell hook is
 enforced there), a package job
 that builds the sdist/wheel via `make build` (SOURCE_DATE_EPOCH, umask 022, C/UTC,

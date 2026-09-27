@@ -10,7 +10,8 @@ Pins the docs to the code so drift is caught in CI:
   their index, lifecycle status, and cross-links intact;
 - every package whose ``AGENTS.md`` declares an ``Externals`` allowlist imports
   only the packages on it;
-- every ``make <target>`` the ``AGENTS.md`` files name is a Makefile target;
+- every ``make <target>`` the ``AGENTS.md`` files name is a Makefile target, and
+  the same for the docs that spell out the human contributor path;
 - every repo path, ``rebrew <command>``, and make target a rule file cites
   resolves, in the repo's own ``AGENTS.md``, each subpackage's, and the
   ``AGENTS.md.template`` that ``rebrew init`` renders into a user project.
@@ -41,8 +42,22 @@ RULE_FILES = (
     *sorted(PACKAGE_ROOT.glob("*/AGENTS.md")),
 )
 
+#: The docs a human contributor follows from a clean clone to a merged change.
+#: Every ``make <target>`` in these is a command to run, so a renamed target is
+#: a command that fails before any work starts.  The rest of ``docs/`` is design
+#: prose, where "make a bridge" is a sentence and not an invocation.
+CONTRIBUTOR_DOCS = (
+    ROOT / "README.md",
+    ROOT / "CONTRIBUTING.md",
+    ROOT / "docs" / "ADDING_A_COMMAND.md",
+    ROOT / "docs" / "CI.md",
+    ROOT / "docs" / "DEVELOPMENT.md",
+)
+
 #: Words that follow "make" in prose without naming a target.
-_PROSE_AFTER_MAKE = frozenset({"a", "an", "each", "it", "sure", "that", "the", "this"})
+_PROSE_AFTER_MAKE = frozenset(
+    {"a", "an", "each", "it", "sure", "target", "targets", "that", "the", "this"}
+)
 
 
 def test_every_lint_code_documented() -> None:
@@ -367,18 +382,14 @@ def test_package_imports_stay_inside_their_allowlist() -> None:
     )
 
 
-def test_rule_files_name_real_make_targets() -> None:
-    """Every ``make <target>`` an ``AGENTS.md`` names is defined in the Makefile.
-
-    The rule files are loaded into every session, so a target that was renamed
-    or dropped sends the next agent to a command that fails before any work
-    starts. ``T=`` and ``FLAGS=`` arguments are not part of the target name.
-    """
+def _unknown_make_targets(docs: tuple[Path, ...]) -> tuple[list[str], int]:
+    """Make targets ``docs`` name that the Makefile does not define, and how
+    many target references were seen (so a stale regex cannot pass silently)."""
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
     defined = set(re.findall(r"^([a-zA-Z][a-zA-Z0-9_.-]*):", makefile, re.MULTILINE))
     unknown: list[str] = []
     named = 0
-    for doc in RULE_FILES:
+    for doc in docs:
         where = doc.relative_to(ROOT)
         for target in re.findall(r"make ([a-z][a-z0-9-]*)", doc.read_text(encoding="utf-8")):
             if target in _PROSE_AFTER_MAKE:
@@ -386,10 +397,37 @@ def test_rule_files_name_real_make_targets() -> None:
             named += 1
             if target not in defined:
                 unknown.append(f"{where}: make {target}")
+    return unknown, named
+
+
+def test_rule_files_name_real_make_targets() -> None:
+    """Every ``make <target>`` an ``AGENTS.md`` names is defined in the Makefile.
+
+    The rule files are loaded into every session, so a target that was renamed
+    or dropped sends the next agent to a command that fails before any work
+    starts. ``T=`` and ``FLAGS=`` arguments are not part of the target name.
+    """
+    unknown, named = _unknown_make_targets(RULE_FILES)
 
     assert named, f"no make target found in {len(RULE_FILES)} rule files; the regex is stale"
     assert not unknown, (
         "rule file names a make target the Makefile does not define "
+        "(rename the target or the reference):\n  " + "\n  ".join(unknown)
+    )
+
+
+def test_contributor_docs_name_real_make_targets() -> None:
+    """Every ``make <target>`` the contributor path names is a real target.
+
+    The same drift the rule-file check above covers, on the files a human
+    follows from a clean clone: the command a renamed target leaves behind is
+    the first one a new contributor runs, so it fails before any work starts.
+    """
+    unknown, named = _unknown_make_targets(CONTRIBUTOR_DOCS)
+
+    assert named, f"no make target found in {len(CONTRIBUTOR_DOCS)} docs; the regex is stale"
+    assert not unknown, (
+        "contributor doc names a make target the Makefile does not define "
         "(rename the target or the reference):\n  " + "\n  ".join(unknown)
     )
 
