@@ -234,7 +234,10 @@ class TestQueryLayer:
         dashboard = Dashboard(db)
         status, _, body = dashboard.handle("GET", "/api/summary", {"target": ["broken"]})
         assert status == 500
-        assert json.loads(body) == {"error": "corrupt function_stats metadata"}
+        assert json.loads(body) == {
+            "error": "corrupt function_stats metadata",
+            "code": "corrupt_function_stats",
+        }
         status, _, body = dashboard.handle("GET", "/api/summary", {"target": ["notobj"]})
         assert status == 500
         assert "corrupt" in json.loads(body)["error"]
@@ -286,7 +289,10 @@ class TestQueryLayer:
         ):
             status, _, body = dashboard.handle("GET", "/api/summary", {"target": [target]})
             assert status == 500, target
-            assert json.loads(body) == {"error": "corrupt function_stats metadata"}
+            assert json.loads(body) == {
+                "error": "corrupt function_stats metadata",
+                "code": "corrupt_function_stats",
+            }
         status, _, body = dashboard.handle("GET", "/api/summary", {"target": ["z_ok"]})
         assert status == 200
         assert json.loads(body)["coverage_pct"] == 0.0
@@ -861,6 +867,7 @@ class TestHandle:
             "total": 1,
             "limit": 1,
             "offset": 0,
+            "paged": False,
         }
 
         status, _, body = dashboard.handle("GET", "/api/bootstrap", {})
@@ -924,6 +931,63 @@ class TestHandle:
             status, _, body = dashboard.handle("GET", path, {"target": ["nope"]})
             assert status == 404, path
             assert "unknown target" in json.loads(body)["error"]
+
+    def test_every_error_body_carries_a_code(self, dashboard: Dashboard) -> None:
+        """A client branches on ``code``; ``error`` stays the human text."""
+        cases = [
+            ("GET", "/api/summary", {}, 400, "missing_target"),
+            ("GET", "/api/summary", {"target": ["nope"]}, 404, "unknown_target"),
+            ("GET", "/api/nope", {}, 404, "not_found"),
+            ("POST", "/api/targets", {}, 405, "method_not_allowed"),
+            (
+                "GET",
+                "/api/functions",
+                {"target": ["server_dll"], "status": ["NOPE"]},
+                400,
+                "invalid_status",
+            ),
+        ]
+        for method, path, query, expected_status, expected_code in cases:
+            status, _, body = dashboard.handle(method, path, query)
+            assert status == expected_status, path
+            payload = json.loads(body)
+            assert payload["code"] == expected_code, path
+            assert payload["error"], path
+
+    def test_api_functions_unknown_status_400(self, dashboard: Dashboard) -> None:
+        """A typo in ``status`` is a client error, not an empty result page."""
+        status, _, body = dashboard.handle(
+            "GET", "/api/functions", {"target": ["server_dll"], "status": ["STTUB"]}
+        )
+        assert status == 400
+        payload = json.loads(body)
+        assert payload["code"] == "invalid_status"
+        assert "STTUB" in payload["error"]
+        # Every real status still filters (case- and alias-folded).
+        for known in ("STUB", "stub", "exact", "NEAR_MATCHING"):
+            status, _, _ = dashboard.handle(
+                "GET", "/api/functions", {"target": ["server_dll"], "status": [known]}
+            )
+            assert status == 200, known
+
+    def test_list_envelopes_declare_paging(self, dashboard: Dashboard) -> None:
+        """``paged`` says whether ``limit`` is a page size or the row count."""
+        for path, paged in (
+            ("/api/functions", True),
+            ("/api/globals", True),
+            ("/api/history", True),
+            ("/api/sections", False),
+            ("/api/targets", False),
+        ):
+            status, _, body = dashboard.handle("GET", path, {"target": ["server_dll"]})
+            assert status == 200, path
+            payload = json.loads(body)
+            assert payload["paged"] is paged, path
+            assert payload["offset"] == 0, path
+        status, _, body = dashboard.handle("GET", "/api/bootstrap", {})
+        assert json.loads(body)["paged"] is False
+        # The nested functions page of bootstrap carries its own flag.
+        assert json.loads(body)["functions"]["paged"] is True
 
     def test_api_functions_with_query(self, dashboard: Dashboard) -> None:
         status, _, body = dashboard.handle(
@@ -1433,7 +1497,10 @@ class TestHttpMethods:
         assert b"Content-Type: application/json; charset=utf-8\r\n" in headers
         assert b"Allow: GET, HEAD" in headers
         assert b"Cache-Control: no-store\r\n" in headers
-        assert json.loads(body) == {"error": "method not allowed (read-only; GET, HEAD only)"}
+        assert json.loads(body) == {
+            "error": "method not allowed (read-only; GET, HEAD only)",
+            "code": "method_not_allowed",
+        }
 
     def test_http11_keeps_connection_for_pipelined_gets(self, dashboard: Dashboard) -> None:
         """HTTP/1.1 responses leave the socket open so shell + bootstrap share one TCP."""
@@ -1509,7 +1576,10 @@ class TestHttpMethods:
         assert b"Content-Type: application/json; charset=utf-8\r\n" in headers
         assert b"Connection: close\r\n" in headers
         assert b"Cache-Control: no-store\r\n" in headers
-        assert json.loads(body) == {"error": "Invalid HTTP version (9.9)"}
+        assert json.loads(body) == {
+            "error": "Invalid HTTP version (9.9)",
+            "code": "http_version_not_supported",
+        }
 
 
 class TestEncodingNegotiation:

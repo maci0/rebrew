@@ -435,7 +435,20 @@ The `recoverage` server exposes the following endpoints. All data endpoints retu
 > (`q` matches the global name or a hex address),
 > `/api/history?target=` with `limit`/`offset`, plus `/api/bootstrap`,
 > `/app.js`, `/boot-guard.js`, and `/api/targets`). Function, global, and history list rows are
-> compact arrays under `cols`. Missing `target` → 400; unknown target → 404;
-> corrupt `function_stats` on `/api/summary` → 500. It does **not** implement
+> compact arrays under `cols`. List envelopes carry `count` (this page),
+> `total`, the applied `limit`/`offset`, and `paged` — `true` on
+> `/api/functions`, `/api/globals`, `/api/history`; `false` on
+> `/api/sections`, `/api/targets`, and the top level of `/api/bootstrap`,
+> which have no page (so `limit` there is the row count, not a page size).
+> Missing `target` → 400; unknown target → 404;
+> a `status` filter outside the STATUS vocabulary → 400 (an empty page would
+> read as "no functions in that status"); corrupt `function_stats` on
+> `/api/summary` → 500. Every error body is
+> `{"error": "<message>", "code": "<machine-readable code>"}`; branch on
+> `code` (`missing_target`, `unknown_target`, `invalid_status`, `not_found`,
+> `method_not_allowed`, `host_not_allowed`, `corrupt_function_stats`,
+> `database_error`, `internal_error`, plus `bad_request` / `uri_too_long` /
+> `header_fields_too_large` / `http_version_not_supported` for requests
+> rejected before routing). It does **not** implement
 > the path-style recoverage endpoints above, `/api/regen`, or `/api/health`.
 > See [`dashboard.py`](../src/rebrew/dashboard.py).
