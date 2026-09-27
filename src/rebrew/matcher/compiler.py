@@ -252,7 +252,7 @@ def _ensure_wine_env(env: dict[str, str] | None, cmd: list[str]) -> dict[str, st
 #: is reserved for a registered toolchain with no image (a plugin/overlay
 #: native compiler).  ``None`` means "not resolved yet": see
 #: :func:`docker_backed_profiles`.
-_DOCKER_BACKED_PROFILES: frozenset[str] | None = frozenset()
+_DOCKER_BACKED_PROFILES: frozenset[str] | None = None
 
 
 def docker_backed_profiles() -> frozenset[str]:

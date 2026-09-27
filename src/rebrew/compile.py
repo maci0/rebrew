@@ -50,6 +50,7 @@ All functions read from ``cfg`` (a ``ProjectConfig`` instance):
 import atexit
 import contextlib
 import hashlib
+import logging
 import math
 import os
 import re
@@ -423,8 +424,6 @@ def clears_blocker(status: str, source: Path) -> bool:
         # Clearing the blocker is the destructive choice: an unreadable
         # source may still hold the inline asm the note documents, and a
         # later verify would not put the note back.  Keep it.
-        import logging
-
         logging.getLogger(__name__).warning(
             "Could not read %s to decide whether BLOCKER still documents "
             "inline asm; leaving the blocker in place: %s",
@@ -1610,9 +1609,10 @@ def compile_to_obj(
     # hash the same list the lookup used, not that later list.
     key_flags = list(all_flags)
     source_ext = source_path.suffix or ".c"
-    cache_key: str | None = None
-    if cc is not None:
-        cache_key = _cache_key_for(
+
+    def cache_key_now() -> str:
+        """The key for the current on-disk state of the compile unit."""
+        return _cache_key_for(
             cfg,
             spec,
             compile_text,
@@ -1623,6 +1623,10 @@ def compile_to_obj(
             extra_include_dirs,
             source_ext,
         )
+
+    cache_key: str | None = None
+    if cc is not None:
+        cache_key = cache_key_now()
         cached_obj = cc.get(cache_key)
         if cached_obj is not None:
             obj_file = workdir / obj_name
@@ -1668,34 +1672,17 @@ def compile_to_obj(
         try:
             remote_obj = Path(obj_path).read_bytes()
         except OSError as exc:
-            import logging
-
             logging.getLogger(__name__).debug(
                 "recompile artifact %s unreadable, not caching: %s", obj_path, exc
             )
             return obj_path, remote_err
-        publish_obj_cache(
-            cc,
-            cache_key,
-            remote_obj,
-            fresh_key=_cache_key_for(
-                cfg,
-                spec,
-                compile_text,
-                src_name,
-                key_flags,
-                inc_path,
-                src_parent,
-                extra_include_dirs,
-                source_ext,
-            ),
-        )
+        publish_obj_cache(cc, cache_key, remote_obj, fresh_key=cache_key_now())
         return obj_path, remote_err
 
     if spec is not None and (spec.image is not None or spec.runtime == "native"):
-        """The standardized runner: the toolchain's docker image, or native
-        execution for an image-less plugin spec.  There is no host
-        wine/dosbox path."""
+        # The standardized runner: the toolchain's docker image, or native
+        # execution for an image-less plugin spec.  There is no host
+        # wine/dosbox path.
         mounts: list[tuple[str, str]] = []
         if spec.image is not None:
             # --- docker: rewrite include flags for the container ---
@@ -1781,20 +1768,7 @@ def compile_to_obj(
         if cc is not None and cache_key is not None:
             with contextlib.suppress(OSError):
                 publish_obj_cache(
-                    cc,
-                    cache_key,
-                    obj_file.read_bytes(),
-                    fresh_key=_cache_key_for(
-                        cfg,
-                        spec,
-                        compile_text,
-                        src_name,
-                        key_flags,
-                        inc_path,
-                        src_parent,
-                        extra_include_dirs,
-                        source_ext,
-                    ),
+                    cc, cache_key, obj_file.read_bytes(), fresh_key=cache_key_now()
                 )
         return str(obj_file), ""
 
@@ -1928,12 +1902,9 @@ def precompile_batch(
     symbol bytes so the lasting dir does not accumulate across verify runs
     in a long-lived process; an atexit hook is the backstop.
     """
-    import contextlib
-    import logging as _logging
-
     from rebrew.compile_overrides import resolve_compile_overrides
 
-    log = _logging.getLogger(__name__)
+    log = logging.getLogger(__name__)
     if len(entries) < 2 or recompile_url(cfg) is not None:
         return {}
     try:
@@ -2073,7 +2044,7 @@ def precompile_batch(
                         # path unlinked: its siblings then compile against a
                         # tree missing a member.  Drop the member and say so
                         # rather than reporting a wrong object.
-                        _logging.getLogger(__name__).warning(
+                        log.warning(
                             "could not stage %s into %s: %s", source, workdir, exc
                         )
                         continue

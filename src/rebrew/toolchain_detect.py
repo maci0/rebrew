@@ -55,6 +55,7 @@ import os
 import re
 import shutil
 import subprocess
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, cast
@@ -864,22 +865,37 @@ _O1_WRAPPERS: tuple[bytes, ...] = (
 _OPT_MIN_SITES = 3
 
 
+def _iter_masked(
+    text: bytes, pattern: bytes, base_va: int, exclude: list[tuple[int, int]]
+) -> Iterator[int]:
+    """Yield each non-overlapping *pattern* hit in *text* whose VA is outside *exclude*.
+
+    ``base_va`` is the VA of ``text[0]``; *exclude* holds ``(lo, hi)`` VA ranges
+    a linked library occupies (``external_ranges``).  The cursor advances by the
+    pattern length so the yield count equals ``bytes.count`` - the fast path
+    callers use when nothing is excluded, and the reason ``_O2_WRAPPERS`` and
+    friends are scanned this way.
+    """
+    start = 0
+    while True:
+        index = text.find(pattern, start)
+        if index < 0:
+            return
+        va = base_va + index
+        if not any(lo <= va <= hi for lo, hi in exclude):
+            yield va
+        start = index + len(pattern)
+
+
 def _pattern_vas(
     text: bytes, base_va: int, patterns: tuple[bytes, ...], exclude: list[tuple[int, int]]
 ) -> list[int]:
     """VAs of non-overlapping *patterns* in *text* that fall outside *exclude*."""
-    found: list[int] = []
-    for pattern in patterns:
-        start = 0
-        while True:
-            index = text.find(pattern, start)
-            if index < 0:
-                break
-            va = base_va + index
-            if not any(lo <= va <= hi for lo, hi in exclude):
-                found.append(va)
-            start = index + len(pattern)
-    return found
+    return [
+        va
+        for pattern in patterns
+        for va in _iter_masked(text, pattern, base_va, exclude)
+    ]
 
 
 def opt_level_from_counts(o2: int, o1: int) -> str:
@@ -935,18 +951,9 @@ def _count_masked(
     """
     if not exclude:
         return sum(text.count(p) for p in patterns)
-    total = 0
-    for pattern in patterns:
-        start = 0
-        while True:
-            i = text.find(pattern, start)
-            if i < 0:
-                break
-            va = base_va + i
-            if not any(lo <= va <= hi for lo, hi in exclude):
-                total += 1
-            start = i + 1
-    return total
+    return sum(
+        1 for pattern in patterns for _ in _iter_masked(text, pattern, base_va, exclude)
+    )
 
 
 def _count_codegen_signals(
