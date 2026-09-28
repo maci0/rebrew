@@ -362,8 +362,25 @@ add-dep: warn-uv-version
 # when the group is absent.  rapidfuzz and resembl ship type information and
 # [[tool.mypy.overrides]] deliberately does not silence them, so the fix is
 # installing the group, not muting the checker.
+#
+# `uv run` creates .venv on first use, so the probe cannot go through it on a
+# clean clone: `make doctor` is documented as read-only, and a venv it built
+# itself would then be a half-synced one the next command has to repair.  With
+# no .venv there is nothing to probe, so run the same file with the system
+# python3, which reports the missing-venv case itself.  A host with neither
+# python3 nor uv is told to run make setup first rather than left with a bare
+# "command not found".
 ensure-extras: ensure-uv
-	uv run --frozen --no-sync python tools/require_extras.py $(RESEMBL_DIR)
+	@if [ -d .venv ]; then \
+	  uv run --frozen --no-sync python tools/require_extras.py $(RESEMBL_DIR); \
+	elif command -v python3 >/dev/null 2>&1; then \
+	  python3 tools/require_extras.py $(RESEMBL_DIR); \
+	else \
+	  echo "ERROR: no .venv and no python3 on PATH, so the 'prove' extra"; \
+	  echo "and the 'similarity' group cannot be checked."; \
+	  echo "Run 'make setup', or 'uv sync --locked --all-extras --group similarity', then re-run."; \
+	  exit 1; \
+	fi
 
 # Whole-environment preflight.  Every other target checks one prerequisite and
 # names it when it is missing, so a host without nasm, without shellcheck, or

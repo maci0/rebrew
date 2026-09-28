@@ -1927,10 +1927,24 @@ class TestRequireExtras:
     def test_missing_group_is_named_with_its_fix(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
+        monkeypatch.setattr(require_extras, "_venv_dir", lambda: tmp_path)
         monkeypatch.setattr(require_extras, "_satisfied", lambda modules: False)
         assert require_extras.main([str(tmp_path / "resembl")]) == 1
         out = capsys.readouterr().out
         assert "'prove' extra" in out
+        assert "uv sync --locked --all-extras" in out
+
+    def test_absent_venv_is_reported_without_probing_the_interpreter(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        # `make doctor` runs this file with the system python3 so a clean clone
+        # stays untouched; a system interpreter carrying angr must not read as
+        # the extra being installed in the project venv.
+        monkeypatch.setattr(require_extras, "_venv_dir", lambda: tmp_path / "absent")
+        monkeypatch.setattr(require_extras, "_satisfied", lambda modules: True)
+        assert require_extras.main() == 1
+        out = capsys.readouterr().out
+        assert "does not exist" in out
         assert "uv sync --locked --all-extras" in out
 
     def test_similarity_failure_names_the_sibling_checkout(
@@ -1939,6 +1953,7 @@ class TestRequireExtras:
         # angr and claripy resolve, the similarity group does not: the message
         # has to point at the sibling path dependency, which is the fix half
         # the prove extra's message does not mention.
+        monkeypatch.setattr(require_extras, "_venv_dir", lambda: tmp_path)
         monkeypatch.setattr(
             require_extras, "_satisfied", lambda modules: "rapidfuzz" not in modules
         )
@@ -1947,8 +1962,9 @@ class TestRequireExtras:
         assert str(sibling) in capsys.readouterr().out
 
     def test_satisfied_groups_pass(
-        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
+        monkeypatch.setattr(require_extras, "_venv_dir", lambda: tmp_path)
         monkeypatch.setattr(require_extras, "_satisfied", lambda modules: True)
         assert require_extras.main() == 0
         assert capsys.readouterr().out == ""
@@ -1958,3 +1974,10 @@ class TestRequireExtras:
         importing angr costs seconds on every `make mypy`."""
         assert require_extras._satisfied(("json", "os", "re"))
         assert not require_extras._satisfied(("rebrew_no_such_module",))
+
+    def test_makefile_probe_does_not_build_the_venv_it_reports_on(self) -> None:
+        """`uv run` creates .venv, and `make doctor` is documented read-only."""
+        recipe = MAKEFILE.read_text(encoding="utf-8")
+        recipe = recipe.split("ensure-extras: ensure-uv", 1)[1].split("\n\n", 1)[0]
+        assert "if [ -d .venv ]" in recipe, recipe
+        assert "python3 tools/require_extras.py" in recipe, recipe
