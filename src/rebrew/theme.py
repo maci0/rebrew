@@ -20,6 +20,10 @@ every background these tokens ship on — the two page surfaces plus the hover
 and pressed a row or button is painted on — and fails on a colour token added
 without one, so the temperature costs no contrast.
 
+``ink`` on ``surface`` is also the title band both HTML surfaces open with: the
+report's ``header`` and the dashboard's heading, on the same padding, so the
+dashboard and a report read as one tool opened side by side.
+
 Status marks are ``status_style.STATUS_HEX``, the same values
 the call graph uses, and are not repeated here; the graph's node stroke, label
 colour, label font and edge colour read the ``ink``, ``surface``, ``mono`` and

@@ -1443,7 +1443,9 @@ _INDEX_HTML = """<!doctype html>
     font: inherit; border: 1px solid var(--rb-line); border-radius: var(--rb-radius);
     background: var(--rb-surface); color: inherit; }
   :focus-visible { outline: 3px solid var(--rb-accent); outline-offset: 2px; }
-  h1 { font-size: var(--rb-size-title); margin-bottom: .25rem; }
+  h1 { font-size: var(--rb-size-title);
+    margin: -1.5rem -1.5rem 1rem; padding: .75rem 1.5rem;
+    background: var(--rb-ink); color: var(--rb-surface); }
   .cards { display: flex; gap: 1rem; flex-wrap: wrap; margin: 1rem 0;
     min-height: 4.3rem; }
   .card { border: 1px solid var(--rb-line); border-radius: var(--rb-radius);
@@ -1469,9 +1471,7 @@ __STATUS_CSS__
   table { border-collapse: collapse; width: 100%; margin-top: 1rem;
     font-size: var(--rb-size-cell); background: var(--rb-surface); }
   th, td { border-bottom: 1px solid var(--rb-line); padding: .3rem .5rem; text-align: left; }
-  /* `anywhere` lowers a cell's intrinsic minimum, so a long name wraps
-     instead of pushing Status away from its VA.  The VA opts out; why the
-     header row alone has to set the table's width is in the docstring. */
+  /* `anywhere` wraps a long name instead of pushing Status off the row. */
   td { overflow-wrap: anywhere; }
   th { background: var(--rb-sunken); white-space: nowrap; font-weight: 600; }
   tbody tr:hover { background: var(--rb-hover); }
@@ -1499,6 +1499,7 @@ __STATUS_CSS__
   .link-button:hover { color: var(--rb-accent-hi); }
   @media (max-width: 40rem) {
     body { margin: 1rem; }
+    h1 { margin: -1rem -1rem 1rem; padding: .75rem 1rem; }
     select, input { min-width: 0; width: 100%; }
     .filters > div { flex: 1 1 100%; }
     .card { min-width: 0; flex: 1 1 6rem; padding: .4rem .6rem; }
@@ -1710,6 +1711,9 @@ def _dashboard_status_forced() -> str:
     return "    .st { color: CanvasText; font-weight: 700; }"
 
 
+# The heading carries the same ink title band the report pages open on, bled to
+# the page edge by the negative margin that matches ``body``'s own inset, so the
+# two HTML surfaces read as one tool.  Its padding matches the report header's.
 # The shell links the content-hashed URL, so only that URL is cached immutable.
 _INDEX_HTML = _INDEX_HTML.replace("__STATUS_CSS__", _dashboard_status_css()).replace(
     "__STATUS_FORCED__", _dashboard_status_forced()
