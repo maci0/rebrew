@@ -452,7 +452,7 @@ def _assert_parsed(
     pe: dict[str, object],
 ) -> None:
     """Invariants of a successful ``parse_pe``, checked against the header parser."""
-    from rebrew.layout_meta import parse_pe as parse_header
+    from rebrew.pe_headers import pe_header as parse_header
     from rebrew.pe_headers import sections_at
     from rebrew.pe_image import _MAX_EXPORT_ENTRIES, PeImport, _Section
 

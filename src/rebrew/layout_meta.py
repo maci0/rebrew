@@ -75,7 +75,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from rebrew.pe_headers import pe_lfanew, sections_at
+from rebrew.pe_headers import pe_header, sections_at
 from rebrew.utils import atomic_write_text
 
 #: Cap on import name-table / descriptor slots read from one PE.  A missing
@@ -243,28 +243,6 @@ def read_layout_header(root: Path, target: str, bin_path: Path) -> dict[str, Any
 # ---------------------------------------------------------------------------
 
 
-def parse_pe(data: bytes) -> tuple[int, int, int, int, int]:
-    """Return (e_lfanew, nsec, optsz, opt_off, image_base) with sanity checks."""
-    if len(data) < 0x40:
-        raise ValueError("file too small to be a PE")
-    e = pe_lfanew(data)
-    if e is None or e + 24 > len(data):
-        raise ValueError("no PE signature")
-    nsec = struct.unpack_from("<H", data, e + 6)[0]
-    optsz = struct.unpack_from("<H", data, e + 20)[0]
-    opt = e + 24
-    # image_base is at optional+28.  A SizeOfOptionalHeader shorter than that,
-    # on a file that ends at the claim, used to raise struct.error here.
-    if opt + optsz > len(data) or opt + 32 > len(data):
-        raise ValueError("truncated optional header")
-    if opt + optsz + 40 * nsec > len(data):
-        raise ValueError("truncated section table")
-    if struct.unpack_from("<H", data, opt)[0] != 0x10B:
-        raise ValueError("PE32+ not supported")
-    image_base = struct.unpack_from("<I", data, opt + 28)[0]
-    return e, nsec, optsz, opt, image_base
-
-
 def _data_dir(data: bytes, opt: int, index: int) -> tuple[int, int]:
     """Data directory *index*, or ``ValueError`` when it lies past EOF.
 
@@ -280,7 +258,7 @@ def _data_dir(data: bytes, opt: int, index: int) -> tuple[int, int]:
 
 def extract_layout(data: bytes, target: str = "") -> LayoutMetadata:
     """Derive the full text-only layout metadata from a reference binary."""
-    e, nsec, optsz, opt, image_base = parse_pe(data)
+    e, nsec, optsz, opt, image_base = pe_header(data)
     header_size = e + 4 + 20 + optsz + nsec * 40
     sh = opt + optsz
 

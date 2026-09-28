@@ -15,7 +15,7 @@ import struct
 from dataclasses import dataclass
 from typing import Any
 
-from rebrew.pe_headers import pe_lfanew, sections_at
+from rebrew.pe_headers import pe_header, sections_at
 
 #: Cap on import name-table / descriptor slots read from one PE.  A missing
 #: null terminator would otherwise walk past EOF into ``struct.error`` or
@@ -26,12 +26,6 @@ _MAX_IMPORT_SLOTS = 65536
 #: NumberOfNames/NumberOfFunctions of ``0xFFFFFFFF`` would otherwise hang in
 #: ``range()`` or raise ``struct.error`` past EOF.
 _MAX_EXPORT_ENTRIES = 65536
-
-#: Offset of the last optional-header byte ``parse_pe`` reads unconditionally
-#: (basereloc directory size, at optional+140).  SizeOfOptionalHeader can
-#: claim fewer bytes than that while the file ends on the claim; the reads
-#: would raise ``struct.error``.  Callers catch ``ValueError``.
-_OPT_FIELD_END = 144
 
 
 # ---------------------------------------------------------------------------
@@ -60,20 +54,7 @@ def parse_pe(
     data: bytes,
 ) -> tuple[list[_Section], list[dict[str, Any]], list[PeImport], dict[str, Any]]:
     """Return (sections, exports, imports, pe_params) from a PE image."""
-    if len(data) < 0x40:
-        raise ValueError("file too small to be a PE")
-    e = pe_lfanew(data)
-    if e is None or e + 24 > len(data):
-        raise ValueError("no PE signature")
-    nsec = struct.unpack_from("<H", data, e + 6)[0]
-    optsz = struct.unpack_from("<H", data, e + 20)[0]
-    opt = e + 24
-    if opt + optsz > len(data) or opt + _OPT_FIELD_END > len(data):
-        raise ValueError("truncated optional header")
-    magic = struct.unpack_from("<H", data, opt)[0]
-    if magic != 0x10B:
-        raise ValueError(f"unsupported optional-header magic 0x{magic:x} (PE32+ not supported)")
-    image_base = struct.unpack_from("<I", data, opt + 28)[0]
+    e, nsec, optsz, opt, image_base = pe_header(data)
     timestamp = struct.unpack_from("<I", data, e + 8)[0]  # COFF TimeDateStamp
     checksum = struct.unpack_from("<I", data, opt + 64)[0]
     size_of_image = struct.unpack_from("<I", data, opt + 56)[0]
@@ -91,10 +72,6 @@ def parse_pe(
     heap_reserve = struct.unpack_from("<I", data, opt + 80)[0]
     heap_commit = struct.unpack_from("<I", data, opt + 84)[0]
     sh = opt + optsz
-    # Same guard as layout_meta.parse_pe: callers catch ValueError, so a
-    # short section table must not escape as struct.error.
-    if sh + 40 * nsec > len(data):
-        raise ValueError("truncated section table")
 
     def rva_to_off(rva: int) -> int | None:
         for s in sections:

@@ -18,7 +18,8 @@ import pytest
 from hypothesis import example, given, settings
 from hypothesis import strategies as st
 
-from rebrew.layout_meta import extract_layout, parse_pe, write_package
+from rebrew.layout_meta import extract_layout, write_package
+from rebrew.pe_headers import pe_header
 
 _IMAGE_BASE = 0x400000
 _SEC_ALIGN = 0x1000
@@ -339,11 +340,11 @@ def _assert_layout_shape(meta: object) -> None:
 
 @settings(max_examples=200, deadline=None)
 @given(st.binary(min_size=0, max_size=512))
-def test_parse_pe_random_bytes_no_crash(blob: bytes) -> None:
-    """Arbitrary bytes: parse_pe returns a 5-tuple or ValueError — never
+def test_pe_header_random_bytes_no_crash(blob: bytes) -> None:
+    """Arbitrary bytes: pe_header returns a 5-tuple or ValueError — never
     IndexError/struct.error."""
     with suppress(ValueError):
-        out = parse_pe(blob)
+        out = pe_header(blob)
         assert len(out) == 5
         e, nsec, optsz, opt, image_base = out
         assert e >= 0 and nsec >= 0 and optsz >= 0 and opt >= 0

@@ -74,6 +74,12 @@ _COFF_NUMBER_OF_SECTIONS = 0x06
 _COFF_SIZE_OF_OPTIONAL_HEADER = 0x14
 _OPTIONAL_HEADER_OFFSET = 0x18
 
+#: Offset of the last optional-header byte an image walker reads
+#: unconditionally (basereloc directory size, at optional+140).  A
+#: SizeOfOptionalHeader can claim fewer bytes than that while the file ends
+#: on the claim; the reads would raise ``struct.error``.
+_OPT_FIELD_END = 144
+
 
 def pe_lfanew(data: bytes | bytearray) -> int | None:
     """Return e_lfanew (offset of the PE signature) or None if not a PE.
@@ -177,6 +183,36 @@ def pe_layout(data: bytes | bytearray) -> PeLayout | None:
         magic=magic,
         sections=sections_at(data, section_table_offset, number_of_sections),
     )
+
+
+def pe_header(data: bytes) -> tuple[int, int, int, int, int]:
+    """Return ``(e_lfanew, nsec, optsz, opt, image_base)`` for a PE32 image.
+
+    The strict sibling of :func:`pe_layout`: it raises ``ValueError`` where
+    ``pe_layout`` returns ``None`` or clips, so a caller that walks the
+    optional header and the section table gets one named failure instead of a
+    ``struct.error`` from a header that claims more bytes than the file has.
+    PE32+ is rejected; its ImageBase is 8 bytes and starts four earlier.
+    """
+    if len(data) < 0x40:
+        raise ValueError("file too small to be a PE")
+    e = pe_lfanew(data)
+    if e is None or e + _OPTIONAL_HEADER_OFFSET > len(data):
+        raise ValueError("no PE signature")
+    nsec = int(struct.unpack_from("<H", data, e + _COFF_NUMBER_OF_SECTIONS)[0])
+    optsz = int(struct.unpack_from("<H", data, e + _COFF_SIZE_OF_OPTIONAL_HEADER)[0])
+    opt = e + _OPTIONAL_HEADER_OFFSET
+    # ImageBase ends at optional+32; the layout walkers read basereloc at
+    # optional+140, so a claim shorter than that is truncated even when the
+    # file ends on the claim.
+    if opt + optsz > len(data) or opt + _OPT_FIELD_END > len(data):
+        raise ValueError("truncated optional header")
+    if opt + optsz + SECTION_ENTRY_SIZE * nsec > len(data):
+        raise ValueError("truncated section table")
+    magic = int(struct.unpack_from("<H", data, opt)[0])
+    if magic != PE32_MAGIC:
+        raise ValueError(f"unsupported optional-header magic 0x{magic:x} (PE32+ not supported)")
+    return e, nsec, optsz, opt, int(struct.unpack_from("<I", data, opt + 28)[0])
 
 
 def find_section(data: bytes | bytearray, name: str) -> PeSection | None:
@@ -342,6 +378,7 @@ __all__ = [
     "header_parity",
     "patch_pe_headers",
     "pe_image_base",
+    "pe_header",
     "pe_layout",
     "pe_lfanew",
     "read_pe_header_fields",
