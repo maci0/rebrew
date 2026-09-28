@@ -180,6 +180,10 @@ class TestVoidFunctionGuard:
         assert proven is False
         assert "no --watch-va" in msg
 
+    @pytest.mark.skipif(
+        not has_angr,
+        reason="angr not installed (run 'uv sync --all-extras' to enable prove tests)",
+    )
     def test_void_with_watch_vas_not_refused(self) -> None:
         # Guard passes; angr executes and reports what it compared (the exact
         # equivalence verdict depends on the blobs, but the refusal message
@@ -1437,6 +1441,10 @@ class TestProveEquivalenceBytes:
         assert proven, msg
 
 
+@pytest.mark.skipif(
+    not has_angr,
+    reason="angr not installed (run 'uv sync --all-extras' to enable prove tests)",
+)
 class TestProveCeilingFilter:
     """`rebrew prove --all --ceiling` targets exactly the GA_CEILING set —
     the register-only effective-match functions `rebrew match` documented as
@@ -1499,6 +1507,10 @@ class TestProveCeilingFilter:
         assert "plain_fn" in result.output
 
 
+@pytest.mark.skipif(
+    not has_angr,
+    reason="angr not installed (run 'uv sync --all-extras' to enable prove tests)",
+)
 class TestProveBatchEmptySchema:
     def test_empty_batch_json_has_full_schema(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

@@ -255,7 +255,19 @@ def test_score_exact_match() -> None:
     sc = score_candidate(code, code)
     assert sc.length_diff == 0
     assert sc.byte_score == 0.0
-    assert sc.total <= 0.0  # prologue_bonus can make it negative
+    # Shorter than _PROLOGUE_LEN, so no bonus: the score is exactly zero.
+    assert sc.prologue_bonus == 0.0
+    assert sc.total == 0.0
+
+
+def test_score_exact_match_takes_the_prologue_bonus() -> None:
+    """Identical bytes past the prologue length earn the bonus in full."""
+    from rebrew.matcher.scoring import _PROLOGUE_BONUS, _PROLOGUE_LEN
+
+    code = bytes(range(_PROLOGUE_LEN)) * 2
+    sc = score_candidate(code, code)
+    assert sc.prologue_bonus == _PROLOGUE_BONUS
+    assert sc.total == _PROLOGUE_BONUS
 
 
 def test_score_empty_candidate() -> None:

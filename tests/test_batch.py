@@ -1,5 +1,6 @@
 """Tests for rebrew.extract — byte extraction, detect_reversed_vas, cmd_list."""
 
+import re
 from pathlib import Path
 
 import pytest
@@ -7,6 +8,7 @@ import pytest
 from rebrew.binary_loader import extract_bytes_at_va
 from rebrew.binary_model import BinaryInfo, SectionInfo
 from rebrew.extract import cmd_list, detect_reversed_vas
+from rebrew.utils import console as utils_console
 
 # ---------------------------------------------------------------------------
 # extract_bytes_at_va (the production byte-extraction path used by extract)
@@ -207,8 +209,11 @@ class TestCmdList:
         captured = capsys.readouterr()
         assert "Candidates (0" in captured.err
 
-    def test_formats_candidates(self, capsys: pytest.CaptureFixture[str]) -> None:
+    def test_formats_candidates(
+        self, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Candidates are printed with VA, size, and name."""
+        monkeypatch.setattr(utils_console, "width", 200)  # a narrow terminal truncates cells
         candidates = [
             (0x10001000, 32, "func_a"),
             (0x10002000, 128, "func_b"),
@@ -217,15 +222,26 @@ class TestCmdList:
         captured = capsys.readouterr()
         assert "Candidates (2" in captured.err
         assert "0x10001000" in captured.err
+        assert "32B" in captured.err
         assert "func_a" in captured.err
         assert "func_b" in captured.err
 
-    def test_index_numbering(self, capsys: pytest.CaptureFixture[str]) -> None:
+    def test_index_numbering(
+        self, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Candidates have sequential index numbers."""
+        monkeypatch.setattr(utils_console, "width", 200)  # a narrow terminal truncates cells
         candidates = [(0x10001000 + i * 0x100, 16 + i, f"f{i}") for i in range(3)]
         cmd_list(candidates)
         captured = capsys.readouterr()
-        # Rich Table renders numbered rows — check all 3 items appear in stderr
-        assert "f0" in captured.err
-        assert "f1" in captured.err
-        assert "f2" in captured.err
+        for i in range(3):
+            assert f"0x{0x10001000 + i * 0x100:08X}" in captured.err
+            assert f"f{i}" in captured.err
+        # The index column is the promise of the name: one row per candidate,
+        # numbered in order, not just the names appearing somewhere.
+        rows = [
+            re.search(r"│\s*(\d)\s*│", line)
+            for line in captured.err.splitlines()
+            if re.search(r"│\s*\d+\s*│", line)
+        ]
+        assert [row.group(1) for row in rows if row] == ["0", "1", "2"]

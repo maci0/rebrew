@@ -21,7 +21,7 @@ class TestWatchFiles:
 
         def fake_sleep(_seconds: float) -> None:
             if not calls:
-                os.utime(b, ns=(1_800_000_000_000_000_000, 1_800_000_000_000_000_001))
+                os.utime(b, ns=(1_800_000_000_000_000_000, 1_800_000_001_000_000_000))
             else:
                 raise KeyboardInterrupt
 
@@ -54,7 +54,7 @@ class TestWatchFiles:
                 a.write_text("1", encoding="utf-8")
                 created = True
             elif not calls:
-                os.utime(a, ns=(1_800_000_000_000_000_000, 1_800_000_000_000_000_001))
+                os.utime(a, ns=(1_800_000_000_000_000_000, 1_800_000_001_000_000_000))
             else:
                 raise KeyboardInterrupt
 
@@ -73,9 +73,9 @@ class TestWatchFiles:
 
         def fake_sleep(_seconds: float) -> None:
             if not calls:
-                os.utime(a, ns=(1_800_000_000_000_000_000, 1_800_000_000_000_000_001))
+                os.utime(a, ns=(1_800_000_000_000_000_000, 1_800_000_001_000_000_000))
             elif calls == ["fail"]:
-                os.utime(a, ns=(1_800_000_000_000_000_000, 1_800_000_000_000_000_002))
+                os.utime(a, ns=(1_800_000_000_000_000_000, 1_800_000_002_000_000_000))
             else:
                 raise KeyboardInterrupt
 
@@ -105,10 +105,10 @@ class TestWatchFiles:
         def fake_sleep(_seconds: float) -> None:
             if not new_file.exists():
                 new_file.write_text("1", encoding="utf-8")  # appears now
-                os.utime(new_file, ns=(1_800_000_000_000_000_000, 1_800_000_000_000_000_001))
+                os.utime(new_file, ns=(1_800_000_000_000_000_000, 1_800_000_001_000_000_000))
             elif not calls:
                 # Touch the NEW file — only reachable if the provider added it.
-                os.utime(new_file, ns=(1_800_000_000_000_000_000, 1_800_000_000_000_000_002))
+                os.utime(new_file, ns=(1_800_000_000_000_000_000, 1_800_000_002_000_000_000))
             else:
                 raise KeyboardInterrupt
 

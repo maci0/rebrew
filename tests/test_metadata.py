@@ -886,16 +886,21 @@ class TestConcurrentWrites:
 
         from rebrew.metadata import load_metadata, update_field
 
-        threads = []
-        for i in range(8):
-            t = threading.Thread(
-                target=update_field, args=(tmp_path, 0x1000 + i, "note", f"n{i}", "T")
-            )
-            threads.append(t)
+        errors: list[BaseException] = []
+
+        def _writer(i: int) -> None:
+            try:
+                update_field(tmp_path, 0x1000 + i, "note", f"n{i}", "T")
+            except BaseException as exc:
+                errors.append(exc)
+
+        threads = [threading.Thread(target=_writer, args=(i,)) for i in range(8)]
         for t in threads:
             t.start()
         for t in threads:
-            t.join()
+            t.join(timeout=30)
+            assert not t.is_alive(), "a writer deadlocked on the module lock"
+        assert errors == []
 
         md = load_metadata(tmp_path)
         for i in range(8):
@@ -907,20 +912,27 @@ class TestConcurrentWrites:
 
         from rebrew.metadata import load_metadata, remove_field, update_field
 
+        errors: list[BaseException] = []
+
         def _writer(i: int) -> None:
-            if i % 3 == 0:
-                _set_field(tmp_path, 0x2000 + i, "note", f"w{i}", "T")
-            elif i % 3 == 1:
-                update_field(tmp_path, 0x3000 + i, "cflags", f"/O{i}", "T")
-            else:
-                _set_field(tmp_path, 0x4000 + i, "note", f"x{i}", "T")
-                remove_field(tmp_path, 0x4000 + i, "note", "T")
+            try:
+                if i % 3 == 0:
+                    _set_field(tmp_path, 0x2000 + i, "note", f"w{i}", "T")
+                elif i % 3 == 1:
+                    update_field(tmp_path, 0x3000 + i, "cflags", f"/O{i}", "T")
+                else:
+                    _set_field(tmp_path, 0x4000 + i, "note", f"x{i}", "T")
+                    remove_field(tmp_path, 0x4000 + i, "note", "T")
+            except BaseException as exc:
+                errors.append(exc)
 
         threads = [threading.Thread(target=_writer, args=(i,)) for i in range(9)]
         for t in threads:
             t.start()
         for t in threads:
-            t.join()
+            t.join(timeout=30)
+            assert not t.is_alive(), "a writer deadlocked on the module lock"
+        assert errors == []
 
         md = load_metadata(tmp_path)
         # The set-then-remove writers end with no note (deterministic per-key).
@@ -1295,9 +1307,12 @@ class TestUpdateFieldTomlSafe:
         before = path.stat().st_mtime_ns
         update_field(tmp_path, 0x1000, "note", "a\x07b", module="SERVER")
         assert path.stat().st_mtime_ns == before
-        # Control: the timestamp does move on a real rewrite, so the equality
-        # above is the short-circuit and not a filesystem with coarse mtime.
+        # Control: the rewrite really lands, so the equality above is the
+        # short-circuit and not a write that silently did nothing. Compared on
+        # content, not mtime: a filesystem with coarse timestamps would move
+        # the stamp or not, independently of the behavior under test.
         update_field(tmp_path, 0x1000, "note", "other", module="SERVER")
+        assert get_entry(tmp_path, 0x1000, "SERVER")["note"] == "other"
         assert path.stat().st_mtime_ns != before
 
     def test_save_metadata_strips_control_chars(self, tmp_path: Path) -> None:

@@ -209,13 +209,17 @@ class TestEntryPointRegistrations:
         ]
         assert all(r.origin == "entry-point" for r in regs)
 
-    def test_bad_value_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_bad_value_skipped_with_a_warning(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
         monkeypatch.setattr(
             "rebrew.registry.entry_points",
             _fake_entry_points(**{"rebrew.commands": [("bad", ":nope")]}),
         )
-        regs = entry_point_registrations("rebrew.commands")
+        with caplog.at_level("WARNING", logger="rebrew.registry"):
+            regs = entry_point_registrations("rebrew.commands")
         assert regs == []  # skipped with a warning, not an aborted group
+        assert any("bad = ':nope'" in rec.getMessage() for rec in caplog.records)
 
     def test_bad_value_warns_and_keeps_good(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
@@ -259,13 +263,14 @@ class TestEntryPointRegistrations:
 
 
 class TestImportRegistration:
-    def test_imports_module(self) -> None:
-        regs = entry_point_registrations("rebrew.commands")
-        reg = next((r for r in regs if r.module == "rebrew.diagnose"), None) or SimpleNamespace(
-            name="x", module="rebrew.diagnose", attr="", group="g", origin="entry-point"
+    def test_imports_module(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            "rebrew.registry.entry_points",
+            _fake_entry_points(**{"rebrew.commands": [("d", "rebrew.diagnose")]}),
         )
-        obj = import_registration(reg)
-        assert obj.__name__ == "rebrew.diagnose"
+        (reg,) = entry_point_registrations("rebrew.commands")
+        assert (reg.name, reg.target, reg.origin) == ("d", "rebrew.diagnose", "entry-point")
+        assert import_registration(reg).__name__ == "rebrew.diagnose"
 
     def test_imports_attr(self) -> None:
         from rebrew.diagnose import main as diagnose_main

@@ -99,8 +99,8 @@ class TestExtractAndCompare:
         r = _extract_and_compare("/x.obj", "_f", b"\x55\x8b\xec")
         assert r.status == "SIZE_MISMATCH"
         assert r.matched is False
-        # delta includes the 2-byte length difference.
-        assert r.delta >= 2
+        # delta is the 2-byte length difference, nothing else.
+        assert r.delta == 2
         # The full compiled size survives truncation for --fix-sizes.
         assert r.full_obj_size == 5
 
@@ -109,7 +109,7 @@ class TestExtractAndCompare:
         r = _extract_and_compare("/x.obj", "_f", b"\x55\x8b\xec")
         assert r.status == "SIZE_MISMATCH"
         assert r.matched is False
-        assert r.delta >= 1  # 3 - 2
+        assert r.delta == 1  # 3 - 2
         assert r.full_obj_size == 2
 
     @pytest.mark.parametrize(
@@ -130,16 +130,19 @@ class TestExtractAndCompare:
     def test_near_matching_threshold(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Mostly-equal bytes above the NEAR_MATCH_THRESHOLD → NEAR_MATCHING."""
         monkeypatch.setattr(
-            "rebrew.compile.parse_obj_symbol_and_relocs", _stub_parser(b"\x55\x8b\xec\x90\x90")
+            "rebrew.compile.parse_obj_symbol_and_relocs", _stub_parser(b"\x55\x8b\xec\x90\x41")
         )
         r = _extract_and_compare("/x.obj", "_f", b"\x55\x8b\xec\x90\x90")
-        assert r.matched is True  # identical bytes
+        assert r.matched is False
+        assert r.match_percent == 80.0
+        assert r.status == "NEAR_MATCHING"
 
     def test_stub_below_threshold(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr("rebrew.compile.parse_obj_symbol_and_relocs", _stub_parser(b"\x90" * 8))
         r = _extract_and_compare("/x.obj", "_f", b"\x55" * 8)
         assert r.matched is False
-        assert r.status in ("NEAR_MATCHING", "STUB")
+        assert r.match_percent == 0.0
+        assert r.status == "STUB"
 
     def test_parse_exception_propagates_for_wrapper(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A ValueError from the obj parser propagates; compile_and_compare's

@@ -691,13 +691,18 @@ class TestRunAllBatch:
         )
 
     def test_dry_run_json_lists_stubs(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
     ) -> None:
+        import json
 
         stubs = [self._stub("a.c"), self._stub("b.c", "0x10001010", 200)]
         monkeypatch.setattr("rebrew.match_run.find_all_stubs", lambda *a, **k: stubs)
         out = self._run(self._cfg(tmp_path), dry_run=True, json_output=True)
         assert out == (0, 0)
+        data = json.loads(capsys.readouterr().out)
+        assert data["count"] == 2
+        assert [item["symbol"] for item in data["items"]] == ["a.c", "b.c"]
+        assert data["items"][1]["size"] == 200
 
     def test_size_and_string_filters(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
@@ -718,15 +723,21 @@ class TestRunAllBatch:
         assert data["count"] == 1
         assert data["items"][0]["symbol"] == "b.c"
 
-    def test_skip_recent_filters(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_skip_recent_filters(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    ) -> None:
+        import json
 
         stubs = [self._stub("a.c"), self._stub("b.c")]
         monkeypatch.setattr("rebrew.match_run.find_all_stubs", lambda *a, **k: stubs)
+        # Keep only the second stub, the way a recent-run filter would.
         monkeypatch.setattr(
             "rebrew.match_run._filter_recently_run", lambda s, cfg, hours, j: [s[1]]
         )
         out = self._run(self._cfg(tmp_path), dry_run=True, json_output=True, skip_recent_hours=24)
         assert out == (0, 0)
+        data = json.loads(capsys.readouterr().out)
+        assert [item["symbol"] for item in data["items"]] == ["b.c"]
 
     def test_ga_run_persists_result(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
@@ -815,8 +826,10 @@ class TestRunAllBatch:
                 None,
             ),
         )
-        matched, failed = self._run(self._cfg(tmp_path), jobs=2, json_output=True)
-        assert (matched, failed) == (3, 0)
+        cfg = self._cfg(tmp_path)
+        parallel = self._run(cfg, jobs=2, json_output=True)
+        serial = self._run(cfg, jobs=1, json_output=True)
+        assert parallel == serial == (3, 0)
 
     def test_parallel_run_log_is_written_in_stub_order(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

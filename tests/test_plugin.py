@@ -129,9 +129,12 @@ class _Component:
     provides: tuple[tuple[str, Any], ...] = ()
     log: list[str] = field(default_factory=list)
     name: str = "component"
+    order: list[str] | None = None
 
     def apply(self, ctx: Context) -> None:
         self.log.append(self.name)
+        if self.order is not None:
+            self.order.append(self.name)
         for key, value in self.provides:
             ctx.provide(key, value)
 
@@ -145,12 +148,13 @@ class TestActivate:
     def test_declared_dependency_decides_order(self) -> None:
         """A component needing a service activates only after its provider."""
         ctx = Context()
-        provider = _Component(name="provider", provides=(("svc", 42),))
-        consumer = _Component(name="consumer", needs=("svc",))
+        order: list[str] = []
+        provider = _Component(name="provider", provides=(("svc", 42),), order=order)
+        consumer = _Component(name="consumer", needs=("svc",), order=order)
         # Consumer listed first on purpose; the declaration fixes the order.
         activate([consumer, provider], ctx)
-        assert provider.log == ["provider"]
-        assert consumer.log == ["consumer"]
+        assert order == ["provider", "consumer"]
+        assert ctx.resolve("svc") == 42
 
     def test_unsatisfied_needs_stay_inactive_until_provided(self) -> None:
         ctx = Context()

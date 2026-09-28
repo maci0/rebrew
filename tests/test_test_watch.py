@@ -3,11 +3,38 @@
 import os
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 import typer
 
 import rebrew.test as test_mod
+from rebrew.cli import EXIT_ERROR
+
+#: ``main`` leaves omitted parameters as typer ``OptionInfo`` sentinels, which
+#: are truthy, so a partial direct call trips an unrelated guard (the
+#: ``--linked``/``--fix-sizes`` check) before reaching the one under test. Every
+#: parameter is therefore passed explicitly.
+_CLI_DEFAULTS: dict[str, Any] = {
+    "va": None,
+    "symbol": None,
+    "target_bin": None,
+    "size": None,
+    "cflags": None,
+    "toolchain": None,
+    "all_sources": False,
+    "batch_dir": None,
+    "origin": None,
+    "dry_run": False,
+    "jobs": None,
+    "no_promote": False,
+    "force_status": False,
+    "fix_sizes": False,
+    "linked": False,
+    "context": None,
+    "json_output": False,
+    "target": None,
+}
 
 
 class TestWatchLoop:
@@ -19,7 +46,7 @@ class TestWatchLoop:
 
         def fake_sleep(_seconds: float) -> None:
             if not calls:
-                os.utime(src, ns=(1_800_000_000_000_000_000, 1_800_000_000_000_000_001))
+                os.utime(src, ns=(1_800_000_000_000_000_000, 1_800_000_001_000_000_000))
             else:
                 raise KeyboardInterrupt
 
@@ -56,7 +83,7 @@ class TestWatchLoop:
                 src.write_text("v1", encoding="utf-8")
                 created = True
             elif not calls:
-                os.utime(src, ns=(1_800_000_000_000_000_000, 1_800_000_000_000_000_001))
+                os.utime(src, ns=(1_800_000_000_000_000_000, 1_800_000_001_000_000_000))
             else:
                 raise KeyboardInterrupt
 
@@ -76,9 +103,9 @@ class TestWatchLoop:
 
         def fake_sleep(_seconds: float) -> None:
             if not calls:
-                os.utime(src, ns=(1_800_000_000_000_000_000, 1_800_000_000_000_000_001))
+                os.utime(src, ns=(1_800_000_000_000_000_000, 1_800_000_001_000_000_000))
             elif calls == ["fail"]:
-                os.utime(src, ns=(1_800_000_000_000_000_000, 1_800_000_000_000_000_002))
+                os.utime(src, ns=(1_800_000_000_000_000_000, 1_800_000_002_000_000_000))
             else:
                 raise KeyboardInterrupt
 
@@ -96,25 +123,33 @@ class TestWatchLoop:
 
 
 class TestWatchCli:
-    def test_watch_rejects_all(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_watch_rejects_all(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         """--watch combined with --all is an error."""
         monkeypatch.setattr(
             test_mod,
             "require_config",
             lambda target=None, json_mode=False: SimpleNamespace(metadata_dir=Path("/tmp")),
         )
-        with pytest.raises(typer.Exit):
-            test_mod.main(source=None, watch=True, all_sources=True, context=None)
+        with pytest.raises(typer.Exit) as exc_info:
+            test_mod.main(**{**_CLI_DEFAULTS, "all_sources": True}, source=None, watch=True)
+        assert exc_info.value.exit_code == EXIT_ERROR
+        assert "--watch cannot be combined with --all" in capsys.readouterr().err
 
-    def test_watch_requires_source(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_watch_requires_source(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         """--watch without a source file is an error."""
         monkeypatch.setattr(
             test_mod,
             "require_config",
             lambda target=None, json_mode=False: SimpleNamespace(metadata_dir=Path("/tmp")),
         )
-        with pytest.raises(typer.Exit):
-            test_mod.main(source=None, watch=True, context=None)
+        with pytest.raises(typer.Exit) as exc_info:
+            test_mod.main(**_CLI_DEFAULTS, source=None, watch=True)
+        assert exc_info.value.exit_code == EXIT_ERROR
+        assert "Provide a source file" in capsys.readouterr().err
 
     def test_watch_dispatches_to_loop(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

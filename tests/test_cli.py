@@ -150,7 +150,7 @@ class TestJsonPrint:
     def test_pretty_printed(self, capsys: pytest.CaptureFixture[str]) -> None:
         json_print({"a": 1})
         captured = capsys.readouterr()
-        assert "\n" in captured.out
+        assert captured.out == '{\n  "a": 1\n}\n'
 
     def test_empty_dict(self, capsys: pytest.CaptureFixture[str]) -> None:
         json_print({})
@@ -524,14 +524,17 @@ class TestSelectAnnotation:
         assert va_int == want_va
 
     def test_missing_source_exits(self, tmp_path: Path) -> None:
-        with pytest.raises(typer.Exit):
+        with pytest.raises(typer.Exit) as exc_info:
             select_annotation(self._cfg(tmp_path), "no_such_func", None)
+        assert exc_info.value.exit_code == EXIT_ERROR
 
-    def test_no_annotation_exits(self, tmp_path: Path) -> None:
+    def test_no_annotation_exits(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
         src = tmp_path / "bare.c"
         src.write_text("int f(void) { return 0; }\n", encoding="utf-8")
-        with pytest.raises(typer.Exit):
+        with pytest.raises(typer.Exit) as exc_info:
             select_annotation(self._cfg(tmp_path), str(src), None)
+        assert exc_info.value.exit_code == EXIT_ERROR
+        assert "No // FUNCTION annotation found" in capsys.readouterr().err
 
 
 class TestResolveCflags:

@@ -101,7 +101,10 @@ class TestCli:
         recomp = self._patch(monkeypatch, tmp_path, {"original_count": 2, "recompiled_count": 2})
         result = CliRunner().invoke(app, [str(recomp)])
         assert result.exit_code == 0
-        assert "match" in result.stderr.lower()
+        assert "Export tables match." in result.stderr
+        # "match" is a substring of "mismatch" too; pin the negative too.
+        assert "differ" not in result.stderr
+        assert "missing:" not in result.stderr
 
     def test_mismatch_exits_one(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         recomp = self._patch(
@@ -116,7 +119,10 @@ class TestCli:
         )
         result = CliRunner().invoke(app, [str(recomp)])
         assert result.exit_code == EXIT_MISMATCH
-        assert "missing" in result.stderr
+        # The named export, not the word "missing" (the "target binary
+        # missing:" header carries it on any run).
+        assert "missing: B" in result.stderr
+        assert "Export tables differ." in result.stderr
 
     def test_missing_recomp_errors(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         target = tmp_path / "orig.dll"

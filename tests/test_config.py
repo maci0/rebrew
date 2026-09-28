@@ -43,6 +43,38 @@ def _make_project(tmp_path: Path, toml_content: str) -> Path:
     return tmp_path
 
 
+#: ``load_config`` resolves these straight from the environment, so an
+#: ambient value in a developer's shell decides the result of a test that
+#: never mentions it. Cleared for every test in this module; a test that
+#: wants one sets it itself, which ``monkeypatch`` undoes.
+_CONFIG_ENV_VARS = (
+    "REBREW_CONTAINER_RUNTIME",
+    "REBREW_EXTERNAL_LIBS",
+    "REBREW_FLIRT_SIGS_DIR",
+    "REBREW_LLM_ALLOW_PROJECT_ENDPOINT",
+    "REBREW_LLM_API_KEY",
+    "REBREW_LLM_ENDPOINT",
+    "REBREW_LLM_MAX_REQUESTS",
+    "REBREW_LLM_MODEL",
+    "REBREW_LLM_TIMEOUT",
+    "REBREW_LOG_LEVEL",
+    "REBREW_PROJECTS_ROOT",
+    "REBREW_RECOMPILE_URL",
+    "REBREW_SKILLS_DIR",
+    "REBREW_TOOLCHAIN",
+    "REBREW_TOOLCHAIN_OVERLAY_DIR",
+    "REBREW_WINE_HEADLESS",
+    "REBREW_WINEPREFIX",
+    "REBREW_XVFB_DISPLAY",
+)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_config_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in _CONFIG_ENV_VARS:
+        monkeypatch.delenv(name, raising=False)
+
+
 # ---------------------------------------------------------------------------
 # _resolve()
 # ---------------------------------------------------------------------------
