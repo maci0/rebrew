@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [2.16.0] - 2026-09-28
+
 ### Added
 - **`rebrew todo` reports what is left until the build is identical straight
   out of the toolchain.** The list treated every byte-matched function as done,
@@ -61,6 +63,16 @@
   codes.
 
 ### Changed
+- **Breaking:** `toolchain_data.SOURCES` — the six 16-bit profiles
+  (`msvc-1.0`, `msvc-1.5`, `msvc-1.52`, `borland-2.0`, `borland-3.1`,
+  `delphi-1.0`) now carry the pinned `archaic-toolchains` codeload `url`,
+  `sha256` and `commit` their image builds from, instead of an `in_repo`
+  tarball path in the rebrew-toolchains checkout.  Nothing ships that tarball
+  (it is gitignored there and the Dockerfiles curl the pin), so
+  `rebrew toolchain vendor <name>` could not assemble any of the six on a
+  fresh checkout — it now downloads, verifies and, for `delphi-1.0`, renames
+  the tarball's `delphi-lib/` to `DELPHI/LIB`, the path `find_dcc` and
+  `DCC.CFG` read.
 - **Every gated metadata write now names itself, in both stores.** A
   `BLOCKER` / `NOTE` / `CFLAGS` edit went through `update_field` with no
   provenance, so a row's `UPDATED_BY` named the last *status* writer and a
@@ -433,6 +445,7 @@
   document holds the same function rows, and nothing in the tree read the CSV.
   Source markers stay reccmp-compatible — reccmp's parser still reads rebrew
   `.c` files — that is the marker format, not the export.
+
 ## [2.15.0] - 2026-09-28
 
 ### Added
