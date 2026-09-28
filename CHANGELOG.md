@@ -1,25 +1,5 @@
 ## [Unreleased]
 
-### Changed
-- **The report and the dashboard are painted in the mascot's palette.** The
-  chrome tokens were pure neutrals, so a page next to `docs/mascot.png` (a
-  brass machine under a leather harness) read as two different products. The
-  neutrals are now warm; the link/focus blue stays, because the six status
-  marks own green, teal, amber and red and an accent in those hues would read
-  as a verdict. `tests/test_theme.py` holds every text pair to 4.5:1 and every
-  border and focus pair to 3:1 on both surfaces, so the temperature costs no
-  contrast.
-- **Both HTML surfaces carry the rebrew mark.** The tab icon was `data:,`, a
-  blank held in place only to stop the `/favicon.ico` 404; it is now the
-  mascot's `0x` on the `ink` token, inlined as a data URI because both
-  surfaces forbid every off-site load. It costs 224 B of the dashboard's
-  compressed cold-path budget, which the congestion-window test still fits.
-- **A long symbol no longer stretches a dashboard table across the monitor.**
-  Table cells carried no wrap rule, so one unbreakable name set the row's
-  width at `width: 100%` and pushed `Status` a screen away from its VA. Cells
-  now take the same `overflow-wrap: anywhere` the report already used on its
-  long-text columns.
-
 ### Added
 - **`/api/health` reports the in-flight connection count.** The server refuses
   a connection past `_MAX_ACTIVE_CONNECTIONS` and logs each refusal, so a run
@@ -60,6 +40,14 @@
   rather than a bare `ValueError`, which escaped as a traceback from inside a
   compile. `ConfigError` is a `ValueError` subclass, so existing handlers keep
   working and the CLI's error contract now applies.
+- **A decomp.me create is not re-POSTed after a read timeout.** `POST
+  /api/scratch` has no idempotency key, so every accepted request makes a new
+  public scratch. A read timeout or a connection dropped mid-response can
+  follow a create the service already committed, and the old
+  `retryable=True` on any transport failure meant a retry left an orphaned
+  public scratch whose `claim_token` the analyst never received. Only the
+  connect-stage failures (`ConnectError`, `ConnectTimeout`) are retried now
+  (`_never_delivered` in `src/rebrew/decompme.py`).
 
 ### Changed
 - **`rebrew cfg effective` reports a config it could not load.** The knobs
@@ -83,6 +71,24 @@
   default severity leaves off.  Both shell scripts already passed every one of
   them except a ``case`` in ``tools/ci_clone_resembl.sh`` with no ``*)``
   branch, which now has one.
+- **The report and the dashboard are painted in the mascot's palette.** The
+  chrome tokens were pure neutrals, so a page next to `docs/mascot.png` (a
+  brass machine under a leather harness) read as two different products. The
+  neutrals are now warm; the link/focus blue stays, because the six status
+  marks own green, teal, amber and red and an accent in those hues would read
+  as a verdict. `tests/test_theme.py` holds every text pair to 4.5:1 and every
+  border and focus pair to 3:1 on both surfaces, so the temperature costs no
+  contrast.
+- **Both HTML surfaces carry the rebrew mark.** The tab icon was `data:,`, a
+  blank held in place only to stop the `/favicon.ico` 404; it is now the
+  mascot's `0x` on the `ink` token, inlined as a data URI because both
+  surfaces forbid every off-site load. It costs 224 B of the dashboard's
+  compressed cold-path budget, which the congestion-window test still fits.
+- **A long symbol no longer stretches a dashboard table across the monitor.**
+  Table cells carried no wrap rule, so one unbreakable name set the row's
+  width at `width: 100%` and pushed `Status` a screen away from its VA. Cells
+  now take the same `overflow-wrap: anywhere` the report already used on its
+  long-text columns.
 
 ## [2.16.0] - 2026-09-28
 

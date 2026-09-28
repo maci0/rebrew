@@ -169,3 +169,13 @@ plugin cache backends or remove the open upstream diskcache advisory.
   Changing the endpoint or toolchain starts from a cache miss, and
   `rebrew cache clear` drops the entries a same-endpoint change leaves in
   place.
+- No claim that a decomp.me upload is revocable. `POST /api/scratch` has no
+  idempotency key and mints a public scratch, whose slug and `claim_token`
+  exist only in the reply. A read timeout or dropped connection can therefore
+  hide a create the service already committed, leaving the uploaded function
+  source, ASM, and context in a public scratch that neither the analyst nor
+  `rebrew` can claim or delete. `rebrew decompme` no longer re-POSTs after a
+  post-send transport failure (`_never_delivered` in
+  `src/rebrew/decompme.py`), so a single run does not mint a second orphan,
+  but a hand-run retry still does, and the existing orphan is not discoverable
+  from the CLI.
