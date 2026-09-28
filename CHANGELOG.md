@@ -78,6 +78,14 @@
   `rebrew sync --push/--pull` path, and `rebrew-data-analysis` gains the
   `W032` and `coverage document` triggers its body already documents.
 
+- **`rebrew.utils.library_header_name` derives `library_<module>.h` in one
+  place.** `splat_config` and `identify_library` each built the name as
+  `f"library_{module.lower()}.h"`, so a non-ASCII module stem reached
+  `filename_component` on one path and not the other and one DLL's IAT and
+  library entries landed in two headers. Both call the new helper, which
+  sanitizes the untrusted stem as well as naming it, so a `../` stem still
+  cannot write outside the reversed dir.
+
 - **`rebrew cfg effective` reports a config it could not load.** The knobs
   validated during the load (`REBREW_LLM_MAX_REQUESTS`, `REBREW_LLM_TIMEOUT`,
   `REBREW_LLM_ENDPOINT`, `REBREW_RECOMPILE_URL`) aborted the command before it
@@ -123,10 +131,20 @@
   stored rows, so a consumer reads `Dashboard.snapshots()[target]` and derives
   the same fields (`floor_pct` in `rebrew.coverage_toml` does the division) or
   calls the unchanged `/api/summary` route. The HTTP contract is untouched.
-- **Breaking:** `rebrew.identify_library.filename_component` is gone. It was a
-  re-export of `rebrew.utils.filename_component` through an import that no
-  longer exists; import `filename_component` from `rebrew.utils`, which is
-  where it is defined.
+- **`make release-check` fails a patch release whose notes carry a break.**
+  The rule already ran on the tree through
+  `tests/test_packaging.py::test_patch_release_never_ships_a_breaking_entry`,
+  but only there, after the version was already cut: the preflight that runs
+  before the tag checked that `__version__` moved past the last tag and not
+  that the bump matched what the section says. It is scored only once the
+  version is bumped, so the notes of an already-released version are not read
+  as the next patch.
+- **The idempotency sweep covers two more mutating commands.** `report` and
+  `data --gen-header` render output that carries the run's own coverage
+  summary and a `Generated:` line, so a re-run that rewrote either
+  unconditionally churned a file whose declarations never changed, with
+  nothing to catch it. `docs/PERFORMANCE.md` named fifteen of the seventeen
+  mutating commands; it lists all of them now.
 - **Lint gates ratchet.** Ruff selects ``S608`` (a SQL string built by
   interpolation; zero findings on the current tree) so a query assembled from
   runtime input cannot land, mypy covers ``tests/test_build_db_helpers.py``
@@ -166,6 +184,14 @@
   `except RebrewError` handler a consumer writes missed both; the
   `rebrew.errors` surface gate flagged it. Both now subclass
   `RebrewError, RuntimeError` and are importable from `rebrew.errors`.
+- **The source tree is walked once per command, with `os.scandir`.**
+  `files_with_ext` and the library-header scan each ran their own
+  `os.walk` plus one `Path.is_symlink()` per entry, and a `DirEntry` already
+  carries that flag from the same `getdents` batch, so the per-file `lstat`
+  and the second walk are gone. A command that needs both views calls
+  `rebrew.sources.scan_files` once and threads the result through the
+  `scanned=` keyword of `iter_sources` / `iter_library_headers`, the way
+  `status` and `catalog` already do.
 
 ### Fixed
 - **`rebrew toolchain list` asks docker once, not once per toolchain.**
@@ -444,6 +470,59 @@
   public scratch whose `claim_token` the analyst never received. Only the
   connect-stage failures (`ConnectError`, `ConnectTimeout`) are retried now
   (`_never_delivered` in `src/rebrew/decompme.py`).
+- **A library module's log records reach the console again.** `build_db`,
+  `cli`, `dashboard`, `status` and the decomp.me client called
+  `logging.warning` on the root logger, whose handler rebrew configures
+  sits on the library namespace, so a duplicate cell row, a refused
+  promotion, or a docker failure was silently dropped. Each module now logs
+  through its own `log = logging.getLogger(__name__)`.
+- **A lone surrogate no longer aborts a metadata write.** A cp1252 or
+  Shift-JIS source read by `read_compile_source` yields U+DC80-U+DCFF for
+  bytes that are not valid UTF-8, and a symbol name or Ghidra comment copied
+  out of one carried them into `rebrew-functions.toml`. `tomlkit` writes the
+  code point through unescaped, so the `utf-8` encode in
+  `atomic_write_locked` raised and the whole file was lost with the one
+  field. `rebrew.metadata` replaces each surrogate with U+FFFD, which keeps
+  the byte's position instead of folding `Café` onto `Cafe`.
+- **An inserted annotation carries the source file's own terminator.** A
+  hardcoded `\n` left one LF-terminated line in a CRLF source, which the next
+  read and rewrite propagated through the rest of the file.
+- **A symbol name folds before it is looked up.** Name identity is
+  `fold_ident` (NFC + casefold) everywhere a name is registered and
+  resolved: the binsync overlay, importer and diff, `splat_config` and
+  `identify_library`. A symbol stored NFD and declared NFC resolves to one
+  node, and `STRASSE` reaches `straße`. A sanitized name that keeps no real
+  identifier character falls back to its address-derived name instead of a
+  bare run of underscores.
+- **A row the store refused is not counted as promoted.** `rebrew test`
+  wrote the cached status even when the promotion policy rejected the
+  verdict, and the cache outranks the metadata `STATUS`, so `rebrew status`
+  and `rebrew todo` then reported a status the store never accepted. The
+  writer reports whether the write landed, and a refusal warns.
+- **A failed restore of a renamed file names it.** Each restore of the
+  patched `CMakeLists.txt` and of the renamed source is guarded on its own,
+  so a failed first restore no longer skips the second and leaves the tree
+  renamed, and a restore error no longer replaces the build error it is
+  cleaning up after.
+- **A report whose inventory failed to load says so.** The documented
+  fallback caught the load failure and rendered zero counts, which read as
+  "no work left" on a project with thousands of pending functions. The cause
+  is warned, carried in `load_error`, and rendered in place of "No functions
+  yet".
+- **The dashboard's VA column stops wrapping mid-address.** The `anywhere`
+  rule that keeps a long demangled name from pushing the Status column away
+  from its VA applied to the address cell too, so the shortest-header column
+  was the one it squeezed.
+- **The retry backoff cannot overflow before it is capped, and a negative
+  size cannot move the totals the wrong way.** The exponent is clamped at
+  `RETRY_BACKOFF_CAP_EXPONENT`, the first that reaches `RETRY_BACKOFF_CAP`,
+  so a large attempt count cannot raise out of the `2.0 ** n` before `min`
+  caps it. A `SIZE` that is truthy but negative reached `clip_span` and
+  subtracted from both totals; the writer clamps it to 0 on the way in. The
+  int coercion behind `parse_int` / `clamp_nonneg_int` is one
+  `rebrew.utils` helper now rather than a copy per module, and a
+  non-finite or non-integral float still takes the default instead of
+  inventing a delta.
 
 ## [2.16.0] - 2026-09-28
 

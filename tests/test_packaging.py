@@ -1361,3 +1361,37 @@ class TestReleaseCheck:
         assert release_check._is_bumped_past("0.10.0", "v0.9.0")
         assert not release_check._is_bumped_past("0.9.1", "v0.9.1")
         assert not release_check._is_bumped_past("0.9.0", "v0.10.0")
+
+    def test_patch_release_carrying_a_breaking_entry_fails(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """A patch that ships a break is caught while the tag can still move.
+
+        The dated section is what a `2.13.1` reader reads, and CONTRIBUTING
+        lets a break ship in a minor only, so a patch carrying one is a
+        version number that does not match what it shipped.
+        """
+        changelog = (
+            "## [Unreleased]\n\n## [1.2.3] - 2026-01-02\n\n### Changed\n"
+            "- **Breaking:** `rebrew.thing` is gone.\n"
+        )
+        assert self._check(tmp_path, monkeypatch, changelog) == 1
+
+    def test_minor_release_carrying_a_breaking_entry_passes(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        changelog = (
+            "## [Unreleased]\n\n## [1.3.0] - 2026-01-02\n\n### Changed\n"
+            "- **Breaking:** `rebrew.thing` is gone.\n"
+        )
+        assert self._check(tmp_path, monkeypatch, changelog, version="1.3.0") == 0
+
+    def test_unbumped_version_is_not_scored_as_a_patch_release(self) -> None:
+        """Mid-cycle, the dated section is the last release's own notes.
+
+        ``__version__`` sits at the last tag between releases, so its section
+        legitimately carries that release's ``**Breaking:**`` entries; scoring
+        the bump before the version moves would blame a shipped release.
+        """
+        text = "## [1.2.2] - 2026-01-01\n\n### Changed\n- **Breaking:** gone.\n"
+        assert release_check._bump_problems("1.2.2", "v1.2.2", text) == []

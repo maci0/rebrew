@@ -227,7 +227,10 @@ says nothing about where the import goes now.
   least one entry, and `[Unreleased]` is empty — a release whose notes are
   split across the two headings, or across two headings for the same version,
   ships half of them undocumented, so neither can be tagged out of sync with
-  the version or the notes.
+  the version or the notes.  It also fails a patch release whose section
+  carries a `**Breaking:**` entry, the same rule
+  `tests/test_packaging.py::test_patch_release_never_ships_a_breaking_entry`
+  enforces on the tree.
 
 ## Before submitting
 

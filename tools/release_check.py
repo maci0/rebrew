@@ -4,8 +4,10 @@ Manual by design (CONTRIBUTING.md "Cut the release in this order"): a version
 that is bumped only on a release commit means wiring this into CI would fail
 every other push.  ``make release-check`` runs it before the tag is cut, so a
 release whose ``__version__`` is not past the last tag, whose working tree is
-dirty, or whose changelog notes are split across ``[Unreleased]`` and
-``[<version>]`` fails with a named reason instead of shipping half-documented.
+dirty, whose changelog notes are split across ``[Unreleased]`` and
+``[<version>]``, or whose bump is a patch while the dated section carries a
+``**Breaking:**`` entry, fails with a named reason instead of shipping
+half-documented.
 
 The checks live here rather than in the Makefile recipe because the version
 comes out of the package: a shell recipe had to read it with ``python -c``,
@@ -128,6 +130,34 @@ def _problems(version: str, text: str) -> list[str]:
     return problems
 
 
+def _bump_problems(version: str, last: str, text: str) -> list[str]:
+    """Return every reason the bump itself is the wrong level for the notes.
+
+    The tree-level gates in ``tests/test_packaging.py`` catch a bad bump long
+    after the fact; this is the same rule at the moment the tag is cut, where
+    it can still be fixed by editing the version.
+    """
+    problems: list[str] = []
+    if not _is_bumped_past(version, last):
+        # The version still names the last tag, so its dated section is a
+        # shipped release; the not-bumped problem already reports that, and
+        # scoring it here would blame a release for a bump that has not
+        # happened yet.
+        return problems
+    segment = re.compile(r"^## \[" + re.escape(version) + r"\] - ")
+    breaking = [line for line in _section_body(text, segment) if line.startswith("- **Breaking:**")]
+    if not breaking:
+        return problems
+    old, new = _release_segments(last.removeprefix("v")), _release_segments(version)
+    if new[:2] == old[:2]:
+        problems.append(
+            f"CHANGELOG.md [{version}] carries {len(breaking)} '**Breaking:**' entries, so "
+            f"the {last} -> {version} bump must not be a patch (CONTRIBUTING.md: a break "
+            f"ships in a minor, where a '~=' pin does not take it)"
+        )
+    return problems
+
+
 def main() -> int:
     """Print every reason the tree is not ready to tag, or confirm it is."""
     version = _package_version()
@@ -148,6 +178,7 @@ def main() -> int:
         problems.append("working tree not clean (commit first)")
 
     problems += _problems(version, _changelog())
+    problems += _bump_problems(version, last, _changelog())
 
     if problems:
         for problem in problems:
