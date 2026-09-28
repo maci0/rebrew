@@ -32,6 +32,29 @@ CHANGELOG_GROUPS = ("Added", "Changed", "Removed", "Fixed", "Performance")
 
 _GLUED_HEADING = re.compile(r"^### (" + "|".join(CHANGELOG_GROUPS) + r")- (.*)$")
 
+# Dev-only trees MANIFEST.in must keep out of the sdist.  ``test_prunes_dev_trees``
+# checks the manifest text; ``test_built_sdist_omits_dev_trees_and_egg_info_residue``
+# checks the archive those lines are supposed to produce.
+_PRUNED_DEV_TREES = (
+    "tests",
+    "docs",
+    "tools",
+    ".agents",
+    ".github",
+    ".scratch",
+    ".cache",
+    ".hypothesis",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    "build",
+    "dist",
+    ".venv",
+    "venv",
+    "rebrew.egg-info",
+    "src/rebrew.egg-info",
+)
+
 
 def _norm_changelog_line(line: str) -> str:
     """Ignore a Breaking label so a prefixed line still matches the tagged notes."""
@@ -941,39 +964,28 @@ class TestUserFacingDocPointers:
 class TestSdistManifest:
     def test_prunes_dev_trees(self) -> None:
         text = MANIFEST.read_text(encoding="utf-8")
-        for tree in (
-            "tests",
-            "docs",
-            "tools",
-            ".agents",
-            ".github",
-            ".scratch",
-            ".cache",
-            ".hypothesis",
-            ".mypy_cache",
-            ".pytest_cache",
-            ".ruff_cache",
-            "build",
-            "dist",
-            ".venv",
-            "venv",
-            "rebrew.egg-info",
-            "src/rebrew.egg-info",
-        ):
+        for tree in _PRUNED_DEV_TREES:
             assert f"prune {tree}" in text, tree
         assert "recursive-exclude src/rebrew AGENTS.md" in text
         assert "global-exclude .coverage" in text
         for doc in ("CHANGELOG.md", "SECURITY.md"):
             assert f"include {doc}" in text, doc
 
-    def test_built_sdist_omits_egg_info_residue(self, tmp_path: Path) -> None:
-        """setuptools egg-info bulk must not ship; SOURCES.txt alone is OK.
+    def test_built_sdist_omits_dev_trees_and_egg_info_residue(self, tmp_path: Path) -> None:
+        """The built sdist carries only the runtime tree, not the dev checkout.
 
         A src/ layout places egg-info next to the package.  Without an explicit
         MANIFEST prune the residue (PKG-INFO, entry_points, requires.txt)
         lands in the sdist.  setuptools always force-appends
         ``<egg-info>/SOURCES.txt`` after prune — that single file is the
-        recorded manifest and is expected.  Build into tmp_path so this stays
+        recorded manifest and is expected.
+
+        The pruned dev trees are asserted against the built archive, not
+        against the MANIFEST text: ``test_prunes_dev_trees`` only proves the
+        prune lines exist, and ``check_sdist_wheel.py`` compares wheels, which
+        never carry these files.  A ``graft``/``global-include`` added later, or
+        a prune whose path drifted, would otherwise ship the whole checkout and
+        still pass every gate.  Build into tmp_path so this stays
         offline-friendly when the pinned setuptools wheel is already cached.
         """
         import os
@@ -1011,6 +1023,17 @@ class TestSdistManifest:
         ]
         assert bad == [], f"sdist contains egg-info residue: {bad}"
         assert any(n.endswith("SOURCES.txt") for n in egg_files), egg_files
+        # Nothing from the dev checkout may ride along, at any depth.  Every
+        # member is ``<dist>-<version>/<path>`` (the bare archive-root entry
+        # carries no path); the first component is the root, so the rest is
+        # what MANIFEST.in decided on.  The egg-info trees are skipped: the
+        # setuptools-forced SOURCES.txt is expected, and the assertions above
+        # pin its directory down to that one file.
+        pruned = tuple(f"{tree}/" for tree in _PRUNED_DEV_TREES if not tree.endswith("egg-info"))
+        leaked = sorted(n for n in names if "/" in n and n.split("/", 1)[1].startswith(pruned))
+        assert leaked == [], f"sdist ships dev-only files: {leaked[:10]}"
+        residue = [n for n in names if n.endswith((".pyc", ".pyo")) or "__pycache__/" in n]
+        assert residue == [], f"sdist ships bytecode: {residue[:10]}"
         # setuptools force-writes an empty egg_info stub into the sdist after
         # MANIFEST processing (same class as SOURCES.txt) — accept only that
         # harmless form, never a real setuptools config.
@@ -1088,8 +1111,14 @@ class TestSdistManifest:
         assert any(n.endswith("/licenses/LICENSE") for n in names)
         assert any(n.endswith("/licenses/NOTICE") for n in names)
         assert "License-File: NOTICE" in meta
-        assert "rebrew/matcher/AGENTS.md" not in names
-        assert "rebrew/catalog/AGENTS.md" not in names
+        # Contributor docs: MANIFEST.in recursive-excludes src/rebrew AGENTS.md,
+        # [tool.setuptools.exclude-package-data] drops it from the wheel.  Cover
+        # every one on disk, not a hand-picked pair, so a new subpackage's copy
+        # cannot ride into the runtime artifact.
+        shipped_agents = sorted(n for n in names if n.endswith("/AGENTS.md"))
+        assert shipped_agents == [], f"wheel ships contributor docs: {shipped_agents}"
+        on_disk = {f"rebrew/{p.relative_to(PKG).as_posix()}" for p in PKG.rglob("AGENTS.md")}
+        assert on_disk, "expected contributor AGENTS.md files under the package"
         exec_wheel_files = [
             info.filename for info in zf.infolist() if (info.external_attr >> 16) & 0o111
         ]

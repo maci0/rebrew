@@ -476,6 +476,14 @@
   binary rewrites the bytes in both archives, and `make sdist-check` /
   `make smoke-wheel` kept verifying the artifacts of the previous tree. It is
   now one of the build inputs behind `dist/rebrew.buildinfo`.
+- **The packaging gate now proves the sdist ships no dev-only files.** The
+  prune rules were checked as MANIFEST.in text, and `check_sdist_wheel.py`
+  compares wheels, which never carry `tests/`, `docs/`, `tools/` or `.github/`.
+  A `graft`/`global-include` added later, or a prune whose path drifted, would
+  have shipped the whole checkout inside the sdist and still passed every gate.
+  The built archive is now inspected for the pruned trees and for bytecode, and
+  the wheel gate covers every `AGENTS.md` on disk instead of two hand-picked
+  ones, so a new subpackage's contributor doc cannot ride into the artifact.
 - **A failed dashboard request is reported once, not twice.** The sqlite and
   last-resort handler guards printed the exception to the console *and* logged
   it through `_log_failed_request`, and the log handler writes to that same
