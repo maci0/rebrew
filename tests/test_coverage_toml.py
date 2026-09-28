@@ -22,7 +22,7 @@ from typing import Any, cast
 
 import pytest
 
-from rebrew import coverage_toml
+from rebrew import coverage_toml, utils
 from rebrew.build_db import (
     _KNOWN_CELL_STATES,
     HISTORY_RETENTION,
@@ -41,14 +41,13 @@ from rebrew.coverage_toml import (
     CoverageTomlError,
     Function,
     Global,
-    _atomic_write,
     _read_previous,
     load_all_coverage,
     load_coverage,
     render_coverage_toml,
     write_coverage_toml,
 )
-from rebrew.utils import floor_pct
+from rebrew.utils import atomic_write_text, floor_pct
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -678,14 +677,14 @@ class TestAtomic:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         path = tmp_path / "coverage-x.toml"
-        _atomic_write(path, "good\n")
+        atomic_write_text(path, "good\n")
 
         def boom(src: object, dst: object) -> None:
             raise OSError("disk full")
 
-        monkeypatch.setattr(cast(Any, coverage_toml).os, "replace", boom)
+        monkeypatch.setattr(cast(Any, utils).os, "replace", boom)
         with pytest.raises(OSError, match="disk full"):
-            _atomic_write(path, "bad\n")
+            atomic_write_text(path, "bad\n")
         assert path.read_text(encoding="utf-8") == "good\n"
         assert list(tmp_path.glob("*.tmp")) == []
 

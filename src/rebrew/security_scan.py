@@ -38,14 +38,20 @@ from rebrew.cli import (
     json_print,
     require_config,
 )
+from rebrew.errors import RebrewError
 from rebrew.sources import iter_sources
 from rebrew.utils import rel_display_path, untrusted_text
 
 log = logging.getLogger(__name__)
 
 
-class SecurityScanUnavailable(Exception):
-    """The scanner cannot run at all, so its zero findings mean nothing."""
+class SecurityScanUnavailable(RebrewError, RuntimeError):
+    """The scanner cannot run at all, so its zero findings mean nothing.
+
+    Carries the shared :class:`~rebrew.errors.RebrewError` base so a
+    consumer's documented ``except RebrewError`` handler catches a missing
+    parser like any other rebrew failure.
+    """
 
 
 # ---------------------------------------------------------------------------

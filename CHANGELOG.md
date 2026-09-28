@@ -112,6 +112,18 @@
   width at `width: 100%` and pushed `Status` a screen away from its VA. Cells
   now take the same `overflow-wrap: anywhere` the report already used on its
   long-text columns.
+- **The coverage writer shares the one atomic write.** ``coverage_toml`` carried
+  a private ``_atomic_write`` beside ``rebrew.utils.atomic_write_text``,
+  differing only in the temp file's name: the local one used a fixed ``.tmp``
+  sibling that two concurrent writers of the same ``coverage-<target>.toml``
+  would collide on, and skipped the fsync. The writer calls
+  ``atomic_write_text`` now, and the atomicity tests pin it there.
+- **Two error types join the `RebrewError` umbrella.** `LibIndexUnavailable`
+  (an unreadable stock LIBCMT archive) and `SecurityScanUnavailable` (no
+  tree-sitter C parser) inherited bare `Exception`, so the documented
+  `except RebrewError` handler a consumer writes missed both; the
+  `rebrew.errors` surface gate flagged it. Both now subclass
+  `RebrewError, RuntimeError` and are importable from `rebrew.errors`.
 
 ## [2.16.0] - 2026-09-28
 

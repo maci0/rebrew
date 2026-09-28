@@ -61,6 +61,7 @@ if TYPE_CHECKING:
     from rebrew.decompme import DecompmeError as DecompmeError
     from rebrew.decompme import DecompmeErrorKind as DecompmeErrorKind
     from rebrew.delphi16 import Delphi16Error as Delphi16Error
+    from rebrew.doctor import LibIndexUnavailable as LibIndexUnavailable
     from rebrew.dosbox import DosboxError as DosboxError
     from rebrew.fingerprints import FingerprintError as FingerprintError
     from rebrew.ghidra.client import McpApplyAborted as McpApplyAborted
@@ -80,6 +81,7 @@ if TYPE_CHECKING:
     from rebrew.registry import RegistryError as RegistryError
     from rebrew.rename_ops import RenameError as RenameError
     from rebrew.residue import ResidueError as ResidueError
+    from rebrew.security_scan import SecurityScanUnavailable as SecurityScanUnavailable
     from rebrew.struct_recover import NoDecompilationError as NoDecompilationError
     from rebrew.tc16 import Tc16Error as Tc16Error
     from rebrew.toolchain import ToolchainError as ToolchainError
@@ -205,6 +207,7 @@ _LAZY_ERRORS: dict[str, tuple[str, str]] = {
     "DosboxError": ("rebrew.dosbox", "DosboxError"),
     "FingerprintError": ("rebrew.fingerprints", "FingerprintError"),
     "LibraryOverrideError": ("rebrew.metadata", "LibraryOverrideError"),
+    "LibIndexUnavailable": ("rebrew.doctor", "LibIndexUnavailable"),
     "McpApplyAborted": ("rebrew.ghidra.client", "McpApplyAborted"),
     "McpError": ("rebrew.ghidra.client", "McpError"),
     "MetadataValidationError": ("rebrew.metadata_model", "MetadataValidationError"),
@@ -218,6 +221,7 @@ _LAZY_ERRORS: dict[str, tuple[str, str]] = {
     "RegistryError": ("rebrew.registry", "RegistryError"),
     "RenameError": ("rebrew.rename_ops", "RenameError"),
     "ResidueError": ("rebrew.residue", "ResidueError"),
+    "SecurityScanUnavailable": ("rebrew.security_scan", "SecurityScanUnavailable"),
     "SimilarityUnavailable": ("rebrew.matcher.scoring", "SimilarityUnavailable"),
     "Tc16Error": ("rebrew.tc16", "Tc16Error"),
     "ToolchainError": ("rebrew.toolchain", "ToolchainError"),
@@ -298,6 +302,7 @@ __all__ = [
     "DosboxError",
     "FingerprintError",
     "LibraryOverrideError",
+    "LibIndexUnavailable",
     "McpApplyAborted",
     "McpError",
     "McpErrorKind",
@@ -314,6 +319,7 @@ __all__ = [
     "RegistryError",
     "RenameError",
     "ResidueError",
+    "SecurityScanUnavailable",
     "SimilarityUnavailable",
     "Tc16Error",
     "ToolchainError",

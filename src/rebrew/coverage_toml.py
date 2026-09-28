@@ -27,7 +27,6 @@ Two consequences of writing TOML are load-bearing and stated once here:
 
 import json
 import logging
-import os
 import tomllib
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -56,7 +55,7 @@ from rebrew.build_db import (
 from rebrew.cli import console
 from rebrew.errors import RebrewError
 from rebrew.metadata import canonical_status
-from rebrew.utils import clip_span, floor_pct
+from rebrew.utils import atomic_write_text, clip_span, floor_pct
 from rebrew.workspace import WorkspaceConfigError, db_dir
 from rebrew.workspace.status import MATCHED_STATUSES
 
@@ -190,10 +189,6 @@ _VERIFY_RESULTS_COLUMNS: tuple[str, ...] = (
 #: section name with a dot or a space) has to be quoted or the document fails
 #: to parse.
 _BARE_KEY_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-")
-
-#: Suffix of the in-progress file.  Same directory as the target so
-#: ``os.replace`` is a rename within one filesystem, which is atomic.
-_TMP_SUFFIX = ".tmp"
 
 
 # ---------------------------------------------------------------------------
@@ -571,25 +566,6 @@ def _read_previous(path: Path) -> dict[str, Any]:
         return {}
 
 
-def _atomic_write(path: Path, text: str) -> None:
-    """Write *text* to *path* so a reader never sees a half-written file.
-
-    The temporary file is a sibling, so ``os.replace`` is a same-filesystem
-    rename — the only atomic primitive here.  It is removed on failure, because
-    a leftover ``.tmp`` beside a document is a file nothing knows how to
-    interpret, and the previous file is still intact.
-    """
-    tmp = path.with_name(path.name + _TMP_SUFFIX)
-    try:
-        # newline="\n": write_text would otherwise translate to the platform
-        # separator, and the same input has to produce the same bytes.
-        tmp.write_text(text, encoding="utf-8", newline="\n")
-        os.replace(tmp, path)
-    except BaseException:
-        tmp.unlink(missing_ok=True)
-        raise
-
-
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -714,7 +690,7 @@ def write_coverage_toml(
             # honest answer.
             datetime.now(UTC).isoformat(),
         )
-        _atomic_write(
+        atomic_write_text(
             path,
             render_coverage_toml(target_name, data, previous=previous, verify_rows=verify_rows),
         )
@@ -1232,7 +1208,7 @@ def _read_document(path: Path, target: str) -> CoverageSnapshot:
     try:
         doc = tomllib.loads(text)
     except tomllib.TOMLDecodeError as exc:
-        # A file torn by anything other than _atomic_write lands here too.
+        # A file torn by anything other than atomic_write_text lands here too.
         raise CoverageTomlError(f"{path}: malformed TOML ({exc})") from exc
     return _snapshot(path, doc, target)
 

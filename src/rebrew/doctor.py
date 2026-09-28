@@ -40,6 +40,7 @@ from rebrew.config import (
     inventory_path_for,
     load_config,
 )
+from rebrew.errors import RebrewError
 from rebrew.utils import md5_file, read_json_text
 
 logger = logging.getLogger(__name__)
@@ -1708,8 +1709,13 @@ def _span_at(spans: list[tuple[int, int]], va: int) -> tuple[int, int] | None:
     return None
 
 
-class LibIndexUnavailable(Exception):
-    """The stock LIBCMT archive is present but its bytes could not be read."""
+class LibIndexUnavailable(RebrewError, RuntimeError):
+    """The stock LIBCMT archive is present but its bytes could not be read.
+
+    Carries the shared :class:`~rebrew.errors.RebrewError` base so a
+    consumer's documented ``except RebrewError`` handler catches an
+    unreadable archive like any other rebrew failure.
+    """
 
 
 def _libcmt_index(cfg: Any) -> Any:
