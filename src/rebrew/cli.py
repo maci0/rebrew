@@ -56,6 +56,8 @@ from rebrew.utils import (
     untrusted_text,
 )
 
+log = logging.getLogger(__name__)
+
 #: Timestamp format shared by every log line.  UTC is forced in
 #: :func:`configure_logging`; the default converter is localtime, so a host in
 #: a DST zone stamps verbose logs with a wall clock that jumps or repeats and
@@ -113,7 +115,6 @@ def run_for_each_target(
     """
     import contextlib
     import io
-    import logging
 
     collected: dict[str, Any] = {}
     worst = 0
@@ -130,7 +131,7 @@ def run_for_each_target(
         except typer.Exit as exc:
             worst = max(worst, int(getattr(exc, "exit_code", 0) or 0))
         except Exception as exc:
-            logging.warning("target %s failed", name, exc_info=True)
+            log.warning("target %s failed", name, exc_info=True)
             worst = max(worst, EXIT_ERROR)
             if not json_mode:
                 console.print(
@@ -185,7 +186,7 @@ def all_targets_run(
     if len(set(names)) != len(names):
         # A target repeated in all_targets would compile (and write STATUS)
         # twice; the second pass reports the first pass's work as its own.
-        logging.warning(
+        log.warning(
             "duplicate target(s) in all_targets: %s; running each once",
             ", ".join(sorted(set(names))),
         )

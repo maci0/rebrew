@@ -256,6 +256,13 @@ def _warn_request(message: str, *args: Any) -> None:
 _LOG_TIME_FORMAT = "%H:%M:%S UTC"
 #: Level column, padded to the width of the longest name we emit (CRITICAL).
 _LOG_LEVEL_FORMAT = "%(levelname)-8s"
+#: Handler names, so a re-attach replaces the previous run's handler instead of
+#: stacking a second one on the same stream.
+_DASHBOARD_HANDLER_NAME = "rebrew-dashboard"
+_PACKAGE_HANDLER_NAME = "rebrew-dashboard-package"
+#: The package logger, parent of this module's, for the records a request's
+#: library code raises (see :func:`_attach_server_log_handler`).
+_PACKAGE_LOGGER_NAME = __name__.partition(".")[0]
 
 _DEFAULT_LIMIT = 100
 _MAX_LIMIT = 5000
@@ -2785,19 +2792,48 @@ def _server_notice(level: str, message: str) -> None:
     console.print(_stamped(level, message), soft_wrap=True)
 
 
+class _CorrelatedFormatter(logging.Formatter):
+    """Render a record raised inside another ``rebrew`` module for this stream.
+
+    The dashboard's own lines put their request id in the message and escape
+    every remote-controlled part before formatting, because they are the lines
+    written from a request.  A record raised deeper in the request path (the
+    coverage loader skipping a document that stopped parsing) knows neither:
+    it names no request and carries whatever the document held.  The formatter
+    supplies the id of the request in flight on this thread and escapes the
+    rendered line, so a library warning joins the access log as one record of
+    one request instead of a second format on the same terminal.
+    """
+
+    @override
+    def format(self, record: logging.LogRecord) -> str:
+        request_id, _ = _request_context()
+        line = _escape_log_text(super().format(record))
+        return line if request_id == "-" else f"{request_id} {line}"
+
+
 def _attach_server_log_handler() -> Callable[[], None]:
-    """Send this module's ERROR/WARNING lines to the same console as the access log.
+    """Send this module's and the package's ERROR/WARNING lines to the access-log console.
 
     Without a handler, ``logging`` falls back to ``lastResort``: bare messages
     on stderr with no timestamp, interleaved with stamped access lines.  The
     formatter below gives the errors the same leading stamp and a level column,
     so the server's whole output is one greppable stream.
 
-    Returns a disposer.  Attaching mutates the module logger (a handler, the
-    level, ``propagate``), and the run that installs it ends without restoring
-    it: a long-lived process that serves the dashboard and then logs again keeps
-    a handler writing to the finished run's console, and ``propagate = False``
-    silences the root logger besides.  The disposer restores all three.
+    The ``rebrew`` package logger gets its own handler because a request runs
+    library code, and that code's warnings are the only record of a document
+    the loader dropped.  Left to the root handler (``configure_logging``'
+    ``basicConfig``) they land on the same terminal in a different format with
+    no request id, so an operator grepping one request's id never sees why its
+    page was short a target.  Its level is left alone: NOTSET, so the root
+    level a run configured still decides what is emitted.
+
+    Returns a disposer.  Attaching mutates two loggers (a handler each, plus
+    the module's level and ``propagate``), and the run that installs them ends
+    without restoring: a long-lived process that serves the dashboard and then
+    logs again keeps a handler writing to the finished run's console, and
+    ``propagate = False`` silences the root logger besides.  The disposer
+    restores all of it, once.
     """
     handler = logging.StreamHandler(console.file)
     handler_formatter = logging.Formatter(
@@ -2805,7 +2841,7 @@ def _attach_server_log_handler() -> Callable[[], None]:
     )
     handler_formatter.converter = time.gmtime
     handler.setFormatter(handler_formatter)
-    handler.set_name("rebrew-dashboard")
+    handler.set_name(_DASHBOARD_HANDLER_NAME)
     replaced = [existing for existing in log.handlers if existing.get_name() == handler.get_name()]
     for existing in replaced:
         log.removeHandler(existing)
@@ -2815,12 +2851,41 @@ def _attach_server_log_handler() -> Callable[[], None]:
     log.setLevel(logging.INFO)
     log.propagate = False
 
+    package_log = logging.getLogger(_PACKAGE_LOGGER_NAME)
+    package_handler = logging.StreamHandler(console.file)
+    package_formatter = _CorrelatedFormatter(
+        f"%(asctime)s {_LOG_LEVEL_FORMAT} %(message)s", _LOG_TIME_FORMAT
+    )
+    package_formatter.converter = time.gmtime
+    package_handler.setFormatter(package_formatter)
+    package_handler.set_name(_PACKAGE_HANDLER_NAME)
+    package_replaced = [
+        existing
+        for existing in package_log.handlers
+        if existing.get_name() == _PACKAGE_HANDLER_NAME
+    ]
+    for existing in package_replaced:
+        package_log.removeHandler(existing)
+    package_previous_propagate = package_log.propagate
+    package_log.addHandler(package_handler)
+    package_log.propagate = False
+
+    disposed = False
+
     def restore() -> None:
+        nonlocal disposed
+        if disposed:
+            return
+        disposed = True
         _remove_identity(log.handlers, handler)
         for existing in replaced:
             log.addHandler(existing)
         log.setLevel(previous_level)
         log.propagate = previous_propagate
+        _remove_identity(package_log.handlers, package_handler)
+        for existing in package_replaced:
+            package_log.addHandler(existing)
+        package_log.propagate = package_previous_propagate
 
     return restore
 

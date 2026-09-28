@@ -43,6 +43,8 @@ from rebrew.status_style import DISPLAY_STATUSES, STATUS_COLORS
 from rebrew.utils import clip_span, floor_pct
 from rebrew.workspace.status import MATCHED_STATUSES, STUB_PLACEHOLDER_STATUSES
 
+log = logging.getLogger(__name__)
+
 # ---------------------------------------------------------------------------
 # Data model
 # ---------------------------------------------------------------------------
@@ -663,7 +665,7 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
         # documented fallback skipped exactly the case it exists for.  The
         # failure is reported because a zeroed panel reads as "no work left"
         # on a project that has thousands of pending functions.
-        logging.warning(
+        log.warning(
             "status: could not load the function inventory (%s: %s); reporting zeroed coverage",
             type(exc).__name__,
             exc,

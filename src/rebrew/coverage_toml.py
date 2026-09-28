@@ -59,6 +59,8 @@ from rebrew.utils import atomic_write_text, clip_span, floor_pct, toml_safe
 from rebrew.workspace import WorkspaceConfigError, db_dir
 from rebrew.workspace.status import MATCHED_STATUSES
 
+log = logging.getLogger(__name__)
+
 #: What ``import *`` from this module means.  Everything else below is
 #: build_db's helper borrowed for reuse, not this module's to re-export.
 __all__ = [
@@ -572,7 +574,7 @@ def _read_previous(path: Path) -> dict[str, Any]:
         # does too.  A half-written file lands in the same place.  Warn, not
         # debug: the caller rebuilds from this and drops the whole history
         # array, so a silent ``{}`` resets every chart on the dashboard.
-        logging.warning(
+        log.warning(
             "coverage_toml: cannot read %s (%s); the rebuild carries no history",
             path,
             exc,
@@ -1284,7 +1286,7 @@ def load_all_coverage_from(db_directory: Path) -> dict[str, CoverageSnapshot]:
         try:
             snapshots[target] = _read_document(path, target)
         except CoverageTomlError as exc:
-            logging.warning("coverage_toml: skipping %s: %s", path, exc)
+            log.warning("coverage_toml: skipping %s: %s", path, exc)
     _ALL_CACHE = (key, snapshots)
     return snapshots
 

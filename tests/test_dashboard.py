@@ -2948,11 +2948,69 @@ class TestHostValidation:
         from rebrew.dashboard import _attach_server_log_handler
 
         server_log = logging.getLogger("rebrew.dashboard")
+        package_log = logging.getLogger("rebrew")
         before_handlers = list(server_log.handlers)
+        before_package_handlers = list(package_log.handlers)
         restore = _attach_server_log_handler()
         restore()
         restore()  # the inverse fires at most once
         assert server_log.handlers == before_handlers
+        assert package_log.handlers == before_package_handlers
+
+    def test_package_warning_joins_the_stamped_stream(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A warning from library code on the request path lands on the access log.
+
+        The coverage loader is the one library module a request runs: it warns
+        when a document stops parsing, and that warning is the only record of
+        the target missing from the page.  On the root logger it printed in a
+        second format with no request id, so the id the client holds (X-Request-Id)
+        never led back to it.
+        """
+        from io import StringIO
+
+        from rich.console import Console
+
+        from rebrew.dashboard import _attach_server_log_handler, _stamp_request
+
+        output = StringIO()
+        monkeypatch.setattr(
+            "rebrew.dashboard.console",
+            Console(file=output, width=200, color_system=None, highlight=False),
+        )
+        restore = _attach_server_log_handler()
+        package_log = logging.getLogger("rebrew")
+        for attached in package_log.handlers:
+            attached.stream = output
+        try:
+            _stamp_request("r7", "GET /api/targets HTTP/1.1")
+            logging.getLogger("rebrew.coverage_toml").warning("skipping %s: %s", "a\tb", "bad")
+        finally:
+            _stamp_request("-", "")
+            restore()
+
+        rendered = output.getvalue()
+        assert "r7" in rendered
+        assert "skipping a\\x09b: bad" in rendered  # control char escaped
+        assert "WARNING" in rendered
+        assert rendered.count("\n") == 1
+        assert " UTC" in rendered
+
+    def test_package_handler_dispose_restores_the_package_logger(self) -> None:
+        from rebrew.dashboard import _attach_server_log_handler
+
+        package_log = logging.getLogger("rebrew")
+        before_handlers = list(package_log.handlers)
+        before_propagate = package_log.propagate
+
+        restore = _attach_server_log_handler()
+        assert [h for h in package_log.handlers if h.get_name() == "rebrew-dashboard-package"]
+        assert package_log.propagate is False
+        restore()
+
+        assert package_log.handlers == before_handlers
+        assert package_log.propagate is before_propagate
 
     def test_handler_unexpected_error_answers_500(self) -> None:
         """An unexpected route error must answer 500 JSON, not reset the connection."""

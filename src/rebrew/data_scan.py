@@ -649,7 +649,7 @@ def build_dispatch_known_functions(cfg: ProjectConfig, src_dir: Path) -> dict[in
         # Registry is best-effort enrichment (function names from the catalog
         # list); a failure must be visible so a name-less data scan is not
         # mistaken for a complete one.
-        logging.warning("Function registry unavailable — names/dispatch context omitted: %s", exc)
+        log.warning("Function registry unavailable — names/dispatch context omitted: %s", exc)
     return known_functions
 
 

@@ -48,6 +48,8 @@ from rebrew.data_metadata import (
 from rebrew.workspace import db_dir
 from rebrew.workspace.status import COVERAGE_DB_STATUSES, KNOWN_STATUSES
 
+log = logging.getLogger(__name__)
+
 #: Statuses a ``functions.status`` may hold: ``KNOWN_STATUSES`` plus ``UNKNOWN``
 #: (what a catalog row that omits STATUS gets).  The TOML writer applies the
 #: same set to every row it stores, so the sanitizer and this set are one rule.
@@ -285,7 +287,7 @@ def normalize_cell_row(target_name: str, sec_name: str, cell: dict[str, Any]) ->
     span = max(1, parse_int(cell.get("span"), 1))
     state = _canonical_cell_state(cell.get("state"))
     if state is None:
-        logging.warning(
+        log.warning(
             "build_db: cell state %r not in known set — coercing to "
             "'unknown' (check the generator or hand-edited JSON); known: %s",
             cell.get("state"),
@@ -331,7 +333,7 @@ def dedupe_cell_rows(
         by_start[row[2]] = row
     dropped = len(rows) - len(by_start)
     if dropped:
-        logging.warning(
+        log.warning(
             "build_db: %s %s: dropped %d duplicate cell row(s) sharing the "
             "same start after normalization (UNIQUE target/section/start); "
             "last wins",
@@ -354,7 +356,7 @@ def dedupe_by_va(
     by_va = {row[1]: row for row in rows}
     dropped = len(rows) - len(by_va)
     if dropped:
-        logging.warning(
+        log.warning(
             "build_db: %s: dropped %d duplicate %s row(s) sharing a VA "
             "(PRIMARY KEY target/va); last wins",
             target_name,
@@ -410,7 +412,7 @@ def load_coverage_datasets(
     # primary keys.  Build it once, in first-seen order, rather than losing
     # every target to one repeat.
     if len(set(targets)) != len(targets):
-        logging.warning(
+        log.warning(
             "build_db: duplicate target(s) in all_targets: %s; building each once",
             ", ".join(sorted(set(targets))),
         )

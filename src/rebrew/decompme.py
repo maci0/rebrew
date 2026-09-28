@@ -67,6 +67,8 @@ from rebrew.utils import (
     untrusted_text,
 )
 
+log = logging.getLogger(__name__)
+
 app = typer.Typer(
     help="Upload a function to decomp.me as a collaborative scratch.",
     rich_markup_mode="rich",
@@ -524,10 +526,7 @@ def record_upload(root: Path, digest: str, slug: str, claim_token: str, api: str
             atomic_write_text(path, json.dumps(fresh, indent=2, sort_keys=True) + "\n")
             path.chmod(_UPLOADS_FILE_MODE)
     except OSError as exc:
-        logging.warning(
-            "decomp.me upload ledger not written (%s); the next run will upload again",
-            exc,
-        )
+        log.warning("decomp.me upload ledger not written (%s); the next run will upload again", exc)
 
 
 def _is_recent(entry: dict[str, str], now: float) -> bool:
