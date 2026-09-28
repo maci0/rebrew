@@ -101,26 +101,24 @@ class TestPrepareEntries:
         assert "dropped.c" in err
 
 
-def cfg_reversed_dir() -> Path:
-    return Path("/tmp")  # replaced per-test below via global
-
-
 class TestPrepareEntriesCache:
     """prepare_entries incremental-cache branches (769-795)."""
+
+    # Source dir the cache rows are built against.  Set by ``_setup``; a test
+    # that reaches ``_cache_entry`` without it raises instead of silently
+    # hashing a path outside its own tmp_path.
+    _src_dir: Path | None = None
+    _root: Path | None = None
 
     def _setup(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, entry: Annotation
     ) -> SimpleNamespace:
-        global cfg_reversed_dir
-
-        def _reversed() -> Path:
-            return tmp_path / "src"
-
-        cfg_reversed_dir = _reversed
         cfg = _cfg(tmp_path)
         (tmp_path / "x.dll").write_bytes(b"MZ")
         src = tmp_path / "src"
         src.mkdir(exist_ok=True)
+        self._root = tmp_path
+        self._src_dir = src
         f = src / entry.filepath
         f.write_text("int f(void) { return 0; }\n", encoding="utf-8")
         monkeypatch.setattr(verify_mod, "scan_reversed_dir", lambda _d, cfg=None: [entry])
@@ -143,33 +141,30 @@ class TestPrepareEntriesCache:
         size: int = 64,
         cflags: str | None = None,
     ) -> dict:
+        if self._root is None or self._src_dir is None:
+            raise AssertionError("_setup() must run before _cache_entry()")
+        root, src_dir = self._root, self._src_dir
         if cflags is None:
             # Mirror the new writer: the cache stores the RESOLVED effective
             # flags (config fallback chain applied), not the raw metadata
             # value — a hit requires the freshly-resolved value to match.
             from rebrew.compile_overrides import resolve_cflags
 
-            cflags = resolve_cflags(_cfg(Path("/tmp")), None, "")
+            cflags = resolve_cflags(_cfg(root), None, "")
         if not source_hash:
-            p = Path(cfg_reversed_dir()) / filepath
+            p = src_dir / filepath
             source_hash = verify_hash_mod.source_hash(p) if p.exists() else "no-file"
         # Mirror the new writer: the entry stores the reached-header
         # dependency fingerprint, so a hit requires the freshly-computed
         # value to match (a header the source reaches must invalidate it).
-        p = Path(cfg_reversed_dir()) / filepath
-        headers_fp = (
-            verify_hash_mod.entry_headers_fp(_cfg(Path(cfg_reversed_dir())), p, cflags)
-            if p.exists()
-            else ""
-        )
+        p = src_dir / filepath
+        headers_fp = verify_hash_mod.entry_headers_fp(_cfg(root), p, cflags) if p.exists() else ""
         # Mirror the new writer: the resolved toolchain override
         # (per-function → per-library → project default), so a TOOLCHAIN edit
         # invalidates the entry.
         from rebrew.compile_overrides import resolve_compile_overrides
 
-        _tc, _cf2 = resolve_compile_overrides(
-            _cfg(Path(cfg_reversed_dir())), Path(cfg_reversed_dir()), "", "", ""
-        )
+        _tc, _cf2 = resolve_compile_overrides(_cfg(root), src_dir, "", "", "")
         toolchain = _tc or verify_mod.DEFAULT_TOOLCHAIN
         return {
             "source_hash": source_hash,

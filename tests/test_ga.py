@@ -889,7 +889,7 @@ class TestRunAllParallel:
     def test_scoring_follows_population_order_not_completion_order(self, tmp_path: Path) -> None:
         """Parallel compiles finishing out of order must still be scored in
         population order, so --collect-pairs lines replay under one seed."""
-        import time
+        import threading
 
         from rebrew.match_ga import BinaryMatchingGA
         from rebrew.matcher import BuildResult
@@ -909,11 +909,21 @@ class TestRunAllParallel:
             verbose=0,
         )
         ga.population = [f"int f(void){{return {i};}}" for i in range(4)]
-        delays = {src: 0.05 * (3 - i) for i, src in enumerate(ga.population)}
+        # Completion order is forced, not timed: member i blocks until its
+        # successor has finished, so the last member returns first and the
+        # first last, on any machine.  A sleep-based gap only proves the
+        # order when the scheduler keeps the promised margin.
+        finished = [threading.Event() for _ in ga.population]
         scored: list[str] = []
 
         def _compile(src: str) -> BuildResult:
-            time.sleep(delays[src])  # first member finishes last
+            i = ga.population.index(src)
+            if i + 1 < len(ga.population):
+                assert finished[i + 1].wait(timeout=10), (
+                    f"{src!r} ran without {ga.population[i + 1]!r} finishing first: "
+                    "the population was not compiled in parallel"
+                )
+            finished[i].set()
             return BuildResult(ok=False, error_msg="stub")
 
         def _fitness(res: BuildResult, src_hash: str, src: str) -> float:

@@ -1,5 +1,6 @@
 """Tests for rebrew.match — BinaryMatchingGA initialization and population logic."""
 
+import threading
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -824,10 +825,18 @@ class TestRunAllBatch:
         stubs = [self._stub(f"f{i}.c", f"0x1000{i:04x}") for i in range(1, 4)]
         monkeypatch.setattr("rebrew.match_run.find_all_stubs", lambda *a, **k: stubs)
 
+        finished = [threading.Event() for _ in stubs]
+
         def _fake_ga(stub, cfg, gens, pop, jobs, timeout, seeds, **_kw):
-            # Reverse-duration so completion order is the opposite of stub
-            # order; the run log must not follow it.
-            time.sleep(0.05 * (3 - int(stub.symbol[1])))
+            # Completion order is forced to be the opposite of stub order:
+            # stub i blocks until stub i+1 has returned.  A sleep-based gap
+            # only proves the order when the scheduler keeps its promise.
+            i = int(stub.symbol[1])
+            if i < 3:
+                assert finished[i].wait(timeout=10), (
+                    f"stub {i} ran before stub {i + 1} finished: the stubs were not run in parallel"
+                )
+            finished[i - 1].set()
             return True, "MATCHED", 0.0, 3, 7
 
         recorded: list[str] = []

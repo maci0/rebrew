@@ -2,7 +2,7 @@
 
 import json
 import logging
-import time
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -1523,9 +1523,19 @@ class TestRunVerification:
         )
         from rebrew.verify import verify_entry as real_verify
 
-        # Reverse-duration so the first entry finishes last.
+        # Completion order is forced to be the reverse of entry order: entry i
+        # blocks until entry i+1 has finished.  A sleep-based gap only proves
+        # the order when the scheduler keeps the promised margin.
+        finished = [threading.Event() for _ in range(3)]
+
         def _slow_verify(e, *a, **k):
-            time.sleep(0.06 * (3 - (e.va - 0x1000) // 0x1000))
+            i = (e.va - 0x1000) // 0x1000
+            if i < 2:
+                assert finished[i + 1].wait(timeout=10), (
+                    f"entry 0x{e.va:x} finished before its successor: "
+                    "the entries were not verified in parallel"
+                )
+            finished[i].set()
             return real_verify(e, *a, **k)
 
         monkeypatch.setattr("rebrew.verify.verify_entry", _slow_verify)

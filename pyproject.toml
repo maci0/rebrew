@@ -198,8 +198,13 @@ filterwarnings = [
     "ignore:target binary not found:UserWarning",
     # Fixture trees contain 0444-locked metadata TOMLs; pytest's tmp_path
     # teardown warns (rm_rf) when removing them. The files are in /tmp and
-    # harmless — the warning drowns real ones (~2400 per full run).
-    "ignore::pytest.PytestWarning",
+    # harmless — the warning drowns real ones (~2400 per full run). Scoped to
+    # the rm_rf text: a class-wide `ignore::pytest.PytestWarning` also hides
+    # PytestUnraisableExceptionWarning (an exception in __del__ / a thread) and
+    # PytestReturnNotNoneWarning (a test that started returning a value).
+    # ini filter messages are regexes (pytest escapes only -W ones), so the
+    # parentheses need escaping to match the literal "(rm_rf)" prefix.
+    "ignore:\\(rm_rf\\):pytest.PytestWarning",
 ]
 
 [tool.slipcover]

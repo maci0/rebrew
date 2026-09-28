@@ -369,9 +369,10 @@ class TestBatchOutDirResolution:
         from rebrew.asm import app
 
         captured = self._setup(tmp_path, monkeypatch)
-        result = CliRunner().invoke(app, ["--format", "nasm", "--all", "--out-dir", "/tmp/nasm"])
+        out_dir = tmp_path / "elsewhere" / "nasm"
+        result = CliRunner().invoke(app, ["--format", "nasm", "--all", "--out-dir", str(out_dir)])
         assert result.exit_code == 0
-        assert captured["out_dir"] == Path("/tmp/nasm")
+        assert captured["out_dir"] == out_dir
 
 
 class TestHexModeTruncation:
