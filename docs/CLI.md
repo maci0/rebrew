@@ -405,7 +405,7 @@ matching `rebrew prove` / `rebrew test`.
 | `-r` / `--register-aware` | Normalize register encodings and mark differences as `RR` |
 | `--fix-blocker` | Auto-write `BLOCKER`/`BLOCKER_DELTA` metadata from diff classification |
 | `--dry-run` | Preview BLOCKER metadata writes without touching the toml |
-| `-f FORMAT` / `--format FORMAT` | Output format: `terminal` (default), `csv` |
+| `-f FORMAT` / `--format FORMAT` | Output format: `terminal` (default), `csv` (mutually exclusive with `--json`) |
 | `--ignore-lint` | Continue even if source marker lint errors exist |
 | `--json` | Output results as JSON |
 | `--watch` | Re-run on source changes |
@@ -1834,15 +1834,15 @@ Read-only.
 |------------|-------------|
 | `list-targets` | List configured targets |
 | `show [KEY]` | Read a (dotted) config value, e.g. `show targets.main.binary` |
-| `set KEY VALUE [--dry-run]` | Set a (dotted) config value, e.g. `set compiler.timeout 120` |
+| `set KEY VALUE [--dry-run] [--json]` | Set a (dotted) config value, e.g. `set compiler.timeout 120` |
 | `add-target NAME --binary F [--arch A] [--format FMT] [--modules M] [--source-ext E] [--copy/--no-copy] [--force] [--dry-run] [--json]` / `remove-target NAME [--force] [--dry-run] [--json]` | Manage targets |
 | `add-module NAME [--dry-run] [--json] [--target T]` / `remove-module NAME [--force] [--dry-run] [--json] [--target T]` | Manage a target's `origins` list |
-| `set-cflags MODULE FLAGS [--target T] [--dry-run]` | Set a module's cflags preset (global, or per-target with `--target`) |
-| `set-compiler TARGET PROFILE [--dry-run]` | Write a compiler profile (`msvc-6.0`, `msvc-7.0`, `clang-18.1.8`, `gcc-14.2.0`) onto a target |
+| `set-cflags MODULE FLAGS [--dry-run] [--json] [--target T]` | Set a module's cflags preset (global, or per-target with `--target`) |
+| `set-compiler TARGET PROFILE [--dry-run] [--json]` | Write a compiler profile (`msvc-6.0`, `msvc-7.0`, `clang-18.1.8`, `gcc-14.2.0`) onto a target |
 | `detect-crt [--write] [--dry-run]` | Scan `toolchain/` for known MSVC CRT source dirs |
 | `raw` | Dump `rebrew-project.toml` as JSON (`--format toml` for TOML) |
 | `effective [--json] [--target T]` | Print the values in force after env and default resolution; secrets redacted, env var names (not values) listed under `env_overrides` |
-| `path` | Print the path to `rebrew-project.toml` |
+| `path [--json]` | Print the path to `rebrew-project.toml` |
 
 ### `rebrew skills`
 

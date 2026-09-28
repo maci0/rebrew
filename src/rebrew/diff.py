@@ -503,7 +503,7 @@ def main(
         "terminal",
         "--format",
         "-f",
-        help="Output format: terminal, csv",
+        help="Output format: terminal, csv (mutually exclusive with --json)",
     ),
     ignore_lint: bool = typer.Option(
         False, "--ignore-lint", help="Continue even if source marker lint errors exist"
@@ -518,6 +518,15 @@ def main(
     if fmt not in ("terminal", "csv"):
         # Bad argument value — usage error (2), not "needs code work" (1).
         error_exit("--format must be 'terminal' or 'csv'", json_mode=json_output, code=EXIT_ERROR)
+    if fmt == "csv" and json_output:
+        # Two machine formats, no precedence: silently dropping the CSV would
+        # feed JSON to a .csv consumer.  Same rule symbol-addrs applies to
+        # --csv / --references.
+        error_exit(
+            "--format csv and --json select different output formats; pass one.",
+            json_mode=json_output,
+            code=EXIT_ERROR,
+        )
 
     csv_output = fmt == "csv"
 

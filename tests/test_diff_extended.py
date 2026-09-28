@@ -353,6 +353,25 @@ class TestDiffCli:
         assert result.exit_code != 0
         assert "--format must be" in result.output
 
+    def test_csv_and_json_are_mutually_exclusive(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Two machine formats, no precedence — refuse instead of dropping one.
+
+        Silently emitting JSON for `--format csv --json` fed a .csv consumer
+        a document it cannot parse, and the exit code said the diff succeeded.
+        """
+        from rebrew.diff import app
+
+        monkeypatch.setattr("rebrew.diff.require_config", lambda **kw: SimpleNamespace())
+        for args in (["--format", "csv", "--json", "f.c"], ["--json", "--format", "csv", "f.c"]):
+            result = CliRunner().invoke(app, args)
+            assert result.exit_code == EXIT_ERROR, args
+            assert json.loads(result.stdout) == {
+                "error": "--format csv and --json select different output formats; pass one.",
+                "code": EXIT_ERROR,
+            }
+
     def test_dispatch_to_run_diff(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.diff import app
 

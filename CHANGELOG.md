@@ -34,6 +34,19 @@
   `docs/COVERAGE_DOCUMENT.md` and `docs/THREAT_MODEL.md` document the field.
 
 ### Fixed
+- **`rebrew cfg set`, `set-cflags`, `set-compiler` and `path` take `--json`.**
+  The four `cfg` write commands were the only ones in the group without it
+  (`add-target`, `remove-target`, `add-module` and `remove-module` all had
+  it), so a script editing config had to scrape human prose, and
+  `cfg path --json` failed as an unknown option. Each now emits one JSON
+  document, and the human-only "note: <key> is target-scoped" chatter is
+  suppressed under `--json`. Their error envelopes follow the option rather
+  than the `--json` token in `sys.argv`, which is what an in-process caller
+  (an embedding app, the `--all-targets` sweep) depends on.
+- **`rebrew diff --format csv --json` is a usage error** instead of silently
+  emitting JSON for a `.csv` consumer: the two flags select different machine
+  formats and there was no precedence between them. Same rule
+  `rebrew-symbol-addrs` already applies to `--csv` / `--references`.
 - **A wholly environment-configured LLM endpoint is no longer refused as if a
   checked-out project had named the host.** `load_config` folds
   `REBREW_LLM_ENDPOINT` into `ProjectConfig.llm_endpoint`, so `llm_config`

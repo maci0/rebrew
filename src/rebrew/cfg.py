@@ -540,10 +540,16 @@ def raw(
 
 
 @app.command("path")
-def path_cmd() -> None:
+def path_cmd(
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+) -> None:
     """Print the absolute path to rebrew-project.toml."""
-    root = _find_root()
-    print(str(root / "rebrew-project.toml"))
+    root = _find_root(json_mode=json_output)
+    toml_path = str(root / "rebrew-project.toml")
+    if json_output:
+        json_print({"path": toml_path})
+        return
+    print(toml_path)
 
 
 @app.command("add-target")
@@ -799,9 +805,10 @@ def set_value(
     ),
     value: str = typer.Argument(..., help="Value to set."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
     """Set a scalar config key."""
-    doc, toml_path = load_toml()
+    doc, toml_path = load_toml(json_mode=json_output)
 
     # Route bare target-scoped keys to the default target so `cfg set binary
     # foo.exe` writes [targets.<default>] instead of a top-level key that the
@@ -809,13 +816,15 @@ def set_value(
     # project-scoped keys route to [project] the same way, since the reader
     # rejects a top-level `jobs = 8` as an unrecognized key.
     if "." not in key and "targets" in doc and key in _TARGET_SCOPED_KEYS:
-        target = _resolve_target(doc, None)
+        target = _resolve_target(doc, None, json_mode=json_output)
         routed = f"targets.{target}.{key}"
-        console.print(f"[dim]note: {key} is target-scoped → setting {routed}[/dim]")
+        if not json_output:
+            console.print(f"[dim]note: {key} is target-scoped → setting {routed}[/dim]")
         key = routed
     elif "." not in key and key in _PROJECT_SCOPED_KEYS:
         routed = f"project.{key}"
-        console.print(f"[dim]note: {key} is project-scoped → setting {routed}[/dim]")
+        if not json_output:
+            console.print(f"[dim]note: {key} is project-scoped → setting {routed}[/dim]")
         key = routed
 
     # Secrets on argv land in process listings / shell history.  Refuse any
@@ -827,6 +836,7 @@ def set_value(
             "set REBREW_LLM_API_KEY in the environment, or clear with "
             f"`rebrew cfg set {key} ''`",
             code=EXIT_ERROR,
+            json_mode=json_output,
         )
 
     # Resolve dotted key path (creates intermediate tables as needed)
@@ -852,7 +862,7 @@ def set_value(
         try:
             parsed_value = validate_http_url(str(parsed_value), url_label)
         except ValueError as exc:
-            error_exit(str(exc), code=EXIT_ERROR)
+            error_exit(str(exc), code=EXIT_ERROR, json_mode=json_output)
 
     leaf = key.rsplit(".", 1)[-1]
     parts = key.split(".")
@@ -862,7 +872,7 @@ def set_value(
 
             validate_llm_model(str(parsed_value))
         except ValueError as exc:
-            error_exit(str(exc), code=EXIT_ERROR)
+            error_exit(str(exc), code=EXIT_ERROR, json_mode=json_output)
 
     if (leaf == "format" or key == "format") and parsed_value:
         from rebrew.config import KNOWN_FORMATS
@@ -871,18 +881,21 @@ def set_value(
             error_exit(
                 f"unknown format {parsed_value!r} (known: {', '.join(sorted(KNOWN_FORMATS))})",
                 code=EXIT_ERROR,
+                json_mode=json_output,
             )
 
     if (leaf == "arch" or key == "arch") and parsed_value and parsed_value not in ARCH_PRESETS:
         error_exit(
             f"unknown arch {parsed_value!r} (known: {', '.join(sorted(ARCH_PRESETS))})",
             code=EXIT_ERROR,
+            json_mode=json_output,
         )
 
     if leaf in _BOOL_CONFIG_KEYS and not isinstance(parsed_value, bool):
         error_exit(
             f"{key} = {value!r} is not a boolean; use 'true' or 'false'",
             code=EXIT_ERROR,
+            json_mode=json_output,
         )
 
     if (
@@ -893,6 +906,7 @@ def set_value(
         error_exit(
             f"unknown ghidra_backend {parsed_value!r} (known: reva, cli)",
             code=EXIT_ERROR,
+            json_mode=json_output,
         )
 
     if (leaf == "backend" and "cache" in parts) and parsed_value:
@@ -904,14 +918,21 @@ def set_value(
                 f"cache.backend = {parsed_value!r} is not a registered backend "
                 f"(known: {', '.join(known_backends)})",
                 code=EXIT_ERROR,
+                json_mode=json_output,
             )
 
     shown = _display_config_value(key, parsed_value)
     if dry_run:
-        console.print(f"[cyan]dry-run:[/cyan] would set {key} = {shown!r}")
+        if json_output:
+            json_print({"key": key, "value": parsed_value, "dry_run": True})
+        else:
+            console.print(f"[cyan]dry-run:[/cyan] would set {key} = {shown!r}")
         return
     parent[final_key] = parsed_value
     save_toml(doc, toml_path)
+    if json_output:
+        json_print({"key": key, "value": parsed_value, "path": str(toml_path)})
+        return
     console.print(f"[green]Set {key} = {shown!r}[/green]")
 
 
@@ -1069,6 +1090,7 @@ def set_cflags(
     module: str = typer.Argument(..., help="Module/preset name (e.g. 'ZLIB', 'GAME')."),
     flags: str = typer.Argument(..., help="Compiler flags string (e.g. '/O3')."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = typer.Option(
         None,
         "--target",
@@ -1077,13 +1099,14 @@ def set_cflags(
     ),
 ) -> None:
     """Set cflags preset for a module."""
-    doc, toml_path = load_toml()
+    doc, toml_path = load_toml(json_mode=json_output)
+    preset_key = preset_module_key(module)
 
     if target is not None:
         # Per-target cflags_presets — written under the target's COMPILER
         # sub-table, which is where _merge_cflags_presets reads them from
         # (writing [targets.X.cflags_presets] was a silent no-op).
-        target = _resolve_target(doc, target)
+        target = _resolve_target(doc, target, json_mode=json_output)
         targets_table: Any = doc["targets"]
         tgt: Any = targets_table[target]
         compiler_tbl = tgt.get("compiler")
@@ -1094,7 +1117,7 @@ def set_cflags(
         if presets is None:
             presets = tomlkit.table()
             compiler_tbl["cflags_presets"] = presets
-        presets[preset_module_key(module)] = flags
+        presets[preset_key] = flags
         scope = f'targets."{target}".compiler'
     else:
         # Global cflags_presets
@@ -1106,18 +1129,22 @@ def set_cflags(
         if presets is None:
             presets = tomlkit.table()
             compiler["cflags_presets"] = presets
-        presets[preset_module_key(module)] = flags
+        presets[preset_key] = flags
         scope = "compiler"
 
     if dry_run:
-        console.print(
-            f"[cyan]dry-run:[/cyan] would set {scope}.cflags_presets.{preset_module_key(module)} = {flags!r}"
-        )
+        if json_output:
+            json_print({"scope": scope, "module": preset_key, "cflags": flags, "dry_run": True})
+        else:
+            console.print(
+                f"[cyan]dry-run:[/cyan] would set {scope}.cflags_presets.{preset_key} = {flags!r}"
+            )
         return
     save_toml(doc, toml_path)
-    console.print(
-        f'[green]Set {scope}.cflags_presets.{preset_module_key(module)} = "{flags}"[/green]'
-    )
+    if json_output:
+        json_print({"scope": scope, "module": preset_key, "cflags": flags, "path": str(toml_path)})
+        return
+    console.print(f'[green]Set {scope}.cflags_presets.{preset_key} = "{flags}"[/green]')
 
 
 @app.command("set-compiler")
@@ -1128,6 +1155,7 @@ def set_compiler(
         help="Compiler profile to set (e.g. 'msvc-6.0', 'gcc-14.2.0'; run 'rebrew toolchain list' for all).",
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
     """Set the compiler profile for a target.
 
@@ -1143,10 +1171,13 @@ def set_compiler(
 
     defaults = profile_defaults()
     if profile not in defaults:
-        error_exit(f"Unknown compiler profile '{profile}'.\n{profile_hint(profile)}")
+        error_exit(
+            f"Unknown compiler profile '{profile}'.\n{profile_hint(profile)}",
+            json_mode=json_output,
+        )
 
-    doc, toml_path = load_toml()
-    target_name = _resolve_target(doc, target)
+    doc, toml_path = load_toml(json_mode=json_output)
+    target_name = _resolve_target(doc, target, json_mode=json_output)
 
     preset = defaults[profile]
 
@@ -1179,11 +1210,26 @@ def set_compiler(
     compiler_tbl["libs"] = preset["libs"]
 
     if dry_run:
-        console.print(
-            f'[cyan]dry-run:[/cyan] would set compiler profile "{profile}" on target "{target_name}".'
-        )
+        if json_output:
+            json_print({"target": target_name, "profile": profile, "dry_run": True, **preset})
+        else:
+            console.print(
+                f'[cyan]dry-run:[/cyan] would set compiler profile "{profile}" on target "{target_name}".'
+            )
         return
     save_toml(doc, toml_path)
+    if json_output:
+        json_print(
+            {
+                "target": target_name,
+                "profile": profile,
+                "path": str(toml_path),
+                "command": compiler_tbl["command"],
+                "includes": preset["includes"],
+                "libs": preset["libs"],
+            }
+        )
+        return
     console.print(f'[green]Set compiler profile "{profile}" on target "{target_name}".[/green]')
     console.print(f"  profile   = {profile}")
     console.print(f"  command  = {compiler_tbl['command']}")

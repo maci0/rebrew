@@ -109,9 +109,7 @@ _OWNED_REPORT_FILE = re.compile(
 #: would otherwise add selectors of its own.  DISPATCH is a graph fill and
 #: never body text.
 _STATUS_CLASSES: dict[str, str] = {
-    status: f"st status-{status}"
-    for status in STATUS_HEX
-    if status != "DISPATCH"
+    status: f"st status-{status}" for status in STATUS_HEX if status != "DISPATCH"
 }
 
 

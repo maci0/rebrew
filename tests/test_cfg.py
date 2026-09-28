@@ -1530,6 +1530,109 @@ class TestCfgCli:
         assert "toolchain/msvc/6.0-win32/VC98/CRT/SRC" in result.output
 
 
+class TestCfgWriteCommandsJson:
+    """Every ``cfg`` write command emits JSON, like ``add-target`` already did.
+
+    ``set``/``set-cflags``/``set-compiler``/``path`` were the four that took
+    no ``--json``, so a script driving the group got human text (or a bare
+    path on stdout) and had to scrape it.
+    """
+
+    def _invoke(
+        self, tmp_path: Path, monkeypatch: object, args: list[str], toml: str = ""
+    ) -> object:
+        from typer.testing import CliRunner
+
+        from rebrew.cfg import app
+
+        _write_project(tmp_path, toml)
+        monkeypatch.chdir(tmp_path)
+        return CliRunner().invoke(app, args)
+
+    def test_path_json(self, tmp_path: Path, monkeypatch: object) -> None:
+        result = self._invoke(tmp_path, monkeypatch, ["path", "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.stdout)
+        assert data["path"] == str(tmp_path / "rebrew-project.toml")
+
+    def test_set_json(self, tmp_path: Path, monkeypatch: object) -> None:
+        result = self._invoke(tmp_path, monkeypatch, ["set", "project.jobs", "4", "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.stdout)
+        assert data["key"] == "project.jobs"
+        assert data["value"] == 4
+        assert "jobs = 4" in (tmp_path / "rebrew-project.toml").read_text(encoding="utf-8")
+
+    def test_set_dry_run_json_writes_nothing(self, tmp_path: Path, monkeypatch: object) -> None:
+        result = self._invoke(
+            tmp_path, monkeypatch, ["set", "project.jobs", "4", "--dry-run", "--json"]
+        )
+        assert result.exit_code == 0
+        data = json.loads(result.stdout)
+        assert data["dry_run"] is True
+        assert "jobs" not in (tmp_path / "rebrew-project.toml").read_text(encoding="utf-8")
+
+    def test_set_error_json_envelope(self, tmp_path: Path, monkeypatch: object) -> None:
+        result = self._invoke(tmp_path, monkeypatch, ["set", "targets.main.arch", "z80", "--json"])
+        assert result.exit_code == 2
+        data = json.loads(result.stdout)
+        assert data["code"] == 2
+        assert "z80" in data["error"]
+
+    def test_set_cflags_json(self, tmp_path: Path, monkeypatch: object) -> None:
+        result = self._invoke(tmp_path, monkeypatch, ["set-cflags", "ZLIB", "/O2", "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.stdout)
+        assert data == {
+            "scope": "compiler",
+            "module": "ZLIB",
+            "cflags": "/O2",
+            "path": str(tmp_path / "rebrew-project.toml"),
+        }
+
+    def test_set_cflags_dry_run_json_writes_nothing(
+        self, tmp_path: Path, monkeypatch: object
+    ) -> None:
+        result = self._invoke(
+            tmp_path, monkeypatch, ["set-cflags", "ZLIB", "/O2", "--dry-run", "--json"]
+        )
+        assert result.exit_code == 0
+        data = json.loads(result.stdout)
+        assert data["dry_run"] is True
+        assert "cflags_presets" not in (tmp_path / "rebrew-project.toml").read_text(
+            encoding="utf-8"
+        )
+
+    def test_set_compiler_json(self, tmp_path: Path, monkeypatch: object) -> None:
+        result = self._invoke(tmp_path, monkeypatch, ["set-compiler", "main", "msvc-6.0", "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.stdout)
+        assert data["target"] == "main"
+        assert data["profile"] == "msvc-6.0"
+        assert data["command"] == ""
+        assert "Include" in data["includes"] or "include" in data["includes"]
+
+    def test_set_compiler_dry_run_json_writes_nothing(
+        self, tmp_path: Path, monkeypatch: object
+    ) -> None:
+        result = self._invoke(
+            tmp_path, monkeypatch, ["set-compiler", "main", "msvc-6.0", "--dry-run", "--json"]
+        )
+        assert result.exit_code == 0
+        data = json.loads(result.stdout)
+        assert data["dry_run"] is True
+        assert "profile" not in (tmp_path / "rebrew-project.toml").read_text(encoding="utf-8")
+
+    def test_set_compiler_unknown_profile_json(self, tmp_path: Path, monkeypatch: object) -> None:
+        result = self._invoke(
+            tmp_path, monkeypatch, ["set-compiler", "main", "boguscompiler", "--json"]
+        )
+        assert result.exit_code == 2
+        data = json.loads(result.stdout)
+        assert data["code"] == 2
+        assert "boguscompiler" in data["error"]
+
+
 class TestCLISetCflagsDryRun:
     def test_set_cflags_dry_run_writes_nothing(self, tmp_path: Path, monkeypatch) -> None:
         _make_project(tmp_path)
