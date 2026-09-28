@@ -722,12 +722,10 @@ async function loadFunctions(options) {
     $("results").hidden = loadedCount === 0;
     $("empty-state").hidden = true;
     $("show-more-wrap").hidden = true;
-    if (!grow) $("results-hint").hidden = true;
-    if (grow && loadedCount > 0) {
-      setLoadError("functions", "Could not load more functions" + reason(error) + ". The rows already shown are unchanged; use Retry functions to fetch the next page again.");
-    } else {
-      setLoadError("functions", "Functions could not be loaded" + reason(error) + ". Use Retry functions to try again with the same filters.");
-    }
+    $("results-hint").hidden = true;
+    setLoadError("functions", grow && loadedCount > 0
+      ? "Could not load more functions" + reason(error) + ". The rows already shown are unchanged; use Retry functions to fetch the next page again."
+      : "Functions could not be loaded" + reason(error) + ". Use Retry functions to try again with the same filters.");
   }
 }
 function renderSummary(s) {
@@ -791,6 +789,8 @@ async function loadSummary() {
     if (seq !== summarySeq || signal.aborted) return;
     $("cards").innerHTML = "";
     $("summary").hidden = true;
+    $("status").disabled = false;  // loadSummary disabled them
+    $("module").disabled = false;
     setLoadError("summary", "Coverage summary could not be loaded" + reason(error) + ". Use Retry summary to try again.");
   }
 }
@@ -932,6 +932,7 @@ async function loadSections() {
     if (seq !== viewSeq || signal.aborted) return;
     $("sections-results").hidden = true;
     $("sections-empty").hidden = true;
+    $("sections-hint").hidden = true;
     setLoadError("view", "Sections could not be loaded" + reason(error) + ". Use Retry sections to try again.");
   }
 }
@@ -970,12 +971,10 @@ async function loadGlobals(options) {
     $("globals-results").hidden = loadedGlobalsCount === 0;
     $("globals-empty").hidden = true;
     $("globals-show-more-wrap").hidden = true;
-    if (!grow) $("globals-hint").hidden = true;
-    if (grow && loadedGlobalsCount > 0) {
-      setLoadError("view", "Could not load more globals" + reason(error) + ". The rows already shown are unchanged; use Retry globals to fetch the next page again.");
-    } else {
-      setLoadError("view", "Globals could not be loaded" + reason(error) + ". Use Retry globals to try again.");
-    }
+    $("globals-hint").hidden = true;
+    setLoadError("view", grow && loadedGlobalsCount > 0
+      ? "Could not load more globals" + reason(error) + ". The rows already shown are unchanged; use Retry globals to fetch the next page again."
+      : "Globals could not be loaded" + reason(error) + ". Use Retry globals to try again.");
   }
 }
 async function loadHistory(options) {
@@ -1011,12 +1010,10 @@ async function loadHistory(options) {
     $("history-results").hidden = loadedHistoryCount === 0;
     $("history-empty").hidden = true;
     $("history-show-more-wrap").hidden = true;
-    if (!grow) $("history-hint").hidden = true;
-    if (grow && loadedHistoryCount > 0) {
-      setLoadError("view", "Could not load more history" + reason(error) + ". The rows already shown are unchanged; use Retry history to fetch the next page again.");
-    } else {
-      setLoadError("view", "History could not be loaded" + reason(error) + ". Use Retry history to try again.");
-    }
+    $("history-hint").hidden = true;
+    setLoadError("view", grow && loadedHistoryCount > 0
+      ? "Could not load more history" + reason(error) + ". The rows already shown are unchanged; use Retry history to fetch the next page again."
+      : "History could not be loaded" + reason(error) + ". Use Retry history to try again.");
   }
 }
 function loadCurrentView(force) {
@@ -1066,7 +1063,6 @@ function bindControls() {
   $("status").onchange = onStatusChange;
   $("module").onchange = onModuleChange;
   $("q").oninput = scheduleSearch;
-  $("q").onsearch = scheduleSearch;
   $("q").onkeydown = (ev) => {
     if (ev.key === "Enter") {
       clearTimeout(searchTimer);
@@ -1082,7 +1078,6 @@ function bindControls() {
     }
   };
   $("gq").oninput = scheduleGlobalsSearch;
-  $("gq").onsearch = scheduleGlobalsSearch;
   $("gq").onkeydown = (ev) => {
     if (ev.key === "Enter") {
       clearTimeout(globalsSearchTimer);

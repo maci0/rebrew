@@ -91,7 +91,10 @@ pending.shift().reject(new Error("Connection lost"));
 await failedRequest;
 assert.equal(element("summary").hidden, true);
 assert.equal(element("cards").innerHTML, "");
-assert.equal(element("status").disabled, true);
+// A failed summary must not leave the two selects disabled with no option
+// left: a permanently greyed control with nothing to pick is a dead end.
+assert.equal(element("status").disabled, false);
+assert.equal(element("module").disabled, false);
 assert.equal(element("dashboard-error").hidden, false);
 assert.match(element("dashboard-error").textContent, /Retry summary/);
 assert.equal(element("retry-summary").hidden, false);
@@ -119,6 +122,8 @@ await new Promise(resolve => setImmediate(resolve));
 assert.equal(element("results").hidden, true);
 assert.equal(element("empty-state").hidden, true);
 assert.equal(element("show-more-wrap").hidden, true);
+// Show more is gone, so the paging hint that points at it goes with it.
+assert.equal(element("results-hint").hidden, true);
 assert.equal(element("dashboard-error").hidden, false);
 assert.match(element("dashboard-error").textContent, /Retry functions/);
 assert.equal(element("retry-functions").hidden, false);

@@ -1504,6 +1504,7 @@ def main(
         return
 
     console.print(f"[bold green]Report written to:[/bold green] {output}")
+    console.print("  [dim]Open index.html to start.[/dim]")
     for page in result["pages"]:
         console.print(f"  [dim]{page}[/dim]")
 

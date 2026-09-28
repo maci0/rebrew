@@ -679,6 +679,9 @@ class TestLoadErrors:
     def test_error_messages_carry_the_server_reason(self) -> None:
         _run_script("dashboard_errors.mjs")
 
+    def test_enter_searches_once_and_a_failure_clears_its_hint(self) -> None:
+        _run_script("dashboard_search_and_failure.mjs")
+
 
 class TestHistoryClock:
     def test_zone_less_instants_and_fallback_hour(self) -> None:
