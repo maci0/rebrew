@@ -770,6 +770,9 @@ class TestHandle:
         assert "class=st" not in js
         assert "forced-colors" in body
         assert "prefers-reduced-motion" in body
+        # The empty state's clear-search link is an inline button: unpadded its
+        # box was the inherited 16px line box, under the 24px target minimum.
+        assert ".link-button { background: none; border: none; padding: .3rem 0" in html
         assert 'name="viewport"' in body
         assert "setStatusOptions" in body
         assert "setModuleOptions" in body

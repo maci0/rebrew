@@ -134,7 +134,11 @@ stays ``script-src 'self'`` plus that one script's ``sha256`` hash, never
 ``'unsafe-inline'``.  A
 permanent Reload control re-runs the bootstrap in place, so an analyst picks up
 a fresh ``build-db`` without a browser reload; the empty states name that
-control instead of telling the reader to reload the page.  A status mark is one
+control instead of telling the reader to reload the page.  The clear-search
+link they carry is padded rather than left at the inherited 16px line box,
+which measured under the 24px target minimum (WCAG 2.5.8); the padding is six
+characters of CSS, and the rationale lives here because a comment in the shell
+would spend the gzip headroom the entry budget leaves.  A status mark is one
 quoted ``class`` attribute holding ``st`` plus the per-status class: unquoted,
 the value would end at the space and every status in the tables would render in
 the default ink.  JSON
@@ -1480,7 +1484,7 @@ __STATUS_CSS__
   .views { display: flex; flex-wrap: wrap; gap: .35rem; margin: .75rem 0 .25rem; }
   .views .btn { padding: .3rem .85rem; }
   .view-panel[hidden] { display: none; }
-  .link-button { background: none; border: none; padding: 0; color: var(--rb-accent);
+  .link-button { background: none; border: none; padding: .3rem 0; color: var(--rb-accent);
     text-decoration: underline; font: inherit; cursor: pointer; }
   .link-button:hover { color: var(--rb-accent-hi); }
   @media (max-width: 40rem) {

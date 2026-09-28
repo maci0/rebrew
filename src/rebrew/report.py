@@ -186,7 +186,9 @@ td.mono, code { font-family: var(--rb-mono); }
 td.blocker { max-width: 28rem; overflow-wrap: anywhere; }
 td.file { max-width: 18rem; overflow-wrap: anywhere; }
 td details { max-width: 40rem; overflow-wrap: anywhere; }
-td summary { cursor: pointer; padding: 0.25rem 0; }
+/* The disclosure toggle is the only way to read a full string or every ref, so
+   it is pinned past 24px tall; the 14px cell font left it at the threshold. */
+td summary { cursor: pointer; padding: 0.25rem 0; min-height: 1.5rem; }
 __STATUS_TEXT_CSS__
 @media (forced-colors: active) {
 __STATUS_FORCED__ { color: CanvasText; font-weight: 700; }

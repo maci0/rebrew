@@ -740,6 +740,17 @@ class TestSummaryCards:
 class TestChromeTokens:
     """Both HTML surfaces render the shared rebrew.theme token set."""
 
+    def test_disclosure_toggle_clears_the_target_minimum(self) -> None:
+        """The strings-table ``<details>`` toggle is a pointer target.
+
+        It is the only way to read a full string or every referring VA, and at
+        the 14px cell font its line box sat on the 24px threshold
+        (WCAG 2.2 SC 2.5.8), so the minimum is pinned rather than incidental.
+        """
+        from rebrew.report import _CSS
+
+        assert "td summary { cursor: pointer; padding: 0.25rem 0; min-height: 1.5rem; }" in (_CSS)
+
     def test_tokens_resolve_in_the_report_css(self) -> None:
         from rebrew.dashboard import _INDEX_HTML
         from rebrew.report import _CSS
