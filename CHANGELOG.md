@@ -58,14 +58,6 @@
   (208 gzip) is fetched once for the site. A consumer reading
   `rebrew.theme.FAVICON` reads `rebrew.theme.FAVICON_SVG` and percent-encodes
   it, or links the file the report now writes.
-- **Breaking:** the `delphi-1.0` entry of `BUILTIN_TOOLCHAINS` (re-exported
-  by `rebrew.toolchain` and defined in `rebrew.toolchain_data`) — its
-  `host_path` is now `None` on a checkout where
-  `rebrew toolchain vendor delphi-1.0` has not run, where it used to carry
-  the vendored path whether or not anything was there. A caller asking
-  whether the host compiler is present now reads `None` instead of a path it
-  has to stat itself, the same shape `msvc-6.0` already had. The other five
-  vendored profiles are unchanged.
 - **The released SBOM scopes every component as required or optional.**
   `uv.lock` resolves the dev group, both install extras, and the
   non-shipping `similarity` / `m2c` groups into the same file the runtime
@@ -81,16 +73,6 @@
   `validate_bom` rejects a component with no scope and an inventory with
   nothing marked `required`, so the closure resolving empty fails the build
   rather than shipping a BOM that reads as complete.
-- **`BUILTIN_TOOLCHAINS` reports an absent `delphi-1.0` vendored path as
-  `None`.**
-  **Breaking:** `toolchain.BUILTIN_TOOLCHAINS` and
-  `toolchain_data.BUILTIN_TOOLCHAINS` spelled
-  `BUILTIN_TOOLCHAINS["delphi-1.0"].host_path` as the vendored path
-  unconditionally, so a checkout that has not vendored `delphi/1.0-win16` got
-  a path that was not there, where every other entry in the table already
-  reported `None`. The spec now guards on `vendored_path(...).exists()` like
-  the rest, and a caller that read `host_path` without testing it against
-  `None` sees the change on a machine that has never vendored Delphi.
 - **`binsync.state.index_local_and_catalog` returns a catalog VA to size map
   instead of a fabricated record plus a duplicate VA set.**
   **Breaking:** the two callers (`binsync.importer.index_local_and_catalog`,
@@ -178,14 +160,14 @@
   are the same ones, now read from `DEFAULT_PROJECT_JOBS` and
   `DEFAULT_COMPILE_TIMEOUT` instead of being hardcoded in the template, so a
   generated project and a hand-written one start at the same budget.
-- **Breaking:** `BUILTIN_TOOLCHAINS["delphi-1.0"].host_path`
-  (`rebrew.toolchain_data`, re-exported by `rebrew.toolchain`) is `None` when
-  the vendored toolchain directory is not on disk, where every entry carried
-  the path either way. The `msvc-*` entries already made that check and
-  `delphi-1.0` was the one that did not, so a consumer reaching for
+- **Breaking:** `BUILTIN_TOOLCHAINS` (`rebrew.toolchain_data`, re-exported by
+  `rebrew.toolchain`) spells the `delphi-1.0` entry's `host_path` as `None`
+  when the vendored toolchain directory is not on disk, where it carried a path
+  to a directory that was never there. A consumer that reached for
   `spec.host_path.exists()` now raises `AttributeError` on `None`, and
-  `rebrew toolchain list --json` reports `"host_path": null` instead of a path
-  to a directory that was never there.
+  `rebrew toolchain list --json` reports `"host_path": null`; the spec guards
+  on `vendored_path(...).exists()` like the `msvc-*` entries already did. The
+  other five vendored profiles are unchanged.
 - **Breaking:** `rebrew.identify_library.filename_component` is gone. The
   import name was a re-export of `rebrew.utils.filename_component` used to
   build one library header name; the derivation now lives in
@@ -199,6 +181,27 @@
 - **Breaking:** `rebrew.metadata.load_tomllib` is gone. The metadata store now
   reads through the shared TOML reader it defines itself, so the name no longer
   re-exported from `rebrew.utils`; import `load_tomllib` from `rebrew.utils`.
+- **Breaking:** `rebrew.verify.DEFAULT_TOOLCHAIN` is gone. It re-exported the
+  `"(default)"` sentinel `rebrew.verify_hash` records against a fingerprint
+  built without a named toolchain, and `rebrew.verify` never read the name
+  itself; import `DEFAULT_TOOLCHAIN` from `rebrew.verify_hash`, where it is
+  defined.
+- **Breaking:** `STATUS_HEX` (`rebrew.status_style`, re-exported by
+  `rebrew.depgraph`) changed value on every status, so a consumer reading a hex
+  out of the table draws a different mark than it did at 2.16.0. The old ramp
+  was a stock utility set, and its `RELOC` entry was a
+  blue 35 deltaE from the accent token: on the report and the dashboard a
+  matched row read as something to click, in the one hue the chrome reserves
+  for links and focus rings. The marks are now picked against the palette the
+  chrome already sets: warm, like the brass-and-leather mascot the neutrals
+  come from, with no mark in the accent's hue (the closest now sits 59 away),
+  the loud verdicts 19 or more deltaE apart (the closest was 15), and
+  STUB / SKIP / UNKNOWN a deliberate warm ladder, dark to light, rather than
+  three unrelated cool greys. Contrast improves on every mark: the weakest
+  was 5.02:1 on white and is now 5.12:1, and white on a graph fill clears
+  4.5:1 everywhere. `tests/test_theme.py` holds every mark to the token set's
+  contrast floors, its separation from the accent, the ladder's order and its
+  warmth, so the next retune cannot buy identity with contrast.
 - **Breaking:** the neutral chrome tokens changed value, so any consumer
   hardcoding a hex it read out of the `TOKENS` table (`rebrew.theme`, re-exported
   by `rebrew.depgraph` and `rebrew.status_style`) needs the new palette. The
@@ -210,12 +213,6 @@
   writable_temp_dir` raises `ImportError`; import them from
   `rebrew.temp_dirs`, which is where the candidate order, the abandoned-sandbox
   sweep and the DOSBox tmpfs rejection now live as one policy.
-- **Breaking:** the `delphi-1.0` entry of `BUILTIN_TOOLCHAINS`
-  (`rebrew.toolchain_data`, re-exported by `rebrew.toolchain`) reports
-  `host_path` as `None` when the toolchain is not vendored, where it used to
-  carry a path that did not exist. A consumer that joined onto `host_path`
-  unconditionally needs the `None` branch; the other profiles already carried
-  the conditional and are unchanged.
 - **Breaking:** `rebrew.dashboard.Dashboard.summary` is no longer public. The
   lookup is `_summary_lookup` now, and the payload it built is derived from the
   stored rows, so a consumer reads `Dashboard.snapshots()[target]` and derives
@@ -385,20 +382,6 @@
   NameError and took the whole rebuild down. The column list is back, in the
   removed SQLite writer's order less target and the autoincrement id (va,
   old_status, new_status, changed_at, updated_by).
-- **The status marks are chosen rather than borrowed.** status_style.STATUS_HEX
-  held a stock utility ramp, and one of its entries, RELOC, was a blue 35
-  deltaE from the accent token: on the report and the dashboard a matched
-  row read as something to click, in the one hue the chrome reserves for
-  links and focus rings. The marks are now picked against the palette the
-  chrome already sets: warm, like the brass-and-leather mascot the neutrals
-  come from, with no mark in the accent's hue (the closest now sits 59 away),
-  the loud verdicts 19 or more deltaE apart (the closest was 15), and
-  STUB / SKIP / UNKNOWN a deliberate warm ladder, dark to light, rather than
-  three unrelated cool greys. Contrast improves on every mark: the weakest
-  was 5.02:1 on white and is now 5.12:1, and white on a graph fill clears
-  4.5:1 everywhere. tests/test_theme now holds every mark to the token set's
-  contrast floors, its separation from the accent, the ladder's order and its
-  warmth, so the next retune cannot buy identity with contrast.
 - **A `KUNA_SPECS` pointing at a moved directory no longer strands the
   decompiler.** The value was resolved with `~` expansion and honored
   unchecked, so a stale export suppressed spec discovery and kuna ran against

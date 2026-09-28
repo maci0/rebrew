@@ -87,7 +87,8 @@ class TestSurfaceGate:
         old = surface_at_ref(_last_tag(), PKG, cwd=ROOT)
         if old is None:
             pytest.skip(f"cannot read {_last_tag()} from this checkout")
-        removed, changed, added = diff_surfaces(old, public_surface(PKG))
+        current = public_surface(PKG)
+        removed, changed, added = diff_surfaces(old, current)
 
         broken = {
             f"{module}.{name}": module for module, names in removed.items() for name in names
@@ -109,7 +110,13 @@ class TestSurfaceGate:
         unnamed = [
             symbol
             for symbol, module in sorted(broken.items())
-            if not _named(notes, symbol, module, _destination(leaves, symbol))
+            if not _named(
+                notes,
+                symbol,
+                module,
+                _destination(leaves, symbol),
+                module_emptied=not current.get(module),
+            )
         ]
         assert unnamed == [], f"**Breaking:** entries do not name {unnamed}"
 
@@ -132,7 +139,13 @@ def _spellings(symbol: str) -> tuple[str, ...]:
     )
 
 
-def _named(notes: str, symbol: str, module: str, moved_to: str | None = None) -> bool:
+def _named(
+    notes: str,
+    symbol: str,
+    module: str,
+    moved_to: str | None = None,
+    module_emptied: bool = True,
+) -> bool:
     """A note names a symbol by its qualified path or by the part readers type.
 
     The spellings are the ones a note actually uses: the bare name, the name
@@ -149,6 +162,13 @@ def _named(notes: str, symbol: str, module: str, moved_to: str | None = None) ->
     the origin module: a note about a different symbol that happens to say
     `` `utils` `` did not name the five names that left it, and 2.17.0's
     `rebrew.temp_dirs` split sailed through the gate on that mention.
+
+    A module names a symbol that vanished from it only when nothing public is
+    left in the module (``module_emptied``), which is the one note the module
+    can stand in for.  While the module keeps exporting, a mention is a
+    sentence about something else, and `rebrew.verify` lost
+    ``DEFAULT_TOOLCHAIN`` unannounced on a `verify-cache` note that happened to
+    name the module.
     """
     leaf = _leaf(symbol)
     if len(leaf) >= _MIN_LEAF and any(
@@ -158,6 +178,8 @@ def _named(notes: str, symbol: str, module: str, moved_to: str | None = None) ->
     if any(f"`{part}`" in notes for part in _spellings(symbol)):
         return True
     named_module = moved_to if moved_to is not None else module
+    if moved_to is None and not module_emptied:
+        return False
     paths: tuple[str, ...] = (named_module, f"rebrew.{named_module}")
     return any(f"`{path}`" in notes for path in paths)
 
@@ -212,6 +234,28 @@ class TestNoteNaming:
 
     def test_unrelated_prose_does_not_name_the_symbol(self) -> None:
         assert not _named("the exports table grew a column", "exports.compare_exports", "exports")
+
+    def test_a_module_still_exporting_does_not_name_one_name_it_lost(self) -> None:
+        """Naming the module is only a note for a module that went private.
+
+        `rebrew.verify` still exports the rest of what `verify_hash` owns, so
+        its `DEFAULT_TOOLCHAIN` re-export needed its own entry, and a sentence
+        about the verify cache is not one.
+        """
+        assert not _named(
+            "`verify` reported the entry from its cache",
+            "verify.DEFAULT_TOOLCHAIN",
+            "verify",
+            module_emptied=False,
+        )
+
+    def test_a_module_that_went_private_still_names_what_it_lost(self) -> None:
+        assert _named(
+            "nothing public is left in `exports`",
+            "exports.compare_exports",
+            "exports",
+            module_emptied=True,
+        )
 
     def test_a_name_in_two_new_modules_is_not_a_destination(self) -> None:
         leaves = {"helper": {"toolchain", "utils"}, "main": {"toolchain"}}
