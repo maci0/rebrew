@@ -1080,11 +1080,18 @@ def _request(
     seeds: list[str] = []
     blocks = extract_seeds(text)
     checked = blocks[:_MAX_SEED_ATTEMPTS]
+    # Blocks the gate actually parsed.  The stop below fires as soon as the
+    # requested count is met, so ``len(checked)`` overstates how many candidates
+    # were judged: a body of 16 blocks asked for 2 seeds is gated twice and
+    # never checked again, and the leftover must not be reported as rejections
+    # the model is judged on.
+    examined = 0
     for s in checked:
         # Only count seeds are ever returned, so stop once they are found
         # rather than parsing the rest of a body that already has enough.
         if len(seeds) >= count:
             break
+        examined += 1
         if _accepts_seed(s, expect, seen):
             seeds.append(s)
     # Recorded here, not at the HTTP boundary: the run summary reports what the
@@ -1096,7 +1103,7 @@ def _request(
         model,
         duration_s=duration_s,
         seeds=len(seeds),
-        rejected=len(checked) - len(seeds),
+        rejected=examined - len(seeds),
     )
     if not seeds:
         # --seed-llm was asked for: say why nothing arrived instead of

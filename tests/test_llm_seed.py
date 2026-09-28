@@ -1532,6 +1532,40 @@ class TestSeedUsage:
         assert (usage.seeds, usage.rejected) == (1, 1)
         assert "1 seed(s) kept" in usage.describe()
 
+    def test_ungated_blocks_are_not_reported_as_rejections(self) -> None:
+        """The rejection count names only what the C gate actually judged.
+
+        The stop at the requested seed count fires before the attempt cap is
+        spent, so a body with more blocks than seeds leaves a tail that was
+        never parsed.  Counting that tail as a rejection would tell the
+        operator the model failed candidates it was never shown, and make a
+        seeding run that yielded well look like it wasted its tokens.
+        """
+        bodies = [f"return {i};" for i in range(16)]
+        content = "".join(f"```c\nint f(void) {{ {b} }}\n```\n" for b in bodies)
+        client = _FakeClient({"choices": [{"message": {"content": content}}]})
+        gated: list[str] = []
+        real = rebrew.llm_seed.valid_c_source
+
+        def counting(src: str, **kwargs: object) -> bool:
+            gated.append(src)
+            return real(src, **kwargs)
+
+        monkey = pytest.MonkeyPatch()
+        monkey.setattr(rebrew.llm_seed, "valid_c_source", counting)
+        try:
+            seeds = request_seeds(
+                _cfg("https://llm/v1"), "int f(void) { return 0; }", count=2, client=client
+            )
+        finally:
+            monkey.undo()
+        assert len(seeds) == 2
+        usage = seed_usage_total()
+        assert usage is not None
+        assert len(gated) == 2
+        assert usage.rejected == 0
+        assert "rejected by the C gate" not in usage.describe()
+
     def test_a_failed_request_records_no_yield(self) -> None:
         """A request with no response kept nothing; the counts say zero, not None."""
         client = _EchoingClient("connection reset by peer")
