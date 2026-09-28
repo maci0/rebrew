@@ -436,6 +436,23 @@
   said so comes later.
 
 ### Fixed
+- **Three threat-model claims narrowed to what the code does.** The model
+  described `cross_import.import_shared_function` as joining a second target's
+  metadata `file` onto the destination tree the way `import_function` does; it
+  actually resolves `shared_dir / src_file`, or the **source** target's
+  `reversed_dir / src_file` when there is no shared dir, reads the joined path,
+  and writes the stacked block back there, with no basename reduction, so the
+  escape lands in the source target's trees rather than the destination's. The
+  decomp.me `slug` / `claim_token` shape check covers the server reply only: a
+  **reused** scratch takes both values from the local upload ledger and sends
+  them to `scratch_url` and to the printed claim URL unchecked, and
+  `read_uploads` requires only that they be `str`. And the model listed the
+  call sites that contain the metadata `file` field without the `verify.py`
+  `--dir` / `--file` scope filters, which do resolve and compare before
+  selecting, bounding which entries a scoped run compiles. The field itself is
+  still unchecked on the `verify` compile join, the `test` blocker clear, the
+  batch cache-key probe, and the cross-import write paths; the fix for those is
+  one validator owning the field, not a per-command re-check.
 - **A failed dashboard request is reported once, not twice.** The sqlite and
   last-resort handler guards printed the exception to the console *and* logged
   it through `_log_failed_request`, and the log handler writes to that same
