@@ -883,11 +883,16 @@ def _display_instant(value: object) -> str:
     The solutions table is the other reader of the same field and prints
     ``solved_at`` verbatim, because a solution list is a record to read back
     rather than a timeline to scan.
+
+    The zone is rendered as its numeric UTC offset, never as a ``%Z``
+    abbreviation: several zones share one abbreviation for offsets hours
+    apart, so a Dublin run read in Kolkata as ``IST`` says ``11:00`` where
+    the instant was ``15:30``, with nothing in the line to contradict it.
     """
     moment = _as_utc_instant(value)
     if moment is None:
         return str(value).strip()
-    return moment.astimezone().strftime("%Y-%m-%d %H:%M:%S %Z").strip()
+    return moment.astimezone().strftime("%Y-%m-%d %H:%M:%S %z").strip()
 
 
 def show_ga_history(cfg: ProjectConfig, json_output: bool, *, target: str = "") -> None:

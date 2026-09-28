@@ -1859,10 +1859,41 @@ class TestGaHistory:
         expected = (
             datetime(2026, 8, 7, 10, 0, 0, tzinfo=UTC)
             .astimezone()
-            .strftime("%Y-%m-%d %H:%M:%S %Z")
+            .strftime("%Y-%m-%d %H:%M:%S %z")
             .strip()
         )
         assert aware == expected
+
+    def test_display_instant_names_the_offset_not_a_shared_abbreviation(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Two zones one abbreviation apart must not print the same line.
+
+        Both render ``IST`` in August, at offsets hours apart, so an
+        abbreviation-only line is read hours wrong by a reader in the other
+        zone.  The numeric offset also makes the line parseable back to the
+        instant it came from.
+        """
+        import time
+        from datetime import UTC, datetime
+        from zoneinfo import ZoneInfo
+
+        from rebrew.match_run import _display_instant
+
+        moment = datetime(2026, 8, 7, 10, tzinfo=UTC)
+
+        def _rendered_in(zone: str) -> str:
+            monkeypatch.setenv("TZ", zone)
+            time.tzset()
+            return _display_instant("2026-08-07T10:00:00+00:00")
+
+        dublin = _rendered_in("Europe/Dublin")
+        kolkata = _rendered_in("Asia/Kolkata")
+        assert dublin != kolkata
+        for rendered, zone in ((dublin, "Europe/Dublin"), (kolkata, "Asia/Kolkata")):
+            assert datetime.strptime(rendered, "%Y-%m-%d %H:%M:%S %z") == moment.astimezone(
+                ZoneInfo(zone)
+            )
 
     def test_history_empty(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         import json
