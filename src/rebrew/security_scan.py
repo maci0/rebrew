@@ -68,6 +68,12 @@ _CHECK_STRING_LITERAL: CheckKind = "string-literal"
 _CHECK_INTEGER_LITERAL: CheckKind = "integer-literal"
 _CHECK_VALUE_SOURCE: CheckKind = "value-source"
 
+#: Every check kind, so :func:`_matches` can name the one it does not know
+#: rather than silently scanning it as an integer-literal check.
+_CHECK_KINDS: frozenset[str] = frozenset(
+    {_CHECK_ALWAYS, _CHECK_STRING_LITERAL, _CHECK_INTEGER_LITERAL, _CHECK_VALUE_SOURCE}
+)
+
 #: tree-sitter node types treated as a literal string argument.
 _STRING_LITERAL_TYPES = frozenset({"string_literal", "concatenated_string"})
 
@@ -309,7 +315,9 @@ def _matches(
         argument = args[entry.arg_index]
     if rule.check == _CHECK_STRING_LITERAL:
         return argument is None or argument.type not in _STRING_LITERAL_TYPES
-    return argument is None or argument.type != _INTEGER_LITERAL_TYPE
+    if rule.check == _CHECK_INTEGER_LITERAL:
+        return argument is None or argument.type != _INTEGER_LITERAL_TYPE
+    raise ValueError(f"unknown check kind {rule.check!r} (expected one of {sorted(_CHECK_KINDS)})")
 
 
 def _snippet(lines: Sequence[str], row: int) -> str:
