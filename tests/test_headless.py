@@ -14,6 +14,27 @@ from rebrew.headless import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _isolate_owned_xvfb() -> Any:
+    """Give every test its own Xvfb ownership set.
+
+    The module keeps the servers this process spawned so a dead one is
+    reaped and a live one is shut down at exit; a test that spawns a fake
+    must not leave it in that set for the next test to inherit.
+    """
+    from rebrew import headless
+
+    saved = headless._owned_xvfb
+    saved_flag = headless._xvfb_atexit_registered
+    headless._owned_xvfb = []
+    headless._xvfb_atexit_registered = False
+    try:
+        yield
+    finally:
+        headless._owned_xvfb = saved
+        headless._xvfb_atexit_registered = saved_flag
+
+
 class TestDisplayAlive:
     def test_socket_present(self, monkeypatch) -> None:
         from rebrew import headless
@@ -82,6 +103,9 @@ class TestEnsureXvfb:
         class _FakeProc:
             def terminate(self) -> None:
                 pass
+
+            def poll(self) -> None:
+                return None
 
             def wait(self, timeout: float | None = None) -> int:
                 return 0
@@ -247,6 +271,89 @@ class TestEnsureXvfb:
         _shutdown_xvfb(_StubbornProc())  # must not raise
         assert calls == ["terminate", "kill", "wait:2"]
 
+    def test_dead_generation_is_reaped_and_its_cookie_dropped(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """A server that died under us is released at the next call.
+
+        The display it held is respawned on, so a flapping Xvfb in a
+        long-lived batch used to leave one unreaped child and one cookie
+        file (the server's only credential) per death.
+        """
+        from rebrew import headless
+
+        monkeypatch.delenv("REBREW_XVFB_DISPLAY", raising=False)
+        monkeypatch.delenv("DISPLAY", raising=False)
+        monkeypatch.setattr(headless, "_running_xvfb_displays", lambda: {})
+        monkeypatch.setattr(
+            headless.shutil, "which", lambda name: "/usr/bin/Xvfb" if name == "Xvfb" else None
+        )
+        monkeypatch.setattr(headless, "_wait_for_socket", lambda d, timeout=3.0, proc=None: True)
+        monkeypatch.setattr(headless, "_new_cookie", lambda: tmp_path / "cookie-0")
+        (tmp_path / "cookie-0").write_text("secret\n")
+
+        class _DeadProc:
+            def poll(self) -> int:
+                return 1
+
+            def terminate(self) -> None:
+                raise AssertionError("a dead server must not be signalled")
+
+        monkeypatch.setattr(headless.subprocess, "Popen", lambda *a, **k: _DeadProc())
+        assert ensure_xvfb() is not None
+        assert len(headless._owned_xvfb) == 1
+
+        monkeypatch.setattr(headless, "_new_cookie", lambda: tmp_path / "cookie-1")
+        (tmp_path / "cookie-1").write_text("secret\n")
+        assert headless._ensure_xvfb_locked() is not None  # dead server swept on entry
+
+        # Only the replacement is owned; the dead one was reaped and its
+        # cookie, the server's only credential, went with it.
+        assert [cookie for _, cookie in headless._owned_xvfb] == [tmp_path / "cookie-1"]
+        assert not (tmp_path / "cookie-0").exists()
+
+    def test_atexit_hook_is_registered_once_across_respawns(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """One exit hook drains every generation, not one per spawn.
+
+        ``atexit`` has no bound, so a per-spawn registration grew the exit
+        list for as long as the process lived.
+        """
+        from rebrew import headless
+
+        monkeypatch.delenv("REBREW_XVFB_DISPLAY", raising=False)
+        monkeypatch.delenv("DISPLAY", raising=False)
+        monkeypatch.setattr(headless, "_running_xvfb_displays", lambda: {})
+        monkeypatch.setattr(
+            headless.shutil, "which", lambda name: "/usr/bin/Xvfb" if name == "Xvfb" else None
+        )
+        monkeypatch.setattr(headless, "_wait_for_socket", lambda d, timeout=3.0, proc=None: True)
+        registered: list[Any] = []
+        monkeypatch.setattr(headless.atexit, "register", lambda fn, *a: registered.append(fn))
+        monkeypatch.setattr(headless, "_new_cookie", lambda: tmp_path / "cookie")
+
+        class _LiveProc:
+            def poll(self) -> None:
+                return None
+
+            def terminate(self) -> None:
+                pass
+
+            def wait(self, timeout: float = 2) -> int:
+                return 0
+
+        monkeypatch.setattr(headless.subprocess, "Popen", lambda *a, **k: _LiveProc())
+        for generation in range(3):
+            cookie = tmp_path / f"cookie{generation}"
+            monkeypatch.setattr(headless, "_new_cookie", lambda cookie=cookie: cookie)
+            assert ensure_xvfb() is not None
+        assert registered == [headless._release_owned_xvfb]
+        assert len(headless._owned_xvfb) == 3
+
+        headless._release_owned_xvfb()
+        assert headless._owned_xvfb == []
+
     def test_concurrent_callers_spawn_one_server(self, tmp_path: Path, monkeypatch) -> None:
         """Parallel compile workers calling ensure_xvfb must not double-spawn.
 
@@ -281,6 +388,9 @@ class TestEnsureXvfb:
         class _FakeProc:
             def terminate(self) -> None:
                 pass
+
+            def poll(self) -> None:
+                return None
 
             def wait(self, timeout: float = 2) -> int:
                 return 0

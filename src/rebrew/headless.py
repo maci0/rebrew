@@ -78,6 +78,15 @@ _XVFB_SOCKET_DIR = Path("/tmp/.X11-unix")
 
 _XVFB_PROC_RE = re.compile(r"Xvfb[^\n]*:(\d+)")
 
+#: Every Xvfb this process spawned, as ``(process, cookie file)``, oldest
+#: first.  A server that died under us (OOM kill, host reboot) is reaped and
+#: its cookie unlinked on the next :func:`_ensure_xvfb_locked`, so a respawn
+#: loop over a flapping display does not grow this list, and one atexit hook
+#: drains whatever is still live instead of one callback pair per generation.
+#: Guarded by ``_XVFB_INIT_LOCK``, which every writer and reader holds.
+_owned_xvfb: list[tuple[subprocess.Popen[bytes], Path]] = []
+_xvfb_atexit_registered = False
+
 
 def _proc_environ(pid: int) -> dict[str, str]:
     """Environment of process *pid* (``/proc`` walk, no external tool)."""
@@ -255,6 +264,27 @@ def _shutdown_xvfb(proc: subprocess.Popen[bytes]) -> None:
             proc.wait(timeout=2)
 
 
+def _reap_dead_xvfb() -> None:
+    """Retire the generations of Xvfb that have already exited.
+
+    ``poll`` is the reap: a server whose process is gone is collected here
+    instead of lingering as a zombie, and its cookie file goes with it.  A
+    cookie is the only credential the server accepts, so leaving one behind
+    per death hands a long-lived batch a credential for nothing.
+    """
+    for entry in [entry for entry in _owned_xvfb if entry[0].poll() is not None]:
+        _owned_xvfb.remove(entry)
+        _drop_cookie(entry[1])
+
+
+def _release_owned_xvfb() -> None:
+    """atexit hook: shut down every Xvfb this process still owns."""
+    while _owned_xvfb:
+        proc, cookie = _owned_xvfb.pop()
+        _shutdown_xvfb(proc)
+        _drop_cookie(cookie)
+
+
 def ensure_xvfb() -> str | None:
     """Return a display string for a live Xvfb, starting one if necessary.
 
@@ -283,6 +313,8 @@ def ensure_xvfb() -> str | None:
 
 def _ensure_xvfb_locked() -> str | None:
     """Body of :func:`ensure_xvfb`; caller must hold ``_XVFB_INIT_LOCK``."""
+    global _xvfb_atexit_registered
+    _reap_dead_xvfb()
     displays = _running_xvfb_displays()
     env_display = os.environ.get(XVFB_DISPLAY_ENV, "")
     # The env display is trusted only when a LIVE Xvfb process owns it — a
@@ -333,6 +365,8 @@ def _ensure_xvfb_locked() -> str | None:
         return None
     os.environ["XAUTHORITY"] = str(cookie)
     os.environ[XVFB_DISPLAY_ENV] = display
-    atexit.register(_shutdown_xvfb, proc)
-    atexit.register(_drop_cookie, cookie)
+    _owned_xvfb.append((proc, cookie))
+    if not _xvfb_atexit_registered:
+        atexit.register(_release_owned_xvfb)
+        _xvfb_atexit_registered = True
     return display
