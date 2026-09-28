@@ -521,6 +521,7 @@ files = [
     "tests/test_verify_watch.py",
     "tests/test_coverage_toml.py",
     "tests/test_corpus_sweep.py",
+    "tests/test_theme.py",
     "tests/test_workspace_config.py",
     "tests/test_workspace_public_api.py",
     "tests/test_workspace_va.py",
