@@ -37,8 +37,9 @@ graph TD
 
 All commands run from a directory containing `rebrew-project.toml`; every one of them
 exits non-zero with a config error when it is missing. Use `--json` for structured
-output. In a multi-target project pass `--target NAME` (before `--json`); the
-default target is used otherwise. For annotation syntax details, see
+output. In a multi-target project pass `--target NAME`; the default target is used
+otherwise, and the batch commands (`test` / `verify` / `lint` / `status` / `todo`)
+take `--all-targets` instead. For annotation syntax details, see
 `references/annotation-format.md`.
 
 ## When NOT to use this skill
@@ -81,7 +82,9 @@ tier ladder; `documented` is audit-only and hidden from the default list.
 >
 > A miss is inconclusive. FLIRT can under-match across library builds;
 > `lib-match` settles whole-body identity against the linked archive. Mark hits
-> `// LIBRARY:` and move on.
+> `// LIBRARY:` and move on. `--stock-lib` extracts the archive from the
+> profile's docker image (a pull when it is not cached), so `rebrew toolchain
+> pull <profile>` may be needed first.
 
 ## 2. Generate Skeleton
 
