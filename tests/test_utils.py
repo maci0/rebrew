@@ -953,10 +953,14 @@ class TestParseIntLiteral:
     def test_invalid_raises(self) -> None:
         from rebrew.utils import parse_int_literal
 
-        with pytest.raises(ValueError, match="invalid literal for int"):
+        with pytest.raises(ValueError, match="not a base-10 integer"):
             parse_int_literal("nope")
-        with pytest.raises(ValueError, match="invalid literal for int"):
+        with pytest.raises(ValueError, match="not a base-10 integer"):
             parse_int_literal("")
+        with pytest.raises(ValueError, match="not a base-10 integer"):
+            parse_int_literal("1_0")
+        with pytest.raises(ValueError, match="not a base-8 integer"):
+            parse_int_literal("1_0", base=8)
 
 
 class TestParseCIntegerLiteral:
@@ -975,15 +979,17 @@ class TestParseCIntegerLiteral:
     def test_rejects_non_integers(self) -> None:
         from rebrew.utils import parse_c_integer_literal
 
-        with pytest.raises(ValueError, match="invalid literal for int"):
+        with pytest.raises(ValueError, match="not a base-10 integer"):
             parse_c_integer_literal("N")
+        with pytest.raises(ValueError, match="not a base-10 integer"):
+            parse_c_integer_literal("\u0661\u0662")
         with pytest.raises(ValueError, match="not a C integer constant"):
             parse_c_integer_literal("'a'")
         with pytest.raises(ValueError, match="not a C integer constant"):
             parse_c_integer_literal("")
         with pytest.raises(ValueError, match="not a C integer constant"):
             parse_c_integer_literal("0x")
-        with pytest.raises(ValueError, match="invalid literal for int"):
+        with pytest.raises(ValueError, match="not a base-10 integer"):
             parse_c_integer_literal("1.5")
 
 

@@ -1509,6 +1509,24 @@ def rel_display_path(filepath: Path, base_dir: Path | None = None) -> str:
     return filepath.name
 
 
+#: ASCII digit sets the literal parsers accept, keyed by base.
+_BASE_DIGITS = {8: "01234567", 10: "0123456789", 16: "0123456789abcdefABCDEF"}
+
+
+def _parse_ascii_int(text: str, base: int) -> int:
+    """Parse *text* as a base-*base* integer, rejecting ``int()``'s leniencies.
+
+    ``int()`` also accepts embedded underscores and any Unicode decimal digit,
+    so a config value or a disassembly operand such as ``"1_0"`` or
+    ``"١٢"`` parses to a number no writer meant.  Only ASCII digits of *base*
+    count; anything else is a :class:`ValueError`.
+    """
+    digits = _BASE_DIGITS.get(base)
+    if digits is None or not text or not all(ch in digits for ch in text):
+        raise ValueError(f"not a base-{base} integer: {text!r}")
+    return int(text, base)
+
+
 def parse_int_literal(text: str, *, base: int = 10) -> int:
     """Parse an integer literal for config, addresses, and disassembly text.
 
@@ -1516,7 +1534,7 @@ def parse_int_literal(text: str, *, base: int = 10) -> int:
     by default), including a leading zero (``010`` is ten).  Raises
     ``ValueError`` on a malformed literal, so callers that want a fallback can
     catch it, and callers that must fail loud (the CLI's ``parse_va``) let it
-    propagate.
+    propagate.  Only ASCII digits are accepted; see :func:`_parse_ascii_int`.
 
     C source constants (octal ``010``, a ``u``/``l`` suffix) go through
     :func:`parse_c_integer_literal` instead.  ``int(s, 0)`` is not that
@@ -1524,10 +1542,13 @@ def parse_int_literal(text: str, *, base: int = 10) -> int:
     zero.
     """
     stripped = text.strip()
+    sign = -1 if stripped.startswith("-") else 1
     s = stripped[1:] if stripped.startswith(("+", "-")) else stripped
-    if s.lower().startswith("0x"):
-        return int(stripped, 16)
-    return int(stripped, base)
+    if s[:2].lower() == "0x":
+        if not s[2:]:
+            raise ValueError(f"not an integer literal: {stripped!r}")
+        return sign * _parse_ascii_int(s[2:], 16)
+    return sign * _parse_ascii_int(s, base)
 
 
 def parse_c_integer_literal(text: str) -> int:
@@ -1538,7 +1559,8 @@ def parse_c_integer_literal(text: str) -> int:
     A leading-zero token that is not valid octal (``08``) is the zero-padded
     decimal of that magnitude: C rejects it, and dropping the bound sized
     the array as one element.  Raises ``ValueError`` when *text* is not an
-    integer constant.
+    integer constant, including for a non-ASCII digit: ``int()`` would read
+    ``"١٢"`` as twelve, and a bound nobody wrote is not a bound.
     """
     body = text.strip()
     if not body or body[0] == "'":
@@ -1552,13 +1574,13 @@ def parse_c_integer_literal(text: str) -> int:
         body = body[1:].strip()
     if not body:
         raise ValueError(f"not a C integer constant: {text!r}")
-    if body.lower().startswith("0x"):
+    if body[:2].lower() == "0x":
         if len(body) == 2:
             raise ValueError(f"not a C integer constant: {text!r}")
-        return sign * int(body, 16)
-    if len(body) > 1 and body[0] == "0" and body[1].isdigit():
+        return sign * _parse_ascii_int(body[2:], 16)
+    if len(body) > 1 and body[0] == "0" and body[1] in _BASE_DIGITS[10]:
         try:
-            return sign * int(body, 8)
+            return sign * _parse_ascii_int(body, 8)
         except ValueError:
-            return sign * int(body, 10)
-    return sign * int(body, 10)
+            return sign * _parse_ascii_int(body, 10)
+    return sign * _parse_ascii_int(body, 10)

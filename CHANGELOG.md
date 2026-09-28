@@ -123,6 +123,10 @@
   stored rows, so a consumer reads `Dashboard.snapshots()[target]` and derives
   the same fields (`floor_pct` in `rebrew.coverage_toml` does the division) or
   calls the unchanged `/api/summary` route. The HTTP contract is untouched.
+- **Breaking:** `rebrew.identify_library.filename_component` is gone. It was a
+  re-export of `rebrew.utils.filename_component` through an import that no
+  longer exists; import `filename_component` from `rebrew.utils`, which is
+  where it is defined.
 - **Lint gates ratchet.** Ruff selects ``S608`` (a SQL string built by
   interpolation; zero findings on the current tree) so a query assembled from
   runtime input cannot land, mypy covers ``tests/test_build_db_helpers.py``
@@ -190,6 +194,19 @@
   outside every root, and every join goes through it. A shared-tree source
   recorded as `../shared/f.c` still resolves, since the shared dir is a
   declared root.
+- **Integer literals and data-metadata keys reject what `int()` would have
+  read as a different number.** `parse_int_literal`,
+  `parse_c_integer_literal` and the `rebrew-data.toml` key parser all went
+  through `int(s, 16)`, which accepts an embedded underscore, surrounding
+  whitespace, a sign, and any Unicode decimal digit: `"1_0"`, `" 0x10"`, and
+  `"١٢"` all parsed, silently resolving a config range bound, a C array
+  bound, a disassembly operand or a `MODULE.0xVA` metadata key to an address
+  no writer named. All three now take ASCII digits of their own base (with
+  the `0x` prefix the data keys are written with) and raise `ValueError`
+  otherwise, so the callers that catch it, and the CLI's `parse_va` that
+  lets it propagate, fail loud instead of reading the wrong number.
+  Property-based tests in `tests/test_property_int_literals.py` and
+  `tests/test_property_data_metadata.py` fuzz both surfaces.
 - **The dashboard API spec declares the headers a rejected call actually
   carries, and names the rejections that never reach a route.** The 400,
   404 and 500 response components declared no headers at all, while the

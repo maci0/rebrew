@@ -164,6 +164,10 @@ def _check_data_field(key: str, value: Any) -> None:
 # Raw-document iteration
 # ---------------------------------------------------------------------------
 
+#: The only characters a qualified-key address may be spelled with.  ``int()``
+#: would also read underscores, padding, and non-ASCII decimal digits.
+_HEX_DIGITS = "0123456789abcdefABCDEF"
+
 
 def iter_data_symbols(
     doc: dict[str, Any], section: str | None = ".data"
@@ -173,7 +177,10 @@ def iter_data_symbols(
     The canonical key parser for raw (string-keyed) data-metadata documents:
     keys are ``"MODULE.0xVA"`` with the module possibly containing dots, so
     the VA is everything after the *last* dot.  Entries whose key has no dot
-    or a non-hex VA are skipped.
+    or a non-hex VA are skipped.  The VA is plain ASCII hex digits, with an
+    optional ``0x`` prefix: a key like ``"MOD.1_0"``, ``"MOD. 0x10"``, or one
+    spelled in a non-ASCII digit set is skipped rather than read as an
+    address nobody wrote.
 
     Args:
         doc: Parsed ``rebrew-data.toml`` content (string keys → field dicts).
@@ -190,13 +197,12 @@ def iter_data_symbols(
         if section is not None and val.get("section") != section:
             continue
         module, sep, addr_text = str(key).rpartition(".")
-        if not sep:
+        if not sep or not addr_text or addr_text.strip(" \t") != addr_text:
             continue
-        try:
-            va = int(addr_text, 16)
-        except ValueError:
+        digits = addr_text[2:] if addr_text[:2].lower() == "0x" else addr_text
+        if not digits or not all(ch in _HEX_DIGITS for ch in digits):
             continue
-        yield module, va, val
+        yield module, int(digits, 16), val
 
 
 # ---------------------------------------------------------------------------
