@@ -45,6 +45,21 @@ def _make_cfg(tmp_path: Path) -> ProjectConfig:
     )
 
 
+def _write_cache(cfg: ProjectConfig, **overrides: Any) -> Path:
+    cache_path = cfg.root / ".rebrew" / "verify_cache.json"
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    data: dict[str, Any] = {
+        "version": 2,
+        "compiler_hash": compiler_config_hash(cfg),
+        "headers_hash": headers_hash(cfg),
+        "target": cfg.target_name,
+        "entries": {},
+    }
+    data.update(overrides)
+    cache_path.write_text(json.dumps(data), encoding="utf-8")
+    return cache_path
+
+
 def _patch_verify(
     monkeypatch: pytest.MonkeyPatch,
     cfg: ProjectConfig,
@@ -395,16 +410,7 @@ class TestBinaryId:
 class TestLoadVerifyCache:
     def test_load_valid_cache(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path)
-        cache_path = tmp_path / ".rebrew" / "verify_cache.json"
-        cache_path.parent.mkdir(parents=True, exist_ok=True)
-        data = {
-            "version": 2,
-            "compiler_hash": compiler_config_hash(cfg),
-            "headers_hash": headers_hash(cfg),
-            "target": cfg.target_name,
-            "entries": {},
-        }
-        cache_path.write_text(json.dumps(data), encoding="utf-8")
+        cache_path = _write_cache(cfg)
 
         loaded = load_verify_cache(cache_path, cfg)
         assert loaded is not None
@@ -420,43 +426,19 @@ class TestLoadVerifyCache:
 
     def test_reject_wrong_version(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path)
-        cache_path = tmp_path / ".rebrew" / "verify_cache.json"
-        cache_path.parent.mkdir(parents=True, exist_ok=True)
-        data = {
-            "version": 99,
-            "compiler_hash": compiler_config_hash(cfg),
-            "target": cfg.target_name,
-            "entries": {},
-        }
-        cache_path.write_text(json.dumps(data), encoding="utf-8")
+        cache_path = _write_cache(cfg, version=99)
 
         assert load_verify_cache(cache_path, cfg) is None
 
     def test_reject_wrong_target(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path)
-        cache_path = tmp_path / ".rebrew" / "verify_cache.json"
-        cache_path.parent.mkdir(parents=True, exist_ok=True)
-        data = {
-            "version": 2,
-            "compiler_hash": compiler_config_hash(cfg),
-            "target": "OTHER",
-            "entries": {},
-        }
-        cache_path.write_text(json.dumps(data), encoding="utf-8")
+        cache_path = _write_cache(cfg, target="OTHER")
 
         assert load_verify_cache(cache_path, cfg) is None
 
     def test_reject_wrong_compiler_hash(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path)
-        cache_path = tmp_path / ".rebrew" / "verify_cache.json"
-        cache_path.parent.mkdir(parents=True, exist_ok=True)
-        data = {
-            "version": 2,
-            "compiler_hash": "deadbeef",
-            "target": cfg.target_name,
-            "entries": {},
-        }
-        cache_path.write_text(json.dumps(data), encoding="utf-8")
+        cache_path = _write_cache(cfg, compiler_hash="deadbeef")
 
         assert load_verify_cache(cache_path, cfg) is None
 
@@ -472,14 +454,10 @@ class TestCacheIdentityAgreesAcrossReaders:
 
     @staticmethod
     def _write(cfg: ProjectConfig, **overrides: Any) -> Path:
-        cache_path = cfg.root / ".rebrew" / "verify_cache.json"
-        cache_path.parent.mkdir(parents=True, exist_ok=True)
-        data = {
-            "version": 2,
-            "compiler_hash": compiler_config_hash(cfg),
-            "target": cfg.target_name,
-            "binary_id": binary_id(cfg),
-            "entries": {
+        return _write_cache(
+            cfg,
+            binary_id=binary_id(cfg),
+            entries={
                 "0x00002000": {
                     "status": "EXACT",
                     "va": "0x00002000",
@@ -491,10 +469,8 @@ class TestCacheIdentityAgreesAcrossReaders:
                     "match_percent": 100.0,
                 }
             },
-        }
-        data.update(overrides)
-        cache_path.write_text(json.dumps(data), encoding="utf-8")
-        return cache_path
+            **overrides,
+        )
 
     def test_own_cache_accepted_by_every_reader(self, tmp_path: Path) -> None:
         from rebrew.status import _load_cache_raw
@@ -525,7 +501,7 @@ class TestCacheIdentityAgreesAcrossReaders:
         from rebrew.todo import load_verify_entries
 
         cfg = _make_cfg(tmp_path)
-        self._write(cfg, binary_id="stale-binary-id")
+        _write_cache(cfg, binary_id="stale-binary-id")
 
         assert _load_cache_raw(cfg) is None
         assert load_verify_entries(cfg) == {}
@@ -541,81 +517,35 @@ class TestVerifyCacheMatchesCfg:
         from rebrew.verify_cache import verify_cache_matches_cfg
 
         cfg = _make_cfg(tmp_path)
-        cache_path = tmp_path / ".rebrew" / "verify_cache.json"
-        cache_path.parent.mkdir(parents=True, exist_ok=True)
-        data = {
-            "version": 2,
-            "compiler_hash": compiler_config_hash(cfg),
-            "headers_hash": headers_hash(cfg),
-            "target": cfg.target_name,
-            "entries": {},
-        }
-        cache_path.write_text(json.dumps(data), encoding="utf-8")
+        cache_path = _write_cache(cfg)
         assert verify_cache_matches_cfg(cache_path, cfg)
 
     def test_wrong_target_rejected(self, tmp_path: Path) -> None:
         from rebrew.verify_cache import verify_cache_matches_cfg
 
         cfg = _make_cfg(tmp_path)
-        cache_path = tmp_path / ".rebrew" / "verify_cache.json"
-        cache_path.parent.mkdir(parents=True, exist_ok=True)
-        data = {
-            "version": 2,
-            "compiler_hash": compiler_config_hash(cfg),
-            "headers_hash": headers_hash(cfg),
-            "target": "OTHER",
-            "entries": {},
-        }
-        cache_path.write_text(json.dumps(data), encoding="utf-8")
+        cache_path = _write_cache(cfg, target="OTHER")
         assert not verify_cache_matches_cfg(cache_path, cfg)
 
     def test_wrong_compiler_rejected(self, tmp_path: Path) -> None:
         from rebrew.verify_cache import verify_cache_matches_cfg
 
         cfg = _make_cfg(tmp_path)
-        cache_path = tmp_path / ".rebrew" / "verify_cache.json"
-        cache_path.parent.mkdir(parents=True, exist_ok=True)
-        data = {
-            "version": 2,
-            "compiler_hash": "deadbeef",
-            "headers_hash": headers_hash(cfg),
-            "target": cfg.target_name,
-            "entries": {},
-        }
-        cache_path.write_text(json.dumps(data), encoding="utf-8")
+        cache_path = _write_cache(cfg, compiler_hash="deadbeef")
         assert not verify_cache_matches_cfg(cache_path, cfg)
 
     def test_wrong_binary_id_rejected(self, tmp_path: Path) -> None:
         from rebrew.verify_cache import verify_cache_matches_cfg
 
         cfg = _make_cfg(tmp_path)
-        cache_path = tmp_path / ".rebrew" / "verify_cache.json"
-        cache_path.parent.mkdir(parents=True, exist_ok=True)
-        data = {
-            "version": 2,
-            "compiler_hash": compiler_config_hash(cfg),
-            "headers_hash": headers_hash(cfg),
-            "target": cfg.target_name,
-            "binary_id": "outdated_binary_digest",
-            "entries": {},
-        }
-        cache_path.write_text(json.dumps(data), encoding="utf-8")
+        cache_path = _write_cache(cfg, binary_id="outdated_binary_digest")
         assert not verify_cache_matches_cfg(cache_path, cfg)
 
     def test_wrong_version_rejected(self, tmp_path: Path) -> None:
         from rebrew.verify_cache import verify_cache_matches_cfg
 
         cfg = _make_cfg(tmp_path)
-        cache_path = tmp_path / ".rebrew" / "verify_cache.json"
-        cache_path.parent.mkdir(parents=True, exist_ok=True)
-        data = {
-            "version": 99,
-            "compiler_hash": compiler_config_hash(cfg),
-            "headers_hash": headers_hash(cfg),
-            "target": cfg.target_name,
-            "entries": {},
-        }
-        cache_path.write_text(json.dumps(data), encoding="utf-8")
+        cache_path = _write_cache(cfg, version=99)
         assert not verify_cache_matches_cfg(cache_path, cfg)
 
     def test_missing_cache_rejected(self, tmp_path: Path) -> None:

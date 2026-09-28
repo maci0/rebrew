@@ -162,8 +162,6 @@ the VC 7.0+ era marker.  Verified in probe12 (`f1`/`f2`/`fl`).
   24 08 51 52 50 e8`); /O1 uses the compact 4× memory-push in every
   version.
 
-- **Corpus pointer** — machine-checked in `corpus.json` (7892 records; the mechanical sweep confirmed this file's records and surfaced no un-documented markers here).
-
 ## Probe17: conventions + allocator behaviors
 
 - **Probe17 allocator/conventions**: `-1` register form; zero in EAX; moffs (`a1`/`a3`) usage doubles from 8.0 across the corpus (fingerprint B11).  See RULES.md B5/B11.

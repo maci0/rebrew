@@ -109,8 +109,7 @@ supplies its own tag.
 
 ## Sync stores (external)
 
-- **BinSync state dir** (the field-level sync interchange, metadata-review
-  R1): `functions/*.toml`, `global_vars.toml`, `structs/*.toml` carry
+- **BinSync state dir** (the field-level sync interchange): `functions/*.toml`, `global_vars.toml`, `structs/*.toml` carry
   BinSync-native fields (name, prototype, size, notes, globals, structs);
   rebrew exports via `rebrew sync --push --state-dir D` (binsync-export) and
   imports via `--pull` (binsync-import).  The BinSync Ghidra plugin relays

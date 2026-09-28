@@ -118,8 +118,6 @@ feature (SP spot-check).  Verified in probe12 (`f1`/`f2`/`fl`).
   new>`/`jmp <operator delete>` (5.0/6.0 call + ret instead).
   Vtable dispatch uniform `mov eax,[ecx]; call [eax]`.
 
-- **Corpus pointer** — machine-checked in `corpus.json` (7892 records; the mechanical sweep confirmed this file's records and surfaced no un-documented markers here).
-
 ## Probe17: conventions + allocator behaviors
 
 - **Probe17 allocator/conventions**: `-1` register form; zero in EAX; inline sret construction.  See RULES.md A8/B5.

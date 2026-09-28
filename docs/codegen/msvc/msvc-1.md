@@ -134,8 +134,6 @@ DOSBox.  Emits 16-bit OMF objects.
   `s8_make`), extending the earlier probe4 identicality note to the
   full round-11 idiom set.  No codegen separates 1.0/1.5/1.52.
 
-- **Corpus pointer** — machine-checked in `corpus.json` (7892 records; the mechanical sweep confirmed this file's records and surfaced no un-documented markers here).
-
 ## Probe17: conventions + allocator behaviors
 
 - **Probe17 conventions**: 16-bit struct-return (A8) — MSVC 1.52's `s12_caller`/`s12_make` decode partially in the /O1 object (recorded partial); `__fastcall` is absent from the 1.5x keyword set (same as TC).  See RULES.md A8.

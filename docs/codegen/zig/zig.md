@@ -97,8 +97,6 @@ libcalls (`__divdi3`-style, frame-staged like GCC); C++ mode
 compiles (`zig c++`) with LLVM-style vtable dispatch.  No new
 zig-vs-gcc byte marker in either dimension.
 
-- **Corpus pointer** — machine-checked in `corpus.json` (7892 records; the mechanical sweep confirmed this file's records and surfaced no un-documented markers here).
-
 ## Probe17: conventions + allocator behaviors
 
 - **Probe17 verified-negative**: the allocator/convention markers are MSVC-internal; Zig follows the shared conventions — no new zig-vs-gcc marker; corpus pointer.

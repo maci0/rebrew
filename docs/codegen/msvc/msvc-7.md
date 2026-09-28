@@ -198,8 +198,6 @@ first to post-shift division magic.
   (the compiler reuses the incoming stack slot; 5.0/6.0 call + ret
   instead).  Vtable dispatch is uniform `mov eax,[ecx]; call [eax]`.
 
-- **Corpus pointer** — machine-checked in `corpus.json` (7892 records; the mechanical sweep confirmed this file's records and surfaced no un-documented markers here).
-
 ## Probe17: conventions + allocator behaviors
 
 - **Probe17 allocator/conventions**: `-1` register form (`83 c8 ff` + `a3`); zero in EAX; 7.0+ inline the 12-byte sret construction (direct register stores).  See RULES.md A8/B5.

@@ -189,6 +189,7 @@ def run_catalog(
     if fix_sizes:
         from rebrew.annotation import update_size_annotation
         from rebrew.sources import iter_sources, target_marker
+        from rebrew.utils import rel_display_path
 
         updated = 0
         skipped = 0
@@ -216,8 +217,6 @@ def run_catalog(
                     module=ann.module,
                 ):
                     diff = canonical - ann.size
-                    from rebrew.utils import rel_display_path
-
                     display = rel_display_path(cfile, reversed_dir)
                     console.print(
                         f"  {display}: SIZE {ann.size} → {canonical} (+{diff}B, {reason})"
@@ -226,8 +225,6 @@ def run_catalog(
                 else:
                     # Say which file: a bare "N skipped" reads as "nothing to
                     # do" when a run actually left a stale SIZE behind.
-                    from rebrew.utils import rel_display_path
-
                     console.print(
                         f"  {rel_display_path(cfile, reversed_dir)}: SIZE not written "
                         f"(no module key, or metadata already at {canonical})"

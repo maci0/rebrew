@@ -164,29 +164,10 @@ Add a `<tool>_name` field to each row of the `functions` array
 
 ### 5. reccmp CSV
 
-Moot: the reccmp CSV export (`catalog/export.py`) is deleted, so there is no
-emitter to update.  If a CSV export comes back, it must check the new tool's
-name field when looking for user-assigned names on unmatched functions.
-
----
-
-## reccmp Compatibility
-
-The [reccmp CSV format](https://github.com/isledecomp/reccmp/blob/master/docs/csv.md) expects:
-
-| Column | Expected value |
-|--------|---------------|
-| `address` | Hex VA (required) |
-| `name` | Human-meaningful name only — **not** `FUN_`/`sub_`/`fcn.` auto-names |
-| `symbol` | Decorated linker symbol (e.g. `_CreateWindowExA@48`) |
-| `type` | One of: `function`, `template`, `synthetic`, `library`, `stub`, `global`, `string`, `widechar`, `float`, `vtable` |
-| `size` | Decimal byte count |
-
-> [!NOTE]
-> reccmp treats addresses as hex even without the `0x` prefix.
-> Auto-generated names should be omitted (left blank) — reccmp will use the PDB or its own analysis to resolve them.
-
-The removed `generate_reccmp_csv()` followed this: reversed functions emitted
-their annotation name, and unmatched functions skipped `FUN_`/`fcn.`/`sym.`
-auto-names (name left blank).  Rebrew no longer writes this CSV; only the
-source-marker interop remains.
+There is no CSV emitter today. If one returns, it must check the new tool's
+name field when looking for user-assigned names on unmatched functions, and
+follow the [reccmp CSV format](https://github.com/isledecomp/reccmp/blob/master/docs/csv.md):
+hex `address`, `symbol`, `type`, decimal `size`, and a `name` that carries a
+human-meaningful symbol only, never a `FUN_`/`sub_`/`fcn.` auto-name. reccmp
+reads an address as hex even without the `0x` prefix, and resolves a blank
+`name` from the PDB or its own analysis.

@@ -233,14 +233,15 @@ def pull_data(
     def _normalize_name(raw_name: str, fallback_addr: str) -> str:
         if raw_name:
             raw_name = unicodedata.normalize("NFC", raw_name)
-        candidate = raw_name or f"g_{fallback_addr.lower().replace('0x', '')}"
+        fallback = f"g_{fallback_addr.lower().replace('0x', '')}"
+        candidate = raw_name or fallback
         candidate = _NORMALIZE_NAME_RE.sub("_", candidate)
         # Every non-ASCII code point becomes one ``_``, so a name with none
         # left (``α``, ``変数``, an emoji) sanitizes to a string of underscores
         # rather than to ``""``: the empty check below would not catch it, and
         # two such symbols would both declare ``_``.
         if not candidate or not _KEPT_IDENT_RE.search(candidate):
-            candidate = f"g_{fallback_addr.lower().replace('0x', '')}"
+            candidate = fallback
         if candidate[0].isdigit():
             candidate = f"g_{candidate}"
         return candidate
@@ -270,10 +271,7 @@ def pull_data(
     def _normalize_ghidra_type(dtype: str) -> str:
         """Map Ghidra-specific type names to valid C89 types."""
         lower = dtype.strip().lower()
-        mapped = _GHIDRA_TYPE_MAP.get(lower)
-        if mapped:
-            return mapped
-        return dtype.strip()
+        return _GHIDRA_TYPE_MAP.get(lower, dtype.strip())
 
     def _build_extern_decl(data_type: str, symbol_name: str, length: int) -> tuple[str, str]:
         dtype = data_type.strip()

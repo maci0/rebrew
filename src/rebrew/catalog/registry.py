@@ -203,8 +203,7 @@ def _resolve_canonical_size(
         return list_size, "list (includes jump table)"
 
     # Out-of-line code: jmp/jcc in the extra bytes targeting func_start..ghidra_end
-    func_start_off = va - text_va
-    if has_back_jumps(extra, func_start_off, ghidra_end, base_offset=ghidra_end):
+    if has_back_jumps(extra, func_offset, ghidra_end, base_offset=ghidra_end):
         return list_size, "list (includes out-of-line code)"
 
     # A region with no ret and no padding is straight-line code of the SAME

@@ -164,8 +164,6 @@ Byte-exact for N64/PS1/GC requires the actual compilers:
 
 # Appendix — Consoles dossier (5th gen onwards)
 
-> Merged from ROADMAP_CONSOLES.md (2026-08-12 rev). Research detail behind Phase 2 above.
-
 > **Why this document:**  These consoles are *all* C/C++ targets with
 > deterministic cross-compilers — exactly the problem Rebrew solves for
 > PC (MSVC6 / MinGW).  This doc maps how the current engine transfers,
@@ -182,7 +180,6 @@ Byte-exact for N64/PS1/GC requires the actual compilers:
 | **Closest win** | **N64 (IDO) and GameCube (CodeWarrior)** — both already have decomp.me-grade toolchains, deterministic codegen, and active matching decomp communities to borrow flag definitions from. Next cheapest: **Wii** (GC's twin, ~3 days) and **Switch/GBA** (`arm64`/`arm32` already in config). |
 | **Hardest** | **Saturn SH-2 dual-CPU** (shared-memory synchronization) and **PS1 Psy-Q** (obsolete proprietary toolchain that is hard to source legally). PS3 SPU deferred entirely (vector microcode, not C). |
 | **Recommended order** | MIPS (N64→PS1→PS2) → PPC (GC→Wii→360) → SuperH (Saturn→DC) → ARM (GBA→DS→3DS→Switch) → Cell (PS3 PPU, SPU deferred). |
-| **Added in rev.** | Wii/360/PSP/Vita/Switch/GBA/DS/3DS/PS3 (§3.7 + §6 phases 5–7) — all `deterministic C/C++ cross-compiler` targets; MD/SNES/PS2 VU stay excluded (ASM era / vector microcode). |
 
 **One-line pitch:**  Rebrew already knows how to do byte-exact C matching for x86 PE.  Consoles replace `CL.EXE + COFF + PE` with `ccpsx/ido/mwcc/sh-elf-gcc + ELF/COFF + PS-EXE/ROM/DOL` — the rest (catalog, scoring, GA, todo, verify, round-trip) transfers.
 
@@ -288,7 +285,6 @@ PS2/Xbox/PSP are *strictly* cheaper than Saturn because the ISA/format/toolchain
 
 ### 3.7 New: Wii, Xbox 360, GBA / DS / 3DS, Switch, PS3
 
-> These were "Tier 1–2 extras" in the review pass — all `C/C++ + deterministic cross-compiler + community decomp` targets.
 > Each one reuses a Phase 0–3 ISA/container/toolchain pattern, so cost is incremental not green-field. Committed in Phase 5–7.
 
 | Target | Gen | CPU | Compiler | Binary container | Why it belongs | Rebrew cost |
@@ -377,12 +373,8 @@ Grouped by the four seams that need work.  Ordered by dependency (1 → 4).
 
 ## 5.5 Alignment with Adopted ADRs & Existing Docs
 
-This section is the delta after re-reading all six ADRs and the
-`ARCHITECTURE` / `TOOLCHAIN` / `CONFIG` / `WORKFLOW` / `ANNOTATIONS` /
-`COVERAGE_DOCUMENT` / `GAP_ANALYSIS` / `CODEGEN_PATTERNS` / `OMF_NOTES` docs.
-It is not a rewrite — it patches the gap inventory (§5) and the phases
-(§6) so every new console feature follows the patterns the project has
-already committed to.
+Every console feature added under the phases below must follow the ADRs and
+the existing docs listed in the tables that follow.
 
 ### 5.5.1 ADR map — what each decision means for consoles
 
@@ -405,7 +397,6 @@ already committed to.
 | `WORKFLOW.md` | Canonical iteration loop `todo→skeleton→decomp→write→test→diff→match→prove→verify`; JSON purity; multi-binary `shared/` wrapper pattern. | Console projects reuse the loop unchanged. Add a sibling **`CODEGEN_PATTERNS` per ISA** (not one mega-doc): `docs/CODEGEN_PATTERNS_MIPS.md`, `CODEGEN_PATTERNS_PPC.md`, `CODEGEN_PATTERNS_SH.md` — each seeded from community flag docs + `decomp.me` axes. `CODEGEN_PATTERNS.md` itself gets an index paragraph linking to them. |
 | `ANNOTATIONS.md` + `METADATA_FORMAT.md` | `// FUNCTION: MODULE 0xVA` marker + `rebrew-functions.toml` keyed by `MODULE.VA`; library `library_*.h` alternative; lint E013 duplicate-VA across targets. | Overlays need `(overlay, VA)` scoping: extend `rebrew-functions.toml` section to `"MODULE.OVERLAY.0xVA"` or add `overlay = "boot"` field inside the entry (prefer the latter — avoids key-syntax churn, keeps `target_marker()` intact). Library headers already handle shared overlays (`library_libultra.h`). Call out E013 interaction: same VA in two overlays is not a duplicate — mark per-target, not cross-overlay. |
 | `COVERAGE_DOCUMENT.md` | Clear-text per-target documents (`db/coverage-<target>.toml`: `[sections]` with their cells, `[functions]`, `[globals]`, `[metadata]`, `[verify_results]`, `[history]`); every aggregate is derived at load, and there is no schema version to gate a rebuild on. | Overlay-aware is a **document-format addition**, not a migration: a stored function row gains `overlay`, and a section and its cells carry the overlay segment they belong to. Nothing needs dropping first — `build_db` replaces each document whole, so an overlay-aware writer and a document from an older build coexist until the next run. Record the added fields in `COVERAGE_DOCUMENT.md`. |
-| *(GAP_ANALYSIS.md — deleted 2026-08 doc consolidation)* | No live successor; the standing source-side gap audit is [`prd/00-source-gap-report.md`](prd/00-source-gap-report.md) (closed, 33 gaps). | Console support is not a tracked gap anywhere. Record it in the ROADMAP phases themselves rather than reviving the deleted audit: each phase above is the tracker, and Phase 0's table row already carries the per-surface status. |
 | `OMF_NOTES.md` | Empirical OMF record framing research (Watcom) with sample bytes + "next steps" — the pattern for non-LIEF formats. | Use the **same research-note template** for each console container: one committed tiny fixture per format (real PS-EXE header bytes, real DOL header, one `z64` header + splat YAML snippet, one SH ELF LE/BE pair, one descrambled GD blob) + a `docs/{PSEXE,N64ROM,DOL,REL,GDROM}_NOTES.md` per format when it graduates from TODO. Do not speculate record tables — ship fixtures first. |
 | `AGENTS.md` + `pyproject.toml` | Build/test/lint conventions; `capstone>=5.0.8`, `lief<1`, `tree-sitter`. | No new dep for Phase 0 (capstone already covers MIPS/PPC/SH/ARM). Phase 1+ should not add `pyelftools`/`r2pipe` — LIEF + Capstone + `shlex`-dispatched flag axes cover console objects. If ISO9660/FST parsing needs a dep, prefer shelling out to `7z` (already on most hosts) over vendoring `pycdlib` — see §5.2. |
 | `IDEAS-GUILD.md` (replaces the deleted `IDEAS.md`) | Unchecked `- [ ]` idea entries, each with observed pain + proposed feature, sourced from the byte-identical `server.dll` campaign. | On merge, move the §8 brainstorm items that are accepted (overlay editing, GP-relative, vtable triage) into `IDEAS-GUILD.md` as `- [ ]` entries carrying `needs: Phase {N}`, so they appear in the normal triage flow rather than living only in the roadmap. |
@@ -500,7 +491,7 @@ Each phase is shippable independently and ordered by (decreasing payoff) / (incr
 
 - [ ] **MIPS/PPC/SH reloc typing** (`coff_reloc.py`, `matcher/parsers.py`): extend typed relocs beyond `IMAGE_REL_I386_*` to MIPS/PPC/SH ELF reloc numbers (already available from LIEF — just add to the dispatch). Needs `docs/CODEGEN_PATTERNS_{MIPS,PPC,SH}.md` so `BLOCKER` wording stays consistent.
 - [ ] **Endian-aware extract & LIEF fallbacks**: every `extract_bytes_at_va` should handle BE/LE correctly (it already does — bytes are bytes; only disasm cares). Add BE/LE-aware integer decodes where the loader derives VAs from BE headers (risk §9 — gate with header fixtures per §5.5.2).
-- [ ] **Overlay-aware `intake` / `catalog` / `build_db` / `status`** (COVERAGE_DOCUMENT.md migration): migrate from single `target_binary` to `target.binaries[]` (retrocompatible — keep `binary = ` as sugar for single-binary projects). Formalizes §5.5.2 the overlay-aware coverage document / ANNOTATIONS.md `overlay` field scope. DOL+REL, N64 overlays, Saturn dual-CPU map naturally. `GAP_ANALYSIS.md` entry should flip to IMPLEMENT here.
+- [ ] **Overlay-aware `intake` / `catalog` / `build_db` / `status`** (COVERAGE_DOCUMENT.md migration): migrate from single `target_binary` to `target.binaries[]` (retrocompatible — keep `binary = ` as sugar for single-binary projects). Formalizes §5.5.2 the overlay-aware coverage document / ANNOTATIONS.md `overlay` field scope. DOL+REL, N64 overlays, Saturn dual-CPU map naturally.
 - [ ] **Disc-image-aware `doctor` + `intake`** (ADR-003 degrade rule): `doctor` detects disc images (`ISO9660` / `GCM` / `GD-ROM`) and names the inner binary; `intake` accepts disc image and extracts (via `7z` if present, else error with instructions). Unreadable FST/ISO dir → module-level record only.
 - [ ] **FLIRT signature packs per console**: ship or document `.sig` for `libultra`, `libdolphin`, `libsgl`, `libkatana`; add `flirt --pack n64|gc|ps1|saturn|dc` to fetch. `identify-library` already aggregates FLIRT+imports+CRT.
 - [ ] **SDK header packs** (`rebrew cfg detect-sdk`): like `detect_crt_sources`, detect vendored `include/` trees for `ultra64`, `dolphin`, `katana`, `sgl` (user-provided SDK dumps).

@@ -1164,14 +1164,6 @@ state dir cannot express — function creation, bookmarks, data pulls.
 | `--endpoint URL` | ReVa MCP endpoint URL (structural ops) |
 | `--json` | Output results as JSON |
 
-Removed in R1: `--export`/`--apply`/`--force` (op file + dedup state —
-binsync export is idempotent), `--pull-signatures`/`--pull-params`/
-`--pull-structs`/`--pull-datatypes`/`--pull-comments` (field pulls — now via
-the state dir), `--sync-sizes`/`--sync-new-functions`/`--sync-structs`/
-`--sync-signatures`/`--sync-data`/`--skip-generic` (field push — now via the
-state dir), `--types-out`/`--by-module` (struct output — structs go to the
-state dir), `--refresh-cache` (cache deleted).
-
 ### `rebrew flirt`
 
 | Flag | Description |

@@ -371,11 +371,7 @@ def _parse_elf_symbol_bytes(
     if target_sym is None:
         return None, None
 
-    # In ELF .o files, sym.shndx gives the section index
-    section = None
-    if hasattr(target_sym, "section") and target_sym.section is not None:
-        section = target_sym.section
-
+    section = target_sym.section
     if section is None:
         return None, None
 

@@ -5,7 +5,6 @@ from typing import Any
 
 import pytest
 
-# Import from the rebrew package
 from rebrew.compile_cache import DEFAULT_CACHE_SIZE_LIMIT_MIB
 from rebrew.config import (
     ARCH_PRESETS,

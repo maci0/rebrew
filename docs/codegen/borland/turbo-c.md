@@ -169,8 +169,6 @@ MSVC-1.5x-specific (see README).
   probe14/15 (`#if defined(...)` guards) do not — the probe13 idiom
   set is the TC 2.0 comparison surface.
 
-- **Corpus pointer** — machine-checked in `corpus.json` (7892 records; the mechanical sweep confirmed this file's records and surfaced no un-documented markers here).
-
 ## Probe17: conventions + allocator behaviors
 
 - **Probe17 conventions (A2/A8)**: TC 2.0/3.1 LACK the `__fastcall` keyword (declaration-syntax error — documented negative); struct returns pass the hidden pointer as a far stack arg (I-style).  See RULES.md A2/A8.

@@ -444,17 +444,14 @@ def _parse_struct_fields(typedef_text: str) -> list[dict[str, Any]]:
         raw_field = raw_field.strip()
         if not raw_field:
             continue
-        # Strip // comments
         raw_field = raw_field.split("//")[0].strip()
         if not raw_field:
             continue
         # Expect "<type> <name>[array]"
-        # Use rsplit to separate name from type
         parts = raw_field.rsplit(None, 1)
         if len(parts) != 2:
             continue
         type_part, name_part = parts
-        # name may include array suffix: name[16]
         name_match = re.match(r"([A-Za-z_][A-Za-z0-9_]*)\s*(\[.*\])?", name_part)
         if not name_match:
             continue
@@ -762,13 +759,10 @@ def _git_commit_state_dir(state_dir: Path, target: str) -> str | None:
         console.print(f"[yellow]warning:[/yellow] git commit failed: {commit.stderr.strip()}")
         return None
 
-    # Try to get the new hash
     rev = run_git(state_dir, "rev-parse", "HEAD", timeout=10)
     commit_hash = rev.stdout.strip() if rev.returncode == 0 else None
-    if commit_hash:
-        console.print(f"[green]Committed[/green] {commit_hash[:8]} — {msg}")
-    else:
-        console.print(f"[green]Committed[/green] — {msg}")
+    prefix = f"{commit_hash[:8]} " if commit_hash else ""
+    console.print(f"[green]Committed[/green] {prefix}— {msg}")
     return commit_hash
 
 

@@ -212,8 +212,6 @@ inlining is unconditional.  Verified in a probe12 re-run with native
   (`cmp eax,0; je`) absent from MSVC's bare `mov eax,[ecx]; call
   [eax]`.
 
-- **Corpus pointer** — machine-checked in `corpus.json` (7892 records; the mechanical sweep confirmed this file's records and surfaced no un-documented markers here).
-
 ## Probe17: conventions + allocator behaviors
 
 - **Probe17 verified-negative**: the probe17 convention/allocator markers are MSVC-internal (register forms, zero-register anchoring); GCC's behavior follows the shared conventions — no new GCC marker; corpus pointer.

@@ -120,8 +120,6 @@ the VC 7.0+ era marker.  Verified in probe12 (`f1`/`f2`/`fl`).
   version.  (The 9.0 SP1 comparison remains blocked — see the
   Probe15 note above.)
 
-- **Corpus pointer** — machine-checked in `corpus.json` (7892 records; the mechanical sweep confirmed this file's records and surfaced no un-documented markers here).
-
 ## Probe17: conventions + allocator behaviors
 
 - **Probe17 allocator/conventions**: `-1` register form; **address-taken params force FOUR callee-saves (ebx/ebp/esi/edi)** — the most aggressive of any version.  See RULES.md B7.

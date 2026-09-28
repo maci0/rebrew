@@ -9,9 +9,9 @@ and adds the git-automation trio (``push`` / ``pull`` wrap export / import):
   imports the state into the project.
 * ``summary`` previews both directions read-only.
 
-The flat ``rebrew binsync-export/import/diff/init/overlay`` commands remain
-for back-compat; this group is a thin orchestration layer over the same
-functions.
+The flat ``rebrew binsync-export`` / ``rebrew binsync-import`` commands keep
+their own option sets, which differ from the ``push`` / ``pull`` wrappers
+above; every other command is mounted here as a subcommand.
 """
 
 from __future__ import annotations

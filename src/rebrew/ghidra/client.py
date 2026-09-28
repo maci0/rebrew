@@ -913,11 +913,9 @@ def apply_commands_via_mcp(
             finally:
                 close_response(resp)
 
-        # Apply each command
         current_phase = ""
         struct_failures: list[dict[str, Any]] = []
         for i, cmd in enumerate(commands):
-            # Show phase transitions
             tool = cmd["tool"]
             if tool != current_phase:
                 if current_phase:
@@ -933,6 +931,7 @@ def apply_commands_via_mcp(
                 console.print(f"  {phase_labels.get(tool, tool)}...")
                 current_phase = tool
 
+            va = cmd["args"].get("addressOrSymbol", cmd["args"].get("address", "?"))
             try:
                 ok, error_msg = _send_cmd(cmd, i + 1)
                 if ok:
@@ -941,7 +940,6 @@ def apply_commands_via_mcp(
                     if tool == "parse-c-structure":
                         struct_failures.append(cmd)
                     errors += 1
-                    va = cmd["args"].get("addressOrSymbol", cmd["args"].get("address", "?"))
                     _report_op_failure(cmd["tool"], va, error_msg)
             except httpx.HTTPError as exc:
                 if tool == "parse-c-structure":
@@ -967,10 +965,8 @@ def apply_commands_via_mcp(
                         applied=success + errors,
                         errors=errors,
                     ) from exc
-                va = cmd["args"].get("addressOrSymbol", cmd["args"].get("address", "?"))
                 _report_op_failure(cmd["tool"], va, exc)
 
-            # Progress indicator
             if (i + 1) % 50 == 0 or i == total - 1:
                 pct = (i + 1) * 100 // total
                 console.print(f"  [{pct:3d}%] {i + 1}/{total} operations applied", end="\r")

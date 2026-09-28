@@ -156,8 +156,6 @@ Small static helpers called once/twice/in a loop are NOT inlined: VC
   functions are absent from their objects (documented negative; the
   type arrives in 5.0).
 
-- **Corpus pointer** — machine-checked in `corpus.json` (7892 records; the mechanical sweep confirmed this file's records and surfaced no un-documented markers here).
-
 ## Probe17: conventions + allocator behaviors
 
 - **Probe17 allocator/conventions**: `-1` stores use the IMMEDIATE `c7 05 <addr> ff ff ff ff` form (2.0/4.x era; 5.0–10.0 use `or eax,-1` + `a3`); no zero register is materialized (`cmp [mem],0` memory-immediate compares).  Varargs float→double promotion verified (`fld; sub esp,8; fstp qword [esp]`).  See RULES.md A5/B5.

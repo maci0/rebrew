@@ -51,9 +51,20 @@ def _iter_definitions(
         """
         return text.count(b"{") == text.count(b"}")
 
+    def usable(text: bytes) -> bool:
+        """True when Ghidra's ``parse-c-structure`` can read the span verbatim.
+
+        A NUL ends the payload the plugin hands its C parser, so a span
+        carrying one truncates there and the rest of the definition never
+        arrives.
+        """
+        return b"\x00" not in text
+
     def walk(node: Any) -> Iterator[str]:
         if node.type == "type_definition":
             text = code_bytes[node.start_byte : node.end_byte]
+            if not usable(text):
+                return
             if all_type_defs or (keyword in text and b"{" in text):
                 if b"{" in text and not balanced(text):
                     return
@@ -69,7 +80,7 @@ def _iter_definitions(
                     if next_sibling and next_sibling.type == ";":
                         end_byte = next_sibling.end_byte
                     span = code_bytes[node.start_byte : end_byte]
-                    if not balanced(span):
+                    if not balanced(span) or not usable(span):
                         return
                     yield span.decode(encoding, errors="replace")
         else:

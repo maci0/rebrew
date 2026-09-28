@@ -375,18 +375,6 @@ section = ".bss"
 > The `rebrew-data.toml` metadata file is created and updated automatically by rebrew tools.
 > **Never edit it manually.**
 
-### Filename Convention
-
-Data files should use a `data_` prefix to distinguish them from function files:
-
-```
-src/server.dll/data_dispatch_table.c       # dispatch table
-src/server.dll/data_sprite_lut.c           # const lookup table
-src/server.dll/data_frame_counter.c        # global state variable
-```
-
----
-
 ## Struct SIZE Comments (reccmp recommendation)
 
 When a file defines structs, annotate their size:

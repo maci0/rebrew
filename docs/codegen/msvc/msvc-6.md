@@ -189,8 +189,6 @@ Small static helpers called once/twice/in a loop are NOT inlined: VC
 - **C++ `new`/`delete` = call + `add esp,4`/`pop ecx`** — the
   5.0/6.0 call+ret form (7.0+ tail-jumps).
 
-- **Corpus pointer** — machine-checked in `corpus.json` (7892 records; the mechanical sweep confirmed this file's records and surfaced no un-documented markers here).
-
 ## Probe17: conventions + allocator behaviors
 
 - **Probe17 allocator/conventions**: `-1` stores use the REGISTER form `or eax,-1` + `a3` (5.0–10.0 era); zero register kept in EAX (`alloc_zero`: `a3` moffs stores).  The guild-rebrew live-range flip (B3) does NOT trigger with the simplified probe.  See RULES.md B2/B3/B5.

@@ -175,8 +175,6 @@ Small static helpers called once/twice/in a loop are NOT inlined: VC
   `push 4; call; add esp,4`; `delete` = call + `add esp,4`/`pop ecx`
   (the 5.0/6.0 call+ret form; 7.0+ tail-jumps).
 
-- **Corpus pointer** — machine-checked in `corpus.json` (7892 records; the mechanical sweep confirmed this file's records and surfaced no un-documented markers here).
-
 ## Probe17: conventions + allocator behaviors
 
 - **Probe17 allocator/conventions**: `-1` stores use the REGISTER form `or eax,-1` (`83 c8 ff`) + `a3` store (5.0–10.0 era); varargs float→double via `fld; sub esp,8; fstp qword [esp]` (`dd 1c 24`).  See RULES.md A5/B5.

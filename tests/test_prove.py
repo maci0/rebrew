@@ -558,14 +558,7 @@ def _fresh_state_args(project: Any, n_args: int = 4) -> tuple[Any, list[Any]]:
     reason="angr not installed (run 'uv sync --all-extras' to enable prove tests)",
 )
 class TestApplyArgConstraints:
-    """Test _apply_arg_constraints with real angr state objects.
-
-    Each test takes a fresh blank state from the module-scoped project;
-    states are never shared, so constraints cannot leak between tests.
-    """
-
-    def _make_state_and_args(self, project: Any, n_args: int = 4) -> tuple[Any, list[Any]]:
-        return _fresh_state_args(project, n_args)
+    """Test _apply_arg_constraints with real angr state objects."""
 
     @pytest.mark.parametrize(
         ("constraint", "check"),
@@ -588,13 +581,13 @@ class TestApplyArgConstraints:
         ids=["pointer", "range", "null", "nonzero", "bitmask"],
     )
     def test_scalar_constraints(self, angr_project: Any, constraint: dict, check: Any) -> None:
-        state, args = self._make_state_and_args(angr_project)
+        state, args = _fresh_state_args(angr_project)
         _apply_arg_constraints(state, args, constraint)
         assert check(state, args)
 
     def test_out_of_range_arg_ignored(self, angr_project: Any) -> None:
         """Constraint for arg10 when only 4 args exist should be silently ignored."""
-        state, args = self._make_state_and_args(angr_project, 4)
+        state, args = _fresh_state_args(angr_project, 4)
         _apply_arg_constraints(
             state,
             args,
@@ -606,13 +599,13 @@ class TestApplyArgConstraints:
         assert state.solver.satisfiable()
 
     def test_empty_constraints_noop(self, angr_project: Any) -> None:
-        state, args = self._make_state_and_args(angr_project)
+        state, args = _fresh_state_args(angr_project)
         _apply_arg_constraints(state, args, {})
         # Smoke test: verifies no crash on edge case input
         assert state.solver.satisfiable()
 
     def test_unknown_type_ignored(self, angr_project: Any) -> None:
-        state, args = self._make_state_and_args(angr_project)
+        state, args = _fresh_state_args(angr_project)
         _apply_arg_constraints(
             state,
             args,
@@ -625,7 +618,7 @@ class TestApplyArgConstraints:
 
     def test_pointer_with_handle_field(self, angr_project: Any) -> None:
         """Deep struct: handle field should be non-zero, non-INVALID."""
-        state, args = self._make_state_and_args(angr_project)
+        state, args = _fresh_state_args(angr_project)
         _apply_arg_constraints(
             state,
             args,
@@ -648,7 +641,7 @@ class TestApplyArgConstraints:
 
     def test_pointer_with_concrete_field(self, angr_project: Any) -> None:
         """Deep struct: concrete field should have exact value."""
-        state, args = self._make_state_and_args(angr_project)
+        state, args = _fresh_state_args(angr_project)
         _apply_arg_constraints(
             state,
             args,
@@ -667,7 +660,7 @@ class TestApplyArgConstraints:
 
     def test_pointer_with_zero_field(self, angr_project: Any) -> None:
         """Deep struct: zero field should be 0."""
-        state, args = self._make_state_and_args(angr_project)
+        state, args = _fresh_state_args(angr_project)
         _apply_arg_constraints(
             state,
             args,
@@ -686,7 +679,7 @@ class TestApplyArgConstraints:
 
     def test_pointer_with_range_field(self, angr_project: Any) -> None:
         """Deep struct: range field should be within bounds."""
-        state, args = self._make_state_and_args(angr_project)
+        state, args = _fresh_state_args(angr_project)
         _apply_arg_constraints(
             state,
             args,
@@ -705,7 +698,7 @@ class TestApplyArgConstraints:
 
     def test_pointer_with_nested_pointer_field(self, angr_project: Any) -> None:
         """Deep struct: nested pointer should point to a valid allocated region."""
-        state, args = self._make_state_and_args(angr_project)
+        state, args = _fresh_state_args(angr_project)
         _apply_arg_constraints(
             state,
             args,
@@ -727,7 +720,7 @@ class TestApplyArgConstraints:
 
     def test_pointer_without_fields_unchanged(self, angr_project: Any) -> None:
         """Pointer constraint without fields should behave as before."""
-        state, args = self._make_state_and_args(angr_project)
+        state, args = _fresh_state_args(angr_project)
         _apply_arg_constraints(
             state,
             args,
