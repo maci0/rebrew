@@ -2304,13 +2304,23 @@ def _scrub_invisible(value: Any) -> Any:
     hiding the text around them, so a name or status cell can be made to read
     as something else.  Scrubbed once on the way out rather than in the
     client, which keeps the entry assets inside the cold-load wire budget.
+
+    Keys are scrubbed too, not just values: ``/api/summary`` returns
+    ``function_stats`` verbatim from the target's metadata row, so a key is as
+    target-controlled as a name cell.  Two keys that differ only in invisible
+    characters collapse to one; the client reads fixed keys, so a dropped
+    duplicate costs nothing, while an unscrubbed one can reorder the text
+    around it on screen.
     """
     if isinstance(value, str):
         return strip_bidi_format(value)
     if isinstance(value, list):
         return [_scrub_invisible(item) for item in value]
     if isinstance(value, dict):
-        return {key: _scrub_invisible(item) for key, item in value.items()}
+        return {
+            (strip_bidi_format(key) if isinstance(key, str) else key): _scrub_invisible(item)
+            for key, item in value.items()
+        }
     return value
 
 

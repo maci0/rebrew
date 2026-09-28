@@ -174,14 +174,24 @@ MAX_MCP_RESPONSE_BYTES = 1_000_000
 
 
 def _parse_sse_response(text: str) -> JsonRpcResponse | None:
-    """Extract JSON-RPC result from an SSE (text/event-stream) response body."""
+    """Extract JSON-RPC result from an SSE (text/event-stream) response body.
+
+    A ``data:`` line that is not valid JSON, or that decodes to something
+    other than a JSON object (an array, a bare string, a number, ``null``),
+    is skipped like a keep-alive or comment line: scanning continues so a
+    later line can still carry the response, and the caller reports the one
+    answer every unusable body gets, "no parseable JSON-RPC response".
+    """
     for line in text.splitlines():
         stripped = line.lstrip()
         if stripped.startswith("data:"):
             try:
-                return JsonRpcResponse.from_dict(json.loads(stripped[5:].lstrip()))
+                decoded = json.loads(stripped[5:].lstrip())
             except json.JSONDecodeError:
                 continue
+            if not isinstance(decoded, dict):
+                continue
+            return JsonRpcResponse.from_dict(decoded)
     return None
 
 
