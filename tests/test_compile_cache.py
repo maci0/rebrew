@@ -14,6 +14,7 @@ from rebrew.compile_cache import (
     CompileCache,
     close_all_caches,
     compile_cache_key,
+    dir_fingerprint_hash,
     get_compile_cache,
     get_project_cache,
     header_dependency_hash,
@@ -533,6 +534,29 @@ class TestHeaderDependencyHash:
         header.write_bytes(b"#define N 22222\n")
         include_fingerprint.cache_clear()
         assert compile_cache_key(source, "f.c", [], [str(tmp_path)], "cc") != first
+
+    def test_parent_relative_include_changes_key(self, tmp_path: Path) -> None:
+        """`#include "../shared/types.h"` reaches outside the /I dirs.  The
+        compiler resolves it, so an edit to it must invalidate the entry."""
+        (tmp_path / "shared").mkdir()
+        (tmp_path / "shared" / "types.h").write_text("#define N 1\n", encoding="utf-8")
+        src_dir = tmp_path / "src"
+        src_dir.mkdir()
+        source = '#include "../shared/types.h"\nint f(void){return N;}\n'
+        first = header_dependency_hash(source, str(src_dir), [str(src_dir)])
+        (tmp_path / "shared" / "types.h").write_text("#define N 22222\n", encoding="utf-8")
+        assert header_dependency_hash(source, str(src_dir), [str(src_dir)]) != first
+
+    def test_unresolvable_parent_include_falls_back(self, tmp_path: Path) -> None:
+        """A traversal include that resolves nowhere cannot be pinned, so the
+        key falls back to the conservative directory fingerprint."""
+        src_dir = tmp_path / "src"
+        src_dir.mkdir()
+        source = '#include "../nowhere/types.h"\nint f(void){return 1;}\n'
+        include_dirs = [str(src_dir)]
+        assert header_dependency_hash(source, str(src_dir), include_dirs) == (
+            dir_fingerprint_hash(str(src_dir), include_dirs)
+        )
 
     def test_no_includes_is_fixed_digest(self) -> None:
         """A unit with no header deps gets a stable, non-empty digest ("" is

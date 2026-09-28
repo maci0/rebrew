@@ -134,28 +134,30 @@ def _require_angr() -> None:
 
 
 def _cached_verify_status(cfg: Any, va: int) -> str | None:
-    """Return the verify-cache status for *va* (target-guarded), or None.
+    """Return the verify-cache status for *va* (identity-guarded), or None.
 
     Mirrors status.py/todo.py's overlay: the metadata STATUS can lag the
     measured verify result, and prove's NEAR_MATCHING gate must accept the
     measured truth rather than refuse a function the verifier already
     classified as nearly matching.
     """
-    from rebrew.verify_cache import CACHE_VERSION, VerifyCache, load_verify_cache_raw
+    from rebrew.verify_cache import VerifyCache, cache_identity_matches, load_verify_cache_raw
 
     # The shared loader warns on an unreadable/corrupt file, so a broken cache
     # is not mistaken for "no measured status".
     raw = load_verify_cache_raw(cfg)
     if raw is None:
         return None
+    # The whole identity, not just version+target: a cache left by a rebuild
+    # of the target binary, or by a different compiler profile, holds verdicts
+    # about a different image, and letting them gate prove's acceptance would
+    # read another binary's EXACT as this one's.
+    if not cache_identity_matches(raw, cfg):
+        return None
     try:
         data = VerifyCache.from_dict(raw)
     except (ValueError, AttributeError, TypeError) as exc:
         log.warning("Ignoring malformed verify cache for prove: %s", exc)
-        return None
-    if data.version != CACHE_VERSION:
-        return None
-    if data.target and data.target != getattr(cfg, "target_name", None):
         return None
     entry = data.entries.get(f"0x{va:08x}")
     return entry.status if entry is not None else None

@@ -36,7 +36,10 @@ the entries whose translation unit reaches it — an edit to an unrelated
 header in the same include dir is a cache hit.  Headers that cannot be
 resolved on the host (e.g. the MSVC CRT headers inside the immutable
 toolchain image) are not tracked: their content is pinned by the toolchain
-image digest in the key.  When the closure cannot be resolved statically
+image digest in the key.  An include carrying ``..`` or an absolute path is
+resolved against the same search dirs (the compiler resolves it), and one that
+resolves nowhere on the host also falls back.  When the closure cannot be
+resolved statically
 (a non-literal ``#include MACRO``, a ``/FI`` force-include), the key falls
 back to per-directory fingerprints of the source dir and every include dir (the conservative
 ccache-style mode, via :func:`include_fingerprint`).  Resolution is
@@ -53,6 +56,7 @@ import atexit
 import contextlib
 import hashlib
 import logging
+import os
 import re
 import threading
 import unicodedata
@@ -759,6 +763,25 @@ _INCLUDE_CLOSURE_MEMO_MAX = 1024
 _INCLUDE_CLOSURE_LOCK = threading.Lock()
 
 
+def _resolve_escaping_include(name: Path, dirs: Sequence[Path]) -> Path | None:
+    """Resolve an include that carries ``..`` or is absolute.
+
+    :func:`_find_in_dirs` rejects both, so those includes used to resolve
+    nowhere and stay untracked: an edit to the header left the cache key
+    unmoved and served the stale object.  The compiler resolves them, so the
+    closure must too.  Only the named file is probed — no directory is
+    scanned — so nothing here widens what the include search reads.
+    """
+    for d in dirs:
+        try:
+            candidate = Path(os.path.normpath(str(d / name)))
+            if candidate.is_file():
+                return candidate.resolve()
+        except OSError:
+            continue
+    return None
+
+
 def _search_dir_mtimes(source_dir: str | None, include_dirs: tuple[str, ...]) -> tuple[int, ...]:
     """Directory mtimes for include-resolution cache identity.
 
@@ -909,6 +932,18 @@ def _scan_include_closure(
             else:
                 dirs = [Path(d) for d in include_dirs]
             found = _find_in_dirs(Path(name), dirs)
+            if found is None and (Path(name).is_absolute() or ".." in Path(name).parts):
+                # `#include "../../game_types.h"`: _find_in_dirs refuses the
+                # traversal, so resolve it here or the header joins nothing
+                # and its edit never invalidates the entry.
+                found = _resolve_escaping_include(Path(name), dirs)
+                if found is None:
+                    # Unresolvable on the host (lives in the toolchain image,
+                    # or the tree moved): nothing can pin it, so take the
+                    # conservative per-directory fingerprint rather than
+                    # cache an entry whose closure is unknown.
+                    fallback = True
+                    return
             if found is None:
                 # Creating a header bumps the mtime of its immediate parent,
                 # which may sit below a searched directory and so never reach

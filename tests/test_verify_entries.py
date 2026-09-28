@@ -712,6 +712,30 @@ class TestBinaryIdCacheGuard:
     """A rebuilt binary of the same target name must invalidate the verify
     cache (round-4: the cache previously checked only the target NAME)."""
 
+    def test_profile_change_invalidates_cache(self, tmp_path: Path) -> None:
+        """`[compiler] profile` selects the toolchain, so it is part of the
+        cache identity; the command string alone did not move."""
+        bin_path = tmp_path / "x.dll"
+        bin_path.write_bytes(b"MZ1")
+        (tmp_path / "src").mkdir(exist_ok=True)
+        cfg = SimpleNamespace(
+            reversed_dir=tmp_path / "src",
+            target_binary=bin_path,
+            target_name="T",
+            compiler_command="cl",
+            compiler_profile="msvc-6.0",
+            base_cflags="/nologo /c /MT",
+            compiler_includes=tmp_path / "inc",
+            compiler_libs=tmp_path / "lib",
+        )
+        first = verify_hash_mod.compiler_config_hash(cfg)
+        cfg.compiler_profile = "msvc-6.0-sp1"
+        assert verify_hash_mod.compiler_config_hash(cfg) != first
+
+        cfg.compiler_profile = "msvc-6.0"
+        cfg.recompile_url = "https://recompile.example/api"
+        assert verify_hash_mod.compiler_config_hash(cfg) != first
+
     def test_binary_change_invalidates_cache(self, tmp_path: Path) -> None:
         import json as _json
 

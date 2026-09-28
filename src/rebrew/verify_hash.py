@@ -210,12 +210,25 @@ def compiler_config_hash(cfg: ProjectConfig) -> str:
     # binary identity is guarded separately via VerifyCache.binary_id and
     # cache_identity_matches; mixing it in would bust the cache on
     # every run that touches the binary even when nothing relevant changed.
+    from rebrew.compile import recompile_url as _recompile_url
+
     parts = [
         cfg.compiler_command,
         getattr(cfg, "compiler_runner", ""),
         cfg.base_cflags,
         str(cfg.compiler_includes),
         str(cfg.compiler_libs),
+        # The compiler profile selects the toolchain the compile cache keys
+        # on (_toolchain_cache_id), so it changes every verdict.  Left out,
+        # a `[compiler] profile` edit kept serving results measured under the
+        # previous toolchain: cfg.compiler_command is just a command string
+        # and defaults to an unrelated "wine CL.EXE".
+        getattr(cfg, "compiler_profile", ""),
+        # The remote backend is part of the compile identity too (compile.py
+        # keys the object cache on it), so a switch between local docker and
+        # the service must not reuse the other one's measurements.  Imported
+        # here because rebrew.compile pulls in the whole toolchain registry.
+        _recompile_url(cfg) or "",
         # Content hash of the comparison/extraction logic: a code change that
         # alters results for the SAME source+compiler (e.g. the EXTRACT_ERROR
         # / STUB-symbol fixes) must invalidate cached results.  The package
