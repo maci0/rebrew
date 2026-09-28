@@ -256,8 +256,9 @@ extend-exclude = [".hypothesis", ".scratch"]
 # with the reason.  PTH debt (PTH101/105/108/110/120/123/201/202) stays
 # off until clean.  Do not list remapped aliases (PLR1701→SIM101,
 # RUF011→B035, RUF035→S704, TRY200→B904): those families/codes are already
-# selected.  S602/PLR0124/PIE790/ANN205/ANN206 join as zero-finding
-# ratchets (shell=True subprocess, self-compare, useless pass, typed
+# selected.  S602/S608/PLR0124/PIE790/ANN205/ANN206 join as zero-finding
+# ratchets (shell=True subprocess, an SQL string built by interpolation,
+# self-compare, useless pass, typed
 # class/static method returns).  D100/D104/D106 enforce the module-docstring
 # rule (AGENTS.md); the D2xx/D4xx, COM818, pep8-naming (N), flake8-pyi (PYI), TD,
 # TID252 and FIX001/003/004 (FIXME/XXX/HACK markers) codes below are the
@@ -306,7 +307,7 @@ select = [
     "S313", "S314", "S315", "S316", "S317", "S318", "S319", "S321", "S323",
 
     "S501", "S502", "S503", "S504", "S505", "S506", "S507", "S508", "S509",
-    "S601", "S602", "S604", "S605", "S606", "S609", "S610", "S611", "S612",
+    "S601", "S602", "S604", "S605", "S606", "S608", "S609", "S610", "S611", "S612",
     "S701", "S702", "S704",
     "TRY002", "TRY201", "TRY203", "TRY400", "TRY401",
     "FURB105", "FURB116", "FURB122", "FURB129", "FURB132",
@@ -437,6 +438,7 @@ files = [
     "tests/test_asm.py",
     "tests/test_ast_engine.py",
     "tests/test_batch.py",
+    "tests/test_build_db_helpers.py",
     "tests/test_binsync_export.py",
     "tests/test_binsync_state.py",
     "tests/test_cache_cli.py",

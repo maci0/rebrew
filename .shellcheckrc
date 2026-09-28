@@ -1,0 +1,8 @@
+# ShellCheck configuration, read from the script's directory upward by both the
+# pre-commit `shellcheck` hook and a bare `shellcheck` run (0.7+).  CI installs
+# shellcheck in the pre-commit job, so the gate is blocking there.
+#
+# enable=all turns on the optional checks the default severity leaves off
+# (quote-safe-vars, require-variable-braces, the rest).  Both shell scripts
+# pass every one of them, so the optional set costs nothing to keep on.
+enable=all

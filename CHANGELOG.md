@@ -10,6 +10,17 @@
   before the first 503. `docs/dashboard-api.yaml`, `docs/CLI.md`,
   `docs/COVERAGE_DOCUMENT.md` and `docs/THREAT_MODEL.md` document the field.
 
+### Changed
+- **Lint gates ratchet.** Ruff selects ``S608`` (a SQL string built by
+  interpolation; zero findings on the current tree) so a query assembled from
+  runtime input cannot land, mypy covers ``tests/test_build_db_helpers.py``
+  (323 files checked, up from 322), and a new ``.shellcheckrc`` sets
+  ``enable=all`` so the pre-commit shellcheck hook and CI run the optional
+  checks (``quote-safe-vars``, ``require-variable-braces``, ``SC2249``, …) the
+  default severity leaves off.  Both shell scripts already passed every one of
+  them except a ``case`` in ``tools/ci_clone_resembl.sh`` with no ``*)``
+  branch, which now has one.
+
 ## [2.16.0] - 2026-09-28
 
 ### Added

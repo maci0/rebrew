@@ -46,6 +46,8 @@ case "${dest}" in
     echo "refusing dangerous dest: ${dest}" >&2
     exit 1
     ;;
+  *)
+    ;;
 esac
 
 # Never block the job on an interactive credential prompt (no TTY in CI).
