@@ -17,6 +17,7 @@ from rebrew.config import ProjectConfig, module_marker
 from rebrew.data_metadata import iter_data_symbols
 from rebrew.utils import (
     atomic_write_text,
+    c_comment_safe,
     is_safe_c_ident,
     join_source_lines,
     load_tomllib,
@@ -438,15 +439,16 @@ def gen_globals_header(
     ]
 
     def _emit_section(label: str, items: list[dict[str, Any]]) -> None:
-        header_lines.append(f"/* {label} */")
+        # A section name and a note are both free text, and ``*/`` in either
+        # closes the enclosing comment early and puts the rest of the line
+        # into the header body as C the next compile builds.
+        header_lines.append(f"/* {c_comment_safe(label)} */")
         for row in items:
             note_parts = [f"0x{row['va']:08X}"]
             if row["size"]:
                 note_parts.append(f"{row['size']} bytes")
             if row["note"]:
-                # A note is free text: ``*/`` would close the trailing comment
-                # early and put the rest of the line into the header body.
-                note_parts.append(row["note"].replace("*/", "* /"))
+                note_parts.append(c_comment_safe(row["note"]))
             decl = _emit_extern_decl(row)
             if decl is not None:
                 header_lines.append(f"{decl} /* {', '.join(note_parts)} */")

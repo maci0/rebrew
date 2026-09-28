@@ -29,7 +29,12 @@ from rebrew.ghidra.client import (
     fetch_mcp_tool_raw,
     init_mcp_session,
 )
-from rebrew.utils import atomic_write_text, parse_int_literal, strip_generated_timestamp
+from rebrew.utils import (
+    atomic_write_text,
+    c_comment_safe,
+    parse_int_literal,
+    strip_generated_timestamp,
+)
 
 # Local console: rebrew.ghidra must stay importable without rebrew.cli
 # (library layering test).
@@ -512,8 +517,10 @@ def pull_data(
         items = grouped.get(section_name, [])
         if not items:
             continue
-        header_lines.append(f"/* {section_name} section globals */")
-        header_lines.extend(f"{row['decl']} /* {row['note']} */" for row in items)
+        header_lines.append(f"/* {c_comment_safe(section_name)} section globals */")
+        header_lines.extend(
+            f"{row['decl']} /* {c_comment_safe(str(row['note']))} */" for row in items
+        )
         header_lines.append("")
         emitted_sections.add(section_name)
 
@@ -522,8 +529,10 @@ def pull_data(
             continue
         items = grouped[section_name]
         label = section_name or "(unknown)"
-        header_lines.append(f"/* {label} section globals */")
-        header_lines.extend(f"{row['decl']} /* {row['note']} */" for row in items)
+        header_lines.append(f"/* {c_comment_safe(label)} section globals */")
+        header_lines.extend(
+            f"{row['decl']} /* {c_comment_safe(str(row['note']))} */" for row in items
+        )
         header_lines.append("")
 
     header_lines.append("#endif /* REBREW_GLOBALS_H */")

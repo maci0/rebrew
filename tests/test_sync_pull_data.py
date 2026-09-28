@@ -331,6 +331,28 @@ class TestPullDataGlobalsHeader:
         assert "#define REBREW_GLOBALS_H" in header
         assert "#endif /* REBREW_GLOBALS_H */" in header
 
+    def test_hostile_section_name_cannot_break_out(self, tmp_path: Any, monkeypatch: Any) -> None:
+        """A PE section name is attacker-controlled, so ``*/`` in one must not
+        close the section comment and inject C into a header the next
+        ``rebrew test`` compiles."""
+        symbols = [{"name": "g_data", "address": "0x00403010", "isFunction": False}]
+        data_by_addr = {
+            "0x00403010": {
+                "address": "0x00403010",
+                "dataType": "int",
+                "length": 4,
+                "symbolName": "g_data",
+            },
+        }
+        sections = [
+            {"name": '.weird*/ system("pwned"); /*', "va": 0x00403000, "size": 0x1000},
+        ]
+
+        _runpull_data(monkeypatch, tmp_path, symbols, data_by_addr, sections=sections)
+        header = (tmp_path / "rebrew_globals.h").read_text(encoding="utf-8")
+        assert "*/ system(" not in header
+        assert ".weird* / system(" in header
+
     def test_section_grouping(self, tmp_path: Any, monkeypatch: Any) -> None:
         symbols = [
             {"name": "g_data", "address": "0x00403010", "isFunction": False},

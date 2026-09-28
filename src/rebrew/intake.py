@@ -41,7 +41,12 @@ from rebrew.cli import EXIT_OK, console, error_exit, json_print
 from rebrew.config import ConfigError, validate_target_name
 from rebrew.skeleton import C89_STRICT_PROFILES
 from rebrew.sources import iter_sources
-from rebrew.utils import SOURCE_CHECKOUT, atomic_write_text, read_json_text
+from rebrew.utils import (
+    SOURCE_CHECKOUT,
+    atomic_write_text,
+    c_comment_safe,
+    read_json_text,
+)
 
 app = typer.Typer(help="One-shot binary onboarding: init + detect + functions + document.")
 
@@ -145,8 +150,12 @@ def blocker_reason(family: str, size: int, version_hint: str) -> str:
             "compilers; documented"
         )
     if family in ("mingw", "zig"):
+        # The hint carries PDB / DIE strings out of the target binary, and the
+        # caller drops this text into a ``/* ... */`` comment in a generated
+        # stub that rebrew then compiles.
+        hint = c_comment_safe(version_hint) if version_hint else "codegen not identifiable"
         return (
-            f"MinGW GCC/Zig application code ({version_hint or 'codegen not identifiable'}) — "
+            f"MinGW GCC/Zig application code ({hint}) — "
             "byte-exact matching requires the author's exact toolchain version; "
             "structural matching may be viable"
         )

@@ -8,7 +8,8 @@ it belongs to rather than starting a sixth.
 
 - **Text and identifiers**: ``strip_bidi_format``, ``strip_body``,
   ``strip_comment_blocks``, ``strip_generated_timestamp``, ``filename_component``,
-  ``is_safe_c_ident``, ``fold_ident``, ``ascii_slug``, ``preset_module_key``,
+  ``is_safe_c_ident``, ``c_comment_safe``, ``pe_name_token``, ``fold_ident``,
+  ``ascii_slug``, ``preset_module_key``,
   ``parse_int_literal``, ``parse_c_integer_literal``, ``source_newline``,
   ``safe_shlex_split``
 - **Source and config reading**: ``read_source_text`` / ``read_compile_source``
@@ -179,6 +180,19 @@ def floor_pct(part: float, whole: float, decimals: int = 1) -> float:
 def is_safe_c_ident(name: str) -> bool:
     """True when *name* can be emitted verbatim as a C identifier."""
     return bool(_C_IDENT_RE.match(name))
+
+
+def c_comment_safe(text: str) -> str:
+    """Make *text* safe to embed inside a generated ``/* ... */`` comment.
+
+    Every string a generated source carries from the analyzed binary is
+    attacker-controlled: Ghidra symbol names, PE section names, annotation
+    notes.  A ``*/`` in any of them closes the enclosing comment early and
+    puts the rest of the line into the header body as C, which ``rebrew test``
+    then compiles.  Splitting ``*/`` keeps the text readable while defusing
+    the breakout; other non-printable characters become spaces.
+    """
+    return "".join(" " if not ch.isprintable() else ch for ch in text.replace("*/", "* /"))
 
 
 def pe_name_token(name: str | None) -> str:

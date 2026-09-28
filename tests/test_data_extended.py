@@ -227,6 +227,24 @@ class TestGenGlobalsHeader:
         text = out.read_text(encoding="utf-8")
         assert text.count("extern") == 1  # one decl despite two annotations
 
+    def test_hostile_section_name_cannot_break_out(self, tmp_path: Path) -> None:
+        """A section name is read out of the target binary, so ``*/`` in one
+        must not close the section comment and inject C into a header the next
+        ``rebrew test`` compiles."""
+        cfg = _cfg(tmp_path)
+        (cfg.reversed_dir / "globals.c").write_text(
+            "// DATA: SERVER 0x1000\nint g_counter;\n", encoding="utf-8"
+        )
+        (cfg.metadata_dir / "rebrew-data.toml").write_text(
+            '["SERVER.0x1000"]\nname = "g_counter"\ntype = "int"\n'
+            'section = ".data*/ system(\\"pwned\\"); /*"\n',
+            encoding="utf-8",
+        )
+        gen_globals_header(cfg, cfg.reversed_dir, force=True)
+        text = (cfg.reversed_dir / "rebrew_globals.h").read_text(encoding="utf-8")
+        assert "*/ system(" not in text
+        assert ".data* / system(" in text
+
     def test_metadata_name_is_not_undecorated(self, tmp_path: Path) -> None:
         """A metadata name is already the C identifier, so CRT names keep their
         leading underscores: `_FPinit` must not be written as `FPinit`."""

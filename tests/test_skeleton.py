@@ -1152,17 +1152,17 @@ def test_convention_stub_16bit_pascal(tmp_path: Path) -> None:
 
 class TestCCommentSafe:
     def test_neutralizes_comment_close(self) -> None:
-        from rebrew.skeleton import c_comment_safe
+        from rebrew.utils import c_comment_safe
 
         assert c_comment_safe("evil*/ system(); /*") == "evil* / system(); /*"
 
     def test_plain_name_untouched(self) -> None:
-        from rebrew.skeleton import c_comment_safe
+        from rebrew.utils import c_comment_safe
 
         assert c_comment_safe("FUN_10001000") == "FUN_10001000"
 
     def test_control_chars_become_spaces(self) -> None:
-        from rebrew.skeleton import c_comment_safe
+        from rebrew.utils import c_comment_safe
 
         assert c_comment_safe("a\r\nb\x00c") == "a  b c"
 
@@ -1174,7 +1174,7 @@ class TestCCommentSafe:
         ``x*/system("calc");/*@16`` put ``system("calc");`` in the body of a
         generated ``.c`` that ``rebrew test`` compiles and runs.
         """
-        from rebrew.skeleton import c_comment_safe
+        from rebrew.utils import c_comment_safe
 
         callee = 'x*/system("calc");/*@16'
         note = f"ends in a tail call to {c_comment_safe(callee)} (4 stack arg(s) forwarded)"

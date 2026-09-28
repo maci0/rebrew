@@ -48,7 +48,7 @@ from rebrew.cli import (
 )
 from rebrew.config import ProjectConfig, module_marker
 from rebrew.naming import avoid_windows_reserved
-from rebrew.utils import is_safe_c_ident, strip_body
+from rebrew.utils import c_comment_safe, is_safe_c_ident, strip_body
 
 log = logging.getLogger(__name__)
 
@@ -1127,8 +1127,7 @@ def import_type_definitions(
         if not definition:
             continue
         if not _definition_is_valid(definition, name, new[name]):
-            # Break ``*/`` so the definition cannot close the comment early.
-            inert = definition.replace("*/", "* /")
+            inert = c_comment_safe(definition)
             definition = f"/* UNPARSED from BinSync (no known layout):\n{inert}\n*/"
         # The BinSync key is not a safe dedup token: an UNPARSED comment and a
         # definition whose declared name differs from the key never contain it,

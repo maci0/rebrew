@@ -64,6 +64,7 @@ from rebrew.sources import (
 )
 from rebrew.utils import (
     atomic_write_text,
+    c_comment_safe,
     read_source_text,
     rel_display_path,
     source_newline,
@@ -74,18 +75,6 @@ logger = logging.getLogger(__name__)
 #: 16-bit DOS profiles whose C compiler rejects ``//`` comments (C89-strict).
 #: Their skeleton markers are emitted as ``/* ... */`` instead.
 C89_STRICT_PROFILES = frozenset({"borland-2.0", "msvc-1.52", "watcom-2.0-win16"})
-
-
-def c_comment_safe(text: str) -> str:
-    """Make *text* safe to embed inside a generated ``/* ... */`` comment.
-
-    Ghidra/symbol names derive from the analyzed binary, so an attacker can
-    plant ``*/`` in a function name to close the comment early and inject
-    arbitrary C into the generated skeleton (which ``rebrew test`` compiles).
-    Splitting ``*/`` keeps the text readable while defusing the breakout;
-    other control characters become spaces.
-    """
-    return "".join(" " if not ch.isprintable() else ch for ch in text.replace("*/", "* /"))
 
 
 def _decomp_comment_lines(decomp_code: str, decomp_backend: str) -> list[str]:

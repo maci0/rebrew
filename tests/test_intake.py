@@ -348,6 +348,13 @@ class TestBlockers:
     def test_default_reason(self) -> None:
         assert "pending" in blocker_reason("msvc", 64, "")
 
+    def test_version_hint_cannot_break_out_of_the_stub_comment(self) -> None:
+        """The hint is a PDB/DIE string out of the target binary, and the reason
+        lands in a ``/* ... */`` comment of a stub rebrew compiles."""
+        reason = blocker_reason("mingw", 64, 'Zig */ system("pwned"); /*')
+        assert "*/ system(" not in reason
+        assert '* / system("pwned"); /*' in reason
+
 
 class TestSuggestProfile:
     def test_watcom_routes_to_watcom_profile(self, monkeypatch) -> None:

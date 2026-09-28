@@ -938,9 +938,12 @@ def export_state(
     # Collect struct definitions: prefer real definitions from headers/sources,
     # fall back to annotation STRUCT: names for any not found in sources
     struct_defs = _collect_struct_definitions(cfg)
+    # A function annotated with a struct the tree does not define still gets
+    # an entry, so the struct lands in the state dir with no fields rather
+    # than going missing. Only the field list is read below.
     for e in func_entries:
         if e.struct and e.struct not in struct_defs:
-            struct_defs[e.struct] = (f"/* placeholder for {e.struct} */", [])
+            struct_defs[e.struct] = ("", [])
 
     enum_defs = _collect_enum_definitions(cfg)
     typedef_defs = _collect_typedef_definitions(cfg)
