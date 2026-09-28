@@ -481,7 +481,7 @@ Flag-axis refresh from decomp.me (maintainer, needs network):
 
 ### Flag Sweep Tiers
 
-The flag sweep uses compiler flag definitions synced from [decomp.me](https://github.com/decompme/decomp.me). The `generate_flag_combinations(tier)` function supports five effort levels: `quick` (192 combos), `targeted` (~1.2K combos), `normal` (~5.4K combos), `thorough` (~258K combos), and `full` (~6.2M combos; stride-sampled down to a 100K memory bound). The `msvc-6.0` compiler profile automatically excludes incompatible MSVC 7.x+ flags. See [docs/FLAG_SWEEP_TIERS.md](https://github.com/maci0/rebrew/blob/main/docs/FLAG_SWEEP_TIERS.md).
+The flag sweep uses compiler flag definitions synced from [decomp.me](https://github.com/decompme/decomp.me). The `generate_flag_combinations(tier)` function supports five effort levels: `quick` (192 combos), `targeted` (~1.2K combos), `normal` (~5.4K combos), `thorough` (~258K combos; stride-sampled down to ~51.6K), and `full` (~6.2M combos; stride-sampled down to ~95.3K, under a 100K memory bound). The `msvc-6.0` compiler profile automatically excludes incompatible MSVC 7.x+ flags. See [docs/FLAG_SWEEP_TIERS.md](https://github.com/maci0/rebrew/blob/main/docs/FLAG_SWEEP_TIERS.md).
 
 ## Ecosystem & Related Tools
 

@@ -17,15 +17,16 @@ options) or a `Checkbox` (on/off), so total combinations multiply.
 | `quick` | 3 | 192 | < 1 min | First attempt on a new STUB; rules out most /O and /G variants fast |
 | `targeted` | 5 | 1,152 | 1–3 min | Default for `--flag-sweep-only`; adds /Oy and /Op |
 | `normal` | 5 | 5,376 | 3–10 min | Follow-up when `targeted` is close but not EXACT; adds /ML-/MTd runtime-library axis |
-| `thorough` | 9 | 258,048 | 15–60 min | Use when `normal` still leaves a near-match; adds struct alignment and debug-info toggles |
-| `full` | 13 | 6,193,152 | hours | Last resort; exhausts every known axis including /TP, /GR, /GX |
+| `thorough` | 9 | 258,048 | hours | Use when `normal` still leaves a near-match; adds struct alignment and debug-info toggles |
+| `full` | 13 | 6,193,152 | hours | Last resort; sweeps every known axis including /TP, /GR, /GX |
 
 `thorough` and `full` are too large to materialize as a full set (~400 MB):
 `generate_flag_combinations` stride-samples the product stream down to a
 100,000-combination memory bound (51,610 and 95,280 respectively — the
 stride is bumped until it is coprime to every axis length so no flag value
 is silently dropped), so the columns above are the full product counts, not
-what actually compiles.
+what actually compiles. Runtime figures are sized from the sampled count, not
+the product count.
 
 ## Axes per Tier
 

@@ -26,10 +26,13 @@ class CompileContext:
         path: File the context was read from.
         text: Exact text the compile prepends (empty means "no declarations",
             which leaves the compile unit and its cache key unchanged).
-        sha256: Hex digest of ``text`` encoded UTF-8.  Recorded beside a
-            compile verdict so a stored result names the context it was
-            earned under; a changed digest is a different compile input, not
-            a still-valid match.
+        sha256: Hex digest of ``text``, encoding with
+            ``errors="surrogateescape"``.  A legacy-encoded context is read
+            the same way, so the digest covers the file's original bytes and
+            a context the loader could not decode still pins a compile
+            instead of erroring.  Recorded beside a compile verdict so a
+            stored result names the context it was earned under; a changed
+            digest is a different compile input, not a still-valid match.
     """
 
     path: Path
@@ -38,7 +41,15 @@ class CompileContext:
 
 
 def context_sha256(text: str) -> str:
-    """SHA-256 hex digest of a context document (UTF-8)."""
+    """SHA-256 hex digest of a context document.
+
+    Encodes with ``errors="surrogateescape"``, the same scheme
+    :func:`load_compile_context` decodes with, so the read/write pair is
+    lossless for a legacy-encoded context and the digest names the bytes the
+    compile consumed.  A strict ``encode("utf-8")`` raised
+    ``UnicodeEncodeError`` on the surrogates such a read produces, which
+    callers cannot turn into a stored result.
+    """
     return hashlib.sha256(text.encode("utf-8", errors="surrogateescape")).hexdigest()
 
 

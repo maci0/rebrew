@@ -20,7 +20,7 @@ enforced there), a package job
 that builds the sdist/wheel via `make build` (SOURCE_DATE_EPOCH, umask 022, C/UTC,
 `PYTHONHASHSEED=0`; `tools/normalize_sdist.py` rewrites sdist tar metadata and
 wheel entry modes), checks both artifacts hash the same when
-`make build` reruns from a `git archive` copy extracted under umask 077 at
+`make build-repro` reruns from a `git archive` copy extracted under umask 077 at
 another path under another TZ and locale (an EXIT trap removes that copy on
 every exit path, so a failed comparison does not leave a second source tree
 beside the workspace), emits a CycloneDX 1.5 SBOM
@@ -88,12 +88,12 @@ Lint, pre-commit, package, cli-contract, and toolchain-sync pin the exact
 Python patch from `.python-version`; the test matrix pins that patch for its
 3.13 entry (the coverage gate) and floats on the 3.14 minor for forward-compat
 coverage. Jobs run on pinned `ubuntu-24.04` (not
-`ubuntu-latest`). Both workflows also take `workflow_dispatch`: the apt and
-codeload helpers retry three times, so a mirror that stays down past that
-needs a manual re-run, and re-running a failed job alone cannot pick up a
-fixed mirror or a new runner image. `setup-uv` runs with `enable-cache` and
-`cache-python`, so the pinned managed CPython is cached alongside the uv
-cache. Workflow `permissions` are `contents: read` only:
+`ubuntu-latest`). Both workflows also take `workflow_dispatch`: the apt
+install and resembl clone helpers retry three times, so a network that stays
+down past that needs a manual re-run, and re-running a failed job alone
+cannot pick up a fixed mirror or a new runner image. `setup-uv` runs with
+`enable-cache` and `cache-python`, so the pinned managed CPython is cached
+alongside the uv cache. Workflow `permissions` are `contents: read` only:
 `setup-uv`'s `enable-cache` saves through the runner's cache token, not
 `GITHUB_TOKEN`. It does **not**
 require a target binary or MSVC toolchain.

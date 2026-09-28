@@ -628,8 +628,11 @@ def save_verify_cache(
 
     The file is replaced wholesale, not merged, so a filtered run must pass
     the VAs it did not measure in *preserve_keys* or they are lost.
-    ``INTERNAL_ERROR`` rows are dropped rather than stored, and an
-    unreadable prior cache aborts the write instead of being overwritten.
+    ``INTERNAL_ERROR`` rows are dropped rather than stored, and a run with
+    non-empty *preserve_keys* aborts the write rather than overwrite a prior
+    cache it cannot read: the preserved VAs would be wiped with no signal. An
+    unfiltered run has nothing to preserve, so it replaces the file whatever
+    was there.
     """
     filepath_info: dict[str, tuple[int, str]] = {}
     fp_by_va: dict[str, Any] = {}

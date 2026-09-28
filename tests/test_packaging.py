@@ -729,7 +729,7 @@ class TestCycloneDxSbom:
             ("advisories", "https://github.com/maci0/rebrew/blob/main/SECURITY.md"),
         }
         by_name = {c["name"]: c for c in bom["components"]}
-        # resembl 3.0.0 declares License-Expression: GPL-3.0-only.
+        # resembl 3.1.0 declares License-Expression: GPL-3.0-only.
         assert by_name["resembl"]["licenses"] == [{"expression": "GPL-3.0-only"}]
         assert by_name["m2c"]["licenses"] == [{"expression": "GPL-3.0-only"}]
         assert by_name["pyvex"]["licenses"] == [{"expression": "BSD-2-Clause AND GPL-2.0-or-later"}]

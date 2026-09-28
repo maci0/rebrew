@@ -11,23 +11,27 @@ it belongs to rather than starting a sixth.
   ``is_safe_c_ident``, ``c_comment_safe``, ``pe_name_token``, ``fold_ident``,
   ``ascii_slug``, ``preset_module_key``, ``toml_safe``,
   ``parse_int_literal``, ``parse_c_integer_literal``, ``source_newline``,
-  ``safe_shlex_split``
+  ``safe_shlex_split``, ``untrusted_literal`` / ``untrusted_text``
 - **Source and config reading**: ``read_source_text`` / ``read_compile_source``
   (with the LRU memo and its ``clear_source_text_memo`` reset),
+  ``split_source_lines`` / ``join_source_lines``,
   ``detect_source_encoding``, ``read_toml_text``, ``load_tomllib``,
-  ``load_toml_for_write``, ``read_json_text``
+  ``load_toml_for_write`` / ``load_toml_for_write_strict``, ``read_json_text``
 - **Atomic and locked writes**: ``atomic_write_text`` / ``atomic_write_bytes``,
   ``atomic_write_locked``, ``file_lock`` / ``file_handle_lock``,
   ``preserve_corrupt``
 - **Subprocesses**: ``run_process_group`` (process-tree teardown, timeout,
-  captured pipes), ``watch_files``
+  captured pipes), ``interruptible_pool`` (leaving the pool does not wait on
+  the queue), ``watch_files``
 - **Host environment**: ``container_runtime`` / ``DEFAULT_CONTAINER_RUNTIME`` /
   ``CONTAINER_RUNTIMES``, ``find_install_tool``, ``md5_file``,
   ``SOURCE_CHECKOUT`` (the contributor checkout, ``None`` in an install),
   ``xdg_cache_home``, ``writable_temp_dir``, ``remove_temp_dir``,
-  ``rel_display_path``
-- **Presentation helpers**: ``clip_span``, ``merged_span_bytes``, ``floor_pct``,
-  ``close_response``
+  ``on_ram_filesystem`` / ``sweep_stale_temp_dirs``, ``rel_display_path``
+- **Presentation helpers**: ``console`` (the stderr sink every module imports,
+  so target strings are scrubbed once and for all), ``clip_span``,
+  ``merged_span_bytes``, ``floor_pct``, ``close_response``,
+  ``retry_backoff_delay``
   (plus ``RETRYABLE_HTTP_STATUS``)
 
 ``utils`` is not a place for domain logic.  A helper that knows about a

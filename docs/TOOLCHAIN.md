@@ -746,19 +746,20 @@ trees and, notably, not all of them export `INCLUDE`/`LIB`.  The seven
 `6.0` through `6.0-sp6` images are in the table below; `6.0-sp5-pp` reuses the
 SP5 12.00.8804 compiler under `/opt/msvc6.0-sp5-pp/VC98/Bin`, while
 `6.0-win9x` ships its own 12.00.8168 build under `/opt/msvc6.0-win9x/Bin`.
-Container roots below are the registry's `tool_root` values
-(`src/rebrew/toolchain_data.py`). Measured from the images on this
+Container roots below are the directory holding the `bin` tree that each
+registry `tool_root` names (`src/rebrew/toolchain_data.py`), so the `bin`
+casing is the image's own. Measured from the images on this
 workstation:
 
 | Image | CL.EXE | Container toolchain root | Wrapper exports INCLUDE/LIB | LIBCMT.LIB sha256 |
 |---|---|---|---|---|
-| `rebrew/msvc:6.0-win32` | 12.00.8168 | `/opt/msvc6.0/VC98` | yes | `1ef9c27b4f76…` |
-| `rebrew/msvc:6.0-sp1-win32` | 12.00.8168 | `/opt/msvc6.0-sp1/VC98` | **no** | `1ef9c27b4f76…` |
-| `rebrew/msvc:6.0-sp2-win32` | 12.00.8168 | `/opt/msvc6.0-sp2/VC98` | **no** | `1ef9c27b4f76…` |
-| `rebrew/msvc:6.0-sp3-win32` | 12.00.8168 | `/opt/msvc6.0-sp3/VC98` | **no** | (ships no `Lib`) |
-| `rebrew/msvc:6.0-sp4-win32` | 12.00.8804 | `/opt/msvc6.0-sp4/VC98` | **no** | `5dc8e4bc5377…` |
-| `rebrew/msvc:6.0-sp5-win32` | 12.00.8804 | `/opt/msvc6.0-sp5/VC98` | **no** | `28b9f0496237…` |
-| `rebrew/msvc:6.0-sp6-win32` | 12.00.8804 | `/opt/msvc6.0/VC98` | yes | `a541c95e5ffd…` |
+| `rebrew/msvc:6.0-win32` | 12.00.8168 | `/opt/msvc6.0/VC98/Bin` | yes | `1ef9c27b4f76…` |
+| `rebrew/msvc:6.0-sp1-win32` | 12.00.8168 | `/opt/msvc6.0-sp1/VC98/bin` | **no** | `1ef9c27b4f76…` |
+| `rebrew/msvc:6.0-sp2-win32` | 12.00.8168 | `/opt/msvc6.0-sp2/VC98/bin` | **no** | `1ef9c27b4f76…` |
+| `rebrew/msvc:6.0-sp3-win32` | 12.00.8168 | `/opt/msvc6.0-sp3/VC98/Bin` | **no** | (ships no `Lib`) |
+| `rebrew/msvc:6.0-sp4-win32` | 12.00.8804 | `/opt/msvc6.0-sp4/VC98/bin` | **no** | `5dc8e4bc5377…` |
+| `rebrew/msvc:6.0-sp5-win32` | 12.00.8804 | `/opt/msvc6.0-sp5/VC98/Bin` | **no** | `28b9f0496237…` |
+| `rebrew/msvc:6.0-sp6-win32` | 12.00.8804 | `/opt/msvc6.0-sp6/VC98/Bin` | yes | `a541c95e5ffd…` |
 
 Two consequences:
 
@@ -1058,6 +1059,7 @@ yara /tmp/test.yar target.dll
 | Library | Use in Project |
 |---------|----------------|
 | **capstone** | x86 disassembly in matcher scoring |
+| **click** | Shell completion for the installed CLI (`init.py`) |
 | **diskcache** | Persistent shared compile cache (`.rebrew/compile_cache/` via `compile_cache.py`; GA same-run memo is in-memory) |
 | **httpx** | HTTP client for Ghidra/ReVa MCP communication (`ghidra/cli.py`, `skeleton.py`, `decompiler.py`) |
 | **lief** | PE/ELF/Mach-O parsing — core dependency for `binary_loader.py`, `matcher/parsers.py` |
@@ -1068,6 +1070,7 @@ yara /tmp/test.yar target.dll
 | **tree-sitter** | C source AST parsing for signature and struct extraction |
 | **tree-sitter-c** | Tree-sitter C language grammar (used with `tree-sitter`) |
 | **typer** | CLI framework with rich help |
+| **zstandard** | Wire compression for the dashboard (`dashboard.py`, `compression.py`) |
 
 ### Optional Dependencies
 

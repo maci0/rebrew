@@ -1493,8 +1493,8 @@ def _save_report(
             report["missing_sizes"] = missing_sizes
 
     # F9: a failed --compare gate must not record state — the baseline is
-    # preserved below, and the compile cache is skipped too so a CI failure
-    # leaves no new cache entries behind.
+    # preserved below, and the verify cache write below is skipped too so a CI
+    # failure leaves no new entries behind.
     diff_result: dict[str, Any] | None = None
     if diff_mode and previous_report is not None:
         diff_result = diff_reports(previous_report, report)
@@ -2447,7 +2447,7 @@ def run_verification(
 def _apply_or_preview_status(
     deferred_fixes: list[tuple[Annotation, str, int]], cfg: Any, dry_run: bool
 ) -> None:
-    """Apply STATUS metadata updates, or preview them with ``--dry-run``."""
+    """Apply STATUS metadata updates, or preview them for ``--dry-run`` / ``--no-promote``."""
     if not deferred_fixes:
         return
     if dry_run:

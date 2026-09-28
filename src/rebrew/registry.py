@@ -17,21 +17,21 @@ Two sources feed every registry:
    mechanism for project-local components that are not packaged.
 
 The packaged built-ins remain the base registry; discovered components
-merge on top.  Conflict policy (single-source discipline): a name may be
-registered by exactly one source.  A duplicate raises :class:`RegistryError`
-naming the incoming origin — the "no two fibers of one registry whose provisions
-meet" rule of the spatiotemporal-composability model this mirrors.
+merge on top.  Conflict policy (single-source discipline): a name belongs to
+exactly one source, and what happens to a second claim on it depends on the
+registry's role, since a wrong component is worse than a missing one for some
+groups and the reverse for others.
 
-Failure policy: how a broken plugin registration is handled depends on the
-registry's role.  **Identity-critical** toolchains keep the loud
-``RegistryError`` on a duplicate name (a wrong compiler produces wrong
-bytes).  **CLI** plugin name clashes against a built-in are warn+skip
-(discovery has no console yet; see ``entry_point_components``).
-**Optional/tuning** registries (decompiler backends, GA mutations, flag
-sets, library presets, detectors, binary loaders, cache backends,
-discoverers) skip the broken or duplicate entry with a warning — a bad plugin must not brick the
-importing module, matching the CLI's stub-degradation for broken command
-plugins.  Tuning groups that are meant to be overridden
+**Identity-critical** toolchains keep the loud :class:`RegistryError` on a
+duplicate name (a wrong compiler produces wrong bytes).  **CLI** plugin name
+clashes against a built-in are warn+skip (discovery has no console yet; see
+``entry_point_components``).  **Optional/tuning** registries (decompiler
+backends, GA mutations, flag sets, library presets, detectors, binary loaders,
+cache backends, discoverers) skip the broken or duplicate entry with a
+warning, so a bad plugin must not brick the importing module: this is
+:func:`load_registration_optional` catching the :class:`RegistryError` that
+:func:`merge_into` raises, and matches the CLI's stub-degradation for broken
+command plugins.  Tuning groups that are meant to be overridden
 (``flag_sets``, ``library_presets``, ``msvc_versions``) extend/replace by
 name instead of treating a second source as a conflict.
 """

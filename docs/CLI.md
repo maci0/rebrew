@@ -7,9 +7,12 @@ Most tools support `--target / -t` to select a target from `rebrew-project.toml`
 read defaults (binary path, reversed_dir, compiler settings) from the project config.
 The ones that do not (`postlink`, `cmake-toolchain`, `build-check`, `order-sources`,
 `gen-link-stubs`, `gen-stubs`, `pdb-info`, `discover-functions`, `unpack-lzexe`,
-`gen-flirt-pat`, `dashboard`, plus the `library`, `resource`, and `skills` groups)
-take their input paths directly.  Within the `cfg` group, `list-targets`, `raw`, `path`, `set`, `add-target`,
-and `remove-target` have no `--target` either: the first three act
+`gen-flirt-pat`, `dashboard`, plus the `library`, `resource`, and `skills` groups,
+and the bare `extract` group, whose `list`, `show`, and `batch` subcommands do take
+`--target`) take their input paths directly.  Within the `toolchain` group only
+`detect` takes `--target`; `list`, `status`, `pull`, `vendor`, `smoke`, `build`,
+`check-updates`, and `update` do not.  Within the `cfg` group, `list-targets`, `raw`,
+`path`, `set`, `add-target`, and `remove-target` have no `--target` either: the first three act
 on the file, `set` addresses a key by dotted path, and `add-target` /
 `remove-target` / `set-compiler` name the target as a positional argument.
 `rebrew init` and `rebrew intake` also take a
@@ -2917,7 +2920,7 @@ See [CI.md](CI.md) for workspace CI recipes (`verify --compare`,
 | Module | Purpose |
 |--------|---------|
 | `annotation.py` | Canonical annotation parser (`parse_c_file_multi`, `parse_c_file_text`) |
-| `lint.py` | Source marker linter (10 E-codes, 20 W-codes); `--fix` migrates leftover inline metadata and drops W029-redundant cflags; W005 points to `rebrew blocker set` for STUB BLOCKERs |
+| `lint.py` | Source marker linter (10 E-codes, 23 W-codes); `--fix` migrates leftover inline metadata and drops W029-redundant cflags; W005 points to `rebrew blocker set` for STUB BLOCKERs |
 | `blocker.py` | Programmatic BLOCKER writer — `rebrew blocker set/clear/show` (`--json`, `--dry-run`, `--delta`, `--va`); every write via `rebrew.metadata` (never hand-edit `rebrew-functions.toml`) |
 | `ghidra/cli.py` | Sync annotations to Ghidra via ReVa MCP; skips generic `func_` labels by default |
 

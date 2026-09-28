@@ -46,13 +46,17 @@ supplies its own tag.
   instead of leaving the last status writer's tag standing.  `MetadataEntry.apply`
   (the typed facade) forwards the same keyword.  Tags in use: `test`, `verify`,
   `prove`, `match`, `diff`, `near-diag`, `blocker`, `skeleton`, `lint`,
-  `cross-import`, `binsync-import`, `fix-sizes`, `intake`.  A writer that passes
-  no tag leaves the stored stamp alone, so an un-tagged programmatic write is
-  never mistaken for a tool's work.
+  `cross-import`, `binsync-import`, `fix-sizes`, `intake`, plus `rename` on data
+  rows.  A writer that passes no tag leaves the stored stamp alone, so an
+  un-tagged programmatic write is never mistaken for a tool's work.
 - **Data store.** `set_data_field` / `set_data_fields_batch` stamp the same pair
-  alongside whichever field they change: `verify --data` records `verify` on a
-  `VERIFIED` / `DRIFT` / `UNCHECKED` verdict, so the measurement's author and
-  time survive deleting `db/` — the coverage document's `verify_results[]` row
+  alongside whichever field they change, tagged by the writer that ran: `verify`
+  from `verify --data` on a
+  `VERIFIED` / `DRIFT` / `UNCHECKED` verdict, `rename` from `rebrew rename` on a
+  renamed global, `data` from `rebrew data`, `lint` on a migrated data marker.
+  The verdict stamp is the one that matters: it keeps the measurement's author
+  and time alive after deleting `db/`.
+  The coverage document's `verify_results[]` row
   (`verified_at`, `byte_delta`, `diff_lines`, `similarity`, `reg_delta`,
   `effective_match`) is derived and a rebuild only carries it forward.
 - **Coverage document.** It mirrors the function store's

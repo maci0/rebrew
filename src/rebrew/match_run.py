@@ -735,7 +735,9 @@ def _classify_ga_ceiling(
     with only re-encoded opcode bytes.  Both are unreachable from portable C,
     so further GA search cannot succeed: register allocation and encoding
     choice are compiler-internal decisions.  An ``equivalent`` byte
-    (instruction selection) is C-fixable and clears the ceiling.
+    (instruction selection) is C-fixable, so it clears the ceiling in the
+    encoding branch; the register branch is tested first and labels a
+    champion with zero structural bytes by its register residual alone.
 
     ``BuildResult.obj_bytes`` is the extracted FUNCTION CODE (not a COFF
     object), so it is classified in memory.  The previous version wrote it to
@@ -1006,7 +1008,8 @@ def run_all(
     """Batch driver: run GA or flag sweep across all discovered functions.
 
     Returns ``(matched_count, failed_count)``; ``(0, 0)`` on the dry-run
-    and flag-sweep early paths.
+    path.  The flag-sweep path reports the real exact and not-exact counts
+    from :func:`_run_batch_flag_sweep`.
 
     *clock* is the time source every stub's budget is stamped from and read
     back from (the default is :func:`time.monotonic`), so a batch replayed

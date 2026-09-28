@@ -108,18 +108,21 @@ shapes that matter for a hand-written script or a review:
 | `BLOCKER`, `BLOCKER_DELTA` | string / integer | `rebrew blocker set/clear`, `rebrew diff --fix-blocker`, `rebrew near-diag --fix-blocker`, `rebrew document-unmatched`; cleared on a byte match |
 | `NOTE`, `GHIDRA`, `ANALYSIS` | string | `update_field` (`rebrew blocker`/lint migrations, BinSync pull) |
 | `SKIP` | boolean | a manual park through `update_field`; the promotion gate then keeps the row parked (no status write silently unparks it) |
-| `GLOBALS`, `LOCALS`, `COMMENTS`, `PROVE_CONSTRAINTS` | tables | `GLOBALS` from `rebrew sync --pull`, the rest from analysis and prove writers; an inline scalar for these warns (W019) but cannot migrate |
+| `GLOBALS`, `LOCALS`, `COMMENTS`, `PROVE_CONSTRAINTS` | `GLOBALS` a list of strings, the other three tables | `GLOBALS` from `rebrew sync --pull`, the rest from analysis and prove writers; an inline scalar for the three table fields warns (W019) but cannot migrate, while an inline `GLOBALS` migrates as a list |
 | `SOURCE` | `naked` (the only stored value) | stays in the `.c` as `// SOURCE: naked` — file-borne, W019-exempt, and self-clearing when the real C body replaces it; a non-naked value is migration debt that `lint --fix` moves into the TOML |
 | `UPDATED_BY`, `UPDATED_AT` | string / ISO-8601 UTC | every gated writer, as a pair: STATUS through `update_source_status` / `update_statuses_batch`, every other field through `update_field` / `set_fields` (and `MetadataEntry.apply`) |
 
 **Provenance names the last write of any kind.** `UPDATED_BY` is one of
 `test`, `verify`, `prove`, `match`, `diff`, `near-diag`, `blocker`, `skeleton`,
-`lint`, `cross-import`, `binsync-import`, `fix-sizes`, `intake`, and it names
-the tool that wrote the row most recently — a `BLOCKER` edit through
-`update_field` stamps itself, so it does not leave a months-old `verify` tag
+`lint`, `cross-import`, `binsync-import`, `fix-sizes`, `intake`, plus `rename`
+on data rows, and it names the tool that wrote the row most recently, so a
+`BLOCKER` edit through
+`update_field` stamps itself instead of leaving a months-old `verify` tag
 standing on the row.  A writer that passes no tag keeps the stored stamp.
-`rebrew-data.toml` carries the same pair (`verify --data` stamps `verify` on
-each verdict); see [Write provenance](METADATA.md#write-provenance).
+`rebrew-data.toml` carries the same pair, tagged by whichever data writer ran:
+`verify` from `verify --data` on each verdict, `rename` on a renamed global,
+`data` from `rebrew data`, `lint` on a migrated data marker; see
+[Write provenance](METADATA.md#write-provenance).
 
 > **Never write `rebrew-functions.toml` manually** — every BLOCKER, STATUS,
 > CFLAGS, and NOTE write must go through the API above or its CLI gate

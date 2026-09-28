@@ -172,8 +172,9 @@ would be a second answer to that question. See
 - **metadata-owned**: STATUS, TOOLCHAIN, BLOCKER, BLOCKER_DELTA,
   NOTE, GHIDRA, ANALYSIS, SKIP, GLOBALS, LOCALS, COMMENTS, SOURCE,
   PROVE_CONSTRAINTS — live in `rebrew-functions.toml`; inline use fires lint
-  W019. UPDATED_BY/UPDATED_AT (STATUS-write provenance) are written by the
-  status writers only and are not lint-checked inline. SIZE is co-read
+  W019. UPDATED_BY/UPDATED_AT (write provenance) are stamped on every metadata
+  write, and an inline occurrence fires W019 like any other metadata key (W019's
+  `--fix` strips them rather than migrating a stamp). SIZE is co-read
   inline (reccmp contract: W019 warns only on disagreement, never migrates);
   CFLAGS gets the same disagreement-only check when the metadata has a value,
   and otherwise the deprecation W019; `// SOURCE: naked` is file-borne and
@@ -184,10 +185,9 @@ would be a second answer to that question. See
 - **data-owned**: SECTION (owned by `rebrew-data.toml` for DATA/GLOBAL
   entries) — deliberately absent from function `METADATA_FIELDS`.
 - `metadata.METADATA_FIELDS` is the single routing table. `annotation.METADATA_KEYS`
-  is the W019 key set: `METADATA_FIELDS` minus UPDATED_BY/UPDATED_AT, plus the
-  legacy ORIGIN and data-owned SECTION (the
-  `SIZE`/`CFLAGS`/`SOURCE:naked` exemptions live in W019's check, not the
-  key set);
+  is the W019 key set: `METADATA_FIELDS` plus the legacy ORIGIN and the
+  data-owned SECTION (the `SIZE`/`CFLAGS`/`SOURCE:naked` exemptions live in
+  W019's check, not the key set);
   `metadata_model.MetadataEntry.apply` rejects writes of any other key with
   `MetadataValidationError`.
 

@@ -1540,7 +1540,10 @@ def compile_to_obj(
         source_path: Path to the .c source file.
         cflags: Compiler flags (string or list, e.g. "/O2 /Gd" or ["/O2", "/Gd"]).
         workdir: Working directory for compilation (mounted at /work).
-        cache: Explicit ``CompileCache`` instance to use.  When ``None``
+        cache: Explicit cache store to use, any
+            :class:`rebrew.compile_cache.CacheBackend` (the packaged
+            ``CompileCache`` or a plugin backend from the
+            ``rebrew.cache_backends`` entry-point group).  When ``None``
             and *use_cache* is True, a shared instance is obtained
             automatically from the project root.
         use_cache: Set to ``False`` to bypass the cache entirely.

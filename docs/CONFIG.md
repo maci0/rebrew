@@ -163,7 +163,7 @@ Other profiles carry their own axis sets (`msvc-1.52` 16-bit, `watcom-2.0-win32`
 `msvc-6.0` axis set.
 
 Flag axes are synced from [decomp.me](https://github.com/decompme/decomp.me) via `tools/sync_decomp_flags.py`.
-Sweep tiers: `quick` (~192), `targeted` (~1.2K), `normal` (~5.4K), `thorough` (~258K), `full` (~6.2M).
+Sweep tiers: `quick` (~192), `targeted` (~1.2K), `normal` (~5.4K), `thorough` (~258K, stride-sampled to ~51.6K), `full` (~6.2M, stride-sampled to ~95.3K).
 
 ## Compiler Configuration
 
