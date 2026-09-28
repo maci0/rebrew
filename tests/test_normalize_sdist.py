@@ -152,6 +152,27 @@ class TestNormalizeWheel:
         with zipfile.ZipFile(wheel) as zf:
             assert {info.date_time for info in zf.infolist()} == {(1980, 1, 1, 0, 0, 0)}
 
+    def test_odd_second_epoch_floors_to_the_zip_field_resolution(self, tmp_path: Path) -> None:
+        wheel = tmp_path / "pkg.whl"
+        _write_wheel(wheel, mode=0o644, date=(2020, 1, 2, 3, 4, 6), reverse=False)
+
+        assert _run(wheel, epoch=str(EPOCH + 1)).returncode == 0
+
+        # The DOS time field holds seconds in pairs, so the odd second the
+        # sdist records exactly is unreachable in a zip.  What is stored is
+        # the even second below it, which a reader gets back verbatim.
+        with zipfile.ZipFile(wheel) as zf:
+            assert {info.date_time for info in zf.infolist()} == {(2023, 11, 14, 22, 13, 20)}
+
+    def test_far_future_epoch_clamps_to_the_zip_ceiling(self, tmp_path: Path) -> None:
+        wheel = tmp_path / "pkg.whl"
+        _write_wheel(wheel, mode=0o644, date=(2020, 1, 2, 3, 4, 6), reverse=False)
+
+        assert _run(wheel, epoch=str(4_000_000_000_000)).returncode == 0
+
+        with zipfile.ZipFile(wheel) as zf:
+            assert {info.date_time for info in zf.infolist()} == {(2107, 12, 31, 23, 59, 58)}
+
     def test_missing_epoch_fails_loud(self, tmp_path: Path) -> None:
         wheel = tmp_path / "pkg.whl"
         _write_wheel(wheel, mode=0o644, date=(2020, 1, 2, 3, 4, 6), reverse=False)

@@ -3596,6 +3596,14 @@ class TestConnectionCap:
                         name, _, value = line.partition(": ")
                         headers[name] = value
                     assert headers["Retry-After"] == "1"
+                    # RFC 9110 IMF-fixdate, English names: the C library's
+                    # LC_TIME would localize the day/month abbreviations.
+                    assert re.fullmatch(
+                        r"(Mon|Tue|Wed|Thu|Fri|Sat|Sun), \d{2} "
+                        r"(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{4} "
+                        r"\d{2}:\d{2}:\d{2} GMT",
+                        headers["Date"],
+                    ), headers["Date"]
                     assert headers["Content-Type"] == "application/json; charset=utf-8"
                     assert headers["Cache-Control"] == "no-store"
                     assert headers["X-Content-Type-Options"] == "nosniff"

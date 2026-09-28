@@ -162,6 +162,7 @@ import traceback
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
+from email.utils import formatdate
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -2593,7 +2594,11 @@ def _send_over_capacity(
         _Handler._server_errors += 1
     lines = [
         "HTTP/1.1 503 Service Unavailable",
-        f"Date: {time.strftime('%a, %d %b %Y %H:%M:%S GMT', time.gmtime())}",
+        # IMF-fixdate: RFC 9110 requires the English day/month names, and
+        # email.utils is where they are hardcoded.  strftime reads them from
+        # the process LC_TIME, so it emits "Mi., 28 Sep 2026" wherever
+        # something set a non-C locale.
+        f"Date: {formatdate(usegmt=True)}",
         f"Retry-After: {_BUSY_RETRY_AFTER_S}",
         "Content-Type: application/json; charset=utf-8",
         f"Content-Length: {len(body)}",
