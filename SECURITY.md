@@ -36,7 +36,12 @@ downloads (wibo, SDK tarballs), docker/podman images (`REBREW_CONTAINER_RUNTIME`
 cmake bridge wineprefix / profile pins (`REBREW_WINEPREFIX`, `REBREW_TOOLCHAIN`),
 `REBREW_SKILLS_DIR` overlays, BinSync state-repo git remotes (`rebrew binsync pull`
 fast-forwards and imports by default), and installed Python entry-point plugins
-(including `rebrew.cache_backends`) as part of the trust boundary. On a
+(including `rebrew.cache_backends`) as part of the trust boundary. So are the
+host-tool knobs outside the `REBREW_` namespace: `KUNA_SPECS` (else the first
+pypcode spec dir under `UV_TOOL_DIR` / `XDG_DATA_HOME`) is the SLEIGH language
+definition the native `kuna` binary parses, and `XDG_CACHE_HOME` is the sandbox
+base whose `rebrew`-prefixed directories older than a day are deleted by
+`sweep_stale_temp_dirs` on the next compile (`src/rebrew/utils.py`). On a
 multi-user host the headless X display is one too: rebrew's `Xvfb` carries a
 per-run MIT-MAGICK cookie and an unauthenticated Xvfb already on the box is
 never adopted, so wine's windows are not readable by another local user
