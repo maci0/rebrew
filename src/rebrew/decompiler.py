@@ -38,7 +38,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from rebrew.config import expand_env_path
+from rebrew.config import expand_env_path, warn_env_dir
 from rebrew.registry import RegistryError
 from rebrew.utils import run_process_group
 
@@ -580,6 +580,12 @@ def _python_dir_version(directory: Path) -> tuple[int, ...]:
     return tuple(int(part) for part in digits if part.isdigit())
 
 
+#: ``KUNA_SPECS`` values already reported as non-directories.  The spec dir is
+#: resolved once per seeded function, so without this a bad path would print
+#: the same warning for every function in a GA run.
+_WARNED_KUNA_SPECS: set[str] = set()
+
+
 def _kuna_spec_dirs() -> list[Path]:
     """Candidate SLEIGH spec dirs for kuna, best first.
 
@@ -636,15 +642,29 @@ def kuna_spec_dir() -> str | None:
 
 
 def _kuna_specs_override() -> str | None:
-    """The operator's ``KUNA_SPECS``, or None when unset or blank.
+    """The operator's ``KUNA_SPECS``, or None when unset, blank, or not a directory.
 
     One predicate for both the discovery fallback and the injection decision
     in :func:`fetch_kuna`. Splitting them (truthiness here, presence there)
     meant ``KUNA_SPECS=''`` discovered a spec dir and then refused to inject
     it, leaving kuna on its rarely-present ``/specs/`` default.
+
+    A path that is not a directory is not honored either: an export left
+    behind by a moved checkout used to suppress discovery, so kuna ran
+    against its rarely-present ``/specs/`` default and every seed came back
+    empty with nothing naming the mistyped path.  Warn once and fall through
+    to discovery, the same treatment every other directory-valued env knob
+    gets in :func:`rebrew.config.env_dir_path`.
     """
     explicit = expand_env_path(os.environ.get("KUNA_SPECS", ""))
-    return str(explicit) if explicit is not None else None
+    if explicit is None:
+        return None
+    if not explicit.is_dir():
+        if str(explicit) not in _WARNED_KUNA_SPECS:
+            _WARNED_KUNA_SPECS.add(str(explicit))
+            warn_env_dir("KUNA_SPECS", os.environ.get("KUNA_SPECS", ""))
+        return None
+    return str(explicit)
 
 
 def fetch_kuna(binary: Path, va: int, root: Path, **_kwargs: Any) -> str | None:

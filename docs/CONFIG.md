@@ -482,6 +482,14 @@ rebrew receives.
 - `_REBREW_COMPLETE` — click's shell-completion mode marker, set by the completion scripts `rebrew init --install-completions` writes. Rebrew never reads it itself, and there is no `rebrew completion` command.
 - `GH_TOKEN` / `GITHUB_TOKEN` — optional GitHub auth for `rebrew toolchain`
   downloads that need a token (not a rebrew-prefixed name; standard gh env).
+- `KUNA_SPECS` — SLEIGH spec directory the host `kuna` binary reads for
+  `rebrew match --seed-kuna` (unset: the first dir holding `x86.sla` under
+  `UV_TOOL_DIR`, `XDG_DATA_HOME`, or the probed platform defaults).  A value
+  that is not a directory warns and falls back to discovery, so an export
+  left behind by a moved checkout cannot silently strand kuna on its
+  rarely-present `/specs/` default.
+- `UV_TOOL_DIR` / `XDG_DATA_HOME` — roots searched for that spec tree, ahead
+  of the probed defaults.
 
 ## Lint style (`[project.lint]`)
 

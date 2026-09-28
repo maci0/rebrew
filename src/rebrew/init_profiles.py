@@ -23,6 +23,15 @@ default_target = "{target_name}"   # target used when --target is not passed
 jobs = {default_jobs}              # default parallelism for verify/batch/GA
 # db_dir = "db"                    # coverage document output
 # output_dir = "output"            # GA run output
+# shared_dir = "src/shared"        # sources scanned for every target; "" disables
+
+# Optional style rules for `rebrew lint` (W024-W027). All default to off;
+# an unknown value warns and falls back to "none".
+# [project.lint]
+# naming_convention = "snake_case" # snake_case | camelCase | none
+# brace_style = "same_line"        # same_line | new_line | none
+# indent_style = "spaces"          # spaces | tabs | none
+# max_line_length = 200
 
 # ---------------------------------------------------------------------------
 # Target definitions
@@ -83,6 +92,23 @@ GAME = "{cflags}"
 # includes = "/usr/include"
 # libs = "/usr/lib"
 # cflags = "-O2"
+
+# Compile-cache store. `backend` is any registered rebrew.cache_backends
+# member; an unknown name fails at load rather than at the first compile.
+# size_limit_mib is per-project (0 = the packaged 500 MiB default).
+# [cache]
+# backend = "diskcache"
+# size_limit_mib = 500
+
+# PE header values for byte-identical reconstruction; `rebrew round-trip
+# --fix-headers` patches them in. stack_commit must not exceed stack_reserve.
+# [link]
+# stack_reserve = 0x100000
+# stack_commit = 0x1000
+# tsaware = false
+# linker_version = "6.0"
+# os_version = "4.0"
+# subsystem_version = "4.0"
 """
 
 

@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from rebrew.config import ProjectConfig
+from rebrew.config import ConfigWarning, ProjectConfig
 from rebrew.decompiler import (
     _BACKEND_MAP,
     BACKENDS,
@@ -924,13 +924,16 @@ class TestKunaBackend:
         assert seen.get("env", {}).get("KUNA_SPECS") == str(spec)
 
     def test_fetch_kuna_honors_explicit_specs(self, tmp_path: Path, monkeypatch) -> None:
-        """An explicit KUNA_SPECS is never overridden."""
+        """An explicit KUNA_SPECS is never overridden by spec discovery."""
         import rebrew.decompiler as dc
 
         binary = tmp_path / "x.exe"
         binary.write_bytes(b"MZ")
+        explicit = tmp_path / "custom-specs"
+        explicit.mkdir()
         monkeypatch.setattr(dc.shutil, "which", lambda n: "/usr/bin/kuna")
-        monkeypatch.setenv("KUNA_SPECS", "/custom/specs")
+        monkeypatch.setenv("KUNA_SPECS", str(explicit))
+        monkeypatch.setattr(dc, "_kuna_spec_dirs", lambda: [tmp_path / "discovered"])
 
         seen: dict = {}
 
@@ -946,6 +949,41 @@ class TestKunaBackend:
         monkeypatch.setattr(dc, "run_process_group", _run)
         assert dc.fetch_kuna(binary, 0x401000, tmp_path) is not None
         assert seen.get("env") is None
+
+    def test_fetch_kuna_falls_back_when_specs_not_a_directory(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """A KUNA_SPECS left pointing at a moved dir is reported, not honored.
+
+        Honoring it suppressed discovery, so kuna ran against its rarely
+        present /specs/ default and every seed came back empty with nothing
+        naming the mistyped path.
+        """
+        import rebrew.decompiler as dc
+
+        binary = tmp_path / "x.exe"
+        binary.write_bytes(b"MZ")
+        spec = tmp_path / "specs"
+        spec.mkdir()
+        monkeypatch.setattr(dc.shutil, "which", lambda n: "/usr/bin/kuna")
+        monkeypatch.setenv("KUNA_SPECS", str(tmp_path / "moved"))
+        monkeypatch.setattr(dc, "_kuna_spec_dirs", lambda: [spec])
+
+        seen: dict = {}
+
+        class _R:
+            returncode = 0
+            stdout = "int f(void) { return 0; }\n"
+            stderr = ""
+
+        def _run(cmd, **kw):
+            seen.update(kw)
+            return _R()
+
+        monkeypatch.setattr(dc, "run_process_group", _run)
+        with pytest.warns(ConfigWarning, match="KUNA_SPECS"):
+            assert dc.fetch_kuna(binary, 0x401000, tmp_path) is not None
+        assert seen["env"]["KUNA_SPECS"] == str(spec)
 
     def test_kuna_seed_source_fixes_pseudo_types(self, tmp_path: Path, monkeypatch) -> None:
         import rebrew.decompiler as dc

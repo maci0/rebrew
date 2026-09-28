@@ -270,6 +270,19 @@
   4.5:1 everywhere. tests/test_theme now holds every mark to the token set's
   contrast floors, its separation from the accent, the ladder's order and its
   warmth, so the next retune cannot buy identity with contrast.
+- **A `KUNA_SPECS` pointing at a moved directory no longer strands the
+  decompiler.** The value was resolved with `~` expansion and honored
+  unchecked, so a stale export suppressed spec discovery and kuna ran against
+  its rarely-present `/specs/` default, returning nothing for every seeded
+  function with no error naming the path. A value that is not a directory now
+  warns once per path and falls through to discovery, the same rule every
+  other directory-valued env knob follows. `rebrew config` exposes it as
+  `warn_env_dir`; `.env.example` and `docs/CONFIG.md` document the knob.
+- **`rebrew init`'s project template names every optional config section.**
+  `[project.lint]`, `[cache]` and `[link]` were read by the loader but absent
+  from the scaffolded `rebrew-project.toml`, so a fresh project had no pointer
+  to them and `docs/CONFIG.md` was the only place they were written down. Each
+  is now a commented example with its valid values.
 - **`rebrew intake` no longer prunes live stubs after a corrupt function
   inventory.** `prune_stale_stubs` refuses to delete when a discovery comes
   back shorter than the previous inventory, so a provider that timed out

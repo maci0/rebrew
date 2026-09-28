@@ -1471,6 +1471,20 @@ def check_env_dir(name: str, raw: str) -> None:
     env_dir_path(name, raw)
 
 
+def warn_env_dir(name: str, raw: str) -> None:
+    """Report a directory-valued env knob that names no directory, and continue.
+
+    Same check and message as :func:`check_env_dir`, for the consumers that
+    must stay non-fatal: an optional backend is documented to degrade to
+    "unavailable" rather than abort the run, so a mistyped path there warns
+    and falls back to discovery instead of raising out of a GA worker.
+    """
+    try:
+        check_env_dir(name, raw)
+    except ConfigError as exc:
+        _config_warn(str(exc))
+
+
 def check_env_display(raw: str) -> None:
     """Raise unless ``REBREW_XVFB_DISPLAY`` is a local ``:N`` / ``:N.S`` display.
 
@@ -2636,6 +2650,7 @@ __all__ = [
     "validate_http_url",
     "validate_llm_model",
     "validate_target_name",
+    "warn_env_dir",
 ]
 
 
