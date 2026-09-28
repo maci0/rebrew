@@ -84,4 +84,23 @@ def __dir__() -> list[str]:
     return sorted(list(globals().keys()) + list(_LAZY_EXPORTS.keys()))
 
 
-__all__ = ["__version__"]
+# The lazy names are part of the package's public surface, so a star-import
+# has to bind them; naming only ``__version__`` made `from rebrew import *`
+# silently drop every name the module docstring advertises.  Written out
+# rather than derived from _LAZY_EXPORTS: ruff's PLE0604 wants string
+# literals, and tests/test_package_metadata.py fails when the two lists
+# disagree.
+__all__ = [
+    "__version__",
+    "CompareResult",
+    "CompareStatus",
+    "ConfigError",
+    "ProjectConfig",
+    "RebrewError",
+    "ToolchainError",
+    "compile_and_compare",
+    "get_toolchain",
+    "iter_library_headers",
+    "iter_sources",
+    "load_config",
+]

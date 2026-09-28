@@ -401,3 +401,44 @@ class TestDeclaredScripts:
         """Every executable lands in PATH, so the prefix is what keeps them
         from colliding with another tool."""
         assert name == "rebrew" or name.startswith("rebrew-"), name
+
+
+class TestTopLevelExports:
+    """``from rebrew import *`` binds what ``__all__`` names.
+
+    The top-level package resolves its public names through ``__getattr__``
+    so importing it does not load the compile stack.  A name missing from
+    ``__all__`` is still reachable by attribute but dropped from a
+    star-import, which is how a consumer library loses ``ProjectConfig``
+    with no error anywhere.
+    """
+
+    #: The names the package docstring advertises, each resolved lazily.
+    PUBLIC_NAMES = (
+        "CompareResult",
+        "CompareStatus",
+        "ConfigError",
+        "ProjectConfig",
+        "RebrewError",
+        "ToolchainError",
+        "compile_and_compare",
+        "get_toolchain",
+        "iter_library_headers",
+        "iter_sources",
+        "load_config",
+    )
+
+    def test_all_names_every_lazy_export(self) -> None:
+        import rebrew
+
+        missing = sorted(set(self.PUBLIC_NAMES) - set(rebrew.__all__))
+        assert not missing, f"`from rebrew import *` drops {missing}"
+
+    def test_star_import_binds_the_lazy_names(self) -> None:
+        import rebrew
+
+        namespace: dict[str, object] = {}
+        exec("from rebrew import *", namespace)  # noqa: S102
+        missing = [name for name in self.PUBLIC_NAMES if name not in namespace]
+        assert not missing, f"`from rebrew import *` bound none of {missing}"
+        assert namespace["__version__"] == rebrew.__version__
