@@ -167,9 +167,9 @@ plus that one script's `sha256`, never `'unsafe-inline'`. Gates:
 `test_boot_guard_rides_the_precompressed_shell`.
 
 Repeat loads: the shell links `/app.js?v=<content hash>`, served
-`private, max-age=31536000, immutable`, and an inline `data:,` icon replaces
-the implicit `/favicon.ico` fetch (a no-store 404). A warm reload drops from
-four requests (shell 304, `/app.js` 304, bootstrap,
+`private, max-age=31536000, immutable`, and the inline `theme.FAVICON` mark
+replaces the implicit `/favicon.ico` fetch (a no-store 404). A warm reload drops
+from four requests (shell 304, `/app.js` 304, bootstrap,
 favicon 404) to two (shell 304, bootstrap). Gates: `test_handler_caches_only_hashed_client_urls_immutable`,
 `test_index_html_links_favicon_inline`.
 

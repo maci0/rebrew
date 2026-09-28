@@ -1,5 +1,25 @@
 ## [Unreleased]
 
+### Changed
+- **The report and the dashboard are painted in the mascot's palette.** The
+  chrome tokens were pure neutrals, so a page next to `docs/mascot.png` (a
+  brass machine under a leather harness) read as two different products. The
+  neutrals are now warm; the link/focus blue stays, because the six status
+  marks own green, teal, amber and red and an accent in those hues would read
+  as a verdict. `tests/test_theme.py` holds every text pair to 4.5:1 and every
+  border and focus pair to 3:1 on both surfaces, so the temperature costs no
+  contrast.
+- **Both HTML surfaces carry the rebrew mark.** The tab icon was `data:,`, a
+  blank held in place only to stop the `/favicon.ico` 404; it is now the
+  mascot's `0x` on the `ink` token, inlined as a data URI because both
+  surfaces forbid every off-site load. It costs 224 B of the dashboard's
+  compressed cold-path budget, which the congestion-window test still fits.
+- **A long symbol no longer stretches a dashboard table across the monitor.**
+  Table cells carried no wrap rule, so one unbreakable name set the row's
+  width at `width: 100%` and pushed `Status` a screen away from its VA. Cells
+  now take the same `overflow-wrap: anywhere` the report already used on its
+  long-text columns.
+
 ### Added
 - **`/api/health` reports the in-flight connection count.** The server refuses
   a connection past `_MAX_ACTIVE_CONNECTIONS` and logs each refusal, so a run

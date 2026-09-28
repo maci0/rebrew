@@ -2419,8 +2419,10 @@ class TestHostValidation:
 
     def test_index_html_links_favicon_inline(self, dashboard: Dashboard) -> None:
         """An inline icon keeps browsers from requesting /favicon.ico (a 404) per load."""
+        from rebrew.theme import FAVICON
+
         _, _, html = dashboard.handle("GET", "/", {})
-        assert '<link rel="icon" href="data:,">' in html
+        assert f'<link rel="icon" href="{FAVICON}">' in html
 
     def test_handler_304_skips_the_route_query(self, dashboard: Dashboard) -> None:
         """A matching If-None-Match on a JSON route answers 304 without querying."""

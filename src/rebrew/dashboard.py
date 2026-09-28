@@ -91,7 +91,8 @@ the request in flight.  A route-level warning reports a response the access
 line shows as a plain 200 (a byte count past the section), so it carries the
 id rather than leaving the operator to grep the message.  Off the server, the CLI reaches the same ``Dashboard`` with no
 request in flight and those warnings report ``-``.
-An inline ``data:,`` icon stops the per-load ``/favicon.ico`` 404.
+An inline icon (the rebrew mark, ``theme.FAVICON``) stops the per-load
+``/favicon.ico`` 404.
 A matching ``If-None-Match`` on a routed path is answered 304 only when a GET
 would answer 200 (target-scoped ones need a known ``target``; ``/api/summary``
 a readable document; ``/api/functions`` a ``status`` inside the vocabulary),
@@ -1371,7 +1372,7 @@ _INDEX_HTML = """<!doctype html>
 <title>Rebrew coverage dashboard</title>
 <link rel="preload" href="/api/bootstrap" as="fetch" crossorigin fetchpriority="high">
 <link rel="preload" href="__APP_JS_URL__" as="script">
-<link rel="icon" href="data:,">
+<link rel="icon" href="__FAVICON__">
 <style>
   body { font-family: var(--rb-sans); margin: 1.5rem;
     background: var(--rb-sunken); color: var(--rb-ink); }
@@ -1412,6 +1413,11 @@ __STATUS_CSS__
   table { border-collapse: collapse; width: 100%; margin-top: 1rem;
     font-size: var(--rb-size-cell); background: var(--rb-surface); }
   th, td { border-bottom: 1px solid var(--rb-line); padding: .3rem .5rem; text-align: left; }
+  /* A demangled name or a long path is one unbreakable token, and a table at
+     100% width lets that token set the row's width: on a wide monitor the
+     Status column ends up a screen away from the VA it belongs to. `anywhere`
+     lowers the cell's intrinsic minimum, so the column wraps instead. */
+  td { overflow-wrap: anywhere; }
   th { background: var(--rb-sunken); white-space: nowrap; font-weight: 600; }
   tbody tr:hover { background: var(--rb-hover); }
   td.va, code { font-family: var(--rb-mono); }
@@ -1634,8 +1640,10 @@ _INDEX_HTML = _INDEX_HTML.replace("__STATUS_CSS__", _dashboard_status_css()).rep
 )
 # Token references resolve to their theme values, so the shell is one file.
 _INDEX_HTML = theme.inline(_INDEX_HTML)
-_INDEX_HTML = _INDEX_HTML.replace("__APP_JS_URL__", _APP_JS_URL).replace(
-    "__BOOT_GUARD_JS__", _BOOT_GUARD_JS
+_INDEX_HTML = (
+    _INDEX_HTML.replace("__APP_JS_URL__", _APP_JS_URL)
+    .replace("__BOOT_GUARD_JS__", _BOOT_GUARD_JS)
+    .replace("__FAVICON__", theme.FAVICON)
 )
 _INDEX_HTML_BYTES = _INDEX_HTML.encode("utf-8")
 _INDEX_ETAG = '"' + hashlib.sha256(_INDEX_HTML_BYTES).hexdigest()[:16] + '"'
@@ -2573,8 +2581,8 @@ def _success_cache_control(path: str, query: dict[str, list[str]]) -> str:
 #: are written before (or without) a handler.  Shared so a response built
 #: outside ``_Handler`` cannot carry a weaker set than one built inside it.
 #: The CSP keeps CSS inline in the shell and JS same-origin at /app.js, and
-#: confines JSON fetching to same-origin; ``data:`` images cover the empty
-#: inline favicon that stops a /favicon.ico 404 per load.
+#: confines JSON fetching to same-origin; ``data:`` images carry the inline
+#: mark that stops a /favicon.ico 404 per load.
 _SECURITY_HEADERS: tuple[tuple[str, str], ...] = (
     ("X-Content-Type-Options", "nosniff"),
     ("X-Frame-Options", "DENY"),

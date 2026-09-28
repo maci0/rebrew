@@ -560,10 +560,10 @@ graph TD
     H --> I["Write updated file<br/>(preserves code body)"]
     I --> J["Migrated"]
 
-    style A fill:#f5f5f5,stroke:#1a1a1a,color:#1a1a1a
-    style J fill:#15803d,stroke:#1a1a1a,color:#fff
-    style G fill:#475569,stroke:#1a1a1a,color:#fff
-    style C fill:#b45309,stroke:#1a1a1a,color:#fff
+    style A fill:#f7f4ef,stroke:#2a201a,color:#2a201a
+    style J fill:#15803d,stroke:#2a201a,color:#fff
+    style G fill:#475569,stroke:#2a201a,color:#fff
+    style C fill:#b45309,stroke:#2a201a,color:#fff
 ```
 
 The node fills are the marks the report and the call graph paint
