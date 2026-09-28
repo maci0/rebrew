@@ -9,6 +9,7 @@ import pytest
 import typer
 from typer import Exit
 
+from rebrew.config import DEFAULT_COMPILE_TIMEOUT, DEFAULT_PROJECT_JOBS
 from rebrew.init import (
     _AGENTS_MD_TEMPLATE,
     main,
@@ -169,6 +170,8 @@ class TestTemplateRendering:
             compiler_libs="tools/lib",
             cflags="/O2 /Gd",
             base_cflags="/nologo /c /MT",
+            default_jobs=DEFAULT_PROJECT_JOBS,
+            compile_timeout=DEFAULT_COMPILE_TIMEOUT,
         )
         parsed = tomllib.loads(result)
         assert parsed["project"]["name"] == "myproject"
@@ -186,6 +189,8 @@ class TestTemplateRendering:
             compiler_libs="lib",
             cflags="/O2",
             base_cflags="",
+            default_jobs=DEFAULT_PROJECT_JOBS,
+            compile_timeout=DEFAULT_COMPILE_TIMEOUT,
         )
         assert "[project]" in result
         assert "[compiler]" in result
@@ -682,6 +687,36 @@ class TestInitTemplate:
         from rebrew.init_profiles import DEFAULT_REBREW_TOML
 
         assert "jobs" in DEFAULT_REBREW_TOML
+
+    def test_defaults_match_the_config_loader(self) -> None:
+        """The budgets init writes are the ones the loader falls back to.
+
+        A hardcoded literal in the template drifts from the constant the
+        loader defaults to, and the drift is invisible: every command works,
+        the project just runs at a parallelism and compile timeout nobody
+        chose.
+        """
+        import tomllib
+
+        from rebrew.init_profiles import DEFAULT_REBREW_TOML
+
+        rendered = DEFAULT_REBREW_TOML.format(
+            project_name="p",
+            target_name="t",
+            binary_name="t.dll",
+            marker="T",
+            compiler_profile="msvc-6.0",
+            compiler_command="",
+            compiler_includes="inc",
+            compiler_libs="lib",
+            cflags="/O2 /Gd",
+            base_cflags="/nologo /c /MT",
+            default_jobs=DEFAULT_PROJECT_JOBS,
+            compile_timeout=DEFAULT_COMPILE_TIMEOUT,
+        )
+        parsed = tomllib.loads(rendered)
+        assert parsed["project"]["jobs"] == DEFAULT_PROJECT_JOBS
+        assert parsed["compiler"]["timeout"] == DEFAULT_COMPILE_TIMEOUT
 
 
 class TestInitAgentSkills:

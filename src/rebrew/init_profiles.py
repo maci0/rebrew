@@ -20,7 +20,7 @@ DEFAULT_REBREW_TOML = """# rebrew project configuration
 [project]
 name = "{project_name}"
 default_target = "{target_name}"   # target used when --target is not passed
-jobs = 4                           # default parallelism for verify/batch/GA
+jobs = {default_jobs}              # default parallelism for verify/batch/GA
 # db_dir = "db"                    # coverage document output
 # output_dir = "output"            # GA run output
 
@@ -61,7 +61,7 @@ includes = "{compiler_includes}"
 libs = "{compiler_libs}"
 cflags = "{cflags}"
 base_cflags = "{base_cflags}"       # always-on flags prepended to every compile
-timeout = 60                         # compile subprocess timeout (seconds)
+timeout = {compile_timeout}          # compile subprocess timeout (seconds)
 
 [compiler.cflags_presets]
 GAME = "{cflags}"

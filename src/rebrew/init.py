@@ -21,7 +21,12 @@ import typer
 from rich.prompt import Confirm, Prompt
 
 from rebrew.cli import EXIT_MISMATCH, EXIT_OK, error_exit, json_print, option_default
-from rebrew.config import ConfigError, validate_target_name
+from rebrew.config import (
+    DEFAULT_COMPILE_TIMEOUT,
+    DEFAULT_PROJECT_JOBS,
+    ConfigError,
+    validate_target_name,
+)
 from rebrew.init_profiles import (
     DEFAULT_REBREW_TOML,
     DELPHI16_CONSTRAINTS,
@@ -1229,6 +1234,8 @@ def main(
         compiler_libs=profile["libs"],
         cflags=cflags,
         base_cflags=base_cflags,
+        default_jobs=DEFAULT_PROJECT_JOBS,
+        compile_timeout=DEFAULT_COMPILE_TIMEOUT,
     )
     toml_content = toml_content.replace("__COMPILER_RUNNER__", runner)
     toml_content = toml_content.replace("__TARGET_FORMAT__", binary_format)

@@ -164,6 +164,12 @@ for naming.
 #: different budget than a configured one.
 DEFAULT_COMPILE_TIMEOUT = 60
 
+#: Default ``[project] jobs`` parallelism.  The single source for
+#: ``ProjectConfig.default_jobs``, the ``[project] jobs`` fallback, and the
+#: value ``rebrew init`` writes into a new project file, so a generated
+#: project and a hand-written one start at the same budget.
+DEFAULT_PROJECT_JOBS = 4
+
 #: Re-attempts of a retryable remote-compile failure, and the single source
 #: for ``ProjectConfig.recompile_retries``, its ``[compiler]`` fallback, and
 #: the ``getattr`` fallback in ``rebrew.compile``.
@@ -443,7 +449,7 @@ class ProjectConfig:
 
     # --- project-level defaults ---
     project_name: str = ""
-    default_jobs: int = 4  # Default parallelism for batch operations (matches [project] jobs)
+    default_jobs: int = DEFAULT_PROJECT_JOBS  # see DEFAULT_PROJECT_JOBS
     db_dir: Path = field(default_factory=lambda: Path())
     output_dir: Path = field(default_factory=lambda: Path())
     # Image the linker wrote, before postlink copies reference bytes.
@@ -1548,7 +1554,7 @@ def _env_knob_parsers() -> tuple[tuple[str, Callable[[str], None]], ...]:
         (LLM_PROJECT_ENDPOINT_TRUST_ENV, _project_endpoint_trust),
         ("REBREW_LOG_LEVEL", _log_level),
         (REBREW_PROJECTS_ROOT_ENV, partial(check_env_dir, REBREW_PROJECTS_ROOT_ENV)),
-        ("REBREW_SKILLS_DIR", partial(check_env_dir, REBREW_SKILLS_DIR_ENV)),
+        (REBREW_SKILLS_DIR_ENV, partial(check_env_dir, REBREW_SKILLS_DIR_ENV)),
         (TOOLCHAIN_OVERLAY_ENV, partial(check_env_dir, TOOLCHAIN_OVERLAY_ENV)),
         (TOOLCHAINS_DIR_ENV, partial(check_env_dir, TOOLCHAINS_DIR_ENV)),
         ("REBREW_WINEPREFIX", check_env_wineprefix),
@@ -2324,7 +2330,9 @@ def load_config(
         r2_bogus_vas=_parse_int_list(tgt.get("r2_bogus_vas", []), "r2_bogus_vas"),
         # project-level defaults
         project_name=_as_str(project_raw.get("name"), "", "project.name"),
-        default_jobs=_positive_int(project_raw.get("jobs", 4), 4, "project.jobs"),
+        default_jobs=_positive_int(
+            project_raw.get("jobs", DEFAULT_PROJECT_JOBS), DEFAULT_PROJECT_JOBS, "project.jobs"
+        ),
         db_dir=db_dir,
         output_dir=output_dir,
         raw_link=(
@@ -2588,6 +2596,7 @@ __all__ = [
     "ConfigWarning",
     "DEFAULT_COMPILE_TIMEOUT",
     "DEFAULT_LINT_MAX_LINE_LENGTH",
+    "DEFAULT_PROJECT_JOBS",
     "DEFAULT_RECOMPILE_RETRIES",
     "FUNCTION_STRUCTURE_JSON",
     "LinkConfig",

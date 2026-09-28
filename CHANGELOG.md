@@ -87,6 +87,13 @@
   document. `cache_size_limit_mib` is now in the resolved dump, so a
   silently-defaulted cache cap is visible.
 
+- **Breaking:** `DEFAULT_REBREW_TOML` (`rebrew.init_profiles`, re-exported by
+  `rebrew.init`) takes two more format placeholders, `default_jobs` and
+  `compile_timeout`, so `.format(...)` without them raises `KeyError`. The
+  rendered file is unchanged: the values it spells for `jobs` and `timeout`
+  are the same ones, now read from `DEFAULT_PROJECT_JOBS` and
+  `DEFAULT_COMPILE_TIMEOUT` instead of being hardcoded in the template, so a
+  generated project and a hand-written one start at the same budget.
 - **Breaking:** `rebrew.flirt.check_env_dir` is gone. It was a re-export of
   `rebrew.config.check_env_dir` through an import that no longer exists;
   import `check_env_dir` from `rebrew.config`, which is where it is defined.
