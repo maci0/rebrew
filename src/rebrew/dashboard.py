@@ -1420,6 +1420,11 @@ _BOOT_GUARD_JS = (
     "});"
 )
 
+#: The shell.  The selected card and tab are marked with a ``box-shadow``
+#: ring rather than a thicker border: a border that grows the box re-lays out
+#: every card and tab after the selected one, which on a wrapped tab strip
+#: moves the control the reader is aiming at.  Notes on the shell's rules
+#: belong here, not in the ``<style>`` block, which ships on the cold flight.
 _INDEX_HTML = """<!doctype html>
 <html lang="en">
 <head>
@@ -1454,7 +1459,7 @@ _INDEX_HTML = """<!doctype html>
   button.card:hover { border-color: var(--rb-line-hi); background: var(--rb-hover); }
   button.card:active { background: var(--rb-pressed); }
   button.card.active, .views button.active { border-color: var(--rb-accent);
-    border-width: 2px; box-shadow: 0 0 0 2px var(--rb-ring); }
+    box-shadow: 0 0 0 2px var(--rb-ring); }
   /* Weight marks the selected card and tab without relying on border colour (WCAG 1.4.1). */
   button.card.active .label, .views button.active { font-weight: 700; }
   .card .value { font-size: var(--rb-size-value); font-weight: 700; display: block; }

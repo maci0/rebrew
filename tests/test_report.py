@@ -96,6 +96,13 @@ class TestReportCli:
         assert "forced-colors" in index
         assert "text-decoration: underline" in index  # nav links not color-only (1.4.1)
         assert "max-width: 40rem" in index  # narrow-viewport reflow (1.4.10)
+        # The dashboard's narrow-viewport card rule, verbatim: one card per row
+        # pushed a seven-card summary seven rows down a phone before the table.
+        from rebrew.dashboard import _INDEX_HTML
+
+        rule = ".card { min-width: 0; flex: 1 1 6rem; padding: .4rem .6rem; }"
+        assert rule in index
+        assert rule in _INDEX_HTML
         assert "content-visibility: auto" in index  # virtualize off-screen table rows
         from rebrew.theme import FAVICON_SVG
 
@@ -611,6 +618,33 @@ class TestReportPayloadShape:
         assert "Import stubs" not in first
         # Three overflow rows stay off the entry document.
         assert second.count("<tr>") == 4
+
+    def test_stubs_survive_an_unreadable_import_table(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Stubs still reach the page when the import table yields no records.
+
+        ``parse_imports`` and ``find_import_stubs`` read the table with
+        different parsers, so an image one of them cannot read still gets its
+        stub list from the other.  The inline table belongs on imports.html
+        whichever table is the one that produced rows.
+        """
+        from types import SimpleNamespace
+
+        import rebrew.report as report_mod
+
+        binary = tmp_path / "game.exe"
+        binary.write_bytes(b"MZ")
+        stubs = {0x2000 + i: f"Stub{i:02d}" for i in range(3)}
+        monkeypatch.setattr(report_mod, "parse_imports", lambda path: [])
+        monkeypatch.setattr(report_mod, "find_import_stubs", lambda path: stubs)
+        cfg = SimpleNamespace(target_name="T", target_binary=binary)
+        pages = dict(report_mod._render_imports(cfg))
+        imports_html = pages["imports.html"]
+        assert "No import table" in imports_html
+        assert "Import stubs (jmp [IAT])" in imports_html
+        for i in range(3):
+            assert f"Stub{i:02d}" in imports_html
 
     def test_long_stub_list_leaves_the_imports_page(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

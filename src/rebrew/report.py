@@ -215,7 +215,9 @@ pre.mermaid { background: var(--rb-surface); border: 1px solid var(--rb-line);
         font-size: var(--rb-size-code); line-height: 1.4; }
 @media (max-width: 40rem) {
   header, main { padding-left: 1rem; padding-right: 1rem; }
-  .card { min-width: 0; flex: 1 1 100%; }
+  /* The dashboard's narrow-viewport card rule, so both surfaces reflow alike;
+     one card per row pushed the summary seven rows down before the table. */
+  .card { min-width: 0; flex: 1 1 6rem; padding: .4rem .6rem; }
 }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
@@ -1013,10 +1015,15 @@ def _render_imports(cfg: ProjectConfig) -> list[tuple[str, str]]:
         )
 
     if not import_rows:
+        # ``extra_first`` carries the stub table the paginated path inlines
+        # under a full imports table.  ``parse_imports`` and
+        # ``find_import_stubs`` read the table with different parsers, so
+        # ``stub_rows`` can be non-empty exactly when ``import_rows`` is not;
+        # dropping it there loses the only list of imports the page had.
         note = (
             "<h2>Imports</h2>"
             "<p class='note'>No import table found in the target binary.</p>"
-            f"{extra_all}"
+            f"{extra_first}{extra_all}"
         )
         return [("imports.html", _page("Imports", target, "imports.html", note)), *stub_pages]
 

@@ -2191,6 +2191,19 @@ class TestEncodingNegotiation:
 
         assert "td.va { white-space: nowrap; }" in _INDEX_HTML
 
+    def test_selected_card_and_tab_do_not_resize(self) -> None:
+        """Selecting a card or a tab must not re-lay out the row around it.
+
+        The selection marker is a box-shadow ring.  A thicker border grows the
+        box, which shifts every card and tab after the selected one and, on a
+        wrapped tab strip, moves the control the reader is aiming at.
+        """
+        from rebrew.dashboard import _INDEX_HTML
+
+        active = _INDEX_HTML.split("button.card.active")[1].split("}")[0]
+        assert "box-shadow: 0 0 0 2px" in active
+        assert "border-width" not in active
+
     def test_page_hint_never_renders_an_absent_tip(self) -> None:
         """A view with no Show more button supplies no tip; the hint must omit it.
 

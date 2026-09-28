@@ -364,6 +364,21 @@
   `require-dist` check instead: a missing manifest fails with the two ways to
   produce one, and nothing else. `sdist-check` and `build-repro` keep the file
   rule, because comparing the tree's build against itself is their job.
+- **The report's imports page dropped every import stub when the import table
+  read empty.** `parse_imports` and `find_import_stubs` read the import table
+  with different parsers, so an image one of them cannot read still gets its
+  stub list from the other. When the stub list fit the row budget the page
+  inlined it under a full imports table, and the no-imports branch built the
+  same table and then dropped it, leaving `imports.html` holding a note and
+  nothing else: the only list of imports that page had. The branch now emits
+  the inline table it already built.
+- **The report's summary cards and the selected dashboard card re-laid out the
+  row around them.** The report forced one card per row below `40rem`, so a
+  seven-card summary pushed the table seven rows down a phone; the dashboard's
+  tiling rule is now shared. Selecting a dashboard card or tab grew its border
+  from 1px to 2px, shifting every card and tab after the selected one and, on a
+  wrapped tab strip, moving the control under the reader's cursor. The marker
+  is a `box-shadow` ring, which draws without changing the box.
 - **The coverage document's reader memo could not see a same-size rebuild.**
   The per-file stat fingerprint keyed the memoized directory scan on
   `(name, mtime_ns, size)`, the only per-file memo in the tree without the
