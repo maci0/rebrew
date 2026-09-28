@@ -77,9 +77,6 @@ from rebrew.verify_cache import (
     order_result_row,
     save_verify_cache,
 )
-
-#: Re-exported for tests/consumers (canonical home: verify_hash).
-from rebrew.verify_hash import DEFAULT_TOOLCHAIN as DEFAULT_TOOLCHAIN
 from rebrew.verify_hash import expected_text_functions
 from rebrew.workspace.status import EARNED_STATUSES
 

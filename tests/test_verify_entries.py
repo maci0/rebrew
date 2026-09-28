@@ -165,7 +165,7 @@ class TestPrepareEntriesCache:
         from rebrew.compile_overrides import resolve_compile_overrides
 
         _tc, _cf2 = resolve_compile_overrides(_cfg(root), src_dir, "", "", "")
-        toolchain = _tc or verify_mod.DEFAULT_TOOLCHAIN
+        toolchain = _tc or verify_hash_mod.DEFAULT_TOOLCHAIN
         return {
             "source_hash": source_hash,
             "filepath": filepath,

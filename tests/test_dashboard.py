@@ -303,7 +303,7 @@ class TestQueryLayer:
         assert json.loads(body)["code"] == "unknown_target"
 
     def test_summary(self, dashboard: Dashboard) -> None:
-        s = dashboard.summary("server_dll")
+        s = dashboard._summary_lookup("server_dll")
         assert s is not None
         assert s["function_stats"]["total"] == 2
         assert s["function_stats"]["by_status"] == {"EXACT": 1, "STUB": 1}
@@ -316,7 +316,7 @@ class TestQueryLayer:
         assert s["identified_pct"] == 75.0
 
     def test_summary_unknown_target(self, dashboard: Dashboard) -> None:
-        assert dashboard.summary("nope") is None
+        assert dashboard._summary_lookup("nope") is None
 
     def test_unparseable_document_is_an_unknown_target(
         self, tmp_path: Path, catalog: FakeCatalog
@@ -338,7 +338,7 @@ class TestQueryLayer:
         )
         dashboard = Dashboard(db_dir)
 
-        assert dashboard.summary("broken") is None
+        assert dashboard._summary_lookup("broken") is None
         assert dashboard.targets() == ["server_dll"]
         for path in ("/api/summary", "/api/functions", "/api/sections", "/api/globals"):
             status, _, body = dashboard.handle("GET", path, {"target": ["broken"]})
@@ -374,7 +374,7 @@ cells = []
         )
         dashboard = Dashboard(db_dir)
         with caplog.at_level(logging.WARNING, logger="rebrew.dashboard"):
-            summary = dashboard.summary("cap")
+            summary = dashboard._summary_lookup("cap")
         assert summary is not None
         assert summary["coverage_pct"] == 100.0
         # One line per byte count the summary divides by, both named.
@@ -638,7 +638,7 @@ size = 4
         listed = dash.functions("server_dll")
         assert [row[1] for row in listed["functions"]] == ["func_a", "func_b"]
         assert listed["total"] == 2
-        summary = dash.summary("server_dll")
+        summary = dash._summary_lookup("server_dll")
         assert summary is not None
         assert summary["function_stats"]["total"] == 2
         assert summary["function_stats"]["covered_bytes"] == 96

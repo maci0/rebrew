@@ -73,7 +73,7 @@ def _release_segments(version: str) -> list[int]:
     return segments
 
 
-def _changelog(version: str) -> str:
+def _changelog() -> str:
     return CHANGELOG.read_text(encoding="utf-8")
 
 
@@ -147,7 +147,7 @@ def main() -> int:
     if dirty:
         problems.append("working tree not clean (commit first)")
 
-    problems += _problems(version, _changelog(version))
+    problems += _problems(version, _changelog())
 
     if problems:
         for problem in problems:

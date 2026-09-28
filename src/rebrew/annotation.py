@@ -1168,7 +1168,7 @@ def parse_new_format_multi(lines: list[str]) -> list[Annotation]:
     stack_start = 0
 
     def _flush() -> None:
-        nonlocal current_marker_type, current_va, current_module, current_kv, pending_kv
+        nonlocal pending_kv
         if current_marker_type is None or current_va is None:
             return
         ann = _kv_to_annotation(current_kv, current_marker_type, current_va, current_module)

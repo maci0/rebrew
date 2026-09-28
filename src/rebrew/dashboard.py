@@ -2022,7 +2022,7 @@ class Dashboard:
                 return payload
             target = targets[0]
             payload["target"] = target
-            payload["summary"] = self.summary(target)
+            payload["summary"] = self._summary_lookup(target)
             if payload["summary"] is not None:
                 payload["functions"] = self.functions(target, limit=_BOOTSTRAP_FUNCTION_LIMIT)
             # Scrubbed on the way out of this method, not only on the wire: the
@@ -2077,10 +2077,6 @@ class Dashboard:
                 min(identified_b, total_b) if total_b else identified_b, total_b
             ),
         }
-
-    def summary(self, target: str) -> dict[str, Any] | None:
-        """Coverage stats for *target*, or None when it has no document."""
-        return self._summary_lookup(target)
 
     def functions(
         self,
