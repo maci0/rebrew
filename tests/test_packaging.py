@@ -789,6 +789,85 @@ class TestCycloneDxSbom:
             (entry,) = component["licenses"]
             assert entry.keys() & {"expression", "license"}, component["name"]
 
+    def test_every_component_is_scoped_required_or_optional(self) -> None:
+        """The lock resolves one file for a dev group, two extras, and the
+        runtime tree, so an unscoped BOM reads as shipping mypy, pytest, and
+        angr to every consumer of the wheel.  `required` is the closure of
+        `[project].dependencies`; everything else the lock holds is optional.
+        """
+        from tools.generate_sbom import _project_version, build_bom
+
+        bom = build_bom((ROOT / "uv.lock").read_text(encoding="utf-8"), _project_version())
+        by_scope: dict[str, set[str]] = {"required": set(), "optional": set()}
+        for component in bom["components"]:
+            scope = component["scope"]
+            assert scope in by_scope, f"{component['name']}: scope {scope!r}"
+            by_scope[scope].add(component["name"])
+        assert by_scope["required"], "no component resolved to the runtime closure"
+        # Direct requirements and what the lock hangs off them.
+        for name in (
+            "capstone",
+            "click",
+            "diskcache",
+            "httpx",
+            "lief",
+            "numpy",
+            "rich",
+            "tomlkit",
+            "tree-sitter",
+            "tree-sitter-c",
+            "typer",
+            "zstandard",
+            "httpcore",
+            "h11",
+            "anyio",
+        ):
+            assert name in by_scope["required"], name
+        # Dev group, the prove/binsync extras, and the non-shipping groups.
+        for name in (
+            "mypy",
+            "pytest",
+            "ruff",
+            "pre-commit",
+            "hypothesis",
+            "pyyaml",
+            "angr",
+            "z3-solver",
+            "claripy",
+            "declib",
+            "pyghidra",
+            "m2c",
+            "resembl",
+            "rapidfuzz",
+        ):
+            assert name in by_scope["optional"], name
+        assert not by_scope["required"] & by_scope["optional"]
+
+    def test_validator_rejects_an_unscoped_or_all_optional_inventory(self) -> None:
+        from tools.generate_sbom import MIN_COMPONENTS, validate_bom
+
+        bom = {
+            "bomFormat": "CycloneDX",
+            "specVersion": "1.5",
+            "metadata": {"component": {"name": "rebrew"}},
+            "components": [
+                {
+                    "name": f"p{i}",
+                    "licenses": [{"expression": "MIT"}],
+                    "scope": "required",
+                }
+                for i in range(MIN_COMPONENTS)
+            ],
+        }
+        validate_bom(bom)
+        bom["components"][2].pop("scope")
+        with pytest.raises(ValueError, match="without a CycloneDX scope"):
+            validate_bom(bom)
+        for component in bom["components"]:
+            component["scope"] = "optional"
+        with pytest.raises(ValueError, match="no component is scoped 'required'"):
+            validate_bom(bom)
+
     def test_validator_rejects_an_unlicensed_component(self) -> None:
         from tools.generate_sbom import MIN_COMPONENTS, validate_bom
 
@@ -797,7 +876,11 @@ class TestCycloneDxSbom:
             "specVersion": "1.5",
             "metadata": {"component": {"name": "rebrew"}},
             "components": [
-                {"name": f"p{i}", "licenses": [{"expression": "MIT"}]}
+                {
+                    "name": f"p{i}",
+                    "licenses": [{"expression": "MIT"}],
+                    "scope": "required",
+                }
                 for i in range(MIN_COMPONENTS)
             ],
         }

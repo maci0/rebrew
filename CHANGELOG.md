@@ -25,6 +25,21 @@
   `docs/COVERAGE_DOCUMENT.md` and `docs/THREAT_MODEL.md` document the field.
 
 ### Changed
+- **The released SBOM scopes every component as required or optional.**
+  `uv.lock` resolves the dev group, both install extras, and the
+  non-shipping `similarity` / `m2c` groups into the same file the runtime
+  tree lives in, so `dist/rebrew.cdx.json` listed 115 components for a wheel
+  that installs 25: mypy, pytest, ruff, pre-commit, hypothesis, angr,
+  z3-solver, declib, pyghidra, m2c, and resembl all read to a consumer's
+  vulnerability scanner as shipping with the library. Every component now
+  carries a CycloneDX `scope`: `required` for the closure of
+  `[project].dependencies`, `optional` for the rest. The walk follows the
+  lock's resolved edges without evaluating environment markers, so a
+  Windows-only dependency of a required package (`colorama` via `click`)
+  lands in `required` too; over-listing in that direction is the safe error.
+  `validate_bom` rejects a component with no scope and an inventory with
+  nothing marked `required`, so the closure resolving empty fails the build
+  rather than shipping a BOM that reads as complete.
 - **`binsync.state.index_local_and_catalog` returns a catalog VA to size map
   instead of a fabricated record plus a duplicate VA set.**
   **Breaking:** the two callers (`binsync.importer.index_local_and_catalog`,
@@ -204,6 +219,13 @@
   `status` and `catalog` already do.
 
 ### Fixed
+- **`rebrew.ghidra` reached for `status_style` outside its declared
+  boundaries.** `commands.py` imports `DISPLAY_STATUSES` to order a sync
+  summary, but `src/rebrew/ghidra/AGENTS.md` did not list `status_style` in
+  its `Externals` allowlist, so
+  `tests/test_docs_hygiene.py::test_package_imports_stay_inside_their_allowlist`
+  failed and the layer check read the edge as undeclared. The allowlist now
+  names it, and the import is sorted where `ruff check` expects it.
 - **`rebrew intake` no longer prunes live stubs after a corrupt function
   inventory.** `prune_stale_stubs` refuses to delete when a discovery comes
   back shorter than the previous inventory, so a provider that timed out

@@ -31,9 +31,16 @@ MIT license on the rebrew component, a `pkg:github/maci0/rebrew` purl at the
 `v` tag for `__version__`, project URLs as external references, each
 locked distribution's own declared license from `tools/licenses.py`, and the
 copyleft expressions listed in `NOTICE` — certifi and hypothesis (MPL-2.0,
-in every resolve) plus the optional resembl, m2c, pyvex, and tqdm (`MPL-2.0 AND MIT`, pulled in by the binsync extra); the
-generator validates the document it emits, so a lock that parsed short, or a
-component whose grant nobody recorded, fails the build instead of shipping a
+in every resolve) plus the optional resembl, m2c, pyvex, and tqdm (`MPL-2.0 AND MIT`, pulled in by the binsync extra); every
+component also carries a CycloneDX `scope`, `required` for the closure of
+`[project].dependencies` and `optional` for the distributions only a dev
+group or an install extra reaches, so the dev tree the lock resolves into the
+same file (mypy, pytest, ruff, angr, declib) does not read to a scanner as
+shipped with the wheel; the
+generator validates the document it emits, so a lock that parsed short, a
+component whose grant nobody recorded, a component with no scope, or an
+inventory with nothing in it marked `required` fails the build instead of
+shipping a
 BOM that reads to a scanner as a clean bill of health), writes
 `dist/rebrew.buildinfo`
 (project name and `__version__`, uv/python/`.python-version`/setuptools parsed

@@ -7,6 +7,13 @@ re-resolving PyPI.  The rebrew component's purl is the GitHub repository
 (``pkg:github/maci0/rebrew@v<version>``); dependency components keep
 ``pkg:pypi`` when the lock fetched them from the index.
 
+Every component carries a CycloneDX ``scope``: ``required`` for the closure
+of ``[project].dependencies`` (what a plain ``pip install rebrew`` puts in the
+environment), ``optional`` for the distributions only a dev group, an
+install extra, or another non-shipping group reaches.  The lock resolves all
+of them into one file, so without the scope a scanner reads a released BOM as
+shipping mypy, pytest, and angr.
+
 Every emitted document passes ``validate_bom``; a lock that parsed to a near
 empty inventory exits 1 rather than writing a BOM a scanner reads as clean.
 
@@ -29,8 +36,9 @@ import json
 import re
 import sys
 import tomllib
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 # `make sbom` runs this file directly under `uv --no-project`, so the repo root
 # is not on sys.path the way pytest puts it there.
@@ -211,27 +219,44 @@ def _project_component(version: str) -> dict[str, Any]:
     }
 
 
-def _parse_lock(text: str) -> list[dict[str, Any]]:
+class _LockGraph(NamedTuple):
+    """What one uv.lock parse yields: the components to emit, and the
+    ``name -> resolved dependency names`` edges needed to tell a component the
+    shipped install pulls in from one only a dev group or an extra does."""
+
+    components: list[dict[str, Any]]
+    edges: dict[str, frozenset[str]]
+
+
+def _parse_lock(text: str) -> _LockGraph:
     """Parse uv.lock package stanzas into CycloneDX component dicts.
 
     ``tomllib`` is not used: a line-oriented parse is enough for name,
-    version, source kind, and artifact hashes (uv.lock's inline tables are
-    awkward to round-trip and we do not need the rest of each stanza).
+    version, source kind, artifact hashes, and the resolved ``dependencies``
+    list (uv.lock's inline tables are awkward to round-trip and we do not need
+    the rest of each stanza).
     """
     components: list[dict[str, Any]] = []
+    edges: dict[str, frozenset[str]] = {}
     name: str | None = None
     version: str | None = None
     source_kind = "registry"
     source_extra = ""
     hashes: list[str] = []
+    edges_of: set[str] = set()
+    in_deps = False
 
     def flush() -> None:
-        nonlocal name, version, source_kind, source_extra, hashes
+        nonlocal name, version, source_kind, source_extra, hashes, edges_of, in_deps
+        if name is not None and version is not None and name != "rebrew":
+            edges[name] = frozenset(edges_of)
+        in_deps = False
         if name is None or version is None:
             name = version = None
             source_kind = "registry"
             source_extra = ""
             hashes = []
+            edges_of = set()
             return
         if name == "rebrew":
             # The editable self-package is the SBOM metadata.component, not a
@@ -240,6 +265,7 @@ def _parse_lock(text: str) -> list[dict[str, Any]]:
             source_kind = "registry"
             source_extra = ""
             hashes = []
+            edges_of = set()
             return
         purl = _purl(name, version, source_kind, source_extra)
         component: dict[str, Any] = {
@@ -262,6 +288,7 @@ def _parse_lock(text: str) -> list[dict[str, Any]]:
         source_kind = "registry"
         source_extra = ""
         hashes = []
+        edges_of = set()
 
     for raw in text.splitlines():
         line = raw.strip()
@@ -287,13 +314,62 @@ def _parse_lock(text: str) -> list[dict[str, Any]]:
                 source_kind = "registry"
                 source_extra = ""
             continue
+        if line == "dependencies = [":
+            in_deps = True
+            continue
+        if line == "]":
+            in_deps = False
+            continue
+        if in_deps:
+            # Each resolved edge is `{ name = "click" }` or
+            # `{ name = "click", marker = "..." }`; the name is the whole edge
+            # for reachability purposes.
+            m = re.match(r'\{\s*name = "([^"]+)"', line)
+            if m:
+                edges_of.add(canonicalize(m.group(1)))
+            continue
         if "hash = " in line:
             m = re.search(r'hash = "(sha256:[0-9a-f]+)"', line)
             if m and m.group(1) not in hashes:
                 hashes.append(m.group(1))
     flush()
     components.sort(key=lambda c: (c["name"], c["version"], c.get("bom-ref", "")))
-    return components
+    return _LockGraph(components, edges)
+
+
+def _runtime_closure(edges: Mapping[str, frozenset[str]]) -> set[str]:
+    """Canonical names a plain ``pip install rebrew`` puts in the environment.
+
+    Roots are ``[project.dependencies]`` from pyproject.toml, followed
+    through the lock's own resolved edges.  Anything the lock holds that this
+    walk does not reach came from a dev group, an optional extra, or one of
+    the non-shipping groups, so it is ``optional`` scope in the BOM rather
+    than part of what a consumer of the wheel installs.
+
+    The walk follows every resolved edge without evaluating its environment
+    marker, so a Windows-only dependency of a required package (``colorama``
+    via ``click``) lands in ``required`` too.  Over-listing in that direction
+    is the safe error: a scanner must not miss a component, and a Linux-only
+    wheel gains one harmless extra entry.
+    """
+    roots: set[str] = set()
+    project = tomllib.loads(_PYPROJECT.read_text(encoding="utf-8"))["project"]
+    declared = project.get("dependencies")
+    if not isinstance(declared, list):
+        raise SystemExit("pyproject.toml [project].dependencies is missing or not a list")
+    for spec in declared:
+        # Strip the version specifier, extras, and environment marker; a
+        # requirement is a plain string per PEP 508.
+        roots.add(canonicalize(re.split(r"[<>=!~;\[ ]", spec, maxsplit=1)[0]))
+    seen: set[str] = set()
+    pending = sorted(roots)
+    while pending:
+        current = pending.pop()
+        if current in seen:
+            continue
+        seen.add(current)
+        pending.extend(sorted(edges.get(current, ())))
+    return seen
 
 
 def _purl(name: str, version: str, kind: str, extra: str) -> str:
@@ -318,14 +394,22 @@ def _purl(name: str, version: str, kind: str, extra: str) -> str:
 # this, so `make sbom` and the package job share one contract.
 MIN_COMPONENTS = 10
 
+#: CycloneDX 1.5 component scopes.  ``required`` is in the runtime closure of
+#: ``[project].dependencies``; ``optional`` is everything a dev group, an
+#: install extra, or another non-shipping group pulls in.  ``excluded`` is
+#: valid in the spec but never emitted: nothing in the lock is declared
+#: explicitly excluded from the distribution.
+_SCOPES = frozenset({"required", "optional", "excluded"})
+
 
 def validate_bom(bom: dict[str, Any]) -> None:
     """Raise ValueError unless ``bom`` is a scannable CycloneDX document.
 
     Checks the format header, the spec version, a non-trivial component list,
-    and a license on every component.  Deliberately structural: field-level
-    schema validation belongs to the CycloneDX validator, not to this
-    generator.
+    a license on every component, and a CycloneDX scope on every component
+    with at least one ``required`` entry.  Deliberately structural:
+    field-level schema validation belongs to the CycloneDX validator, not to
+    this generator.
     """
     if bom.get("bomFormat") != "CycloneDX":
         raise ValueError(f"bomFormat is {bom.get('bomFormat')!r}, expected 'CycloneDX'")
@@ -343,10 +427,24 @@ def validate_bom(bom: dict[str, Any]) -> None:
     unlicensed = sorted(c.get("name", "?") for c in components if not c.get("licenses"))
     if unlicensed:
         raise ValueError(f"components without a license: {unlicensed}")
+    unscoped = sorted(c.get("name", "?") for c in components if c.get("scope") not in _SCOPES)
+    if unscoped:
+        raise ValueError(f"components without a CycloneDX scope: {unscoped}")
+    if not any(c.get("scope") == "required" for c in components):
+        raise ValueError(
+            "no component is scoped 'required': the runtime closure resolved empty, "
+            "so every entry reads as an optional extra of nothing"
+        )
 
 
 def build_bom(lock_text: str, project_version: str) -> dict[str, Any]:
-    components = _parse_lock(lock_text)
+    graph = _parse_lock(lock_text)
+    closure = _runtime_closure(graph.edges)
+    components = graph.components
+    for component in components:
+        component["scope"] = (
+            "required" if canonicalize(str(component["name"])) in closure else "optional"
+        )
     return {
         "bomFormat": "CycloneDX",
         "specVersion": "1.5",
