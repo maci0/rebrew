@@ -4,11 +4,11 @@ The dashboard is the one surface in rebrew that takes input from an
 untrusted socket: a browser (or anything that can reach the bind address)
 supplies the request path, the query string, and the ``Host``,
 ``Accept-Encoding`` and ``If-None-Match`` headers.  Every value that reaches
-SQL, a response header, or a log line from those bytes is parsed by a
+a response header, a log line, or a row filter from those bytes is parsed by a
 hand-written helper here — ``_int_param``, ``_offset_param``, ``_opt_query``,
-``_module_query``, ``_va_query``, ``_escape_like``, ``_text_or_va``,
-``_parse_accept_encoding``, ``_if_none_match``, ``_host_allowed`` and
-``_query_scope`` — and none of them had a property test.
+``_module_query``, ``_va_query``, ``_name_match``, ``_parse_accept_encoding``,
+``_if_none_match``, ``_host_allowed`` and ``_query_scope`` — and none of them
+had a property test.
 
 The harnesses below draw whole request lines and header values out of
 ``st.text()`` (so control characters, bidi overrides, lone surrogates,
@@ -16,9 +16,8 @@ embedded NULs and multi-megabyte values all arrive) and assert:
 
 * no parser raises on any input, and every numeric parse lands inside its
   documented clamp;
-* the SQL built for a search never carries the caller's text (it is a bound
-  parameter, not interpolation) and its LIKE wildcards are all escaped, so
-  ``%`` searches for a literal percent and not for everything;
+* the search compares the caller's text as a literal substring, so ``%``
+  searches for that character and not for everything;
 * a client-chosen query string cannot reach the ETag tag, which is what
   stops it from steering a response header;
 * content negotiation only ever yields a supported coding, at a q-value in
@@ -41,10 +40,9 @@ import pytest
 from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
-from rebrew.build_db import build_db
+from rebrew.coverage_toml import render_coverage_toml
 from rebrew.dashboard import (
     _APP_JS_VERSION,
-    _BOOT_GUARD_JS_VERSION,
     _CACHE_IMMUTABLE,
     _CACHE_REVALIDATE,
     _DEFAULT_LIMIT,
@@ -52,20 +50,18 @@ from rebrew.dashboard import (
     _UNCACHEABLE_ROUTES,
     Dashboard,
     _encoding_q,
-    _escape_like,
     _files_display,
     _host_allowed,
     _if_none_match,
     _int_param,
-    _load_list,
     _maybe_compress,
+    _name_match,
     _negotiate_encoding,
     _offset_param,
     _parse_accept_encoding,
     _query_scope,
     _scrub_invisible,
     _success_cache_control,
-    _text_or_va,
     _va_query,
     allowed_hosts_for,
 )
@@ -171,11 +167,13 @@ def _request(draw: st.DrawFn) -> tuple[str, str, dict[str, list[str]]]:
 
 @pytest.fixture(scope="module")
 def dashboard(tmp_path_factory: pytest.TempPathFactory) -> Dashboard:
-    """One read-only dashboard over a real ``coverage.db``, shared by the run.
+    """One read-only dashboard over a real coverage document, shared by the run.
 
-    The router fuzz drives hundreds of examples; rebuilding the database per
-    example would spend the whole budget in ``build_db``.  Every query the
-    harnesses issue is read-only, so one instance serves them all.
+    The router fuzz drives hundreds of examples; rebuilding the document per
+    example would spend the whole budget in the scan.  Every query the
+    harnesses issue is read-only, so one instance serves them all.  The
+    argument is the DIRECTORY holding ``coverage-<target>.toml``, which is what
+    the loader globs and what the validator stats.
     """
     root = tmp_path_factory.mktemp("dash_fuzz")
     db_dir = root / "db"
@@ -215,9 +213,11 @@ def dashboard(tmp_path_factory: pytest.TempPathFactory) -> Dashboard:
         "summary": {"total_functions": 2, "total_bytes": 128},
         "paths": {"a.c": "src/a.c"},
     }
-    (db_dir / "data_server_dll.json").write_text(json.dumps(data), encoding="utf-8")
-    build_db(root)
-    return Dashboard(db_dir / "coverage.db")
+    # The document is rendered directly: `build-db` would scan a project tree
+    # this fixture does not have, and the reader only ever sees the file.
+    document = render_coverage_toml("server_dll", data)
+    (db_dir / "coverage-server_dll.toml").write_text(document, encoding="utf-8")
+    return Dashboard(db_dir)
 
 
 class TestNumericQueryParams:
@@ -270,49 +270,25 @@ class TestNumericQueryParams:
 
 
 class TestSearchTerm:
-    """The search term is the one query value bound into a LIKE pattern."""
+    """The search term is attacker-chosen text compared against stored names.
 
-    @given(term=_REQUEST_TEXT)
-    @settings(max_examples=300)
-    def test_escape_leaves_no_live_wildcard(self, term: str) -> None:
-        escaped = _escape_like(term)
-        # Read the escaped form the way SQLite's ESCAPE '\' clause does: a
-        # backslash makes the next character literal.  No bare wildcard may
-        # survive, or a literal percent in a function name widens the match.
-        recovered: list[str] = []
-        index = 0
-        while index < len(escaped):
-            char = escaped[index]
-            if char == "\\":
-                assert index + 1 < len(escaped), escaped
-                recovered.append(escaped[index + 1])
-                index += 2
-                continue
-            assert char not in "%_", escaped
-            recovered.append(char)
-            index += 1
-        assert "".join(recovered) == term
+    The comparison used to be a SQL LIKE pattern, so this class pinned the
+    escaper and the parameterized SQL builder.  Both are gone: the rows are
+    in memory now and ``_name_match`` is a folded substring test, so the
+    property that matters is that the term stays a literal — SQL's wildcards
+    are ordinary characters, and there is no SQL left for the term to reach.
+    """
 
-    @given(
-        term=_REQUEST_TEXT,
-        columns=st.lists(
-            st.sampled_from(["name", "symbol", "va"]), min_size=1, max_size=3, unique=True
-        ),
-    )
+    @given(name=st.text(alphabet=_CHARS, max_size=40))
     @settings(max_examples=200)
-    def test_text_or_va_parameterizes_every_column(self, term: str, columns: list[str]) -> None:
-        sql, args = _text_or_va(term, *columns)
-        # One bound parameter per LIKE column, plus at most one for the VA
-        # equality: the caller's text is data, never SQL.
-        assert args.count(f"%{_escape_like(term)}%") == len(columns)
-        assert len(args) in (len(columns), len(columns) + 1)
-        assert all("?" in part for part in sql.split(" OR "))
-        for column in columns:
-            assert f"{column} LIKE ? ESCAPE '\\'" in sql
-        for char in ("'", ";", "--"):
-            assert char not in sql or char in "'\\'"
-        va = _va_query(term)
-        assert (va is not None) == ("va = ?" in sql)
+    def test_name_match_treats_wildcards_literally(self, name: str) -> None:
+        """``%`` and ``_`` are matched as characters, never as patterns."""
+        for term in ("%", "_", "\\", "%_%"):
+            # The VA arm is not reached here: none of these is a hex address.
+            assert _va_query(term) is None
+            # Folding is ASCII-only, and no term here carries a letter, so the
+            # plain containment test is the answer the folded one must give.
+            assert _name_match(term, 0x1000, name) == (term in name)
 
     @given(term=_REQUEST_TEXT)
     @settings(max_examples=300)
@@ -480,9 +456,8 @@ class TestResponseTagging:
     @settings(max_examples=200)
     def test_immutable_needs_the_content_hashed_url(self, value: str) -> None:
         query = {"v": [value]}
-        assume(value not in (_APP_JS_VERSION, _BOOT_GUARD_JS_VERSION))
+        assume(value != _APP_JS_VERSION)
         assert _success_cache_control("/app.js", query) == _CACHE_REVALIDATE
-        assert _success_cache_control("/boot-guard.js", query) == _CACHE_REVALIDATE
 
     @given(value=st.text(alphabet=_CHARS, min_size=1, max_size=40))
     @settings(max_examples=50)
@@ -491,28 +466,18 @@ class TestResponseTagging:
         assert _success_cache_control("/api/health", {"v": [value]}) == "no-store"
 
 
-class TestDbDerivedCellText:
-    """Text read back out of the database is target-controlled, not client-controlled."""
+class TestDocumentDerivedCellText:
+    """Text read back out of a coverage document is target-controlled, not client-controlled.
 
-    @given(raw=st.text(alphabet=_CHARS, max_size=80))
-    @settings(max_examples=300)
-    def test_load_list_yields_only_strings(self, raw: str) -> None:
-        value = _load_list(raw)
-        assert isinstance(value, list)
-        assert all(isinstance(item, str) for item in value)
-        # A non-list JSON payload is a schema surprise, not an exception.
-        try:
-            decoded = json.loads(raw)
-        except (json.JSONDecodeError, TypeError):
-            assert value == []
-            return
-        if not isinstance(decoded, list):
-            assert value == []
+    The database stored ``files``/``functions`` as JSON strings and the reader
+    decoded them; the TOML reader hands back tuples of ``str`` already, so
+    there is no decoder to fuzz and ``_files_display`` only joins.
+    """
 
-    @given(raw=st.text(alphabet=_CHARS, max_size=80))
+    @given(files=st.lists(st.text(alphabet=_CHARS, max_size=30), max_size=5))
     @settings(max_examples=300)
-    def test_files_display_is_always_text(self, raw: str) -> None:
-        assert isinstance(_files_display(raw), str)
+    def test_files_display_is_always_text(self, files: list[str]) -> None:
+        assert isinstance(_files_display(files), str)
 
     @given(
         value=st.recursive(
@@ -591,7 +556,7 @@ class TestRouter:
     def test_wildcard_search_terms_match_literally(
         self, dashboard: Dashboard, path: str, term: str
     ) -> None:
-        """A LIKE wildcard from the search box is matched literally, so a bare
+        """A wildcard from the search box is matched literally, so a bare
         ``%`` returns nothing instead of the whole table."""
         status, _, body = dashboard.handle(
             "GET", path, {"target": ["server_dll"], "q": [term], "limit": ["5000"]}

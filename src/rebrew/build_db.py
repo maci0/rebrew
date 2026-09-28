@@ -1,15 +1,31 @@
-"""build_db.py – Build SQLite coverage database from function catalog.
+"""build_db.py – the coverage pipeline's normalizers and the ``build-db`` command.
 
-Aggregates annotation data, verification results, and coverage statistics
-into a single SQLite database for querying and reporting.
+The coverage snapshot is clear-text per-target TOML (``db/coverage-<target>.toml``);
+:mod:`rebrew.coverage_toml` renders and writes it, and ``rebrew build-db`` is a
+thin typer front over that writer.
+
+What lives here is everything the two halves share and neither may restate: the
+catalog loaders (``load_coverage_datasets``), the value normalizers the writer
+imports (``parse_int``, ``normalize_cell_row``, ``dedupe_by_va``, …), and the
+verify-cache import (``import_verify_rows``).  A second copy of the cell clamp or
+the verify row mapping is exactly the drift the TOML module exists to remove, so
+they are here rather than beside either consumer.
+
+The SQLite writer that used to live here is gone: schema DDL, the version gate,
+the ``--force`` unlink/restore, the zstd section-cell cache and the
+``function_stats`` reference aggregate all existed to serve a database file, and
+there is no database file.  The aggregate survives as
+:func:`rebrew.coverage_toml._derive_function_stats`, and
+``tests/test_coverage_toml.py`` now derives its expected numbers by hand from
+the fixture rather than running a second implementation of the same arithmetic.
 """
 
 import contextlib
 import json
 import logging
 import math
-import sqlite3
 import unicodedata
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -17,9 +33,7 @@ from typing import Any
 
 import typer
 
-from rebrew.annotation import FUNCTION_MARKERS, VALID_MARKERS
 from rebrew.cli import (
-    EXIT_ERROR,
     TargetOption,
     console,
     error_exit,
@@ -31,100 +45,19 @@ from rebrew.data_metadata import (
     DATA_STATUS_UNCHECKED,
     DATA_STATUS_VERIFIED,
 )
-from rebrew.metadata import METADATA_FILENAME, canonical_status
-from rebrew.utils import clip_span
-from rebrew.workspace import (
-    DB_VERSION_KEY,
-    SCHEMA_TARGET,
-    SECTION_CELLS_AGG_SQL,
-    SECTION_CELLS_COLUMN,
-    SECTION_CELLS_TABLE,
-    SQLITE_TIMEOUT_SECONDS,
-    coverage_db_lock,
-    db_dir,
-    encode_section_cells,
-    open_sqlite_ro,
-    read_stored_db_version,
-)
-from rebrew.workspace.status import COVERAGE_DB_STATUSES, KNOWN_STATUSES, MATCHED_STATUSES
+from rebrew.workspace import db_dir
+from rebrew.workspace.status import COVERAGE_DB_STATUSES, KNOWN_STATUSES
 
-_CURRENT_DB_VERSION = "11"
-
-#: ``functions.markerType`` vocabulary, from the annotation parser's set so the
-#: CHECK and the insert-time sanitizer cannot drift from what sources may carry.
-_MARKER_CHECK_SQL: str = ", ".join(repr(m) for m in sorted(VALID_MARKERS))
-
-#: WHERE term selecting code rows of ``functions`` (``FUNCTION_MARKERS``);
-#: every other marker (GLOBAL/DATA/VTABLE/STRING) is data.  Shared verbatim by
-#: ``idx_functions_list``'s predicate and every list/stats query: SQLite uses a
-#: partial index only when the query repeats its WHERE term.
-FUNCTION_ROWS_SQL: str = f"markerType IN ({', '.join(repr(m) for m in sorted(FUNCTION_MARKERS))})"
-
-#: Statuses allowed in ``functions.status``.  ``KNOWN_STATUSES`` plus
-#: ``UNKNOWN`` (the DEFAULT when a catalog row omits STATUS).  Kept in one
-#: place so the CREATE TABLE CHECK and the insert-time sanitizer cannot drift.
-_FUNCTION_DB_STATUSES: frozenset[str] = COVERAGE_DB_STATUSES
-_FUNCTION_STATUS_CHECK_SQL: str = ", ".join(repr(s) for s in sorted(_FUNCTION_DB_STATUSES))
-
-#: One status transition is ``(target, va, old_status, new_status, changed_at,
-#: updated_by)`` — the same tuple the ``--force`` restore dedupes on, now
-#: enforced by the table rather than by that probe alone.  SQLite treats NULLs
-#: as distinct in a UNIQUE index, so this covers every non-NULL transition; the
-#: restore probe still handles the NULL-status ones (see
-#: :func:`_restore_persistent_rows`).
-_HISTORY_UNIQUE_SQL = "UNIQUE (target, va, old_status, new_status, changed_at, updated_by)"
-
-#: Column DDL for the persistent tables (never dropped on rebuild).  Shared by
-#: CREATE IF NOT EXISTS and the in-place migration so the two cannot drift.
-_HISTORY_COLUMNS_SQL = f"""
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    target TEXT NOT NULL,
-    va INTEGER NOT NULL CHECK (va >= 0),
-    old_status TEXT
-        CHECK (old_status IS NULL OR old_status IN ({_FUNCTION_STATUS_CHECK_SQL})),
-    new_status TEXT
-        CHECK (new_status IS NULL OR new_status IN ({_FUNCTION_STATUS_CHECK_SQL})),
-    changed_at TEXT NOT NULL CHECK (changed_at != ''),
-    updated_by TEXT NOT NULL DEFAULT '',
-    {_HISTORY_UNIQUE_SQL}
-"""
-
-#: The clamping the in-place ``history`` migration applies to a pre-CHECK
-#: table's rows.  Named once because the migration writes them as both the
-#: projected VALUES and the ``PARTITION BY`` keys: deduping on the *raw* rows
-#: would let two records that clamp to the same transition both survive and
-#: abort the recreate on the new UNIQUE.
-_HISTORY_VA_SQL = "CASE WHEN typeof(va) = 'integer' AND va >= 0 THEN va ELSE 0 END"
-_HISTORY_OLD_STATUS_SQL = (
-    f"CASE WHEN old_status IS NULL THEN NULL "
-    f"WHEN old_status IN ({_FUNCTION_STATUS_CHECK_SQL}) THEN old_status ELSE 'UNKNOWN' END"
-)
-_HISTORY_NEW_STATUS_SQL = (
-    f"CASE WHEN new_status IS NULL THEN NULL "
-    f"WHEN new_status IN ({_FUNCTION_STATUS_CHECK_SQL}) THEN new_status ELSE 'UNKNOWN' END"
-)
-_HISTORY_CHANGED_AT_SQL = (
-    "CASE WHEN changed_at IS NULL OR changed_at = '' "
-    "THEN '1970-01-01T00:00:00+00:00' ELSE changed_at END"
-)
-_HISTORY_UPDATED_BY_SQL = "COALESCE(updated_by, '')"
-_VERIFY_RESULTS_COLUMNS_SQL = """
-    target TEXT NOT NULL,
-    va INTEGER NOT NULL CHECK (va >= 0),
-    verified_at TEXT NOT NULL CHECK (verified_at != ''),
-    byte_delta INTEGER CHECK (byte_delta IS NULL OR byte_delta >= 0),
-    diff_lines INTEGER CHECK (diff_lines IS NULL OR diff_lines >= 0),
-    similarity REAL CHECK (similarity IS NULL OR (similarity >= 0.0 AND similarity <= 1.0)),
-    reg_delta INTEGER CHECK (reg_delta IS NULL OR reg_delta >= 0),
-    effective_match INTEGER CHECK (effective_match IS NULL OR effective_match IN (0, 1)),
-    PRIMARY KEY (target, va)
-"""
+#: Statuses a ``functions.status`` may hold: ``KNOWN_STATUSES`` plus ``UNKNOWN``
+#: (what a catalog row that omits STATUS gets).  The TOML writer applies the
+#: same set to every row it stores, so the sanitizer and this set are one rule.
+FUNCTION_DB_STATUSES: frozenset[str] = COVERAGE_DB_STATUSES
 
 #: Statuses allowed in ``globals.status``.  Empty string (no verdict yet)
 #: plus the three data-metadata verdicts — derived from the same constants
-#: ``data_metadata`` / the grid emit so the CHECK and the insert sanitizer
-#: cannot drift from the annotation vocabulary.
-_GLOBAL_DB_STATUSES: frozenset[str] = frozenset(
+#: ``data_metadata`` / the grid emit so the two writers cannot drift from the
+#: annotation vocabulary.
+GLOBAL_DB_STATUSES: frozenset[str] = frozenset(
     {
         "",
         DATA_STATUS_VERIFIED,
@@ -132,88 +65,34 @@ _GLOBAL_DB_STATUSES: frozenset[str] = frozenset(
         DATA_STATUS_UNCHECKED,
     }
 )
-_GLOBAL_STATUS_CHECK_SQL: str = ", ".join(repr(s) for s in sorted(_GLOBAL_DB_STATUSES))
 
-# Per-section coverage buckets, as ONE select used both to declare the
-# ``section_cell_stats`` table and to refill it — the bucket definitions
-# (including the catch-all that keeps total_cells reconcilable) exist in
-# exactly one place.
-#
-# This is a build-time TABLE, not a view.  As a view, every
-# reader re-aggregated the whole cells table: 13 SUM(CASE state = '<text>')
-# over 64k rows measured 17.3 ms per request — 92% of the remaining cold
-# /data build once the cell JSON was materialized.  A covering index did not
-# help (10% for +3.1 MB): the cost is the string comparisons, not the table
-# lookups.  Every consumer queries it as
-# ``SELECT ... FROM section_cell_stats WHERE target = ?``, which is
-# indifferent to table-vs-view, so no reader changed — and a database still
-# carrying the old view keeps working until its next build replaces it.
-#
-# Safe as a table because ``build_db`` is the only writer of ``cells``.
-_SECTION_CELL_STATS_SELECT = """
-    SELECT
-        target,
-        section_name,
-        COUNT(*) as total_cells,
-        SUM(CASE WHEN state IN ('exact', 'verified') THEN 1 ELSE 0 END) as exact_count,
-        SUM(CASE WHEN state = 'reloc' THEN 1 ELSE 0 END) as reloc_count,
-        SUM(CASE WHEN state IN ('near_match', 'near_matching') THEN 1 ELSE 0 END) as near_match_count,
-        SUM(CASE WHEN state = 'stub' THEN 1 ELSE 0 END) as stub_count,
-        SUM(CASE WHEN state = 'padding' THEN 1 ELSE 0 END) as padding_count,
-        SUM(CASE WHEN state = 'data' THEN 1 ELSE 0 END) as data_count,
-        SUM(CASE WHEN state = 'thunk' THEN 1 ELSE 0 END) as thunk_count,
-        SUM(CASE WHEN state = 'none' THEN 1 ELSE 0 END) as none_count,
-        SUM(CASE WHEN state = 'proven' THEN 1 ELSE 0 END) as proven_count,
-        SUM(CASE WHEN state = 'size_mismatch' THEN 1 ELSE 0 END) as size_mismatch_count,
-        -- Catch-all for every other state (compile_error,
-        -- extract_error, invalid_va, missing_file, missing_size,
-        -- skip, unknown, plus the data drift/unchecked verdicts):
-        -- without it total_cells never equals the sum of the counted
-        -- columns and per-section stats silently undercount
-        --.  `verified` is excluded here because it is
-        -- counted as exact_count above.
-        SUM(CASE WHEN state NOT IN (
-            'exact', 'verified', 'reloc', 'near_match', 'near_matching',
-            'stub', 'padding', 'data', 'thunk', 'none', 'proven',
-            'size_mismatch'
-        ) THEN 1 ELSE 0 END) as other_count
-    FROM cells
-    GROUP BY target, section_name
-"""
 
-#: Name of the derived per-section stats table (was a view before it was
-#: materialized; see _SECTION_CELL_STATS_SELECT).
-SECTION_CELL_STATS_TABLE = "section_cell_stats"
-
-#: Cell array stored for a section that has a `sections` row but no cell.
-#: Empty, not absent: the reader gets the section it asked for with nothing in
-#: it, which is what a cell-less section actually holds.
-_EMPTY_CELLS_JSON = "[]"
-
-#: Per-target retention cap for the history table: only the newest N status-
-#: change rows per target are kept after each rebuild.  The dashboard pages
-#: the newest 100 (max 5000) — keeping 10k per target preserves 2+ full
-#: pages of history while bounding unbounded growth.
-_HISTORY_RETENTION = 10_000
+#: Per-target retention cap for the history: only the newest N status-change
+#: rows per target survive a rebuild.  The dashboard pages the newest 100 (max
+#: 5000) — keeping 10k per target preserves 2+ full pages of history while
+#: bounding unbounded growth.
+HISTORY_RETENTION = 10_000
 
 #: Fallback cell geometry for a section row whose hand-edited JSON omits
-#: ``unitBytes``/``columns`` or carries a non-positive value (the schema CHECK
-#: is > 0, so a stray 0 would abort the whole rebuild).
-_DEFAULT_GRID_GEOMETRY = 64
+#: ``unitBytes``/``columns`` or carries a non-positive value (a zero-width grid
+#: cell is not a cell).
+DEFAULT_GRID_GEOMETRY = 64
 
-#: SQLite stores INTEGERs in 8 bytes and the driver raises ``OverflowError``
-#: for anything wider, so a JSON number past this range is a malformed row,
-#: not a storable one.
+#: SQLite stores INTEGERs in 8 bytes and the driver raised ``OverflowError``
+#: for anything wider, so a JSON number past this range is a malformed row, not
+#: a storable one.  A TOML integer is unbounded, but the range is kept: the
+#: clamps below are what the two writers agree a catalog value means, and
+#: widening it now would silently change which rows the file accepts.
 _SQLITE_INT_MAX = 2**63 - 1
 _SQLITE_INT_MIN = -(2**63)
 
 
-def _parse_int(value: Any, default: int = 0) -> int:
+def parse_int(value: Any, default: int = 0) -> int:
     """Parse an integer from JSON-ish input, returning *default* on invalid values.
 
-    A value outside SQLite's 64-bit INTEGER range is out of range for every
-    column it feeds, and the driver rejects it with ``OverflowError``, so it
-    takes the same path as any other unusable value: *default*.
+    A value outside the signed 64-bit range the removed SQLite writer enforced
+    (see :data:`_SQLITE_INT_MAX`) is out of range for every field it feeds, so
+    it takes the same path as any other unusable value: *default*.
     """
     if isinstance(value, bool):
         return default
@@ -236,7 +115,7 @@ def _parse_int(value: Any, default: int = 0) -> int:
     return parsed if _SQLITE_INT_MIN <= parsed <= _SQLITE_INT_MAX else default
 
 
-def _clamp_nonneg_int(value: Any) -> int | None:
+def clamp_nonneg_int(value: Any) -> int | None:
     """Return a non-negative int, or ``None`` when *value* is absent/unusable.
 
     Non-finite floats (``NaN``, ``±inf``) are rejected: ``int(inf)`` raises,
@@ -244,8 +123,8 @@ def _clamp_nonneg_int(value: Any) -> int | None:
     bound (``max(0, min(1, nan))`` → ``1``), which would invent a delta.
     Non-integral floats (``12.9``, ``-1.5``) are also rejected: ``int()``
     truncates toward zero and would store a wrong byte_delta (``12`` for
-    ``12.9``, or ``0`` after clamping a truncated ``-1``).  A value past
-    SQLite's INTEGER ceiling is rejected, as :func:`_parse_int` drops it.
+    ``12.9``, or ``0`` after clamping a truncated ``-1``).  A value past the
+    64-bit ceiling is rejected, as :func:`parse_int` drops it.
     """
     if value is None or isinstance(value, bool):
         return None
@@ -270,21 +149,21 @@ def _clamp_nonneg_int(value: Any) -> int | None:
     return max(0, parsed)
 
 
-def _positive_int_or(value: Any, default: int) -> int:
+def positive_int_or(value: Any, default: int) -> int:
     """Return *value* when it is a positive ``int``, else *default*.
 
     ``bool`` is rejected on its own: it subclasses ``int``, so ``True``
     passes both an ``isinstance(..., int)`` and a ``> 0`` guard and would
     land as a 1-byte grid cell, one cell per byte of the section.  A value
-    past SQLite's INTEGER ceiling is rejected for the reason
-    :func:`_parse_int` drops it.
+    past the 64-bit ceiling is rejected for the reason :func:`parse_int`
+    drops it.
     """
     if isinstance(value, bool) or not isinstance(value, int) or not 0 < value <= _SQLITE_INT_MAX:
         return default
     return value
 
 
-def _clamp_unit_interval(value: Any) -> float | None:
+def clamp_unit_interval(value: Any) -> float | None:
     """Return a float in ``[0.0, 1.0]``, or ``None`` when *value* is absent/unusable.
 
     Non-finite inputs are rejected.  ``max(0.0, min(1.0, nan))`` returns
@@ -312,11 +191,11 @@ def _clamp_unit_interval(value: Any) -> float | None:
 
 
 def _clamp_verify_similarity(value: Any) -> float | None:
-    """Normalize verify-cache similarity into the DB's ``[0.0, 1.0]`` column.
+    """Normalize verify-cache similarity into the document's ``[0.0, 1.0]`` field.
 
     ``rebrew verify`` stores ``code_similarity`` on a 0–100 percent scale
-    (``Sim %`` in the summary table).  The coverage DB CHECK and
-    ``docs/DB_FORMAT.md`` use the unit interval.  Always divide by 100:
+    (``Sim %`` in the summary table).  The coverage document and
+    ``docs/COVERAGE_DOCUMENT.md`` use the unit interval.  Always divide by 100:
     a pass-through for ``[0, 1]`` treated ``1.0`` (1% Sim) as a perfect
     match and ``0.5`` (0.5%) as 50%.  This helper is only used for the
     verify-cache import path, which is always percent-scale.  Non-finite
@@ -385,7 +264,6 @@ _GAP_AND_DATA_CELL_STATES: frozenset[str] = frozenset(
 _KNOWN_CELL_STATES: frozenset[str] = (
     frozenset(s.lower() for s in KNOWN_STATUSES) | _GAP_AND_DATA_CELL_STATES
 )
-_CELL_STATE_CHECK_SQL: str = ", ".join(repr(s) for s in sorted(_KNOWN_CELL_STATES))
 
 
 #: One normalized ``cells`` insert row:
@@ -408,11 +286,11 @@ def _canonical_cell_state(value: Any) -> str | None:
     return state if state in _KNOWN_CELL_STATES else None
 
 
-def _normalize_cell_row(target_name: str, sec_name: str, cell: dict[str, Any]) -> _CellRow:
+def normalize_cell_row(target_name: str, sec_name: str, cell: dict[str, Any]) -> _CellRow:
     """Return a DB-safe cell row from generated coverage JSON."""
-    start = max(0, _parse_int(cell.get("start"), 0))
-    end = max(start, _parse_int(cell.get("end"), start))
-    span = max(1, _parse_int(cell.get("span"), 1))
+    start = max(0, parse_int(cell.get("start"), 0))
+    end = max(start, parse_int(cell.get("end"), start))
+    span = max(1, parse_int(cell.get("span"), 1))
     state = _canonical_cell_state(cell.get("state"))
     if state is None:
         logging.warning(
@@ -440,7 +318,7 @@ def _normalize_cell_row(target_name: str, sec_name: str, cell: dict[str, Any]) -
     )
 
 
-def _dedupe_cell_rows(
+def dedupe_cell_rows(
     rows: list[_CellRow],
     *,
     target_name: str,
@@ -472,14 +350,14 @@ def _dedupe_cell_rows(
     return sorted(by_start.values(), key=lambda r: r[2])
 
 
-def _dedupe_by_va(
+def dedupe_by_va(
     rows: list[tuple[Any, ...]], *, target_name: str, table: str
 ) -> list[tuple[Any, ...]]:
     """Collapse rows sharing ``va`` (index 1) so the ``(target, va)`` PK holds.
 
     Two JSON keys can spell one VA (``"0x401000"`` and ``"4198400"``, or a bad
     key recovered from ``vaStart``); inserting both would abort the whole
-    rebuild.  Last row wins, matching :func:`_dedupe_cell_rows`.
+    rebuild.  Last row wins, matching :func:`dedupe_cell_rows`.
     """
     by_va = {row[1]: row for row in rows}
     dropped = len(rows) - len(by_va)
@@ -494,65 +372,13 @@ def _dedupe_by_va(
     return list(by_va.values())
 
 
-def _function_stats(
-    c: sqlite3.Cursor, target_name: str
-) -> tuple[int, dict[str, int], dict[str, list[Any]], int, int]:
-    """Return (total, by_status, by_module, covered_bytes, matched_bytes).
-
-    ``covered_bytes`` = sum of EVERY function's size regardless of status
-    ("identified bytes" — a STUB placeholder counts fully).  ``matched_bytes``
-    = sum of byte-matched EXACT/RELOC sizes only (the dashboard
-    headline used covered_bytes, so an all-STUB binary reported ~100%
-    "coverage").  The headline metric is matched bytes; identified bytes is
-    the separate "fully documented" figure.
-    """
-    c.execute(
-        "SELECT va, name, size, status, module, symbol, markerType, files "
-        f"FROM functions WHERE target = ? AND {FUNCTION_ROWS_SQL} ORDER BY va",
-        (target_name,),
-    )
-    total: int = 0
-    by_status: dict[str, int] = {}
-    by_module: dict[str, list[Any]] = {}
-    covered_bytes: int = 0
-    matched_bytes: int = 0
-    rows = c.fetchall()
-    # Cut each span at the next function start: a discoverer that missed a
-    # start reports the previous entry running through it (as rebrew status).
-    starts = [fn[0] for fn in rows]
-    for fn in rows:
-        total += 1
-        st = fn[3] or "UNKNOWN"
-        by_status[st] = by_status.get(st, 0) + 1
-        # Key is the stored module, including "". "GAME" is a real module
-        # name, so a blank must not be counted under it: the summary key
-        # and /api/functions?module= have to name the same rows.
-        mod = fn[4] or ""
-        by_module.setdefault(mod, []).append(fn)
-        size = None if fn[2] is None else clip_span(starts, fn[0], fn[2])
-        # Function statuses are EXACT/RELOC/STUB/... — never "none" (a cell
-        # state); the old `st != "none"` guard was always true and misleading.
-        covered_bytes += size if size is not None else 0
-        if st in MATCHED_STATUSES:
-            matched_bytes += size if size is not None else 0
-    return total, by_status, by_module, covered_bytes, matched_bytes
-
-
-def _snapshot_inputs(root_dir: Path) -> list[Path]:
-    """Files a data_*.json snapshot does not reflect until it is regenerated."""
-    inputs = [root_dir / ".rebrew" / "verify_cache.json"]
-    if (root_dir / "rebrew-project.toml").exists():
-        inputs.append(load_config(root_dir).metadata_dir / METADATA_FILENAME)
-    return [p for p in inputs if p.is_file()]
-
-
 def resolve_db_dir(root_dir: Path, *, json_output: bool = False) -> Path:
     """Return the configured database directory, falling back when no config exists.
 
     The path comes from the shared ``rebrew.workspace.db_dir`` resolver, so a
-    dashboard and this builder never disagree on where coverage.db lives.  A
-    config that is present but broken still fails loud here rather than
-    silently falling back to ``db/``.
+    dashboard and this writer never disagree on where ``coverage-<target>.toml``
+    lives.  A config that is present but broken still fails loud here rather
+    than silently falling back to ``db/``.
     """
     if not (root_dir / "rebrew-project.toml").exists():
         return root_dir / "db"
@@ -563,771 +389,90 @@ def resolve_db_dir(root_dir: Path, *, json_output: bool = False) -> Path:
     return db_dir(root_dir)
 
 
-#: SQLite side files that belong to one database file.  A -wal left behind
-#: by a killed build is replayed into whatever database next opens that path.
-_SQLITE_SIDECAR_SUFFIXES = ("-wal", "-shm", "-journal")
-
-#: Tables that survive a destructive rebuild.  Everything else is re-derived
-#: from db/data_*.json on every run, so deleting it is a no-op in effect; these
-#: two accumulate and have no other source, so an --force rebuild must carry
-#: them across the delete.
-_PERSISTENT_TABLES: dict[str, tuple[str, ...]] = {
-    "history": ("target", "va", "old_status", "new_status", "changed_at", "updated_by"),
-    # Every column, not just the key: a restore that re-inserted (target, va)
-    # alone left verified_at NULL, which the NOT NULL CHECK rejects — and
-    # INSERT OR IGNORE swallows that rejection, so --force dropped every
-    # verify result it had just saved.
-    "verify_results": (
-        "target",
-        "va",
-        "verified_at",
-        "byte_delta",
-        "diff_lines",
-        "similarity",
-        "reg_delta",
-        "effective_match",
-    ),
-}
-
-
-def _unlink_db(db_path: Path) -> dict[str, list[tuple[Any, ...]]]:
-    """Delete *db_path* and its SQLite side files, returning the rows of
-    :data:`_PERSISTENT_TABLES` so the rebuild can restore them.
-
-    Deleting the file is how a stale schema is replaced, but ``history`` and
-    ``verify_results`` are never re-derived: dropping them silently discards
-    every status change and every verify result, and a second ``--force`` run
-    compounds the loss.  Returns an empty mapping when the tables are absent,
-    in which case there is nothing worth restoring.
-
-    A pre-CHECK table from an older build may lack a column this build knows
-    about, so the projection is intersected with the table's actual columns
-    and the result padded back to the declared width; the restore then binds
-    NULL for whatever the old table never had.
-
-    Raises :exc:`sqlite3.OperationalError` when the tables cannot be read, so
-    the unlink below never runs on a database whose persistent rows are
-    merely unknown.  The caller reports it and preserves the file.
-    """
-    saved: dict[str, list[tuple[Any, ...]]] = {}
-    try:
-        with contextlib.closing(open_sqlite_ro(db_path)) as conn:
-            present = {
-                row[0]
-                for row in conn.execute(
-                    "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
-                )
-            }
-            for table, columns in _PERSISTENT_TABLES.items():
-                if table not in present:
-                    continue
-                actual = [row[1] for row in conn.execute(f"PRAGMA table_info({table})")]
-                width = len(columns)
-                keep = [col for col in columns if col in actual]
-                if not keep:
-                    continue
-                indexes = [columns.index(col) for col in keep]
-                for row in conn.execute(f"SELECT {', '.join(keep)} FROM {table}"):
-                    values = [None] * width
-                    for slot, value in zip(indexes, row, strict=True):
-                        values[slot] = value
-                    saved.setdefault(table, []).append(tuple(values))
-    except sqlite3.Error as exc:
-        # A read failure is not the same as "no persistent rows": continuing
-        # would unlink a database whose history and verify_results are merely
-        # unreadable, and the rebuild would then start from an empty mapping.
-        raise sqlite3.OperationalError(
-            f"cannot read the persistent tables of '{db_path}' before deleting it: {exc}"
-        ) from exc
-    db_path.unlink()
-    for suffix in _SQLITE_SIDECAR_SUFFIXES:
-        db_path.with_name(db_path.name + suffix).unlink(missing_ok=True)
-    return saved
-
-
-def _restore_persistent_rows(c: sqlite3.Cursor, saved: dict[str, list[tuple[Any, ...]]]) -> None:
-    """Re-insert rows saved by :func:`_unlink_db`, skipping ones already present.
-
-    The saved rows are re-inserted through a staging table and the SAME
-    clamping projection the in-place migrations use (:func:`verify_results_clamp_select`
-    / :func:`history_clamp_select`), because ``_unlink_db`` reads whatever an
-    older build wrote: a pre-CHECK ``verify_results`` can hold a negative
-    ``byte_delta`` or a percent-scale ``similarity``, and a pre-CHECK ``history``
-    a negative VA, an out-of-vocabulary status, or an empty ``changed_at``.
-    Re-inserting those raw aborts on the first CHECK failure, and that abort
-    lands inside the rebuild's transaction, AFTER the file has already been
-    unlinked, so ``--force`` would leave no database at all.
-
-    Both restores are naturally idempotent, so a second --force rebuild over an
-    already-restored database adds nothing:
-    ``verify_results`` is keyed ``(target, va)``; a ``history`` row is the
-    status transition it records, and an identical transition at the same
-    ``changed_at`` is the same fact.
-
-    The history dedupe compares with ``IS`` rather than ``=`` so two rows that
-    both carry a NULL old/new status count as the same transition, and it runs
-    over the CLAMPED values: the clamp can fuse two distinct raw rows into one
-    transition, which the UNIQUE would otherwise reject.
-
-    ``history`` carries a ``UNIQUE`` over exactly those six columns, so a plain
-    INSERT is enough for every transition whose statuses are non-NULL.  SQLite
-    treats NULLs as DISTINCT inside a UNIQUE index, though, so a NULL-status
-    transition would insert a second time without the probe.  The probe is what
-    covers them, and the UNIQUE index is what serves it.
-    """
-    rows = saved.get("verify_results")
-    if rows:
-        c.execute(_VERIFY_RESULTS_STAGE_SQL)
-        c.executemany(
-            "INSERT INTO _verify_results_restore (target, va, verified_at, byte_delta, "
-            "diff_lines, similarity, reg_delta, effective_match) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            rows,
-        )
-        # Same shape as the in-place migration, so a clamp collision resolves
-        # the same way on both paths: keep the LAST-saved row for a
-        # (target, va), which is the newest measurement.  A plain
-        # ``INSERT OR IGNORE ... ORDER BY`` would instead keep whichever row the
-        # plan happened to deliver first.
-        c.execute(
-            f"""
-            INSERT OR IGNORE INTO verify_results (
-                target, va, verified_at, byte_delta, diff_lines,
-                similarity, reg_delta, effective_match
-            )
-            SELECT
-                target, va, verified_at, byte_delta, diff_lines,
-                similarity, reg_delta, effective_match
-            FROM (
-                SELECT
-                    target, va, verified_at, byte_delta, diff_lines,
-                    similarity, reg_delta, effective_match,
-                    ROW_NUMBER() OVER (
-                        PARTITION BY target, va ORDER BY src_rowid DESC
-                    ) AS rn
-                FROM (
-                    {verify_results_clamp_select("_verify_results_restore")}
-                )
-                -- Same drop as the in-place migration: only a NULL va is
-                -- discarded (the PK cannot hold it); a negative one has
-                -- already clamped to 0 in the projection.
-                WHERE va IS NOT NULL
-            )
-            WHERE rn = 1
-            """
-        )
-        c.execute("DROP TABLE _verify_results_restore")
-    rows = saved.get("history")
-    if rows:
-        c.execute(_HISTORY_STAGE_SQL)
-        c.executemany(
-            "INSERT INTO _history_restore "
-            "(target, va, old_status, new_status, changed_at, updated_by) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            rows,
-        )
-        # The clamp projection carries the dedupe (ROW_NUMBER over the clamped
-        # transition, keeping the last-saved row), so the NOT EXISTS probe only
-        # has to cover the NULL-status transitions the UNIQUE treats as
-        # distinct, and it compares the CLAMPED values, since that is what was
-        # inserted.
-        c.execute(
-            f"""
-            INSERT INTO history (
-                target, va, old_status, new_status, changed_at, updated_by
-            )
-            SELECT
-                target, va, old_status, new_status, changed_at, updated_by
-            FROM (
-                {history_clamp_select("_history_restore", order_by="rowid")}
-            ) AS clamped
-            WHERE rn = 1
-              AND NOT EXISTS (
-                SELECT 1 FROM history h
-                WHERE h.target IS clamped.target AND h.va IS clamped.va
-                  AND h.changed_at IS clamped.changed_at
-                  AND h.old_status IS clamped.old_status
-                  AND h.new_status IS clamped.new_status
-                  AND h.updated_by IS clamped.updated_by
-              )
-            """
-        )
-        c.execute("DROP TABLE _history_restore")
-
-
-def _check_db_version(
-    db_path: Path, *, force: bool = False, json_output: bool = False
-) -> dict[str, list[tuple[Any, ...]]]:
-    """Raise SystemExit (via error_exit) if DB exists with an incompatible schema version.
-
-    On mismatch without ``--force``: emit a clear error.
-    With ``--force``: delete the DB file so it is recreated from scratch, and
-    return the :data:`_PERSISTENT_TABLES` rows the caller must restore.
-    An existing file with no schema at all (an aborted build) is unlinked the
-    same way even without ``--force``: there is nothing to migrate from, and
-    keeping it would make every later query fail.
-    """
-    if not db_path.exists():
-        return {}
-    try:
-        with contextlib.closing(open_sqlite_ro(db_path)) as conn:
-            c = conn.cursor()
-            objects = c.execute(
-                "SELECT name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'"
-            ).fetchall()
-            empty_schema = not objects
-            # The gate's own stamp reader, so the key name and the
-            # schema-row-then-any-row fallback live in one place rather than
-            # drifting from the reader every dashboard request shares.
-            stored = read_stored_db_version(conn) if ("metadata",) in objects else None
-        stored_version = "<unknown>" if stored is None else str(stored)
-    except sqlite3.Error as exc:
-        if "locked" in str(exc).lower():
-            # A live DB under contention (concurrent build-db, recovery
-            # regen) must NEVER be deleted — that is silent data loss.
-            error_exit(
-                f"Database at '{db_path}' is locked by another process: {exc}. "
-                "Wait for it to finish and retry.",
-                json_mode=json_output,
-                code=EXIT_ERROR,
-            )
-        error_exit(
-            f"Cannot inspect database at '{db_path}': {exc}. "
-            "The existing database has been preserved.",
-            json_mode=json_output,
-            code=EXIT_ERROR,
-        )
-
-    def _unlink_or_exit() -> dict[str, list[tuple[Any, ...]]]:
-        """Delete the database, or exit with the file preserved.
-
-        The delete is the point of no return for ``history`` and
-        ``verify_results`` (nothing re-derives them), so a save that fails is
-        reported the same way an unreadable schema is: the database stays.
-        """
-        try:
-            return _unlink_db(db_path)
-        except sqlite3.Error as exc:
-            error_exit(
-                f"{exc}. The existing database has been preserved.",
-                json_mode=json_output,
-                code=EXIT_ERROR,
-            )
-
-    if empty_schema:
-        console.print(
-            "[yellow]warning:[/yellow] existing database has no schema (likely a "
-            "failed build); deleting and rebuilding."
-        )
-        return _unlink_or_exit()
-
-    if stored_version == _CURRENT_DB_VERSION:
-        # The version string alone is not proof of shape: a DB stamped
-        # _CURRENT_DB_VERSION can be missing required objects (history table,
-        # section_cell_stats)
-        # and pass the gate, then 500 at query time.  Verify the objects the
-        # version promises exist.
-        try:
-            missing = _missing_required_objects(db_path)
-        except sqlite3.Error as exc:
-            error_exit(
-                f"Cannot inspect database at '{db_path}': {exc}. "
-                "The existing database has been preserved.",
-                json_mode=json_output,
-                code=EXIT_ERROR,
-            )
-        if missing:
-            stored_version = f"{stored_version!r} (missing: {', '.join(sorted(missing))})"
-
-    if stored_version != _CURRENT_DB_VERSION:
-        if not force:
-            error_exit(
-                f"Database at '{db_path}' has schema version {stored_version!r} "
-                f"but this tool requires version {_CURRENT_DB_VERSION!r}.\n"
-                "The existing DB is incompatible. Pass --force to delete it and rebuild.",
-                json_mode=json_output,
-                code=EXIT_ERROR,
-            )
-        console.print(
-            f"[yellow]warning:[/yellow] schema mismatch (stored={stored_version!r}, "
-            f"required={_CURRENT_DB_VERSION!r}); deleting '{db_path}' and rebuilding (--force)."
-        )
-        return _unlink_or_exit()
-    return {}
-
-
-def _missing_required_objects(db_path: Path) -> set[str]:
-    """Return the names of schema objects a current-version DB must have but
-    *db_path* lacks (empty when the schema is complete).  The version stamp
-    alone is not proof of shape — a hand-made or half-written DB can carry
-    the right stamp and still miss tables/views.
-
-    Checks object names AND the query-critical columns: a DB carrying the
-    current version stamp whose ``functions`` table lacks
-    ``textOffset``/``similarity`` (or whose
-    ``section_cell_stats`` is missing a counted bucket) passes a name-only gate
-    and then 500s at query time.  Missing columns are reported as
-    ``table.column``.
-
-    Also checks the indexes the shipped queries filter, join, and sort on: a
-    DB without them answers every dashboard request from a full scan of the
-    target's rows instead of an index seek.
-    """
-    required = {
-        "metadata",
-        "sections",
-        "cells",
-        "functions",
-        "globals",
-        "verify_results",
-        "history",
-        "section_cell_stats",
-        SECTION_CELLS_TABLE,
-    }
-    # Columns the recovery queries depend on; a DB missing any of these
-    # fails at runtime despite a correct version stamp.
-    required_columns: dict[str, set[str]] = {
-        "metadata": {"target", "key", "value"},
-        "sections": {"target", "name", "va", "size", "fileOffset", "unitBytes", "columns"},
-        "cells": {
-            "target",
-            "section_name",
-            "start",
-            "end",
-            "span",
-            "state",
-            "functions",
-            "label",
-            "parent_function",
-        },
-        "functions": {
-            "target",
-            "va",
-            "name",
-            "vaStart",
-            "size",
-            "fileOffset",
-            "status",
-            "module",
-            "cflags",
-            "symbol",
-            "markerType",
-            "ghidra_name",
-            "list_name",
-            "is_thunk",
-            "is_export",
-            "sha256",
-            "files",
-            "detected_by",
-            "size_by_tool",
-            "textOffset",
-            "blocker",
-            "blockerDelta",
-            "size_reason",
-            "similarity",
-            "updated_by",
-            "updated_at",
-        },
-        "globals": {"target", "va", "name", "decl", "files", "module", "size", "status"},
-        "verify_results": {
-            "target",
-            "va",
-            "verified_at",
-            "byte_delta",
-            "diff_lines",
-            "similarity",
-            "reg_delta",
-            "effective_match",
-        },
-        "history": {"id", "target", "va", "old_status", "new_status", "changed_at", "updated_by"},
-        "section_cell_stats": {
-            "target",
-            "section_name",
-            "total_cells",
-            "exact_count",
-            "reloc_count",
-            "near_match_count",
-            "stub_count",
-            "padding_count",
-            "data_count",
-            "thunk_count",
-            "none_count",
-            "proven_count",
-            "size_mismatch_count",
-            # Dashboard ``/api/sections`` selects this catch-all; a v3-era
-            # stats object without it passes a name-only gate then 500s.
-            "other_count",
-        },
-        SECTION_CELLS_TABLE: {"target", "section_name", SECTION_CELLS_COLUMN},
-    }
-    # Every index a shipped query depends on, by name.  The column check above
-    # already refuses a hand-made database that would 500 at query time; a
-    # database missing these is the same class of failure one level down: the
-    # queries run, but each falls back to a full scan of the target's rows on
-    # every dashboard request.  Names, not definitions: the served leading
-    # column prefix and the ORDER BY are what matter, and both are covered by
-    # the DDL each build creates.
-    required_indexes: frozenset[str] = frozenset(
-        {
-            "idx_metadata_key",
-            "idx_functions_status_va",
-            "idx_functions_module_va",
-            "idx_functions_status_module_va",
-            "idx_functions_list",
-            "idx_globals_module_va",
-            "idx_history_target_id",
-        }
-    )
-    with contextlib.closing(open_sqlite_ro(db_path)) as conn:
-        c = conn.cursor()
-        c.execute(
-            "SELECT type, name FROM sqlite_master"
-            " WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%'"
-        )
-        present = {row[1] for row in c.fetchall()}
-        missing = required - present
-        if missing:
-            return missing
-        for obj, cols in required_columns.items():
-            c.execute(f"PRAGMA table_info({obj})")
-            actual = {row[1] for row in c.fetchall()}
-            for col in cols - actual:
-                missing.add(f"{obj}.{col}")
-        c.execute("SELECT name FROM sqlite_master WHERE type = 'index'")
-        indexed = {row[0] for row in c.fetchall()}
-        missing |= required_indexes - indexed
-        return missing
-
-
-def _nonneg_metric_sql(column: str) -> str:
-    """SQL expression that satisfies a ``>= 0`` CHECK for one delta column.
-
-    SQLite INTEGER affinity keeps a non-integral real, so a pre-CHECK table
-    can hold ``-1.5`` or an infinity in a column declared INTEGER.  Passing
-    either through violates the new CHECK and the in-place migration rolls
-    back — the next rebuild retries the same DDL and fails again.  Negatives
-    clamp to 0; non-finite values become NULL.  *column* is a fixed
-    identifier, not query input.
-    """
-    if not column.isidentifier():
-        raise ValueError(f"not a column name: {column!r}")
-    return (
-        f"CASE WHEN typeof({column}) = 'integer' THEN "
-        f"CASE WHEN {column} < 0 THEN 0 ELSE {column} END "
-        f"WHEN typeof({column}) = 'real' AND {column} = {column} "
-        f"AND abs({column}) < 1e300 THEN "
-        f"CASE WHEN {column} < 0 THEN 0 ELSE {column} END "
-        f"ELSE NULL END"
-    )
-
-
-#: Staging DDL for the ``--force`` restore.  Deliberately UNGUARDED (no CHECK,
-#: no UNIQUE, no PRIMARY KEY) rather than ``LIKE history`` / ``LIKE
-#: verify_results``: the whole point of the staging table is to hold rows the
-#: current constraints would reject, so a ``LIKE`` copy would abort on the
-#: first pre-CHECK row, the exact failure this path exists to survive.  The
-#: clamp projection is what makes a row legal on the way out.
-_VERIFY_RESULTS_STAGE_SQL = """
-    CREATE TEMP TABLE _verify_results_restore (
-        target TEXT,
-        va,
-        verified_at TEXT,
-        byte_delta,
-        diff_lines,
-        similarity,
-        reg_delta,
-        effective_match
-    )
-"""
-
-_HISTORY_STAGE_SQL = """
-    CREATE TEMP TABLE _history_restore (
-        target TEXT,
-        va,
-        old_status TEXT,
-        new_status TEXT,
-        changed_at TEXT,
-        updated_by TEXT
-    )
-"""
-
-#: The ``verify_results`` clamping as ONE named projection, shared by the
-#: in-place migration and the ``--force`` restore so the two cannot drift: the
-#: restore has to coerce exactly what the migration would, or a row the
-#: migration keeps is one the restore silently drops.
-#:
-#: A negative ``va`` clamps to 0 (two of them then collide, and the caller keeps
-#: the later row) and only a NULL ``va`` is dropped, since the PK cannot hold
-#: it; an empty ``verified_at`` becomes the epoch, exactly as the history
-#: timestamp does; percent-scale similarities (the
-#: ``(1, 100]`` values verify used to write) are divided down; negatives clamp
-#: to 0; non-finite and out-of-vocabulary ``effective_match`` values become
-#: NULL.  Declared after :func:`_nonneg_metric_sql` because it composes it.
-_VERIFY_RESULTS_CLAMP_SELECT = f"""
-    SELECT
-        rowid AS src_rowid,
-        target,
-        CASE
-            WHEN va IS NULL THEN NULL
-            WHEN va < 0 THEN 0
-            ELSE va
-        END AS va,
-        CASE
-            WHEN verified_at IS NULL OR verified_at = ''
-                THEN '1970-01-01T00:00:00+00:00'
-            ELSE verified_at
-        END AS verified_at,
-        {_nonneg_metric_sql("byte_delta")} AS byte_delta,
-        {_nonneg_metric_sql("diff_lines")} AS diff_lines,
-        CASE
-            WHEN similarity IS NULL THEN NULL
-            WHEN typeof(similarity) NOT IN ('integer', 'real') THEN NULL
-            WHEN similarity = similarity
-                 AND similarity >= 0.0 AND similarity <= 1.0
-                THEN similarity
-            WHEN similarity = similarity
-                 AND similarity > 1.0 AND similarity <= 100.0
-                THEN similarity / 100.0
-            WHEN similarity = similarity
-                 AND similarity < 0.0 AND abs(similarity) < 1e300
-                THEN 0.0
-            ELSE NULL
-        END AS similarity,
-        {_nonneg_metric_sql("reg_delta")} AS reg_delta,
-        CASE
-            WHEN effective_match IS NULL THEN NULL
-            WHEN typeof(effective_match) != 'integer' THEN NULL
-            WHEN effective_match IN (0, 1) THEN effective_match
-            ELSE NULL
-        END AS effective_match
-    FROM {{table}}
-"""
-
-#: The ``history`` clamping as one named projection, for the same reason: the
-#: restore coerces with the SAME expressions the in-place migration uses, so a
-#: pre-CHECK transition lands identically on either path.  ``ROW_NUMBER`` keeps
-#: the newest row of each transition, and the partition is over the CLAMPED
-#: values: two distinct raw rows can fuse into one transition, which the
-#: UNIQUE would otherwise reject.
-_HISTORY_CLAMP_SELECT = f"""
-    SELECT
-        {{order_by}} AS src_id,
-        target,
-        {_HISTORY_VA_SQL} AS va,
-        {_HISTORY_OLD_STATUS_SQL} AS old_status,
-        {_HISTORY_NEW_STATUS_SQL} AS new_status,
-        {_HISTORY_CHANGED_AT_SQL} AS changed_at,
-        {_HISTORY_UPDATED_BY_SQL} AS updated_by,
-        ROW_NUMBER() OVER (
-            PARTITION BY
-                target,
-                {_HISTORY_VA_SQL},
-                {_HISTORY_OLD_STATUS_SQL},
-                {_HISTORY_NEW_STATUS_SQL},
-                {_HISTORY_CHANGED_AT_SQL},
-                {_HISTORY_UPDATED_BY_SQL}
-            ORDER BY {{order_by}} DESC
-        ) AS rn
-    FROM {{table}}
-"""
-
-
-def verify_results_clamp_select(table: str = "_verify_results_migrate") -> str:
-    """The :data:`_VERIFY_RESULTS_CLAMP_SELECT` projection over *table*.
-
-    A function rather than a bare constant because the projection names its
-    source table, and the two callers (the in-place migration, the ``--force``
-    restore) each read their own temporary table under a different name.
-    """
-    if not table.isidentifier():
-        raise ValueError(f"not a table name: {table!r}")
-    return _VERIFY_RESULTS_CLAMP_SELECT.format(table=table)
-
-
-def history_clamp_select(table: str = "_history_migrate", *, order_by: str = "id") -> str:
-    """The :data:`_HISTORY_CLAMP_SELECT` projection over *table*.
-
-    *order_by* names the row the ``ROW_NUMBER`` keeps when two raw rows clamp
-    to the same transition: the migration keeps the highest ``id`` (it still
-    has one), the restore keeps the last row saved (it does not).
-    """
-    if not table.isidentifier() or not order_by.isidentifier():
-        raise ValueError(f"not an identifier: {table!r}.{order_by!r}")
-    return _HISTORY_CLAMP_SELECT.format(table=table, order_by=order_by)
-
-
-def _json_target_name(json_path: Path) -> str:
-    """The target a ``data_<target>.json`` file names, in NFC.
-
-    The stem comes off the filesystem, which may store it decomposed; the
-    ``target`` column every other tool queries has to match it by identity,
-    not by byte spelling.
-    """
-    return unicodedata.normalize("NFC", json_path.stem.removeprefix("data_"))
-
-
-def _load_coverage_datasets(
+def load_coverage_datasets(
     root_dir: Path,
-    db_path: Path,
+    db_directory: Path,
     *,
     target: str | None,
     json_output: bool,
     regen: bool,
 ) -> list[tuple[str, dict[str, Any]]]:
-    """Read catalog inputs before the coverage write transaction opens.
+    """Build the catalog input for every target to write.
 
-    ``--regen`` scans the project (it does not read ``coverage.db``).  A
-    missing or corrupt ``data_*.json`` fails here, before any row is
-    deleted and before ``BEGIN IMMEDIATE``.
+    The coverage dict is generated in-process by
+    :func:`rebrew.catalog.pipeline.build_catalog_data`; there is no snapshot
+    file in between, so a document can never describe an older tree than the
+    one that produced it.
+
+    *regen* is accepted and dropped: generating in this process is the only
+    mode left, so there is nothing for it to select.  It stays in the signature
+    because it is an existing call shape and ``build-db --regen`` an existing
+    command line.
     """
-    datasets: list[tuple[str, dict[str, Any]]] = []
-    if regen:
-        from rebrew.catalog.pipeline import build_catalog_data
+    from rebrew.catalog.pipeline import build_catalog_data
 
-        base_cfg = load_config(root_dir)
-        regen_targets = [target] if target else (base_cfg.all_targets or [base_cfg.target_name])
-        # A target repeated in all_targets would be built twice, and the
-        # second pass aborts the whole rebuild on the (target, key) and
-        # (target, name) primary keys.  Build it once, in first-seen order,
-        # rather than losing every target to one repeat.
-        if len(set(regen_targets)) != len(regen_targets):
-            logging.warning(
-                "build_db: duplicate target(s) in all_targets: %s; building each once",
-                ", ".join(sorted(set(regen_targets))),
-            )
-            regen_targets = list(dict.fromkeys(regen_targets))
-        for tgt in regen_targets:
-            try:
-                tgt_cfg = load_config(root_dir, target=tgt)
-            except (FileNotFoundError, KeyError, ValueError, TypeError) as exc:
-                error_exit(f"Config error for target {tgt!r}: {exc}", json_mode=json_output)
-            _reject_reserved_target(tgt, json_output=json_output)
-            console.print(f"Processing {tgt}...")
-            datasets.append(
-                (unicodedata.normalize("NFC", tgt), build_catalog_data(tgt_cfg)["data"])
-            )
-        return datasets
-
-    # Sorted: the loop below inserts one coverage row set per file, so
-    # directory order would decide row order in the written database.
-    json_files = sorted(db_path.parent.glob("data_*.json"))
-    # A target name is an identity and config normalizes it to NFC, but a file
-    # written to a decomposing volume (macOS HFS+, some SMB/NFS mounts) reads
-    # back NFD, and an --target copied off such a filename arrives NFD too.
-    # Compare and store NFC on both sides, or the rows land under a spelling
-    # no dashboard or `rebrew test` query ever asks for.
-    if target:
-        wanted = unicodedata.normalize("NFC", target)
-        json_files = [f for f in json_files if _json_target_name(f) == wanted]
-    if not json_files:
-        error_exit(
-            f"No data_*.json files found in {db_path.parent}. "
-            "Run 'rebrew catalog --data-json' first.",
-            json_mode=json_output,
-            code=EXIT_ERROR,
-        )
-    # Two snapshots whose stems differ only by Unicode normalization resolve to
-    # the SAME target (`data_café.json` written on a decomposing volume beside a
-    # hand-copied NFC `data_café.json`).  The loop below inserts one row set per
-    # file, so the second one aborts the whole rebuild on the (target, key) and
-    # (target, name) primary keys.  Same failure the --regen path already
-    # guards against with its all_targets dedupe.  Keep the first in sorted
-    # order and say which file lost.
-    by_target: dict[str, list[Path]] = {}
-    for json_path in json_files:
-        by_target.setdefault(_json_target_name(json_path), []).append(json_path)
-    if len(by_target) != len(json_files):
-        shadowed = sorted(
-            f"{name} ({paths[0].name}, {', '.join(p.name for p in paths[1:])})"
-            for name, paths in by_target.items()
-            if len(paths) > 1
-        )
+    base_cfg = load_config(root_dir)
+    targets = [target] if target else (base_cfg.all_targets or [base_cfg.target_name])
+    # A target repeated in all_targets would be built twice, and the second
+    # pass aborts the whole rebuild on the (target, key) and (target, name)
+    # primary keys.  Build it once, in first-seen order, rather than losing
+    # every target to one repeat.
+    if len(set(targets)) != len(targets):
         logging.warning(
-            "build_db: %d data_*.json file(s) name the same target after NFC "
-            "normalization; using the first of each: %s",
-            len(json_files) - len(by_target),
-            "; ".join(shadowed),
+            "build_db: duplicate target(s) in all_targets: %s; building each once",
+            ", ".join(sorted(set(targets))),
         )
-        json_files = [paths[0] for paths in by_target.values()]
-    inputs = _snapshot_inputs(root_dir)
-    for json_path in json_files:
-        target_name = _json_target_name(json_path)
-        console.print(f"Processing {target_name}...")
-        # Nanosecond mtimes: a float st_mtime ties when a source rewrite and
-        # the data_*.json regen land in the same filesystem tick (coarse
-        # Docker volume clocks, `cp -p` then mv, git checkout), so the
-        # staleness warning would be silently skipped.
-        json_mtime_ns = json_path.stat().st_mtime_ns
-        newer = [p.name for p in inputs if p.stat().st_mtime_ns > json_mtime_ns]
-        if newer:
-            console.print(
-                f"[yellow]warning:[/yellow] {json_path.name} is older than "
-                f"{', '.join(newer)}; its statuses may be stale.  Rebuild with "
-                "--regen or rerun 'rebrew catalog --data-json'."
-            )
-
-        with json_path.open(encoding="utf-8") as f:
-            try:
-                data = json.load(f)
-            except json.JSONDecodeError as exc:
-                error_exit(
-                    f"{json_path.name} is not valid JSON: {exc}. Regenerate it "
-                    "with 'rebrew catalog --data-json'.",
-                    json_mode=json_output,
-                    code=EXIT_ERROR,
-                )
-            if not isinstance(data, dict):
-                error_exit(
-                    f"{json_path.name} has unexpected shape (expected a JSON "
-                    f"object, got {type(data).__name__}). Regenerate it with "
-                    "'rebrew catalog --data-json'.",
-                    json_mode=json_output,
-                    code=EXIT_ERROR,
-                )
-        _reject_reserved_target(target_name, json_output=json_output)
-        datasets.append((target_name, data))
+        targets = list(dict.fromkeys(targets))
+    datasets: list[tuple[str, dict[str, Any]]] = []
+    for tgt in targets:
+        try:
+            tgt_cfg = load_config(root_dir, target=tgt)
+        except (FileNotFoundError, KeyError, ValueError, TypeError) as exc:
+            error_exit(f"Config error for target {tgt!r}: {exc}", json_mode=json_output)
+        console.print(f"Processing {tgt}...")
+        datasets.append((unicodedata.normalize("NFC", tgt), build_catalog_data(tgt_cfg)["data"]))
     return datasets
 
 
-def _reject_reserved_target(target_name: str, *, json_output: bool) -> None:
-    """Refuse a target whose name is the schema-level ``metadata`` sentinel.
+def _write_coverage(
+    root_dir: Path,
+    *,
+    target: str | None,
+    force: bool,
+    json_output: bool,
+    regen: bool = False,
+) -> list[Path]:
+    """Write every target's document and report the result.  Returns the paths.
 
-    ``metadata`` is keyed ``(target, key)``, and :data:`SCHEMA_TARGET` is the
-    reserved ``target`` holding database-level rows rather than a binary's.
-    A target literally named ``__schema__`` would therefore share that
-    namespace: its ``function_stats`` row makes it show up in the dashboard
-    target list, and its per-target ``db_version`` write
-    (``INSERT OR REPLACE``) overwrites the schema stamp that
-    ``read_db_version`` and the version gate read.  The name is derived from a
-    ``data_<target>.json`` filename, so nothing upstream rejects it.
+    The output directory is created first: the writer replaces files in place
+    (``os.replace`` of a sibling temp file) and has nothing to put a project's
+    first document into.
 
-    Fail loud, before the write transaction opens, rather than quietly
-    sharing the sentinel's rows.
+    *force* is accepted and dropped: :func:`rebrew.coverage_toml.
+    write_coverage_toml` replaces each document whole, so there is no stale
+    schema to migrate past and no partial state to recover.  It stays in the
+    signature because ``rebrew build-db --force`` is an existing command line
+    and a script that passes it should not start exiting 2.
     """
-    if target_name == SCHEMA_TARGET:
-        error_exit(
-            f"Target name {SCHEMA_TARGET!r} is reserved for database-level "
-            "metadata rows and cannot name a binary. Rename the target (and "
-            f"its data_{SCHEMA_TARGET}.json snapshot).",
-            json_mode=json_output,
-            code=EXIT_ERROR,
+    from rebrew.coverage_toml import write_coverage_toml
+
+    db_directory = resolve_db_dir(root_dir, json_output=json_output)
+    db_directory.mkdir(parents=True, exist_ok=True)
+    written = write_coverage_toml(
+        root_dir, target=target, force=force, json_output=json_output, regen=regen
+    )
+    # The filename IS the target name (coverage_toml resolves one from the
+    # other in both directions), so the stem is the only place a caller of the
+    # writer can read back which datasets it wrote.
+    targets = [path.stem.removeprefix("coverage-") for path in written]
+    if json_output:
+        json_print(
+            {"coverage_files": [str(path) for path in written], "targets_processed": targets}
         )
-
-
-def _measured_verdicts(c: sqlite3.Cursor, target: str) -> dict[int, tuple[tuple[object, ...], str]]:
-    """Return ``{va: (measured values, verified_at)}`` for *target*'s rows.
-
-    ``verified_at`` answers "when was this verdict measured", so a rebuild
-    that measures the same values again must not move it.
-    """
-    out: dict[int, tuple[tuple[object, ...], str]] = {}
-    for va, verified_at, *measurements in c.execute(
-        "SELECT va, verified_at, byte_delta, diff_lines, similarity, reg_delta, "
-        "effective_match FROM verify_results WHERE target = ?",
-        (target,),
-    ):
-        out[int(va)] = (tuple(measurements), str(verified_at))
-    return out
+    else:
+        for path in written:
+            console.print(f"[green]Wrote {path}[/green]")
+    return written
 
 
 def build_db(
@@ -1337,425 +482,17 @@ def build_db(
     force: bool = False,
     regen: bool = False,
 ) -> None:
-    """Aggregate coverage data into the configured coverage database.
+    """Write the configured project's ``coverage-<target>.toml`` documents.
 
-    By default reads ``db/data_*.json`` files (written by ``rebrew catalog
-    --data-json``).  With *regen*, the coverage dicts are generated
-    in-process per target instead — no intermediate files.
+    The in-process twin of the ``build-db`` command, kept as a function so a
+    tool that writes coverage inside its own process (recoverage's ``regen``)
+    has a call to make.  It is the same code path the command runs.
+
+    *regen* is accepted and dropped, exactly as ``build-db --regen`` accepts it
+    and drops it: the analysis always runs here.
     """
     root_dir = Path(project_root).resolve() if project_root else Path.cwd().resolve()
-    db_dir = resolve_db_dir(root_dir, json_output=json_output)
-    db_dir.mkdir(parents=True, exist_ok=True)
-    db_path = db_dir / "coverage.db"
-
-    # Exclusive across the version check, unlink, and rebuild.  Two build-db
-    # processes (or a dashboard reader) must not observe the file disappear
-    # out from under an open connection.
-    with coverage_db_lock(db_path):
-        _build_coverage_db(
-            root_dir,
-            db_path,
-            target=target,
-            json_output=json_output,
-            force=force,
-            regen=regen,
-        )
-
-
-def _create_schema(c: sqlite3.Cursor, target: str | None) -> None:
-    """Drop and recreate the coverage schema, migrating what an older build left.
-
-    Runs inside the caller's open write transaction and reads nothing but the
-    existing ``sqlite_master`` DDL.  *target* None means a full rebuild, which
-    drops the data tables too; a scoped rebuild keeps them and recreates only
-    the derived tables and indexes.
-    """
-    # The stats table is derived from cells — recreate it every run
-    # (scoped rebuilds keep the tables but must refresh the stats too).
-    # It was a VIEW before it was materialized, and SQLite refuses
-    # DROP VIEW on a table (and DROP TABLE on a view), so drop by the type
-    # actually present: that type check IS the migration path for
-    # databases built before the change.
-    existing_stats = c.execute(
-        "SELECT type FROM sqlite_master WHERE name = ?", (SECTION_CELL_STATS_TABLE,)
-    ).fetchone()
-    if existing_stats is not None:
-        stats_kind = "VIEW" if existing_stats[0] == "view" else "TABLE"
-        c.execute(f"DROP {stats_kind} {SECTION_CELL_STATS_TABLE}")
-    # Derived cache: drop before sections so a sections FK cannot block
-    # DROP TABLE sections on full rebuild.  Recreated with CREATE below.
-    c.execute(f"DROP TABLE IF EXISTS {SECTION_CELLS_TABLE}")
-    # Full rebuild (no --target): recreate the whole schema.
-    # Scoped rebuild (--target): keep the schema and other targets'
-    # rows; only this target's rows are deleted below.
-    if not target:
-        c.execute("DROP TABLE IF EXISTS cells")
-        c.execute("DROP TABLE IF EXISTS functions")
-        c.execute("DROP TABLE IF EXISTS globals")
-        c.execute("DROP TABLE IF EXISTS sections")
-        c.execute("DROP TABLE IF EXISTS metadata")
-        # verify_results is NOT dropped here: it is a persistent history
-        # table (DB_FORMAT.md documents "never dropped on rebuild"), and
-        # dropping it wiped every target's verification rows except the
-        # last-verified target's (re-imported below from
-        # verify_results.json).  The per-target INSERT OR REPLACE + prune
-        # below keeps it current without the drop.
-
-    # v3-era index superseded by idx_history_target_id, which this module
-    # creates below.  history is never dropped (it accumulates by design), so
-    # the dead index outlives the rebuild that made it dead unless it is
-    # dropped explicitly.  Outside the full-rebuild branch on purpose: a
-    # scoped --target rebuild keeps the history table and its indexes, so
-    # dropping it only there left the dead index in place — and paying its
-    # write cost on every history insert — for exactly the builds that append
-    # the most rows.
-    c.execute("DROP INDEX IF EXISTS idx_history_target_va")
-
-    c.execute(f"""
-        CREATE TABLE IF NOT EXISTS functions (
-            target TEXT NOT NULL,
-            va INTEGER NOT NULL CHECK (va >= 0),
-            name TEXT NOT NULL DEFAULT '',
-            vaStart TEXT NOT NULL DEFAULT '',
-            size INTEGER CHECK (size IS NULL OR size >= 0),
-            fileOffset INTEGER CHECK (fileOffset IS NULL OR fileOffset >= 0),
-            status TEXT NOT NULL DEFAULT 'UNKNOWN'
-                CHECK (status IN ({_FUNCTION_STATUS_CHECK_SQL})),
-            module TEXT NOT NULL DEFAULT '',
-            cflags TEXT,
-            symbol TEXT,
-            markerType TEXT NOT NULL DEFAULT 'FUNCTION'
-                CHECK (markerType IN ({_MARKER_CHECK_SQL})),
-            ghidra_name TEXT,
-            list_name TEXT,
-            is_thunk INTEGER NOT NULL DEFAULT 0 CHECK (is_thunk IN (0, 1)),
-            is_export INTEGER NOT NULL DEFAULT 0 CHECK (is_export IN (0, 1)),
-            sha256 TEXT,
-            files TEXT NOT NULL DEFAULT '[]',
-            detected_by TEXT NOT NULL DEFAULT '[]',
-            size_by_tool TEXT NOT NULL DEFAULT '{{}}',
-            textOffset INTEGER CHECK (textOffset IS NULL OR textOffset >= 0),
-            blocker TEXT,
-            blockerDelta INTEGER CHECK (blockerDelta IS NULL OR blockerDelta >= 0),
-            size_reason TEXT,
-            similarity REAL CHECK (similarity IS NULL OR (similarity >= 0.0 AND similarity <= 1.0)),
-            updated_by TEXT NOT NULL DEFAULT '',
-            updated_at TEXT NOT NULL DEFAULT '',
-            PRIMARY KEY (target, va)
-        )
-    """)
-
-    c.execute(f"""
-        CREATE TABLE IF NOT EXISTS globals (
-            target TEXT NOT NULL,
-            va INTEGER NOT NULL CHECK (va >= 0),
-            name TEXT NOT NULL DEFAULT '',
-            decl TEXT NOT NULL DEFAULT '',
-            files TEXT NOT NULL DEFAULT '[]',
-            module TEXT NOT NULL DEFAULT '',
-            size INTEGER NOT NULL DEFAULT 4 CHECK (size >= 0),
-            status TEXT NOT NULL DEFAULT ''
-                CHECK (status IN ({_GLOBAL_STATUS_CHECK_SQL})),
-            PRIMARY KEY (target, va)
-        )
-    """)
-
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS sections (
-            target TEXT NOT NULL,
-            name TEXT NOT NULL,
-            va INTEGER CHECK (va IS NULL OR va >= 0),
-            size INTEGER CHECK (size IS NULL OR size >= 0),
-            fileOffset INTEGER CHECK (fileOffset IS NULL OR fileOffset >= 0),
-            unitBytes INTEGER CHECK (unitBytes IS NULL OR unitBytes > 0),
-            columns INTEGER CHECK (columns IS NULL OR columns > 0),
-            PRIMARY KEY (target, name)
-        )
-    """)
-
-    # WITHOUT ROWID with the same (target, section_name, start) key the UNIQUE
-    # constraint carried: nothing in this repo selects `cells.id`, so a
-    # surrogate key bought nothing but a rowid to store and a second b-tree
-    # (the autoindex) to maintain on every insert.  As a clustered table the
-    # rows are stored in key order, which is also the order the two whole-table
-    # readers want: the GROUP BY behind section_cell_stats /
-    # section_cells_json and the per-section fallbacks both walk the key prefix
-    # (target, section_name), so the index they used to seek is now the table.
-    # Inserts arrive section by section, sorted by start within one
-    # (_dedupe_cell_rows), so the key is filled in near-order rather than at
-    # random.  Same argument as SECTION_CELLS_TABLE below.
-    c.execute(f"""
-        CREATE TABLE IF NOT EXISTS cells (
-            target TEXT NOT NULL,
-            section_name TEXT NOT NULL,
-            start INTEGER NOT NULL CHECK (start >= 0),
-            end INTEGER NOT NULL CHECK (end >= start),
-            span INTEGER NOT NULL DEFAULT 1 CHECK (span > 0),
-            state TEXT NOT NULL
-                CHECK (state IN ({_CELL_STATE_CHECK_SQL})),
-            functions TEXT NOT NULL DEFAULT '[]',
-            label TEXT,
-            parent_function TEXT,
-            PRIMARY KEY (target, section_name, start),
-            FOREIGN KEY (target, section_name)
-                REFERENCES sections(target, name)
-                ON DELETE CASCADE
-        ) WITHOUT ROWID
-    """)
-
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS metadata (
-            target TEXT NOT NULL,
-            key TEXT NOT NULL,
-            value TEXT,
-            PRIMARY KEY (target, key)
-        )
-    """)
-    # PK is (target, key); dashboards and version probes also filter by
-    # key alone (``WHERE key = 'function_stats'`` / ``key = 'db_version'``),
-    # which cannot use that leftmost-target index.
-    c.execute("CREATE INDEX IF NOT EXISTS idx_metadata_key ON metadata(key, target)")
-
-    # Per-section cell JSON, pre-aggregated and zstd-compressed.  Serving a
-    # dashboard grid otherwise re-runs json_group_array over every cell on
-    # each cold request: measured 10.7 ms of SQLite per 39k-cell section
-    # versus 0.3 ms to read this row, for 176 KB stored across the whole
-    # table.  WITHOUT ROWID because it is accessed only by its primary key,
-    # so the implicit rowid (and its index) would be dead weight.
-    #
-    # It is a derived cache: `cells` remains the source of truth and is the
-    # only thing other queries read, so a reader without this table still
-    # works (see rebrew.workspace.SECTION_CELLS_AGG_SQL).  DROP ran above
-    # (before sections) so a prior FK cannot block full-rebuild drops;
-    # CREATE here (not IF NOT EXISTS) so the sections FK always applies.
-    c.execute(f"""
-        CREATE TABLE {SECTION_CELLS_TABLE} (
-            target TEXT NOT NULL,
-            section_name TEXT NOT NULL,
-            {SECTION_CELLS_COLUMN} BLOB NOT NULL,
-            PRIMARY KEY (target, section_name),
-            FOREIGN KEY (target, section_name)
-                REFERENCES sections(target, name)
-                ON DELETE CASCADE
-        ) WITHOUT ROWID
-    """)
-
-    # idx_functions_name / idx_globals_name (both on (target, name)) are
-    # deliberately NOT created: the only name predicate either table gets is
-    # the dashboard's search box, which builds a LEADING-wildcard
-    # ``name LIKE '%q%'`` (or, for functions, ``name LIKE … OR symbol LIKE …
-    # OR va = ?``).  A b-tree cannot serve a leading wildcard, and the ``va``
-    # term is served by the (target, va) primary key, so no plan in this repo
-    # ever chose either index — they were pure per-row write cost on every
-    # rebuild.  An exact-name filter is a different query shape; give it an
-    # index when one exists.  DROP the stale copies explicitly or they survive
-    # every rebuild, which is what scoped --target rebuilds would otherwise
-    # keep paying for.
-    c.execute("DROP INDEX IF EXISTS idx_functions_name")
-    # The dashboard filters by status or module and pages ORDER BY va; the
-    # trailing va lets the index serve the sort, so the planner seeks the
-    # filter instead of walking idx_functions_list over the whole target.
-    # Both carry the SAME partial predicate as idx_functions_list, because
-    # every query that reaches for them also carries it: `functions()` appends
-    # FUNCTION_ROWS_SQL to its WHERE for the row list and the COUNT alike, so
-    # data rows the UI never lists are dead weight in the b-tree (measured on
-    # a 20k-row target at 43% code rows: 524 KB -> 229 KB, module index
-    # likewise) and pure write cost on every rebuild.  Dropped and recreated
-    # every run, like idx_functions_list, so a scoped rebuild cannot keep a
-    # full copy older builds created, which would then be used instead of the
-    # partial one (the name is all the version gate checks).
-    c.execute("DROP INDEX IF EXISTS idx_functions_status")
-    c.execute("DROP INDEX IF EXISTS idx_functions_module")
-    c.execute("DROP INDEX IF EXISTS idx_functions_status_va")
-    c.execute("DROP INDEX IF EXISTS idx_functions_module_va")
-    c.execute(
-        f"CREATE INDEX idx_functions_status_va ON functions(target, status, va) "
-        f"WHERE {FUNCTION_ROWS_SQL}"
-    )
-    c.execute(
-        f"CREATE INDEX idx_functions_module_va ON functions(target, module, va) "
-        f"WHERE {FUNCTION_ROWS_SQL}"
-    )
-    # The dashboard's function list can carry BOTH filters at once (the
-    # status dropdown and the module dropdown are independent controls), and
-    # neither single-column index is then a full match: the planner falls back
-    # to the (target, va) primary key range and tests `module` (or `status`)
-    # per row across the whole target.  (target, status, module, va) is the
-    # only column order that serves that shape, with `va` trailing so the
-    # index also satisfies ORDER BY va.  Same partial predicate as its two
-    # siblings, and dropped and recreated every run with them, so a scoped
-    # rebuild cannot keep a full copy older builds created.
-    c.execute("DROP INDEX IF EXISTS idx_functions_status_module_va")
-    c.execute(
-        f"CREATE INDEX idx_functions_status_module_va "
-        f"ON functions(target, status, module, va) WHERE {FUNCTION_ROWS_SQL}"
-    )
-    # Dashboard + _function_stats list only FUNCTION_ROWS_SQL rows and
-    # ORDER BY va: a partial (target, va) index matches that filter+sort
-    # without scanning data rows that the UI never lists.  It also serves
-    # the COUNT(*), so a (target, markerType) index would only cost writes:
-    # drop the copy older builds created (scoped rebuilds keep the table).
-    # idx_functions_list is dropped and recreated every run so a scoped
-    # rebuild cannot keep an older build's predicate, which no current
-    # query matches.
-    c.execute("DROP INDEX IF EXISTS idx_functions_marker")
-    c.execute("DROP INDEX IF EXISTS idx_functions_list")
-    c.execute(f"CREATE INDEX idx_functions_list ON functions(target, va) WHERE {FUNCTION_ROWS_SQL}")
-    c.execute("DROP INDEX IF EXISTS idx_globals_name")
-    # The dashboard filters globals by module and pages ORDER BY va; the
-    # trailing va lets the index serve the sort, so the planner seeks the
-    # filter instead of scanning all globals for the target.
-    c.execute("DROP INDEX IF EXISTS idx_globals_module")
-    c.execute("CREATE INDEX IF NOT EXISTS idx_globals_module_va ON globals(target, module, va)")
-    # idx_cells_section is deliberately NOT created: the
-    # (target, section_name, start) primary key already serves the
-    # same leftmost prefix (target, section_name) for the view's
-    # GROUP BY and any WHERE target=? AND section_name=? query — a second
-    # index would be paid for on every cell insert and never be the only
-    # usable one.  Drop any pre-existing copy from older
-    # builds explicitly or it survives every rebuild.
-    c.execute("DROP INDEX IF EXISTS idx_cells_section")
-
-    c.execute(f"CREATE TABLE IF NOT EXISTS history ({_HISTORY_COLUMNS_SQL})")
-    # history is never dropped on rebuild, so CREATE IF NOT EXISTS leaves a
-    # pre-CHECK table alone.  Recreate in place (preserving rows, clamping
-    # outliers) when the stored DDL lacks the range/status guards or the
-    # transition UNIQUE.
-    hist_sql_row = c.execute(
-        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'history'"
-    ).fetchone()
-    hist_sql = hist_sql_row[0] if hist_sql_row else ""
-    if hist_sql and (
-        "old_status IS NULL OR old_status IN" not in hist_sql or _HISTORY_UNIQUE_SQL not in hist_sql
-    ):
-        c.execute("ALTER TABLE history RENAME TO _history_migrate")
-        c.execute(f"CREATE TABLE history ({_HISTORY_COLUMNS_SQL})")
-        # Preserve id so ORDER BY id DESC / retention stay stable across
-        # the recreate.  Statuses outside the functions vocabulary become
-        # UNKNOWN (same coercion the functions insert path uses).
-        #
-        # Keep only the newest row of each transition: a pre-UNIQUE table may
-        # already hold repeats (they were possible before this constraint),
-        # and the clamp can even fuse two distinct raw rows into one
-        # transition, which would abort the recreate outright.  The partition
-        # is over the CLAMPED values, so it dedupes the rows the new table
-        # would actually reject.  Same projection the --force restore runs
-        # (``history_clamp_select``), so a pre-CHECK row is coerced
-        # identically on either path.
-        c.execute(
-            f"""
-            INSERT INTO history (
-                id, target, va, old_status, new_status, changed_at, updated_by
-            )
-            SELECT
-                src_id,
-                target,
-                va,
-                old_status,
-                new_status,
-                changed_at,
-                updated_by
-            FROM (
-                {history_clamp_select("_history_migrate", order_by="id")}
-            )
-            WHERE rn = 1
-            """
-        )
-        c.execute("DROP TABLE _history_migrate")
-    # history rows are appended on every rebuild; the dashboard pages them
-    # with WHERE target = ? ORDER BY id DESC LIMIT ?, so (target, id) is
-    # the serving index (a plain (target, va) index would not serve the
-    # ORDER BY id).  Growth is bounded by a per-target retention cap —
-    # only the newest _HISTORY_RETENTION rows per target are kept, so a
-    # long-lived project that regenerates often does not accumulate rows
-    # forever.
-    c.execute("CREATE INDEX IF NOT EXISTS idx_history_target_id ON history(target, id)")
-    # The --force restore dedupe (see _restore_persistent_rows) probes
-    # (target, va, changed_at, old_status, new_status, updated_by) once per
-    # saved row.  idx_history_target_id only pins `target`, so each probe
-    # scanned that target's whole partition: with the _HISTORY_RETENTION cap
-    # reached that is quadratic (10k x 10k per target) on the one path that
-    # is already rewriting the file.
-    #
-    # The probe is served by the table's own UNIQUE b-tree, which indexes
-    # those six columns, so idx_history_restore is dropped rather than
-    # recreated: a second index on the same columns is pure write cost on a
-    # table that grows on every rebuild.  The ordering within it is the
-    # constraint's (target, va, old_status, new_status, changed_at,
-    # updated_by) — every probe column is an equality term, so the column
-    # order costs the lookup nothing.
-    c.execute("DROP INDEX IF EXISTS idx_history_restore")
-
-    c.execute(f"CREATE TABLE IF NOT EXISTS verify_results ({_VERIFY_RESULTS_COLUMNS_SQL})")
-    # verify_results is never dropped on rebuild, so CREATE IF NOT EXISTS
-    # leaves a pre-CHECK table alone.  Recreate in place when the stored
-    # DDL lacks the range guards.  Negatives clamp to 0, non-finite
-    # deltas become NULL, and a NULL va is dropped.  Clamped keys that
-    # collide on (target, va) keep the latest row so the PRIMARY KEY
-    # cannot abort the rebuild.
-    vr_sql_row = c.execute(
-        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'verify_results'"
-    ).fetchone()
-    vr_sql = vr_sql_row[0] if vr_sql_row else ""
-    if vr_sql and ("effective_match IN (0, 1)" not in vr_sql or "verified_at != ''" not in vr_sql):
-        c.execute("ALTER TABLE verify_results RENAME TO _verify_results_migrate")
-        c.execute(f"CREATE TABLE verify_results ({_VERIFY_RESULTS_COLUMNS_SQL})")
-        c.execute(
-            f"""
-            INSERT INTO verify_results (
-                target, va, verified_at, byte_delta, diff_lines,
-                similarity, reg_delta, effective_match
-            )
-            SELECT
-                target, va, verified_at, byte_delta, diff_lines,
-                similarity, reg_delta, effective_match
-            FROM (
-                SELECT
-                    target, va, verified_at, byte_delta, diff_lines,
-                    similarity, reg_delta, effective_match,
-                    ROW_NUMBER() OVER (
-                        PARTITION BY target, va ORDER BY src_rowid DESC
-                    ) AS rn
-                FROM (
-                    {verify_results_clamp_select("_verify_results_migrate")}
-                )
-                -- Only a NULL va is dropped here (the projection has already
-                -- clamped a negative one to 0): the PK cannot hold NULL, and
-                -- `va` is the projection's output column, not the source's.
-                WHERE va IS NOT NULL
-            )
-            WHERE rn = 1
-            """
-        )
-        c.execute("DROP TABLE _verify_results_migrate")
-
-    # Per-section aggregate stats (used by both UIs).  Explicit CREATE with
-    # PRIMARY KEY (target, section_name) — CREATE TABLE AS SELECT left the
-    # table without a key, so duplicate rows were possible and
-    # ``WHERE target = ?`` had no index.  Declared empty here and filled
-    # from _SECTION_CELL_STATS_SELECT after the cells are inserted.
-    c.execute(f"""
-        CREATE TABLE {SECTION_CELL_STATS_TABLE} (
-            target TEXT NOT NULL,
-            section_name TEXT NOT NULL,
-            total_cells INTEGER NOT NULL DEFAULT 0 CHECK (total_cells >= 0),
-            exact_count INTEGER NOT NULL DEFAULT 0 CHECK (exact_count >= 0),
-            reloc_count INTEGER NOT NULL DEFAULT 0 CHECK (reloc_count >= 0),
-            near_match_count INTEGER NOT NULL DEFAULT 0 CHECK (near_match_count >= 0),
-            stub_count INTEGER NOT NULL DEFAULT 0 CHECK (stub_count >= 0),
-            padding_count INTEGER NOT NULL DEFAULT 0 CHECK (padding_count >= 0),
-            data_count INTEGER NOT NULL DEFAULT 0 CHECK (data_count >= 0),
-            thunk_count INTEGER NOT NULL DEFAULT 0 CHECK (thunk_count >= 0),
-            none_count INTEGER NOT NULL DEFAULT 0 CHECK (none_count >= 0),
-            proven_count INTEGER NOT NULL DEFAULT 0 CHECK (proven_count >= 0),
-            size_mismatch_count INTEGER NOT NULL DEFAULT 0 CHECK (size_mismatch_count >= 0),
-            other_count INTEGER NOT NULL DEFAULT 0 CHECK (other_count >= 0),
-            PRIMARY KEY (target, section_name),
-            FOREIGN KEY (target, section_name)
-                REFERENCES sections(target, name)
-                ON DELETE CASCADE
-        )
-    """)
+    _write_coverage(root_dir, target=target, force=force, json_output=json_output, regen=regen)
 
 
 def _verify_cache_belongs_to_project(root_dir: Path, target_name: str, raw: dict[str, Any]) -> bool:
@@ -1774,651 +511,115 @@ def _verify_cache_belongs_to_project(root_dir: Path, target_name: str, raw: dict
     return cache_identity_matches(raw, load_config(root_dir, target=target_name))
 
 
-def _build_coverage_db(
+def import_verify_rows(
     root_dir: Path,
-    db_path: Path,
-    *,
-    target: str | None,
-    json_output: bool,
-    force: bool,
-    regen: bool,
-) -> None:
-    """Body of :func:`build_db`.  Caller holds :func:`coverage_db_lock`."""
-    # Catalog scan and JSON parsing stay outside the write transaction: a
-    # long --regen must not hold BEGIN IMMEDIATE, and a bad snapshot must
-    # not delete rows that the rollback would then have to restore.  They
-    # also run before the version check, because --force unlinks the
-    # database and the salvaged rows live only in memory until it is
-    # rebuilt: erroring after the unlink would drop them for good.
-    datasets = _load_coverage_datasets(
-        root_dir,
-        db_path,
-        target=target,
-        json_output=json_output,
-        regen=regen,
-    )
-    preserved_rows = _check_db_version(db_path, force=force, json_output=json_output)
+    target_name: str,
+    previous_measured: Mapping[int, tuple[Any, ...]],
+    now_iso: str,
+) -> list[tuple[Any, ...]] | None:
+    """Rows for ``verify_results``, or ``None`` when the cache says nothing about this target.
 
-    conn: sqlite3.Connection | None = None
-    try:
-        conn = sqlite3.connect(db_path, timeout=SQLITE_TIMEOUT_SECONDS)
-        c: sqlite3.Cursor = conn.cursor()
-        # WAL + relaxed sync trade durability for throughput on a rebuildable
-        # cache DB; foreign_keys=ON enforces cells/section_cells_json/section_cell_stats
-        # → sections cascades on scoped target deletes.
-        c.execute("PRAGMA foreign_keys=ON")
-        c.execute("PRAGMA journal_mode=WAL")
-        c.execute("PRAGMA synchronous=NORMAL")
-        c.execute("PRAGMA cache_size=-64000")
-        c.execute("PRAGMA temp_store=MEMORY")
+    The one implementation behind that table: the verify cache is the only
+    source of it, and the row mapping plus the three-state answer below are the
+    whole rule.  A second spelling of either is exactly the drift the TOML
+    module exists to remove.
 
-        # Start an exclusive transaction BEFORE the status snapshot so the
-        # snapshot and the rebuild below are in the same transaction (a
-        # concurrent rebuild between the two would record wrong old_statuses
-        # in history).
-        c.execute("BEGIN IMMEDIATE")
+    The three-state answer is the whole contract, because reading it as a list
+    loses the difference between two facts:
 
-        # Snapshot existing function statuses for history tracking.  A scoped
-        # rebuild only ever looks up the target it rebuilds, so filter by it:
-        # the unscoped read pulls every sibling target's rows into memory on
-        # a database that keeps all of them.  A full rebuild still needs the
-        # whole table, because _create_schema drops it below.
-        old_statuses: dict[tuple[str, int], str] = {}
+    * ``None`` — no cache, an unreadable one, one belonging to another target or
+      compiler config, an ``entries`` value that is not a table, or a table
+      whose every row is unusable.  The caller keeps whatever rows it has.
+    * ``[]`` — the cache is ours and its ``entries`` table is empty.  That is an
+      answer about this target (it holds no verdicts), so the caller prunes.
+    * otherwise the rows ``(target, va, verified_at, byte_delta, diff_lines,
+      similarity, reg_delta, effective_match)``.
+
+    *previous_measured* is keyed by VA: ``(its five measurement fields, the
+    stamp it was measured at)``, which
+    :func:`rebrew.coverage_toml._previous_measured` reads out of the previous
+    document.  *now_iso* is only the fallback stamp for when the cache file's
+    mtime cannot be read.
+    """
+    from rebrew.verify_cache import load_verify_cache_raw
+
+    cache_path = root_dir / ".rebrew" / "verify_cache.json"
+    raw = load_verify_cache_raw(SimpleNamespace(root=root_dir))
+    # The cache stores verdicts measured against one compiler config and one
+    # binary image; the same predicate verify/status use decides whether those
+    # rows are still this project's rows.  A cache left behind by a rebuild of
+    # the target binary must not be republished as current, so the compiler and
+    # binary identity guards apply here too, not just target and version.
+    if not isinstance(raw, dict) or not _verify_cache_belongs_to_project(
+        root_dir, target_name, raw
+    ):
+        return None
+    entries = raw.get("entries")
+    if not isinstance(entries, dict):
+        return None
+
+    # verified_at is when the cache was last updated, and its file mtime is the
+    # only stamp the cache document does not already carry.
+    verified_at = now_iso
+    with contextlib.suppress(OSError):
+        verified_at = str(datetime.fromtimestamp(cache_path.stat().st_mtime, tz=UTC).isoformat())
+
+    rows: list[tuple[Any, ...]] = []
+    for va_key, item in entries.items():
+        if not isinstance(item, dict):
+            continue
+        # int(str(...), 0), not parse_int: this spelling keeps a negative VA by
+        # clamping it to 0 below, where parse_int would drop the row, and it
+        # rejects a float VA the same way it rejects a non-numeric one.
         try:
-            if target:
-                c.execute("SELECT target, va, status FROM functions WHERE target = ?", (target,))
-            else:
-                c.execute("SELECT target, va, status FROM functions")
-            for row in c.fetchall():
-                old_statuses[(row[0], row[1])] = row[2]
-        except sqlite3.OperationalError as exc:
-            # A database predating the `functions` table has no history to
-            # snapshot.  Every other OperationalError (locked file, I/O
-            # error) is not that: swallowing it leaves old_statuses empty, so
-            # the history pass below records no previous status for any
-            # function and the transition log is flattened while the rebuild
-            # still reports success.
-            if "no such table" not in str(exc):
-                raise
-            logging.debug("build-db: no functions table to snapshot (%s)", exc)
-
-        _create_schema(c, target)
-        _restore_persistent_rows(c, preserved_rows)
-
-        # Scoped rebuild: delete only this target's rows (sections first so
-        # the cells FK CASCADE clears cell rows too).  Runs after all tables
-        # exist (a fresh DB may lack verify_results until created above).
-        #
-        # verify_results is NOT deleted here: it is a persistent history table
-        # (DB_FORMAT.md: "never dropped on rebuild"), and the import below only
-        # repopulates a target when the shared db/verify_results.json names it.
-        # Deleting here wiped the target's history whenever another target had
-        # verified last — the same reason the full-rebuild path does not drop it.
-        if target:
-            for table in ("sections", "functions", "globals", "metadata"):
-                c.execute(f"DELETE FROM {table} WHERE target = ?", (target,))
-
-        for target_name, data in datasets:
-            fn_rows = []
-            bad_va = 0
-            for va, fn in data.get("functions", {}).items():
-                if not isinstance(fn, dict):
-                    bad_va += 1
-                    continue
-                # -1, not 0, marks "unparseable": VA 0 is a real address on
-                # 16-bit targets (the functions CHECK allows va >= 0).
-                va_int = _parse_int(va, -1)
-                if va_int < 0:
-                    va_int = _parse_int(fn.get("vaStart"), -1)
-                if va_int < 0:
-                    bad_va += 1
-                    continue
-
-                va_start_text = str(fn.get("vaStart") or f"0x{va_int:08x}")
-                # build_db CHECK constraints reject negative fileOffset/
-                # textOffset/blockerDelta — a stray negative would abort the
-                # entire rebuild, so clamp defensively.  size (CHECK >= 0),
-                # similarity (CHECK 0..1), markerType (CHECK IN …) and status
-                # (CHECK IN known + UNKNOWN) are clamped the same way.
-                file_off = fn.get("fileOffset")
-                text_off = fn.get("textOffset")
-                blocker_delta = fn.get("blockerDelta")
-                fn_size = fn.get("size")
-                # bool is an int subclass; True would land as size=1 under the
-                # CHECK (>= 0) path — treat bool like a non-int (NULL).
-                if isinstance(fn_size, bool) or (
-                    fn_size is not None and not isinstance(fn_size, int)
-                ):
-                    fn_size = None
-                elif isinstance(fn_size, int) and fn_size < 0:
-                    fn_size = 0
-                if isinstance(file_off, bool) or (
-                    file_off is not None and not isinstance(file_off, int)
-                ):
-                    file_off = None
-                elif isinstance(file_off, int) and file_off < 0:
-                    file_off = 0
-                if isinstance(text_off, bool) or (
-                    text_off is not None and not isinstance(text_off, int)
-                ):
-                    text_off = None
-                elif isinstance(text_off, int) and text_off < 0:
-                    text_off = 0
-                if isinstance(blocker_delta, bool) or (
-                    blocker_delta is not None and not isinstance(blocker_delta, int)
-                ):
-                    blocker_delta = None
-                elif isinstance(blocker_delta, int) and blocker_delta < 0:
-                    blocker_delta = 0
-                fn_similarity = fn.get("similarity")
-                fn_marker = str(fn.get("markerType") or "FUNCTION")
-                if fn_marker not in VALID_MARKERS:
-                    fn_marker = "FUNCTION"
-                fn_status = canonical_status(str(fn.get("status") or "UNKNOWN"))
-                if fn_status not in _FUNCTION_DB_STATUSES:
-                    fn_status = "UNKNOWN"
-                fn_similarity = _clamp_unit_interval(fn_similarity)
-                fn_rows.append(
-                    (
-                        target_name,
-                        va_int,
-                        str(fn.get("name") or ""),
-                        va_start_text,
-                        fn_size,
-                        file_off,
-                        fn_status,
-                        str(fn.get("module") or fn.get("origin") or ""),
-                        fn.get("cflags"),
-                        fn.get("symbol"),
-                        fn_marker,
-                        fn.get("ghidra_name"),
-                        fn.get("list_name"),
-                        int(bool(fn.get("is_thunk", False))),
-                        int(bool(fn.get("is_export", False))),
-                        fn.get("sha256"),
-                        json.dumps(fn.get("files", [])),
-                        json.dumps(fn.get("detected_by", [])),
-                        json.dumps(fn.get("size_by_tool", {})),
-                        text_off,
-                        fn.get("blocker", ""),
-                        blocker_delta,
-                        fn.get("size_reason", ""),
-                        fn_similarity,
-                        str(fn.get("updated_by") or ""),
-                        str(fn.get("updated_at") or ""),
-                    )
-                )
-
-            if bad_va:
-                console.print(
-                    f"[yellow]warning:[/yellow] {target_name}: skipped {bad_va} "
-                    "function row(s) with unparseable VA (no valid key or vaStart)"
-                )
-
-            c.executemany(
-                "INSERT INTO functions "
-                "(target, va, name, vaStart, size, fileOffset, status, module, cflags, "
-                "symbol, markerType, ghidra_name, list_name, is_thunk, is_export, sha256, "
-                "files, detected_by, size_by_tool, textOffset, blocker, blockerDelta, "
-                "size_reason, similarity, updated_by, updated_at) "
-                "VALUES "
-                "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                _dedupe_by_va(fn_rows, target_name=target_name, table="function"),
+            va_int = int(str(item.get("va", va_key)), 0)
+        except (ValueError, TypeError):
+            continue
+        rows.append(
+            (
+                target_name,
+                max(0, va_int),
+                verified_at,
+                clamp_nonneg_int(item.get("delta")),
+                clamp_nonneg_int(item.get("diff_lines")),
+                _clamp_verify_similarity(item.get("similarity")),
+                clamp_nonneg_int(item.get("reg_delta")),
+                _clamp_effective_match(item.get("effective_match")),
             )
-
-            g_rows = []
-            bad_global_va = 0
-            globals_data: dict[str, Any] = data.get("globals", {})
-            for va, g in globals_data.items():
-                if not isinstance(g, dict):
-                    bad_global_va += 1
-                    continue
-                # An unresolvable VA is SKIPPED.  -1 marks "unparseable", not
-                # 0: the globals CHECK allows va >= 0 and 16-bit targets place
-                # data at segment 0.
-                va_int = _parse_int(va, -1)
-                if va_int < 0:
-                    va_int = _parse_int(g.get("va"), -1)
-                if va_int < 0:
-                    bad_global_va += 1
-                    continue
-                g_size = g.get("size")
-                if isinstance(g_size, bool) or not isinstance(g_size, int):
-                    # Non-int / bool sizes would abort on CHECK (size >= 0)
-                    # or land as 1/0 via bool-as-int; fall back to pointer size.
-                    g_size = 4
-                elif g_size < 0:
-                    g_size = 0
-                g_status = str(g.get("status") or "").strip().upper()
-                if g_status not in _GLOBAL_DB_STATUSES:
-                    g_status = ""
-                g_rows.append(
-                    (
-                        target_name,
-                        va_int,
-                        str(g.get("name") or ""),
-                        str(g.get("decl") or ""),
-                        json.dumps(g.get("files", [])),
-                        str(g.get("module") or g.get("origin") or ""),
-                        g_size,
-                        g_status,
-                    )
-                )
-
-            if bad_global_va:
-                console.print(
-                    f"[yellow]warning:[/yellow] {target_name}: skipped "
-                    f"{bad_global_va} global row(s) with unparseable VA "
-                    "(no valid key or va field)"
-                )
-
-            c.executemany(
-                """
-                INSERT INTO globals (target, va, name, decl, files, module, size, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-                _dedupe_by_va(g_rows, target_name=target_name, table="global"),
-            )
-
-            # Pre-calculate stats for all sections
-            summary_data = data.get("summary", {})
-
-            for sec_name, sec in data.get("sections", {}).items():
-                # Same clamp as the sections row below: a bool, float, or
-                # negative must not land in summary JSON that readers parse
-                # as a byte count.
-                sec_size = _clamp_nonneg_int(sec.get("size"))
-                sec_size_json = 0 if sec_size is None else sec_size
-                # Calculate stats for data sections
-                if sec_name != ".text":
-                    exact_count: int = 0
-                    reloc_count: int = 0
-                    near_match_count: int = 0
-                    stub_count: int = 0
-                    padding_count: int = 0
-                    exact_bytes: int = 0
-                    reloc_bytes: int = 0
-                    near_match_bytes: int = 0
-                    stub_bytes: int = 0
-                    padding_bytes: int = 0
-                    covered_bytes: int = 0
-                    total_items: int = 0
-
-                    for cell in sec.get("cells", []):
-                        # Same normalization the stored row gets, so a
-                        # differently-cased state lands in the same bucket
-                        # here as in section_cell_stats.
-                        state = _canonical_cell_state(cell.get("state")) or "unknown"
-                        if state != "none":
-                            start = max(0, _parse_int(cell.get("start"), 0))
-                            end = max(start, _parse_int(cell.get("end"), start))
-                            size = end - start
-                            covered_bytes += size
-                            funcs = cell.get("functions", [])
-                            total_items += len(funcs) if funcs else 0
-
-                            if state in ("exact", "verified"):
-                                exact_count += 1
-                                exact_bytes += size
-                            elif state == "reloc":
-                                reloc_count += 1
-                                reloc_bytes += size
-                            elif state in ("near_match", "near_matching"):
-                                near_match_count += 1
-                                near_match_bytes += size
-                            elif state == "stub":
-                                stub_count += 1
-                                stub_bytes += size
-                            elif state == "padding":
-                                padding_count += 1
-                                padding_bytes += size
-
-                    summary_data[sec_name] = {
-                        "exactMatches": exact_count,
-                        "relocMatches": reloc_count,
-                        "nearMatchCount": near_match_count,
-                        "stubCount": stub_count,
-                        "paddingCount": padding_count,
-                        "exactBytes": exact_bytes,
-                        "relocBytes": reloc_bytes,
-                        "nearMatchBytes": near_match_bytes,
-                        "stubBytes": stub_bytes,
-                        "paddingBytes": padding_bytes,
-                        "coveredBytes": covered_bytes,
-                        "totalFunctions": total_items,
-                        "size": sec_size_json,
-                    }
-
-                # Clamp unitBytes/columns to sane positive defaults: the schema
-                # CHECK (> 0) would abort the whole rebuild on a stray 0 from
-                # hand-edited JSON (same pattern as the negative-offset clamps).
-                unit_bytes = _positive_int_or(sec.get("unitBytes"), _DEFAULT_GRID_GEOMETRY)
-                columns = _positive_int_or(sec.get("columns"), _DEFAULT_GRID_GEOMETRY)
-                # va/size/fileOffset are CHECK (>= 0 OR NULL): clamp like the
-                # function-row path so a stray negative does not abort rebuild.
-                sec_va = _clamp_nonneg_int(sec.get("va"))
-                sec_file_off = _clamp_nonneg_int(sec.get("fileOffset"))
-
-                c.execute(
-                    """
-                    INSERT INTO sections (target, name, va, size, fileOffset, unitBytes, columns)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                    (
-                        target_name,
-                        sec_name,
-                        sec_va,
-                        sec_size,
-                        sec_file_off,
-                        unit_bytes,
-                        columns,
-                    ),
-                )
-
-                # Insert cells (dedupe by start so clamp/hand-edit collisions
-                # cannot abort the rebuild on the UNIQUE constraint).
-                cell_rows = _dedupe_cell_rows(
-                    [
-                        _normalize_cell_row(target_name, sec_name, cell)
-                        for cell in sec.get("cells", [])
-                        if isinstance(cell, dict)
-                    ],
-                    target_name=target_name,
-                    sec_name=sec_name,
-                )
-
-                c.executemany(
-                    """
-                    INSERT INTO cells (target, section_name, start, end, span, state, functions, label, parent_function)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                    cell_rows,
-                )
-
-            total, by_status, by_module, covered_bytes_func, matched_bytes = _function_stats(
-                c, target_name
-            )
-
-            text_section_data = data.get("sections", {}).get(".text", {})
-            # sections.size is already clamped; the summary blob must match
-            # or /api/summary 500s on a bool, float, or negative size.
-            clamped_text = _clamp_nonneg_int(text_section_data.get("size"))
-            total_bytes = 0 if clamped_text is None else clamped_text
-
-            c.execute(
-                """
-                INSERT INTO metadata (target, key, value) VALUES (?, 'function_stats', ?)
-            """.strip(),
-                (
-                    target_name,
-                    json.dumps(
-                        {
-                            "total": total,
-                            # "covered_bytes" = identified bytes (every
-                            # function, incl. STUB placeholders).
-                            "covered_bytes": covered_bytes_func,
-                            # "matched_bytes" = EXACT/RELOC only — the
-                            # dashboard's headline coverage metric.
-                            "matched_bytes": matched_bytes,
-                            "total_bytes": total_bytes,
-                            "by_status": by_status,
-                            "by_module_counts": {
-                                mod: len(f_list) for mod, f_list in by_module.items()
-                            },
-                        },
-                        allow_nan=False,
-                    ),
-                ),
-            )
-
-            c.execute(
-                "INSERT INTO metadata (target, key, value) VALUES (?, ?, ?)",
-                (target_name, "summary", json.dumps(summary_data, allow_nan=False)),
-            )
-
-            # Store paths (from JSON data produced by grid.py)
-            paths_data = data.get("paths", {})
-            c.execute(
-                "INSERT INTO metadata (target, key, value) VALUES (?, ?, ?)",
-                (target_name, "paths", json.dumps(paths_data)),
-            )
-
-            # Populate history: record any status changes since last build
-            now_iso = datetime.now(UTC).isoformat()
-            c.execute(
-                "SELECT va, status, updated_by FROM functions WHERE target = ?",
-                (target_name,),
-            )
-            history_rows = []
-            for row in c.fetchall():
-                new_va, new_status, updated_by = row
-                key = (target_name, new_va)
-                old_status = old_statuses.get(key)
-                if old_status is not None and old_status != new_status:
-                    # Clamp/coerce so a pre-CHECK snapshot or negative VA
-                    # cannot abort the rebuild on the history CHECKs.
-                    old_s = canonical_status(str(old_status or "UNKNOWN"))
-                    if old_s not in _FUNCTION_DB_STATUSES:
-                        old_s = "UNKNOWN"
-                    new_s = canonical_status(str(new_status or "UNKNOWN"))
-                    if new_s not in _FUNCTION_DB_STATUSES:
-                        new_s = "UNKNOWN"
-                    history_rows.append(
-                        (
-                            target_name,
-                            max(0, _parse_int(new_va, 0)),
-                            old_s,
-                            new_s,
-                            now_iso,
-                            updated_by or "",
-                        )
-                    )
-            if history_rows:
-                c.executemany(
-                    "INSERT INTO history (target, va, old_status, new_status, changed_at, updated_by) "
-                    "VALUES (?, ?, ?, ?, ?, ?)",
-                    history_rows,
-                )
-            # Retention: keep only the newest _HISTORY_RETENTION rows of this
-            # target (only this target gained rows).  Both scans are served
-            # by idx_history_target_id.
-            c.execute(
-                "DELETE FROM history WHERE target = ? AND id NOT IN ("
-                "  SELECT id FROM history WHERE target = ? ORDER BY id DESC LIMIT ?"
-                ")",
-                (target_name, target_name, _HISTORY_RETENTION),
-            )
-
-            # Import the verify cache's per-function rows so the
-            # verify_results table carries real per-function data instead of
-            # staying empty.  The cache rows ARE the report rows (same shape),
-            # and they carry identity guards the old db/verify_results.json
-            # snapshot lacked.  Best-effort: a missing cache is fine.
-            from rebrew.verify_cache import load_verify_cache_raw
-
-            vr_rows = []
-            vr_time = now_iso
-            raw_cache = load_verify_cache_raw(SimpleNamespace(root=root_dir))
-            cache_entries: dict[str, Any] | None = None
-            # The cache stores verdicts measured against one compiler config
-            # and one binary image; the same predicate verify/status use
-            # decides whether those rows are still this project's rows.  A
-            # cache left behind by a rebuild of the target binary must not be
-            # republished as current, so the compiler and binary identity
-            # guards apply here too, not just target and version.
-            ours = isinstance(raw_cache, dict) and _verify_cache_belongs_to_project(
-                root_dir, target_name, raw_cache
-            )
-            if ours and isinstance(raw_cache, dict):
-                maybe_entries = raw_cache.get("entries")
-                if isinstance(maybe_entries, dict):
-                    cache_entries = maybe_entries
-            if cache_entries:
-                with contextlib.suppress(OSError):
-                    vr_time = str(
-                        datetime.fromtimestamp(
-                            (root_dir / ".rebrew" / "verify_cache.json").stat().st_mtime,
-                            tz=UTC,
-                        ).isoformat()
-                    )
-                for va_key, item in cache_entries.items():
-                    if not isinstance(item, dict):
-                        continue
-                    try:
-                        va_int = int(str(item.get("va", va_key)), 0)
-                    except (ValueError, TypeError):
-                        continue
-                    vr_rows.append(
-                        (
-                            target_name,
-                            max(0, va_int),
-                            vr_time,
-                            _clamp_nonneg_int(item.get("delta")),
-                            _clamp_nonneg_int(item.get("diff_lines")),
-                            _clamp_verify_similarity(item.get("similarity")),
-                            _clamp_nonneg_int(item.get("reg_delta")),
-                            _clamp_effective_match(item.get("effective_match")),
-                        )
-                    )
-            if vr_rows:
-                # A rebuild re-measures the same verdicts from the same
-                # cache, and the cache file's mtime moves on every verify
-                # run, so stamping that mtime would relabel an unchanged
-                # verdict as freshly measured on every build-db.  A row
-                # whose measurements are identical keeps the time it was
-                # first measured; a changed or new verdict gets the new one.
-                measured = _measured_verdicts(c, target_name)
-                for index, row in enumerate(vr_rows):
-                    known = measured.get(row[1])
-                    if known is not None and known[0] == row[3:]:
-                        vr_rows[index] = (row[0], row[1], known[1], *row[3:])
-                c.executemany(
-                    "INSERT OR REPLACE INTO verify_results "
-                    "(target, va, verified_at, byte_delta, diff_lines, "
-                    "similarity, reg_delta, effective_match) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                    vr_rows,
-                )
-                # Prune rows for functions absent from the latest cache
-                # (it is best-effort and can legitimately shrink).
-                # Guard on the PARSED vr_rows, not the raw entries:
-                # zero parseable VAs prunes nothing; only rows with
-                # parseable VAs prune their stale siblings.
-                # VAs travel as one JSON parameter: a placeholder per VA
-                # overflows SQLITE_MAX_VARIABLE_NUMBER on large targets.
-                c.execute(
-                    "DELETE FROM verify_results WHERE target = ? AND va NOT IN ("
-                    "SELECT value FROM json_each(?))",
-                    (target_name, json.dumps([r[1] for r in vr_rows])),
-                )
-            elif cache_entries == {}:
-                # The cache names this target but holds no rows — the target
-                # was fully unverified, so its stale rows go.  (A missing or
-                # other-target cache leaves rows alone — the table is never
-                # dropped on rebuild.)
-                c.execute("DELETE FROM verify_results WHERE target = ?", (target_name,))
-            # Otherwise (no cache, or another target's): leave rows alone —
-            # the table is never dropped on rebuild.
-
-            # Keep the legacy per-target stamp for older dashboard versions.
-            c.execute(
-                "INSERT OR REPLACE INTO metadata (target, key, value) VALUES (?, ?, ?)",
-                (target_name, DB_VERSION_KEY, json.dumps(_CURRENT_DB_VERSION)),
-            )
-
-        # Schema version stamp, under a reserved __schema__ row so readers
-        # never depend on an arbitrary target's stamp (a scoped --target
-        # rebuild leaves other targets at their older version).  Written once
-        # per build, OUTSIDE the target loop above: a build with no datasets
-        # (no data_*.json yet, every snapshot deleted) used to leave the
-        # database unstamped, and the version gate treats an unstamped
-        # database as compatible with anything, so the shape check that backs
-        # the stamp never ran against it.
-        c.execute(
-            "INSERT OR REPLACE INTO metadata (target, key, value) VALUES (?, ?, ?)",
-            (SCHEMA_TARGET, DB_VERSION_KEY, json.dumps(_CURRENT_DB_VERSION)),
         )
-
-        # Materialize the per-section cell JSON every dashboard grid serves.
-        # Rebuilt WHOLE (not per rebuilt target) from `cells` on every run, so
-        # the table is complete for every target after any build — including a
-        # scoped --target rebuild of an older DB that lacked the table, which
-        # would otherwise leave sibling targets with no cached row and force
-        # readers into a per-target "is it materialized?" guess.
-        c.executemany(
-            f"INSERT INTO {SECTION_CELLS_TABLE} (target, section_name, {SECTION_CELLS_COLUMN}) "
-            "VALUES (?, ?, ?)",
-            [
-                (tgt, sec, encode_section_cells(cells_json))
-                for tgt, sec, cells_json in c.execute(
-                    f"SELECT target, section_name, {SECTION_CELLS_AGG_SQL} "
-                    "FROM cells GROUP BY target, section_name"
-                ).fetchall()
-            ],
-        )
-
-        # Per-section bucket counts, from the single definition above.  Filled
-        # whole (like the cell JSON) so a scoped --target rebuild also leaves
-        # sibling targets with correct rows.
-        c.execute(f"INSERT INTO {SECTION_CELL_STATS_TABLE} {_SECTION_CELL_STATS_SELECT}")
-
-        # Both tables above are filled from `cells`, so a section that
-        # contributed no cell (a zero-size section, or one whose cells are all
-        # malformed and dropped) kept its `sections` row but got no derived
-        # row in either table.  That is the section the database says it has
-        # and the dashboard cannot show: `/api/sections` reads
-        # section_cell_stats, so the section vanished from the UI, and a
-        # reader resolving a section by name got nothing back from
-        # section_cells_json.  Seed the missing pairs from `sections`, which
-        # is the set the FKs to it already promise: zero counts, and an empty
-        # cell array (what a cell-less section aggregates to).  OR IGNORE
-        # because the rows that do have cells are already in.
-        c.execute(
-            f"INSERT OR IGNORE INTO {SECTION_CELL_STATS_TABLE} (target, section_name) "
-            "SELECT target, name FROM sections"
-        )
-        c.execute(
-            f"INSERT OR IGNORE INTO {SECTION_CELLS_TABLE} "
-            f"(target, section_name, {SECTION_CELLS_COLUMN}) "
-            "SELECT target, name, ? FROM sections",
-            (encode_section_cells(_EMPTY_CELLS_JSON),),
-        )
-
-        c.execute("COMMIT")
-
-        if json_output:
-            json_print(
-                {
-                    "db_path": str(db_path),
-                    "targets_processed": [name for name, _ in datasets],
-                }
-            )
-        else:
-            console.print(f"[green]Database built successfully at {db_path}[/green]")
-    except BaseException:
-        if conn is not None:
-            with contextlib.suppress(sqlite3.Error):
-                conn.rollback()
-        raise
-    finally:
-        if conn is not None:
-            conn.close()
+    if not rows:
+        # An ``entries`` table that exists but yields no parseable VA is not the
+        # empty table: nothing is known, so the caller must not prune.  A ``[]``
+        # here would let one corrupt cache wipe a target's rows.
+        return [] if not entries else None
+    # A rebuild re-measures the same verdicts from the same cache, and the cache
+    # file's mtime moves on every verify run, so stamping that mtime would
+    # relabel an unchanged verdict as freshly measured on every build-db.  A row
+    # whose measurements are identical keeps the time it was first measured; a
+    # changed or new verdict gets the new one.
+    for index, row in enumerate(rows):
+        known = previous_measured.get(row[1])
+        if known is not None and tuple(known[0]) == row[3:]:
+            rows[index] = (row[0], row[1], str(known[1]), *row[3:])
+    return rows
 
 
 app = typer.Typer(
-    help="Build SQLite coverage database from catalog JSON.",
+    help="Build clear-text coverage documents from the project tree.",
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew build-db · · · · · · · · · · · Build db/coverage.db (reads db/data_*.json)\n\n"
-        "  rebrew build-db --regen · · · · · · · Generate coverage in-process, no JSON files\n\n"
+        "  rebrew build-db · · · · · · · · · · · Scan the project and write "
+        "db/coverage-<target>.toml\n\n"
         "  rebrew build-db --root /path/to/project  Specify project root explicitly\n\n"
-        "[bold]Prerequisites:[/bold]\n\n"
-        "  Run 'rebrew catalog --data-json' first to generate db/data_*.json files.\n\n"
         "[bold]What it creates:[/bold]\n\n"
-        "  db/coverage.db · · · · · · SQLite database with functions, globals, sections, cells\n\n"
-        "[dim]The database is used by recovery (coverage dashboard) and can be queried "
-        "directly for reports. Schema version is stamped in the metadata table.[/dim]"
+        "  db/coverage-<target>.toml · · One clear-text document per target, holding\n"
+        "                              functions, globals, sections, cells, verify results\n"
+        "                              and status history\n\n"
+        "[dim]The documents are served by the coverage dashboards and can be read, "
+        "diffed and edited by hand. Each is replaced whole on every run, so --force "
+        "does nothing here: there is no schema to migrate and no partial state to "
+        "recover.[/dim]"
     ),
 )
 
@@ -2433,19 +634,25 @@ def main(
     force: bool = typer.Option(
         False,
         "--force",
-        help="Delete and recreate the database if its schema version is incompatible.",
+        help="Accepted for symmetry with the SQLite-era command and has no effect: "
+        "each coverage document is rewritten whole, so there is nothing to force past.",
     ),
     regen: bool = typer.Option(
         False,
         "--regen",
-        help="Generate coverage data in-process per target instead of reading "
-        "db/data_*.json files (no intermediate files)",
+        help="Accepted for compatibility and has no effect: the catalog analysis "
+        "always runs in this process, so there is no snapshot mode to select.",
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
-    """Build SQLite coverage database from catalog JSON."""
-    build_db(root, target=target, json_output=json_output, force=force, regen=regen)
+    """Build clear-text coverage documents from the project tree.
+
+    Scans the tree in-process; ``--regen`` is accepted and does nothing,
+    because there is no other mode left to select.
+    """
+    root_dir = root.resolve() if root else Path.cwd().resolve()
+    _write_coverage(root_dir, target=target, force=force, json_output=json_output, regen=regen)
 
 
 def main_entry() -> None:

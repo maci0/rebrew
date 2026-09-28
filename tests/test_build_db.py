@@ -1,36 +1,43 @@
-"""Tests for rebrew.builddb — round-trip JSON → SQLite → query.
+"""Tests for ``rebrew build-db`` — the typer front over the TOML writer.
 
-Uses a synthetic data_*.json to verify that build_db() creates the expected
-schema and populates all columns (including the new detected_by, size_by_tool,
-textOffset, globals origin/size, and the section_cell_stats view).
+``rebrew build-db`` reads ``db/data_*.json`` (or regenerates the catalog
+in-process with ``--regen``) and writes one clear-text document per target,
+``db/coverage-<target>.toml``.  The writer itself is
+:func:`rebrew.coverage_toml.write_coverage_toml` and is tested in
+``test_coverage_toml.py``; what this file pins is the COMMAND: which files it
+writes, what ``--target`` / ``--regen`` / ``--json`` / ``--force`` do, and the
+errors a malformed snapshot produces.
+
+The SQLite storage engine these tests used to drive is gone, so every schema
+DDL / PRAGMA / sqlite_master assertion went with it.  What replaced them is a
+parse of the written document: the file IS the artifact now, so a test that
+reads it back is the strongest available check.
 """
 
-import contextlib
 import copy
+import hashlib
 import json
-import re
-import sqlite3
+import logging
+import tomllib
 import unicodedata
 from pathlib import Path
 from typing import Any
 
 import pytest
+from typer.testing import CliRunner
 
-from rebrew.build_db import (
-    _HISTORY_COLUMNS_SQL,
-    _VERIFY_RESULTS_COLUMNS_SQL,
-    FUNCTION_ROWS_SQL,
-    _restore_persistent_rows,
-    _unlink_db,
-    build_db,
-)
-from rebrew.workspace import SCHEMA_TARGET
+from rebrew.build_db import _KNOWN_CELL_STATES, app
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
 
-SAMPLE_DATA = {
+#: One catalog snapshot, in the shape ``rebrew catalog --data-json`` writes.
+#: The section carries one cell in every state a bucket is served for, so a
+#: state the writer drops or re-spells shows up as a missing key.
+_CELL_STATES = ("exact", "none", "stub", "reloc", "near_match", "near_matching")
+
+SAMPLE_DATA: dict[str, Any] = {
     "sections": {
         ".text": {
             "va": 0x10001000,
@@ -39,29 +46,19 @@ SAMPLE_DATA = {
             "unitBytes": 64,
             "columns": 64,
             "cells": [
-                {"start": 0, "end": 64, "span": 1, "state": "exact", "functions": ["func_a"]},
-                {"start": 64, "end": 128, "span": 1, "state": "none", "functions": []},
-                {"start": 128, "end": 192, "span": 1, "state": "stub", "functions": ["func_b"]},
-                {"start": 192, "end": 256, "span": 1, "state": "reloc", "functions": ["func_c"]},
                 {
-                    "start": 256,
-                    "end": 320,
-                    "span": 1,
-                    "state": "near_match",
-                    "functions": ["func_d"],
-                },
-                {
-                    "start": 320,
-                    "end": 384,
-                    "span": 1,
-                    "state": "near_match",
-                    "functions": ["func_e"],
-                },
+                    "start": index * 64,
+                    "end": (index + 1) * 64,
+                    "span": index + 1,
+                    "state": state,
+                    "functions": [f"func_{state}"],
+                }
+                for index, state in enumerate(_CELL_STATES)
             ],
         },
     },
     "globals": {
-        "0x10030000": {
+        "g_counter": {
             "va": 0x10030000,
             "name": "g_counter",
             "decl": "int g_counter;",
@@ -69,7 +66,7 @@ SAMPLE_DATA = {
             "origin": "GAME",
             "size": 4,
         },
-        "0x10030100": {
+        "g_buffer": {
             "va": 0x10030100,
             "name": "g_buffer",
             "decl": "char g_buffer[256];",
@@ -78,21 +75,7 @@ SAMPLE_DATA = {
             "size": 256,
         },
     },
-    "summary": {
-        "totalFunctions": 5,
-        # exact(1) + reloc(1); NEAR_MATCHING(2) and STUB(1) are not matched.
-        "matchedFunctions": 2,
-        "exactMatches": 1,
-        "relocMatches": 1,
-        "nearMatchCount": 2,
-        "stubCount": 1,
-        "coveredBytes": 256,
-        "coveragePercent": 50.0,
-        "textSize": 4096,
-        ".text": {
-            "size": 4096,
-        },
-    },
+    "summary": {"totalFunctions": 2, "matchedFunctions": 1, "textSize": 4096},
     "functions": {
         "func_a": {
             "name": "func_a",
@@ -125,21 +108,11 @@ SAMPLE_DATA = {
             "fileOffset": 0x1080,
             "status": "STUB",
             "origin": "GAME",
-            "cflags": "",
-            "symbol": "_func_b",
             "markerType": "STUB",
-            "ghidra_name": "",
-            "list_name": "fcn.10001080",
-            "is_thunk": False,
-            "is_export": False,
-            "sha256": "",
             "files": ["func_b.c"],
-            "detected_by": ["list"],
-            "size_by_tool": {"list": 128},
             "textOffset": 0x80,
             "blocker": "needs vtable",
             "blockerDelta": 12,
-            "size_reason": "list",
             "similarity": 0.85,
         },
     },
@@ -148,1630 +121,303 @@ SAMPLE_DATA = {
 
 
 @pytest.fixture
-def project_root(tmp_path: Path) -> Path:
-    """Create a minimal project layout with data_testbin.json."""
-    db_dir = tmp_path / "db"
-    db_dir.mkdir()
-    json_path = db_dir / "data_testbin.json"
-    json_path.write_text(json.dumps(SAMPLE_DATA), encoding="utf-8")
+def runner() -> CliRunner:
+    return CliRunner()
+
+
+class FakeCatalog:
+    """Stands in for ``build_catalog_data``; the command has no other input.
+
+    The writer builds the coverage dict in-process, so the seam a test needs
+    is the catalog itself: *data* is what every target gets, *per_target*
+    overrides one, and *asked* records the targets that were built.
+    """
+
+    def __init__(self) -> None:
+        self.data: dict[str, Any] = copy.deepcopy(SAMPLE_DATA)
+        self.per_target: dict[str, dict[str, Any]] = {}
+        self.asked: list[str] = []
+
+    def build(self, cfg: Any) -> dict[str, Any]:
+        self.asked.append(cfg.target_name)
+        return {"data": copy.deepcopy(self.per_target.get(cfg.target_name, self.data))}
+
+
+@pytest.fixture
+def catalog(monkeypatch: pytest.MonkeyPatch) -> FakeCatalog:
+    fake = FakeCatalog()
+    monkeypatch.setattr("rebrew.catalog.pipeline.build_catalog_data", fake.build)
+    return fake
+
+
+def _write_config(root_dir: Path, *targets: str) -> Path:
+    """A project config naming *targets*; the documents are built from it."""
+    root_dir.mkdir(parents=True, exist_ok=True)
+    body = f'[project]\nname = "testbin"\ndefault_target = "{targets[0]}"\n\n'
+    for name in targets:
+        body += f'[targets."{name}"]\nmarker = "GAME"\nbinary = "orig/{name}.dll"\n\n'
+    path = root_dir / "rebrew-project.toml"
+    path.write_text(body, encoding="utf-8")
+    return path
+
+
+@pytest.fixture
+def project_root(tmp_path: Path, catalog: FakeCatalog) -> Path:
+    """A minimal project with one target and nothing else on disk."""
+    (tmp_path / "db").mkdir()
+    _write_config(tmp_path, "testbin")
     return tmp_path
 
 
-def _write_cache(project_root: Path, target: str, entries: dict) -> None:
-    """Seed .rebrew/verify_cache.json (the verify_results import source)."""
-    cache_dir = project_root / ".rebrew"
-    cache_dir.mkdir(exist_ok=True)
-    (cache_dir / "verify_cache.json").write_text(
-        json.dumps({"version": 2, "target": target, "entries": entries}),
-        encoding="utf-8",
-    )
+def _document(root_dir: Path, target: str) -> dict[str, Any]:
+    """The parsed ``coverage-<target>.toml`` the command wrote."""
+    path = root_dir / "db" / f"coverage-{target}.toml"
+    assert path.is_file(), f"{path} was not written"
+    return tomllib.loads(path.read_text(encoding="utf-8"))
 
 
-def _open_db(project_root: Path) -> tuple[sqlite3.Connection, sqlite3.Cursor]:
-    """Build the coverage DB and return a (connection, cursor) pair."""
-    build_db(project_root)
-    conn = sqlite3.connect(project_root / "db" / "coverage.db")
-    conn.row_factory = sqlite3.Row
-    return conn, conn.cursor()
+def _json_payload(output: str) -> dict[str, Any]:
+    """The ``--json`` envelope out of a CliRunner result.
+
+    ``--json`` silences the ``Wrote`` lines but not the reader's per-target
+    ``Processing <target>...`` progress line, which lands on stdout first.
+    """
+    start = output.index("{")
+    return json.loads(output[start:])
+
+
+def _build(runner: CliRunner, root_dir: Path, *args: str):
+    return runner.invoke(app, ["--root", str(root_dir), *args])
 
 
 # ---------------------------------------------------------------------------
-# Tests
+# The command writes the document
 # ---------------------------------------------------------------------------
 
 
-class TestBuildDbRoundTrip:
-    """Verify build_db creates tables with all columns and correct data."""
+class TestBuildDbCommand:
+    def test_writes_one_document_per_target(self, runner: CliRunner, project_root: Path) -> None:
+        result = _build(runner, project_root)
 
-    def test_db_created(self, project_root: Path) -> None:
-        build_db(project_root)
-        db_path = project_root / "db" / "coverage.db"
-        assert db_path.exists()
-        with contextlib.closing(sqlite3.connect(db_path)) as conn:
-            tables = {
-                row[0]
-                for row in conn.execute(
-                    "SELECT name FROM sqlite_master WHERE type IN ('table', 'view')"
-                )
-            }
-        assert {"metadata", "functions", "history", "verify_results"} <= tables
+        assert result.exit_code == 0, result.output
+        path = project_root / "db" / "coverage-testbin.toml"
+        assert path.is_file()
+        # Rich soft-wraps the path at the console width, mid-name and all.
+        assert "Wrote" in result.output
+        assert path.name in "".join(result.output.split())
+        doc = _document(project_root, "testbin")
+        assert doc["target"] == "testbin"
+        assert isinstance(doc["version"], int)
+        # The snapshot's facts are all in the file: no db/coverage.db exists.
+        assert not (project_root / "db" / "coverage.db").exists()
+        assert sorted(doc) == [
+            "functions",
+            "globals",
+            "history",
+            "metadata",
+            "sections",
+            "target",
+            "verify_results",
+            "version",
+        ]
 
-    def test_function_stats_stop_at_next_function(self, tmp_path: Path) -> None:
-        """A size running through the next function (a missed start) counts
-        only up to that start, as in `rebrew status`."""
-        from copy import deepcopy
-
-        def stats(data: dict[str, Any]) -> dict[str, Any]:
-            root = tmp_path / str(len(list(tmp_path.iterdir())))
-            (root / "db").mkdir(parents=True)
-            (root / "db" / "data_testbin.json").write_text(json.dumps(data), encoding="utf-8")
-            build_db(root)
-            conn = sqlite3.connect(root / "db" / "coverage.db")
-            try:
-                row = conn.execute(
-                    "SELECT value FROM metadata WHERE target='testbin' AND key='function_stats'"
-                ).fetchone()
-            finally:
-                conn.close()
-            return dict(json.loads(row[0]))
-
-        base = stats(SAMPLE_DATA)
-        overlong = deepcopy(SAMPLE_DATA)
-        overlong["functions"]["func_a"]["size"] = 200  # func_b starts at +128
-        got = stats(overlong)
-        assert got["matched_bytes"] == base["matched_bytes"] + 64
-        assert got["covered_bytes"] == base["covered_bytes"] + 64
-
-    def test_warns_when_snapshot_predates_verify_cache(
-        self, project_root: Path, capsys: pytest.CaptureFixture[str]
+    def test_functions_round_trip_every_stored_field(
+        self, runner: CliRunner, project_root: Path
     ) -> None:
-        """A data_*.json older than the last verify gives stale dashboard numbers."""
-        import os
+        assert _build(runner, project_root).exit_code == 0
 
-        _write_cache(project_root, "testbin", {})
-        snapshot = project_root / "db" / "data_testbin.json"
-        cache_mtime = (project_root / ".rebrew" / "verify_cache.json").stat().st_mtime
-        os.utime(snapshot, (cache_mtime - 3600, cache_mtime - 3600))
-
-        build_db(project_root)
-
-        err = capsys.readouterr().err
-        assert "data_testbin.json is older than" in err
-        assert "--regen" in err
-
-    def test_warns_when_snapshot_is_newer_by_nanoseconds(
-        self, project_root: Path, capsys: pytest.CaptureFixture[str]
-    ) -> None:
-        """Sub-tick staleness still warns: a float st_mtime ties at ~128 ns.
-
-        A float ``st_mtime`` resolves to ~238 ns at current epoch values,
-        so a verify cache written 100 ns after the snapshot compares equal
-        and the warning is skipped.  The base is a multiple of the float
-        ulp so the tie is exact rather than dependent on the clock.
-        """
-        import os
-
-        _write_cache(project_root, "testbin", {})
-        snapshot = project_root / "db" / "data_testbin.json"
-        cache = project_root / ".rebrew" / "verify_cache.json"
-        base_ns = 1_700_000_000_000_000_000
-        os.utime(snapshot, ns=(base_ns, base_ns))
-        os.utime(cache, ns=(base_ns + 100, base_ns + 100))
-
-        build_db(project_root)
-
-        err = capsys.readouterr().err
-        assert "data_testbin.json is older than" in err
-
-    def test_configured_db_dir_is_used(self, tmp_path: Path) -> None:
-        configured_db = tmp_path / "coverage"
-        configured_db.mkdir()
-        (configured_db / "data_testbin.json").write_text(json.dumps(SAMPLE_DATA), encoding="utf-8")
-        (tmp_path / "rebrew-project.toml").write_text(
-            """\
-[project]
-default_target = "main"
-db_dir = "coverage"
-
-[targets.main]
-binary = "test.exe"
-""",
-            encoding="utf-8",
-        )
-
-        build_db(tmp_path)
-
-        assert (configured_db / "coverage.db").exists()
-        assert not (tmp_path / "db" / "coverage.db").exists()
-
-    @pytest.mark.parametrize("target", [None, "beta"])
-    def test_regen_json_output(
-        self,
-        project_root: Path,
-        monkeypatch: pytest.MonkeyPatch,
-        capsys: pytest.CaptureFixture[str],
-        target: str | None,
-    ) -> None:
-        from copy import deepcopy
-        from types import SimpleNamespace
-
-        monkeypatch.setattr(
-            "rebrew.build_db.load_config",
-            lambda *args, **kwargs: SimpleNamespace(
-                all_targets=["alpha", "beta"], target_name="alpha"
-            ),
-        )
-        monkeypatch.setattr(
-            "rebrew.catalog.pipeline.build_catalog_data",
-            lambda cfg: {"data": deepcopy(SAMPLE_DATA)},
-        )
-
-        build_db(project_root, target=target, regen=True, json_output=True)
-
-        result = json.loads(capsys.readouterr().out)
-        expected = [target] if target else ["alpha", "beta"]
-        assert result["targets_processed"] == expected
-        conn = sqlite3.connect(result["db_path"])
-        try:
-            rows = conn.execute("SELECT DISTINCT target FROM functions ORDER BY target").fetchall()
-            assert [row[0] for row in rows] == expected
-        finally:
-            conn.close()
-
-    def test_functions_columns(self, project_root: Path) -> None:
-        """All function columns including new detected_by, size_by_tool, textOffset."""
-        conn, c = _open_db(project_root)
-
-        c.execute("SELECT * FROM functions WHERE target = 'testbin' AND name = 'func_a'")
-        row = c.fetchone()
-        assert row is not None
-
-        assert row["name"] == "func_a"
-        assert row["vaStart"] == "0x10001000"
-        assert row["size"] == 64
-        assert row["status"] == "EXACT"
-        assert row["is_export"] == 1
-        assert row["sha256"] == "abcd1234"
-
-        # New columns
-        detected = json.loads(row["detected_by"])
-        assert "ghidra" in detected
-        assert "list" in detected
-
-        sizes = json.loads(row["size_by_tool"])
-        assert sizes["ghidra"] == 64
-        assert sizes["list"] == 64
-
-        assert row["textOffset"] == 0
-        conn.close()
-
-    def test_functions_stub(self, project_root: Path) -> None:
-        """Stub function has correct textOffset."""
-        conn, c = _open_db(project_root)
-
-        c.execute("SELECT * FROM functions WHERE target = 'testbin' AND name = 'func_b'")
-        row = c.fetchone()
-        assert row is not None
-        assert row["status"] == "STUB"
-        assert row["textOffset"] == 0x80
-
-        detected = json.loads(row["detected_by"])
-        assert detected == ["list"]
-        conn.close()
-
-    def test_globals_columns(self, project_root: Path) -> None:
-        """Globals have size columns."""
-        conn, c = _open_db(project_root)
-
-        c.execute("SELECT * FROM globals WHERE target = 'testbin' ORDER BY va")
-        rows = c.fetchall()
-        assert len(rows) == 2
-
-        counter_row = rows[0]
-        assert counter_row["name"] == "g_counter"
-        assert counter_row["module"] == "GAME"
-        assert counter_row["size"] == 4
-
-        buffer_row = rows[1]
-        assert buffer_row["name"] == "g_buffer"
-        assert buffer_row["size"] == 256
-        conn.close()
-
-    def test_sections(self, project_root: Path) -> None:
-        conn, c = _open_db(project_root)
-
-        c.execute("SELECT * FROM sections WHERE target = 'testbin' AND name = '.text'")
-        row = c.fetchone()
-        assert row is not None
-        assert row["name"] == ".text"
-        assert row["va"] == 0x10001000
-        assert row["size"] == 4096
-        assert row["unitBytes"] == 64
-        assert row["fileOffset"] == 0x1000
-        assert row["columns"] == 64
-        conn.close()
-
-    def test_cells(self, project_root: Path) -> None:
-        build_db(project_root)
-        conn = sqlite3.connect(project_root / "db" / "coverage.db")
-        c = conn.cursor()
-        c.execute("SELECT COUNT(*) FROM cells WHERE target = 'testbin'")
-        count = c.fetchone()[0]
-        assert count == 6
-        conn.close()
-
-    def test_section_cell_stats_view(self, project_root: Path) -> None:
-        """The view should return correct counts including none_count."""
-        conn, c = _open_db(project_root)
-
-        c.execute(
-            "SELECT * FROM section_cell_stats WHERE target = 'testbin' AND section_name = '.text'"
-        )
-        row = c.fetchone()
-        assert row is not None
-        assert row["total_cells"] == 6
-        assert row["exact_count"] == 1
-        assert row["reloc_count"] == 1
-        assert row["near_match_count"] == 2
-        assert row["stub_count"] == 1
-        assert row["none_count"] == 1
-        conn.close()
-
-    def test_db_version_metadata(self, project_root: Path) -> None:
-        """db_version key should be present in metadata."""
-        build_db(project_root)
-        conn = sqlite3.connect(project_root / "db" / "coverage.db")
-        c = conn.cursor()
-        c.execute("SELECT value FROM metadata WHERE target = 'testbin' AND key = 'db_version'")
-        row = c.fetchone()
-        assert row is not None
-        from rebrew.build_db import _CURRENT_DB_VERSION
-
-        version = json.loads(row[0])
-        assert version == _CURRENT_DB_VERSION
-        conn.close()
-
-    def test_new_columns(self, project_root: Path) -> None:
-        conn, c = _open_db(project_root)
-
-        c.execute(
-            "SELECT size_reason, similarity, blocker, blockerDelta "
-            "FROM functions WHERE target = 'testbin' AND name = 'func_a'"
-        )
-        func_a = c.fetchone()
-        assert func_a is not None
+        rows = {row["va"]: row for row in _document(project_root, "testbin")["functions"]}
+        assert sorted(rows) == [0x10001000, 0x10001080]
+        func_a = rows[0x10001000]
+        assert func_a["name"] == "func_a"
+        assert func_a["vaStart"] == "0x10001000"
+        assert func_a["size"] == 64
+        assert func_a["fileOffset"] == 0x1000
+        assert func_a["status"] == "EXACT"
+        assert func_a["module"] == "GAME"
+        assert func_a["cflags"] == "/O2"
+        assert func_a["symbol"] == "_func_a"
+        assert func_a["markerType"] == "FUNCTION"
+        assert func_a["ghidra_name"] == "FUN_10001000"
+        assert func_a["list_name"] == "fcn.10001000"
+        assert (func_a["is_thunk"], func_a["is_export"]) == (0, 1)
+        assert func_a["sha256"] == "abcd1234"
+        assert func_a["files"] == ["func_a.c"]
+        assert func_a["detected_by"] == ["ghidra", "list"]
+        assert func_a["size_by_tool"] == {"ghidra": 64, "list": 64}
+        assert func_a["textOffset"] == 0
         assert func_a["size_reason"] == "ghidra"
         assert func_a["similarity"] == 1.0
-        assert func_a["blocker"] == ""
-        assert func_a["blockerDelta"] is None
 
-        c.execute(
-            "SELECT size_reason, similarity, blocker, blockerDelta "
-            "FROM functions WHERE target = 'testbin' AND name = 'func_b'"
-        )
-        func_b = c.fetchone()
-        assert func_b is not None
-        assert func_b["size_reason"] == "list"
-        assert func_b["similarity"] == 0.85
+        func_b = rows[0x10001080]
+        assert func_b["status"] == "STUB"
         assert func_b["blocker"] == "needs vtable"
         assert func_b["blockerDelta"] == 12
-        conn.close()
+        assert func_b["textOffset"] == 0x80
+        assert func_b["similarity"] == 0.85
 
-    def test_history_table_exists(self, project_root: Path) -> None:
-        conn, c = _open_db(project_root)
+    def test_sections_and_cells_round_trip(self, runner: CliRunner, project_root: Path) -> None:
+        assert _build(runner, project_root).exit_code == 0
 
-        c.execute("PRAGMA table_info(history)")
-        columns = [row["name"] for row in c.fetchall()]
-        assert columns == [
-            "id",
-            "target",
-            "va",
-            "old_status",
-            "new_status",
-            "changed_at",
-            "updated_by",
+        doc = _document(project_root, "testbin")
+        assert sorted(doc["sections"]) == [".text"]
+        section = doc["sections"][".text"]
+        assert section["va"] == 0x10001000
+        assert section["size"] == 4096
+        assert section["fileOffset"] == 0x1000
+        assert section["unitBytes"] == 64
+        assert section["columns"] == 64
+        # One cell per state, each stored lower-case in spatial order.
+        assert [(cell["start"], cell["state"]) for cell in section["cells"]] == [
+            (index * 64, state) for index, state in enumerate(_CELL_STATES)
         ]
-        conn.close()
+        assert section["cells"][0]["functions"] == ["func_exact"]
 
-    def test_history_tracks_changes(self, project_root: Path) -> None:
-        db_dir = project_root / "db"
-        json_path = db_dir / "data_testbin.json"
+    def test_globals_and_paths_round_trip(self, runner: CliRunner, project_root: Path) -> None:
+        assert _build(runner, project_root).exit_code == 0
 
-        build_db(project_root)
+        doc = _document(project_root, "testbin")
+        rows = {row["name"]: row for row in doc["globals"]}
+        assert rows["g_counter"]["va"] == 0x10030000
+        assert rows["g_counter"]["module"] == "GAME"
+        assert rows["g_counter"]["size"] == 4
+        assert rows["g_buffer"]["size"] == 256
+        assert doc["metadata"]["paths"] == {"originalDll": "/original/Server/server.dll"}
 
-        data = json.loads(json_path.read_text(encoding="utf-8"))
-        data["functions"]["func_a"]["status"] = "RELOC"
-        json_path.write_text(json.dumps(data), encoding="utf-8")
-
-        build_db(project_root)
-
-        conn, c = _open_db(project_root)
-        c.execute(
-            "SELECT old_status, new_status FROM history "
-            "WHERE target = 'testbin' AND va = ? ORDER BY id DESC LIMIT 1",
-            (0x10001000,),
-        )
-        row = c.fetchone()
-        assert row is not None
-        assert row["old_status"] == "EXACT"
-        assert row["new_status"] == "RELOC"
-        conn.close()
-
-    def test_verify_results_table_exists(self, project_root: Path) -> None:
-        build_db(project_root)
-        conn = sqlite3.connect(project_root / "db" / "coverage.db")
-        c = conn.cursor()
-        c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='verify_results'")
-        row = c.fetchone()
-        assert row is not None
-        assert row[0] == "verify_results"
-        conn.close()
-
-    def test_verify_results_persist_across_rebuild(self, project_root: Path) -> None:
-        """verify_results is a persistent history table (DB_FORMAT.md: "never
-        dropped on rebuild") — a full rebuild must NOT wipe it (the
-        old DROP TABLE wiped every target's rows, keeping only the
-        last-verified target's re-import)."""
-
-        # First build: import a cache row.
-        _write_cache(
-            project_root,
-            "testbin",
-            {"0x00001000": {"va": "0x00001000", "status": "EXACT", "delta": 3}},
-        )
-        build_db(project_root)
-        # Full rebuild WITHOUT the cache (simulates a later run where the
-        # cache was regenerated for a different target or is absent).
-        (project_root / ".rebrew" / "verify_cache.json").unlink()
-        build_db(project_root)
-        conn = sqlite3.connect(project_root / "db" / "coverage.db")
-        c = conn.cursor()
-        c.execute("SELECT COUNT(*) FROM verify_results WHERE target = 'testbin'")
-        assert c.fetchone()[0] == 1  # row survived the rebuild
-        conn.close()
-
-    def test_verify_results_scales_percent_similarity(self, project_root: Path) -> None:
-        """Verify cache stores code_similarity on 0–100; DB column is 0–1.
-
-        A unit-interval clamp would store 85.5 as 1.0 (perfect match).
-        """
-        _write_cache(
-            project_root,
-            "testbin",
-            {
-                "0x00001000": {
-                    "va": "0x00001000",
-                    "status": "NEAR_MATCHING",
-                    "delta": 12,
-                    "similarity": 85.5,
-                }
-            },
-        )
-        build_db(project_root)
-        conn = sqlite3.connect(project_root / "db" / "coverage.db")
-        c = conn.cursor()
-        c.execute("SELECT similarity FROM verify_results WHERE target = 'testbin' AND va = 4096")
-        row = c.fetchone()
-        conn.close()
-        assert row is not None
-        assert row[0] == pytest.approx(0.855)
-
-    def test_verify_results_scales_one_percent_similarity(self, project_root: Path) -> None:
-        """1.0 on the verify-cache percent scale is 1%, not a perfect match."""
-        _write_cache(
-            project_root,
-            "testbin",
-            {
-                "0x00001000": {
-                    "va": "0x00001000",
-                    "status": "STUB",
-                    "delta": 40,
-                    "similarity": 1.0,
-                }
-            },
-        )
-        build_db(project_root)
-        conn = sqlite3.connect(project_root / "db" / "coverage.db")
-        c = conn.cursor()
-        c.execute("SELECT similarity FROM verify_results WHERE target = 'testbin' AND va = 4096")
-        row = c.fetchone()
-        conn.close()
-        assert row is not None
-        assert row[0] == pytest.approx(0.01)
-
-    def test_verify_results_unparseable_va_does_not_wipe(self, project_root: Path) -> None:
-        """A cache whose every `va` fails to parse must NOT delete the
-        target's history — the old prune built `va NOT IN ()`, which SQLite
-        treats as vacuously TRUE and wiped ALL rows."""
-        # Seed a row with a VALID cache entry first.
-        _write_cache(
-            project_root,
-            "testbin",
-            {"0x00001000": {"va": "0x00001000", "status": "EXACT", "delta": 3}},
-        )
-        build_db(project_root)
-        # Rebuild with a cache whose VAs do not parse — the prune must not
-        # wipe the previously-imported row.
-        _write_cache(project_root, "testbin", {"0x00001000": {"va": None, "delta": 3}})
-        build_db(project_root)
-        conn = sqlite3.connect(project_root / "db" / "coverage.db")
-        c = conn.cursor()
-        c.execute("SELECT COUNT(*) FROM verify_results WHERE target = 'testbin'")
-        assert c.fetchone()[0] == 1  # row survived despite the unparseable report
-        conn.close()
-
-    def test_verify_results_unchanged_verdict_keeps_verified_at(self, project_root: Path) -> None:
-        """`verified_at` is when the verdict was measured, so a rebuild that
-        re-imports the same cache must leave it alone. The cache file's mtime
-        is not the measurement time: it moves on every verify run, so
-        stamping it restamped every row on every `build-db`."""
-        entry = {"0x00001000": {"va": "0x00001000", "status": "EXACT", "delta": 3}}
-        _write_cache(project_root, "testbin", entry)
-        build_db(project_root)
-        conn = sqlite3.connect(project_root / "db" / "coverage.db")
-        first = conn.execute(
-            "SELECT verified_at FROM verify_results WHERE target = 'testbin' AND va = 4096"
-        ).fetchone()[0]
-        conn.close()
-
-        # A verify run rewrote the cache file, so its mtime moved on.
-        _write_cache(project_root, "testbin", entry)
-        build_db(project_root)
-        conn = sqlite3.connect(project_root / "db" / "coverage.db")
-        again = conn.execute(
-            "SELECT verified_at FROM verify_results WHERE target = 'testbin' AND va = 4096"
-        ).fetchone()[0]
-        conn.close()
-        assert again == first
-
-        # A verdict that actually changed is re-measured, so it moves.
-        _write_cache(
-            project_root,
-            "testbin",
-            {"0x00001000": {"va": "0x00001000", "status": "NEAR_MATCHING", "delta": 9}},
-        )
-        build_db(project_root)
-        conn = sqlite3.connect(project_root / "db" / "coverage.db")
-        changed = conn.execute(
-            "SELECT verified_at, byte_delta FROM verify_results "
-            "WHERE target = 'testbin' AND va = 4096"
-        ).fetchone()
-        conn.close()
-        assert changed[1] == 9
-        assert changed[0] != again
-
-    def test_verify_results_prune_past_sqlite_variable_limit(self, project_root: Path) -> None:
-        """A cache with more VAs than SQLITE_MAX_VARIABLE_NUMBER must still
-        import and prune stale rows (one bound parameter per VA overflowed)."""
-        _write_cache(project_root, "testbin", {"0x1": {"va": "0x1", "delta": 1}})
-        build_db(project_root)
-        limit = sqlite3.connect(":memory:").getlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER)
-        entries = {hex(va): {"va": hex(va), "delta": 0} for va in range(0x10, 0x10 + limit + 1)}
-        _write_cache(project_root, "testbin", entries)
-        build_db(project_root)
-        conn = sqlite3.connect(project_root / "db" / "coverage.db")
-        try:
-            count, stale = conn.execute(
-                "SELECT COUNT(*), SUM(va = 1) FROM verify_results WHERE target = 'testbin'"
-            ).fetchone()
-        finally:
-            conn.close()
-        assert (count, stale) == (limit + 1, 0)
-
-    @pytest.mark.parametrize("scoped", [False, True])
-    @pytest.mark.parametrize("entries", [None, [], "invalid", 7, {}, "missing"])
-    def test_verify_results_require_valid_empty_cache_to_clear(
-        self, project_root: Path, scoped: bool, entries: Any
+    def test_function_statuses_canonicalize_and_typos_become_unknown(
+        self, runner: CliRunner, tmp_path: Path, catalog: FakeCatalog
     ) -> None:
-        _write_cache(project_root, "testbin", {"0x1000": {"va": "0x1000", "delta": 3}})
-        build_db(project_root)
-        _write_cache(project_root, "sibling", {"0x2000": {"va": "0x2000", "delta": 4}})
-        (project_root / "db" / "data_sibling.json").write_text(
-            json.dumps(SAMPLE_DATA), encoding="utf-8"
-        )
-        build_db(project_root)
-
-        cache: dict[str, Any] = {"version": 2, "target": "testbin"}
-        if entries != "missing":
-            cache["entries"] = entries
-        (project_root / ".rebrew" / "verify_cache.json").write_text(
-            json.dumps(cache), encoding="utf-8"
-        )
-        build_db(project_root, target="testbin" if scoped else None)
-
-        conn = sqlite3.connect(project_root / "db" / "coverage.db")
-        try:
-            rows = conn.execute(
-                "SELECT target, va, byte_delta FROM verify_results ORDER BY target"
-            ).fetchall()
-            expected = [("sibling", 0x2000, 4)]
-            if entries != {}:
-                expected.append(("testbin", 0x1000, 3))
-            assert rows == expected
-        finally:
-            conn.close()
-
-    def test_cells_clustered_on_its_natural_key(self, project_root: Path) -> None:
-        """cells carries no surrogate key: the (target, section_name, start)
-        primary key IS the clustered storage, so one b-tree is maintained per
-        insert instead of a rowid table plus a second index over that key."""
-        build_db(project_root)
-        conn = sqlite3.connect(project_root / "db" / "coverage.db")
-        c = conn.cursor()
-        c.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='cells'")
-        ddl = c.fetchone()[0]
-        assert "WITHOUT ROWID" in ddl
-        assert "PRIMARY KEY (target, section_name, start)" in ddl
-        c.execute("PRAGMA table_info(cells)")
-        assert "id" not in {row[1] for row in c.fetchall()}
-        # Clustered, so a per-section read is a range scan of the key, not a
-        # lookup through a second index.
-        c.execute(
-            "EXPLAIN QUERY PLAN SELECT start FROM cells WHERE target = 'testbin' "
-            "AND section_name = '.text'"
-        )
-        assert "USING INDEX" not in " ".join(row[3] for row in c.fetchall())
-        conn.close()
-
-    def test_redundant_cells_section_index_absent(self, project_root: Path) -> None:
-        """The (target, section_name, start) primary key already serves
-        the (target, section_name) prefix — the old idx_cells_section was a
-        redundant second index paid for on every cell insert."""
-        build_db(project_root)
-        conn = sqlite3.connect(project_root / "db" / "coverage.db")
-        c = conn.cursor()
-        c.execute("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_cells_section'")
-        assert c.fetchone() is None  # not created, and any stale copy dropped
-        conn.close()
-
-    def test_name_indexes_absent_and_search_still_indexed(self, project_root: Path) -> None:
-        """No (target, name) index exists, and the dashboard's name search
-        still plans on an index without one.
-
-        The only name predicate either table gets is a leading-wildcard
-        ``name LIKE '%q%'``, which a b-tree cannot serve; the ``va`` term of
-        the same OR is served by the (target, va) primary key.  Both indexes
-        were therefore written on every rebuild and read by no query.  The
-        plan assertions pin that removing them did not degrade the search
-        into a table scan.
-        """
-        build_db(project_root)
-        db_path = project_root / "db" / "coverage.db"
-        conn = sqlite3.connect(db_path)
-        try:
-            c = conn.cursor()
-            for index in ("idx_functions_name", "idx_globals_name"):
-                c.execute(
-                    "SELECT name FROM sqlite_master WHERE type='index' AND name = ?", (index,)
-                )
-                assert c.fetchone() is None
-
-            searches = {
-                "functions": (
-                    f"SELECT va FROM functions WHERE target = ? AND "
-                    f"(name LIKE ? ESCAPE '\\' OR symbol LIKE ? ESCAPE '\\' OR va = ?) "
-                    f"AND {FUNCTION_ROWS_SQL} ORDER BY va LIMIT 50",
-                    ("testbin", "%q%", "%q%", 0x1000),
-                ),
-                "globals": (
-                    "SELECT va, name FROM globals WHERE target = ? AND "
-                    "(name LIKE ? ESCAPE '\\' OR va = ?) ORDER BY va LIMIT 50",
-                    ("testbin", "%q%", 0x1000),
-                ),
-            }
-            for table, (sql, params) in searches.items():
-                plan = [row[3] for row in c.execute(f"EXPLAIN QUERY PLAN {sql}", params)]
-                assert plan, f"no plan for the {table} search"
-                assert not any(row.startswith("SCAN") for row in plan), plan
-                assert any("USING INDEX" in row for row in plan), plan
-        finally:
-            conn.close()
-
-    def test_stale_name_indexes_dropped_on_scoped_rebuild(self, project_root: Path) -> None:
-        """A scoped --target rebuild keeps the functions/globals tables, so the
-        (target, name) indexes an older build left behind must be dropped
-        explicitly or they keep costing a write per row forever."""
-        build_db(project_root)
-        db_path = project_root / "db" / "coverage.db"
-        conn = sqlite3.connect(db_path)
-        conn.execute("CREATE INDEX idx_functions_name ON functions(target, name)")
-        conn.execute("CREATE INDEX idx_globals_name ON globals(target, name)")
-        conn.commit()
-        conn.close()
-
-        build_db(project_root, target="testbin")
-        conn = sqlite3.connect(db_path)
-        try:
-            names = {
-                r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='index'")
-            }
-            assert "idx_functions_name" not in names
-            assert "idx_globals_name" not in names
-        finally:
-            conn.close()
-
-    def test_stale_marker_index_dropped_on_scoped_rebuild(self, project_root: Path) -> None:
-        """idx_functions_list serves every markerType filter; a scoped rebuild
-        keeps the functions table, so an older DB's marker index must be dropped
-        and an older idx_functions_list predicate replaced."""
-        build_db(project_root)
-        db_path = project_root / "db" / "coverage.db"
-        conn = sqlite3.connect(db_path)
-        conn.execute("CREATE INDEX idx_functions_marker ON functions(target, markerType)")
-        conn.execute("DROP INDEX idx_functions_list")
-        conn.execute(
-            "CREATE INDEX idx_functions_list ON functions(target, va) "
-            "WHERE markerType NOT IN ('GLOBAL', 'DATA')"
-        )
-        conn.commit()
-        conn.close()
-        build_db(project_root, target="testbin")
-        conn = sqlite3.connect(db_path)
-        try:
-            names = {
-                r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='index'")
-            }
-            assert "idx_functions_marker" not in names
-            assert "idx_functions_list" in names
-            plan = conn.execute(
-                "EXPLAIN QUERY PLAN SELECT COUNT(*) FROM functions "
-                f"WHERE target = 'testbin' AND {FUNCTION_ROWS_SQL}"
-            ).fetchall()
-            assert any("idx_functions_list" in row[3] for row in plan)
-        finally:
-            conn.close()
-
-    def test_case_variant_cell_state_lands_in_its_own_bucket(self, tmp_path: Path) -> None:
-        """A hand-edited data_*.json spelling a state in a different case must
-        land in that state's bucket everywhere: the stored cells row, the
-        section_cell_stats counter, and the per-section summary byte counts all
-        read the raw JSON and compare lower-case literals."""
-        data = copy.deepcopy(SAMPLE_DATA)
-        data["sections"][".text"]["cells"][0]["state"] = "EXACT"
-        # The per-section byte summary is only computed for non-.text
-        # sections, so the case variant needs a section of its own.
-        data["sections"][".rdata"] = {
-            "va": 0x10002000,
-            "size": 256,
-            "unitBytes": 64,
-            "columns": 64,
-            "cells": [{"start": 0, "end": 128, "span": 2, "state": "RELOC", "functions": ["g_a"]}],
-        }
-        db_dir = tmp_path / "db"
-        db_dir.mkdir()
-        (db_dir / "data_testbin.json").write_text(json.dumps(data), encoding="utf-8")
-        build_db(tmp_path)
-
-        conn = sqlite3.connect(db_dir / "coverage.db")
-        try:
-            c = conn.cursor()
-            assert (
-                c.execute(
-                    "SELECT state FROM cells "
-                    "WHERE target = 'testbin' AND section_name = '.text' AND start = 0"
-                ).fetchone()[0]
-                == "exact"
-            )
-            exact_count, other_count = c.execute(
-                "SELECT exact_count, other_count FROM section_cell_stats "
-                "WHERE target = 'testbin' AND section_name = '.text'"
-            ).fetchone()
-            assert (exact_count, other_count) == (1, 0)
-            summary = json.loads(
-                c.execute(
-                    "SELECT value FROM metadata WHERE target = 'testbin' AND key = 'summary'"
-                ).fetchone()[0]
-            )
-            assert summary[".rdata"]["relocMatches"] == 1
-            assert summary[".rdata"]["relocBytes"] == 128
-        finally:
-            conn.close()
-
-    def test_section_cell_stats_has_primary_key(self, project_root: Path) -> None:
-        """section_cell_stats must be keyed on (target, section_name) — CREATE
-        TABLE AS SELECT left it without a PK so WHERE target=? was unindexed
-        and duplicate section rows could accumulate."""
-        build_db(project_root)
-        conn = sqlite3.connect(project_root / "db" / "coverage.db")
-        c = conn.cursor()
-        c.execute("PRAGMA table_info(section_cell_stats)")
-        pk_cols = [row[1] for row in c.fetchall() if row[5] > 0]
-        assert pk_cols == ["target", "section_name"]
-        c.execute("SELECT sql FROM sqlite_master WHERE name = 'section_cell_stats'")
-        ddl = c.fetchone()[0]
-        assert "PRIMARY KEY" in ddl
-        assert "CREATE TABLE section_cell_stats" in ddl
-        conn.close()
-
-    def test_section_cell_stats_constraints(self, project_root: Path) -> None:
-        """section_cell_stats count columns must be non-negative and not null."""
-        build_db(project_root)
-        conn = sqlite3.connect(project_root / "db" / "coverage.db")
-        c = conn.cursor()
-        c.execute("SELECT sql FROM sqlite_master WHERE name = 'section_cell_stats'")
-        ddl = c.fetchone()[0]
-        assert "FOREIGN KEY (target, section_name)" in ddl
-        assert "REFERENCES sections(target, name)" in ddl
-        assert "ON DELETE CASCADE" in ddl
-        assert "total_cells >= 0" in ddl
-        assert "exact_count >= 0" in ddl
-        with pytest.raises(sqlite3.IntegrityError):
-            c.execute(
-                "INSERT INTO section_cell_stats (target, section_name, total_cells) "
-                "VALUES ('testbin', '.text', -1)"
-            )
-        with pytest.raises(sqlite3.IntegrityError):
-            c.execute(
-                "INSERT INTO section_cell_stats (target, section_name, exact_count) "
-                "VALUES ('testbin', '.text', -5)"
-            )
-        conn.close()
-
-    def test_functions_status_has_check(self, project_root: Path) -> None:
-        """functions.status must reject values outside KNOWN_STATUSES ∪ UNKNOWN."""
-        build_db(project_root)
-        conn = sqlite3.connect(project_root / "db" / "coverage.db")
-        c = conn.cursor()
-        c.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='functions'")
-        ddl = c.fetchone()[0]
-        assert "CHECK (status IN (" in ddl
-        assert "'UNKNOWN'" in ddl
-        assert "'EXACT'" in ddl
-        with pytest.raises(sqlite3.IntegrityError):
-            c.execute(
-                "INSERT INTO functions (target, va, name, status) "
-                "VALUES ('testbin', 99, 'bogus', 'NOT_A_STATUS')"
-            )
-        conn.close()
-
-    def test_cells_state_has_check(self, project_root: Path) -> None:
-        """cells.state must reject values outside the known cell-state set."""
-        build_db(project_root)
-        conn = sqlite3.connect(project_root / "db" / "coverage.db")
-        c = conn.cursor()
-        c.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='cells'")
-        ddl = c.fetchone()[0]
-        assert "CHECK (state IN (" in ddl
-        assert "'exact'" in ddl
-        assert "'unknown'" in ddl
-        # Need a parent section for the FK; reuse one from the fixture build.
-        c.execute("SELECT target, name FROM sections LIMIT 1")
-        sec = c.fetchone()
-        assert sec is not None
-        with pytest.raises(sqlite3.IntegrityError):
-            c.execute(
-                "INSERT INTO cells (target, section_name, start, end, span, state) "
-                "VALUES (?, ?, 99999, 100000, 1, 'not_a_state')",
-                sec,
-            )
-        conn.close()
-
-    def test_metadata_key_index_exists(self, project_root: Path) -> None:
-        """key-first metadata lookups (targets list, legacy db_version) need
-        idx_metadata_key — PK is (target, key) and cannot serve WHERE key=?."""
-        build_db(project_root)
-        conn = sqlite3.connect(project_root / "db" / "coverage.db")
-        c = conn.cursor()
-        c.execute("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_metadata_key'")
-        assert c.fetchone() == ("idx_metadata_key",)
-        conn.close()
-
-    def test_missing_serving_index_rejected_by_version_gate(self, project_root: Path) -> None:
-        """A database stamped with the current version but missing an index the
-        dashboard queries depend on must not be accepted: the queries would run
-        but every request would full-scan the target's rows."""
-        from typer import Exit as TyperExit
-
-        build_db(project_root)
-        db_path = project_root / "db" / "coverage.db"
-        conn = sqlite3.connect(db_path)
-        try:
-            conn.execute("DROP INDEX idx_functions_status_va")
-            conn.commit()
-        finally:
-            conn.close()
-
-        with pytest.raises(TyperExit):
-            build_db(project_root)
-
-    def test_globals_module_va_index_exists(self, project_root: Path) -> None:
-        """idx_globals_module_va serves module-filtered globals queries with ORDER BY va."""
-        build_db(project_root)
-        conn = sqlite3.connect(project_root / "db" / "coverage.db")
-        c = conn.cursor()
-        c.execute(
-            "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_globals_module_va'"
-        )
-        assert c.fetchone() == ("idx_globals_module_va",)
-        plan = conn.execute(
-            "EXPLAIN QUERY PLAN SELECT va, name, decl, size, module FROM globals "
-            "WHERE target = 'testbin' AND module = 'GAME' ORDER BY va LIMIT 50 OFFSET 0"
-        ).fetchall()
-        assert any("idx_globals_module_va" in row[3] for row in plan)
-        assert not any("TEMP B-TREE" in row[3] for row in plan)
-        conn.close()
-
-    def test_verify_results_has_range_checks(self, project_root: Path) -> None:
-        """verify_results columns that carry deltas/scores must reject out-of-
-        range values at the schema level (and migrate pre-CHECK tables)."""
-        build_db(project_root)
-        conn = sqlite3.connect(project_root / "db" / "coverage.db")
-        c = conn.cursor()
-        c.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='verify_results'")
-        ddl = c.fetchone()[0]
-        assert "effective_match IN (0, 1)" in ddl
-        assert "similarity >= 0.0" in ddl
-        assert "verified_at != ''" in ddl
-        with pytest.raises(sqlite3.IntegrityError):
-            c.execute(
-                "INSERT INTO verify_results "
-                "(target, va, verified_at, byte_delta, similarity, effective_match) "
-                "VALUES ('testbin', 1, 't', -1, 0.5, 1)"
-            )
-        with pytest.raises(sqlite3.IntegrityError):
-            c.execute(
-                "INSERT INTO verify_results "
-                "(target, va, verified_at, similarity) "
-                "VALUES ('testbin', 2, 't', 1.5)"
-            )
-        with pytest.raises(sqlite3.IntegrityError):
-            c.execute(
-                "INSERT INTO verify_results "
-                "(target, va, verified_at, effective_match) "
-                "VALUES ('testbin', 3, 't', 2)"
-            )
-        with pytest.raises(sqlite3.IntegrityError):
-            c.execute(
-                "INSERT INTO verify_results (target, va, verified_at) VALUES ('testbin', 4, '')"
-            )
-        conn.close()
-
-    def test_verify_results_migrates_pre_check_ddl(self, project_root: Path) -> None:
-        """A persistent verify_results table built without CHECKs is recreated
-        in place on the next rebuild (rows preserved, outliers clamped)."""
-        build_db(project_root)
-        conn = sqlite3.connect(project_root / "db" / "coverage.db")
-        c = conn.cursor()
-        # Simulate a pre-CHECK table with a percent-scale similarity (85.5)
-        # and negative deltas — migration must scale Sim% into [0,1] and
-        # clamp the deltas rather than promoting 85.5 → 1.0.
-        c.execute("DROP TABLE verify_results")
-        c.execute(
-            """
-            CREATE TABLE verify_results (
-                target TEXT NOT NULL,
-                va INTEGER NOT NULL,
-                verified_at TEXT NOT NULL,
-                byte_delta INTEGER,
-                diff_lines INTEGER,
-                similarity REAL,
-                reg_delta INTEGER,
-                effective_match INTEGER,
-                PRIMARY KEY (target, va)
-            )
-            """
-        )
-        c.execute("INSERT INTO verify_results VALUES ('testbin', 4096, 't', -3, NULL, 85.5, -1, 7)")
-        conn.commit()
-        conn.close()
-
-        build_db(project_root)
-        conn = sqlite3.connect(project_root / "db" / "coverage.db")
-        c = conn.cursor()
-        c.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='verify_results'")
-        ddl = c.fetchone()[0]
-        assert "effective_match IN (0, 1)" in ddl
-        assert "verified_at != ''" in ddl
-        # No verify cache in the fixture → the scaled legacy row is kept.
-        c.execute(
-            "SELECT byte_delta, similarity, reg_delta, effective_match "
-            "FROM verify_results WHERE target = 'testbin' AND va = 4096"
-        )
-        row = c.fetchone()
-        assert row == (0, pytest.approx(0.855), 0, None)
-        conn.close()
-
-    def test_verify_results_migrates_real_outliers(self, project_root: Path) -> None:
-        """Negative reals and infinities must not fail the new >= 0 CHECKs.
-
-        INTEGER affinity stores a non-integral real as REAL.  Two negative
-        VAs both clamp to 0; the latest row wins so the primary key does
-        not abort the rebuild.
-        """
-        build_db(project_root)
-        conn = sqlite3.connect(project_root / "db" / "coverage.db")
-        c = conn.cursor()
-        c.execute("DROP TABLE verify_results")
-        c.execute(
-            """
-            CREATE TABLE verify_results (
-                target TEXT NOT NULL,
-                va INTEGER NOT NULL,
-                verified_at TEXT NOT NULL,
-                byte_delta INTEGER,
-                diff_lines INTEGER,
-                similarity REAL,
-                reg_delta INTEGER,
-                effective_match INTEGER,
-                PRIMARY KEY (target, va)
-            )
-            """
-        )
-        c.executemany(
-            "INSERT INTO verify_results VALUES (?, ?, 't', ?, ?, NULL, ?, NULL)",
-            [
-                ("testbin", -1, 3, None, None),
-                ("testbin", -2, 9, None, None),
-                ("testbin", 100, -1.5, float("inf"), float("-inf")),
-                ("sibling", 7, 4, 1, 0),
-            ],
-        )
-        conn.commit()
-        conn.close()
-
-        build_db(project_root)
-        conn = sqlite3.connect(project_root / "db" / "coverage.db")
-        c = conn.cursor()
-        c.execute(
-            "SELECT va, byte_delta, diff_lines, reg_delta FROM verify_results "
-            "WHERE target = 'testbin' ORDER BY va"
-        )
-        assert c.fetchall() == [(0, 9, None, None), (100, 0, None, None)]
-        c.execute(
-            "SELECT va, byte_delta, diff_lines, reg_delta FROM verify_results "
-            "WHERE target = 'sibling'"
-        )
-        assert c.fetchone() == (7, 4, 1, 0)
-        conn.close()
-
-    def test_functions_list_partial_index_exists(self, project_root: Path) -> None:
-        """Dashboard / _function_stats list code markers and ORDER BY va —
-        idx_functions_list is the partial index that serves that path."""
-        build_db(project_root)
-        conn = sqlite3.connect(project_root / "db" / "coverage.db")
-        c = conn.cursor()
-        c.execute("SELECT sql FROM sqlite_master WHERE type='index' AND name='idx_functions_list'")
-        row = c.fetchone()
-        assert row is not None
-        assert row[0].endswith(f"WHERE {FUNCTION_ROWS_SQL}")
-        conn.close()
-
-    def test_functions_filter_indexes_are_partial_too(self, project_root: Path) -> None:
-        """The status and module filter indexes carry idx_functions_list's predicate.
-
-        Every query that reaches for them appends FUNCTION_ROWS_SQL to its
-        WHERE, so a full copy indexes data rows the UI never lists and,
-        being usable for the same queries, would be picked in its place.
-        """
-        build_db(project_root)
-        with contextlib.closing(sqlite3.connect(project_root / "db" / "coverage.db")) as conn:
-            c = conn.cursor()
-            for name in ("idx_functions_status_va", "idx_functions_module_va"):
-                row = c.execute(
-                    "SELECT sql FROM sqlite_master WHERE type='index' AND name=?", (name,)
-                ).fetchone()
-                assert row is not None, name
-                assert row[0].endswith(f"WHERE {FUNCTION_ROWS_SQL}"), name
-            # And the dashboard's own status-filtered query still seeks it.
-            plan = c.execute(
-                "EXPLAIN QUERY PLAN "
-                f"SELECT va FROM functions WHERE target = ? AND status = ? AND {FUNCTION_ROWS_SQL} "
-                "ORDER BY va LIMIT 100",
-                ("testbin", "EXACT"),
-            ).fetchall()
-        assert any("idx_functions_status_va" in r[3] for r in plan)
-        assert not any("TEMP B-TREE" in r[3] for r in plan)
-
-    def test_section_cells_agg_orders_by_start(self, project_root: Path) -> None:
-        """SECTION_CELLS_AGG_SQL must emit cells in spatial order, not rowid."""
-        from rebrew.workspace import SECTION_CELLS_AGG_SQL
-
-        build_db(project_root)
-        conn = sqlite3.connect(project_root / "db" / "coverage.db")
-        c = conn.cursor()
-        c.execute("DELETE FROM cells WHERE target = 'testbin' AND section_name = '.text'")
-        for start in (300, 100, 200):
-            c.execute(
-                "INSERT INTO cells "
-                "(target, section_name, start, end, span, state, functions) "
-                "VALUES ('testbin', '.text', ?, ?, 1, 'none', '[]')",
-                (start, start + 10),
-            )
-        ordered = c.execute(
-            f"SELECT {SECTION_CELLS_AGG_SQL} FROM cells "
-            "WHERE target = 'testbin' AND section_name = '.text'"
-        ).fetchone()[0]
-        starts = [cell["start"] for cell in json.loads(ordered)]
-        assert starts == [100, 200, 300]
-        conn.close()
-
-    def test_history_has_range_and_status_checks(self, project_root: Path) -> None:
-        """history.va / status columns must reject out-of-range values."""
-        build_db(project_root)
-        conn = sqlite3.connect(project_root / "db" / "coverage.db")
-        c = conn.cursor()
-        c.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='history'")
-        ddl = c.fetchone()[0]
-        assert "old_status IS NULL OR old_status IN" in ddl
-        assert "CHECK (va >= 0)" in ddl
-        with pytest.raises(sqlite3.IntegrityError):
-            c.execute(
-                "INSERT INTO history (target, va, old_status, new_status, changed_at) "
-                "VALUES ('testbin', -1, 'EXACT', 'RELOC', 't')"
-            )
-        with pytest.raises(sqlite3.IntegrityError):
-            c.execute(
-                "INSERT INTO history (target, va, old_status, new_status, changed_at) "
-                "VALUES ('testbin', 1, 'NOT_A_STATUS', 'EXACT', 't')"
-            )
-        with pytest.raises(sqlite3.IntegrityError):
-            c.execute(
-                "INSERT INTO history (target, va, old_status, new_status, changed_at) "
-                "VALUES ('testbin', 2, 'EXACT', 'RELOC', '')"
-            )
-        conn.close()
-
-    def test_history_migrates_pre_check_ddl(self, project_root: Path) -> None:
-        """A persistent history table built without CHECKs is recreated in
-        place on the next rebuild (rows preserved, outliers clamped)."""
-        build_db(project_root)
-        conn = sqlite3.connect(project_root / "db" / "coverage.db")
-        c = conn.cursor()
-        c.execute("DROP TABLE history")
-        c.execute(
-            """
-            CREATE TABLE history (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                target TEXT NOT NULL,
-                va INTEGER NOT NULL,
-                old_status TEXT,
-                new_status TEXT,
-                changed_at TEXT NOT NULL,
-                updated_by TEXT NOT NULL DEFAULT ''
-            )
-            """
-        )
-        # Dropping the table dropped its index with it; an older build's DDL
-        # still carried it, and without it the version gate rejects the file
-        # before the in-place migration below ever runs.
-        c.execute("CREATE INDEX idx_history_target_id ON history(target, id)")
-        c.execute(
-            "INSERT INTO history (id, target, va, old_status, new_status, changed_at) "
-            "VALUES (42, 'testbin', -7, 'BOGUS', 'EXACT', '')"
-        )
-        conn.commit()
-        conn.close()
-
-        build_db(project_root)
-        conn = sqlite3.connect(project_root / "db" / "coverage.db")
-        c = conn.cursor()
-        c.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='history'")
-        assert "old_status IS NULL OR old_status IN" in c.fetchone()[0]
-        c.execute(
-            "SELECT id, va, old_status, new_status, changed_at FROM history "
-            "WHERE target = 'testbin' AND id = 42"
-        )
-        row = c.fetchone()
-        assert row == (42, 0, "UNKNOWN", "EXACT", "1970-01-01T00:00:00+00:00")
-        conn.close()
-
-    def test_history_persists_across_rebuilds(self, project_root: Path) -> None:
-        build_db(project_root)
-        build_db(project_root)
-
-        conn = sqlite3.connect(project_root / "db" / "coverage.db")
-        c = conn.cursor()
-        c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='history'")
-        row = c.fetchone()
-        assert row is not None
-        assert row[0] == "history"
-
-        c.execute("SELECT COUNT(*) FROM history WHERE target = 'testbin'")
-        assert c.fetchone()[0] == 0
-        conn.close()
-
-    def test_history_retention_caps_per_target(self, project_root: Path, monkeypatch) -> None:
-        """history must not grow unboundedly across rebuilds — only the
-        newest _HISTORY_RETENTION rows per target survive."""
-        import rebrew.build_db as bdb
-
-        # Tiny cap so the test inserts more than the limit without a huge
-        # fixture; the prune SQL uses the module constant at run time.
-        monkeypatch.setattr(bdb, "_HISTORY_RETENTION", 3)
-        build_db(project_root)
-        conn = sqlite3.connect(project_root / "db" / "coverage.db")
-        c = conn.cursor()
-        now = "2026-01-01T00:00:00+00:00"
-        rows = [("testbin", 0x1000 + i, "STUB", "EXACT", now) for i in range(8)]
-        c.executemany(
-            "INSERT INTO history (target, va, old_status, new_status, changed_at) "
-            "VALUES (?, ?, ?, ?, ?)",
-            rows,
-        )
-        conn.commit()
-        conn.close()
-        # The rebuild applies the retention prune.
-        build_db(project_root)
-        conn = sqlite3.connect(project_root / "db" / "coverage.db")
-        c = conn.cursor()
-        c.execute("SELECT COUNT(*) FROM history WHERE target = 'testbin'")
-        assert c.fetchone()[0] == 3  # newest 3 of 8 kept
-        # The newest rows survive (highest id).
-        c.execute("SELECT va FROM history WHERE target = 'testbin' ORDER BY id")
-        vas = [r[0] for r in c.fetchall()]
-        assert vas == [0x1005, 0x1006, 0x1007]
-        conn.close()
-
-    def test_summary_metadata(self, project_root: Path) -> None:
-        """Summary metadata should be stored."""
-        build_db(project_root)
-        conn = sqlite3.connect(project_root / "db" / "coverage.db")
-        c = conn.cursor()
-        c.execute("SELECT value FROM metadata WHERE target = 'testbin' AND key = 'summary'")
-        row = c.fetchone()
-        assert row is not None
-        summary = json.loads(row[0])
-        assert summary["totalFunctions"] == 5
-        assert summary["matchedFunctions"] == 2  # exact + reloc only
-        assert summary["exactMatches"] == 1
-        assert summary["nearMatchCount"] == 2
-        assert summary["stubCount"] == 1
-        assert summary["coveragePercent"] == 50.0
-        conn.close()
-
-    def test_paths_metadata(self, project_root: Path) -> None:
-        """Paths metadata should be stored."""
-        build_db(project_root)
-        conn = sqlite3.connect(project_root / "db" / "coverage.db")
-        c = conn.cursor()
-        c.execute("SELECT value FROM metadata WHERE target = 'testbin' AND key = 'paths'")
-        row = c.fetchone()
-        assert row is not None
-        paths = json.loads(row[0])
-        assert "originalDll" in paths
-        assert paths["originalDll"] == "/original/Server/server.dll"
-        conn.close()
-
-    def test_idempotent(self, project_root: Path) -> None:
-        """Running build_db twice should not error (DROP TABLE IF EXISTS)."""
-        build_db(project_root)
-        build_db(project_root)
-        conn = sqlite3.connect(project_root / "db" / "coverage.db")
-        c = conn.cursor()
-        c.execute("SELECT COUNT(*) FROM functions WHERE target = 'testbin'")
-        assert c.fetchone()[0] == 2
-        conn.close()
-
-    def test_function_key_name_uses_va_start_decimal(self, tmp_path: Path) -> None:
-        db_dir = tmp_path / "db"
-        db_dir.mkdir()
-        data = {
+        """A lowercase or alias status names a real one; a typo is UNKNOWN."""
+        catalog.per_target["alpha"] = {
             "sections": {},
             "globals": {},
             "summary": {},
             "functions": {
-                "adler32": {
-                    "name": "adler32",
-                    "vaStart": "268439552",
-                    "size": 64,
-                    "status": "EXACT",
-                }
+                "0x1000": {"name": "a", "size": 8, "status": "exact"},
+                "0x2000": {"name": "b", "size": 8, "status": "NEAR_MATCH"},
+                "0x3000": {"name": "c", "size": 8, "status": "TYPO_STATUS"},
             },
             "paths": {},
         }
-        (db_dir / "data_alpha.json").write_text(json.dumps(data), encoding="utf-8")
+        _write_config(tmp_path, "alpha")
 
-        build_db(tmp_path)
+        assert _build(runner, tmp_path).exit_code == 0
 
-        conn = sqlite3.connect(db_dir / "coverage.db")
-        c = conn.cursor()
-        c.execute("SELECT va FROM functions WHERE target = 'alpha' AND name = 'adler32'")
-        row = c.fetchone()
-        conn.close()
-        assert row is not None
-        assert row[0] == 268439552
+        rows = _document(tmp_path, "alpha")["functions"]
+        assert [(row["va"], row["status"]) for row in rows] == [
+            (0x1000, "EXACT"),
+            (0x2000, "NEAR_MATCHING"),
+            (0x3000, "UNKNOWN"),
+        ]
 
-    def test_data_section_negative_cell_size_is_clamped(self, tmp_path: Path) -> None:
-        db_dir = tmp_path / "db"
-        db_dir.mkdir()
-        data = {
-            "sections": {
-                ".data": {
-                    "va": 0x10030000,
-                    "size": 256,
-                    "fileOffset": 0x3000,
-                    "unitBytes": 64,
-                    "columns": 64,
-                    "cells": [
-                        {
-                            "start": 64,
-                            "end": 32,
-                            "span": 1,
-                            "state": "exact",
-                            "functions": ["g_bad"],
-                        }
-                    ],
-                }
-            },
-            "globals": {},
-            "summary": {},
-            "functions": {
-                "0x10001000": {
-                    "name": "f",
-                    "vaStart": "0x10001000",
-                    "size": 16,
-                    "status": "EXACT",
-                }
-            },
-            "paths": {},
-        }
-        (db_dir / "data_alpha.json").write_text(json.dumps(data), encoding="utf-8")
-
-        build_db(tmp_path)
-
-        conn = sqlite3.connect(db_dir / "coverage.db")
-        c = conn.cursor()
-        c.execute("SELECT value FROM metadata WHERE target = 'alpha' AND key = 'summary'")
-        row = c.fetchone()
-        assert row is not None
-        summary = json.loads(row[0])
-        assert summary[".data"]["coveredBytes"] == 0
-
-        c.execute("SELECT start, end FROM cells WHERE target = 'alpha' AND section_name = '.data'")
-        cell = c.fetchone()
-        conn.close()
-        assert cell == (64, 64)
-
-    def test_section_negative_extents_are_clamped(self, tmp_path: Path) -> None:
-        """sections.va/size/fileOffset CHECK (>= 0) must not abort rebuild on
-        a stray negative from hand-edited JSON — clamp like function rows."""
-        db_dir = tmp_path / "db"
-        db_dir.mkdir()
-        data = {
-            "sections": {
-                ".text": {
-                    "va": -1,
-                    "size": -64,
-                    "fileOffset": -8,
-                    "unitBytes": 64,
-                    "columns": 64,
-                    "cells": [],
-                }
-            },
-            "globals": {},
-            "summary": {},
-            "functions": {
-                "0x10001000": {
-                    "name": "f",
-                    "vaStart": "0x10001000",
-                    "size": 16,
-                    "status": "EXACT",
-                }
-            },
-            "paths": {},
-        }
-        (db_dir / "data_alpha.json").write_text(json.dumps(data), encoding="utf-8")
-
-        build_db(tmp_path)
-
-        conn = sqlite3.connect(db_dir / "coverage.db")
-        c = conn.cursor()
-        c.execute(
-            "SELECT va, size, fileOffset FROM sections WHERE target = 'alpha' AND name = '.text'"
-        )
-        row = c.fetchone()
-        c.execute("SELECT value FROM metadata WHERE target = 'alpha' AND key = 'function_stats'")
-        stats = json.loads(c.fetchone()[0])
-        conn.close()
-        assert row == (0, 0, 0)
-        # The sections row is 0; the summary blob must not keep the raw -64
-        # or /api/summary treats total_bytes as corrupt.
-        assert stats["total_bytes"] == 0
-
-    def test_function_stats_total_bytes_clamps_non_ints(self, tmp_path: Path) -> None:
-        """An integral float is stored as an int; a bool is not a byte count."""
-        db_dir = tmp_path / "db"
-        db_dir.mkdir()
-
-        def _build(size: object) -> int:
-            data = {
-                "sections": {".text": {"va": 1, "size": size, "fileOffset": 0, "cells": []}},
-                "globals": {},
-                "summary": {},
-                "functions": {},
-                "paths": {},
-            }
-            (db_dir / "data_alpha.json").write_text(json.dumps(data), encoding="utf-8")
-            build_db(tmp_path)
-            conn = sqlite3.connect(db_dir / "coverage.db")
-            try:
-                raw = conn.execute(
-                    "SELECT value FROM metadata WHERE target = 'alpha' AND key = 'function_stats'"
-                ).fetchone()[0]
-            finally:
-                conn.close()
-            return json.loads(raw)["total_bytes"]
-
-        assert _build(128.0) == 128
-        assert _build(True) == 0
-
-    def test_zero_unit_bytes_clamped(self, tmp_path: Path) -> None:
-        """A stray unitBytes/columns of 0 in hand-edited JSON must not abort
-        the whole rebuild — clamped to the default instead."""
-        db_dir = tmp_path / "db"
-        db_dir.mkdir()
-        data = {
-            "sections": {
-                ".text": {
-                    "va": 0x10001000,
-                    "size": 256,
-                    "fileOffset": 0x1000,
-                    "unitBytes": 0,
-                    "columns": 0,
-                    "cells": [],
-                }
-            },
-            "globals": {},
-            "summary": {},
-            "functions": {},
-            "paths": {},
-        }
-        (db_dir / "data_alpha.json").write_text(json.dumps(data), encoding="utf-8")
-
-        build_db(tmp_path)  # must not raise IntegrityError
-
-        conn = sqlite3.connect(db_dir / "coverage.db")
-        c = conn.cursor()
-        c.execute("SELECT unitBytes, columns FROM sections WHERE target = 'alpha'")
-        row = c.fetchone()
-        conn.close()
-        assert row == (64, 64)
-
-    def test_near_matching_cells_count_as_near_matches(self, tmp_path: Path) -> None:
-        db_dir = tmp_path / "db"
-        db_dir.mkdir()
-        data = {
-            "sections": {
-                ".text": {
-                    "va": 0x10001000,
-                    "size": 128,
-                    "fileOffset": 0x1000,
-                    "unitBytes": 64,
-                    "columns": 64,
-                    "cells": [
-                        {
-                            "start": 0,
-                            "end": 64,
-                            "span": 1,
-                            "state": "near_matching",
-                            "functions": ["f"],
-                        }
-                    ],
-                }
-            },
-            "globals": {},
-            "summary": {},
-            "functions": {
-                "0x10001000": {
-                    "name": "f",
-                    "vaStart": "0x10001000",
-                    "size": 64,
-                    "status": "NEAR_MATCHING",
-                }
-            },
-            "paths": {},
-        }
-        (db_dir / "data_alpha.json").write_text(json.dumps(data), encoding="utf-8")
-
-        build_db(tmp_path)
-
-        conn = sqlite3.connect(db_dir / "coverage.db")
-        c = conn.cursor()
-        c.execute(
-            "SELECT near_match_count FROM section_cell_stats "
-            "WHERE target = 'alpha' AND section_name = '.text'"
-        )
-        row = c.fetchone()
-        conn.close()
-        assert row == (1,)
-
-    def test_data_verdict_cells_are_known_and_counted(self, tmp_path: Path, caplog: Any) -> None:
-        """A grid cell carrying the lowercased rebrew-data.toml verdict
-        (`verified`) must be a known state (no warning) and count as an exact
-        data match, not fall into other_count."""
-        db_dir = tmp_path / "db"
-        db_dir.mkdir()
-        data = {
-            "sections": {
-                ".data": {
-                    "va": 0x10030000,
-                    "size": 128,
-                    "fileOffset": 0x3000,
-                    "unitBytes": 64,
-                    "columns": 64,
-                    "cells": [
-                        {
-                            "start": 0,
-                            "end": 4,
-                            "span": 1,
-                            "state": "verified",
-                            "functions": ["g_x"],
-                        }
-                    ],
-                }
-            },
-            "globals": {
-                "0x10030000": {"va": 0x10030000, "name": "g_x", "size": 4, "origin": "GAME"}
-            },
-            "summary": {},
-            "functions": {},
-            "paths": {},
-        }
-        (db_dir / "data_alpha.json").write_text(json.dumps(data), encoding="utf-8")
-
-        with caplog.at_level("WARNING"):
-            build_db(tmp_path)
-
-        assert "not in known set" not in caplog.text
-        conn = sqlite3.connect(db_dir / "coverage.db")
-        conn.row_factory = sqlite3.Row
-        c = conn.cursor()
-        c.execute(
-            "SELECT * FROM section_cell_stats WHERE target = 'alpha' AND section_name = '.data'"
-        )
-        row = c.fetchone()
-        c.execute("SELECT value FROM metadata WHERE target = 'alpha' AND key = 'summary'")
-        summary = json.loads(c.fetchone()[0])
-        conn.close()
-        assert row["exact_count"] == 1
-        assert row["other_count"] == 0
-        counted = (
-            row["exact_count"]
-            + row["reloc_count"]
-            + row["near_match_count"]
-            + row["stub_count"]
-            + row["padding_count"]
-            + row["data_count"]
-            + row["thunk_count"]
-            + row["none_count"]
-            + row["proven_count"]
-            + row["size_mismatch_count"]
-            + row["other_count"]
-        )
-        assert counted == row["total_cells"]
-        assert summary[".data"]["exactMatches"] == 1
-
-    def test_cells_reference_existing_sections(self, project_root: Path) -> None:
-        build_db(project_root)
-        conn = sqlite3.connect(project_root / "db" / "coverage.db")
-        c = conn.cursor()
-        c.execute("PRAGMA foreign_key_list(cells)")
-        rows = c.fetchall()
-        conn.close()
-        assert any(row[2] == "sections" and row[6].upper() == "CASCADE" for row in rows)
-
-    def test_deleting_sections_cascades_to_cell_rows(self, project_root: Path) -> None:
-        """A scoped rebuild deletes the target's sections; cells must follow.
-
-        ``build-db --target X`` runs ``PRAGMA foreign_keys=ON`` and then
-        ``DELETE FROM sections WHERE target = ?``.  Without the cascade the
-        stale rows survive and the rebuild reports the old coverage.
-        """
-        from rebrew.workspace import SECTION_CELLS_TABLE
-
-        build_db(project_root)
-        conn = sqlite3.connect(project_root / "db" / "coverage.db")
-        c = conn.cursor()
-        assert c.execute("SELECT COUNT(*) FROM cells").fetchone()[0] > 0
-        assert c.execute(f"SELECT COUNT(*) FROM {SECTION_CELLS_TABLE}").fetchone()[0] > 0
-        c.execute("PRAGMA foreign_keys = ON")
-        c.execute("DELETE FROM sections WHERE target = 'testbin'")
-        assert c.execute("SELECT COUNT(*) FROM cells").fetchone()[0] == 0
-        assert c.execute(f"SELECT COUNT(*) FROM {SECTION_CELLS_TABLE}").fetchone()[0] == 0
-        conn.close()
-
-    def test_section_cells_json_references_sections(self, project_root: Path) -> None:
-        """Derived cell-JSON cache must CASCADE with sections like cells do."""
-        from rebrew.workspace import SECTION_CELLS_TABLE
-
-        build_db(project_root)
-        conn = sqlite3.connect(project_root / "db" / "coverage.db")
-        c = conn.cursor()
-        c.execute(f"PRAGMA foreign_key_list({SECTION_CELLS_TABLE})")
-        rows = c.fetchall()
-        conn.close()
-        assert any(row[2] == "sections" and row[6].upper() == "CASCADE" for row in rows)
-
-    def test_section_cell_stats_references_sections(self, project_root: Path) -> None:
-        """Derived cell stats must CASCADE with sections like cells and section_cells_json do."""
-        from rebrew.build_db import SECTION_CELL_STATS_TABLE
-
-        build_db(project_root)
-        conn = sqlite3.connect(project_root / "db" / "coverage.db")
-        c = conn.cursor()
-        c.execute(f"PRAGMA foreign_key_list({SECTION_CELL_STATS_TABLE})")
-        rows = c.fetchall()
-        conn.close()
-        assert any(row[2] == "sections" for row in rows)
-
-    def test_cell_less_section_gets_zero_stats_and_empty_cell_json(self, tmp_path: Path) -> None:
-        """A section with no cells keeps its row in BOTH derived tables.
-
-        Both are filled from `cells`, so a zero-size section used to keep its
-        `sections` row and get no derived row: it dropped out of `/api/sections`
-        (which reads section_cell_stats) and a reader resolving it by name got
-        nothing from section_cells_json.
-        """
-        from rebrew.workspace import SECTION_CELLS_COLUMN, SECTION_CELLS_TABLE, decode_section_cells
-
-        db_dir = tmp_path / "db"
-        db_dir.mkdir()
-        data = copy.deepcopy(SAMPLE_DATA)
-        data["sections"][".bss"] = {
-            "va": 0x10003000,
-            "size": 0,
-            "fileOffset": 0,
-            "unitBytes": 64,
-            "columns": 64,
-            "cells": [],
-        }
-        (db_dir / "data_testbin.json").write_text(json.dumps(data), encoding="utf-8")
-
-        build_db(tmp_path)
-        with contextlib.closing(sqlite3.connect(tmp_path / "db" / "coverage.db")) as conn:
-            c = conn.cursor()
-            assert c.execute("SELECT name FROM sections WHERE name = '.bss'").fetchone()
-            stats = c.execute(
-                "SELECT total_cells, exact_count FROM section_cell_stats "
-                "WHERE section_name = '.bss'"
-            ).fetchone()
-            blob = c.execute(
-                f"SELECT {SECTION_CELLS_COLUMN} FROM {SECTION_CELLS_TABLE} "
-                "WHERE section_name = '.bss'"
-            ).fetchone()
-        assert stats == (0, 0)
-        assert blob is not None
-        assert decode_section_cells(blob[0]) == "[]"
-
-    def test_section_with_cells_keeps_its_own_cell_json(self, project_root: Path) -> None:
-        """The empty-section seed must never overwrite a section's real cells."""
-        from rebrew.workspace import SECTION_CELLS_COLUMN, SECTION_CELLS_TABLE, decode_section_cells
-
-        build_db(project_root)
-        with contextlib.closing(sqlite3.connect(project_root / "db" / "coverage.db")) as conn:
-            blob = conn.execute(
-                f"SELECT {SECTION_CELLS_COLUMN} FROM {SECTION_CELLS_TABLE} "
-                "WHERE section_name = '.text'"
-            ).fetchone()
-        assert blob is not None
-        cells = json.loads(decode_section_cells(blob[0]))
-        assert [cell["start"] for cell in cells] == [0, 64, 128, 192, 256, 320]
-
-    def test_duplicate_cell_starts_after_clamp_do_not_abort(
-        self, tmp_path: Path, caplog: Any
+    def test_bool_size_does_not_become_one(
+        self, runner: CliRunner, tmp_path: Path, catalog: FakeCatalog
     ) -> None:
-        """A negative start clamped onto a real start=0 cell must not raise
-        UNIQUE constraint failed — last row wins, rebuild completes."""
-        import logging
+        """``bool`` is an ``int`` subclass, so ``True`` must not store size 1."""
+        catalog.per_target["alpha"] = {
+            "sections": {},
+            "globals": {},
+            "summary": {},
+            "functions": {
+                "0x1000": {
+                    "name": "a",
+                    "size": True,
+                    "fileOffset": False,
+                    "status": "STUB",
+                },
+            },
+            "paths": {},
+        }
+        _write_config(tmp_path, "alpha")
 
-        db_dir = tmp_path / "db"
-        db_dir.mkdir()
-        data = {
+        assert _build(runner, tmp_path).exit_code == 0
+
+        row = _document(tmp_path, "alpha")["functions"][0]
+        # TOML has no null, so both absent values are the empty string.
+        assert (row["size"], row["fileOffset"]) == ("", "")
+
+    def test_function_key_falls_back_to_va_start(
+        self, runner: CliRunner, tmp_path: Path, catalog: FakeCatalog
+    ) -> None:
+        """A readable key is optional: a bad one defers to ``vaStart``."""
+        catalog.per_target["alpha"] = {
+            "sections": {},
+            "globals": {},
+            "summary": {},
+            "functions": {
+                "adler32": {"name": "adler32", "vaStart": "268439552", "size": 64},
+            },
+            "paths": {},
+        }
+        _write_config(tmp_path, "alpha")
+
+        assert _build(runner, tmp_path).exit_code == 0
+
+        assert _document(tmp_path, "alpha")["functions"][0]["va"] == 268439552
+
+    def test_unparseable_va_rows_are_skipped_and_the_target_is_named(
+        self, runner: CliRunner, tmp_path: Path, catalog: FakeCatalog
+    ) -> None:
+        """No ``(target, 0)`` poison row, and the warning names the target."""
+        catalog.per_target["edge"] = {
+            "sections": {},
+            "globals": {"bad-key": {"name": "g", "size": 4}},
+            "summary": {},
+            "functions": {
+                "not-a-va": {"name": "bad", "size": 8, "status": "STUB"},
+                "0x1000": {"name": "good", "size": 8, "status": "STUB"},
+            },
+            "paths": {},
+        }
+        _write_config(tmp_path, "edge")
+
+        result = _build(runner, tmp_path)
+
+        assert result.exit_code == 0, result.output
+        doc = _document(tmp_path, "edge")
+        assert [row["name"] for row in doc["functions"]] == ["good"]
+        assert doc["globals"] == []
+        assert "edge: skipped 1" in result.output
+        assert "data_edge.json" not in result.output
+
+    def test_unparseable_global_va_falls_back_to_its_va_field(
+        self, runner: CliRunner, tmp_path: Path, catalog: FakeCatalog
+    ) -> None:
+        """A global keyed by a name but carrying an int ``va`` lands at that VA."""
+        catalog.per_target["edge"] = {
+            "sections": {},
+            "globals": {
+                "g_weird": {"name": "g_weird", "va": 0x2000, "decl": "int g_weird;"},
+                "no_va": {"name": "g_gone", "decl": "int g_gone;"},
+            },
+            "summary": {},
+            "functions": {},
+            "paths": {},
+        }
+        _write_config(tmp_path, "edge")
+
+        assert _build(runner, tmp_path).exit_code == 0
+
+        rows = _document(tmp_path, "edge")["globals"]
+        assert [(row["va"], row["name"]) for row in rows] == [(0x2000, "g_weird")]
+
+    def test_duplicate_cell_starts_keep_the_last_row(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+        catalog: FakeCatalog,
+    ) -> None:
+        """A negative start clamped onto a real start=0 cell must not abort."""
+        catalog.per_target["t"] = {
             "sections": {
                 ".text": {
                     "va": 0x10000000,
                     "size": 256,
-                    "fileOffset": 0,
                     "unitBytes": 64,
                     "columns": 64,
                     "cells": [
-                        {
-                            "start": -1,
-                            "end": 10,
-                            "span": 1,
-                            "state": "none",
-                            "functions": [],
-                        },
+                        {"start": -1, "end": 10, "span": 1, "state": "none"},
                         {
                             "start": 0,
                             "end": 10,
@@ -1780,43 +426,34 @@ binary = "test.exe"
                             "functions": ["f"],
                         },
                     ],
-                }
+                },
             },
             "globals": {},
             "summary": {},
-            "functions": {
-                "0x10001000": {
-                    "name": "f",
-                    "vaStart": "0x10001000",
-                    "size": 16,
-                    "status": "EXACT",
-                }
-            },
+            "functions": {},
             "paths": {},
         }
-        (db_dir / "data_t.json").write_text(json.dumps(data), encoding="utf-8")
+        _write_config(tmp_path, "t")
+
         with caplog.at_level(logging.WARNING):
-            build_db(tmp_path)
-        conn = sqlite3.connect(db_dir / "coverage.db")
-        try:
-            rows = conn.execute(
-                "SELECT start, state, functions FROM cells WHERE target = 't' ORDER BY start"
-            ).fetchall()
-            assert rows == [(0, "exact", '["f"]')]
-        finally:
-            conn.close()
+            result = _build(runner, tmp_path)
+
+        assert result.exit_code == 0, result.output
+        cells = _document(tmp_path, "t")["sections"][".text"]["cells"]
+        assert [(cell["start"], cell["state"], cell["functions"]) for cell in cells] == [
+            (0, "exact", ["f"])
+        ]
         assert any("duplicate cell" in r.message for r in caplog.records)
 
-    def test_duplicate_function_and_global_vas_do_not_abort(
-        self, tmp_path: Path, caplog: Any
+    def test_duplicate_function_and_global_vas_keep_the_last_row(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+        catalog: FakeCatalog,
     ) -> None:
-        """Keys spelling the same VA (hex and decimal) collide on the
-        (target, va) primary key; last row wins, rebuild completes."""
-        import logging
-
-        db_dir = tmp_path / "db"
-        db_dir.mkdir()
-        data = {
+        """Keys spelling one VA (hex and decimal) collapse; last row wins."""
+        catalog.per_target["t"] = {
             "sections": {},
             "globals": {
                 "0x10003000": {"name": "g_old", "size": 4},
@@ -1829,593 +466,272 @@ binary = "test.exe"
             },
             "paths": {},
         }
-        (db_dir / "data_t.json").write_text(json.dumps(data), encoding="utf-8")
+        _write_config(tmp_path, "t")
+
         with caplog.at_level(logging.WARNING):
-            build_db(tmp_path)
-        conn = sqlite3.connect(db_dir / "coverage.db")
-        try:
-            fns = conn.execute("SELECT va, name, status FROM functions").fetchall()
-            gls = conn.execute("SELECT va, name FROM globals").fetchall()
-        finally:
-            conn.close()
-        assert fns == [(0x10001000, "f_new", "EXACT")]
-        assert gls == [(0x10003000, "g_new")]
+            result = _build(runner, tmp_path)
+
+        assert result.exit_code == 0, result.output
+        doc = _document(tmp_path, "t")
+        assert [(row["va"], row["name"], row["status"]) for row in doc["functions"]] == [
+            (0x10001000, "f_new", "EXACT")
+        ]
+        assert [(row["va"], row["name"]) for row in doc["globals"]] == [(0x10003000, "g_new")]
         assert sum("duplicate" in r.message for r in caplog.records) == 2
 
-
-class TestBuildDbTargetFiltering:
-    """Verify that build_db(target=...) only processes matching JSON files."""
-
-    def test_filters_to_specified_target(self, tmp_path: Path) -> None:
-        """When target='alpha', only data_alpha.json should be ingested."""
-        db_dir = tmp_path / "db"
-        db_dir.mkdir()
-
-        # Create two different target JSON files with minimal valid data
-        for name in ("alpha", "beta"):
-            data = {
-                "sections": {},
-                "globals": {},
-                "summary": {"totalFunctions": 1},
-                "functions": {
-                    f"func_{name}": {
-                        "name": f"func_{name}",
-                        "vaStart": "0x10001000",
-                        "size": 64,
-                        "status": "EXACT",
-                    }
-                },
-                "paths": {},
-            }
-            (db_dir / f"data_{name}.json").write_text(json.dumps(data), encoding="utf-8")
-
-        # Build with target="alpha" — only data_alpha.json should be processed
-        build_db(tmp_path, target="alpha")
-
-        conn = sqlite3.connect(db_dir / "coverage.db")
-        c = conn.cursor()
-        c.execute("SELECT DISTINCT target FROM functions")
-        targets = [row[0] for row in c.fetchall()]
-        conn.close()
-
-        assert targets == ["alpha"], f"Expected only 'alpha', got {targets}"
-
-    def test_scoped_rebuild_keeps_verify_history(self, tmp_path: Path) -> None:
-        """A scoped --target rebuild must not wipe that target's verify_results:
-        the shared cache may name another target, in which case nothing is
-        re-imported — and the full-rebuild path never drops the table
-        (DB_FORMAT.md: 'never dropped on rebuild')."""
-        db_dir = tmp_path / "db"
-        db_dir.mkdir()
-        for name in ("alpha", "beta"):
-            data = {
-                "sections": {},
-                "globals": {},
-                "summary": {"totalFunctions": 1},
-                "functions": {
-                    f"func_{name}": {
-                        "name": f"func_{name}",
-                        "vaStart": "0x10001000",
-                        "size": 64,
-                        "status": "EXACT",
-                    }
-                },
-                "paths": {},
-            }
-            (db_dir / f"data_{name}.json").write_text(json.dumps(data), encoding="utf-8")
-        build_db(tmp_path)
-
-        conn = sqlite3.connect(db_dir / "coverage.db")
-        conn.execute(
-            "INSERT OR REPLACE INTO verify_results "
-            "(target, va, verified_at, byte_delta, diff_lines, similarity, "
-            "reg_delta, effective_match) VALUES ('alpha', 4096, 't1', 0, 0, 1.0, 0, 1)"
-        )
-        conn.commit()
-        conn.close()
-
-        # The shared cache belongs to ANOTHER target → no re-import for alpha.
-        _write_cache(tmp_path, "beta", {})
-        build_db(tmp_path, target="alpha")
-
-        conn = sqlite3.connect(db_dir / "coverage.db")
-        rows = conn.execute("SELECT target, va FROM verify_results").fetchall()
-        conn.close()
-        assert ("alpha", 0x1000) in rows
-
-    def test_no_filter_processes_all(self, tmp_path: Path) -> None:
-        """When target is None, all data_*.json files are processed."""
-        db_dir = tmp_path / "db"
-        db_dir.mkdir()
-
-        for name in ("alpha", "beta"):
-            data = {
-                "sections": {},
-                "globals": {},
-                "summary": {},
-                "functions": {
-                    f"func_{name}": {
-                        "name": f"func_{name}",
-                        "vaStart": "0x10001000",
-                        "size": 64,
-                        "status": "EXACT",
-                    }
-                },
-                "paths": {},
-            }
-            (db_dir / f"data_{name}.json").write_text(json.dumps(data), encoding="utf-8")
-
-        build_db(tmp_path, target=None)
-
-        conn = sqlite3.connect(db_dir / "coverage.db")
-        c = conn.cursor()
-        c.execute("SELECT DISTINCT target FROM functions ORDER BY target")
-        targets = [row[0] for row in c.fetchall()]
-        conn.close()
-
-        assert targets == ["alpha", "beta"]
-
-    def test_scoped_rebuild_records_history_for_that_target(self, tmp_path: Path) -> None:
-        """A scoped --target rebuild snapshots only its own target's statuses
-        (the whole-table read it replaced pulled every sibling target's rows in
-        for a diff that only ever looks up this target)."""
-        db_dir = tmp_path / "db"
-        db_dir.mkdir()
-        for name in ("alpha", "beta"):
-            data = {
-                "sections": {},
-                "globals": {},
-                "summary": {},
-                "functions": {
-                    f"func_{name}": {
-                        "name": f"func_{name}",
-                        "vaStart": "0x10001000",
-                        "size": 64,
-                        "status": "EXACT",
-                    }
-                },
-                "paths": {},
-            }
-            (db_dir / f"data_{name}.json").write_text(json.dumps(data), encoding="utf-8")
-        build_db(tmp_path)
-
-        for name in ("alpha", "beta"):
-            path = db_dir / f"data_{name}.json"
-            data = json.loads(path.read_text(encoding="utf-8"))
-            data["functions"][f"func_{name}"]["status"] = "RELOC"
-            path.write_text(json.dumps(data), encoding="utf-8")
-
-        build_db(tmp_path, target="alpha")
-
-        conn = sqlite3.connect(db_dir / "coverage.db")
-        rows = conn.execute(
-            "SELECT target, old_status, new_status FROM history ORDER BY id"
-        ).fetchall()
-        conn.close()
-        assert ("alpha", "EXACT", "RELOC") in rows
-        # The sibling target was not rebuilt, so it has no change to record.
-        assert not any(row[0] == "beta" for row in rows)
-
-    def test_duplicate_regen_target_built_once(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    def test_negative_section_and_cell_extents_are_clamped(
+        self, runner: CliRunner, tmp_path: Path, catalog: FakeCatalog
     ) -> None:
-        """A target repeated in all_targets is built once: the second pass
-        aborted the whole rebuild on the (target, key) / (target, name)
-        primary keys."""
-        from copy import deepcopy
-        from types import SimpleNamespace
-
-        db_dir = tmp_path / "db"
-        db_dir.mkdir()
-        (db_dir / "data_alpha.json").write_text(json.dumps(SAMPLE_DATA), encoding="utf-8")
-
-        monkeypatch.setattr(
-            "rebrew.build_db.load_config",
-            lambda *args, **kwargs: SimpleNamespace(
-                all_targets=["alpha", "beta", "alpha"], target_name="alpha"
-            ),
-        )
-        monkeypatch.setattr(
-            "rebrew.catalog.pipeline.build_catalog_data",
-            lambda cfg: {"data": deepcopy(SAMPLE_DATA)},
-        )
-
-        build_db(tmp_path, regen=True, json_output=True)
-
-        conn = sqlite3.connect(db_dir / "coverage.db")
-        rows = conn.execute("SELECT target, COUNT(*) FROM functions GROUP BY target").fetchall()
-        meta = conn.execute("SELECT key, COUNT(*) FROM metadata GROUP BY key").fetchall()
-        conn.close()
-        assert rows == [
-            ("alpha", len(SAMPLE_DATA["functions"])),
-            ("beta", len(SAMPLE_DATA["functions"])),
-        ]
-        # One row per target, plus the reserved __schema__ stamp for db_version.
-        assert dict(meta) == {
-            "function_stats": 2,
-            "summary": 2,
-            "paths": 2,
-            "db_version": 3,
+        """A stray negative from hand-edited JSON must not reach the document."""
+        catalog.per_target["alpha"] = {
+            "sections": {
+                ".text": {
+                    "va": -1,
+                    "size": -64,
+                    "fileOffset": -8,
+                    "unitBytes": 0,
+                    "columns": 0,
+                    "cells": [{"start": 64, "end": 32, "span": 1, "state": "exact"}],
+                },
+            },
+            "globals": {},
+            "summary": {},
+            "functions": {},
+            "paths": {},
         }
+        _write_config(tmp_path, "alpha")
 
-    def test_snapshot_filenames_differing_only_by_unicode_are_built_once(
-        self, tmp_path: Path
+        assert _build(runner, tmp_path).exit_code == 0
+
+        section = _document(tmp_path, "alpha")["sections"][".text"]
+        assert (section["va"], section["size"], section["fileOffset"]) == (0, 0, 0)
+        # Non-positive geometry falls back rather than rendering a zero-width cell.
+        assert (section["unitBytes"], section["columns"]) == (64, 64)
+        # `end` is raised to `start`, so the span is empty rather than inverted.
+        assert [(cell["start"], cell["end"]) for cell in section["cells"]] == [(64, 64)]
+
+    def test_configured_db_dir_is_used(
+        self, runner: CliRunner, tmp_path: Path, catalog: FakeCatalog
     ) -> None:
-        """Two data_*.json files naming the same target after NFC are built once.
+        """The output directory is the project's ``[project].db_dir``."""
+        configured = tmp_path / "coverage"
+        configured.mkdir()
+        (tmp_path / "rebrew-project.toml").write_text(
+            """\
+[project]
+default_target = "main"
+db_dir = "coverage"
 
-        The file-glob path had no counterpart to the all_targets dedupe above,
-        so an NFD/NFC pair of snapshots (a decomposing volume beside a
-        hand-copied file) resolved to one target and the second insert aborted
-        the whole rebuild on the (target, key) / (target, name) primary keys.
+[targets.main]
+binary = "test.exe"
+""",
+            encoding="utf-8",
+        )
+
+        assert _build(runner, tmp_path).exit_code == 0
+
+        assert (configured / "coverage-main.toml").is_file()
+        assert not (tmp_path / "db" / "coverage-main.toml").exists()
+
+
+# ---------------------------------------------------------------------------
+# Target selection
+# ---------------------------------------------------------------------------
+
+
+class TestTargetSelection:
+    @staticmethod
+    def _two_targets(root_dir: Path, catalog: FakeCatalog) -> None:
+        for name in ("alpha", "beta"):
+            data = copy.deepcopy(SAMPLE_DATA)
+            data["functions"] = {
+                f"func_{name}": {
+                    "name": f"func_{name}",
+                    "vaStart": "0x10001000",
+                    "size": 64,
+                    "status": "EXACT",
+                }
+            }
+            catalog.per_target[name] = data
+        _write_config(root_dir, "alpha", "beta")
+
+    def test_scoped_run_writes_only_that_target(
+        self, runner: CliRunner, tmp_path: Path, catalog: FakeCatalog
+    ) -> None:
+        self._two_targets(tmp_path, catalog)
+
+        result = _build(runner, tmp_path, "--target", "alpha")
+
+        assert result.exit_code == 0, result.output
+        assert (tmp_path / "db" / "coverage-alpha.toml").is_file()
+        assert not (tmp_path / "db" / "coverage-beta.toml").exists()
+        assert [row["name"] for row in _document(tmp_path, "alpha")["functions"]] == ["func_alpha"]
+
+    def test_unscoped_run_writes_every_target(
+        self, runner: CliRunner, tmp_path: Path, catalog: FakeCatalog
+    ) -> None:
+        self._two_targets(tmp_path, catalog)
+
+        assert _build(runner, tmp_path).exit_code == 0
+
+        written = sorted(path.name for path in (tmp_path / "db").glob("coverage-*.toml"))
+        assert written == ["coverage-alpha.toml", "coverage-beta.toml"]
+
+    def test_a_scoped_run_leaves_the_other_document_alone(
+        self, runner: CliRunner, tmp_path: Path, catalog: FakeCatalog
+    ) -> None:
+        """``--target alpha`` rewrites alpha and touches nothing else.
+
+        The SQLite writer's scoped path deleted and restored rows per target;
+        the TOML writer opens one file, so the sibling document must be
+        byte-identical afterwards.
         """
-        db_dir = tmp_path / "db"
-        db_dir.mkdir()
-        (db_dir / "data_alpha.json").write_text(json.dumps(SAMPLE_DATA), encoding="utf-8")
-        # U+00E9 (NFC) vs 'e' + U+0301 (NFD): one target, two filenames.
+        self._two_targets(tmp_path, catalog)
+        assert _build(runner, tmp_path).exit_code == 0
+        beta = tmp_path / "db" / "coverage-beta.toml"
+        before = beta.read_bytes()
+
+        assert _build(runner, tmp_path, "--target", "alpha").exit_code == 0
+
+        assert beta.read_bytes() == before
+
+    def test_nonexistent_target_exits(self, runner: CliRunner, project_root: Path) -> None:
+        result = _build(runner, project_root, "--target", "nonexistent")
+
+        assert result.exit_code == 2
+        assert "Config error for target 'nonexistent'" in result.output
+        assert not (project_root / "db" / "coverage-nonexistent.toml").exists()
+
+    def test_a_target_repeated_in_all_targets_is_built_once(
+        self, runner: CliRunner, tmp_path: Path, catalog: FakeCatalog
+    ) -> None:
+        """A target listed twice is one document.
+
+        ``all_targets`` comes from config now, but a project that lists one
+        target under two spellings normalized alike would otherwise be built
+        twice and overwrite its own document.
+        """
+        _write_config(tmp_path, "alpha", "beta")
         shadowed = unicodedata.normalize("NFD", "café")
         assert shadowed != "café"
-        (db_dir / f"data_{shadowed}.json").write_text(json.dumps(SAMPLE_DATA), encoding="utf-8")
+        _write_config(tmp_path, "alpha", shadowed, "beta")
 
-        build_db(tmp_path, json_output=True)
+        result = _build(runner, tmp_path)
 
-        conn = sqlite3.connect(db_dir / "coverage.db")
-        targets = conn.execute("SELECT DISTINCT target FROM functions").fetchall()
-        meta = conn.execute("SELECT target, key FROM metadata ORDER BY key, target").fetchall()
-        conn.close()
-        assert sorted(t[0] for t in targets) == ["alpha", unicodedata.normalize("NFC", "café")]
-        # One row per (target, key) pair, plus the single __schema__ db_version.
-        assert len(meta) == len(set(meta))
+        assert result.exit_code == 0, result.output
+        assert catalog.asked == ["alpha", "café", "beta"]
 
-    def test_nonexistent_target_raises(self, tmp_path: Path) -> None:
-        """Filtering by a non-existent target should raise Exit (no JSON found)."""
-        from typer import Exit as TyperExit
 
-        db_dir = tmp_path / "db"
-        db_dir.mkdir()
-        (db_dir / "data_testbin.json").write_text(json.dumps(SAMPLE_DATA), encoding="utf-8")
+# ---------------------------------------------------------------------------
+# Output modes: --json and --force
+# ---------------------------------------------------------------------------
 
-        with pytest.raises(TyperExit):
-            build_db(tmp_path, target="nonexistent")
 
-    def test_scoped_rebuild_preserves_other_targets(self, tmp_path: Path) -> None:
-        """A --target rebuild must NOT drop other targets from an existing DB.
+class TestJsonAndForce:
+    def test_json_reports_files_and_targets(self, runner: CliRunner, project_root: Path) -> None:
+        result = _build(runner, project_root, "--json")
 
-        Regression: the DROP TABLE statements were unconditional, so
-        ``build-db --target X`` silently wiped every other target (only a
-        warning was printed).  The scoped path must delete only X's rows.
+        assert result.exit_code == 0, result.output
+        payload = _json_payload(result.output)
+        assert payload["targets_processed"] == ["testbin"]
+        assert payload["coverage_files"] == [str(project_root / "db" / "coverage-testbin.toml")]
+        assert Path(payload["coverage_files"][0]).is_file()
+
+    def test_json_lists_every_target_written(
+        self, runner: CliRunner, tmp_path: Path, catalog: FakeCatalog
+    ) -> None:
+        _write_config(tmp_path, "alpha", "beta")
+
+        result = _build(runner, tmp_path, "--json")
+
+        assert result.exit_code == 0, result.output
+        payload = _json_payload(result.output)
+        assert payload["targets_processed"] == ["alpha", "beta"]
+        assert [Path(path).name for path in payload["coverage_files"]] == [
+            "coverage-alpha.toml",
+            "coverage-beta.toml",
+        ]
+        # Nothing was printed outside the JSON envelope.
+        assert "Wrote" not in result.output
+
+        result = _build(runner, tmp_path, "--json")
+
+        assert result.exit_code == 0, result.output
+        payload = _json_payload(result.output)
+        assert payload["targets_processed"] == ["alpha", "beta"]
+        assert [Path(path).name for path in payload["coverage_files"]] == [
+            "coverage-alpha.toml",
+            "coverage-beta.toml",
+        ]
+        # Nothing was printed outside the JSON envelope.
+        assert "Wrote" not in result.output
+
+    def test_force_is_accepted_and_changes_nothing(
+        self, runner: CliRunner, project_root: Path
+    ) -> None:
+        """``--force`` is a documented NO-OP: each document is replaced whole."""
+        assert _build(runner, project_root).exit_code == 0
+        path = project_root / "db" / "coverage-testbin.toml"
+        first = path.read_bytes()
+
+        result = _build(runner, project_root, "--force")
+
+        assert result.exit_code == 0, result.output
+        assert path.read_bytes() == first
+        assert hashlib.sha256(path.read_bytes()).digest() == hashlib.sha256(first).digest()
+
+    def test_rerun_is_byte_identical_without_force(
+        self, runner: CliRunner, project_root: Path
+    ) -> None:
+        """A rebuild of unchanged input writes the same bytes.
+
+        The header carries no timestamp for exactly this reason, and the
+        history array gains a row only when a status moves.
         """
-        db_dir = tmp_path / "db"
-        db_dir.mkdir()
+        assert _build(runner, project_root).exit_code == 0
+        path = project_root / "db" / "coverage-testbin.toml"
+        first = path.read_bytes()
 
-        def _data(name: str) -> dict[str, Any]:
-            return {
-                "sections": {},
-                "globals": {},
-                "summary": {"totalFunctions": 1},
-                "functions": {
-                    f"func_{name}": {
-                        "name": f"func_{name}",
-                        "vaStart": "0x10001000",
-                        "size": 64,
-                        "status": "EXACT",
-                    }
-                },
-                "paths": {},
-            }
+        assert _build(runner, project_root).exit_code == 0
 
-        for name in ("alpha", "beta"):
-            (db_dir / f"data_{name}.json").write_text(json.dumps(_data(name)), encoding="utf-8")
+        assert path.read_bytes() == first
+        assert _document(project_root, "testbin")["history"] == []
 
-        # Full build first: both targets present.
-        build_db(tmp_path, target=None)
-        conn = sqlite3.connect(db_dir / "coverage.db")
-        c = conn.cursor()
-        c.execute("SELECT DISTINCT target FROM functions ORDER BY target")
-        assert [r[0] for r in c.fetchall()] == ["alpha", "beta"]
-        conn.close()
+    def test_history_records_a_status_change(
+        self, runner: CliRunner, project_root: Path, catalog: FakeCatalog
+    ) -> None:
+        assert _build(runner, project_root).exit_code == 0
 
-        # Scoped rebuild of alpha: beta must survive.
-        build_db(tmp_path, target="alpha")
-        conn = sqlite3.connect(db_dir / "coverage.db")
-        c = conn.cursor()
-        c.execute("SELECT DISTINCT target FROM functions ORDER BY target")
-        targets = [r[0] for r in c.fetchall()]
-        conn.close()
-        assert targets == ["alpha", "beta"], f"--target rebuild dropped other targets: {targets}"
+        catalog.data["functions"]["func_a"]["status"] = "RELOC"
+        _write_config(project_root, "testbin")
+
+        assert _build(runner, project_root).exit_code == 0
+
+        history = _document(project_root, "testbin")["history"]
+        assert [(row["va"], row["old_status"], row["new_status"]) for row in history] == [
+            (0x10001000, "EXACT", "RELOC")
+        ]
 
 
 # ---------------------------------------------------------------------------
-# E6: --force recreates on schema-version mismatch
+# Cell-state vocabulary
 # ---------------------------------------------------------------------------
-
-
-def _write_stale_db(db_path: Path, stale_version: str = "0") -> None:
-    """Write a minimal DB with an outdated db_version stamp.
-
-    The stamp goes under ``SCHEMA_TARGET``, the row the version gate reads
-    first.  An older spelling only lands in the per-target fallback, so a
-    real database already carrying a current ``__schema__`` stamp kept
-    reporting the current version and the mismatch path never ran.
-    """
-    conn = sqlite3.connect(db_path)
-    c = conn.cursor()
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS metadata (
-            target TEXT NOT NULL,
-            key TEXT NOT NULL,
-            value TEXT,
-            PRIMARY KEY (target, key)
-        )
-    """)
-    c.execute(
-        "INSERT OR REPLACE INTO metadata VALUES (?, ?, ?)",
-        (SCHEMA_TARGET, "db_version", json.dumps(stale_version)),
-    )
-    conn.commit()
-    conn.close()
-
-
-class TestBuildDbForceFlag:
-    """Verify --force behaviour on schema-version mismatch."""
-
-    def test_mismatch_without_force_raises(self, tmp_path: Path) -> None:
-        """A stale DB without --force must raise Exit (error message)."""
-        from typer import Exit as TyperExit
-
-        db_dir = tmp_path / "db"
-        db_dir.mkdir()
-        (db_dir / "data_testbin.json").write_text(json.dumps(SAMPLE_DATA), encoding="utf-8")
-
-        db_path = db_dir / "coverage.db"
-        _write_stale_db(db_path, stale_version="0")
-
-        with pytest.raises(TyperExit):
-            build_db(tmp_path, force=False)
-
-    def test_mismatch_with_force_recreates(self, tmp_path: Path) -> None:
-        """With --force the stale DB is deleted and rebuilt from scratch."""
-        db_dir = tmp_path / "db"
-        db_dir.mkdir()
-        (db_dir / "data_testbin.json").write_text(json.dumps(SAMPLE_DATA), encoding="utf-8")
-
-        db_path = db_dir / "coverage.db"
-        _write_stale_db(db_path, stale_version="0")
-
-        build_db(tmp_path, force=True)
-
-        # DB must exist and have the current version
-        assert db_path.exists()
-        conn = sqlite3.connect(db_path)
-        c = conn.cursor()
-        c.execute("SELECT value FROM metadata WHERE key = 'db_version' LIMIT 1")
-        row = c.fetchone()
-        conn.close()
-        assert row is not None
-        from rebrew.build_db import _CURRENT_DB_VERSION
-
-        assert json.loads(row[0]) == _CURRENT_DB_VERSION
-
-    def test_no_mismatch_force_not_needed(self, project_root: Path) -> None:
-        """When schema matches, build proceeds without --force (no error)."""
-        build_db(project_root)  # Creates with current version
-        # Second run: schema matches — should not error even without --force
-        build_db(project_root, force=False)
-        assert (project_root / "db" / "coverage.db").exists()
-
-    def test_force_preserves_history_and_verify_rows(self, tmp_path: Path) -> None:
-        """A --force rebuild replaces the file but must not discard the tables
-        it cannot re-derive: history and verify_results have no other source."""
-        db_dir = tmp_path / "db"
-        db_dir.mkdir()
-        (db_dir / "data_testbin.json").write_text(json.dumps(SAMPLE_DATA), encoding="utf-8")
-        db_path = db_dir / "coverage.db"
-        build_db(tmp_path)
-
-        conn = sqlite3.connect(db_path)
-        conn.execute(
-            "INSERT INTO history (target, va, old_status, new_status, changed_at, updated_by)"
-            " VALUES ('testbin', 4096, 'STUB', 'EXACT', '2026-01-01T00:00:00', 'test')"
-        )
-        conn.commit()
-        conn.close()
-
-        _write_stale_db(db_path, stale_version="0")
-        conn = sqlite3.connect(db_path)
-        conn.execute("DELETE FROM verify_results")
-        # A fully populated row: a restore that re-inserts only (target, va)
-        # silently drops the row, since the omitted NOT NULL verified_at makes
-        # INSERT OR IGNORE skip it rather than fail.
-        conn.execute(
-            "INSERT INTO verify_results (target, va, verified_at, byte_delta, diff_lines,"
-            " similarity, reg_delta, effective_match)"
-            " VALUES ('testbin', 4096, '2026-01-01T00:00:00', 3, 7, 0.9, 2, 1)"
-        )
-        conn.commit()
-        conn.close()
-
-        build_db(tmp_path, force=True)
-
-        conn = sqlite3.connect(db_path)
-        history = conn.execute("SELECT target, va, old_status, new_status FROM history").fetchall()
-        verify = conn.execute(
-            "SELECT target, va, verified_at, byte_delta, diff_lines, similarity,"
-            " reg_delta, effective_match FROM verify_results"
-        ).fetchall()
-        conn.close()
-        expected_verify = [("testbin", 4096, "2026-01-01T00:00:00", 3, 7, 0.9, 2, 1)]
-        assert history == [("testbin", 4096, "STUB", "EXACT")]
-        assert verify == expected_verify
-
-        # A second --force run over the already-restored DB adds no duplicate.
-        _write_stale_db(db_path, stale_version="0")
-        build_db(tmp_path, force=True)
-        conn = sqlite3.connect(db_path)
-        history = conn.execute("SELECT target, va, old_status, new_status FROM history").fetchall()
-        verify = conn.execute(
-            "SELECT target, va, verified_at, byte_delta, diff_lines, similarity,"
-            " reg_delta, effective_match FROM verify_results"
-        ).fetchall()
-        conn.close()
-        assert history == [("testbin", 4096, "STUB", "EXACT")]
-        assert verify == expected_verify
-
-
-class TestBuildDbCorruptInput:
-    """Corrupt or mis-shaped data_*.json must fail cleanly with file context."""
-
-    def test_corrupt_json_leaves_existing_db(self, project_root: Path) -> None:
-        """A bad snapshot fails before the write transaction deletes rows."""
-        from typer import Exit as TyperExit
-
-        build_db(project_root)
-        (project_root / "db" / "data_testbin.json").write_text("{", encoding="utf-8")
-        with pytest.raises(TyperExit):
-            build_db(project_root)
-        conn = sqlite3.connect(project_root / "db" / "coverage.db")
-        try:
-            count = conn.execute("SELECT COUNT(*) FROM functions").fetchone()[0]
-        finally:
-            conn.close()
-        assert count == 2
-
-    def test_corrupt_json_errors_with_file_context(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
-    ) -> None:
-        from typer import Exit as TyperExit
-
-        db_dir = tmp_path / "db"
-        db_dir.mkdir()
-        (db_dir / "data_bad.json").write_text('{"functions": {"0x1000": {', encoding="utf-8")
-
-        with pytest.raises(TyperExit):
-            build_db(tmp_path)
-        err = capsys.readouterr().err
-        assert "data_bad.json" in err
-        assert "not valid JSON" in err
-
-    def test_non_object_json_errors_with_file_context(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
-    ) -> None:
-        """A valid-JSON-but-not-object file (e.g. a JSON array) must name the file."""
-        from typer import Exit as TyperExit
-
-        db_dir = tmp_path / "db"
-        db_dir.mkdir()
-        (db_dir / "data_bad.json").write_text("[1, 2, 3]", encoding="utf-8")
-
-        with pytest.raises(TyperExit):
-            build_db(tmp_path)
-        err = capsys.readouterr().err
-        assert "data_bad.json" in err
-        assert "expected a JSON object" in err
-        assert "list" in err
-
-    def test_reserved_schema_target_name_rejected(self, tmp_path: Path) -> None:
-        """A target named ``__schema__`` would share the reserved metadata
-        namespace with the database-level rows, so it must fail before the
-        write transaction and leave no database behind."""
-        from typer import Exit as TyperExit
-
-        from rebrew.workspace import SCHEMA_TARGET
-
-        db_dir = tmp_path / "db"
-        db_dir.mkdir()
-        (db_dir / f"data_{SCHEMA_TARGET}.json").write_text(
-            json.dumps(
-                {
-                    "functions": {"0x1000": {"name": "f", "size": 8, "status": "STUB"}},
-                    "globals": {},
-                    "sections": {},
-                    "summary": {},
-                    "paths": {},
-                }
-            ),
-            encoding="utf-8",
-        )
-
-        with pytest.raises(TyperExit):
-            build_db(tmp_path)
-
-        assert not (db_dir / "coverage.db").exists()
-
-    def test_unparseable_va_rows_skipped_with_warning(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
-    ) -> None:
-        """Rows with no parseable VA are skipped (no (target, 0) poison row),
-        and the rebuild completes."""
-        db_dir = tmp_path / "db"
-        db_dir.mkdir()
-        (db_dir / "data_bad.json").write_text(
-            json.dumps(
-                {
-                    "functions": {
-                        "not-a-va": {"name": "bad", "size": 8, "status": "STUB"},
-                        "also-bad": {"name": "bad2", "size": 8, "status": "STUB"},
-                        "0x1000": {"name": "good", "size": 8, "status": "STUB"},
-                    },
-                    "globals": {},
-                    "sections": {},
-                    "summary": {},
-                    "paths": {},
-                }
-            ),
-            encoding="utf-8",
-        )
-        build_db(tmp_path)
-        conn = sqlite3.connect(db_dir / "coverage.db")
-        c = conn.cursor()
-        c.execute("SELECT va, name FROM functions WHERE target = 'bad'")
-        rows = c.fetchall()
-        conn.close()
-        assert [(r[0], r[1]) for r in rows] == [(0x1000, "good")]
-        assert "skipped 2" in capsys.readouterr().err
-
-    def test_unparseable_key_falls_back_to_va_field(self, tmp_path: Path) -> None:
-        """A bad key falls back to ``vaStart`` (functions) / ``va`` (globals)."""
-        db_dir = tmp_path / "db"
-        db_dir.mkdir()
-        (db_dir / "data_fb.json").write_text(
-            json.dumps(
-                {
-                    "functions": {
-                        "bad-key": {"name": "f", "vaStart": "0x2000", "size": 8, "status": "STUB"},
-                    },
-                    "globals": {
-                        "bad-key": {"name": "g", "va": "4096", "size": 4},
-                    },
-                    "sections": {},
-                    "summary": {},
-                    "paths": {},
-                }
-            ),
-            encoding="utf-8",
-        )
-        build_db(tmp_path)
-        conn = sqlite3.connect(db_dir / "coverage.db")
-        c = conn.cursor()
-        c.execute("SELECT va, name FROM functions WHERE target = 'fb'")
-        functions = c.fetchall()
-        c.execute("SELECT va, name FROM globals WHERE target = 'fb'")
-        globals_ = c.fetchall()
-        conn.close()
-        assert functions == [(0x2000, "f")]
-        assert globals_ == [(4096, "g")]
 
 
 class TestCellStateVocabulary:
-    """docs/DB_FORMAT.md's Cell States table must equal the CHECK vocabulary.
+    """``docs/COVERAGE_DOCUMENT.md``'s Cell States table is the storable vocabulary.
 
-    The CHECK is derived from ``KNOWN_STATUSES`` plus the gap/data states, so
+    The set is derived from ``KNOWN_STATUSES`` plus the gap/data states, so
     adding an annotation ``STATUS`` widens it silently.  The doc is the only
-    place a reader learns which states are storable, and it already omitted
-    ``extract_error`` / ``invalid_va`` / ``verified`` / ``drift`` /
-    ``unchecked`` while the CHECK accepted all five.
+    place a reader learns which states a document may hold, and it already
+    omitted ``extract_error`` / ``invalid_va`` / ``verified`` / ``drift`` /
+    ``unchecked`` while the writer accepted all five.
     """
 
-    def test_documented_cell_states_match_check_vocabulary(self) -> None:
-        from rebrew.build_db import _KNOWN_CELL_STATES
+    def test_documented_cell_states_match_the_known_set(self) -> None:
+        import re
 
-        doc = (Path(__file__).resolve().parents[1] / "docs" / "DB_FORMAT.md").read_text(
+        doc = (Path(__file__).resolve().parents[1] / "docs" / "COVERAGE_DOCUMENT.md").read_text(
             encoding="utf-8"
         )
         section = doc.split("#### Cell States", 1)[1].split("\n### ", 1)[0]
@@ -2427,426 +743,46 @@ class TestCellStateVocabulary:
         }
         assert documented == _KNOWN_CELL_STATES
 
-    def test_scoped_rebuild_drops_superseded_history_index(self, tmp_path: Path) -> None:
-        """A scoped --target rebuild prunes the dead v3-era history index too.
+    def test_every_known_state_round_trips_into_a_document(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+        catalog: FakeCatalog,
+    ) -> None:
+        """No state is coerced to ``unknown``: each one is stored verbatim."""
+        states = sorted(_KNOWN_CELL_STATES)
+        catalog.per_target["vocab"] = {
+            "sections": {
+                ".text": {
+                    "va": 0x1000,
+                    "size": 64 * len(states),
+                    "unitBytes": 64,
+                    "columns": 64,
+                    "cells": [
+                        {
+                            "start": index * 64,
+                            "end": (index + 1) * 64,
+                            "span": 1,
+                            "state": state,
+                        }
+                        for index, state in enumerate(states)
+                    ],
+                },
+            },
+            "globals": {},
+            "summary": {},
+            "functions": {},
+            "paths": {},
+        }
+        _write_config(tmp_path, "vocab")
 
-        history is never dropped, so ``idx_history_target_va`` (superseded by
-        ``idx_history_target_id``) survives unless dropped explicitly.  It was
-        dropped only on a full rebuild, leaving the write cost on every history
-        insert for the scoped builds that append the most rows.
-        """
-        db_dir = tmp_path / "db"
-        db_dir.mkdir()
-        (db_dir / "data_alpha.json").write_text(json.dumps(SAMPLE_DATA), encoding="utf-8")
-        build_db(tmp_path, target="alpha")
+        with caplog.at_level(logging.WARNING):
+            result = _build(runner, tmp_path)
 
-        conn = sqlite3.connect(db_dir / "coverage.db")
-        try:
-            conn.execute("CREATE INDEX idx_history_target_va ON history(target, va)")
-            conn.commit()
-        finally:
-            conn.close()
-
-        build_db(tmp_path, target="alpha")
-
-        conn = sqlite3.connect(db_dir / "coverage.db")
-        try:
-            indexes = {
-                row[0]
-                for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'index'")
-            }
-        finally:
-            conn.close()
-        assert "idx_history_target_va" not in indexes
-        assert "idx_history_target_id" in indexes
-
-    def test_restore_dedupe_probe_is_indexed(self, tmp_path: Path) -> None:
-        """The --force history restore probes one full transition per saved
-        row.  Without a matching index each probe scanned the target's whole
-        history partition, making the restore quadratic on a database that
-        has reached the retention cap.
-
-        The transition UNIQUE supplies that b-tree, so the plan names the
-        autoindex rather than a hand-created one; what matters is that the
-        probe SEEKS and covers every column.
-        """
-        db_dir = tmp_path / "db"
-        db_dir.mkdir()
-        (db_dir / "data_alpha.json").write_text(json.dumps(SAMPLE_DATA), encoding="utf-8")
-        build_db(tmp_path, target="alpha")
-
-        conn = sqlite3.connect(db_dir / "coverage.db")
-        try:
-            plan = conn.execute(
-                "EXPLAIN QUERY PLAN SELECT 1 FROM history h "
-                "WHERE h.target IS 'alpha' AND h.va IS 4096 "
-                "AND h.changed_at IS '2026-01-01T00:00:00+00:00' "
-                "AND h.old_status IS NULL AND h.new_status IS 'EXACT' "
-                "AND h.updated_by IS ''"
-            ).fetchall()
-            detail = " ".join(row[3] for row in plan)
-            # A scan of the table means the index was not used.
-            assert "SCAN h" not in detail
-            assert "SEARCH h USING COVERING INDEX" in detail
-        finally:
-            conn.close()
-
-    def test_history_rejects_a_duplicate_transition(self, tmp_path: Path) -> None:
-        """One status change is one row, enforced by the table.
-
-        The --force restore used to be the only thing standing between a
-        repeated rebuild and a duplicated transition; the invariant now
-        lives in the schema, so any other writer is covered too.
-        """
-        db_dir = tmp_path / "db"
-        db_dir.mkdir()
-        (db_dir / "data_alpha.json").write_text(json.dumps(SAMPLE_DATA), encoding="utf-8")
-        build_db(tmp_path, target="alpha")
-
-        conn = sqlite3.connect(db_dir / "coverage.db")
-        try:
-            row = ("alpha", 4096, "STUB", "EXACT", "2026-01-01T00:00:00+00:00", "test")
-            c = conn.cursor()
-            c.execute(
-                "INSERT INTO history (target, va, old_status, new_status, changed_at,"
-                " updated_by) VALUES (?, ?, ?, ?, ?, ?)",
-                row,
-            )
-            with pytest.raises(sqlite3.IntegrityError):
-                c.execute(
-                    "INSERT INTO history (target, va, old_status, new_status, changed_at,"
-                    " updated_by) VALUES (?, ?, ?, ?, ?, ?)",
-                    row,
-                )
-            # A different transition on the same VA is still a distinct fact.
-            c.execute(
-                "INSERT INTO history (target, va, old_status, new_status, changed_at,"
-                " updated_by) VALUES (?, ?, ?, ?, ?, ?)",
-                (*row[:2], "EXACT", "RELOC", *row[4:]),
-            )
-        finally:
-            conn.close()
-
-    def test_history_migrates_to_the_transition_unique(self, project_root: Path) -> None:
-        """A history table built without the UNIQUE is recreated in place.
-
-        Repeats are collapsed to the newest row of each transition, because a
-        table that already holds one cannot take the constraint — and the
-        status clamp can fuse two distinct raw rows into a single transition,
-        so the dedupe partitions on the clamped values, not the stored ones.
-        """
-        build_db(project_root)
-        conn = sqlite3.connect(project_root / "db" / "coverage.db")
-        c = conn.cursor()
-        c.execute("DROP TABLE history")
-        c.execute("""
-            CREATE TABLE history (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                target TEXT NOT NULL,
-                va INTEGER NOT NULL,
-                old_status TEXT,
-                new_status TEXT,
-                changed_at TEXT NOT NULL,
-                updated_by TEXT NOT NULL DEFAULT ''
-            )
-            """)
-        # See test_history_migrates_pre_check_ddl: the dropped index has to come
-        # back or the version gate rejects the file before this migration runs.
-        c.execute("CREATE INDEX idx_history_target_id ON history(target, id)")
-        # Rows 1 and 2 are the same transition once BOGUS clamps to UNKNOWN
-        # and '' clamps to the epoch; row 3 is a second, distinct transition.
-        c.executemany(
-            "INSERT INTO history (id, target, va, old_status, new_status, changed_at,"
-            " updated_by) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            [
-                (1, "testbin", 5, "BOGUS", "EXACT", "", "test"),
-                (2, "testbin", 5, "UNKNOWN", "EXACT", "1970-01-01T00:00:00+00:00", "test"),
-                (3, "testbin", 6, "BOGUS", "EXACT", "", "test"),
-            ],
-        )
-        conn.commit()
-        conn.close()
-
-        build_db(project_root)
-        conn = sqlite3.connect(project_root / "db" / "coverage.db")
-        try:
-            c = conn.cursor()
-            ddl = c.execute(
-                "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'history'"
-            ).fetchone()[0]
-            assert "UNIQUE (target, va, old_status, new_status, changed_at, updated_by)" in ddl
-            # The newest row of the fused transition survives; the other
-            # transition is untouched.
-            assert c.execute(
-                "SELECT id, va FROM history WHERE target = 'testbin' ORDER BY id"
-            ).fetchall() == [(2, 5), (3, 6)]
-        finally:
-            conn.close()
-
-
-# ---------------------------------------------------------------------------
-# Persistent-row salvage across a --force database replacement
-# ---------------------------------------------------------------------------
-
-
-class TestPersistentRowSalvage:
-    """_unlink_db / _restore_persistent_rows must round-trip the tables that
-    have no other source: history and verify_results."""
-
-    @staticmethod
-    def _schema(conn: sqlite3.Connection) -> None:
-        c = conn.cursor()
-        c.execute(f"CREATE TABLE verify_results ({_VERIFY_RESULTS_COLUMNS_SQL})")
-        c.execute(f"CREATE TABLE history ({_HISTORY_COLUMNS_SQL})")
-
-    def test_round_trips_every_column(self, tmp_path: Path) -> None:
-        db_path = tmp_path / "coverage.db"
-        conn = sqlite3.connect(db_path)
-        try:
-            self._schema(conn)
-            conn.execute(
-                "INSERT INTO verify_results VALUES"
-                " ('alpha', 4096, '2026-01-01T00:00:00+00:00', 3, 7, 0.9, 2, 1)"
-            )
-            conn.execute(
-                "INSERT INTO history (target, va, old_status, new_status, changed_at,"
-                " updated_by) VALUES ('alpha', 4096, 'STUB', 'EXACT',"
-                " '2026-01-01T00:00:00+00:00', 'test')"
-            )
-            conn.commit()
-        finally:
-            conn.close()
-
-        saved = _unlink_db(db_path)
-        assert not db_path.exists()
-
-        conn = sqlite3.connect(db_path)
-        try:
-            self._schema(conn)
-            cursor = conn.cursor()
-            _restore_persistent_rows(cursor, saved)
-            conn.commit()
-            verify = conn.execute("SELECT * FROM verify_results").fetchall()
-            history = conn.execute(
-                "SELECT target, va, old_status, new_status, changed_at, updated_by FROM history"
-            ).fetchall()
-        finally:
-            conn.close()
-        assert verify == [("alpha", 4096, "2026-01-01T00:00:00+00:00", 3, 7, 0.9, 2, 1)]
-        assert history == [("alpha", 4096, "STUB", "EXACT", "2026-01-01T00:00:00+00:00", "test")]
-
-    def test_restore_is_idempotent_for_null_statuses(self, tmp_path: Path) -> None:
-        """A transition recorded with a NULL old_status must not be duplicated
-        on the next --force: the dedupe compares with IS, so NULL matches NULL."""
-        db_path = tmp_path / "coverage.db"
-        conn = sqlite3.connect(db_path)
-        try:
-            self._schema(conn)
-            conn.execute(
-                "INSERT INTO history (target, va, old_status, new_status, changed_at)"
-                " VALUES ('alpha', 4096, NULL, 'EXACT', '2026-01-01T00:00:00+00:00')"
-            )
-            conn.commit()
-        finally:
-            conn.close()
-
-        saved = _unlink_db(db_path)
-        for _ in range(2):
-            conn = sqlite3.connect(db_path)
-            try:
-                self._schema(conn)
-                cursor = conn.cursor()
-                _restore_persistent_rows(cursor, saved)
-                conn.commit()
-            finally:
-                conn.close()
-            saved = _unlink_db(db_path)
-
-        conn = sqlite3.connect(db_path)
-        try:
-            self._schema(conn)
-            cursor = conn.cursor()
-            _restore_persistent_rows(cursor, saved)
-            conn.commit()
-            count = conn.execute("SELECT COUNT(*) FROM history").fetchone()[0]
-        finally:
-            conn.close()
-        assert count == 1
-
-    def test_legacy_table_missing_a_column_still_salvages_keys(self, tmp_path: Path) -> None:
-        """A pre-effective_match table projects the columns it has and pads the
-        rest, so the rows that can be restored still are."""
-        db_path = tmp_path / "coverage.db"
-        conn = sqlite3.connect(db_path)
-        try:
-            conn.execute("""
-                CREATE TABLE verify_results (
-                    target TEXT NOT NULL,
-                    va INTEGER NOT NULL,
-                    verified_at TEXT NOT NULL,
-                    byte_delta INTEGER,
-                    diff_lines INTEGER,
-                    similarity REAL,
-                    reg_delta INTEGER,
-                    PRIMARY KEY (target, va)
-                )
-            """)
-            conn.execute(
-                "INSERT INTO verify_results VALUES"
-                " ('alpha', 4096, '2026-01-01T00:00:00+00:00', 3, 7, 0.9, 2)"
-            )
-            conn.commit()
-        finally:
-            conn.close()
-
-        saved = _unlink_db(db_path)
-        assert saved["verify_results"] == [
-            ("alpha", 4096, "2026-01-01T00:00:00+00:00", 3, 7, 0.9, 2, None)
+        assert result.exit_code == 0, result.output
+        assert "not in known set" not in result.output
+        stored = [
+            cell["state"] for cell in _document(tmp_path, "vocab")["sections"][".text"]["cells"]
         ]
-
-    def test_precheck_verify_results_clamps_instead_of_dropping(self, tmp_path: Path) -> None:
-        """A pre-CHECK verify_results row must be clamped, not silently lost.
-
-        ``INSERT OR IGNORE`` used to swallow the row outright: a negative
-        byte_delta violates ``CHECK (byte_delta >= 0)``, OR IGNORE treats that
-        as a reason to skip, and the verdict vanished with no error.  The
-        percent-scale similarity is scaled down the same way the in-place
-        migration scales it.
-        """
-        db_path = tmp_path / "coverage.db"
-        conn = sqlite3.connect(db_path)
-        try:
-            conn.execute("""
-                CREATE TABLE verify_results (
-                    target TEXT NOT NULL,
-                    va INTEGER NOT NULL,
-                    verified_at TEXT NOT NULL,
-                    byte_delta INTEGER,
-                    diff_lines INTEGER,
-                    similarity REAL,
-                    reg_delta INTEGER,
-                    effective_match INTEGER,
-                    PRIMARY KEY (target, va)
-                )
-            """)
-            conn.execute(
-                "INSERT INTO verify_results VALUES"
-                " ('alpha', 4096, '2026-01-01T00:00:00+00:00', -3, 7, 85.0, -2, 1)"
-            )
-            conn.commit()
-        finally:
-            conn.close()
-
-        saved = _unlink_db(db_path)
-        conn = sqlite3.connect(db_path)
-        try:
-            self._schema(conn)
-            cursor = conn.cursor()
-            _restore_persistent_rows(cursor, saved)
-            conn.commit()
-            row = conn.execute(
-                "SELECT va, byte_delta, similarity, reg_delta, effective_match FROM verify_results"
-            ).fetchall()
-        finally:
-            conn.close()
-        assert row == [(4096, 0, 0.85, 0, 1)]
-
-    def test_precheck_history_does_not_abort_the_restore(self, tmp_path: Path) -> None:
-        """A pre-CHECK history row must be clamped, never abort the rebuild.
-
-        A negative VA, an out-of-vocabulary status, and an empty changed_at all
-        violate the current CHECKs, so re-inserting the row raw raised
-        IntegrityError inside the transaction, after --force had
-        already unlinked the file, leaving no database at all.  Each is coerced the way
-        the in-place migration coerces it.
-        """
-        db_path = tmp_path / "coverage.db"
-        conn = sqlite3.connect(db_path)
-        try:
-            conn.execute("""
-                CREATE TABLE history (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    target TEXT NOT NULL,
-                    va INTEGER NOT NULL,
-                    old_status TEXT,
-                    new_status TEXT,
-                    changed_at TEXT,
-                    updated_by TEXT
-                )
-            """)
-            conn.execute(
-                "INSERT INTO history (target, va, old_status, new_status, changed_at,"
-                " updated_by) VALUES ('alpha', -5, 'BOGUS', 'EXACT', '', 'test')"
-            )
-            conn.commit()
-        finally:
-            conn.close()
-
-        saved = _unlink_db(db_path)
-        conn = sqlite3.connect(db_path)
-        try:
-            self._schema(conn)
-            cursor = conn.cursor()
-            _restore_persistent_rows(cursor, saved)
-            conn.commit()
-            row = conn.execute(
-                "SELECT va, old_status, new_status, changed_at, updated_by FROM history"
-            ).fetchall()
-        finally:
-            conn.close()
-        assert row == [(0, "UNKNOWN", "EXACT", "1970-01-01T00:00:00+00:00", "test")]
-
-    def test_clamped_history_transitions_dedupe_against_each_other(self, tmp_path: Path) -> None:
-        """Two raw rows the clamp fuses into one transition restore as one row.
-
-        The restore dedupes on the CLAMPED values, so the UNIQUE cannot reject
-        the second insert and abort the rebuild.
-        """
-        db_path = tmp_path / "coverage.db"
-        conn = sqlite3.connect(db_path)
-        try:
-            conn.execute("""
-                CREATE TABLE history (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    target TEXT NOT NULL,
-                    va INTEGER NOT NULL,
-                    old_status TEXT,
-                    new_status TEXT,
-                    changed_at TEXT,
-                    updated_by TEXT
-                )
-            """)
-            for status in ("BOGUS", "UNKNOWN"):
-                conn.execute(
-                    "INSERT INTO history (target, va, old_status, new_status,"
-                    " changed_at, updated_by) VALUES ('alpha', 4096, ?, 'EXACT',"
-                    " '2026-01-01T00:00:00+00:00', 'test')",
-                    (status,),
-                )
-            conn.commit()
-        finally:
-            conn.close()
-
-        saved = _unlink_db(db_path)
-        conn = sqlite3.connect(db_path)
-        try:
-            self._schema(conn)
-            cursor = conn.cursor()
-            _restore_persistent_rows(cursor, saved)
-            conn.commit()
-            rows = conn.execute("SELECT va, old_status FROM history").fetchall()
-        finally:
-            conn.close()
-        assert rows == [(4096, "UNKNOWN")]
-
-    def test_unreadable_db_raises_and_keeps_the_file(self, tmp_path: Path) -> None:
-        """A database that cannot be read must not be deleted: history and
-        verify_results have no other source, so an empty save would drop them."""
-        db_path = tmp_path / "coverage.db"
-        db_path.write_bytes(b"not a sqlite database at all")
-
-        with pytest.raises(sqlite3.Error) as excinfo:
-            _unlink_db(db_path)
-
-        assert str(db_path) in str(excinfo.value)
-        assert db_path.exists()
+        assert stored == states

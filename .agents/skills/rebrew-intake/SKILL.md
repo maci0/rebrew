@@ -6,7 +6,7 @@ description: >-
   build-db, triage, first skeletons). Triggers on 'intake', 'onboard',
   'onboard binary', 'new binary', 'new target', 'import binary',
   'binary recon', 'analyze', 'fingerprints', 'FLIRT scan', 'first triage',
-  'first catalog', 'first coverage db', 'detect-crt', 'gen-layout'. Prefer
+  'first catalog', 'first coverage document', 'detect-crt', 'gen-layout'. Prefer
   this over rebrew-init when the user hands you a binary to onboard; use
   rebrew-init only when teaching `rebrew init` / profile / target naming. Not
   for day-to-day flirt/todo/test, nor for a later catalog / build-db refresh
@@ -21,8 +21,8 @@ graph TD
     Fix --> Doctor
     Doctor -->|pass| Flirt[FLIRT library scan<br/>rebrew cfg detect-crt --write<br/>rebrew flirt --json]
     Flirt --> CrtMatch[Annotate library sources<br/>rebrew crt-match --all --fix-source]
-    CrtMatch --> Catalog[Build function catalog<br/>rebrew catalog --data-json<br/>--export-ghidra-labels]
-    Catalog --> BuildDb[Build coverage DB<br/>rebrew build-db]
+    CrtMatch --> Catalog[Build function catalog<br/>rebrew build-db<br/>rebrew catalog --export-ghidra-labels]
+    Catalog --> BuildDb[Build coverage document<br/>rebrew build-db]
     BuildDb --> Triage[Initial triage<br/>rebrew status --json / rebrew todo --json]
     Triage --> CuMap[Infer compilation units<br/>rebrew graph --cu-map]
     CuMap --> Skeleton[Generate first skeletons<br/>rebrew skeleton --batch 10]
@@ -125,18 +125,17 @@ Needs `cfg detect-crt` first or `crt-match --all` finds nothing. FLIRT JSON:
 `matches[].names`; ambiguous hits in `ambiguous_matches`. Use
 `crt-match --all --fix-source` for `// SOURCE:` on confirmed library hits.
 
-### 3. Build Function Catalog + Coverage DB
+### 3. Build Function Catalog + Coverage Document
 
 ```bash
-rebrew catalog --data-json              # write db/data_bench.json
+rebrew build-db                         # write db/coverage-bench.toml (one per target)
 rebrew catalog --export-ghidra-labels   # write ghidra_data_labels.json (switch tables etc.)
 rebrew catalog --fix-sizes              # backfill SIZE in rebrew-functions.toml from catalog
-rebrew build-db                         # build SQLite coverage database (db/coverage.db)
 ```
 
-`--data-json` → `db/data_bench.json` (+ `function_structure.json` when no Ghidra
-export). `--fix-sizes` prompts unless `--force` (required with `--json`).
-`build-db` needs `--force` to rebuild on schema mismatch.
+`build-db` scans the tree itself; `function_structure.json` is used when a
+Ghidra export is present. `--fix-sizes` prompts unless `--force` (required with
+`--json`).
 
 ### 4. Initial Triage
 
@@ -221,7 +220,7 @@ Conflicts, the git-backed `rebrew binsync` group, and pull semantics are in
 ### 10. Coverage Dashboard (optional — ask first)
 
 ```bash
-rebrew build-db                         # refresh db/coverage.db after any changes
+rebrew build-db                         # refresh db/coverage-bench.toml after any changes
 rebrew dashboard                        # read-only UI at http://127.0.0.1:8000 (blocks the shell)
 ```
 

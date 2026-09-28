@@ -730,7 +730,12 @@ def _diagnose_one(
             blocker_written = True  # would write, but --dry-run skips it
         else:
             update_field(
-                cfg.metadata_dir, va_int, "blocker", _blocker_text(result), module=ann.module
+                cfg.metadata_dir,
+                va_int,
+                "blocker",
+                _blocker_text(result),
+                module=ann.module,
+                updated_by="near-diag",
             )
             # A blocker note implies NEAR_MATCHING — keep the documented state
             # consistent so status reports count it as documented, not as a

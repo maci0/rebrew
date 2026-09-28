@@ -165,3 +165,90 @@ class TestStaleOutputIsNotSuccess:
         (workdir / "PROBE.EXE").write_bytes(b"stale")
         with pytest.raises(Delphi16Error, match="no executable"):
             compile_ne("program probe; begin end.", workdir=workdir)
+
+
+class TestWholeProgramStaging:
+    """A DPR is a whole-program unit: DCC resolves its `uses` clauses against
+    the units next to it, so compile_ne must stage them (and the project's
+    switches/search paths) or no multi-unit Delphi program can be built."""
+
+    def _stub_toolchain(self, tmp_path: Path, monkeypatch) -> Path:
+        tree = tmp_path / "dcc"
+        tree.mkdir()
+        for fname in ("DCC.EXE", "DELPHI.DSL", "DPMI16BI.OVL", "RTM.EXE"):
+            (tree / fname).write_bytes(b"\x00")
+        monkeypatch.setattr("rebrew.delphi16.find_dcc", lambda: tree / "DCC.EXE")
+        return tree
+
+    def _no_op_dosbox(self, tmp_path: Path, monkeypatch) -> Path:
+        workdir = tmp_path / "sandbox"
+
+        def _run(sandbox, autoexec, **kwargs):
+            from test_ne_loader import _build_ne
+
+            code = b"\x01\x00" + bytes.fromhex("55 8b ec 5d c3") + b"\x00" * 8
+            (Path(sandbox) / "DCCOUT.TXT").write_text("HELLO.DPR(1)\n", encoding="utf-8")
+            (Path(sandbox) / "HELLO.EXE").write_bytes(_build_ne(segments=[(code, 0x01)]))
+
+        monkeypatch.setattr("rebrew.dosbox.run_dosbox", _run)
+        return workdir
+
+    def test_stages_sibling_units(self, tmp_path: Path, monkeypatch) -> None:
+        from rebrew.delphi16 import compile_ne
+
+        self._stub_toolchain(tmp_path, monkeypatch)
+        workdir = self._no_op_dosbox(tmp_path, monkeypatch)
+        src = tmp_path / "hello.dpr"
+        src.write_text("program Hello;\nuses MyUnit;\nbegin end.\n", encoding="utf-8")
+        (tmp_path / "myunit.pas").write_text("unit MyUnit;\ninterface\nimplementation\nend.\n")
+        (tmp_path / "myunit.dfm").write_bytes(b"TPF0")
+        (tmp_path / "notes.txt").write_text("not a unit")
+
+        compile_ne(src, workdir)
+
+        assert (workdir / "myunit.pas").exists()
+        assert (workdir / "myunit.dfm").exists()
+        assert not (workdir / "notes.txt").exists()
+
+    def test_refuses_a_non_83_sibling_unit(self, tmp_path: Path, monkeypatch) -> None:
+        from rebrew.delphi16 import Delphi16Error, compile_ne
+
+        self._stub_toolchain(tmp_path, monkeypatch)
+        workdir = self._no_op_dosbox(tmp_path, monkeypatch)
+        src = tmp_path / "hello.dpr"
+        src.write_text("program Hello;\nbegin end.\n", encoding="utf-8")
+        (tmp_path / "a_very_long_unit_name.pas").write_text("unit X;\n")
+
+        with pytest.raises(Delphi16Error, match="8.3-truncate"):
+            compile_ne(src, workdir)
+
+    def test_extra_args_reach_the_command_line(self, tmp_path: Path, monkeypatch) -> None:
+        from rebrew.delphi16 import compile_ne
+
+        self._stub_toolchain(tmp_path, monkeypatch)
+        workdir = self._no_op_dosbox(tmp_path, monkeypatch)
+        src = tmp_path / "hello.dpr"
+        src.write_text("program Hello;\nbegin end.\n", encoding="utf-8")
+        seen: list[str] = []
+        real = __import__("rebrew.dosbox", fromlist=["run_dosbox"]).run_dosbox
+
+        def _spy(sandbox, autoexec, **kwargs):
+            seen.append(autoexec[0])
+            return real(sandbox, autoexec, **kwargs)
+
+        monkeypatch.setattr("rebrew.dosbox.run_dosbox", _spy)
+        compile_ne(src, workdir, extra_args=("-$R+", "-$Q+"))
+
+        assert seen and "C:\\DCC.EXE -$R+ -$Q+ hello.dpr" in seen[0]
+
+    def test_dcc_cfg_override_is_staged_verbatim(self, tmp_path: Path, monkeypatch) -> None:
+        from rebrew.delphi16 import compile_ne
+
+        self._stub_toolchain(tmp_path, monkeypatch)
+        workdir = self._no_op_dosbox(tmp_path, monkeypatch)
+        src = tmp_path / "hello.dpr"
+        src.write_text("program Hello;\nbegin end.\n", encoding="utf-8")
+
+        compile_ne(src, workdir, dcc_cfg="/uC:\\PROJ\\UNITS\n")
+
+        assert (workdir / "DCC.CFG").read_text(encoding="utf-8") == "/uC:\\PROJ\\UNITS\n"

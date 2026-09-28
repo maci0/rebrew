@@ -34,11 +34,12 @@ KNOWN_STATUSES: frozenset[str] = frozenset(
     }
 )
 
-#: Statuses allowed in ``coverage.db`` ``functions.status``: ``KNOWN_STATUSES``
-#: plus ``UNKNOWN``, the column DEFAULT for a catalog row with no STATUS.  The
-#: schema CHECK, the insert-time sanitizer, and the dashboard status filter
-#: read this, so a value the database can hold can never be rejected as
-#: unknown by a reader of that same database.
+#: Statuses a stored function row may hold: ``KNOWN_STATUSES`` plus ``UNKNOWN``,
+#: what a catalog row with no STATUS gets.  The writer's insert-time sanitizer
+#: and the dashboard status filter read this, so a value the document can hold
+#: can never be rejected as unknown by a reader of that same document.
+#: The name keeps its database-era spelling because three modules import it by
+#: name; a rename is a public-surface change and not worth one.
 COVERAGE_DB_STATUSES: frozenset[str] = frozenset({*KNOWN_STATUSES, "UNKNOWN"})
 
 # Statuses whose compiled bytes equal the target (RELOC after relocation

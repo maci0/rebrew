@@ -365,12 +365,13 @@ docker** — no host files:
   snapshot — both Watcom images pin the immutable `2026-09-01-Build` release
   — and the Borland InstallShield payload).  A changed source fails the build
   loudly.
-- **Pinned 16-bit tarballs** (`msvc152.tar.xz`, `delphi10.tar.xz`, …) are
-  used for msvc-1.52/15/10, borland-3.1/borland-2.0 and delphi — the archive.org en_vc152
-  RAR SFX extracts corrupt files under both 7z and unar, and the Delphi
-  RTL units have no public tarball.  The verified trees sit next to their
-  Dockerfile in the rebrew-toolchains checkout (user-supplied media,
-  gitignored there — see its README); rebrew no longer commits them.
+- **The six 16-bit toolchains** (msvc-1.0/1.5/1.52, borland-2.0/3.1,
+  delphi-1.0) download the same pinned `archaic-toolchains` codeload tarball
+  their image builds from, sha256-verified and extracted with the wrapper
+  directory stripped.  `rebrew toolchain vendor <name>` reproduces that tree
+  with no user-supplied media: it downloads the pin, and for delphi-1.0
+  renames the tarball's `delphi-lib/` to `DELPHI/LIB`, the path DCC.CFG and
+  `find_dcc` use.
 - Extraction tolerates 7z's warning exits but **verifies the compiler
   binary exists**, so a bad extraction fails loudly.
 - All images carry **OCI provenance labels** (source/license/title).
@@ -396,8 +397,7 @@ could not run at all (missing image, docker timeout, no object produced).
 `--json` reports the same split in `{"results": …, "passed": false}`.
 
 `rebrew toolchain vendor <name>` assembles the **host tree** from the same
-pinned source the image builds from (16-bit media tarball or sha256-verified
-download), extracting into `<family>/<version>-<arch>/source` under the
+pinned source the image builds from (a sha256-verified download), extracting into `<family>/<version>-<arch>/source` under the
 rebrew-toolchains checkout, so host trees and containers are
 byte-identical.  Two layout rules apply during assembly:
 

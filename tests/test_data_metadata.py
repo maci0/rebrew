@@ -306,3 +306,51 @@ class TestMetadataFieldsAndScalarEntries:
         )
         with pytest.raises(ValueError, match="is not a table"):
             set_data_field(tmp_path, 0x10001000, "size", 4, "SERVER")
+
+
+class TestDataProvenance:
+    """A data verdict must name the tool that measured it: the coverage
+    document's `verify_results[]` row is derived and gitignored."""
+
+    def test_status_write_records_provenance(self, tmp_path: Path) -> None:
+        set_data_field(tmp_path, 0x10025000, "status", "DRIFT", "SERVER", updated_by="verify")
+        entry = get_data_entry(tmp_path, 0x10025000, "SERVER")
+        assert entry["updated_by"] == "verify"
+        assert entry["updated_at"]
+
+    def test_batch_write_records_provenance(self, tmp_path: Path) -> None:
+        from rebrew.data_metadata import set_data_fields_batch
+
+        set_data_fields_batch(
+            tmp_path,
+            [
+                {
+                    "module": "SERVER",
+                    "va": 0x10025000,
+                    "fields": {"status": "VERIFIED"},
+                    "updated_by": "verify",
+                }
+            ],
+        )
+        entry = get_data_entry(tmp_path, 0x10025000, "SERVER")
+        assert entry["updated_by"] == "verify"
+        assert entry["updated_at"]
+
+    def test_untagged_write_keeps_the_stamp(self, tmp_path: Path) -> None:
+        set_data_field(tmp_path, 0x10025000, "status", "DRIFT", "SERVER", updated_by="verify")
+        first = get_data_entry(tmp_path, 0x10025000, "SERVER")["updated_at"]
+        set_data_field(tmp_path, 0x10025000, "name", "g_count", "SERVER")
+        entry = get_data_entry(tmp_path, 0x10025000, "SERVER")
+        assert entry["updated_by"] == "verify"
+        assert entry["updated_at"] == first
+
+    def test_provenance_pair_is_ownable_fields(self, tmp_path: Path) -> None:
+        """The stamp is storable data, not a comment, and an unknown key still
+        raises — the field gate is not loosened by the pair."""
+        import pytest
+
+        assert {"UPDATED_BY", "UPDATED_AT"} <= DATA_METADATA_FIELDS
+        set_data_field(tmp_path, 0x10025000, "updated_by", "verify", "SERVER")
+        assert get_data_entry(tmp_path, 0x10025000, "SERVER")["updated_by"] == "verify"
+        with pytest.raises(ValueError, match="unknown data metadata field"):
+            set_data_field(tmp_path, 0x10025000, "bogus", "x", "SERVER")

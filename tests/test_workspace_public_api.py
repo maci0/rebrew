@@ -24,38 +24,21 @@ def test_all_names_unique() -> None:
 def test_workspace_public_api_snapshot() -> None:
     """Gating: prevent accidental removal or breaking rename of workspace exports."""
     expected = {
-        "CELLS_JSON_OBJECT_SQL",
         "CONFIG_NAME",
-        "DB_FILENAME",
-        "DB_VERSION_KEY",
         "DEFAULT_DB_DIR",
         "DEFAULT_REVERSED_ROOT",
         "EARNED_STATUSES",
         "KNOWN_STATUSES",
         "MATCHED_STATUSES",
-        "SCHEMA_TARGET",
-        "SECTION_CELLS_AGG_SQL",
-        "SECTION_CELLS_COLUMN",
-        "SECTION_CELLS_TABLE",
-        "SQLITE_TIMEOUT_SECONDS",
         "VA_MAX",
         "WorkspaceConfigError",
         "WorkspaceNotFound",
-        "coverage_db_lock",
         "db_dir",
-        "db_path",
-        "db_version_matches",
-        "decode_section_cells",
         "default_target",
-        "encode_section_cells",
         "find_root",
-        "open_sqlite_ro",
         "parse_va_candidates",
         "project_table",
         "read_config",
-        "read_db_version",
-        "read_stored_db_version",
-        "sqlite_ro_uri",
         "target_binary",
         "target_marker",
         "target_reversed_dir",
@@ -63,19 +46,6 @@ def test_workspace_public_api_snapshot() -> None:
         "walk_up_to_root",
     }
     assert set(workspace.__all__) == expected
-
-
-@pytest.mark.parametrize(
-    "cells_json",
-    [
-        "[]",
-        '[{"start":4096,"end":4112,"span":16,"state":"EXACT","label":"café"}]',
-    ],
-)
-def test_section_cells_codec_round_trip(cells_json: str) -> None:
-    blob = workspace.encode_section_cells(cells_json)
-    assert isinstance(blob, bytes)
-    assert workspace.decode_section_cells(blob) == cells_json
 
 
 def test_workspace_without_compression_dependency(
@@ -92,14 +62,6 @@ def test_workspace_without_compression_dependency(
     (tmp_path / public.CONFIG_NAME).write_text("[project]\n", encoding="utf-8")
     assert public.find_root(tmp_path) == tmp_path
     assert public.read_config(tmp_path) == {"project": {}}
-    assert public.db_path(tmp_path) == tmp_path / "db" / "coverage.db"
-    assert public.read_db_version(public.db_path(tmp_path)) is None
-    with pytest.raises(ModuleNotFoundError) as encode_error:
-        public.encode_section_cells("[]")
-    assert encode_error.value.name == "zstandard"
-    with pytest.raises(ModuleNotFoundError) as decode_error:
-        public.decode_section_cells(b"")
-    assert decode_error.value.name == "zstandard"
 
 
 def test_submodules_import_without_rebrew_stack(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -109,7 +71,7 @@ def test_submodules_import_without_rebrew_stack(monkeypatch: pytest.MonkeyPatch)
             monkeypatch.delitem(sys.modules, name)
 
     before = set(sys.modules)
-    for module in ("config", "db", "status", "va"):
+    for module in ("config", "status", "va"):
         mod = importlib.import_module(f"rebrew.workspace.{module}")
         assert mod.__name__ == f"rebrew.workspace.{module}"
     pulled = {
@@ -123,7 +85,6 @@ def test_submodules_import_without_rebrew_stack(monkeypatch: pytest.MonkeyPatch)
         "rebrew.errors",
         "rebrew.workspace",
         "rebrew.workspace.config",
-        "rebrew.workspace.db",
         "rebrew.workspace.status",
         "rebrew.workspace.va",
     }, pulled

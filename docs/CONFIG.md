@@ -54,7 +54,7 @@ libs = "toolchain/msvc/6.0-win32/source/VC98/Lib"
 | `marker` | `[targets.<name>].marker` | Module identifier for source markers (default: target name uppercased, characters other than letters, digits, and `_` stripped) |
 | `target_binary` | `[targets.<name>].binary` | Resolved path to the target executable/DLL |
 | `default_jobs` | `[project].jobs` | Default parallelism for batch commands (default `4`) |
-| `db_dir` | `[project].db_dir` | Coverage JSON, SQLite DB, CSV directory (verify reports are no longer written here by default — the `--compare` baseline lives in `.rebrew/`) |
+| `db_dir` | `[project].db_dir` | Where `rebrew build-db` writes `coverage-<target>.toml` (verify reports are no longer written here by default — the `--compare` baseline lives in `.rebrew/`) |
 | `output_dir` | `[project].output_dir` | Default output directory for generated artifacts |
 | `image_base` | Auto-detected from PE | `0x10000000` for example DLL |
 | `text_va` | Auto-detected from PE | `.text` section virtual address |
@@ -487,7 +487,7 @@ The config loader fail-fasts on missing/invalid structure:
 - No `[targets]`, missing `default_target`, unknown target name, or missing/empty `binary`.
 - A `[targets]` key that is not a plain file name: empty, `.`, `..`, carrying
   `/`, `\`, a control character, or padded with whitespace. The key becomes
-  `src/<target>/`, `bin/<target>/`, `db/data_<target>.json`, and
+  `src/<target>/`, `bin/<target>/`, `db/coverage-<target>.toml`, and
   `layout/<target>/`, so a separator in it would place files outside the
   project.
 - Non-string or empty `project.default_target`.

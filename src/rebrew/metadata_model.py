@@ -197,7 +197,14 @@ class MetadataEntry:
 
     # -- writers ----------------------------------------------------------
 
-    def apply(self, directory: Path, force: bool = False, **fields: Any) -> None:
+    def apply(
+        self,
+        directory: Path,
+        force: bool = False,
+        *,
+        updated_by: str = "",
+        **fields: Any,
+    ) -> None:
         """Validate + write *fields* for this entry.
 
         * STATUS routes through the promotion gate
@@ -214,6 +221,9 @@ class MetadataEntry:
           ``metadata_write_lock`` critical section (reentrant within a thread),
           so a STATUS promotion that clears blockers and the field write that
           replaces them cannot be observed half-applied by another writer.
+        * *updated_by* is the provenance tag recorded alongside the write
+          (``updated_by`` / UTC ``updated_at``), the same pair the CLI writers
+          stamp.  It is keyword-only so it can never be read as a field value.
         """
         unknown = [k for k in fields if k.upper() not in METADATA_FIELDS]
         if unknown:
@@ -242,9 +252,10 @@ class MetadataEntry:
                     self.va,
                     force=force,
                     clear_blockers=canon in MATCHED_STATUSES,
+                    updated_by=updated_by,
                 )
             if coerced:
-                set_fields(directory, self.va, coerced, module=self.module)
+                set_fields(directory, self.va, coerced, module=self.module, updated_by=updated_by)
 
     def remove(self, directory: Path, key: str) -> bool:
         """Remove one metadata-owned *key*; returns True if anything changed."""

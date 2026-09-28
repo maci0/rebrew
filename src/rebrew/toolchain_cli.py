@@ -248,8 +248,8 @@ def detect_cmd(
 ) -> None:
     """Detect which compiler/toolchain built a binary; check profile alignment."""
     from rebrew.toolchain_detect import (
-        PROFILE_COMPAT_ALL,
         detect_toolchain,
+        detection_tables,
         profile_matches_detection,
     )
 
@@ -275,7 +275,7 @@ def detect_cmd(
     # The plugin-merged table, the same one profile_matches_detection
     # reads: the packaged-only table would report a plugin family as
     # unmatchable while the alignment check right below calls it aligned.
-    compat: set[str] | None = PROFILE_COMPAT_ALL.get(info.family)
+    compat: set[str] | None = detection_tables().profile_compat.get(info.family)
     data: dict[str, Any] = {
         "binary": str(binary_path),
         "family": info.family,
@@ -718,6 +718,17 @@ def vendor_cmd(
             if child == vc98 or any(child.match(m) for m in _TRACKED_META_PATTERNS):
                 continue
             child.rename(vc98 / child.name)
+
+    # The delphi10 tarball keeps the RTL/VCL units in ``delphi-lib/`` while the
+    # image's recipe renames them to DELPHI/LIB — the path DCC.CFG's /u option
+    # and ``find_dcc``'s units_dir both use.  Do the same rename, so a vendored
+    # host tree and the image it was built from hold the same files.
+    if name == "delphi-1.0":
+        loose_lib = extract_dir / "delphi-lib"
+        units_lib = extract_dir / "DELPHI" / "LIB"
+        if loose_lib.is_dir() and not units_lib.exists():
+            units_lib.parent.mkdir(parents=True, exist_ok=True)
+            loose_lib.rename(units_lib)
 
     # The archaic MSVC 6.0 SP5 repo stashes mspdb60.dll in the IDE dir
     # (Common/MSDev98/Bin) while CL.EXE 12.00.8804 statically imports it and

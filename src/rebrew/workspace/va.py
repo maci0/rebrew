@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import contextlib
 
-#: Upper bound for client-supplied VA integers.  SQLite INTEGER is a SIGNED
-#: 64-bit value: anything larger raises OverflowError at execute time, which
-#: would surface as an uncaught 500 instead of a clean 4xx/404.  No stored va
-#: can exceed this, so rejecting above it can never hide a real match.
+#: Upper bound for client-supplied VA integers: the signed 64-bit range the
+#: removed SQLite writer enforced and ``build_db._SQLITE_INT_MAX`` still
+#: clamps to.  No stored va can exceed it, so rejecting above it can never hide
+#: a real match.
 VA_MAX = (1 << 63) - 1
 
 _HEX_DIGITS = "abcdef"
@@ -19,8 +19,8 @@ def parse_va_candidates(raw: str) -> list[int]:
     One parser for every surface that resolves a VA spelling.  Hex spellings
     are ``0x``-prefixed or contain ``a-f`` (bare hex valid).  All-digit strings
     are read DECIMAL first, with a bare-hex fallback for legacy callers.
-    Candidates beyond SQLite's signed-64-bit range are dropped, since passing
-    one raises OverflowError at execute time instead of a clean miss.
+    Candidates beyond the signed-64-bit range are dropped, matching what
+    :data:`rebrew.build_db._SQLITE_INT_MAX` accepts as a storable va.
     Negatives stay candidates so section-bounds classification can report
     "before section start".
     """

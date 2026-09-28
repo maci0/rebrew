@@ -35,9 +35,11 @@ updated in place, never shadowed by an appended twin.
 
 Owned fields per entry::
 
-    name, type, size, section, note, status
+    name, type, size, section, note, status, updated_by, updated_at
 
-(``status`` is the data-verify verdict: ``VERIFIED`` / ``DRIFT`` / ``UNCHECKED``.)
+(``status`` is the data-verify verdict: ``VERIFIED`` / ``DRIFT`` / ``UNCHECKED``.
+``updated_by`` / ``updated_at`` are the write provenance pair, stamped by the
+gated writers in the same write as the field they changed.)
 
 Atomicity
 ---------
@@ -51,6 +53,7 @@ import contextlib
 import threading
 import unicodedata
 from collections.abc import Iterator
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -94,8 +97,13 @@ DATA_METADATA_FILENAME = "rebrew-data.toml"
 
 #: Fields owned by the data metadata.  Must match ``_CANONICAL_ORDER``: `type`
 #: is written by `rebrew data --set-type` and the binsync import/overlay paths.
+#: ``UPDATED_BY`` / ``UPDATED_AT`` are the write provenance pair the gated
+#: writers stamp on every change, so "who decided this symbol is DRIFT, and
+#: when" is answerable from the canonical store — the coverage document's
+#: ``verify_results[]`` row is derived and gitignored, and a rebuild carries it
+#: forward but does not recreate it.
 DATA_METADATA_FIELDS: frozenset[str] = frozenset(
-    {"NAME", "TYPE", "SIZE", "SECTION", "NOTE", "STATUS"}
+    {"NAME", "TYPE", "SIZE", "SECTION", "NOTE", "STATUS", "UPDATED_BY", "UPDATED_AT"}
 )
 
 #: Data verification verdicts written by ``verify --data``.
@@ -107,7 +115,16 @@ DATA_STATUSES: frozenset[str] = frozenset(
 )
 
 # Canonical TOML key order when writing.
-_CANONICAL_ORDER = ["name", "type", "size", "section", "note", "status"]
+_CANONICAL_ORDER = [
+    "name",
+    "type",
+    "size",
+    "section",
+    "note",
+    "status",
+    "updated_by",
+    "updated_at",
+]
 
 __all__ = [
     "DATA_METADATA_FILENAME",
@@ -307,7 +324,15 @@ def get_data_entry(directory: Path | str | Any, va: int, module: str) -> dict[st
     return dict(entry) if entry is not None else {}
 
 
-def set_data_field(directory: Path | str | Any, va: int, key: str, value: Any, module: str) -> None:
+def set_data_field(
+    directory: Path | str | Any,
+    va: int,
+    key: str,
+    value: Any,
+    module: str,
+    *,
+    updated_by: str = "",
+) -> None:
     """Set one field for *(module, va)* in the data metadata.
 
     Writes directly to ``directory / rebrew-data.toml``.  No walk-up.
@@ -319,6 +344,10 @@ def set_data_field(directory: Path | str | Any, va: int, key: str, value: Any, m
         key: Lower-case TOML key (e.g. ``"size"``, ``"section"``).
         value: Value to write.
         module: Target module name (e.g. ``"SERVER"``).
+        updated_by: Provenance tag of the writing tool (``verify``, ``data``,
+            ``rename``, ``lint``, ``binsync-import``, …).  When set, the same
+            write records ``updated_by`` plus a UTC ``updated_at``; callers
+            that pass "" leave the row's existing stamp alone.
 
     """
     if not module:
@@ -356,6 +385,9 @@ def set_data_field(directory: Path | str | Any, va: int, key: str, value: Any, m
             return
 
         entry[key] = safe
+        if updated_by:
+            entry["updated_by"] = updated_by
+            entry["updated_at"] = datetime.now(UTC).isoformat(timespec="seconds")
         atomic_write_locked(path, tomlkit.dumps(doc))
         _invalidate_data_cache(path)
 
@@ -364,9 +396,11 @@ def set_data_fields_batch(directory: Path | str | Any, updates: list[dict[str, A
     """Set fields for many ``(module, va)`` entries in one TOML read-modify-write.
 
     Sibling of :func:`rebrew.metadata.set_fields_batch` for the data store.
-    Each update is ``{"module", "va", "fields": {key: value, ...}}``.  Same-value
-    short-circuit is preserved per field.  Returns the number of entries that
-    changed at least one field.
+    Each update is ``{"module", "va", "fields": {key: value, ...}}`` plus an
+    optional ``"updated_by"`` provenance tag, which stamps the entry's
+    ``updated_by`` / ``updated_at`` pair in the same write when the update
+    changes something.  Same-value short-circuit is preserved per field.
+    Returns the number of entries that changed at least one field.
     """
     if not updates:
         return 0
@@ -410,6 +444,10 @@ def set_data_fields_batch(directory: Path | str | Any, updates: list[dict[str, A
                 entry[key] = safe
                 changed = True
             if changed:
+                tag = str(u.get("updated_by") or "")
+                if tag:
+                    entry["updated_by"] = tag
+                    entry["updated_at"] = datetime.now(UTC).isoformat(timespec="seconds")
                 changed_entries += 1
         if changed_entries:
             atomic_write_locked(path, tomlkit.dumps(doc))

@@ -10,8 +10,8 @@ percentage of bytes match today" with caching so it's cheap to ask, and
 guard against regressions when changes ship.
 
 > **Scope:** behavior spec (CLI contracts, goals, metrics) for `verify` /
-> `status` / `graph` / `cache`.  For tables, columns, and `db_version` see
-> [../DB_FORMAT.md](../DB_FORMAT.md).
+> `status` / `graph` / `cache`.  For the coverage document's fields see
+> [../COVERAGE_DOCUMENT.md](../COVERAGE_DOCUMENT.md).
 
 ## Problem It Solves
 
@@ -63,7 +63,7 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
 - `graph` does not run dataflow analysis; direct call edges come from
   identifiers found in reversed source files, optionally augmented with
   binary-derived edges (`--include-dispatch`, `--from-binary`).
-- `cache` does not manage other on-disk artifacts (e.g. `db/coverage.db`
+- `cache` does not manage other on-disk artifacts (e.g. `db/coverage-<target>.toml`
   belongs to PRD 02). It only handles `.rebrew/compile_cache/`.
 - Coverage in `status` is computed from local annotations and metadata,
   not from a live recompile (use `verify` for that).

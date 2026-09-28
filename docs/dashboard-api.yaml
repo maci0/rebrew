@@ -4,8 +4,9 @@ info:
   version: "1.0.0"
   summary: Read-only coverage data served by `rebrew dashboard`.
   description: |
-    Every route is read-only: the SQLite database is opened `mode=ro` and
-    non-`GET`/`HEAD` methods answer 405 with `Allow: GET, HEAD`.  A path the
+    Every route is read-only: the server reads the `coverage-<target>.toml`
+    documents `rebrew build-db` writes, one per target, and non-`GET`/`HEAD`
+    methods answer 405 with `Allow: GET, HEAD`.  A path the
     server does not serve answers 404 `not_found` whatever the method, so a
     404 body carries `not_found` on any path and `unknown_target` on the
     target-scoped ones; branch on `code`.
@@ -16,15 +17,19 @@ info:
     [THREAT_MODEL.md](THREAT_MODEL.md).
 
     Row lists are compact JSON arrays positioned by `cols`, never per-row
-    objects.  Every text column in a row is a JSON string: a database NULL is
+    objects.  Every text column in a row is a JSON string: an absent text
+    column (the document stores `""` where the SQLite schema stored NULL) is
     sent as `""`.
 
-    Every route can answer 500, in the same `Error` envelope: a database that
-    cannot be read is `database_error`, any other fault in a route is
-    `internal_error`, and `/api/summary` adds `corrupt_function_stats` for a
-    target that exists but whose stats row cannot be parsed.  A 500 is a
-    server-side failure a client cannot fix, so it retries later rather than
-    changing the request.
+    Every route can answer 500, in the same `Error` envelope:
+    `database_error` when the coverage directory yielded no readable document
+    at all (only `/api/health` asks that question; a single unreadable document
+    beside readable ones is skipped with a log line and the rest are served),
+    and `internal_error` for any other fault in a route.  There is no
+    `corrupt_function_stats`: the summary aggregates are derived from the stored
+    function rows, so they cannot be unreadable, and a missing or unparseable
+    document is simply an unknown target (404).  A 500 is a server-side failure
+    a client cannot fix, so it retries later rather than changing the request.
 
     Three statuses are cross-cutting and declared on every route: 304 when the
     client's `If-None-Match` matched, 403 `host_not_allowed` for a `Host`
@@ -115,12 +120,13 @@ paths:
       description: |
         The exception to the caching rules: served `no-store` with no `ETag`
         at all, so a probe that reported "ok" cannot be cached or
-        revalidated into a stale "healthy" for a database that has since
-        gone unreadable.  `db` is the absolute path of the `coverage.db`
-        being served.
+        revalidated into a stale "healthy" for a coverage directory that has
+        since gone unreadable.  `coverage_dir` is the absolute path of the
+        coverage DIRECTORY being served, holding one
+        `coverage-<target>.toml` per target.
       responses:
         "200":
-          description: The database was read.
+          description: The coverage directory was read.
           headers:
             Cache-Control: { $ref: "#/components/headers/CacheControl" }
             Vary: { $ref: "#/components/headers/Vary" }
@@ -139,7 +145,7 @@ paths:
       summary: Headers for the liveness probe.
       responses:
         "200":
-          description: The database was read.
+          description: The coverage directory was read.
           headers:
             Cache-Control: { $ref: "#/components/headers/CacheControl" }
             Vary: { $ref: "#/components/headers/Vary" }
@@ -157,7 +163,7 @@ paths:
     get:
       tags: [database]
       operationId: getTargets
-      summary: Every target in the database, ordered by name.
+      summary: Every readable target in the coverage directory, ordered by name.
       responses:
         "200":
           description: The target list.
@@ -258,9 +264,9 @@ paths:
       operationId: getSummary
       summary: Coverage stats for one target.
       description: |
-        `function_stats` is the stored metadata object passed through
-        untyped, so a field added to it reaches the client without a change
-        here; `coverage_pct` and `identified_pct` are derived from it.
+        `function_stats` is derived from the document's own function rows when
+        it is read, so every aggregate is an integer by construction;
+        `coverage_pct` and `identified_pct` are computed from it.
       parameters:
         - $ref: "#/components/parameters/Target"
       responses:
@@ -280,7 +286,7 @@ paths:
         "403": { $ref: "#/components/responses/HostNotAllowed" }
         "404": { $ref: "#/components/responses/UnknownTarget" }
         "405": { $ref: "#/components/responses/MethodNotAllowed" }
-        "500": { $ref: "#/components/responses/CorruptStats" }
+        "500": { $ref: "#/components/responses/DatabaseError" }
         "503": { $ref: "#/components/responses/ServerBusy" }
     head:
       tags: [database]
@@ -305,7 +311,7 @@ paths:
         "403": { $ref: "#/components/responses/HostNotAllowed" }
         "404": { $ref: "#/components/responses/UnknownTarget" }
         "405": { $ref: "#/components/responses/MethodNotAllowed" }
-        "500": { $ref: "#/components/responses/CorruptStats" }
+        "500": { $ref: "#/components/responses/DatabaseError" }
         "503": { $ref: "#/components/responses/ServerBusy" }
 
   /api/functions:
@@ -497,7 +503,7 @@ paths:
       summary: Paged status-change history for one target, newest first.
       description: |
         `old_status` and `new_status` are `""` for a VA's first recorded
-        transition, where the database stores NULL.
+        transition, where the document stores no value.
       parameters:
         - $ref: "#/components/parameters/Target"
         - $ref: "#/components/parameters/Limit"
@@ -566,7 +572,7 @@ components:
       required: false
       description: |
         A match status, matched case-insensitively and trimmed.  `UNKNOWN`
-        is the coverage DB default for a function with no STATUS, and is
+        is the coverage document's default for a function with no STATUS, and is
         accepted because the summary renders it as a filterable card.  A value
         outside the schema below is 400 `invalid_status` rather than an empty
         page, which would read as "this target has no functions in that
@@ -613,8 +619,9 @@ components:
       required: false
       description: |
         Rows to skip.  Missing, empty, non-numeric, or negative falls back to
-        0; values past SQLite's int64 range clamp to it, so an oversized
-        skip is an empty page rather than a 500.  Read back from `offset`.
+        0; values past the address ceiling (`VA_MAX`) clamp to it, so an
+        oversized skip is an empty page rather than a 500.  Read back from
+        `offset`.
       schema: { type: integer, minimum: 0, default: 0 }
     CacheBuster:
       name: v
@@ -630,10 +637,10 @@ components:
     FilterStatus:
       type: string
       description: |
-        The match statuses the coverage database column can hold, which is
-        exactly the set every status card in the summary can be filtered by.
+        The match statuses a stored function row can hold, which is exactly
+        the set every status card in the summary can be filtered by.
         `NEAR_MATCH` is accepted too (see `StatusAlias`); it is listed apart
-        so the vocabulary stays checkable against the database column.
+        so the vocabulary stays checkable against the stored rows.
       enum: [EXACT, RELOC, PROVEN, NEAR_MATCHING, STUB, SKIP, UNKNOWN, INVALID_VA, MISSING_FILE, MISSING_SIZE, SIZE_MISMATCH, COMPILE_ERROR, EXTRACT_ERROR]
     StatusAlias:
       type: string
@@ -671,7 +678,6 @@ components:
         - not_found
         - method_not_allowed
         - host_not_allowed
-        - corrupt_function_stats
         - database_error
         - internal_error
         - server_busy
@@ -733,12 +739,12 @@ components:
         paged: { type: boolean, const: false }
         target:
           type: [string, "null"]
-          description: The first target, or null when the database has none.
+          description: The first target, or null when the directory has none.
         summary:
           oneOf:
             - $ref: "#/components/schemas/Summary"
             - type: "null"
-          description: Null when there is no target, or its stats are unreadable.
+          description: Null when there is no target.
         functions:
           oneOf:
             - $ref: "#/components/schemas/Functions"
@@ -752,11 +758,11 @@ components:
         totals are there so a probe can watch the error rate while the
         server is up, rather than learning of a run that fails every query
         only when the process stops.
-      required: [status, db, targets, requests, server_errors, slowest_ms]
+      required: [status, coverage_dir, targets, requests, server_errors, slowest_ms]
       properties:
         status: { type: string, const: ok }
-        db: { type: string, description: Absolute path of the coverage database being served. }
-        targets: { type: integer, minimum: 0, description: Target count read from the database. }
+        coverage_dir: { type: string, description: Absolute path of the coverage directory being served. }
+        targets: { type: integer, minimum: 0, description: Readable coverage documents in that directory. }
         requests: { type: integer, minimum: 0, description: Requests served since the server started. }
         server_errors: { type: integer, minimum: 0, description: 5xx responses, including a connection refused by the in-flight cap, and unhandled handler faults since the server started. }
         slowest_ms: { type: number, minimum: 0, description: Slowest request handled since the server started, in milliseconds. }
@@ -769,13 +775,15 @@ components:
         function_stats:
           type: object
           description: |
-            The stored `function_stats` metadata object, passed through
-            untyped: fields added to it reach the client without a change
-            here.  `matched_bytes`, `covered_bytes`, and `total_bytes` must
-            be non-negative integers when present; anything else makes the
-            row unreadable and answers 500 `corrupt_function_stats`.
-            `coverage_pct` and `identified_pct` are `matched_bytes` and
-            `covered_bytes` over `total_bytes`, each floored.
+            The summary aggregate, derived from the document's stored function
+            rows every time it is read: `total` (code rows), `matched_bytes`
+            (`EXACT`/`RELOC`), `covered_bytes` (every function, stubs
+            included), `total_bytes` (the `.text` section size), `by_status`
+            and `by_module_counts` (both with sorted keys).  Every byte count
+            is a non-negative integer by construction: one past `total_bytes`
+            is capped and logged, never served.  `coverage_pct` and
+            `identified_pct` are `matched_bytes` and `covered_bytes` over
+            `total_bytes`, each floored.
           additionalProperties: true
         coverage_pct:
           type: number
@@ -898,7 +906,7 @@ components:
       type: string
       description: |
         Virtual address as `0x` plus at least eight lowercase hex digits, or
-        `???` when the database holds no address.  A 32-bit target pads to
+        `???` when the row holds no address.  A 32-bit target pads to
         eight; an address above `0xffffffff` keeps every digit it has, up to
         the 16 the int64 range allows.
       pattern: '^(0x[0-9a-f]{8,16}|\?\?\?)$'
@@ -954,17 +962,6 @@ components:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
 
-    CorruptStats:
-      description: |
-        The target's `function_stats` row exists but is unreadable
-        (`corrupt_function_stats`).  Not 404: the target is present, its
-        value is not.  The handler guard can answer this status on the same
-        route with `database_error` or `internal_error`; all three share the
-        `Error` envelope, so branch on `code`.
-      content:
-        application/json:
-          schema: { $ref: "#/components/schemas/Error" }
-
     NotModified:
       description: |
         The client's `If-None-Match` matched this representation, so the
@@ -1015,8 +1012,8 @@ components:
     DatabaseError:
       description: |
         A server-side failure the client cannot fix, in the `Error`
-        envelope: `database_error` when the coverage database could not be
-        read, `internal_error` for any other fault in a route.  A client
+        envelope: `database_error` when the coverage directory yielded no
+        readable document, `internal_error` for any other fault in a route.  A client
         that cannot branch any finer treats every 500 alike and retries
         later; the `code` is what distinguishes them.
       content:
@@ -1047,9 +1044,10 @@ components:
       description: |
         Validator for this exact representation.  `/` and the two scripts
         carry a strong content hash; the JSON routes carry a weak tag over
-        the database mtime/size *and* the request's path and query, so a
-        validator held for one route, target, or filter never stands for
-        another.  Absent on `/api/health`.
+        every coverage document's name, mtime and size *and* the request's
+        path and query, so a validator held for one route, target, or filter
+        never stands for another, and a `build-db` of any target moves it.
+        Absent on `/api/health`.
       schema: { type: string }
     CacheControl:
       description: |

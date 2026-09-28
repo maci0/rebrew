@@ -75,14 +75,17 @@ def _cmake_c_compiler_versions() -> dict[str, str]:
     ``12.00.8168``); era-only when no Rich build is known for the profile
     (e.g. msvc-2.0 → ``9.00``).
     """
-    from rebrew.toolchain_detect import LINKER_ERA_PROFILES_ALL, RICH_BUILD_PROFILES_ALL
+    from rebrew.toolchain_detect import detection_tables
 
+    # One snapshot: a profile must not be era-only to this reader and
+    # build-pinned to the next line.
+    tables = detection_tables()
     era_of: dict[str, tuple[int, int]] = {}
-    for mm, profiles in LINKER_ERA_PROFILES_ALL.items():
+    for mm, profiles in tables.linker_era_profiles.items():
         for p in profiles:
             era_of.setdefault(p, mm)
     build_of: dict[str, int] = {}
-    for build, profiles in RICH_BUILD_PROFILES_ALL.items():
+    for build, profiles in tables.rich_build_profiles.items():
         for p in profiles:
             build_of.setdefault(p, build)
     out: dict[str, str] = {}

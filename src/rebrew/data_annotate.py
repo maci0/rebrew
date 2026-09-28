@@ -189,7 +189,7 @@ def _set_global_field(
             raise ValueError(f"{option} wants one of {', '.join(allowed)}, got {value!r}")
         va = int(va_s, 16)
         rows.append({"va": f"0x{va:x}", field: value, "module": module})
-        updates.append({"module": module, "va": va, "fields": {field: value}})
+        updates.append({"module": module, "va": va, "fields": {field: value}, "updated_by": "data"})
     if not dry_run:
         set_data_fields_batch(cfg.metadata_dir, updates)
     return rows

@@ -1145,7 +1145,9 @@ def _write_skeleton_metadata(cfg: ProjectConfig, va_int: int, size: int, module_
 
     existing = get_entry(cfg.metadata_dir, va_int, module_val)
     if "size" not in existing:
-        update_field(cfg.metadata_dir, va_int, "size", size, module=module_val)
+        update_field(
+            cfg.metadata_dir, va_int, "size", size, module=module_val, updated_by="skeleton"
+        )
 
 
 def _run_append_mode(

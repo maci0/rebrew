@@ -78,6 +78,33 @@ def _install_fake_module(name: str, **attrs: Any) -> types.ModuleType:
     return mod
 
 
+#: ``DetectionTables`` field -> the module global a refresh rebinds beside it.
+_DETECTION_FIELDS = {
+    "profile_compat": "PROFILE_COMPAT_ALL",
+    "rich_build_profiles": "RICH_BUILD_PROFILES_ALL",
+    "linker_era_profiles": "LINKER_ERA_PROFILES_ALL",
+    "detectors": "_PLUGIN_DETECTORS",
+}
+
+
+def _publish_detection_tables(monkeypatch: pytest.MonkeyPatch, **fields: Any) -> None:
+    """Republish the detection snapshot with *fields* replaced.
+
+    Readers take :func:`rebrew.toolchain_detect.detection_tables`, so a fixture
+    that patched one module global alone would no longer be what any reader
+    sees — it would be testing a fiction.
+    """
+    import dataclasses
+
+    import rebrew.toolchain_detect as td
+
+    for field, value in fields.items():
+        monkeypatch.setattr(td, _DETECTION_FIELDS[field], value)
+    monkeypatch.setattr(
+        td, "_DETECTION_TABLES", dataclasses.replace(td.detection_tables(), **fields)
+    )
+
+
 #: Module globals that ``refresh_*()`` rebinds.  A plugin test that calls a
 #: refresh with a fake entry point would otherwise leave that plugin in the
 #: process-wide registry for every test that runs after it.  The mutation
@@ -96,6 +123,7 @@ _REGISTRY_SNAPSHOTS: tuple[tuple[str, str], ...] = (
     ("rebrew.toolchain", "TOOLCHAINS"),
     ("rebrew.toolchain", "TOOLCHAIN_ORIGINS"),
     ("rebrew.toolchain_detect", "LINKER_ERA_PROFILES_ALL"),
+    ("rebrew.toolchain_detect", "_DETECTION_TABLES"),
     ("rebrew.toolchain_detect", "_PLUGIN_DETECTORS"),
     ("rebrew.toolchain_detect", "PROFILE_COMPAT_ALL"),
     ("rebrew.toolchain_detect", "RICH_BUILD_PROFILES_ALL"),
@@ -878,7 +906,7 @@ class TestToolchainDetectorRegistry:
         compat = td._merged_profile_compat()
         assert "mytc" in compat["msvc"]
         assert compat["delphi"] == {"mytc"}  # un-matchable family opened
-        monkeypatch.setattr(td, "PROFILE_COMPAT_ALL", compat)
+        _publish_detection_tables(monkeypatch, profile_compat=compat)
         info = td.ToolchainInfo(
             family="msvc", arch="x86_32", msvc_version="6.0", suggested_profiles=None
         )
@@ -897,6 +925,64 @@ class TestToolchainDetectorRegistry:
         )
         compat = _merged_profile_compat()
         assert "msvc-6.0" in compat["msvc"]  # packaged family table intact
+
+
+class TestDetectionTablesSnapshot:
+    """The detection registries publish as ONE generation.
+
+    They are one component: a profile a plugin adds to the version tables and
+    the family it adds to the compat table must be visible to the same reader,
+    or `cmake-toolchain` writes a compiler version its own tables disagree
+    about.  A refresh is the only writer, and its contribution leaves with the
+    entry point that declared it.
+    """
+
+    def test_snapshot_matches_the_globals_of_that_generation(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import rebrew.toolchain_detect as td
+
+        td.refresh_detection_tables()
+        tables = td.detection_tables()
+        assert tables.profile_compat is td.PROFILE_COMPAT_ALL
+        assert tables.rich_build_profiles is td.RICH_BUILD_PROFILES_ALL
+        assert tables.linker_era_profiles is td.LINKER_ERA_PROFILES_ALL
+        assert tables.detectors is td._PLUGIN_DETECTORS
+
+    def test_plugin_contribution_arrives_and_leaves_with_its_entry_point(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import rebrew.toolchain_detect as td
+        from rebrew.cmake_tc import _cmake_c_compiler_versions
+
+        def _detector_provider() -> dict[str, list[str]]:
+            return {"msvc": ["mytc2"]}
+
+        def _version_provider() -> dict[str, list[str]]:
+            return {"linker:12.0": ["mytc2"], "build:9999": ["mytc2"]}
+
+        _install_fake_module("detector_pair_a", provider=_detector_provider)
+        _install_fake_module("detector_pair_b", provider=_version_provider)
+        monkeypatch.setattr(
+            "rebrew.registry.entry_points",
+            _fake_entry_points(
+                **{
+                    "rebrew.toolchain_detectors": [("a", "detector_pair_a:provider")],
+                    "rebrew.msvc_versions": [("b", "detector_pair_b:provider")],
+                }
+            ),
+        )
+        td.refresh_detection_tables()
+        assert "mytc2" in td.detection_tables().profile_compat["msvc"]
+        # Both halves came from ONE generation, so the era+build pair resolves.
+        assert _cmake_c_compiler_versions()["mytc2"] == "12.00.9999"
+
+        # Unload the plugin: the refresh is its inverse, and it must leave the
+        # contribution gone from every table it touched.
+        monkeypatch.setattr("rebrew.registry.entry_points", _fake_entry_points())
+        td.refresh_detection_tables()
+        assert "mytc2" not in td.detection_tables().profile_compat["msvc"]
+        assert "mytc2" not in _cmake_c_compiler_versions()
 
 
 class TestPluginToolchainConfig:
@@ -977,7 +1063,7 @@ class TestBinaryDetectorRegistry:
         import rebrew.toolchain_detect as td
 
         self._patch(monkeypatch)
-        monkeypatch.setattr(td, "_PLUGIN_DETECTORS", td._discover_binary_detectors())
+        _publish_detection_tables(monkeypatch, detectors=td._discover_binary_detectors())
         junk = tmp_path / "junk.bin"
         junk.write_bytes(b"\x00" * 64)
         info = td.detect_toolchain(junk)
@@ -985,7 +1071,7 @@ class TestBinaryDetectorRegistry:
         assert info.detected_by == "plugin-acme"
         assert info.confidence == "high"
         # a binary the packaged backends recognize is untouched by plugins
-        monkeypatch.setattr(td, "_PLUGIN_DETECTORS", [])
+        _publish_detection_tables(monkeypatch, detectors=[])
         assert td.detect_toolchain(junk).family == "unknown"
 
     def test_non_callable_detector_skipped(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1021,7 +1107,7 @@ class TestSixteenBitAlignment:
 
         compat = dict(td.PROFILE_COMPAT_ALL)
         compat.setdefault("acme-c", set()).add("mytc16")
-        monkeypatch.setattr(td, "PROFILE_COMPAT_ALL", compat)
+        _publish_detection_tables(monkeypatch, profile_compat=compat)
 
         info16 = td.ToolchainInfo(family="acme-c", arch="x86_16")
         aligned, _ = td.profile_matches_detection("mytc16", info16)
@@ -1098,10 +1184,9 @@ class TestMsvcVersionRegistry:
 
         self._patch(monkeypatch)
         rich, _ = td._merged_msvc_version_tables()
-        monkeypatch.setattr(td, "RICH_BUILD_PROFILES_ALL", rich)
         compat = dict(td.PROFILE_COMPAT_ALL)
         compat["msvc"] = set(compat["msvc"]) | {"mytc"}  # family alignment
-        monkeypatch.setattr(td, "PROFILE_COMPAT_ALL", compat)
+        _publish_detection_tables(monkeypatch, rich_build_profiles=rich, profile_compat=compat)
         info = td.ToolchainInfo(
             family="msvc", msvc_version="6.0", suggested_profiles=list(rich[8168])
         )

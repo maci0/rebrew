@@ -11,7 +11,6 @@ from rebrew.workspace.config import (
     WorkspaceConfigError,
     WorkspaceNotFound,
     db_dir,
-    db_path,
     default_target,
     find_root,
     project_table,
@@ -123,17 +122,6 @@ def test_read_config_directory_named_like_config(tmp_path: Path) -> None:
         read_config(tmp_path)
 
 
-def test_db_path_fails_loud_on_a_broken_config(tmp_path: Path) -> None:
-    """A broken config must not resolve to a default database path.
-
-    Falling back to ``<root>/db`` here reads as a workspace whose coverage is
-    zero, when the project actually stores its database somewhere else.
-    """
-    write_config(tmp_path, "[project\ndb_dir = ")
-    with pytest.raises(WorkspaceConfigError):
-        db_path(tmp_path)
-
-
 def test_project_table_defaults(tmp_path: Path) -> None:
     assert project_table({}) == {}
     assert project_table({"project": "nope"}) == {}
@@ -223,9 +211,3 @@ def test_db_dir_invalid_config_fails_loud(tmp_path: Path) -> None:
     write_config(tmp_path, "not toml =")
     with pytest.raises(WorkspaceConfigError):
         db_dir(tmp_path)
-
-
-def test_db_path(tmp_path: Path) -> None:
-    assert db_path(tmp_path) == (tmp_path / "db").resolve() / "coverage.db"
-    write_config(tmp_path, '[project]\ndb_dir = "coverage"\n')
-    assert db_path(tmp_path) == (tmp_path / "coverage").resolve() / "coverage.db"

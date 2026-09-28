@@ -188,10 +188,7 @@ class TestResolvedOverridesMemo:
             "/DGAME",
         )
 
-
-    def test_preset_refresh_is_seen(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_preset_refresh_is_seen(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """A library file that only names a library is filled by the preset table."""
         import rebrew.metadata as metadata_mod
         from rebrew.compile_overrides import resolve_compile_overrides_cached

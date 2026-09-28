@@ -60,7 +60,9 @@ are never stored — `--fix` strips them instead of migrating.
 `STATUS`, `TOOLCHAIN`, `SKIP`, `GLOBALS`, `BLOCKER`, `BLOCKER_DELTA`, `NOTE`,
 `GHIDRA`, `ANALYSIS`, `SOURCE` (except `naked`), `PROVE_CONSTRAINTS`, `LOCALS`,
 `COMMENTS`
-(`ORIGIN` also warns but is stripped, never stored; `SECTION` on
+(`ORIGIN`, `UPDATED_BY` and `UPDATED_AT` also warn but are stripped, never
+stored — a stamp is written by the tools, so migrating an inline copy would
+overwrite the real one; `SECTION` on
 FUNCTION/LIBRARY/STUB markers is stripped — DATA/GLOBAL SECTION lives in
 `rebrew-data.toml`.  `SIZE`, `CFLAGS` and `SOURCE: naked` follow the
 co-read / file-borne rules above.  `LOCALS`, `COMMENTS` and
@@ -93,6 +95,32 @@ note = "register allocation differs in inner loop"
 | `get_entry(directory, va, module)` | Read an entry — via `rebrew blocker show` |
 | `rebrew diff --fix-blocker` / `rebrew near-diag --fix-blocker` / `rebrew document-unmatched` | Auto-classified BLOCKER writers (same gated API underneath) |
 
+#### Owned fields
+
+`rebrew.metadata.METADATA_FIELDS` is the authoritative set; these are the
+shapes that matter for a hand-written script or a review:
+
+| Field | Value | Written by |
+|---|---|---|
+| `STATUS` | one of the twelve `rebrew.metadata.KNOWN_STATUSES` values — the six ladder values below plus the six machine verdicts | the STATUS writers only, through the promotion gate |
+| `SIZE` | integer | annotation migration, `rebrew verify --fix-sizes`, `rebrew catalog --fix-sizes`; co-read with `// SIZE:` (an override, not a move) |
+| `CFLAGS`, `TOOLCHAIN` | string | `rebrew cfg set-cflags` / `set-compiler`, library-override resolution, lint `--fix`; `CFLAGS` co-read with `// CFLAGS:` |
+| `BLOCKER`, `BLOCKER_DELTA` | string / integer | `rebrew blocker set/clear`, `rebrew diff --fix-blocker`, `rebrew near-diag --fix-blocker`, `rebrew document-unmatched`; cleared on a byte match |
+| `NOTE`, `GHIDRA`, `ANALYSIS` | string | `update_field` (`rebrew blocker`/lint migrations, BinSync pull) |
+| `SKIP` | boolean | a manual park through `update_field`; the promotion gate then keeps the row parked (no status write silently unparks it) |
+| `GLOBALS`, `LOCALS`, `COMMENTS`, `PROVE_CONSTRAINTS` | tables | `GLOBALS` from `rebrew sync --pull`, the rest from analysis and prove writers; an inline scalar for these warns (W019) but cannot migrate |
+| `SOURCE` | `naked` (the only stored value) | stays in the `.c` as `// SOURCE: naked` — file-borne, W019-exempt, and self-clearing when the real C body replaces it; a non-naked value is migration debt that `lint --fix` moves into the TOML |
+| `UPDATED_BY`, `UPDATED_AT` | string / ISO-8601 UTC | every gated writer, as a pair: STATUS through `update_source_status` / `update_statuses_batch`, every other field through `update_field` / `set_fields` (and `MetadataEntry.apply`) |
+
+**Provenance names the last write of any kind.** `UPDATED_BY` is one of
+`test`, `verify`, `prove`, `match`, `diff`, `near-diag`, `blocker`, `skeleton`,
+`lint`, `cross-import`, `binsync-import`, `fix-sizes`, `intake`, and it names
+the tool that wrote the row most recently — a `BLOCKER` edit through
+`update_field` stamps itself, so it does not leave a months-old `verify` tag
+standing on the row.  A writer that passes no tag keeps the stored stamp.
+`rebrew-data.toml` carries the same pair (`verify --data` stamps `verify` on
+each verdict); see [Write provenance](METADATA.md#write-provenance).
+
 > **Never write `rebrew-functions.toml` manually** — every BLOCKER, STATUS,
 > CFLAGS, and NOTE write must go through the API above or its CLI gate
 > (`rebrew blocker set/clear` for BLOCKER, `rebrew test`/`verify`/`prove`
@@ -110,7 +138,8 @@ note = "player count"
 ```
 
 Owned fields per entry: `name`, `type`, `size`, `section`, `note`, `status`
-(`VERIFIED`/`DRIFT`/`UNCHECKED` data verdicts, written by `verify --data`).
+(`VERIFIED`/`DRIFT`/`UNCHECKED` data verdicts, written by `verify --data`), and
+the `updated_by` / `updated_at` write stamp every gated writer records.
 
 Managed exclusively by `rebrew.data_metadata` (locked + atomic) — via
 `rebrew data` (the bare command scans; `--annotate`, `--set-type`,

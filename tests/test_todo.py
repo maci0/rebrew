@@ -12,12 +12,14 @@ from rebrew.catalog import FunctionEntry
 from rebrew.todo import (
     CAT_COMPILE_ERROR,
     CAT_DOCUMENTED,
+    CAT_EXACT_ONLY,
     CAT_EXTRACT_ERROR,
     CAT_FIX_DELTA,
     CAT_IDENTIFY_LIBRARY,
     CAT_IMPROVE_MATCH,
     CAT_MISSING_ANNOTATION,
     CAT_NAKED,
+    CAT_POSTLINK,
     CAT_RUN_PROVER,
     CAT_SETUP,
     CAT_START_FUNCTION,
@@ -25,6 +27,7 @@ from rebrew.todo import (
     _collect_active_functions,
     _collect_library_candidates,
     _collect_new_functions,
+    _collect_postlink_rewritten,
     _collect_prover_candidates,
     _collect_setup_steps,
     calculate_roi,
@@ -506,7 +509,11 @@ class TestCollectors:
             0x2000: {"status": "RELOC", "symbol": "b"},
         }
         items = _collect_active_functions(existing, {}, {}, {})
-        assert len(items) == 0
+        # EXACT is done: the toolchain emits those bytes as-is.  RELOC is not —
+        # it matches only after relocation masking — so it stays listed as the
+        # work left to reach an identical build.
+        assert [i.category for i in items] == [CAT_EXACT_ONLY]
+        assert items[0].command == "rebrew test 0x00002000 --linked"
 
     @pytest.mark.parametrize("has_angr", [True, False])
     def test_proven_is_improve_match_work(
@@ -545,6 +552,39 @@ class TestCollectors:
         assert len(items) == 1
         assert items[0].va == 0x2000
         assert items[0].status == "NEAR_MATCHING"
+
+    def test_postlink_rewritten_span_is_listed(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Bytes the raw link never emitted are not toolchain-identical, even
+        when the shipped image matches: the lane reports the span."""
+        build = tmp_path / "build"
+        build.mkdir()
+        (build / "test.dll").write_bytes(b"\x90" * 16)
+        (tmp_path / "raw.dll").write_bytes(b"\x01" * 16)
+        section = SimpleNamespace(va=0x1000, file_offset=0, size=16, raw_size=16)
+        info = SimpleNamespace(sections={".text": section}, text_va=0x1000, text_raw_offset=0)
+        monkeypatch.setattr("rebrew.binary_loader.load_binary", lambda p: info)
+        cfg = _make_cfg(tmp_path, raw_link=tmp_path / "raw.dll")
+        existing = {0x1000: {"symbol": "f", "status": "RELOC", "size": 16}}
+        items = _collect_postlink_rewritten(cfg, existing, {})
+        assert [i.category for i in items] == [CAT_POSTLINK]
+        assert items[0].command == "rebrew test 0x00001000 --linked"
+
+    def test_postlink_lane_silent_without_raw_link(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """No pre-postlink image to compare against: claim nothing rather than
+        invent a rewrite."""
+        build = tmp_path / "build"
+        build.mkdir()
+        (build / "test.dll").write_bytes(b"\x90" * 16)
+        monkeypatch.setattr(
+            "rebrew.binary_loader.load_binary",
+            lambda p: SimpleNamespace(sections={}, text_va=0, text_raw_offset=0),
+        )
+        cfg = _make_cfg(tmp_path, raw_link=None)
+        assert _collect_postlink_rewritten(cfg, {0x1000: {"status": "RELOC"}}, {}) == []
 
     def test_library_candidates(self) -> None:
         """`FunctionEntry` has no `module` attribute, so the lane must infer the

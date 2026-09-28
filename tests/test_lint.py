@@ -2184,6 +2184,33 @@ class TestE008SizeValue:
         assert not any((c == "E008" for _, c, _ in result.errors))
 
 
+class TestW019ProvenanceFields:
+    """The coverage-era provenance pair is metadata-only.
+
+    `UPDATED_BY` / `UPDATED_AT` are written by the tools and never authored
+    inline, so an inline copy is not an unknown key (W010) to be judged by a
+    human: it is metadata-only (W019) and `--fix` strips it, because migrating
+    a hand-written stamp would overwrite the real one.
+    """
+
+    def test_inline_provenance_pair_is_metadata_only(self, tmp_path: Path) -> None:
+        f = _write_c(
+            tmp_path,
+            "foo.c",
+            "// FUNCTION: SERVER 0x10001000\n// UPDATED_BY: verify\n"
+            "// UPDATED_AT: 2026-01-01T00:00:00+00:00\nint foo(void) { return 0; }\n",
+        )
+        result = lint_file(f)
+        codes = {c for _, c, _ in result.warnings}
+        assert "W019" in codes
+        assert "W010" not in codes
+
+    def test_both_provenance_keys_are_metadata_keys(self) -> None:
+        from rebrew.annotation import METADATA_KEYS
+
+        assert {"UPDATED_BY", "UPDATED_AT"} <= METADATA_KEYS
+
+
 class TestW019SizeDisagreement:
     def test_inline_vs_metadata_size_disagrees(self, tmp_path: Path) -> None:
         (tmp_path / "rebrew-functions.toml").write_text(
@@ -2642,3 +2669,253 @@ class TestDataSectionNamesMemoConcurrent:
         # lands after the index clear, so the owner hits with no index entry.
         lint._DATA_SECTION_NAMES.pop(key, None)
         assert lint._data_section_names_for(entries) == expected
+
+
+class TestW031DataMetadataHygiene:
+    """W031: the data store's hand-edit shapes, which the writers reject."""
+
+    def _cfg(self, tmp_path: Path) -> SimpleNamespace:
+        return SimpleNamespace(root=tmp_path, metadata_dir=tmp_path)
+
+    def _codes(self, cfg: SimpleNamespace) -> list[str]:
+        from rebrew.lint import _check_W031_data_metadata
+
+        return [c for res in _check_W031_data_metadata(cfg) for _, c, _ in res.warnings]
+
+    def _messages(self, cfg: SimpleNamespace) -> str:
+        from rebrew.lint import _check_W031_data_metadata
+
+        return "\n".join(m for res in _check_W031_data_metadata(cfg) for _, _, m in res.warnings)
+
+    def test_clean_store_is_silent(self, tmp_path: Path) -> None:
+        (tmp_path / "rebrew-data.toml").write_text(
+            '["SERVER.0x1000"]\nname = "g"\nstatus = "DRIFT"\n'
+            'updated_by = "verify"\nupdated_at = "2026-01-01T00:00:00+00:00"\n',
+            encoding="utf-8",
+        )
+        assert self._codes(self._cfg(tmp_path)) == []
+
+    def test_unknown_field_is_reported(self, tmp_path: Path) -> None:
+        (tmp_path / "rebrew-data.toml").write_text(
+            '["SERVER.0x1000"]\nname = "g"\nbogus = 1\n', encoding="utf-8"
+        )
+        assert "unknown field" in self._messages(self._cfg(tmp_path))
+
+    def test_non_verdict_status_is_reported(self, tmp_path: Path) -> None:
+        (tmp_path / "rebrew-data.toml").write_text(
+            '["SERVER.0x1000"]\nstatus = "EXACT"\n', encoding="utf-8"
+        )
+        assert "not a data verdict" in self._messages(self._cfg(tmp_path))
+
+    def test_half_a_provenance_pair_is_reported(self, tmp_path: Path) -> None:
+        (tmp_path / "rebrew-data.toml").write_text(
+            '["SERVER.0x1000"]\nstatus = "VERIFIED"\nupdated_by = "verify"\n',
+            encoding="utf-8",
+        )
+        assert "half a provenance pair" in self._messages(self._cfg(tmp_path))
+
+    def test_missing_store_is_silent(self, tmp_path: Path) -> None:
+        assert self._codes(self._cfg(tmp_path)) == []
+
+
+class TestW032CoverageStore:
+    """W032: stale artifacts and documents the dashboards cannot serve."""
+
+    def _cfg(self, tmp_path: Path) -> SimpleNamespace:
+        return SimpleNamespace(root=tmp_path, db_dir="db")
+
+    def _messages(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
+        from rebrew.lint import _check_W032_coverage_store
+
+        return "\n".join(
+            m for res in _check_W032_coverage_store(self._cfg(tmp_path)) for _, _, m in res.warnings
+        )
+
+    def test_leftover_sqlite_store_is_reported(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        (tmp_path / "db").mkdir()
+        (tmp_path / "db" / "coverage.db").write_bytes(b"SQLite format 3\x00")
+        assert "SQLite coverage database" in self._messages(tmp_path, monkeypatch)
+
+    def test_leftover_catalog_artifacts_are_reported(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        (tmp_path / "db").mkdir()
+        (tmp_path / "db" / "data_T.json").write_text("{}", encoding="utf-8")
+        (tmp_path / "db" / "T_functions.csv").write_text("address\n", encoding="utf-8")
+        messages = self._messages(tmp_path, monkeypatch)
+        assert "grid JSON" in messages
+        assert "CSV export" in messages
+
+    def test_unreadable_document_is_reported(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        (tmp_path / "db").mkdir()
+        (tmp_path / "db" / "coverage-T.toml").write_text("not toml = = =\n", encoding="utf-8")
+        assert "cannot serve" in self._messages(tmp_path, monkeypatch)
+
+    def test_document_naming_another_target_is_reported(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The dashboards key a document by its FILENAME, so a `target` key
+        that disagrees serves another target's data under this name."""
+        import rebrew.coverage_toml as coverage_toml
+        from rebrew.coverage_toml import write_coverage_toml
+
+        (tmp_path / "db").mkdir()
+        payload = {"sections": {}, "globals": {}, "paths": {}, "functions": {}}
+        monkeypatch.setattr(
+            coverage_toml,
+            "load_coverage_datasets",
+            lambda *a, **k: [("T", payload)],
+            raising=True,
+        )
+        paths = write_coverage_toml(tmp_path)
+        # Rename the document, leaving its own `target` key naming T.
+        (tmp_path / "db" / "coverage-T.toml").rename(tmp_path / "db" / "coverage-OTHER.toml")
+        assert paths  # the write happened; the mismatch is what W032 reads
+        messages = self._messages(tmp_path, monkeypatch)
+        assert "cannot serve" in messages
+        assert "target is 'T'" in messages
+
+    def test_clean_directory_is_silent(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        (tmp_path / "db").mkdir()
+        assert self._messages(tmp_path, monkeypatch) == ""
+
+
+class TestW031W032Cli:
+    """End-to-end: the store checks ride the normal lint report and count."""
+
+    def _cfg(self, tmp_path: Path) -> SimpleNamespace:
+        src = tmp_path / "reversed"
+        src.mkdir(exist_ok=True)
+        (tmp_path / "db").mkdir(exist_ok=True)
+        return SimpleNamespace(
+            root=tmp_path,
+            reversed_dir=src,
+            metadata_dir=tmp_path,
+            source_ext=".c",
+            cflags="/O2 /Gd",
+            cflags_presets={},
+            marker="SERVER",
+            library_modules=set(),
+            db_dir="db",
+            target_name="SERVER",
+        )
+
+    def test_store_findings_appear_and_count(self, tmp_path: Path) -> None:
+        from unittest.mock import patch
+
+        from typer.testing import CliRunner
+
+        from rebrew.lint import app
+
+        cfg = self._cfg(tmp_path)
+        (tmp_path / "rebrew-data.toml").write_text(
+            '["SERVER.0x1000"]\nstatus = "EXACT"\n', encoding="utf-8"
+        )
+        (tmp_path / "db" / "coverage.db").write_bytes(b"SQLite format 3\x00")
+        with patch("rebrew.lint.load_config", return_value=cfg):
+            result = CliRunner().invoke(app, [])
+        assert result.exit_code == 0, result.output
+        assert "W031" in result.output
+        assert "W032" in result.output
+        # The bare tmp project has no rendered scaffold either (W033).
+        assert "W033" in result.output
+        # Every store check is a warning, so it never fails the run.
+        assert "0 errors" in result.output
+        assert "3 warnings" in result.output
+
+    def test_json_lists_the_offending_artifacts(self, tmp_path: Path) -> None:
+        import json
+        from unittest.mock import patch
+
+        from typer.testing import CliRunner
+
+        from rebrew.lint import app
+
+        cfg = self._cfg(tmp_path)
+        (tmp_path / "db" / "data_SERVER.json").write_text("{}", encoding="utf-8")
+        with patch("rebrew.lint.load_config", return_value=cfg):
+            result = CliRunner().invoke(app, ["--json"])
+        payload = json.loads(result.stdout)
+        assert payload["warnings"] >= 1
+        files = {entry["file"] for entry in payload["files"]}
+        assert "data_SERVER.json" in files
+
+
+class TestW033AgentScaffold:
+    """W033: the rendered workflow instructions vs the installed rebrew."""
+
+    def _cfg(self, tmp_path: Path) -> SimpleNamespace:
+        return SimpleNamespace(root=tmp_path, target_name="bench")
+
+    def _messages(self, cfg: SimpleNamespace) -> str:
+        from rebrew.lint import _check_W033_agent_scaffold
+
+        return "\n".join(m for res in _check_W033_agent_scaffold(cfg) for _, _, m in res.warnings)
+
+    def test_missing_scaffold_is_reported(self, tmp_path: Path) -> None:
+        assert "refresh-agents" in self._messages(self._cfg(tmp_path))
+
+    def test_fresh_scaffold_is_silent(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A project rendered from the packaged sources passes."""
+        from rebrew.init import agent_skill_files
+
+        for rel, data in agent_skill_files("bench").items():
+            path = tmp_path / ".agents" / "skills" / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+        import shutil
+
+        import rebrew
+
+        shutil.copyfile(Path(rebrew.__file__).parent / "PRINCIPLES.md", tmp_path / "PRINCIPLES.md")
+        assert self._messages(self._cfg(tmp_path)) == ""
+
+    def test_an_edited_skill_file_is_reported(self, tmp_path: Path) -> None:
+        from rebrew.init import agent_skill_files
+
+        for rel, data in agent_skill_files("bench").items():
+            path = tmp_path / ".agents" / "skills" / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+        victim = tmp_path / ".agents" / "skills" / "rebrew-workflow" / "SKILL.md"
+        victim.write_text("old workflow instructions\n", encoding="utf-8")
+        assert "rebrew-workflow/SKILL.md" in self._messages(self._cfg(tmp_path))
+
+    def test_the_render_manifest_is_not_a_skill(self, tmp_path: Path) -> None:
+        """`--refresh-agents` writes `.rebrew-scaffold.json` beside the skills;
+        reporting it would warn forever on a freshly refreshed project."""
+        from rebrew.init import agent_skill_files
+
+        for rel, data in agent_skill_files("bench").items():
+            path = tmp_path / ".agents" / "skills" / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+        (tmp_path / ".agents" / "skills" / ".rebrew-scaffold.json").write_text(
+            "{}", encoding="utf-8"
+        )
+        import shutil
+
+        import rebrew
+
+        shutil.copyfile(Path(rebrew.__file__).parent / "PRINCIPLES.md", tmp_path / "PRINCIPLES.md")
+        assert self._messages(self._cfg(tmp_path)) == ""
+
+    def test_a_pruned_skill_is_reported(self, tmp_path: Path) -> None:
+        from rebrew.init import agent_skill_files
+
+        for rel, data in agent_skill_files("bench").items():
+            path = tmp_path / ".agents" / "skills" / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+        ghost = tmp_path / ".agents" / "skills" / "rebrew-retired" / "SKILL.md"
+        ghost.parent.mkdir(parents=True)
+        ghost.write_text("# retired\n", encoding="utf-8")
+        assert "rebrew-retired/SKILL.md" in self._messages(self._cfg(tmp_path))

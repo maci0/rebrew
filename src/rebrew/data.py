@@ -228,6 +228,7 @@ def _generate_bss_fix(
                         "section": ".bss",
                         "note": f"gap between {gap.before} and {gap.after}",
                     },
+                    "updated_by": "data",
                 }
                 for gap in new_gaps
             ],

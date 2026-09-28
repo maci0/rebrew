@@ -27,7 +27,7 @@ Success breeds success. Every reversed function immediately enriches the context
 Local decompilation workflows and reverse-engineering platforms (like Ghidra) must complement each other. Discoveries made in the local repository (struct definitions, variable renames, compilation flags) must flow back into the disassembler's project database, and vice-versa, avoiding silos of knowledge.
 
 ## 9. RAG over Hallucination
-AI models infer semantics, but they cannot guess absolute Virtual Addresses (VAs), structure offsets, or proprietary calling conventions. Therefore, all AI code generation must be grounded by a Retrieval-Augmented Generation (RAG) system. Deterministic facts (e.g., jump targets, global pointer types) must be retrieved from the known `coverage.db` and explicitly injected into the LLM prompt.
+AI models infer semantics, but they cannot guess absolute Virtual Addresses (VAs), structure offsets, or proprietary calling conventions. Therefore, all AI code generation must be grounded by a Retrieval-Augmented Generation (RAG) system. Deterministic facts (e.g., jump targets, global pointer types) must be retrieved from the known coverage documents (`db/coverage-<target>.toml`) and explicitly injected into the LLM prompt.
 
 ## 10. AI as a Baseline, Not a Finisher
 The LLM's role is to generate a semantically correct structural baseline. It shouldn't be relied upon to perfectly guess register allocation optimizations or minute instruction jitter. Once the LLM achieves a `NEAR_MATCHING` state with a small byte delta, deterministic programmatic tools (like the Genetic Algorithm) take over to brute-force the remaining permutations.

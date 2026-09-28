@@ -55,6 +55,7 @@ import os
 import re
 import shutil
 import subprocess
+import threading
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -427,6 +428,12 @@ def _discover_binary_detectors() -> list[tuple[str, Any]]:
 _PLUGIN_DETECTORS: list[tuple[str, Any]] = _discover_binary_detectors()
 
 
+#: One lock for the whole detection publication.  A refresh republishes four
+#: tables, so two concurrent refreshes would otherwise interleave and leave a
+#: reader with the tables of one discovery beside the tables of the other.
+_DETECTION_REFRESH_LOCK = threading.Lock()
+
+
 def refresh_detection_tables() -> dict[str, int]:
     """Re-run discovery and refresh the detection registries.
 
@@ -435,17 +442,33 @@ def refresh_detection_tables() -> dict[str, int]:
     and :data:`_PLUGIN_DETECTORS` — long-lived processes can pick up
     detection plugins installed after startup without a restart.  Returns
     the resulting entry counts keyed by entry-point group, for
-    :func:`rebrew.registry.refresh_all`."""
-    global PROFILE_COMPAT_ALL, RICH_BUILD_PROFILES_ALL
-    global LINKER_ERA_PROFILES_ALL, _PLUGIN_DETECTORS
+    :func:`rebrew.registry.refresh_all`.
 
-    PROFILE_COMPAT_ALL = _merged_profile_compat()
-    RICH_BUILD_PROFILES_ALL, LINKER_ERA_PROFILES_ALL = _merged_msvc_version_tables()
-    _PLUGIN_DETECTORS = _discover_binary_detectors()
+    Every value is built before anything is published, and the four globals
+    are then rebound in one locked section: a reader must never see a profile
+    in the version tables that the compat table of the same discovery does not
+    know.  :func:`detection_tables` hands a reader the whole generation as one
+    reference; writers must never mutate the published tables in place."""
+    global PROFILE_COMPAT_ALL, RICH_BUILD_PROFILES_ALL
+    global LINKER_ERA_PROFILES_ALL, _PLUGIN_DETECTORS, _DETECTION_TABLES
+
+    compat = _merged_profile_compat()
+    rich, eras = _merged_msvc_version_tables()
+    detectors = _discover_binary_detectors()
+    with _DETECTION_REFRESH_LOCK:
+        PROFILE_COMPAT_ALL = compat
+        RICH_BUILD_PROFILES_ALL, LINKER_ERA_PROFILES_ALL = rich, eras
+        _PLUGIN_DETECTORS = detectors
+        _DETECTION_TABLES = DetectionTables(
+            profile_compat=compat,
+            rich_build_profiles=rich,
+            linker_era_profiles=eras,
+            detectors=detectors,
+        )
     return {
-        "binary_detectors": len(_PLUGIN_DETECTORS),
-        "toolchain_detectors": len(PROFILE_COMPAT_ALL),
-        "msvc_versions": len(RICH_BUILD_PROFILES_ALL) + len(LINKER_ERA_PROFILES_ALL),
+        "binary_detectors": len(detectors),
+        "toolchain_detectors": len(compat),
+        "msvc_versions": len(rich) + len(eras),
     }
 
 
@@ -1200,7 +1223,9 @@ def detect_with_pe_meta(path: Path) -> ToolchainInfo | None:
         info.family = "msvc"
         info.confidence = "high"
         build = _rich_compiler_build(rich_entries)  # the C1/C2 pair (mode)
-        profiles = RICH_BUILD_PROFILES_ALL.get(build) or LINKER_ERA_PROFILES_ALL.get(
+        # One snapshot: the build table and the era table are one component.
+        tables = detection_tables()
+        profiles = tables.rich_build_profiles.get(build) or tables.linker_era_profiles.get(
             linker_mm or (12, 0)
         )
         mm = linker_mm or (12, 0)  # unknown linker -> VC6-era fallback
@@ -1221,7 +1246,7 @@ def detect_with_pe_meta(path: Path) -> ToolchainInfo | None:
     if linker_mm is not None:
         version = f"{linker_mm[0]}.{linker_mm[1]:02d}"
         info.msvc_version = version
-        info.suggested_profiles = list(LINKER_ERA_PROFILES_ALL.get(linker_mm, ()))
+        info.suggested_profiles = list(detection_tables().linker_era_profiles.get(linker_mm, ()))
         if linker_mm == (9, 0):
             info.add(f"linker {linker_ver} (MSVC 2.0 or MinGW GNU ld)")
             if msvcp_version:
@@ -1867,10 +1892,11 @@ def detect_toolchain(
     ``ToolchainInfo(family="unknown", confidence="low")``.
     """
     info = _detect_toolchain_core(path, exclude_ranges)
-    if info.family != "unknown" or not _PLUGIN_DETECTORS:
+    detectors = detection_tables().detectors
+    if info.family != "unknown" or not detectors:
         return info
     path = Path(path)
-    for name, fn in _PLUGIN_DETECTORS:
+    for name, fn in detectors:
         try:
             plugin_info = fn(path)
         except Exception:
@@ -2000,13 +2026,46 @@ def _merged_profile_compat() -> dict[str, set[str] | None]:
 PROFILE_COMPAT_ALL: dict[str, set[str] | None] = _merged_profile_compat()
 
 
+@dataclass(frozen=True)
+class DetectionTables:
+    """One generation of the detection registries, published as a unit.
+
+    The compat table and the two version-exact tables are ONE component: a
+    profile a plugin adds to ``rebrew.msvc_versions`` and the family it adds
+    to ``rebrew.toolchain_detectors`` must be visible to the same reader.  A
+    reader that pulled two module globals across a refresh could mix the
+    generations and report a profile as era-only (or the reverse).
+    """
+
+    profile_compat: dict[str, set[str] | None]
+    rich_build_profiles: dict[int, tuple[str, ...]]
+    linker_era_profiles: dict[tuple[int, int], tuple[str, ...]]
+    detectors: list[tuple[str, Any]]
+
+
+_DETECTION_TABLES = DetectionTables(
+    profile_compat=PROFILE_COMPAT_ALL,
+    rich_build_profiles=RICH_BUILD_PROFILES_ALL,
+    linker_era_profiles=LINKER_ERA_PROFILES_ALL,
+    detectors=_PLUGIN_DETECTORS,
+)
+
+
+def detection_tables() -> DetectionTables:
+    """The current generation of the detection registries.
+
+    One reference, so a reader that needs more than one table gets a
+    consistent set; :func:`refresh_detection_tables` replaces it whole."""
+    return _DETECTION_TABLES
+
+
 def profile_matches_detection(profile: str, info: ToolchainInfo) -> tuple[bool, str | None]:
     """Return ``(aligned, explanation)`` for *profile* vs a detection.
 
     *aligned* is True when the configured profile can plausibly byte-match
     the detected family; *explanation* carries a fix hint when not.
     """
-    compatible = PROFILE_COMPAT_ALL.get(info.family)
+    compatible = detection_tables().profile_compat.get(info.family)
     if compatible is None:
         if info.family == "unknown":
             return True, None  # unknown family: don't second-guess the user
@@ -2116,7 +2175,7 @@ def suggest_profile(info: ToolchainInfo, binary: Path | None = None) -> str | No
 
     The single source of truth for family→profile selection, used by
     ``rebrew init --guess-compiler``, ``rebrew intake``, and doctor.  Uses
-    ``PROFILE_COMPAT_ALL`` (the byte-match compatibility table) and prefers the
+    ``detection_tables().profile_compat`` (the byte-match compatibility table) and prefers the
     16-bit profile when the binary is 16-bit (NE x86_16 or a plain DOS MZ
     executable).  Version-exact ``suggested_profiles`` (Rich header / linker
     era, or plugin evidence) win over the generic preference lists, so e.g.
@@ -2124,7 +2183,7 @@ def suggest_profile(info: ToolchainInfo, binary: Path | None = None) -> str | No
     than the msvc-1.52 default.  Returns ``None`` when no rebrew profile can
     match.
     """
-    compatible = PROFILE_COMPAT_ALL.get(info.family)
+    compatible = detection_tables().profile_compat.get(info.family)
     if not compatible:
         return None
     is16 = _is_16bit_target(info, binary)

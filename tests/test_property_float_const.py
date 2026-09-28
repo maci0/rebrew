@@ -10,6 +10,7 @@ raising, and each address is yielded once.
 
 from __future__ import annotations
 
+import math
 import struct
 
 from hypothesis import given, settings
@@ -101,11 +102,15 @@ def test_find_float_consts_yields_invariants(sample) -> None:
         ), "constant outside every const region"
         assert isinstance(const.value, float)
         # A single-precision yield must round-trip through the same <f read.
-        expected = struct.unpack(
-            "<f" if const.size == 4 else "<d",
-            struct.pack("<f" if const.size == 4 else "<d", const.value),
-        )[0]
-        assert expected == const.value
+        fmt = "<f" if const.size == 4 else "<d"
+        expected = struct.unpack(fmt, struct.pack(fmt, const.value))[0]
+        if math.isnan(expected) or math.isnan(const.value):
+            # NaN is never equal to itself, and a NaN bit pattern in the bytes
+            # is a constant the extractor must still report (0x7FC00000 in a
+            # float pool is data, not padding): compare by kind, not by ==.
+            assert math.isnan(expected) and math.isnan(const.value)
+        else:
+            assert expected == const.value
 
 
 @settings(max_examples=100, deadline=None)

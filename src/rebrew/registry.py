@@ -309,6 +309,14 @@ def merge_provider_dict(
         merge_into(registry, name, value, origin, group=group)
 
 
+#: Serializes the composite refresh.  The per-group ``refresh_*`` helpers take
+#: their own locks, but a caller that needs every registry republished together
+#: (this function) must not interleave with another such caller: two composites
+#: running at once could leave toolchains from one discovery beside mutations
+#: from the other, and a reader could observe that mixed system.
+_REFRESH_ALL_LOCK = threading.Lock()
+
+
 def refresh_all() -> dict[str, int]:
     """Re-run discovery for every registry module and refresh its snapshot.
 
@@ -320,6 +328,12 @@ def refresh_all() -> dict[str, int]:
     refreshed: the umbrella app mounts them once.  Each module also exposes a
     single-registry ``refresh_*`` (e.g.
     :func:`rebrew.toolchain.refresh_toolchain_registry`).
+
+    The groups are refreshed as one composition under a single lock, so no
+    reader sees a half-refreshed system.  CLI command groups are the documented
+    exception: a command the app already mounted is not unmounted, so a second
+    refresh could not restore that generation either — ``cordis-boundary:``
+    forward-only, compensated by re-mounting the umbrella app.
     """
     from rebrew import (
         binary_loader,
@@ -332,18 +346,19 @@ def refresh_all() -> dict[str, int]:
     )
     from rebrew.matcher import compiler, mutator
 
-    counts: dict[str, int] = {}
-    counts["toolchains"] = len(toolchain.refresh_toolchain_registry())
-    counts["decompiler_backends"] = len(decompiler.refresh_backends())
-    counts["mutations"] = len(mutator.refresh_mutations())
-    counts["flag_sets"] = len(compiler.refresh_flag_sets()[0])
-    compiler.refresh_docker_backed_profiles()
-    counts["library_presets"] = len(metadata.refresh_library_presets())
-    counts.update(toolchain_detect.refresh_detection_tables())
-    counts["binary_loaders"] = len(binary_loader.refresh_loaders())
-    counts["cache_backends"] = len(compile_cache.refresh_cache_backends())
-    counts["discoverers"] = len(discover.refresh_discoverers())
-    return counts
+    with _REFRESH_ALL_LOCK:
+        counts: dict[str, int] = {}
+        counts["toolchains"] = len(toolchain.refresh_toolchain_registry())
+        counts["decompiler_backends"] = len(decompiler.refresh_backends())
+        counts["mutations"] = len(mutator.refresh_mutations())
+        counts["flag_sets"] = len(compiler.refresh_flag_sets()[0])
+        compiler.refresh_docker_backed_profiles()
+        counts["library_presets"] = len(metadata.refresh_library_presets())
+        counts.update(toolchain_detect.refresh_detection_tables())
+        counts["binary_loaders"] = len(binary_loader.refresh_loaders())
+        counts["cache_backends"] = len(compile_cache.refresh_cache_backends())
+        counts["discoverers"] = len(discover.refresh_discoverers())
+        return counts
 
 
 __all__ = [

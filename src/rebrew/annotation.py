@@ -117,8 +117,9 @@ OPTIONAL_KEYS = {
 #   ORIGIN    the legacy inline spelling; the TOML field is SOURCE
 #   SECTION   owned by data_metadata.py for DATA/GLOBAL, never written to
 #             rebrew-functions.toml, but an inline occurrence still warns
-#   UPDATED_BY, UPDATED_AT  written by the STATUS writer, never authored
-#             inline, so there is nothing for the linter to catch
+#   UPDATED_BY, UPDATED_AT  written by the tools, never authored inline: an
+#             occurrence gets W019 (metadata-only) rather than W010 (unknown
+#             key) and `--fix` strips it instead of migrating a stamp
 # The rest (STATUS/CFLAGS/ANALYSIS/PROVE_CONSTRAINTS/...) overlap exactly.
 METADATA_KEYS: frozenset[str] = frozenset(
     {
@@ -139,6 +140,8 @@ METADATA_KEYS: frozenset[str] = frozenset(
         "TOOLCHAIN",
         "LOCALS",
         "COMMENTS",
+        "UPDATED_BY",
+        "UPDATED_AT",
     }
 )
 ALL_KNOWN_KEYS = OPTIONAL_KEYS | METADATA_KEYS | {"MARKER", "VA"}
@@ -830,7 +833,7 @@ def update_size_annotation(
         old_size = 0
     if new_size <= old_size:
         return False
-    update_field(_dir, va, "size", new_size, module=module)
+    update_field(_dir, va, "size", new_size, module=module, updated_by="fix-sizes")
     return True
 
 

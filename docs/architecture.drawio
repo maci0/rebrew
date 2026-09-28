@@ -8,7 +8,7 @@
         <mxCell id="eco-title" value="Relumea workspace: how rebrew talks to siblings and external tools" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=18;fontStyle=1;fontColor=#0f172a;" vertex="1" parent="1">
           <mxGeometry x="40" y="16" width="900" height="32" as="geometry"/>
         </mxCell>
-        <mxCell id="eco-sub" value="Contracts are files, docker images, and a few Python imports. Nothing in this picture is a shared database except coverage.db (rebrew writes, recovery reads)." style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=11;fontColor=#475569;" vertex="1" parent="1">
+        <mxCell id="eco-sub" value="Contracts are files, docker images, and a few Python imports. Nothing in this picture is a shared database; the coverage documents are files rebrew writes and recovery reads." style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=11;fontColor=#475569;" vertex="1" parent="1">
           <mxGeometry x="40" y="44" width="1200" height="24" as="geometry"/>
         </mxCell>
 
@@ -45,7 +45,7 @@
         <mxCell id="prj" value="&lt;b&gt;*-rebrew workspace&lt;/b&gt;&lt;br&gt;target binary + C sources&lt;br&gt;rebrew-project.toml&lt;br&gt;rebrew-functions.toml (STATUS/CFLAGS/BLOCKER)&lt;br&gt;flirt_sigs/ (project overlays)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fef9c3;strokeColor=#ca8a04;fontColor=#713f12;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="460" y="304" width="340" height="124" as="geometry"/>
         </mxCell>
-        <mxCell id="arts" value="&lt;b&gt;Artifacts rebrew writes&lt;/b&gt;&lt;br&gt;db/coverage.db + data_*.json&lt;br&gt;ga_runs.jsonl solutions log&lt;br&gt;matched .c + locked metadata TOML&lt;br&gt;verify_results (incl. similarity)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="arts" value="&lt;b&gt;Artifacts rebrew writes&lt;/b&gt;&lt;br&gt;db/coverage-&lt;target&gt;.toml&lt;br&gt;ga_runs.jsonl solutions log&lt;br&gt;matched .c + locked metadata TOML&lt;br&gt;verify_results (incl. similarity)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="880" y="304" width="340" height="124" as="geometry"/>
         </mxCell>
         <mxCell id="spec" value="&lt;b&gt;toolchain.py&lt;/b&gt;&lt;br&gt;ToolchainSpec registry&lt;br&gt;entry points + TOML overlay&lt;br&gt;docker run &amp;lt;image&amp;gt; &amp;lt;cc&amp;gt; &amp;lt;args&amp;gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=11;" vertex="1" parent="1">
@@ -74,7 +74,7 @@
         <mxCell id="res" value="&lt;b&gt;resembl&lt;/b&gt;&lt;br&gt;MinHash + LSH asm similarity&lt;br&gt;own DB (not used by rebrew)&lt;br&gt;similarity group: resembl.scoring&lt;br&gt;verify_results.similarity 0–100" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="64" y="512" width="280" height="116" as="geometry"/>
         </mxCell>
-        <mxCell id="recov" value="&lt;b&gt;recovery&lt;/b&gt;&lt;br&gt;Bottle + VanJS coverage SPA&lt;br&gt;reads db/coverage.db only&lt;br&gt;imports nothing from rebrew&lt;br&gt;recovery check CI gate" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="recov" value="&lt;b&gt;recovery&lt;/b&gt;&lt;br&gt;Bottle + VanJS coverage SPA&lt;br&gt;reads db/coverage-&lt;target&gt;.toml only&lt;br&gt;imports nothing from rebrew&lt;br&gt;recovery check CI gate" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="420" y="512" width="280" height="116" as="geometry"/>
         </mxCell>
         <mxCell id="reag" value="&lt;b&gt;reagent&lt;/b&gt;&lt;br&gt;autonomous LLM RE agent&lt;br&gt;imports rebrew.* in-process&lt;br&gt;skip / ga_only / llm_then_ga&lt;br&gt;flag_sweep_first / llm_only" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
@@ -86,7 +86,7 @@
         <mxCell id="e-rb-res" value="similarity group: scoring.py" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#7e22ce;fontSize=10;endArrow=block;" edge="1" parent="1" source="rb" target="res">
           <mxGeometry relative="1" as="geometry"/>
         </mxCell>
-        <mxCell id="e-arts-recov" value="coverage.db" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#7e22ce;fontSize=10;endArrow=block;" edge="1" parent="1" source="arts" target="recov">
+        <mxCell id="e-arts-recov" value="coverage-&lt;target&gt;.toml" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#7e22ce;fontSize=10;endArrow=block;" edge="1" parent="1" source="arts" target="recov">
           <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="1050" y="462"/><mxPoint x="560" y="462"/></Array></mxGeometry>
         </mxCell>
         <mxCell id="e-reag-rb" value="direct imports" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#7e22ce;fontSize=10;endArrow=block;" edge="1" parent="1" source="reag" target="rb">
@@ -201,7 +201,7 @@
         <mxCell id="prove" value="&lt;b&gt;prove.py (optional angr)&lt;/b&gt;&lt;br&gt;NEAR_MATCHING → PROVEN&lt;br&gt;when bytes will never match" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="1360" y="220" width="330" height="90" as="geometry"/>
         </mxCell>
-        <mxCell id="cat" value="&lt;b&gt;catalog / build-db&lt;/b&gt;&lt;br&gt;data_*.json → coverage.db&lt;br&gt;dashboard.py · recovery" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="cat" value="&lt;b&gt;catalog / build-db&lt;/b&gt;&lt;br&gt;scan → coverage-&lt;target&gt;.toml&lt;br&gt;dashboard.py · recovery" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="1010" y="340" width="320" height="80" as="geometry"/>
         </mxCell>
         <mxCell id="blocker" value="&lt;b&gt;blocker writers&lt;/b&gt;&lt;br&gt;update_field / remove_field&lt;br&gt;diff --fix-blocker, near-diag, document-unmatched" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fee2e2;strokeColor=#ef4444;fontColor=#7f1d1d;align=center;fontSize=11;" vertex="1" parent="1">
@@ -279,7 +279,7 @@
         <mxCell id="c6" value="rebrew todo / skeleton / lint&lt;br&gt;pick, stub, gate" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dbeafe;strokeColor=#3b82f6;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="1140" y="612" width="220" height="56" as="geometry"/>
         </mxCell>
-        <mxCell id="c7" value="rebrew catalog / build-db&lt;br&gt;coverage.db for recovery" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="c7" value="rebrew catalog / build-db&lt;br&gt;coverage documents for recovery" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="1380" y="612" width="220" height="56" as="geometry"/>
         </mxCell>
       </root>
@@ -566,7 +566,7 @@
         <mxCell id="bf-title" value="How data flows back: contracts, not shared databases" style="text;html=1;align=left;fontSize=18;fontStyle=1;fontColor=#0f172a;" vertex="1" parent="1">
           <mxGeometry x="40" y="16" width="900" height="32" as="geometry"/>
         </mxCell>
-        <mxCell id="bf-sub" value="Solid arrows write into a rebrew project (metadata, sources, coverage.db). Dashed arrows are consume-only. Grey boxes never write STATUS. Relumea / ML snowball / recondb are vision, not shipped." style="text;html=1;align=left;fontSize=11;fontColor=#475569;" vertex="1" parent="1">
+        <mxCell id="bf-sub" value="Solid arrows write into a rebrew project (metadata, sources, coverage documents). Dashed arrows are consume-only. Grey boxes never write STATUS. Relumea / ML snowball / recondb are vision, not shipped." style="text;html=1;align=left;fontSize=11;fontColor=#475569;" vertex="1" parent="1">
           <mxGeometry x="40" y="44" width="1600" height="24" as="geometry"/>
         </mxCell>
 
@@ -580,7 +580,7 @@
         <mxCell id="h-meta" value="&lt;b&gt;rebrew-functions.toml&lt;/b&gt;&lt;br&gt;STATUS CFLAGS BLOCKER&lt;br&gt;0444; CLI writers only" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffedd5;strokeColor=#ea580c;fontColor=#7c2d12;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="700" y="116" width="180" height="70" as="geometry"/>
         </mxCell>
-        <mxCell id="h-db" value="&lt;b&gt;db/coverage.db&lt;/b&gt;&lt;br&gt;+ data_*.json&lt;br&gt;schema: DB_FORMAT.md" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="h-db" value="&lt;b&gt;db/coverage-&lt;target&gt;.toml&lt;/b&gt;&lt;br&gt;format: DB_FORMAT.md" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="900" y="116" width="170" height="70" as="geometry"/>
         </mxCell>
         <mxCell id="h-ga" value="&lt;b&gt;ga_runs.jsonl&lt;/b&gt;&lt;br&gt;solutions DB&lt;br&gt;seeds next match" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=11;" vertex="1" parent="1">
@@ -594,16 +594,16 @@
         <mxCell id="cov-lane" value="1. Coverage dashboard (recovery) — file contract + regen subprocess" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=10;spacingTop=4;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#581c87;fontStyle=1;fontSize=12;" vertex="1" parent="1">
           <mxGeometry x="40" y="310" width="1680" height="150" as="geometry"/>
         </mxCell>
-        <mxCell id="cov1" value="rebrew catalog --json&lt;br&gt;→ db/data_*.json" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="cov1" value="rebrew build-db" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="60" y="350" width="200" height="80" as="geometry"/>
         </mxCell>
-        <mxCell id="cov2" value="rebrew build-db&lt;br&gt;→ db/coverage.db" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="cov2" value="rebrew build-db&lt;br&gt;→ db/coverage-&lt;target&gt;.toml" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="300" y="350" width="200" height="80" as="geometry"/>
         </mxCell>
         <mxCell id="cov3" value="&lt;b&gt;recovery serve&lt;/b&gt;&lt;br&gt;Bottle + VanJS defrag grid&lt;br&gt;imports nothing from rebrew" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="540" y="350" width="240" height="80" as="geometry"/>
         </mxCell>
-        <mxCell id="cov4" value="&lt;b&gt;POST /api/regen&lt;/b&gt;&lt;br&gt;or recovery serve --regen&lt;br&gt;uv run rebrew build-db --regen&lt;br&gt;rewrites coverage.db in-place" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fde68a;strokeColor=#ca8a04;fontColor=#713f12;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="cov4" value="&lt;b&gt;POST /api/regen&lt;/b&gt;&lt;br&gt;or recovery serve --regen&lt;br&gt;uv run rebrew build-db --regen&lt;br&gt;rewrites each coverage document in-place" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fde68a;strokeColor=#ca8a04;fontColor=#713f12;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="820" y="350" width="280" height="80" as="geometry"/>
         </mxCell>
         <mxCell id="cov5" value="recovery check / stats&lt;br&gt;CI gate, read-only&lt;br&gt;rebrew dashboard.py also reads db" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
@@ -656,7 +656,7 @@
         <mxCell id="ex2" value="&lt;b&gt;rebrew decompme&lt;/b&gt;&lt;br&gt;upload COFF + C seed + context&lt;br&gt;claim_token URL; anonymous create&lt;br&gt;no automatic pull back" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#3b82f6;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="400" y="710" width="280" height="96" as="geometry"/>
         </mxCell>
-        <mxCell id="ex3" value="&lt;b&gt;reccmp&lt;/b&gt;&lt;br&gt;markers in .c, catalog --csv&lt;br&gt;recomp build reads the tree&lt;br&gt;round-trip splices matched funcs into PE" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#3b82f6;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="ex3" value="&lt;b&gt;reccmp&lt;/b&gt;&lt;br&gt;markers in .c&lt;br&gt;recomp build reads the tree&lt;br&gt;round-trip splices matched funcs into PE" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#3b82f6;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="720" y="710" width="300" height="96" as="geometry"/>
         </mxCell>
         <mxCell id="ex4" value="&lt;b&gt;report --decomp-dev&lt;/b&gt;&lt;br&gt;objdiff-format report.json&lt;br&gt;static HTML site also emitted" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#3b82f6;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">
@@ -782,7 +782,7 @@
         <mxCell id="b1" value="db/data_&amp;lt;t&amp;gt;.json&lt;br&gt;rebrew catalog" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="60" y="756" width="180" height="86" as="geometry"/>
         </mxCell>
-        <mxCell id="b2" value="db/coverage.db&lt;br&gt;rebrew build-db" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="b2" value="db/coverage-&lt;target&gt;.toml&lt;br&gt;rebrew build-db" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="260" y="756" width="180" height="86" as="geometry"/>
         </mxCell>
         <mxCell id="b3" value=".rebrew/verify_baseline.json&lt;br&gt;incl. similarity col" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
@@ -963,7 +963,7 @@
         <mxCell id="m4" value="re-verify functions&lt;br&gt;STATUS may become RELOC/EXACT&lt;br&gt;without touching the C body" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bbf7d0;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="1120" y="808" width="250" height="70" as="geometry"/>
         </mxCell>
-        <mxCell id="m5" value="coverage.db globals table&lt;br&gt;recovery paints .data/.bss&lt;br&gt;same defrag grid as .text" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="m5" value="coverage document globals&lt;br&gt;recovery paints .data/.bss&lt;br&gt;same defrag grid as .text" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="1410" y="808" width="280" height="70" as="geometry"/>
         </mxCell>
         <mxCell id="m-note" value="rebrew-data-analysis skill: scan → annotate → dispatch → BSS check → fix-bss / externs → gen-header → lint. Do not use it for function bodies (workflow/matching) or Ghidra field sync (ghidra-sync). recover-structs is a sibling path: typedefs from decompiler offset evidence, not from section bytes." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ea580c;fontColor=#7c2d12;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
@@ -1020,7 +1020,7 @@
         <mxCell id="b3m" value="&lt;b&gt;Context pack&lt;/b&gt;&lt;br&gt;rebrew context  (types + prototypes)&lt;br&gt;rebrew_globals.h · recover-structs&lt;br&gt;catalog names / callers (describe, xrefs)&lt;br&gt;asm.py --hints  (SEH, switch, IAT)&lt;br&gt;&lt;br&gt;This is the RAG / agent prompt payload,&lt;br&gt;not token-level compile training.&lt;br&gt;Strip secrets: no LLM keys, no original PE." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="920" y="386" width="370" height="190" as="geometry"/>
         </mxCell>
-        <mxCell id="b4m" value="&lt;b&gt;External interchange&lt;/b&gt;&lt;br&gt;rebrew decompme  (upload scratch;&lt;br&gt;no automatic pull-back)&lt;br&gt;decomp.me /api/scratch scrape&lt;br&gt;(DECOMPME_COMPILERS.md)&lt;br&gt;catalog --csv  reccmp&lt;br&gt;report --decomp-dev  report.json&lt;br&gt;objdiff.json units&lt;br&gt;&lt;br&gt;Inbound community C must be re-verified&lt;br&gt;through the pinned image before it is truth." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="b4m" value="&lt;b&gt;External interchange&lt;/b&gt;&lt;br&gt;rebrew decompme  (upload scratch;&lt;br&gt;no automatic pull-back)&lt;br&gt;decomp.me /api/scratch scrape&lt;br&gt;(DECOMPME_COMPILERS.md)&lt;br&gt;—&lt;br&gt;report --decomp-dev  report.json&lt;br&gt;objdiff.json units&lt;br&gt;&lt;br&gt;Inbound community C must be re-verified&lt;br&gt;through the pinned image before it is truth." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="1320" y="386" width="370" height="190" as="geometry"/>
         </mxCell>
 

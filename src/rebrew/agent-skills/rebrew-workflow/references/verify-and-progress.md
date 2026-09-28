@@ -41,8 +41,7 @@ built binary is a raw link; without it `rebrew todo --category data-drift` stays
 ## Coverage / interchange
 
 ```bash
-rebrew catalog --data-json
-rebrew build-db
+rebrew build-db                          # write db/coverage-<target>.toml (one per target)
 rebrew symbol-addrs --output symbol_addrs.csv
 rebrew context --output ctx.c
 rebrew report --decomp-dev report.json
@@ -56,3 +55,12 @@ third-party site. Run it only when the user asks for a decomp.me scratch, and
 
 `rebrew verify --compare` uses `.rebrew/verify_baseline.json` (exit 1 on
 regression). First run warns and skips the diff.
+
+`db/coverage-<target>.toml` is the progress document the dashboards and the
+sibling `recovery` UI read: functions with their `updated_by` / `updated_at`
+stamp, globals, `verify_results` rows and the `history` change log. It is
+gitignored build output — regenerate it with `rebrew build-db`, never edit it,
+and delete any older `db/coverage.db`, `db/data_<target>.json` or `db/*.csv`
+(`rebrew lint` reports them, W032). The canonical provenance lives in the
+TOML stores: `UPDATED_BY` / `UPDATED_AT` are written by the tool that made the
+change, in `rebrew-functions.toml` and `rebrew-data.toml` alike.

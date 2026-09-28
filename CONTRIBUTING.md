@@ -120,10 +120,11 @@ make release-check            # version/changelog/tag preflight before tagging
 Rebrew is 2.x.  From `1.0.0` the CLI command names and the config schema are
 frozen: removing or renaming a command/flag, or changing a config key's
 meaning, takes a major version bump and a `**Breaking:**` changelog entry.
-On-disk format bumps (`coverage.db` `db_version`, compile-cache schema) and a
-raised minimum Python are also `**Breaking:**` — they may ship in a minor when
-the migration is a documented `--force` rebuild or a cold cache (as with
-schema `"7"` in 2.4.0 and the Python 3.13 floor in 2.3.0).
+On-disk format bumps (`coverage-<target>.toml` `version`, compile-cache schema)
+and a raised minimum Python are also `**Breaking:**` — they may ship in a minor,
+because the migration is a wholesale document rewrite (`build-db` replaces each
+file whole) or a cold cache (as with schema `"7"` in 2.4.0 and the Python 3.13
+floor in 2.3.0).
 The Python import surface (module paths, functions, classes, `__all__`) and
 the `rebrew dashboard` `/api/*` JSON are not frozen: a removal, move, or
 signature change there ships in a minor with a `**Breaking:**` entry naming
@@ -142,12 +143,12 @@ import path that actually went away is flagged.
   source of truth; `pyproject.toml` reads it via `[tool.setuptools.dynamic]`.
   Never add a second literal.  Between releases `__version__` stays equal to
   the last tag; stage notes under `## [Unreleased]` until the bump.
-- **Bump the on-disk format version with the format.**  Changing the
-  `coverage.db` schema means bumping `_CURRENT_DB_VERSION` in `build_db.py` and
-  adding a row to the history table in `docs/DB_FORMAT.md`; changing what a
-  compile result depends on means bumping `CACHE_SCHEMA_VERSION` in
-  `compile_cache.py`.  Both are how users get a clear error (or a cold cache)
-  instead of silently wrong results after an upgrade.
+- **Bump the on-disk format version with the format.**  Changing the coverage
+  document means bumping `_TOML_VERSION` in `coverage_toml.py` and documenting
+  the change in `docs/COVERAGE_DOCUMENT.md`; changing what a compile result depends on
+  means bumping `CACHE_SCHEMA_VERSION` in `compile_cache.py`.  Both are how users
+  get a clear error (or a cold cache) instead of silently wrong results after an
+  upgrade.
 - **Record user-visible change in `CHANGELOG.md`** under `## [Unreleased]`, in
   the `Added` / `Changed` / `Fixed` / `Removed` group that fits.  Anything that
   breaks an existing project (renamed CLI flag, changed default, format bump,

@@ -53,7 +53,7 @@ dependencies = [
     "tree-sitter>=0.26.0,<1",  # C AST parsing (c_parser.py, struct_parser.py, matcher/ast_engine.py) — never regex-parse C
     "tree-sitter-c>=0.24.2,<1",  # C grammar for tree-sitter
     "typer>=0.27.2,<1",  # CLI framework (every main_entry); floor tracks lock
-    "zstandard>=0.25.0,<1",  # coverage.db codec for the materialized per-section cell JSON (build_db), and the dashboard's wire compression
+    "zstandard>=0.25.0,<1",  # the dashboard's wire compression (report.py, compression.py); coverage itself is clear text
 ]
 
 [project.optional-dependencies]
@@ -508,8 +508,8 @@ files = [
     "tests/test_types_cli.py",
     "tests/test_verify_text.py",
     "tests/test_verify_watch.py",
+    "tests/test_coverage_toml.py",
     "tests/test_workspace_config.py",
-    "tests/test_workspace_db.py",
     "tests/test_workspace_public_api.py",
     "tests/test_workspace_va.py",
     "tests/test_xrefs.py",

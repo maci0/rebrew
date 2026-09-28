@@ -1582,7 +1582,9 @@ def _write_data(cfg: Any, plan: ImportPlan, planned: list[Annotation]) -> list[s
         fields: dict[str, Any] = {"section": ann.section, "name": ann.name}
         if ann.size:
             fields["size"] = ann.size
-        updates.append({"module": plan.marker, "va": ann.va, "fields": fields})
+        updates.append(
+            {"module": plan.marker, "va": ann.va, "fields": fields, "updated_by": "intake"}
+        )
     # One rebrew-data.toml rewrite for the whole import, not three per symbol.
     set_data_fields_batch(cfg.metadata_dir, updates)
     return written

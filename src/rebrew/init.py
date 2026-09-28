@@ -217,8 +217,12 @@ def _iter_skill_tree_files(root: Path) -> list[Path]:
     return found
 
 
-def _agent_skill_files(target_name: str) -> dict[str, bytes]:
+def agent_skill_files(target_name: str) -> dict[str, bytes]:
     """Expected ``.agents/skills`` contents: relative path -> bytes.
+
+    Public because two callers need the same answer: ``rebrew init`` (initial
+    copy and ``--refresh-agents``), and ``rebrew lint``'s scaffold check (W033),
+    which must not re-derive the render and drift from it.
 
     Packaged skills first, then user/community skills from
     ``REBREW_SKILLS_DIR`` (a user skill with the same name overrides the
@@ -340,8 +344,8 @@ def _prune_stale_scaffold(cwd: Path, stale: list[tuple[str, str]]) -> list[str]:
 
 def _copy_agent_skills(dest: Path, target_name: str) -> None:
     """Write the packaged agent-skills into *dest*/.agents/skills (see
-    :func:`_agent_skill_files`)."""
-    files = _agent_skill_files(target_name)
+    :func:`agent_skill_files`)."""
+    files = agent_skill_files(target_name)
     if not files:
         console.print("[yellow]warning:[/yellow] agent-skills not found in package; skipping.")
         return
@@ -854,7 +858,7 @@ def _refresh_agents(cwd: Path, toml_path: Path, *, json_output: bool, check: boo
 
     expected: dict[str, bytes] = {"AGENTS.md": content.encode("utf-8")}
     expected["PRINCIPLES.md"] = _require_packaged_asset(_PRINCIPLES_SRC).read_bytes()
-    for rel, data_bytes in _agent_skill_files(target_name).items():
+    for rel, data_bytes in agent_skill_files(target_name).items():
         expected[f".agents/skills/{rel}"] = data_bytes
 
     manifest = _load_scaffold_manifest(cwd)

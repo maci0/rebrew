@@ -74,10 +74,9 @@ This design allows:
 
 | Layer | File | Key fields |
 |-------|------|------------|
-| Intermediate JSON | `db/data_<target>.json` | `ghidra_name`, `list_name`, `detected_by`, `size_by_tool` |
-| SQLite DB | `db/coverage.db` → `functions` table | Same columns, queryable via SQL |
-| REST API | `GET /api/functions?target=` (`rebrew dashboard`) | Compact arrays under `cols`: `va`, `name`, `symbol`, `size`, `status`, `module`, `files`. Provenance columns (`ghidra_name`, `list_name`) stay in SQL only — the dashboard omits them from the wire (same reason it omits `markerType`). `GET /api/globals` and `GET /api/history` use the same array+`cols` shape (`va`/`name`/`decl`/`size`/`module` and `va`/`name`/`old_status`/`new_status`/`changed_at`, with `name` joined from `functions` and `''` once the VA has no function row). There is no per-VA `/api/targets/<t>/functions/<va>` route on this server; the sibling `recovery` API is separate. |
-| reccmp CSV | `db/<target>_functions.csv` (target lowercased) | Reversed functions emit their annotation name; unmatched functions leave the name blank when their only name is an auto-name (`FUN_`/`fcn.`/`sym.`) |
+| Coverage document | `db/coverage-<target>.toml` | `ghidra_name`, `list_name`, `detected_by`, `size_by_tool` |
+| Coverage document | `db/coverage-<target>.toml` → `functions` array | Same columns, one file per target |
+| REST API | `GET /api/functions?target=` (`rebrew dashboard`) | Compact arrays under `cols`: `va`, `name`, `symbol`, `size`, `status`, `module`, `files`. Provenance columns (`ghidra_name`, `list_name`) stay in the document only — the dashboard omits them from the wire (same reason it omits `markerType`). `GET /api/globals` and `GET /api/history` use the same array+`cols` shape (`va`/`name`/`decl`/`size`/`module` and `va`/`name`/`old_status`/`new_status`/`changed_at`, with `name` joined from `functions` and `''` once the VA has no function row). There is no per-VA `/api/targets/<t>/functions/<va>` route on this server; the sibling `recovery` API is separate. |
 
 ---
 
@@ -108,7 +107,6 @@ Everything else is treated as a **user-assigned** name and is preserved.
 ### Implications
 
 - **`rebrew sync`**: only pushes labels to Ghidra for user-assigned names (skips generic `func_XXXXXXXX`).
-- **`rebrew catalog --csv`**: reversed functions emit their annotation name; unmatched functions leave the `name` column blank for `FUN_`/`fcn.`/`sym.` auto-names per the reccmp spec.
 - **`sanitize_name()`** in `rebrew.naming` (moved from `skeleton.py`): rewrites Ghidra `FUN_<hex>` names to `func_<hex>` for C filenames and identifiers.
 
 ---
@@ -158,13 +156,17 @@ it currently handles only the Ghidra `FUN_` form:
 +     return "func_" + name[4:].lower()
 ```
 
-### 4. DB Schema
+### 4. Coverage document
 
-Add a `<tool>_name TEXT` column to the `functions` table in `build_db.py`.
+Add a `<tool>_name` field to each row of the `functions` array
+(`coverage_toml.py`'s `_FUNCTION_COLUMNS`, fed by the grid builder in
+`catalog/grid.py`).
 
 ### 5. reccmp CSV
 
-Update `generate_reccmp_csv()` to check the new tool's name column when looking for user-assigned names on unmatched functions.
+Moot: the reccmp CSV export (`catalog/export.py`) is deleted, so there is no
+emitter to update.  If a CSV export comes back, it must check the new tool's
+name field when looking for user-assigned names on unmatched functions.
 
 ---
 
@@ -184,4 +186,7 @@ The [reccmp CSV format](https://github.com/isledecomp/reccmp/blob/master/docs/cs
 > reccmp treats addresses as hex even without the `0x` prefix.
 > Auto-generated names should be omitted (left blank) — reccmp will use the PDB or its own analysis to resolve them.
 
-Rebrew's `generate_reccmp_csv()` follows this: reversed functions emit their annotation name, and unmatched functions skip `FUN_`/`fcn.`/`sym.` auto-names (name left blank).
+The removed `generate_reccmp_csv()` followed this: reversed functions emitted
+their annotation name, and unmatched functions skipped `FUN_`/`fcn.`/`sym.`
+auto-names (name left blank).  Rebrew no longer writes this CSV; only the
+source-marker interop remains.

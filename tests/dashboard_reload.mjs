@@ -31,7 +31,7 @@ const summary = {
 const firstPage = { count: 1, total: 1, functions: [["0x10", "first", "first", 1, "EXACT", "", "f.c"]] };
 const secondPage = { count: 1, total: 1, functions: [["0x10", "second", "second", 1, "EXACT", "", "f.c"]] };
 
-// 0: an empty coverage.db, the state a first run lands in before build-db.
+// 0: no coverage document yet, the state a first run lands in before build-db.
 // 1 and 2: populated, so the reload path still has rows to replace.
 let boot = 0;
 const bootCalls = [];

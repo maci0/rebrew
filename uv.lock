@@ -1716,7 +1716,7 @@ similarity = [
 
 [[package]]
 name = "resembl"
-version = "3.0.0"
+version = "3.1.0"
 source = { directory = "../resembl" }
 dependencies = [
     { name = "numpy" },
@@ -1757,6 +1757,7 @@ requires-dist = [
     { name = "sqlmodel", specifier = ">=0.0.24" },
     { name = "tomli-w", specifier = ">=1.2.0" },
     { name = "typer", specifier = ">=0.9.0" },
+    { name = "tzdata", marker = "extra == 'dev'", specifier = ">=2026.4" },
 ]
 provides-extras = ["dev", "duckdb", "fuzz"]
 

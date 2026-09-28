@@ -1,6 +1,6 @@
 # AGENTS.md: catalog/
 
-Merges function sources (discovery inventory, Ghidra JSON, binary exports) into a unified registry, builds cell-level coverage grids, and exports reccmp CSV.
+Merges function sources (discovery inventory, Ghidra JSON, binary exports) into a unified registry and builds the cell-level coverage grid the `db/coverage-<target>.toml` document is rendered from.
 
 ## Modules
 
@@ -10,7 +10,6 @@ Merges function sources (discovery inventory, Ghidra JSON, binary exports) into 
 | `loaders.py` | Ghidra/discovery I/O, `scan_reversed_dir`, `parse_rizin_afl` |
 | `registry.py` | `build_function_registry` + canonical size resolution |
 | `grid.py` | `generate_data_json` (coverage grid) |
-| `export.py` | `generate_reccmp_csv` |
 | `pipeline.py` | `build_catalog_data` (scan/registry/grid dict; no disk writes) |
 | `cli.py` | `run_catalog` + Typer entry |
 
@@ -18,7 +17,7 @@ Externals (the only packages this one may import): `annotation`, `cli`, `config`
 
 ## Data flow
 
-Reversed `.c` + `library_*.h` → `scan_reversed_dir` → annotations; discovery/Ghidra JSON → `load_function_structure`; binary → `load_binary`. Then `build_function_registry` (merge by VA, canonical size) → `generate_data_json` → `db/data_{target}.json`; `generate_reccmp_csv` → `db/{target}_functions.csv`.
+Reversed `.c` + `library_*.h` → `scan_reversed_dir` → annotations; discovery/Ghidra JSON → `load_function_structure`; binary → `load_binary`. Then `build_function_registry` (merge by VA, canonical size) → `generate_data_json` → the dict `rebrew build-db` renders into `db/coverage-{target}.toml`.
 
 ## Invariants
 

@@ -11,10 +11,11 @@ STATUS promotion and the GA matching engine.
 rebrew is one repo in a wider workspace. Sibling projects plug in at stable
 boundaries: `rebrew-toolchains` supplies the docker compiler images,
 `resembl` supplies the assembly-similarity scoring core, `recovery` serves
-the `db/coverage.db` this repo builds, `recompile` wraps the toolchain zoo
+the `db/coverage-<target>.toml` documents this repo builds, `recompile` wraps the toolchain zoo
 as an HTTP API, and `reagent` automates the loop with an LLM. External
 tools interoperate through file formats: reccmp-compatible source
-markers/catalog CSV, and the BinSync state directory (`rebrew binsync`, plus `rebrew binsync-export` / `-import` /
+markers and the coverage document (the catalog's reccmp CSV export is gone
+with the catalog's own artifacts), and the BinSync state directory (`rebrew binsync`, plus `rebrew binsync-export` / `-import` /
 `-diff` / `-init` / `-overlay`).
 The full cross-repo map, dependency layering, and mermaid diagrams are in
 [ECOSYSTEM.md](ECOSYSTEM.md). Open [architecture.drawio](architecture.drawio)
@@ -54,7 +55,7 @@ flowchart LR
     CMP --> DIFF["diff.py / match.py<br/>byte + structural scoring"]
 
     LOAD --> CATALOG["catalog/ (LIEF section/label data)"]
-    CATALOG --> DB["build_db.py → coverage.db"]
+    CATALOG --> DB["build_db.py → db/coverage-&lt;target&gt;.toml"]
     DB --> DASH["dashboard.py<br/>read-only web UI"]
 
     LOAD --> IMPORTS["import_table.py<br/>PE/ELF/NE import table + stubs"]
@@ -67,6 +68,7 @@ flowchart LR
 |---|---|
 | `rebrew/` top-level tools | One CLI command each (`test`, `verify`, `diff`, `match`, `lint`, `data`, `status`, `todo`, …), declared as `CliComponent` rows in `builtins.py` (plus `main.py::_EXTRA_COMPONENTS` for `import-splat`) |
 | `rebrew/plugin.py` | Cordis composition runtime: `Context`, `CoeffectScope`, `activate()`, `CliComponent`. Mounts are reversible effects; inverses fire at most once. Unmet `needs` stay inactive; disposing the context closes the scope. HMR/loader tier is not built (ADR 014) |
+| `rebrew/registry.py` | Entry-point discovery and conflict policy for every component registry (single-source: a duplicate name raises `RegistryError`, except the CLI warn+skip and the optional-registry skip-with-warning groups). `refresh_all()` republishes every group under one lock for a long-lived host; readers take one generation (see "Registry snapshots" in `docs/DEVELOPMENT.md`) |
 | `rebrew/intake.py` | One-shot binary onboarding: init + toolchain detect (diec → PDB → PE metadata → heuristics) + plugin function discovery + STUB/blocker documentation |
 | `rebrew/main.py` | Umbrella CLI. Provides `app` (and the re-exported `console`), then `activate()`s packaged `CliComponent`s plus `rebrew.commands` / `rebrew.multicommands` plugins |
 | `rebrew/cli.py` | Shared options/helpers: `TargetOption`, `require_config`, `error_exit`, `json_print`, exit codes |
@@ -82,7 +84,7 @@ flowchart LR
 | `rebrew/pe_image.py` | PE32 section/export/import walk and the MSVC LINK options read off those header fields. Shared by `gen-layout` and `link-sweep`; the command modules do not own the parser |
 | `rebrew/pseudo_c.py` | Deterministic rewrite of decompiler pseudo-C into C89 tokens (`sanitize_tokens`). Shared by `rebrew fix` and Kuna seeding |
 | `rebrew/matcher/` | GA engine: `scoring.py` (numpy + capstone), `mutator.py` (`ALL_MUTATIONS`: the 128 tree-sitter mutations from `mutations/*.py` plus plugin entry points), `compiler.py` (flag sweep), `solutions.py` (cross-function seeding + run history) |
-| `rebrew/catalog/` | Function registry, coverage grid (`grid.py`), `data_*.json` export, `coverage.db` schema consumers |
+| `rebrew/catalog/` | Function registry and the coverage grid (`grid.py`) the `db/coverage-<target>.toml` document is rendered from |
 | `rebrew/ghidra/` | BinSync-primary field sync + ReVa MCP structural ops (function create/delete and similar) |
 | `rebrew/coff_reloc.py` | Relocation-aware byte comparison (COFF/ELF reloc masking) |
 | `rebrew/msvc_env.py` | MSVC include/lib env for host-side compile helpers |
@@ -99,7 +101,7 @@ flowchart LR
 | `rebrew/similar.py` | Structural clone detection (mnemonic-histogram similarity) |
 | `rebrew/near_diag.py` | NEAR_MATCHING delta classification (register/encoding/equivalent/reloc/structural buckets) |
 | `rebrew/headless.py` | Persistent per-process Xvfb for headless wine compiles (no window, no DISPLAY needed) |
-| `rebrew/toolchain_detect.py` | Layered compiler-family detector: Detect It Easy (diec) → PDB → PE metadata (Rich header/linker version) → codegen heuristics; feeds init's CRT/opt seeding and doctor's alignment check |
+| `rebrew/toolchain_detect.py` | Layered compiler-family detector: Detect It Easy (diec) → PDB → PE metadata (Rich header/linker version) → codegen heuristics; feeds init's CRT/opt seeding and doctor's alignment check. Its four tables (profile compat, Rich-build and linker-era profiles, plugin detectors) are one generation — read them through `detection_tables()` |
 | `rebrew/wibo.py` | Locate + SHA256-verify the wibo runner (`doctor --install-wibo`); a legacy host-runner fallback for toolchains registered without an `image`, not a shipped compile path (ADR 008) |
 | `rebrew/binsync/` (`export.py` / `importer.py` / `diff.py` / `git.py` / `init.py` / `overlay.py`, plus `serial.py`, `cli.py`, `state.py`) | BinSync state export/import/diff/init/overlay, the `rebrew binsync` umbrella (git automation), and the shared state readers; artifact TOML serialized with declib (the `binsync` extra) |
 | `rebrew/crypto_scan.py` | Cryptography detection: data-section constant tables (AES S-boxes, SHA-256 K/H, SHA-1, MD5 T) plus imported-API and project-name matching |
@@ -110,7 +112,7 @@ flowchart LR
 | `rebrew/discover.py` | Function enumeration via `rebrew.discoverers` plugins (packaged: rizin aaa/aap, capstone sweep, `.eh_frame` and `.pdata` unwind tables, NE loader, MZ sweep) with size cross-checks |
 | `rebrew/pdb_info.py` | PDB metadata extraction (S_COMPILE3 compiler version + flags) |
 | `rebrew/identify_library.py` | Library-function identification backends (CRT/ZLIB marking) |
-| `rebrew/dashboard.py` | Read-only web dashboard over `db/coverage.db` |
+| `rebrew/dashboard.py` | Read-only web dashboard over the `db/coverage-<target>.toml` documents |
 | `rebrew/import_table.py` | Import-table parsing (PE IAT, ELF dynamic imports, 16-bit NE module references) and `jmp [iat]` stub detection; library layer shared by analysis passes |
 | `rebrew/imports.py` | `rebrew imports` CLI over `import_table.py`, plus `--mark` LIBRARY annotation of import stubs |
 | `rebrew/skills.py` | Agent-skill discovery CLI (`list`/`show` subcommands) |
@@ -196,6 +198,9 @@ would be a second answer to that question. See
 - One canonical name per function — no aliases/shims/legacy wrappers.
 - STATUS promotion only via `update_source_status` (never inline in `.c`); BLOCKER only via `update_field`/`remove_field` through `rebrew blocker set/clear` or the auto-writers (`diff --fix-blocker`, `near-diag --fix-blocker`, `document-unmatched`).
 - Source discovery via `iter_sources`; batch annotations via `iter_annotations`.
-- Read-only tools open the DB/binary read-only (`mode=ro` sqlite, lazy LIEF).
+- Registries republish as a whole: one `refresh_*` call is one generation, and a
+  reader that needs two tables takes one snapshot (`registry_snapshot()`,
+  `detection_tables()`) or reads under the module's refresh lock.
+- Read-only tools never write a store: the dashboards parse `db/coverage-<target>.toml` and cache a frozen snapshot, and the binary is read lazily through LIEF.
 - See `docs/DEVELOPMENT.md` for test conventions, Typer quirks, and
   metadata/tomlkit gotchas.

@@ -780,7 +780,7 @@ class TestInitAgentSkills:
         outside = tmp_path / "outside.txt"
         monkeypatch.setattr(
             init_mod,
-            "_agent_skill_files",
+            "agent_skill_files",
             lambda _target: {"../outside.txt": b"pwned"},
         )
         init_mod._copy_agent_skills(tmp_path, "server.dll")
@@ -807,7 +807,7 @@ class TestInitAgentSkills:
         (skill / "leaked.txt").symlink_to(secret)
 
         monkeypatch.setenv(REBREW_SKILLS_DIR_ENV, str(overlay))
-        files = init_mod._agent_skill_files("server.dll")
+        files = init_mod.agent_skill_files("server.dll")
         leaked_keys = [k for k in files if "leaked" in k or "secret" in k]
         assert leaked_keys == []
         assert not any(b"top-secret-host-bytes" in data for data in files.values())
@@ -1549,7 +1549,7 @@ class TestRefreshAgentsPrunesStaleSkills:
     ) -> None:
         from rebrew import init as init_mod
 
-        monkeypatch.setattr(init_mod, "_agent_skill_files", lambda _target: dict(skills))
+        monkeypatch.setattr(init_mod, "agent_skill_files", lambda _target: dict(skills))
         init_mod._refresh_agents(root, root / "rebrew-project.toml", json_output=False)
 
     def test_refresh_removes_a_dropped_skill(

@@ -1,14 +1,16 @@
 """catalog/cli.py - CLI entry point for the catalog command.
 
 Orchestrates annotation scanning, registry building, and output generation
-(per-target coverage JSON, reccmp CSV, Ghidra label export, size fixing).
+(Ghidra label export, size fixing).
 
 ``run_catalog()`` holds the orchestration so it is callable in-process; the
 Typer callback is a thin wrapper that resolves config, validates CLI-only
 option combinations, and prints the result.  Scan/registry/grid data comes
 from :func:`rebrew.catalog.pipeline.build_catalog_data`.
 
-``--data-json`` writes ``db/data_<target>.json`` (feeds into ``rebrew build-db``).
+The catalog writes no coverage document itself: ``rebrew build-db`` calls
+:func:`rebrew.catalog.pipeline.build_catalog_data` and renders
+``db/coverage-<target>.toml`` from the returned dict.
 ``--json`` emits a machine-readable summary to stdout, like all other tools.
 """
 
@@ -19,7 +21,6 @@ from typing import Any
 import typer
 
 from rebrew.annotation import Annotation, parse_c_file_multi
-from rebrew.catalog.export import generate_reccmp_csv
 from rebrew.catalog.grid import covered_bytes
 from rebrew.catalog.pipeline import build_catalog_data
 from rebrew.cli import (
@@ -40,17 +41,15 @@ app = typer.Typer(
     epilog=(
         "[bold]Examples:[/bold]\n\n"
         "  rebrew catalog · · · · · · · · · · · · Validate and summarize (default)\n\n"
-        "  rebrew catalog --data-json · · · · · · · Write db/data_<target>.json (feeds build-db)\n\n"
         "  rebrew catalog --json · · · · · · · · · Machine-readable summary to stdout\n\n"
         "  rebrew catalog -t mygame · · · · · · · · Catalog a specific target\n\n"
         "[bold]What it does:[/bold]\n\n"
-        "  1. Scans reversed_dir for .c files with reccmp-style annotations\n\n"
+        "  1. Scans reversed_dir for .c files with FUNCTION annotations\n\n"
         "  2. Cross-references with function_structure.json\n\n"
         "  3. Builds function registry merging all detection sources\n\n"
         "  4. Generates cell-level coverage data for the .text section\n\n"
         "  5. Outputs structured data\n\n"
-        "[dim]Run 'rebrew catalog --data-json && rebrew build-db' to populate the "
-        "recovery SQLite database.[/dim]"
+        "[dim]Run 'rebrew build-db' to write db/coverage-<target>.toml.[/dim]"
     ),
 )
 
@@ -58,8 +57,6 @@ app = typer.Typer(
 def run_catalog(
     cfg: ProjectConfig,
     *,
-    gen_data_json: bool = False,
-    csv: bool = False,
     summary: bool = False,
     export_ghidra_labels: bool = False,
     fix_sizes: bool = False,
@@ -69,10 +66,10 @@ def run_catalog(
 
     The same pipeline the ``rebrew catalog`` callback runs: scan
     ``reversed_dir``, build the function registry, print the human summary,
-    and write the requested artifacts (``db/data_<target>.json``,
-    reccmp CSV, ``ghidra_data_labels.json``, ``--fix-sizes`` metadata updates).
-    With every flag left false the default action set applies (data
-    JSON + CSV + summary), matching a bare ``rebrew catalog`` invocation.
+    and write the requested artifacts (``ghidra_data_labels.json``,
+    ``--fix-sizes`` metadata updates).  With every flag left false the
+    default action set applies (summary), matching a bare
+    ``rebrew catalog`` invocation.
 
     Returns the object the CLI prints under ``--json``.
 
@@ -86,21 +83,16 @@ def run_catalog(
 
     if not any(
         [
-            gen_data_json,
-            csv,
             summary,
             export_ghidra_labels,
             fix_sizes,
             json_output,
         ]
     ):
-        gen_data_json = True
-        csv = True
         summary = True
 
-    bundle = build_catalog_data(cfg, with_data=bool(gen_data_json or export_ghidra_labels))
+    bundle = build_catalog_data(cfg, with_data=bool(export_ghidra_labels))
     entries = bundle["entries"]
-    funcs = bundle["funcs"]
     registry = bundle["registry"]
     text_size = bundle["text_size"]
     binary_missing = bundle["binary_missing"]
@@ -171,39 +163,24 @@ def run_catalog(
 
     from rebrew.utils import atomic_write_text
 
-    if gen_data_json or export_ghidra_labels:
+    if export_ghidra_labels:
         data = bundle["data"]
-        if gen_data_json:
-            coverage_dir = cfg.db_dir
-            coverage_dir.mkdir(parents=True, exist_ok=True)
-            json_path = coverage_dir / f"data_{target}.json"
-            atomic_write_text(json_path, json.dumps(data, indent=2) + "\n", encoding="utf-8")
-            console.print(f"Wrote {json_path}", style="dim")
-
-        if export_ghidra_labels:
-            text_sec = data.get("sections", {}).get(".text", {})
-            sec_va = text_sec.get("va", 0)
-            labels = []
-            for cell in text_sec.get("cells", []):
-                if cell["state"] in ("data", "thunk"):
-                    cell_va = sec_va + cell["start"]
-                    labels.append(
-                        {
-                            "va": cell_va,
-                            "size": cell["end"] - cell["start"],
-                            "label": cell.get("label", f"switchdata_{cell_va:08x}"),
-                        }
-                    )
-            labels_path = reversed_dir / "ghidra_data_labels.json"
-            atomic_write_text(labels_path, json.dumps(labels, indent=2) + "\n", encoding="utf-8")
-            console.print(f"Wrote {labels_path} ({len(labels)} labels)", style="dim")
-
-    if csv:
-        csv_text = generate_reccmp_csv(entries, funcs, registry, target, cfg)
-        csv_path = cfg.db_dir / f"{target.lower()}_functions.csv"
-        csv_path.parent.mkdir(parents=True, exist_ok=True)
-        atomic_write_text(csv_path, csv_text, encoding="utf-8")
-        console.print(f"Wrote {csv_path} ({len(csv_text.splitlines()) - 6} functions)", style="dim")
+        text_sec = data.get("sections", {}).get(".text", {})
+        sec_va = text_sec.get("va", 0)
+        labels = []
+        for cell in text_sec.get("cells", []):
+            if cell["state"] in ("data", "thunk"):
+                cell_va = sec_va + cell["start"]
+                labels.append(
+                    {
+                        "va": cell_va,
+                        "size": cell["end"] - cell["start"],
+                        "label": cell.get("label", f"switchdata_{cell_va:08x}"),
+                    }
+                )
+        labels_path = reversed_dir / "ghidra_data_labels.json"
+        atomic_write_text(labels_path, json.dumps(labels, indent=2) + "\n", encoding="utf-8")
+        console.print(f"Wrote {labels_path} ({len(labels)} labels)", style="dim")
 
     if fix_sizes:
         from rebrew.annotation import update_size_annotation
@@ -248,8 +225,6 @@ def run_catalog(
         "identified_bytes": covered,
         "text_size": text_size,
         "identified_pct": identified_pct,
-        "wrote_data_json": gen_data_json,
-        "wrote_csv": csv,
     }
     if binary_missing:
         payload["warning"] = f"target binary missing ({bin_path}) — text_size=0, identified is 0%"
@@ -258,11 +233,7 @@ def run_catalog(
 
 @app.callback(invoke_without_command=True)
 def main(
-    gen_data_json: bool = typer.Option(False, "--data-json", help="Write db/data_<target>.json"),
     summary: bool = typer.Option(False, "--summary", help="Print summary table (stderr)"),
-    csv: bool = typer.Option(
-        False, "--csv", help="Generate reccmp-compatible CSV (written to db/<target>_functions.csv)"
-    ),
     export_ghidra: bool = typer.Option(
         False, "--export-ghidra", help="Print instructions for exporting the Ghidra function list"
     ),
@@ -326,8 +297,6 @@ def main(
     try:
         payload = run_catalog(
             cfg,
-            gen_data_json=gen_data_json,
-            csv=csv,
             summary=summary,
             export_ghidra_labels=export_ghidra_labels,
             fix_sizes=fix_sizes,

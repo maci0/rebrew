@@ -398,13 +398,13 @@ BUILTIN_COMPONENTS: tuple[CliComponent, ...] = (
     CliComponent(
         name="build-db",
         module="rebrew.build_db",
-        help="Build SQLite coverage database from catalog JSON.",
+        help="Build clear-text coverage documents from the project tree.",
         panel=Panel.EXPORT_SYNC,
     ),
     CliComponent(
         name="dashboard",
         module="rebrew.dashboard",
-        help="Serve a read-only web dashboard over the coverage database.",
+        help="Serve a read-only web dashboard over the coverage documents.",
         panel=Panel.EXPORT_SYNC,
     ),
     CliComponent(

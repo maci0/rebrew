@@ -1195,6 +1195,53 @@ class TestProvenance:
         assert "updated_by" not in entry
         assert "updated_at" not in entry
 
+    def test_field_write_names_its_own_tool(self, tmp_path: Path) -> None:
+        """A BLOCKER/NOTE write must not leave the last status writer's tag
+        standing: the row names whichever tool wrote it last."""
+        from rebrew.metadata import get_entry, update_field, update_source_status
+
+        update_source_status(tmp_path, "NEAR_MATCHING", "SERVER", 0x1000, updated_by="verify")
+        update_field(tmp_path, 0x1000, "blocker", "struct diff", "SERVER", updated_by="diff")
+        entry = get_entry(tmp_path, 0x1000, "SERVER")
+        assert entry["updated_by"] == "diff"
+        assert entry["status"] == "NEAR_MATCHING"  # the status itself is untouched
+
+    def test_untagged_field_write_keeps_the_stamp(self, tmp_path: Path) -> None:
+        from rebrew.metadata import get_entry, update_field, update_source_status
+
+        update_source_status(tmp_path, "NEAR_MATCHING", "SERVER", 0x1000, updated_by="verify")
+        first = get_entry(tmp_path, 0x1000, "SERVER")["updated_at"]
+        update_field(tmp_path, 0x1000, "note", "hand edit", "SERVER")
+        entry = get_entry(tmp_path, 0x1000, "SERVER")
+        assert entry["updated_by"] == "verify"
+        assert entry["updated_at"] == first
+
+    def test_set_fields_stamps_the_pair(self, tmp_path: Path) -> None:
+        from rebrew.metadata import get_entry, set_fields
+
+        set_fields(
+            tmp_path,
+            0x1000,
+            {"blocker": "struct diff", "blocker_delta": 12},
+            "SERVER",
+            updated_by="blocker",
+        )
+        entry = get_entry(tmp_path, 0x1000, "SERVER")
+        assert entry["updated_by"] == "blocker"
+        assert entry["updated_at"]
+
+    def test_entry_apply_stamps_the_pair(self, tmp_path: Path) -> None:
+        """The typed facade routes through the same stamped writers."""
+        from rebrew.metadata import get_entry
+        from rebrew.metadata_model import MetadataEntry
+
+        entry = MetadataEntry(module="SERVER", va=0x1000)
+        entry.apply(tmp_path, updated_by="blocker", blocker="needs vtable")
+        stored = get_entry(tmp_path, 0x1000, "SERVER")
+        assert stored["blocker"] == "needs vtable"
+        assert stored["updated_by"] == "blocker"
+        assert stored["updated_at"]
+
 
 class TestSetFieldsBatchTomlSafe:
     def test_strips_control_chars_like_set_fields(self, tmp_path: Path) -> None:

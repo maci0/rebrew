@@ -58,7 +58,7 @@ Rebrew is a reusable Python tooling package for reconstructing exact C source co
 | `rebrew init` | Scaffold a new project with config, directories, and agent skills |
 | `rebrew doctor` | Validate project health (config, toolchain image, binary) |
 | `rebrew catalog` | Build function catalog and coverage JSON |
-| `rebrew build-db` | Build SQLite coverage database from catalog |
+| `rebrew build-db` | Write clear-text per-target coverage documents from the catalog |
 | `rebrew cache` | Compile cache management (`stats`, `clear`) |
 | `rebrew cfg` | Read/write `rebrew-project.toml` settings |
 | `rebrew extract` | Batch extract function bytes and disassembly |
@@ -323,10 +323,9 @@ rebrew split src/target_name/multi.c           # split multi-function file into 
 rebrew split --va 0x10003DA0 src/target_name/multi.c  # extract one function into multi_c/
 rebrew merge --output merged.c a.c b.c          # merge files into one multi-function file
 rebrew merge -o multi.c --force --delete multi_c/ multi.c  # merge extracted function back
-rebrew catalog                      # regenerate the function catalog and coverage JSON
-rebrew catalog --data-json          # write db/data_<target>.json
+rebrew catalog                      # summarize the function catalog
 rebrew catalog --export-ghidra-labels  # generate ghidra_data_labels.json from detected tables
-rebrew build-db                     # build SQLite coverage database from catalog
+rebrew build-db                     # write db/coverage-<target>.toml
 rebrew binsync-export ./binsync_out # export source markers and metadata to BinSync state directory
 rebrew binsync-import --dry-run ./binsync_out # import names + prototypes + globals from a BinSync state (dry-run)
 
@@ -493,7 +492,7 @@ Projects rebrew integrates with or draws from:
 | Tool | Role | Integration |
 |------|------|-------------|
 | [decomp.me](https://github.com/decompme/decomp.me) | Collaborative decompilation platform | Flag axes synced via `tools/sync_decomp_flags.py`; powers `rebrew match --flag-sweep` |
-| [reccmp](https://github.com/isledecomp/reccmp) | Binary recompilation comparison framework | Source marker format compatibility; `rebrew catalog --csv` exports reccmp-compatible CSV |
+| [reccmp](https://github.com/isledecomp/reccmp) | Binary recompilation comparison framework | Source marker format compatibility: reccmp's parser reads rebrew source files |
 | [LIEF](https://github.com/lief-project/LIEF) | Binary format parsing (PE/ELF/Mach-O) | Used for binary loading, format detection, and PE section analysis |
 | [Capstone](https://github.com/capstone-engine/capstone) | Disassembly engine | Powers `rebrew asm`, byte-diff scoring, relocation masking, and mnemonic comparison |
 | [angr](https://github.com/angr/angr) | Binary analysis + symbolic execution | Powers `rebrew prove` for Z3-based semantic equivalence proving (optional dep) |
@@ -517,7 +516,7 @@ Projects rebrew integrates with or draws from:
 | Project | What it is |
 |---------|-----------|
 | [recompile.online](https://github.com/maci0/recompile) | Compiler-as-a-service API over the rebrew toolchain zoo — submit C + a toolchain id, get the compiled artifact (separate workspace: `../recompile`) |
-| [recoverage](https://github.com/maci0/recoverage) | Coverage database / dashboard over `rebrew build-db` output |
+| [recoverage](https://github.com/maci0/recoverage) | Coverage dashboard over `rebrew build-db` output |
 
 ## License
 

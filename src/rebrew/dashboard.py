@@ -1,9 +1,9 @@
-"""dashboard.py – Read-only web dashboard over the coverage database.
+"""dashboard.py – Read-only web dashboard over the coverage documents.
 
-Serves the SQLite ``coverage.db`` (built by ``rebrew build-db``) over a tiny
-HTTP server with no dependencies beyond the stdlib.  Every endpoint is
-read-only: the database is opened in ``mode=ro`` and non-GET/HEAD requests
-are rejected with 405.
+Serves the per-target ``db/coverage-<target>.toml`` written by ``rebrew
+build-db`` over a tiny HTTP server with no dependencies beyond the stdlib.
+Every endpoint is read-only: a document is only ever read, and non-GET/HEAD
+requests are rejected with 405.
 
 Endpoints
 ---------
@@ -28,13 +28,15 @@ rows whose module is blank. Omitting ``module`` does not filter. Summary
 ``by_module_counts`` keys are those stored strings (``""`` when unset).  A
 repeated parameter takes its first value, and an unrecognised one is ignored.
 Target-scoped endpoints return 400 when ``target`` is missing/empty and 404 when
-the target is unknown.  ``GET /api/summary`` returns 500 when the target's
-``function_stats`` metadata row exists but is unreadable (corrupt JSON, a
-non-object, or a byte count that is not a non-negative integer: text, a
-float, a boolean, a list, or a negative), so clients are not told the target
-is missing.  ``/api/bootstrap`` embeds the first target and degrades instead of
-failing: its ``summary`` and ``functions`` are ``null`` when that target has
-unreadable stats, so one broken target does not cost the target list.
+the target is unknown, and a target IS a document: one readable
+``coverage-<target>.toml`` in the configured directory.  A missing or
+unparseable document is therefore an unknown target rather than a 500 — the
+reader skips it with a log line and serves the rest, and ``function_stats`` is
+DERIVED from the stored function rows, so the unreadable-metadata-row case the
+SQLite dashboard answered 500 ``corrupt_function_stats`` for cannot arise.
+``/api/bootstrap`` embeds the first target and degrades instead of failing: its
+``summary`` and ``functions`` are ``null`` when that target is unreadable, so
+one broken target does not cost the target list.
 Non-GET/HEAD methods on a served path (including ones http.server does not
 know) return 405 with ``Allow: GET, HEAD``; a path the server does not serve
 returns 404 ``not_found`` whatever method it was asked for, since there is no
@@ -42,7 +44,8 @@ resource to list methods for.  Every error body is
 ``{"error": "<message>", "code": "<machine-readable code>"}``; branch on
 ``code`` (``missing_target``, ``unknown_target``, ``invalid_status``,
 ``not_found``, ``method_not_allowed``, ``host_not_allowed``,
-``corrupt_function_stats``, ``database_error``, ``internal_error``,
+``database_error`` (the whole directory yielded no readable document),
+``internal_error``,
 ``server_busy`` for a connection refused because every handler slot is taken,
 and ``bad_request`` / ``uri_too_long`` / ``header_fields_too_large`` /
 ``http_version_not_supported`` for malformed requests rejected before
@@ -66,15 +69,16 @@ which have no page (``offset`` is 0 and ``limit`` is the row count there).
 A client that pages on ``limit`` steps by ``count``, not by ``limit``.
 A missing, malformed, or non-positive ``limit`` uses 100 and larger values clamp
 to 5000; a missing, malformed, or negative ``offset`` uses 0 and values past
-SQLite's int64 range clamp to it.  Clients read the applied values back.
+rebrew's ``VA_MAX`` clamp to it.  Clients read the applied values back.
 Successful 200 responses negotiate ``zstd`` then ``gzip`` (``Accept-Encoding``
 quality weights; explicit ``coding;q=0`` beats ``*``), carry an ``ETag`` (HTML
-or ``/app.js`` content hash, or DB mtime plus a hash of the request's path
-and query, so one validator never stands for two different routes, targets,
-or filter selections), and use ``Cache-Control: private,
+or ``/app.js`` content hash, or a hash of every coverage document's stat plus
+a hash of the request's path and query, so one validator never stands for two
+different routes, targets, or filter selections), and use ``Cache-Control:
+private,
 no-cache`` so browsers can 304 without serving a stale body after ``build-db``;
 the shell links ``/app.js?v=<content hash>``, which is ``immutable``.
-``/api/health`` is the exception: it reads the database, so it answers
+``/api/health`` is the exception: it reads the documents, so it answers
 ``no-store`` with no ``ETag`` at all (see ``_UNCACHEABLE_ROUTES``).  It
 also reports the running request, 5xx, and worst-latency totals, so a
 probe can watch the error rate while the server is up.
@@ -83,15 +87,14 @@ line, status, size, handler milliseconds), a WARNING for a request past
 ``_SLOW_REQUEST_MS``, an ERROR with an escaped traceback for a failure, and
 every warning a route raises about its own data, each stamped with the id of
 the request in flight.  A route-level warning reports a response the access
-line shows as a plain 200 (corrupt ``function_stats``, a byte count past the
-section), so it carries the id rather than leaving the operator to grep the
-message.  Off the server, the CLI reaches the same ``Dashboard`` with no
+line shows as a plain 200 (a byte count past the section), so it carries the
+id rather than leaving the operator to grep the message.  Off the server, the CLI reaches the same ``Dashboard`` with no
 request in flight and those warnings report ``-``.
 An inline ``data:,`` icon stops the per-load ``/favicon.ico`` 404.
 A matching ``If-None-Match`` on a routed path is answered 304 only when a GET
 would answer 200 (target-scoped ones need a known ``target``; ``/api/summary``
-a readable ``function_stats``; ``/api/functions`` a ``status`` inside the
-vocabulary), without running the route's query.
+a readable document; ``/api/functions`` a ``status`` inside the vocabulary),
+without running the route's query.
 The static HTML shell and ``/app.js`` are zstd- and
 gzip-precompressed at import time (gzip ``mtime=0``, so a restart serves the
 same bytes) so entry assets skip per-request compression CPU.  Their combined
@@ -154,12 +157,11 @@ import itertools
 import json
 import logging
 import socket
-import sqlite3
 import sys
 import threading
 import time
 import traceback
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
 from email.utils import formatdate
@@ -174,13 +176,21 @@ import zstandard
 from rich.markup import escape
 
 from rebrew import theme
-from rebrew.build_db import FUNCTION_ROWS_SQL, resolve_db_dir
+from rebrew.annotation import FUNCTION_MARKERS
+from rebrew.build_db import resolve_db_dir
 from rebrew.cli import console, error_exit, json_print
 from rebrew.compression import precompress
+from rebrew.coverage_toml import (
+    CoverageSnapshot,
+    CoverageTomlError,
+    Function,
+    Global,
+    load_all_coverage_from,
+)
 from rebrew.metadata import canonical_status
 from rebrew.status_style import status_mark_groups
 from rebrew.utils import floor_pct, strip_bidi_format
-from rebrew.workspace import VA_MAX, coverage_db_lock, open_sqlite_ro
+from rebrew.workspace import VA_MAX
 from rebrew.workspace.status import COVERAGE_DB_STATUSES
 
 log = logging.getLogger(__name__)
@@ -214,8 +224,8 @@ def _request_context() -> tuple[str, str]:
 def _warn_request(message: str, *args: Any) -> None:
     """Warn with the request in flight named first, like the error lines are.
 
-    A route's own warning (a corrupt metadata row, a byte count past the
-    section size) explains a response the access line reports as a plain 200,
+    A route's own warning (a byte count past the section size) explains a
+    response the access line reports as a plain 200,
     so it has to carry the same id or the operator reading the page has to
     grep the message text to learn which request hit the bad row.  Off the
     server the same ``Dashboard`` serves the CLI, which has no request in
@@ -286,8 +296,8 @@ _TARGET_ROUTES = frozenset(
 #: Paths ``Dashboard.handle`` serves; only these may short-circuit to 304.
 _ROUTES = frozenset({"/", "/app.js", "/api/bootstrap", "/api/targets"}) | _TARGET_ROUTES
 #: Routes that answer 200 but must carry no validator and no cache directive.
-#: ``/api/health`` reads the database, so a revalidated body would keep
-#: reporting "ok" for a process whose ``coverage.db`` has since gone unreadable.
+#: ``/api/health`` reads the documents, so a revalidated body would keep
+#: reporting "ok" for a process whose coverage has since gone unreadable.
 #: It is deliberately not in ``_ROUTES`` either: that stops the 304
 #: short-circuit, while this stops the ``ETag`` a client could otherwise hold
 #: and revalidate by hand.
@@ -314,7 +324,8 @@ _MAX_ACTIVE_CONNECTIONS = 64
 # access line already carries its milliseconds; this names the ones no one
 # would scroll back for, so a route that started costing a second says so on
 # the stream instead of only showing up as the worst case in the shutdown
-# totals.  Well above a served route (a handful of indexed SQLite reads), so
+# totals.  Well above a served route (one stat per document plus an in-memory
+# filter), so
 # an ordinary load never reaches it.
 _SLOW_REQUEST_MS = 500.0
 # Seconds a refused connection is told to wait, in the ``Retry-After`` header of
@@ -358,10 +369,12 @@ _ENTRY_WIRE_BUDGET_BYTES = _INITCWND_BYTES - _ENTRY_HEADER_RESERVE_BYTES
 _WireEncoding = Literal["zstd", "gzip"]
 # Preference when several encodings share the same positive q-value.
 _ENCODING_PREFERENCE: tuple[_WireEncoding, ...] = ("zstd", "gzip")
-#: Request-scoped connection so nested query methods share one SQLite handle.
-_CURRENT_CONN: ContextVar[sqlite3.Connection | None] = ContextVar(
-    "rebrew_dashboard_conn", default=None
-)
+#: Filename shape :mod:`rebrew.coverage_toml` writes and reads: one document per
+#: target.  Repeated here because the ETag and the freshness probe stat the
+#: documents themselves, and a second spelling of the glob would name a
+#: different set of files than the reader parses.  It is also the only place a
+#: served response names a coverage file.
+_COVERAGE_GLOB = "coverage-*.toml"
 
 
 _APP_JS = """
@@ -1251,14 +1264,14 @@ function bindControls() {
 async function init() {
   const boot = await get("/api/bootstrap");
   $("boot-status").hidden = true;
-  // A reload re-reads coverage.db, so nothing already painted counts as loaded.
+  // A reload re-reads the documents, so nothing already painted counts as loaded.
   VIEWS.forEach((name) => (viewLoaded[name] = false));
   $("reload").hidden = false;
   targets = boot.targets || [];
   bindControls();
   $("no-targets").hidden = !!targets.length;
   if (!targets.length) {
-    $("results-status").textContent = "No targets in coverage.db";
+    $("results-status").textContent = "No targets in the coverage documents";
     return;
   }
   $("controls").hidden = false;
@@ -1457,7 +1470,7 @@ __STATUS_FORCED__
 <p id="boot-status" role="status">Loading coverage…</p>
 <noscript><p id="no-script">The dashboard needs JavaScript to load coverage data.
   Enable it for this page, then reload.</p></noscript>
-<p id="no-targets" hidden>No targets found in coverage.db. Run
+<p id="no-targets" hidden>No targets found in the coverage documents. Run
   <code>rebrew build-db</code> for this project, then choose Reload.</p>
 <div id="controls" class="filters" hidden role="group" aria-label="Coverage filters">
 <div>
@@ -1728,13 +1741,11 @@ def _byte_count(value: Any) -> int:
     return value
 
 
-def _escape_like(term: str) -> str:
-    """Escape LIKE wildcards so user input is matched literally.
-
-    Mirrors recovery's _escape_like: `%`, `_`, and `\\` are escaped and the
-    query must add ``ESCAPE '\\'``.
-    """
-    return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+#: ASCII A-Z to a-z: the whole of SQLite's default LIKE folding, which is the
+#: folding the search used to run inside.  ``str.lower`` would also fold
+#: non-ASCII and ``str.casefold`` more so (``ß`` to ``ss``), matching rows the
+#: SQL query never returned; keeping the table keeps the served rows identical.
+_ASCII_FOLD = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")
 
 
 def _va_query(term: str) -> int | None:
@@ -1757,71 +1768,166 @@ def _va_query(term: str) -> int | None:
     return value
 
 
-def _text_or_va(q: str, *columns: str) -> tuple[str, list[Any]]:
-    """LIKE match on *columns*, plus exact ``va`` when *q* is an address."""
-    like = f"%{_escape_like(q)}%"
-    parts = [f"{column} LIKE ? ESCAPE '\\'" for column in columns]
-    args: list[Any] = [like] * len(columns)
-    va = _va_query(q)
-    if va is not None:
-        parts.append("va = ?")
-        args.append(va)
-    return "(" + " OR ".join(parts) + ")", args
+def _name_match(term: str, va: int, *texts: str) -> bool:
+    """Whether one row matches *term*: an exact VA, or a substring of *texts*.
+
+    The Python restatement of the WHERE clause the SQLite reader built:
+    ``(name LIKE ? ESCAPE '\\\\' OR symbol LIKE ? ESCAPE '\\\\' OR va = ?)`` with
+    the pattern ``%term%`` and the term's own wildcards escaped first.  That
+    pattern is a literal substring test, so escaping and re-unwrapping the
+    wildcards buys nothing here — what has to be reproduced is the folding
+    (:data:`_ASCII_FOLD`) and NULL, which matched nothing through LIKE and is
+    the empty string here.
+    """
+    wanted = _va_query(term)
+    if wanted is not None and va == wanted:
+        return True
+    needle = term.translate(_ASCII_FOLD)
+    return any(needle in (text or "").translate(_ASCII_FOLD) for text in texts)
+
+
+#: The mapping one request reads, pinned for its duration.  ``bootstrap`` and
+#: ``handle`` each build one response from more than one collection, and the
+#: loader re-stats the directory on every call: two calls in one response can
+#: straddle a rebuild and pair one build's targets with the next build's rows.
+#: The SQLite reader pinned the same window with one read transaction; a frozen
+#: snapshot makes a single collection consistent, and this makes the response
+#: consistent.  Nested scopes reuse the outer pin and only the outermost
+#: restores it, so a route that calls another route still reads one build.
+_CURRENT_SNAPSHOTS: ContextVar[Mapping[str, CoverageSnapshot] | None] = ContextVar(
+    "rebrew_dashboard_snapshots", default=None
+)
+
+
+def _readable_snapshots(dashboard: Dashboard) -> Mapping[str, CoverageSnapshot]:
+    """The dashboard's snapshots, refusing a directory that yields none.
+
+    The one rule behind the two probes that must not answer "ok" over an empty
+    page: ``rebrew dashboard``'s startup check and ``/api/health``.  A project
+    that never ran ``build-db`` has no documents, and a directory whose every
+    document is corrupt reads the same way — either way there is nothing to
+    serve, and the reader that skips an unreadable document says so on the log
+    stream rather than here.
+    """
+    snapshots = dashboard.snapshots()
+    if not snapshots:
+        raise CoverageTomlError(
+            f"{dashboard.db_dir}: no readable coverage document (run 'rebrew build-db' first)"
+        )
+    return snapshots
+
+
+def _history_va(row: Mapping[str, Any]) -> int:
+    """A history row's VA, 0 for a document that stores nothing usable there.
+
+    The column was ``INTEGER NOT NULL CHECK (va >= 0)``, so the SQLite reader
+    had no absent case to render (that is why its ``if va is not None`` arm
+    never fired).  Only a hand-edited document reaches the fallback, and 0 is
+    the value the same CHECK would have allowed.
+    """
+    va = row.get("va")
+    # bool is an int subclass; ``va = true`` is not an address.
+    return va if isinstance(va, int) and not isinstance(va, bool) and va >= 0 else 0
+
+
+def _history_text(value: Any) -> str:
+    """A history text column as ``str``, for a row read out of a document.
+
+    TOML has no null, and the writer stores a transition's absent
+    old/new status as the empty string; this is the same answer for anything
+    that is not text, so a hand-edited row cannot crash a page.
+    """
+    return value if isinstance(value, str) else ""
+
+
+def _coverage_etag(db_dir: Path) -> str:
+    """A short tag for the coverage documents' current bytes.
+
+    The old validator was ``mtime_ns``-``size`` of ``coverage.db``.  The
+    documents are one per target, so the tag has to cover all of them: tagging
+    from the newest file would leave a validator held for target A looking
+    current after target B was rebuilt.  The per-file stats are hashed rather
+    than concatenated so the header stays a fixed size however many targets a
+    project grows.  An absent or unreadable directory hashes to the same value
+    every time, which never matches a tag from a readable one.
+    """
+    parts: list[str] = []
+    for path in sorted(db_dir.glob(_COVERAGE_GLOB)):
+        try:
+            st = path.stat()
+        except OSError:
+            continue
+        parts.append(f"{path.name}:{st.st_mtime_ns:x}:{st.st_size:x}")
+    return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()[:16]
 
 
 class Dashboard:
-    """Read-only query layer over a ``coverage.db`` file."""
+    """Read-only view over one project's coverage documents.
 
-    def __init__(self, db_path: Path, served: Callable[[], dict[str, Any]] | None = None) -> None:
-        self.db_path = Path(db_path)
+    *db_dir* is the DIRECTORY holding ``coverage-<target>.toml``, not a database
+    file: the reader resolves one document per target from it, and it is also
+    what the validator and the liveness probe stat.  *load* defaults to
+    :func:`rebrew.coverage_toml.load_all_coverage_from`, which memoizes on the
+    stat of every document in the directory and returns THE SAME mapping while
+    none of them moved, so a request that changes nothing costs one stat per
+    document and no parse.
+    """
+
+    def __init__(
+        self,
+        db_dir: Path,
+        *,
+        load: Callable[[Path], Mapping[str, CoverageSnapshot]] = load_all_coverage_from,
+        served: Callable[[], dict[str, Any]] | None = None,
+    ) -> None:
+        self.db_dir = Path(db_dir)
+        self._load = load
         #: Running server totals the probe reports; ``None`` off the HTTP
         #: server (tests, direct queries), where no request has been served.
         self.served = served
 
-    @contextmanager
-    def _conn(self) -> Iterator[sqlite3.Connection]:
-        """Yield a read-only connection, closed on every exit path.
+    def snapshots(self) -> Mapping[str, CoverageSnapshot]:
+        """Every readable target's snapshot, keyed by target name.
 
-        Nested callers reuse the same handle (one connect per request).
-        ``sqlite3.Connection`` used directly as a context manager only
-        commits/rolls back the transaction — it never closes.  Under the
-        threaded HTTP server that would leave one GC-dependent connection
-        per request; closing here releases the handle deterministically.
+        Returns the pinned mapping when a request scope holds one (see
+        :data:`_CURRENT_SNAPSHOTS`), so a response built from several calls
+        reads one build.
         """
-        existing = _CURRENT_CONN.get()
-        if existing is not None:
-            yield existing
+        pinned = _CURRENT_SNAPSHOTS.get()
+        if pinned is not None:
+            return pinned
+        return self._load(self.db_dir)
+
+    @contextmanager
+    def _snapshot_scope(self) -> Iterator[None]:
+        """Pin one mapping for the duration of one response."""
+        if _CURRENT_SNAPSHOTS.get() is not None:
+            yield
             return
-        # Percent-encode the path (``open_sqlite_ro`` / ``sqlite_ro_uri``): a
-        # raw ``file:{p}?mode=ro`` truncates or rewrites names that contain
-        # ``?`` / ``#`` / ``%``.  ``query_only`` is a second write gate.
-        # Shared flock for the connection: ``build_db --force`` unlinks the
-        # file, and a reader that still has it open races that unlink.
-        with coverage_db_lock(self.db_path, shared=True):
-            conn = open_sqlite_ro(self.db_path)
-            token = _CURRENT_CONN.set(conn)
-            try:
-                yield conn
-            finally:
-                _CURRENT_CONN.reset(token)
-                conn.close()
+        token = _CURRENT_SNAPSHOTS.set(self._load(self.db_dir))
+        try:
+            yield
+        finally:
+            _CURRENT_SNAPSHOTS.reset(token)
 
     def targets(self) -> list[str]:
-        with self._conn() as conn:
-            rows = conn.execute(
-                "SELECT DISTINCT target FROM metadata WHERE key = 'function_stats' ORDER BY target"
-            ).fetchall()
-        return [r[0] for r in rows]
+        """The readable targets, in the order the SQL ``ORDER BY target`` gave.
+
+        ``targets()`` served the SQLite dashboard from ``SELECT DISTINCT target
+        FROM metadata``; a target is now a document, so it is the set of files
+        that parsed.  Sorted because a directory listing's order is not a fact.
+        """
+        return sorted(self.snapshots())
 
     def bootstrap(self) -> dict[str, Any]:
         """Targets plus the first target's summary/functions in one payload.
 
         Collapses the HTML app's cold-start waterfall (targets → summary +
         functions) into a single round trip.  Filter/paging still use the
-        dedicated endpoints after the first paint.  Nested queries share one
-        SQLite connection.
+        dedicated endpoints after the first paint.  The nested reads share one
+        pinned snapshot.
         """
-        with self._conn():
+        with self._snapshot_scope():
             targets = self.targets()
             payload: dict[str, Any] = {
                 "targets": targets,
@@ -1841,57 +1947,37 @@ class Dashboard:
             payload["summary"] = self.summary(target)
             if payload["summary"] is not None:
                 payload["functions"] = self.functions(target, limit=_BOOTSTRAP_FUNCTION_LIMIT)
-            return payload
+            # Scrubbed on the way out of this method, not only on the wire: the
+            # summary carries the snapshot's frozen ``MappingProxyType``, which
+            # ``json.dumps`` refuses, and this is a public payload builder rather
+            # than a private step.  ``_json`` scrubs again, which is idempotent
+            # and therefore the same bytes.  Annotated rather than returned
+            # straight through: ``_scrub_invisible`` answers ``Any``, and this
+            # method's promise is the payload shape.
+            scrubbed: dict[str, Any] = _scrub_invisible(payload)
+            return scrubbed
 
-    def _summary_lookup(
-        self, target: str
-    ) -> tuple[Literal["missing", "corrupt", "ok"], dict[str, Any] | None]:
-        """One-query summary read: missing row vs corrupt vs usable payload.
+    def _summary_lookup(self, target: str) -> dict[str, Any] | None:
+        """The summary payload for *target*, or ``None`` when it has no document.
 
-        Keeps the HTTP layer from mapping corrupt ``function_stats`` to
-        ``404 unknown target`` (the row is present; the value is unreadable).
+        Two answers, not three: ``function_stats`` is DERIVED from the stored
+        function rows (``coverage_toml._derive_function_stats``), so the
+        unreadable-metadata-row case the SQLite reader answered with a 500
+        cannot happen — the aggregates are integers by construction.  A
+        document that does not parse at all is not a target here (the loader
+        skips it and logs), which is the same 404 an unknown target gets.
         """
-        with self._conn() as conn:
-            row = conn.execute(
-                "SELECT value FROM metadata WHERE target = ? AND key = 'function_stats'",
-                (target,),
-            ).fetchone()
-        if row is None:
-            return "missing", None
-        try:
-            stats = json.loads(row[0])
-        except (json.JSONDecodeError, TypeError) as exc:
-            # Corrupt metadata must not present as a real 0% summary — that
-            # looks like an empty target and hides the broken row.
-            _warn_request(
-                "Ignoring corrupt function_stats for target %r: %s",
-                target,
-                exc,
-            )
-            return "corrupt", None
-        if not isinstance(stats, dict):
-            _warn_request(
-                "Ignoring non-object function_stats for target %r (%s)",
-                target,
-                type(stats).__name__,
-            )
-            return "corrupt", None
+        snapshot = self.snapshots().get(target)
+        if snapshot is None:
+            return None
+        stats = snapshot.function_stats
         # Headline coverage = byte-matched (EXACT/RELOC) bytes / text size;
         # the old covered_bytes summed every function's size, so an all-STUB
         # binary reported ~100% "coverage".  Identified bytes
         # (incl. stubs) stays available as a separate field.
-        # total_b comes solely from function_stats — the old fallback read a
-        # second metadata row (key='summary') and probed its ".text" size, but
-        # nothing writes a ".text" key there, so the branch never fired.
-        try:
-            matched_b, identified_b, total_b = (
-                _byte_count(stats.get(name)) for name in _FUNCTION_STAT_BYTE_COUNTS
-            )
-        except ValueError as exc:
-            # A byte count that is not a non-negative int (text, float, bool,
-            # list, negative) is the same unreadable row as corrupt JSON.
-            _warn_request("Ignoring function_stats with bad byte count for %r: %s", target, exc)
-            return "corrupt", None
+        matched_b, identified_b, total_b = (
+            _byte_count(stats.get(name)) for name in _FUNCTION_STAT_BYTE_COUNTS
+        )
         # A byte count past the .text size (stale SIZE fields, a function span
         # outside .text) divides to 102.4%, and the coverage cards would render
         # that as a broken number.  The share is capped at a full section and
@@ -1905,7 +1991,7 @@ class Dashboard:
                     value,
                     total_b,
                 )
-        return "ok", {
+        return {
             "target": target,
             "function_stats": stats,
             "coverage_pct": floor_pct(min(matched_b, total_b) if total_b else matched_b, total_b),
@@ -1915,9 +2001,8 @@ class Dashboard:
         }
 
     def summary(self, target: str) -> dict[str, Any] | None:
-        """Coverage stats for *target*, or None when missing/unreadable."""
-        _kind, payload = self._summary_lookup(target)
-        return payload
+        """Coverage stats for *target*, or None when it has no document."""
+        return self._summary_lookup(target)
 
     def functions(
         self,
@@ -1929,77 +2014,68 @@ class Dashboard:
         limit: int = _DEFAULT_LIMIT,
         offset: int = 0,
     ) -> dict[str, Any]:
-        where = ["target = ?"]
-        args: list[Any] = [target]
-        if status:
-            where.append("status = ?")
-            args.append(canonical_status(status))
-        if module is not None:  # "" matches a blank module; None means no filter
-            where.append("module = ?")
-            args.append(module)
-        if q:
-            clause, extra = _text_or_va(q, "name", "symbol")
-            where.append(clause)
-            args.extend(extra)
-        # Code rows only; must remain in *where* for the COUNT total.
-        where.append(FUNCTION_ROWS_SQL)
-        where_sql = " AND ".join(where)
-        # (target, va) is the primary key, so va alone is a total order; a
-        # second sort key stops idx_functions_list from serving the ORDER BY.
-        query = (
-            "SELECT va, name, symbol, size, status, module, files "
-            f"FROM functions WHERE {where_sql} ORDER BY va LIMIT ? OFFSET ?"
-        )
-        with self._conn() as conn:
-            rows = conn.execute(query, [*args, limit, offset]).fetchall()
-            # Short first page: COUNT equals len(rows). Skip the second scan.
-            # A later empty/short page still needs COUNT (offset past the end).
-            if offset == 0 and len(rows) < limit:
-                total = len(rows)
-            else:
-                total = conn.execute(
-                    f"SELECT COUNT(*) FROM functions WHERE {where_sql}",
-                    args,
-                ).fetchone()[0]
+        snapshot = self.snapshots().get(target)
+        rows: list[Function] = []
+        if snapshot is not None:
+            wanted_status = canonical_status(status) if status else None
+            for fn in snapshot.functions:
+                # Code rows only, and the filter is the same one the COUNT
+                # total ran over, so the page and the total cannot disagree.
+                if fn.markerType not in FUNCTION_MARKERS:
+                    continue
+                if wanted_status is not None and fn.status != wanted_status:
+                    continue
+                if module is not None and fn.module != module:
+                    continue
+                if q and not _name_match(q, fn.va, fn.name, fn.symbol):
+                    continue
+                rows.append(fn)
+        # VA order, which is the file's own order (the writer sorts by VA) and
+        # the ORDER BY this read used to carry.  Sorted here rather than
+        # trusted: a hand-edited document's row order is not a fact.
+        rows.sort(key=lambda fn: fn.va)
+        page = rows[offset : offset + limit]
         return {
             "target": target,
-            "count": len(rows),
-            "total": total,
+            "count": len(page),
+            "total": len(rows),
             "limit": limit,
             "offset": offset,
             "paged": True,
             "cols": list(_FUNCTION_COLS),
             "functions": [
                 [
-                    f"0x{r[0]:08x}" if r[0] is not None else "???",
-                    r[1] or "",
-                    r[2] or "",
-                    r[3],
-                    r[4] or "",
-                    r[5] or "",
-                    _files_display(r[6]),
+                    f"0x{fn.va:08x}",
+                    fn.name,
+                    fn.symbol,
+                    fn.size,
+                    fn.status,
+                    fn.module,
+                    _files_display(fn.files),
                 ]
-                for r in rows
+                for fn in page
             ],
         }
 
     def sections(self, target: str) -> dict[str, Any]:
-        # One pass: the sections row is 1:1 on the (target, name) primary key,
-        # so the join replaces the per-section size lookup table.  Rows ship as
-        # arrays under ``cols`` like every other list route; a per-row key costs
-        # more than the numbers it labels once a target has a few hundred
-        # sections, and this response is never paged.
-        with self._conn() as conn:
-            rows = conn.execute(
-                "SELECT s.section_name, sec.size, s.total_cells, s.exact_count, "
-                "s.reloc_count, s.near_match_count, s.stub_count, s.proven_count, "
-                "s.size_mismatch_count, s.thunk_count, s.data_count, "
-                "s.padding_count, s.none_count, s.other_count "
-                "FROM section_cell_stats s LEFT JOIN sections sec "
-                "ON sec.target = s.target AND sec.name = s.section_name "
-                "WHERE s.target = ? ORDER BY s.section_name",
-                (target,),
-            ).fetchall()
+        # One pass: the section_name is the key of the document's
+        # ``[sections."…"]`` table, so the join the SQLite reader used to reach
+        # the section's own size is a field lookup.  Rows ship as arrays under
+        # ``cols`` like every other list route; a per-row key costs more than
+        # the numbers it labels once a target has a few hundred sections, and
+        # this response is never paged.
+        snapshot = self.snapshots().get(target)
+        rows: list[list[Any]] = []
+        if snapshot is not None:
+            for name, section in sorted(snapshot.sections.items()):
+                counts = section.bucket_counts
+                # The served column order (``_SECTION_COLS``) is the bucket
+                # name order: the SQLite SELECT aliased ``exact_count`` and its
+                # siblings, and the reader named the counts after the columns
+                # they are served in, so this is a key lookup per column.  A
+                # column the reader does not emit is a KeyError here rather
+                # than a silent zero.
+                rows.append([name, section.size, *(counts[column] for column in _SECTION_COLS[2:])])
         return {
             "target": target,
             "count": len(rows),
@@ -2008,7 +2084,7 @@ class Dashboard:
             "offset": 0,
             "paged": False,
             "cols": list(_SECTION_COLS),
-            "sections": [list(r) for r in rows],
+            "sections": rows,
         }
 
     def globals(
@@ -2020,102 +2096,69 @@ class Dashboard:
         limit: int = _DEFAULT_LIMIT,
         offset: int = 0,
     ) -> dict[str, Any]:
-        where = ["target = ?"]
-        args: list[Any] = [target]
-        if module is not None:  # "" matches a blank module; None means no filter
-            where.append("module = ?")
-            args.append(module)
-        if q:
-            clause, extra = _text_or_va(q, "name")
-            where.append(clause)
-            args.extend(extra)
-        where_sql = " AND ".join(where)
-        with self._conn() as conn:
-            rows = conn.execute(
-                f"SELECT va, name, decl, size, module FROM globals WHERE "
-                f"{where_sql} ORDER BY va LIMIT ? OFFSET ?",
-                [*args, limit, offset],
-            ).fetchall()
-            # Same short-page COUNT skip as functions: first page only.
-            if offset == 0 and len(rows) < limit:
-                total = len(rows)
-            else:
-                total = conn.execute(
-                    f"SELECT COUNT(*) FROM globals WHERE {where_sql}",
-                    args,
-                ).fetchone()[0]
+        snapshot = self.snapshots().get(target)
+        rows: list[Global] = []
+        if snapshot is not None:
+            for item in snapshot.globals:
+                if module is not None and item.module != module:
+                    continue
+                if q and not _name_match(q, item.va, item.name):
+                    continue
+                rows.append(item)
+        rows.sort(key=lambda item: item.va)
+        page = rows[offset : offset + limit]
         return {
             "target": target,
-            "count": len(rows),
-            "total": total,
+            "count": len(page),
+            "total": len(rows),
             "limit": limit,
             "offset": offset,
             "paged": True,
             "cols": list(_GLOBAL_COLS),
             "globals": [
-                [
-                    f"0x{r[0]:08x}" if r[0] is not None else "???",
-                    r[1] or "",
-                    r[2] or "",
-                    r[3],
-                    r[4] or "",
-                ]
-                for r in rows
+                [f"0x{item.va:08x}", item.name, item.decl, item.size, item.module] for item in page
             ],
         }
 
     def history(
         self, target: str, *, limit: int = _DEFAULT_LIMIT, offset: int = 0
     ) -> dict[str, Any]:
-        with self._conn() as conn:
-            rows = conn.execute(
-                # A VA with no current function row (removed since) keeps name ''.
-                "SELECT h.va, f.name, h.old_status, h.new_status, h.changed_at "
-                "FROM history h LEFT JOIN functions f ON f.target = h.target AND f.va = h.va "
-                "WHERE h.target = ? ORDER BY h.id DESC LIMIT ? OFFSET ?",
-                (target, limit, offset),
-            ).fetchall()
-            if offset == 0 and len(rows) < limit:
-                total = len(rows)
-            else:
-                total = conn.execute(
-                    "SELECT COUNT(*) FROM history WHERE target = ?",
-                    (target,),
-                ).fetchone()[0]
+        snapshot = self.snapshots().get(target)
+        rows = list(reversed(snapshot.history)) if snapshot is not None else []
+        page = rows[offset : offset + limit]
+        by_va = snapshot.functions_by_va if snapshot is not None else {}
         return {
             "target": target,
-            "count": len(rows),
-            "total": total,
+            "count": len(page),
+            "total": len(rows),
             "limit": limit,
             "offset": offset,
             "paged": True,
             "cols": list(_HISTORY_COLS),
             "history": [
                 [
-                    f"0x{r[0]:08x}" if r[0] is not None else "???",
-                    r[1] or "",
-                    # old_status/new_status are NULL for a VA's first recorded
+                    f"0x{_history_va(row):08x}",
+                    # A VA with no current function row (removed since) keeps
+                    # name ''.  The SQLite reader LEFT JOINed ``functions`` for
+                    # exactly this field.
+                    (by_va[_history_va(row)].name if _history_va(row) in by_va else ""),
+                    # old_status/new_status are absent for a VA's first recorded
                     # transition.  Sent as "" like every other text column
                     # here, so a client reading rows under `cols` never has to
                     # null-check one route and not the others.
-                    r[2] or "",
-                    r[3] or "",
-                    r[4],
+                    _history_text(row.get("old_status")),
+                    _history_text(row.get("new_status")),
+                    _history_text(row.get("changed_at")),
                 ]
-                for r in rows
+                for row in page
             ],
         }
 
     def target_known(self, target: str) -> bool:
-        """True when *target* has function_stats metadata (same criterion as summary)."""
+        """True when *target* has a readable coverage document."""
         if not target:
             return False
-        with self._conn() as conn:
-            row = conn.execute(
-                "SELECT 1 FROM metadata WHERE target = ? AND key = 'function_stats' LIMIT 1",
-                (target,),
-            ).fetchone()
-        return row is not None
+        return target in self.snapshots()
 
     def has_representation(self, path: str, query: dict[str, list[str]]) -> bool:
         """True when a GET of routed *path* would answer 200 (so 304 may stand in).
@@ -2129,26 +2172,28 @@ class Dashboard:
             return True
         target = _opt_query(query, "target") or ""
         if path == "/api/summary":
-            return bool(target) and self._summary_lookup(target)[0] == "ok"
+            return bool(target) and self._summary_lookup(target) is not None
         if not self.target_known(target):
             return False
         if path == "/api/functions":
-            # A status outside the DB vocabulary makes the route answer 400,
-            # not an empty page, so no representation exists to stand in for.
+            # A status outside the stored vocabulary makes the route answer
+            # 400, not an empty page, so no representation exists to stand in
+            # for.
             status = _opt_query(query, "status")
             if status is not None and canonical_status(status) not in COVERAGE_DB_STATUSES:
                 return False
         return True
 
     def response_etag(self, path: str) -> str:
-        """Strong shell/asset etag; weak DB+request etag so rebuilds invalidate JSON caches.
+        """Strong shell/asset etag; weak coverage+request etag so rebuilds invalidate JSON caches.
 
-        The weak tag covers the path and query as well as the database file:
-        a validator identifies one representation, and two routes on the same
-        target answer different bodies.  Tagging everything with the DB alone
-        let a validator held from ``/api/functions?target=a`` answer 304 for
-        ``/api/summary?target=a``, and the client then rendered one endpoint's
-        cached rows under the other's labels.
+        The weak tag covers the path and query as well as the coverage
+        documents: a validator identifies one representation, and two routes on
+        the same target answer different bodies.  Tagging everything with the
+        documents alone let a validator held from
+        ``/api/functions?target=a`` answer 304 for ``/api/summary?target=a``,
+        and the client then rendered one endpoint's cached rows under the
+        other's labels.
         """
         parsed = urlparse(path)
         if parsed.path == "/":
@@ -2156,11 +2201,7 @@ class Dashboard:
         if parsed.path == "/app.js":
             return _APP_JS_ETAG
         scope = _query_scope(f"{parsed.path}?{parsed.query}" if parsed.query else "")
-        try:
-            st = self.db_path.stat()
-        except OSError:
-            return f'W/"0{scope}"'
-        return f'W/"{st.st_mtime_ns:x}-{st.st_size:x}{scope}"'
+        return f'W/"{_coverage_etag(self.db_dir)}{scope}"'
 
     def handle(self, method: str, path: str, query: dict[str, list[str]]) -> tuple[int, str, str]:
         """Route a request.  Returns (status, content-type, body)."""
@@ -2182,18 +2223,20 @@ class Dashboard:
         if parsed.path == "/api/bootstrap":
             return self._json(200, self.bootstrap())
         if parsed.path == "/api/health":
-            # Liveness plus one real read of the database: a process whose
-            # coverage.db has been moved, truncated, or replaced by something
-            # unreadable must report 500, not a cheerful 200 over an empty
-            # page.  The read is one indexed row fetch, not the full query
+            # Liveness plus one real read of the coverage documents: a process
+            # whose db/ has been moved, emptied, or filled with unreadable
+            # documents must report 500, not a cheerful 200 over an empty page.
+            # The read is the loader's own stat-keyed scan, not the full query
             # chain, so a slow route cannot make the probe flap.  The running
             # request and 5xx totals ride along: otherwise the only error count
             # the server has is the one it prints when it stops, so a run that
             # fails every query still probes "ok" for its whole life.
             payload: dict[str, Any] = {
                 "status": "ok",
-                "db": str(self.db_path),
-                "targets": len(self.targets()),
+                # Named for what it is: a directory of coverage documents.
+                # The old key was `db`, from the SQLite store this replaced.
+                "coverage_dir": str(self.db_dir),
+                "targets": len(_readable_snapshots(self)),
             }
             if self.served is not None:
                 payload.update(self.served())
@@ -2217,18 +2260,14 @@ class Dashboard:
         target = _opt_query(query, "target") or ""
         if not target:
             return self._error(400, "missing_target", "missing required query parameter 'target'")
-        with self._conn():
+        with self._snapshot_scope():
             if parsed.path == "/api/summary":
-                # Single stats-row read: missing → 404, corrupt → 500 (not
-                # "unknown"), ok → 200.  Avoids a second target_known probe
-                # on the happy path while keeping status codes accurate.
-                kind, result = self._summary_lookup(target)
-                if kind == "missing":
+                # Single document read: no document → 404 unknown target,
+                # otherwise 200.  Avoids a second target_known probe on the
+                # happy path while keeping status codes accurate.
+                result = self._summary_lookup(target)
+                if result is None:
                     return self._error(404, "unknown_target", f"unknown target {target!r}")
-                if kind == "corrupt" or result is None:
-                    return self._error(
-                        500, "corrupt_function_stats", "corrupt function_stats metadata"
-                    )
                 return self._json(200, result)
             if not self.target_known(target):
                 return self._error(404, "unknown_target", f"unknown target {target!r}")
@@ -2238,7 +2277,7 @@ class Dashboard:
                     # An unknown status is a client mistake, not an empty
                     # page: matching nothing reads as "this target has no
                     # STTUB functions", which is a wrong answer.  The
-                    # accepted set is the one the DB column can hold, so
+                    # accepted set is the one a stored row can hold, so
                     # every status the summary renders links to its own
                     # filtered list.
                     return self._error(
@@ -2307,49 +2346,45 @@ def _scrub_invisible(value: Any) -> Any:
     client, which keeps the entry assets inside the cold-load wire budget.
 
     Keys are scrubbed too, not just values: ``/api/summary`` returns
-    ``function_stats`` verbatim from the target's metadata row, so a key is as
+    ``function_stats`` from the target's document, so a key is as
     target-controlled as a name cell.  Two keys that differ only in invisible
     characters collapse to one; the client reads fixed keys, so a dropped
     duplicate costs nothing, while an unscrubbed one can reorder the text
     around it on screen.
+
+    Any ``Mapping`` is rebuilt as a plain ``dict``, not just a ``dict``: the
+    snapshot hands over ``MappingProxyType`` (that is what makes it frozen), and
+    a proxy is not JSON-serializable.  Rebuilding is also what lets the keys be
+    scrubbed, which a proxy cannot do in place.
     """
     if isinstance(value, str):
         return strip_bidi_format(value)
     if isinstance(value, list):
         return [_scrub_invisible(item) for item in value]
-    if isinstance(value, dict):
+    if isinstance(value, Mapping):
         return {
             (strip_bidi_format(key) if isinstance(key, str) else key): _scrub_invisible(item)
             for key, item in value.items()
         }
+    if isinstance(value, tuple):
+        # The reader hands over tuples where the document stores a list
+        # (a function's ``files``); this response never contains one, but a
+        # route that echoed a snapshot field would otherwise raise here.
+        return [_scrub_invisible(item) for item in value]
     return value
 
 
-def _load_list(raw: str | None) -> list[str]:
-    if not raw:
-        return []
-    try:
-        value = json.loads(raw)
-    except (json.JSONDecodeError, TypeError):
-        return []
-    return [str(v) for v in value] if isinstance(value, list) else []
+def _files_display(files: Sequence[str]) -> str:
+    """Join a function's file list for the table cell.
 
-
-def _files_display(raw: str | None) -> str:
-    """Join the stored JSON files list for the table cell.
-
-    ``build_db`` writes ``json.dumps(files)``. The common cell is ``[]``,
-    ``["a.c"]``, or ``["a.c", "b.h"]`` — slice that; ``json.loads`` only for
-    escaped or odd payloads.
+    The database stored ``json.dumps(files)`` and the old reader decoded it
+    back, with a fast path for the common ``["a.c"]``-shaped payloads; the TOML
+    reader hands the list over already decoded, so the decode and its fast path
+    are gone and only the join is left.  Each item is ``str``-ed because the
+    writer stringifies whatever the catalog put in the list, so a number in
+    there still renders.
     """
-    if not raw or raw == "[]":
-        return ""
-    if raw.startswith('["') and raw.endswith('"]') and "\\" not in raw:
-        inner = raw[2:-2]
-        if '",' not in inner:
-            return inner
-        return inner.replace('", "', ", ").replace('","', ", ")
-    return ", ".join(_load_list(raw))
+    return ", ".join(str(name) for name in files)
 
 
 def _local_interface_ips() -> set[str]:
@@ -2635,13 +2670,19 @@ def _server_notice(level: str, message: str) -> None:
     console.print(_stamped(level, message), soft_wrap=True)
 
 
-def _attach_server_log_handler() -> None:
+def _attach_server_log_handler() -> Callable[[], None]:
     """Send this module's ERROR/WARNING lines to the same console as the access log.
 
     Without a handler, ``logging`` falls back to ``lastResort``: bare messages
     on stderr with no timestamp, interleaved with stamped access lines.  The
     formatter below gives the errors the same leading stamp and a level column,
     so the server's whole output is one greppable stream.
+
+    Returns a disposer.  Attaching mutates the module logger (a handler, the
+    level, ``propagate``), and the run that installs it ends without restoring
+    it: a long-lived process that serves the dashboard and then logs again keeps
+    a handler writing to the finished run's console, and ``propagate = False``
+    silences the root logger besides.  The disposer restores all three.
     """
     handler = logging.StreamHandler(console.file)
     handler_formatter = logging.Formatter(
@@ -2650,12 +2691,36 @@ def _attach_server_log_handler() -> None:
     handler_formatter.converter = time.gmtime
     handler.setFormatter(handler_formatter)
     handler.set_name("rebrew-dashboard")
-    for existing in list(log.handlers):
-        if existing.get_name() == handler.get_name():
-            log.removeHandler(existing)
+    replaced = [existing for existing in log.handlers if existing.get_name() == handler.get_name()]
+    for existing in replaced:
+        log.removeHandler(existing)
+    previous_level = log.level
+    previous_propagate = log.propagate
     log.addHandler(handler)
     log.setLevel(logging.INFO)
     log.propagate = False
+
+    def restore() -> None:
+        _remove_identity(log.handlers, handler)
+        for existing in replaced:
+            log.addHandler(existing)
+        log.setLevel(previous_level)
+        log.propagate = previous_propagate
+
+    return restore
+
+
+def _remove_identity(items: list[Any], item: Any) -> None:
+    """Remove *item* from *items* by identity, not equality.
+
+    Two handlers compare equal (``Logger`` compares nothing, but ``Handler``
+    does not implement ``__eq__`` and a future subclass might), and removing
+    the wrong one would restore a stranger's handler.
+    """
+    for index, candidate in enumerate(items):
+        if candidate is item:
+            del items[index]
+            return
 
 
 def _log_failed_request(reason: str, path: str, exc: BaseException, request_id: str) -> None:
@@ -2749,7 +2814,8 @@ class _Handler(BaseHTTPRequestHandler):
         logged_error = False
         route_started = time.perf_counter()
         try:
-            # The target probe queries SQLite, so it shares the 500 guard below.
+            # The target probe reads the coverage documents, so it shares the
+            # 500 guard below.
             if (
                 method in ("GET", "HEAD")
                 and parsed.path in _ROUTES
@@ -2759,11 +2825,15 @@ class _Handler(BaseHTTPRequestHandler):
                 status, content_type, body = HTTPStatus.NOT_MODIFIED, "", ""
             else:
                 status, content_type, body = self.dashboard.handle(method, self.path, query)
-        except sqlite3.Error as exc:
-            # A vanished/corrupt database must answer 500 JSON instead of
-            # killing the handler thread with no response at all.  The sqlite
-            # detail stays on the log stream only — LAN clients must not learn
-            # paths or schema strings from the wire body.
+        except CoverageTomlError as exc:
+            # An unreadable coverage directory must answer 500 JSON instead of
+            # killing the handler thread with no response at all.  This is the
+            # shape the removed SQLite read-error handler had and keeps its
+            # ``database_error`` code: the loader skips one unreadable DOCUMENT
+            # (a target the user can still see the others beside), while this
+            # covers the whole directory yielding nothing, which only
+            # ``/api/health`` asks about.  The detail stays on the log stream
+            # only — LAN clients must not learn paths from the wire body.
             _log_failed_request("dashboard query failed", self.path, exc, self._request_id)
             logged_error = True
             status, content_type, body = self.dashboard._error(
@@ -2827,9 +2897,9 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body_bytes)))
         # An uncacheable route answers 200 with no validator: the probe's
-        # ETag, once handed out, would outlive the database read that
+        # ETag, once handed out, would outlive the document read that
         # produced it, and a client revalidating it by hand gets a stale
-        # "ok" for a coverage.db that has since gone unreadable.
+        # "ok" for coverage that has since gone unreadable.
         cacheable = status == 200 and parsed.path not in _UNCACHEABLE_ROUTES
         if cacheable:
             self.send_header("ETag", etag)
@@ -3139,11 +3209,11 @@ class _DashboardServer(ThreadingHTTPServer):
 
 
 app = typer.Typer(
-    help="Serve a read-only web dashboard over the coverage database.",
+    help="Serve a read-only web dashboard over the coverage documents.",
     rich_markup_mode="rich",
     epilog=(
         "[bold]Usage:[/bold]\n\n"
-        "  rebrew build-db · · · · · · · · Build db/coverage.db first\n\n"
+        "  rebrew build-db · · · · · · · · Write db/coverage-<target>.toml first\n\n"
         "  rebrew dashboard · · · · · · · Serve on http://127.0.0.1:8000\n\n"
         "  rebrew dashboard --port 9000 · Custom port\n\n"
         "  rebrew dashboard --json · · · · Print bind URL + db path, then exit\n\n"
@@ -3151,21 +3221,23 @@ app = typer.Typer(
         "  / · · · · · · · · · · · · HTML shell (targets, summary, function search)\n\n"
         "  /app.js · · · · · · · · · Deferred dashboard client\n\n"
         "  /api/bootstrap · · · · · · Targets + first target summary/functions\n\n"
-        "  /api/health · · · · · · · · Liveness: server up + coverage.db readable\n\n"
+        "  /api/health · · · · · · · · Liveness: server up + coverage readable\n\n"
         "  /api/targets · · · · · · List targets\n\n"
         "  /api/summary?target= · · Coverage stats (target required)\n\n"
         "  /api/functions?target= · Function rows (status/module/q/limit/offset)\n\n"
         "  /api/sections?target= · · Per-section cell stats\n\n"
         "  /api/globals?target= · · Global data rows (module/q/limit/offset)\n\n"
         "  /api/history?target= · · Status-change history (limit/offset)\n\n"
-        "[dim]Read-only: DB opened mode=ro. Target-scoped routes need ?target= "
-        "(400 if missing, 404 if unknown; /api/summary → 500 if function_stats "
-        "is corrupt, including a non-integer byte count; an unknown status= is "
+        "[dim]Read-only: the documents are opened for reading only. "
+        "Target-scoped routes need ?target= "
+        "(400 if missing, 404 if unknown; a target is one readable "
+        "coverage-<target>.toml; an unknown status= is "
         "400, not an empty page). A present empty "
         "module= matches a blank module. Non-GET/HEAD on a served route → 405 "
         "with Allow: GET, HEAD; a path the server does not serve → 404 whatever "
-        "the method. A connection past the in-flight cap → 503 server_busy with "
-        "Retry-After. Error bodies are "
+        "the method; a directory yielding no readable document → 500 "
+        "database_error on /api/health. A connection past the in-flight cap → "
+        "503 server_busy with Retry-After. Error bodies are "
         '{"error": "<message>", "code": "<code>"}; branch on code.[/dim]'
     ),
 )
@@ -3178,27 +3250,23 @@ def main(
     root: Path | None = typer.Option(None, "--root", help="Project root directory"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
-    """Serve the coverage database as a read-only web dashboard."""
+    """Serve the coverage documents as a read-only web dashboard."""
     root_dir = root.resolve() if root else Path.cwd().resolve()
     db_dir = resolve_db_dir(root_dir, json_output=json_output)
-    db_path = db_dir / "coverage.db"
-    if not db_path.exists():
-        error_exit(
-            f"No coverage database at {db_path}. Run 'rebrew build-db' first.",
-            json_mode=json_output,
-        )
 
-    # Fail fast on an unreadable/incompatible database.
+    # Fail fast on a directory with nothing readable in it: the same rule
+    # /api/health probes, so a run that starts is a run whose probe can answer.
     try:
-        Dashboard(db_path).targets()
-    except sqlite3.Error as exc:
-        error_exit(f"Cannot open database {db_path}: {exc}", json_mode=json_output)
+        _readable_snapshots(Dashboard(db_dir))
+    except CoverageTomlError as exc:
+        error_exit(str(exc), json_mode=json_output)
 
     if json_output:
-        # Machine-readable probe: emit bind URL + db path and exit.  Starting
-        # the server here would hang every ``rebrew dashboard --json | jq``
-        # consumer (and mix the later "serving…" line onto stderr).
-        json_print({"url": f"http://{host}:{port}", "db": str(db_path)})
+        # Machine-readable probe: emit the bind URL and the coverage directory,
+        # then exit.  Starting the server here would hang every ``rebrew
+        # dashboard --json | jq`` consumer (and mix the later "serving…" line
+        # onto stderr).
+        json_print({"url": f"http://{host}:{port}", "coverage_dir": str(db_dir)})
         return
 
     # Non-loopback binds expose the read-only coverage API with no auth
@@ -3207,7 +3275,8 @@ def main(
         _server_notice(
             "WARNING",
             f"[yellow]warning:[/] dashboard bound to {escape(host)}:{port} with no "
-            "authentication — any client that can reach this host can read coverage.db",
+            "authentication — any client that can reach this host can read the "
+            "coverage documents",
         )
 
     try:
@@ -3224,15 +3293,15 @@ def main(
     # has nothing to wait on and returns while an idle keep-alive client is
     # still up; block_on_close is deliberately not set either.
     server.daemon_threads = True
-    _Handler.dashboard = Dashboard(db_path, served=served_totals)
+    _Handler.dashboard = Dashboard(db_dir, served=served_totals)
     _Handler.allowed_hosts = allowed_hosts_for(host, port)
     _Handler.reset_served_totals()
     _server_notice(
         "INFO",
         f"[green]Rebrew dashboard on http://{escape(host)}:{port}[/] — "
-        f"[dim]serving {escape(str(db_path))} (Ctrl+C to stop)[/dim]",
+        f"[dim]serving {escape(str(db_dir))} (Ctrl+C to stop)[/dim]",
     )
-    _attach_server_log_handler()
+    restore_log = _attach_server_log_handler()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -3256,6 +3325,9 @@ def main(
             f"{totals['server_errors']} server errors, "
             f"slowest {totals['slowest_ms']:.1f}ms[/dim]",
         )
+        # Last: the totals line is the run's own output, so the log stream it
+        # shares is restored only once the run has said everything.
+        restore_log()
 
 
 def main_entry() -> None:

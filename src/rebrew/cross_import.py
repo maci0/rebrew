@@ -910,7 +910,9 @@ def import_shared_function(
         prior = get_entry(cfg_dst.metadata_dir, dst_va, module)
         prior_entry = bool(prior)
         prior_cflags = str(prior.get("cflags") or "")
-        update_field(cfg_dst.metadata_dir, dst_va, "cflags", cflags, module)
+        update_field(
+            cfg_dst.metadata_dir, dst_va, "cflags", cflags, module, updated_by="cross-import"
+        )
         wrote_cflags = True
 
     # The verify filepath resolves against the destination's reversed_dir —
@@ -937,7 +939,7 @@ def import_shared_function(
             text, module, dst_va, body, src_module, src_va, superseded=superseded
         )
         atomic_write_text(target_path, stacked, encoding=encoding)
-        update_field(cfg_dst.metadata_dir, dst_va, "size", body, module)
+        update_field(cfg_dst.metadata_dir, dst_va, "size", body, module, updated_by="cross-import")
     # The stack is withdrawn when it did not verify AND the destination
     # already claims this VA from its own file: a rolled-back claim must not
     # promote/demote STATUS either — the stub's earned status stands.
@@ -967,7 +969,14 @@ def import_shared_function(
         atomic_write_text(target_path, text, encoding=encoding)
         if wrote_cflags:
             if prior_cflags:
-                update_field(cfg_dst.metadata_dir, dst_va, "cflags", prior_cflags, module)
+                update_field(
+                    cfg_dst.metadata_dir,
+                    dst_va,
+                    "cflags",
+                    prior_cflags,
+                    module,
+                    updated_by="cross-import",
+                )
             elif not prior_entry:
                 delete_entries_batch(cfg_dst.metadata_dir, [(module, dst_va)])
             else:
@@ -1170,7 +1179,7 @@ def import_function(
     src_flags = _source_flags(cfg_src, src_path)
     include = "-I" if cfg_dst.posix_style else "/I"
     cflags = f"{src_flags} {include}{src_path.parent}".strip()
-    update_field(cfg_dst.metadata_dir, dst_va, "cflags", cflags, module)
+    update_field(cfg_dst.metadata_dir, dst_va, "cflags", cflags, module, updated_by="cross-import")
 
     name, symbol = _symbol_for_va(rewritten, module, dst_va, src_path.stem)
     entry = Annotation(
@@ -1189,7 +1198,7 @@ def import_function(
     if body is not None:
         rewritten = _rewrite_marker(extracted, module, dst_va, body)
         atomic_write_text(dst_path, rewritten, encoding=dst_encoding)
-        update_field(cfg_dst.metadata_dir, dst_va, "size", body, module)
+        update_field(cfg_dst.metadata_dir, dst_va, "size", body, module, updated_by="cross-import")
         message = f"{message} {_merged_entry_note(body)}".strip()
     apply_status_updates([(entry, result.status, result.delta)], cfg_dst)
 

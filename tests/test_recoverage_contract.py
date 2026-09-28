@@ -1,31 +1,43 @@
-"""Recovery schema contract test.
+"""Coverage document contract test.
 
-Recovery (the sibling dashboard) is a pure consumer of ``db/coverage.db``
-built by ``rebrew build-db`` — either from ``db/data_*.json`` written by
-``rebrew catalog --data-json``, or in-process via ``rebrew build-db
---regen``.  This test runs the real pipeline on the checked-in fixture
-binary and asserts the SQLite schema contains exactly the objects and
-columns recovery queries — so a rebrew change that silently breaks the
-dashboard is caught here, without importing recovery.
+Recoverage (the sibling dashboard) is a pure consumer of
+``db/coverage-<target>.toml`` written by ``rebrew build-db``, which scans the
+project in-process.  This test runs the real pipeline on the
+checked-in fixture binary and asserts the document still carries every fact the
+dashboard reads, through the same reader (``rebrew.coverage_toml``) the
+dashboard uses — so a rebrew change that silently breaks it is caught here,
+without importing the sibling package.
 
-Recovery's queries (src/recovery/api.py): metadata(key/value), sections,
-cells(state/functions/label/parent_function), functions, globals,
-verify_results(verified_at/byte_delta/diff_lines), section_cell_stats view.
+What the consumer needs, and what this file pins:
+
+* a document the reader parses, naming its target and schema ``version`` at
+  the top level;
+* sections carrying their cells, each with ``state``, ``functions``,
+  ``label`` and ``parent_function``;
+* functions carrying the ``status``, ``module``, ``size`` and ``files`` the
+  dashboard's list columns render;
+* globals carrying ``decl``, ``size`` and ``module``;
+* verify results carrying ``va``, ``verified_at`` and the five measurement
+  columns, with an unmeasured one stored as ``""`` (TOML has no null).
+
+The SQLite schema's derived objects — ``section_cell_stats``, the zstd
+section-cells cache, the ``db_version`` stamp — went with the database and are
+not part of this contract; nothing here imports ``sqlite3`` or ``zstandard``.
 """
 
 from __future__ import annotations
 
 import json
 import shutil
-import sqlite3
+import tomllib
 from pathlib import Path
+from typing import Any
 
-import zstandard
 from typer.testing import CliRunner
 
-from rebrew.build_db import _CURRENT_DB_VERSION, build_db
+from rebrew.build_db import FUNCTION_DB_STATUSES, build_db
+from rebrew.coverage_toml import load_coverage
 from rebrew.main import app
-from rebrew.workspace import SECTION_CELLS_AGG_SQL, SECTION_CELLS_COLUMN, SECTION_CELLS_TABLE
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -75,52 +87,111 @@ def _build_fixture_project(tmp_path: Path, monkeypatch) -> Path:
         "// FUNCTION: SERVER 0x00401000\nint __cdecl _func1(void) { return 0; }\n",
         encoding="utf-8",
     )
+    (root / "src" / "SERVER" / "globals.c").write_text(
+        "// GLOBAL: SERVER 0x00404000\nint g_flag;\n", encoding="utf-8"
+    )
     monkeypatch.chdir(root)
     return root
 
 
-def _run_pipeline(tmp_path: Path, monkeypatch, *, regen: bool = False) -> Path:
-    """catalog --data-json → build-db (or build-db --regen); returns the root."""
+def _run_pipeline(tmp_path: Path, monkeypatch) -> Path:
+    """``rebrew build-db`` over a fixture project; returns the root."""
     root = _build_fixture_project(tmp_path, monkeypatch)
-    if regen:
-        result = CliRunner().invoke(app, ["catalog", "--json"])
-        assert result.exit_code == 0, result.output
-        build_db(root, regen=True)
-        return root
-    result = CliRunner().invoke(app, ["catalog", "--data-json", "--json"])
+    result = CliRunner().invoke(app, ["build-db"])
     assert result.exit_code == 0, result.output
-    data_json = root / "db" / "data_SERVER.json"
-    assert data_json.is_file(), "catalog --data-json did not write db/data_SERVER.json"
-    build_db(root)
     return root
 
 
-class TestRecoveryContract:
-    def test_pipeline_produces_data_json_and_db(self, tmp_path, monkeypatch) -> None:
+def _document(root: Path, target: str = "SERVER") -> dict[str, Any]:
+    """The written document, parsed straight from disk.
+
+    ``tomllib`` rather than :func:`load_coverage`, because the on-disk key
+    names are the contract the consumer reads: a reader that renamed a field
+    on the way in would hide a document that no other tool can read.
+    """
+    path = root / "db" / f"coverage-{target}.toml"
+    assert path.is_file(), f"build-db did not write {path}"
+    return tomllib.loads(path.read_text(encoding="utf-8"))
+
+
+class TestRecoverageContract:
+    def test_pipeline_writes_a_document_the_reader_parses(self, tmp_path, monkeypatch) -> None:
         root = _run_pipeline(tmp_path, monkeypatch)
-        assert (root / "db" / "coverage.db").is_file()
-        # The data JSON has the top-level structure recovery's importer reads.
-        data = json.loads((root / "db" / "data_SERVER.json").read_text(encoding="utf-8"))
-        for key in ("sections", "functions", "summary"):
-            assert key in data, f"data JSON missing {key}"
+        assert not (root / "db" / "coverage.db").exists()
+        doc = _document(root)
+        # The target is written twice (top level and filename) from one value,
+        # and the reader refuses the document when the two disagree.
+        assert isinstance(doc["version"], int)
+        assert doc["target"] == "SERVER"
+        snapshot = load_coverage(root, "SERVER")
+        assert snapshot.target == "SERVER"
+        assert snapshot.version == doc["version"]
 
-    def test_regen_pipeline_produces_same_db(self, tmp_path, monkeypatch) -> None:
-        """build-db --regen skips the data_*.json files but yields the same schema."""
-        root = _run_pipeline(tmp_path, monkeypatch, regen=True)
-        assert (root / "db" / "coverage.db").is_file()
-        assert not list((root / "db").glob("data_*.json"))
-        conn = sqlite3.connect(root / "db" / "coverage.db")
-        c = conn.cursor()
-        c.execute("SELECT name FROM sqlite_master WHERE type IN ('table','view') ORDER BY name")
-        objects = {r[0] for r in c.fetchall()}
-        for required in ("functions", "globals", "sections", "cells", "metadata"):
-            assert required in objects, f"missing DB object {required}"
-        c.execute("SELECT COUNT(*) FROM functions WHERE target = 'SERVER'")
-        assert c.fetchone()[0] > 0
-        conn.close()
+    def test_sections_carry_their_cells(self, tmp_path, monkeypatch) -> None:
+        """Cells come from the real binary parse, not a hand-written fixture."""
+        root = _run_pipeline(tmp_path, monkeypatch)
+        cells = _document(root)["sections"][".text"]["cells"]
+        assert cells, "the fixture binary produced no .text cells"
+        for cell in cells:
+            assert {
+                "start",
+                "end",
+                "span",
+                "state",
+                "functions",
+                "label",
+                "parent_function",
+            } <= set(cell)
+            assert cell["state"]
+            assert isinstance(cell["functions"], list)
+        # The detail panel resolves a clicked cell to its functions, so at
+        # least the annotated one has to come back linked to its own cell.
+        linked = [va for cell in cells for va in cell["functions"]]
+        assert "0x00401000" in linked
 
-    def test_verify_cache_feeds_verify_results(self, tmp_path, monkeypatch) -> None:
-        """The dashboard's verify_results rows come from .rebrew/verify_cache.json."""
+        cell = load_coverage(root, "SERVER").sections[".text"].cells[0]
+        assert isinstance(cell.state, str)
+        assert isinstance(cell.functions, tuple)
+        assert isinstance(cell.label, str)
+        assert isinstance(cell.parent_function, str)
+
+    def test_functions_carry_status_module_size_and_files(self, tmp_path, monkeypatch) -> None:
+        root = _run_pipeline(tmp_path, monkeypatch)
+        rows = _document(root)["functions"]
+        assert rows, "the fixture binary produced no function rows"
+        for row in rows:
+            assert {"va", "name", "status", "module", "size", "files"} <= set(row)
+            assert row["status"] in FUNCTION_DB_STATUSES
+        func1 = {row["va"]: row for row in rows}[0x00401000]
+        assert func1["name"] == "_func1"
+        assert func1["module"] == "SERVER"
+        assert func1["size"] == 11
+        assert func1["files"] == ["fcn.c"]
+
+        stored = load_coverage(root, "SERVER").functions[0]
+        assert stored.files == ("fcn.c",)
+        assert stored.size == 11
+
+    def test_globals_carry_decl_size_and_module(self, tmp_path, monkeypatch) -> None:
+        """The dashboard renders a global's declaration, size and module.
+
+        The global comes from a ``// GLOBAL:`` annotation in the fixture tree,
+        so a contract test that can never see a global row is a guard that
+        cannot fail.  Everything else in the document still comes from the real
+        parse.
+        """
+        root = _run_pipeline(tmp_path, monkeypatch)
+
+        (row,) = _document(root)["globals"]
+        assert {"decl", "size", "module"} <= set(row)
+        assert row["decl"] == "int g_flag;"
+        assert row["size"] == 4
+        assert row["module"] == "SERVER"
+        (item,) = load_coverage(root, "SERVER").globals
+        assert (item.decl, item.size, item.module) == ("int g_flag;", 4, "SERVER")
+
+    def test_verify_results_carry_their_measurement_columns(self, tmp_path, monkeypatch) -> None:
+        """The dashboard's verify rows come from .rebrew/verify_cache.json."""
         import rebrew.verify_cache as vc
         from rebrew.annotation import Annotation
         from rebrew.config import load_config
@@ -164,65 +235,9 @@ class TestRecoveryContract:
         ]
         vc.save_verify_cache(cache_path, cfg, results, entries)
         build_db(root, regen=True)
-        conn = sqlite3.connect(root / "db" / "coverage.db")
-        c = conn.cursor()
-        c.execute("SELECT byte_delta FROM verify_results WHERE target='SERVER' AND va=4198400")
-        row = c.fetchone()
-        conn.close()
-        assert row is not None and row[0] == 0
 
-    def test_db_schema_matches_recovery_queries(self, tmp_path, monkeypatch) -> None:
-        root = _run_pipeline(tmp_path, monkeypatch)
-        conn = sqlite3.connect(root / "db" / "coverage.db")
-        c = conn.cursor()
-
-        # Objects recovery's api.py queries, plus history (the in-repo
-        # dashboard's timeline reads it — a silent drop breaks that path).
-        c.execute("SELECT name FROM sqlite_master WHERE type IN ('table','view') ORDER BY name")
-        objects = {r[0] for r in c.fetchall()}
-        for required in (
-            "metadata",
-            "sections",
-            "cells",
-            "functions",
-            "globals",
-            "verify_results",
-            "history",
-            "section_cell_stats",
-        ):
-            assert required in objects, f"missing DB object {required}"
-
-        # functions key columns recovery filters/groups on.
-        c.execute("PRAGMA table_info(functions)")
-        fn_cols = {r[1] for r in c.fetchall()}
-        for col in ("target", "va", "name", "status", "module", "size", "updated_by"):
-            assert col in fn_cols, f"functions missing column {col}"
-
-        # globals carries the data-verdict column verify --data writes.
-        c.execute("PRAGMA table_info(globals)")
-        g_cols = {r[1] for r in c.fetchall()}
-        for col in ("target", "va", "name", "size", "status"):
-            assert col in g_cols, f"globals missing column {col}"
-
-        # cells carries the recovery-specific label/parent_function columns.
-        c.execute("PRAGMA table_info(cells)")
-        cell_cols = {r[1] for r in c.fetchall()}
-        for col in (
-            "target",
-            "section_name",
-            "start",
-            "state",
-            "functions",
-            "label",
-            "parent_function",
-        ):
-            assert col in cell_cols, f"cells missing column {col}"
-
-        # verify_results has the key + diff columns the detail API reads.
-        c.execute("PRAGMA table_info(verify_results)")
-        vr_cols = {r[1] for r in c.fetchall()}
-        for col in (
-            "target",
+        (row,) = _document(root)["verify_results"]
+        assert {
             "va",
             "verified_at",
             "byte_delta",
@@ -230,112 +245,35 @@ class TestRecoveryContract:
             "similarity",
             "reg_delta",
             "effective_match",
-        ):
-            assert col in vr_cols, f"verify_results missing column {col}"
+        } <= set(row)
+        assert row["va"] == 0x00401000
+        assert row["byte_delta"] == 0
+        # TOML has no null, and the reader documents that the writer stores an
+        # absent measurement as "": a reader must not read it as 0.
+        assert row["diff_lines"] == ""
+        assert load_coverage(root, "SERVER").verify_results[0]["byte_delta"] == 0
 
-        # The target is registered in metadata (recovery lists targets from it).
-        c.execute("SELECT COUNT(DISTINCT target) FROM metadata")
-        assert c.fetchone()[0] >= 1
-        conn.close()
-
-    def test_cells_populated_from_real_catalog(self, tmp_path, monkeypatch) -> None:
-        """Cells come from the real binary parse, not a hand-written fixture."""
+    def test_pipeline_writes_no_intermediate_file(self, tmp_path, monkeypatch) -> None:
+        """The document is built in-process; nothing else lands in db/."""
         root = _run_pipeline(tmp_path, monkeypatch)
-        conn = sqlite3.connect(root / "db" / "coverage.db")
-        c = conn.cursor()
-        c.execute("SELECT COUNT(*) FROM cells WHERE target = 'SERVER' AND section_name = '.text'")
-        assert c.fetchone()[0] > 0
-        conn.close()
-
-    def test_data_json_carries_globals(self, tmp_path, monkeypatch) -> None:
-        """build_db reads the data-JSON globals block — pin its presence."""
-        root = _run_pipeline(tmp_path, monkeypatch)
-        data = json.loads((root / "db" / "data_SERVER.json").read_text(encoding="utf-8"))
-        assert "globals" in data, "data JSON missing globals"
-        conn = sqlite3.connect(root / "db" / "coverage.db")
-        c = conn.cursor()
-        c.execute("PRAGMA table_info(globals)")
-        assert "status" in {r[1] for r in c.fetchall()}
-        conn.close()
-
-    def test_materialized_cells_match_live_query(self, tmp_path, monkeypatch) -> None:
-        """Every cached cell blob must equal what the live query produces.
-
-        Recovery serves ``section_cells_json`` instead of re-aggregating
-        ``cells``, so the cache is only sound while the two are byte-identical.
-        Equality is what lets the dashboard serve the blob with no runtime
-        cross-check; if the shared SECTION_CELLS_AGG_SQL ever diverges between
-        the two call sites, this fails.
-        """
-        root = _run_pipeline(tmp_path, monkeypatch)
-        conn = sqlite3.connect(root / "db" / "coverage.db")
-        c = conn.cursor()
-        live = {
-            (t, s): cells_json
-            for t, s, cells_json in c.execute(
-                f"SELECT target, section_name, {SECTION_CELLS_AGG_SQL}"
-                " FROM cells GROUP BY target, section_name"
-            )
-        }
-        cached = {
-            (t, s): zstandard.ZstdDecompressor().decompress(blob).decode("utf-8")
-            for t, s, blob in c.execute(
-                f"SELECT target, section_name, {SECTION_CELLS_COLUMN} FROM {SECTION_CELLS_TABLE}"
-            )
-        }
-        conn.close()
-        assert live, "fixture produced no cells to compare"
-        assert cached == live
-
-    def test_stamp_and_cache_codec_agree(self, tmp_path, monkeypatch) -> None:
-        """The v7 stamp must mean what the reader assumes it means.
-
-        Recovery probes for ``SECTION_CELLS_COLUMN`` and decodes with zstd,
-        without consulting the version.  So the two have to agree: a database
-        stamped 7 that carries a different codec's column, or a blob that is not
-        zstd, would make the fast path either silently unreachable or wrongly
-        entered.  Pin the stamp, the column name, and that the bytes really are
-        a zstd frame.
-        """
-        root = _run_pipeline(tmp_path, monkeypatch)
-        conn = sqlite3.connect(root / "db" / "coverage.db")
-        c = conn.cursor()
-
-        c.execute("SELECT value FROM metadata WHERE target = '__schema__' AND key = 'db_version'")
-        assert json.loads(c.fetchone()[0]) == _CURRENT_DB_VERSION
-
-        c.execute(f"SELECT name FROM pragma_table_info('{SECTION_CELLS_TABLE}')")
-        assert {r[0] for r in c.fetchall()} == {"target", "section_name", SECTION_CELLS_COLUMN}
-
-        row = c.execute(
-            f"SELECT {SECTION_CELLS_COLUMN} FROM {SECTION_CELLS_TABLE} LIMIT 1"
-        ).fetchone()
-        assert row is not None, "cache table was left empty"
-        # Zstd frames start with the 4-byte magic 0x28B52FFD; zlib's own header
-        # (0x78 ...) must never appear here.
-        assert row[0][:4] == b"\x28\xb5\x2f\xfd"
-        conn.close()
+        assert sorted(p.name for p in (root / "db").iterdir()) == ["coverage-SERVER.toml"]
+        doc = _document(root)
+        assert doc["target"] == "SERVER"
+        assert doc["sections"][".text"]["cells"]
+        assert doc["functions"]
 
     def test_rebuild_over_own_output_is_idempotent(self, tmp_path, monkeypatch) -> None:
-        """Re-running build-db on its own output must work.
+        """Re-running build-db on its own output must work and change nothing.
 
         This is the ordinary case (a user re-running build-db, a second
-        --regen), and it is where the stats object's migration path bites:
-        SQLite refuses DROP VIEW on a table and DROP TABLE on a view, so the
-        builder has to drop by the type actually present. Building twice also
-        has to leave the derived objects complete, not empty.
+        --regen), and it is where the writer's read-the-previous-document step
+        runs: the history baseline comes from the file the last build wrote, so
+        a second pass has to parse it rather than refuse it.  Nothing else
+        moved, so the rewrite is byte-identical.
         """
         root = _run_pipeline(tmp_path, monkeypatch)
+        path = root / "db" / "coverage-SERVER.toml"
+        before = path.read_bytes()
         build_db(root)
-        build_db(root)
-
-        conn = sqlite3.connect(root / "db" / "coverage.db")
-        c = conn.cursor()
-        c.execute("SELECT type FROM sqlite_master WHERE name = 'section_cell_stats'")
-        row = c.fetchone()
-        assert row is not None and row[0] == "table"
-        c.execute("SELECT COUNT(*) FROM section_cell_stats WHERE target = 'SERVER'")
-        assert c.fetchone()[0] >= 1, "second build left section_cell_stats empty"
-        c.execute(f"SELECT COUNT(*) FROM {SECTION_CELLS_TABLE} WHERE target = 'SERVER'")
-        assert c.fetchone()[0] >= 1, "second build left the cell cache empty"
-        conn.close()
+        assert path.read_bytes() == before
+        assert load_coverage(root, "SERVER").functions

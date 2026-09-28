@@ -1,15 +1,24 @@
-"""Tests for rebrew dashboard — read-only web dashboard over coverage.db."""
+"""Tests for rebrew dashboard — read-only web dashboard over the coverage documents.
 
+The dashboard reads ``db/coverage-<target>.toml``, one document per target (see
+:mod:`rebrew.coverage_toml`); it no longer opens a SQLite database.  Fixtures
+therefore build documents: ``_write_config`` + the ``catalog`` fixture +
+``build_db`` for the whole writer path, and ``_write_document`` for the shapes
+the writer cannot produce (a history row with no ``old_status``, an aggregate
+past its section size).
+"""
+
+import copy
 import gzip
 import json
 import logging
 import os
 import re
 import shutil
-import sqlite3
 import subprocess
 import threading
 import time
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +26,7 @@ import pytest
 from typer.testing import CliRunner
 
 from rebrew.build_db import build_db
+from rebrew.coverage_toml import CoverageSnapshot, CoverageTomlError
 from rebrew.dashboard import (
     _APP_JS,
     _APP_JS_URL,
@@ -64,9 +74,15 @@ def _js_list(body: str, name: str) -> list[str]:
     return sorted(a or b for a, b in re.findall(r'"([^"]+)"|([A-Za-z_]\w*)\s*:', match.group(1)))
 
 
-def _write_data(db_dir: Path, target: str = "server_dll") -> Path:
-    db_dir.mkdir(parents=True, exist_ok=True)
-    data = {
+def _catalog_data() -> dict[str, Any]:
+    """One catalog's coverage dict, in the shape ``build_catalog_data`` returns.
+
+    ``build-db`` runs that function in-process, so this dict — not a
+    ``data_*.json`` snapshot — is what a fixture hands the writer.  A test that
+    needs a row the fixture lacks edits its own copy and registers it on the
+    ``catalog`` fixture, so what it asserts on is still the written document.
+    """
+    return {
         "functions": {
             "0x10001000": {
                 "name": "func_a",
@@ -162,61 +178,128 @@ def _write_data(db_dir: Path, target: str = "server_dll") -> Path:
         "summary": {"total_functions": 2, "total_bytes": 128},
         "paths": {"a.c": "src/a.c"},
     }
-    path = db_dir / f"data_{target}.json"
-    path.write_text(json.dumps(data), encoding="utf-8")
+
+
+class FakeCatalog:
+    """Stands in for ``build_catalog_data``; the writer has no other input.
+
+    The coverage dict is generated in-process, so the seam a test has is the
+    catalog itself: *data* is the dict every target gets and *per_target*
+    overrides one.
+    """
+
+    def __init__(self) -> None:
+        self.data: dict[str, Any] = _catalog_data()
+        self.per_target: dict[str, dict[str, Any]] = {}
+
+    def build(self, cfg: Any) -> dict[str, Any]:
+        return {"data": copy.deepcopy(self.per_target.get(cfg.target_name, self.data))}
+
+
+@pytest.fixture
+def catalog(monkeypatch: pytest.MonkeyPatch) -> FakeCatalog:
+    fake = FakeCatalog()
+    monkeypatch.setattr("rebrew.catalog.pipeline.build_catalog_data", fake.build)
+    return fake
+
+
+def _write_config(root_dir: Path, *targets: str) -> Path:
+    """A project config naming *targets*; the documents are built from it.
+
+    ``build-db`` has no snapshot to read any more, so a fixture that wants a
+    target has to declare it here and let the writer render it.
+    """
+    root_dir.mkdir(parents=True, exist_ok=True)
+    body = f'[project]\nname = "testbin"\ndefault_target = "{targets[0]}"\n\n'
+    for name in targets:
+        body += f'[targets."{name}"]\nmarker = "GAME"\nbinary = "orig/{name}.dll"\n\n'
+    path = root_dir / "rebrew-project.toml"
+    path.write_text(body, encoding="utf-8")
+    return path
+
+
+def _write_document(db_dir: Path, target: str, body: str = "") -> Path:
+    """Hand-write one ``db/coverage-<target>.toml`` from literal TOML.
+
+    ``build_db`` writes the shapes a real catalog produces; a test that needs a
+    row the writer never emits (an absent ``old_status``, an aggregate past its
+    section size) writes the document itself rather than a database the reader
+    no longer opens.  ``version`` and ``target`` are the two keys every
+    document has to carry (``rebrew.coverage_toml._snapshot``).
+    """
+    db_dir.mkdir(parents=True, exist_ok=True)
+    path = db_dir / f"coverage-{target}.toml"
+    path.write_text(f'version = 1\ntarget = "{target}"\n{body}', encoding="utf-8")
     return path
 
 
 @pytest.fixture
-def dashboard(tmp_path: Path) -> Dashboard:
-    _write_data(tmp_path / "db")
+def dashboard(tmp_path: Path, catalog: FakeCatalog) -> Dashboard:
+    _write_config(tmp_path, "server_dll")
     build_db(tmp_path)
-    return Dashboard(tmp_path / "db" / "coverage.db")
+    return Dashboard(tmp_path / "db")
+
+
+@pytest.fixture
+def empty_dashboard(tmp_path: Path) -> Dashboard:
+    """A coverage DIRECTORY holding no readable document.
+
+    That is the state ``/api/health`` answers 500 ``database_error`` for; every
+    other route still answers 200 with zero targets, because a project that has
+    not run ``build-db`` yet is not an error (see the module docstring of
+    ``rebrew.dashboard``).
+    """
+    return Dashboard(tmp_path / "db")
 
 
 class TestQueryLayer:
     def test_targets(self, dashboard: Dashboard) -> None:
         assert dashboard.targets() == ["server_dll"]
 
-    def test_conn_closes_on_success_and_error(self, dashboard: Dashboard) -> None:
-        """The connection must be released on every exit path — under the
-        threaded HTTP server a GC-only release pins one handle per request."""
-        import sqlite3
+    def test_one_response_reads_one_snapshot(self, dashboard: Dashboard) -> None:
+        """Every collection in one response comes from one load of the directory.
 
-        with dashboard._conn() as conn:
-            conn.execute("SELECT 1")
-        with pytest.raises(sqlite3.ProgrammingError):
-            conn.execute("SELECT 1")
+        The loader re-stats and can re-parse on each call, so two calls inside
+        one response could pair one build's targets with the next build's rows.
+        The SQLite reader pinned that window with one read transaction; the
+        snapshot scope is what replaces it, and a route that calls another
+        route must still read one build.
+        """
+        real_load = dashboard._load
+        calls = {"n": 0}
 
-        with pytest.raises(RuntimeError), dashboard._conn() as conn2:
-            raise RuntimeError("boom")
-        with pytest.raises(sqlite3.ProgrammingError):
-            conn2.execute("SELECT 1")
+        def counting(db_dir: Path) -> Mapping[str, CoverageSnapshot]:
+            calls["n"] += 1
+            return real_load(db_dir)
 
-    def test_nested_queries_share_one_connection(self, dashboard: Dashboard) -> None:
-        """First paint and target-scoped routes must not open a handle per query."""
-        import sqlite3
-        from unittest.mock import patch
+        dashboard._load = counting  # type: ignore[method-assign]
+        for call in (
+            lambda: dashboard.bootstrap(),
+            lambda: dashboard.handle("GET", "/api/functions", {"target": ["server_dll"]}),
+            lambda: dashboard.handle("GET", "/api/summary", {"target": ["server_dll"]}),
+        ):
+            calls["n"] = 0
+            call()
+            assert calls["n"] == 1
 
-        orig = sqlite3.connect
-        counts = {"n": 0}
+    def test_missing_directory_serves_an_empty_target_list(self, tmp_path: Path) -> None:
+        """A directory that does not exist yet is an empty project, not a fault.
 
-        def counting(*args: object, **kwargs: object) -> sqlite3.Connection:
-            counts["n"] += 1
-            return orig(*args, **kwargs)
-
-        with patch("sqlite3.connect", counting):
-            counts["n"] = 0
-            dashboard.bootstrap()
-            assert counts["n"] == 1
-
-            counts["n"] = 0
-            dashboard.handle("GET", "/api/functions", {"target": ["server_dll"]})
-            assert counts["n"] == 1
-
-            counts["n"] = 0
-            dashboard.handle("GET", "/api/summary", {"target": ["server_dll"]})
-            assert counts["n"] == 1
+        Every route but ``/api/health`` answers 200: the probe is the one
+        caller that must refuse (``_readable_snapshots``).
+        """
+        dashboard = Dashboard(tmp_path / "db")
+        status, _, body = dashboard.handle("GET", "/api/targets", {})
+        assert status == 200
+        assert json.loads(body)["targets"] == []
+        status, _, body = dashboard.handle("GET", "/api/bootstrap", {})
+        assert status == 200
+        assert json.loads(body)["targets"] == []
+        assert json.loads(body)["summary"] is None
+        # A target-scoped route has no document to find, so it is unknown.
+        status, _, body = dashboard.handle("GET", "/api/functions", {"target": ["t"]})
+        assert status == 404
+        assert json.loads(body)["code"] == "unknown_target"
 
     def test_summary(self, dashboard: Dashboard) -> None:
         s = dashboard.summary("server_dll")
@@ -234,106 +317,70 @@ class TestQueryLayer:
     def test_summary_unknown_target(self, dashboard: Dashboard) -> None:
         assert dashboard.summary("nope") is None
 
-    def test_summary_corrupt_function_stats_returns_none(self, tmp_path: Path) -> None:
-        """Corrupt metadata must not present as a real empty/0% summary."""
-        import sqlite3
+    def test_unparseable_document_is_an_unknown_target(
+        self, tmp_path: Path, catalog: FakeCatalog
+    ) -> None:
+        """A document that does not parse is 404, not 500.
 
-        db = tmp_path / "coverage.db"
-        with sqlite3.connect(db) as conn:
-            conn.execute(
-                "CREATE TABLE functions (target TEXT, va INT, name TEXT, symbol TEXT, "
-                "size INT, status TEXT, module TEXT, files TEXT, markerType TEXT)"
-            )
-            conn.execute("CREATE TABLE metadata (target TEXT, key TEXT, value TEXT)")
-            conn.execute("INSERT INTO metadata VALUES ('broken', 'function_stats', '{not-json')")
-        dashboard = Dashboard(db)
+        ``function_stats`` is derived from the stored function rows
+        (``coverage_toml._derive_function_stats``) instead of being read out of a
+        metadata row, so there is no present-but-unreadable aggregate left to
+        answer 500 ``corrupt_function_stats`` for.  The loader skips the
+        unreadable DOCUMENT with a log line and serves the rest, so the target
+        simply is not there.
+        """
+        db_dir = tmp_path / "db"
+        _write_config(tmp_path, "server_dll")
+        build_db(tmp_path)
+        (db_dir / "coverage-broken.toml").write_text(
+            "version = 1\ntarget = 'broken", encoding="utf-8"
+        )
+        dashboard = Dashboard(db_dir)
+
         assert dashboard.summary("broken") is None
-        assert dashboard._summary_lookup("broken") == ("corrupt", None)
+        assert dashboard.targets() == ["server_dll"]
+        for path in ("/api/summary", "/api/functions", "/api/sections", "/api/globals"):
+            status, _, body = dashboard.handle("GET", path, {"target": ["broken"]})
+            assert status == 404, path
+            assert json.loads(body)["code"] == "unknown_target", path
 
-    def test_api_summary_corrupt_function_stats_500(self, tmp_path: Path) -> None:
-        """Present-but-unreadable stats must not look like an unknown target."""
-        import sqlite3
+    def test_a_byte_count_past_the_text_section_is_capped_and_logged(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A stale SIZE field must not divide to a 102% coverage card.
 
-        db = tmp_path / "coverage.db"
-        with sqlite3.connect(db) as conn:
-            conn.execute(
-                "CREATE TABLE functions (target TEXT, va INT, name TEXT, symbol TEXT, "
-                "size INT, status TEXT, module TEXT, files TEXT, markerType TEXT)"
-            )
-            conn.execute("CREATE TABLE metadata (target TEXT, key TEXT, value TEXT)")
-            conn.execute("INSERT INTO metadata VALUES ('broken', 'function_stats', '{not-json')")
-            conn.execute("INSERT INTO metadata VALUES ('notobj', 'function_stats', '[1, 2]')")
-        dashboard = Dashboard(db)
-        status, _, body = dashboard.handle("GET", "/api/summary", {"target": ["broken"]})
-        assert status == 500
-        assert json.loads(body) == {
-            "error": "corrupt function_stats metadata",
-            "code": "corrupt_function_stats",
-        }
-        status, _, body = dashboard.handle("GET", "/api/summary", {"target": ["notobj"]})
-        assert status == 500
-        assert "corrupt" in json.loads(body)["error"]
-        # Sibling list route still treats the target as known.
-        status, _, body = dashboard.handle("GET", "/api/functions", {"target": ["broken"]})
-        assert status == 200
-        assert json.loads(body)["target"] == "broken"
+        The share is capped at a full section and the excess is logged, so the
+        page renders a number instead of a broken one and the operator can
+        still see which target produced it.
+        """
+        db_dir = tmp_path / "db"
+        _write_document(
+            db_dir,
+            "cap",
+            """
+[[functions]]
+va = 4096
+name = "func_big"
+status = "EXACT"
+markerType = "FUNCTION"
+size = 64
 
-    def test_api_summary_non_numeric_byte_count_is_corrupt(self, tmp_path: Path) -> None:
-        """A non-numeric byte count answers the documented corrupt 500, and
-        bootstrap degrades to ``summary: null`` instead of failing whole."""
-        import sqlite3
-
-        db = tmp_path / "coverage.db"
-        with sqlite3.connect(db) as conn:
-            conn.execute(
-                "CREATE TABLE functions (target TEXT, va INT, name TEXT, symbol TEXT, "
-                "size INT, status TEXT, module TEXT, files TEXT, markerType TEXT)"
-            )
-            conn.execute("CREATE TABLE metadata (target TEXT, key TEXT, value TEXT)")
-            for target, stats in (
-                ("a_text", '{"total_bytes": "lots"}'),
-                ("b_nan", '{"total_bytes": NaN}'),
-                ("c_inf", '{"matched_bytes": Infinity, "total_bytes": 10}'),
-                ("d_list", '{"covered_bytes": [1], "total_bytes": 10}'),
-                ("e_bool", '{"matched_bytes": true, "total_bytes": 10}'),
-                ("f_false", '{"matched_bytes": false, "total_bytes": 10}'),
-                ("g_frac", '{"matched_bytes": 1.5, "total_bytes": 10}'),
-                ("h_float", '{"matched_bytes": 10.0, "total_bytes": 10}'),
-                ("i_neg", '{"matched_bytes": -1, "total_bytes": 10}'),
-                ("j_str", '{"matched_bytes": "12", "total_bytes": 10}'),
-                ("z_ok", '{"matched_bytes": 0, "total_bytes": 10}'),
-            ):
-                conn.execute(
-                    "INSERT INTO metadata VALUES (?, 'function_stats', ?)", (target, stats)
-                )
-        dashboard = Dashboard(db)
-        for target in (
-            "a_text",
-            "b_nan",
-            "c_inf",
-            "d_list",
-            "e_bool",
-            "f_false",
-            "g_frac",
-            "h_float",
-            "i_neg",
-            "j_str",
-        ):
-            status, _, body = dashboard.handle("GET", "/api/summary", {"target": [target]})
-            assert status == 500, target
-            assert json.loads(body) == {
-                "error": "corrupt function_stats metadata",
-                "code": "corrupt_function_stats",
-            }
-        status, _, body = dashboard.handle("GET", "/api/summary", {"target": ["z_ok"]})
-        assert status == 200
-        assert json.loads(body)["coverage_pct"] == 0.0
-        status, _, body = dashboard.handle("GET", "/api/bootstrap", {})
-        assert status == 200
-        boot = json.loads(body)
-        assert boot["target"] == "a_text"
-        assert boot["summary"] is None
-        assert boot["functions"] is None
+[sections.".text"]
+va = 4096
+size = 32
+cells = []
+""",
+        )
+        dashboard = Dashboard(db_dir)
+        with caplog.at_level(logging.WARNING, logger="rebrew.dashboard"):
+            summary = dashboard.summary("cap")
+        assert summary is not None
+        assert summary["coverage_pct"] == 100.0
+        # One line per byte count the summary divides by, both named.
+        assert [r.getMessage() for r in caplog.records] == [
+            "- function_stats for 'cap': matched_bytes is 64, past the 32-byte .text; capping",
+            "- function_stats for 'cap': covered_bytes is 64, past the 32-byte .text; capping",
+        ]
 
     def test_functions_all(self, dashboard: Dashboard) -> None:
         data = dashboard.functions("server_dll")
@@ -342,13 +389,17 @@ class TestQueryLayer:
         assert data["functions"][0][0] == "0x10001000"
         assert data["functions"][0][6] == "a.c"
 
-    def test_files_display_skips_json_loads_for_common_cells(self) -> None:
-        assert _files_display(None) == ""
-        assert _files_display("[]") == ""
-        assert _files_display('["a.c"]') == "a.c"
-        assert _files_display('["a.c", "b.h"]') == "a.c, b.h"
-        assert _files_display('["a.c","b.h"]') == "a.c, b.h"
-        assert _files_display(r'["dir\\file.c"]') == r"dir\file.c"
+    def test_files_display_joins_the_decoded_names(self) -> None:
+        """``_files_display`` gets the ``files`` tuple the reader decoded.
+
+        The JSON-string cases the SQLite reader needed (``None``, ``'["a.c"]'``)
+        are gone with the column that stored JSON: the document stores a TOML
+        array and ``coverage_toml`` hands over a tuple of ``str``.
+        """
+        assert _files_display(()) == ""
+        assert _files_display(("a.c",)) == "a.c"
+        assert _files_display(("a.c", "b.h")) == "a.c, b.h"
+        assert _files_display((r"dir\file.c",)) == r"dir\file.c"
 
     def test_functions_status_filter(self, dashboard: Dashboard) -> None:
         data = dashboard.functions("server_dll", status="STUB")
@@ -436,195 +487,139 @@ class TestQueryLayer:
         assert hist["total"] == 0
 
     def test_history_rows_carry_function_name(self, tmp_path: Path) -> None:
-        """History rows name the function so a bare VA is not the only cue."""
-        import sqlite3
+        """History rows name the current function and ship newest-first.
 
-        _write_data(tmp_path / "db")
-        build_db(tmp_path)
-        db_path = tmp_path / "db" / "coverage.db"
-        with sqlite3.connect(db_path) as conn:
-            conn.executemany(
-                "INSERT INTO history (target, va, old_status, new_status, changed_at) "
-                "VALUES (?, ?, ?, ?, ?)",
-                [
-                    ("server_dll", 0x10002000, "STUB", "EXACT", "2026-01-01T00:00:00Z"),
-                    ("server_dll", 0x10009000, "STUB", "EXACT", "2026-01-02T00:00:00Z"),
-                ],
-            )
-            conn.commit()
-        rows = Dashboard(db_path).history("server_dll")["history"]
-        assert rows == [
-            ["0x10009000", "", "STUB", "EXACT", "2026-01-02T00:00:00Z"],
-            ["0x10002000", "func_b", "STUB", "EXACT", "2026-01-01T00:00:00Z"],
-        ]
+        The document stores history oldest-first (the writer appends deltas),
+        so the dashboard's reversal is what makes the view read newest-first.
+        The lookup is ``snapshot.functions_by_va``: a VA removed since the
+        transition keeps an empty name, the LEFT JOIN the SQLite reader ran.
+        """
+        import tomllib
+
+        from rebrew.coverage_toml import render_coverage_toml
+
+        db_dir = tmp_path / "db"
+        db_dir.mkdir(parents=True)
+        data = _catalog_data()
+        target = "server_dll"
+        first = render_coverage_toml(target, data)
+        # Second build: func_b moves STUB -> EXACT (one transition recorded).
+        data["functions"]["0x10002000"]["status"] = "EXACT"
+        second = render_coverage_toml(target, data, previous=tomllib.loads(first))
+        # Third build: func_b is gone and func_a moves EXACT -> STUB.  The
+        # func_b row is carried forward, now with no current function to name.
+        data["functions"].pop("0x10002000")
+        data["functions"]["0x10001000"]["status"] = "STUB"
+        text = render_coverage_toml(target, data, previous=tomllib.loads(second))
+        (db_dir / f"coverage-{target}.toml").write_text(text, encoding="utf-8")
+
+        rows = Dashboard(db_dir).history(target)["history"]
+        # Newest-first: the exact reverse of the order the document stores.
+        stored = [row["va"] for row in tomllib.loads(text)["history"]]
+        assert [int(row[0], 16) for row in rows] == list(reversed(stored))
+        assert {row[1] for row in rows} == {"func_a", ""}
+        assert {(row[2], row[3]) for row in rows} == {("STUB", "EXACT"), ("EXACT", "STUB")}
+        assert all(re.fullmatch(r"\d{4}-\d{2}-\d{2}T.*", row[4]) for row in rows), rows
 
     def test_history_null_status_is_an_empty_string(self, tmp_path: Path) -> None:
-        """A VA's first recorded transition has NULL old_status.
+        """A VA's first recorded transition has no ``old_status``.
 
-        Every text column in a row under ``cols`` is a string, so a client
-        reading rows never has to null-check this route and not the others.
+        TOML has no null and the writer never emits the first transition, so
+        this is the hand-edited row ``_history_text`` exists for: every text
+        column in a row under ``cols`` is a string, and a client reading rows
+        never has to null-check this route and not the others.
         """
-        import sqlite3
+        db_dir = tmp_path / "db"
+        _write_document(
+            db_dir,
+            "server_dll",
+            """
+[[functions]]
+va = 268439552
+name = "func_a"
+status = "EXACT"
+markerType = "FUNCTION"
+size = 64
 
-        _write_data(tmp_path / "db")
-        build_db(tmp_path)
-        db_path = tmp_path / "db" / "coverage.db"
-        with sqlite3.connect(db_path) as conn:
-            conn.execute(
-                "INSERT INTO history (target, va, old_status, new_status, changed_at) "
-                "VALUES ('server_dll', 0x10001000, NULL, 'EXACT', '2026-01-01T00:00:00Z')"
-            )
-            conn.commit()
-        rows = Dashboard(db_path).history("server_dll")["history"]
+[[history]]
+va = 268439552
+new_status = "EXACT"
+changed_at = "2026-01-01T00:00:00Z"
+""",
+        )
+        rows = Dashboard(db_dir).history("server_dll")["history"]
         assert rows == [["0x10001000", "func_a", "", "EXACT", "2026-01-01T00:00:00Z"]]
 
-    def test_functions_list_uses_partial_index(
-        self, dashboard: Dashboard, monkeypatch: pytest.MonkeyPatch
+    def test_rows_come_back_in_va_order_not_document_order(self, tmp_path: Path) -> None:
+        """A hand-edited document's row order is not a fact.
+
+        The SQLite list query carried an ``ORDER BY va``, which is why the
+        reader's order never had to be trusted.  With the rows in memory the
+        sort is explicit here instead of inherited from the file: the writer
+        sorts, a document a human edited need not.
+        """
+        db_dir = tmp_path / "db"
+        _write_document(
+            db_dir,
+            "t",
+            """
+[[functions]]
+va = 4096
+name = "second"
+status = "STUB"
+markerType = "FUNCTION"
+size = 16
+
+[[functions]]
+va = 2048
+name = "first"
+status = "STUB"
+markerType = "FUNCTION"
+size = 16
+
+[[globals]]
+va = 4096
+name = "g_second"
+size = 4
+
+[[globals]]
+va = 2048
+name = "g_first"
+size = 4
+""",
+        )
+        dashboard = Dashboard(db_dir)
+        assert [row[1] for row in dashboard.functions("t")["functions"]] == ["first", "second"]
+        assert [row[1] for row in dashboard.globals("t")["globals"]] == ["g_first", "g_second"]
+
+    def test_functions_total_excludes_global_markers(
+        self, tmp_path: Path, catalog: FakeCatalog
     ) -> None:
-        """The unfiltered list query must be served by idx_functions_list."""
-        import sqlite3
-
-        import rebrew.dashboard as dashboard_mod
-
-        statements: list[str] = []
-        real_open = dashboard_mod.open_sqlite_ro
-
-        def _traced_open(path: Path) -> sqlite3.Connection:
-            conn = real_open(path)
-            conn.set_trace_callback(statements.append)
-            return conn
-
-        monkeypatch.setattr(dashboard_mod, "open_sqlite_ro", _traced_open)
-        dashboard.functions("server_dll")
-        list_sql = next(s for s in statements if s.startswith("SELECT va, name"))
-        with sqlite3.connect(dashboard.db_path) as conn:
-            plan = conn.execute(f"EXPLAIN QUERY PLAN {list_sql}").fetchall()
-        assert any("idx_functions_list" in row[3] for row in plan)
-        assert not any("TEMP B-TREE" in row[3] for row in plan)
-
-    @pytest.mark.parametrize(
-        ("kwargs", "index"),
-        [
-            ({"status": "EXACT"}, "idx_functions_status_va"),
-            ({"module": "SERVER"}, "idx_functions_module_va"),
-        ],
-    )
-    def test_filtered_functions_list_seeks_filter_index(
-        self,
-        dashboard: Dashboard,
-        monkeypatch: pytest.MonkeyPatch,
-        kwargs: dict[str, str],
-        index: str,
-    ) -> None:
-        """A status/module page seeks its filter index and needs no sort."""
-        import sqlite3
-
-        import rebrew.dashboard as dashboard_mod
-
-        statements: list[str] = []
-        real_open = dashboard_mod.open_sqlite_ro
-
-        def _traced_open(path: Path) -> sqlite3.Connection:
-            conn = real_open(path)
-            conn.set_trace_callback(statements.append)
-            return conn
-
-        monkeypatch.setattr(dashboard_mod, "open_sqlite_ro", _traced_open)
-        dashboard.functions("server_dll", **kwargs)
-        list_sql = next(s for s in statements if s.startswith("SELECT va, name"))
-        with sqlite3.connect(dashboard.db_path) as conn:
-            plan = conn.execute(f"EXPLAIN QUERY PLAN {list_sql}").fetchall()
-        assert any(index in row[3] for row in plan)
-        assert not any("TEMP B-TREE" in row[3] for row in plan)
-
-    def test_status_and_module_filtered_list_seeks_composite_index(
-        self,
-        dashboard: Dashboard,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Both filters at once seek the composite index, not a per-row fallback."""
-        import sqlite3
-
-        import rebrew.dashboard as dashboard_mod
-
-        statements: list[str] = []
-        real_open = dashboard_mod.open_sqlite_ro
-
-        def _traced_open(path: Path) -> sqlite3.Connection:
-            conn = real_open(path)
-            conn.set_trace_callback(statements.append)
-            return conn
-
-        monkeypatch.setattr(dashboard_mod, "open_sqlite_ro", _traced_open)
-        dashboard.functions("server_dll", status="EXACT", module="SERVER")
-        list_sql = next(s for s in statements if s.startswith("SELECT va, name"))
-        with sqlite3.connect(dashboard.db_path) as conn:
-            plan = conn.execute(f"EXPLAIN QUERY PLAN {list_sql}").fetchall()
-        assert any("idx_functions_status_module_va" in row[3] for row in plan)
-        assert not any("TEMP B-TREE" in row[3] for row in plan)
-
-    def test_filtered_globals_list_seeks_filter_index(
-        self,
-        dashboard: Dashboard,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """A module-filtered globals page seeks idx_globals_module_va and needs no sort."""
-        import sqlite3
-
-        import rebrew.dashboard as dashboard_mod
-
-        statements: list[str] = []
-        real_open = dashboard_mod.open_sqlite_ro
-
-        def _traced_open(path: Path) -> sqlite3.Connection:
-            conn = real_open(path)
-            conn.set_trace_callback(statements.append)
-            return conn
-
-        monkeypatch.setattr(dashboard_mod, "open_sqlite_ro", _traced_open)
-        dashboard.globals("server_dll", module="SERVER")
-        list_sql = next(s for s in statements if s.startswith("SELECT va, name, decl"))
-        with sqlite3.connect(dashboard.db_path) as conn:
-            plan = conn.execute(f"EXPLAIN QUERY PLAN {list_sql}").fetchall()
-        assert any("idx_globals_module_va" in row[3] for row in plan)
-        assert not any("TEMP B-TREE" in row[3] for row in plan)
-
-    def test_functions_total_excludes_global_markers(self, tmp_path: Path) -> None:
         """total must apply the same markerType filter as the row query."""
         db_dir = tmp_path / "db"
-        _write_data(db_dir)
-        # Inject a GLOBAL row so an unfiltered COUNT would over-report.
+        # Inject a GLOBAL row so an unfiltered count would over-report.
+        data = _catalog_data()
+        data["functions"]["0x50002000"] = {
+            "name": "g_extra",
+            "vaStart": "0x50002000",
+            "size": 4,
+            "status": "STUB",
+            "module": "SERVER",
+            "symbol": "_g_extra",
+            "files": [],
+            "markerType": "GLOBAL",
+        }
+        catalog.per_target["server_dll"] = data
+        _write_config(tmp_path, "server_dll")
         build_db(tmp_path)
-        import sqlite3
+        assert Dashboard(db_dir).functions("server_dll")["total"] == 2
 
-        db_path = db_dir / "coverage.db"
-        with sqlite3.connect(db_path) as conn:
-            conn.execute(
-                "INSERT INTO functions (target, va, name, size, status, module, symbol, "
-                "markerType, files) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    "server_dll",
-                    0x50002000,
-                    "g_extra",
-                    4,
-                    "STUB",
-                    "SERVER",
-                    "_g_extra",
-                    "GLOBAL",
-                    "[]",
-                ),
-            )
-            conn.commit()
-        dash = Dashboard(db_path)
-        data = dash.functions("server_dll")
-        assert data["count"] == 2
-        assert data["total"] == 2  # not 3
-
-    def test_vtable_and_string_markers_are_not_functions(self, tmp_path: Path) -> None:
+    def test_vtable_and_string_markers_are_not_functions(
+        self, tmp_path: Path, catalog: FakeCatalog
+    ) -> None:
         """VTABLE/STRING rows are data: neither listed nor counted in function_stats."""
         db_dir = tmp_path / "db"
-        path = _write_data(db_dir)
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = _catalog_data()
         for va, marker in (("0x50003000", "VTABLE"), ("0x50004000", "STRING")):
             data["functions"][va] = {
                 "name": f"d_{marker.lower()}",
@@ -635,9 +630,10 @@ class TestQueryLayer:
                 "files": ["d.c"],
                 "markerType": marker,
             }
-        path.write_text(json.dumps(data), encoding="utf-8")
+        catalog.per_target["server_dll"] = data
+        _write_config(tmp_path, "server_dll")
         build_db(tmp_path)
-        dash = Dashboard(db_dir / "coverage.db")
+        dash = Dashboard(db_dir)
         listed = dash.functions("server_dll")
         assert [row[1] for row in listed["functions"]] == ["func_a", "func_b"]
         assert listed["total"] == 2
@@ -689,7 +685,7 @@ class TestHistoryClock:
 
 
 class TestReload:
-    def test_reload_rereads_the_database(self) -> None:
+    def test_reload_rereads_the_coverage_documents(self) -> None:
         _run_script("dashboard_reload.mjs")
 
 
@@ -738,7 +734,7 @@ class TestHandle:
         assert "aria-pressed" in body
         assert "ArrowRight" in body  # tablist keyboard nav
         assert 'aria-label="Reload and retry"' in body
-        assert 'id="reload"' in body  # re-reads coverage.db without a browser reload
+        assert 'id="reload"' in body  # re-reads the coverage documents without a page reload
         # A reload must drop what the previous boot marked as loaded, or a
         # second visit to a view would keep showing the rows it was painted with.
         assert "nothing already painted counts as loaded" in body
@@ -910,13 +906,15 @@ class TestHandle:
         # Compact JSON: no space after colon/comma in the wire body.
         assert body == json.dumps(payload, separators=(",", ":"))
 
-    def test_target_without_functions_is_discoverable(self, tmp_path: Path) -> None:
-        data_path = _write_data(tmp_path / "db", target="empty")
-        data = json.loads(data_path.read_text(encoding="utf-8"))
+    def test_target_without_functions_is_discoverable(
+        self, tmp_path: Path, catalog: FakeCatalog
+    ) -> None:
+        data = _catalog_data()
         data["functions"] = {}
-        data_path.write_text(json.dumps(data), encoding="utf-8")
+        catalog.per_target["empty"] = data
+        _write_config(tmp_path, "empty")
         build_db(tmp_path)
-        dashboard = Dashboard(tmp_path / "db" / "coverage.db")
+        dashboard = Dashboard(tmp_path / "db")
 
         status, _, body = dashboard.handle("GET", "/api/summary", {"target": ["empty"]})
         assert status == 200
@@ -1124,14 +1122,15 @@ class TestHandle:
         assert status == 200
         assert json.loads(body)["count"] == 0
 
-    def test_blank_module_matches_summary_counts(self, tmp_path: Path) -> None:
+    def test_blank_module_matches_summary_counts(
+        self, tmp_path: Path, catalog: FakeCatalog
+    ) -> None:
         """A blank module is its own summary bucket and ``module=`` selects it."""
         from io import BytesIO
 
         from rebrew.dashboard import _Handler, allowed_hosts_for
 
-        data_path = _write_data(tmp_path / "db", target="mod")
-        data = json.loads(data_path.read_text(encoding="utf-8"))
+        data = _catalog_data()
         data["functions"]["0x10001000"].pop("module")
         data["functions"]["0x10002000"]["module"] = "GAME"
         data["globals"]["0x50001000"].pop("module")
@@ -1141,9 +1140,10 @@ class TestHandle:
             "size": 4,
             "module": "GAME",
         }
-        data_path.write_text(json.dumps(data), encoding="utf-8")
+        catalog.per_target["mod"] = data
+        _write_config(tmp_path, "mod")
         build_db(tmp_path)
-        dash = Dashboard(tmp_path / "db" / "coverage.db")
+        dash = Dashboard(tmp_path / "db")
 
         status, _, body = dash.handle("GET", "/api/summary", {"target": ["mod"]})
         assert status == 200
@@ -1201,35 +1201,35 @@ class TestHandle:
 
     def test_va_zero_formatted_properly(self, tmp_path: Path) -> None:
         """VA 0 is a valid address and must format as 0x00000000, not ???."""
-        import sqlite3
+        db_dir = tmp_path / "db"
+        _write_document(
+            db_dir,
+            "t",
+            """
+[[functions]]
+va = 0
+name = "f_zero"
+symbol = "sym_zero"
+status = "EXACT"
+markerType = "FUNCTION"
+size = 16
+module = "MOD"
 
-        db_path = tmp_path / "zero.db"
-        with sqlite3.connect(db_path) as conn:
-            conn.execute("CREATE TABLE metadata (target TEXT, key TEXT, value TEXT)")
-            conn.execute("INSERT INTO metadata VALUES ('t', 'function_stats', '{}')")
-            conn.execute(
-                "CREATE TABLE functions (target TEXT, va INT, name TEXT, symbol TEXT, "
-                "size INT, status TEXT, module TEXT, files TEXT, markerType TEXT)"
-            )
-            conn.execute(
-                "INSERT INTO functions VALUES ('t', 0, 'f_zero', 'sym_zero', 16, 'EXACT', 'MOD', '[]', 'FUNCTION')"
-            )
-            conn.execute(
-                "CREATE TABLE globals (target TEXT, va INT, name TEXT, decl TEXT, "
-                "files TEXT, module TEXT, size INT, status TEXT)"
-            )
-            conn.execute(
-                "INSERT INTO globals VALUES ('t', 0, 'g_zero', 'int g_zero;', '[]', 'MOD', 4, '')"
-            )
-            conn.execute(
-                "CREATE TABLE history (id INTEGER PRIMARY KEY, target TEXT, va INT, "
-                "old_status TEXT, new_status TEXT, changed_at TEXT)"
-            )
-            conn.execute(
-                "INSERT INTO history VALUES (1, 't', 0, 'WIP', 'EXACT', '2026-01-01T00:00:00Z')"
-            )
+[[globals]]
+va = 0
+name = "g_zero"
+decl = "int g_zero;"
+size = 4
+module = "MOD"
 
-        d = Dashboard(db_path)
+[[history]]
+va = 0
+old_status = "WIP"
+new_status = "EXACT"
+changed_at = "2026-01-01T00:00:00Z"
+""",
+        )
+        d = Dashboard(db_dir)
         fn_data = d.functions("t")
         assert fn_data["functions"][0][0] == "0x00000000"
 
@@ -1262,7 +1262,7 @@ class TestHandle:
         assert data["total"] == 2
         assert data["offset"] == 50
 
-    def test_offset_beyond_sqlite_int_is_empty_page(self, dashboard: Dashboard) -> None:
+    def test_offset_beyond_va_max_is_empty_page(self, dashboard: Dashboard) -> None:
         huge = str(10**30)
         for path in ("/api/functions", "/api/globals", "/api/history"):
             status, _, body = dashboard.handle(
@@ -1471,42 +1471,50 @@ class TestHandle:
         status, _, _ = dashboard.handle("GET", "/api/nope", {})
         assert status == 404
 
-    def test_db_read_only(self, dashboard: Dashboard) -> None:
-        """A rogue query cannot mutate the database (mode=ro)."""
-        import sqlite3
+    def test_a_directory_that_is_only_a_readme_is_an_empty_project(self, tmp_path: Path) -> None:
+        """Only ``coverage-*.toml`` is a target; the directory is never mutated.
 
-        status, _, _ = dashboard.handle("GET", "/api/targets", {})
-        assert status == 200
-        # The connection the dashboard itself hands out must be read-only;
-        # a read-write handle here would let any query mutate the workspace.
-        with pytest.raises(sqlite3.OperationalError), dashboard._conn() as conn:
-            conn.execute("CREATE TABLE evil (x)")
+        The SQLite reader opened a ``mode=ro`` URI so a rogue query could not
+        write to the workspace.  There is no connection any more: the reader
+        globs documents and parses them, so the equivalent fact is that a
+        directory holding something else entirely reads as no targets.
+        """
+        db_dir = tmp_path / "db"
+        db_dir.mkdir()
+        (db_dir / "README.txt").write_text("not a coverage document", encoding="utf-8")
+        assert Dashboard(db_dir).targets() == []
 
-    def test_reserved_path_chars_open_read_only(self, tmp_path: Path) -> None:
-        """DB filenames with ``?``/``#`` must still open via the percent-encoded URI."""
-        import sqlite3
+    def test_directory_name_with_reserved_characters_still_reads(self, tmp_path: Path) -> None:
+        """A coverage directory whose path holds ``?``/``#`` is opened, not a URI.
 
-        weird = tmp_path / "cov erage?#.db"
-        with sqlite3.connect(weird) as conn:
-            conn.execute(
-                "CREATE TABLE functions (target TEXT, va INT, name TEXT, symbol TEXT, "
-                "size INT, status TEXT, module TEXT, files TEXT, markerType TEXT)"
-            )
-            conn.execute("CREATE TABLE metadata (target TEXT, key TEXT, value TEXT)")
-            conn.execute("INSERT INTO metadata VALUES ('t', 'function_stats', '{}')")
-            conn.execute(
-                "INSERT INTO functions VALUES ('t', 1, 'f', 'f', 1, 'STUB', '', '[]', 'FUNC')"
-            )
+        The SQLite reader had to percent-encode those into a ``file:`` URI;
+        the document path is a plain filesystem path and needs no encoding.
+        """
+        weird = tmp_path / "cov erage?#"
+        _write_document(
+            weird,
+            "t",
+            """
+[[functions]]
+va = 1
+name = "f"
+status = "STUB"
+markerType = "FUNCTION"
+size = 1
+""",
+        )
         assert Dashboard(weird).targets() == ["t"]
 
 
 class TestCli:
     def test_missing_db_errors(self, tmp_path: Path) -> None:
+        """An empty coverage directory fails fast, naming what to run."""
         from rebrew.dashboard import app
 
         result = CliRunner().invoke(app, ["--root", str(tmp_path)])
         assert result.exit_code == 2
-        assert "coverage.db" in result.output
+        assert "no readable coverage document" in result.output
+        assert "rebrew build-db" in result.output
 
     def test_registered_in_umbrella(self) -> None:
         from rebrew.main import app as umbrella
@@ -1517,8 +1525,8 @@ class TestCli:
 
     def test_target_option_is_not_advertised(self) -> None:
         """`--target` was accepted and silently ignored (the dashboard serves
-        every target in the DB through per-request ?target=), so it must not
-        appear in the command's options."""
+        every target in the directory through per-request ?target=), so it must
+        not appear in the command's options."""
         from rebrew.dashboard import app
 
         result = CliRunner().invoke(app, ["--help"])
@@ -1529,27 +1537,18 @@ class TestCli:
         """``--json`` is a bind-probe for scripts: print URL + db path and exit
         (never ``serve_forever``)."""
         import json
-        import sqlite3
 
         from rebrew.dashboard import app
 
         db_dir = tmp_path / "db"
-        db_dir.mkdir()
-        db_path = db_dir / "coverage.db"
-        with sqlite3.connect(db_path) as conn:
-            conn.execute(
-                "CREATE TABLE functions (target TEXT, va INT, name TEXT, symbol TEXT, "
-                "size INT, status TEXT, module TEXT, files TEXT, markerType TEXT)"
-            )
-            conn.execute("CREATE TABLE metadata (target TEXT, key TEXT, value TEXT)")
-            conn.execute("INSERT INTO metadata VALUES ('t', 'function_stats', '{}')")
+        _write_document(db_dir, "t")
 
         result = CliRunner().invoke(app, ["--root", str(tmp_path), "--json", "--port", "9123"])
         assert result.exit_code == 0, result.output
         payload = json.loads(result.stdout)
         assert payload == {
             "url": "http://127.0.0.1:9123",
-            "db": str(db_path.resolve()),
+            "coverage_dir": str(db_dir),
         }
         assert "serving" not in result.output.lower()
         assert "Rebrew dashboard" not in result.output
@@ -1557,14 +1556,10 @@ class TestCli:
     def test_port_in_use_names_port_and_fix(self, tmp_path: Path) -> None:
         """A taken port says which one and how to pick another, not a bare errno."""
         import socket
-        import sqlite3
 
         from rebrew.dashboard import app
 
-        db_dir = tmp_path / "db"
-        db_dir.mkdir()
-        with sqlite3.connect(db_dir / "coverage.db") as conn:
-            conn.execute("CREATE TABLE metadata (target TEXT, key TEXT, value TEXT)")
+        _write_document(tmp_path / "db", "t")
 
         with socket.socket() as busy:
             busy.bind(("127.0.0.1", 0))
@@ -1608,16 +1603,44 @@ class TestOffsetParam:
         assert _offset_param({"offset": [str(past_cap)]}, "offset") == past_cap
 
 
-class TestEscapeLike:
-    """User search terms must match literally, not as SQL LIKE wildcards."""
+class TestLiteralSearch:
+    """A search term is matched literally.
 
-    def test_wildcards_escaped(self) -> None:
-        from rebrew.dashboard import _escape_like
+    The term ran through SQL ``LIKE '%term%' ESCAPE '\\'`` with its own ``%``,
+    ``_`` and ``\\`` escaped first, so a wildcard in a term never was one.  The
+    comparison is now a Python substring test (``rebrew.dashboard._name_match``)
+    with SQLite's own ASCII-only folding, so there is no pattern to unwind and
+    no spelling that means anything but the literal text — this pins that the
+    answer did not change with the mechanism.
+    """
 
-        assert _escape_like("foo_1") == "foo\\_1"
-        assert _escape_like("100%") == "100\\%"
-        assert _escape_like("a\\b") == "a\\\\b"
-        assert _escape_like("plain") == "plain"
+    def test_wildcards_match_literally(self) -> None:
+        from rebrew.dashboard import _name_match
+
+        assert _name_match("func_a", 0x1000, "func_a", "_func_a")
+        # ``_`` and ``%`` are characters, not patterns.
+        assert _name_match("func_", 0x1000, "func_a")
+        assert not _name_match("func_", 0x1000, "funcXa")
+        assert _name_match("100%", 0x1000, "100%_done")
+        assert not _name_match("f%a", 0x1000, "func_a")
+        assert _name_match(r"a\b", 0x1000, r"a\b")
+        # An absent column folds as the empty string, which no non-empty term
+        # hits -- the answer ``COALESCE(col, '')`` gave a nullable ``symbol``.
+        assert not _name_match("x", 0x1000, "")
+
+    def test_search_folds_ascii_only(self) -> None:
+        """The fold is SQLite's ASCII one, so ``ß`` is not ``ss``."""
+        from rebrew.dashboard import _name_match
+
+        assert _name_match("FUNC_A", 0x1000, "func_a", "")
+        # ``str.casefold`` would match this; the ASCII fold must not.
+        assert not _name_match("ß", 0x1000, "ss")
+        assert _name_match("FUNC", 0x1000, "", "my_FUNC_thing")
+
+    def test_a_wildcard_term_matches_nothing_through_the_route(self, dashboard: Dashboard) -> None:
+        assert dashboard.functions("server_dll", q="func%")["total"] == 0
+        assert dashboard.functions("server_dll", q="func_")["total"] == 2
+        assert dashboard.functions("server_dll", q="func_a")["total"] == 1
 
 
 class TestVaQuery:
@@ -1675,7 +1698,7 @@ class TestHttpMethods:
         )
         handler.wfile = BytesIO()
         handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
-        handler.dashboard = Dashboard(Path("/nonexistent/coverage.db"))
+        handler.dashboard = Dashboard(Path("/nonexistent"))
         handler.log_message = Mock()
 
         handler.handle_one_request()
@@ -1755,7 +1778,7 @@ class TestHttpMethods:
         handler.rfile = BytesIO(b"GET / HTTP/9.9\r\nHost: 127.0.0.1:8000\r\n\r\n")
         handler.wfile = BytesIO()
         handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
-        handler.dashboard = Dashboard(Path("/nonexistent/coverage.db"))
+        handler.dashboard = Dashboard(Path("/nonexistent"))
         handler.log_message = Mock()
         handler.handle()
 
@@ -1786,7 +1809,7 @@ class TestHttpMethods:
         handler.rfile = BytesIO(f"GET /{rlo} HTTP\r\n\r\n".encode())
         handler.wfile = BytesIO()
         handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
-        handler.dashboard = Dashboard(Path("/nonexistent/coverage.db"))
+        handler.dashboard = Dashboard(Path("/nonexistent"))
         handler.log_message = Mock()
         handler.handle()
 
@@ -2111,7 +2134,9 @@ class TestEncodingNegotiation:
         """
         from rebrew.dashboard import _BOOTSTRAP_WIRE_BUDGET_BYTES, _maybe_compress
 
-        payload = dashboard.bootstrap()
+        # The body the route serves, so this measures the wire: ``bootstrap()``
+        # itself hands back the snapshot's frozen mappings, which are not JSON.
+        payload = json.loads(dashboard.handle("GET", "/api/bootstrap", {})[2])
         # A real target's first page, at the width the cold start sends.
         payload["functions"]["functions"] = [
             [
@@ -2265,7 +2290,7 @@ class TestHostValidation:
         handler = _Handler.__new__(_Handler)  # bypass __init__: no socket needed
         handler.headers = {"Host": "attacker.example:8000"}
         handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
-        handler.dashboard = Dashboard(Path("/nonexistent/coverage.db"))
+        handler.dashboard = Dashboard(Path("/nonexistent"))
         sent: list[tuple] = []
 
         def fake_send_response(status: int) -> None:
@@ -2397,7 +2422,7 @@ class TestHostValidation:
         _, _, html = dashboard.handle("GET", "/", {})
         assert '<link rel="icon" href="data:,">' in html
 
-    def test_handler_304_skips_database_query(self, dashboard: Dashboard) -> None:
+    def test_handler_304_skips_the_route_query(self, dashboard: Dashboard) -> None:
         """A matching If-None-Match on a JSON route answers 304 without querying."""
         from rebrew.dashboard import _Handler, allowed_hosts_for
 
@@ -2498,8 +2523,11 @@ class TestHostValidation:
 
         def _handle_then_rebuild(*args: object, **kwargs: object) -> tuple[int, str, str]:
             result = real_handle(*args, **kwargs)  # type: ignore[arg-type]
-            st = dashboard.db_path.stat()
-            os.utime(dashboard.db_path, ns=(st.st_atime_ns, st.st_mtime_ns + 10**9))
+            # A rebuild moves the coverage document's own stat; that is what the
+            # weak validator hashes, so aging the file is aging the tag.
+            doc = dashboard.db_dir / "coverage-server_dll.toml"
+            st = doc.stat()
+            os.utime(doc, ns=(st.st_atime_ns, st.st_mtime_ns + 10**9))
             return result
 
         dashboard.handle = _handle_then_rebuild  # type: ignore[method-assign]
@@ -2509,17 +2537,21 @@ class TestHostValidation:
         assert ("ETag", before) in sent
 
     def test_etag_separates_targets_and_filters(self, dashboard: Dashboard) -> None:
-        """One validator per representation, not one per database file."""
-        st = dashboard.db_path.stat()
-        bare = f'W/"{st.st_mtime_ns:x}-{st.st_size:x}"'
+        """One validator per representation, not one per coverage directory."""
+        bare = dashboard.response_etag("/api/targets")
+        assert bare.startswith('W/"')
         targets = dashboard.response_etag("/api/summary?target=server_dll")
         assert targets != dashboard.response_etag("/api/summary?target=other_dll")
         assert targets != dashboard.response_etag("/api/summary?target=server_dll&limit=5")
         # A different route on the same target answers a different body.
         assert targets != dashboard.response_etag("/api/functions?target=server_dll")
-        # A query-less route has nothing to scope, so it keeps the bare DB tag.
-        assert dashboard.response_etag("/api/targets") == bare
+        # A query-less route has nothing to scope, so it keeps the bare tag.
         assert dashboard.response_etag("/api/bootstrap") == bare
+        # The bare tag covers EVERY document's stat, so a rebuild moves it.
+        doc = dashboard.db_dir / "coverage-server_dll.toml"
+        st = doc.stat()
+        os.utime(doc, ns=(st.st_atime_ns, st.st_mtime_ns + 10**9))
+        assert dashboard.response_etag("/api/targets") != bare
 
     def test_etag_of_one_route_does_not_304_another(self, dashboard: Dashboard) -> None:
         """A validator held from one route must not stand in for another."""
@@ -2718,7 +2750,7 @@ class TestHostValidation:
             handler.log_message('"%s" %s', "GET / HTTP/1.1", 200)
 
             error_out = StringIO()
-            _attach_server_log_handler()
+            restore_log = _attach_server_log_handler()
             server_log = logging.getLogger("rebrew.dashboard")
             attached = [h for h in server_log.handlers if h.get_name() == "rebrew-dashboard"]
             try:
@@ -2726,8 +2758,7 @@ class TestHostValidation:
                     h.stream = error_out
                 server_log.error("boom")
             finally:
-                for h in attached:
-                    server_log.removeHandler(h)
+                restore_log()
         finally:
             if previous_tz is None:
                 os.environ.pop("TZ", None)
@@ -2751,6 +2782,34 @@ class TestHostValidation:
             )
             assert delta < 5, rendered
 
+    def test_log_handler_dispose_restores_the_logger(self) -> None:
+        """The attach is an effect: its inverse restores level, propagation,
+        and the handler list.  A host that serves the dashboard and then logs
+        again must not keep a handler writing to the finished run's console."""
+        from rebrew.dashboard import _attach_server_log_handler
+
+        server_log = logging.getLogger("rebrew.dashboard")
+        before_level, before_propagate = server_log.level, server_log.propagate
+        before_handlers = list(server_log.handlers)
+
+        restore = _attach_server_log_handler()
+        assert [h for h in server_log.handlers if h.get_name() == "rebrew-dashboard"]
+        restore()
+
+        assert server_log.level == before_level
+        assert server_log.propagate == before_propagate
+        assert server_log.handlers == before_handlers
+
+    def test_log_handler_dispose_is_idempotent(self) -> None:
+        from rebrew.dashboard import _attach_server_log_handler
+
+        server_log = logging.getLogger("rebrew.dashboard")
+        before_handlers = list(server_log.handlers)
+        restore = _attach_server_log_handler()
+        restore()
+        restore()  # the inverse fires at most once
+        assert server_log.handlers == before_handlers
+
     def test_handler_unexpected_error_answers_500(self) -> None:
         """An unexpected route error must answer 500 JSON, not reset the connection."""
         from rebrew.dashboard import Dashboard, _Handler, allowed_hosts_for
@@ -2759,8 +2818,8 @@ class TestHostValidation:
         handler.headers = {"Host": "127.0.0.1:8000"}
         handler.path = "/api/targets"
         handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
-        handler.dashboard = Dashboard(Path("/nonexistent/coverage.db"))
-        # Simulate any non-sqlite failure inside a route (bug, OSError, ...).
+        handler.dashboard = Dashboard(Path("/nonexistent"))
+        # Simulate any unexpected failure inside a route (bug, OSError, ...).
         handler.dashboard.handle = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom"))  # type: ignore[method-assign]
         sent: list[tuple] = []
 
@@ -2781,19 +2840,23 @@ class TestHostValidation:
         body = b"".join(written)
         assert b"internal server error" in body
 
-    def test_handler_sqlite_error_hides_details(self, caplog: pytest.LogCaptureFixture) -> None:
-        """SQLite failures answer a generic 500 — no schema/path leak on the wire."""
-        import sqlite3
+    def test_handler_database_error_hides_details(self, caplog: pytest.LogCaptureFixture) -> None:
+        """An unreadable coverage directory answers a generic 500.
 
+        No path or loader detail goes on the wire: the detail stays on the log
+        stream, which is the only place the operator needs it.  This is the
+        shape the removed ``except sqlite3.Error`` had, and it keeps the code.
+        """
+        from rebrew.coverage_toml import CoverageTomlError
         from rebrew.dashboard import Dashboard, _Handler, allowed_hosts_for
 
         handler = _Handler.__new__(_Handler)
         handler.headers = {"Host": "127.0.0.1:8000"}
         handler.path = "/api/targets\x1b"
         handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
-        handler.dashboard = Dashboard(Path("/nonexistent/coverage.db"))
+        handler.dashboard = Dashboard(Path("/nonexistent"))
         handler.dashboard.handle = lambda *a, **k: (_ for _ in ()).throw(  # type: ignore[method-assign]
-            sqlite3.DatabaseError("no such table: secrets\x1b")
+            CoverageTomlError("/srv/private/db: no readable coverage document")
         )
         sent: list[tuple] = []
         handler.send_response = lambda status: sent.append(("status", status))  # type: ignore[method-assign]
@@ -2812,22 +2875,27 @@ class TestHostValidation:
         assert [v for k, v in sent if k == "status"] == [500]
         body = b"".join(written)
         assert b'"database error"' in body
-        assert b"no such table" not in body
-        assert b"secrets" not in body
+        assert b"no readable coverage document" not in body
+        assert b"/srv/private/db" not in body
         reported = caplog.records[-1].getMessage()
         assert "\x1b" not in reported
         assert "/api/targets\\x1b" in reported
-        assert "secrets\\x1b" in reported
+        assert "no readable coverage document" in reported
 
-    def test_handler_revalidation_sqlite_error_answers_500(self) -> None:
-        """A DB failure during the 304 target probe is a 500 JSON, not a reset."""
+    def test_handler_health_database_error_answers_500(self) -> None:
+        """The probe's unreadable directory is a 500 JSON, not a reset.
+
+        ``/api/health`` is the one route that reads through
+        ``_readable_snapshots``, so it is the one that raises; ``_respond`` is
+        what turns that into the envelope.
+        """
         from rebrew.dashboard import Dashboard, _Handler, allowed_hosts_for
 
         handler = _Handler.__new__(_Handler)
-        handler.headers = {"Host": "127.0.0.1:8000", "If-None-Match": "*"}
-        handler.path = "/api/functions?target=server_dll"
+        handler.headers = {"Host": "127.0.0.1:8000"}
+        handler.path = "/api/health"
         handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
-        handler.dashboard = Dashboard(Path("/nonexistent/coverage.db"))
+        handler.dashboard = Dashboard(Path("/nonexistent"))
         sent: list[tuple] = []
         handler.send_response = lambda status: sent.append(("status", status))  # type: ignore[method-assign]
         handler.send_header = lambda name, value: sent.append((name, value))  # type: ignore[method-assign]
@@ -2844,37 +2912,6 @@ class TestHostValidation:
         assert [v for k, v in sent if k == "status"] == [500]
         assert b'"database error"' in b"".join(written)
 
-    def test_handler_revalidation_corrupt_summary_answers_500(self, dashboard: Dashboard) -> None:
-        """``If-None-Match: *`` on a corrupt summary gets the GET's 500, not 304."""
-        import sqlite3
-
-        from rebrew.dashboard import _Handler, allowed_hosts_for
-
-        conn = sqlite3.connect(dashboard.db_path)
-        conn.execute(
-            "UPDATE metadata SET value = '[1]' WHERE target = 'server_dll' "
-            "AND key = 'function_stats'"
-        )
-        conn.commit()
-        conn.close()
-        handler = _Handler.__new__(_Handler)
-        handler.headers = {"Host": "127.0.0.1:8000", "If-None-Match": "*"}
-        handler.path = "/api/summary?target=server_dll"
-        handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
-        handler.dashboard = dashboard
-        sent: list[tuple] = []
-        handler.send_response = lambda status: sent.append(("status", status))  # type: ignore[method-assign]
-        handler.send_header = lambda name, value: sent.append((name, value))  # type: ignore[method-assign]
-        handler.end_headers = lambda: sent.append(("end", None))  # type: ignore[method-assign]
-
-        class _FakeWFile:
-            def write(self, data: bytes) -> int:
-                return len(data)
-
-        handler.wfile = _FakeWFile()
-        handler._respond("GET")
-        assert [v for k, v in sent if k == "status"] == [500]
-
     def test_handler_unexpected_error_logs_traceback(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
@@ -2885,7 +2922,7 @@ class TestHostValidation:
         handler.headers = {"Host": "127.0.0.1:8000"}
         handler.path = "/api/targets"
         handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
-        handler.dashboard = Dashboard(Path("/nonexistent/coverage.db"))
+        handler.dashboard = Dashboard(Path("/nonexistent"))
         handler.dashboard.handle = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom"))  # type: ignore[method-assign]
         handler._request_id = "r7"
         handler.send_response = lambda status: None  # type: ignore[method-assign]
@@ -2933,7 +2970,7 @@ class TestHostValidation:
         handler.headers = {"Host": "127.0.0.1:8000"}
         handler.path = "/api/targets"
         handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
-        handler.dashboard = Dashboard(Path("/nonexistent/coverage.db"))
+        handler.dashboard = Dashboard(Path("/nonexistent"))
         handler.dashboard.handle = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom"))  # type: ignore[method-assign]
         handler._request_id = "r7"
         handler.send_response = lambda status: None  # type: ignore[method-assign]
@@ -2941,13 +2978,11 @@ class TestHostValidation:
         handler.end_headers = lambda: None  # type: ignore[method-assign]
         handler.wfile = _NullWFile()
 
-        server_log = logging.getLogger("rebrew.dashboard")
-        _attach_server_log_handler()
+        restore_log = _attach_server_log_handler()
         try:
             handler._respond("GET")
         finally:
-            for attached in list(server_log.handlers):
-                server_log.removeHandler(attached)
+            restore_log()
 
         rendered = output.getvalue()
         assert rendered.count("dashboard handler failed") == 1
@@ -2956,21 +2991,25 @@ class TestHostValidation:
     def test_route_level_500_is_logged_with_the_request(
         self, dashboard: Dashboard, caplog: pytest.LogCaptureFixture
     ) -> None:
-        """A route that answers 500 on its own still names the failing request."""
+        """A route that answers 500 on its own still names the failing request.
+
+        No route does that any more — ``function_stats`` is derived, so the one
+        caller that raised its own 500 is gone — but the handler still has to
+        report a 5xx that arrives without an exception, so the branch is driven
+        from a stubbed route rather than left unexercised.
+        """
         from rebrew.dashboard import _Handler, allowed_hosts_for
 
-        conn = sqlite3.connect(dashboard.db_path)
-        conn.execute(
-            "UPDATE metadata SET value = '[1]' WHERE target = 'server_dll' "
-            "AND key = 'function_stats'"
-        )
-        conn.commit()
-        conn.close()
         handler = _Handler.__new__(_Handler)
         handler.headers = {"Host": "127.0.0.1:8000"}
         handler.path = "/api/summary?target=server_dll"
         handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
         handler.dashboard = dashboard
+        handler.dashboard.handle = lambda *a, **k: (  # type: ignore[method-assign]
+            500,
+            "application/json; charset=utf-8",
+            '{"error":"database error","code":"database_error"}',
+        )
         handler.send_response = lambda status: None  # type: ignore[method-assign]
         handler.send_header = lambda name, value: None  # type: ignore[method-assign]
         handler.end_headers = lambda: None  # type: ignore[method-assign]
@@ -3042,7 +3081,7 @@ class TestAccessLog:
         )
         handler.wfile = BytesIO()
         handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
-        handler.dashboard = Dashboard(Path("/nonexistent/coverage.db"))
+        handler.dashboard = Dashboard(Path("/nonexistent"))
         handler.log_message = lambda *a, **k: None  # type: ignore[method-assign]
         for _ in range(2):
             stale = time.perf_counter() - 60.0
@@ -3060,7 +3099,7 @@ class TestAccessLog:
         handler.rfile = BytesIO(b"GET / HTTP/1.1\r\nHost: 127.0.0.1:8000\r\n\r\n")
         handler.wfile = BytesIO()
         handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
-        handler.dashboard = Dashboard(Path("/nonexistent/coverage.db"))
+        handler.dashboard = Dashboard(Path("/nonexistent"))
         handler.log_message = lambda *a, **k: None  # type: ignore[method-assign]
         handler.handle_one_request()
         first = handler._request_id
@@ -3139,10 +3178,7 @@ class TestLifecycleLines:
 
         from rebrew.dashboard import app
 
-        db_dir = tmp_path / "db"
-        db_dir.mkdir()
-        with sqlite3.connect(db_dir / "coverage.db") as conn:
-            conn.execute("CREATE TABLE metadata (target TEXT, key TEXT, value TEXT)")
+        _write_document(tmp_path / "db", "t")
         output = StringIO()
         monkeypatch.setattr(
             "rebrew.dashboard.console", Console(file=output, width=200, color_system=None)
@@ -3173,10 +3209,7 @@ class TestLifecycleLines:
 
         from rebrew.dashboard import _attach_server_log_handler, app
 
-        db_dir = tmp_path / "db"
-        db_dir.mkdir()
-        with sqlite3.connect(db_dir / "coverage.db") as conn:
-            conn.execute("CREATE TABLE metadata (target TEXT, key TEXT, value TEXT)")
+        _write_document(tmp_path / "db", "t")
 
         def _crash(self: object) -> None:
             raise RuntimeError("accept loop died")
@@ -3186,13 +3219,20 @@ class TestLifecycleLines:
             probe.bind(("127.0.0.1", 0))
             port = probe.getsockname()[1]
 
-        _attach_server_log_handler()
+        restore_log = _attach_server_log_handler()
+        server_log = logging.getLogger("rebrew.dashboard")
+        # The run turns propagation off (that is the point of the attach), so
+        # caplog's handler is bound to the server logger directly: the record
+        # must reach the server's own stream, not the root logger's.
+        server_log.addHandler(caplog.handler)
         try:
             with caplog.at_level(logging.ERROR, logger="rebrew.dashboard"):
                 result = CliRunner().invoke(app, ["--root", str(tmp_path), "--port", str(port)])
         finally:
-            for attached in list(logging.getLogger("rebrew.dashboard").handlers):
-                logging.getLogger("rebrew.dashboard").removeHandler(attached)
+            # The run attached its own handler and restored this one on the way
+            # out; the disposer is what removes the one this test added.
+            server_log.removeHandler(caplog.handler)
+            restore_log()
 
         assert result.exit_code != 0
         assert "RuntimeError: accept loop died" in caplog.text
@@ -3266,27 +3306,41 @@ class TestSlowRequestLine:
 class TestRouteWarningCorrelation:
     """A route's own warning names the request whose response it explains.
 
-    The corrupt-row warning reports a 500 the access line carries, and a
-    capping warning reports a 200 the page silently rounded, so an operator
-    pivots from either by grepping one id.
+    The warning a route raises about its own data reports a 200 the page
+    silently rounded (a byte count past the section size), so an operator
+    pivots from it by grepping one id.  The SQLite corrupt-row warning that
+    reported a 500 the same way is gone: the aggregate is derived now and
+    cannot be unreadable.
     """
 
     @staticmethod
-    def _dashboard(tmp_path: Path, value: str) -> Dashboard:
-        import sqlite3
+    def _dashboard(tmp_path: Path) -> Dashboard:
+        db_dir = tmp_path / "db"
+        _write_document(
+            db_dir,
+            "broken",
+            """
+[[functions]]
+va = 4096
+name = "func_big"
+status = "EXACT"
+markerType = "FUNCTION"
+size = 64
 
-        db = tmp_path / "coverage.db"
-        with sqlite3.connect(db) as conn:
-            conn.execute("CREATE TABLE metadata (target TEXT, key TEXT, value TEXT)")
-            conn.execute("INSERT INTO metadata VALUES ('broken', 'function_stats', ?)", (value,))
-        return Dashboard(db)
+[sections.".text"]
+va = 4096
+size = 32
+cells = []
+""",
+        )
+        return Dashboard(db_dir)
 
     def test_summary_warning_carries_the_request_id(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
         from rebrew.dashboard import _stamp_request
 
-        dashboard = self._dashboard(tmp_path, "{not-json")
+        dashboard = self._dashboard(tmp_path)
         _stamp_request("r52", "GET /api/summary?target=broken HTTP/1.1")
         try:
             with caplog.at_level(logging.WARNING, logger="rebrew.dashboard"):
@@ -3294,12 +3348,11 @@ class TestRouteWarningCorrelation:
         finally:
             _stamp_request("-", "")
 
-        assert status == 500
-        assert (
-            caplog.records[-1]
-            .getMessage()
-            .startswith("r52 Ignoring corrupt function_stats for target 'broken'")
-        )
+        assert status == 200
+        assert [r.getMessage() for r in caplog.records] == [
+            "r52 function_stats for 'broken': matched_bytes is 64, past the 32-byte .text; capping",
+            "r52 function_stats for 'broken': covered_bytes is 64, past the 32-byte .text; capping",
+        ]
 
     def test_off_the_server_the_id_is_a_dash(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
@@ -3307,13 +3360,13 @@ class TestRouteWarningCorrelation:
         """The CLI reaches the same Dashboard with no request in flight."""
         from rebrew.dashboard import _stamp_request
 
-        dashboard = self._dashboard(tmp_path, "{not-json")
+        dashboard = self._dashboard(tmp_path)
         _stamp_request("-", "")
         with caplog.at_level(logging.WARNING, logger="rebrew.dashboard"):
             status, _, _ = dashboard.handle("GET", "/api/summary", {"target": ["broken"]})
 
-        assert status == 500
-        assert caplog.records[-1].getMessage().startswith("- Ignoring corrupt function_stats")
+        assert status == 200
+        assert caplog.records[-1].getMessage().startswith("- function_stats for 'broken'")
 
 
 class TestThreadFaults:
@@ -3429,7 +3482,7 @@ class TestThreadFaults:
 
 
 class TestHealthRoute:
-    """The probe must prove the database is readable, not just that we are up."""
+    """The probe must prove the coverage documents are readable, not just that we are up."""
 
     def test_health_reports_targets(self, dashboard: Dashboard) -> None:
         status, content_type, body = dashboard.handle("GET", "/api/health", {})
@@ -3437,7 +3490,7 @@ class TestHealthRoute:
         assert content_type.startswith("application/json")
         payload = json.loads(body)
         assert payload["status"] == "ok"
-        assert payload["db"] == str(dashboard.db_path)
+        assert payload["coverage_dir"] == str(dashboard.db_dir)
         assert payload["targets"] == len(dashboard.targets())
 
     def test_health_reports_the_running_totals(
@@ -3449,7 +3502,7 @@ class TestHealthRoute:
         monkeypatch.setattr(_Handler, "_requests", 12)
         monkeypatch.setattr(_Handler, "_server_errors", 3)
         monkeypatch.setattr(_Handler, "_slowest_ms", 41.26)
-        served = Dashboard(dashboard.db_path, served=served_totals)
+        served = Dashboard(dashboard.db_dir, served=served_totals)
         payload = json.loads(served.handle("GET", "/api/health", {})[2])
         assert payload["requests"] == 12
         assert payload["server_errors"] == 3
@@ -3472,7 +3525,7 @@ class TestHealthRoute:
         The route is outside ``_ROUTES``, so the server ignores
         ``If-None-Match`` itself; without the header a client (or a proxy) can
         still replay the validator by hand and read a stored "ok" long after
-        the database read that produced it stopped working.
+        the coverage read that produced it stopped working.
         """
         from rebrew.dashboard import _Handler, allowed_hosts_for
 
@@ -3500,13 +3553,26 @@ class TestHealthRoute:
         assert not [v for k, v in sent if k == "ETag"]
         assert ("Cache-Control", "no-store") in sent
 
-    def test_health_propagates_an_unreadable_database(self) -> None:
-        """The probe's read must raise, which _respond turns into 500 database_error."""
+    def test_health_propagates_a_directory_with_no_document(self, tmp_path: Path) -> None:
+        """The probe's read must raise, which _respond turns into 500 database_error.
+
+        A missing directory and a directory whose every document is unreadable
+        are the same answer here: nothing to serve.  One unreadable document
+        BESIDE readable ones is not -- the loader skips it and the probe
+        stays 200.
+        """
         from rebrew.dashboard import Dashboard
 
-        dashboard = Dashboard(Path("/nonexistent/coverage.db"))
-        with pytest.raises(sqlite3.Error):
-            dashboard.handle("GET", "/api/health", {})
+        empty = Dashboard(tmp_path / "db")
+        with pytest.raises(CoverageTomlError):
+            empty.handle("GET", "/api/health", {})
+
+        db_dir = tmp_path / "mixed"
+        _write_document(db_dir, "server_dll")
+        (db_dir / "coverage-broken.toml").write_text("not = [toml", encoding="utf-8")
+        status, _, body = Dashboard(db_dir).handle("GET", "/api/health", {})
+        assert status == 200
+        assert json.loads(body)["targets"] == 1
 
     def test_health_rejects_writes(self, dashboard: Dashboard) -> None:
         status, _, body = dashboard.handle("POST", "/api/health", {})
@@ -3841,7 +3907,7 @@ class TestOpenApiSpec:
         from rebrew.dashboard import served_totals
 
         schemas = _spec()["components"]["schemas"]
-        served = Dashboard(dashboard.db_path, served=served_totals)
+        served = Dashboard(dashboard.db_dir, served=served_totals)
         status, _, body = served.handle("GET", "/api/health", {})
         assert status == 200
         payload = json.loads(body)
@@ -3901,30 +3967,57 @@ class TestOpenApiSpec:
             row = body[key]["items"]
             assert row["minItems"] == row["maxItems"] == len(cols)
 
-    def test_served_rows_hold_no_null_in_a_column_the_schema_forbids(
-        self, dashboard: Dashboard
-    ) -> None:
+    def test_served_rows_hold_no_null_in_a_column_the_schema_forbids(self, tmp_path: Path) -> None:
         """A column declared plain ``string``/``integer`` is never sent as null.
 
         The reverse of the null-check contract: a row that answers ``null``
         where the schema allows only a scalar fails a generated client's
         validator, and a schema that admits ``null`` for a ``NOT NULL`` column
         makes one null-check every reader has to write for nothing.
+
+        The document is hand-written so every one of the four lists is
+        non-empty: an empty list would pass the check without reading a row.
         """
         schemas = _spec()["components"]["schemas"]
-        # A freshly built database has no transitions, so the history check
-        # would pass on an empty list; give it a row before reading it back.
-        with sqlite3.connect(dashboard.db_path) as conn:
-            conn.execute(
-                "INSERT INTO history (target, va, old_status, new_status, changed_at) "
-                "VALUES ('server_dll', 0x10001000, 'STUB', 'EXACT', '2026-01-01T00:00:00Z')"
-            )
-            conn.commit()
+        db_dir = tmp_path / "db"
+        _write_document(
+            db_dir,
+            "t",
+            """
+[[functions]]
+va = 4096
+name = "func_a"
+status = "EXACT"
+markerType = "FUNCTION"
+size = 16
+module = "MOD"
+files = ["a.c"]
+
+[[globals]]
+va = 4096
+name = "g_flag"
+decl = "int g_flag;"
+size = 4
+module = "MOD"
+
+[[history]]
+va = 4096
+old_status = "STUB"
+new_status = "EXACT"
+changed_at = "2026-01-01T00:00:00Z"
+
+[sections.".text"]
+va = 4096
+size = 16
+cells = []
+""",
+        )
+        dashboard = Dashboard(db_dir)
         for schema_name, key, payload in (
-            ("Functions", "functions", dashboard.functions("server_dll")),
-            ("Sections", "sections", dashboard.sections("server_dll")),
-            ("Globals", "globals", dashboard.globals("server_dll")),
-            ("History", "history", dashboard.history("server_dll")),
+            ("Functions", "functions", dashboard.functions("t")),
+            ("Sections", "sections", dashboard.sections("t")),
+            ("Globals", "globals", dashboard.globals("t")),
+            ("History", "history", dashboard.history("t")),
         ):
             cols = schemas[schema_name]["allOf"][1]["properties"]["cols"]["const"]
             declared = schemas[schema_name]["allOf"][1]["properties"][key]["items"]["prefixItems"]
@@ -3986,7 +4079,10 @@ class TestOpenApiSpec:
             for method in ("get", "head"):
                 ref = item[method]["responses"]["500"]["$ref"]
                 name = ref.rsplit("/", 1)[-1]
-                assert name in ("DatabaseError", "CorruptStats"), (path, method, name)
+                # ``DatabaseError`` is the only 500 response there is now:
+                # the SQLite ``CorruptStats`` route answer is gone with the
+                # stored aggregate it read.
+                assert name == "DatabaseError", (path, method, name)
                 assert (
                     responses[name]["content"]["application/json"]["schema"]["$ref"]
                     == "#/components/schemas/Error"
@@ -4039,7 +4135,7 @@ class TestOpenApiSpec:
             answered, _, body = dashboard.handle("GET", path, {"target": ["nope"]})
             assert (answered, json.loads(body)["code"]) == (404, "unknown_target"), path
 
-    def test_va_pattern_accepts_a_64_bit_address(self, dashboard: Dashboard) -> None:
+    def test_va_pattern_accepts_a_64_bit_address(self, tmp_path: Path) -> None:
         """A `va` past 32 bits serializes to more than eight hex digits.
 
         The query layer pads to eight with ``:08x``, which is a minimum and
@@ -4049,16 +4145,23 @@ class TestOpenApiSpec:
         """
         import re
 
-        high = 0x140001000
-        with sqlite3.connect(dashboard.db_path) as conn:
-            conn.execute(
-                "INSERT INTO functions (target, va, name, size, status) "
-                "VALUES ('server_dll', ?, 'func_high', 16, 'EXACT')",
-                (high,),
-            )
+        db_dir = tmp_path / "db"
+        _write_document(
+            db_dir,
+            "t",
+            """
+[[functions]]
+va = 5368713216
+name = "func_high"
+status = "EXACT"
+markerType = "FUNCTION"
+size = 16
+""",
+        )
+        dashboard = Dashboard(db_dir)
         pattern = re.compile(_spec()["components"]["schemas"]["Va"]["pattern"])
-        rows = dashboard.functions("server_dll")["functions"]
-        assert high == 0x140001000  # the literal survives a round trip through SQLite
+        rows = dashboard.functions("t")["functions"]
+        # The literal survived the round trip through the document and the wire.
         rendered = {row[1]: row[0] for row in rows}["func_high"]
         assert rendered == "0x140001000"
         assert pattern.fullmatch(rendered), rendered

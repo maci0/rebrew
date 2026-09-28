@@ -153,7 +153,7 @@ def _apply_global_type_size(
     from rebrew.data_metadata import set_data_field
 
     for field, value in _global_field_updates(local, bs_entry):
-        set_data_field(metadata_dir, va, field, value, module)
+        set_data_field(metadata_dir, va, field, value, module, updated_by="binsync-import")
 
 
 def strip_cdecl_prefix(name: str) -> str:
@@ -651,7 +651,14 @@ def import_state(
                         try:
                             from rebrew.metadata import update_field
 
-                            update_field(cfg.metadata_dir, va, "note", bs_note, local_mod)
+                            update_field(
+                                cfg.metadata_dir,
+                                va,
+                                "note",
+                                bs_note,
+                                local_mod,
+                                updated_by="binsync-import",
+                            )
                             applied_notes += 1
                             touched_vas.append(va)
                         except Exception:
@@ -849,7 +856,14 @@ def import_state(
                 applied_locals += 1
             else:
                 try:
-                    update_field(cfg.metadata_dir, va, "locals", normalized, local_mod)
+                    update_field(
+                        cfg.metadata_dir,
+                        va,
+                        "locals",
+                        normalized,
+                        local_mod,
+                        updated_by="binsync-import",
+                    )
                     applied_locals += 1
                     touched_vas.append(va)
                 except Exception:
@@ -878,7 +892,14 @@ def import_state(
             applied_comments += len(func_comments)
         else:
             try:
-                update_field(cfg.metadata_dir, owner_va, "comments", func_comments, owner_mod)
+                update_field(
+                    cfg.metadata_dir,
+                    owner_va,
+                    "comments",
+                    func_comments,
+                    owner_mod,
+                    updated_by="binsync-import",
+                )
                 applied_comments += len(func_comments)
                 touched_vas.append(owner_va)
             except Exception:

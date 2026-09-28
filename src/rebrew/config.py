@@ -1223,7 +1223,7 @@ def validate_target_name(name: str, label: str = "target name") -> str:
     """Return *name* when it is usable as a single directory/file name.
 
     A target name becomes a path component (``src/<target>``, ``bin/<target>``,
-    ``db/data_<target>.json``, ``layout/<target>/``) and a TOML table key, so a
+    ``db/coverage-<target>.toml``, ``layout/<target>/``) and a TOML table key, so a
     name carrying a separator, a ``..`` segment, or a control character would
     place files outside the project on the next command.  Real targets are
     module stems (``SERVER.DLL``, ``client_exe``), so anything else is a typo
@@ -1244,7 +1244,7 @@ def _normalized_targets(targets: Mapping[str, Any]) -> dict[str, Any]:
     """``targets`` re-keyed to NFC, or a :class:`ConfigError` on a collision.
 
     A target name is an identity: ``--target`` on the command line, the module
-    marker derived from it, ``db/data_<target>.json`` and the ``[targets.X]``
+    marker derived from it, ``db/coverage-<target>.toml`` and the ``[targets.X]``
     table all have to agree on one spelling.  The marker side already
     normalizes (:func:`_module_marker_value`), so an NFD key in the TOML would
     produce an NFC marker that no ``--target`` spelling reaches, and every

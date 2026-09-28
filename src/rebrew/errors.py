@@ -57,6 +57,7 @@ if TYPE_CHECKING:
     from rebrew.config import ConfigError as ConfigError
     from rebrew.config import ConfigKeyError as ConfigKeyError
     from rebrew.config import ConfigNotFoundError as ConfigNotFoundError
+    from rebrew.coverage_toml import CoverageTomlError as CoverageTomlError
     from rebrew.decompme import DecompmeError as DecompmeError
     from rebrew.decompme import DecompmeErrorKind as DecompmeErrorKind
     from rebrew.delphi16 import Delphi16Error as Delphi16Error
@@ -221,6 +222,7 @@ _LAZY_ERRORS: dict[str, tuple[str, str]] = {
     "Tc16Error": ("rebrew.tc16", "Tc16Error"),
     "ToolchainError": ("rebrew.toolchain", "ToolchainError"),
     "UnresolvedSymbolError": ("rebrew.coff_reloc", "UnresolvedSymbolError"),
+    "CoverageTomlError": ("rebrew.coverage_toml", "CoverageTomlError"),
     "WorkspaceConfigError": ("rebrew.workspace.config", "WorkspaceConfigError"),
     "WorkspaceNotFound": ("rebrew.workspace.config", "WorkspaceNotFound"),
 }
@@ -289,6 +291,7 @@ __all__ = [
     "ConfigError",
     "ConfigKeyError",
     "ConfigNotFoundError",
+    "CoverageTomlError",
     "DecompmeError",
     "DecompmeErrorKind",
     "Delphi16Error",

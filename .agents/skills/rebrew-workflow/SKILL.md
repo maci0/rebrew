@@ -56,7 +56,7 @@ default target is used otherwise. For annotation syntax details, see
 ```bash
 rebrew status --json                    # Quick overview: counts per STATUS, % coverage
 rebrew todo --json                      # Primary: highest ROI action items
-rebrew todo --category start-function --json    # --category: setup | compile-error | extract-error | fix-delta | improve-match | start-function | missing-annotation | identify-library | run-prover | documented (audit-only) | naked-reconstruction | data-drift | start-data
+rebrew todo --category start-function --json    # --category: setup | compile-error | extract-error | fix-delta | improve-match | start-function | missing-annotation | identify-library | run-prover | documented (audit-only) | naked-reconstruction | data-drift | start-data | exact-only | postlink-mangled
 rebrew flirt --json                     # FLIRT scan: identify known library functions (fast wins)
 rebrew crt-match --all --json           # Find matching CRT source files for LIBRARY functions
 rebrew similar 0x10001000 --json        # Find structurally similar functions (same source family)
@@ -66,7 +66,7 @@ rebrew similar 0x10001000 --json        # Find structurally similar functions (s
 The categories above are interleaved by one continuous ROI score, not a fixed
 tier ladder; `documented` is audit-only and hidden from the default list.
 `extract-error` = symbol missing from `.obj`; fix the marker/definition before GA.
-`naked-reconstruction` (`// SOURCE: naked`) is byte-exact asm and stays listed until real C matches. Any other `--category` value errors. BLOCKER text is the item's `blocker` field — there is no `blocked` category.
+`naked-reconstruction` (`// SOURCE: naked`) is byte-exact asm and stays listed until real C matches. `exact-only` (RELOC) and `postlink-mangled` are the work left to a build that is identical straight out of the toolchain: EXACT instead of masked, and raw-link bytes instead of postlink-rewritten ones. Any other `--category` value errors. BLOCKER text is the item's `blocker` field — there is no `blocked` category.
 `coverage` in JSON is the progress source of truth; `status --json` is cheap recon.
 
 > [!IMPORTANT]

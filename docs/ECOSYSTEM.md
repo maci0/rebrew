@@ -23,13 +23,13 @@ flowchart TB
     end
 
     subgraph L1["Core workbench"]
-        RB["rebrew<br/>compile → compare → STATUS<br/>GA engine · FLIRT · catalog<br/>db/coverage.db · rebrew-functions.toml"]
+        RB["rebrew<br/>compile → compare → STATUS<br/>GA engine · FLIRT · catalog<br/>db/coverage-*.toml · rebrew-functions.toml"]
         PRJ["*-rebrew workspaces<br/>target binary + C sources +<br/>rebrew-project.toml"]
     end
 
     subgraph L2["Intelligence & visualization"]
         RES["resembl<br/>MinHash + LSH asm similarity<br/>own DB (SQLite/Postgres/…)"]
-        RECOV["recovery<br/>Bottle + VanJS coverage SPA<br/>reads db/coverage.db"]
+        RECOV["recovery<br/>Bottle + VanJS coverage SPA<br/>reads db/coverage-*.toml"]
         REPORTAL["reportal<br/>self-hosted portal: binaries ·<br/>functions · matches · scans · reports"]
         REAGENT["reagent<br/>autonomous LLM RE agent<br/>imports rebrew internals"]
     end
@@ -52,7 +52,7 @@ flowchart TB
     RB -->|"similarity group:<br/>resembl/scoring.py"| RES
     RB -->|"rebrew catalog + rebrew build-db"| RECOV
     RB -->|"rebrew CLI: analyze · asm · decompile ·<br/>fingerprints · crypto-scan · xrefs"| REPORTAL
-    RECOV -.->|"coverage.db format"| REPORTAL
+    RECOV -.->|"coverage document format"| REPORTAL
     RES -.->|"scoring core (similarity group)"| REPORTAL
     RB -.->|"operates on"| PRJ
     REAGENT -->|"direct rebrew.* imports"| RB
@@ -62,7 +62,7 @@ flowchart TB
     REPORTAL -.->|"self-hosted portal UX"| REL
     REL -.->|"snowball datasets from matched pairs"| REAGENT
     REL -.->|"community knowledge"| DECOMP
-    RB -.->|"reccmp-compatible markers +<br/>catalog CSV export"| RECCMP
+    RB -.->|"reccmp-compatible source<br/>markers"| RECCMP
     RECCMP -.->|"recomp build reads<br/>rebrew source trees"| PRJ
     RB <-.->|"state-dir TOML:<br/>binsync-export / binsync-import"| BINSYNC
 ```
@@ -83,8 +83,8 @@ What rebrew *produces* for the ecosystem:
 
 - matched C sources + per-function `rebrew-functions.toml` / `rebrew-data.toml`
   metadata (the durable output),
-- `db/coverage.db` — the SQLite coverage database consumed by recovery
-  ([DB_FORMAT.md](DB_FORMAT.md)),
+- `db/coverage-<target>.toml` — one clear-text coverage document per target,
+  consumed by recovery ([COVERAGE_DOCUMENT.md](COVERAGE_DOCUMENT.md)),
 - GA run history (`ga_runs.jsonl`) and FLIRT signature indexes,
 - docker image names/builds (consumed via rebrew-toolchains).
 
@@ -95,8 +95,9 @@ the *build source only*: Dockerfiles, the shared `base` image, wrapper
 scripts, and the sha256-pinned `sources.json` manifest. No compiler binaries
 live here — 32-bit images download verified sources at build time. Seven
 16-bit images build; six of them (msvc-1.0/1.5/1.52, borland-2.0/3.1,
-delphi-1.0) need a user-supplied media tarball next to the Dockerfile, while
-`watcom-2.0-win16` curls a sha256-verified snapshot.
+delphi-1.0) curl their pinned `archaic-toolchains` codeload snapshot, as
+`watcom-2.0-win16` does for its release asset.  No media tarball has to be
+supplied by hand.
 
 The images are self-contained (runtime — wine/wibo/DOSBox — baked in, the
 wrapper is the entrypoint), so any tool can use them without rebrew itself.
@@ -135,13 +136,12 @@ similarity surfaces.
 
 Standalone consumer of rebrew's output: a Bottle web server + zero-build
 VanJS SPA rendering a defrag-style per-byte coverage grid over
-`db/coverage.db` (exact/reloc/matching/stub/none cells, function detail
+`db/coverage-<target>.toml` (exact/reloc/matching/stub/none cells, function detail
 panel, live cross-references, potato mode, CI gate via `recovery check`).
 
-The contract is the database file alone: `rebrew catalog --data-json` →
-`db/data_*.json` → `rebrew build-db` → `db/coverage.db` → `recovery serve`.
-recovery imports nothing from rebrew and runs on any machine with a
-compiled `coverage.db` — no toolchain required.
+The contract is the coverage document alone: `rebrew build-db` →
+`db/coverage-<target>.toml` → `recovery serve`.  recovery imports nothing from rebrew and runs on any machine
+holding readable documents — no toolchain required.
 
 ### reportal — the self-hosted portal
 
@@ -158,7 +158,7 @@ Backing engines: `rebrew` is invoked through its CLI (`analyze`, `asm`,
 `decompile`, `imports`, `strings`, `xrefs`, `fingerprints`, `crypto-scan`,
 `recover-structs`, `report`), and `resembl`'s scoring core supplies the
 matching similarity (the optional `similarity` dependency group). The contract is
-rebrew's `db/coverage.db` plus its project directories; reportal imports
+rebrew's `db/coverage-<target>.toml` documents plus its project directories; reportal imports
 nothing from rebrew at runtime and runs offline. The hosted AI surfaces
 (embedding matching, AI decompilation prose, the security and LM agents,
 dynamic execution, auth/teams) are deliberately out of scope, and its
@@ -232,7 +232,6 @@ project is a drop-in for a reccmp-based one and vice versa.
 | Boundary | How rebrew interoperates |
 |---|---|
 | Source markers | The `// FUNCTION: MODULE 0xVA` annotation format is reccmp-compatible: reccmp's parser reads rebrew source files (marker + symbol; the extra rebrew KV lines are ignored), and `annotation.py` parses reccmp-style blocks. The reccmp-only `ANALYSIS` key is tolerated inline so reccmp files round-trip, even though rebrew's own convention routes it to metadata (inline use fires lint W019) |
-| Catalog CSV | `rebrew catalog --csv` emits the pipe-delimited CSV per reccmp's `docs/csv.md` spec (`catalog/export.py`) |
 | Tool equivalents | rebrew reimplements reccmp's toolset natively: `rebrew verify-exports` = `verexp`, `rebrew stack-cmp` = `stackcmp` (adapted — frames derived from disassembly on both sides instead of a recomp PDB, so it works for MSVC 6.0 whose PDBs `llvm-pdbutil` cannot read), `rebrew lint` = `decomplint`-inspired, `rebrew verify --nolib` = reccmp `--nolib` |
 | Match semantics | Verify's *effective match* parity: a delta that is pure register allocation counts as 100%, matching reccmp's effective-match rule (`rebrew near-diag` reports it as `EFFECTIVE`) |
 | Adapted modules | Beyond the tool equivalents, four adaptations from reccmp's source (MIT) remain: pinned-sequence diffing, the jump-swap instruction-equivalence check (in `near_diag`), and vtordisp/float-const detection — see [RECCMP_ADAPTATIONS.md](RECCMP_ADAPTATIONS.md) |
@@ -294,7 +293,6 @@ flowchart LR
     end
 
     subgraph RC["reccmp interop loop"]
-        CSV["rebrew catalog --csv"]
         CMPTOOL["reccmp tooling<br/>verexp · stackcmp · decomplint"]
         RECOMP["reccmp recomp build"]
     end
@@ -309,13 +307,11 @@ flowchart LR
     CAT --> DIFF
     STATE --> DIFF
     SRC --> RECOMP --> CMPTOOL
-    CAT --> CSV --> CMPTOOL
 ```
 
 Both interop loops in one view: the BinSync collaboration cycle
 (export → decompilers → import back, with `binsync-diff` guarding drift)
-and the reccmp format interop (sources into the recomp build, catalog into
-reccmp's CSV).
+and the reccmp format interop (sources into the recomp build).
 
 The full external-tools table (decomp.me, LIEF, Capstone, angr, ReVa, and
 the adjacent tools) lives in the README's "Ecosystem & Related Tools"
@@ -330,10 +326,8 @@ flowchart LR
     CMP --> MET["rebrew-functions.toml<br/>STATUS promotion"]
     CMP --> VFY["rebrew verify<br/>similarity column"]
     RES["resembl scoring core"] --> VFY
-    CMP --> CAT["rebrew catalog"]
-    CAT --> JSON["db/data_*.json"]
-    JSON --> BDB["rebrew build-db"]
-    BDB --> DB[("db/coverage.db")]
+    CMP --> BDB["rebrew build-db"]
+    BDB --> DB[("db/coverage-<target>.toml")]
     DB --> DASH["recovery serve<br/>defrag grid SPA"]
 ```
 
@@ -349,25 +343,25 @@ Edges point strictly upward in the diagram above — the graph is acyclic:
 | Component | Depends on | Boundary contract |
 |---|---|---|
 | rebrew | resembl (scoring core), rebrew-toolchains (image source) | python import; sibling checkout + `docker run` |
-| recovery | (nothing from rebrew) | `db/coverage.db` SQLite schema |
+| recovery | (nothing from rebrew) | the `coverage-<target>.toml` document format |
 | recompile | rebrew (toolchain catalog), toolchain images | path dependency + HTTP API out |
 | reagent | rebrew (internals) | direct `rebrew.*` imports |
 | relumea | none yet — vision layer over the stack | — |
 | recondb / decompedia | none | — |
-| reccmp (external) | nothing from rebrew — consumes its outputs | marker/CSV format + recomp build |
+| reccmp (external) | nothing from rebrew — consumes its outputs | source-marker format + recomp build (the catalog CSV export is no longer written) |
 | BinSync (external) | nothing from rebrew — consumes its exports | BinSync state-dir TOML layout |
 
 Decoupling is by stable contract, not shared code:
 
 - **toolchains** — docker images + the `sources.json` manifest; rebrew and
   recompile are interchangeable consumers,
-- **coverage** — the SQLite schema in [DB_FORMAT.md](DB_FORMAT.md); rebrew
-  writes it, recovery reads it, and the two never import each other,
+- **coverage** — the clear-text document format in [COVERAGE_DOCUMENT.md](COVERAGE_DOCUMENT.md);
+  rebrew writes it, recovery reads it, and the two never import each other,
 - **similarity** — the `resembl/scoring.py` module, importable without
   resembl's database stack,
 - **compiles** — `POST /api/v1/compile` for remote consumers,
 - **collaboration** — the BinSync state-dir TOML layout for any
-  BinSync-aware decompiler; the reccmp marker/CSV formats for the
+  BinSync-aware decompiler; the reccmp source-marker format for the
   comparison ecosystem,
 - **agents/vision** — HTTP + file datasets (train JSONL), nothing shipped
   depends on the SaaS layer.
@@ -405,7 +399,7 @@ binary being decompiled.
   config/store tiers, data/globals/layout, LLM training export,
   AI-decomp research landscape
 - [TOOLCHAIN.md](TOOLCHAIN.md) — the toolchain zoo and image provenance
-- [DB_FORMAT.md](DB_FORMAT.md) — the `coverage.db` schema shared with
+- [COVERAGE_DOCUMENT.md](COVERAGE_DOCUMENT.md) — the coverage document format shared with
   recovery
 - [BINSYNC_INTEGRATION.md](BINSYNC_INTEGRATION.md) — the BinSync state-dir
   bridge in detail

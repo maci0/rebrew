@@ -125,6 +125,12 @@ workflows, and limitations.
   (`src/rebrew/build_db.py:158`).
 - **Suggested fix:** When the version mismatches, prompt to drop+recreate the DB or
   auto-recreate when `--force` is passed.
+- **Amended (2026-09):** the store this gap is about is gone. `rebrew build-db`
+  writes one clear-text document per target (`db/coverage-<target>.toml`), so
+  there is no schema version to mismatch, no `--force` unlink to explain and no
+  `_check_db_version` to name. The fix above was real for the SQLite store and is
+  kept as the record of it; the gap itself cannot arise. See
+  [COVERAGE_DOCUMENT.md](../COVERAGE_DOCUMENT.md).
 
 ### Gap: `rebrew catalog --csv` output path is implicit
 
@@ -135,6 +141,9 @@ workflows, and limitations.
 - **Fixed:** `--csv` help now states the destination — "(written to
   db/<target>_functions.csv)" (`src/rebrew/catalog/cli.py:85`).
 - **Suggested fix:** Help line should mention the output path.
+- **Later:** moot — `--csv`, the grid JSON and `catalog/export.py` are deleted;
+  `rebrew build-db` writes `db/coverage-<target>.toml` and `rebrew catalog`
+  writes no artifact.
 
 ---
 

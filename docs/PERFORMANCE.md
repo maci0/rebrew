@@ -67,14 +67,19 @@ compiles), not `score_candidate`.
 
 ## Dashboard first paint (`bootstrap` / `/api/functions`)
 
+*(Superseded: the dashboard reads `db/coverage-<target>.toml` and serves a
+frozen in-memory snapshot, so the per-request connections and per-row
+`json.loads` this section measured no longer exist. The numbers below are kept
+as the record of why the reader is snapshot-based.)*
+
 Nested query methods each opened their own read-only SQLite connection.
 Cold-start `bootstrap()` therefore connected four times (targets, known-target
 check, summary, functions); `/api/functions` and `/api/summary` connected twice
-(`target_known` then the query).
-
-Nested `_conn()` now reuses the request handle. Connects per call: bootstrap
-4→1, functions/summary 2→1. Gate:
-`TestQueryLayer.test_nested_queries_share_one_connection`.
+(`target_known` then the query). The reader now parses each coverage document
+once, caches the immutable snapshot against the document's stat, and every
+route answers from that one object — the connect counts are structurally zero
+rather than reduced. Gates: `TestQueryLayer.test_one_response_reads_one_snapshot`,
+`test_revalidation_matches_the_get_it_stands_in_for`.
 
 Measured 50 warmed calls on 500 synthetic functions (CPU time, `getrusage`):
 
@@ -84,10 +89,10 @@ Measured 50 warmed calls on 500 synthetic functions (CPU time, `getrusage`):
 | `/api/functions` | 2 | 1 | 0.050 s → 0.044 s |
 | `/api/summary` | 2 | 1 | 0.008 s → 0.004 s |
 
-`_load_list` used `json.loads` once per function row (55 % of `/api/functions`
-CPU on 500 rows). `_files_display` now slices the common `["a.c"]` cell.
-`COUNT(*)` is skipped when the first page is already short; a later short page (offset past the end) still pays for it. Gate:
-`test_files_display_skips_json_loads_for_common_cells`.
+`_files_display` takes the `files` tuple the reader already decoded (a JSON
+string per row cost 55 % of `/api/functions` CPU on 500 rows). Row counting is
+skipped when the first page is already short; a later short page (offset past
+the end) still pays for it.
 
 Measured 100 warmed `/api/functions` calls on 500 synthetic functions
 (CPU time, `getrusage` / `cProfile`):

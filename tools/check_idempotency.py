@@ -345,6 +345,9 @@ DEFAULT_COMMANDS = [
     "cache stats --json",
     "cfg show --json",
     "flirt --binary original/mini_pe.exe --json",
+    # Reports the catalog and writes nothing: the coverage document is
+    # ``build-db``'s (the write sweep).
+    "catalog --json",
 ]
 
 
@@ -372,11 +375,10 @@ WRITE_COMMANDS = [
     # queue, so each run is meant to advance to the next N functions and
     # "unchanged after a re-run" is the wrong question to ask of it.
     "skeleton 0x00401010",
-    # Regenerates db/data_<target>.json and the reccmp CSV from the sources.
-    "catalog",
-    # The --data-json variant: one entry point, a second output file, so it
-    # gets its own fixture rather than sharing ``catalog``'s.
-    "catalog --data-json",
+    # Renders db/coverage-<target>.toml by scanning the tree in-process.
+    # `rebrew catalog` left this list when it stopped writing: it reports the
+    # catalog and nothing else, so it is a read-only command now.
+    "build-db",
     # Rewrites the splat-style symbol_addrs file from the annotations.
     "symbol-addrs",
     # Renders the CMake toolchain file driving the docker bridge scripts.

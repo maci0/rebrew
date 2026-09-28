@@ -33,7 +33,8 @@ from hypothesis import strategies as st
 from test_postlink import make_full_pe
 
 from rebrew.gen_layout import fmt_layout_toml
-from rebrew.layout_meta import extract_layout, load_package, parse_pe, write_package
+from rebrew.layout_meta import extract_layout, load_package, write_package
+from rebrew.pe_headers import pe_header
 
 #: Patches land in the header block, which is where the parser branches.
 _MUTATE_SPAN = 0x400
@@ -64,7 +65,7 @@ def pkg_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 #: RVA/size fields the walker branches on: the section table and the 16 data
 #: directories.  Patching the whole header span instead rejects ~2/3 of the
-#: drawn images at ``parse_pe`` and the success paths never get reached.
+#: drawn images at ``pe_header`` and the success paths never get reached.
 _HOT_SPANS: list[tuple[int, int]] = []
 #: Index of the data-directory span in ``_HOT_SPANS`` (the branch fields).
 _DATA_DIR_SPAN = 1
@@ -109,7 +110,7 @@ def _surviving_images(draw: st.DrawFn) -> bytes:
 
     Patching the data directories perturbs every RVA the walker follows
     (import, export, IAT) without disturbing the header geometry that
-    ``parse_pe`` gates on, so the success paths stay reachable instead of
+    ``pe_header`` gates on, so the success paths stay reachable instead of
     being filtered out.
     """
     data = bytearray(_SEED)
@@ -184,11 +185,11 @@ def test_layout_package_round_trips(pkg_dir: Path, data: bytes) -> None:
 @settings(max_examples=100, deadline=None)
 @given(_images())
 def test_parse_pe_geometry_matches_extract(data: bytes) -> None:
-    """``parse_pe`` is the gate ``extract_layout`` reads its geometry from."""
+    """``pe_header`` is the gate ``extract_layout`` reads its geometry from."""
     try:
         extract_layout(data, "fuzz.dll")
     except ValueError:
         return
-    e, nsec, optsz, opt, image_base = parse_pe(data)
+    e, nsec, optsz, opt, image_base = pe_header(data)
     assert opt + optsz + 40 * nsec <= len(data)
     assert struct.unpack_from("<I", data, opt + 28)[0] == image_base

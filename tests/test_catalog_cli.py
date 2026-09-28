@@ -41,7 +41,6 @@ def _patch(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamespace:
         "generate_data_json",
         lambda *a, **k: {"sections": {".text": {"va": 0, "cells": []}}, "summary": {}},
     )
-    monkeypatch.setattr(catalog_cli, "generate_reccmp_csv", lambda *a, **k: "a|b|c|d|e\n")
     # The summary's progress lines are `rebrew status`'s; stub its collector.
     from rebrew.status import StatusReport
 
@@ -57,20 +56,16 @@ def _patch(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamespace:
 
 
 class TestCatalogCli:
-    def test_data_json_written(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_catalog_writes_no_coverage_document(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The document is `rebrew build-db`'s to write; catalog only reports."""
         cfg = _patch(monkeypatch, tmp_path)
-        r = runner.invoke(catalog_cli.app, ["--data-json"])
+        r = runner.invoke(catalog_cli.app, [])
         assert r.exit_code == 0
-        out = cfg.db_dir / "data_T.json"
-        assert out.exists()
-        payload = json.loads(out.read_text())
-        assert "summary" in payload
-
-    def test_csv_written(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        cfg = _patch(monkeypatch, tmp_path)
-        r = runner.invoke(catalog_cli.app, ["--csv"])
-        assert r.exit_code == 0
-        assert (cfg.db_dir / "t_functions.csv").exists()
+        assert not list(cfg.db_dir.glob("data_*.json"))
+        assert not list(cfg.db_dir.glob("*_functions.csv"))
+        assert not list(cfg.db_dir.glob("coverage-*.toml"))
 
     def test_json_summary_to_stdout(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _patch(monkeypatch, tmp_path)
@@ -87,8 +82,6 @@ class TestCatalogCli:
             # size is 0 and the payload says so.
             "text_size": 0,
             "identified_pct": 0.0,
-            "wrote_data_json": False,
-            "wrote_csv": False,
         }
         assert {k: v for k, v in payload.items() if k != "warning"} == expected
         assert payload["warning"].startswith("target binary missing (")
@@ -111,12 +104,13 @@ class TestCatalogCli:
         assert r.exit_code != 0
         assert "cannot be combined with --json" in r.output
 
-    def test_default_runs_all(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        cfg = _patch(monkeypatch, tmp_path)
+    def test_default_runs_the_summary(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _patch(monkeypatch, tmp_path)
         r = runner.invoke(catalog_cli.app, [])
         assert r.exit_code == 0
-        assert (cfg.db_dir / "data_T.json").exists()
-        assert (cfg.db_dir / "t_functions.csv").exists()
+        assert "=== Progress (rebrew status) ===" in r.output
 
     def test_fix_sizes_updates_metadata(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -354,10 +348,10 @@ class TestRunCatalog:
         assert "total_functions" not in payload
         assert set(payload) >= {"identified_bytes", "identified_pct"}
 
-    def test_defaults_write_all_artifacts(self, tmp_path: Path) -> None:
-        """run_catalog() with every flag left false runs the default action set
-        in-process — the same work a bare `rebrew catalog` performs — and
-        returns the payload the CLI would print under --json."""
+    def test_defaults_write_nothing_and_still_report(self, tmp_path: Path) -> None:
+        """run_catalog() with every flag left false summarizes and returns the
+        payload the CLI prints under --json, writing no artifact: the coverage
+        document is build-db's, and it builds the dict in-process."""
         root = _write_project(tmp_path)
         cfg = load_config(root=root)
 
@@ -367,15 +361,9 @@ class TestRunCatalog:
         assert payload["annotations"] == 1
         assert payload["unique_vas"] == 1
         assert payload["registry"] == 1
-
         assert payload["text_size"] == 0
-        assert payload["wrote_data_json"] is True
-        assert payload["wrote_csv"] is True
         assert payload["warning"].startswith("target binary missing")
-
-        data_json = root / "db" / "data_GAME.json"
-        assert "summary" in json.loads(data_json.read_text(encoding="utf-8"))
-        assert (root / "db" / "game_functions.csv").exists()
+        assert not list((root / "db").glob("*")) if (root / "db").exists() else True
 
     def test_explicit_flag_skips_defaults(self, tmp_path: Path) -> None:
         """An explicit action flag selects only that action; the default set is
@@ -383,11 +371,10 @@ class TestRunCatalog:
         root = _write_project(tmp_path)
         cfg = load_config(root=root)
 
-        payload = run_catalog(cfg, gen_data_json=True)
+        payload = run_catalog(cfg, export_ghidra_labels=True)
 
-        assert payload["wrote_data_json"] is True
-        assert payload["wrote_csv"] is False
-        assert (root / "db" / "data_GAME.json").exists()
+        assert (root / "original" / "ghidra_data_labels.json").exists()
+        assert payload["target"] == "GAME"
 
 
 class TestPackageLayering:

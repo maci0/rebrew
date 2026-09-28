@@ -1,6 +1,19 @@
 ## [Unreleased]
 
 ### Added
+- **`rebrew todo` reports what is left until the build is identical straight
+  out of the toolchain.** The list treated every byte-matched function as done,
+  so a project at 100% byte-matched printed "No action items found. Great
+  progress!" while most of it matched only after relocation masking — the
+  compiler and linker do not emit those bytes. Two categories name the gap:
+  `exact-only` for a `RELOC` function (identical with relocations masked, not
+  on its own; the item's command is the no-masking oracle,
+  `rebrew test <VA> --linked`), and `postlink-mangled` for a function whose
+  bytes in `build/<target>` a postlink fixer rewrote, detected by diffing the
+  span against a configured `raw_link` (no `raw_link`, no claim). Both score 0,
+  below every actionable item, so they never displace unfinished work, and the
+  coverage header counts them: `RELOC: N · E identical straight from the
+  toolchain`. `docs/CLI.md` and the `rebrew-workflow` skill list both.
 - **The dashboard names the request on its own warnings and reports a slow
   one.** A route's warning (a corrupt `function_stats` row, a byte count past
   the section) explains a response the access line shows as a plain 200, so it
@@ -13,7 +26,165 @@
   which was the one field it always printed as `-`. `docs/CLI.md` documents
   the stream.
 
+- **The shipped workflow instructions describe the coverage document.** The
+  generated `AGENTS.md` template gained `rebrew build-db` / `rebrew status` rows
+  and a note that progress lives in gitignored build output (`db/coverage-<target>.toml`)
+  with the old `coverage.db` / grid JSON / CSV named as stale; its lint row lists
+  the codes an agent should act on (W019, W028, W029, W031, W032). The
+  `rebrew-workflow` progress reference documents the document, its `updated_by` /
+  `updated_at` mirror and the canonical stamps in the TOML stores, and
+  `rebrew-data-analysis` triggers on W031. Every project's rendered scaffold was
+  refreshed with `rebrew init --refresh-agents` (47 workspaces, 0 drift after).
+- **`rebrew lint` reports a stale agent scaffold (W033).** `rebrew init` renders
+  `AGENTS.md`, `PRINCIPLES.md` and `.agents/skills/**` from the packaged
+  sources, so an installed rebrew that gained a workflow fact leaves every
+  existing project describing the previous one — and an agent follows the file
+  it finds. W033 compares `.agents/skills/**` and `PRINCIPLES.md` against the
+  same public renderer `--refresh-agents` uses (promoted from
+  `init._agent_skill_files` to `init.agent_skill_files`), reports the drifted
+  paths, and names the fix. `AGENTS.md` itself is profile-rendered and stays
+  under `rebrew init --refresh-agents --check`.
+- **`rebrew lint` knows the coverage store and the provenance pair.** Three
+  gaps the format move opened. `UPDATED_BY` / `UPDATED_AT` joined
+  `METADATA_KEYS`, so an inline `// UPDATED_BY:` is reported as metadata-only
+  (W019) instead of an unknown key (W010), and `--fix` strips it rather than
+  migrating a hand-written stamp over the real one. **W031** reports the
+  `rebrew-data.toml` shapes the writers reject — an unknown field, a STATUS
+  outside the three data verdicts, half a provenance pair — per entry, so a
+  hand-edited store names its own problems instead of failing later in a
+  reader. **W032** reports the coverage store's hygiene: a leftover
+  `db/coverage.db`, `db/data_<target>.json` or `db/*.csv` (artifacts no reader
+  globs any more, so stale coverage looks current), and a
+  `db/coverage-<target>.toml` the dashboards cannot serve — malformed, a
+  foreign `version`, or a `target` key that disagrees with the filename, which
+  would answer one target with another's data. `docs/ANNOTATIONS.md` lists both
+  codes.
+
 ### Changed
+- **Every gated metadata write now names itself, in both stores.** A
+  `BLOCKER` / `NOTE` / `CFLAGS` edit went through `update_field` with no
+  provenance, so a row's `UPDATED_BY` named the last *status* writer and a
+  blocker written today could hide under a `verify` tag from months ago; a data
+  symbol's `VERIFIED` / `DRIFT` / `UNCHECKED` verdict had no provenance at all,
+  with the only record in the gitignored coverage document's
+  `verify_results[]`.  `update_field`, `set_fields`, `MetadataEntry.apply`,
+  `set_data_field` and `set_data_fields_batch` take an `updated_by` tag, and
+  every call site supplies one (`test`, `verify`, `prove`, `match`, `diff`,
+  `near-diag`, `blocker`, `skeleton`, `lint`, `cross-import`, `binsync-import`,
+  `fix-sizes`, `intake`, `data`, `rename`).  `rebrew-data.toml` gains the
+  `updated_by` / `updated_at` pair as owned fields.  A writer that passes no tag
+  leaves the stored stamp alone.
+- **`/api/health` and `dashboard --json` report `coverage_dir`, not `db`.** The
+  key named the SQLite store the coverage documents replaced; a directory of
+  `coverage-<target>.toml` files under a database's name is the same lie in a
+  wire contract consumers read.  **Breaking for any consumer reading
+  `payload["db"]`** (the sibling `recovery` dashboard is the documented one);
+  `docs/dashboard-api.yaml`, `docs/CLI.md` and `docs/THREAT_MODEL.md` follow.
+- **`docs/DB_FORMAT.md` is `docs/COVERAGE_DOCUMENT.md`.** The filename named
+  the deleted database; the content has been the coverage-document format since
+  the store moved to clear text.  Every inbound link, the docs index, and the
+  two tests that read the format's tables follow.
+
+- **Breaking:** **`rebrew build-db` writes clear-text coverage documents, and
+  the SQLite `db/coverage.db` is gone.** One `db/coverage-<target>.toml` per
+  target replaces it. The document stores facts only — the sections with their
+  cells, the functions, the globals, the verify results, the status history and
+  the catalog paths — and every aggregate the schema used to materialize
+  (`section_cell_stats`, the zstd `section_cells_json` cache, the per-section
+  buckets, `function_stats`) is derived when a reader loads it. So there is no
+  schema version to migrate, no sidecar to reset and no partial state to
+  recover: the schema-version gate, the `--force` unlink/restore path and the
+  zstd cell codec are deleted rather than ported. `rebrew build-db --force` is
+  accepted and does nothing, because each document is replaced whole (the flag
+  is documented as a no-op in `--help`); `--json` reports `coverage_files` and
+  `targets_processed` where it reported `db_path`; and a rebuild carries the
+  previous document's history and verify stamps forward, so status history
+  survives exactly as the `history` table did. `docs/COVERAGE_DOCUMENT.md` documents
+  the format, and `tests/test_packaging.py` now gates a
+  `coverage_toml._TOML_VERSION` bump the way it gated `_CURRENT_DB_VERSION`.
+- **Breaking:** the modules the store migration and the module splits emptied
+  lost their re-exports, so import from the module that defines a name:
+  `rebrew.builtins` owns `BUILTIN_COMPONENTS` (`rebrew.main` re-exporting it was
+  the duplicate), `rebrew.config` owns `KNOWN_TARGET_KEYS`,
+  `XVFB_DISPLAY_ENV` and `check_env_dir` (no longer on `rebrew.cfg`,
+  `rebrew.compile` or `rebrew.toolchain`), `rebrew.headless` owns
+  `XVFB_DISPLAY_ENV` too, `rebrew.init_profiles` owns `DEFAULT_REBREW_TOML`
+  (`rebrew.init` dropped its copy), `parse_pe` moved to `rebrew.pe_image`,
+  `pe_lfanew` to `rebrew.pe_headers` (both gone from `rebrew.layout_meta`, and
+  the `pe_lfanew` on `rebrew.pe_image` with them), and `rebrew.ghidra`'s lazy
+  re-export table was rebuilt so the MCP client types (`McpError`,
+  `McpErrorKind`, `McpApplyAborted`, `McpApplyResult`) and the structural
+  helpers (`apply_commands_via_mcp`, `build_bookmark_commands`,
+  `resolve_ghidra_cli`) resolve from `rebrew.ghidra.client`,
+  `rebrew.ghidra.commands` and `rebrew.ghidra.cli_backend`.  Every name still
+  imports from the module that defines it; what went away is the second path.
+- **Breaking:** the SQLite storage layer's whole public surface is gone.
+  `rebrew.workspace.db` is deleted, so `DB_VERSION_KEY`, `SCHEMA_TARGET`,
+  `CELLS_JSON_OBJECT_SQL`, `SECTION_CELLS_AGG_SQL`, `SECTION_CELLS_COLUMN`,
+  `SECTION_CELLS_TABLE`, `SQLITE_TIMEOUT_SECONDS`, `coverage_db_lock`,
+  `sqlite_ro_uri`, `open_sqlite_ro`, `read_stored_db_version`,
+  `read_db_version`, `db_version_matches`, `encode_section_cells` and
+  `decode_section_cells` can no longer be imported from `rebrew.workspace` (or
+  anywhere); nothing in the package called them once the documents replaced the
+  database, and the section-cell codec had no blob column left to serve.
+  `rebrew.build_db` no longer re-exports anything of the kind either:
+  `SECTION_CELL_STATS_TABLE`, `verify_results_clamp_select` and
+  `history_clamp_select` went with the schema they served, and the two
+  accidental re-exports `canonical_status` (unchanged at `rebrew.metadata`) and
+  `VALID_MARKERS` (unchanged at `rebrew.annotation`) went with them.
+  `rebrew build-db` also accepts a target named `__schema__` now: the sentinel
+  it refused existed because `metadata` was keyed `(target, key)`, so that name
+  could overwrite the schema stamp. Each target is its own
+  `coverage-<target>.toml` with its format version inside it, so the name
+  collides with nothing and the guard is gone with the row it protected.
+  `rebrew.dashboard` no longer re-exports `FUNCTION_ROWS_SQL`,
+  `coverage_db_lock` or `open_sqlite_ro`, and its `Dashboard` takes the
+  coverage DIRECTORY (`Dashboard(db_dir)`, attribute `db_dir`) instead of a
+  `coverage.db` path. `docs/CLI.md` and `README.md` no longer describe a
+  database.
+- **Breaking:** `rebrew.workspace.db_path` and `rebrew.workspace.DB_FILENAME`
+  are gone. Both named the one coverage FILE, `<db_dir>/coverage.db`, and
+  neither has a writer since the documents replaced it: `db_path` resolved that
+  filename under `db_dir` and `DB_FILENAME` was the string only `db_path` read,
+  so a caller got a path nothing creates. The coverage-DIRECTORY resolver
+  `rebrew.workspace.db_dir` is unchanged and is the name recoverage imports;
+  `rebrew.workspace.config` dropped the pair as well, so neither is re-exported
+  from the package.
+- **`rebrew dashboard` serves one document per target, and the unreadable-stats
+  500 is gone.** Every response is otherwise unchanged — the same `cols`,
+  paging, filters, validators and error envelopes, verified against the SQLite
+  build of the same catalog over the whole route/query matrix — except the
+  three facts that named the database file: `/api/health`'s `db` is now the
+  coverage directory (a directory yielding no readable document answers 500
+  `database_error`, the shape the removed `except sqlite3.Error` had); the weak
+  ETag hashes every document's `name:mtime_ns:size` rather than the db file's
+  stat; and `function_stats.by_status` / `by_module_counts` are in sorted key
+  order (the values are identical; a JSON object has no order to preserve). A
+  target is one readable `coverage-<target>.toml`, so a missing or unparseable
+  document is 404 `unknown_target`, and `corrupt_function_stats` cannot happen:
+  `function_stats` is derived from the stored rows, not read back from a
+  metadata row. Request-scoped consistency survives the connection it was
+  pinned to — `_CURRENT_SNAPSHOTS` holds one snapshot for the whole response.
+  `docs/dashboard-api.yaml` is updated to match.
+- **The detection tables publish as one generation, and the dashboard's log
+  handler has an inverse.** Two composition invariants, both found by the
+  CORDIS pass. `refresh_detection_tables` republished the compat table, the two
+  MSVC version-exact tables, and the plugin-detector list in three unlocked
+  statements, so a reader could pair the tables of one discovery with those of
+  another: `cmake-toolchain` would write `12.00` for a profile whose build
+  number was in the generation it did not read. `DetectionTables` +
+  `detection_tables()` hand a reader the whole generation as one reference, and
+  the refresh builds every value before rebinding under one lock. Separately,
+  `_attach_server_log_handler` added a handler, set the level, and turned off
+  propagation with no inverse: a host that served the dashboard and then logged
+  again kept a handler writing to the finished run's console. It now returns a
+  disposer that restores all three, and the run calls it after the totals line.
+  `refresh_all` also takes one lock, so two composite refreshes cannot leave a
+  reader with a half-refreshed system.
+- **`rebrew status` leads the panel with the whole-file percentage.** The
+  panel title names the binary, so `85.3% of file` is the figure the title
+  promises; it sat second, under the `.text` bar. Only the row order changed.
+
 - **The dashboard boot guard is inline in the shell, so a cold load is two
   requests instead of three.** `/boot-guard.js` was a third deferred asset
   sharing the initial congestion window with the shell and `/app.js`: 245
@@ -44,6 +215,33 @@
   `from rebrew.utils import untrusted_text`. `rebrew.utils.console` is the
   one console a module should build, in place of its own.
 
+- **The store map follows the coverage store out of SQLite and out of the
+  catalog's own artifacts.** `workspace/db.py` (the coverage database) and
+  `catalog/export.py` (the `--data-json` / `--csv` grid exports) are gone;
+  `rebrew build-db` now writes one clear-text `db/coverage-<target>.toml` per
+  target, and `rebrew catalog` writes no artifact of its own. The docs that
+  still spoke in "grid JSON" / "DB column" terms, or promised a CSV to the
+  ecosystem, now name the document: `METADATA.md` (derived-copies column plus
+  a new *Write provenance* section — `UPDATED_BY`/`UPDATED_AT` are a STATUS
+  fact only, `rebrew-data.toml` has no provenance fields, and the document
+  carries no generation stamp, so a rebuild of unchanged input stays
+  byte-identical), `METADATA_FORMAT.md` (an owned-fields table for
+  `rebrew-functions.toml`, which had none), `ARCHITECTURE.md`, `CLI.md`,
+  `ECOSYSTEM.md` (the coverage contract is a document format, and the reccmp
+  interop is the source-marker format alone), `THREAT_MODEL.md`
+  (`/api/health` reports the coverage *directory*), and ADR-012's amendment,
+  which claimed no schema version at all where the reader does treat
+  `version` as a hard boundary.  A second pass cleared the same stale artifact
+  from the user-visible strings and the remaining code comments: the
+  `build-db` / `dashboard` help lines, the `rebrew-intake` skill (trigger,
+  diagram node, step heading, re-rendered), the "omitted from the coverage DB"
+  log line, `db_dir` in `CONFIG.md`, the dashboard's "coverage database" wording
+  in `CLI.md` / `ARCHITECTURE.md` / `THREAT_MODEL.md` / `dashboard-api.yaml`,
+  the SQLite connect-count block in `PERFORMANCE.md` (marked superseded — the
+  snapshot reader made it structurally zero), the reccmp-CSV sections in
+  `NAME_NORMALIZATION.md`, ADR-023's export half (amended; the marker half
+  stands), and the SQLite-driver rationale in `build_db.py` / `va.py` /
+  `coverage_toml.py` / `dashboard.py` comments.
 
 ### Fixed
 - **`rebrew residue` compares `.text` up to its raw size, not its virtual
@@ -214,7 +412,27 @@
   `GOLDTL` both annotating `g_log_newline` read as a duplicate. The key is the
   module and the name now, and two files annotating one name for the same
   module still warn.
-
+- **Breaking:** **the coverage document is built in-process; the catalog
+  snapshot is gone.** `rebrew build-db` read `db/data_<target>.json`, written by
+  `rebrew catalog --data-json`, and warned when the snapshot was older than the
+  tree it described — a file that could only ever be as fresh as its last
+  write. It now calls `rebrew.catalog.pipeline.build_catalog_data` itself and
+  renders the returned dict, so there is nothing to fall behind: `--data-json`
+  and `db/data_<target>.json` are removed, and `rebrew catalog` writes no
+  artifact of its own. `rebrew build-db --regen` survives as a no-op: it named
+  the only path that remains, so the flag has nothing left to select.
+  `run_catalog` lost its `gen_data_json` and `csv` keyword
+  arguments and `catalog.cli.main` their matching options; a caller passing
+  either now raises `TypeError` or exits 2. `docs/COVERAGE_DOCUMENT.md` §2 documents the dict as the intermediate value
+  it is.
+- **Breaking:** **the reccmp CSV export is gone; `catalog/export.py` with it.**
+  `rebrew catalog --csv` emitted a pipe-delimited file in
+  [reccmp's](https://github.com/isledecomp/reccmp) `docs/csv.md` layout, and
+  `generate_reccmp_csv` (re-exported from `catalog.export`, which held nothing
+  else but it and the `Annotation` it annotated) was the import. The coverage
+  document holds the same function rows, and nothing in the tree read the CSV.
+  Source markers stay reccmp-compatible — reccmp's parser still reads rebrew
+  `.c` files — that is the marker format, not the export.
 ## [2.15.0] - 2026-09-28
 
 ### Added

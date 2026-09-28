@@ -262,14 +262,25 @@ def _apply_global_entry(
     """
     from rebrew.data_metadata import set_data_field
 
-    set_data_field(cfg.metadata_dir, dst_va, "name", bs_name, module)
+    set_data_field(cfg.metadata_dir, dst_va, "name", bs_name, module, updated_by="binsync-import")
     type_value = str(entry.get("type") or "").strip()
     if type_value:
-        set_data_field(cfg.metadata_dir, dst_va, "type", type_value, module)
+        set_data_field(
+            cfg.metadata_dir, dst_va, "type", type_value, module, updated_by="binsync-import"
+        )
     size_value = str(entry.get("size") or "").strip()
     if size_value:
-        set_data_field(cfg.metadata_dir, dst_va, "size", int(size_value, 0), module)
-    set_data_field(cfg.metadata_dir, dst_va, "section", section, module)
+        set_data_field(
+            cfg.metadata_dir,
+            dst_va,
+            "size",
+            int(size_value, 0),
+            module,
+            updated_by="binsync-import",
+        )
+    set_data_field(
+        cfg.metadata_dir, dst_va, "section", section, module, updated_by="binsync-import"
+    )
 
 
 def _apply_global_or_skip(
@@ -404,7 +415,14 @@ def overlay_state(
                 elif accept_local:
                     if not dry_run:
                         try:
-                            update_field(cfg.metadata_dir, dst_va, "ghidra", bs_name, local_module)
+                            update_field(
+                                cfg.metadata_dir,
+                                dst_va,
+                                "ghidra",
+                                bs_name,
+                                local_module,
+                                updated_by="binsync-import",
+                            )
                             touched.add(dst_va)
                             applied.append("ghidra")
                         except Exception:
@@ -491,7 +509,14 @@ def overlay_state(
                         applied.append("note")
                     else:
                         try:
-                            update_field(cfg.metadata_dir, dst_va, "note", bs_note, local_module)
+                            update_field(
+                                cfg.metadata_dir,
+                                dst_va,
+                                "note",
+                                bs_note,
+                                local_module,
+                                updated_by="binsync-import",
+                            )
                             applied_notes += 1
                             touched.add(dst_va)
                             applied.append("note")
@@ -510,7 +535,14 @@ def overlay_state(
                 applied.append("locals")
             else:
                 try:
-                    update_field(cfg.metadata_dir, dst_va, "locals", normalized, local_module)
+                    update_field(
+                        cfg.metadata_dir,
+                        dst_va,
+                        "locals",
+                        normalized,
+                        local_module,
+                        updated_by="binsync-import",
+                    )
                     applied_locals += 1
                     touched.add(dst_va)
                     applied.append("locals")
@@ -540,7 +572,14 @@ def overlay_state(
                     applied.append("comments")
                 else:
                     try:
-                        update_field(cfg.metadata_dir, dst_va, "comments", shifted, local_module)
+                        update_field(
+                            cfg.metadata_dir,
+                            dst_va,
+                            "comments",
+                            shifted,
+                            local_module,
+                            updated_by="binsync-import",
+                        )
                         applied_comments += len(shifted)
                         touched.add(dst_va)
                         applied.append("comments")

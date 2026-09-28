@@ -25,8 +25,9 @@ ground-truth catalog the user:
 The Function Catalog feature unifies these by collecting **all** known
 function metadata from Ghidra exports, the discovery inventory, FLIRT
 signatures, CRT source mirrors, and the user's own `// FUNCTION:` /
-`// LIBRARY:` / `// STUB:` annotations, then publishes the merged view as
-JSON, CSV, and a SQLite coverage DB.
+`// LIBRARY:` / `// STUB:` annotations, then reports the merged view in
+process — `rebrew build-db` is what writes it, as
+`db/coverage-<target>.toml`.
 (>2026-09: CATALOG.md generation and `functions.txt` were removed — the same
 information lives in `rebrew-functions.toml`, served by `status`/`todo`/dashboard.)
 
@@ -35,7 +36,7 @@ information lives in `rebrew-functions.toml`, served by `status`/`todo`/dashboar
 - **Solo reverser** running `rebrew todo` to pick what to work on next.
 - **AI agent** (`rebrew-intake` and `rebrew-workflow` skills) running
   catalog + FLIRT + CRT triage as part of onboarding.
-- **Dashboard / CI** consumers reading `db/coverage.db` or `data_<target>.json`
+- **Dashboard / CI** consumers reading `db/coverage-<target>.toml`
   for progress reporting.
 - **Team lead** producing a high-level progress view to share with stakeholders
   (`rebrew status`, dashboard).
@@ -43,8 +44,9 @@ information lives in `rebrew-functions.toml`, served by `status`/`todo`/dashboar
 ## Goals
 
 - Single command (`rebrew catalog`) that scans annotations and produces:
-  - SQLite-ready JSON in `db/data_<target>.json`
-  - Optional `reccmp`-compatible CSV for interop with other tooling
+  - the coverage grid, in process (the rendered result is
+    `db/coverage-<target>.toml`, written by `rebrew build-db`; the JSON and CSV
+    files this goal originally named are gone)
   - Ghidra function/label exports
 - Bulk extraction of raw `.bin` slices of uncovered functions for
   byte-level work (`rebrew extract`).
@@ -52,7 +54,7 @@ information lives in `rebrew-functions.toml`, served by `status`/`todo`/dashboar
   (`rebrew flirt`).
 - CRT source cross-reference matcher that maps `LIBRARY:` markers to a
   specific MSVC CRT source file (`rebrew crt-match`).
-- SQLite coverage database build (`rebrew build-db`).
+- Clear-text coverage document build (`rebrew build-db`).
 
 ## Non-Goals
 
@@ -81,11 +83,12 @@ information lives in `rebrew-functions.toml`, served by `status`/`todo`/dashboar
   `--summary` reports only the aggregate count of size disagreements
   (`Size disagree: N`), never per-function names.
 - Outputs in any combination of modes:
-  - Default (no flags): scan + validate, write data JSON and
-    CSV, and print the summary table.
-  - `--data-json` writes `db/data_<target>.json` (cell-level coverage grid).
-  - `--csv` writes `db/<target>_functions.csv` (reccmp-compatible CSV) next
-    to the data JSON.
+  - Default (no flags): scan + validate, and print the summary table.  No
+    artifact is written by `catalog` itself; `rebrew build-db` renders the
+    coverage document from the same in-process scan.
+  - `--data-json` / `--csv` (removed): the grid JSON and the reccmp-compatible
+    CSV have no replacement.  A reader that needs the grid reads
+    `db/coverage-<target>.toml` (see [COVERAGE_DOCUMENT.md](../COVERAGE_DOCUMENT.md)).
   - `--summary` prints the summary table to stderr.
   - `--export-ghidra` prints interactive Ghidra MCP export instructions for
     `function_structure.json` / `ghidra_data_labels.json` (writes no cache;
@@ -154,13 +157,17 @@ Output `.bin` files land in the configured `bin_dir`.
 
 ### `rebrew build-db`
 
-- Consumes `db/data_<target>.json` (one per target) and produces
-  `db/coverage.db` (SQLite) containing function, global, section, and
-  cell tables.
-- `--force` deletes and recreates `db/coverage.db` when the schema version
-  is incompatible.
+- Scans the project in process and writes
+  `db/coverage-<target>.toml` (one document per target), a clear-text document per target holding the
+  functions, globals, sections with their cells, verify results and status
+  history.  Every aggregate (per-section buckets, byte coverage,
+  `function_stats`) is derived by the reader, so nothing can disagree with the
+  rows it was computed from.
+- `--force` is accepted and has no effect: each document is replaced whole, so
+  there is no schema to migrate past.
 - `--regen` generates coverage data in-process per target without intermediate JSON files.
-- Schema version is stamped in a `metadata` table.
+- The document carries its own `version`; a file from another version is not
+  migrated, and a rebuild replaces it.
 
 ## User Stories / Workflows
 
@@ -168,12 +175,12 @@ Output `.bin` files land in the configured `bin_dir`.
 
 1. After `rebrew init` + `rebrew doctor`, the user runs
    `rebrew flirt --json` and discovers 412 MSVCRT/MFC/DirectX functions.
-2. `rebrew catalog --data-json --json` builds a snapshot of all
-   uncovered functions.
+2. `rebrew catalog --json` reports the catalog summary (the coverage document
+   itself comes from `rebrew build-db`).
 3. `rebrew extract batch 20` produces 20 `.bin` files ready for the
    reversing loop.
-4. `rebrew build-db` produces `db/coverage.db` consumed by the recovery
-   dashboard.
+4. `rebrew build-db` produces `db/coverage-<target>.toml`, consumed by the
+   recovery dashboard.
 
 ### Story 2 — Mapping library functions to upstream source
 
@@ -197,17 +204,14 @@ Output `.bin` files land in the configured `bin_dir`.
 
 ### Story 4 — Dashboard refresh
 
-1. CI runs `rebrew catalog --data-json --json` then `rebrew build-db --json`
-   on every push to main.
-2. `db/coverage.db` is uploaded as an artifact and consumed by recovery.
+1. CI runs `rebrew build-db --json` on every push to main.
+2. `db/coverage-<target>.toml` is uploaded as an artifact and consumed by recovery.
 
 ## CLI Surface
 
 ```
 rebrew catalog [OPTIONS]
-      --data-json
       --summary
-      --csv
       --export-ghidra
       --export-ghidra-labels
       --fix-sizes
@@ -261,7 +265,8 @@ rebrew build-db
 - After FLIRT + catalog + CRT triage, the share of LIBRARY-attributed
   uncovered functions in `rebrew todo` drops to <5% (the rest become
   `identify-library` follow-up work).
-- `db/coverage.db` schema is stable across patch releases (versioned).
+- The `coverage-<target>.toml` document format is stable across patch releases
+  (its `version` field is the format's version).
 - `rebrew status` output is human-readable; metadata TOMLs round-trip
   cleanly through `git diff` (deterministic ordering).
 
@@ -278,13 +283,14 @@ rebrew build-db
   Ghidra export). The former `functions.txt` format is gone.
 - `--export-ghidra` writes no cache: it prints interactive Ghidra MCP export
   instructions for `function_structure.json` / `ghidra_data_labels.json` and
-  exits (refuses `--json`). `rebrew catalog --data-json` writes no inventory
-  file at all, only `db/data_<target>.json`; no command in rebrew produces a
+  exits (refuses `--json`). `rebrew catalog` writes no inventory file at all —
+  only `rebrew build-db` writes a file; no command in rebrew produces a
   stamped `function_structure.json` today, so the ingester's `_generated_by`
   filter only skips one written elsewhere. Fetch live data via
   `rebrew sync`.
-- `build-db` writes to `db/coverage.db` deterministically but never migrates
-  an older schema _(fixed)_: on a version mismatch it errors and points at
-  `--force`, which deletes and recreates the DB. No data migration.
+- `build-db` writes each `coverage-<target>.toml` deterministically.  It never
+  migrates an older format: a document from another `version` contributes no
+  history and is replaced whole on the next run, so an upgrade costs a rebuild
+  and loses nothing the catalog can regenerate.
 - `rebrew extract show` uses capstone for x86; non-x86 targets are out of
   scope until matching adds support.

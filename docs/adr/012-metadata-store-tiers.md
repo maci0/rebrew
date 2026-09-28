@@ -52,7 +52,8 @@ Adopt an explicit **four-tier model** and document it as the contract
    around; regenerable via the generating command (gen-layout,
    discover-functions, gen-link-stubs, catalog).
 3. **Derived, gitignored (build output)** — grid JSON, coverage.db, CSV,
-   `bin/<target>/*.bin`, `output/report/`.  Rebuildable via one command;
+   `bin/<target>/*.bin`, `output/report/`.  (Amended: the grid JSON, the
+   coverage database and the CSV are gone — see the amendment at the end.)  Rebuildable via one command;
    never hand-edited.  The `--compare` baseline lives in
    `.rebrew/verify_baseline.json` (unguarded `db/verify_results.json`
    snapshots are no longer written — see `verify_cache.load_baseline`).
@@ -125,3 +126,13 @@ Single-source rules enforced by code where cheap:
 - `verify_cache.json` stays a *measured-result mirror* (not folded into
   metadata) so `rebrew status`/`todo` serve without recompiling and
   demotions aren't masked; its overlay precedence is documented.
+
+*(Amended: the `coverage.db` tier named above is gone.  Tier 3's coverage entry
+is one clear-text document per target, `db/coverage-<target>.toml`, written
+wholesale by `rebrew build-db` and read directly by the dashboards — no schema
+migration, no `--force` unlink, and no derived cache table between the catalog
+and a reader.  The document still stamps `version`; a previous document carrying
+any other value contributes nothing, so the stamp bounds what an older document
+may contribute rather than gating the rebuild.  The accepted trade-off above, that
+`coverage.db` was kept for its query consumer, is superseded for that reason, and
+[COVERAGE_DOCUMENT.md](../COVERAGE_DOCUMENT.md) is the living format.)*

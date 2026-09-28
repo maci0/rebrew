@@ -844,6 +844,169 @@ def _check_W015_va_case(result: LintResult, va_str: str) -> None:
             )
 
 
+def _check_W031_data_metadata(cfg: ProjectConfig) -> list[LintResult]:
+    """W031: hand-edit problems in ``rebrew-data.toml`` entries.
+
+    The gated writers reject these shapes, so a file that carries one was
+    edited by hand (or written by an older tree): an unknown field, a STATUS
+    outside the three data verdicts, or half a provenance pair.  Each is
+    reported on its own entry rather than raising — the rest of the store is
+    still usable, and the reader tolerates the field.
+    """
+    from rebrew.data_metadata import (
+        DATA_METADATA_FIELDS,
+        DATA_METADATA_FILENAME,
+        DATA_STATUSES,
+    )
+
+    path = Path(cfg.metadata_dir) / DATA_METADATA_FILENAME
+    results: list[LintResult] = []
+    for (module, va), fields in sorted(load_data_metadata(cfg.metadata_dir).items()):
+        problems: list[str] = []
+        present = {k.lower() for k in fields}
+        for key in fields:
+            if str(key).upper() not in DATA_METADATA_FIELDS:
+                problems.append(
+                    f"unknown field {key!r} (the writers reject it; rebrew-data.toml is tool-owned)"
+                )
+        status = str(fields.get("status") or "")
+        if status and status not in DATA_STATUSES:
+            problems.append(
+                f"STATUS {status!r} is not a data verdict ({', '.join(sorted(DATA_STATUSES))})"
+            )
+        if ("updated_by" in present) != ("updated_at" in present):
+            problems.append("half a provenance pair: updated_by / updated_at are written together")
+        if not problems:
+            continue
+        res = LintResult(path)
+        for problem in problems:
+            res.warning(1, "W031", f"{module} 0x{va:08x}: {problem}")
+        results.append(res)
+    return results
+
+
+#: Old-store artifacts the coverage document replaced.  A tree that still
+#: carries one has coverage the dashboards do not read, which is the failure
+#: this check exists to make visible (the readers glob coverage-*.toml only).
+_STALE_COVERAGE_ARTIFACTS: dict[str, str] = {
+    "coverage.db": (
+        "leftover SQLite coverage database — the store is now one clear-text "
+        "db/coverage-<target>.toml per target; re-run rebrew build-db and delete this"
+    ),
+}
+
+
+def _check_W032_coverage_store(cfg: ProjectConfig) -> list[LintResult]:
+    """W032: the coverage store's own hygiene.
+
+    Two failures the readers hide: an artifact from a store that no longer
+    exists (`coverage.db`, the grid JSON, the catalog CSV) sitting beside the
+    documents, and a `coverage-<target>.toml` the dashboards cannot serve —
+    malformed, a foreign `version`, or a `target` key that disagrees with the
+    filename, so that target answers with another's data.
+    """
+    from rebrew.coverage_toml import CoverageTomlError, load_coverage_from
+    from rebrew.workspace import db_dir
+
+    directory = db_dir(cfg.root)
+    if not directory.is_dir():
+        return []
+    results: list[LintResult] = []
+    for path in sorted(directory.iterdir()):
+        if not path.is_file():
+            continue
+        name = path.name
+        message = ""
+        if name in _STALE_COVERAGE_ARTIFACTS:
+            message = _STALE_COVERAGE_ARTIFACTS[name]
+        elif name.startswith("data_") and path.suffix == ".json":
+            message = (
+                "leftover catalog grid JSON — rebrew build-db renders the "
+                "document in process now; delete this"
+            )
+        elif path.suffix == ".csv":
+            message = "leftover catalog CSV export — rebrew no longer writes it; delete this"
+        elif name.startswith("coverage-") and path.suffix == ".toml":
+            # The documented filename pattern; the reader's own prefix/suffix
+            # constants are private to coverage_toml.  The loader already
+            # refuses a foreign `version`, malformed TOML, and a `target` key
+            # that disagrees with the filename, so one read covers all three.
+            target = name[len("coverage-") : -len(".toml")]
+            try:
+                load_coverage_from(directory, target)
+            except CoverageTomlError as exc:
+                message = (
+                    f"coverage document the dashboards cannot serve ({exc}) — "
+                    "re-run rebrew build-db"
+                )
+        if message:
+            res = LintResult(path)
+            res.warning(1, "W032", message)
+            results.append(res)
+    return results
+
+
+def _check_W033_agent_scaffold(cfg: ProjectConfig) -> list[LintResult]:
+    """W033: the rendered agent workflow instructions have drifted.
+
+    ``rebrew init`` writes `AGENTS.md`, `PRINCIPLES.md` and `.agents/skills/`
+    from the packaged sources; an installed rebrew that gained a workflow fact
+    (a new command, a new lint code, a store the tools now read) leaves every
+    existing project describing the old one, and an agent follows the file it
+    finds.  Compared against the same public renderer `--refresh-agents` uses,
+    so the check cannot drift from the fix.  `AGENTS.md` is not compared here:
+    its content is profile-rendered, and `rebrew init --refresh-agents --check`
+    covers it with the full report.
+    """
+    from rebrew.init import agent_skill_files
+
+    # The render needs the target name to substitute `<target>`; a config
+    # without one (a bare file list, an out-of-project run) cannot be compared,
+    # and guessing would flag a project that is not wrong.
+    target_name = str(getattr(cfg, "target_name", "") or "")
+    if not target_name or not getattr(cfg, "root", None):
+        return []
+
+    expected = {
+        f".agents/skills/{rel}": data for rel, data in agent_skill_files(target_name).items()
+    }
+    principles = Path(__file__).parent / "PRINCIPLES.md"
+    if principles.is_file():
+        expected["PRINCIPLES.md"] = principles.read_bytes()
+
+    drifted: list[str] = []
+    for rel, want in sorted(expected.items()):
+        path = Path(cfg.root) / rel
+        if not path.is_file() or path.read_bytes() != want:
+            drifted.append(rel)
+    # A rendered skill file the packaged tree no longer ships is stale too
+    # (`--refresh-agents` prunes it): the agent would read a workflow that
+    # describes commands the installed rebrew does not have.
+    skills_root = Path(cfg.root) / ".agents" / "skills"
+    if skills_root.is_dir():
+        # Paths relative to the skills root, the unit the listing yields.
+        prefix = ".agents/skills/"
+        packaged = {rel[len(prefix) :] for rel in expected if rel.startswith(prefix)}
+        for path in sorted(skills_root.rglob("*")):
+            rel = path.relative_to(skills_root).as_posix()
+            # `.rebrew-scaffold.json` is the render manifest `--refresh-agents`
+            # writes beside the skills, not a skill; a dotfile is never one.
+            if path.is_file() and not rel.startswith(".") and rel not in packaged:
+                drifted.append(f".agents/skills/{rel}")
+    if not drifted:
+        return []
+
+    res = LintResult(Path("AGENTS.md"))
+    shown = ", ".join(drifted[:6]) + (f", +{len(drifted) - 6} more" if len(drifted) > 6 else "")
+    res.warning(
+        1,
+        "W033",
+        f"{len(drifted)} generated instruction file(s) differ from the installed "
+        f"rebrew ({shown}) — run rebrew init --refresh-agents",
+    )
+    return [res]
+
+
 def _check_config_rules(
     result: LintResult, found_keys: dict[str, str], cfg: ProjectConfig | None
 ) -> None:
@@ -2275,6 +2438,20 @@ def main(
                     syn2.display(quiet=False)
                 warning_count += len(syn2.warnings)
 
+    # W031 / W032: the same batch-level shape as W029 — no .c file owns the
+    # metadata store or the coverage directory, so each finding lands on the
+    # artifact it describes and the per-file loop stays untouched.
+    if cfg is not None:
+        for artifact_result in (
+            *_check_W031_data_metadata(cfg),
+            *_check_W032_coverage_store(cfg),
+            *_check_W033_agent_scaffold(cfg),
+        ):
+            all_results.append(artifact_result)
+            warning_count += len(artifact_result.warnings)
+            if not json_output and not quiet:
+                artifact_result.display(quiet=False)
+
     if json_output:
         # --quiet keeps the counts but lists only failing files, without
         # their warnings (docs: "Suppress warnings, show errors only").
@@ -2373,7 +2550,9 @@ def main(
                 # ORIGIN is legacy everywhere; SECTION is legacy for functions
                 # but a real data-metadata field for DATA/GLOBAL markers.
                 # Legacy keys are never stored — just strip the inline form.
-                if key == "ORIGIN" or (not is_data_marker and key == "SECTION"):
+                if key in ("ORIGIN", "UPDATED_BY", "UPDATED_AT") or (
+                    not is_data_marker and key == "SECTION"
+                ):
                     if dry_run:
                         console.print(
                             f"  [dim]Would strip[/dim] {r.filepath.name} "
@@ -2429,7 +2608,12 @@ def main(
                         write_value = coerce_metadata_value(toml_key, value)
                         if is_data_marker:
                             set_data_field(
-                                cfg.metadata_dir, va, toml_key, write_value, module=module
+                                cfg.metadata_dir,
+                                va,
+                                toml_key,
+                                write_value,
+                                module=module,
+                                updated_by="lint",
                             )
                         elif toml_key == "status":
                             # STATUS must go through the promotion gate
@@ -2450,7 +2634,14 @@ def main(
                                 updated_by="lint",
                             )
                         else:
-                            update_field(cfg.metadata_dir, va, toml_key, write_value, module=module)
+                            update_field(
+                                cfg.metadata_dir,
+                                va,
+                                toml_key,
+                                write_value,
+                                module=module,
+                                updated_by="lint",
+                            )
 
                 # Strip inline comment from source (file-only — the metadata
                 # write above already owns the field; routing STATUS through
@@ -2526,6 +2717,7 @@ def main(
                         "module": section_hit.module,
                         "va": section_hit.va,
                         "fields": {"section": section_hit.section},
+                        "updated_by": "lint",
                     }
                 set_data_fields_batch(cfg.metadata_dir, list(section_updates.values()))
                 section_count = len(section_updates)

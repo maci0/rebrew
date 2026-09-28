@@ -415,7 +415,7 @@ def update_cflags_annotation(
     if entry.get("cflags", "") == new_cflags:
         return False
 
-    update_field(meta_root, va, "cflags", new_cflags, module=module)
+    update_field(meta_root, va, "cflags", new_cflags, module=module, updated_by="match")
     return True
 
 

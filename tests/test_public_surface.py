@@ -28,9 +28,38 @@ BREAKING_PREFIX = "**Breaking:**"
 _MIN_LEAF = 4
 
 
+def _section(text: str, heading: str) -> str:
+    """The body under *heading*, up to the next ``## `` heading."""
+    return text.split(heading, 1)[1].split("\n## [", 1)[0]
+
+
 def _unreleased() -> str:
+    """The notes that have not shipped yet.
+
+    ``[Unreleased]`` plus — on the release commit, before the tag exists — the
+    dated section for the version being cut.  Notes move there when
+    ``__version__`` is bumped, and the surface delta they describe is the same
+    one: reading only ``[Unreleased]`` made the gate fail on every release
+    commit, and a gate that must be ignored at the one moment it matters is not
+    a gate.  Once ``v<version>`` is tagged the section is frozen history and
+    drops out, so a later change cannot borrow an old entry.
+    """
+    from rebrew import __version__
+
     text = CHANGELOG.read_text(encoding="utf-8")
-    return text.split("## [Unreleased]", 1)[1].split("\n## [", 1)[0]
+    notes = _section(text, "## [Unreleased]")
+    tagged = subprocess.run(
+        ["git", "tag", "--list", f"v{__version__}"],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if not tagged.stdout.strip():
+        heading = f"## [{__version__}]"
+        if heading in text:
+            notes += _section(text, heading)
+    return notes
 
 
 def _last_tag() -> str:

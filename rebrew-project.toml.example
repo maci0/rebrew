@@ -82,6 +82,13 @@ reversed_dir = "src/game"
 # Default: "bin/<target_name>"
 bin_dir = "bin/game"
 
+# Pre-postlink image the linker wrote, read by `rebrew status` for the
+# whole-file score and by `rebrew todo` to tell a postlink-rewritten span from
+# toolchain output.  Point it at the raw link; a missing file is not replaced
+# by the postlinked build/<target>.  Default: build/<target>, else the sole
+# image in build/.
+raw_link = "build/raw/game.exe"
+
 # Source file extension(s): ".c", ".cpp", or comma-separated list like ".c,.cpp".
 # Default: ".c"
 source_ext = ".c"

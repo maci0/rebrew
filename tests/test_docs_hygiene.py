@@ -581,7 +581,7 @@ def test_rule_files_name_real_cli_commands() -> None:
 
 
 class TestCellStateMarks:
-    """``docs/DB_FORMAT.md`` names the marks the surfaces actually paint.
+    """``docs/COVERAGE_DOCUMENT.md`` names the marks the surfaces actually paint.
 
     The table once described a colour per cell state (Silver, Purple, Orange)
     that no renderer had: only a function STATUS is painted, from
@@ -593,7 +593,7 @@ class TestCellStateMarks:
     def test_documented_marks_are_the_status_marks(self) -> None:
         from rebrew.status_style import STATUS_HEX
 
-        doc = (ROOT / "docs" / "DB_FORMAT.md").read_text(encoding="utf-8")
+        doc = (ROOT / "docs" / "COVERAGE_DOCUMENT.md").read_text(encoding="utf-8")
         # The cell-state table only: the schema tables above it share its shape.
         table = doc[doc.index("#### Cell States") : doc.index("`other_count` is a catch-all")]
         rows = {m["state"]: m["mark"] for m in self._TABLE_RE.finditer(table)}

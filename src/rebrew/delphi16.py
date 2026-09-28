@@ -14,6 +14,7 @@ rebrew profile, so its functions are documented as blockers.
 from __future__ import annotations
 
 import shutil
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -25,6 +26,17 @@ if TYPE_CHECKING:
     from rebrew.ne_loader import NeFunction
 
 _DCC_FILES = ("DCC.EXE", "DELPHI.DSL", "DPMI16BI.OVL", "RTM.EXE")
+
+#: Default DCC.CFG: the RTL/VCL unit, include and resource paths inside the
+#: sandbox.  `/u` is what makes `uses Classes, Forms, …` resolve.
+_DCC_CFG = "/m\n/cw\n/rC:\\DELPHI\\LIB\n/uC:\\DELPHI\\LIB\n/iC:\\DELPHI\\LIB\n"
+
+#: Sibling files staged next to the main source so a whole-program build
+#: resolves its `uses` clauses.  A DPR's units, their compiled DCUs, the
+#: linked form resources and `{$I}` include files all live in that
+#: directory; staging only the .dpr made every multi-unit program fail with
+#: the compiler's "File not found".
+_UNIT_SUFFIXES = (".pas", ".dpr", ".dcu", ".dfm", ".res", ".inc")
 
 
 class Delphi16Error(RebrewError, RuntimeError):
@@ -50,9 +62,8 @@ def find_dcc() -> Path:
     raise Delphi16Error(
         "vendored Delphi 1.0 toolchain not found under "
         "rebrew-toolchains/delphi/1.0-win16/source (DCC.EXE + DELPHI.DSL + "
-        "DPMI16BI.OVL are required) — run `rebrew toolchain vendor "
-        "delphi-1.0` with the delphi10.tar.xz media tarball next to the "
-        "Dockerfile in the rebrew-toolchains checkout"
+        "DPMI16BI.OVL are required) — run `rebrew toolchain vendor delphi-1.0`, "
+        "which downloads the pinned archaic-toolchains/delphi10 tarball"
     )
 
 
@@ -67,20 +78,50 @@ def _is_83_safe(name: str) -> bool:
     return all(33 <= ord(c) < 127 and c not in '*?<>|"\\/' for c in name)
 
 
+def _stage_unit_sources(src: Path, sandbox: Path, main_name: str) -> list[str]:
+    """Copy the main source's sibling Pascal units into the sandbox.
+
+    A DPR is a whole-program compilation unit: its ``uses`` clauses resolve
+    against the units sitting next to it.  Staging only the .dpr meant DCC
+    failed with "File not found" for every unit but the main one.  Files whose
+    basename DOSBox would 8.3-truncate are refused by name rather than staged
+    under a wrong name, which would surface as a confusing linker error.
+    """
+    staged: list[str] = []
+    for sibling in sorted(src.parent.iterdir()):
+        if not sibling.is_file() or sibling.name == src.name:
+            continue
+        if sibling.suffix.lower() not in _UNIT_SUFFIXES:
+            continue
+        if not _is_83_safe(sibling.name):
+            raise Delphi16Error(
+                f"unit {sibling.name} has a basename DOSBox would 8.3-truncate; "
+                "rename it to 8.3 before compiling"
+            )
+        if sibling.name == main_name:  # e.g. a .pas main source staged as SRC.dpr
+            continue
+        shutil.copy2(sibling, sandbox / sibling.name)
+        staged.append(sibling.name)
+    return staged
+
+
 def compile_ne(
     dpr_source: str | Path,
     workdir: str | Path | None = None,
     *,
     timeout: int = 180,
     units_dir: str | Path | None = None,
+    extra_args: Sequence[str] = (),
+    dcc_cfg: str | None = None,
+    stage_siblings: bool = True,
 ) -> Delphi16Result:
     """Compile a ``.dpr``/``.pas`` source into a 16-bit NE executable.
 
     Stages a self-contained DOSBox sandbox: the compiler trio (DCC.EXE,
-    DELPHI.DSL, DPMI16BI.OVL), the RTL/VCL units (when available), and the
-    source are copied into a temp directory mounted as the DOSBox ``C:``
-    drive; DCC runs headless with a staged ``DCC.CFG`` unit path; and the
-    resulting ``.EXE`` is parsed with the native NE loader.
+    DELPHI.DSL, DPMI16BI.OVL), the RTL/VCL units (when available), the source
+    and its sibling units are copied into a temp directory mounted as the
+    DOSBox ``C:`` drive; DCC runs headless with a staged ``DCC.CFG`` unit
+    path; and the resulting ``.EXE`` is parsed with the native NE loader.
 
     Args:
         dpr_source: Path to the Pascal source (or the source text).
@@ -94,6 +135,16 @@ def compile_ne(
             known location from the holiday.exe mission
             (``~/.wine/drive_c/DELPHI/LIB``) when present; DELPHI.DSL-only
             programs compile without units.
+        extra_args: Extra DCC switches (e.g. ``("-$R+", "$Q+")``) placed
+            before the source name.  A byte-matching rebuild has to pin the
+            project's switches; without them the caller can only take DCC's
+            defaults.
+        dcc_cfg: Full ``DCC.CFG`` text to stage.  Defaults to the built-in
+            RTL/VCL paths; pass a project's file to reproduce its unit,
+            include and resource search paths exactly.
+        stage_siblings: Copy the main source's sibling units (``.pas``,
+            ``.dcu``, ``.dfm``, ``.res``, ``.inc``) into the sandbox so the
+            program's ``uses`` clauses resolve.
 
     Returns:
         Delphi16Result with the produced ``.exe`` path, its enumerated NE
@@ -127,6 +178,8 @@ def compile_ne(
     for fname in _DCC_FILES:
         shutil.copy2(dcc.parent / fname, sandbox / fname)
     (sandbox / staged_name).write_bytes(staged_bytes)
+    if stage_siblings and src_path is not None:
+        _stage_unit_sources(src_path, sandbox, staged_name)
 
     # Stage the RTL/VCL units + a DCC.CFG that points at them, when found.
     # The mission (rebrew-toolchains/delphi/1.0-win16 tree) established
@@ -143,14 +196,17 @@ def compile_ne(
             lib_dir = dcc.parent / "DELPHI/LIB"
     if lib_dir is not None and lib_dir.is_dir():
         shutil.copytree(lib_dir, sandbox / "DELPHI" / "LIB", dirs_exist_ok=True)
-        (sandbox / "DCC.CFG").write_text(
-            "/m\n/cw\n/rC:\\DELPHI\\LIB\n/uC:\\DELPHI\\LIB\n/iC:\\DELPHI\\LIB\n",
-            encoding="utf-8",
-        )
+    # A caller-supplied DCC.CFG replaces the built-in one outright: the
+    # project's search paths are part of what a byte-matching rebuild pins.
+    if dcc_cfg is not None:
+        (sandbox / "DCC.CFG").write_text(dcc_cfg, encoding="utf-8")
+    elif lib_dir is not None and lib_dir.is_dir():
+        (sandbox / "DCC.CFG").write_text(_DCC_CFG, encoding="utf-8")
 
     from rebrew.dosbox import DosboxError, read_uppercase, run_dosbox
 
-    cmd = f"C:\\DCC.EXE {staged_name} > C:\\dccout.txt"
+    extra = " " + " ".join(extra_args) if extra_args else ""
+    cmd = f"C:\\DCC.EXE{extra} {staged_name} > C:\\dccout.txt"
     # A reused caller-supplied workdir keeps the PREVIOUS run's executable, so a
     # failed compile still "found" output and was reported as success (stale NE
     # bytes then fed to the matcher); drop any file the search below would match.

@@ -239,6 +239,7 @@ __all__ = [
     "is_metadata_key",
     "is_status_parked",
     "library_override_fingerprint",
+    "library_presets_generation",
     "is_table_field",
     "load_metadata",
     "merge_into_annotation",
@@ -519,12 +520,24 @@ def _ensure_entry_table(
     return toml_key, typing.cast(dict[str, Any], doc_dict[toml_key])
 
 
-def _set_field(directory: Path | str | Any, va: int, key: str, value: Any, module: str) -> None:
+def _set_field(
+    directory: Path | str | Any,
+    va: int,
+    key: str,
+    value: Any,
+    module: str,
+    *,
+    updated_by: str = "",
+) -> None:
     """Set one field for *(module, va)* in the metadata.  **Private** — use
     :func:`update_field` or :func:`update_source_status` instead.
 
     Writes directly to ``directory / rebrew-functions.toml``.  No walk-up.
     Uses in-place ``tomlkit`` editing to preserve formatting and comments.
+
+    *updated_by* stamps the row's ``updated_by`` / ``updated_at`` pair in the
+    same write, so a BLOCKER or NOTE edit names the tool that made it instead
+    of leaving the last STATUS writer's tag standing.
     """
     _require_module(module)
     dir_path = resolve_metadata_dir(directory)
@@ -542,17 +555,39 @@ def _set_field(directory: Path | str | Any, va: int, key: str, value: Any, modul
             return
 
         entry[key] = safe
+        if updated_by:
+            _stamp_provenance(entry, updated_by)
         atomic_write_locked(path, tomlkit.dumps(doc))
         pop_metadata_doc_cache(_metadata_cache, path)
 
 
-def set_fields(directory: Path | str | Any, va: int, fields: dict[str, Any], module: str) -> None:
+def _stamp_provenance(entry: dict[str, Any], updated_by: str) -> None:
+    """Record *updated_by* plus a UTC ``updated_at`` on an open entry table.
+
+    One helper for every writer that stamps provenance (:func:`_set_field`,
+    :func:`update_statuses_batch`, the data store's own writers), so the tag
+    vocabulary and the timestamp format cannot drift between them.
+    """
+    entry["updated_by"] = updated_by
+    entry["updated_at"] = datetime.now(UTC).isoformat(timespec="seconds")
+
+
+def set_fields(
+    directory: Path | str | Any,
+    va: int,
+    fields: dict[str, Any],
+    module: str,
+    *,
+    updated_by: str = "",
+) -> None:
     """Write several fields for *(module, va)* in a single read-modify-write.
 
     Batches what would otherwise be N full TOML rewrites.  Skips fields whose
     value is unchanged.  Prefer :func:`update_field` for one key, or
     :func:`update_source_status` for STATUS; use this when several non-STATUS
     fields must land in one atomic write (e.g. ``blocker`` + ``blocker_delta``).
+    *updated_by* stamps the provenance pair in that same write, as in
+    :func:`update_field`.
     """
     if not fields:
         return
@@ -577,6 +612,8 @@ def set_fields(directory: Path | str | Any, va: int, fields: dict[str, Any], mod
                 entry[key] = safe
                 changed = True
         if changed:
+            if updated_by:
+                _stamp_provenance(entry, updated_by)
             atomic_write_locked(path, tomlkit.dumps(doc))
             pop_metadata_doc_cache(_metadata_cache, path)
 
@@ -853,7 +890,15 @@ def delete_metadata_entry(directory: Path | str | Any, va: int, module: str) -> 
     return _mutate_entry_doc(directory, va, module, _drop_entry)
 
 
-def update_field(directory: Path | str | Any, va: int, key: str, value: Any, module: str) -> None:
+def update_field(
+    directory: Path | str | Any,
+    va: int,
+    key: str,
+    value: Any,
+    module: str,
+    *,
+    updated_by: str = "",
+) -> None:
     """Central gatekeeper for all metadata field writes.
 
     All external callers must use this function (or :func:`update_source_status`
@@ -870,6 +915,12 @@ def update_field(directory: Path | str | Any, va: int, key: str, value: Any, mod
         key: Lower-case TOML key (e.g. ``"cflags"``, ``"blocker"``).
         value: Value to write.
         module: Target module name (e.g. ``"SERVER"``).
+        updated_by: Provenance tag of the writing tool (``blocker``, ``diff``,
+            ``near-diag``, ``lint``, ``binsync-import``, ``cross-import``, …).
+            When set, the same write records ``updated_by`` and a UTC
+            ``updated_at``, so a row's stamp names the last write of any kind
+            rather than only the last status write.  Callers that pass "" keep
+            the stored stamp.
 
     Raises:
         ValueError: If *key* is ``"status"`` — use :func:`update_source_status`.
@@ -881,7 +932,9 @@ def update_field(directory: Path | str | Any, va: int, key: str, value: Any, mod
         raise ValueError(
             "Use update_source_status() for STATUS changes — it enforces promotion rules"
         )
-    _set_field(directory, va, key, _validate_field(key, value), module=module)
+    _set_field(
+        directory, va, key, _validate_field(key, value), module=module, updated_by=updated_by
+    )
 
 
 def remove_field(directory: Path | str | Any, va: int, key: str, module: str) -> bool:
@@ -1152,8 +1205,7 @@ def update_statuses_batch(metadata_dir: Path | str | Any, updates: list[dict[str
                     del entry["blocker_delta"]
             updated_by = str(u.get("updated_by") or "")
             if updated_by:
-                entry["updated_by"] = updated_by
-                entry["updated_at"] = datetime.now(UTC).isoformat(timespec="seconds")
+                _stamp_provenance(entry, updated_by)
             changed += 1
 
         # Single write for the whole batch

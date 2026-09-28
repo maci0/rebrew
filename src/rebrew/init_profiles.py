@@ -21,7 +21,7 @@ DEFAULT_REBREW_TOML = """# rebrew project configuration
 name = "{project_name}"
 default_target = "{target_name}"   # target used when --target is not passed
 jobs = 4                           # default parallelism for verify/batch/GA
-# db_dir = "db"                    # coverage database output
+# db_dir = "db"                    # coverage document output
 # output_dir = "output"            # GA run output
 
 # ---------------------------------------------------------------------------
@@ -725,21 +725,25 @@ def profile_families() -> dict[str, frozenset[str]]:
     Any ``TOOLCHAINS`` name missing from :data:`PROFILE_FAMILIES` (a plugin
     toolchain, or a future packaged profile) joins with the detection
     families its name is compatible with (inverted
-    ``PROFILE_COMPAT_ALL``) plus its own spec family — an uncovered profile
-    otherwise skips the alignment warning entirely, silently onboarding the
-    wrong compiler.
+    ``detection_tables().profile_compat``) plus its own spec family — an
+    uncovered profile otherwise skips the alignment warning entirely, silently
+    onboarding the wrong compiler.
     """
-    from rebrew.toolchain import TOOLCHAINS
-    from rebrew.toolchain_detect import PROFILE_COMPAT_ALL
+    # One reference per registry: `from ... import TOOLCHAINS` would pin a
+    # generation and pair it with the compat table of another.
+    from rebrew.toolchain import registry_snapshot
+    from rebrew.toolchain_detect import detection_tables
 
+    toolchains, _origins = registry_snapshot()
+    compat = detection_tables().profile_compat
     merged = dict(PROFILE_FAMILIES)
     compat_of: dict[str, set[str]] = {}
-    for family, profiles in PROFILE_COMPAT_ALL.items():
+    for family, profiles in compat.items():
         if not profiles:
             continue
         for p in profiles:
             compat_of.setdefault(p, set()).add(family)
-    for name, spec in TOOLCHAINS.items():
+    for name, spec in toolchains.items():
         if name in merged:
             continue
         merged[name] = frozenset(compat_of.get(name, set()) | {spec.family})

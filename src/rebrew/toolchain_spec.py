@@ -116,8 +116,8 @@ class ToolchainSource:
     url: str = ""
     sha256: str = ""
     in_repo: str = ""  # path relative to the rebrew-toolchains checkout
-    # (the 16-bit media tarballs — user-supplied next to the Dockerfile,
-    # not committed to git)
+    # (no profile uses this today: every source is a pinned download; kept
+    # for a media tree that has no public URL)
     layout: str = "tar"  # tar | tar-strip1 | zip-installshield
     host_dir: str = ""  # <family>/<version>-<arch> (host tree target)
     vc98_wrap: bool = False  # wrap the extracted tree in a VC98/ subdir (MSVC 6

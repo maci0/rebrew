@@ -1088,7 +1088,7 @@ def _panel_title(report: StatusReport) -> str:
 
 
 def _file_rows(report: StatusReport) -> list[Any]:
-    """Whole-file line under the .text bar. Empty when no image was scored."""
+    """Whole-file line, the panel's top row. Empty when no image was scored."""
     if report.file_total_bytes <= 0:
         return []
     text = Text()
@@ -1265,10 +1265,11 @@ def _render_terminal(report: StatusReport) -> None:
     # --- Assemble panel ---
     from rich.console import Group
 
-    panel_rows: list[Any] = [headline]
+    # Whole-file progress leads: it is the figure the panel title promises.
+    panel_rows: list[Any] = _file_rows(report)
+    panel_rows.append(headline)
     if bar is not None:
         panel_rows.append(bar)
-    panel_rows.extend(_file_rows(report))
     if report.total_functions > 0:
         counts = Text()
         if report.total_text_bytes > 0:

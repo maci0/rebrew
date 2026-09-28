@@ -428,34 +428,39 @@ class TestPackagingMetadata:
             f"{', '.join(undeclared)}"
         )
 
-    def test_coverage_db_bump_since_last_tag_is_breaking_in_unreleased(self) -> None:
-        """CONTRIBUTING: coverage.db version bumps need ``**Breaking:**`` notes.
+    def test_coverage_format_bump_since_last_tag_is_breaking_in_unreleased(self) -> None:
+        """CONTRIBUTING: a coverage-format bump needs ``**Breaking:**`` notes.
 
-        Between tags ``__version__`` stays pinned; schema bumps land under
-        ``## [Unreleased]`` and must be labeled Breaking (``--force`` rebuild
-        migration), matching schema ``"7"`` in 2.4.0.
+        Between tags ``__version__`` stays pinned; a format bump lands under
+        ``## [Unreleased]`` and must be labeled Breaking, matching schema ``"7"``
+        in 2.4.0.  The format moved from a SQLite ``coverage.db`` (whose
+        ``_CURRENT_DB_VERSION`` this gate pinned) to one clear-text
+        ``coverage-<target>.toml`` per target, versioned by
+        :data:`rebrew.coverage_toml._TOML_VERSION`; the policy is unchanged,
+        because a reader that cannot read yesterday's file still has to be told
+        so in the notes.  ``coverage_toml.py`` is newer than the last tag, so
+        this skips until a tag carries the format it guards.
         """
-        from rebrew.build_db import _CURRENT_DB_VERSION
+        from rebrew.coverage_toml import _TOML_VERSION
 
         last_tag = _last_tag()
         tagged = re.search(
-            r'_CURRENT_DB_VERSION\s*=\s*"([^"]+)"',
-            _at_ref(last_tag, "src/rebrew/build_db.py"),
+            r"_TOML_VERSION\s*=\s*(\d+)", _at_ref(last_tag, "src/rebrew/coverage_toml.py")
         )
         if tagged is None:
-            pytest.skip(f"no _CURRENT_DB_VERSION at {last_tag}")
-        if tagged.group(1) == _CURRENT_DB_VERSION:
+            pytest.skip(f"no _TOML_VERSION at {last_tag}")
+        if tagged.group(1) == str(_TOML_VERSION):
             return
 
-        target_block = _notes_block(last_tag, f"coverage.db moved to {_CURRENT_DB_VERSION!r}")
+        target_block = _notes_block(last_tag, f"the coverage format moved to {_TOML_VERSION!r}")
         assert "**Breaking:**" in target_block, (
-            f"coverage.db {_CURRENT_DB_VERSION!r} (was {tagged.group(1)!r} at "
+            f"the coverage format {_TOML_VERSION!r} (was {tagged.group(1)!r} at "
             f"{last_tag}) must have a **Breaking:** entry under [Unreleased] or its version"
         )
-        assert _CURRENT_DB_VERSION in target_block, (
-            f"Breaking notes must name db_version {_CURRENT_DB_VERSION!r}"
+        assert str(_TOML_VERSION) in target_block, (
+            f"Breaking notes must name the coverage format version {_TOML_VERSION!r}"
         )
-        assert "coverage.db" in target_block or "db_version" in target_block
+        assert "coverage" in target_block or "db_version" in target_block
 
     def test_compile_cache_schema_bump_since_last_tag_is_breaking_in_unreleased(self) -> None:
         """CONTRIBUTING: a compile-cache schema bump is ``**Breaking:**`` too.

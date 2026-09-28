@@ -42,10 +42,21 @@ def _iter_definitions(
     tree = parser.parse(code_bytes)
     specifier_type = f"{keyword.decode('ascii')}_specifier"
 
+    def balanced(text: bytes) -> bool:
+        """True when every ``{`` in *text* is closed.
+
+        A span the tree closed early (error recovery) is exactly what Ghidra's
+        ``parse-c-structure`` rejects, so it is not a definition to hand over:
+        half a struct is a parse failure, not a partial answer.
+        """
+        return text.count(b"{") == text.count(b"}")
+
     def walk(node: Any) -> Iterator[str]:
         if node.type == "type_definition":
             text = code_bytes[node.start_byte : node.end_byte]
             if all_type_defs or (keyword in text and b"{" in text):
+                if b"{" in text and not balanced(text):
+                    return
                 # Match read_source_text: undefined CP1252 bytes → U+FFFD,
                 # not UnicodeDecodeError that skips the rest of the file.
                 yield text.decode(encoding, errors="replace")
@@ -57,7 +68,10 @@ def _iter_definitions(
                     next_sibling = node.next_sibling
                     if next_sibling and next_sibling.type == ";":
                         end_byte = next_sibling.end_byte
-                    yield code_bytes[node.start_byte : end_byte].decode(encoding, errors="replace")
+                    span = code_bytes[node.start_byte : end_byte]
+                    if not balanced(span):
+                        return
+                    yield span.decode(encoding, errors="replace")
         else:
             for child in node.children:
                 yield from walk(child)

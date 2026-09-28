@@ -83,6 +83,41 @@ see [`AGENTS.md`](../AGENTS.md); for the CLI surface see [`CLI.md`](CLI.md).
   in [`CONTRIBUTING.md`](../CONTRIBUTING.md) and
   `tests/test_public_surface.py`.
 
+## Registry snapshots
+
+Every component registry (the `rebrew.registry` entry-point groups: toolchains,
+decompiler backends, GA mutations, flag sets, library presets, detection tables,
+binary loaders, cache backends, discoverers) is discovered at import and
+republished **as a whole** by its `refresh_*` function.  A reader that needs two
+tables from one refresh must take them from the same generation:
+
+- `rebrew.toolchain.registry_snapshot()` — the registry and its origins
+- `rebrew.toolchain_detect.detection_tables()` — the four detection tables
+- `rebrew.decompiler.fetch_decompilation` — reads both under `_BACKEND_REFRESH_LOCK`
+
+`from rebrew.toolchain import TOOLCHAINS` at module level pins one generation
+for the life of the importer, and a function-local import pins it for the call.
+That is fine for a single-registry read and wrong when the result is paired with
+another table: `cmake-toolchain` used to read the linker-era and Rich-build
+tables separately, so a refresh landing between them wrote `12.00` for a profile
+whose build number was in the generation it did not read.  A registry module
+that publishes more than one table from one refresh owns a snapshot accessor;
+adding a second bare global reopens the same bug.  Refresh functions must also
+build every value **before** rebinding, then publish under the module's lock —
+never mutate a published map in place, or a concurrent reader straddles two
+generations.
+
+`registry.refresh_all()` re-runs every group under one lock and returns
+`{group: count}`, keyed without the `rebrew.` prefix.  The CLI command groups
+(`rebrew.commands`, `rebrew.multicommands`) are not refreshed: the umbrella app
+mounts them once, and a second mount could not restore that generation.
+
+A test that installs a fake entry point must let the refresh be the inverse:
+re-register with the entry point gone and assert the contribution left
+(`TestDetectionTablesSnapshot`).  The autouse
+`_isolate_registry_state` fixture in `tests/test_registry.py` restores the
+published globals around every test in that module.
+
 ## Toolchain-dependent tests
 
 - `match.py`/`test.py`/`matcher/compiler.py` need the MSVC toolchain docker

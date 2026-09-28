@@ -187,6 +187,29 @@ class TestRegistry:
             assert src.in_repo == "", name
             assert "/" in src.host_dir, name
 
+    def test_sixteen_bit_sources_are_url_pinned(self) -> None:
+        """The six 16-bit toolchains build their images by downloading a
+        pinned archaic-toolchains codeload tarball, so `rebrew toolchain
+        vendor <name>` must be able to reproduce that tree from the URL —
+        requiring a media tarball nobody ships made vendor unusable for
+        exactly these profiles."""
+        from rebrew.toolchain_data import SOURCES
+
+        for name in (
+            "msvc-1.0",
+            "msvc-1.5",
+            "msvc-1.52",
+            "borland-2.0",
+            "borland-3.1",
+            "delphi-1.0",
+        ):
+            src = SOURCES[name]
+            assert src.url.startswith("https://codeload.github.com/"), name
+            assert len(src.sha256) == 64, name
+            assert src.in_repo == "", name
+            assert src.layout == "tar-strip1", name
+            assert "/" in src.host_dir, name
+
     def test_family_derived_from_image_tag(self) -> None:
         """The toolchain-images/ top-level dir is the unversioned family
         (Godbolt-style), derived from the image repository — never the
@@ -1138,27 +1161,6 @@ class TestToolchainsRepoResolver:
         monkeypatch.setenv("REBREW_TOOLCHAINS_DIR", str(tmp_path / "nope"))
         with pytest.raises(ToolchainError, match="rebrew-toolchains"):
             require_toolchains_repo()
-
-    def test_in_repo_tarballs_rebased_to_checkout(self) -> None:
-        """The 16-bit SOURCES in_repo paths are now relative to the
-        rebrew-toolchains checkout root (no toolchain/ prefix), sitting in
-        the same <family>/<ver>-<arch> dir as the Dockerfile they feed."""
-        from rebrew.toolchain_data import SOURCES
-        from rebrew.toolchain_paths import toolchains_repo
-
-        repo = toolchains_repo()
-        for name in (
-            "msvc-1.5",
-            "msvc-1.0",
-            "msvc-1.52",
-            "delphi-1.0",
-            "borland-2.0",
-            "borland-3.1",
-        ):
-            src = SOURCES[name]
-            assert src.in_repo, name
-            assert not src.in_repo.startswith("toolchain/"), name
-            assert (repo / src.in_repo).parent == repo / src.host_dir, name
 
 
 class TestDockerfileSanity:

@@ -1,4 +1,4 @@
-"""``rebrew-project.toml`` lookup and coverage.db path resolution.
+"""``rebrew-project.toml`` lookup and coverage-directory resolution.
 
 One implementation of the resolution recovery, reportal and rebrew each
 carried separately: recovery's ``_paths._db_path``, reportal's
@@ -12,6 +12,11 @@ its defaults.  A file that is there and cannot be parsed raises
 to (``db/``, the first target, ``src/<name>``) point somewhere else entirely
 and the result reads as a healthy empty workspace.  :func:`find_root` is the
 other hard failure, for callers that cannot proceed without a workspace.
+
+The directory, not a file inside it, is what resolves: the coverage store is one
+clear-text document per target (``coverage-<target>.toml``), so there is no one
+path for a caller to want, and :func:`db_dir` is the only accessor recoverage and
+the dashboards import.
 """
 
 from __future__ import annotations
@@ -42,9 +47,6 @@ def config_path(rel: str | Path) -> Path:
 
 #: Directory used when ``[project].db_dir`` is absent or empty.
 DEFAULT_DB_DIR = "db"
-
-#: Filename inside :func:`db_dir`.
-DB_FILENAME = "coverage.db"
 
 #: Default reversed-source root when a target sets no ``reversed_dir``.
 DEFAULT_REVERSED_ROOT = "src"
@@ -192,13 +194,8 @@ def target_binary(root: Path, entry: dict[str, Any]) -> Path | None:
 
 
 def db_dir(root: Path) -> Path:
-    """Directory holding coverage.db: ``[project].db_dir``, else ``root/db``."""
+    """Directory holding the coverage documents: ``[project].db_dir``, else ``root/db``."""
     configured = project_table(read_config(root)).get("db_dir")
     if isinstance(configured, str) and configured.strip():
         return (root / config_path(configured.strip())).resolve()
     return (root / DEFAULT_DB_DIR).resolve()
-
-
-def db_path(root: Path) -> Path:
-    """``<db_dir>/coverage.db``."""
-    return db_dir(root) / DB_FILENAME

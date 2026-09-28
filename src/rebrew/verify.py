@@ -660,8 +660,7 @@ def main(
     data: bool = typer.Option(
         False,
         "--data",
-        help="Byte-compare built .data/.rdata against the reference, "
-        "per metadata symbol",
+        help="Byte-compare built .data/.rdata against the reference, per metadata symbol",
     ),
     built: Path | None = typer.Option(
         None,
@@ -1004,7 +1003,16 @@ def main(
                     status = DATA_STATUS_UNCHECKED
                 if entries[(module, va)].get("status") != status:
                     status_updates.append(
-                        {"module": module, "va": va, "fields": {"status": status}}
+                        {
+                            "module": module,
+                            "va": va,
+                            "fields": {"status": status},
+                            # Provenance: this is the measurement, so the row
+                            # names the tool and the time it was taken.  The
+                            # coverage document's verify_results[] mirror is
+                            # derived; this stamp is the canonical record.
+                            "updated_by": "verify",
+                        }
                     )
             if status_updates:
                 if raw_link:

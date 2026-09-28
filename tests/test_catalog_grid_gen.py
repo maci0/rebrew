@@ -187,7 +187,7 @@ class TestGenerateDataJsonGrid:
     def test_cfg_is_forwarded_to_globals_scan(self, monkeypatch, tmp_path: Path) -> None:
         """Global discovery must receive the project config: without it
         iter_sources falls back to .c only and never appends cfg.shared_dir, so
-        globals in .cpp/shared sources disappear from the coverage DB."""
+        globals in .cpp/shared sources disappear from the coverage document."""
         blob = _blob()
         bin_path = tmp_path / "fake.dll"
         bin_path.write_bytes(bytes(blob))
@@ -234,6 +234,46 @@ class TestGenerateDataJsonGrid:
         assert "unchecked" in states
         assert "exact" not in states
 
+    def _switch_split_run(self, monkeypatch, tmp_path: Path, status: str) -> dict:
+        """Grid for one 0x100-byte function whose sweep size was cut to 0x40.
+
+        Mirrors srv_LogWinsockError: rizin and Ghidra both end the function at
+        the first switch-case label, so the case bodies (non-padding) would
+        render as "none" gap cells.
+        """
+        blob = bytearray(b"\xcc" * TEXT_SIZE)
+        blob[0x1000 - TEXT_VA : 0x1100 - TEXT_VA] = b"\x55\x8b\xec" + bytes(range(1, 0x100 - 3))
+        bin_path = tmp_path / "fake.dll"
+        bin_path.write_bytes(bytes(blob))
+        _patch_binary(monkeypatch, bytes(blob), labels={}, globals_dict={})
+        return generate_data_json(
+            [_ann(0x1000, "fn_sw", status, 0x100)],
+            [{"va": 0x1000, "size": 0x40, "name": "fcn.1000"}],
+            text_size=TEXT_SIZE,
+            bin_path=bin_path,
+            registry={0x1000: {"canonical_size": 0x40, "is_thunk": False}},
+            src_dir=tmp_path / "src",
+            root_dir=tmp_path,
+        )
+
+    def test_matched_annotation_outranks_truncated_sweep_size(self, monkeypatch, tmp_path) -> None:
+        """A matched annotation's size was measured by `rebrew test`; a sweep
+        size a jump-table split truncated must not shorten the cell."""
+        data = self._switch_split_run(monkeypatch, tmp_path, "RELOC")
+        assert data["functions"]["0x00001000"]["size"] == 0x100
+        covering = [
+            c
+            for c in data["sections"][".text"]["cells"]
+            if c["start"] < 0x1100 - TEXT_VA and c["end"] > 0x1040 - TEXT_VA
+        ]
+        assert covering and all(c["state"] == "reloc" for c in covering)
+
+    def test_unmatched_annotation_does_not_outrank_sweep_size(self, monkeypatch, tmp_path) -> None:
+        """Only a matched status is measured evidence; a STUB's size is a
+        guess and must not widen the cell past the sweep's function."""
+        data = self._switch_split_run(monkeypatch, tmp_path, "STUB")
+        assert data["functions"]["0x00001000"]["size"] == 0x40
+
     def test_zero_size_global_does_not_hang(self, monkeypatch, tmp_path: Path) -> None:
         """A zero-length global must not wedge the segment walk: `off + 0`
         never advanced the loop (it appended empty segments forever)."""
@@ -275,7 +315,7 @@ class TestGenerateDataJsonGrid:
     def test_global_outside_sections_warns(self, monkeypatch, tmp_path: Path, caplog) -> None:
         """A data global whose VA falls outside every section must be surfaced
         (R4): silently dropping it makes the catalog look complete while the
-        global is missing from the coverage DB."""
+        global is missing from the coverage document."""
         import logging
 
         blob = _blob()
@@ -554,7 +594,7 @@ class TestUnannotatedBoundaries:
 
     A function in the registry (e.g. from the disassembler's function list)
     that has no .c annotation yet must NOT have its bytes absorbed into the
-    preceding annotated function — otherwise the coverage DB inflates the
+    preceding annotated function — otherwise the coverage document inflates the
     predecessor and hides a real, un-reversed function.
     """
 

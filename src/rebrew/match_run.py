@@ -834,7 +834,7 @@ def _maybe_document_ga_ceiling(
         + " "
         + _CEILING_TEXTS[kind].format(generations=generations, score=best_score)
     )
-    update_field(meta_root, va_int, "blocker", text, module=module)
+    update_field(meta_root, va_int, "blocker", text, module=module, updated_by="match")
     return text
 
 

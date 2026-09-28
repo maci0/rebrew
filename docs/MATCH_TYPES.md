@@ -9,7 +9,7 @@ file is pure C and its identity lives in the TOML entry's `file` field.
 ## Status Overview
 
 `UNDOCUMENTED` is not a STATUS value: it is the state of a catalog function that has
-no `.c` file yet, so no metadata entry exists to carry one. `coverage.db` stores that
+no `.c` file yet, so no metadata entry exists to carry one. The coverage document stores that
 row's `functions.status` as the schema default `UNKNOWN`.
 
 ```
@@ -21,7 +21,7 @@ UNDOCUMENTED  →  STUB  →  NEAR_MATCHING  →  RELOC  →  EXACT
 
 | Status | Byte match | Set by | Counts in coverage |
 |--------|-----------|--------|-------------------|
-| *(undocumented)* | — | Automatic (no `.c` file); `coverage.db` records `UNKNOWN` | ❌ No |
+| *(undocumented)* | — | Automatic (no `.c` file); the coverage document records `UNKNOWN` | ❌ No |
 | `STUB` | <60% | `rebrew test` (demotion) | ❌ No |
 | `NEAR_MATCHING` | ≥60% | `rebrew test` | ⚠️ Partial |
 | `RELOC` | 100% (masked) | `rebrew test` | ✅ Yes |
@@ -41,7 +41,7 @@ Function exists in the catalog but no `.c` file has been created yet. This is th
 implicit starting state, tracked from the function list rather than the metadata:
 there is no entry, so there is no STATUS to hold. Writing `UNDOCUMENTED` as a
 STATUS is rejected by `metadata.update_source_status` and by `rebrew lint` (E004);
-`coverage.db` carries the row as `UNKNOWN`. Tools like `rebrew todo` and
+The coverage document carries the row as `UNKNOWN`. Tools like `rebrew todo` and
 `rebrew document-unmatched` surface these as action items.
 
 ```bash

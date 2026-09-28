@@ -1284,6 +1284,8 @@ def _close_recompile_client() -> None:
         _recompile_retired.clear()
 
 
+# cordis-boundary: process lifetime — a shared client outlives any component,
+# so the inverse is an atexit close, not a context disposal.
 atexit.register(_close_recompile_client)
 
 

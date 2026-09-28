@@ -66,8 +66,8 @@ plugin cache backends or remove the open upstream diskcache advisory.
   allow-list; there is no rate limit, and the 64-connection cap
   (`_MAX_ACTIVE_CONNECTIONS` in `src/rebrew/dashboard.py`) is an availability
   bound an allow-listed client can fill. `GET /api/health` reports the
-  absolute `coverage.db` path and the configured target count to any client
-  that clears it.
+  absolute coverage-directory path and the configured target count to any
+  client that clears it.
 - No claim that docker toolchain or cmake-bridge execution is a hardened
   sandbox against a hostile project tree or malicious image. Local container
   runs use `--network=none` (no egress) and `no-new-privileges`; that does

@@ -54,10 +54,14 @@ identity and state. A migrated `.c` file is pure C.**
 - **The marker set is unshackled.** `VTABLE` and `STRING` are now legal
   markers (`VALID_MARKERS`, parser regexes, lint E001/E015 exemptions on
   par with `GLOBAL`/`DATA`).
-- **Interop as output.** The reccmp CSV, `data.json`, and `objdiff.json`
-  stay thin emitters over `build_function_registry`. A community recomp
-  build that needs inline markers reads the reccmp CSV
-  (`rebrew catalog --csv`) rather than reading the source tree as the contract.
+- **Interop as output.** *(Superseded — see the amendment at the end: the
+  reccmp CSV, `data.json` and `objdiff.json` emitters are deleted, and a
+  community recomp build reads the reccmp-compatible source tree.)*
+- **Interop as output (as decided).** The reccmp CSV, `data.json`, and
+  `objdiff.json` stay thin emitters over `build_function_registry`. A
+  community recomp build that needs inline markers reads the reccmp CSV
+  (`rebrew catalog --csv`) rather than reading the source tree as the
+  contract.
 
 ## Consequences
 
@@ -71,5 +75,14 @@ identity and state. A migrated `.c` file is pure C.**
   or bare filename; a moved metadata root keeps working through the
   trailing-suffix rule.
 - Community round-trips (reccmp-based dashboards, PRs with markers)
-  re-enter through the CSV/catalog or a re-annotated copy — inbound
-  sources always re-verify through the pinned image anyway.
+  re-enter through the source tree or a re-annotated copy — inbound
+  sources always re-verify through the pinned image anyway.  (The CSV
+  half of this is amended above: there is no CSV export.)
+
+*(Amended: the export half of this decision is superseded. `catalog/export.py`
+is deleted, so `data.json`, the reccmp CSV and `rebrew catalog --csv` /
+`--data-json` no longer exist; the registry feeds one writer,
+`rebrew build-db` → `db/coverage-<target>.toml` (see
+[COVERAGE_DOCUMENT.md](../COVERAGE_DOCUMENT.md)). The marker half stands: reccmp-compatible
+inline markers remain the input contract, and community round-trips re-enter
+through the source tree or a re-annotated copy.)*

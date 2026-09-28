@@ -9,6 +9,7 @@ description: >-
   'rebrew data', 'rebrew data --bss', 'rebrew data --fix-bss',
   'rebrew data --gen-header', 'data-drift',
   'start-data', 'fill-data', 'layout-audit', 'set-type', 'set-section', 'W016',
+  'W031',
   'data placement', 'converge', 'fix-ownership', 'rebrew verify --data',
   or 'rebrew_globals.h'. Not for function bodies
   (rebrew-workflow/matching) or Ghidra data pulls (rebrew-ghidra-sync --pull-data).
@@ -132,7 +133,7 @@ When a function references a global address from disassembly:
 
 `--gen-header` picks up both `// GLOBAL:` and `// DATA:` markers, merging in `name`/`type`/`size`/
 `section`/`note` from `rebrew-data.toml` (a source declaration's type wins over metadata `type`).
-`rebrew lint` flags `DATA`/`GLOBAL` markers missing `SECTION` metadata (W016) and inline volatile keys — run it after adding markers.
+`rebrew lint` flags `DATA`/`GLOBAL` markers missing `SECTION` metadata (W016), inline volatile keys, and the `rebrew-data.toml` shapes the writers reject (W031: an unknown field, a STATUS outside `VERIFIED`/`DRIFT`/`UNCHECKED`, half an `updated_by`/`updated_at` pair) — run it after adding markers and after any hand-check of the store. `W032` covers the coverage documents themselves (a `db/coverage-<target>.toml` the dashboards cannot serve, or a leftover `coverage.db` / grid JSON / CSV from the replaced stores).
 Set a missing section with `rebrew data --set-section 0xVA=.bss` (`.data`, `.rdata`, or `.bss`). Do not hand-edit the TOML.
 
 ## Debugging Relocation Mismatches

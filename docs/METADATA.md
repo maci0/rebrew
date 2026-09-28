@@ -13,26 +13,58 @@ same tiers and the data/globals/layout pipeline.
 |---|---|---|
 | **Canonical (user-owned)** | `.c` marker lines, `rebrew-functions.toml`, `rebrew-data.toml`, `rebrew-libraries.toml`, `rebrew-project.toml` | The only stores you hand-edit or that hold non-derivable facts.  Everything below is regenerable from these (plus the binary). |
 | **Derived, VCS-intended** | `src/<target>/function_structure.json` (discovery inventory), `<target>.def`, `crt_region/*.c`, `src/link_stubs.c`, `src/<target>/bss_padding.c`, `src/<target>/rebrew_globals.h`, `layout/<target>/`, `[link]` config blocks, `flirt_sigs/*.pat`, `cmake/toolchain-*.cmake` | Build scaffolding generated from the binary / binary-derived facts (gen-layout, discover-functions, catalog, gen-link-stubs, `rebrew data --fix-bss` / `--gen-header`, flirt).  Committed to git so a rebuild never needs `original/` around; regenerable via the generating command.  Never hand-edit. |
-| **Derived, gitignored (build output)** | `db/data_<target>.json`, `db/coverage.db`, `db/<target>_functions.csv`, `bin/<target>/*.bin`, `output/report/` | Rebuildable via `rebrew catalog` / `rebrew build-db` / `rebrew verify` / `rebrew extract` / `rebrew report`.  Treat as build output.  `rebrew verify` writes a report file only with an explicit `--output` path; the `--compare` baseline lives in `.rebrew/verify_baseline.json` (the old `db/verify_results.json` snapshot was unguarded and is no longer written — see `verify_cache.load_baseline`). |
+| **Derived, gitignored (build output)** | `db/coverage-<target>.toml`, `bin/<target>/*.bin`, `output/report/` | Rebuildable via `rebrew build-db` / `rebrew verify` / `rebrew extract` / `rebrew report`.  Treat as build output.  `rebrew verify` writes a report file only with an explicit `--output` path; the `--compare` baseline lives in `.rebrew/verify_baseline.json` (the old `db/verify_results.json` snapshot was unguarded and is no longer written — see `verify_cache.load_baseline`). |
 | **Cache (delete-safe)** | `.rebrew/verify_cache.json`, `.rebrew/compile_cache/`, `output/ga_runs/*/checkpoints/*.json`, `output/ga_runs/*/best.c`, `output/ga_runs/*/<symbol>.best.c`, in-memory mtime caches | Regenerated on demand.  Deleting costs a recompile/re-verify/resync at most.  The exception: `.rebrew/ga_runs.jsonl` is *history*, not cache — it accumulates GA outcomes (including winning fingerprints) re-running would not reproduce.  There is no per-run build diskcache — same-run compiles memoize in memory, cross-run persistence is the shared compile cache's job. |
 
 ## Who owns which fact
 
 | Fact | Canonical store | Derived/cached copies |
 |---|---|---|
-| Function **identity** (which VAs are functions) | merged registry (`catalog/registry.py`: discovery inventory + `function_structure.json` + exports, minus IAT slots) | grid JSON, coverage.db `functions` table |
-| Function **size** | registry `canonical_size` (`+ size_reason`) — the compile contract is annotation/metadata `SIZE` | grid `size`, DB `functions.size` |
-| Function **name** | annotation name (the `// FUNCTION: MODULE 0xVA` line) | grid/DB `name`, plus `list_name`/`ghidra_name` columns preserving the other authorities |
-| Match **STATUS** | `rebrew-functions.toml` — written **only** via `metadata.update_source_status` / `update_statuses_batch` (promotion gate: SKIP stays parked) — triggered by `rebrew test` / `rebrew verify` / `rebrew prove` (also `match`, `lint`, `binsync-import`, `intake`). Every write tags `updated_by` (test/verify/prove/match/lint/binsync-import/intake) + UTC `updated_at` | grid/DB snapshots; `.rebrew/verify_cache.json` measured-result overlay at report time |
-| **BLOCKER / BLOCKER_DELTA** | `rebrew-functions.toml` — written **only** via `metadata.update_field` / `remove_field` through `rebrew blocker set/clear`, `rebrew diff --fix-blocker`, `rebrew near-diag --fix-blocker`, `rebrew document-unmatched` (never hand-edited) | `rebrew status`/`todo` counts; `lint` W005 when `STUB` lacks one |
-| **cflags / toolchain** | `rebrew-functions.toml` (per-function) → `rebrew-libraries.toml` (per-library, walk-up) → project defaults, resolved by `resolve_compile_overrides` | grid `cflags`, DB column |
-| **Data symbols (globals)** | `rebrew-data.toml` (`name`/`type`/`size`/`section`/`note`, plus verify-written data STATUS `VERIFIED`/`DRIFT`/`UNCHECKED`) | grid `globals`, DB `globals` table, `src/<target>/rebrew_globals.h` (`rebrew data --gen-header` — extern declarations for the build); `rebrew status` data counts + `rebrew todo --category data-drift` |
-| Coverage presence | grid JSON (`db/data_<target>.json`) | coverage.db (pure function of the JSON) |
+| Function **identity** (which VAs are functions) | merged registry (`catalog/registry.py`: discovery inventory + `function_structure.json` + exports, minus IAT slots) | the coverage document's `functions` array (the grid is built in-process by `catalog/grid.py` and has no file of its own) |
+| Function **size** | registry `canonical_size` (`+ size_reason`) — the compile contract is annotation/metadata `SIZE` | the coverage document's `functions[].size` |
+| Function **name** | annotation name (the `// FUNCTION: MODULE 0xVA` line) | the coverage document's `functions[].name`, plus `list_name`/`ghidra_name` preserving the other authorities |
+| Match **STATUS** | `rebrew-functions.toml` — written **only** via `metadata.update_source_status` / `update_statuses_batch` (promotion gate: SKIP stays parked) — triggered by `rebrew test` / `rebrew verify` / `rebrew prove` (also `match`, `lint`, `binsync-import`, `intake`). Every write tags `updated_by` (test/verify/prove/match/lint/binsync-import/intake) + UTC `updated_at` | the coverage document's `functions[].status` + `updated_by`/`updated_at` and its `history[]` change log; `.rebrew/verify_cache.json` measured-result overlay at report time |
+| **BLOCKER / BLOCKER_DELTA** | `rebrew-functions.toml` — written **only** via `metadata.update_field` / `remove_field` through `rebrew blocker set/clear`, `rebrew diff --fix-blocker`, `rebrew near-diag --fix-blocker`, `rebrew document-unmatched` (never hand-edited) | the coverage document's `functions[].blocker`/`blockerDelta`; `rebrew status`/`todo` counts; `lint` W005 when `STUB` lacks one |
+| **cflags / toolchain** | `rebrew-functions.toml` (per-function) → `rebrew-libraries.toml` (per-library, walk-up) → project defaults, resolved by `resolve_compile_overrides` | the coverage document's `functions[].cflags` |
+| **Data symbols (globals)** | `rebrew-data.toml` (`name`/`type`/`size`/`section`/`note`, verify-written data STATUS `VERIFIED`/`DRIFT`/`UNCHECKED`, and the `updated_by`/`updated_at` write stamp) | the coverage document's `globals[]`; `src/<target>/rebrew_globals.h` (`rebrew data --gen-header` — extern declarations for the build); `rebrew status` data counts + `rebrew todo --category data-drift` |
+| Coverage presence | the project tree | the coverage document (`rebrew build-db` renders it in-process) |
 | **Layout / PE normalization** | `layout/<target>/` package — `rebrew-layout.toml` (sections, exports, imports, export_stamp, link_options, image_base), `header.hex` (full PE header block: SizeOfImage/CheckSum/TimeDateStamp/section table), `iat.hex`, `prefix.hex`, `bookkeeping.hex`, `data.hex`, `reloc.hex`, `operands.txt`, `calls.txt` | `[link]` block (`file_align`, `stack_*`, `tsaware`, `timestamp`) consumed by `rebrew round-trip --fix-headers` |
 | **Import order / IAT** | original binary (IAT order), captured into `layout/<target>/` | `crt_region/crt_imports.c` (`#pragma comment(linker, "/include:__imp_...")`), `layout/<target>/rebrew-layout.toml` `imports[]` |
 | **`.data` / BSS layout** | `rebrew-data.toml` (symbols) + `layout/<target>/data.hex` (reference bytes) | `src/link_stubs.c` (`g_bss_tail` pad, mutated by `rebrew calibrate-bss`), `src/<target>/bss_padding.c` (`rebrew data --fix-bss` — `gap_<va:08x>[N]` dummy arrays for detected gaps), `_dpad_<addr>[N]` pads inserted into `.c` files by `rebrew data --fill-data` (byte-exact from the reference in the raw region, zero-init for BSS), `rebrew-layout.toml` `sections[.data].vs` |
 | **Export table** | original binary, captured into `layout/<target>/` (`exports`, `export_stamp`, `exp_rva`) | `<target>.def` (`name @ ordinal` for the linker) |
-| **Ghidra provenance** (names/sizes) | `src/<target>/function_structure.json`, `ghidra_data_labels.json` (external exports, provenance-stamped) | registry `list_name`/`ghidra_name`, grid/DB columns |
+| **Ghidra provenance** (names/sizes) | `src/<target>/function_structure.json`, `ghidra_data_labels.json` (external exports, provenance-stamped) | registry `list_name`/`ghidra_name`, the coverage document's `functions[].detected_by` / `size_by_tool` / `size_reason` |
+
+## Write provenance
+
+Who last changed a fact, and when, lives in the canonical store itself: both
+stores carry an `UPDATED_BY` / `UPDATED_AT` pair, and every gated writer
+supplies its own tag.
+
+- **Function store.** `update_source_status` / `update_statuses_batch` stamp on
+  a status write; `update_field` and `set_fields` stamp on every other field, so
+  a `BLOCKER` / `NOTE` / `CFLAGS` / `GHIDRA` edit names the tool that made it
+  instead of leaving the last status writer's tag standing.  `MetadataEntry.apply`
+  (the typed facade) forwards the same keyword.  Tags in use: `test`, `verify`,
+  `prove`, `match`, `diff`, `near-diag`, `blocker`, `skeleton`, `lint`,
+  `cross-import`, `binsync-import`, `fix-sizes`, `intake`.  A writer that passes
+  no tag leaves the stored stamp alone, so an un-tagged programmatic write is
+  never mistaken for a tool's work.
+- **Data store.** `set_data_field` / `set_data_fields_batch` stamp the same pair
+  alongside whichever field they change: `verify --data` records `verify` on a
+  `VERIFIED` / `DRIFT` / `UNCHECKED` verdict, so the measurement's author and
+  time survive deleting `db/` — the coverage document's `verify_results[]` row
+  (`verified_at`, `byte_delta`, `diff_lines`, `similarity`, `reg_delta`,
+  `effective_match`) is derived and a rebuild only carries it forward.
+- **Coverage document.** It mirrors the function store's
+  `functions[].updated_by` / `updated_at` and keeps a change log: `history[]`
+  (`va`, `old_status`, `new_status`, `changed_at`, `updated_by`), retained
+  newest-last across rebuilds and bounded by `HISTORY_RETENTION`.
+- **No generation stamp.** The document deliberately carries no "written at"
+  field: a rebuild of unchanged input must be byte-identical, and a timestamp is
+  the one value that would move on every run.  Freshness is read from the inputs
+  — `[metadata] paths` (`originalDll`, `sourceRoot`) — and the dashboards key
+  their snapshot cache on the document's own stat.  `version` is the schema
+  stamp, not a build stamp.
 
 ## Precedence rules (who wins on conflict)
 

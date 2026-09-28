@@ -263,33 +263,43 @@ SOURCES: dict[str, ToolchainSource] = {
         host_dir="msvc/10.0-sp1-win32",
     ),
     "msvc-1.5": ToolchainSource(
-        # Committed tree extracted from the archive.org en_vc152 item
-        # (VC 1.5, 1993, 16-bit) — RAR SFX extracts cleanly for 1.5 (the
-        # 1.52 SFX corrupts), so the verified tree is vendored under the
-        # rebrew-toolchains checkout (msvc15.tar.xz next to its Dockerfile).
-        in_repo="msvc/1.5-win16/msvc15.tar.xz",
-        layout="tar",
+        # archaic-toolchains/msvc15 — the pinned codeload tarball the
+        # rebrew/msvc:1.5-win16 image builds from (VC 1.5, 1993, 16-bit).
+        url="https://codeload.github.com/archaic-toolchains/msvc15/tar.gz/refs/heads/main",
+        sha256="5cd1e4d9fd70fe97587fd3edfd0cebe3276e7b59ea5eb0848510f15c95d79aec",
+        commit="3649e12977c169bd60662362400677f28a716ef1",
+        layout="tar-strip1",
         host_dir="msvc/1.5-win16",
     ),
     "msvc-1.0": ToolchainSource(
-        # Assembled from the WinWorldPC "Microsoft Visual C++ 1.0
-        # Professional" 3.5" floppy set (20×1.44MB, SZDD-compressed payload;
-        # 7z-extracted + renamed), then vendored under the rebrew-toolchains
-        # checkout as msvc10.tar.xz.  CL.EXE is a Phar Lap TNT DOS-extender
-        # (PE32) like 1.5/1.52 — runs headless under DOSBox and produces
-        # 16-bit OMF (verified).
-        in_repo="msvc/1.0-win16/msvc10.tar.xz",
-        layout="tar",
+        # archaic-toolchains/msvc10 — the pinned codeload tarball the
+        # rebrew/msvc:1.0-win16 image builds from.  CL.EXE is a Phar Lap TNT
+        # DOS-extender (PE32) like 1.5/1.52 — runs headless under DOSBox and
+        # produces 16-bit OMF (verified).
+        url="https://codeload.github.com/archaic-toolchains/msvc10/tar.gz/refs/heads/main",
+        sha256="4858446b957fe327fedbb3a511316bebc060b72f22557a47397b905522668ce9",
+        commit="0cd3d8a2024119b6b08b384fd3487a64a59a25eb",
+        layout="tar-strip1",
         host_dir="msvc/1.0-win16",
     ),
     "msvc-1.52": ToolchainSource(
-        in_repo="msvc/1.52-win16/msvc152.tar.xz",
-        layout="tar",
+        # archaic-toolchains/msvc152 — the pinned codeload tarball the
+        # rebrew/msvc:1.52-win16 image builds from.
+        url="https://codeload.github.com/archaic-toolchains/msvc152/tar.gz/refs/heads/main",
+        sha256="18fbdb547aa6a6cdbb3a77b00b5453f6fd9ae2b543a1c4842552643384e4711b",
+        commit="3beb967dfc075d34a1a8f7d30e0428e447432270",
+        layout="tar-strip1",
         host_dir="msvc/1.52-win16",
     ),
     "delphi-1.0": ToolchainSource(
-        in_repo="delphi/1.0-win16/delphi10.tar.xz",
-        layout="tar",
+        # archaic-toolchains/delphi10 — the pinned codeload tarball the
+        # rebrew/delphi:1.0-win16 image builds from.  The tarball keeps the
+        # RTL/VCL units in ``delphi-lib/``; `rebrew toolchain vendor` renames
+        # them to DELPHI/LIB the way the image's recipe does.
+        url="https://codeload.github.com/archaic-toolchains/delphi10/tar.gz/refs/heads/main",
+        sha256="24cd23f0ef555f3582eda27b4bb655e17215366b556dfaabd9f2ba5daf61b55e",
+        commit="fd12406eeaa6b44099013c5a56d083919676967c",
+        layout="tar-strip1",
         host_dir="delphi/1.0-win16",
     ),
     "ido-5.3": ToolchainSource(
@@ -374,21 +384,22 @@ SOURCES: dict[str, ToolchainSource] = {
         host_dir="borland/5.5-win32",
     ),
     "borland-2.0": ToolchainSource(
-        in_repo="borland/2.0-win16/tc20.tar.xz",
-        # Assembled from the archive.org turboc20 item (floppy disk images:
-        # TCC.EXE 2.0/TLINK.EXE/CPP.EXE + runtime libs + headers), then
-        # vendored under the rebrew-toolchains checkout for deterministic
-        # builds.
-        layout="tar",
+        # archaic-toolchains/tc20 — the pinned codeload tarball the
+        # rebrew/borland:2.0-win16 image builds from (TCC.EXE 2.0/TLINK.EXE/
+        # CPP.EXE + runtime libs + headers).
+        url="https://codeload.github.com/archaic-toolchains/tc20/tar.gz/refs/heads/main",
+        sha256="2eca4c26c1b30ce2bd7e61573eb9f40096994405fc173c28143f06a93da269d1",
+        commit="64b5ef09a7c18b65c38902a217bcfec67c4b113b",
+        layout="tar-strip1",
         host_dir="borland/2.0-win16",
     ),
     "borland-3.1": ToolchainSource(
-        in_repo="borland/3.1-win16/tc31.tar.xz",
-        # Original download (sha256-verified once, then vendored under the
-        # rebrew-toolchains checkout for deterministic builds): archive.org
-        # item turboc3.1_202112 (TC.zip), sha256
-        # 9cf53cd5d229633c2cf60c6fe2b24dba43b40a0ff2ca71e90279fa8649b622e4.
-        layout="tar",
+        # archaic-toolchains/tc31 — the pinned codeload tarball the
+        # rebrew/borland:3.1-win16 image builds from.
+        url="https://codeload.github.com/archaic-toolchains/tc31/tar.gz/refs/heads/main",
+        sha256="3d534741ebdc31ffdceb87db8de3b7d494ad5c912b7cd1a4f326b4a94d0c2ba1",
+        commit="ba6af878392be5ea20f6bb54f7dd2359b3845b7b",
+        layout="tar-strip1",
         host_dir="borland/3.1-win16",
     ),
     "watcom-2.0-win32": ToolchainSource(

@@ -1132,7 +1132,14 @@ def _run_test_impl(
         anno_module = _mod
         if not dry_run and not no_promote:
             try:
-                update_field(cfg.metadata_dir, section_va, "size", new_size, anno_module)
+                update_field(
+                    cfg.metadata_dir,
+                    section_va,
+                    "size",
+                    new_size,
+                    anno_module,
+                    updated_by="test",
+                )
             except Exception as exc:  # metadata write is best-effort
                 logging.warning(
                     "Could not persist fixed SIZE 0x%x: %s (the .c still claims the stale size)",
@@ -1212,7 +1219,12 @@ def _run_test_impl(
         if size_val and not no_promote and not dry_run:
             try:
                 update_field(
-                    cfg.metadata_dir, va_int_for_promote, "size", int(size_val), anno_module
+                    cfg.metadata_dir,
+                    va_int_for_promote,
+                    "size",
+                    int(size_val),
+                    anno_module,
+                    updated_by="test",
                 )
                 console.print(f"[dim]SIZE persisted → {int(size_val)}[/dim]")
             except Exception as exc:  # metadata write is best-effort
@@ -1245,7 +1257,12 @@ def _run_test_impl(
         if cflags and not no_promote and not dry_run:
             try:
                 update_field(
-                    cfg.metadata_dir, va_int_for_promote, "cflags", cflags_str, anno_module
+                    cfg.metadata_dir,
+                    va_int_for_promote,
+                    "cflags",
+                    cflags_str,
+                    anno_module,
+                    updated_by="test",
                 )
                 # Say so: this is the value every other tool now resolves for the
                 # function, so a measurement run changes the build's flags.
@@ -1264,7 +1281,12 @@ def _run_test_impl(
         if toolchain_name and not no_promote and not dry_run:
             try:
                 update_field(
-                    cfg.metadata_dir, va_int_for_promote, "toolchain", toolchain_name, anno_module
+                    cfg.metadata_dir,
+                    va_int_for_promote,
+                    "toolchain",
+                    toolchain_name,
+                    anno_module,
+                    updated_by="test",
                 )
                 console.print(f"[dim]TOOLCHAIN persisted → {toolchain_name}[/dim]")
             except Exception as exc:  # metadata write is best-effort

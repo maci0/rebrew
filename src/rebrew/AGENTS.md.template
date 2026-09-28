@@ -59,14 +59,16 @@ Use `--json` for structured output (preferred for agents).
 | `rebrew match --all --near-miss --threshold 5` | Batch GA on NEAR_MATCHING functions with small deltas (Δ ≤ threshold) |
 | `rebrew rename <old> <new>` | Rename function and update cross-references |
 | `rebrew verify --json` | Bulk verify all reversed files |
-| `rebrew lint --json` | Validate annotations |
+| `rebrew lint --json` | Validate annotations and the stores: inline metadata (W019), stale marker VAs (W028), redundant cflags (W029), `rebrew-data.toml` shapes the writers reject (W031), coverage-store hygiene — leftover `coverage.db`/grid JSON/CSV and documents the dashboards cannot serve (W032) |
 | `rebrew data --json` | Inventory globals in .data/.rdata/.bss |
 | `rebrew types` | Check struct layouts; rewrite signature types (`apply-type`) |
 | `rebrew orphans` | List/prune metadata blocks with no source marker |
 | `rebrew verify --data --built build/<target>` | Byte-compare built data sections per symbol |
 | `rebrew verify --whole-binary --built build/<target>` | Sections/exports/imports/rsrc/headers + layout freshness |
 | `rebrew graph --format summary` | Dependency graph stats and blockers |
-| `rebrew catalog --json` | Coverage data + reccmp CSV (`db/data_<target>.json`) |
+| `rebrew catalog --json` | Catalog summary (no artifact of its own) |
+| `rebrew build-db --json` | Write `db/coverage-<target>.toml`, the progress document the dashboards read |
+| `rebrew status --json` | Progress overview: STATUS counts, byte coverage, exact-only / postlink gap |
 | `rebrew flirt --json` | FLIRT scan for known library functions |
 | `rebrew extract list --json` | Extract and disassemble functions (list/show/batch) |
 | `rebrew asm 0x<VA> --size 128 --json` | Quick offline disassembly |
@@ -99,6 +101,14 @@ cflags = "/O2 /Gd"
 blocker = "register allocation"
 note   = "inline asm detected"
 ```
+
+> [!NOTE]
+> **Progress lives in build output, not in the tree.** `rebrew build-db` writes one
+> clear-text `db/coverage-<target>.toml` per target (functions, globals, verify rows,
+> status history); the dashboards and the sibling `recovery` UI read those documents and
+> nothing else. They are gitignored build output — regenerate them, never hand-edit them —
+> and an older `db/coverage.db`, `db/data_<target>.json` or `db/*.csv` is stale: no reader
+> globs it any more, so delete it (`rebrew lint` warns, W032).
 
 > [!CAUTION]
 > **Never manually edit `rebrew-functions.toml` or `rebrew-data.toml`.** They are managed

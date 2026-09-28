@@ -9,7 +9,7 @@ on nothing failing between the copy and the substitution.
 
 Walking the tree here instead makes the render deterministic (sorted, UTF-8,
 LF) and lets a failure name the file.  The substitution mirrors
-``rebrew.init._agent_skill_files``.
+``rebrew.init.agent_skill_files``.
 
 Usage::
 

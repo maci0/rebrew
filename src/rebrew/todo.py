@@ -78,6 +78,12 @@ CAT_NAKED = "naked-reconstruction"
 CAT_DATA_DRIFT = "data-drift"
 # Data symbol never verified (STATUS UNCHECKED or absent in rebrew-data.toml).
 CAT_START_DATA = "start-data"
+# RELOC match: byte-identical only after relocation masking, so the compiler /
+# linker output is not identical on its own.  Closing it needs EXACT.
+CAT_EXACT_ONLY = "exact-only"
+# Span whose bytes in the shipped image a postlink fixer rewrote, so they are
+# not what the toolchain emitted.  Needs a configured `raw_link` to detect.
+CAT_POSTLINK = "postlink-mangled"
 
 # Proving is only feasible when few bytes actually differ: symbolic execution
 # over hundreds of mismatched bytes just times out.  Cap the estimated byte
@@ -110,6 +116,8 @@ _CATEGORY_COLORS = {
     CAT_NAKED: "magenta",
     CAT_DATA_DRIFT: "yellow",
     CAT_START_DATA: "cyan",
+    CAT_EXACT_ONLY: "blue",
+    CAT_POSTLINK: "magenta",
 }
 
 # ---------------------------------------------------------------------------
@@ -328,6 +336,27 @@ def _collect_active_functions(
                             "real C body and drop the REBREW_ALLOW_NAKED fence"
                         ),
                         command=f"rebrew test 0x{va:08x}",
+                        status=status,
+                    )
+                )
+            elif status == "RELOC":
+                # Matched only after masking linker-filled addresses, so the
+                # bytes are not identical straight out of the toolchain.  A
+                # project at 100% byte-matched is still this far from an
+                # identical build, and todo used to report "nothing to do".
+                items.append(
+                    TodoItem(
+                        category=CAT_EXACT_ONLY,
+                        roi_score=0.0,
+                        va=va,
+                        name=name,
+                        size=size,
+                        filename=filename,
+                        description=(
+                            "RELOC — identical only with relocations masked; "
+                            "the toolchain output itself still differs"
+                        ),
+                        command=f"rebrew test 0x{va:08x} --linked",
                         status=status,
                     )
                 )
@@ -1126,6 +1155,96 @@ def _collect_start_data(cfg: ProjectConfig) -> list[TodoItem]:
 # ---------------------------------------------------------------------------
 
 
+def _postlink_rewritten_checker(cfg: ProjectConfig) -> Callable[[int, int], bool]:
+    """Return a predicate: did a postlink fixer rewrite this span's bytes?
+
+    True when the shipped image's bytes at ``[va, va + size)`` differ from the
+    pre-postlink ``raw_link`` image, i.e. the deliverable carries bytes the
+    compiler and linker did not emit.  Both images are read and parsed once, on
+    the first call that needs them; any failure degrades to "not rewritten" —
+    the conservative answer, since claiming a rewrite that did not happen would
+    invent work.
+    """
+    from rebrew.binary_loader import load_binary, va_to_file_offset
+    from rebrew.status import find_built_image
+
+    cache: dict[str, Any] = {}
+    missing = object()
+
+    def rewritten(va: int, size: int) -> bool:
+        if size <= 0:
+            return False
+        images = cache.get("images", missing)
+        if images is missing:
+            images = None
+            raw = getattr(cfg, "raw_link", None)
+            built = find_built_image(cfg.root, cfg.target_name, None)
+            if raw and built and Path(raw) != built:
+                try:
+                    images = (
+                        Path(raw).read_bytes(),
+                        built.read_bytes(),
+                        load_binary(Path(raw)),
+                        load_binary(built),
+                    )
+                except (OSError, ValueError, KeyError, RuntimeError):
+                    images = None
+            cache["images"] = images
+        if images is None:
+            return False
+        raw_bytes, built_bytes, raw_info, built_info = images
+        raw_off = int(va_to_file_offset(raw_info, va))
+        built_off = int(va_to_file_offset(built_info, va))
+        if raw_off < 0 or built_off < 0:
+            return False
+        return bool(
+            raw_bytes[raw_off : raw_off + size] != built_bytes[built_off : built_off + size]
+        )
+
+    return rewritten
+
+
+def _collect_postlink_rewritten(
+    cfg: ProjectConfig,
+    existing: dict[int, dict[str, str]],
+    size_by_va: dict[int, int],
+) -> list[TodoItem]:
+    """Collect functions whose shipped bytes a postlink fixer produced.
+
+    ``rebrew postlink`` rewrites ``.text`` IAT slot operands, absolute data
+    operands, and call/jump targets, so a function can be byte-matched in the
+    deliverable while the toolchain never emitted those bytes.  Only detectable
+    when the project configures ``raw_link``; without it the lane is empty
+    rather than guessed.
+    """
+    rewritten = _postlink_rewritten_checker(cfg)
+    items: list[TodoItem] = []
+    for va, info in existing.items():
+        try:
+            size = int(info.get("size") or 0) or size_by_va.get(va) or 0
+        except (TypeError, ValueError):
+            size = size_by_va.get(va) or 0
+        if not rewritten(va, size):
+            continue
+        items.append(
+            TodoItem(
+                category=CAT_POSTLINK,
+                roi_score=0.0,
+                va=va,
+                name=str(info.get("symbol") or f"FUN_{va:08x}"),
+                size=size,
+                filename=str(info.get("filename", "")),
+                description=(
+                    "postlink rewrote these bytes — the raw link does not "
+                    "produce them, so the build is not toolchain-identical"
+                ),
+                command=f"rebrew test 0x{va:08x} --linked",
+                status=str(info.get("status") or ""),
+            )
+        )
+    return items
+
+
 def collect_all(
     cfg: ProjectConfig,
     ghidra_funcs: list["FunctionEntry"],
@@ -1171,6 +1290,7 @@ def collect_all(
         _collect_new_functions(ghidra_funcs, existing, covered_vas, cfg, exclude_vas or set())
     )
     items.extend(_collect_library_candidates(ghidra_funcs, existing, cfg))
+    items.extend(_collect_postlink_rewritten(cfg, existing, size_by_va))
     items.extend(_collect_data_drift(cfg))
     items.extend(_collect_start_data(cfg))
 
@@ -1224,6 +1344,10 @@ _EPILOG = (
     "                         `rebrew verify --data`\n\n"
     "  start-data · · · · · · · Data symbol never verified — run\n\n"
     "                         `rebrew verify --data`\n\n"
+    "  exact-only · · · · · · · RELOC matches: identical only with relocations\n"
+    "                         masked, not straight out of the toolchain\n\n"
+    "  postlink-mangled · · · · Functions whose shipped bytes a postlink fixer\n"
+    "                         rewrote (needs `raw_link` configured)\n\n"
     "[dim]Reads from function_structure.json, source files, and .rebrew/verify_cache.json.[/dim]"
 )
 
@@ -1377,6 +1501,11 @@ def main(
 
     if stats or not display_items:
         # Show coverage stats header
+        toolchain = (
+            f"  [dim]· [green]{exact}[/green] identical straight from the toolchain[/dim]"
+            if reloc
+            else ""
+        )
         console.print(
             f"  [bold]Coverage[/bold]: {covered} covered"
             f"  ({total_funcs} in Ghidra function list)"
@@ -1386,7 +1515,7 @@ def main(
             f"  [yellow]NEAR_MATCHING: {matching}[/yellow]"
             f"  [dim]STUB: {stub}[/dim]"
             f"  [dim]DOCUMENTED: {documented}[/dim]"
-            f"  → [bold]{pct}%[/bold] byte-matched"
+            f"  → [bold]{pct}%[/bold] byte-matched{toolchain}"
         )
 
     if not display_items:

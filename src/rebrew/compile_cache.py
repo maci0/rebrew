@@ -1271,6 +1271,8 @@ def get_compile_cache(
         _caches[key] = factory(Path(cache_dir), size_limit)
         global _CACHES_ATEXIT_REGISTERED
         if not _CACHES_ATEXIT_REGISTERED:
+            # cordis-boundary: process lifetime — the store's handles outlive
+            # any component, so the inverse is the exit close, registered once.
             atexit.register(close_all_caches)
             _CACHES_ATEXIT_REGISTERED = True
         return _caches[key]

@@ -206,7 +206,7 @@ def blocker_set(
     fields: dict[str, object] = {"blocker": blocker}
     if delta_int is not None:
         fields["blocker_delta"] = delta_int
-    set_fields(cfg.metadata_dir, va_int, fields, module=module)
+    set_fields(cfg.metadata_dir, va_int, fields, module=module, updated_by="blocker")
 
     if json_output:
         payload["written"] = True

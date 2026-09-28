@@ -459,7 +459,7 @@ def _rename_data(
     # `old_name` came from this same store (see above), so there is no
     # source-vs-metadata disagreement to resolve here — the field is renamed
     # unconditionally after the cross-references were rewritten.
-    set_data_field(cfg.metadata_dir, va, "name", new_name, module)
+    set_data_field(cfg.metadata_dir, va, "name", new_name, module, updated_by="rename")
     if json_output:
         json_print(
             {
@@ -566,7 +566,7 @@ def _rename_metadata_only(
                 # UnicodeEncodeError, not OSError; letting it escape raised a
                 # traceback from inside the rewrite loop.
                 error_exit(f"Cannot write {src}: {exc}", json_mode=json_output)
-    set_data_field(cfg.metadata_dir, va, "name", new_name, module)
+    set_data_field(cfg.metadata_dir, va, "name", new_name, module, updated_by="rename")
     if json_output:
         json_print(
             {

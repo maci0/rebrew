@@ -21,11 +21,9 @@ def build_catalog_data(cfg: Any, *, with_data: bool = True) -> dict[str, Any]:
     """Scan, registry, and coverage-grid dict for one target (no disk writes).
 
     Shared by ``run_catalog`` (which then writes the requested artifacts)
-    and ``rebrew build-db --regen`` (which imports the dict straight into
-    SQLite) — the ``db/data_<target>.json`` file is just the serialized
-    form of this dict, not a separate pipeline stage.  With
-    *with_data* False the (expensive) grid generation is skipped — the
-    ``data`` value is None.
+    and ``rebrew build-db`` (which renders the dict into
+    ``db/coverage-<target>.toml``).  With *with_data* False the (expensive)
+    grid generation is skipped — the ``data`` value is None.
     """
     bin_path = cfg.target_binary
     reversed_dir = cfg.reversed_dir

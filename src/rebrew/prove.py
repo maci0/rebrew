@@ -1889,7 +1889,14 @@ def _record_prove_counterexample(cfg: Any, ann: Any, message: str) -> None:
         existing = load_metadata(cfg.metadata_dir, deepcopy=False).get((ann.module, ann.va), {})
         if existing.get("note"):
             return
-        update_field(cfg.metadata_dir, ann.va, "note", f"prove: {message}", module=ann.module)
+        update_field(
+            cfg.metadata_dir,
+            ann.va,
+            "note",
+            f"prove: {message}",
+            module=ann.module,
+            updated_by="prove",
+        )
     except Exception:  # best-effort; never fail the prove flow
         # Counterexample NOTE is the actionable signal for the next edit —
         # losing it without a log looks like prove produced nothing.

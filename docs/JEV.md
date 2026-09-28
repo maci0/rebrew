@@ -77,7 +77,7 @@ Jev cannot do the LLM's job. TypeSafe says this out loud: Jev gives up
 string generation.
 
 Do not ask Jev for VAs, structure offsets, or CFLAGS. Those stay in
-`coverage.db` / `rebrew-functions.toml`. Do not use it as a chat
+the coverage documents / `rebrew-functions.toml`. Do not use it as a chat
 copilot.
 
 **Jaggedness (`jev-1.13`, reviewed 2026-09-17,

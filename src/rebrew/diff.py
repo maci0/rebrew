@@ -229,9 +229,13 @@ def _write_blocker(
             if not json_output:
                 console.print(f"  Would update BLOCKER: {blocker_text} ({delta}B delta)")
         else:
-            update_field(metadata_dir, va, "blocker", blocker_text, module=module)
+            update_field(
+                metadata_dir, va, "blocker", blocker_text, module=module, updated_by="diff"
+            )
             if delta > 0:
-                update_field(metadata_dir, va, "blocker_delta", delta, module=module)
+                update_field(
+                    metadata_dir, va, "blocker_delta", delta, module=module, updated_by="diff"
+                )
             outcome["written"] = True
             if not json_output:
                 console.print(f"  Updated BLOCKER: {blocker_text} ({delta}B delta)")

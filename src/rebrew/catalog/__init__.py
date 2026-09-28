@@ -4,9 +4,6 @@ Re-exports the library API so that ``from rebrew.catalog import X`` works
 without loading the Typer command in ``rebrew.catalog.cli``.
 """
 
-from rebrew.catalog.export import (
-    generate_reccmp_csv as generate_reccmp_csv,
-)
 from rebrew.catalog.grid import (
     generate_data_json as generate_data_json,
 )
@@ -64,7 +61,6 @@ __all__ = [
     "cached_sorted_function_vas",
     "count_detection_sources",
     "generate_data_json",
-    "generate_reccmp_csv",
     "is_jump_table",
     "load_function_structure",
     "load_ghidra_data_labels",

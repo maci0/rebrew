@@ -79,7 +79,7 @@ def covered_bytes(
     """Bytes of *section* claimed by at least one annotated function.
 
     Uses the *sizes* lookup (registry canonical sizes in the CLI, the
-    disassembler inventory in the catalog export) when the VA is present,
+    disassembler inventory in `rebrew build-db`) when the VA is present,
     falling back to the annotation's own size.  Both callers previously
     diverged — the CLI counted 0 for registry-missing VAs while the old
     CATALOG.md generator counted the annotation size — so the summary and
@@ -235,7 +235,7 @@ def generate_data_json(
     metadata_dir: Path | None = None,
     cfg: Any = None,
 ) -> dict[str, Any]:
-    """Generate the coverage database structure (db/data_<target>.json).
+    """Build the coverage dict ``rebrew build-db`` renders into a document.
 
     Builds function coverage maps, cell-level grids per section, and gap
     classification from annotations and the target binary.  Includes
@@ -273,7 +273,7 @@ def generate_data_json(
         log.warning("Configured binary not found; sections/hashes/thunks omitted: %s", bin_path)
     # Pass cfg so global discovery matches the annotation scan: without it
     # iter_sources falls back to ".c" only and never appends cfg.shared_dir, so
-    # every global in a .cpp or shared source vanishes from the coverage DB.
+    # every global in a .cpp or shared source vanishes from the coverage document.
     globals_dict = get_globals(src_dir, cfg) if src_dir else {}
     if metadata_dir is not None:
         from rebrew.data_metadata import load_data_metadata, module_visible_to_target
@@ -378,6 +378,12 @@ def generate_data_json(
         canonical_size = reg.get("canonical_size", 0)
         if not canonical_size:
             canonical_size = funcs_by_va[va]["size"] if va in funcs_by_va else e["size"]
+        elif e["status"] in MATCHED_STATUSES and e["size"] > canonical_size:
+            # A matched annotation's size was measured by `rebrew test` against
+            # the binary; a sweep size that a jump-table split truncated
+            # (srv_LogWinsockError: 40 of 768) must not shorten the cell, or
+            # the case bodies fall through to gap cells as "none".
+            canonical_size = e["size"]
 
         # Skip entries with no resolvable size (e.g. library header markers
         # not present in the function list or registry)
@@ -494,8 +500,8 @@ def generate_data_json(
         # unannotated registry functions (from the disassembler's function
         # list / ghidra).  Absorption must stop at a real function's start
         # even when it has no .c annotation yet — otherwise the predecessor's
-        # span silently swallows un-reversed functions and the coverage DB
-        # hides them (reported: `time` 220B inflated to 282B, two list
+        # span silently swallows un-reversed functions and the coverage
+        # document hides them (reported: `time` 220B inflated to 282B, two list
         # functions invisible).
         boundary_starts = list(item_starts)
         if sec_name == ".text" and registry:
@@ -684,7 +690,7 @@ def generate_data_json(
 
     # Data globals whose VA falls outside every section are silently dropped
     # by the placement loop above — the catalog then looks complete while the
-    # global is missing from the coverage DB.  Surface it (R4: data VAs not
+    # global is missing from the coverage document.  Surface it (R4: data VAs not
     # cross-checked against section ranges).
     if globals_dict:
         placed_vas: set[int] = set()
@@ -698,7 +704,7 @@ def generate_data_json(
         if unplaced:
             log.warning(
                 "Catalog: %d annotated global(s) fall outside every section and "
-                "are omitted from the coverage DB (check rebrew-data.toml VAs): %s",
+                "are omitted from the coverage document (check rebrew-data.toml VAs): %s",
                 len(unplaced),
                 ", ".join(f"0x{va:08x}" for va in unplaced[:10])
                 + ("…" if len(unplaced) > 10 else ""),

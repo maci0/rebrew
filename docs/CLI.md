@@ -96,7 +96,7 @@ exit is 120, and click's is 1; `run_cli` overrides both.
 | `rebrew switch` | `switch.py` | Decode jump-table switch dispatches in a function (case → handler map; `--window`) |
 | `rebrew diff` | `diff.py` | Side-by-side disassembly diff against target binary; `--fix-blocker` writes BLOCKER metadata |
 | `rebrew skeleton` | `skeleton.py` | Generate annotated `.c` skeleton from VA (with `--decomp`, `--xrefs`, `--append` for multi-function files) |
-| `rebrew catalog` | `catalog/` | Parse annotations, generate catalog + coverage JSON |
+| `rebrew catalog` | `catalog/` | Parse annotations; writes no artifact of its own (`rebrew build-db` renders the coverage document) |
 | `rebrew sync` | `ghidra/cli.py` | BinSync-primary field sync via the shared state dir (`--push`/`--pull --state-dir`); ReVa MCP for structural ops (`--create-functions`, `--bookmarks`, `--pull-data`) |
 | `rebrew lint` | `lint.py` | Lint source marker standards in decomp C files |
 | `rebrew extract` | `extract.py` | Batch extract and disassemble functions from binary |
@@ -120,7 +120,7 @@ exit is 120, and click's is 1; `run_cli` overrides both.
 | `rebrew xrefs` | `xrefs.py` | Cross-reference explorer: find code that references an address (calls, jumps, `push`/`mov`/`lea`, IAT slots) |
 | `rebrew describe` | `describe.py` | Per-function recon dossier: callers, callees, strings, globals, imports (project-based) |
 | `rebrew report` | `report.py` | Generate a static self-contained HTML documentation site (`--output`; index, strings, imports, call graph) |
-| `rebrew dashboard` | `dashboard.py` | Read-only web dashboard over `db/coverage.db` (`--port`, `--host`, `--root`) |
+| `rebrew dashboard` | `dashboard.py` | Read-only web dashboard over `db/coverage-<target>.toml` (`--port`, `--host`, `--root`) |
 | `rebrew crt-match` | `crt_match.py` | CRT source cross-reference matcher (index, match, ASM detection) |
 | `rebrew data` | `data.py` | Global data scanner for .data/.rdata/.bss; `--bss` layout verification; `--dispatch` vtable detection |
 | `rebrew graph` | `depgraph.py` | Function dependency graph (mermaid, DOT, summary); `--cu-map` infers compilation unit boundaries |
@@ -133,7 +133,7 @@ exit is 120, and click's is 1; `run_cli` overrides both.
 | `rebrew binsync-init` | `binsync/init.py` | Create the git envelope upstream BinSync requires (root `binsync/__root__` commit with `.gitignore` + `binary_hash`, then a `binsync/<user>` branch; `--user`, `--dry-run`) |
 | `rebrew binsync-overlay` | `binsync/overlay.py` | Overlay a related target's BinSync names/prototypes/notes onto structurally-matched functions of this target (same code at different VAs; `--from`, `--fields name,prototype,note,global`, `--accept-binsync`/`--accept-local`) |
 | `rebrew binsync` | `binsync/cli.py` | Umbrella group: `push` (export + git commit, `--git-push`), `pull` (git `--ff-only` + import), `summary` (read-only preview), plus `init`/`diff`/`overlay` |
-| `rebrew build-db` | `build_db.py` | Build SQLite `db/coverage.db` from `data_*.json` ([schema docs](DB_FORMAT.md)) |
+| `rebrew build-db` | `build_db.py` | Write one clear-text `db/coverage-<target>.toml` per target by scanning the project ([format docs](COVERAGE_DOCUMENT.md)) |
 | `rebrew status` | `status.py` | At-a-glance reversing progress overview (per-module coverage, status ladder counts) |
 | `rebrew similar` | `similar.py` | Find structurally similar functions in the target binary (clone detection) |
 | `rebrew binary-similarity` | `binary_similarity.py` | Whole-binary structural similarity vs another binary — per-function best matches aggregated into a byte-weighted score (versions/DLL+EXE) |
@@ -505,7 +505,7 @@ Re-running with the same type is a no-op (exit 0, JSON `changed: false`).
 | Flag | Description |
 |------|-------------|
 | `-n N` / `--count N` | Number of items to show (default 20) |
-| `-c CAT` / `--category CAT` | Filter by category: `setup`, `compile-error`, `extract-error`, `fix-delta`, `improve-match`, `start-function`, `missing-annotation`, `identify-library`, `run-prover`, `documented`, `naked-reconstruction`, `data-drift`, `start-data`; any other value fails |
+| `-c CAT` / `--category CAT` | Filter by category: `setup`, `compile-error`, `extract-error`, `fix-delta`, `improve-match`, `start-function`, `missing-annotation`, `identify-library`, `run-prover`, `documented`, `naked-reconstruction`, `data-drift`, `start-data`, `exact-only`, `postlink-mangled`; any other value fails |
 | `-s` / `--stats` | Show the coverage stats header |
 | `--json` | Output results as JSON |
 | `--target NAME` / `-t NAME` | Select a target from `rebrew-project.toml` |
@@ -513,6 +513,21 @@ Re-running with the same type is a no-op (exit 0, JSON `changed: false`).
 `improve-match` items whose blocker was written by `near-diag --fix-blocker`
 carry a `mutations` array in `--json` (the GA operators to try next) and a
 `[try: ...]` hint in the terminal description.
+
+Two categories answer "what is left until the build is identical straight out
+of the toolchain", so a project at 100% byte-matched still reports its
+remaining gap instead of "no action items":
+
+- `exact-only` — a `RELOC` function: identical only after relocation masking,
+  so the compiler/linker output on its own is not identical. Closing it means
+  `EXACT`; the command is the no-masking oracle, `rebrew test <VA> --linked`.
+- `postlink-mangled` — a function whose bytes in `build/<target>` differ from
+  the pre-postlink `raw_link` image, i.e. a `rebrew postlink` fixer supplied
+  them. Only detected when the target configures `raw_link`.
+
+Both score 0, below every actionable item, so they never displace unfinished
+work; the coverage header counts them instead (`RELOC: N · E identical
+straight from the toolchain`).
 
 `Match %` is rounded down to one decimal, so a near miss never reads 100%.
 
@@ -615,7 +630,7 @@ to load or parse, which counts as drift).
 Per-function result rows carry `diff_lines` (structural diff count),
 `similarity`, `reg_delta` (register-encoding-only diff count), and
 `effective_match` (true when the entire delta is register allocation) —
-all recovery-consumed via `rebrew build-db`.
+all consumed by the coverage documents `rebrew build-db` writes.
 
 A function that fails to byte-match whose source is fenced behind
 `#ifdef REBREW_ALLOW_NAKED` is reported with an explanatory note: the
@@ -709,8 +724,8 @@ library modules that are not themselves targets (`MSVCRT`, `ZLIB`).  Another
 target's marker is omitted, including the declaration under it and the
 externs in a file whose markers are all that other target's.  `rebrew status`,
 `rebrew todo`, `rebrew recommend`, and `rebrew verify --data`
-count the same rows.  `rebrew catalog` writes the same set into
-`db/data_<target>.json`.
+count the same rows, and so does the `db/coverage-<target>.toml` the coverage
+document stores them in.
 
 | Flag | Description |
 |------|-------------|
@@ -1086,10 +1101,8 @@ enforced rule).  `--min-lines` filters to files longer than N lines
 
 | Flag | Description |
 |------|-----------|
-| `--data-json` | Write `db/data_<target>.json` (input for `build-db`) |
 | `--json` | Print catalog summary as JSON to stdout |
 | `--summary` | Print summary table to stderr |
-| `--csv` | Generate reccmp-compatible CSV (written to `db/<target>_functions.csv`) |
 | `--export-ghidra` | Print instructions for exporting the Ghidra function list (no `--json`) |
 | `--export-ghidra-labels` | Generate `ghidra_data_labels.json` from detected tables |
 | `--fix-sizes` | Update `SIZE` entries in `rebrew-functions.toml` metadata to match canonical sizes — fixes both stale sizes (false `SIZE_MISMATCH`) and missing sizes (`MISSING_SIZE` stubs that `rebrew test` refuses) |
@@ -1101,8 +1114,12 @@ The `--summary` progress lines (byte-matched functions, per-status counts,
 library identified, and `Of .text` when the section size is known) are
 `rebrew status`'s own figures.  `identified_bytes` / `identified_pct` in
 `--json` are the `.text` bytes claimed by any annotated function, stubs and
-library code included; `registry` is the inventory size.  Globals in
-`db/data_<target>.json` are this target's markers plus library modules.
+library code included; `registry` is the inventory size.  The coverage
+document `rebrew build-db` writes stores the same globals: this target's
+markers plus library modules.
+
+`rebrew catalog` writes no artifact of its own — the coverage document is
+`rebrew build-db`'s, and that command generates the catalog dict in-process.
 
 ### `rebrew sync`
 
@@ -1327,10 +1344,16 @@ audit log. Nothing in the source tree is modified — the search only reads.
 | Flag | Description |
 |------|-------------|
 | `--root DIR` | Project root directory (auto-detected if omitted) |
-| `--force` | Delete and recreate the database if its schema version is incompatible |
-| `--json` | Output results as JSON |
+| `--force` | No effect, accepted for symmetry: each document is rewritten whole, so there is no schema to migrate past |
+| `--regen` | No effect, accepted for compatibility: the catalog analysis always runs in-process, so there is no snapshot mode to select |
+| `--json` | Output results as JSON (`coverage_files`, `targets_processed`) |
 | `--target NAME` / `-t NAME` | Select a target from `rebrew-project.toml` |
-| `--regen` | Generate coverage data in-process per target instead of reading `db/data_*.json` files (no intermediate files; alternative to the `catalog --data-json` workflow) |
+
+`db/coverage-<target>.toml` holds facts only — the sections and their cells, the
+functions, the globals, the verify results and the status history — and every
+aggregate (per-section buckets, byte coverage, `function_stats`) is derived when
+a reader loads it.  A rebuild carries the previous document's history and verify
+stamps forward, so history survives without a database to migrate.
 
 ### `rebrew init`
 
@@ -1872,9 +1895,9 @@ host binary).  See [TOOLCHAIN.md](TOOLCHAIN.md) for the full model.
 | `detect BINARY` | Detect which compiler/toolchain built a binary (diec → PDB → PE metadata: Rich header/linker version → heuristics) — pins the exact MSVC version (e.g. 12.00.9782) and suggests the version-exact rebrew profile; with a project present, also reports whether the configured profile can byte-match it (`--json`) |
 | `pull NAME` | Pull a toolchain's docker image (locally-built images are reported as already present, not re-pulled; a failed pull on an absent image points at `toolchain build`, since rebrew images are built from pinned sources, not hosted on a registry) |
 | `build NAME` | Build a toolchain's docker image from its `<family>/<ver>-<arch>/Dockerfile` in the rebrew-toolchains checkout (builds the shared `rebrew/base` dependency first) |
-| `vendor NAME` | Assemble the host tree from the pinned source — a 16-bit media tarball (msvc-1.52/15/10, delphi, borland-3.1, borland-2.0) next to its Dockerfile in the rebrew-toolchains checkout, or a sha256-verified download (borland 5.5, watcom, msvc-6.0, msvc-4.0/4.2/5.0 via the archaic-msvc / itsmattkc codeload snapshots).  MSVC 6.0 is wrapped into the classic `VC98/` layout; the tree lands in `<family>/<ver>-<arch>/source` under that checkout.  Refuses to clobber an existing tree; fails loudly if the compiler binary is missing |
+| `vendor NAME` | Assemble the host tree from the pinned source — a sha256-verified download (the six 16-bit trees and the 32-bit ones alike: msvc-1.0/1.5/1.52, borland-2.0/3.1, delphi-1.0, borland 5.5, watcom, msvc-6.0, msvc-4.0/4.2/5.0 via the archaic-toolchains / archaic-msvc / itsmattkc codeload snapshots).  MSVC 6.0 is wrapped into the classic `VC98/` layout; the tree lands in `<family>/<ver>-<arch>/source` under that checkout.  Refuses to clobber an existing tree; fails loudly if the compiler binary is missing |
 | `smoke [NAME]` | Compile the fixed smoke source in each image and verify the object sha256 against the golden bytes — the byte-reproducibility gate (46 profiles: the MSVC 1.0–11.0 line, borland-2.0/3.1/5.5, watcom-2.0 on win32 and win16, delphi-1.0, ido-5.3/7.1, gcc 12.3/14.2, clang 16.0/18.1, mingw 14.2/16.2 — all image-only; MSVC's COFF and Turbo C's COMENT build-time stamps are masked).  `--print-goldens` recomputes the masked hashes WITHOUT comparing, so bumping a pinned source is a mechanical two-step (run twice, verify stable, paste into `_SMOKE_GOLDEN`) |
-| `check-updates` | Report upstream drift in every pinned toolchain source (GitHub-codeload pins compared via the GitHub API against the live default-branch sha; the moving Open Watcom release re-downloaded and re-hashed; immutable release assets and the 16-bit media tarballs need no check) |
+| `check-updates` | Report upstream drift in every pinned toolchain source (GitHub-codeload pins compared via the GitHub API against the live default-branch sha; the moving Open Watcom release re-downloaded and re-hashed; immutable release assets need no check) |
 | `update NAME` | Re-pin a toolchain source to current upstream and rebuild — dry-run by default reports old → new pin, `--apply` rewrites the pin, re-vendors, rebuilds the image, and re-goldens the smoke bytes |
 
 ### `rebrew binsync-export`
@@ -2307,8 +2330,9 @@ backends — powers `rebrew analyze`'s library section.
 
 `rebrew intake [OPTIONS] BINARY`
 
-One-shot binary onboarding: FLIRT scan, function catalog, coverage database,
-triage — the automated version of the `rebrew-intake` skill's steps.
+One-shot binary onboarding: FLIRT scan, function catalog, triage — the
+automated version of the `rebrew-intake` skill's steps.  It writes no coverage
+document; `rebrew build-db` does, afterwards.
 
 | Flag | Description |
 |------|-------------|
@@ -2604,19 +2628,21 @@ address (calls, jmps, data references).
 
 `rebrew dashboard [OPTIONS]`
 
-Read-only stdlib `ThreadingHTTPServer` dashboard over `db/coverage.db` for
-triaging large binaries. GET/HEAD only; bind defaults to `127.0.0.1`.
-`--root` points at the project root holding the database (the working
-directory by default).  `--json` prints `{"url", "db"}` and exits without
-serving (script-friendly bind probe).  The full JSON contract, kept against
+Read-only stdlib `ThreadingHTTPServer` dashboard over the
+`db/coverage-<target>.toml` documents for triaging large binaries. GET/HEAD
+only; bind defaults to `127.0.0.1`.  `--root` points at the project root
+holding the documents (the working directory by default); a target is one
+readable document, so a missing or unparseable one is 404 `unknown_target`
+and the rest still serve.  `--json` prints `{"url", "coverage_dir"}` (the coverage
+directory) and exits without serving (script-friendly bind probe).  The full JSON contract, kept against
 the code, is [dashboard-api.yaml](dashboard-api.yaml).
 
 Endpoints: `/`, `/app.js`, `/api/bootstrap`, `/api/targets`,
-`/api/health` (liveness plus one real read of the target list, so an
-unreadable `coverage.db` answers 500 `database_error`; also reports the
-running `requests`, `server_errors`, and `slowest_ms` totals, so a probe can
-watch the error rate while the server is up; served `no-store`
-with no `ETag`),
+`/api/health` (liveness plus one real read of the target list, so a
+directory yielding no readable document answers 500 `database_error`; reports
+`coverage_dir` and the running `requests`, `server_errors`, and `slowest_ms`
+totals, so a probe can watch the error rate while the server is up; served
+`no-store` with no `ETag`),
 `/api/summary?target=`, `/api/functions?target=` (status/module/q/limit/offset;
 compact row arrays under `cols`), `/api/sections?target=` (compact row arrays
 under `cols`),
@@ -2624,23 +2650,24 @@ under `cols`),
 `/api/history?target=` (limit/offset; compact arrays under `cols`).
 Missing `target` → 400; unknown target → 404; a `status` filter outside the
 STATUS vocabulary → 400 (an empty page would read as "no functions in that
-status"). Corrupt `function_stats` on
-`/api/summary` → 500 (not 404), including a byte count that is not a
-non-negative integer. A present empty `module=` on `/api/functions` and
+status"). `function_stats` is derived from the stored function rows, so
+there is no corrupt-row case left: `/api/summary` either has a document (200)
+or does not (404). A present empty `module=` on `/api/functions` and
 `/api/globals` matches a blank module; omitting `module` does not filter.
 `q` matches a name or symbol substring on functions and a name substring
 on globals. Four or more hex digits, with an optional `0x` prefix, also
 match that virtual address (`0x401000` and `00401000` are the same address).
 `by_module_counts` uses those same stored strings (`""` when unset). A repeated
 query parameter takes its first value; an unrecognised one is ignored.
-`/api/bootstrap` always answers 200: when its first target has unreadable
-stats, `summary` and `functions` are `null` so one broken target still returns
-the target list. Any other method on a served path → 405 with `Allow: GET,
+`/api/bootstrap` always answers 200: when its first target has no readable
+document, `summary` and `functions` are `null` so one broken target still
+returns the target list. Any other method on a served path → 405 with `Allow: GET,
 HEAD`; a path the server does not serve → 404 `not_found` whatever the method.
 Every error body is `{"error": "<message>", "code": "<code>"}`, malformed
 requests included; branch on `code` (`missing_target`, `unknown_target`,
 `invalid_status`, `not_found`, `method_not_allowed`, `host_not_allowed`,
-`corrupt_function_stats`, `database_error`, `internal_error`,
+`database_error` (the whole coverage directory yielded no readable document),
+`internal_error`,
 `server_busy` (a connection refused because the 64-connection cap was full;
 503 with `Retry-After: 1`, sent before routing),
 `bad_request`, `uri_too_long`, `header_fields_too_large`,
@@ -2734,8 +2761,7 @@ rebrew verify --output /tmp/verify_report.json           # Write report to file 
 rebrew lint --fix && rebrew lint                   # Fix then re-lint
 rebrew status                                      # Reversing progress overview
 rebrew catalog                      # build catalog and show summary
-rebrew catalog --data-json          # write db/data_<target>.json
-rebrew catalog --summary --csv      # show summary + reccmp CSV
+rebrew build-db                      # write db/coverage-<target>.toml
 
 # Data analysis
 rebrew data                                        # Inventory globals
