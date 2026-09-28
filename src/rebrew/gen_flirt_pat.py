@@ -12,6 +12,7 @@ target field shares the word with the opcode).
 """
 
 import bisect
+import logging
 import struct
 from collections.abc import Iterator
 from pathlib import Path
@@ -21,6 +22,8 @@ import typer
 
 from rebrew.cli import console, error_exit, json_print
 from rebrew.utils import atomic_write_text
+
+logger = logging.getLogger(__name__)
 
 app = typer.Typer(
     help="Generate FLIRT .pat files from COFF .lib and ELF .a archives.",
@@ -485,7 +488,7 @@ def generate_pat(lib_file: Path, out_path: Path) -> dict[str, int | bool]:
 
     skipped = 0
     weak_skipped = 0
-    for _member_name, obj_data in parse_archive(str(lib_file)):
+    for member_name, obj_data in parse_archive(str(lib_file)):
         if obj_data.startswith(b"\x7fELF"):
             obj_iter = parse_elf_obj(obj_data)
         else:
@@ -510,7 +513,11 @@ def generate_pat(lib_file: Path, out_path: Path) -> dict[str, int | bool]:
                         continue
                     pat_lines.append(line)
         except (OSError, KeyError, ValueError, struct.error):
+            # The member contributed nothing and the .pat is written without
+            # it, so name it: a signature that silently went missing reads as
+            # a library that exports nothing.
             skipped += 1
+            logger.warning("skipped unparsable archive member %s", member_name, exc_info=True)
 
     if pat_lines:
         atomic_write_text(

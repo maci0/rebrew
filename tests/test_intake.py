@@ -615,6 +615,66 @@ class TestPruneStaleStubs:
         assert prune_stale_stubs(tmp_path, src_dir, "TARGET", funcs) == 0
         assert worked.exists()
 
+    def test_corrupt_prior_inventory_blocks_the_prune(self, tmp_path: Path) -> None:
+        """An unusable inventory leaves the guard without a baseline, so it must skip.
+
+        A corrupt function_structure.json and an absent one both used to reach
+        the prune as None, which is the "no prior inventory" answer and turns
+        the degraded-discovery guard off; a short discovery then deleted live
+        stubs and their metadata entries.
+        """
+        from rebrew.intake import prune_stale_stubs
+        from rebrew.metadata import set_fields_batch
+
+        src_dir = tmp_path / "src" / "target"
+        src_dir.mkdir(parents=True)
+        meta_dir = tmp_path / "src"
+        stub = src_dir / "fcn_00401010.c"
+        stub.write_text(
+            "// STUB: TARGET 0x00401010\n\nvoid fcn_00401010(void)\n{\n    /* reason */\n}\n"
+        )
+        set_fields_batch(
+            meta_dir, [{"module": "TARGET", "va": 0x401010, "fields": {"blocker": "reason"}}]
+        )
+        (src_dir / "function_structure.json").write_text("{ truncated", encoding="utf-8")
+
+        # A discovery that found one function, where three stubs exist: the
+        # degraded case the guard exists for, with no readable baseline.
+        funcs = [(0x401000, 32, "valid_fn")]
+        assert prune_stale_stubs(tmp_path, src_dir, "TARGET", funcs, metadata_dir=meta_dir) == 0
+        assert stub.exists()
+        from rebrew.metadata import get_entry
+
+        assert get_entry(meta_dir, 0x401010, "TARGET").get("blocker") == "reason"
+
+    def test_non_array_inventory_blocks_the_prune(self, tmp_path: Path) -> None:
+        """A JSON object where the array belongs is as unusable as a parse failure."""
+        from rebrew.intake import prune_stale_stubs
+
+        src_dir = tmp_path / "src" / "target"
+        src_dir.mkdir(parents=True)
+        stub = src_dir / "fcn_00401010.c"
+        stub.write_text(
+            "// STUB: TARGET 0x00401010\n\nvoid fcn_00401010(void)\n{\n    /* reason */\n}\n"
+        )
+        (src_dir / "function_structure.json").write_text('{"functions": []}', encoding="utf-8")
+
+        assert prune_stale_stubs(tmp_path, src_dir, "TARGET", [(0x401000, 32, "valid_fn")]) == 0
+        assert stub.exists()
+
+    def test_absent_inventory_still_prunes(self, tmp_path: Path) -> None:
+        """No prior inventory is a first run: there is no baseline, so prune as before."""
+        from rebrew.intake import prune_stale_stubs
+
+        src_dir = tmp_path / "src" / "target"
+        src_dir.mkdir(parents=True)
+        stale = src_dir / "fcn_00401010.c"
+        stale.write_text(
+            "// STUB: TARGET 0x00401010\n\nvoid fcn_00401010(void)\n{\n    /* reason */\n}\n"
+        )
+        assert prune_stale_stubs(tmp_path, src_dir, "TARGET", [(0x401000, 32, "valid_fn")]) == 1
+        assert not stale.exists()
+
 
 class TestLinkToolchain:
     """_link_toolchain creates parent directories and is safe to re-run."""

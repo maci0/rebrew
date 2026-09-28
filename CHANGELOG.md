@@ -194,6 +194,22 @@
   `status` and `catalog` already do.
 
 ### Fixed
+- **`rebrew intake` no longer prunes live stubs after a corrupt function
+  inventory.** `prune_stale_stubs` refuses to delete when a discovery comes
+  back shorter than the previous inventory, so a provider that timed out
+  cannot remove real stubs. `_read_prior_inventory` returned `None` both for
+  a first run and for a `function_structure.json` that would not parse or
+  decode, and the guard skipped on `None`, so a corrupt inventory plus a
+  degraded discovery deleted every auto-stub and its metadata entry, and the
+  inventory file had already been overwritten with the short list. The
+  unreadable case now returns a `_UnreadableInventory` sentinel, the prune
+  skips on it as it does on a short list, and intake notes why. A JSON
+  document that is not an array is treated the same way.
+  **Breaking:** `intake.prune_stale_stubs` takes
+  `prior_inventory: list | None | _UnreadableInventory`; a caller reading
+  the inventory itself should pass
+  `rebrew.intake._read_prior_inventory(src_dir)`, whose `None` now means
+  only "no prior inventory".
 - **`make verify-dist` names the buildinfo key it could not find.**
   The gate read each recorded value through a `recorded` helper called as
   `$(recorded <key>)`, so the helper's `exit 1` left a command-substitution

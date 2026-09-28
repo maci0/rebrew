@@ -273,7 +273,7 @@ def prune_stale_stubs(
     marker: str,
     funcs: list[tuple[int, int, str]],
     metadata_dir: Path | None = None,
-    prior_inventory: list[Any] | None = None,
+    prior_inventory: list[Any] | _UnreadableInventory | None = None,
 ) -> int:
     """Remove auto-generated STUB files + metadata for functions absent from
     the (re-discovered) function list.
@@ -295,10 +295,23 @@ def prune_stale_stubs(
 
     *prior_inventory* is the list the previous run wrote, read by the caller
     before replacing it; when omitted it is read from *src_dir* instead.
+    An :class:`_UnreadableInventory` there means the guard has no baseline to
+    compare, and the prune is skipped for the same reason.
     """
     from rebrew.metadata import delete_metadata_entry
 
     previous = _read_prior_inventory(src_dir) if prior_inventory is None else prior_inventory
+    if isinstance(previous, _UnreadableInventory):
+        # The guard needs the previous count and there is none: a truncated or
+        # unreadable function_structure.json leaves a degraded discovery
+        # indistinguishable from a real removal, and pruning then deletes live
+        # stubs plus their metadata entries.
+        logger.warning(
+            "the previous inventory at %s could not be read; skipping the stale-stub "
+            "prune so a degraded discovery cannot delete live stubs",
+            src_dir / _INVENTORY_FILENAME,
+        )
+        return 0
     if previous is not None and len(funcs) < len(previous):
         logger.warning(
             "discovery returned %d function(s) but the previous inventory had %d; "
@@ -336,19 +349,42 @@ def prune_stale_stubs(
     return removed
 
 
-def _read_prior_inventory(src_dir: Path) -> list[Any] | None:
-    """The function inventory written by the previous intake run, or None."""
-    path = src_dir / "function_structure.json"
+class _UnreadableInventory:
+    """Sentinel: a prior inventory exists but could not be read.
+
+    Distinct from ``None`` (no prior inventory, so nothing to compare and
+    nothing to protect) because a corrupt file and an absent one demand
+    opposite prune decisions.
+    """
+
+
+#: The function inventory the previous intake run wrote, in *src_dir*.
+_INVENTORY_FILENAME = "function_structure.json"
+
+
+def _read_prior_inventory(src_dir: Path) -> list[Any] | _UnreadableInventory | None:
+    """The prior run's function inventory.
+
+    ``None`` when no inventory was ever written, a list when one parses, and
+    :class:`_UnreadableInventory` when one exists but is corrupt or
+    unreadable.  The last case is not a missing file: the degraded-discovery
+    guard has no baseline to compare against, so the caller must skip the
+    prune rather than treat the absence as permission to delete.
+    """
+    path = src_dir / _INVENTORY_FILENAME
     try:
         data = json.loads(read_json_text(path))
     except FileNotFoundError:
         return None
     except (OSError, ValueError) as exc:
-        # An unreadable prior inventory means the degraded-discovery guard
-        # above cannot compare; say so rather than pruning blind.
         logger.warning("could not read %s for the stale-stub prune guard: %s", path, exc)
-        return None
-    return data if isinstance(data, list) else None
+        return _UnreadableInventory()
+    if not isinstance(data, list):
+        # A JSON object where the array belongs is as unusable as a parse
+        # failure: there is no previous count to guard the prune with.
+        logger.warning("%s is not a JSON array; cannot guard the stale-stub prune", path)
+        return _UnreadableInventory()
+    return data
 
 
 def _native_format_and_arch(bin_path: Path) -> tuple[str, str] | None:
@@ -609,8 +645,11 @@ def main(
     # Read the previous inventory before the write: prune_stale_stubs uses it
     # to tell a real removal apart from a discovery that came back degraded.
     prior_inventory = _read_prior_inventory(src_dir) if project_existed else None
+    # A corrupt prior inventory is replaced here either way, so its only
+    # remaining use is the prune guard below; carry the sentinel, not a None
+    # that would read as "no prior inventory, nothing to protect".
     atomic_write_text(
-        src_dir / "function_structure.json",
+        src_dir / _INVENTORY_FILENAME,
         json.dumps([{"va": va, "size": size, "name": name} for va, size, name in funcs], indent=2)
         + "\n",
     )
@@ -623,6 +662,8 @@ def main(
         pruned = prune_stale_stubs(project, src_dir, marker, funcs, prior_inventory=prior_inventory)
         if pruned:
             notes.append(f"pruned {pruned} stale auto-stub(s) from the previous discovery")
+        elif isinstance(prior_inventory, _UnreadableInventory):
+            notes.append("stale-stub prune skipped: the previous function inventory was unreadable")
 
     result = IntakeResult(
         target=target_name,

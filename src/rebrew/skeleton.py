@@ -939,7 +939,14 @@ def list_uncovered(
                 entry.get("list_name") or entry.get("ghidra_name") or f"FUN_{va:08x}",
             )
     except (OSError, ValueError, KeyError):
-        pass  # no usable inventory — ghidra-only batch
+        # The batch still works off the Ghidra cache alone, but it loses every
+        # function-list-only function (a rizin/radare2 discovery the cache
+        # missed), so the short result is worth a line an operator can find.
+        logger.warning(
+            "function registry unavailable; listing uncovered functions from the Ghidra "
+            "cache only, so functions the cache missed are not offered: %s",
+            exc_info=True,
+        )
 
     uncovered: list[tuple[int, int, str]] = []
     for va, (size, name) in funcs_by_va.items():
