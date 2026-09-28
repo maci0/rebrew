@@ -455,7 +455,7 @@ def effective(
     `cfg show` echoes the TOML file; this resolves it, so an env override,
     a default, and a typo-rejected value are told apart.  Credentials are
     redacted, and `env_overrides` names the REBREW_* variables present in the
-    environment, never their values: `[llm]` endpoint and model still lose to
+    environment, never their values: `\\[llm]` endpoint and model still lose to
     a set TOML field, so presence alone does not mean the value was used.
     `env_errors` names the knobs whose value the code that reads them would
     reject, so a mistyped container runtime or wine-headless flag is reported

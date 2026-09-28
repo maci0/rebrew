@@ -451,9 +451,9 @@ def main(
     data_gap: str | None = typer.Option(
         None,
         "--data-gap",
-        help="Also emit crt_region/data_restore.c: the reference's raw .data bytes "
-        "[<raw-size>:raw_end] the project TUs do not emit (hex, e.g. 0x3000), so the "
-        "raw link's .data rsz matches without post-processing",
+        help=r"Also emit crt_region/data_restore.c: the reference's raw .data bytes "
+        r"\[<raw-size>:raw_end] the project TUs do not emit (hex, e.g. 0x3000), so the "
+        r"raw link's .data rsz matches without post-processing",
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),

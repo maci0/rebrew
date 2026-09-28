@@ -26,7 +26,7 @@ app = typer.Typer(
         "  rebrew cache clear --force · · · Delete without a confirmation prompt\n\n"
         "[dim]The compile cache stores .obj bytes keyed by (source + flags + compiler), "
         "skipping docker/compiler startup on cache hit (hundreds of ms savings). "
-        "The store is pluggable: [cache] backend in rebrew-project.toml selects it "
+        "The store is pluggable: \\[cache] backend in rebrew-project.toml selects it "
         "(default diskcache at {project_root}/.rebrew/compile_cache/).[/dim]"
     ),
 )

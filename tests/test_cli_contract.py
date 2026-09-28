@@ -80,6 +80,12 @@ def _options(fn) -> dict[str, OptionInfo]:
     }
 
 
+def _extra_components():
+    from rebrew.main import _EXTRA_COMPONENTS
+
+    return _EXTRA_COMPONENTS
+
+
 class TestSharedOptionHelp:
     def test_json_help_is_uniform(self) -> None:
         bad = []
@@ -306,6 +312,74 @@ class TestVerbosityFlags:
         cli.reset_verbosity()
         CliRunner().invoke(umbrella, ["-vv", "diff", "nosuch.c"])
         assert cli.effective_log_level() == logging.DEBUG, cli.effective_log_level()
+
+
+class TestHelpMarkupEscaping:
+    """Bracketed text in help survives rendering: Rich eats an unescaped tag.
+
+    Every app sets ``rich_markup_mode="rich"``, so Rich parses each
+    ``[token]`` in a help string or epilog as a markup tag and silently drops
+    it.  A TOML table name is the recurring case: ``[link]`` rendered as
+    "values from  in rebrew-project.toml".  Escape it (``\\[link]``) or
+    reword it.  The candidates come from Rich's own tag pattern and the
+    verdict from ``Style.parse``, so the rule tracks Rich rather than a
+    hand-kept list of style names.
+    """
+
+    @staticmethod
+    def _eaten(text: str) -> list[str]:
+        """Bracketed tokens in *text* that Rich consumes as markup, not as text.
+
+        ``[<raw-size>:raw_end]`` is left alone: it does not match Rich's tag
+        pattern, so it already reaches the reader verbatim.
+        """
+        from rich import errors
+        from rich.markup import RE_TAGS, render
+        from rich.style import Style
+
+        eaten = []
+        as_is = render(text, style="", emoji=False).plain
+        for match in RE_TAGS.finditer(text):
+            tag = match.group(0)
+            if tag.startswith("\\"):
+                continue  # already escaped: the reader sees the literal brackets
+            body = tag[1:-1]
+            if body.startswith("/") or "=" in body:  # a closing tag or a real [link=url]
+                continue
+            try:
+                Style.parse(body)
+            except errors.StyleSyntaxError:
+                pass
+            else:
+                continue  # a style Rich applies, not text a reader needs to see
+            # Escaping the one tag is the reference rendering: where the two
+            # differ, the tag was markup and the reader never saw its text.
+            escaped = render(text.replace(tag, "\\" + tag)).plain
+            if as_is != escaped:
+                eaten.append(tag)
+        return eaten
+
+    def test_option_help_keeps_its_bracketed_text(self) -> None:
+        bad = []
+        for comp, cmd, fn in _command_functions():
+            for name, opt in _options(fn).items():
+                for token in self._eaten(str(opt.help or "")):
+                    bad.append(f"{comp} {cmd} --{name.replace('_', '-')}: {token}")
+        assert not bad, "escape or reword these help strings:\n  " + "\n  ".join(bad)
+
+    def test_app_help_and_epilog_keep_their_bracketed_text(self) -> None:
+        bad = []
+        for comp in (*BUILTIN_COMPONENTS, *_extra_components()):
+            app = getattr(importlib.import_module(comp.module), "app", None)
+            if app is None:
+                continue
+            for field in ("help", "epilog"):
+                value = getattr(app.info, field, None)
+                if not isinstance(value, str):
+                    continue
+                for token in self._eaten(value):
+                    bad.append(f"{comp.name} {field}: {token}")
+        assert not bad, "escape or reword these help strings:\n  " + "\n  ".join(bad)
 
 
 class TestGroupHelpEpilog:

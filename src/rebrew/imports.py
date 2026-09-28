@@ -126,7 +126,7 @@ app = typer.Typer(
         "[bold]What it shows:[/bold]\n\n"
         "  IAT VA · · · · · · · · Virtual address of the imported function slot\n\n"
         "  API name · · · · · · · e.g. MessageBoxA (from KERNEL32.dll)\n\n"
-        "  Import stubs · · · · · jmp dword ptr [iat] functions in .text\n\n"
+        "  Import stubs · · · · · jmp dword ptr \\[iat] functions in .text\n\n"
         "[dim]Part of the library-identification workflow: pair with rebrew flirt "
         "(FLIRT signatures) to name statically-linked CRT/zlib functions.[/dim]"
     ),

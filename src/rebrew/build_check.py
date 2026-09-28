@@ -266,7 +266,25 @@ def check(build_dir: Path = DEFAULT_BUILD_DIR, project_root: Path | None = None)
     }
 
 
-app = typer.Typer(add_completion=False, help=__doc__)
+#: The module docstring is design notes, not help: it is RST, and Rich would
+#: render its double backticks and emphasis markers literally.  A one-line help
+#: plus an ``Examples:`` epilog is what the rest of the CLI shows.
+app = typer.Typer(
+    add_completion=False,
+    help="Check that build/ still holds what CMake generated (hand-edit drift).",
+    rich_markup_mode="rich",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew build-check · · · · · · · Inspect the default build/ tree\n\n"
+        "  rebrew build-check --json · · · · Machine-readable result\n\n"
+        "  rebrew build-check --build-dir out/x64 · Check a non-default tree\n\n"
+        "[bold]Exit codes:[/bold] 0 in sync · 1 drift · 2 nothing to check "
+        "(missing or mistyped --build-dir)\n\n"
+        "[dim]build/ is gitignored, so no tracked-file check can see a hand-edited "
+        "build.make. Drift means every later measurement describes a build no fresh "
+        "clone can reproduce.[/dim]"
+    ),
+)
 
 
 @app.callback(invoke_without_command=True)

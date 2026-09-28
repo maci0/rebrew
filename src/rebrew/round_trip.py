@@ -99,7 +99,7 @@ def main(
         "--fix-headers",
         help="Patch the reasm copy's PE header (linker/OS/subsystem versions, "
         "TSAWARE, stack, timestamp, checksum) to match the original — values "
-        "from [link] in rebrew-project.toml, falling back to the original's "
+        "from \\[link] in rebrew-project.toml, falling back to the original's "
         "own fields",
     ),
     allow_naked: bool = typer.Option(
