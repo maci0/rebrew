@@ -426,7 +426,8 @@ object profiles and exits 2.
 
 **Toolchain detection:** `rebrew intake`/`analyze` auto-detect the compiler
 family and version — DIE (`diec`) signatures first, then PDB records, then
-structural heuristics (strings, imports, codegen style, section layout).
+PE metadata (Rich header, linker version), then structural heuristics
+(strings, imports, codegen style, section layout).
 16-bit NE family comes from the Borland segment-marker convention
 (`delphi` vs MSVC-style markerless segments).  When diec misses a compiler
 record, the Microsoft Linker version still pins the MSVC era.

@@ -515,7 +515,7 @@ def run_flag_sweep(
     )
 
     # NOTE: no redirect_stdout here — mutating process-global stdout is not
-    # thread-safe under --sweep-then-ga batch (-j N) and silently loses later
+    # thread-safe under --flag-sweep-then-ga batch (-j N) and silently loses later
     # prints (incl. the --json report).  flag_sweep logs via logging, not stdout.
     try:
         results = flag_sweep(

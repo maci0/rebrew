@@ -1,4 +1,4 @@
-"""catalog/sections.py - Binary section and globals helpers.
+"""sections.py - Binary section and globals helpers.
 
 Provides section parsing from binary headers, global variable
 scanning from annotated source files, and shared x86 code-analysis

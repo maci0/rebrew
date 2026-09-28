@@ -3,7 +3,8 @@
 Each docker-backed compile (and any native plugin toolchain without an
 image) costs hundreds of milliseconds of container/subprocess startup.
 During ``rebrew match --all`` (100 gen × 30 pop × N functions) and
-``rebrew match --flag-sweep`` (192-8.3M flag combinations), the same
+``rebrew match --flag-sweep`` (192 to ~100k flag combinations, since
+``_MAX_SWEEP_COMBOS`` caps the Cartesian product), the same
 ``(source + flags)`` combination is frequently compiled multiple times.
 
 This module provides a persistent, thread-safe, disk-backed cache that

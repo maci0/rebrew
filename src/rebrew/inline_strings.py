@@ -12,8 +12,8 @@ Two modes (both default on):
 
 - **inline** — replace token uses outside comments/``__asm`` blocks with
   inline literals (``push offset s_x`` inside naked asm must keep the symbol).
-- **define** (``--define``) — for the remaining asm-referenced tokens, turn
-  the file's ``extern char s_x[];`` into a real definition
+- **define** (skipped by ``--inline-only``) — for the remaining asm-referenced
+  tokens, turn the file's ``extern char s_x[];`` into a real definition
   ``char s_x[N] = "<bytes>";`` so the string gets content AND lands in the
   owning TU's .data slot.  Tokens referenced from several files get exactly
   one owner definition (file with the most uses); the rest keep extern.

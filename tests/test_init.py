@@ -1216,7 +1216,7 @@ class TestInitDelphi16:
 
 class TestInitGuessCompiler:
     """rebrew init --guess-compiler auto-selects the profile from the
-    target binary (diec → PDB → heuristics), preferring the 16-bit profile
+    target binary (diec → PDB → PE metadata → heuristics), preferring the 16-bit profile
     for DOS/NE binaries."""
 
     def test_guess_borlandc_from_real_exe(self, tmp_path: Path, monkeypatch) -> None:

@@ -424,7 +424,7 @@ def _run_one_stub_ga(
     when *rng_seed* is None; None when no GA ran), so the batch driver records the truth in
     ``ga_runs.jsonl``.
 
-    *cflags_override* replaces ``stub.cflags`` (used by ``--sweep-then-ga``
+    *cflags_override* replaces ``stub.cflags`` (used by ``--flag-sweep-then-ga``
     to seed the GA with the flag-sweep's best variant).  *resume_from* is a
     validated :class:`GACheckpoint` (batch ``--resume``).  *solutions_out*
     collects SolutionEntry for the batch driver's single end-of-batch flush
@@ -618,7 +618,7 @@ def _run_one_stub_ga(
                                 "return type or no marker) — the .c still holds a stub",
                                 stub.symbol,
                             )
-                        # Under --sweep-then-ga the GA ran with swept flags that
+                        # Under --flag-sweep-then-ga the GA ran with swept flags that
                         # differ from stub.cflags — persist them or the next
                         # test/verify (which compiles with metadata CFLAGS)
                         # demotes the match immediately.

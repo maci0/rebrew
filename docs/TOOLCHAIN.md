@@ -431,7 +431,11 @@ best-first:
    the matching `libQt5Core`/`libQt5Script`/`libicu74` `.so` files into
    `tools/diec/lib/` — the `.so`-only pair from a single distro release
    works; mixing distros aborts the QtScript engine).
-2. **PE metadata** (Rich header / linker version / CRT imports) — the
+2. **PDB** (`llvm-pdbutil`) — when a sibling `.pdb` exists: the `S_COMPILE3`
+   record carries the compiler version and, for MSVC PDBs, the exact
+   compiler flags (auto-surfaced in the doctor report).  A `.zig-cache`
+   module path identifies Zig builds.
+3. **PE metadata** (Rich header / linker version / CRT imports) — the
    strongest **per-version** MSVC fingerprint, no external tool: LINK.EXE's
    Rich header records the compiler front/back-end build, which combined
    with the optional-header linker version pins the exact compiler (e.g.
@@ -440,15 +444,13 @@ best-first:
    VC 2.0-4.2 linkers write no Rich header — the linker version alone
    names the version (2.50 -> VC 2.0, 3.0 -> 4.0, 3.10 -> 4.1, 4.20 ->
    4.2; a bare 2.x is ambiguous with MinGW).  The msvcpX.dll import
-   (msvcp60/70/71/80/90/100) is a secondary binder.  The detector then
+   (msvcp60/70/71/80/90/100) is a secondary binder.  It runs after PDB so a
+   PDB-reported family wins, but before the codegen heuristics so a
+   version-exact answer beats a family guess.  The detector then
    suggests the **version-exact** rebrew profile (`suggested_profiles`,
    e.g. `msvc-6.0-sp6`) and `profile_matches_detection` flags a configured
    profile that cannot byte-match (different MSVC version = different
    codegen) before the first compile.
-3. **PDB** (`llvm-pdbutil`) — when a sibling `.pdb` exists: the `S_COMPILE3`
-   record carries the compiler version and, for MSVC PDBs, the exact
-   compiler flags (auto-surfaced in the doctor report).  A `.zig-cache`
-   module path identifies Zig builds.
 4. **Structural heuristics** — `.buildid` section, GNU `0f 1f` nops vs
    MSVC alignment nops / int3 padding, imports, Delphi RTL strings, and
    GCC-arg-passing era (pre-8 push style vs modern accumulate style).

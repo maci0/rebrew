@@ -966,8 +966,8 @@ def main(
         "--guess-compiler",
         help=(
             "Auto-select the compiler profile from the target binary "
-            "(diec → PDB → heuristics; prefers the 16-bit profile for "
-            "DOS/NE binaries).  Requires the binary to be in place."
+            "(diec → PDB → PE metadata → heuristics; prefers the 16-bit "
+            "profile for DOS/NE binaries).  Requires the binary to be in place."
         ),
     ),
     install_wibo: bool = typer.Option(

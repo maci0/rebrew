@@ -30,7 +30,8 @@ def _get_parser() -> ts.Parser:
 
 #: Retained parse trees, keyed by source bytes, in LRU order.  The bound is on
 #: source bytes, not entries: a tree costs far more than the text it was
-#: parsed from, so a sweep that mutates a function through 258k combinations
+#: parsed from, so a sweep that mutates a function through every sampled
+#: combination (a thorough tier is 258k)
 #: parks a full tree per distinct mutant until the process exits, and an
 #: entry-count bound made the real limit the heap.  Measuring by source size
 #: keeps the memo's working set (one unchanged body per running worker) inside

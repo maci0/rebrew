@@ -130,7 +130,7 @@ make check                            # 14 of 16 pre-commit hooks — pytest (pr
                                         # why the make target is the documented one.
 NO_COLOR=1 TERM=dumb _TYPER_FORCE_DISABLE_TERMINAL=1 \
   uv run --frozen pre-commit run --all-files   # same 14 hooks, ANSI-safe by hand
-make all                                # local mirror of CI lint + test + cli-contract
+make all                                # local gates: format-check, lint, mypy, audit, coverage, gen-fixtures-check, cycles-check, idempotency-check, cli-contract
 make cli-contract                       # high-value --help greps (CI cli-contract job)
 make gen-fixtures                       # regenerate tests/fixtures/ (then commit)
 make build                              # sdist+wheel (CI package job; run before a PR)

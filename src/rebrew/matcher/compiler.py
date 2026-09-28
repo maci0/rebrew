@@ -895,8 +895,9 @@ def flag_sweep(
 
     with ThreadPoolExecutor(max_workers=n_jobs) as executor:
         # Bounded submission: submitting every combo up front (thorough =
-        # 258k, full = 6.2M combos) builds one Future + one queued task per
-        # combo — hundreds of MB to GBs of memory before the first compile.
+        # 258k before the cap, ~100k after, full = 6.2M before the cap)
+        # builds one Future + one queued task per combo — hundreds of MB to
+        # GBs of memory before the first compile.
         # Submit n_jobs batches and drain via as_completed.
         results = []
         worker_errors = 0
@@ -929,7 +930,7 @@ def flag_sweep(
                 # spent, and let the in-flight compiles drain.  Without this
                 # `--timeout-min` was silently ignored on the --flag-sweep-only
                 # path -- it was only applied around the GA run -- so a sweep of
-                # a thorough tier (258k combos) ran unbounded.  Measured on
+                # a thorough tier (258k combos, sampled to the cap) ran unbounded.  Measured on
                 # guild-rebrew: `--timeout-min 6` was still going after 13
                 # minutes and had to be killed.
                 if deadline is not None and now() >= deadline:

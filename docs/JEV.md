@@ -285,7 +285,7 @@ deterministic (`--guess-compiler`, FLIRT, CRT).
   Entity-alignment Score: merge with a known lib symbol / leave
   unmatched / curator (human).
 - **Do not** throw the PE at Jev, or a raw listing of it. Family and
-  exact SP are `rebrew toolchain detect --json` (diec → Rich header
+  exact SP are `rebrew toolchain detect --json` (diec → PDB → Rich header
   → heuristics). Jev is a leftover Choice over
   `suggested_profiles` when that JSON already disagrees with itself
   — [§5.14](#514-disassembly-as-state).

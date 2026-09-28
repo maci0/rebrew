@@ -71,7 +71,7 @@ rebrew intake original/server.dll --toolchain msvc-6.0   # or pin it explicitly
 
 `intake` does the whole first pass automatically:
 
-1. **detects the compiler profile** (diec → PDB → heuristics)
+1. **detects the compiler profile** (diec → PDB → PE metadata → heuristics)
 2. runs `rebrew init` (skipped if the project already exists — re-running
    intake is a safe re-discovery)
 3. copies the binary to `original/`

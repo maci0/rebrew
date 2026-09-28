@@ -299,14 +299,14 @@ _BUILTIN_MUTATIONS = [
     mut_dummy_stack_vars,
     mut_inject_dummy_registers,
     mut_extract_complex_args,
-    # --- Pragma levers: #pragma optimize / intrinsic / check_stack /
-    #     auto_inline (codegen switches that flags cannot reach) ---
     # --- Lever operators: shapes a real MSVC6 build keys its codegen off ---
     mut_ternary_lift_constant,
     mut_compare_negate_to_ternary,
     mut_walk_in_parameter,
     mut_home_byte_in_param_slot,
     mut_call_prototype_view,
+    # --- Pragma levers: #pragma optimize / intrinsic / check_stack /
+    #     auto_inline (codegen switches that flags cannot reach) ---
     mut_add_optimize_pragma,
     mut_remove_optimize_pragma,
     mut_add_intrinsic_pragma,

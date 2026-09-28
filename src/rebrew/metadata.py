@@ -2,7 +2,8 @@
 
 Volatile annotation fields (STATUS, SIZE, CFLAGS, BLOCKER, NOTE, GHIDRA, …)
 are stored in a single ``rebrew-functions.toml`` metadata file at the
-``metadata_dir`` root (``cfg.metadata_dir``, i.e. ``reversed_dir.parent``),
+``metadata_dir`` root (``cfg.metadata_dir``; the parent of ``reversed_dir``,
+or ``reversed_dir`` itself when only it holds the TOML),
 rather than as comment annotations inside ``.c`` source files.
 
 Location

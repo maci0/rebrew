@@ -8,10 +8,10 @@ read defaults (binary path, reversed_dir, compiler settings) from the project co
 The ones that do not (`postlink`, `cmake-toolchain`, `build-check`, `order-sources`,
 `gen-link-stubs`, `gen-stubs`, `pdb-info`, `discover-functions`, `unpack-lzexe`,
 `gen-flirt-pat`, `dashboard`, plus the `library`, `resource`, and `skills` groups)
-take their input paths directly.  Within the `cfg` group, `list-targets`, `raw`,
-`path`, `set`, and `remove-target` have no `--target` either: the first three act
-on the file, `set` addresses a key by dotted path, and `remove-target` /
-`set-compiler` name the target as a positional argument.
+take their input paths directly.  Within the `cfg` group, `list-targets`, `raw`, `path`, `set`, `add-target`,
+and `remove-target` have no `--target` either: the first three act
+on the file, `set` addresses a key by dotted path, and `add-target` /
+`remove-target` / `set-compiler` name the target as a positional argument.
 `rebrew init` and `rebrew intake` also take a
 `-t/--target`, but it names the target being created rather than selecting one
 from the config.
@@ -137,7 +137,7 @@ exit is 120, and click's is 1; `run_cli` overrides both.
 | `rebrew status` | `status.py` | At-a-glance reversing progress overview (per-module coverage, status ladder counts) |
 | `rebrew similar` | `similar.py` | Find structurally similar functions in the target binary (clone detection) |
 | `rebrew binary-similarity` | `binary_similarity.py` | Whole-binary structural similarity vs another binary — per-function best matches aggregated into a byte-weighted score (versions/DLL+EXE) |
-| `rebrew near-diag` | `near_diag.py` | Classify why a `NEAR_MATCHING` function does not byte-match — categories: register / equivalent / reloc / structural, plus the `EFFECTIVE` verdict, reccmp-adapted equivalences (mirrored conditional jumps) and unique-byte pinning of the alignment when the entire delta is register allocation (reccmp's 100% effective-match case); JSON carries a `frame` stack-comparison field; `--fix-blocker` auto-writes BLOCKER |
+| `rebrew near-diag` | `near_diag.py` | Classify why a `NEAR_MATCHING` function does not byte-match — categories: register / encoding / equivalent / reloc / structural, plus the `EFFECTIVE` verdict, reccmp-adapted equivalences (mirrored conditional jumps) and unique-byte pinning of the alignment when the entire delta is register allocation (reccmp's 100% effective-match case); JSON carries a `frame` stack-comparison field; `--fix-blocker` auto-writes BLOCKER |
 | `rebrew gap-trace` | `gap_trace.py` | Trace length-gap drift between object and reference instruction streams — running our-minus-reference offset per equal block, exposing LENGTH hypotheses (short COMDAT, early jump table) that flat scores hide; window defaults to the real body (next VA); `--json` |
 | `rebrew drift` | `drift_cli.py` | Localise where compiled bytes drift from the reference, from branch targets; `--json` |
 | `rebrew climb` | `climb.py` | Deterministic single-statement hill-climb for one function (`--passes`, `--dry-run`, `--json`) |
@@ -687,7 +687,7 @@ Output prefixes for unambiguous parsing:
 | `--json` | Output results as JSON |
 
 Checks: project toml, target binary, arch/format, toolchain alignment
-(diec → PDB → heuristics), CRT linkage, optimization level, compiler +
+(diec → PDB → PE metadata → heuristics), CRT linkage, optimization level, compiler +
 CL.EXE reachability, runner, include/lib paths, function list, source dirs,
 FLIRT signatures, Ghidra sync, optional tools (angr/claripy), metadata
 files, and shared-source setup (multi-target projects warn when
@@ -991,7 +991,7 @@ content AND lands in the owning translation unit's `.data` slot.
 
 ### `rebrew order-sources`
 
-`rebrew order-sources <src.c>... [--first-va file=0xVA]... [--exclude file]... [--json]`
+`rebrew order-sources <src.c>... [--first-va file=0xVA]... [--exclude file]... [--marker MODULE] [--json]`
 
 Order source files by each file's lowest original function VA — MSVC6 LINK
 keeps object order and (without /Gy) doesn't reorder functions, so this
@@ -1147,6 +1147,8 @@ state dir), `--refresh-cache` (cache deleted).
 | `--min-size N` | Minimum function size in bytes to report (default 16) |
 | `--va HEX` | Check one function VA instead of the whole scan |
 | `--show-ambiguous` | Report offsets with more than three candidate names |
+| `--init` | Copy the `rebrew-flirt-sigs` checkout into the project's `flirt_sigs/` and exit |
+| `--init-matched` | Copy only the sigs matching the target's detected CRT linkage (static → `libcmt*`, dynamic → `msvcrt*`/`crtdll*`) plus WinAPI imports, and exit |
 | `--json` | Output results as JSON |
 
 Every executable section is scanned, not only `.text`: a linker run with
@@ -1337,9 +1339,10 @@ audit log. Nothing in the source tree is modified — the search only reads.
 | `--target NAME` / `-t NAME` | Name of the initial target (default: `main`) |
 | `--binary NAME` | Binary filename (default: `program.exe`) |
 | `--toolchain PROFILE` | Compiler profile (default: `msvc-6.0`) |
-| `--guess-compiler` | Auto-select the compiler profile from the target binary (diec → PDB → heuristics; prefers the 16-bit profile for DOS/NE binaries — requires the binary in `original/`) |
+| `--guess-compiler` | Auto-select the compiler profile from the target binary (diec → PDB → PE metadata → heuristics; prefers the 16-bit profile for DOS/NE binaries — requires the binary in `original/`) |
 | `--wizard` / `--no-wizard` | Interactive onboarding wizard (default: on; TTY only, never under `--json` or piped stdin).  Prompts only for options not passed explicitly: binary pick from `original/`/cwd, compiler profile with detection-based suggestion from the binary, target name (binary stem), a summary confirmation, and shell completions — then reports the profile's docker image state and offers `rebrew toolchain build <profile>` when it is missing. |
 | `--dry-run` | Preview the project layout without writing |
+| `--install-wibo` | Download the wibo runner into `tools/wibo/` |
 | `--refresh-agents` | Re-render the generated scaffold (`AGENTS.md`, `PRINCIPLES.md`, `.agents/skills/`) from the project's `rebrew-project.toml` and exit; only files that differ are written (re-render after a profile rename, template change or skill edit; reads the config, never rewrites it) |
 | `--check` | Report generated-scaffold drift (`AGENTS.md`, `PRINCIPLES.md`, `.agents/skills/`) against the packaged sources instead of writing; exit 1 when any file differs |
 | `--json` | Output results as JSON |
@@ -1866,7 +1869,7 @@ host binary).  See [TOOLCHAIN.md](TOOLCHAIN.md) for the full model.
 |------------|-------------|
 | `list` | List known toolchains + how each is invoked (`--json`) |
 | `status NAME` | How one toolchain resolves (image pulled? host binary present? resolved-mirror layout reported when the master is absent) |
-| `detect BINARY` | Detect which compiler/toolchain built a binary (diec → PE metadata: Rich header/linker version → PDB → heuristics) — pins the exact MSVC version (e.g. 12.00.9782) and suggests the version-exact rebrew profile; with a project present, also reports whether the configured profile can byte-match it (`--json`) |
+| `detect BINARY` | Detect which compiler/toolchain built a binary (diec → PDB → PE metadata: Rich header/linker version → heuristics) — pins the exact MSVC version (e.g. 12.00.9782) and suggests the version-exact rebrew profile; with a project present, also reports whether the configured profile can byte-match it (`--json`) |
 | `pull NAME` | Pull a toolchain's docker image (locally-built images are reported as already present, not re-pulled; a failed pull on an absent image points at `toolchain build`, since rebrew images are built from pinned sources, not hosted on a registry) |
 | `build NAME` | Build a toolchain's docker image from its `<family>/<ver>-<arch>/Dockerfile` in the rebrew-toolchains checkout (builds the shared `rebrew/base` dependency first) |
 | `vendor NAME` | Assemble the host tree from the pinned source — a 16-bit media tarball (msvc-1.52/15/10, delphi, borland-3.1, borland-2.0) next to its Dockerfile in the rebrew-toolchains checkout, or a sha256-verified download (borland 5.5, watcom, msvc-6.0, msvc-4.0/4.2/5.0 via the archaic-msvc / itsmattkc codeload snapshots).  MSVC 6.0 is wrapped into the classic `VC98/` layout; the tree lands in `<family>/<ver>-<arch>/source` under that checkout.  Refuses to clobber an existing tree; fails loudly if the compiler binary is missing |
@@ -1997,13 +2000,14 @@ Multi-command umbrella over the flat BinSync commands with git automation.
 
 ### `rebrew near-diag`
 
-`rebrew near-diag <source> [--va HEX] [--size N] [--json] [--fix-blocker] [--target NAME]`
+`rebrew near-diag <source> [--va HEX] [--size N] [--catalog] [--dry-run] [--json] [--fix-blocker] [--target NAME]`
 `rebrew near-diag --all [--fix-blocker] [--json] [--target NAME]`
 
 Compile the source and classify why it does not byte-match the target —
 which category of compiler choice is blocking the match. Every mismatching
 byte is bucketed into `register` (same instruction, different register
-allocation), `equivalent` (semantically equal instruction selection, e.g.
+allocation), `encoding` (same instruction and registers, different opcode),
+`equivalent` (semantically equal instruction selection, e.g.
 `lea` vs `mov`, a mirrored conditional jump after a flipped `cmp` operand
 order), `reloc` (relocation-masked site), or `structural` (different
 layout/block order). When the *entire* delta is register allocation the
@@ -2039,6 +2043,8 @@ aborting the batch).
 | `--va HEX` | Target VA (default: from the annotation; cannot combine with `--all`) |
 | `--size N` | Target size in bytes (default: from the annotation) |
 | `--fix-blocker` | Write each verdict as `BLOCKER` metadata (skipped on a match) |
+| `--catalog` | Print the symptom index (delta category → suggestion → GA mutations) and exit |
+| `--dry-run` | Preview changes without writing |
 | `--json` | JSON structured output (per-function results with `--all`) |
 | `--target NAME` | Select a target from `rebrew-project.toml` |
 
@@ -2188,7 +2194,7 @@ where `applied` lists `{var, struct, offsets}`.
 
 ### `rebrew postlink`
 
-`rebrew postlink BUILT REFERENCE [--fix imports|data|pe-metadata] [--output OUT] [--dry-run]`
+`rebrew postlink BUILT REFERENCE [--layout FILE] [--fix imports|data|pe-metadata|all] [--output OUT] [--dry-run] [--json]`
 
 Normalize a built binary's layout onto a reference binary (post-link
 fixes) — import table, data sections, and PE metadata convergence, in
@@ -2201,7 +2207,7 @@ rebuild verification where the linker layout differs from the original.
 `rebrew analyze [BINARY] [--function 0xVA] [--output report.md] [--json]`
 
 One-shot intelligence dossier: binary layout, toolchain detection (diec →
-PDB → heuristics), strings + references, imports + IAT stubs, reversed-function
+PDB → PE metadata → heuristics), strings + references, imports + IAT stubs, reversed-function
 coverage, dispatch tables, vtordisp (MI thunk) detection, the float-constant
 pool referenced from code, FLIRT matches (when `flirt_sigs/` exists), and
 NEAR_MATCHING blockers. Best-effort by design — every section is optional.
@@ -2585,6 +2591,14 @@ this command when it recognizes a packed binary.
 
 Cross-reference explorer: every code location that references the given
 address (calls, jmps, data references).
+
+| Flag | Description |
+|------|-------------|
+| `VA` | Target address, hex or int (positional) |
+| `BINARY` | Binary path (positional, optional; default: the project target) |
+| `--kind KIND` | Only show this reference kind (repeatable) |
+| `--calls-from N` | Instead of references to `VA`, inventory calls *from* the function at `VA` for this many bytes (resolves register-cached imports) |
+| `--json` | Output results as JSON |
 
 ### `rebrew dashboard`
 
