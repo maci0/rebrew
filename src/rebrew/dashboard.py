@@ -91,8 +91,15 @@ wire size stays inside the RFC 6928 initial congestion window minus a
 per-response header reserve, so a cold connection paints without an extra
 round trip; a test pins that budget, and a change that does not fit pays for
 itself in the client's own comment prose rather than in the budget.  As
-measured: 12092 B zstd and 12666 B gzip against a 12680 B budget, so gzip has
-14 B of room and zstd 588 B — a client-side edit budgets against gzip.  Remaining
+measured: 12112 B zstd and 12676 B gzip against a 12680 B budget, so gzip has
+4 B of room and zstd 568 B — a client-side edit budgets against gzip.  The
+reserve is what makes gzip tight, not the encoder: the three responses send
+518, 550, and 549 B of headers as served, against the 640 B each is given.
+The preloaded ``/api/bootstrap`` is a fourth cold-flight response (774 B gzip
+plus 562 B of headers) and is deliberately outside that reserve, so the whole
+four-response flight measures 14997 B zstd and 15629 B gzip and does not fit
+one window: the entry assets carry the first paint, and the bootstrap's tail
+rides the second.  Remaining
 JSON compresses per request at mid effort, except ``/api/bootstrap``: the cold
 start needs it to paint, a client sends it once per load and 304s after that,
 so it takes the same max effort the static blobs do.  The shell

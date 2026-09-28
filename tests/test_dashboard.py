@@ -1934,6 +1934,66 @@ class TestEncodingNegotiation:
             f"entry assets {wire} B over {_ENTRY_WIRE_BUDGET_BYTES} B budget"
         )
 
+    @pytest.mark.parametrize("accept", ["gzip", "zstd"])
+    def test_cold_flight_fits_the_window_against_measured_headers(
+        self, dashboard: Dashboard, accept: str
+    ) -> None:
+        """The window claim is checked against the headers actually sent.
+
+        The budget charges each entry response a fixed 640 B, so it cannot
+        notice a security header growing and it is the reason gzip sits 4 B
+        from the ceiling.  This measures the status line and every header as
+        served instead: the three entry assets must fit RFC 6928's 10-segment
+        initial window with their real headers, which pins the flight rather
+        than a guess at it.
+
+        ``/api/bootstrap`` is the fourth cold-flight response.  It is
+        reported, not asserted: the entry assets carry the first paint, and
+        the bootstrap body is bounded by its own budget.  Printing it in the
+        failure message is what makes the unreserved tail visible in a diff.
+        """
+        from http import HTTPStatus
+        from io import BytesIO
+        from unittest.mock import Mock
+
+        from rebrew.dashboard import (
+            _ENTRY_PATHS,
+            _INITCWND_BYTES,
+            _Handler,
+            allowed_hosts_for,
+        )
+
+        def flight_bytes(path: str) -> tuple[int, int]:
+            handler = _Handler.__new__(_Handler)
+            handler.headers = {"Host": "127.0.0.1:8000", "Accept-Encoding": accept}
+            handler.path = path
+            handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
+            handler.dashboard = dashboard
+            handler.send_response = Mock()
+            handler.send_header = Mock()
+            handler.end_headers = Mock()
+            handler.wfile = BytesIO()
+            handler._respond("GET")
+            status = handler.send_response.call_args.args[0]
+            head = f"HTTP/1.1 {int(status)} {HTTPStatus(status).phrase}\r\n"
+            head += "".join(
+                f"{call.args[0]}: {call.args[1]}\r\n" for call in handler.send_header.call_args_list
+            )
+            return len(head.encode()) + 2, len(handler.wfile.getvalue())
+
+        entry_head = entry_body = 0
+        for path in _ENTRY_PATHS:
+            head, body = flight_bytes(path)
+            entry_head += head
+            entry_body += body
+        boot_head, boot_body = flight_bytes("/api/bootstrap")
+        assert entry_body + entry_head <= _INITCWND_BYTES, (
+            f"entry assets {entry_body} B of body + {entry_head} B of headers over the "
+            f"{_INITCWND_BYTES} B initial window; whole flight with /api/bootstrap is "
+            f"{entry_body + boot_body + entry_head + boot_head} B "
+            f"({entry_body} + {boot_body} body, {entry_head} + {boot_head} headers)"
+        )
+
     def test_entry_assets_carry_no_vendor_or_superseded_css(self) -> None:
         """The entry budget forbids decorative CSS and superseded prefixes.
 
