@@ -1,9 +1,7 @@
 """Tests for the synthetic ELF fixture (tests/bin_util.make_elf)."""
 
-import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))  # tests/ on path for bin_util
 from bin_util import make_elf
 
 from rebrew.binary_loader import load_binary

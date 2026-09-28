@@ -38,6 +38,14 @@
   `docs/COVERAGE_DOCUMENT.md` and `docs/THREAT_MODEL.md` document the field.
 
 ### Changed
+- **Breaking:** `rebrew doctor` no longer re-exports `EXIT_MISMATCH`.
+  `rebrew.doctor` imported the exit code from `rebrew.cli` and a failing check
+  raised it, so `doctor.EXIT_MISMATCH` was part of the public import surface.
+  A failed check is a missing prerequisite, an unreadable config, or an
+  unusable toolchain, never a byte mismatch, so it now raises `EXIT_ERROR`
+  (2) and the re-export is gone. A caller reading the code off the module
+  takes it from `rebrew.cli`, which keeps the name for the commands that
+  still mean a byte mismatch by it.
 - **Breaking:** the `delphi-1.0` entry of `BUILTIN_TOOLCHAINS` (re-exported
   by `rebrew.toolchain` and defined in `rebrew.toolchain_data`) — its
   `host_path` is now `None` on a checkout where

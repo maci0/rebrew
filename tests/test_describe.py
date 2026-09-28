@@ -10,15 +10,12 @@ from __future__ import annotations
 
 import json
 import struct
-import sys
 from pathlib import Path
 from typing import Any
 
 import pytest
-from typer.testing import CliRunner
-
-sys.path.insert(0, str(Path(__file__).parent))  # tests/ on path for bin_util
 from bin_util import append_pe_section, make_pe
+from typer.testing import CliRunner
 
 from rebrew.analysis import section_range
 from rebrew.binary_loader import load_binary

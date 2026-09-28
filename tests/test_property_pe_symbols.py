@@ -10,15 +10,12 @@ into the section (as VA or RVA), at arbitrary dwords, or at nothing.
 from __future__ import annotations
 
 import struct
-import sys
 import tempfile
 from pathlib import Path
 
+from bin_util import make_pe
 from hypothesis import given, settings
 from hypothesis import strategies as st
-
-sys.path.insert(0, str(Path(__file__).parent))  # tests/ on path for bin_util
-from bin_util import make_pe
 from test_pe_symbols import (
     _DIR_DELAY_IMPORT,
     _DIR_LOAD_CONFIG,

@@ -2,18 +2,15 @@
 
 import json
 import struct
-import sys
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from bin_util import make_elf, make_pe
 from hypothesis import given, settings
 from hypothesis import strategies as st
 from typer.testing import CliRunner
-
-sys.path.insert(0, str(Path(__file__).parent))  # tests/ on path for bin_util
-from bin_util import make_elf, make_pe
 
 from rebrew.import_table import find_import_stubs, parse_import_table, parse_imports
 from rebrew.imports import imports_payload

@@ -3,12 +3,9 @@
 from __future__ import annotations
 
 import struct
-import sys
 from pathlib import Path
 
 import pytest
-
-sys.path.insert(0, str(Path(__file__).parent))  # tests/ on path for bin_util
 from bin_util import append_pe_section, make_pe
 
 from rebrew.pe_symbols import (

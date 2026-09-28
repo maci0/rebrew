@@ -1,13 +1,9 @@
 """Unit tests for tools/detect_cycles.py helpers."""
 
 import ast
-import sys
 from pathlib import Path
 
-TOOLS = Path(__file__).resolve().parent.parent / "tools"
-sys.path.insert(0, str(TOOLS))
-
-import detect_cycles as dc  # noqa: E402
+from tools import detect_cycles as dc
 
 
 def _parse(src: str) -> list[ast.stmt]:

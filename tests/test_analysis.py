@@ -8,10 +8,8 @@ plus an appended string blob (ASCII and UTF-16LE).
 from __future__ import annotations
 
 import struct
-import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))  # tests/ on path for bin_util
 from bin_util import PROBE_IMAGE_BASE, PROBE_TEXT_VA, make_pe, make_xref_probe
 
 from rebrew.analysis import (

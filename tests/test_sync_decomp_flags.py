@@ -1,14 +1,7 @@
 """Tests for tools/sync_decomp_flags.py — flag formatting and combo counting."""
 
-import sys
-from pathlib import Path
-
-TOOLS = Path(__file__).resolve().parent.parent / "tools"
-sys.path.insert(0, str(TOOLS))
-
-import sync_decomp_flags as sdf  # noqa: E402
-
-from rebrew.flags import Checkbox, FlagSet  # noqa: E402
+from rebrew.flags import Checkbox, FlagSet
+from tools import sync_decomp_flags as sdf
 
 
 class LanguageFlagSet:

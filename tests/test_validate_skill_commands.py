@@ -1,15 +1,11 @@
 """Unit tests for tools/validate_skill_commands.py — command extraction."""
 
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 
-TOOLS = Path(__file__).resolve().parent.parent / "tools"
-sys.path.insert(0, str(TOOLS))
-
-import validate_skill_commands as vsc  # noqa: E402
+from tools import validate_skill_commands as vsc
 
 
 def _md(content: str, tmp_path: Path) -> Path:

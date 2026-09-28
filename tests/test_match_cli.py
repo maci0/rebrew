@@ -239,9 +239,7 @@ class TestResolveBuildParamsSymbol:
             encoding="utf-8",
         )
         cfg = load_config(tmp_path)
-        import sys
 
-        sys.path.insert(0, str(Path(__file__).parent))
         from bin_util import make_pe
 
         (tmp_path / "x.dll").write_bytes(
@@ -272,9 +270,7 @@ class TestResolveBuildParamsSymbol:
             encoding="utf-8",
         )
         cfg = load_config(tmp_path)
-        import sys
 
-        sys.path.insert(0, str(Path(__file__).parent))
         from bin_util import make_pe
 
         (tmp_path / "x.dll").write_bytes(
@@ -306,9 +302,7 @@ class TestResolveBuildParamsSymbol:
             encoding="utf-8",
         )
         cfg = load_config(tmp_path)
-        import sys
 
-        sys.path.insert(0, str(Path(__file__).parent))
         from bin_util import make_pe
 
         (tmp_path / "x.dll").write_bytes(

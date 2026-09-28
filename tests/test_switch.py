@@ -1,11 +1,9 @@
 """Tests for rebrew.switch — jump-table switch dispatch decoding."""
 
 import struct
-import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-sys.path.insert(0, str(Path(__file__).parent))  # tests/ on path for bin_util
 from bin_util import make_pe
 
 from rebrew.switch import find_switches

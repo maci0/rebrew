@@ -323,9 +323,7 @@ class TestPeImageBase:
 
     def test_pe32_plus(self) -> None:
         """A PE32+ base is 8 bytes at offset 24, not 4 bytes at offset 28."""
-        import sys
 
-        sys.path.insert(0, str(Path(__file__).parent))  # tests/ on path for bin_util
         from bin_util import make_pe
 
         from rebrew.pe_headers import pe_image_base
@@ -343,9 +341,7 @@ class TestPeImageBase:
 class TestPe32PlusFieldWidths:
     def test_stack_heap_fields_are_eight_bytes(self) -> None:
         """A PE32+ stack/heap size is 8 bytes; the PE32 offsets read 4 of it."""
-        import sys
 
-        sys.path.insert(0, str(Path(__file__).parent))  # tests/ on path for bin_util
         from bin_util import make_pe
 
         from rebrew.pe_headers import header_parity, patch_pe_headers, read_pe_header_fields

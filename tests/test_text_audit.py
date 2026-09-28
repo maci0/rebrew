@@ -12,14 +12,11 @@ from __future__ import annotations
 
 import json
 import struct
-import sys
 from pathlib import Path
 
 import pytest
-from typer.testing import CliRunner
-
-sys.path.insert(0, str(Path(__file__).parent))  # tests/ on path for bin_util
 from bin_util import make_coff_obj, make_pe
+from typer.testing import CliRunner
 
 FAKE_TEXT_VA = 0x1000
 

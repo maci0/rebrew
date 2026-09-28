@@ -11,14 +11,11 @@ convention as ``test_imports.py``.
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
 
 import pytest
-from typer.testing import CliRunner
-
-sys.path.insert(0, str(Path(__file__).parent))  # tests/ on path for bin_util
 from bin_util import PROBE_IMAGE_BASE, make_xref_probe
+from typer.testing import CliRunner
 
 from rebrew.xrefs import app, build_xrefs_payload
 

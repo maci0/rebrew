@@ -1,13 +1,9 @@
 """Unit tests for tools/check_layering.py."""
 
 import ast
-import sys
 from pathlib import Path
 
-TOOLS = Path(__file__).resolve().parent.parent / "tools"
-sys.path.insert(0, str(TOOLS))
-
-import check_layering as cl  # noqa: E402
+from tools import check_layering as cl
 
 
 def _from_import(source: str) -> ast.ImportFrom:
