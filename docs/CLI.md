@@ -2466,7 +2466,9 @@ once they pass 250 rows, so the first page stays a few hundred rows.
 A function-index or strings page past the first names the address span
 of its rows in the pager.
 A Mermaid call graph larger than 32 KB is written to `callgraph.mmd`;
-`graph.html` keeps the opening lines and links that file. Each text file
+`graph.html` keeps the opening lines and links that file. The rebrew mark
+is written once as `favicon.svg` beside the pages rather than inlined in
+every head. Each text file
 also gets `.gz` and `.zst` sidecars when those are smaller. Regenerating
 the site deletes pages and sidecars the new report does not write.
 

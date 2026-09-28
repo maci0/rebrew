@@ -97,10 +97,14 @@ class TestReportCli:
         assert "text-decoration: underline" in index  # nav links not color-only (1.4.1)
         assert "max-width: 40rem" in index  # narrow-viewport reflow (1.4.10)
         assert "content-visibility: auto" in index  # virtualize off-screen table rows
-        from rebrew.theme import FAVICON
+        from rebrew.theme import FAVICON_SVG
 
-        # Prevent per-load /favicon.ico 404, and ship the mark rather than a blank icon.
-        assert f"<link rel='icon' href='{FAVICON}'>" in index
+        # Prevent per-load /favicon.ico 404, and ship the mark rather than a
+        # blank icon.  Linked, not inlined: a data URI would put 443 B of
+        # percent-encoded payload in every page and could not be cached apart.
+        assert "<link rel='icon' href='favicon.svg' type='image/svg+xml'>" in index
+        assert "data:image/svg+xml," not in index
+        assert (site / "favicon.svg").read_text(encoding="utf-8") == FAVICON_SVG
         # Dark-header link colors must not reach the pager nav on the light
         # body: white hover text and a pale focus ring fail 1.4.3 / 1.4.11.
         assert "\nnav a" not in index
@@ -439,7 +443,7 @@ class TestReportPayloadShape:
         site = tmp_path / "site"
         result = runner.invoke(app, ["--output", str(site)])
         assert result.exit_code == 0, result.output
-        for name in ("index.html", "strings.html", "imports.html", "graph.html"):
+        for name in ("index.html", "strings.html", "imports.html", "graph.html", "favicon.svg"):
             plain = site / name
             gz_path = Path(str(plain) + ".gz")
             zst_path = Path(str(plain) + ".zst")

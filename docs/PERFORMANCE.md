@@ -248,6 +248,13 @@ A rebuild deletes owned pages and `.gz`/`.zst` sidecars it did not write,
 so a static server cannot keep serving the previous body under the same
 name. Gates: `TestReportPayloadShape`.
 
+The mark is a linked `favicon.svg` beside the pages, not a data URI in every
+head: 370 bytes of `rel=icon` markup become 57, and the 266-byte icon (208
+gzip) is fetched once for the site and cached after that, the same trade the
+dashboard shell makes with its own `/favicon.svg` route. Every page also
+ships its `.gz`/`.zst` sidecars, so a static server that prefers them serves
+the icon and the pages precompressed.
+
 ## Idempotency
 
 Every offline `--json` command is deterministic across runs — enforced by

@@ -36,7 +36,6 @@ the report then cannot drift apart.
 """
 
 import re
-from urllib.parse import quote
 
 #: Semantic name -> value for the shared chrome.
 TOKENS: dict[str, str] = {
@@ -79,20 +78,16 @@ TOKENS: dict[str, str] = {
 
 #: The rebrew mark: the mascot's ``0x`` mug, in phosphor green on the harness
 #: leather (the ``ink`` token, so the tab and the page cannot drift apart).
-#: One source for both surfaces: the report has no server behind it and inlines
-#: this as a data URI, while the dashboard links it as a same-origin route, so
-#: the shell does not carry 443 bytes of percent-encoded payload the browser
-#: cannot compress.
+#: One source for both surfaces.  Both link it rather than inlining it: the
+#: dashboard as a same-origin route, the report as a ``favicon.svg`` beside the
+#: pages, so neither document carries 443 bytes of percent-encoded payload the
+#: browser cannot cache or compress.
 FAVICON_SVG = (
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">'
     '<rect width="16" height="16" rx="3" fill="' + TOKENS["ink"] + '"/>'
     '<text x="8.2" y="12.1" font-family="monospace" font-size="12" font-weight="bold"'
     ' text-anchor="middle" letter-spacing="-0.6" fill="#7ee0a3">0x</text></svg>'
 )
-
-#: The same mark as a data URI, for a surface with no server to link it from.
-#: Percent-encoded, so the value needs no attribute quoting.
-FAVICON = "data:image/svg+xml," + quote(FAVICON_SVG, safe="")
 
 _VAR = re.compile(r"var\(--rb-([a-z-]+)\)")
 

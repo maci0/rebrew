@@ -46,6 +46,18 @@
   (2) and the re-export is gone. A caller reading the code off the module
   takes it from `rebrew.cli`, which keeps the name for the commands that
   still mean a byte mismatch by it.
+- **Breaking:** `rebrew.theme.FAVICON` is removed, and `rebrew report` links
+  its mark instead of inlining it. Every report page carried a 443-byte
+  `data:image/svg+xml,` icon in its head, so the percent-encoded payload was
+  re-downloaded with each page and could not be cached apart from the
+  document. The mark is now a `favicon.svg` written beside the pages, with
+  its own `.gz` / `.zst` sidecars, and the CSP's `img-src data:` becomes
+  `img-src 'self' file:` (a `file:` document has an opaque origin, so
+  `'self'` alone would block the mark when the site is opened from disk).
+  370 bytes of `rel=icon` markup per page become 57, and the 266-byte icon
+  (208 gzip) is fetched once for the site. A consumer reading
+  `rebrew.theme.FAVICON` reads `rebrew.theme.FAVICON_SVG` and percent-encodes
+  it, or links the file the report now writes.
 - **Breaking:** the `delphi-1.0` entry of `BUILTIN_TOOLCHAINS` (re-exported
   by `rebrew.toolchain` and defined in `rebrew.toolchain_data`) — its
   `host_path` is now `None` on a checkout where

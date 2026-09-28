@@ -98,6 +98,7 @@ _MERMAID_INLINE_MAX = 32 * 1024
 _OWNED_REPORT_FILE = re.compile(
     r"^(?:index|strings|imports|import-stubs)(?:-p[1-9][0-9]*)?\.html$"
     r"|^graph\.html$"
+    r"|^favicon\.svg$"
     r"|^adjacency\.txt$"
     r"|^callgraph\.mmd$"
 )
@@ -399,14 +400,24 @@ def _page(title: str, target: str, active: str, body: str) -> str:
     return (
         "<!DOCTYPE html>\n<html lang='en'>\n<head>\n"
         "<meta charset='utf-8'>\n"
-        # The site has no JS and no external assets; the CSP keeps any
-        # escaping of binary-derived content (strings, symbol names) inert —
-        # nothing may execute or load off-site.  data: images carry the inline
-        # mark, which stops a /favicon.ico 404 per load.
+        # The site has no JS; the CSP keeps any escaping of binary-derived
+        # content (strings, symbol names) inert — nothing may execute or load
+        # off-site.  ``img-src 'self' file:`` covers the linked mark in both
+        # documented serving modes: hosted, where the page and the mark share
+        # an origin, and opened from disk, where a ``file:`` document has an
+        # opaque origin and ``'self'`` matches nothing.  It buys only image
+        # loads, and no page carries unescaped binary-derived text, so nothing
+        # in a report can ask for one.
         "<meta http-equiv='Content-Security-Policy' "
-        "content=\"default-src 'none'; style-src 'unsafe-inline'; img-src data:;\">\n"
+        "content=\"default-src 'none'; style-src 'unsafe-inline'; "
+        "img-src 'self' file:;\">\n"
         "<meta name='viewport' content='width=device-width, initial-scale=1'>\n"
-        f"<link rel='icon' href='{theme.FAVICON}'>\n"
+        # The mark is linked, not inlined as a data URI: 443 B of
+        # percent-encoded, near-incompressible payload would otherwise ride in
+        # every page the browser downloads, and a linked file is fetched once
+        # and served from cache for the rest of the walk.  Same trade the
+        # dashboard shell makes, for the same reason.
+        "<link rel='icon' href='favicon.svg' type='image/svg+xml'>\n"
         f"<title>{html.escape(title)} - {html.escape(target)}</title>\n"
         f"<style>{_CSS}</style>\n"
         "</head>\n<body>\n"
@@ -1247,6 +1258,11 @@ def generate_report(cfg: ProjectConfig, out: Path) -> dict[str, Any]:
     page_files.extend(_render_imports(cfg))
     page_files.append(("graph.html", graph_html))
     kept: set[str] = set()
+    # The mark every page links, written once per site rather than inlined
+    # into each document.  It is text, so the sidecars apply like any other
+    # owned asset.
+    _write_static(out / "favicon.svg", theme.FAVICON_SVG)
+    kept.add("favicon.svg")
     for name, content in page_files:
         _write_static(out / name, content)
         kept.add(name)

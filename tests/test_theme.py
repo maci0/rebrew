@@ -99,26 +99,13 @@ class TestTokenContrast:
 
 
 class TestFavicon:
-    """The mark is a self-contained data URI that decodes to the shipped SVG."""
+    """The mark is a standalone SVG document both surfaces serve as a file."""
 
-    def test_decodes_to_valid_svg_using_the_ink_token(self) -> None:
-        import urllib.parse
+    def test_is_a_complete_svg_document_using_the_ink_token(self) -> None:
+        from rebrew.theme import FAVICON_SVG
 
-        from rebrew.theme import FAVICON
-
-        assert FAVICON.startswith("data:image/svg+xml,")
-        svg = urllib.parse.unquote(FAVICON.removeprefix("data:image/svg+xml,"))
-        # A half-encoded or double-encoded URI leaves an escape behind, and an
-        # unencoded '#' would truncate the data URI at the fill colour.
-        assert "%" not in svg
-        assert svg.startswith("<svg ") and svg.endswith("</svg>")
-        assert f'fill="{TOKENS["ink"]}"' in svg
-
-    def test_needs_no_attribute_quoting_from_a_surface(self) -> None:
-        """Both surfaces wrap attributes differently, and neither may break."""
-        from rebrew.theme import FAVICON
-
-        assert not set("\"'<>& ") & set(FAVICON)
+        assert FAVICON_SVG.startswith("<svg ") and FAVICON_SVG.endswith("</svg>")
+        assert f'fill="{TOKENS["ink"]}"' in FAVICON_SVG
 
 
 class TestTokenSeparation:
