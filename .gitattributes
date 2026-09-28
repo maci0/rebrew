@@ -10,6 +10,11 @@
 # shebangs and Make's recipe parser.
 *.sh text eol=lf
 Makefile text eol=lf
+# SVG is XML text, not a binary asset, and the mark a project commits (logo,
+# og-image) is usually hand-edited or generated next to the token set it draws
+# from.  Left to the heuristic, a CRLF checkout rewrites it and the shipped
+# bytes stop matching the image the surfaces inline.
+*.svg text eol=lf
 
 # Binary fixtures and assets — never line-ending converted, regardless of
 # git's content heuristic.
