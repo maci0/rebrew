@@ -1,15 +1,16 @@
 ---
 name: rebrew-intake
 description: >-
-  Use when onboarding a binary into rebrew — one-shot `rebrew intake` (init + enumerate +
-  STUB document) and/or first recon (doctor, FLIRT, catalog, build-db, triage,
-  first skeletons). Triggers on 'intake', 'onboard', 'onboard binary',
-  'new binary', 'new target', 'import binary', 'binary recon', 'analyze',
-  'fingerprints', 'FLIRT scan', 'first triage', 'catalog', 'build-db',
-  'detect-crt', 'gen-layout', 'dashboard', 'coverage dashboard'. Prefer this over rebrew-init when the user
-  hands you a binary to onboard; use rebrew-init only when teaching
-  `rebrew init` / profile / target naming. Not for day-to-day flirt/todo/test,
-  or a later catalog/build-db refresh, on an already-onboarded target (rebrew-workflow).
+  Use when onboarding a binary into rebrew — one-shot `rebrew intake` (init +
+  enumerate + STUB document) and first recon (doctor, FLIRT, catalog,
+  build-db, triage, first skeletons). Triggers on 'intake', 'onboard',
+  'onboard binary', 'new binary', 'new target', 'import binary',
+  'binary recon', 'analyze', 'fingerprints', 'FLIRT scan', 'first triage',
+  'first catalog', 'first coverage db', 'detect-crt', 'gen-layout'. Prefer
+  this over rebrew-init when the user hands you a binary to onboard; use
+  rebrew-init only when teaching `rebrew init` / profile / target naming. Not
+  for day-to-day flirt/todo/test, nor for a later catalog / build-db refresh
+  or the coverage dashboard on an already-onboarded target (rebrew-workflow).
 license: MIT
 ---
 
@@ -105,7 +106,7 @@ Missing binary → place at configured path. Missing FLIRT →:
 ```bash
 rebrew gen-flirt-pat /path/to/msvcrt.lib --output flirt_sigs/msvcrt_vc6.pat
 # .lib from a vendored toolchain/ tree, or extract Lib/ from the profile docker image
-rebrew cfg add-target <name> --binary original/<filename>   # or --force if binary absent
+rebrew cfg add-target <name> --binary original/<filename>   # --force skips the existence check (--binary is still required)
 ```
 
 ### 2. FLIRT Library Scan

@@ -3,18 +3,18 @@ name: rebrew-workflow
 description: >-
   Use for day-to-day reversing on an onboarded target: matching C against
   target functions (pick work with `todo`, skeleton, edit, `test`/`diff`,
-  verify, lint, round-trip, progress) and for reorganizing the source tree
-  (split, merge, rename, call graph). Triggers on 'reverse', 'reversing',
-  'reverse engineer', 'match function', 'implement function', 'decompile',
-  'skeleton', 'test function', 'verify', 'lint', 'todo', 'diff', 'asm',
-  'status', 'coverage', 'progress', 'blocker', 'flirt', 'crt-match',
-  'lib-match', 'library code', 'is this library', 'split file', 'merge files',
-  'one function per file', 'multi-function file', 'rename function',
-  'call graph', 'rebrew probe', 'rebrew similar', 'naked reconstruction',
-  'SOURCE: naked', 'rebrew doctor', 'doctor fails', 'round-trip', 'round trip',
-  'splice'. Hand off near-miss GA/prove to rebrew-matching; new binaries to
-  rebrew-intake; globals/BSS to rebrew-data-analysis; Ghidra to
-  rebrew-ghidra-sync.
+  verify, lint, round-trip, progress), refreshing the catalog / `build-db`
+  and the coverage dashboard, and reorganizing the source tree (split, merge,
+  rename, call graph). Triggers on 'reverse', 'reverse engineer',
+  'match function', 'implement function', 'decompile', 'skeleton',
+  'test function', 'verify', 'lint', 'todo', 'diff', 'asm', 'status',
+  'coverage', 'progress', 'blocker', 'flirt', 'crt-match', 'lib-match',
+  'library code', 'split file', 'merge files', 'one function per file',
+  'multi-function file', 'rename function', 'call graph', 'rebrew probe',
+  'rebrew similar', 'SOURCE: naked', 'doctor fails', 'round-trip', 'splice',
+  'rebuild the catalog', 'build-db', 'dashboard'. Hand off near-miss GA/prove
+  to rebrew-matching; new binaries to rebrew-intake; globals/BSS to
+  rebrew-data-analysis; Ghidra to rebrew-ghidra-sync.
 license: MIT
 ---
 
@@ -201,7 +201,10 @@ Splitting/merging source files and reading the call graph:
 `rebrew doctor` for health, `rebrew verify --compare` as the CI regression gate
 against `.rebrew/verify_baseline.json`, `rebrew lint --json` (with `--fix` to
 migrate leftover inline metadata). Full flag set, `orphans`/`types`/`text-audit`,
-coverage DB, and decomp.me: `references/verify-and-progress.md`.
+`catalog` / `build-db` refresh, and decomp.me: `references/verify-and-progress.md`.
+`rebrew dashboard` serves the same coverage data read-only at
+http://127.0.0.1:8000 (`--port` rebinds); start it only when the user asks for
+the UI, and stop it when they are done — it blocks until then.
 
 ## 7. Final Validation: Round-Trip
 
