@@ -194,6 +194,33 @@
   `status` and `catalog` already do.
 
 ### Fixed
+- **`make verify-dist` names the buildinfo key it could not find.**
+  The gate read each recorded value through a `recorded` helper called as
+  `$(recorded <key>)`, so the helper's `exit 1` left a command-substitution
+  subshell rather than the recipe. The gate still failed, but on the empty
+  value the subshell left behind, and the precise `dist/rebrew.buildinfo has
+  no <key> line` diagnosis reached the log as a garbled `wheel-sha256:
+  buildinfo records ERROR: dist/rebrew.buildinfo has no wheel-sha256 line,
+  the file on disk is <sha>`. The helper now sets `RECORDED` in the current
+  shell, so the missing key is reported on its own.
+- **`make build-repro` fails loud when no hash tool is on PATH.**
+  Its `sha` helper fell through to a bare `shasum` with no `else`, unlike the
+  same helper in `make build` and `make verify-dist`, which name the missing
+  tool. A host carrying neither read the reproducibility verdict through an
+  opaque `shasum: not found` instead of the sentence naming the fix. Both
+  sites now share one shape, and the third adopts it.
+- **`make clean` removes `.scratch/rebuild`.** `make build-repro`'s EXIT trap
+  clears its second source tree on the failure, mismatch and happy paths
+  alike, but a SIGKILL or a closed terminal skips the trap and left a full
+  copy of the tree, and its `dist/`, behind. The same rule that already
+  covers `.sdist-check` and `.scratch/rebrew-idem` now covers it.
+- **`docs/PERFORMANCE.md` matches the sweeps `make idempotency-check` runs.**
+  The doc quoted fifteen mutating commands and named fourteen of them;
+  `tools/check_idempotency.py` holds seventeen, the three `data` forms
+  (`--gen-header`, `--set-type`, `--set-section`) added since. The prose now
+  counts seventeen and names all three, which is what
+  `tests/test_docs_hygiene.py::test_performance_doc_command_counts_match_the_sweeps`
+  gates.
 - **`rebrew toolchain list` asks docker once, not once per toolchain.**
   `list_toolchains` read `docker_available()` inside the row comprehension
   and that helper memoizes only a positive answer, so a present docker CLI

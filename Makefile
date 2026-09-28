@@ -473,9 +473,12 @@ cli-contract: ensure-uv
 
 # Clean build artifacts, distribution packages, and local tool/test caches.
 # .sdist-check is the scratch tree sdist-check builds the comparison wheel in;
-# a failed run leaves it behind, so clean it like .venv-pkg.
+# a failed run leaves it behind, so clean it like .venv-pkg.  .scratch/rebuild
+# is build-repro's second source tree: its EXIT trap removes it on the failure,
+# mismatch and happy paths alike, but a SIGKILL or a lost terminal skips the
+# trap and leaves a full copy of the tree (and its dist/) behind.
 clean:
-	rm -rf dist build rebrew.egg-info src/rebrew.egg-info .sdist-check .coverage htmlcov .coverage.* .pytest_cache .ruff_cache .mypy_cache .scratch/rebrew-idem .venv-pkg .hypothesis
+	rm -rf dist build rebrew.egg-info src/rebrew.egg-info .sdist-check .coverage htmlcov .coverage.* .pytest_cache .ruff_cache .mypy_cache .scratch/rebrew-idem .scratch/rebuild .venv-pkg .hypothesis
 	find src tests tools -type d -name __pycache__ -prune -exec rm -rf {} +
 
 # Build sdist + wheel under a pinned umask/locale/timezone. umask 022 fixes
@@ -638,13 +641,13 @@ build-repro: dist/rebrew.buildinfo
 	rm -f "$$archive"; \
 	SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) TZ=Asia/Tokyo LC_ALL=C.UTF-8 \
 		$(MAKE) -C "$$repro" build; \
-	sha() { \
-		if command -v sha256sum >/dev/null 2>&1; then \
-			sha256sum "$$1" | cut -d' ' -f1; \
-		else \
-			shasum -a 256 "$$1" | cut -d' ' -f1; \
-		fi; \
-	}; \
+	if command -v sha256sum >/dev/null 2>&1; then \
+	  sha() { sha256sum "$$1" | cut -d' ' -f1; }; \
+	elif command -v shasum >/dev/null 2>&1; then \
+	  sha() { shasum -a 256 "$$1" | cut -d' ' -f1; }; \
+	else \
+	  echo "ERROR: no sha256sum or shasum on PATH (cannot compare the two builds)" >&2; exit 1; \
+	fi; \
 	for ext in whl tar.gz; do \
 		first=$$(sha dist/*.$$ext); \
 		second=$$(sha "$$repro"/dist/*.$$ext); \
@@ -677,6 +680,18 @@ build-repro: dist/rebrew.buildinfo
 #
 # Read-only: it hashes what is in dist/ and the two input files, and writes
 # nothing.
+#
+# rec sets RECORDED in the current shell rather than printing it.  A helper
+# that printed the value would have to be called as `$(rec …)`, and its `exit
+# 1` would then leave the subshell rather than the recipe: the check below
+# still failed, but on the empty value, so the precise "no <key> line"
+# diagnosis reached the log as a garbled `buildinfo records ERROR:
+# dist/rebrew.buildinfo has no <key> line, the file on disk is <sha>`.
+#
+# The note is here rather than inside the recipe for the reason every other
+# note in this file is: make splices a `\` continued recipe into a single line
+# before the shell sees it, so a `#` opening any continued recipe line
+# comments out the whole rest of that recipe.
 verify-dist: dist/rebrew.buildinfo ensure-uv
 	@set -eu; \
 	for f in dist/*.whl; do set -- "$$@" "$$f"; done; \
@@ -694,20 +709,20 @@ verify-dist: dist/rebrew.buildinfo ensure-uv
 	else \
 	  echo "ERROR: no sha256sum or shasum on PATH (cannot check the build provenance)"; exit 1; \
 	fi; \
-	recorded() { \
-	  v=$$(sed -n "s/^$$1=//p" dist/rebrew.buildinfo | head -n 1); \
-	  [ -n "$$v" ] || { echo "ERROR: dist/rebrew.buildinfo has no $$1 line"; exit 1; }; \
-	  printf '%s' "$$v"; \
+	RECORDED=''; \
+	rec() { \
+	  RECORDED=$$(sed -n "s/^$$1=//p" dist/rebrew.buildinfo | head -n 1); \
+	  [ -n "$$RECORDED" ] || { echo "ERROR: dist/rebrew.buildinfo has no $$1 line" >&2; exit 1; }; \
 	}; \
 	check() { \
 	  [ "$$2" = "$$3" ] || { echo "ERROR: $$1: buildinfo records $$2, the file on disk is $$3" >&2; exit 1; }; \
 	}; \
-	check wheel-sha256 "$$(recorded wheel-sha256)" "$$(sha "$$wheel")"; \
-	check sdist-sha256 "$$(recorded sdist-sha256)" "$$(sha "$$sdist")"; \
-	check build-constraints-sha256 "$$(recorded build-constraints-sha256)" "$$(sha build-constraints.txt)"; \
-	check uv-lock-sha256 "$$(recorded uv-lock-sha256)" "$$(sha uv.lock)"; \
-	check SOURCE_DATE_EPOCH "$$(recorded SOURCE_DATE_EPOCH)" "$(SOURCE_DATE_EPOCH)"; \
-	recorded setuptools >/dev/null; \
+	rec wheel-sha256; check wheel-sha256 "$$RECORDED" "$$(sha "$$wheel")"; \
+	rec sdist-sha256; check sdist-sha256 "$$RECORDED" "$$(sha "$$sdist")"; \
+	rec build-constraints-sha256; check build-constraints-sha256 "$$RECORDED" "$$(sha build-constraints.txt)"; \
+	rec uv-lock-sha256; check uv-lock-sha256 "$$RECORDED" "$$(sha uv.lock)"; \
+	rec SOURCE_DATE_EPOCH; check SOURCE_DATE_EPOCH "$$RECORDED" "$(SOURCE_DATE_EPOCH)"; \
+	rec setuptools; \
 	echo "dist provenance OK: $${wheel##*/} and $${sdist##*/} match dist/rebrew.buildinfo"
 
 # CycloneDX 1.5 SBOM from the committed lock (no network).  Writes
