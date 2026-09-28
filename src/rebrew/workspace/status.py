@@ -75,3 +75,18 @@ INFRASTRUCTURE_STATUSES: tuple[str, ...] = (
 # (``status.effective_status``) read this, so the two cannot disagree about
 # which verdicts count as a placeholder.
 STUB_PLACEHOLDER_STATUSES: tuple[str, ...] = ("SIZE_MISMATCH", "MISSING_SIZE")
+
+# Statuses of a function that has a real body whose bytes do not match yet.
+# A blocker-documented STUB joins them case by case: it is parked at a wall,
+# not unwritten.  ``rebrew prove`` (the entry gate and the batch candidate
+# scan) and ``rebrew near-diag --fix-blocker`` (the classification target
+# scan) all read this, so a status added to one and not the other cannot
+# leave the two tools disagreeing about which functions are worth work.
+NEAR_MATCH_CANDIDATE_STATUSES: tuple[str, ...] = ("NEAR_MATCHING", "SIZE_MISMATCH")
+
+# Statuses whose match percentage is a real fuzzy measure rather than 0 or
+# 100: NEAR_MATCHING is a measured partial match, PROVEN is a measured
+# equivalence.  ``rebrew report`` (per-unit fuzzy code) and ``rebrew todo``
+# (delta fallback when no verify row exists) read this; a byte match is
+# :data:`MATCHED_STATUSES` and is excluded.
+FUZZY_STATUSES: tuple[str, ...] = ("NEAR_MATCHING", "PROVEN")

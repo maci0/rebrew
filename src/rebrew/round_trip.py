@@ -66,6 +66,7 @@ from rebrew.sources import (
 )
 from rebrew.status_style import STATUS_COLORS
 from rebrew.utils import atomic_write_bytes, floor_pct, merged_span_bytes, safe_shlex_split
+from rebrew.workspace.status import MATCHED_STATUSES
 
 app = typer.Typer(
     help="Splice every matched function back into the target PE and verify byte equality.",
@@ -188,7 +189,7 @@ def _collect_splice_set(
                 cflags=safe_shlex_split(resolved_cflags),
                 toolchain=toolchain or "",
             )
-            if status in ("EXACT", "RELOC"):
+            if status in MATCHED_STATUSES:
                 splice.append(fn)
             elif status == "PROVEN":
                 proven.append(fn)

@@ -50,6 +50,7 @@ from rebrew.cli import (
 from rebrew.match_semantics import is_effective_match
 from rebrew.pinned_diff import SequenceMatcherWithPins
 from rebrew.stack_cmp import analyze_frame, compare_frames
+from rebrew.workspace.status import NEAR_MATCH_CANDIDATE_STATUSES
 
 # Jump-equivalence checks — adapted from reccmp (isledecomp/reccmp, MIT
 # License) ``compare/asm/fixes.py``: a flipped ``cmp`` operand order paired
@@ -801,7 +802,7 @@ def _run_all_batch(cfg: Any, fix_blocker: bool, json_output: bool, dry_run: bool
             # Mirror prove --all: SIZE_MISMATCH functions are equally valid
             # classification targets (they do not byte-match and deserve a
             # blocker note); NEAR_MATCHING is not the only candidate status.
-            if a.status in ("NEAR_MATCHING", "SIZE_MISMATCH") and a.size:
+            if a.status in NEAR_MATCH_CANDIDATE_STATUSES and a.size:
                 candidates.append((src, a))
 
     if not candidates:

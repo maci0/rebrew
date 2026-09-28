@@ -15,6 +15,7 @@ from rich.table import Table
 from rich.text import Text
 
 from rebrew.present import bar_plain, count_column, ratio_bar
+from rebrew.status_style import STATUS_COLORS
 from rebrew.utils import floor_pct, merged_span_bytes
 
 if TYPE_CHECKING:
@@ -53,12 +54,7 @@ def render_dispatch(console: Console, tables: list[DispatchTable]) -> None:
         t.add_column("Status", width=10)
 
         for idx, entry in enumerate(tbl.entries):
-            status_color = {
-                "EXACT": "green",
-                "RELOC": "blue",
-                "NEAR_MATCHING": "yellow",
-                "STUB": "red",
-            }.get(entry.status, "dim")
+            status_color = STATUS_COLORS.get(entry.status, "dim")
 
             name_str = entry.name or "[dim]???[/]"
             status_str = (

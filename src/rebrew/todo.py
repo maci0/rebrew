@@ -52,7 +52,7 @@ from rebrew.naming import (
 from rebrew.present import ratio_bar
 from rebrew.status import effective_status
 from rebrew.utils import floor_pct
-from rebrew.workspace.status import EARNED_STATUSES, MATCHED_STATUSES
+from rebrew.workspace.status import EARNED_STATUSES, FUZZY_STATUSES, MATCHED_STATUSES
 
 log = logging.getLogger(__name__)
 
@@ -393,7 +393,7 @@ def _collect_active_functions(
 
         # If verify says it compiled and size changed, or we don't have verify, fallback to metadata parsing
         calc_delta = v_delta
-        if calc_delta is None and status in ("NEAR_MATCHING", "PROVEN"):
+        if calc_delta is None and status in FUZZY_STATUSES:
             raw_bd = info.get("blocker_delta", "")
             try:
                 calc_delta = int(raw_bd) if raw_bd else parse_byte_delta(info.get("blocker", ""))

@@ -1296,7 +1296,7 @@ def generate_decomp_dev_report(cfg: ProjectConfig, out_path: Path) -> dict[str, 
     from rebrew.annotation import iter_annotations
     from rebrew.sections import get_text_section_size
     from rebrew.sources import iter_sources, target_marker
-    from rebrew.workspace.status import MATCHED_STATUSES
+    from rebrew.workspace.status import FUZZY_STATUSES, MATCHED_STATUSES
 
     sources = list(iter_sources(cfg.reversed_dir, cfg))
     marker = target_marker(cfg)
@@ -1338,7 +1338,7 @@ def generate_decomp_dev_report(cfg: ProjectConfig, out_path: Path) -> dict[str, 
     def fuzzy_for(status: str, va: int) -> float:
         if status in MATCHED_STATUSES:
             return 100.0
-        if status in ("NEAR_MATCHING", "PROVEN"):
+        if status in FUZZY_STATUSES:
             return cached_pct.get(va, 0.0)
         return 0.0
 

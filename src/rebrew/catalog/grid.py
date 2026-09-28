@@ -59,7 +59,7 @@ def count_statuses(by_va: dict[int, list[Annotation]]) -> dict[str, int]:
     GLOBAL/DATA markers are excluded.  Returns a dict keyed by the five
     status groups: EXACT, RELOC, PROVEN, NEAR_MATCHING, STUB.
     """
-    counters = {"EXACT": 0, "RELOC": 0, "PROVEN": 0, "NEAR_MATCHING": 0, "STUB": 0}
+    counters = dict.fromkeys((group[0] for group in _STATUS_PRIORITY), 0)
     for vas in by_va.values():
         if not any(e.get("is_function", True) for e in vas):
             continue

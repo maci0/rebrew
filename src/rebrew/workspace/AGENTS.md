@@ -7,7 +7,7 @@
 | Module | Role |
 |--------|------|
 | `config.py` | `find_root`, `read_config`, `targets_table`, `db_dir`, `WorkspaceNotFound`, `WorkspaceConfigError` |
-| `status.py` | `KNOWN_STATUSES`, `EARNED_STATUSES`, `MATCHED_STATUSES`, `COVERAGE_DB_STATUSES` |
+| `status.py` | `KNOWN_STATUSES`, `EARNED_STATUSES`, `MATCHED_STATUSES`, `NEAR_MATCH_CANDIDATE_STATUSES`, `FUZZY_STATUSES`, `COVERAGE_DB_STATUSES` |
 | `va.py` | `VA_MAX`, `parse_va_candidates` |
 
 Externals (the only package this one may import): `errors`, the leaf module that gives `WorkspaceNotFound` its `RebrewError` base. `utils` used to be reached through the deleted `db.coverage_db_lock`; nothing here imports it now, which is what keeps importing a submodule free of tomlkit and rich (`tests/test_workspace_public_api.py::test_submodules_import_without_rebrew_stack`).

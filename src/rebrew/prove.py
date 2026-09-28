@@ -69,6 +69,7 @@ from rebrew.sources import (
     target_marker,
 )
 from rebrew.utils import safe_shlex_split
+from rebrew.workspace.status import NEAR_MATCH_CANDIDATE_STATUSES
 
 log = logging.getLogger(__name__)
 
@@ -1343,9 +1344,9 @@ def main(
     # NEAR_MATCHING/SIZE_MISMATCH is the measured truth — prove must not
     # refuse a function the verifier already classified as nearly matching.
     effective_status = ann.status
-    if effective_status not in ("NEAR_MATCHING", "SIZE_MISMATCH"):
+    if effective_status not in NEAR_MATCH_CANDIDATE_STATUSES:
         cached = _cached_verify_status(cfg, ann.va)
-        if cached in ("NEAR_MATCHING", "SIZE_MISMATCH"):
+        if cached in NEAR_MATCH_CANDIDATE_STATUSES:
             effective_status = cached
 
     # A blocker-documented STUB is a developed function parked at a wall (its
@@ -1361,7 +1362,7 @@ def main(
         blocker = stored.get("blocker", "") or ""
         blocker_delta = stored.get("blocker_delta", 0) or 0
     blocker_documented = effective_status == "STUB" and bool(blocker or blocker_delta)
-    if effective_status not in ("NEAR_MATCHING", "SIZE_MISMATCH") and not blocker_documented:
+    if effective_status not in NEAR_MATCH_CANDIDATE_STATUSES and not blocker_documented:
         error_exit(
             f"Status is '{ann.status}', expected NEAR_MATCHING or SIZE_MISMATCH "
             "(or a blocker-documented STUB). "
@@ -1947,7 +1948,7 @@ def _run_all_batch(
             log.warning("Skipping %s: annotation parse failed: %s", src, exc, exc_info=True)
             continue
         for a in annos:
-            if a.status not in ("NEAR_MATCHING", "SIZE_MISMATCH") or not a.size:
+            if a.status not in NEAR_MATCH_CANDIDATE_STATUSES or not a.size:
                 continue
             if ceiling_only and not a.blocker.startswith(GA_CEILING_PREFIX):
                 continue
