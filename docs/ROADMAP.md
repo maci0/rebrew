@@ -44,7 +44,7 @@ first-class proof target, with PPC/ARM as the follow-on set.
 | Flags | `flag_data.py` | GCC family exists; no MIPS/PPC axes (`-mabi`, `-march`) |
 | Toolchain specs | `toolchain.py::ToolchainSpec` | `bits` field only; add `arch` for alignment/detection |
 | Import/PE lane | `round_trip`, `gen_layout`, `postlink`, `link_sweep`, `imports.py`, `pe_headers.py` | PE-specific — N/A for ELF targets (gate or ELF equivalents later) |
-| Known arches | `doctor.py::_KNOWN_ARCHES` | done: all nine presets |
+| Known arches | `doctor.py::_KNOWN_ARCHES` | done: all ten presets |
 
 ## Phase 0 — Arch plumbing foundation
 
