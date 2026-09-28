@@ -125,8 +125,12 @@ paths:
       summary: The rebrew mark.
       description: |
         Served rather than inlined so the shell does not carry 443 B of
-        percent-encoded data URI on the cold flight.  `Cache-Control: private,
-        no-cache`, like every asset whose URL is not content-hashed.
+        percent-encoded data URI on the cold flight.  `?v=<content hash>` is
+        served `private, max-age=31536000, immutable`, like `/app.js`; any
+        other value revalidates with `private, no-cache`.  An unrecognised
+        `v` is ignored, like any other unrecognised query parameter.
+      parameters:
+        - $ref: "#/components/parameters/CacheBuster"
       responses:
         "200":
           $ref: "#/components/responses/FaviconOk"
@@ -139,6 +143,8 @@ paths:
       tags: [assets]
       operationId: headFavicon
       summary: Headers for the rebrew mark.
+      parameters:
+        - $ref: "#/components/parameters/CacheBuster"
       responses:
         "200":
           $ref: "#/components/responses/FaviconOk"
@@ -1011,11 +1017,12 @@ components:
     Va:
       type: string
       description: |
-        Virtual address as `0x` plus at least eight lowercase hex digits, or
-        `???` when the row holds no address.  A 32-bit target pads to
-        eight; an address above `0xffffffff` keeps every digit it has, up to
-        the 16 the int64 range allows.
-      pattern: '^(0x[0-9a-f]{8,16}|\?\?\?)$'
+        Virtual address as `0x` plus at least eight lowercase hex digits.  A
+        32-bit target pads to eight; an address above `0xffffffff` keeps every
+        digit it has, up to the 16 the int64 range allows.  There is no
+        "no address" sentinel: a row that stores 0 is served as
+        `0x00000000`, because 0 is a valid address.
+      pattern: '^0x[0-9a-f]{8,16}$'
 
   responses:
     HtmlOk:
@@ -1182,8 +1189,8 @@ components:
       description: |
         `private, no-cache` on a revalidated response, `no-store` on
         `/api/health` and on every error, and
-        `private, max-age=31536000, immutable` on a script at its `?v=`
-        content-hash URL.
+        `private, max-age=31536000, immutable` on `/app.js` or `/favicon.svg`
+        at its `?v=` content-hash URL.
       schema: { type: string }
     Vary:
       description: '`Accept-Encoding`; the body is served zstd or gzip.'

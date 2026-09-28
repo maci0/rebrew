@@ -4236,6 +4236,28 @@ class TestOpenApiSpec:
         assert canonical_status(alias) in _spec()["components"]["schemas"]["FilterStatus"]["enum"]
         assert alias not in _spec()["components"]["schemas"]["FilterStatus"]["enum"]
 
+    def test_cache_busted_assets_declare_the_buster(self) -> None:
+        """Every asset served ``immutable`` at a ``?v=`` URL declares ``v``.
+
+        The hashed assets are the only routes whose ``Cache-Control`` depends
+        on a query parameter, and a client that cannot send the value the shell
+        links pays a revalidation on every load while believing it holds a
+        pinned URL.  The version constants are the server's, so an asset that
+        gains a hashed URL without a spec entry fails here.
+        """
+        from rebrew.dashboard import _APP_JS_VERSION, _CACHE_IMMUTABLE, _success_cache_control
+
+        spec = _spec()
+        for path, version in (("/app.js", _APP_JS_VERSION), ("/favicon.svg", _FAVICON_VERSION)):
+            assert _success_cache_control(path, {"v": [version]}) == _CACHE_IMMUTABLE, path
+            for method in ("get", "head"):
+                parameters = spec["paths"][path][method]["parameters"]
+                assert [p["$ref"].rsplit("/", 1)[-1] for p in parameters] == ["CacheBuster"], (
+                    path,
+                    method,
+                )
+            assert "immutable" in spec["paths"][path]["get"]["description"], path
+
     def test_error_codes_are_all_reachable(self) -> None:
         """A documented code the server can never emit is a lie to branch on."""
         from rebrew import dashboard
@@ -4661,6 +4683,11 @@ size = 16
         rendered = {row[1]: row[0] for row in rows}["func_high"]
         assert rendered == "0x140001000"
         assert pattern.fullmatch(rendered), rendered
-        # The 32-bit rows the dashboard actually serves still match.
+        # The 32-bit rows the dashboard actually serves still match, and the
+        # zero address is one of them rather than a "no address" sentinel: a
+        # client generated against a pattern that admits `???` writes a branch
+        # for a value no route can send, and misses that a row with nothing
+        # stored still reports an address.
         assert pattern.fullmatch("0x10001000")
-        assert pattern.fullmatch("???")
+        assert pattern.fullmatch("0x00000000")
+        assert not pattern.fullmatch("???")
