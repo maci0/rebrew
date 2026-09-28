@@ -35,8 +35,8 @@ reader skips it with a log line and serves the rest, and ``function_stats`` is
 DERIVED from the stored function rows, so the unreadable-metadata-row case the
 SQLite dashboard answered 500 ``corrupt_function_stats`` for cannot arise.
 ``/api/bootstrap`` embeds the first target and degrades instead of failing: its
-``summary`` and ``functions`` are ``null`` when that target is unreadable, so
-one broken target does not cost the target list.
+``summary`` and ``functions`` are ``null`` when the directory holds no readable
+target, so an empty directory costs the target list and nothing else.
 Non-GET/HEAD methods on a served path (including ones http.server does not
 know) return 405 with ``Allow: GET, HEAD``; a path the server does not serve
 returns 404 ``not_found`` whatever method it was asked for, since there is no

@@ -4,20 +4,33 @@ import enum
 from pathlib import Path
 from types import SimpleNamespace
 
+import lief
 import pytest
 
 import rebrew.binary_loader as bl
 
+#: The bit ``_load_pe`` asks every section whether it carries.
+_PE_EXECUTE = lief.PE.Section.CHARACTERISTICS.MEM_EXECUTE
+
 
 def _mock_section(
-    name: str, va: int, vsize: int, raw_offset: int, raw_size: int
+    name: str,
+    va: int,
+    vsize: int,
+    raw_offset: int,
+    raw_size: int,
+    executable: bool = False,
 ) -> SimpleNamespace:
+    # ``_load_pe`` reads the execute bit off every section to alias the largest
+    # executable one to ``.text``, so the double carries it rather than leaving
+    # the loader to raise on a stand-in it cannot interrogate.
     return SimpleNamespace(
         name=name,
         virtual_address=va,
         virtual_size=vsize,
         pointerto_raw_data=raw_offset,
         sizeof_raw_data=raw_size,
+        has_characteristic=lambda flag: bool(executable) and flag == _PE_EXECUTE,
     )
 
 
@@ -87,6 +100,41 @@ class TestLoadPe:
         )
         info = bl._load_pe(pe, Path("/tmp/x.exe"))
         assert info.text_va == 0x400000  # falls back to image base
+        assert info.text_size == 0
+
+    def test_largest_executable_section_aliases_text(self) -> None:
+        """Borland/Delphi/Watcom name the code section ``CODE``, not ``.text``.
+
+        Without the alias every consumer that reads the text window (the FLIRT
+        scan, the jump-table probe behind ``_resolve_canonical_size``) sees an
+        empty code region, so the execute bit is what the aliasing reads.
+        """
+        pe = SimpleNamespace(
+            header=SimpleNamespace(machine=0),
+            optional_header=SimpleNamespace(imagebase=0x400000),
+            sections=[
+                _mock_section("CODE", 0x1000, 0x200, 0x400, 0x200, executable=True),
+                _mock_section("CODE2", 0x2000, 0x40, 0x600, 0x40, executable=True),
+                _mock_section("DATA", 0x3000, 0x100, 0x700, 0x100),
+            ],
+        )
+        info = bl._load_pe(pe, Path("/tmp/x.exe"))
+        assert (info.text_va, info.text_size) == (0x401000, 0x200)
+        assert info.text_raw_offset == 0x400
+
+    def test_data_only_image_gets_no_code_alias(self) -> None:
+        """The alias follows the execute bit, not the section's name.
+
+        A section called ``CODE`` that is not executable is data, and aliasing
+        it would point the text window at bytes that never run.
+        """
+        pe = SimpleNamespace(
+            header=SimpleNamespace(machine=0),
+            optional_header=SimpleNamespace(imagebase=0x400000),
+            sections=[_mock_section("CODE", 0x1000, 0x200, 0x400, 0x200)],
+        )
+        info = bl._load_pe(pe, Path("/tmp/x.exe"))
+        assert info.text_va == 0x400000
         assert info.text_size == 0
 
 

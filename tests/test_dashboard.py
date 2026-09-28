@@ -4046,6 +4046,10 @@ class TestOpenApiSpec:
         declare them: a field the server sends and the schema omits is
         invisible to a generated client, which then cannot read the error
         rate the totals exist to report.
+
+        Equality holds only for the unconditional fields.  ``coverage_dir`` is
+        declared but optional, since a non-loopback bind withholds it; see
+        :meth:`test_health_coverage_dir_is_optional_and_withheld_off_loopback`.
         """
         from rebrew.dashboard import served_totals
 
@@ -4054,8 +4058,59 @@ class TestOpenApiSpec:
         status, _, body = served.handle("GET", "/api/health", {})
         assert status == 200
         payload = json.loads(body)
-        assert set(schemas["Health"]["properties"]) == set(payload)
-        assert set(schemas["Health"]["required"]) == set(payload)
+        assert set(payload) <= set(schemas["Health"]["properties"])
+        assert set(schemas["Health"]["required"]) <= set(payload)
+
+    def test_health_coverage_dir_is_optional_and_withheld_off_loopback(
+        self, dashboard: Dashboard
+    ) -> None:
+        """``coverage_dir`` is the one probe field a bind can withhold.
+
+        A non-loopback ``--host`` serves the probe without it, so declaring it
+        required would fail a generated client's own validator on exactly the
+        deployments that most need a probe (a LAN analyst box), while removing
+        it from ``properties`` would hide it from a client that reads it.  It
+        stays declared and optional, and every other required field is present
+        either way.
+        """
+        from rebrew.dashboard import served_totals
+
+        schemas = _spec()["components"]["schemas"]
+        health = schemas["Health"]
+        assert "coverage_dir" in health["properties"]
+        assert "coverage_dir" not in health["required"]
+
+        for expose_paths in (True, False):
+            served = Dashboard(dashboard.db_dir, served=served_totals, expose_paths=expose_paths)
+            status, _, body = served.handle("GET", "/api/health", {})
+            assert status == 200
+            payload = json.loads(body)
+            assert set(health["required"]) <= set(payload), expose_paths
+            assert set(payload) <= set(health["properties"]), expose_paths
+            assert ("coverage_dir" in payload) is expose_paths
+
+    def test_human_summary_names_the_served_health_keys(self, dashboard: Dashboard) -> None:
+        """``COVERAGE_DOCUMENT.md``'s endpoint table restates the probe body.
+
+        The table is the page a reader reaches before the OpenAPI file, so a key
+        it names that the server stopped sending sends them looking for the old
+        ``db`` spelling forever.  The row has to name every key the probe
+        answers with, so the loopback body, which is the widest one, is the
+        reference.
+        """
+        from rebrew.dashboard import served_totals
+
+        doc = (Path(__file__).resolve().parents[1] / "docs" / "COVERAGE_DOCUMENT.md").read_text(
+            encoding="utf-8"
+        )
+        row = next(
+            line for line in doc.splitlines() if line.startswith("| `GET`, `HEAD` | `/api/health`")
+        )
+        served = Dashboard(dashboard.db_dir, served=served_totals)
+        payload = json.loads(served.handle("GET", "/api/health", {})[2])
+        for key in payload:
+            assert f'"{key}"' in row, key
+        assert '"db"' not in row
 
     def test_documented_byte_counts_match_the_validated_ones(self) -> None:
         """A byte count the handler validates is a byte count the spec names.

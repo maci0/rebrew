@@ -125,6 +125,43 @@
   re-spelling in the lint checks left `W016` (missing `// SECTION:`), the
   duplicate-VA rule, the CFLAGS exemption and the legacy-`SECTION` strip
   blind to the two data markers; they read the shared set now.
+- **The dashboard's published health contract matched neither the server nor
+  its own human summary.** `docs/COVERAGE_DOCUMENT.md` still documented the
+  probe body under the SQLite-era key `db`, which the TOML store renamed to
+  `coverage_dir` on the way in, and `docs/dashboard-api.yaml` required a key
+  the server withholds: `coverage_dir` is served only on a loopback bind,
+  since the path names the analyst's own disk layout and a LAN client has no
+  use for it. A generated client's own validator therefore failed on exactly
+  the deployments that most need a probe, while the table sent readers
+  looking for a key that has not been sent since the store moved. The schema
+  declares it optional and says when it is absent, the table names the served
+  keys, and both are pinned by `tests/test_dashboard.py`. The
+  `/api/bootstrap` description's "degrades instead of failing" claim is
+  corrected too: `summary` and `functions` are `null` only for an empty
+  directory, since the aggregates are derived from the stored rows and the
+  unreadable `function_stats` the old text described cannot arise.
+- **The canonical-size tail probe no longer claims every function on a
+  non-x86 target.** `_resolve_canonical_size` read the extra bytes for the
+  x86 `ret` encodings (`0xC3`/`0xC2`) on every arch, exactly as the
+  alignment-prefix probes above it are already gated to x86. No ARM or MIPS
+  tail ever contains those bytes, so the "no terminator" branch answered
+  yes for the whole target and the discovery list size overrode Ghidra's on
+  every function. Those targets now take the conservative
+  "unrecognized extra bytes" default. `src/rebrew/catalog/AGENTS.md` records
+  the arch gate.
+- **A PE whose code section is not named `.text` no longer loads as an image
+  with no code.** The ELF loader aliases the largest executable section as
+  `.text` when the name is absent (devkitARM ships `.main`); the PE loader
+  had no such fallback and left `text_va` at the image base with
+  `text_size == 0`, so the FLIRT scan and the jump-table probe behind
+  `_resolve_canonical_size` saw an empty region for the Borland, Delphi and
+  Watcom `CODE` spelling. `_load_pe` now applies the same alias, reading
+  `IMAGE_SCN_MEM_EXECUTE` off the section characteristics. Section `is_code`
+  is deliberately left as the loader set it, so no code walk starts visiting
+  a second time.
+- **Two mypy findings in a module the strict list already claimed.**
+  `tests/test_security_scan.py` passed `monkeypatch` unannotated in two
+  tests, so `uv run mypy` failed on a file the gate asserted was clean.
 - **`rebrew intake --dry-run --json` no longer reports `documented: 0`.** The
   preview runs the discoverers and reports the real function count, then
   emitted a zero for the documented subset that only a real run can classify

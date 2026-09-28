@@ -153,7 +153,8 @@ paths:
         revalidated into a stale "healthy" for a coverage directory that has
         since gone unreadable.  `coverage_dir` is the absolute path of the
         coverage DIRECTORY being served, holding one
-        `coverage-<target>.toml` per target.
+        `coverage-<target>.toml` per target, and is present only when the
+        bound host is a loopback address.
       responses:
         "200":
           description: The coverage directory was read.
@@ -241,10 +242,10 @@ paths:
       description: |
         Collapses the cold-start waterfall (targets, then summary, then
         functions) into one round trip; filtering and paging after the first
-        paint use the dedicated endpoints.  Degrades instead of failing:
-        `summary` and `functions` are `null` when the first target's
-        `function_stats` is unreadable, so one broken target does not cost
-        the target list.  This body is preloaded onto the same cold connection
+        paint use the dedicated endpoints.  `summary` and `functions` are
+        `null` only when the directory holds no readable target, since a
+        first target listed by `/api/targets` always has a readable document to
+        summarise.  This body is preloaded onto the same cold connection
         as the shell and `/app.js`, so its `functions` page is sized for first
         paint (`_BOOTSTRAP_FUNCTION_LIMIT`, 40) rather than at the interactive
         default.  `total` is the target's real row count, so a client pages on
@@ -807,10 +808,16 @@ components:
         are there so a probe can watch the error rate while the
         server is up, rather than learning of a run that fails every query
         only when the process stops.
-      required: [status, coverage_dir, targets, requests, server_errors, slowest_ms, active_connections]
+      required: [status, targets, requests, server_errors, slowest_ms, active_connections]
       properties:
         status: { type: string, const: ok }
-        coverage_dir: { type: string, description: Absolute path of the coverage directory being served. }
+        coverage_dir:
+          type: string
+          description: >-
+            Absolute path of the coverage directory being served.  Absent when
+            the bound host is not a loopback address: the path names the
+            analyst's own disk layout and a LAN client has no use for it, so it
+            is withheld exactly where exposing it would be a disclosure.
         targets: { type: integer, minimum: 0, description: Readable coverage documents in that directory. }
         requests: { type: integer, minimum: 0, description: Requests served since the server started. }
         server_errors:
