@@ -251,11 +251,13 @@ ARCH_PRESETS: dict[str, _ArchPreset] = {
     },
 }
 
-#: Arches whose data (not the host) is big-endian by default.  The IDO/Saturn
-#: and PowerPC targets are; x86, ARM, and SH2 images are little-endian.  A
-#: target that reverses the default (a little-endian MIPS build) overrides this
-#: with the image header, the way capstone_mode does.
-_ARCH_BIG_ENDIAN = frozenset({"mips32", "mips64", "ppc32", "ppc64"})
+#: Arches whose data (not the host) is big-endian by default.  The IDO, Saturn
+#: and PowerPC targets are; x86 and ARM images are little-endian.  This set must
+#: agree with :func:`rebrew.binary_loader.endian_mode_bits`, or one target is
+#: read little-endian for its data while its instructions decode big-endian.
+#: A target that reverses the default (a little-endian MIPS or PPC build)
+#: overrides this with the image header, the way capstone_mode does.
+_ARCH_BIG_ENDIAN = frozenset({"mips32", "mips64", "ppc32", "ppc64", "sh2"})
 
 #: Pointer width assumed for an arch string with no preset.  x86_32 is the
 #: documented default profile (see AGENTS.md), so an unknown arch sizes like it

@@ -274,18 +274,20 @@ def _capstone_for_arch(arch: str, endian: str = "") -> tuple[int, int]:
     import capstone
 
     little = endian == "little"
-    mips_endian = capstone.CS_MODE_LITTLE_ENDIAN if little else capstone.CS_MODE_BIG_ENDIAN
+    # MIPS, PPC and SH2 default to big-endian, but an image whose header says
+    # little-endian (LE MIPS, a ppc64le slice) decodes little-endian too.
+    risc_endian = capstone.CS_MODE_LITTLE_ENDIAN if little else capstone.CS_MODE_BIG_ENDIAN
     table: dict[str, tuple[int, int]] = {
         "x86_16": (capstone.CS_ARCH_X86, capstone.CS_MODE_16),
         "x86_32": (capstone.CS_ARCH_X86, capstone.CS_MODE_32),
         "x86_64": (capstone.CS_ARCH_X86, capstone.CS_MODE_64),
         "arm32": (capstone.CS_ARCH_ARM, capstone.CS_MODE_ARM),
         "arm64": (capstone.CS_ARCH_ARM64, capstone.CS_MODE_ARM),
-        "mips32": (capstone.CS_ARCH_MIPS, capstone.CS_MODE_MIPS32 | mips_endian),
-        "mips64": (capstone.CS_ARCH_MIPS, capstone.CS_MODE_MIPS64 | mips_endian),
-        "ppc32": (capstone.CS_ARCH_PPC, capstone.CS_MODE_32 | capstone.CS_MODE_BIG_ENDIAN),
-        "ppc64": (capstone.CS_ARCH_PPC, capstone.CS_MODE_64 | capstone.CS_MODE_BIG_ENDIAN),
-        "sh2": (capstone.CS_ARCH_SH, capstone.CS_MODE_SH2 | capstone.CS_MODE_BIG_ENDIAN),
+        "mips32": (capstone.CS_ARCH_MIPS, capstone.CS_MODE_MIPS32 | risc_endian),
+        "mips64": (capstone.CS_ARCH_MIPS, capstone.CS_MODE_MIPS64 | risc_endian),
+        "ppc32": (capstone.CS_ARCH_PPC, capstone.CS_MODE_32 | risc_endian),
+        "ppc64": (capstone.CS_ARCH_PPC, capstone.CS_MODE_64 | risc_endian),
+        "sh2": (capstone.CS_ARCH_SH, capstone.CS_MODE_SH2 | risc_endian),
     }
     return table.get(arch, (capstone.CS_ARCH_X86, capstone.CS_MODE_32))
 

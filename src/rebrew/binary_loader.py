@@ -805,6 +805,7 @@ def function_extent_from_disasm(
     # as tail calls (like x86 `jmp`); conditional branches (x86 `j*`, MIPS
     # `b*`, PPC `bc*`, ARM `b<c>`, SH `bt/bf/bra`) continue the walk.
     arch = getattr(info, "arch", "") or ""
+    endian = getattr(info, "endian", "") or ""
     cs_arch, mode = capstone_config_for(info)
 
     def _walk(
@@ -858,12 +859,13 @@ def function_extent_from_disasm(
         return None
 
     if arch in ("ppc32", "ppc64"):
-        # Fixed-width big-endian words (GameCube/Wii).  Little-endian PPC is
-        # not a Phase-0 target.  These are the same encodings capstone
-        # decodes once ``CS_MODE_BIG_ENDIAN`` is set (see
-        # :func:`capstone_config_for`).
+        # Fixed-width words (GameCube/Wii are big-endian; a ppc64le image is
+        # little-endian).  These are the same encodings capstone decodes once
+        # the matching mode bit is set (see :func:`capstone_config_for`), so
+        # the byte order comes from the image, not from the arch name.
+        byte_order: Literal["little", "big"] = "little" if endian == "little" else "big"
         for offset in range(0, len(data) - 3, 4):
-            word = int.from_bytes(data[offset : offset + 4], "big")
+            word = int.from_bytes(data[offset : offset + 4], byte_order)
             if word == 0x4E800020:  # blr
                 extent = offset + 4
                 return (extent, "ret") if with_kind else extent
