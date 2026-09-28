@@ -415,7 +415,7 @@ def import_state(
     ):
         error_exit(f"No BinSync data found in {state_dir}", json_mode=json_output)
 
-    local_by_va, catalog_by_va, catalog_vas = index_local_and_catalog(cfg)
+    local_by_va, catalog_sizes = index_local_and_catalog(cfg)
 
     # Also collect scan for module routing of globals that have no direct annotation
     # (DATA entries are in local_by_va; unannotated externs are not — but those
@@ -456,7 +456,7 @@ def import_state(
         # truly unknown.  Catalog-known + BinSync-known can become stubs;
         # unknown is just skipped.
         if local is None:
-            if va in catalog_vas and is_meaningful(bs_name) and bs_name.strip():
+            if va in catalog_sizes and is_meaningful(bs_name) and bs_name.strip():
                 # Surface as proposed_missing; optionally create a stub
                 if create_missing:
                     if dry_run:
@@ -475,8 +475,7 @@ def import_state(
                     # (the shared skeleton helper has its own CLI parsing and
                     # metadata logic that doesn't fit this batch path).
                     try:
-                        cat = catalog_by_va.get(va)
-                        size_hint = int(getattr(cat, "size", 0) or 0) if cat else 0
+                        size_hint = catalog_sizes.get(va, 0)
                         out_path, stub, mod = _stub_text(cfg, va, bs_name, bs_proto)
                         if out_path.exists():
                             # Not this VA's annotation (that case is repaired

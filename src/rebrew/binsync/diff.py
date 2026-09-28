@@ -61,7 +61,7 @@ def main(
 
     manifest = load_manifest(state_dir)
 
-    local_by_va, catalog_by_va, catalog_vas = index_local_and_catalog(cfg)
+    local_by_va, catalog_sizes = index_local_and_catalog(cfg)
 
     divergences: list[dict[str, str]] = []
     new_in_binsync: list[dict[str, str]] = []
@@ -78,7 +78,7 @@ def main(
             continue
 
         if local is None:
-            if va in catalog_vas and is_meaningful(bs_name):
+            if va in catalog_sizes and is_meaningful(bs_name):
                 new_in_binsync.append(
                     {"va": f"0x{va:08x}", "binsync": bs_name, "status": "new_in_binsync"}
                 )

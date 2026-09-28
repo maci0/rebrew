@@ -309,14 +309,15 @@ def load_binsync_typedefs(state_dir: Path) -> dict[str, dict[str, object]]:
 
 def index_local_and_catalog(
     cfg: ProjectConfig,
-) -> tuple[dict[int, object], dict[int, object], set[int]]:
-    """Index local annotations by VA and overlay catalog-only VAs.
+) -> tuple[dict[int, object], dict[int, int]]:
+    """Index local annotations by VA, and catalog-only VAs by their size.
 
     The catalog (discovery inventory) is the project file:
     its VAs represent the ground truth binary layout even when no .c file
     exists yet.  Catalog-only VAs land in the second map so callers can
     surface them (stub-able / new-in-BinSync) without overwriting real
-    annotations.
+    annotations.  Membership is the catalog signal and the size is the only
+    property a caller reads, so the map carries the size and nothing else.
     """
     local_entries = scan_reversed_dir(cfg.reversed_dir, cfg=cfg)
     local_by_va: dict[int, object] = {}
@@ -326,7 +327,7 @@ def index_local_and_catalog(
             # Keep FUNCTION entries preferentially; DATA/GLOBAL overwrite only if no function
             local_by_va[va] = e
 
-    catalog_by_va: dict[int, object] = {}
+    catalog_sizes: dict[int, int] = {}
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", UserWarning)
@@ -341,24 +342,7 @@ def index_local_and_catalog(
             size = int(reg_entry.get("canonical_size", 0) or 0)
             if size <= 0:
                 continue
-            raw_name = (
-                reg_entry.get("list_name") or reg_entry.get("ghidra_name") or f"func_{va:08x}"
-            )
-            catalog_by_va[va] = type(
-                "CatalogFunc",
-                (),
-                {
-                    "va": va,
-                    "size": size,
-                    "name": raw_name,
-                    "symbol": "",
-                    "module": "",
-                    "prototype": "",
-                    "marker_type": "FUNCTION",
-                    "filepath": "",
-                    "status": "",
-                },
-            )()
+            catalog_sizes[va] = size
     except Exception:
         # An empty catalog is also the "nothing to import" signal.  A scan
         # failure must not look like that: create-missing would skip every
@@ -368,4 +352,4 @@ def index_local_and_catalog(
             exc_info=True,
         )
 
-    return local_by_va, catalog_by_va, set(catalog_by_va.keys())
+    return local_by_va, catalog_sizes

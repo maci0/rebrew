@@ -25,6 +25,16 @@
   `docs/COVERAGE_DOCUMENT.md` and `docs/THREAT_MODEL.md` document the field.
 
 ### Changed
+- **`binsync.state.index_local_and_catalog` returns a catalog VA to size map
+  instead of a fabricated record plus a duplicate VA set.**
+  **Breaking:** the two callers (`binsync.importer.index_local_and_catalog`,
+  `binsync.diff.index_local_and_catalog`) now unpack `(local_by_va,
+  catalog_sizes)`; the third element was `set(catalog_by_va)` and every
+  caller derived the same set from the same map. The value was an
+  attribute bag built by `type(...)()` with nine fields, of which only
+  `size` was ever read. `binsync.export` fabricates the same shape for its
+  catalog-only entries, so that one is now the named `_CatalogFunction`
+  with the three fields the export reads.
 - **The wheel smoke install runs every console script the wheel declares.**
   `tools/smoke_wheel_install.py` checked the packaged data files and
   `rebrew --help`, and the static gate imports each `[project.scripts]`

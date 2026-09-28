@@ -26,6 +26,7 @@ import datetime
 import logging
 import re
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -63,6 +64,20 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class _CatalogFunction:
+    """A catalog-only function, shaped like the annotation the export reads.
+
+    Everything the export reads through ``getattr`` with a default (``symbol``,
+    ``note``, ``ghidra``, ``prototype``, ``locals``, ``comments``) is absent by
+    design: a discovered function has no source annotation to carry it.
+    """
+
+    va: int
+    size: int
+    name: str
 
 
 # ---------------------------------------------------------------------------
@@ -869,25 +884,11 @@ def export_state(
                 reg_entry.get("list_name") or reg_entry.get("ghidra_name") or f"func_{va:08x}"
             )
             catalog_func_entries.append(
-                type(
-                    "CatalogFunc",
-                    (),
-                    {
-                        "va": va,
-                        "size": size,
-                        "name": raw_name,
-                        "symbol": "",
-                        "module": "",
-                        "status": "",
-                        "cflags": "",
-                        "note": "",
-                        "ghidra": "",
-                        "prototype": "",
-                        "struct": "",
-                        "marker_type": "FUNCTION",
-                        "filepath": "",
-                    },
-                )()
+                _CatalogFunction(
+                    va=va,
+                    size=size,
+                    name=raw_name,
+                )
             )
     except Exception as exc:
         # A failed catalog scan would silently ship an incomplete export

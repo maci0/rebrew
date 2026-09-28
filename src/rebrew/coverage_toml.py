@@ -169,11 +169,6 @@ _GLOBAL_COLUMNS: tuple[str, ...] = ("va", "name", "decl", "files", "module", "si
 #: stored spelling is what keeps the two writers from disagreeing.
 _JSON_COLUMNS: frozenset[str] = frozenset({"functions", "files", "detected_by", "size_by_tool"})
 
-#: ``build_db``'s ``history`` columns, less ``target``.  The database orders by
-#: ``id``; a text file has no id, so retention sorts by ``changed_at`` — the
-#: ISO-8601 stamps it already sorts lexicographically in write order.
-_HISTORY_COLUMNS: tuple[str, ...] = ("va", "old_status", "new_status", "changed_at", "updated_by")
-
 #: ``build_db``'s ``verify_results`` columns, less ``target``, in the INSERT's
 #: order — which is also the order :func:`rebrew.build_db.import_verify_rows`
 #: returns its rows in, so the two are one list read from both ends.
