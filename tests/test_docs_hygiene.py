@@ -13,7 +13,8 @@ Pins the docs to the code so drift is caught in CI:
 - no module imports another module's ``_name`` (the underscore rule, which
   the ``Externals`` allowlists above do not cover);
 - every ``make <target>`` the ``AGENTS.md`` files name is a Makefile target, and
-  the same for the docs that spell out the human contributor path;
+  the same for the docs that spell out the human contributor path; every
+  target the Makefile defines is in ``.PHONY``;
 - the architecture diagram's format pointer names a doc that exists;
 - every repo path, ``rebrew <command>``, and make target a rule file cites
   resolves, in the repo's own ``AGENTS.md``, each subpackage's, and the
@@ -584,6 +585,31 @@ def test_contributor_docs_name_real_make_targets() -> None:
     assert not unknown, (
         "contributor doc names a make target the Makefile does not define "
         "(rename the target or the reference):\n  " + "\n  ".join(unknown)
+    )
+
+
+def test_every_makefile_target_is_phony() -> None:
+    """Every target the Makefile defines is listed in ``.PHONY``.
+
+    A target left out of ``.PHONY`` runs only while no file or directory of
+    that name sits in the repo root; the moment one appears, make treats the
+    file as up to date and the target silently stops doing its job.  The
+    ``ensure-*`` / ``warn-*`` preflights are the worst case: they are named
+    only from another target's prerequisites, so the skipped check is a
+    missing-prerequisite message that never prints.  ``layering-check`` sat
+    outside the list for exactly this long.
+    """
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    block = re.search(r"(?s)^\.PHONY:(.*?)(?=\n\n)", makefile, re.M)
+    assert block is not None, "no .PHONY declaration in the Makefile"
+    declared = set(block.group(1).replace("\\", " ").split())
+    defined = set(re.findall(r"^([a-z][a-z0-9-]*):", makefile, re.MULTILINE))
+    defined.discard("phony")
+
+    missing = sorted(defined - declared)
+    stale = sorted(declared - defined)
+    assert not missing and not stale, (
+        f"targets missing from .PHONY: {missing}; .PHONY names no target: {stale}"
     )
 
 

@@ -8,7 +8,8 @@
 	sdist-check \
 	build-repro \
 	verify-dist \
-	clone-resembl warn-uv-version
+	clone-resembl warn-uv-version \
+	add-dep layering-check
 
 # Force POSIX sh for recipes (ignore a caller-exported SHELL=bash).  Recipes
 # below use only POSIX constructs so Alpine/busybox ash and Debian dash work.
@@ -141,6 +142,7 @@ help:
 	@printf '%s\n' \
 		'  make doctor             # report every missing prerequisite (uv, resembl, nasm, node, shellcheck, yamllint, extras)' \
 		'  make setup              # uv sync (locked + extras + similarity) + pre-commit/pre-push hooks' \
+		'  make add-dep ADD_DEP_SPEC=<spec>  # uv add <spec> (pyproject.toml + uv.lock), then the license-table step' \
 		'  make clone-resembl      # clone sibling resembl pin into ../resembl (required for uv sync)' \
 		'  make clean              # remove build/dist artifacts and caches' \
 		'  make test               # full pytest suite (needs nasm + node on PATH)' \
@@ -319,6 +321,36 @@ clone-resembl: ensure-bash
 setup: ensure-resembl warn-nasm warn-uv-version
 	uv sync $(UV_SYNC_FLAGS)
 	uv run --frozen pre-commit install
+
+# Add a dependency.  `uv add` is the only way a new one may land: it edits
+# pyproject.toml and uv.lock together, and `make setup` / CI sync with
+# --locked, which fails outright on a manifest edit the lock does not
+# describe.  Editing pyproject.toml by hand is the drift that --locked exists
+# to catch, several commands later.
+#
+# The license table is not something uv can fill in: `tools/licenses.py`
+# records the string the pinned artifact declares in its own METADATA, and
+# tests/test_packaging.py::test_license_table_covers_the_lock_exactly fails
+# naming every distribution this left unrecorded.  Print that here, at the
+# point the author is adding the package, rather than leaving it to the first
+# full test run.
+ADD_DEP_SPEC ?=
+add-dep: warn-uv-version
+	@set -eu; \
+	if [ -z "$(ADD_DEP_SPEC)" ]; then \
+	  echo "usage: make add-dep ADD_DEP_SPEC='<package-spec>'"; \
+	  echo "  e.g. make add-dep ADD_DEP_SPEC='rapidfuzz'"; \
+	  echo "       make add-dep ADD_DEP_SPEC='--optional dev pytest-timeout'"; \
+	  echo "Wraps 'uv add', which writes pyproject.toml and uv.lock together."; \
+	  exit 2; \
+	fi
+	uv add $(ADD_DEP_SPEC)
+	@echo ""
+	@echo "next: record the new distribution's declared license in tools/licenses.py"
+	@echo "      (name==version -> the License-Expression / License / Classifier"
+	@echo "      string its own METADATA declares, verbatim), and add a NOTICE"
+	@echo "      section when the grant is copyleft or restrictive.  Then:"
+	@echo "  make setup && make test"
 
 # `uv run` syncs the default groups, never the optional extras, so a venv made
 # by a bare `uv sync` has no angr.  mypy then reports a wall of phantom errors

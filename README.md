@@ -469,6 +469,7 @@ make doctor                # report every missing prerequisite (uv, ../resembl, 
                            # node, shellcheck, venv extras) with the fix for each; read-only
 make clone-resembl         # clone sibling resembl pin (tag v3.1.0) into ../resembl
 make setup                 # uv sync --locked --all-extras --group similarity + pre-commit hooks
+make add-dep ADD_DEP_SPEC=<spec>  # add a dependency (wraps `uv add`; prints the license-table step)
 make test-one T=tests/test_annotation.py   # single-file edit-test loop
 make test                  # full suite (needs nasm + node)
 make lint                  # ruff check (same as CI)

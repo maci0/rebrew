@@ -73,6 +73,26 @@ check runs in the pre-commit `mypy` hook. Every target that
 shells out to `uv run` likewise fails with `ERROR: uv not on PATH` rather than
 a bare `uv: not found`.
 
+## Adding a dependency
+
+`make add-dep ADD_DEP_SPEC=<spec>` wraps `uv add`, which is the only supported
+way in: it writes `pyproject.toml` and `uv.lock` together, and `make setup`
+and every CI job sync with `--locked`, so a hand-edited manifest that never
+reached the lock fails several commands later instead of at the edit.
+`--optional dev <pkg>` puts it in a dev extra, `--group similarity` in that
+group.
+
+One step is not automatable, and the gate for it runs in `make test`:
+`tools/licenses.py` records, per `name==version`, the license string the
+pinned artifact declares in its own METADATA (`License-Expression`, else
+`License`, else the first `Classifier: License ::`).  Record it verbatim; a
+trove classifier such as `OSI Approved :: BSD License` does not say which BSD,
+and rewriting one into an SPDX id upstream never wrote puts a license claim
+in a released artifact.  A copyleft or restrictive grant also gets a
+`NOTICE` section.  `TestCycloneDxSbom::test_license_table_covers_the_lock_exactly`
+in `tests/test_packaging.py` fails the suite listing every distribution left
+`unrecorded`, and `make sbom` refuses to emit a component without one.
+
 ## Quick commands
 
 ```bash
@@ -80,6 +100,7 @@ make help                     # list contributor make targets
 make doctor                   # report every missing prerequisite (uv, ../resembl, nasm, node, shellcheck, venv extras)
 make clone-resembl            # clone sibling resembl pin into ../resembl (required for uv sync)
 make setup                    # locked sync (extras + similarity) + pre-commit install (checks uv + ../resembl first)
+make add-dep ADD_DEP_SPEC=<spec>  # add a dependency (wraps `uv add`; prints the license-table step)
 make clean                    # remove build/dist artifacts and caches
 make test-one T=tests/test_annotation.py  # single file / nodeid (fast edit-test loop; defaults to test_annotation.py)
 make test-one T=tests/test_annotation.py FLAGS="-k stdcall"  # narrow further with any pytest flag
