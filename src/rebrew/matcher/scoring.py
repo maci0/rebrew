@@ -7,8 +7,8 @@ Uses capstone for x86 disassembly and numpy for vectorized byte comparison.
 
 import difflib
 import threading
+from collections import OrderedDict
 from collections.abc import Callable
-from functools import lru_cache
 from typing import Any
 
 import capstone
@@ -401,10 +401,33 @@ _OPCODE_MASK = 0xF8
 #: offsets was ~35 % of ``diff_functions``, and every ``CsInsn`` it built cost
 #: capstone a ctypes marshaling pass.  Memoizing the plan by code bytes turns
 #: the repeated target side into a dict hit.
-_REG_MASK_PLAN_MAX = 64
+#:
+#: The bound is on retained BYTES, not entries: each entry holds the function
+#: body as its key plus a four-int tuple per instruction, so a cap of N
+#: entries made the real limit the heap — 64 plan entries over large
+#: functions is tens of megabytes, and a ``match --all`` over a project of
+#: big functions pinned all of it until exit.  Same discipline as
+#: ``data_layout._OBJDUMP_CACHE`` and ``verify_hash._SOURCE_MEMO``.
+_REG_MASK_PLAN_MAX_BYTES = 8 * 1024 * 1024
+#: Charged per retained plan entry on top of the code bytes: the four-tuple
+#: plus the int objects capstone allocates for its fields.  An estimate, not a
+#: measurement, but a flat one is enough to bound the heap.
+_REG_MASK_PLAN_TUPLE_BYTES = 96
+_register_mask_plans: OrderedDict[tuple[bytes, int, int], tuple[tuple[int, int, int, int], ...]] = (
+    OrderedDict()
+)
+_register_mask_plans_bytes = 0
+_register_mask_plans_lock = threading.Lock()
 
 
-@lru_cache(maxsize=_REG_MASK_PLAN_MAX)
+def clear_register_mask_plans() -> None:
+    """Drop every retained mask plan and reset the byte budget."""
+    global _register_mask_plans_bytes
+    with _register_mask_plans_lock:
+        _register_mask_plans.clear()
+        _register_mask_plans_bytes = 0
+
+
 def _register_mask_plan(
     code: bytes, cs_arch: int, cs_mode: int
 ) -> tuple[tuple[int, int, int, int], ...]:
@@ -416,7 +439,17 @@ def _register_mask_plan(
     part of the mask that depends only on the bytes; the byte *value* scan it
     feeds happens in :func:`_apply_register_mask` against the caller's buffer,
     which may already be reloc-normalized.
+
+    Memoized per ``(code, cs_arch, cs_mode)`` in LRU order, bounded by
+    retained bytes; :func:`clear_register_mask_plans` empties it.
     """
+    key = (code, cs_arch, cs_mode)
+    with _register_mask_plans_lock:
+        hit = _register_mask_plans.get(key)
+        if hit is not None:
+            _register_mask_plans.move_to_end(key)
+            return hit
+
     md = get_cs(cs_arch, cs_mode, detail=True)
     plan: list[tuple[int, int, int, int]] = []
     for insn in md.disasm(code, 0):
@@ -428,7 +461,26 @@ def _register_mask_plan(
         ):
             op0 = 0
         plan.append((insn.address, insn.size, insn.modrm_offset, op0))
-    return tuple(plan)
+    result = tuple(plan)
+
+    global _register_mask_plans_bytes
+    cost = len(code) + _REG_MASK_PLAN_TUPLE_BYTES * len(result)
+    with _register_mask_plans_lock:
+        stale = _register_mask_plans.pop(key, None)
+        if stale is not None:
+            _register_mask_plans_bytes -= len(stale[0]) + _REG_MASK_PLAN_TUPLE_BYTES * len(stale)
+        _register_mask_plans[key] = result
+        _register_mask_plans_bytes += cost
+        # The newest entry survives even when it alone exceeds the budget, so
+        # one oversized function is still memoized for the sweep that asked.
+        while (
+            _register_mask_plans_bytes > _REG_MASK_PLAN_MAX_BYTES and len(_register_mask_plans) > 1
+        ):
+            evicted_code, evicted = _register_mask_plans.popitem(last=False)
+            _register_mask_plans_bytes -= len(evicted_code) + _REG_MASK_PLAN_TUPLE_BYTES * len(
+                evicted
+            )
+    return result
 
 
 def _apply_register_mask(

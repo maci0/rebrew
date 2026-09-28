@@ -5,11 +5,15 @@ import random
 import capstone
 import pytest
 
+from rebrew.matcher import scoring
 from rebrew.matcher.core import EXACT_SCORE_THRESHOLD, Score, StructuralSimilarity
 from rebrew.matcher.scoring import (
+    _REG_MASK_PLAN_MAX_BYTES,
     _mask_registers_x86_32,
     _normalize_reloc_x86_32,
     _register_mask_plan,
+    _register_mask_plans_lock,
+    clear_register_mask_plans,
     diff_functions,
     precompute_target,
     score_candidate,
@@ -86,6 +90,44 @@ class TestMaskRegisters:
         code = b"\x8b\xc3\x8b\xd1"
         first = _register_mask_plan(code, capstone.CS_ARCH_X86, capstone.CS_MODE_32)
         second = _register_mask_plan(code, capstone.CS_ARCH_X86, capstone.CS_MODE_32)
+        assert first is second
+        assert first
+
+    def test_plan_memo_is_bounded_by_retained_bytes(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Distinct function bodies do not accumulate one plan each until exit.
+
+        An entry-count cap made the real limit the heap: every entry holds the
+        body as its key plus a four-int tuple per instruction.  The newest plan
+        survives even when it alone exceeds the budget.
+        """
+        clear_register_mask_plans()
+        # Each body is ~1 KiB of code over ~340 instructions, so 40 of them
+        # cost well past a budget the test can shrink to something reachable.
+        body = b"\x8b\x45\xfc\x03\x45\x08\x89\x45\xf8\xc1\xe0\x02" * 100
+        reduced = _REG_MASK_PLAN_MAX_BYTES // 8
+        monkeypatch.setattr(scoring, "_REG_MASK_PLAN_MAX_BYTES", reduced)
+        try:
+            for i in range(40):
+                _register_mask_plan(body + bytes([i]), capstone.CS_ARCH_X86, capstone.CS_MODE_32)
+            with _register_mask_plans_lock:
+                retained = len(scoring._register_mask_plans)
+                accounted = scoring._register_mask_plans_bytes
+            # Only the newest plan may exceed the budget; the rest are evicted.
+            assert retained < 40
+            assert accounted <= reduced * 2
+        finally:
+            clear_register_mask_plans()
+            monkeypatch.undo()
+
+    def test_oversized_plan_still_memoized(self) -> None:
+        """A body over the whole budget keeps its own plan, for the sweep that asked."""
+        clear_register_mask_plans()
+        code = b"\x8b\x45\xfc\x03\x45\x08\x89\x45\xf8\xc1\xe0\x02" * 100
+        try:
+            first = _register_mask_plan(code, capstone.CS_ARCH_X86, capstone.CS_MODE_32)
+            second = _register_mask_plan(code, capstone.CS_ARCH_X86, capstone.CS_MODE_32)
+        finally:
+            clear_register_mask_plans()
         assert first is second
         assert first
 
