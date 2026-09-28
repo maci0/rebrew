@@ -2154,6 +2154,33 @@ class TestEncodingNegotiation:
         for asset in (_INDEX_HTML, _APP_JS):
             assert "-webkit-overflow-scrolling" not in asset
 
+    def test_va_cells_do_not_wrap_mid_address(self) -> None:
+        """The address column is the one cell the scroll container may not split.
+
+        Every ``th`` is ``white-space: nowrap`` and ``table`` is ``width:
+        100%``, so the header row sets a minimum table width and the panel
+        scrolls.  ``td { overflow-wrap: anywhere }`` is what keeps a long
+        demangled name from stretching a row on a wide monitor, but it also
+        lets the VA column shrink below its own content, and "VA" is the
+        shortest header in the table, so that is where the squeeze lands:
+        ``0x00401000`` breaks across two lines and the row's key is no longer
+        scannable.
+        """
+        from rebrew.dashboard import _INDEX_HTML
+
+        assert "td.va { white-space: nowrap; }" in _INDEX_HTML
+
+    def test_page_hint_never_renders_an_absent_tip(self) -> None:
+        """A view with no Show more button supplies no tip; the hint must omit it.
+
+        ``setListPageMessage`` appends the tip to the count.  Sections is
+        unpaged and passes neither ``tip`` nor ``tipCapped``, so the count has
+        to stand alone rather than end in a stray ``undefined``.
+        """
+        from rebrew.dashboard import _APP_JS
+
+        assert "hint.textContent = tail ? msg" in _APP_JS
+
     def test_history_rows_are_positional_only(self) -> None:
         """``historyRowHtml`` takes the ``cols`` array, not the old object row.
 

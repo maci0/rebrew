@@ -682,7 +682,8 @@ function setListPageMessage(opts) {
     const msg = "Showing " + count + " of " + total + " " + noun;
     const capped = count >= PAGE_MAX;
     $("results-status").textContent = msg;
-    hint.textContent = msg + ". " + (capped ? tipCapped : tip);
+    const tail = capped ? tipCapped : tip;
+    hint.textContent = tail ? msg + ". " + tail : msg;
     hint.hidden = false;
     const next = Math.min(count + PAGE_STEP, total, PAGE_MAX);
     more.hidden = capped;
@@ -1446,14 +1447,15 @@ __STATUS_CSS__
   table { border-collapse: collapse; width: 100%; margin-top: 1rem;
     font-size: var(--rb-size-cell); background: var(--rb-surface); }
   th, td { border-bottom: 1px solid var(--rb-line); padding: .3rem .5rem; text-align: left; }
-  /* A demangled name or a long path is one unbreakable token, and a table at
-     100% width lets that token set the row's width: on a wide monitor the
-     Status column ends up a screen away from the VA it belongs to. `anywhere`
-     lowers the cell's intrinsic minimum, so the column wraps instead. */
+  /* `anywhere` lowers a cell's intrinsic minimum, so a long demangled name
+     wraps instead of pushing the Status column away from its VA.  The VA opts
+     out: every `th` is nowrap, so the header row alone makes the table scroll
+     and the shortest-header column is the one `anywhere` would squeeze. */
   td { overflow-wrap: anywhere; }
   th { background: var(--rb-sunken); white-space: nowrap; font-weight: 600; }
   tbody tr:hover { background: var(--rb-hover); }
   td.va, code { font-family: var(--rb-mono); }
+  td.va { white-space: nowrap; }
   #dashboard-error { color: var(--rb-note-ink); background: var(--rb-note-bg);
     border: 1px solid var(--rb-note-ink); border-radius: var(--rb-radius);
     padding: .6rem .8rem; margin: .75rem 0; }
@@ -1498,7 +1500,6 @@ __STATUS_FORCED__
   @media (prefers-reduced-motion: reduce) {
     * { transition: none !important; animation: none !important; }
   }
-  /* Skip layout/paint for off-screen rows on large result pages. */
   tbody tr { content-visibility: auto; contain-intrinsic-size: auto 2.2rem; }
 </style>
 <noscript><style>#boot-status { display: none; }</style></noscript>
