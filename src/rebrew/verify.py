@@ -1987,6 +1987,43 @@ def _inventory_count(cfg: ProjectConfig, reversed_dir: Path) -> int:
         return 0
 
 
+def _library_header_rows(cfg: Any) -> dict[int, dict[str, str]]:
+    """Rows the ``library_*.h`` headers of this target contribute, cached.
+
+    Keyed on the header paths and their mtimes, so an edited header re-parses
+    and ``verify --watch`` still sees the change while two calls in one run
+    (the library set and the ``--nolib`` filter) parse the tree once.
+    """
+    from rebrew.annotation import parse_library_header
+    from rebrew.sources import iter_library_headers
+
+    marker = preset_module_key(module_marker(cfg))
+    headers = list(iter_library_headers(cfg.reversed_dir, cfg))
+    key = (marker, tuple((str(h), _mtime_ns(h)) for h in headers))
+    cached = _LIBRARY_HEADER_CACHE.get(key)
+    if cached is not None:
+        return cached
+    rows: dict[int, dict[str, str]] = {}
+    for header in headers:
+        for e in parse_library_header(header, metadata_dir=cfg.metadata_dir):
+            if preset_module_key(e.module or "") in ("", marker):
+                rows[e.va] = {"marker_type": e.marker_type or "LIBRARY", "module": e.module or ""}
+    _LIBRARY_HEADER_CACHE.clear()
+    _LIBRARY_HEADER_CACHE[key] = rows
+    return rows
+
+
+_LIBRARY_HEADER_CACHE: dict[Any, dict[int, dict[str, str]]] = {}
+
+
+def _mtime_ns(path: Path) -> int:
+    """mtime in nanoseconds, or 0 when the header is unreadable."""
+    try:
+        return path.stat().st_mtime_ns
+    except OSError:
+        return 0
+
+
 def _library_vas(cfg: Any, entries: list[Annotation]) -> set[int]:
     """VAs of this target that are library code, by `rebrew status`'s rule.
 
@@ -1995,11 +2032,8 @@ def _library_vas(cfg: Any, entries: list[Annotation]) -> set[int]:
     :func:`rebrew.naming.load_data`) or its module is in ``external_libs``
     (:func:`rebrew.naming.external_vas`).  Headers of other targets are ignored.
     """
-    from rebrew.annotation import parse_library_header
     from rebrew.naming import external_vas
-    from rebrew.sources import iter_library_headers
 
-    marker = preset_module_key(module_marker(cfg))
     rows = {
         e.va: {
             "marker_type": getattr(e, "marker_type", "") or "",
@@ -2007,10 +2041,7 @@ def _library_vas(cfg: Any, entries: list[Annotation]) -> set[int]:
         }
         for e in entries
     }
-    for header in iter_library_headers(cfg.reversed_dir, cfg):
-        for e in parse_library_header(header, metadata_dir=cfg.metadata_dir):
-            if preset_module_key(e.module or "") in ("", marker):
-                rows[e.va] = {"marker_type": e.marker_type or "LIBRARY", "module": e.module or ""}
+    rows.update(_library_header_rows(cfg))
     return external_vas(rows, getattr(cfg, "external_libs", None))
 
 

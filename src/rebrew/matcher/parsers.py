@@ -145,6 +145,17 @@ def parse_obj_symbol_and_relocs(
     return _parse_coff(obj_path, None, symbol)
 
 
+def _parse_coff_symbol_and_relocs(
+    obj_path: str | Path, symbol: str
+) -> tuple[bytes | None, dict[int, str] | None, list[CoffRelocRecord]]:
+    """``parse_obj_symbol_and_relocs`` for an object already known to be COFF.
+
+    Skips the magic-prefix open, which otherwise costs a second open on the
+    dominant MSVC path: the caller has already read the 4 bytes to dispatch.
+    """
+    return _parse_coff(obj_path, None, symbol)
+
+
 def _parse_coff(
     obj_path: str | Path,
     coff_path: Path | None,
@@ -314,7 +325,7 @@ def _parse_coff_symbol_bytes(
     obj_path: str, symbol: str
 ) -> tuple[bytes | None, dict[int, str] | None]:
     """Extract code bytes + relocation offsets for a symbol from COFF .obj using LIEF."""
-    code, reloc_offsets, _ = parse_obj_symbol_and_relocs(obj_path, symbol)
+    code, reloc_offsets, _ = _parse_coff_symbol_and_relocs(obj_path, symbol)
     return code, reloc_offsets
 
 

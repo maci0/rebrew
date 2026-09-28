@@ -281,9 +281,24 @@ def _add_edge(
             edges.append(edge)
 
 
+def _norm(sig: Counter[str]) -> float:
+    return math.sqrt(sum(v * v for v in sig.values()))
+
+
 def _cosine(a: Counter[str], b: Counter[str]) -> float:
     va = math.sqrt(sum(v * v for v in a.values()))
     vb = math.sqrt(sum(v * v for v in b.values()))
+    return _cosine_scaled(a, b, va, vb)
+
+
+def _cosine_scaled(
+    a: Counter[str], b: Counter[str], va: float, vb: float
+) -> float:
+    """``_cosine`` with the two vector norms already computed.
+
+    The greedy match calls this once per block pair, and a signature's norm
+    is invariant across the whole sweep, so callers hoist them out.
+    """
     if va == 0 or vb == 0:
         return 0.0
     denom = va * vb
@@ -321,6 +336,8 @@ def cfg_similarity(
     # Greedy best-match blocks by mnemonic-multiset cosine, weighted by size.
     sigs_t = [Counter(m) for _, _, m in tb]
     sigs_c = [Counter(m) for _, _, m in cb]
+    norms_t = [_norm(s) for s in sigs_t]
+    norms_c = [_norm(s) for s in sigs_c]
     sizes_t = [s for _, s, _ in tb]
     total_weights = sum(sizes_t)
     matched_t: set[int] = set()
@@ -333,7 +350,7 @@ def cfg_similarity(
         for ci in range(len(cb)):
             if ci in matched_c:
                 continue
-            s = _cosine(sigs_t[ti], sigs_c[ci])
+            s = _cosine_scaled(sigs_t[ti], sigs_c[ci], norms_t[ti], norms_c[ci])
             if s > best_score:
                 best_score, best_c = s, ci
         if best_c >= 0 and best_score > 0.0:
@@ -347,10 +364,11 @@ def cfg_similarity(
     # Edge similarity: Jaccard over mapped edges.  A target edge (a,b) matches
     # a candidate edge (c,d) when a→c and b→d are both matched pairs.
     edge_matches = 0
+    ce_set = set(ce)
     for a, b in te:
         if a in match_map and b in match_map:
             ce_cand = match_map[b]
-            if (match_map[a], ce_cand) in ce:
+            if (match_map[a], ce_cand) in ce_set:
                 edge_matches += 1
     edge_union = len(te) + len(ce) - edge_matches
     edge_sim = edge_matches / edge_union if edge_union else 1.0  # both empty = identical flow

@@ -1199,9 +1199,12 @@ def fix_ownership(
     original_owner = dict(owner)
 
     tu_files: list[Path | None] = [_obj_to_source(obj, root, src_dir) for obj in link_objects(root)]
-    data_tus = list(
-        dict.fromkeys(tf for tf in tu_files if tf and any(owner.get(n) == tf for n in toml))
-    )
+    # One pass over the symbol table instead of rescanning it per object: a
+    # mature target has thousands of symbols and hundreds of link-order objects.
+    owners_of: dict[Path, int] = {}
+    for f in owner.values():
+        owners_of[f] = owners_of.get(f, 0) + 1
+    data_tus = list(dict.fromkeys(tf for tf in tu_files if tf and owners_of.get(tf)))
 
     all_syms = sorted(toml.keys(), key=lambda n: toml[n][0])
     next_va: dict[str, int] = {

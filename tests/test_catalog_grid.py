@@ -93,6 +93,18 @@ class TestFindGhidraDataLabel:
         idx = _build_label_index({0x5000: self._label(0x5000, 20)})
         assert _find_ghidra_data_label(0x1000, idx) is None
 
+    def test_hole_between_an_outer_and_a_nested_label(self) -> None:
+        # The outer label ends where the nested one starts, so nothing covers
+        # 0x5100.  The prefix max rejects it without walking the back-scan.
+        idx = _build_label_index(
+            {
+                0x5000: self._label(0x5000, 0x100),
+                0x5100: self._label(0x5100, 0x20),
+            }
+        )
+        assert _find_ghidra_data_label(0x5100, idx)[0] == 0x5100
+        assert _find_ghidra_data_label(0x5150, idx) is None
+
 
 class TestBuildCells:
     def test_zero_or_negative_unit_bytes_returns_empty(self) -> None:

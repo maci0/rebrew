@@ -148,17 +148,26 @@ def _lookup_section(
 
 def _build_label_index(
     data_labels: dict[int, "GhidraDataLabel"],
-) -> tuple[list[int], list[tuple[int, "GhidraDataLabel"]]]:
-    """Build sorted label boundaries for O(log n) lookup."""
+) -> tuple[list[int], list[tuple[int, "GhidraDataLabel"]], list[int]]:
+    """Build sorted label boundaries for O(log n) lookup.
+
+    Returns ``(sorted_starts, label_info, prefix_max_end)`` where
+    ``prefix_max_end[i]`` is the highest ``va + size`` over labels ``0..i``.
+    """
     items = sorted(data_labels.items())
     starts = [va for va, _ in items]
     info = [(va, dl) for va, dl in items]
-    return starts, info
+    prefix_max_end: list[int] = []
+    running = 0
+    for va, dl in items:
+        running = max(running, va + dl.size)
+        prefix_max_end.append(running)
+    return starts, info, prefix_max_end
 
 
 def _find_ghidra_data_label(
     va: int,
-    _label_index: tuple[list[int], list[tuple[int, "GhidraDataLabel"]]] | None,
+    _label_index: tuple[list[int], list[tuple[int, "GhidraDataLabel"]], list[int]] | None,
 ) -> tuple[int, "GhidraDataLabel"] | None:
     """Return (label_va, label_dict) if *va* falls inside a known Ghidra data label region.
 
@@ -167,10 +176,16 @@ def _find_ghidra_data_label(
     """
     if _label_index is None:
         return None
-    starts, info = _label_index
+    starts, info, prefix_max_end = _label_index
     idx = bisect.bisect_right(starts, va) - 1
-    # A shorter label nested in a longer one must not hide the outer tail.
+    # A shorter label nested in a longer one must not hide the outer tail, so
+    # the back-scan stays — but the prefix max bounds it.  A VA past every
+    # earlier extent (before the first label, or in a hole) rejects at once
+    # instead of walking the whole index, which the cell walk and the
+    # absorption loop each do once per gap and per function end.
     while idx >= 0:
+        if prefix_max_end[idx] <= va:
+            return None
         dl_va, dl_info = info[idx]
         if dl_va <= va < dl_va + dl_info.size:
             return dl_va, dl_info

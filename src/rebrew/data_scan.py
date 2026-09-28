@@ -116,6 +116,18 @@ class GlobalEntry:
     declared_in: list[str] = field(default_factory=list)
     annotated: bool = False  # True if has a // GLOBAL: annotation
     conflict: bool = False  # True if files declare this name with different types
+    _declared: set[str] = field(default_factory=set, repr=False, compare=False)
+
+    def declare(self, fname: str) -> None:
+        """Record *fname* as a declarer, once, in first-seen order.
+
+        ``declared_in`` stays a list (it is indexed and serialized in order);
+        the companion set keeps the membership test O(1) so a global declared
+        in N files costs N appends instead of N² scans.
+        """
+        if fname not in self._declared:
+            self._declared.add(fname)
+            self.declared_in.append(fname)
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a plain dict for JSON output."""
@@ -443,8 +455,7 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
                 else:
                     entry.annotated = True
 
-                if fname not in entry.declared_in:
-                    entry.declared_in.append(fname)
+                entry.declare(fname)
 
                 if type_str:
                     type_by_name[name][type_str].append(fname)
@@ -491,8 +502,7 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
                 entry = GlobalEntry(name=ev_name, type_str=ev.type_str)
                 _remember(entry, key)
 
-            if fname not in entry.declared_in:
-                entry.declared_in.append(fname)
+            entry.declare(fname)
 
             if ev.type_str:
                 type_by_name[ev_name][ev.type_str].append(fname)
