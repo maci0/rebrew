@@ -398,6 +398,15 @@ WRITE_COMMANDS = [
     # duplicate key or leave a second header on a re-run.
     "library set . --toolchain msvc-6.0 --cflags /O2",
     "library set . --preset msvcrt-static",
+    # Renders the static HTML site.  Every page carries the run's coverage
+    # summary, so a second run that recomputed one field differently (a
+    # generation stamp, a page count) would rewrite the whole site and show up
+    # as a changed tree.
+    "report",
+    # Renders rebrew_globals.h from the GLOBAL:/DATA: annotations.  The header
+    # carries a "Generated:" line, so a re-run that rewrote it unconditionally
+    # would churn every file it produces without changing a declaration.
+    "data --gen-header",
     # ``inline-strings`` is deliberately absent: it reads the layout package
     # that ``gen-layout`` writes, and that needs a reference binary the
     # read-only fixture does not ship.  It exited 2 on every run, which the
