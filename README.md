@@ -141,7 +141,7 @@ All tools find the config by searching upward from the current directory (like `
 Install as a dependency (`uv add git+https://github.com/maci0/rebrew.git` or
 `pip install` from the same URL). Import submodules directly. The same entry
 points are also attributes of the package (`from rebrew import load_config`),
-loaded on first use. A star-import still binds only `__version__`:
+loaded on first use, and a star-import binds them along with `__version__`:
 
 ```python
 from rebrew.config import load_config

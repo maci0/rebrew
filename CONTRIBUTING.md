@@ -133,7 +133,10 @@ import rebrew as a library.  `tools/public_surface.py` reads that surface out
 of the AST (`--diff <tag>` prints the delta) and
 `tests/test_public_surface.py::TestSurfaceGate` fails the build when the delta
 against the last tag removes or reshapes a public name and `[Unreleased]` has
-no `**Breaking:**` entry naming it.
+no `**Breaking:**` entry naming it.  A move that leaves the old path working
+is not a break and needs no entry: `rebrew.utils` owning a name that
+`rebrew.cli` still imports is scored as the origin's shape, so only the
+import path that actually went away is flagged.
 
 - **One version, one place.**  `__version__` in `src/rebrew/__init__.py` is the
   source of truth; `pyproject.toml` reads it via `[tool.setuptools.dynamic]`.

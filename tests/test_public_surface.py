@@ -276,12 +276,90 @@ class TestBreakClassification:
         """A name re-exported is importable, so it is public whether or not it is local."""
         source = {
             Path("src/rebrew/utils.py"): "from .text import fold_ident\nfrom . import toolchain\n",
+            Path("src/rebrew/text.py"): "def fold_ident(name: str) -> str:\n    return name\n",
             Path("src/rebrew/__init__.py"): "from rebrew.config import load_config\n",
+            Path(
+                "src/rebrew/config.py"
+            ): "def load_config(path: str) -> dict[str, str]:\n    return {}\n",
         }
         surface = public_surface(Path("src/rebrew"), source=source)
-        assert surface["utils"]["fold_ident"] == ("re-export from .text",)
-        assert surface["utils"]["toolchain"] == ("re-export from .",)
-        assert surface[""]["load_config"] == ("re-export from rebrew.config",)
+        assert surface["utils"]["fold_ident"] == surface["text"]["fold_ident"]
+        assert "toolchain" in surface["utils"]
+        assert surface[""]["load_config"] == surface["config"]["load_config"]
+
+    def test_absolute_intra_package_import_is_a_reexport(self) -> None:
+        """The spelling this tree writes everywhere, not only the relative one.
+
+        ``from rebrew.utils import untrusted_text`` is as importable as
+        ``from .utils import untrusted_text``; scoring only the relative form
+        made every such alias invisible, and the sibling it stopped importing
+        then read as a removal.
+        """
+        source = {
+            Path(
+                "src/rebrew/utils.py"
+            ): "def helper(value: object) -> str:\n    return str(value)\n",
+            Path("src/rebrew/cli.py"): "from rebrew.utils import helper\n",
+        }
+        surface = public_surface(Path("src/rebrew"), source=source)
+        assert surface["cli"]["helper"] == surface["utils"]["helper"]
+
+    def test_a_move_into_a_sibling_that_keeps_importing_it_is_not_a_break(self) -> None:
+        """``from rebrew.cli import name`` keeps working, so no import path changed."""
+        root = Path("src/rebrew")
+        old = public_surface(
+            root,
+            source={
+                Path(
+                    "src/rebrew/cli.py"
+                ): "def helper(value: object) -> str:\n    return str(value)\n"
+            },
+        )
+        new = public_surface(
+            root,
+            source={
+                Path(
+                    "src/rebrew/utils.py"
+                ): "def helper(value: object) -> str:\n    return str(value)\n",
+                Path("src/rebrew/cli.py"): "from rebrew.utils import helper\n",
+            },
+        )
+        removed, changed, added = diff_surfaces(old, new)
+        assert removed == {} and changed == {}
+        assert list(added["utils"]) == ["helper"]
+
+    def test_a_reshaped_definition_still_breaks_at_the_importing_module(self) -> None:
+        """The alias carries the origin's shape, so a changed signature shows up."""
+        root = Path("src/rebrew")
+        old = public_surface(
+            root,
+            source={
+                Path(
+                    "src/rebrew/utils.py"
+                ): "def helper(value: object) -> str:\n    return str(value)\n",
+                Path("src/rebrew/cli.py"): "from rebrew.utils import helper\n",
+            },
+        )
+        new = public_surface(
+            root,
+            source={
+                Path("src/rebrew/utils.py"): "def helper(value: object, strict: bool) -> str:\n"
+                "    return str(value)\n",
+                Path("src/rebrew/cli.py"): "from rebrew.utils import helper\n",
+            },
+        )
+        removed, changed, _ = diff_surfaces(old, new)
+        assert removed == {}
+        assert list(changed["utils"]) == ["helper"]
+        assert list(changed["cli"]) == ["helper"]
+
+    def test_a_third_party_import_is_not_a_reexport(self) -> None:
+        """That name is not rebrew's to move or reshape, and no sibling defines it."""
+        source = {
+            Path("src/rebrew/cli.py"): "from rich.console import Console\nfrom os import environ\n"
+        }
+        surface = public_surface(Path("src/rebrew"), source=source)
+        assert surface["cli"] == {}
 
     def test_default_named_by_a_module_constant_is_compared_by_value(self) -> None:
         """Naming a constant is not a signature change; moving its value is.

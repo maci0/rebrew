@@ -1,5 +1,18 @@
 ## [Unreleased]
 
+### Added
+- **The dashboard names the request on its own warnings and reports a slow
+  one.** A route's warning (a corrupt `function_stats` row, a byte count past
+  the section) explains a response the access line shows as a plain 200, so it
+  carried no id and the operator had to grep the message text to learn which
+  request hit the bad row. Those warnings now lead with the same `r<N>` the
+  access and error lines use (`-` off the server, where the CLI reaches the
+  same code with no request in flight), and a request whose handler passes
+  500 ms gets a WARNING of its own instead of appearing only in the shutdown
+  worst-case totals. The access line also reports the response body size,
+  which was the one field it always printed as `-`. `docs/CLI.md` documents
+  the stream.
+
 ### Changed
 - **The dashboard boot guard is inline in the shell, so a cold load is two
   requests instead of three.** `/boot-guard.js` was a third deferred asset
@@ -11,6 +24,26 @@
   force: `script-src 'self'` plus that one script's `sha256`, never
   `'unsafe-inline'`. The route is gone; the entry wire budget drops from
   three header reserves to two, so gzip goes from 14 bytes of room to 671.
+- **`tests/test_check_sdist_wheel.py` is type-checked.** It was the one
+  `tests/` module already clean under `--strict` that the mypy file list left
+  out, on a recorded "Source file found twice under different module names"
+  abort that no longer reproduces: with the module listed, `make mypy` checks
+  323 files and reports what it did before. The ratchet is now at every clean
+  module in the tree.
+- **Breaking:** `strip_bidi_format` is no longer importable from
+  `rebrew.cli`; import it from `rebrew.utils`, where it has been defined all
+  along. The console guard moved to `rebrew.utils` with the modules that use
+  it, and `rebrew.cli` stopped importing a name it no longer called, so
+  `from rebrew.cli import strip_bidi_format` raises `ImportError`. Import
+  surface is not frozen (see CONTRIBUTING), and this is the one import path
+  the move took away.
+- **Breaking:** `untrusted_text` and `untrusted_literal` are now defined in
+  `rebrew.utils` rather than `rebrew.cli`. Both old paths still resolve:
+  `rebrew.cli` keeps importing them, so `from rebrew.cli import
+  untrusted_text` is unchanged, and the new canonical spelling is
+  `from rebrew.utils import untrusted_text`. `rebrew.utils.console` is the
+  one console a module should build, in place of its own.
+
 
 ### Fixed
 - **A refused `rebrew prove` promotion no longer destroys the counterexample
@@ -92,14 +125,71 @@
   and from the ReVa MCP server, so both were reachable. The guard now lives in
   `rebrew.utils` (`console`, `untrusted_text`, `untrusted_literal`), the
   module every one of them already imported to respect the catalog/ghidra
-  layering rule, and no module builds its own console. `rebrew.cli` re-exports
-  the two public names, so the SDK surface is unchanged.
+  layering rule, and no module builds its own console. `rebrew.cli` keeps
+  re-exporting the two public names, so `from rebrew.cli import
+  untrusted_text` still resolves; `strip_bidi_format`, which `rebrew.cli`
+  imported and no longer calls, is the one import path the move took away and
+  is written up under `Changed` above.
 - **The report's bottom pager follows the viewport.** Every paged report table
   is 250 rows, and the copy of the pager under it was the only way on to the
   next page, so it sat past every row the reader had to scroll to reach it. It
   is sticky at the bottom of the page now (`pager pager-end`), bounded by the
   page so it settles back in place at the end; the copy above the table is
   unchanged.
+- **`from rebrew import *` bound only `__version__`.** The package root
+  advertises eleven lazy exports (`CompareResult`, `ProjectConfig`,
+  `load_config`, `get_toolchain`, …) through a module `__getattr__` and
+  `__dir__`, but `__all__` named nothing but the version string, so a
+  star-import silently dropped every name the module docstring lists. The
+  eleven names are written out beside `__version__`; a test fails when the
+  list and `_LAZY_EXPORTS` disagree.
+- **A batch compile and a single-file compile disagreed about their flags.**
+  The include-fingerprinting pass read the two-token `/I path` form with a
+  `len(nxt) <= 4` heuristic, so `/I /opt`, `/I /usr`, `/I /tmp` were read as
+  flags and a header reachable only through one of them was never part of the
+  cache key: editing it still served a stale hit. The batch grouping key
+  filtered those tokens out on their own and so compared two different
+  include sets as one group, and the batch cache key spelled a source
+  starting with `@` or `-` differently from the compile command, which reads
+  both as a response file or an option. All three now go through
+  `compile._merged_include_tokens` and `compile._cache_src_name`, the same
+  helpers the single-file path uses.
+- **A verify run wrote 0% where it had measured nothing.**
+  `patch_cache_from_results` wrote `match_percent = 0.0` for a row with no
+  percent (a cache-served row whose first run recorded only a status), and
+  the writer treats a patch carrying neither byte counts nor a percent as
+  "no measurement" and keeps the last real one. An absent percent is now left
+  out of the patch instead of being written as a measurement of zero.
+- **`rebrew match --seed-llm` counted candidates it never judged.** The gate stops
+  scanning once it has the requested seeds, so `rejected` was computed as
+  `len(checked) - len(seeds)` over every block in the body: a 16-block answer
+  asked for 2 seeds was reported as 14 rejections the model is judged on
+  having made. The run summary now counts only the blocks the gate actually
+  parsed.
+- **A Shift-JIS source and a CP1252 source read as each other.** Every
+  0xE0-0xFC byte is a valid single-byte Shift-JIS character, so a Latin source
+  holding `café` (0xE9) decoded as Shift-JIS without error and every accented
+  letter came out as katakana. The write-back stayed byte-identical, so
+  nothing failed: only the text a caller printed, compared, or sliced was
+  wrong. `detect_source_encoding` now requires the Shift-JIS decode to hold
+  kana or CJK before it accepts it, which leaves a real Japanese source on
+  Shift-JIS and hands the Latin one to CP1252.
+- **A hard-killed run stranded its sandbox forever.** `remove_temp_dir` and
+  the atexit hooks release a sandbox on every path a run can take, so what
+  was left in the shared base was what never got to clean up: SIGKILL, an OOM
+  kill, a container killed mid batch. Each left a staged toolchain and a
+  container workdir behind, and nothing looked at the parent again.
+  `utils.sweep_stale_temp_dirs` removes a `rebrew*` directory in the base
+  whose mtime is more than `utils.STALE_TEMP_DIR_AGE_S` (24 h) old, and
+  `writable_temp_dir` sweeps each base once per process. A dir whose writes
+  have stopped for a day belongs to no run still compiling, and a sweep
+  failure is logged at debug rather than failing the compile that asked for a
+  workdir.
+- **`rebrew lint` reported a duplicate global for two modules that each have
+  one.** W021 keyed the seen-globals map on the C name alone, so `SERVER` and
+  `GOLDTL` both annotating `g_log_newline` read as a duplicate. The key is the
+  module and the name now, and two files annotating one name for the same
+  module still warn.
 
 ## [2.15.0] - 2026-09-28
 
@@ -344,12 +434,6 @@
   the same budget instead of a second number.
 
 ### Changed
-- **`tests/test_check_sdist_wheel.py` is type-checked.** It was the one
-  `tests/` module already clean under `--strict` that the mypy file list left
-  out, on a recorded "Source file found twice under different module names"
-  abort that no longer reproduces: with the module listed, `make mypy` checks
-  323 files and reports what it did before. The ratchet is now at every clean
-  module in the tree.
 - **Breaking:** **`theme.TOKENS` is one size ladder, not a per-component
   scale.** `rebrew.theme.TOKENS` dropped `size-bar` and moved every other
   `size-*` entry onto a 24/20/18 display and 15/14/13 text ladder, so a

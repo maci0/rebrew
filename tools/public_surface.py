@@ -13,9 +13,13 @@ A name is part of the surface when it is
 - a module-level function, class, or constant whose name does not start with
   ``_``,
 - a public method or public class attribute of a public class, or
-- an intra-package re-export (``from .x import y``, and every ``from x import y``
-  in an ``__init__.py``) — the accidental public API path, since a name the
-  module defines elsewhere is still importable from here.
+- an intra-package re-export, in either spelling this tree uses
+  (``from .x import y`` and ``from rebrew.x import y``), plus every import in an
+  ``__init__.py`` — the accidental public API path, since a name the module
+  defines elsewhere is still importable from here.  A re-export carries the
+  origin's descriptor, so moving a definition into a sibling that keeps
+  importing it changes no import path and reads as no change; a third-party or
+  stdlib import is not a re-export, because that name is not rebrew's to move.
 
 Descriptors are compared as text, so a changed default, a dropped parameter, a
 reordered argument, a new base class, and a changed constant all read as a
@@ -76,6 +80,16 @@ _MAX_CONST_HOPS = 4
 
 #: Package the tree was cut from; an absolute import names its sibling.
 _PACKAGE = "rebrew"
+
+#: How many modules a re-export may travel before its origin's descriptor is
+#: taken as spelled.  Past this the chain is a cycle or longer than any real one.
+_MAX_REEXPORT_HOPS = 8
+
+#: Marks a descriptor whose name this module imports rather than defines.  The
+#: rest of the entry names the module it comes from, in this tool's module
+#: namespace, until :func:`_resolve_reexports` replaces it with that module's
+#: own descriptor for the same name.
+_REEXPORT = "\0re-export "
 
 #: Returned when a name's value cannot be read out of the AST.
 _UNRESOLVED = object()
@@ -387,7 +401,7 @@ def _literal_constants(
 
 
 def _module_names(
-    tree: ast.Module, is_package: bool, defaults: FieldDefaults
+    tree: ast.Module, module: str, is_package: bool, defaults: FieldDefaults
 ) -> dict[str, tuple[str, ...]]:
     """Every public name this module binds at module level, with its descriptor."""
     out: dict[str, tuple[str, ...]] = {}
@@ -402,15 +416,60 @@ def _module_names(
                 out[f"{node.name}.{name}"] = value
         elif (
             isinstance(node, ast.ImportFrom)
-            and _public(node.module or "")
-            and (node.level > 0 or is_package)
+            and (origin := _re_export_target(node, module, is_package)) is not None
         ):
-            origin = "." * node.level + (node.module or "")
             for alias in node.names:
                 if _public(alias.asname or alias.name):
-                    out[alias.asname or alias.name] = (f"re-export from {origin}",)
+                    out[alias.asname or alias.name] = (_REEXPORT + origin,)
     out.update(_literal_constants(tree.body, defaults))
     return out
+
+
+def _re_export_target(node: ast.ImportFrom, module: str, is_package: bool) -> str | None:
+    """The package module *node* re-exports from, or ``None`` for an outside import.
+
+    A relative ``from .utils import x`` is always one, and so is the absolute
+    ``from rebrew.utils import x`` this tree writes everywhere.  An absolute
+    import of a stdlib or third-party module is not: the name is not rebrew's
+    to move or reshape, and a third-party signature is not this tool's to
+    render.  A package ``__init__`` keeps re-exporting whatever it imports,
+    which is how the root exposes a submodule's names.
+    """
+    name = node.module or ""
+    if not node.level and not (is_package or name == _PACKAGE or name.startswith(f"{_PACKAGE}.")):
+        return None
+    # ``from . import submodule`` names no module of its own; the bound name is
+    # a submodule, which no surface describes, so the placeholder is left to
+    # compare as spelled.
+    return _import_target(node, module)
+
+
+def _resolve_reexports(surface: dict[str, dict[str, tuple[str, ...]]]) -> None:
+    """Give every re-export the shape of what it re-exports, in place.
+
+    A name a module imports from a sibling is importable from that module
+    either way, so the import path did not change when the definition moved
+    into the sibling: ``from rebrew.cli import untrusted_text`` broke on
+    nothing when the function itself moved to ``rebrew.utils`` and ``cli``
+    kept importing it.  Scoring the alias as a removal made a working import
+    read as a break, which is the one thing this tool must not do.  A chain
+    resolves hop by hop; one that never lands on a definition (a cycle, or a
+    name a sibling re-exports in turn) keeps the placeholder, which compares as
+    the same spelled path in both trees.
+    """
+    for _ in range(_MAX_REEXPORT_HOPS):
+        resolved = 0
+        for names in surface.values():
+            for name, descriptor in names.items():
+                if not descriptor[0].startswith(_REEXPORT):
+                    continue
+                origin = surface.get(descriptor[0][len(_REEXPORT) :], {}).get(name)
+                if origin is None or origin[0].startswith(_REEXPORT):
+                    continue
+                names[name] = origin
+                resolved += 1
+        if not resolved:
+            return
 
 
 def _module_name(path: Path, root: Path) -> str:
@@ -424,12 +483,16 @@ def _module_name(path: Path, root: Path) -> str:
 
 
 def _surface_from_source(
-    source: str, is_package: bool, constants: Mapping[str, ConstValue], defaults: FieldDefaults
+    source: str,
+    module: str,
+    is_package: bool,
+    constants: Mapping[str, ConstValue],
+    defaults: FieldDefaults,
 ) -> dict[str, tuple[str, ...]]:
     tree = ast.parse(source)
     if constants:
         tree = ast.fix_missing_locations(_SubstituteConstants(constants).visit(tree))
-    return _module_names(tree, is_package, defaults)
+    return _module_names(tree, module, is_package, defaults)
 
 
 def public_surface(
@@ -454,12 +517,16 @@ def public_surface(
     trees = {m: ast.parse(t) for m, t in text.items()}
     constants = _constant_values(trees)
     defaults = _class_field_defaults(trees)
-    return {
+    surface = {
         module: _surface_from_source(
-            source, p.name == f"{_INIT}.py", constants.get(module, {}), defaults
+            source, module, p.name == f"{_INIT}.py", constants.get(module, {}), defaults
         )
         for (module, source), p in zip(text.items(), paths, strict=True)
     }
+    # Last, because a re-export can only borrow the origin's shape once every
+    # module has been scored.
+    _resolve_reexports(surface)
+    return surface
 
 
 # --- comparing two trees --------------------------------------------------
@@ -587,6 +654,8 @@ def surface_at_ref(
 
 
 def _render(descriptor: tuple[str, ...]) -> str:
+    if descriptor[0].startswith(_REEXPORT):
+        return f"re-export from {descriptor[0][len(_REEXPORT) :]}"
     head, params, _, ret = descriptor[0], descriptor[1:-1], descriptor[-2:-1], descriptor[-1]
     return f"{head}({', '.join(params)}) {ret}".strip()
 

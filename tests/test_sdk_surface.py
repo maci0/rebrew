@@ -38,7 +38,20 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class TestTopLevelPackageExports:
     def test_top_level_package_all(self) -> None:
-        assert rebrew.__all__ == ["__version__", *sorted(rebrew._LAZY_EXPORTS)]
+        assert rebrew.__all__ == [
+            "__version__",
+            "CompareResult",
+            "CompareStatus",
+            "ConfigError",
+            "ProjectConfig",
+            "RebrewError",
+            "ToolchainError",
+            "compile_and_compare",
+            "get_toolchain",
+            "iter_library_headers",
+            "iter_sources",
+            "load_config",
+        ]
         assert isinstance(rebrew.__version__, str)
 
     def test_top_level_lazy_attribute_access(self) -> None:
