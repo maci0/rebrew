@@ -8,6 +8,7 @@ GA mutator or compiler stack.  Flag tables stay at package root
 
 from __future__ import annotations
 
+import threading
 from importlib import import_module
 from typing import TYPE_CHECKING, Any
 
@@ -246,18 +247,28 @@ __all__ = [
 
 _mutator_loaded = False
 
+#: Serializes :func:`_load_mutator_exports` and :func:`__getattr__`'s cache
+#: stores.  The fill publishes a batch of ``globals()`` entries before flipping
+#: ``_mutator_loaded``, and the GA pool plus ``match --all-targets`` reach this
+#: from several threads at once, so the flag and the batch it guards have to
+#: become visible together.
+_LAZY_EXPORT_LOCK = threading.Lock()
+
 
 def _load_mutator_exports() -> None:
     """Bind packaged ``mut_*`` ops into this package and fold them into ``__all__``."""
     global _mutator_loaded, __all__
     if _mutator_loaded:
         return
-    mutator = import_module(".mutator", __name__)
-    mut_all: list[str] = list(mutator.__all__)
-    for name in mut_all:
-        globals()[name] = getattr(mutator, name)
-    __all__ = list(dict.fromkeys([*__all__, *mut_all]))
-    _mutator_loaded = True
+    with _LAZY_EXPORT_LOCK:
+        if _mutator_loaded:
+            return
+        mutator = import_module(".mutator", __name__)
+        mut_all: list[str] = list(mutator.__all__)
+        for name in mut_all:
+            globals()[name] = getattr(mutator, name)
+        __all__ = list(dict.fromkeys([*__all__, *mut_all]))
+        _mutator_loaded = True
 
 
 def __getattr__(name: str) -> Any:
@@ -265,7 +276,8 @@ def __getattr__(name: str) -> Any:
         mod_name, attr = _LAZY_EXPORTS[name]
         mod = import_module(mod_name, __name__)
         value = getattr(mod, attr)
-        globals()[name] = value
+        with _LAZY_EXPORT_LOCK:
+            globals()[name] = value
         if mod_name == ".mutator":
             _load_mutator_exports()
         return value

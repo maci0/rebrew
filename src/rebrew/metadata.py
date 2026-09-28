@@ -1427,6 +1427,13 @@ def _merged_library_presets() -> dict[str, dict[str, str]]:
 
 _LIBRARY_PRESETS_ALL: dict[str, dict[str, str]] = _merged_library_presets()
 
+#: Held across the re-discovery and the rebind of :data:`_LIBRARY_PRESETS_ALL`.
+#: ``verify --jobs N`` resolves library overrides from worker threads through
+#: :func:`all_library_presets`, :func:`_validate_library_override`, and
+#: :func:`apply_library_presets`, so a concurrent refresh must publish the new
+#: snapshot in one section rather than rebind the global under them.
+_LIBRARY_PRESETS_LOCK = threading.Lock()
+
 
 def refresh_library_presets() -> dict[str, dict[str, str]]:
     """Re-run discovery and refresh the :data:`_LIBRARY_PRESETS_ALL` snapshot.
@@ -1435,13 +1442,15 @@ def refresh_library_presets() -> dict[str, dict[str, str]]:
     startup without a restart."""
     global _LIBRARY_PRESETS_ALL
 
-    _LIBRARY_PRESETS_ALL = _merged_library_presets()
+    with _LIBRARY_PRESETS_LOCK:
+        _LIBRARY_PRESETS_ALL = _merged_library_presets()
     return _LIBRARY_PRESETS_ALL
 
 
 def all_library_presets() -> dict[str, dict[str, str]]:
     """The full library-preset registry (packaged + plugin-provided)."""
-    return _LIBRARY_PRESETS_ALL
+    with _LIBRARY_PRESETS_LOCK:
+        return _LIBRARY_PRESETS_ALL
 
 
 #: Process-level memo for :func:`parse_library_metadata`, keyed by file path.
@@ -1561,7 +1570,7 @@ def apply_library_presets(meta: dict[str, Any]) -> tuple[dict[str, Any], tuple[s
     The preset table is the merged registry (:func:`all_library_presets`),
     so plugin-provided presets apply here too."""
     name = str(meta.get("library") or "").strip()
-    preset = _LIBRARY_PRESETS_ALL.get(name, {})
+    preset = all_library_presets().get(name, {})
     if not preset:
         return meta, ()
     merged = {**meta}

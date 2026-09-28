@@ -377,3 +377,58 @@ class TestWaitForSocket:
         assert headless._wait_for_socket(":90", timeout=0.3, proc=AliveProc()) is False
         assert sleeps
         assert clock["t"] >= 0.3
+
+
+class TestXvfbCookieFor:
+    """The cookie/display pair is published under ``_XVFB_INIT_LOCK``."""
+
+    def test_cookie_only_for_the_recorded_display(self, monkeypatch) -> None:
+        from rebrew import headless
+
+        monkeypatch.setenv(headless.XVFB_DISPLAY_ENV, ":99")
+        monkeypatch.setenv("XAUTHORITY", "/run/cookie-99")
+        assert headless.xvfb_cookie_for(":99") == "/run/cookie-99"
+        assert headless.xvfb_cookie_for(":77") == ""
+
+    def test_reader_cannot_see_a_half_published_pair(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A compile worker must not pair a new cookie with the old display.
+
+        The publisher writes ``XAUTHORITY`` and then the display as two separate
+        ``os.environ`` stores.  A reader that does not take the lock can land
+        between them and hand wine the previous server's cookie for the display
+        it was just given.  The writer here parks in exactly that window; the
+        reader must block until both stores are done.
+        """
+        from rebrew import headless
+
+        monkeypatch.setenv(headless.XVFB_DISPLAY_ENV, ":77")
+        monkeypatch.setenv("XAUTHORITY", "/run/cookie-77")
+        in_window = threading.Event()
+        proceed = threading.Event()
+        observed: list[str] = []
+
+        def publish() -> None:
+            with headless._XVFB_INIT_LOCK:
+                os.environ["XAUTHORITY"] = "/run/cookie-99"
+                in_window.set()  # cookie written, display still says :77
+                proceed.wait(timeout=5.0)
+                os.environ[headless.XVFB_DISPLAY_ENV] = ":99"
+
+        writer = threading.Thread(target=publish)
+        writer.start()
+        try:
+            assert in_window.wait(timeout=5.0)
+            reader = threading.Thread(
+                target=lambda: observed.append(headless.xvfb_cookie_for(":99"))
+            )
+            reader.start()
+            # The reader is parked on the lock, so nothing is observed yet.
+            reader.join(timeout=0.5)
+            assert observed == []
+            proceed.set()
+            reader.join(timeout=5.0)
+        finally:
+            proceed.set()
+            writer.join(timeout=5.0)
+        assert not writer.is_alive()
+        assert observed == ["/run/cookie-99"]

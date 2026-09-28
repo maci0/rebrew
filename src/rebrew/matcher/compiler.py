@@ -17,6 +17,7 @@ import shlex
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
 import warnings
 from collections.abc import Callable
@@ -254,6 +255,12 @@ def _ensure_wine_env(env: dict[str, str] | None, cmd: list[str]) -> dict[str, st
 #: :func:`docker_backed_profiles`.
 _DOCKER_BACKED_PROFILES: frozenset[str] | None = None
 
+#: Held across the resolve-and-publish of :data:`_DOCKER_BACKED_PROFILES`.  The
+#: GA pool calls :func:`docker_backed_profiles` per candidate compile, and
+#: :func:`refresh_docker_backed_profiles` can drop the memo while those workers
+#: run, so the read, the registry walk, and the store have to be one section.
+_DOCKER_BACKED_PROFILES_LOCK = threading.Lock()
+
 
 def docker_backed_profiles() -> frozenset[str]:
     """The image-backed toolchain profiles, resolved from the registry.
@@ -266,12 +273,18 @@ def docker_backed_profiles() -> frozenset[str]:
     the memo when the toolchain registry is rebuilt.
     """
     global _DOCKER_BACKED_PROFILES
-    if _DOCKER_BACKED_PROFILES is not None:
-        return _DOCKER_BACKED_PROFILES
-    from rebrew.toolchain import TOOLCHAINS
+    cached = _DOCKER_BACKED_PROFILES
+    if cached is not None:
+        return cached
+    with _DOCKER_BACKED_PROFILES_LOCK:
+        cached = _DOCKER_BACKED_PROFILES
+        if cached is not None:
+            return cached
+        from rebrew.toolchain import TOOLCHAINS
 
-    _DOCKER_BACKED_PROFILES = frozenset(n for n, s in TOOLCHAINS.items() if s.image is not None)
-    return _DOCKER_BACKED_PROFILES
+        cached = frozenset(n for n, s in TOOLCHAINS.items() if s.image is not None)
+        _DOCKER_BACKED_PROFILES = cached
+    return cached
 
 
 def refresh_docker_backed_profiles() -> frozenset[str]:
@@ -282,7 +295,8 @@ def refresh_docker_backed_profiles() -> frozenset[str]:
     long-lived process routes through its image instead of the host path.
     """
     global _DOCKER_BACKED_PROFILES
-    _DOCKER_BACKED_PROFILES = None
+    with _DOCKER_BACKED_PROFILES_LOCK:
+        _DOCKER_BACKED_PROFILES = None
     return docker_backed_profiles()
 
 

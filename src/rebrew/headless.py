@@ -147,6 +147,9 @@ def _adopt(display: str, pid: int) -> bool:
 
     Records the display and the cookie in the environment so the wine children
     :func:`rebrew.compile.maybe_headless_wine` builds inherit ``XAUTHORITY``.
+    Caller must hold ``_XVFB_INIT_LOCK``; the two environment writes and the
+    cookie they belong to have to become visible together (see
+    :func:`xvfb_cookie_for`).
     """
     cookie = _server_cookie(pid) or _local_cookie()
     if cookie is None:
@@ -154,6 +157,22 @@ def _adopt(display: str, pid: int) -> bool:
     os.environ["XAUTHORITY"] = str(cookie)
     os.environ[XVFB_DISPLAY_ENV] = display
     return True
+
+
+def xvfb_cookie_for(display: str) -> str:
+    """``XAUTHORITY`` recorded for *display*, or ``""`` when the pair disagrees.
+
+    The cookie and the display are two separate ``os.environ`` writes, and a
+    compile worker reads them from :func:`rebrew.compile.maybe_headless_wine`
+    with no init lock held.  Reading the pair under ``_XVFB_INIT_LOCK`` is what
+    keeps a worker from picking up the new display alongside the previous
+    server's cookie, which would hand wine a cookie it cannot authenticate with
+    against the display it was told to draw into.
+    """
+    with _XVFB_INIT_LOCK:
+        if os.environ.get(XVFB_DISPLAY_ENV) != display:
+            return ""
+        return os.environ.get("XAUTHORITY", "")
 
 
 def _display_alive(display: str) -> bool:

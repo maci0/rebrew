@@ -413,6 +413,12 @@ def _discover_cache_backends() -> dict[str, Callable[[Path, int], CacheBackend]]
 
 _CACHE_BACKENDS: dict[str, Callable[[Path, int], CacheBackend]] = _discover_cache_backends()
 
+#: Held across the re-discovery and the rebind of :data:`_CACHE_BACKENDS`.
+#: ``verify --jobs N`` and the GA pool call :func:`get_compile_cache` from worker
+#: threads, so a refresh running alongside them must publish the new snapshot in
+#: one section; a reader either sees the whole old dict or the whole new one.
+_CACHE_BACKENDS_LOCK = threading.Lock()
+
 
 def refresh_cache_backends() -> dict[str, Callable[[Path, int], CacheBackend]]:
     """Re-run discovery and refresh the :data:`_CACHE_BACKENDS` snapshot.
@@ -421,13 +427,15 @@ def refresh_cache_backends() -> dict[str, Callable[[Path, int], CacheBackend]]:
     startup without a restart."""
     global _CACHE_BACKENDS
 
-    _CACHE_BACKENDS = _discover_cache_backends()
+    with _CACHE_BACKENDS_LOCK:
+        _CACHE_BACKENDS = _discover_cache_backends()
     return _CACHE_BACKENDS
 
 
 def available_cache_backends() -> list[str]:
     """Names of every registered cache backend (packaged + plugin)."""
-    return sorted(_CACHE_BACKENDS)
+    with _CACHE_BACKENDS_LOCK:
+        return sorted(_CACHE_BACKENDS)
 
 
 # ---------------------------------------------------------------------------
@@ -1236,7 +1244,8 @@ def get_compile_cache(
     Raises:
         ValueError: When *backend* is not a registered backend.
     """
-    factory = _CACHE_BACKENDS.get(backend)
+    with _CACHE_BACKENDS_LOCK:
+        factory = _CACHE_BACKENDS.get(backend)
     if factory is None:
         raise ValueError(
             f"unknown cache backend {backend!r} (known: {available_cache_backends()}) — "
