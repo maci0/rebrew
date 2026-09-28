@@ -282,6 +282,10 @@ def load_data_metadata(directory: Path | str | Any) -> dict[tuple[str, int], dic
     dir_path = resolve_metadata_dir(directory)
     path = (dir_path / DATA_METADATA_FILENAME).resolve()
     if not path.exists():
+        # Drop any parse of a file that has since been deleted: the early
+        # return bypasses load_metadata_doc, which pops on a missing path, so
+        # the table would otherwise stay pinned for the process lifetime.
+        pop_metadata_doc_cache(_data_metadata_cache, path)
         return {}
 
     # Shared loader: tomllib reads (fast), mtime-keyed cache — same

@@ -24,11 +24,20 @@ from rebrew.utils import preset_module_key, read_json_text
 # Decoded structure-JSON payloads, keyed by path.  The file is multi-MB on a
 # real target and several commands (cross-import, binsync overlay, similarity)
 # build a registry more than once per run, so the read + ``json.loads`` is
-# repeated for identical bytes.  Value is ``(mtime_size_fp, data)``; a rewrite
-# replaces the same slot instead of orphaning a key per edit.  Callers get
-# fresh ``FunctionEntry`` objects, so nothing here is mutable-shared.
-_structure_json_cache: dict[str, tuple[str, list[Any]]] = {}
-_STRUCTURE_JSON_CACHE_MAX = 32
+# repeated for identical bytes.  Value is ``(mtime_size_fp, cost, data)``; a
+# rewrite replaces the same slot instead of orphaning a key per edit.  Callers
+# get fresh ``FunctionEntry`` objects, so nothing here is mutable-shared.
+#
+# The bound is on retained source CHARACTERS, not entries: one decoded
+# inventory is a multi-MB list of dicts costing several times its text as
+# Python objects, so an entry cap made the real limit the heap — a
+# multi-target session retaining 32 of them.  Same discipline as
+# ``verify_hash._SOURCE_MEMO`` and ``data_layout._OBJDUMP_CACHE``.  One
+# inventory larger than the budget still stays (its replacement is what the
+# caller is about to parse anyway); it is evicted by the next store.
+_structure_json_cache: dict[str, tuple[str, int, list[Any]]] = {}
+_STRUCTURE_JSON_CACHE_MAX_CHARS = 32 * 1024 * 1024
+_structure_json_chars = 0
 _structure_json_cache_lock = threading.Lock()
 
 
@@ -37,24 +46,32 @@ def _structure_json(path: Path) -> list[Any]:
 
     Raises ``ValueError`` if the file is corrupt, ``OSError`` on I/O failure.
     """
+    global _structure_json_chars
     key = str(path)
     fp = _inventory_fingerprint(key)
     with _structure_json_cache_lock:
         cached = _structure_json_cache.get(key)
     if cached is not None and cached[0] == fp:
-        return cached[1]
-    data = json.loads(read_json_text(path))
+        return cached[2]
+    text = read_json_text(path)
+    data = json.loads(text)
     if not isinstance(data, list):
         raise ValueError(
             f"Corrupt structure JSON at {path.name}: Expected a JSON array, got {type(data).__name__}"
         )
+    cost = len(text)
     with _structure_json_cache_lock:
-        if (
-            len(_structure_json_cache) >= _STRUCTURE_JSON_CACHE_MAX
-            and key not in _structure_json_cache
+        stale = _structure_json_cache.pop(key, None)
+        if stale is not None:
+            _structure_json_chars -= stale[1]
+        _structure_json_cache[key] = (fp, cost, data)
+        _structure_json_chars += cost
+        while (
+            _structure_json_chars > _STRUCTURE_JSON_CACHE_MAX_CHARS
+            and len(_structure_json_cache) > 1
         ):
-            _structure_json_cache.pop(next(iter(_structure_json_cache)), None)
-        _structure_json_cache[key] = (fp, data)
+            oldest = next(iter(_structure_json_cache))
+            _structure_json_chars -= _structure_json_cache.pop(oldest)[1]
     return data
 
 

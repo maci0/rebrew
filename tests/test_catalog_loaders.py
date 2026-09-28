@@ -432,6 +432,30 @@ class TestCachedFunctionList:
             str(tmp_path / "p2" / FUNCTION_STRUCTURE_JSON),
         }
 
+    def test_structure_json_cache_evicts_by_retained_size(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The decoded-JSON cache is bounded by payload size, not entry count."""
+        from rebrew.catalog import loaders as loaders_mod
+        from rebrew.config import FUNCTION_STRUCTURE_JSON
+
+        payload = json.dumps([{"va": "0x1000", "size": 4, "name": "f"}] * 40)
+        monkeypatch.setattr(loaders_mod, "_structure_json_cache", {})
+        monkeypatch.setattr(loaders_mod, "_structure_json_chars", 0)
+        monkeypatch.setattr(loaders_mod, "_STRUCTURE_JSON_CACHE_MAX_CHARS", 2 * len(payload))
+        paths = []
+        for i in range(3):
+            p = tmp_path / f"p{i}" / FUNCTION_STRUCTURE_JSON
+            p.parent.mkdir()
+            p.write_text(payload, encoding="utf-8")
+            paths.append(p)
+            assert loaders_mod.load_function_structure(p)
+        # One budget's worth fits; the third store pushes the first out.
+        assert list(loaders_mod._structure_json_cache) == [str(paths[1]), str(paths[2])]
+        assert loaders_mod._structure_json_chars == 2 * len(payload)
+        # The evicted path still reads correctly, just without a cached parse.
+        assert loaders_mod.load_function_structure(paths[0])
+
     def test_vas_survive_rewrite_during_load(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

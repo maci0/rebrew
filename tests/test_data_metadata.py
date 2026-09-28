@@ -292,6 +292,24 @@ class TestDataMetadataCache:
         dm.load_data_metadata(tmp_path)
         assert len(parse_calls) == 2
 
+    def test_deleted_store_is_dropped_from_the_cache(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A removed rebrew-data.toml must not stay pinned in the process cache."""
+        from rebrew import data_metadata as dm
+
+        dm._data_metadata_cache.clear()
+        monkeypatch.setattr(
+            "rebrew.metadata_doc.parse_metadata_doc",
+            lambda doc, **kwargs: {("SERVER", 0x1000): {"name": "g_x"}},
+        )
+        f = tmp_path / "rebrew-data.toml"
+        f.write_text('["SERVER.0x1000"]\nname = "g_x"\n', encoding="utf-8")
+        assert dm.load_data_metadata(tmp_path) == {("SERVER", 0x1000): {"name": "g_x"}}
+        f.unlink()
+        assert dm.load_data_metadata(tmp_path) == {}
+        assert dm._data_metadata_cache == {}
+
 
 class TestMetadataFieldsAndScalarEntries:
     def test_type_is_a_known_field(self) -> None:
