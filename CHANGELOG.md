@@ -85,6 +85,13 @@
 - **Breaking:** `rebrew.flirt.check_env_dir` is gone. It was a re-export of
   `rebrew.config.check_env_dir` through an import that no longer exists;
   import `check_env_dir` from `rebrew.config`, which is where it is defined.
+- **Breaking:** `rebrew.metadata.load_tomllib` is gone. The metadata store now
+  reads through the shared TOML reader it defines itself, so the name no longer
+  re-exported from `rebrew.utils`; import `load_tomllib` from `rebrew.utils`.
+- **Breaking:** the neutral chrome tokens changed value, so any consumer
+  hardcoding a hex it read out of the `TOKENS` table (`rebrew.theme`, re-exported
+  by `rebrew.depgraph` and `rebrew.status_style`) needs the new palette. The
+  names, roles and count are unchanged.
 - **Lint gates ratchet.** Ruff selects ``S608`` (a SQL string built by
   interpolation; zero findings on the current tree) so a query assembled from
   runtime input cannot land, mypy covers ``tests/test_build_db_helpers.py``
