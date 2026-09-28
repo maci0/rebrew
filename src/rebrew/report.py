@@ -730,7 +730,7 @@ def _render_strings(cfg: ProjectConfig) -> list[tuple[str, str]]:
         data_sections = [n for n in (".rdata", ".data", ".rodata") if n in info.sections]
         if not data_sections:
             note = (
-                "The target binary has no data sections (.rdata/.data/.rodata) - nothing to report."
+                "The target binary has no data sections (.rdata/.data/.rodata); nothing to report."
             )
         else:
             note = f"No printable strings (min length 4) found in {', '.join(data_sections)}."
@@ -818,7 +818,11 @@ def _string_row(s: StringEntry, xrefs: list[Xref] | None) -> str:
         refs = _disclosure(f"{first} (+{len(xrefs) - _REFS_CELL_COUNT} more)", all_refs)
     else:
         count = str(len(xrefs))
-        refs = html.escape(", ".join(f"0x{x.from_va:08x}" for x in xrefs)) or "&mdash;"
+        refs = html.escape(", ".join(f"0x{x.from_va:08x}" for x in xrefs)) or (
+            # Spelled out rather than a dash: the Refs column already reads 0,
+            # and an em dash beside it reads like the n/a the failed scan emits.
+            "none"
+        )
     return (
         "<tr>"
         f"<td class='mono'>0x{s.va:08x}</td>"
@@ -952,7 +956,7 @@ def _render_imports(cfg: ProjectConfig) -> list[tuple[str, str]]:
     if not imports and not stubs:
         return _imports_note(
             target,
-            "No import table found in the target binary - nothing to report.",
+            "No import table found in the target binary; nothing to report.",
         )
 
     import_rows = _import_rows_html(imports)

@@ -273,7 +273,7 @@ class TestAdjacencyListLabels:
         )
         assert "<details>" not in row
         assert "<td class='mono'>a&lt;b</td>" in row
-        assert "<td class='mono'>&mdash;</td>" in row
+        assert "<td class='mono'>none</td>" in row
 
     def test_failed_ref_scan_reads_na_not_zero(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

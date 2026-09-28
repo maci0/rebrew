@@ -587,7 +587,7 @@ function filtersActive() {
   return !!($("status").value || moduleState.blank || moduleState.value || $("q").value.trim());
 }
 function updateFilterActions() {
-  // Keep the control mounted so enabling Clear does not shove the tablist down.
+  // Mounted even when hidden, so enabling Clear never moves the tabs.
   const canFilter = currentView === "functions" || currentView === "globals";
   $("filter-actions").hidden = !canFilter;
   $("clear-filters").disabled = !filtersActive();
@@ -1524,6 +1524,16 @@ __STATUS_FORCED__
   Enable it for this page, then reload.</p></noscript>
 <p id="no-targets" hidden>No targets found in the coverage documents. Run
   <code>rebrew build-db</code> for this project, then choose Reload.</p>
+<div id="views" class="views" hidden role="tablist" aria-label="Coverage views">
+<button type="button" role="tab" id="tab-functions" data-view="functions"
+  aria-controls="view-functions" class="btn active" aria-selected="true" tabindex="0">Functions</button>
+<button type="button" class="btn" role="tab" id="tab-sections" data-view="sections"
+  aria-controls="view-sections" aria-selected="false" tabindex="-1">Sections</button>
+<button type="button" class="btn" role="tab" id="tab-globals" data-view="globals"
+  aria-controls="view-globals" aria-selected="false" tabindex="-1">Globals</button>
+<button type="button" class="btn" role="tab" id="tab-history" data-view="history"
+  aria-controls="view-history" aria-selected="false" tabindex="-1">History</button>
+</div>
 <div id="controls" class="filters" hidden role="group" aria-label="Coverage filters">
 <div>
 <label for="target">Target</label>
@@ -1548,16 +1558,6 @@ __STATUS_FORCED__
 </div>
 <div id="filter-actions" hidden>
 <button type="button" class="btn" id="clear-filters">Clear filters</button>
-</div>
-<div id="views" class="views" hidden role="tablist" aria-label="Coverage views">
-<button type="button" role="tab" id="tab-functions" data-view="functions"
-  aria-controls="view-functions" class="btn active" aria-selected="true" tabindex="0">Functions</button>
-<button type="button" class="btn" role="tab" id="tab-sections" data-view="sections"
-  aria-controls="view-sections" aria-selected="false" tabindex="-1">Sections</button>
-<button type="button" class="btn" role="tab" id="tab-globals" data-view="globals"
-  aria-controls="view-globals" aria-selected="false" tabindex="-1">Globals</button>
-<button type="button" class="btn" role="tab" id="tab-history" data-view="history"
-  aria-controls="view-history" aria-selected="false" tabindex="-1">History</button>
 </div>
 <section id="summary" aria-labelledby="summary-heading" aria-busy="false" hidden>
 <h2 class="visually-hidden" id="summary-heading">Coverage summary</h2>
