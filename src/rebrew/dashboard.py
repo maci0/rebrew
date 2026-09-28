@@ -436,7 +436,6 @@ async function get(path, signal) {
     throw new Error("the dashboard server did not respond; check that rebrew dashboard is still running");
   }
   if (!r.ok) {
-    // Error bodies are {"error": "<message>", "code": "<code>"}; show the reason.
     let detail = "";
     try {
       detail = (await r.json()).error || "";
@@ -447,7 +446,6 @@ async function get(path, signal) {
   }
   return r.json();
 }
-// " (reason)" suffix for a load-error message; empty when there is none.
 const reason = (error) => (error && error.message ? " (" + error.message + ")" : "");
 async function whileBusy(id, operation) {
   const element = $(id);
@@ -798,8 +796,11 @@ async function loadFunctions(options) {
     }
     $("results").hidden = loadedCount === 0;
     $("empty-state").hidden = true;
-    $("show-more-wrap").hidden = true;
-    $("results-hint").hidden = true;
+    // Loaded rows keep the count that hints at them.
+    if (!loadedCount) {
+      $("show-more-wrap").hidden = true;
+      $("results-hint").hidden = true;
+    }
     setLoadError("functions", grow && loadedCount > 0
       ? "Could not load more functions" + reason(error) + ". The rows already shown are unchanged; use Retry functions to fetch the next page again."
       : "Functions could not be loaded" + reason(error) + ". Use Retry functions to try again with the same filters.");
@@ -1047,8 +1048,11 @@ async function loadGlobals(options) {
     }
     $("globals-results").hidden = loadedGlobalsCount === 0;
     $("globals-empty").hidden = true;
-    $("globals-show-more-wrap").hidden = true;
-    $("globals-hint").hidden = true;
+    // Loaded rows keep the count that hints at them.
+    if (!loadedGlobalsCount) {
+      $("globals-show-more-wrap").hidden = true;
+      $("globals-hint").hidden = true;
+    }
     setLoadError("view", grow && loadedGlobalsCount > 0
       ? "Could not load more globals" + reason(error) + ". The rows already shown are unchanged; use Retry globals to fetch the next page again."
       : "Globals could not be loaded" + reason(error) + ". Use Retry globals to try again.");
@@ -1086,8 +1090,11 @@ async function loadHistory(options) {
     }
     $("history-results").hidden = loadedHistoryCount === 0;
     $("history-empty").hidden = true;
-    $("history-show-more-wrap").hidden = true;
-    $("history-hint").hidden = true;
+    // Loaded rows keep the count that hints at them.
+    if (!loadedHistoryCount) {
+      $("history-show-more-wrap").hidden = true;
+      $("history-hint").hidden = true;
+    }
     setLoadError("view", grow && loadedHistoryCount > 0
       ? "Could not load more history" + reason(error) + ". The rows already shown are unchanged; use Retry history to fetch the next page again."
       : "History could not be loaded" + reason(error) + ". Use Retry history to try again.");
@@ -1225,7 +1232,6 @@ function bindControls() {
   $("show-more").onclick = async () => {
     retryAppend = true;
     $("show-more").disabled = true;
-    $("show-more").textContent = "Loading more functions…";
     try {
       await loadFunctions({ append: true });
     } finally {
@@ -1236,7 +1242,6 @@ function bindControls() {
   $("show-more-globals").onclick = async () => {
     retryGlobalsAppend = true;
     $("show-more-globals").disabled = true;
-    $("show-more-globals").textContent = "Loading more globals…";
     try {
       await loadGlobals({ append: true });
     } finally {
@@ -1247,7 +1252,6 @@ function bindControls() {
   $("show-more-history").onclick = async () => {
     retryHistoryAppend = true;
     $("show-more-history").disabled = true;
-    $("show-more-history").textContent = "Loading more history…";
     try {
       await loadHistory({ append: true });
     } finally {

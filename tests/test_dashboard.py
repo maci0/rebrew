@@ -684,6 +684,9 @@ class TestLoadErrors:
     def test_enter_searches_once_and_a_failure_clears_its_hint(self) -> None:
         _run_script("dashboard_search_and_failure.mjs")
 
+    def test_a_failed_page_load_keeps_the_count_of_the_rows_left(self) -> None:
+        _run_script("dashboard_stalled_append.mjs")
+
 
 class TestHistoryClock:
     def test_zone_less_instants_and_fallback_hour(self) -> None:
