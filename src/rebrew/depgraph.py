@@ -24,6 +24,7 @@ import typer
 
 from rebrew.annotation import parse_c_file_multi
 from rebrew.cli import (
+    EXIT_ERROR,
     TargetOption,
     console,
     error_exit,
@@ -782,6 +783,14 @@ def main(
     target: str | None = TargetOption,
 ) -> None:
     """Generate function dependency graph from reversed .c files."""
+    # Before any scanning: an unknown format is a usage error, and the graph
+    # build is the expensive part.  Same order as `rebrew diff`.
+    if fmt not in ("mermaid", "dot", "summary"):
+        error_exit(
+            f"Unknown format: {fmt}. Use mermaid, dot, or summary.",
+            json_mode=json_output,
+            code=EXIT_ERROR,
+        )
     cfg = require_config(target=target, json_mode=json_output)
 
     if cu_map:
@@ -919,10 +928,8 @@ def main(
         result = render_mermaid(nodes, edges, dispatch_edges)
     elif fmt == "dot":
         result = render_dot(nodes, edges, dispatch_edges)
-    elif fmt == "summary":
-        result = render_summary(nodes, edges, dispatch_edges)
     else:
-        error_exit(f"Unknown format: {fmt}. Use mermaid, dot, or summary.", json_mode=json_output)
+        result = render_summary(nodes, edges, dispatch_edges)
 
     if output:
         atomic_write_text(Path(output), result + "\n", encoding="utf-8")

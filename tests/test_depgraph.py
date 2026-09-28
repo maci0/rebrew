@@ -3,6 +3,8 @@
 import json
 from types import SimpleNamespace
 
+import pytest
+
 from rebrew.data_scan import DispatchEntry, DispatchTable
 from rebrew.depgraph import (
     NodeInfo,
@@ -648,3 +650,33 @@ class TestBinaryCallEdges:
         backward = binary_call_edges(info, list(reversed(ranges)))
         assert forward == backward
         assert len(forward) == 1
+
+
+class TestFormatValidation:
+    """--format is a usage error, checked before any scanning."""
+
+    def test_unknown_format_exits_two_before_loading_config(
+        self, tmp_path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """No rebrew-project.toml on disk: only an early check can pass here."""
+        from typer.testing import CliRunner
+
+        from rebrew.depgraph import app
+
+        monkeypatch.chdir(tmp_path)
+        result = CliRunner().invoke(app, ["--format", "bogus"])
+        assert result.exit_code == 2
+        assert "Use mermaid, dot, or summary" in result.output
+
+    def test_unknown_format_json_envelope(self, tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.depgraph import app
+
+        monkeypatch.chdir(tmp_path)
+        result = CliRunner().invoke(app, ["--format", "bogus", "--json"])
+        assert result.exit_code == 2
+        assert json.loads(result.output) == {
+            "error": "Unknown format: bogus. Use mermaid, dot, or summary.",
+            "code": 2,
+        }
