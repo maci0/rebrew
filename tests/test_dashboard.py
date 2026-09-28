@@ -2546,10 +2546,26 @@ class TestHostValidation:
         revalidating on every load."""
         _, _, html = dashboard.handle("GET", "/", {})
         assert (
-            f'<link rel="icon" href="/favicon.svg?v={_FAVICON_VERSION}" type="image/svg+xml">'
+            f'<link rel="icon" href="/favicon.svg?v={_FAVICON_VERSION}" type="image/svg+xml"'
+            ' fetchpriority="low">'
             in html
         )
         assert "data:image/svg+xml" not in html
+
+    def test_icon_does_not_queue_ahead_of_the_painting_assets(self, dashboard: Dashboard) -> None:
+        """The mark is the one head-discovered request that is not first paint.
+
+        The shell, the preloaded client, and the preloaded bootstrap all ride
+        the one cold connection, so an icon fetched at the default priority
+        spends its bytes and its header reserve on the initial window before
+        the assets that paint have finished arriving."""
+        _, _, html = dashboard.handle("GET", "/", {})
+        icon = re.search(r'<link rel="icon"[^>]*>', html)
+        bootstrap = re.search(r'<link rel="preload" href="/api/bootstrap"[^>]*>', html)
+        assert icon is not None and bootstrap is not None
+        assert 'fetchpriority="low"' in icon.group(0)
+        assert 'fetchpriority="low"' not in bootstrap.group(0)
+        assert 'fetchpriority="high"' in bootstrap.group(0)
 
     def test_favicon_route_serves_the_theme_mark(self, dashboard: Dashboard) -> None:
         """The route serves the same mark the report inlines, so they cannot drift."""

@@ -108,8 +108,8 @@ wire size stays inside the RFC 6928 initial congestion window minus a
 per-response header reserve, so a cold connection paints without an extra
 round trip; a test pins that budget, and a change that does not fit pays for
 itself in the client's own comment prose rather than in the budget.  As
-measured: 12712 B zstd and 13315 B gzip against a 13320 B budget, so gzip has
-5 B of room and zstd 608 B — a client-side edit budgets against gzip, and gzip
+measured: 12676 B zstd and 13290 B gzip against a 13320 B budget, so gzip has
+30 B of room and zstd 644 B — a client-side edit budgets against gzip, and gzip
 is the binding encoding.  The
 reserve is what makes gzip the tight one, not the encoder: the two responses
 send 567 and 599 B of headers as served, against the 640 B each is given.
@@ -1413,7 +1413,7 @@ _INDEX_HTML = """<!doctype html>
 <title>Rebrew coverage dashboard</title>
 <link rel="preload" href="/api/bootstrap" as="fetch" crossorigin fetchpriority="high">
 <link rel="preload" href="__APP_JS_URL__" as="script">
-<link rel="icon" href="__FAVICON__" type="image/svg+xml">
+<link rel="icon" href="__FAVICON__" type="image/svg+xml" fetchpriority="low">
 <style>
   body { font-family: var(--rb-sans); margin: 1.5rem;
     background: var(--rb-sunken); color: var(--rb-ink); }
@@ -1663,6 +1663,11 @@ _FAVICON_ETAG = f'"{_FAVICON_VERSION}"'
 #: Carries the same content hash the client does. The browser asks for the
 #: icon on every load, and ``private, no-cache`` made that a revalidation
 #: round trip per page; hashed, it is immutable and fetched once.
+#: The shell marks it ``fetchpriority="low"`` because it is discovered in the
+#: head beside the two entry assets and the preloaded bootstrap, all four on
+#: the one cold connection: an unprioritized icon queues with the resources
+#: that paint and spends its 208 gzip bytes and ~600 B of header reserve on
+#: the initial window ahead of them.
 _FAVICON_URL = f"{_FAVICON_PATH}?v={_FAVICON_VERSION}"
 
 
