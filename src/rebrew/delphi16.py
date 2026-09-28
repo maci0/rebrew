@@ -90,13 +90,18 @@ def _wine_prefix() -> Path:
 
 def _is_83_safe(name: str) -> bool:
     """True when *name* fits the DOS 8.3 filename convention (<=8 chars
-    before the first dot, <=3 after, no spaces or DOS-special chars)."""
+    before the first dot, <=3 after, no spaces or DOS-special chars).
+
+    The COMMAND.COM metacharacters join the DOS-special set: the name reaches
+    an ``[autoexec]`` line (see :func:`rebrew.dosbox._build_dosbox_conf`), and
+    ``A&B.C`` would run a second DOS command beside the compile.
+    """
     base, dot, ext = name.partition(".")
     if dot and "." in ext:  # more than one dot
         return False
     if not base or len(base) > 8 or len(ext) > 3:
         return False
-    return all(33 <= ord(c) < 127 and c not in '*?<>|"\\/' for c in name)
+    return all(33 <= ord(c) < 127 and c not in '*?<>|"\\/&|^%!();,=' for c in name)
 
 
 def _stage_unit_sources(src: Path, sandbox: Path, main_name: str) -> list[str]:

@@ -75,7 +75,12 @@ def entry_fingerprint(cfg: ProjectConfig, entry: Any) -> EntryFingerprint | None
     relative_path = getattr(entry, "filepath", "") or ""
     if not relative_path:
         return None
-    filepath = Path(cfg.reversed_dir) / relative_path
+    from rebrew.sources import contained_path, source_roots
+
+    contained = contained_path(source_roots(cfg), relative_path)
+    if contained is None:
+        return None
+    filepath = contained
     try:
         st = filepath.stat()
     except OSError:

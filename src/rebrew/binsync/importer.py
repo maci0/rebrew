@@ -909,18 +909,27 @@ def import_state(
 
         markers = source_markers.get(owner_va)
         filepath = getattr(owner, "filepath", "") if owner is not None else ""
-        if markers and filepath and not dry_run:
+        marker_path = Path(cfg.reversed_dir) / filepath if filepath else None
+        if markers and marker_path is not None and not dry_run:
             from rebrew.binsync.state import write_analysis_markers
 
-            try:
-                write_analysis_markers(Path(cfg.reversed_dir) / filepath, markers)
-            except OSError:
-                # The comments metadata entry is already written, so a later
-                # re-import treats it as done and never repairs the source
-                # marker.  Report the failure instead of counting the comment
-                # as fully applied.
+            if not _inside_project(marker_path, cfg):
+                # The same containment the rename, prototype, and comment
+                # writes get: a filepath that resolves outside the project
+                # never names a file to write.
                 marker_writes_failed.append(filepath)
-                log.warning("ANALYSIS marker write failed for %s", filepath, exc_info=True)
+                log.warning("ANALYSIS marker write refused, outside project: %s", filepath)
+                skipped += 1
+            else:
+                try:
+                    write_analysis_markers(marker_path, markers)
+                except OSError:
+                    # The comments metadata entry is already written, so a later
+                    # re-import treats it as done and never repairs the source
+                    # marker.  Report the failure instead of counting the comment
+                    # as fully applied.
+                    marker_writes_failed.append(filepath)
+                    log.warning("ANALYSIS marker write failed for %s", filepath, exc_info=True)
 
     return {
         "state_dir": str(state_dir),

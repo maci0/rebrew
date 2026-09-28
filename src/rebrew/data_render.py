@@ -16,7 +16,7 @@ from rich.text import Text
 
 from rebrew.present import bar_plain, count_column, ratio_bar
 from rebrew.status_style import STATUS_COLORS
-from rebrew.utils import floor_pct, merged_span_bytes
+from rebrew.utils import floor_pct, merged_span_bytes, untrusted_text
 
 if TYPE_CHECKING:
     from rebrew.data_scan import BssReport, DispatchTable, ScanResult
@@ -43,7 +43,7 @@ def render_dispatch(console: Console, tables: list[DispatchTable]) -> None:
     for tbl in tables:
         t = Table(
             title=(
-                f"0x{tbl.va:08x} ({tbl.section}) — {tbl.num_entries} entries, "
+                f"0x{tbl.va:08x} ({untrusted_text(tbl.section)}) — {tbl.num_entries} entries, "
                 f"{floor_pct(tbl.resolved, tbl.num_entries, 0):.0f}% resolved"
             ),
             show_lines=False,
@@ -56,9 +56,11 @@ def render_dispatch(console: Console, tables: list[DispatchTable]) -> None:
         for idx, entry in enumerate(tbl.entries):
             status_color = STATUS_COLORS.get(entry.status, "dim")
 
-            name_str = entry.name or "[dim]???[/]"
+            name_str = untrusted_text(entry.name) if entry.name else "[dim]???[/]"
             status_str = (
-                f"[{status_color}]{entry.status}[/{status_color}]" if entry.status else "[dim]—[/]"
+                f"[{status_color}]{untrusted_text(entry.status)}[/{status_color}]"
+                if entry.status
+                else "[dim]—[/]"
             )
 
             t.add_row(
@@ -100,9 +102,9 @@ def render_bss(console: Console, report: BssReport) -> None:
         for entry in report.known_entries:
             tbl.add_row(
                 f"0x{entry.va:08x}",
-                entry.name,
+                untrusted_text(entry.name),
                 f"{entry.size_hint}B",
-                entry.source_file,
+                untrusted_text(entry.source_file),
             )
         console.print(tbl)
         console.print()
@@ -122,7 +124,7 @@ def render_bss(console: Console, report: BssReport) -> None:
             gap_tbl.add_row(
                 f"0x{gap.offset:08x}",
                 f"{gap.size}B",
-                f"{gap.before} → {gap.after}",
+                f"{untrusted_text(gap.before)} → {untrusted_text(gap.after)}",
             )
         console.print(gap_tbl)
     else:
@@ -154,12 +156,21 @@ def render_globals(console: Console, scan: ScanResult, conflicts_only: bool = Fa
 
     for entry in sorted(entries, key=lambda e: (e.va or 0xFFFFFFFF, e.name)):
         va_str = f"0x{entry.va:08x}" if entry.va else "—"
-        files_str = ", ".join(entry.declared_in[:3])
+        files_str = ", ".join(untrusted_text(name) for name in entry.declared_in[:3])
         if len(entry.declared_in) > 3:
             files_str += f" (+{len(entry.declared_in) - 3})"
-        type_cell = f"{entry.type_str} ⚠ CONFLICT" if entry.conflict else entry.type_str
+        type_cell = untrusted_text(entry.type_str)
+        if entry.conflict:
+            type_cell += " ⚠ CONFLICT"
         style = "red" if entry.conflict else ""
-        tbl.add_row(va_str, entry.name, type_cell, entry.section or "—", files_str, style=style)
+        tbl.add_row(
+            va_str,
+            untrusted_text(entry.name),
+            type_cell,
+            untrusted_text(entry.section) if entry.section else "—",
+            files_str,
+            style=style,
+        )
 
     title = "[bold]Type Conflicts[/]" if conflicts_only else "[bold]Global Data Inventory[/]"
     console.print(Panel(tbl, title=title, border_style="blue"))

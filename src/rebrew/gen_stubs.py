@@ -141,8 +141,31 @@ def _array_size_text(brackets: str) -> str:
     return str(total) if found else "1"
 
 
+#: A type or parameter list copied out of a reviewed source file, which the
+#: emitters paste into the generated and compiled ``link_stubs.c``.  Word
+#: characters, whitespace, and the declarator punctuation only: a ``;``,
+#: ``{``, ``}`` or ``#`` would end the declaration and start top-level code
+#: inside a translation unit the build compiles.  ``.`` is admitted for the
+#: varargs ellipsis, which cannot stand on its own.
+_SAFE_TYPE_RE = re.compile(r"\A[A-Za-z0-9_ \t*(),\[\].]*\Z")
+_SAFE_PARAMS_RE = re.compile(r"\A[A-Za-z0-9_ \t*(),\[\].]*\Z")
+
+
+def _is_pasteable_declaration(type_text: str, params: str | None) -> bool:
+    """True when *type_text* and *params* carry no code past the declarator."""
+    if not _SAFE_TYPE_RE.match(type_text):
+        return False
+    return params is None or bool(_SAFE_PARAMS_RE.match(params))
+
+
 def parse_extern_decl(decl: str) -> dict[str, typing.Any] | None:
-    """Parse a single extern declaration line into structured info."""
+    """Parse a single extern declaration line into structured info.
+
+    Returns ``None`` for a line that is not a declaration, and for one whose
+    type or parameter text carries more than a declarator: the line comes
+    from a ``.c`` in the reviewed tree, and ``generate_stubs`` pastes it into
+    a file the build compiles.
+    """
     rest = decl[len("extern") :].strip().rstrip(";").strip()
 
     # Function with calling convention: TYPE __cdecl NAME(PARAMS)
@@ -152,6 +175,8 @@ def parse_extern_decl(decl: str) -> dict[str, typing.Any] | None:
         cc = m.group(2)
         name = m.group(3)
         params = m.group(4)
+        if not _is_pasteable_declaration(ret_type, params):
+            return None
         if not params.endswith(")"):
             params += ")"
         return {
@@ -171,6 +196,8 @@ def parse_extern_decl(decl: str) -> dict[str, typing.Any] | None:
         ret_type = m.group(1).strip()
         name = m.group(2)
         params = m.group(3)
+        if not _is_pasteable_declaration(ret_type, params):
+            return None
         if not params.endswith(")"):
             params += ")"
         if name not in ("int", "char", "void", "short", "float", "double", "unsigned", "struct"):
@@ -191,6 +218,8 @@ def parse_extern_decl(decl: str) -> dict[str, typing.Any] | None:
         var_type = m.group(1).strip()
         name = m.group(2)
         if name not in ("int", "char", "void", "short", "float", "double", "unsigned", "struct"):
+            if not _is_pasteable_declaration(var_type, None):
+                return None
             # One decimal element count.  ``[0x400]`` used to collapse to "1",
             # and ``[2][4]`` kept only the first bound: either stub claimed
             # fewer bytes than the extern and shifted every later .data symbol.
@@ -211,6 +240,8 @@ def parse_extern_decl(decl: str) -> dict[str, typing.Any] | None:
         var_type = m.group(1).strip()
         name = m.group(2)
         if name not in ("int", "char", "void", "short", "float", "double", "unsigned", "struct"):
+            if not _is_pasteable_declaration(var_type, None):
+                return None
             return {
                 "name": name,
                 "type": var_type,
@@ -618,6 +649,8 @@ def generate_stubs(
     if bss_arrays:
         lines.append("/* Big BSS arrays (non-tentative; see --specials bss_arrays) */")
         for name, size in bss_arrays:
+            if not is_safe_c_ident(name):
+                continue
             lines.append(f"char {name}[0x{int(size):x}] = {{0}};")
         lines.append("")
 
