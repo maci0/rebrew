@@ -56,7 +56,7 @@ from rebrew.build_db import (
 from rebrew.cli import console
 from rebrew.errors import RebrewError
 from rebrew.metadata import canonical_status
-from rebrew.utils import clip_span
+from rebrew.utils import clip_span, floor_pct
 from rebrew.workspace import WorkspaceConfigError, db_dir
 from rebrew.workspace.status import MATCHED_STATUSES
 
@@ -833,9 +833,12 @@ class Section:
         covered = total - buckets.get(_UNCOVERED_CELL_STATE, 0)
         object.__setattr__(self, "buckets", MappingProxyType(buckets))
         object.__setattr__(self, "covered_bytes", covered)
-        # The unrounded ratio is the one rounded, and an empty section (a target
-        # with no cells for it) reports 0.0 instead of dividing by zero.
-        object.__setattr__(self, "coverage_pct", round(covered / total * 100, 2) if total else 0.0)
+        # Floored, like every other coverage figure in the codebase: to
+        # nearest, one unaccounted byte in a 100000-byte section reads 100.0%
+        # here while ``catalog.grid`` beside it says 99.99.  An empty section
+        # (a target with no cells for it) reports 0.0 instead of dividing by
+        # zero.
+        object.__setattr__(self, "coverage_pct", floor_pct(covered, total, 2))
         object.__setattr__(self, "cell_count", len(self.cells))
         object.__setattr__(self, "bucket_counts", MappingProxyType(_bucket_counts(self.cells)))
 

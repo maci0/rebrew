@@ -48,6 +48,7 @@ from rebrew.coverage_toml import (
     render_coverage_toml,
     write_coverage_toml,
 )
+from rebrew.utils import floor_pct
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -930,8 +931,26 @@ class TestDerivedAtLoad:
         expected_covered = sum(size for state, size in expected_buckets.items() if state != "none")
         expected_total = sum(cell.end - cell.start for cell in section.cells)
         assert section.covered_bytes == expected_covered == 32
-        assert section.coverage_pct == round(expected_covered / expected_total * 100, 2) == 50.0
+        assert section.coverage_pct == floor_pct(expected_covered, expected_total, 2) == 50.0
         assert section.cell_count == len(section.cells) == 3
+
+    def test_pct_floors_instead_of_rounding_up_to_a_full_section(
+        self, write: Callable[[dict[str, Any]], list[Path]], data: dict[str, Any], tmp_path: Path
+    ) -> None:
+        """One unaccounted byte in 20000 reads 99.99, not the 100.0 rounding gives.
+
+        ``catalog.grid`` floors its coverage figure for exactly this reason, so
+        a rounding percentage here would disagree with the CLI beside it.
+        """
+        cells = data["sections"][".data"]["cells"]
+        cells.clear()
+        cells.append({"start": 0, "end": 19999, "span": 20000, "state": "exact", "functions": []})
+        cells.append({"start": 19999, "end": 20000, "span": 1, "state": "none", "functions": []})
+        write(data)
+        section = load_coverage(tmp_path, TARGET).sections[".data"]
+        assert section.covered_bytes == 19999
+        assert round(19999 / 20000 * 100, 2) == 100.0
+        assert section.coverage_pct == 99.99
 
     def test_empty_section_does_not_divide_by_zero(
         self,
