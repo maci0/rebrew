@@ -121,15 +121,15 @@ codecs at import. Measured 500-row functions JSON:
 gzip-5 4728 → zstd-5 2912 bytes. Gates: `TestEncodingNegotiation`,
 `test_handler_serves_precompressed_static`.
 
-Shell HTML (zstd-19): 3752 bytes on the wire (was ~8.2 KB with inlined JS).
-Both entry assets total 12676 bytes zstd / 13290 gzip, inside the RFC 6928
+Shell HTML (zstd-19): 3760 bytes on the wire (was ~8.2 KB with inlined JS).
+Both entry assets total 12675 bytes zstd / 13290 gzip, inside the RFC 6928
 14600-byte initial window less a 640-byte-per-response header reserve
 (`_ENTRY_WIRE_BUDGET_BYTES`, 13320), so the loading chrome paints before
-`/app.js` (8924 zstd) finishes. Gate:
+`/app.js` (8915 zstd) finishes. Gate:
 `test_entry_assets_fit_initial_congestion_window`.
 
 The gzip path is the binding one: 13290 of 13320 budgeted bytes, 30 to spare
-(zstd has 644). With the measured response headers (567 shell, 599 `/app.js`)
+(zstd has 645). With the measured response headers (567 shell, 599 `/app.js`)
 the two entry responses total 14456 bytes, 144 under the 14600-byte window;
 the preloaded bootstrap rides past it, as below. Any shell or client growth
 has to come out of those 30 gzip bytes, so trim copy before adding an asset.
@@ -184,7 +184,7 @@ inside the one document that has to fit RFC 6928's initial window, and it cost
 178 gzip bytes of the shell; linked, it is fetched off the critical path (a tab
 icon is not first paint). Hashing the linked URL cost 16 gzip bytes of the
 shell and buys the whole icon request back on every load after the first. The
-entry assets are now 12676 zstd / 13290 gzip against the 13320 B budget, so
+entry assets are now 12675 zstd / 13290 gzip against the 13320 B budget, so
 gzip has 30 B of room. Two of the three `--favicon` shapes are worth not
 repeating: deduplicating near-identical JavaScript *raised* the compressed
 size by 340 B even though it removed 262 raw ones, because the copies were
@@ -224,8 +224,8 @@ stylesheet already requires Safari 15.4 for `content-visibility`; the report
 page carries the same dead declaration and it is gone there too. Gate:
 `test_entry_assets_fit_initial_congestion_window` is what forces the trade.
 
-Dashboard shell gzip is 3865 bytes (the inline guard included) and
-`/app.js` gzip is 9425 bytes (same
+Dashboard shell gzip is 3872 bytes (the inline guard included) and
+`/app.js` gzip is 9418 bytes (same
 `mtime=0` makes those bytes a function of the content, so a restart does
 not serve a different body under the same ETag. Gate:
 `test_handler_serves_precompressed_static`.

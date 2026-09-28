@@ -108,8 +108,8 @@ wire size stays inside the RFC 6928 initial congestion window minus a
 per-response header reserve, so a cold connection paints without an extra
 round trip; a test pins that budget, and a change that does not fit pays for
 itself in the client's own comment prose rather than in the budget.  As
-measured: 12676 B zstd and 13290 B gzip against a 13320 B budget, so gzip has
-30 B of room and zstd 644 B — a client-side edit budgets against gzip, and gzip
+measured: 12675 B zstd and 13290 B gzip against a 13320 B budget, so gzip has
+30 B of room and zstd 645 B — a client-side edit budgets against gzip, and gzip
 is the binding encoding.  The
 reserve is what makes gzip the tight one, not the encoder: the two responses
 send 567 and 599 B of headers as served, against the 640 B each is given.
