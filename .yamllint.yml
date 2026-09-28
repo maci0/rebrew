@@ -6,7 +6,20 @@
 #
 # Every setting below matches a convention the tracked files already follow.
 # Raise a threshold only after the tree passes it, and record why here.
+#
+# The hook runs with --strict, so a warning fails like an error.  The one
+# file that cannot pass is excluded below rather than demoting the severity
+# for the whole tree.
 extends: default
+
+ignore: |
+  # Reproduces what `splat create_config` emits, and the importer is tested
+  # against that output, so the Python-style `True` booleans stay verbatim.
+  # The only rules it trips are truthy; dropping this entry fails the hook.
+  # The `**/` prefix matters: an ignore entry is matched against the path as
+  # given on the command line, so a bare relative path would stop applying the
+  # moment a caller passed an absolute one.
+  **/splat_config/win32_app.yaml
 
 rules:
   # The tree has no `---` document start: every file opens on its first key.
@@ -14,12 +27,6 @@ rules:
 
   # `on:` is the GitHub Actions key, not a boolean.  Flagging it is a known
   # YAML 1.1 wart, not a defect in the workflow.
-  #
-  # tests/fixtures/splat_config/win32_app.yaml keeps Python-style `True`
-  # because the file reproduces what `splat create_config` emits, and the
-  # importer is tested against that output.  It is the one remaining warning;
-  # the hook runs without --strict so this deliberate fidelity is not a
-  # failure.  Every error-level rule still blocks.
   truthy:
     allowed-values: ["true", "false", "on"]
     check-keys: false

@@ -165,7 +165,7 @@ make format-check                     # ruff format --check
 make mypy                             # type check (0 issues expected; strict,
                                         # covers src/rebrew + tools + every tests/ module
                                         # that has come clean; the rest is not yet clean)
-make check                            # 15 of 17 pre-commit hooks — pytest (pre-push) and
+make check                            # 16 of 18 pre-commit hooks — pytest (pre-push) and
                                         # validate-skill-commands (manual) are stage-gated.
                                         # Exports NO_COLOR / TERM=dumb /
                                         # _TYPER_FORCE_DISABLE_TERMINAL first, so a

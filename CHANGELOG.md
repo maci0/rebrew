@@ -43,8 +43,13 @@
   `tools/ci_apt_install.sh`; `make doctor` reports a host that would
   otherwise see a green `make check` and a red push.
   `tests/fixtures/splat_config/win32_app.yaml` keeps its Python-style `True`
-  because it reproduces `splat create_config` output, so `truthy` stays a
-  warning and every error-level rule still blocks.
+  because it reproduces `splat create_config` output, so that one file is
+  listed under `ignore:` in `.yamllint.yml` and the hook runs `--strict`:
+  a warning fails like an error, and the exclude list holds one path.
+  `tests/test_ci_pins.py` pins both, so a second entry fails the suite.
+- **The tracked JSON is parsed, not assumed.** The three `docs/codegen/*.json`
+  tables were the only tracked data files no hook read; `check-json` joins
+  `check-yaml` and `check-toml` in the hygiene group.
 - **Six more test modules sit under `--strict`.** `tests/test_cmake_flags.py`,
   `tests/test_cmake_sources.py`, `tests/test_corpus_sweep.py`,
   `tests/test_flirt.py`, `tests/test_orphans.py` and

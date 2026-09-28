@@ -1529,7 +1529,8 @@ class TestCiPins:
 
         Runs the real binary on the tracked YAML (skipped when it is absent,
         as the pre-commit hook is) so a workflow edit that a new rule rejects
-        fails here instead of on the runner.
+        fails here instead of on the runner.  ``--strict`` matches the hook:
+        a warning has to fail, or the severity is decoration.
         """
         if shutil.which("yamllint") is None:
             pytest.skip("yamllint not on PATH")
@@ -1538,16 +1539,35 @@ class TestCiPins:
             ROOT / ".yamllint.yml",
             *sorted((ROOT / ".github").rglob("*.yml")),
             *sorted((ROOT / ".github").rglob("*.yaml")),
-            *sorted((ROOT / "docs").glob("*.yaml")),
+            *sorted((ROOT / "docs").rglob("*.yaml")),
             *sorted((ROOT / "tests").rglob("*.yaml")),
         ]
         result = subprocess.run(
-            ["yamllint", "--no-warnings", "-f", "parsable", *[str(p) for p in targets]],
+            ["yamllint", "--strict", "-f", "parsable", *[str(p) for p in targets]],
             capture_output=True,
             text=True,
             cwd=ROOT,
         )
         assert result.returncode == 0, result.stdout
+
+    def test_yamllint_ignores_exactly_one_fixture(self) -> None:
+        """`--strict` is only affordable while the exclude list stays this narrow.
+
+        A blank `ignore:` would let every future warning pass unnoticed, which
+        is the failure mode strict mode was adopted to remove.  One fixture
+        reproduces `splat create_config` output verbatim and cannot pass
+        `truthy`; anything else in the list is an unreviewed hole.
+        """
+        config = (ROOT / ".yamllint.yml").read_text(encoding="utf-8")
+        block = re.search(r"(?m)^ignore: \|\n(?P<body>(?:  .*\n)+)", config)
+        assert block is not None, "no `ignore:` block in .yamllint.yml"
+        entries = [
+            line.strip()
+            for line in block.group("body").splitlines()
+            if line.strip() and not line.strip().startswith("#")
+        ]
+        assert entries == ["**/splat_config/win32_app.yaml"]
+        assert (ROOT / "tests/fixtures/splat_config/win32_app.yaml").is_file()
 
     def test_pre_commit_job_skips_exactly_the_lint_jobs_hooks(self) -> None:
         """``SKIP`` is a hand-written list; a renamed or new hook id makes it lie.

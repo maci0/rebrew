@@ -23,6 +23,7 @@ repos:
       - id: debug-statements
       - id: end-of-file-fixer
       - id: check-merge-conflict
+      - id: check-json
       - id: check-yaml
       - id: check-toml
       - id: mixed-line-ending
@@ -83,11 +84,13 @@ repos:
 
       # `check-yaml` above proves the tracked YAML parses; this proves it is
       # well-formed (tabs, trailing spaces, duplicate keys, a malformed
-      # `run:` block).  Same skip-if-absent shape as shellcheck, and the CI
-      # pre-commit job installs yamllint alongside it.
+      # `run:` block).  --strict makes a warning fail the hook, so the one
+      # file that cannot pass is excluded in .yamllint.yml instead of the
+      # whole tree losing the severity.  Same skip-if-absent shape as
+      # shellcheck, and the CI pre-commit job installs yamllint alongside it.
       - id: yamllint
         name: yamllint
-        entry: bash -c 'command -v yamllint >/dev/null 2>&1 || exit 0; exec yamllint "$@"' --
+        entry: bash -c 'command -v yamllint >/dev/null 2>&1 || exit 0; exec yamllint --strict "$@"' --
         language: system
         types: [yaml]
 
