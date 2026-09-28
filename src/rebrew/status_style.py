@@ -36,28 +36,48 @@ STATUS_COLORS: dict[str, str] = {
 
 # Page and call-graph marks for the same statuses. Text on white (report,
 # dashboard) and white on the fill (Mermaid, DOT) both meet WCAG AA.
-# STUB is slate, like the dim terminal tag, not an error red. DISPATCH is the
-# chrome ink token: a jump table is structure, not a match status.
+# STUB is a neutral grey, like the dim terminal tag, not an error red.
+# DISPATCH is the chrome ink token: a jump table is structure, not a match
+# status.
+#
+# The marks are hand-picked, not a framework ramp. Two decisions carry the
+# set, and both follow ``rebrew.theme``:
+#
+# * Warm, like the chrome neutrals. The mascot is a brass machine in a leather
+#   harness under phosphor green, so the amber, the red and the three greys
+#   lean warm; a cool slate grey beside ``#f7f4ef`` reads as a different
+#   product.
+# * No mark in the accent's hue. ``TOKENS["accent"]`` is the one cold value on
+#   these surfaces and it is reserved for links and focus rings, so a row
+#   painted in that blue reads as clickable and a link reads as a verdict.
+#   The two cool marks are teal and a blue-shifted teal, 59 deltaE from the
+#   accent and 19 from each other; the loud marks sit 19 or more apart, and
+#   STUB/SKIP/UNKNOWN are a deliberate warm ladder (dark to light: a stub is
+#   written down, an unknown is not) rather than three unrelated greys.
+#
+# ``tests/test_theme`` holds every mark to 4.5:1 on both surfaces, and white on
+# the fill to 4.5:1 for the graph, so the retune costs no contrast.
+#
 # Every KNOWN_STATUS has a mark: the report table, the dashboard cards and
 # the call-graph labels all emit ``status-<STATUS>`` for whatever STATUS a
 # row carries, so a machine verdict (COMPILE_ERROR, MISSING_SIZE, ...) with
 # no entry here renders as unstyled body ink while the terminal paints it
 # red (STATUS_COLORS above).  Both tables cover the same vocabulary.
 STATUS_HEX: dict[str, str] = {
-    "EXACT": "#15803d",
-    "RELOC": "#0369a1",
-    "PROVEN": "#0e7490",
-    "NEAR_MATCHING": "#b45309",
-    "SIZE_MISMATCH": "#92400e",
-    "STUB": "#475569",
-    "COMPILE_ERROR": "#b91c1c",
-    "EXTRACT_ERROR": "#b91c1c",
-    "MISSING_FILE": "#b91c1c",
-    "MISSING_SIZE": "#b91c1c",
-    "INVALID_VA": "#b91c1c",
-    "INTERNAL_ERROR": "#b91c1c",
-    "SKIP": "#556070",
-    "UNKNOWN": "#555",
+    "EXACT": "#1a6b3c",
+    "RELOC": "#0f6a5f",
+    "PROVEN": "#146b7d",
+    "NEAR_MATCHING": "#a35a06",
+    "SIZE_MISMATCH": "#7c3a11",
+    "STUB": "#3f3a33",
+    "COMPILE_ERROR": "#a3221f",
+    "EXTRACT_ERROR": "#a3221f",
+    "MISSING_FILE": "#a3221f",
+    "MISSING_SIZE": "#a3221f",
+    "INVALID_VA": "#a3221f",
+    "INTERNAL_ERROR": "#a3221f",
+    "SKIP": "#585249",
+    "UNKNOWN": "#736d64",
     "DISPATCH": TOKENS["ink"],
 }
 

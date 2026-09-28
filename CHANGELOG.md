@@ -226,6 +226,26 @@
   `tests/test_docs_hygiene.py::test_package_imports_stay_inside_their_allowlist`
   failed and the layer check read the edge as undeclared. The allowlist now
   names it, and the import is sorted where `ruff check` expects it.
+- **A history delta is recorded again after a rebuild.** _merge_history
+  zipped each appended row against _HISTORY_COLUMNS, a constant the module
+  no longer defined, so the first recorded status transition raised
+  NameError and took the whole rebuild down. The column list is back, in the
+  removed SQLite writer's order less target and the autoincrement id (va,
+  old_status, new_status, changed_at, updated_by).
+- **The status marks are chosen rather than borrowed.** status_style.STATUS_HEX
+  held a stock utility ramp, and one of its entries, RELOC, was a blue 35
+  deltaE from the accent token: on the report and the dashboard a matched
+  row read as something to click, in the one hue the chrome reserves for
+  links and focus rings. The marks are now picked against the palette the
+  chrome already sets: warm, like the brass-and-leather mascot the neutrals
+  come from, with no mark in the accent's hue (the closest now sits 59 away),
+  the loud verdicts 19 or more deltaE apart (the closest was 15), and
+  STUB / SKIP / UNKNOWN a deliberate warm ladder, dark to light, rather than
+  three unrelated cool greys. Contrast improves on every mark: the weakest
+  was 5.02:1 on white and is now 5.12:1, and white on a graph fill clears
+  4.5:1 everywhere. tests/test_theme now holds every mark to the token set's
+  contrast floors, its separation from the accent, the ladder's order and its
+  warmth, so the next retune cannot buy identity with contrast.
 - **`rebrew intake` no longer prunes live stubs after a corrupt function
   inventory.** `prune_stale_stubs` refuses to delete when a discovery comes
   back shorter than the previous inventory, so a provider that timed out
@@ -671,7 +691,11 @@
   `rebrew toolchain vendor <name>` could not assemble any of the six on a
   fresh checkout — it now downloads, verifies and, for `delphi-1.0`, renames
   the tarball's `delphi-lib/` to `DELPHI/LIB`, the path `find_dcc` and
-  `DCC.CFG` read.
+  `DCC.CFG` read.  One `BUILTIN_TOOLCHAINS` spec changed with it:
+  `delphi-1.0`'s `host_path` was a path that did not exist until
+  `rebrew toolchain vendor` had run, and it is now `None` on a checkout that
+  has not vendored it, so a caller asking whether the host compiler is
+  present reads `None` rather than a path it has to stat itself.
 - **Every gated metadata write now names itself, in both stores.** A
   `BLOCKER` / `NOTE` / `CFLAGS` edit went through `update_field` with no
   provenance, so a row's `UPDATED_BY` named the last *status* writer and a

@@ -562,14 +562,14 @@ graph TD
     I --> J["Migrated"]
 
     style A fill:#f7f4ef,stroke:#2a201a,color:#2a201a
-    style J fill:#15803d,stroke:#2a201a,color:#fff
-    style G fill:#475569,stroke:#2a201a,color:#fff
-    style C fill:#b45309,stroke:#2a201a,color:#fff
+    style J fill:#1a6b3c,stroke:#2a201a,color:#fff
+    style G fill:#3f3a33,stroke:#2a201a,color:#fff
+    style C fill:#a35a06,stroke:#2a201a,color:#fff
 ```
 
 The node fills are the marks the report and the call graph paint
 (`rebrew.status_style.STATUS_HEX`, `rebrew.theme.TOKENS`): EXACT green for a
-migrated file, STUB slate for one left alone, NEAR_MATCHING amber for the
+migrated file, the STUB grey for one left alone, NEAR_MATCHING amber for the
 branch, and plain chrome for the entry point.
 
 ### JSON Output Schema

@@ -12,9 +12,11 @@ The neutrals are warm rather than ``#1a1a1a``/``#f5f5f5``. The mascot
 green, and a cold grey page beside it reads as a different product. The accent
 blue is the one cold value and it stays: the status marks own green, teal,
 amber and red, and a link or focus ring in one of those hues would read as a
-verdict on a row it says nothing about. ``tests/test_theme`` holds every text
-pair to 4.5:1 and every border and focus pair to 3:1 on the two surfaces these
-tokens ship on, so the temperature costs no contrast.
+verdict on a row it says nothing about. The same rule runs the other way, so
+``tests/test_theme`` also holds every status mark away from ``accent``: a
+matched row in the link blue reads as something to click. ``tests/test_theme``
+holds every text pair to 4.5:1 and every border and focus pair to 3:1 on the
+two surfaces these tokens ship on, so the temperature costs no contrast.
 
 Status marks are ``status_style.STATUS_HEX``, the same values
 the call graph uses, and are not repeated here; the graph's node stroke, label

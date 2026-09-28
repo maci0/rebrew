@@ -162,6 +162,18 @@ _FUNCTION_COLUMNS: tuple[str, ...] = (
 #: ``build_db``'s ``globals`` INSERT column list, less ``target``.
 _GLOBAL_COLUMNS: tuple[str, ...] = ("va", "name", "decl", "files", "module", "size", "status")
 
+#: The removed SQLite writer's ``history`` column list, less ``target`` and
+#: less the ``id`` the file's array position already carries.  A history row
+#: names its function by VA only; the reader joins the current name, so a row
+#: that named a function the transition retired still reads.
+_HISTORY_COLUMNS: tuple[str, ...] = (
+    "va",
+    "old_status",
+    "new_status",
+    "changed_at",
+    "updated_by",
+)
+
 #: Columns ``build_db`` stores as a JSON *string* and this file stores as the
 #: real TOML value.  They are decoded, not re-derived from ``data``: the
 #: normalizer already decided what the field holds (a non-list ``functions``

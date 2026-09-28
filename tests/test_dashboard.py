@@ -42,6 +42,7 @@ from rebrew.dashboard import (
     _files_display,
     _Handler,
 )
+from rebrew.status_style import STATUS_HEX
 
 
 class _NullWFile:
@@ -759,8 +760,8 @@ class TestHandle:
         assert "border: 1px solid #767676" in body  # WCAG 1.4.11 non-text contrast
         assert "#ccc" not in body
         assert ".status-EXACT" in html  # same marks as the report
-        assert "#475569" in html  # STUB
-        assert "#15803d" in html  # EXACT
+        assert STATUS_HEX["STUB"] in html
+        assert STATUS_HEX["EXACT"] in html
         assert "#e74c3c" not in body
         assert "#9b59b6" not in body
         assert "function statusText" in js

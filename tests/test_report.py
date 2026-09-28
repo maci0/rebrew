@@ -13,6 +13,7 @@ from bin_util import make_pe
 
 from rebrew.import_table import parse_import_table
 from rebrew.report import app
+from rebrew.status_style import STATUS_HEX
 
 runner = CliRunner()
 
@@ -86,7 +87,7 @@ class TestReportCli:
         assert "Skip to content" in index
         assert "aria-label='Report pages'" in index
         assert "tabindex='-1'" in index  # skip-link focus target (WCAG 2.4.1)
-        assert "#475569" in index  # STUB text meets WCAG AA contrast on white
+        assert STATUS_HEX["STUB"] in index  # the mark the call graph fills with
         assert "#94a3b8" not in index
         assert "min-height: 2.75rem" in index  # nav link touch target (WCAG 2.5.8)
         assert "border: 1px solid #767676" in index  # WCAG 1.4.11 non-text contrast

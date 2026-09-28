@@ -4,6 +4,8 @@ The token set is the only place the HTML surfaces choose a colour, so these
 gates are what keep a palette change from trading accessibility for identity.
 """
 
+import itertools
+import math
 import re
 from collections.abc import Mapping
 from typing import NamedTuple
@@ -140,3 +142,104 @@ class TestTokenSeparation:
                 f"{hover} is not darker than {role}"
             )
             assert _luminance(TOKENS[role]) <= surface
+
+
+#: The neutral ladder, darkest first: a stub is written down, an unknown is
+#: not. The marks are meant to be a step apart, not to be told apart by hue,
+#: so the separation gate below leaves them out.
+_STATUS_LADDER = ("STUB", "SKIP", "UNKNOWN")
+
+#: CIE76 distance under which two loud marks read as the same swatch.
+STATUS_SEPARATION_FLOOR = 18.0
+
+#: Distance a mark must keep from the accent, which is reserved for links and
+#: focus rings. RELOC was a sky blue 35 away before the retune, which is the
+#: same neighbourhood a reader cannot act on.
+STATUS_ACCENT_FLOOR = 50.0
+
+
+def _lab(hex_color: str) -> tuple[float, float, float]:
+    """CIE L*a*b* of a ``#rgb`` / ``#rrggbb`` literal."""
+    digits = hex_color.lstrip("#")
+    if len(digits) == 3:
+        digits = "".join(d * 2 for d in digits)
+    r, g, b = (_channel(int(digits[i : i + 2], 16)) for i in (0, 2, 4))
+    x = (0.4124 * r + 0.3576 * g + 0.1805 * b) / 0.95047
+    y = 0.2126 * r + 0.7152 * g + 0.0722 * b
+    z = (0.0193 * r + 0.1192 * g + 0.9505 * b) / 1.08883
+
+    def f(t: float) -> float:
+        return t ** (1 / 3) if t > 216 / 24389 else (841 / 108) * t + 4 / 29
+
+    fx, fy, fz = f(x), f(y), f(z)
+    return (116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz))
+
+
+def _delta_e(left: str, right: str) -> float:
+    squares = [(a - b) ** 2 for a, b in zip(_lab(left), _lab(right), strict=True)]
+    return math.sqrt(sum(squares))
+
+
+class TestStatusMarks:
+    """The status vocabulary is painted as body text and as a graph fill."""
+
+    def test_marks_clear_the_text_floor_on_both_surfaces(self) -> None:
+        """A mark is body text in the report table and the dashboard cards."""
+        for name, color in STATUS_HEX.items():
+            for role in ("surface", "sunken"):
+                ratio = _contrast(color, TOKENS[role])
+                assert ratio >= TEXT_FLOOR, (
+                    f"{name} on {role} ({color} / {TOKENS[role]}) is {ratio:.2f}:1"
+                )
+
+    def test_white_on_a_fill_clears_the_text_floor(self) -> None:
+        """The call graph writes its label in white on the mark."""
+        for name, color in STATUS_HEX.items():
+            ratio = _contrast(TOKENS["surface"], color)
+            assert ratio >= TEXT_FLOOR, (
+                f"{name} as a fill ({color}) carries white text at {ratio:.2f}:1"
+            )
+
+    def test_loud_marks_are_not_the_same_swatch(self) -> None:
+        """Two verdicts that read alike are one verdict on a colour-blind read.
+
+        Compared per distinct colour, not per status: the six machine verdicts
+        share the error red on purpose, and the stylesheets group them.
+        """
+        loud = {
+            color
+            for name, color in STATUS_HEX.items()
+            if name not in _STATUS_LADDER and name != "DISPATCH"
+        }
+        for left, right in itertools.combinations(sorted(loud), 2):
+            distance = _delta_e(left, right)
+            assert distance >= STATUS_SEPARATION_FLOOR, (
+                f"{left} and {right} sit {distance:.1f} deltaE apart"
+            )
+
+    def test_no_mark_lands_in_the_accent_hue(self) -> None:
+        """A verdict in the link blue reads as something to click."""
+        for name, color in STATUS_HEX.items():
+            distance = _delta_e(color, TOKENS["accent"])
+            assert distance >= STATUS_ACCENT_FLOOR, (
+                f"{name} ({color}) is {distance:.1f} deltaE from the accent"
+            )
+
+    def test_the_neutral_marks_are_an_ordered_ladder(self) -> None:
+        """STUB, SKIP and UNKNOWN are steps of one grey, not three greys."""
+        for darker, lighter in itertools.pairwise(_STATUS_LADDER):
+            assert _luminance(STATUS_HEX[darker]) < _luminance(STATUS_HEX[lighter]), (
+                f"{darker} ({STATUS_HEX[darker]}) is not darker than "
+                f"{lighter} ({STATUS_HEX[lighter]})"
+            )
+
+    def test_the_ladder_marks_are_neutral_not_hued(self) -> None:
+        """A parked row must not borrow the hue of a verdict.
+
+        Measured as the red/green channels against blue: a warm neutral runs
+        positive, a cool slate runs negative, and the chrome neutrals are warm.
+        """
+        for name in _STATUS_LADDER:
+            digits = STATUS_HEX[name].lstrip("#")
+            r, g, b = (int(digits[i : i + 2], 16) for i in (0, 2, 4))
+            assert (r + g) / 2 > b, f"{name} ({STATUS_HEX[name]}) is cool, not warm"
