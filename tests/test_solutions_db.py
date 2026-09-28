@@ -108,21 +108,20 @@ class TestCollect:
 
 
 class TestSolutionsCli:
-    @pytest.mark.parametrize(
-        ("args", "module"),
-        [
-            (["solutions"], "rebrew.solutions_db"),
-            (["solutions", "--best"], "rebrew.solutions_db"),
-            (["match", "--ga-history"], "rebrew.match_run"),
-        ],
-    )
+    @pytest.mark.parametrize("args", [["solutions"], ["solutions", "--best"]])
     def test_display_preserves_timestamp_offsets(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
         args: list[str],
-        module: str,
     ) -> None:
+        """The solutions table shows the instant exactly as it was recorded.
+
+        ``rebrew match --ga-history`` deliberately re-zones to the reader's
+        host (see ``test_ga.TestGaHistory``); this table is a record to read
+        back, so the recorded offset, sub-second digits included, survives.
+        """
+        module = "rebrew.solutions_db"
         timestamps = [
             "2026-10-25T02:30:00+02:00",
             "2026-10-25T02:30:00+01:00",
@@ -150,9 +149,8 @@ class TestSolutionsCli:
             + "\n",
             encoding="utf-8",
         )
-        config_module = "rebrew.match" if args[0] == "match" else module
         monkeypatch.setattr(
-            f"{config_module}.require_config",
+            f"{module}.require_config",
             lambda target=None, json_mode=False: _cfg(tmp_path),
         )
         monkeypatch.setattr(module + ".console", Console(stderr=True, width=200))

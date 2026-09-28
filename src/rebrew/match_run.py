@@ -843,6 +843,31 @@ def _maybe_document_ga_ceiling(
 # ---------------------------------------------------------------------------
 
 
+def _as_utc_instant(value: object) -> datetime | None:
+    """Parse a stored ``ts`` into an aware instant, or ``None`` when unusable.
+
+    The run log writes UTC, and a record written before the ``+00:00`` suffix
+    landed is zone-less; both are read as UTC, so ``--skip-recent`` compares
+    like with like instead of raising ``TypeError`` on a naive/aware mix.
+    One rule for every reader of the field keeps the display and the filter
+    from disagreeing about which run is recent.
+    """
+    from datetime import UTC, datetime
+
+    if not isinstance(value, str):
+        return None
+    raw = value.strip()
+    if not raw:
+        return None
+    try:
+        moment = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if moment.tzinfo is None:
+        return moment.replace(tzinfo=UTC)
+    return moment
+
+
 def _display_instant(value: object) -> str:
     """Render a stored UTC instant as the reader's local wall time.
 
@@ -850,20 +875,16 @@ def _display_instant(value: object) -> str:
     reading over the shoulder of the person who ran the batch, so the raw
     ``+00:00`` string shows UTC to whoever is not on UTC.  A CLI has no
     per-viewer zone, so the host's local zone is the reader's.  A zone-less
-    value is read as UTC (the rule :func:`_filter_recently_run` applies to
-    the same field) and anything unparseable is passed through unchanged.
-    """
-    from datetime import UTC, datetime
+    value is read as UTC (the rule :func:`_as_utc_instant` applies) and
+    anything unparseable is passed through unchanged.
 
-    raw = str(value).strip()
-    if not raw:
-        return ""
-    try:
-        moment = datetime.fromisoformat(raw)
-    except ValueError:
-        return raw
-    if moment.tzinfo is None:
-        moment = moment.replace(tzinfo=UTC)
+    The solutions table is the other reader of the same field and prints
+    ``solved_at`` verbatim, because a solution list is a record to read back
+    rather than a timeline to scan.
+    """
+    moment = _as_utc_instant(value)
+    if moment is None:
+        return str(value).strip()
     return moment.astimezone().strftime("%Y-%m-%d %H:%M:%S %Z").strip()
 
 
@@ -926,9 +947,9 @@ def _filter_recently_run(
     makes the kept set a function of the run log alone, so a batch replayed
     from a seed skips the stubs it skipped the first time.
 
-    A zone-less *now* is read as UTC, the same rule the record loop below
-    applies to a zone-less ``ts``; comparing the two without that rule raises
-    ``TypeError`` instead of filtering.
+    A zone-less *now* is read as UTC, the same rule
+    :func:`_as_utc_instant` applies to a zone-less ``ts``; comparing the two
+    without that rule raises ``TypeError`` instead of filtering.
     """
     from datetime import UTC, datetime, timedelta
 
@@ -939,15 +960,11 @@ def _filter_recently_run(
     records = load_ga_runs(cfg.root, target=getattr(cfg, "target_name", ""), limit=100000)
     recent_vas: set[str] = set()
     for rec in records:
-        ts = rec.get("ts", "")
-        try:
-            dt = datetime.fromisoformat(ts)
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=UTC)
-            if dt >= cutoff:
-                recent_vas.add(str(rec.get("va")))
-        except (ValueError, TypeError):
+        dt = _as_utc_instant(rec.get("ts", ""))
+        if dt is None:
             continue
+        if dt >= cutoff:
+            recent_vas.add(str(rec.get("va")))
     if not recent_vas:
         return stubs
     kept = [s for s in stubs if s.va not in recent_vas]
@@ -999,7 +1016,9 @@ def run_all(
     reversed_dir = cfg.reversed_dir
     ignored = set(cfg.ignored_symbols or [])
 
-    if flag_sweep:
+    if flag_sweep or improve:
+        # Both batch modes sweep the same candidate set; only the label and
+        # the driver below differ.
         stubs = find_all_matching(
             reversed_dir,
             ignored=ignored,
@@ -1007,16 +1026,7 @@ def run_all(
             warn_duplicates=not json_output,
             min_size=min_size,
         )
-        mode_label = "NEAR_MATCHING (flag-sweep)"
-    elif improve:
-        stubs = find_all_matching(
-            reversed_dir,
-            ignored=ignored,
-            cfg=cfg,
-            warn_duplicates=not json_output,
-            min_size=min_size,
-        )
-        mode_label = "NEAR_MATCHING (improve)"
+        mode_label = "NEAR_MATCHING (flag-sweep)" if flag_sweep else "NEAR_MATCHING (improve)"
     elif size_mismatch:
         stubs = find_size_mismatch(
             reversed_dir,
@@ -1223,8 +1233,9 @@ def run_all(
 
     # Parallel stubs: one worker per stub, intra-GA compiles serialized so
     # total concurrency stays at ~jobs (MSVC under wine is not cheap).
-    # The cooperative deadline (no SIGALRM) keeps this thread-safe.
-    intra_jobs = min(jobs, 1)
+    # The cooperative deadline (no SIGALRM) keeps this thread-safe.  Batch
+    # parallelism comes from the executor below, never from inside a GA.
+    intra_jobs = 1
 
     # Solution entries are collected per stub and concatenated in stub order
     # after the batch, then flushed ONCE — _save_solution per matched stub
@@ -1350,10 +1361,13 @@ def run_all(
                 )  # order preserved
             )
     else:
+        # The three seed lists are appended in lockstep with ``stubs`` in the
+        # loop above, so every zip operand has the same length; strict=True
+        # makes a future append that breaks the pairing fail loudly.
         outcomes = [
             _run_stub(s, seeds, scf, sm)
             for s, seeds, scf, sm in zip(
-                stubs, stub_seeds, stub_seed_cflags, stub_seed_mutations, strict=False
+                stubs, stub_seeds, stub_seed_cflags, stub_seed_mutations, strict=True
             )
         ]
 

@@ -163,31 +163,40 @@ def positive_int_or(value: Any, default: int) -> int:
     return value
 
 
-def clamp_unit_interval(value: Any) -> float | None:
-    """Return a float in ``[0.0, 1.0]``, or ``None`` when *value* is absent/unusable.
+def _as_finite_float(value: Any) -> float | None:
+    """Read a stored cell as a finite float, or ``None`` when it is not one.
 
-    Non-finite inputs are rejected.  ``max(0.0, min(1.0, nan))`` returns
-    ``1.0`` on Python 3.13+ (unordered comparison keeps the finite bound),
-    which would store a perfect similarity for a corrupt/NaN score.
+    The one reader every numeric column shares: SQLite hands back ``int``,
+    ``float`` or the text a hand-edited document wrote, and ``bool`` reads as
+    1/0 unless refused here.  Non-finite results are rejected because
+    ``max(0.0, min(1.0, nan))`` returns ``1.0`` on Python 3.13+ (unordered
+    comparison keeps the finite bound), which would store a perfect score
+    for a corrupt value.
     """
     if value is None or isinstance(value, bool):
         return None
     if isinstance(value, int | float):
         if isinstance(value, float) and not math.isfinite(value):
             return None
-        return max(0.0, min(1.0, float(value)))
-    if isinstance(value, str):
-        s = value.strip()
-        if not s:
-            return None
-        try:
-            parsed = float(s)
-        except ValueError:
-            return None
-        if not math.isfinite(parsed):
-            return None
-        return max(0.0, min(1.0, parsed))
-    return None
+        return float(value)
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    try:
+        parsed = float(text)
+    except ValueError:
+        return None
+    return parsed if math.isfinite(parsed) else None
+
+
+def clamp_unit_interval(value: Any) -> float | None:
+    """Return a float in ``[0.0, 1.0]``, or ``None`` when *value* is absent/unusable."""
+    parsed = _as_finite_float(value)
+    if parsed is None:
+        return None
+    return max(0.0, min(1.0, parsed))
 
 
 def _clamp_verify_similarity(value: Any) -> float | None:
@@ -201,25 +210,8 @@ def _clamp_verify_similarity(value: Any) -> float | None:
     verify-cache import path, which is always percent-scale.  Non-finite
     and ``> 100`` inputs are rejected; negatives clamp to ``0.0``.
     """
-    if value is None or isinstance(value, bool):
-        return None
-    if isinstance(value, int | float):
-        if isinstance(value, float) and not math.isfinite(value):
-            return None
-        parsed = float(value)
-    elif isinstance(value, str):
-        s = value.strip()
-        if not s:
-            return None
-        try:
-            parsed = float(s)
-        except ValueError:
-            return None
-        if not math.isfinite(parsed):
-            return None
-    else:
-        return None
-    if parsed > 100.0:
+    parsed = _as_finite_float(value)
+    if parsed is None or parsed > 100.0:
         return None
     return max(0.0, min(1.0, parsed / 100.0))
 
