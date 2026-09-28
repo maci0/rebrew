@@ -407,6 +407,12 @@ WRITE_COMMANDS = [
     # carries a "Generated:" line, so a re-run that rewrote it unconditionally
     # would churn every file it produces without changing a declaration.
     "data --gen-header",
+    # Field writers into rebrew-data.toml: a plain set, and one run after the
+    # other on the same address.  A writer that appended a second key or
+    # duplicated the section header on a re-run would show up as a changed
+    # tree on the second pass.
+    "data --set-type 0x00403000=int",
+    "data --set-section 0x00403000=.data",
     # ``inline-strings`` is deliberately absent: it reads the layout package
     # that ``gen-layout`` writes, and that needs a reference binary the
     # read-only fixture does not ship.  It exited 2 on every run, which the
@@ -417,8 +423,9 @@ WRITE_COMMANDS = [
 #: from (the read-only fixture ships no data markers).
 _DATA_TOML = "[SYMBOLS.SERVER.g_player]\nsection = '.data'\nname = 'g_player'\nsize = 0x40\n"
 
-#: Commands in :data:`WRITE_COMMANDS` that take ``--data-metadata``.
-_DATA_METADATA_COMMANDS = ("gen-link-stubs",)
+#: Commands in :data:`WRITE_COMMANDS` that need a ``rebrew-data.toml`` with one
+#: declared symbol to write against.
+_DATA_METADATA_COMMANDS = ("gen-link-stubs", "data --set-type", "data --set-section")
 
 
 def _write_sweep_dir(base: Path, index: int, cmd: str) -> Path:
