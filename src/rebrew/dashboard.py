@@ -95,7 +95,8 @@ The rebrew mark is served from ``/favicon.svg`` rather than inlined as a data
 URI: a linked icon still stops the per-load ``/favicon.ico`` 404, and keeps
 443 B of near-incompressible payload out of the document the cold flight
 budgets.  It is a tab icon, not first paint, so it fetches off the critical
-path and 304s on every load after the first.
+path, and the shell links it content-hashed, so the browser fetches it once
+and serves every later load from disk.
 A matching ``If-None-Match`` on a routed path is answered 304 only when a GET
 would answer 200 (target-scoped ones need a known ``target``; ``/api/summary``
 a readable document; ``/api/functions`` a ``status`` inside the vocabulary),
@@ -107,11 +108,11 @@ wire size stays inside the RFC 6928 initial congestion window minus a
 per-response header reserve, so a cold connection paints without an extra
 round trip; a test pins that budget, and a change that does not fit pays for
 itself in the client's own comment prose rather than in the budget.  As
-measured: 12694 B zstd and 13299 B gzip against a 13320 B budget, so gzip has
-21 B of room and zstd 626 B — a client-side edit budgets against gzip, and gzip
+measured: 12712 B zstd and 13315 B gzip against a 13320 B budget, so gzip has
+5 B of room and zstd 608 B — a client-side edit budgets against gzip, and gzip
 is the binding encoding.  The
 reserve is what makes gzip the tight one, not the encoder: the two responses
-send 518 and 560 B of headers as served, against the 640 B each is given.
+send 567 and 599 B of headers as served, against the 640 B each is given.
 The preloaded ``/api/bootstrap`` is a third cold-flight response (774 B gzip
 plus 562 B of headers) and is deliberately outside that reserve, so the whole
 three-response flight is budgeted against the entry assets alone: they carry
@@ -1635,6 +1636,18 @@ _APP_JS_URL = f"/app.js?v={_APP_JS_VERSION}"
 #: Every request a cold load makes for the document and its clients, in
 #: document order.  Their wire bytes share one initial congestion window.
 _ENTRY_PATHS = ("/", _APP_JS_URL)
+#: The mark, served rather than inlined. A percent-encoded data URI is 443 B
+#: of near-incompressible payload in the document that has to fit the initial
+#: congestion window, and a tab icon is not first paint: linked, it costs the
+#: cold flight nothing.
+_FAVICON_SVG = theme.FAVICON_SVG
+_FAVICON_SVG_BYTES = _FAVICON_SVG.encode("utf-8")
+_FAVICON_VERSION = hashlib.sha256(_FAVICON_SVG_BYTES).hexdigest()[:16]
+_FAVICON_ETAG = f'"{_FAVICON_VERSION}"'
+#: Carries the same content hash the client does. The browser asks for the
+#: icon on every load, and ``private, no-cache`` made that a revalidation
+#: round trip per page; hashed, it is immutable and fetched once.
+_FAVICON_URL = f"{_FAVICON_PATH}?v={_FAVICON_VERSION}"
 
 
 def _dashboard_status_css() -> str:
@@ -1671,20 +1684,12 @@ _INDEX_HTML = theme.inline(_INDEX_HTML)
 _INDEX_HTML = (
     _INDEX_HTML.replace("__APP_JS_URL__", _APP_JS_URL)
     .replace("__BOOT_GUARD_JS__", _BOOT_GUARD_JS)
-    .replace("__FAVICON__", _FAVICON_PATH)
+    .replace("__FAVICON__", _FAVICON_URL)
 )
 _INDEX_HTML_BYTES = _INDEX_HTML.encode("utf-8")
 _INDEX_ETAG = '"' + hashlib.sha256(_INDEX_HTML_BYTES).hexdigest()[:16] + '"'
 _CACHE_REVALIDATE = "private, no-cache"
 _CACHE_IMMUTABLE = "private, max-age=31536000, immutable"
-
-#: The mark, served rather than inlined. A percent-encoded data URI is 443 B
-#: of near-incompressible payload in the document that has to fit the initial
-#: congestion window, and a tab icon is not first paint: linked, it costs the
-#: cold flight nothing and is cached beside the other entry assets.
-_FAVICON_SVG = theme.FAVICON_SVG
-_FAVICON_SVG_BYTES = _FAVICON_SVG.encode("utf-8")
-_FAVICON_ETAG = '"' + hashlib.sha256(_FAVICON_SVG_BYTES).hexdigest()[:16] + '"'
 
 
 #: The entry assets compress at max effort (zstd 19 runs at MB/s), which cost
@@ -2658,7 +2663,12 @@ def _success_cache_control(path: str, query: dict[str, list[str]]) -> str:
     """Immutable for the current content-hashed asset URLs; revalidate everything else."""
     if path in _UNCACHEABLE_ROUTES:
         return "no-store"
+    # Each hashed URL pins bytes that cannot change under it, so a stale
+    # mark or client is a new URL, not a revalidation.  An unhashed request
+    # for the same path revalidates, which is what a hand-typed URL gets.
     if path == "/app.js" and _opt_query(query, "v") == _APP_JS_VERSION:
+        return _CACHE_IMMUTABLE
+    if path == _FAVICON_PATH and _opt_query(query, "v") == _FAVICON_VERSION:
         return _CACHE_IMMUTABLE
     return _CACHE_REVALIDATE
 

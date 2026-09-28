@@ -121,17 +121,18 @@ codecs at import. Measured 500-row functions JSON:
 gzip-5 4728 → zstd-5 2912 bytes. Gates: `TestEncodingNegotiation`,
 `test_handler_serves_precompressed_static`.
 
-Shell HTML (zstd-19): 3544 bytes on the wire (was ~8.2 KB with inlined JS).
-Both entry assets total 12086 bytes zstd / 12649 gzip, inside the RFC 6928
+Shell HTML (zstd-19): 3755 bytes on the wire (was ~8.2 KB with inlined JS).
+Both entry assets total 12712 bytes zstd / 13315 gzip, inside the RFC 6928
 14600-byte initial window less a 640-byte-per-response header reserve
 (`_ENTRY_WIRE_BUDGET_BYTES`, 13320), so the loading chrome paints before
-`/app.js` (8542 zstd) finishes. Gate:
+`/app.js` (8957 zstd) finishes. Gate:
 `test_entry_assets_fit_initial_congestion_window`.
 
-The gzip path is the binding one: 12649 of 13320 budgeted bytes, 671 to spare
-(zstd has 1234). With the measured response headers the cold flight sits about
-1300 bytes under the 14600-byte window. Any shell or client growth has to come
-out of those 671 gzip bytes, so trim copy before adding an asset.
+The gzip path is the binding one: 13315 of 13320 budgeted bytes, 5 to spare
+(zstd has 608). With the measured response headers (567 shell, 599 `/app.js`)
+the two entry responses total 14481 bytes, 119 under the 14600-byte window;
+the preloaded bootstrap rides past it, as below. Any shell or client growth
+has to come out of those 5 gzip bytes, so trim copy before adding an asset.
 
 Every non-entry 200 answers `Server-Timing: route;dur=<ms>`, so the browser's
 Network panel separates the query from the transfer and a slow route shows up
@@ -166,23 +167,28 @@ plus that one script's `sha256`, never `'unsafe-inline'`. Gates:
 `test_boot_guard_is_inline_and_runs_after_the_client`,
 `test_boot_guard_rides_the_precompressed_shell`.
 
-Repeat loads: the shell links `/app.js?v=<content hash>`, served
+Repeat loads: the shell links `/app.js?v=<content hash>` and
+`/favicon.svg?v=<content hash>`, both served
 `private, max-age=31536000, immutable`, and the mark is served from
-`/favicon.svg` (revalidating) instead of being requested as an implicit
-`/favicon.ico` (a no-store 404). A warm reload drops
-from four requests (shell 304, `/app.js` 304, bootstrap,
-favicon 304) to three. Gates: `test_handler_caches_only_hashed_client_urls_immutable`,
-`test_index_html_links_the_served_favicon`, `test_favicon_route_serves_the_theme_mark`.
+that route instead of being requested as an implicit
+`/favicon.ico` (a no-store 404). A warm reload is two requests
+(shell 304, bootstrap 200): the client and the mark are answered from
+the browser's own cache and are not requested at all. Gates:
+`test_handler_caches_only_hashed_client_urls_immutable`,
+`test_index_html_links_the_served_favicon`, `test_favicon_route_serves_the_theme_mark`,
+`test_favicon_hash_matches_the_served_bytes`.
 
 The mark moved out of the shell for the cold flight, not for the request count.
 A percent-encoded data URI is 443 raw bytes of near-incompressible payload
 inside the one document that has to fit RFC 6928's initial window, and it cost
 178 gzip bytes of the shell; linked, it is fetched off the critical path (a tab
-icon is not first paint) and 304s after the first load. The entry assets are
-now 12694 zstd / 13299 gzip against the 13320 B budget, so gzip has 21 B of
-room. Two of the three `--favicon` shapes are worth not repeating: deduplicating
-near-identical JavaScript *raised* the compressed size by 340 B even though it
-removed 262 raw ones, because the copies were what gzip matched.
+icon is not first paint). Hashing the linked URL cost 16 gzip bytes of the
+shell and buys the whole icon request back on every load after the first. The
+entry assets are now 12712 zstd / 13315 gzip against the 13320 B budget, so
+gzip has 5 B of room. Two of the three `--favicon` shapes are worth not
+repeating: deduplicating near-identical JavaScript *raised* the compressed
+size by 340 B even though it removed 262 raw ones, because the copies were
+what gzip matched.
 
 First page default is 100 rows (Show more still 500). On 2000 synthetic
 functions, `/api/functions` CPU / 100: 500 rows 0.059 s / 32 KB → 100 rows
@@ -201,9 +207,9 @@ the cold flight is left to absorb a growing first page. Gates:
 Remaining: 100-row HTML join. Table virtualization, splitting the non-Functions
 views out of `/app.js`, and cross-request pooling were not measured. The
 initial-window budget does not yet count the preloaded bootstrap among the
-entry assets: measured, the three static assets alone leave the window before
-any data, so folding that fourth response in needs the static shell to shrink
-first.
+entry assets: measured, the two entry responses fill 14481 of the 14600
+window with their real headers, so folding the bootstrap's 776 B in needs the
+static shell to shrink first.
 
 `/app.js` pays for the row render too, not only the download. `esc()` looked
 up its five entities in a fresh object literal on every matched character, so
@@ -218,8 +224,8 @@ stylesheet already requires Safari 15.4 for `content-visibility`; the report
 page carries the same dead declaration and it is gone there too. Gate:
 `test_entry_assets_fit_initial_congestion_window` is what forces the trade.
 
-Dashboard shell gzip is 3632 bytes (the inline guard included) and
-`/app.js` gzip is 9017 bytes (same
+Dashboard shell gzip is 3855 bytes (the inline guard included) and
+`/app.js` gzip is 9460 bytes (same
 `mtime=0` makes those bytes a function of the content, so a restart does
 not serve a different body under the same ETag. Gate:
 `test_handler_serves_precompressed_static`.

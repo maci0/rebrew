@@ -10,6 +10,7 @@ past its section size).
 
 import copy
 import gzip
+import hashlib
 import json
 import logging
 import os
@@ -35,6 +36,7 @@ from rebrew.dashboard import (
     _BOOT_GUARD_JS,
     _BOOTSTRAP_FUNCTION_LIMIT,
     _DEFAULT_LIMIT,
+    _FAVICON_VERSION,
     Dashboard,
     _DashboardServer,
     _files_display,
@@ -2438,6 +2440,9 @@ class TestHostValidation:
             (f"/app.js?v={_APP_JS_VERSION}", "private, max-age=31536000, immutable"),
             ("/app.js?v=stale", "private, no-cache"),
             ("/app.js", "private, no-cache"),
+            (f"/favicon.svg?v={_FAVICON_VERSION}", "private, max-age=31536000, immutable"),
+            ("/favicon.svg?v=stale", "private, no-cache"),
+            ("/favicon.svg", "private, no-cache"),
             ("/", "private, no-cache"),
         ],
     )
@@ -2477,9 +2482,14 @@ class TestHostValidation:
 
     def test_index_html_links_the_served_favicon(self, dashboard: Dashboard) -> None:
         """A linked mark keeps /favicon.ico from being requested, without
-        putting 443 B of data URI in the document the cold flight budgets."""
+        putting 443 B of data URI in the document the cold flight budgets.
+        The URL is content-hashed, so the icon is fetched once instead of
+        revalidating on every load."""
         _, _, html = dashboard.handle("GET", "/", {})
-        assert '<link rel="icon" href="/favicon.svg" type="image/svg+xml">' in html
+        assert (
+            f'<link rel="icon" href="/favicon.svg?v={_FAVICON_VERSION}" type="image/svg+xml">'
+            in html
+        )
         assert "data:image/svg+xml" not in html
 
     def test_favicon_route_serves_the_theme_mark(self, dashboard: Dashboard) -> None:
@@ -2489,6 +2499,13 @@ class TestHostValidation:
         status, content_type, body = dashboard.handle("GET", "/favicon.svg", {})
         assert (status, content_type) == (200, "image/svg+xml")
         assert body == FAVICON_SVG
+
+    def test_favicon_hash_matches_the_served_bytes(self, dashboard: Dashboard) -> None:
+        """The version in the icon URL is the hash of the body behind it, so
+        a changed mark is a changed URL and the immutable header stays true."""
+        from rebrew.dashboard import _FAVICON_SVG_BYTES
+
+        assert hashlib.sha256(_FAVICON_SVG_BYTES).hexdigest()[:16] == _FAVICON_VERSION
 
     def test_handler_304_skips_the_route_query(self, dashboard: Dashboard) -> None:
         """A matching If-None-Match on a JSON route answers 304 without querying."""
