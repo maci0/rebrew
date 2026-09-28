@@ -559,10 +559,18 @@ def _read_previous(path: Path) -> dict[str, Any]:
     """
     try:
         return tomllib.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}
     except (OSError, ValueError) as exc:
         # tomllib.TOMLDecodeError subclasses ValueError; a UnicodeDecodeError
-        # does too.  A half-written file lands in the same place.
-        logging.debug("coverage_toml: no history to carry from %s (%s)", path, exc)
+        # does too.  A half-written file lands in the same place.  Warn, not
+        # debug: the caller rebuilds from this and drops the whole history
+        # array, so a silent ``{}`` resets every chart on the dashboard.
+        logging.warning(
+            "coverage_toml: cannot read %s (%s); the rebuild carries no history",
+            path,
+            exc,
+        )
         return {}
 
 

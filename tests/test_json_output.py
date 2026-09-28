@@ -1150,7 +1150,7 @@ class TestSinglePathExitCodes:
         monkeypatch.setattr(testmod, "compile_to_obj", lambda *a, **k: ("f.obj", ""))
         monkeypatch.setattr(testmod, "parse_obj_symbol_and_relocs", _boom)
         monkeypatch.setattr(testmod, "extract_raw_bytes", lambda *a, **k: b"\x90" * 8)
-        monkeypatch.setattr(testmod, "update_source_status", lambda *a, **k: None)
+        monkeypatch.setattr(testmod, "update_source_status", lambda *a, **k: True)
         monkeypatch.setattr(testmod, "_patch_verify_cache", lambda *a, **k: None)
         ann = Annotation(
             va=0x1000,

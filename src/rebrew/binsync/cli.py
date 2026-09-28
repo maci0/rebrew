@@ -25,7 +25,7 @@ from pathlib import Path
 import typer
 
 from rebrew.binsync import diff, export, importer, init, overlay
-from rebrew.binsync.git import one_line, run_git
+from rebrew.binsync.git import GIT_NETWORK_TIMEOUT, one_line, run_git
 from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
 from rebrew.config import ProjectConfig
 
@@ -133,7 +133,7 @@ def push(
     if git_push and not no_git and not dry_run:
         _require_state_repo(state_dir, json_mode=json_output)
         for ref in ("binsync/__root__", "HEAD"):
-            pushed = run_git(state_dir, "push", remote, ref)
+            pushed = run_git(state_dir, "push", remote, ref, timeout=GIT_NETWORK_TIMEOUT)
             if pushed.returncode != 0:
                 error_exit(_git_failure(f"git push {remote} {ref}", pushed), json_mode=json_output)
 
@@ -175,7 +175,7 @@ def pull(
 
     if not no_git and not dry_run:
         _require_state_repo(resolved, json_mode=json_output)
-        pulled = run_git(resolved, "pull", "--ff-only")
+        pulled = run_git(resolved, "pull", "--ff-only", timeout=GIT_NETWORK_TIMEOUT)
         if pulled.returncode != 0:
             error_exit(
                 _git_failure("git pull --ff-only", pulled)

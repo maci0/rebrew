@@ -11,6 +11,7 @@ Usage::
 """
 
 import json
+import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from operator import eq
@@ -107,6 +108,12 @@ class StatusReport:
 
     # Verify cache summary
     verify_info: VerifyInfo | None = None
+
+    # Set when the function inventory could not be loaded and every count on
+    # this report is therefore zero rather than measured.  Empty on a normal
+    # run.  Rendered and serialized so a degraded report never reads as
+    # "nothing left to do".
+    load_error: str = ""
 
     # Effective-status overlay: how many functions' reported status differs
     # from their metadata status because the verify cache overrode it, and
@@ -650,10 +657,18 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
         # is `targets.<name>.external_libs` (plus LIBRARY marker rows).
         library_vas = external_vas(existing, getattr(cfg, "external_libs", None))
         existing = scope_to_target(existing, cfg)
-    except (OSError, json.JSONDecodeError, KeyError, ValueError):
+    except (OSError, json.JSONDecodeError, KeyError, ValueError) as exc:
         # Graceful degradation: return zeroed report.  ValueError is what the
         # loaders raise for a corrupt structure JSON, so omitting it meant the
-        # documented fallback skipped exactly the case it exists for.
+        # documented fallback skipped exactly the case it exists for.  The
+        # failure is reported because a zeroed panel reads as "no work left"
+        # on a project that has thousands of pending functions.
+        logging.warning(
+            "status: could not load the function inventory (%s: %s); reporting zeroed coverage",
+            type(exc).__name__,
+            exc,
+        )
+        report.load_error = f"{type(exc).__name__}: {exc}"
         _attach_file_similarity(report, cfg)
         return report
 
@@ -1242,6 +1257,10 @@ def _render_terminal(report: StatusReport) -> None:
         )
     summary_lines.append(sources)
 
+    if report.load_error:
+        # Replaces "No functions yet": the zero counts are unmeasured, not
+        # measured as zero, and the operator needs the cause to act.
+        summary_lines.append(f"[red]inventory load failed[/red]  [dim]{report.load_error}[/dim]")
     # Pointer to the prioritized next-action list (PRD 05 status requirement)
     summary_lines.append(
         "[bold]Next[/bold]  rebrew todo"

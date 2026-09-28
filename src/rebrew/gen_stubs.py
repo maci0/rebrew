@@ -793,10 +793,33 @@ def _run_build(
             error_exit(f"build timed out after 600s: {build_cmd}", json_mode=False)
         return result.stdout + result.stderr
     finally:
+        # Each restore gets its own guard: a failed first restore must not
+        # skip the second (which would leave the source tree renamed), and a
+        # restore error must not replace the build failure it is cleaning up
+        # after. The interrupted-build recovery on the next run is the
+        # backstop, but the operator has to be told the tree is left patched.
         if patched_cmake is not None:
-            os.replace(cmake_backup, cmake_path)
+            try:
+                os.replace(cmake_backup, cmake_path)
+            except OSError as exc:
+                console.print(
+                    f"[red]error:[/red] could not restore {cmake_path} from "
+                    f"{cmake_backup.name}: {exc}"
+                )
+                # Only fail the command when nothing else is propagating: the
+                # build error is the more useful one to report.
+                if sys.exc_info()[0] is None:
+                    error_exit(f"restore of {cmake_path} failed: {exc}", json_mode=False)
         if renamed is not None:
-            renamed[1].rename(renamed[0])
+            try:
+                renamed[1].rename(renamed[0])
+            except OSError as exc:
+                console.print(
+                    f"[red]error:[/red] could not restore {renamed[1].name} "
+                    f"to {renamed[0].name}: {exc}"
+                )
+                if sys.exc_info()[0] is None:
+                    error_exit(f"restore of {renamed[0].name} failed: {exc}", json_mode=False)
 
 
 @app.callback(invoke_without_command=True)

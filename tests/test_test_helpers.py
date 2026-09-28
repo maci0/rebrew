@@ -656,7 +656,7 @@ class TestUnchangedStatusCachePatch:
         monkeypatch.setattr(
             "rebrew.test.extract_raw_bytes", lambda binpath, va, size: b"\x90\x90\x90\x90"[:size]
         )
-        monkeypatch.setattr("rebrew.test.update_source_status", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.test.update_source_status", lambda *a, **k: True)
         patched: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
         monkeypatch.setattr(
             "rebrew.test._patch_verify_cache",
@@ -725,7 +725,7 @@ class TestMultiUnchangedStatusCachePatch:
             "smart_reloc_compare",
             lambda *a, **k: (False, 9, 12, [], []),
         )
-        monkeypatch.setattr(testmod, "update_source_status", lambda *a, **k: None)
+        monkeypatch.setattr(testmod, "update_source_status", lambda *a, **k: True)
         monkeypatch.setattr(testmod, "extract_raw_bytes", lambda *a, **k: b"\x90" * 12)
         patched: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
         monkeypatch.setattr(
@@ -742,6 +742,60 @@ class TestMultiUnchangedStatusCachePatch:
         assert args[1] == 0x1000
         assert args[2] == "NEAR_MATCHING"
         assert kwargs.get("delta") is not None
+
+
+class TestRefusedPromotionSkipsCache:
+    """A refused STATUS write must not patch the verify cache.
+
+    The cached verdict outranks the metadata STATUS, so a cache entry for a
+    promotion the store refused makes `rebrew status` and `rebrew todo` report
+    a STATUS that `rebrew-functions.toml` never accepted.
+    """
+
+    def test_multi_leaves_cache_alone_when_the_store_refuses(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        from types import SimpleNamespace as NS
+
+        import rebrew.test as testmod
+        from rebrew.annotation import Annotation
+
+        (tmp_path / "f.c").write_text("// FUNCTION: X 0x1000\nvoid f(int a) { g = a; }\n")
+        cfg = NS(
+            target_binary=str(tmp_path / "x.bin"),
+            metadata_dir=tmp_path,
+            reversed_dir=tmp_path,
+            marker="X",
+            default_jobs=1,
+            compile_timeout=60,
+        )
+        (tmp_path / "x.bin").write_bytes(b"\x90" * 12)
+        ann = Annotation(
+            marker_type="FUNCTION",
+            module="X",
+            va=0x1000,
+            size=12,
+            symbol="_f",
+            source="void f(int a) { g = a; }",
+        )
+
+        monkeypatch.setattr(
+            testmod, "compile_to_obj", lambda *a, **k: (str(tmp_path / "f.obj"), "")
+        )
+        monkeypatch.setattr(
+            testmod, "parse_obj_symbol_and_relocs", lambda *a, **k: (b"\x90" * 12, {}, [])
+        )
+        monkeypatch.setattr(testmod, "smart_reloc_compare", lambda *a, **k: (False, 9, 12, [], []))
+        # The promotion policy refused (parked SKIP / documented STUB).
+        monkeypatch.setattr(testmod, "update_source_status", lambda *a, **k: False)
+        monkeypatch.setattr(testmod, "extract_raw_bytes", lambda *a, **k: b"\x90" * 12)
+        patched: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+        monkeypatch.setattr(testmod, "_patch_verify_cache", lambda *a, **k: patched.append((a, k)))
+
+        with pytest.raises(typer.Exit):
+            testmod._test_multi(cfg, str(tmp_path / "f.c"), [ann], None)
+
+        assert patched == [], "a refused promotion must leave the verify cache alone"
 
 
 class TestCflagsPersistence:
@@ -914,7 +968,7 @@ class TestMultiFixSize:
         monkeypatch.setattr(testmod, "extract_raw_bytes", _fake_extract)
         # Suppress status promotion side effects (validated by the single-path
         # CLI tests).
-        monkeypatch.setattr(testmod, "update_source_status", lambda *a, **k: None)
+        monkeypatch.setattr(testmod, "update_source_status", lambda *a, **k: True)
         monkeypatch.setattr(testmod, "_patch_verify_cache", lambda *a, **k: None)
 
         testmod._test_multi(
@@ -975,7 +1029,7 @@ class TestMultiFixSize:
             "extract_raw_bytes",
             lambda binpath, va, size: (tmp_path / "x.bin").read_bytes()[:size],
         )
-        monkeypatch.setattr(testmod, "update_source_status", lambda *a, **k: None)
+        monkeypatch.setattr(testmod, "update_source_status", lambda *a, **k: True)
         monkeypatch.setattr(testmod, "_patch_verify_cache", lambda *a, **k: None)
 
         with pytest.raises(typer.Exit) as exc_info:
@@ -1030,7 +1084,7 @@ class TestMultiFixSize:
             "extract_raw_bytes",
             lambda b, va, size: (tmp_path / "x.bin").read_bytes()[:size],
         )
-        monkeypatch.setattr(testmod, "update_source_status", lambda *a, **k: None)
+        monkeypatch.setattr(testmod, "update_source_status", lambda *a, **k: True)
         monkeypatch.setattr(testmod, "_patch_verify_cache", lambda *a, **k: None)
         monkeypatch.setattr(testmod, "json_print", lambda payload: captured.append(payload))
 
@@ -1253,7 +1307,7 @@ class TestMultiCachePatchDelta:
         monkeypatch.setattr(testmod, "compile_to_obj", _fake_compile)
         monkeypatch.setattr(testmod, "parse_obj_symbol_and_relocs", _fake_parse)
         monkeypatch.setattr(testmod, "smart_reloc_compare", _fake_compare)
-        monkeypatch.setattr(testmod, "update_source_status", lambda *a, **k: None)
+        monkeypatch.setattr(testmod, "update_source_status", lambda *a, **k: True)
         monkeypatch.setattr(testmod, "_patch_verify_cache", _fake_patch)
         monkeypatch.setattr(testmod, "extract_raw_bytes", lambda *a, **k: _tgt)
 

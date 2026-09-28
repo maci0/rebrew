@@ -1337,7 +1337,7 @@ def _run_test_impl(
                 )
         else:
             clear = clears_blocker(new_status, Path(source))
-            update_source_status(
+            written = update_source_status(
                 cfg.metadata_dir,
                 new_status,
                 anno_module,
@@ -1346,7 +1346,20 @@ def _run_test_impl(
                 force=force_status,
                 updated_by="test",
             )
-            if compile_context is None:
+            if not written:
+                # The two holders of a verdict move together: the cached
+                # status outranks the metadata STATUS, so patching the cache
+                # with a verdict the store refused would make `rebrew status`
+                # and `rebrew todo` report a status the store never accepted.
+                logging.warning(
+                    "promotion policy refused %s for %s 0x%x: the function is "
+                    "parked or classified as a documented STUB, so the verify "
+                    "cache is left alone",
+                    new_status,
+                    anno_module,
+                    va_int_for_promote,
+                )
+            elif compile_context is None:
                 _patch_verify_cache(
                     cfg,
                     va_int_for_promote,
@@ -1361,7 +1374,7 @@ def _run_test_impl(
                     match_percent=cmp.match_percent,
                     context_hash=cmp.context_hash,
                 )
-            if not json_output:
+            if written and not json_output:
                 console.print(f"[dim]STATUS → {new_status}[/dim]")
     return result_dict
 
@@ -1780,7 +1793,7 @@ def _test_multi(
                     clear = clears_blocker(
                         new_status, cfg.reversed_dir / getattr(ann, "filepath", "")
                     )
-                    update_source_status(
+                    written = update_source_status(
                         cfg.metadata_dir,
                         new_status,
                         ann.module,
@@ -1788,7 +1801,19 @@ def _test_multi(
                         clear_blockers=clear,
                         updated_by="test",
                     )
-                    if context is None:
+                    if not written:
+                        # Same refusal rule as the single-file path: a cache
+                        # entry the store refused would outrank the metadata
+                        # STATUS it never accepted.
+                        logging.warning(
+                            "promotion policy refused %s for %s 0x%x: the "
+                            "function is parked or classified as a documented "
+                            "STUB, so the verify cache is left alone",
+                            new_status,
+                            ann.module,
+                            ann.va,
+                        )
+                    elif context is None:
                         # Same rule as the single-file path: a context-scoped
                         # verdict must not be written to the shared cache.
                         _patch_verify_cache(
@@ -1807,7 +1832,7 @@ def _test_multi(
                             context_hash=cmp.context_hash,
                             pending=cache_patches,
                         )
-                    if not json_output:
+                    if written and not json_output:
                         console.print(f"[dim]  STATUS → {new_status}[/dim]")
 
         if cache_patches:

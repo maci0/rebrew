@@ -22,6 +22,12 @@ log = logging.getLogger(__name__)
 #: Seconds any single git invocation may run.
 _GIT_TIMEOUT = 30
 
+#: Seconds a git invocation that talks to a remote may run. The default
+#: ``_GIT_TIMEOUT`` is sized for local config probes and is short enough to
+#: group-kill a ``push``/``pull`` mid-transfer on a slow link, which leaves a
+#: half-written remote ref and an error the operator reads as a refusal.
+GIT_NETWORK_TIMEOUT = 600
+
 #: Repo-local git settings that execute a program. Command-line ``-c`` outranks
 #: ``.git/config``. ``GIT_SSH_COMMAND``, when set, still outranks ``core.sshCommand``.
 _GIT_EXEC_OVERRIDES: tuple[str, ...] = (
@@ -63,6 +69,9 @@ def run_git(
     plain ``subprocess.run`` timeout SIGKILLs only ``git`` itself, so the ssh
     transport (and the remote session it holds) outlives the call.  A failure
     to spawn, run, or finish comes back as a nonzero ``CompletedProcess``.
+
+    ``timeout`` defaults to :data:`_GIT_TIMEOUT`, sized for a local probe; a
+    remote transfer must pass :data:`GIT_NETWORK_TIMEOUT`.
 
     ``surrogateescape``, like every other hash of process and path text here:
     a state-dir file name or config value is not required to be valid UTF-8,
