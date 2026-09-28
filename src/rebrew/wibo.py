@@ -221,8 +221,28 @@ def download_wibo(dest: Path) -> str:
         fd = -1
         with f:
             f.write(body)
+            # The digest above verified what arrived over the network, not what
+            # reaches the disk.  Without the fsync, a crash between here and
+            # os.replace (or a reboot after it) can leave dest a truncated
+            # binary that nothing re-hashes: the next run execs a corrupt wibo
+            # and reports a compiler failure instead of a bad download.  Same
+            # durability the tool-owned atomic writers in rebrew.utils apply.
+            f.flush()
+            os.fsync(f.fileno())
         os.chmod(tmp_path, stat.S_IRUSR | stat.S_IXUSR)
         os.replace(tmp_path, str(dest))
+        # The replace itself is a directory entry update, and it reaches the
+        # disk on its own schedule; fsync the parent so the name cannot be lost
+        # while the bytes it points at are already durable.  Best-effort for
+        # the same reason as rebrew.utils._fsync_path: a filesystem that
+        # refuses to open or sync a directory (overlay mounts, Windows without
+        # O_RDONLY on a directory) must not fail a download that landed.
+        with contextlib.suppress(OSError):
+            dir_fd = os.open(str(dest.parent), os.O_RDONLY)
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
     except BaseException:
         if fd != -1:
             with contextlib.suppress(OSError):
