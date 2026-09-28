@@ -97,7 +97,7 @@ in `tests/test_packaging.py` fails the suite listing every distribution left
 
 ```bash
 make help                     # list contributor make targets
-make doctor                   # report every missing prerequisite (uv, ../resembl, nasm, node, shellcheck, venv extras)
+make doctor                   # report every missing prerequisite (uv, ../resembl, bash, nasm, node, shellcheck, yamllint, venv extras)
 make clone-resembl            # clone sibling resembl pin into ../resembl (required for uv sync)
 make setup                    # locked sync (extras + similarity) + pre-commit install (checks uv + ../resembl first)
 make add-dep ADD_DEP_SPEC=<spec>  # add a dependency (wraps `uv add`; prints the license-table step)
@@ -105,7 +105,7 @@ make clean                    # remove build/dist artifacts and caches
 make test-one T=tests/test_annotation.py  # single file / nodeid (fast edit-test loop; defaults to test_annotation.py)
 make test-one T=tests/test_annotation.py FLAGS="-k stdcall"  # narrow further with any pytest flag
 make test-one T=tests/test_dashboard.py::TestSummaryRequests   # one class
-make test                     # full suite (a few minutes; needs nasm)
+make test                     # full suite (a few minutes; needs nasm + node)
 make coverage                 # full suite under slipcover; fails below COV_FLOOR (CI test job, 3.13)
 make lint                     # ruff check .
 make format                   # ruff format (writes)
@@ -197,7 +197,9 @@ says nothing about where the import goes now.
   `rebrew-dist-<sha>` artifact from the green `package` run, unpack it into an
   empty `dist/`, and run `make verify-dist` there (it re-derives the manifest
   digests from the files beside it, so a truncated download fails before the
-  upload rather than after it), then
+  upload rather than after it; both `verify-dist` and `smoke-wheel` read `dist/`
+  as they find it and never rebuild it, so unpack into an empty `dist/` and run
+  them in a checkout of the release commit), then
   `uv publish dist/rebrew-*.tar.gz dist/rebrew-*.whl` from that same `dist/`.
   The artifact is the only build that ran the whole package job: reproducible
   rebuild, sdist-to-wheel member diff, and clean-venv smoke install.

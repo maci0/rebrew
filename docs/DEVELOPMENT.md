@@ -129,10 +129,10 @@ published globals around every test in that module.
 
 - `match.py`/`test.py`/`matcher/compiler.py` need the MSVC toolchain docker
   image — covered with stubs at the pure-helper level only.
-- `prove.py` needs `angr` (the `prove` extra).  `uv sync --all-extras` (the
-  documented dev install) enables the full prove test classes for real
-  (the angr-gated tests in `tests/test_prove.py` are skipped when angr is
-  absent).  The
+- `prove.py` needs `angr` (the `prove` extra).  `make setup` (the documented
+  dev install: `uv sync --locked --all-extras --group similarity`) enables the
+  full prove test classes for real (the angr-gated tests in
+  `tests/test_prove.py` are skipped when angr is absent).  The
   module-level `_run_simulation` is patchable so tests can inject crafted
   states and still exercise the real `_compare_state_pairs` logic.
 - The FLIRT pipeline (`flirt.py`, `gen_flirt_pat.py`) needs real `.sig`/`.pat`

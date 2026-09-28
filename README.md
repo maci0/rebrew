@@ -493,7 +493,10 @@ make clean                 # remove build/dist artifacts and caches
 ```
 
 Flag-axis refresh from decomp.me (maintainer, needs network):
-`uv run --frozen python tools/sync_decomp_flags.py`.
+`make gen-flags` (`FLAGS_REF=<commit-or-tag>` to sync a pinned ref instead of the
+default branch, `make gen-flags-check` to report upstream drift). The generated
+header's `Synced:` date follows `SOURCE_DATE_EPOCH`, so re-syncing one upstream
+commit writes the same file.
 
 ### Flag Sweep Tiers
 

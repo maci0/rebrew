@@ -245,8 +245,10 @@ jobs:
         # overlaid with --no-deps so a live PyPI resolve cannot drift past
         # the audited lock (uv pip install of a wheel ignores uv.lock), and
         # --no-default-groups --no-install-project needs no ../resembl.
-        # Its `dist/rebrew.buildinfo` prerequisite already exists, so make
-        # does not re-run `build` and drop the SBOM the upload requires.
+        # `require-dist`, not a buildinfo file prerequisite: the target reads
+        # dist/ as found, so it installs the wheel the step above built rather
+        # than triggering a second `build` that drops the SBOM the upload
+        # requires.
         run: make smoke-wheel
       - name: Verify the sdist ships what the wheel ships
         # The wheel above is smoke-installed; the sdist only gets hashed, and

@@ -5,13 +5,25 @@ Clones the decomp.me repo (sparse, depth-1), reads their flags.py,
 and generates src/rebrew/flag_data.py using rebrew's own
 FlagSet/Checkbox classes (same data structure as decomp.me).
 
+Upstream is a branch, so a bare sync follows whatever decomp.me pushed since
+the last one.  ``--ref`` names the ref to sync from (a tag or a commit) and the
+resolved commit is printed on every run, so a re-sync of a known-good commit is
+one flag away and the run says which upstream state it read.  The generated
+header's ``Synced:`` line comes from SOURCE_DATE_EPOCH when that is set, so
+re-syncing one upstream commit twice yields the same file.
+
 Usage:
-    uv run --frozen python tools/sync_decomp_flags.py          # writes flag_data.py
+    uv run --frozen python tools/sync_decomp_flags.py            # writes flag_data.py
     uv run --frozen python tools/sync_decomp_flags.py --dry-run  # print to stdout
+    uv run --frozen python tools/sync_decomp_flags.py --check    # fail if a sync would change it
+    uv run --frozen python tools/sync_decomp_flags.py --ref <commit-or-tag>
 """
 
 import argparse
+import difflib
 import importlib.util
+import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -25,6 +37,11 @@ from rebrew.flags import Checkbox, FlagSet
 
 REPO_URL = "https://github.com/decompme/decomp.me.git"
 FLAGS_PATH = "backend/coreapp/flags.py"
+
+# The generated header's one moving part: the day the sync ran.  A check run
+# on another day would otherwise report drift on an unchanged upstream, so the
+# comparison masks this line and nothing else.
+_SYNCED_LINE_RE = re.compile(r"(?m)^Synced: \d{4}-\d{2}-\d{2}$")
 
 # Flag IDs that only exist in MSVC 7.x+ (not available in MSVC 6.0)
 MSVC7_ONLY_IDS = {"msvc_fp", "msvc_disable_buffer_security_checks"}
@@ -76,20 +93,20 @@ MSVC_SWEEP_TIERS = {
 }
 
 
-def clone_decomp_me(tmp_dir: str) -> Path:
-    """Sparse-clone decomp.me into tmp_dir, return repo root."""
+def clone_decomp_me(tmp_dir: str, ref: str | None = None) -> Path:
+    """Sparse-clone decomp.me into tmp_dir, return repo root.
+
+    *ref* names the branch, tag, or commit to clone.  Without it the clone
+    follows the remote's default branch, so a sync reads whatever upstream
+    pushed last; a pinned *ref* makes the input to the generated file
+    explicit.
+    """
     repo_dir = Path(tmp_dir) / "decomp.me"
+    command = ["git", "clone", "--depth", "1", "--filter=blob:none", "--sparse"]
+    if ref:
+        command += ["--branch", ref]
     subprocess.run(
-        [
-            "git",
-            "clone",
-            "--depth",
-            "1",
-            "--filter=blob:none",
-            "--sparse",
-            REPO_URL,
-            str(repo_dir),
-        ],
+        [*command, REPO_URL, str(repo_dir)],
         capture_output=True,
         check=True,
     )
@@ -100,6 +117,35 @@ def clone_decomp_me(tmp_dir: str) -> Path:
         check=True,
     )
     return repo_dir
+
+
+def resolved_commit(repo_dir: Path) -> str:
+    """Commit the clone actually resolved.
+
+    Printed on every run so a sync records which upstream state produced the
+    generated file; the flag axes it wrote are only as stable as that commit.
+    """
+    result = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=str(repo_dir),
+        capture_output=True,
+        check=True,
+        text=True,
+    )
+    return result.stdout.strip()
+
+
+def sync_date() -> str:
+    """Date to stamp into the generated header.
+
+    SOURCE_DATE_EPOCH wins, so re-syncing one upstream commit on two days
+    writes the same file (reproducible-builds.org).  Without it the wall clock
+    moves, and every re-run is a diff whether or not upstream changed.
+    """
+    epoch = os.environ.get("SOURCE_DATE_EPOCH", "").strip()
+    if epoch.isdigit():
+        return datetime.fromtimestamp(int(epoch), UTC).strftime("%Y-%m-%d")
+    return datetime.now(UTC).strftime("%Y-%m-%d")
 
 
 def load_flags_module(repo_dir: Path) -> ModuleType:
@@ -222,9 +268,38 @@ def splice_preserved_tail(generated: str, output_path: Path) -> str:
     return generated.rstrip("\n") + "\n\n" + tail
 
 
+def drifted_lines(committed: str, generated: str) -> list[str]:
+    """Diff of a re-sync against the committed file, or ``[]`` when it is current.
+
+    The ``Synced:`` header line is masked on both sides: it records the day a
+    maintainer ran the sync, not what upstream said, and comparing it would
+    report drift on an unchanged upstream every time the check runs on a
+    different date.  Everything else is a real difference.
+    """
+    return list(
+        difflib.unified_diff(
+            _SYNCED_LINE_RE.sub("Synced: <date>", committed).splitlines(),
+            _SYNCED_LINE_RE.sub("Synced: <date>", generated).splitlines(),
+            fromfile="committed",
+            tofile="regenerated",
+            lineterm="",
+        )
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Sync flags from decomp.me")
     parser.add_argument("--dry-run", action="store_true", help="Print to stdout only")
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Exit 1 when a sync would change the output file (needs network)",
+    )
+    parser.add_argument(
+        "--ref",
+        default=None,
+        help="Branch, tag, or commit to sync from (default: the remote's default branch)",
+    )
     parser.add_argument(
         "--output",
         default=None,
@@ -237,10 +312,11 @@ def main() -> None:
         Path(args.output) if args.output else (project_root / "src" / "rebrew" / "flag_data.py")
     )
 
-    print("Cloning decomp.me (sparse, depth-1)...")
+    source_desc = f"decomp.me@{args.ref}" if args.ref else "decomp.me (default branch)"
+    print(f"Cloning {source_desc} (sparse, depth-1)...")
     with tempfile.TemporaryDirectory(prefix="decomp_sync_") as tmp_dir:
-        repo_dir = clone_decomp_me(tmp_dir)
-        print(f"  → Cloned to {repo_dir}")
+        repo_dir = clone_decomp_me(tmp_dir, args.ref)
+        print(f"  → Cloned to {repo_dir} at {resolved_commit(repo_dir)}")
 
         print("Loading flags module...")
         mod = load_flags_module(repo_dir)
@@ -264,7 +340,7 @@ def main() -> None:
             n_axes = len(tier_ids) if tier_ids else len(msvc_flags)
             print(f"  → {tier_name}: {n_axes} axes, {total:,} combos")
 
-        timestamp = datetime.now(UTC).strftime("%Y-%m-%d")
+        timestamp = sync_date()
         source = generate_flag_data_py(msvc_flags, msvc6_flags, timestamp)
         # Preserve the hand-maintained flag families (Watcom/Borland/MSVC152/
         # GCC …): everything from the marker comment to EOF survives a sync.
@@ -273,6 +349,16 @@ def main() -> None:
         if args.dry_run:
             print("\n--- Generated flag_data.py ---")
             print(source)
+        elif args.check:
+            if not output_path.is_file():
+                print(f"ERROR: {output_path} does not exist; run a sync first")
+                sys.exit(1)
+            diff = drifted_lines(output_path.read_text(encoding="utf-8"), source)
+            if diff:
+                print(f"\nERROR: {output_path} is out of date with {source_desc}:")
+                print("\n".join(diff))
+                sys.exit(1)
+            print(f"\n{output_path} matches {source_desc}")
         else:
             output_path.parent.mkdir(parents=True, exist_ok=True)
             output_path.write_text(source, encoding="utf-8")

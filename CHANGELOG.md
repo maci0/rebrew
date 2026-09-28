@@ -1,6 +1,18 @@
 ## [Unreleased]
 
 ### Added
+- **`tools/sync_decomp_flags.py` can be pinned, checked, and made
+  reproducible.** The sync cloned decomp.me's default branch with no way to ask
+  for a specific ref, so a re-sync of a known-good commit was impossible and
+  the run never said which upstream state it read; the generated header stamped
+  the wall clock, so re-syncing an unchanged upstream on another day was a diff
+  either way. `--ref` names the branch, tag, or commit to clone, the resolved
+  commit is printed on every run, `SOURCE_DATE_EPOCH` supplies the `Synced:`
+  date so one upstream commit yields one file, and `--check` exits non-zero with
+  a diff when a sync would change the output (masking the `Synced:` line, which
+  records when a maintainer ran it, not what upstream said). `make gen-flags`
+  and `make gen-flags-check` wrap both (`FLAGS_REF=<ref>` to pin). They are
+  maintainer targets outside `make all`: like the sync itself they need network.
 - **The dashboard reports both ends of its error rate, and its revalidations.**
   `/api/health` carried `server_errors` and nothing else, so a run answering
   only 404s (a stale bookmark, a client asking for a route that moved) probed
@@ -342,6 +354,16 @@
   into the project file), and `source_ext` takes a comma-separated list, not
   one extension. Both rows now say what the loader does, and `[llm]` has a
   section of its own rather than existing only as env-var mentions.
+- **`make verify-dist` and `make smoke-wheel` could rebuild the artifacts they
+  were asked to check.** Both took `dist/rebrew.buildinfo` as a file
+  prerequisite, and that rule rebuilds whenever a build input is newer than the
+  manifest, so running either on the unpacked `rebrew-dist-<sha>` from the
+  green `package` job (the release flow in CONTRIBUTING.md) deleted the
+  downloaded wheel and sdist, rebuilt them from the working tree, and then
+  reported success on bytes that were never uploaded. Both now take a
+  `require-dist` check instead: a missing manifest fails with the two ways to
+  produce one, and nothing else. `sdist-check` and `build-repro` keep the file
+  rule, because comparing the tree's build against itself is their job.
 - **The coverage document's reader memo could not see a same-size rebuild.**
   The per-file stat fingerprint keyed the memoized directory scan on
   `(name, mtime_ns, size)`, the only per-file memo in the tree without the

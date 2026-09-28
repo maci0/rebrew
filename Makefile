@@ -1,9 +1,11 @@
 .PHONY: help doctor setup clean test test-one lint format format-check check build sbom all pr-check \
-	gen-fixtures gen-fixtures-check gen-skills gen-skills-check cycles-check idempotency-check mypy audit \
+	gen-fixtures gen-fixtures-check gen-skills gen-skills-check gen-flags gen-flags-check \
+	cycles-check idempotency-check mypy audit \
 	cli-contract release-check coverage ensure-uv ensure-resembl ensure-nasm warn-nasm ensure-node warn-node warn-shellcheck \
 	warn-yamllint \
 	ensure-bash \
 	smoke-wheel \
+	require-dist \
 	ensure-extras \
 	sdist-check \
 	build-repro \
@@ -167,6 +169,8 @@ help:
 		'  make gen-fixtures-check # tools/gen_fixtures.py --check' \
 		'  make gen-skills         # regenerate .agents/skills/ from src/rebrew/agent-skills/' \
 		'  make gen-skills-check   # verify .agents/skills/ matches src/rebrew/agent-skills/' \
+		'  make gen-flags          # re-sync MSVC flag axes from decomp.me (maintainer; needs network)' \
+		'  make gen-flags-check    # report upstream flag-axis drift (maintainer; needs network, FLAGS_REF=<ref> to pin)' \
 		'  make cycles-check       # tools/detect_cycles.py (also in pre-commit / make check)' \
 		'  make layering-check     # tools/check_layering.py (also in pre-commit / make check)' \
 		'  make idempotency-check  # tools/check_idempotency.py' \
@@ -696,7 +700,13 @@ build-repro: dist/rebrew.buildinfo
 # the recorded digests against freshly computed ones, and `pr-check` runs it.
 #
 # Read-only: it hashes what is in dist/ and the two input files, and writes
-# nothing.
+# nothing.  The `require-dist` prerequisite is what keeps that true: a
+# `dist/rebrew.buildinfo` file prerequisite would rebuild dist/ whenever a
+# source file is newer than the manifest, and `build` opens by deleting
+# dist/*.whl and dist/*.tar.gz.  The release flow (CONTRIBUTING.md) unpacks
+# the CI artifacts into an empty dist/ and runs this there, so the rebuild
+# deleted the very files the check was asked to verify and then passed on a
+# locally rebuilt wheel.
 #
 # rec sets RECORDED in the current shell rather than printing it.  A helper
 # that printed the value would have to be called as `$(rec …)`, and its `exit
@@ -709,7 +719,7 @@ build-repro: dist/rebrew.buildinfo
 # note in this file is: make splices a `\` continued recipe into a single line
 # before the shell sees it, so a `#` opening any continued recipe line
 # comments out the whole rest of that recipe.
-verify-dist: dist/rebrew.buildinfo ensure-uv
+verify-dist: require-dist ensure-uv
 	@set -eu; \
 	for f in dist/*.whl; do set -- "$$@" "$$f"; done; \
 	[ $$# -eq 1 ] && [ -f "$$1" ] || { echo "ERROR: expected exactly one wheel in dist/ (run 'make build')"; exit 1; }; \
@@ -718,7 +728,6 @@ verify-dist: dist/rebrew.buildinfo ensure-uv
 	for f in dist/*.tar.gz; do set -- "$$@" "$$f"; done; \
 	[ $$# -eq 1 ] && [ -f "$$1" ] || { echo "ERROR: expected exactly one sdist in dist/ (run 'make build')"; exit 1; }; \
 	sdist=$$1; \
-	[ -f dist/rebrew.buildinfo ] || { echo "ERROR: dist/rebrew.buildinfo missing (run 'make build')"; exit 1; }; \
 	if command -v sha256sum >/dev/null 2>&1; then \
 	  sha() { sha256sum "$$1" | cut -d' ' -f1; }; \
 	elif command -v shasum >/dev/null 2>&1; then \
@@ -768,6 +777,23 @@ sbom: warn-uv-version
 dist/rebrew.buildinfo: $(BUILD_INPUTS) $(BUILD_INPUT_DIRS)
 	@$(MAKE) --no-print-directory build
 
+# Existence check, not a rebuild, for the gates that inspect dist/ as found.
+# `verify-dist` and `smoke-wheel` are the release flow's last line of defence
+# (CONTRIBUTING.md: unpack the CI artifacts into an empty dist/, check them,
+# publish those bytes), so neither may produce the bytes it checks.  A
+# `dist/rebrew.buildinfo` prerequisite made both rebuild whenever a source file
+# was newer than the manifest: `build` opens by deleting dist/*.whl and
+# dist/*.tar.gz, so the downloaded artifacts were replaced by a local build and
+# the check passed on the wrong wheel.  `sdist-check` and `build-repro` keep
+# the file rule, because comparing the tree's build against itself is their job.
+require-dist:
+	@set -eu; \
+	if [ ! -f dist/rebrew.buildinfo ]; then \
+	  echo "ERROR: dist/rebrew.buildinfo missing: run 'make build' first, or unpack" >&2; \
+	  echo "       the release artifacts (wheel, sdist, buildinfo) into dist/ before checking them." >&2; \
+	  exit 1; \
+	fi
+
 # ensure-uv first: it is the cheap check, and the buildinfo rule below can
 # trigger a full rebuild, so a missing uv should be named before that runs.
 # (The buildinfo rule reaches ensure-uv through `build` only when it actually
@@ -803,8 +829,10 @@ sdist-check: ensure-uv dist/rebrew.buildinfo
 # the lock is current reads [tool.uv.sources] and needs the sibling checkout,
 # and the point of this target is that it runs without one.
 # The CI package job runs this target; do not re-inline the recipe here.
-# `make clean` removes .venv-pkg.
-smoke-wheel: dist/rebrew.buildinfo ensure-uv
+# `make clean` removes .venv-pkg.  `require-dist` rather than the buildinfo
+# file rule: the wheel this installs must be the one in dist/, not one this
+# run rebuilt (see require-dist).
+smoke-wheel: require-dist ensure-uv
 	@set -eu; \
 	for f in dist/*.whl; do set -- "$$@" "$$f"; done; \
 	[ $$# -eq 1 ] && [ -f "$$1" ] || { echo "ERROR: expected exactly one wheel in dist/ (run 'make build')"; exit 1; }; \
@@ -855,6 +883,23 @@ gen-skills-check: ensure-uv
 	uv run --frozen python tools/render_skills.py --check
 	NO_COLOR=1 TERM=dumb _TYPER_FORCE_DISABLE_TERMINAL=1 \
 		uv run --frozen pytest tests/test_skills_sync.py -v --tb=short
+
+# Re-sync the MSVC flag axes from decomp.me.  Unlike the two generators above
+# this one reads a remote repository, so it is a maintainer target: it needs
+# network, and it is deliberately not in `make all` or any CI job.  Upstream is
+# a branch, so a bare run follows whatever decomp.me pushed last; FLAGS_REF
+# pins the ref to sync from, and SOURCE_DATE_EPOCH pins the generated header's
+# `Synced:` date so a re-sync of one commit is byte-identical.
+FLAGS_REF ?=
+gen-flags: ensure-uv
+	uv run --frozen python tools/sync_decomp_flags.py $(if $(FLAGS_REF),--ref $(FLAGS_REF),)
+
+# Upstream drift check for the checked-in flag axes, same maintainer-only
+# posture as gen-flags: it clones decomp.me, so it costs network.  The
+# comparison masks the `Synced:` date line, so running it on another day still
+# reports "current" when only the clock moved.
+gen-flags-check: ensure-uv
+	uv run --frozen python tools/sync_decomp_flags.py --check $(if $(FLAGS_REF),--ref $(FLAGS_REF),)
 
 # Module-level import cycles (pre-commit import-cycles hook / CI pre-commit job).
 cycles-check: ensure-uv

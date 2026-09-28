@@ -1,4 +1,6 @@
-"""Tests for tools/sync_decomp_flags.py — flag formatting and combo counting."""
+"""Tests for tools/sync_decomp_flags.py — flag formatting, combo counting, sync inputs."""
+
+from typing import Any
 
 from rebrew.flags import Checkbox, FlagSet
 from tools import sync_decomp_flags as sdf
@@ -67,3 +69,67 @@ class TestGenerateFlagDataPy:
         assert "COMMON_MSVC_FLAGS: Flags = [" in out
         assert "MSVC6_FLAGS: Flags = [" in out
         assert "MSVC_SWEEP_TIERS: dict[str, list[str] | None] = {" in out
+
+
+class TestSyncDate:
+    """SOURCE_DATE_EPOCH makes a re-sync of one upstream commit byte-identical."""
+
+    def test_honors_source_date_epoch(self, monkeypatch: Any) -> None:
+        monkeypatch.setenv("SOURCE_DATE_EPOCH", "1790635867")
+        assert sdf.sync_date() == "2026-09-28"
+
+    def test_epoch_is_read_as_utc(self, monkeypatch: Any) -> None:
+        # One second before the same instant in UTC: a local-time reading would
+        # land on the previous day west of Greenwich.
+        monkeypatch.setenv("SOURCE_DATE_EPOCH", "0")
+        assert sdf.sync_date() == "1970-01-01"
+
+    def test_falls_back_to_the_clock(self, monkeypatch: Any) -> None:
+        monkeypatch.delenv("SOURCE_DATE_EPOCH", raising=False)
+        assert len(sdf.sync_date()) == len("2026-08-07")
+
+    def test_non_numeric_epoch_falls_back(self, monkeypatch: Any) -> None:
+        monkeypatch.setenv("SOURCE_DATE_EPOCH", "not-a-number")
+        assert len(sdf.sync_date()) == len("2026-08-07")
+
+
+class TestDriftedLines:
+    def test_unchanged_upstream_is_current_on_another_day(self) -> None:
+        committed = '"""doc."""\nSynced: 2026-08-07\n\nFLAG = 1\n'
+        regenerated = '"""doc."""\nSynced: 2026-09-29\n\nFLAG = 1\n'
+        assert sdf.drifted_lines(committed, regenerated) == []
+
+    def test_real_difference_is_reported(self) -> None:
+        committed = '"""doc."""\nSynced: 2026-08-07\n\nFLAG = 1\n'
+        regenerated = '"""doc."""\nSynced: 2026-08-07\n\nFLAG = 2\n'
+        diff = sdf.drifted_lines(committed, regenerated)
+        assert [line for line in diff if line.startswith("-") and not line.startswith("---")] == [
+            "-FLAG = 1"
+        ]
+        assert [line for line in diff if line.startswith("+") and not line.startswith("+++")] == [
+            "+FLAG = 2"
+        ]
+
+
+class TestCloneRef:
+    def test_ref_is_passed_to_git(self, monkeypatch: Any, tmp_path: Any) -> None:
+        commands: list[list[str]] = []
+
+        def fake_run(command: list[str], **kwargs: Any) -> Any:
+            commands.append(command)
+            return None
+
+        monkeypatch.setattr(sdf.subprocess, "run", fake_run)
+        sdf.clone_decomp_me(str(tmp_path), "v1.2.3")
+        assert commands[0][commands[0].index("--branch") + 1] == "v1.2.3"
+
+    def test_default_branch_is_left_unpinned(self, monkeypatch: Any, tmp_path: Any) -> None:
+        commands: list[list[str]] = []
+
+        def fake_run(command: list[str], **kwargs: Any) -> Any:
+            commands.append(command)
+            return None
+
+        monkeypatch.setattr(sdf.subprocess, "run", fake_run)
+        sdf.clone_decomp_me(str(tmp_path))
+        assert "--branch" not in commands[0]

@@ -209,8 +209,9 @@ register (`EAX`) for all possible inputs. If no input can distinguish the two
 implementations, STATUS is promoted to `PROVEN`.
 
 > [!NOTE]
-> `angr` is an optional dependency (~500 MB). Install with `uv sync --all-extras` —
-> the documented dev install includes the prove extra.
+> `angr` is an optional dependency (~500 MB). Install with `make setup` —
+> the documented dev install (`uv sync --locked --all-extras --group similarity`)
+> includes the prove extra.
 > Functions with heavy floating-point math or complex loops may time out.
 
 > [!CAUTION]
