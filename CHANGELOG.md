@@ -1,6 +1,19 @@
 ## [Unreleased]
 
 ### Added
+- **The dashboard reports both ends of its error rate, and its revalidations.**
+  `/api/health` carried `server_errors` and nothing else, so a run answering
+  only 404s (a stale bookmark, a client asking for a route that moved) probed
+  "ok" for its whole life, and a rebuild that invalidated every ETag looked
+  exactly like one that did not. The probe and the shutdown totals now carry
+  `client_errors` (4xx) beside the 5xx count and `not_modified` (the ETag
+  short-circuit, so `not_modified / requests` is the revalidation hit rate).
+  A connection refused by the in-flight cap now counts as a request answered
+  too: a run that turned every client away reported zero requests served.
+  A request whose `Host` this server does not answer is a WARNING carrying the
+  correlation id and the refused value, not one more INFO 403 buried in the
+  access stream. `docs/dashboard-api.yaml`, `docs/CLI.md`,
+  `docs/COVERAGE_DOCUMENT.md` and `docs/THREAT_MODEL.md` document the fields.
 - **`REBREW_LLM_MAX_TOKENS` bounds what LLM seeding can spend, not just how
   often it calls.** `REBREW_LLM_MAX_REQUESTS` priced a run in calls, but one
   call bills a prompt plus a capped completion, so raising the call ceiling

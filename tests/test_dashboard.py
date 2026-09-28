@@ -2448,6 +2448,42 @@ class TestHostValidation:
         assert "Permissions-Policy" in header_names
         assert ("Cache-Control", "no-store") in sent
 
+    def test_rejected_host_is_a_warning_naming_the_host(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A refused Host is one INFO 403 in an access stream, so it needs a level.
+
+        The operator reading the run's log has to be able to separate a client
+        reaching for this server by name from ordinary traffic, and to pivot
+        from the record to the request by its correlation id.
+        """
+        from rebrew.dashboard import Dashboard, _Handler, allowed_hosts_for
+
+        handler = _Handler.__new__(_Handler)  # bypass __init__: no socket needed
+        handler.headers = {"Host": "attacker.example:8000"}
+        handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
+        handler.dashboard = Dashboard(Path("/nonexistent"))
+        handler._request_id = "r77"
+        handler.requestline = "GET /api/targets HTTP/1.1"
+        handler.send_response = lambda status, message=None: None
+        handler.send_header = lambda name, value: None
+        handler.end_headers = lambda: None
+
+        class _FakeWFile:
+            def write(self, data: bytes) -> int:
+                return len(data)
+
+        handler.wfile = _FakeWFile()
+
+        with caplog.at_level(logging.WARNING, logger="rebrew.dashboard"):
+            handler._respond("GET")
+
+        records = [r for r in caplog.records if "rejected request with Host" in r.message]
+        assert len(records) == 1
+        assert records[0].levelno == logging.WARNING
+        assert "r77" in records[0].message
+        assert "attacker.example:8000" in records[0].message
+
     def test_handler_gzip_and_etag_on_index(self, dashboard: Dashboard) -> None:
         """HTML/JSON over Accept-Encoding: gzip shrink on the wire; ETag enables 304."""
         import gzip
@@ -3420,7 +3456,10 @@ class TestLifecycleLines:
         assert "WARNING  warning:" in rendered
         assert f"INFO     Rebrew dashboard on http://0.0.0.0:{port}" in rendered
         assert "INFO     Dashboard stopped." in rendered
-        assert "INFO     served 0 requests, 0 server errors" in rendered
+        assert (
+            "INFO     served 0 requests (0 revalidated), 0 server errors, "
+            "0 client errors, slowest 0.0ms" in rendered
+        )
 
     def test_a_crashed_run_is_reported_on_the_server_stream(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture
@@ -3480,6 +3519,46 @@ class TestServedCounters:
         assert _Handler._requests == 2
         assert _Handler._server_errors == 1
         assert _Handler._slowest_ms >= 50.0
+
+    def test_client_errors_and_revalidations_are_counted(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """4xx and 304 are outcomes the totals must name, not absorb.
+
+        A run whose every request 404s reported no error at all, and a rebuild
+        that invalidated every ETag looked like one that did not.
+        """
+        from rebrew.dashboard import _Handler, served_totals
+
+        monkeypatch.setattr(_Handler, "_requests", 0)
+        monkeypatch.setattr(_Handler, "_server_errors", 0)
+        monkeypatch.setattr(_Handler, "_client_errors", 0)
+        monkeypatch.setattr(_Handler, "_not_modified", 0)
+        handler = _Handler.__new__(_Handler)
+        handler.client_address = ("127.0.0.1", 8000)
+        handler.requestline = "GET /api/functions?target=none HTTP/1.1"
+        handler._request_id = "r1"
+        handler.log_message = lambda *a, **k: None  # type: ignore[method-assign]
+        handler._request_started = time.perf_counter()
+        handler.log_request(404, 64)
+        handler.log_request(405, 64)
+        handler.log_request(304, 0)
+        handler.log_request(200, 128)
+        totals = served_totals()
+        assert totals["requests"] == 4
+        assert totals["client_errors"] == 2
+        assert totals["not_modified"] == 1
+        assert totals["server_errors"] == 0
+
+    def test_reset_zeroes_every_total(self) -> None:
+        from rebrew.dashboard import _Handler, served_totals
+
+        _Handler._client_errors = 7
+        _Handler._not_modified = 9
+        _Handler.reset_served_totals()
+        totals = served_totals()
+        assert totals["client_errors"] == 0
+        assert totals["not_modified"] == 0
 
 
 class TestSlowRequestLine:
@@ -3950,6 +4029,10 @@ class TestConnectionCap:
                 while second.recv(4096):
                     pass
             assert served_totals()["server_errors"] == 1
+            # The refusal is a request the client made and the server answered,
+            # so the volume total has to show it: otherwise a run that turned
+            # every client away reported zero requests served.
+            assert served_totals()["requests"] == 1
         finally:
             server.shutdown()
             server.server_close()

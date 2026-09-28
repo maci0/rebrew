@@ -80,12 +80,13 @@ no-cache`` so browsers can 304 without serving a stale body after ``build-db``;
 the shell links ``/app.js?v=<content hash>``, which is ``immutable``.
 ``/api/health`` is the exception: it reads the documents, so it answers
 ``no-store`` with no ``ETag`` at all (see ``_UNCACHEABLE_ROUTES``).  It
-also reports the running request, 5xx, and worst-latency totals plus the
-in-flight connection count, so a probe can watch the error rate and the
-saturation behind it while the server is up.
+also reports the running request, 5xx, 4xx, revalidation, and worst-latency
+totals plus the in-flight connection count, so a probe can watch the error
+rate (both ends of it) and the saturation behind it while the server is up.
 The server's own output is one stream: an access line per request (id, request
 line, status, size, handler milliseconds), a WARNING for a request past
-``_SLOW_REQUEST_MS``, an ERROR with an escaped traceback for a failure, and
+``_SLOW_REQUEST_MS`` or for a refused ``Host``, an ERROR with an escaped
+traceback for a failure, and
 every warning a route raises about its own data, each stamped with the id of
 the request in flight.  A route-level warning reports a response the access
 line shows as a plain 200 (a byte count past the section), so it carries the
@@ -2339,9 +2340,11 @@ class Dashboard:
             # documents must report 500, not a cheerful 200 over an empty page.
             # The read is the loader's own stat-keyed scan, not the full query
             # chain, so a slow route cannot make the probe flap.  The running
-            # request and 5xx totals ride along: otherwise the only error count
+            # request, 5xx, 4xx, and revalidation totals ride along: otherwise
+            # the only error count
             # the server has is the one it prints when it stops, so a run that
-            # fails every query still probes "ok" for its whole life.  So does
+            # fails every query still probes "ok" for its whole life, and one
+            # whose every request 404s reports no error at all.  So does
             # the in-flight connection gauge, the count admission refuses on.
             payload: dict[str, Any] = {
                 "status": "ok",
@@ -2755,8 +2758,12 @@ def _send_over_capacity(
         return
     # A 5xx is a 5xx wherever it is written: ``log_request`` counts one for a
     # routed response, and a run that is being shed is a run the error total on
-    # ``/api/health`` and at shutdown has to show.
+    # ``/api/health`` and at shutdown has to show.  It is a request the client
+    # made and the server answered, so it counts against the volume too: a run
+    # that answered nothing but refusals would otherwise report zero requests
+    # served while every client it had was being turned away.
     with _Handler._stats_lock:
+        _Handler._requests += 1
         _Handler._server_errors += 1
     lines = [
         "HTTP/1.1 503 Service Unavailable",
@@ -2957,6 +2964,16 @@ class _Handler(BaseHTTPRequestHandler):
     _stats_lock: ClassVar[threading.Lock] = threading.Lock()
     _requests: ClassVar[int] = 0
     _server_errors: ClassVar[int] = 0
+    #: 4xx the server answered.  A counter beside the 5xx total because the
+    #: dominant failure of a read-only API is a client asking for a path or a
+    #: query it should not have, and with the 5xx count alone a run whose every
+    #: request 404s probes "ok" for its whole life.
+    _client_errors: ClassVar[int] = 0
+    #: Requests answered 304 by the ETag short-circuit.  Over ``requests`` this
+    #: is the revalidation hit rate, which is the number that says whether a
+    #: rebuild is being picked up or whether clients are refetching a page that
+    #: did not change.
+    _not_modified: ClassVar[int] = 0
     _slowest_ms: ClassVar[float] = 0.0
 
     @classmethod
@@ -2965,6 +2982,8 @@ class _Handler(BaseHTTPRequestHandler):
         with cls._stats_lock:
             cls._requests = 0
             cls._server_errors = 0
+            cls._client_errors = 0
+            cls._not_modified = 0
             cls._slowest_ms = 0.0
 
     def _respond(self, method: str) -> None:
@@ -2972,6 +2991,21 @@ class _Handler(BaseHTTPRequestHandler):
         # without a socket (tests) has none to correlate on.
         _stamp_request(self._request_id, getattr(self, "requestline", ""))
         if not _host_allowed(self.headers.get("Host", ""), self.allowed_hosts):
+            # The access line below reports this as one more INFO 403, which is
+            # indistinguishable from a client's typo once the run's INFO stream
+            # is a screen long.  A rejected Host is not a client mistake: it is
+            # someone reaching for this server by name (DNS rebinding, a copied
+            # URL, a scan), so it gets a WARNING carrying the id an operator can
+            # pivot from and the Host value that was refused.
+            # getattr: like ``requestline`` above, a handler built without a
+            # socket (tests) has no peer to name.
+            peer = getattr(self, "client_address", None)
+            log.warning(
+                "%s rejected request with Host %r from %s",
+                self._request_id,
+                _escape_log_text(self.headers.get("Host", "")) or "-",
+                _escape_log_text(str(peer[0]) if peer else "-"),
+            )
             status, content_type, body = self.dashboard._error(
                 403, "host_not_allowed", "request Host not allowed (wrong or missing Host header)"
             )
@@ -3267,6 +3301,15 @@ class _Handler(BaseHTTPRequestHandler):
             type(self)._requests += 1
             if status >= 500:
                 type(self)._server_errors += 1
+            elif status >= 400:
+                # 400-499: a client error.  Counted beside the 5xx total so a
+                # run answering only 404s or 405s does not report a clean error
+                # rate on /api/health and at shutdown.
+                type(self)._client_errors += 1
+            elif status == int(HTTPStatus.NOT_MODIFIED):
+                # The ETag short-circuit, so revalidations are visible as their
+                # own outcome rather than lost in the 200s they avoided.
+                type(self)._not_modified += 1
             type(self)._slowest_ms = max(type(self)._slowest_ms, elapsed_ms)
         if elapsed_ms >= _SLOW_REQUEST_MS:
             # An outlier, not a fault: the access line already reports the
@@ -3330,11 +3373,17 @@ def served_totals() -> dict[str, Any]:
     alongside them: a run shedding clients at the in-flight cap logs a refusal
     per connection, but without the count a probe watching the probe has no way
     to see the saturation building before the refusals start.
+
+    ``client_errors`` and ``not_modified`` ride with the 5xx total so the probe
+    carries the whole error rate (both ends of it) and the revalidation hit
+    rate, not just the one half an operator would page on.
     """
     with _Handler._stats_lock:
         totals = {
             "requests": _Handler._requests,
             "server_errors": _Handler._server_errors,
+            "client_errors": _Handler._client_errors,
+            "not_modified": _Handler._not_modified,
             "slowest_ms": round(_Handler._slowest_ms, 1),
         }
     totals["active_connections"] = active_connections()
@@ -3553,13 +3602,16 @@ def main(
     finally:
         server.server_close()
         # Lifetime totals: the per-request access line says how one request
-        # went, this says how the run went (volume, 5xx count, worst latency).
-        # /api/health carries the same numbers while the run is still going.
+        # went, this says how the run went (volume, both ends of the error
+        # rate, worst latency).  /api/health carries the same numbers while the
+        # run is still going.
         totals = served_totals()
         _server_notice(
             "INFO",
-            f"[dim]served {totals['requests']} requests, "
+            f"[dim]served {totals['requests']} requests "
+            f"({totals['not_modified']} revalidated), "
             f"{totals['server_errors']} server errors, "
+            f"{totals['client_errors']} client errors, "
             f"slowest {totals['slowest_ms']:.1f}ms[/dim]",
         )
         # Last: the totals line is the run's own output, so the log stream it
