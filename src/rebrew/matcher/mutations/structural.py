@@ -7,6 +7,7 @@ zero-extension/register clearing, and register-pressure fuzzing.
 from __future__ import annotations
 
 import random
+from typing import Any
 
 import tree_sitter as ts
 
@@ -563,6 +564,15 @@ _QUERY_SWITCH_STMT = _LazyQuery(
 )
 
 
+def _pick_switch_caps(tree: ts.Tree, rng: random.Random) -> dict[str, Any] | None:
+    """Captures of one randomly chosen ``switch_statement``, or None if there is none."""
+    matches = _cursor(_QUERY_SWITCH_STMT).matches(tree.root_node)
+    if not matches:
+        return None
+    _, caps = rng.choice(matches)
+    return caps
+
+
 def mut_reorder_switch_cases(s: str, rng: random.Random) -> str | None:
     """Swap two case clauses within a switch statement.
 
@@ -572,12 +582,10 @@ def mut_reorder_switch_cases(s: str, rng: random.Random) -> str | None:
     """
     b_source = encode_source(s)
     tree = parse_c_ast(b_source)
-    cursor = _cursor(_QUERY_SWITCH_STMT)
-    matches = cursor.matches(tree.root_node)
-    if not matches:
+    caps = _pick_switch_caps(tree, rng)
+    if caps is None:
         return None
 
-    _, caps = rng.choice(matches)
     body_node = caps["body"][0]
 
     # Collect case_statement children (skip default for reordering)
@@ -620,12 +628,10 @@ def mut_switch_to_if_chain(s: str, rng: random.Random) -> str | None:
     """
     b_source = encode_source(s)
     tree = parse_c_ast(b_source)
-    cursor = _cursor(_QUERY_SWITCH_STMT)
-    matches = cursor.matches(tree.root_node)
-    if not matches:
+    caps = _pick_switch_caps(tree, rng)
+    if caps is None:
         return None
 
-    _, caps = rng.choice(matches)
     stmt_node = caps["stmt"][0]
     cond_node = caps["cond"][0]
     body_node = caps["body"][0]
@@ -705,12 +711,10 @@ def mut_split_switch(s: str, rng: random.Random) -> str | None:
     """
     b_source = encode_source(s)
     tree = parse_c_ast(b_source)
-    cursor = _cursor(_QUERY_SWITCH_STMT)
-    matches = cursor.matches(tree.root_node)
-    if not matches:
+    caps = _pick_switch_caps(tree, rng)
+    if caps is None:
         return None
 
-    _, caps = rng.choice(matches)
     stmt_node = caps["stmt"][0]
     cond_node = caps["cond"][0]
     body_node = caps["body"][0]
@@ -782,12 +786,10 @@ def mut_move_switch_default(s: str, rng: random.Random) -> str | None:
     """
     b_source = encode_source(s)
     tree = parse_c_ast(b_source)
-    cursor = _cursor(_QUERY_SWITCH_STMT)
-    matches = cursor.matches(tree.root_node)
-    if not matches:
+    caps = _pick_switch_caps(tree, rng)
+    if caps is None:
         return None
 
-    _, caps = rng.choice(matches)
     body_node = caps["body"][0]
 
     # Find default and non-default case nodes

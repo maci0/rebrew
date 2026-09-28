@@ -16,6 +16,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from typer.testing import Result
 
 from rebrew.prove import (
     _apply_arg_constraints,
@@ -1089,96 +1090,71 @@ class TestPrepareProveInputsDir32:
         assert excinfo.value.new_status == "RELOC"  # _vr truthy
 
 
+def _watch_va_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *watch_vas: str
+) -> tuple[Result, dict[str, object], dict[str, bool]]:
+    """Run ``prove --watch-va`` against a one-function project, stubbing prepare.
+
+    The stub stops the run before any solving and records what it was handed:
+    the parsed watch VAs in *watched*, and whether it was reached at all in
+    *reached*.  A rejected VA never reaches it.
+    """
+    from typer.testing import CliRunner
+
+    import rebrew.prove as pm
+
+    src = tmp_path / "src"
+    src.mkdir(exist_ok=True)
+    f = src / "foo.c"
+    f.write_text(
+        "// FUNCTION: GAME 0x1000\nint __cdecl foo(void) { return 0; }\n", encoding="utf-8"
+    )
+    (src / "rebrew-functions.toml").write_text(
+        '["GAME.0x00001000"]\nstatus = "NEAR_MATCHING"\nsize = 16\n', encoding="utf-8"
+    )
+    cfg = SimpleNamespace(
+        root=tmp_path,
+        reversed_dir=src,
+        metadata_dir=src,
+        marker="GAME",
+        source_ext=".c",
+        target_binary=tmp_path / "game.exe",
+    )
+    (tmp_path / "game.exe").write_bytes(b"\x00" * 64)
+    monkeypatch.setattr(pm, "_require_angr", lambda: None)
+    monkeypatch.setattr(pm, "require_config", lambda target=None, json_mode=False: cfg)
+    watched: dict[str, object] = {}
+    reached = {"prepare": False}
+
+    def fake_prepare(cfg, source_path, ann, watch_va, **kw):
+        watched["watch_va"] = watch_va
+        reached["prepare"] = True
+        raise pm._ProveError("stop-early")
+
+    monkeypatch.setattr(pm, "_prepare_prove_inputs", fake_prepare)
+    args = [arg for va in watch_vas for arg in ("--watch-va", va)]
+    return CliRunner().invoke(pm.app, [*args, str(f)]), watched, reached
+
+
 class TestWatchVaHexParsing:
     def test_hex_watch_va_accepted(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """--watch-va accepts hex VAs like every other tool (was int-only)."""
-        from types import SimpleNamespace
-
-        from typer.testing import CliRunner
-
-        import rebrew.prove as pm
-
-        src = tmp_path / "src"
-        src.mkdir(exist_ok=True)
-        f = src / "foo.c"
-        f.write_text(
-            "// FUNCTION: GAME 0x1000\nint __cdecl foo(void) { return 0; }\n", encoding="utf-8"
-        )
-        (src / "rebrew-functions.toml").write_text(
-            '["GAME.0x00001000"]\nstatus = "NEAR_MATCHING"\nsize = 16\n', encoding="utf-8"
-        )
-        cfg = SimpleNamespace(
-            root=tmp_path,
-            reversed_dir=src,
-            metadata_dir=src,
-            marker="GAME",
-            source_ext=".c",
-            target_binary=tmp_path / "game.exe",
-        )
-        (tmp_path / "game.exe").write_bytes(b"\x00" * 64)
-        monkeypatch.setattr(pm, "_require_angr", lambda: None)
-        monkeypatch.setattr(pm, "require_config", lambda target=None, json_mode=False: cfg)
-        captured: dict[str, object] = {}
-
-        def fake_prepare(cfg, source_path, ann, watch_va, **kw):
-            captured["watch_va"] = watch_va
-            raise pm._ProveError("stop-early")
-
-        monkeypatch.setattr(pm, "_prepare_prove_inputs", fake_prepare)
-        result = CliRunner().invoke(pm.app, ["--watch-va", "0x10027078", str(f)])
+        result, watched, _ = _watch_va_run(tmp_path, monkeypatch, "0x10027078")
         assert result.exit_code != 0  # stopped early by the fake
-        assert captured.get("watch_va") == [0x10027078]
+        assert watched.get("watch_va") == [0x10027078]
 
 
 class TestWatchVaValidation:
-    def _invoke(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, watch_val: str) -> object:
-        from types import SimpleNamespace
-
-        from typer.testing import CliRunner
-
-        import rebrew.prove as pm
-
-        src = tmp_path / "src"
-        src.mkdir(exist_ok=True)
-        f = src / "foo.c"
-        f.write_text(
-            "// FUNCTION: GAME 0x1000\nint __cdecl foo(void) { return 0; }\n", encoding="utf-8"
-        )
-        (src / "rebrew-functions.toml").write_text(
-            '["GAME.0x00001000"]\nstatus = "NEAR_MATCHING"\nsize = 16\n', encoding="utf-8"
-        )
-        cfg = SimpleNamespace(
-            root=tmp_path,
-            reversed_dir=src,
-            metadata_dir=src,
-            marker="GAME",
-            source_ext=".c",
-            target_binary=tmp_path / "game.exe",
-        )
-        (tmp_path / "game.exe").write_bytes(b"\x00" * 64)
-        monkeypatch.setattr(pm, "_require_angr", lambda: None)
-        monkeypatch.setattr(pm, "require_config", lambda target=None, json_mode=False: cfg)
-        called = {"prepare": False}
-
-        def fake_prepare(cfg, source_path, ann, watch_va, **kw):
-            called["prepare"] = True
-            raise pm._ProveError("stop-early")
-
-        monkeypatch.setattr(pm, "_prepare_prove_inputs", fake_prepare)
-        result = CliRunner().invoke(pm.app, ["--watch-va", watch_val, str(f)])
-        result.called_prepare = called  # type: ignore[attr-defined]
-        return result
-
     def test_out_of_range_hex_rejected(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A watch VA beyond 32 bits is a clean argument error, not a silent no-op."""
         from rebrew.cli import EXIT_ERROR
 
-        result = self._invoke(tmp_path, monkeypatch, "0x1FFFFFFFF")
+        result, _watched, reached = _watch_va_run(tmp_path, monkeypatch, "0x1FFFFFFFF")
         assert result.exit_code == EXIT_ERROR
         assert "Invalid watch VA" in result.output
-        assert not result.called_prepare["prepare"]  # type: ignore[attr-defined]
+        assert not reached["prepare"]
 
     def test_decimal_overflow_rejected(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1186,51 +1162,18 @@ class TestWatchVaValidation:
         """2^32 as a decimal is rejected the same way."""
         from rebrew.cli import EXIT_ERROR
 
-        result = self._invoke(tmp_path, monkeypatch, "4294967296")
+        result, _watched, reached = _watch_va_run(tmp_path, monkeypatch, "4294967296")
         assert result.exit_code == EXIT_ERROR
         assert "Invalid watch VA" in result.output
-        assert not result.called_prepare["prepare"]  # type: ignore[attr-defined]
+        assert not reached["prepare"]
 
     def test_boundary_values_accepted(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """0 and 0xFFFFFFFF are the inclusive valid range."""
-        from types import SimpleNamespace
-
-        from typer.testing import CliRunner
-
-        import rebrew.prove as pm
-
-        src = tmp_path / "src"
-        src.mkdir(exist_ok=True)
-        f = src / "foo.c"
-        f.write_text(
-            "// FUNCTION: GAME 0x1000\nint __cdecl foo(void) { return 0; }\n", encoding="utf-8"
-        )
-        (src / "rebrew-functions.toml").write_text(
-            '["GAME.0x00001000"]\nstatus = "NEAR_MATCHING"\nsize = 16\n', encoding="utf-8"
-        )
-        cfg = SimpleNamespace(
-            root=tmp_path,
-            reversed_dir=src,
-            metadata_dir=src,
-            marker="GAME",
-            source_ext=".c",
-            target_binary=tmp_path / "game.exe",
-        )
-        (tmp_path / "game.exe").write_bytes(b"\x00" * 64)
-        monkeypatch.setattr(pm, "_require_angr", lambda: None)
-        monkeypatch.setattr(pm, "require_config", lambda target=None, json_mode=False: cfg)
-        captured: dict[str, object] = {}
-
-        def fake_prepare(cfg, source_path, ann, watch_va, **kw):
-            captured["watch_va"] = watch_va
-            raise pm._ProveError("stop-early")
-
-        monkeypatch.setattr(pm, "_prepare_prove_inputs", fake_prepare)
-        result = CliRunner().invoke(pm.app, ["--watch-va", "0", "--watch-va", "0xFFFFFFFF", str(f)])
+        result, watched, _ = _watch_va_run(tmp_path, monkeypatch, "0", "0xFFFFFFFF")
         assert result.exit_code != 0  # stopped early by the fake
-        assert captured.get("watch_va") == [0, 0xFFFFFFFF]
+        assert watched.get("watch_va") == [0, 0xFFFFFFFF]
 
 
 class TestProveInputsWatchedVasMetadata:
@@ -1309,42 +1252,9 @@ class TestWatchVaDecimal:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """--watch-va decimal form still works (int(v, 0) preserves it)."""
-        from types import SimpleNamespace
-
-        from typer.testing import CliRunner
-
-        import rebrew.prove as pm
-
-        src = tmp_path / "src"
-        src.mkdir(exist_ok=True)
-        f = src / "foo.c"
-        f.write_text(
-            "// FUNCTION: GAME 0x1000\nint __cdecl foo(void) { return 0; }\n", encoding="utf-8"
-        )
-        (src / "rebrew-functions.toml").write_text(
-            '["GAME.0x00001000"]\nstatus = "NEAR_MATCHING"\nsize = 16\n', encoding="utf-8"
-        )
-        cfg = SimpleNamespace(
-            root=tmp_path,
-            reversed_dir=src,
-            metadata_dir=src,
-            marker="GAME",
-            source_ext=".c",
-            target_binary=tmp_path / "game.exe",
-        )
-        (tmp_path / "game.exe").write_bytes(b"\x00" * 64)
-        monkeypatch.setattr(pm, "_require_angr", lambda: None)
-        monkeypatch.setattr(pm, "require_config", lambda target=None, json_mode=False: cfg)
-        captured: dict[str, object] = {}
-
-        def fake_prepare(cfg, source_path, ann, watch_va, **kw):
-            captured["watch_va"] = watch_va
-            raise pm._ProveError("stop-early")
-
-        monkeypatch.setattr(pm, "_prepare_prove_inputs", fake_prepare)
-        result = CliRunner().invoke(pm.app, ["--watch-va", "268574328", str(f)])
+        result, watched, _ = _watch_va_run(tmp_path, monkeypatch, "268574328")
         assert result.exit_code != 0
-        assert captured.get("watch_va") == [268574328]
+        assert watched.get("watch_va") == [268574328]
 
 
 class TestMaxDeltaFilter:
