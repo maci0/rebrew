@@ -667,6 +667,9 @@ class TestFocusManagement:
     def test_show_more_keeps_keyboard_focus(self) -> None:
         _run_script("dashboard_focus.mjs")
 
+    def test_back_leaves_focus_on_the_content_it_rebuilt(self) -> None:
+        _run_script("dashboard_back_focus.mjs")
+
 
 class TestTablistKeyboard:
     def test_arrows_home_and_end_move_focus_and_switch_view(self) -> None:
@@ -710,6 +713,20 @@ class TestHandle:
         assert status == 200
         assert "text/html" in content_type
         assert "Rebrew coverage" in body
+
+    def test_index_html_is_valid_to_a_parser(self, dashboard: Dashboard, tmp_path: Path) -> None:
+        """The shell parses; a screen reader reads the tree a parser builds.
+
+        Every other assertion here matches source text, so a misnested
+        element or an attribute the parser drops would pass them all and
+        still change what assistive technology is handed.
+        """
+        from html_validate import assert_valid
+
+        _, _, body = dashboard.handle("GET", "/", {})
+        shell = tmp_path / "index.html"
+        shell.write_text(body, encoding="utf-8")
+        assert_valid([shell])
 
     def test_index_html_has_accessible_structure(self, dashboard: Dashboard) -> None:
         _, _, html = dashboard.handle("GET", "/", {})

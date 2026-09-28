@@ -809,3 +809,99 @@ class TestChromeTokens:
         assert "status-FOO" not in unknown
         # The shell's client keeps the same rule for the dashboard tables.
         assert "/^[A-Z][A-Z0-9_]*$/" in _APP_JS
+
+
+def _strings_page() -> str:
+    """A strings page carrying every cell shape the table can render.
+
+    The stub PE a CLI test builds carries no data section, so
+    ``rebrew report`` writes the "nothing to report" note instead of the
+    table.  This is the table, with a plain cell, a cell that escapes its
+    text, a long cell collapsed into a ``<details>`` disclosure, a ref list
+    long enough to collapse, and the ``n/a`` the failed ref scan emits.
+    """
+    from types import SimpleNamespace
+
+    from rebrew.report import _data_table, _page, _string_row
+
+    def entry(va: int, text: str) -> SimpleNamespace:
+        return SimpleNamespace(va=va, section=".rdata", kind="ascii", text=text)
+
+    xrefs = [SimpleNamespace(from_va=0x1000 + i) for i in range(7)]
+    rows = "".join(
+        (
+            _string_row(entry(0x2000, "short"), []),
+            _string_row(entry(0x2010, "a<b"), []),
+            _string_row(entry(0x2020, "A" * 100), []),
+            _string_row(entry(0x2030, "referenced"), xrefs),
+            _string_row(entry(0x2040, "unscanned"), None),
+        )
+    )
+    table = _data_table(
+        "Strings from data sections",
+        ["VA", "Section", "Kind", "Text", "Refs", "Referenced from"],
+        rows,
+    )
+    return _page("Strings", "server", "strings.html", "<h2>Strings</h2>" + table)
+
+
+class TestGeneratedMarkup:
+    """The pages a reader's browser parses, checked by a parser."""
+
+    def test_every_page_validates(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """One site covering every page shape, validated by W3C Nu.
+
+        The other assertions here match source text, so a misnested table, a
+        stray attribute or a broken inline stylesheet would pass them all and
+        still change the accessibility tree a screen reader is handed.  The
+        fixture is sized to reach every branch that emits different markup:
+        a paginated function table, a string long enough to collapse into a
+        ``<details>`` disclosure, an import table, and the call-graph page in
+        both its inline and spilled forms.
+        """
+        from html_validate import assert_valid
+
+        from rebrew.config import load_config
+        from rebrew.report import _TABLE_PAGE_SIZE, _graph_body, _page, generate_report
+
+        code = b"\x90" * 16 + b"REBREW-LONG-STRING-" + b"S" * 90 + b"\x00" * 8
+        _write_project(tmp_path, pe_bytes=make_pe(code, imports=[("KERNEL32.dll", ["HeapCreate"])]))
+        src = tmp_path / "src"
+        meta_lines = [
+            '["SERVER.0x10001000"]\nstatus = "EXACT"\n',
+            '["SERVER.0x10002000"]\nstatus = "NEAR_MATCHING"\n',
+        ]
+        for i in range(_TABLE_PAGE_SIZE):
+            va = 0x10003000 + i * 0x10
+            (src / f"extra_{i:04d}.c").write_text(
+                f"// FUNCTION: SERVER 0x{va:08x}\n// SIZE: 16\nint extra_{i}(void) {{ return 0; }}\n",
+                encoding="utf-8",
+            )
+            meta_lines.append(f'["SERVER.0x{va:08x}"]\nstatus = "STUB"\n')
+        (tmp_path / "rebrew-functions.toml").write_text("".join(meta_lines), encoding="utf-8")
+        monkeypatch.chdir(tmp_path)
+        site = tmp_path / "site"
+        generate_report(load_config(tmp_path), site)
+
+        # Both call-graph shapes: the inline page, and the one that spills the
+        # source to callgraph.mmd and keeps only the opening lines.
+        mermaid = "graph TD\n" + "".join(f"  a{i}-->a{i + 1}\n" for i in range(4000))
+        (site / "graph-spilled.html").write_text(
+            _page(
+                "Call graph",
+                "server",
+                "graph.html",
+                _graph_body(mermaid, spilled=True, nodes=4000, edges=3999, dispatch=0),
+            ),
+            encoding="utf-8",
+        )
+
+        pages = sorted(site.glob("*.html"))
+        assert len(pages) >= 6, [page.name for page in pages]
+        # The shapes the other cases only assert on, so the validator above
+        # really did see them.
+        index = (site / "index.html").read_text(encoding="utf-8")
+        assert "<thead>" in (site / "imports.html").read_text(encoding="utf-8")
+        assert "aria-label='Next page of functions'" in index
+        (site / "strings-disclosure.html").write_text(_strings_page(), encoding="utf-8")
+        assert_valid([*pages, site / "strings-disclosure.html"])

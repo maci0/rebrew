@@ -18,9 +18,12 @@ from rebrew.theme import TOKENS
 TEXT_FLOOR = 4.5
 NONTEXT_FLOOR = 3.0
 
-#: Text colours, against every surface they are painted on.
+#: Text colours, against every surface they are painted on.  ``hover`` and
+#: ``pressed`` are surfaces for a row or a button the pointer is on, so body
+#: text and borders are painted on them too, not only on the two resting
+#: backgrounds.
 _TEXT_ROLES = {
-    "ink": ("surface", "sunken"),
+    "ink": ("surface", "sunken", "hover", "pressed"),
     "muted": ("surface", "sunken"),
     "faint": ("surface", "sunken"),
     "accent": ("surface", "sunken"),
@@ -31,10 +34,13 @@ _TEXT_ROLES = {
 }
 
 #: Borders and the focus ring, which 1.4.11 holds to the non-text floor.
+#: ``accent-soft`` is the report's focus outline on the dark header, where the
+#: accent itself has no contrast left to spend.
 _NONTEXT_ROLES = {
-    "line": ("surface", "sunken"),
+    "line": ("surface", "sunken", "hover", "pressed"),
     "line-hi": ("surface", "sunken"),
     "accent": ("surface", "sunken"),
+    "accent-soft": ("ink",),
 }
 
 
@@ -142,6 +148,34 @@ class TestTokenSeparation:
                 f"{hover} is not darker than {role}"
             )
             assert _luminance(TOKENS[role]) <= surface
+
+
+class TestTokenCoverage:
+    """Every colour a surface can paint is held to a floor by the tables above."""
+
+    def test_every_hex_token_is_covered_by_a_role_table(self) -> None:
+        """A new colour cannot ship unpinned.
+
+        The role tables enumerate painted pairs by hand, so a token added
+        without one is a colour the gate has never measured — the failure mode
+        the tables exist to prevent.  A token is covered when it is painted as
+        a foreground (a key) or as a background something is painted on.
+        ``ring`` and ``veil`` are alpha composites rather than colours: the
+        halo behind an active card, and the veil under a loading message, each
+        paired with a border or an ink that carries the state on its own.
+        """
+        foregrounds = set(_TEXT_ROLES) | set(_NONTEXT_ROLES)
+        backgrounds = {
+            on for ons in (*_TEXT_ROLES.values(), *_NONTEXT_ROLES.values()) for on in ons
+        }
+        unpinned = {
+            name
+            for name, value in TOKENS.items()
+            if re.fullmatch(r"#[0-9a-fA-F]{3,8}", value)
+            and name not in foregrounds
+            and name not in backgrounds
+        }
+        assert not unpinned, f"colour tokens with no contrast floor: {sorted(unpinned)}"
 
 
 #: The neutral ladder, darkest first: a stub is written down, an unknown is

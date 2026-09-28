@@ -109,8 +109,8 @@ wire size stays inside the RFC 6928 initial congestion window minus a
 per-response header reserve, so a cold connection paints without an extra
 round trip; a test pins that budget, and a change that does not fit pays for
 itself in the client's own comment prose rather than in the budget.  As
-measured: 12675 B zstd and 13290 B gzip against a 13320 B budget, so gzip has
-30 B of room and zstd 645 B — a client-side edit budgets against gzip, and gzip
+measured: 12682 B zstd and 13299 B gzip against a 13320 B budget, so gzip has
+21 B of room and zstd 638 B — a client-side edit budgets against gzip, and gzip
 is the binding encoding.  The
 reserve is what makes gzip the tight one, not the encoder: the two responses
 send 567 and 599 B of headers as served, against the 640 B each is given.
@@ -142,7 +142,15 @@ characters of CSS, and the rationale lives here because a comment in the shell
 would spend the gzip headroom the entry budget leaves.  A status mark is one
 quoted ``class`` attribute holding ``st`` plus the per-status class: unquoted,
 the value would end at the space and every status in the tables would render in
-the default ink.  JSON
+the default ink.  Two more rationales live here for the same reason.  The
+table cell rule is ``overflow-wrap: anywhere``, which lowers a cell's intrinsic
+minimum so a long demangled name wraps instead of pushing the Status column
+away from its VA; the VA opts out with ``white-space: nowrap``, and every
+``th`` is nowrap too, so the header row alone sets the minimum table width and
+the panel scrolls instead.  And a Back or Forward navigation rebuilds every
+control from the restored hash, so the one the reader was on is gone and the
+browser drops focus to ``<body>`` (WCAG 2.4.3); ``onpopstate`` moves it back to
+``main``, and only when it was actually lost.  JSON
 uses compact separators; function/global/history/section rows are arrays under
 ``cols``.  Every text column in those rows is a JSON string: a NULL in the
 database (a history row's ``old_status``/``new_status`` for a VA's first
@@ -1140,7 +1148,9 @@ function setView(name) {
 function bindControls() {
   // One document holds every view, so Back returns to the previous one:
   // assignment (not addEventListener) keeps re-binding idempotent.
-  globalThis.onpopstate = () => { void start(); };
+  // Back rebuilds every control, so the focused one is gone and the browser
+  // drops focus to <body> (WCAG 2.4.3).
+  globalThis.onpopstate = () => { void start().then(() => restoreFocus(["main"])); };
   $("target").onchange = () => {
     $("status").value = "";
     selectAnyModule();
@@ -1459,10 +1469,9 @@ __STATUS_CSS__
   table { border-collapse: collapse; width: 100%; margin-top: 1rem;
     font-size: var(--rb-size-cell); background: var(--rb-surface); }
   th, td { border-bottom: 1px solid var(--rb-line); padding: .3rem .5rem; text-align: left; }
-  /* `anywhere` lowers a cell's intrinsic minimum, so a long demangled name
-     wraps instead of pushing the Status column away from its VA.  The VA opts
-     out: every `th` is nowrap, so the header row alone makes the table scroll
-     and the shortest-header column is the one `anywhere` would squeeze. */
+  /* `anywhere` lowers a cell's intrinsic minimum, so a long name wraps
+     instead of pushing Status away from its VA.  The VA opts out; why the
+     header row alone has to set the table's width is in the docstring. */
   td { overflow-wrap: anywhere; }
   th { background: var(--rb-sunken); white-space: nowrap; font-weight: 600; }
   tbody tr:hover { background: var(--rb-hover); }

@@ -4,7 +4,7 @@
 
 **Rebrew** is a compiler-in-the-loop decompilation workbench for binary-matching game reversing. Python package (`src/rebrew/`) with CLI tools to compile, compare, and match C source against target binary functions.
 
-Install editable (`uv pip install -e .`) inside a workspace containing binaries, sources, and toolchains. Contributor install: `make setup`; needs sibling `../resembl` whose version is `RESEMBL_REF` and whose HEAD is `RESEMBL_SHA` (both in the `Makefile`; a moved tag fails the SHA check) and **nasm** and **node** on `PATH` for the test suite (nasm for the asm round-trip tests, node for the `tests/dashboard_*.mjs` interaction tests, which skip without it). `make help` lists targets.
+Install editable (`uv pip install -e .`) inside a workspace containing binaries, sources, and toolchains. Contributor install: `make setup`; needs sibling `../resembl` whose version is `RESEMBL_REF` and whose HEAD is `RESEMBL_SHA` (both in the `Makefile`; a moved tag fails the SHA check) and **nasm** and **node** on `PATH` for the test suite (nasm for the asm round-trip tests, node for the `tests/dashboard_*.mjs` interaction tests, vnu for the W3C validation of the two HTML surfaces, each skipping without it). `make help` lists targets.
 
 ## Compiler Profiles
 
@@ -23,7 +23,7 @@ Docker build source lives in the sibling **rebrew-toolchains** checkout (`REBREW
 ```bash
 make doctor                               # report every missing prerequisite (uv, the pinned uv version, ../resembl, bash, nasm, node, shellcheck, yamllint, venv extras) and its fix
 make test-one T=tests/test_annotation.py  # edit-test loop; T takes a node id (::TestClass), FLAGS= takes any pytest flag
-make test                                 # full suite (needs nasm + node)
+make test                                 # full suite (needs nasm + node; vnu skips if absent)
 make lint / make format / make mypy
 make gen-fixtures                         # regenerate tests/fixtures/ after editing the generator
 make pr-check                             # before a PR: CI gates, pre-commit, reproducible build, dist provenance, SBOM
@@ -76,7 +76,7 @@ Multi-command groups: `is_group=True` in `builtins.py`. A group app's help is a 
 
 ## Test Patterns
 
-No `conftest.py`: use `tmp_path` + inline helpers. Group by class; helpers `_`-prefixed; annotate tests `-> None`; mock config with `SimpleNamespace`; type config params as `Any`.
+No `conftest.py`: use `tmp_path` + inline helpers. Group by class; helpers `_`-prefixed; annotate tests `-> None`; mock config with `SimpleNamespace`; type config params as `Any`. A helper two test modules need goes in `tests/` beside them (`bin_util.py` builds binaries, `html_validate.py` runs W3C Nu over the dashboard shell and the generated report pages, skipping when the tool is absent) rather than in a fixture both would import.
 
 ## Key Architectural Rules
 
