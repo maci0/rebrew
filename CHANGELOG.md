@@ -25,6 +25,10 @@
   `docs/COVERAGE_DOCUMENT.md` and `docs/THREAT_MODEL.md` document the field.
 
 ### Changed
+- **`round_trip` no longer routes the catalog key through its own alias.**
+  `_catalog_key` was `resolve_symbol(ann, path)` and nothing else, so the
+  three call sites now call `resolve_symbol` directly. The two sides still
+  key the same way, which is what `test_splice_and_catalog_share_key` pins.
 - **The tracked YAML is linted, not just parsed.** `check-yaml` proved a
   workflow loads and nothing else: a tab indent, a duplicate key, or a
   malformed `run:` block reached the runner first. `.yamllint.yml` sets the
@@ -154,10 +158,6 @@
   checks both directions, names the five requirements that are tool-only by
   invocation rather than import, and fails when one of those five is no
   longer declared.
-- **Two mypy findings in a module the strict list already claimed.**
-  `tests/test_security_scan.py` passed `monkeypatch` unannotated in two
-  tests, so `uv run mypy` failed on a file the gate asserted was clean.
-
 - **The coverage grid counts PROVEN functions.** `count_statuses` returns
   five status buckets and its caller unpacked four, so the PROVEN count
   `_STATUS_PRIORITY` reserves a bucket for was dropped on the floor: a

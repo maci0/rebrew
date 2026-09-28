@@ -158,7 +158,7 @@ def _collect_splice_set(
         metadata_dir=cfg.metadata_dir,
     ):
         for ann in anns:
-            if symbol_filter and symbol_filter not in _catalog_key(ann, path):
+            if symbol_filter and symbol_filter not in resolve_symbol(ann, path):
                 continue
             md = entries.get((ann.module, ann.va), {})
             # ann.status is the CANONICALIZED, metadata-merged value (the raw
@@ -179,7 +179,7 @@ def _collect_splice_set(
                 getattr(ann, "module", ""),
             )
             fn = _SpliceFn(
-                symbol=_catalog_key(ann, path),
+                symbol=resolve_symbol(ann, path),
                 va=ann.va,
                 size=int(getattr(ann, "size", 0) or md.get("size", 0) or 0),
                 status=status,
@@ -821,22 +821,6 @@ def _list_name(cfg: ProjectConfig, va: int | None) -> str:
     return names.get(va, "")
 
 
-def _catalog_key(ann: Any, path: Path) -> str:
-    """Name key for the function catalog: the same form the splice path uses.
-
-    Resolvers look up COFF/MSVC-decorated spellings (``_foo@8``), so the
-    catalog must be keyed on the same form the splice path extracts with —
-    :func:`rebrew.annotation.resolve_symbol` (``ann.symbol``, falling back to
-    the filename stem).  Both sides share this helper so the keys agree.
-
-    There is no separate hint-name fallback: for a hint-only annotation the
-    parser already derives ``ann.symbol`` from the hint (the previous
-    ``symbol != "?"`` guard was unreachable, and the name branch never ran for
-    a caller that passed a path).
-    """
-    return resolve_symbol(ann, path)
-
-
 def _load_catalogs(cfg: ProjectConfig) -> tuple[dict[int, str], dict[str, int]]:
     """Build the function ``{va: name}`` map + the data ``{name: va}`` map.
 
@@ -865,7 +849,7 @@ def _load_catalogs(cfg: ProjectConfig) -> tuple[dict[int, str], dict[str, int]]:
         metadata_dir=cfg.metadata_dir,
     ):
         for ann in anns:
-            key = _catalog_key(ann, _path)
+            key = resolve_symbol(ann, _path)
             if ann.module != marker or not key:
                 continue
             # DATA/GLOBAL annotations (e.g. an IAT import slot annotated as a

@@ -565,7 +565,7 @@ class TestLoadCatalogs:
         the splice resolver looked up `ann.symbol` (e.g. `_foo@8`), so every
         stdcall/static function missed the catalog as `unresolved_symbol`.
         """
-        from rebrew.round_trip import _catalog_key, _load_catalogs
+        from rebrew.round_trip import _load_catalogs
 
         cfg = self._cfg(tmp_path)
         cfg.reversed_dir.mkdir(parents=True, exist_ok=True)
@@ -575,14 +575,12 @@ class TestLoadCatalogs:
         )
         funcs, _data = _load_catalogs(cfg)
         assert funcs.get(0x10004000) == "_foo@0"
-        ann = SimpleNamespace(symbol="_foo@0", name="foo", module="SERVER", va=0x10004000)
-        assert _catalog_key(ann, cfg.reversed_dir / "func.c") == "_foo@0"
 
     def test_nameless_function_stays_resolvable(self, tmp_path: Path) -> None:
         """A nameless FUNCTION annotation (hint-only, no body) keys on its
         name instead of vanishing — previously `not ann.name` skipped it, so
         the splice side reported `unresolved_symbol`."""
-        from rebrew.round_trip import _catalog_key, _load_catalogs
+        from rebrew.round_trip import _load_catalogs
 
         cfg = self._cfg(tmp_path)
         cfg.reversed_dir.mkdir(parents=True, exist_ok=True)
@@ -591,18 +589,10 @@ class TestLoadCatalogs:
         )
         funcs, _data = _load_catalogs(cfg)
         assert funcs.get(0x10005000) == "_hint_only"
-        # The parsed annotation derives `_hint_only` from the hint, so a bare
-        # SimpleNamespace without a symbol falls back to the filename stem —
-        # both sides still agree because they share `_catalog_key`.
-        from rebrew.annotation import parse_c_file_multi
-
-        parsed = parse_c_file_multi(cfg.reversed_dir / "hint.c", target_name="SERVER")
-        assert len(parsed) == 1
-        assert _catalog_key(parsed[0], cfg.reversed_dir / "hint.c") == "_hint_only"
 
     def test_splice_and_catalog_share_key(self, tmp_path: Path) -> None:
         """`_collect_splice_set` and `_load_catalogs` must agree on the key:
-        both resolve through `_catalog_key` (symbol, then name)."""
+        both resolve through `resolve_symbol` (symbol, then filename stem)."""
         from rebrew.metadata import update_source_status
         from rebrew.round_trip import _collect_splice_set, _load_catalogs
 
