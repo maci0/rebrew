@@ -1,11 +1,6 @@
 # ADR-006: Standardized toolchain invocation (docker-first, host fallback)
 
-- **Status**: Amended by [ADR-007](007-complete-containerization-reproducibility.md),
-  [ADR-008](008-docker-only-execution.md),
-  [ADR-011](011-external-toolchains-checkout.md),
-  [ADR-016](016-image-backed-native-profiles.md)
-- **Date**: 2026-08
-- **Amended by (detail)**: [ADR-007](007-complete-containerization-reproducibility.md)
+- **Status**: Amended by [ADR-007](007-complete-containerization-reproducibility.md)
   (pinned-source unification), [ADR-008](008-docker-only-execution.md)
   (docker-only — the host fallback described below no longer exists for
   Windows/DOS toolchains), [ADR-011](011-external-toolchains-checkout.md)
@@ -13,6 +8,7 @@
   checkout), [ADR-016](016-image-backed-native-profiles.md)
   (remaining native-PATH profiles became image-backed).  Read this ADR
   for the model's origin; 007/008/011/016 for its current shape.
+- **Date**: 2026-08
 
 ## Context
 

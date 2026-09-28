@@ -11,8 +11,8 @@ tool" each turn.
 
 ## Problem It Solves
 
-Rebrew exposes 25+ CLI tools and dozens of options. An agent that has to
-discover the workflow on the fly:
+Rebrew exposes 101 top-level commands and dozens of options. An agent that has
+to discover the workflow on the fly:
 
 - Burns context tokens reading help output.
 - Picks suboptimal command orderings.

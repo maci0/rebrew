@@ -265,6 +265,24 @@ def test_every_adr_has_lifecycle_fields() -> None:
     assert not bad, "ADR lifecycle/structure problems:\n  " + "\n  ".join(bad)
 
 
+def test_every_adr_header_is_exactly_status_and_date() -> None:
+    """The preamble before ``## Context`` is the title plus Status and Date.
+
+    The convention in ``docs/adr/README.md`` names those two fields, and every
+    amendment explanation belongs inside the Status line.  A parallel field
+    (``- **Amended by (detail)**:``) is how a record ends up with two status
+    blocks that disagree, because only one of them is the convention's.
+    """
+    bad: list[str] = []
+    for path in _adr_files():
+        text = path.read_text(encoding="utf-8")
+        preamble = text.split("## Context", 1)[0]
+        fields = re.findall(r"^- \*\*([^*]+)\*\*:", preamble, re.M)
+        if fields != ["Status", "Date"]:
+            bad.append(f"{path.name}: header fields {fields} (expected ['Status', 'Date'])")
+    assert not bad, "ADR header drift from the convention:\n  " + "\n  ".join(bad)
+
+
 def test_adr_index_lists_every_record() -> None:
     """The ADR index carries a row for each record in the directory, and back.
 

@@ -1,16 +1,14 @@
 # ADR-007: Complete containerization + unified byte-reproducibility gate
 
-- **Status**: Amended by [ADR-011](011-external-toolchains-checkout.md),
-  [ADR-016](016-image-backed-native-profiles.md). Amends
-  [ADR-006](006-toolchain-standardization.md).
-- **Date**: 2026-08
-- **Amended by (detail)**: [ADR-011](011-external-toolchains-checkout.md)
+- **Status**: Amended by [ADR-011](011-external-toolchains-checkout.md)
   (the build source this ADR described as in-repo — Dockerfiles, media
   tarballs, vendored trees — moved to the sibling rebrew-toolchains
   checkout; the pinned-source and smoke-gate invariants below are
   unchanged), [ADR-016](016-image-backed-native-profiles.md)
   (the deliberate `mingw-16.2.0` PATH/no-image exception below is gone —
-  every shipped profile is image-backed).
+  every shipped profile is image-backed). Amends
+  [ADR-006](006-toolchain-standardization.md).
+- **Date**: 2026-08
 
 ## Context
 
