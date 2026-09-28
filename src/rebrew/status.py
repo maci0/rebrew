@@ -149,6 +149,11 @@ class StatusReport:
     file_matched_bytes: int = 0
     file_total_bytes: int = 0
     file_built: str = ""
+    #: Configured `[targets.<name>].raw_link` that names no file. Empty when
+    #: unset, or when the file is there. Reported rather than scored as
+    #: zero: a mistyped path would otherwise look like a project that has
+    #: never been built.
+    file_missing_raw_link: str = ""
 
     # Derived percentages
     @property
@@ -287,6 +292,8 @@ class StatusReport:
                 "similarity_pct": self.file_similarity_pct,
                 "built": self.file_built,
             }
+        if self.file_missing_raw_link:
+            d["missing_raw_link"] = self.file_missing_raw_link
         return d
 
 
@@ -374,8 +381,9 @@ def _attach_file_similarity(report: StatusReport, cfg: ProjectConfig) -> None:
         # missing one scores nothing at all.  Say so: the panel would
         # otherwise read as "not built yet" on a project that built fine.
         if raw is not None:
+            report.file_missing_raw_link = _display_built(cfg.root, Path(raw))
             log.warning(
-                "status: configured raw_link %s does not exist — no image "
+                "status: configured raw_link %s does not exist, no image "
                 "similarity score (not falling back to build/%s)",
                 raw,
                 cfg.target_name,
@@ -1142,6 +1150,13 @@ def _panel_title(report: StatusReport) -> str:
 
 def _file_rows(report: StatusReport) -> list[Any]:
     """Whole-file line, the panel's top row. Empty when no image was scored."""
+    if report.file_missing_raw_link:
+        return [
+            Text.assemble(
+                ("configured raw_link missing: ", "yellow"),
+                (report.file_missing_raw_link, "yellow"),
+            )
+        ]
     if report.file_total_bytes <= 0:
         return []
     text = Text()

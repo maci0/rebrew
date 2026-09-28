@@ -85,6 +85,23 @@ def _url_config_label(key: str) -> str | None:
     return None
 
 
+#: ``[llm]`` integer fields, mapped to the parser the loader runs on them.
+#: ``cfg set`` takes every value as a string, and a mistyped ceiling the
+#: loader would refuse then only surfaces at the next config load, naming a
+#: value the user wrote minutes earlier.
+def _llm_budget_parser(leaf: str, parts: list[str]) -> Any | None:
+    """The LLM budget parser for *leaf* under an ``[llm]`` path, or None."""
+    from rebrew import config as config_mod
+
+    if "llm" not in parts:
+        return None
+    return {
+        "max_requests": config_mod.llm_max_requests,
+        "max_tokens": config_mod.llm_max_tokens,
+        "timeout": config_mod.llm_timeout,
+    }.get(leaf)
+
+
 #: Config keys the loader reads as booleans: ``rebrew.config._as_bool`` for
 #: ``compiler.recompile_emit_assembly``, the tri-state parser
 #: ``link.tsaware`` shares with.  ``cfg set`` takes every value as a string,
@@ -876,6 +893,14 @@ def set_value(
             validate_llm_model(str(parsed_value))
         except ValueError as exc:
             error_exit(str(exc), code=EXIT_ERROR, json_mode=json_output)
+
+    llm_budget_parser = _llm_budget_parser(leaf, parts)
+    if llm_budget_parser is not None and parsed_value != "":
+        try:
+            llm_budget_parser(str(parsed_value))
+        except ValueError as exc:
+            # The parser names its env var; the value was typed as a key.
+            error_exit(f"{key} = {value!r}: {exc}", code=EXIT_ERROR, json_mode=json_output)
 
     if (leaf == "format" or key == "format") and parsed_value:
         from rebrew.config import KNOWN_FORMATS

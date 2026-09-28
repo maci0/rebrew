@@ -563,6 +563,24 @@ dll_exports = "not-a-dict"
             cfg = load_config(root)
         assert cfg.dll_exports == {}
 
+    def test_non_string_export_name_is_dropped(self, tmp_path: Path) -> None:
+        """`dll_exports` values are names; a number must not become one."""
+        toml = """\
+[project]
+default_target = "main"
+
+[targets.main]
+binary = "test.exe"
+
+[targets.main.dll_exports]
+0x1000 = 42
+0x2000 = "GoodName"
+"""
+        root = _make_project(tmp_path, toml)
+        with pytest.warns(UserWarning, match="Expected string value for key 0x1000"):
+            cfg = load_config(root)
+        assert cfg.dll_exports == {0x2000: "GoodName"}
+
     def test_wrong_crt_sources_type_falls_back(self, tmp_path: Path) -> None:
         toml = """\
 [project]
@@ -2207,7 +2225,7 @@ profile = "msvc-6.0"
         """`rebrew cfg effective` reports the LLM ceilings and request budget.
 
         They are the knobs that decide whether seeding runs and what it can
-        bill, and they are env-only, so nothing else showed their value.
+        bill, and no other command showed their value.
         """
         root = _make_project(tmp_path, self.BASE_TOML)
         monkeypatch.delenv("REBREW_LLM_MAX_REQUESTS", raising=False)
@@ -2225,6 +2243,35 @@ profile = "msvc-6.0"
         assert resolved["llm_max_requests"] == 7
         assert resolved["llm_max_tokens"] == 70000
         assert resolved["llm_timeout"] == 600
+
+    def test_llm_budget_reads_the_project_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A project pins its own ceilings; the env moves them for one run."""
+        toml = self.BASE_TOML + "\n[llm]\nmax_requests = 5\nmax_tokens = 1000\ntimeout = 300\n"
+        root = _make_project(tmp_path, toml)
+        for name in ("REBREW_LLM_MAX_REQUESTS", "REBREW_LLM_MAX_TOKENS", "REBREW_LLM_TIMEOUT"):
+            monkeypatch.delenv(name, raising=False)
+        resolved = load_config(root).as_dict()
+        assert resolved["llm_max_requests"] == 5
+        assert resolved["llm_max_tokens"] == 1000
+        assert resolved["llm_timeout"] == 300
+
+        monkeypatch.setenv("REBREW_LLM_MAX_REQUESTS", "9")
+        assert load_config(root).as_dict()["llm_max_requests"] == 9
+
+    def test_llm_budget_wrong_type_in_project_file_raises(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A ceiling the loader would never apply fails where it was written."""
+        monkeypatch.delenv("REBREW_LLM_MAX_TOKENS", raising=False)
+        root = _make_project(tmp_path, self.BASE_TOML + '\n[llm]\nmax_tokens = "lots"\n')
+        with pytest.raises(ConfigError, match=r"REBREW_LLM_MAX_TOKENS='lots' is not an int"):
+            load_config(root)
+
+        root = _make_project(tmp_path, self.BASE_TOML + "\n[llm]\nmax_tokens = true\n")
+        with pytest.raises(ConfigError, match=r"\[llm\]\.max_tokens must be an integer"):
+            load_config(root)
 
     def test_llm_max_tokens_invalid_env_raises(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

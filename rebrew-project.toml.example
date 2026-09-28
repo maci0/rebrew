@@ -210,6 +210,9 @@ GAME = "/O2 /Gd"
 # endpoint = "http://localhost:11434/v1"
 # model = "gpt-4o-mini-2024-07-18"
 # api_key = ""  # Prefer setting REBREW_LLM_API_KEY in environment
+# max_requests = 32    # 0 disables LLM calls; REBREW_LLM_MAX_REQUESTS wins
+# max_tokens = 500000  # 0 lifts the ceiling; REBREW_LLM_MAX_TOKENS wins
+# timeout = 90         # seconds, 5..1800; REBREW_LLM_TIMEOUT wins
 
 # -----------------------------------------------------------------------------
 # Compile Cache Settings

@@ -311,6 +311,37 @@
   the byte-mismatch code has to test for 2.
 
 ### Fixed
+- **`[llm] max_requests` / `max_tokens` / `timeout` are project settings, and a
+  pinned one is now honored.** The three budget knobs were env-only, so a
+  project that could not afford a paid endpoint had to put the ceiling in
+  every shell that ran `rebrew match --seed-llm`, and writing them into
+  `rebrew-project.toml` warned as unrecognized keys. They now read the same
+  way `[compiler] recompile_url` does: the env variable wins when it is
+  present, the `[llm]` field applies when it is not, the default when neither
+  is. A non-integer value raises at config load rather than quietly billing
+  under the default, and `rebrew cfg set` refuses one where it is typed.
+- **A mistyped `REBREW_XVFB_DISPLAY` compiled on a display nobody asked for.**
+  The resolver only ever adopts a display a live local Xvfb owns, so a value
+  like `buildhost:0` was skipped without a word and the run picked a free
+  display of its own while the operator's export sat there looking honored.
+  The read now runs the same `check_env_display` that `rebrew cfg effective`
+  reports, so an unusable spelling fails where it was set.
+- **A configured but absent `raw_link` is now named instead of silently
+  unscored.** `find_built_image` returns `None` for it (correctly: it must not
+  fall back to the postlinked image), and `rebrew status` then reported a
+  project with no whole-file score, which reads as "never built" rather than
+  "the path is a typo". The panel names the missing file and `--json` carries
+  it as `missing_raw_link`.
+- **A non-string `dll_exports` value became an export name.** The value is a
+  name, so `0x1000 = 42` is a typo, but `str()` turned it into the plausible
+  name `"42"`, which then matched nothing and reported an export as missing.
+  The row is dropped with a warning, like a bad key in the same table.
+- **`base_cflags` and `source_ext` in `docs/CONFIG.md` described defaults the
+  loader does not have.** The posix `base_cflags` default is `""` (the `"-c"`
+  the Borland and 16-bit Watcom profiles carry is what `rebrew init` writes
+  into the project file), and `source_ext` takes a comma-separated list, not
+  one extension. Both rows now say what the loader does, and `[llm]` has a
+  section of its own rather than existing only as env-var mentions.
 - **The coverage document's reader memo could not see a same-size rebuild.**
   The per-file stat fingerprint keyed the memoized directory scan on
   `(name, mtime_ns, size)`, the only per-file memo in the tree without the

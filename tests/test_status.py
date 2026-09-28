@@ -1929,3 +1929,22 @@ class TestFileSimilarity:
         assert report.file_similarity_pct == 50.0
         assert report.file_built == "build/split_poc.dll"
         assert report.to_dict()["file"]["built"] == "build/split_poc.dll"
+
+    def test_missing_configured_raw_link_is_reported(self, tmp_path: Path) -> None:
+        """A mistyped raw_link is named, not left to look like an unbuilt project."""
+        ref = tmp_path / "ref.dll"
+        ref.write_bytes(b"ABCDEFGH")
+        build = tmp_path / "build"
+        build.mkdir()
+        (build / "server.dll").write_bytes(b"ABCDEFGH")
+        (tmp_path / "src").mkdir()
+        cfg = _make_cfg(
+            tmp_path,
+            target_name="server.dll",
+            target_binary=ref,
+            raw_link=build / "typo.dll",
+        )
+        report = collect_status(cfg)  # type: ignore[arg-type]
+        assert report.file_total_bytes == 0
+        assert report.file_missing_raw_link == "build/typo.dll"
+        assert report.to_dict()["missing_raw_link"] == "build/typo.dll"

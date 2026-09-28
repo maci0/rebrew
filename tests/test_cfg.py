@@ -890,6 +890,29 @@ class TestCLISet:
         assert result.exit_code != 0
         assert "unpinned alias" in result.output
 
+    def test_set_llm_budget_rejects_a_non_integer(self, tmp_path: Path, monkeypatch) -> None:
+        """A ceiling the loader refuses is refused where it was typed."""
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        for key, bad in (
+            ("llm.max_requests", "lots"),
+            ("llm.max_tokens", "1.5"),
+            ("llm.timeout", "2"),
+        ):
+            result = runner.invoke(cfg_app, ["set", key, bad])
+            assert result.exit_code != 0, key
+            assert key in result.output
+        doc, _ = load_toml(tmp_path)
+        assert "llm" not in doc
+
+    def test_set_llm_budget_writes_an_integer(self, tmp_path: Path, monkeypatch) -> None:
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(cfg_app, ["set", "llm.max_requests", "5"])
+        assert result.exit_code == 0
+        doc, _ = load_toml(tmp_path)
+        assert doc["llm"]["max_requests"] == 5
+
     def test_set_bool_rejects_a_non_boolean(self, tmp_path: Path, monkeypatch) -> None:
         """A stringified flag is a flag that silently stayed off.
 

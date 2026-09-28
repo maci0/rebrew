@@ -41,6 +41,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from rebrew.config import XVFB_DISPLAY_ENV as _XVFB_DISPLAY_ENV
+from rebrew.config import check_env_display
 
 #: Screen geometry for the virtual display.  24-bit depth is required for
 #: some Wine versions (the xvfb-run 8-bit default breaks them).  Kept as
@@ -335,6 +336,11 @@ def _ensure_xvfb_locked() -> str | None:
     _reap_dead_xvfb()
     displays = _running_xvfb_displays()
     env_display = os.environ.get(XVFB_DISPLAY_ENV, "")
+    # An unusable spelling is refused here rather than skipped below: a
+    # hostname display or a missing colon can never be adopted, so the run
+    # would silently compile on some other display than the one the operator
+    # pinned.  Same parser ``rebrew cfg effective`` reports, so the two agree.
+    check_env_display(env_display)
     # The env display is trusted only when a LIVE Xvfb process owns it — a
     # socket check alone can resurrect a stale REBREW_XVFB_DISPLAY whose
     # server died (or whose socket was reused by a non-Xvfb X server),

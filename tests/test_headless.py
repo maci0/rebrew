@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 
+from rebrew.config import ConfigError
 from rebrew.headless import (
     _display_alive,
     _pick_free_display,
@@ -114,6 +115,14 @@ class TestEnsureXvfb:
         result = ensure_xvfb()
         assert result is not None and result != ":99"
         assert Path(os.environ["XAUTHORITY"]).is_file()
+
+    def test_env_display_that_is_not_local_raises(self, monkeypatch) -> None:
+        """A display rebrew can never adopt is refused, not silently swapped."""
+
+        monkeypatch.setenv("REBREW_XVFB_DISPLAY", "buildhost:0")
+        monkeypatch.setenv("DISPLAY", "")
+        with pytest.raises(ConfigError, match="is not a local X display"):
+            ensure_xvfb()
 
     def test_env_display_stale_process_ignored(self, monkeypatch) -> None:
         """Socket exists but no Xvfb process owns it → not reused."""

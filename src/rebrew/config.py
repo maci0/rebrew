@@ -1065,7 +1065,13 @@ def _parse_defines(values: Any, field_name: str) -> list[str]:
 
 
 def _parse_hex_dict(mapping: dict[str, Any] | None) -> dict[int, str]:
-    """Parse a dict where keys are hex strings and values are strings."""
+    """Parse a dict where keys are hex strings and values are strings.
+
+    A non-string value is dropped rather than coerced: the value is an export
+    *name* (a `dll_exports` row, an import lookup), so a TOML integer such as
+    `0x1000 = 42` is a typo, and `str()` would turn it into a plausible-looking
+    name that silently matches nothing.
+    """
     if not isinstance(mapping, dict):
         if mapping is not None:
             _config_warn(
@@ -1077,9 +1083,16 @@ def _parse_hex_dict(mapping: dict[str, Any] | None) -> dict[int, str]:
     for k, v in mapping.items():
         try:
             addr = parse_int_literal(str(k))
-            result[addr] = str(v)
         except ValueError:
             _config_warn(f"Invalid hex key '{k}' in mapping; ignoring")
+            continue
+        if not isinstance(v, str):
+            _config_warn(
+                f"Expected string value for key {hex(addr)} in mapping, "
+                f"got {type(v).__name__}; ignoring"
+            )
+            continue
+        result[addr] = v
     return result
 
 
@@ -1624,6 +1637,32 @@ def env_knob_errors(environ: Mapping[str, str] | None = None) -> dict[str, str]:
     return errors
 
 
+def _llm_budget_value(llm_raw: dict[str, Any], key: str, env_name: str) -> str:
+    """Raw text for one ``[llm]`` budget knob, the env variable winning.
+
+    A set env variable is the whole value, empty included, so one run can
+    spend nothing (``0``) without editing the project file. Otherwise the
+    ``[llm]`` field is used when it is set; leaving both unset hands the
+    parser its empty string, which is the documented default.
+
+    Unlike the warn-and-default helpers around it, a wrong type raises: this
+    is a billable ceiling, so a value that never reaches the parser is a
+    configuration error rather than a budget quietly set elsewhere. An
+    integral float (``timeout = 90.0``) is the one non-int spelling accepted,
+    matching every other integer key in the loader.
+    """
+    if env_name in os.environ:
+        return os.environ[env_name]
+    value = llm_raw.get(key)
+    if value is None:
+        return ""
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        raise ConfigError(f"[llm].{key} must be an integer, got {type(value).__name__}")
+    if isinstance(value, float) and not value.is_integer():
+        raise ConfigError(f"[llm].{key} must be an integer, got {value!r}")
+    return str(int(value)) if isinstance(value, float) else str(value)
+
+
 def llm_max_requests(raw: str) -> int:
     """Parse the ``REBREW_LLM_MAX_REQUESTS`` ceiling, the process LLM call budget.
 
@@ -1793,7 +1832,11 @@ def _split_compiler_runner(compiler: dict[str, Any]) -> tuple[str, str]:
 
     try:
         parts = shlex.split(command_raw)
-    except ValueError:
+    except ValueError as exc:
+        # An unbalanced quote is a config typo, and the naive split below
+        # cannot tell where the runner ends: the whole string lands in the
+        # command either way, so the compile fails on argv rather than here.
+        _config_warn(f"compiler.command is not shell-parseable ({exc}); splitting on whitespace")
         parts = command_raw.split()
 
     if parts and parts[0] in {"wine", "wibo"}:
@@ -1967,7 +2010,14 @@ _KNOWN_TOP_KEYS = {"targets", "compiler", "project", "link", "llm", "cache"}
 
 _KNOWN_CACHE_KEYS = {"backend", "size_limit_mib"}
 
-_KNOWN_LLM_KEYS = {"endpoint", "api_key", "model"}
+_KNOWN_LLM_KEYS = {
+    "endpoint",
+    "api_key",
+    "model",
+    "max_requests",
+    "max_tokens",
+    "timeout",
+}
 
 _KNOWN_LINK_KEYS = {
     "file_align",
@@ -2586,10 +2636,16 @@ def load_config(
     # Parsed here, not only validated: these three are the LLM budget, and
     # `rebrew cfg effective` has to report what is in force. A bad value still
     # raises ConfigError, so a typo fails at startup rather than at the first
-    # billed request.
-    cfg.llm_max_requests = llm_max_requests(os.environ.get("REBREW_LLM_MAX_REQUESTS", ""))
-    cfg.llm_max_tokens = llm_max_tokens(os.environ.get("REBREW_LLM_MAX_TOKENS", ""))
-    cfg.llm_timeout = llm_timeout(os.environ.get("REBREW_LLM_TIMEOUT", ""))
+    # billed request. Each reads the env knob first (present wins, so one run
+    # can move the budget without editing the project file) and the [llm] field
+    # otherwise, matching [compiler] recompile_url.
+    cfg.llm_max_requests = llm_max_requests(
+        _llm_budget_value(llm_raw, "max_requests", "REBREW_LLM_MAX_REQUESTS")
+    )
+    cfg.llm_max_tokens = llm_max_tokens(
+        _llm_budget_value(llm_raw, "max_tokens", "REBREW_LLM_MAX_TOKENS")
+    )
+    cfg.llm_timeout = llm_timeout(_llm_budget_value(llm_raw, "timeout", "REBREW_LLM_TIMEOUT"))
 
     # --- [cache] section: compile-cache backend selection ---
     # The store is a pluggable component (rebrew.cache_backends entry-point

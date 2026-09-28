@@ -75,7 +75,7 @@ libs = "toolchain/msvc/6.0-win32/source/VC98/Lib"
 | `defines` | `[targets.<name>].defines` | Per-target compile-time defines (`["CLIENT"]`, `["CLIENT=1"]`) for shared multi-version sources (ADR-010). Each entry is `NAME` or `NAME=value` with no whitespace; anything else fails at load instead of compiling the wrong `#ifdef` side. `NAME=value` is emitted as `/DNAME=value` (or `-DNAME=value`) |
 | `library_modules` | `[targets.<name>].library_modules` | Module names that use `LIBRARY` markers |
 | `raw_link` | `[targets.<name>].raw_link` | Pre-postlink image to compare against instead of `build/<target>`; gates `rebrew verify --raw-link` and the `postlink-mangled` todo category. Unset by default |
-| `source_ext` | `[targets.<name>].source_ext` | Source extension used when discovering and creating files |
+| `source_ext` | `[targets.<name>].source_ext` | Source extension used when discovering and creating files; one extension (`".c"`, the default) or a comma-separated list (`".c,.cpp"`) for a mixed tree. A missing leading dot is added, and a value carrying a path separator is refused |
 | `ghidra_program_path` | `[targets.<name>].ghidra_program_path` | ReVa MCP program path override |
 | `origins` | `[targets.<name>].origins` | The target's module list, managed by `rebrew cfg add-module` / `rebrew cfg remove-module`. Carried for the editor and UI only; annotation filtering reads the markers themselves, not this list |
 | `layout` | `[targets.<name>].layout` | Inline position-alignment package (image base, section geometry, exports, imports) printed by `rebrew gen-layout --layout-config` and written to `layout/<target>/rebrew-layout.toml`. Not read by this loader: the layout tooling parses the file directly. Recognised here so a target carrying it does not warn on every invocation and no config rewriter drops the block |
@@ -210,7 +210,7 @@ profile = "msvc-7.0"
 | `includes` | `string` | `"toolchain/msvc/6.0-win32/source/VC98/Include"` | Path to compiler include directory. For `msvc-6.0`/`msvc-7.0` the default resolves the best layout actually present (full master, then the vendored compile-only mirrors `toolchain/msvc/6.0-sp6-win32`/`toolchain/msvc/6.0-sp3-win32`/`toolchain/msvc/7.0-win32`) — see `rebrew init` output and docs/TOOLCHAIN.md. Empty is valid ("no extra dir"; e.g. `mingw-16.2.0` ships its own headers) |
 | `libs` | `string` | `"toolchain/msvc/6.0-win32/source/VC98/Lib"` | Path to compiler lib directory (empty is valid — the compile-only mirrors ship no `Lib/`) |
 | `cflags` | `string` | `""` | Default compiler flags |
-| `base_cflags` | `string` | `"/nologo /c /MT"` | Always-on flags prepended to every compile. Posix-style profiles (`gcc-14.2.0`, `gcc-12.3.0`, `mingw-16.2.0`, `mingw-14.2.0`, `clang-18.1.8`, `clang-16.0.4`, `ido-5.3`, `ido-7.1`, `watcom-2.0-win32`, `watcom-2.0-win16`, `borland-5.5`, `borland-3.1`, `borland-2.0`) omit the MSVC glue and default to `"-c"` (the Borland and 16-bit Watcom profiles need it spelled out; the GCC/Clang/IDo profiles ship with an empty string) |
+| `base_cflags` | `string` | `"/nologo /c /MT"` | Always-on flags prepended to every compile. Posix-style profiles (`gcc-14.2.0`, `gcc-12.3.0`, `mingw-16.2.0`, `mingw-14.2.0`, `clang-18.1.8`, `clang-16.0.4`, `ido-5.3`, `ido-7.1`, `watcom-2.0-win32`, `watcom-2.0-win16`, `borland-5.5`, `borland-3.1`, `borland-2.0`) omit the MSVC glue and the loader default is `""` for them. `rebrew init` writes `base_cflags = "-c"` for the Borland and 16-bit Watcom profiles, which need it spelled out; that spelling is the project file's own value, not the loader's |
 | `runner` | `string` | `""` | Win32 PE runner (`wine`, `wibo`, or empty). Auto-detected from `command` if not set explicitly. Under docker-only execution the runner is empty for image-backed profiles; `rebrew init --install-wibo` writes `tools/wibo` only for native (non-image) profiles — it is ignored for docker-backed ones. A relative runner path resolves against the project root and needs a `command` without the runner prefix |
 | `recompile_url` | `string` | `""` | Base URL of the recompile compile service (e.g. `http://localhost:8000`). When set (or `REBREW_RECOMPILE_URL`), every compile routes through `POST /api/v1/compile` instead of local docker images: the same pinned images, plus the opt-in training tap |
 | `recompile_emit_assembly` | `bool` | `false` | Pass `emit_assembly=true` on remote compiles (the training-data tap). Off by default; when on, every remote compile sends it (`match --collect-pairs` is unrelated). A non-boolean value here is refused by `rebrew cfg set` and warned about by the loader, which would otherwise keep the default and leave the tap silently off |
@@ -324,6 +324,43 @@ the keys.  `rebrew cache stats` / `clear` operate on the configured backend.
 An unknown `backend` name is a `ValueError` at config load (and again where
 the cache is opened, for programmatic callers that skip the loader).
 
+## LLM Seeding (`[llm]`)
+
+`rebrew match --seed-llm` can call a chat-completions endpoint to propose
+function seeds. Everything is optional: with no endpoint configured the flag
+reports that LLM seeding is unavailable and the match runs unchanged. Unknown
+keys warn.
+
+```toml
+[llm]
+endpoint = ""                             # e.g. "http://localhost:11434/v1"; "" disables seeding
+api_key = ""                              # bearer key; prefer REBREW_LLM_API_KEY, do not commit
+model = "gpt-4o-mini-2024-07-18"          # pinned id; floating aliases raise
+max_requests = 32                         # process-wide call ceiling (0 disables LLM calls)
+max_tokens = 500000                       # process-wide token ceiling (0 lifts it)
+timeout = 90                              # per-request HTTP budget, seconds (5..1800)
+```
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `endpoint` | `string` | `""` | Base URL of the chat-completions endpoint; must be `http(s)` with a host. Under `REBREW_LLM_API_KEY` a plain `http://` endpoint is refused unless it is loopback, or unless `REBREW_LLM_ALLOW_PROJECT_ENDPOINT=1` opts a project-file endpoint in. `REBREW_LLM_ENDPOINT` loses to this field |
+| `api_key` | `string` | `""` | Bearer token. `REBREW_LLM_API_KEY` wins whenever it is present, empty included (which clears a committed key for the run). `rebrew cfg set` refuses a non-empty value here: argv is world-readable |
+| `model` | `string` | `"gpt-4o-mini-2024-07-18"` | Pinned model id. `latest` / `auto` / `default` and malformed ids raise, so a seed run is reproducible; `REBREW_LLM_MODEL` loses to this field |
+| `max_requests` | `integer` | `32` | Process-wide ceiling on LLM calls (`REBREW_LLM_MAX_REQUESTS`); `0` disables LLM calls, values above 10000 clamp with a warning |
+| `max_tokens` | `integer` | `500000` | Process-wide ceiling on billed tokens (`REBREW_LLM_MAX_TOKENS`); a request that no longer fits is refused before it is sent, `0` lifts the ceiling, values above 100000000 clamp |
+| `timeout` | `integer` | `90` | Per-request HTTP budget in seconds (`REBREW_LLM_TIMEOUT`), 5 through 1800. A timed-out request is still billed |
+
+Every value is validated when the project config is read, so a typo fails
+there rather than falling back to the default; `rebrew cfg effective` reports
+the resolved values (`llm_max_requests`, `llm_max_tokens`, `llm_timeout`) with
+credentials redacted.
+
+The three budget keys are read from the environment first: a set
+`REBREW_LLM_MAX_REQUESTS` / `REBREW_LLM_MAX_TOKENS` / `REBREW_LLM_TIMEOUT`
+is the whole value, empty included, so one run can move the ceiling without
+editing the project file. With the variable unset the `[llm]` field applies,
+and with both unset the default does.
+
 ## Environment Variables
 
 Project settings live in ``rebrew-project.toml``. Environment variables are
@@ -342,8 +379,11 @@ the shell (or let direnv load a private, gitignored ``.env``).
 | `[llm] endpoint` / `REBREW_LLM_ENDPOINT` | TOML, then env |
 | `[llm] api_key` / `REBREW_LLM_API_KEY` | env **when present** (even if empty — clears a committed TOML key for the run); else TOML — prefer the env var; do not commit keys |
 | `[llm] model` / `REBREW_LLM_MODEL` | TOML, then env (default `gpt-4o-mini-2024-07-18`; `latest`/`auto`/`default` and malformed ids raise an error). A response reporting a different `model` than the pin warns, since a substituted model changes both cost and the seeds the GA receives |
+| `[llm] max_requests` / `REBREW_LLM_MAX_REQUESTS` | env **when present** (empty keeps the default); else TOML, else default |
+| `[llm] max_tokens` / `REBREW_LLM_MAX_TOKENS` | env **when present**; else TOML, else default |
+| `[llm] timeout` / `REBREW_LLM_TIMEOUT` | env **when present**; else TOML, else default |
 
-Unset vs empty: for the two env-wins settings above, an unset variable falls through to TOML; an empty value is intentional and overrides TOML. `rebrew cfg set` refuses non-empty secret keys (they would appear in argv/history); clear with `rebrew cfg set llm.api_key ''` or set `REBREW_LLM_API_KEY`.
+Unset vs empty: for the env-wins settings above, an unset variable falls through to TOML; an empty value is intentional and overrides TOML. `rebrew cfg set` refuses non-empty secret keys (they would appear in argv/history); clear with `rebrew cfg set llm.api_key ''` or set `REBREW_LLM_API_KEY`.
 
 Within a project file, compiler settings still merge as: built-in defaults →
 `[compiler]` → `[targets.<name>.compiler]` → library/metadata overrides
@@ -368,7 +408,8 @@ by the CLI layer and win for that invocation.
   strictly (`1`/`true`/`yes`/`on`, `0`/`false`/`no`/`off`); any other value is
   a `ConfigError`, so a mistyped opt-in never reads as consent.
 - `REBREW_LLM_MAX_REQUESTS` — process-wide ceiling on LLM HTTP calls
-  (default `32`). Stops `--watch` / batch seeding from burning a paid
+  (default `32`, or `[llm] max_requests` when the variable is unset). Stops
+  `--watch` / batch seeding from burning a paid
   endpoint. `0` disables further calls for the process. A set-but-non-integer
   or negative value is a `ValueError` (not silently reset to the default).
   Values above `10000` clamp to `10000` with a warning. The resolved ceiling
@@ -383,7 +424,8 @@ by the CLI layer and win for that invocation.
   candidates the C gate rejected), so a run that bills without seeding is
   visible as such.
 - `REBREW_LLM_MAX_TOKENS` — process-wide ceiling on the tokens those calls
-  bill (default `500000`). A call count does not price a run: one request
+  bill (default `500000`, or `[llm] max_tokens` when the variable is unset). A
+  call count does not price a run: one request
   bills a prompt plus a capped completion, so raising
   `REBREW_LLM_MAX_REQUESTS` multiplies both. Each request is priced before
   it is sent and the one that no longer fits is refused with a warning, so
@@ -395,7 +437,8 @@ by the CLI layer and win for that invocation.
   `100000000` the value clamps with a warning. The resolved ceiling is
   reported as `llm_max_tokens` by `rebrew cfg effective`.
 - `REBREW_LLM_TIMEOUT` — per-request HTTP budget for one LLM seeding call,
-  in seconds (default `90`). A timed-out request is still billed and its
+  in seconds (default `90`, or `[llm] timeout` when the variable is unset). A
+  timed-out request is still billed and its
   seeds are lost, so raise it for a local model that needs minutes for a
   capped completion. It bounds the whole request, not each socket read: the
   transport timeout is rearmed per chunk, so the response body is also read
