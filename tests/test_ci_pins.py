@@ -561,7 +561,7 @@ class TestCiPins:
         assert result.returncode == 1, result.stdout + result.stderr
         assert (dest / "kept.txt").read_text(encoding="utf-8") == "old"
         assert not (dest / "cloned.txt").exists()
-        assert [p.name for p in tmp_path.iterdir()] == ["bin", "resembl"]
+        assert {p.name for p in tmp_path.iterdir()} == {"bin", "resembl"}
 
     def test_test_job_fetches_tags(self) -> None:
         """Packaging CHANGELOG↔tag contract needs each tag commit on this branch.
