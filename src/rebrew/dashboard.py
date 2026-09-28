@@ -43,8 +43,9 @@ resource to list methods for.  Every error body is
 ``{"error": "<message>", "code": "<machine-readable code>"}``; branch on
 ``code`` (``missing_target``, ``unknown_target``, ``invalid_status``,
 ``not_found``, ``method_not_allowed``, ``host_not_allowed``,
-``corrupt_function_stats``, ``database_error``, ``internal_error``, and
-``bad_request`` / ``uri_too_long`` / ``header_fields_too_large`` /
+``corrupt_function_stats``, ``database_error``, ``internal_error``,
+``server_busy`` for a connection refused because every handler slot is taken,
+and ``bad_request`` / ``uri_too_long`` / ``header_fields_too_large`` /
 ``http_version_not_supported`` for malformed requests rejected before
 routing, plus ``request_error`` for any other status raised there) and
 show ``error`` to the reader.  Every response carries
@@ -317,6 +318,12 @@ _MAX_ACTIVE_CONNECTIONS = 64
 # totals.  Well above a served route (a handful of indexed SQLite reads), so
 # an ordinary load never reaches it.
 _SLOW_REQUEST_MS = 500.0
+# Seconds a refused connection is told to wait, in the ``Retry-After`` header of
+# the 503 ``server_busy`` it is answered with.  One second is a slot that is
+# about to free: a keep-alive handler is capped by ``_KEEPALIVE_IDLE_TIMEOUT_S``
+# and by the client's own close, so a client that backs off this long almost
+# always gets in on the first retry.
+_BUSY_RETRY_AFTER_S = 1
 # Below this size framing usually costs more than it saves on a LAN.
 _MIN_COMPRESS_BYTES = 256
 # Per-request dynamic JSON: mid effort (bodies are rebuilt every request).
@@ -2516,6 +2523,79 @@ def _success_cache_control(path: str, query: dict[str, list[str]]) -> str:
     return _CACHE_REVALIDATE
 
 
+#: Browser hardening on every response, including the 403 and the 503, which
+#: are written before (or without) a handler.  Shared so a response built
+#: outside ``_Handler`` cannot carry a weaker set than one built inside it.
+#: The CSP keeps CSS inline in the shell and JS same-origin at /app.js, and
+#: confines JSON fetching to same-origin; ``data:`` images cover the empty
+#: inline favicon that stops a /favicon.ico 404 per load.
+_SECURITY_HEADERS: tuple[tuple[str, str], ...] = (
+    ("X-Content-Type-Options", "nosniff"),
+    ("X-Frame-Options", "DENY"),
+    ("Referrer-Policy", "no-referrer"),
+    ("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()"),
+)
+#: Content-Security-Policy, sent after ``Cache-Control`` on every response.
+_CSP = (
+    "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; "
+    "connect-src 'self'; img-src 'self' data:; form-action 'none'; base-uri 'none'"
+)
+
+
+def _security_headers(cache_control: str) -> tuple[tuple[str, str], ...]:
+    """The hardening set every response carries, in wire order.
+
+    ``Cache-Control`` is the one member that differs per status, and it rides
+    with the rest so a response reads the same whichever of the two writers
+    emitted it.
+    """
+    return (*_SECURITY_HEADERS, ("Cache-Control", cache_control), ("Content-Security-Policy", _CSP))
+
+
+def _send_over_capacity(
+    request: socket.socket | tuple[bytes, socket.socket], request_id: str, active: int, cap: int
+) -> None:
+    """Answer a connection refused by the admission cap with 503 ``server_busy``.
+
+    Written straight to the accepted socket, since no handler exists to route
+    it.  Same envelope, same hardening, same ``X-Request-Id`` every routed
+    response carries, plus ``Retry-After``: a client that is being shed should
+    be able to tell "come back in a second" from "the server died", and a bare
+    close tells it neither.  A peer that hung up mid-write is not a fault.
+    """
+    body = json.dumps(
+        {
+            "error": f"too many connections in flight ({active} of {cap}); retry shortly",
+            "code": "server_busy",
+        },
+        separators=(",", ":"),
+    ).encode()
+    if not isinstance(request, socket.socket):
+        # A non-socket get_request (a UNIX-family server sharing this code)
+        # has no HTTP response to write; the caller still closes the request.
+        log.info("%s cannot write a refusal to a %s", request_id, type(request).__name__)
+        return
+    # A 5xx is a 5xx wherever it is written: ``log_request`` counts one for a
+    # routed response, and a run that is being shed is a run the error total on
+    # ``/api/health`` and at shutdown has to show.
+    with _Handler._stats_lock:
+        _Handler._server_errors += 1
+    lines = [
+        "HTTP/1.1 503 Service Unavailable",
+        f"Date: {time.strftime('%a, %d %b %Y %H:%M:%S GMT', time.gmtime())}",
+        f"Retry-After: {_BUSY_RETRY_AFTER_S}",
+        "Content-Type: application/json; charset=utf-8",
+        f"Content-Length: {len(body)}",
+        "Connection: close",
+        f"X-Request-Id: {request_id}",
+    ]
+    lines += [f"{name}: {value}" for name, value in _security_headers("no-store")]
+    try:
+        request.sendall(("\r\n".join(lines) + "\r\n\r\n").encode("ascii") + body)
+    except OSError as exc:
+        log.info("%s client vanished before the refusal reached it: %s", request_id, exc)
+
+
 def _escape_log_text(text: str) -> str:
     return strip_bidi_format(text).translate(_LOG_CONTROL_CHARS)
 
@@ -2772,28 +2852,15 @@ class _Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def _write_security_headers(self, *, cache_control: str) -> None:
-        """Browser hardening shared by every response, including early 403s."""
-        self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("X-Frame-Options", "DENY")
-        self.send_header("Referrer-Policy", "no-referrer")
-        self.send_header(
-            "Permissions-Policy",
-            "camera=(), microphone=(), geolocation=(), payment=()",
-        )
-        # Successful GETs may be stored but must revalidate (ETag → 304) so a
-        # ``rebrew build-db`` rebuild is never served as a silent stale page;
-        # the content-hashed /app.js URL is immutable.  Errors stay no-store
-        # so a failed probe is not sticky.
-        self.send_header("Cache-Control", cache_control)
-        # CSS stays inline in the shell; JS is same-origin /app.js.  Fetching
-        # JSON is same-origin only — keeps any future escaping of API data
-        # from loading third-party resources or phoning home.  ``data:`` images
-        # cover the empty inline favicon that stops a /favicon.ico 404 per load.
-        self.send_header(
-            "Content-Security-Policy",
-            "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; "
-            "connect-src 'self'; img-src 'self' data:; form-action 'none'; base-uri 'none'",
-        )
+        """Browser hardening shared by every response, including early 403s.
+
+        Successful GETs may be stored but must revalidate (ETag → 304) so a
+        ``rebrew build-db`` rebuild is never served as a silent stale page; the
+        content-hashed /app.js URL is immutable.  Errors stay no-store so a
+        failed probe is not sticky.
+        """
+        for name, value in _security_headers(cache_control):
+            self.send_header(name, value)
 
     @override
     def end_headers(self) -> None:
@@ -2988,7 +3055,11 @@ class _DashboardServer(ThreadingHTTPServer):
         accepted socket, for as long as the peer holds it, and the per-handler
         idle timeout is the only thing that ends that.  A client that opens
         connections and then says nothing therefore grows both counts without
-        bound, so the connection past the cap is closed on arrival.
+        bound, so the connection past the cap is answered 503 ``server_busy``
+        and closed.  The refusal is a response, not a bare close: a client that
+        sees the connection drop has to guess between "the server died" and
+        "try again", while 503 plus ``Retry-After`` says both, in the same
+        error envelope every other failure uses.
         """
         with self._active_lock:
             admitted = self._active < self._max_active_connections
@@ -2996,13 +3067,18 @@ class _DashboardServer(ThreadingHTTPServer):
             if admitted:
                 self._active += 1
         if not admitted:
+            # Its own correlation id, not the accept thread's unset one, so the
+            # refusal the client holds points at the line the log carries.
+            request_id = f"r{next(_REQUEST_IDS)}"
+            _stamp_request(request_id, "")
             log.warning(
                 "%s refusing connection from %s: %d already in flight (cap %d)",
-                _request_context()[0],
+                request_id,
                 _escape_log_text(str(client_address)),
                 active,
                 self._max_active_connections,
             )
+            _send_over_capacity(request, request_id, active, self._max_active_connections)
             self.shutdown_request(request)
             return
         try:
@@ -3074,7 +3150,8 @@ app = typer.Typer(
         "400, not an empty page). A present empty "
         "module= matches a blank module. Non-GET/HEAD on a served route → 405 "
         "with Allow: GET, HEAD; a path the server does not serve → 404 whatever "
-        "the method. Error bodies are "
+        "the method. A connection past the in-flight cap → 503 server_busy with "
+        "Retry-After. Error bodies are "
         '{"error": "<message>", "code": "<code>"}; branch on code.[/dim]'
     ),
 )

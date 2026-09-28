@@ -2641,6 +2641,8 @@ Every error body is `{"error": "<message>", "code": "<code>"}`, malformed
 requests included; branch on `code` (`missing_target`, `unknown_target`,
 `invalid_status`, `not_found`, `method_not_allowed`, `host_not_allowed`,
 `corrupt_function_stats`, `database_error`, `internal_error`,
+`server_busy` (a connection refused because the 64-connection cap was full;
+503 with `Retry-After: 1`, sent before routing),
 `bad_request`, `uri_too_long`, `header_fields_too_large`,
 `http_version_not_supported`, and `request_error` for any other status raised
 before routing) and show `error` to the reader. Every response, error

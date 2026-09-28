@@ -29,8 +29,10 @@ info:
     Three statuses are cross-cutting and declared on every route: 304 when the
     client's `If-None-Match` matched, 403 `host_not_allowed` for a `Host`
     header that is not the bound host, and 405 `method_not_allowed` with
-    `Allow: GET, HEAD`.  Every response, of every status, carries
-    `X-Request-Id`.
+    `Allow: GET, HEAD`.  A fourth is answered before routing and so needs no
+    request: 503 `server_busy` with `Retry-After`, when every handler slot is
+    already taken by a connection the client is still holding.  Every
+    response, of every status, carries `X-Request-Id`.
 servers:
   - url: http://127.0.0.1:8000
     description: Default bind (`rebrew dashboard --host/--port`).
@@ -57,6 +59,7 @@ paths:
         "403": { $ref: "#/components/responses/HostNotAllowed" }
         "405": { $ref: "#/components/responses/MethodNotAllowed" }
         "500": { $ref: "#/components/responses/DatabaseError" }
+        "503": { $ref: "#/components/responses/ServerBusy" }
     head:
       tags: [assets]
       operationId: headIndex
@@ -68,6 +71,7 @@ paths:
         "403": { $ref: "#/components/responses/HostNotAllowed" }
         "405": { $ref: "#/components/responses/MethodNotAllowed" }
         "500": { $ref: "#/components/responses/DatabaseError" }
+        "503": { $ref: "#/components/responses/ServerBusy" }
 
   /app.js:
     get:
@@ -87,6 +91,7 @@ paths:
         "403": { $ref: "#/components/responses/HostNotAllowed" }
         "405": { $ref: "#/components/responses/MethodNotAllowed" }
         "500": { $ref: "#/components/responses/DatabaseError" }
+        "503": { $ref: "#/components/responses/ServerBusy" }
     head:
       tags: [assets]
       operationId: headAppJs
@@ -100,6 +105,7 @@ paths:
         "403": { $ref: "#/components/responses/HostNotAllowed" }
         "405": { $ref: "#/components/responses/MethodNotAllowed" }
         "500": { $ref: "#/components/responses/DatabaseError" }
+        "503": { $ref: "#/components/responses/ServerBusy" }
 
   /boot-guard.js:
     get:
@@ -115,6 +121,7 @@ paths:
         "403": { $ref: "#/components/responses/HostNotAllowed" }
         "405": { $ref: "#/components/responses/MethodNotAllowed" }
         "500": { $ref: "#/components/responses/DatabaseError" }
+        "503": { $ref: "#/components/responses/ServerBusy" }
     head:
       tags: [assets]
       operationId: headBootGuardJs
@@ -128,6 +135,7 @@ paths:
         "403": { $ref: "#/components/responses/HostNotAllowed" }
         "405": { $ref: "#/components/responses/MethodNotAllowed" }
         "500": { $ref: "#/components/responses/DatabaseError" }
+        "503": { $ref: "#/components/responses/ServerBusy" }
 
   /api/health:
     get:
@@ -153,8 +161,8 @@ paths:
               schema: { $ref: "#/components/schemas/Health" }
         "403": { $ref: "#/components/responses/HostNotAllowed" }
         "405": { $ref: "#/components/responses/MethodNotAllowed" }
-        "500":
-          $ref: "#/components/responses/DatabaseError"
+        "500": { $ref: "#/components/responses/DatabaseError" }
+        "503": { $ref: "#/components/responses/ServerBusy" }
     head:
       tags: [database]
       operationId: headHealth
@@ -172,8 +180,8 @@ paths:
               schema: { $ref: "#/components/schemas/Health" }
         "403": { $ref: "#/components/responses/HostNotAllowed" }
         "405": { $ref: "#/components/responses/MethodNotAllowed" }
-        "500":
-          $ref: "#/components/responses/DatabaseError"
+        "500": { $ref: "#/components/responses/DatabaseError" }
+        "503": { $ref: "#/components/responses/ServerBusy" }
 
   /api/targets:
     get:
@@ -196,6 +204,7 @@ paths:
         "403": { $ref: "#/components/responses/HostNotAllowed" }
         "405": { $ref: "#/components/responses/MethodNotAllowed" }
         "500": { $ref: "#/components/responses/DatabaseError" }
+        "503": { $ref: "#/components/responses/ServerBusy" }
     head:
       tags: [database]
       operationId: headTargets
@@ -216,6 +225,7 @@ paths:
         "403": { $ref: "#/components/responses/HostNotAllowed" }
         "405": { $ref: "#/components/responses/MethodNotAllowed" }
         "500": { $ref: "#/components/responses/DatabaseError" }
+        "503": { $ref: "#/components/responses/ServerBusy" }
 
   /api/bootstrap:
     get:
@@ -249,6 +259,7 @@ paths:
         "403": { $ref: "#/components/responses/HostNotAllowed" }
         "405": { $ref: "#/components/responses/MethodNotAllowed" }
         "500": { $ref: "#/components/responses/DatabaseError" }
+        "503": { $ref: "#/components/responses/ServerBusy" }
     head:
       tags: [database]
       operationId: headBootstrap
@@ -269,6 +280,7 @@ paths:
         "403": { $ref: "#/components/responses/HostNotAllowed" }
         "405": { $ref: "#/components/responses/MethodNotAllowed" }
         "500": { $ref: "#/components/responses/DatabaseError" }
+        "503": { $ref: "#/components/responses/ServerBusy" }
 
   /api/summary:
     get:
@@ -299,6 +311,7 @@ paths:
         "404": { $ref: "#/components/responses/UnknownTarget" }
         "405": { $ref: "#/components/responses/MethodNotAllowed" }
         "500": { $ref: "#/components/responses/CorruptStats" }
+        "503": { $ref: "#/components/responses/ServerBusy" }
     head:
       tags: [database]
       operationId: headSummary
@@ -323,6 +336,7 @@ paths:
         "404": { $ref: "#/components/responses/UnknownTarget" }
         "405": { $ref: "#/components/responses/MethodNotAllowed" }
         "500": { $ref: "#/components/responses/CorruptStats" }
+        "503": { $ref: "#/components/responses/ServerBusy" }
 
   /api/functions:
     get:
@@ -358,6 +372,7 @@ paths:
         "404": { $ref: "#/components/responses/UnknownTarget" }
         "405": { $ref: "#/components/responses/MethodNotAllowed" }
         "500": { $ref: "#/components/responses/DatabaseError" }
+        "503": { $ref: "#/components/responses/ServerBusy" }
     head:
       tags: [database]
       operationId: headFunctions
@@ -387,6 +402,7 @@ paths:
         "404": { $ref: "#/components/responses/UnknownTarget" }
         "405": { $ref: "#/components/responses/MethodNotAllowed" }
         "500": { $ref: "#/components/responses/DatabaseError" }
+        "503": { $ref: "#/components/responses/ServerBusy" }
 
   /api/sections:
     get:
@@ -417,6 +433,7 @@ paths:
         "404": { $ref: "#/components/responses/UnknownTarget" }
         "405": { $ref: "#/components/responses/MethodNotAllowed" }
         "500": { $ref: "#/components/responses/DatabaseError" }
+        "503": { $ref: "#/components/responses/ServerBusy" }
     head:
       tags: [database]
       operationId: headSections
@@ -441,6 +458,7 @@ paths:
         "404": { $ref: "#/components/responses/UnknownTarget" }
         "405": { $ref: "#/components/responses/MethodNotAllowed" }
         "500": { $ref: "#/components/responses/DatabaseError" }
+        "503": { $ref: "#/components/responses/ServerBusy" }
 
   /api/globals:
     get:
@@ -471,6 +489,7 @@ paths:
         "404": { $ref: "#/components/responses/UnknownTarget" }
         "405": { $ref: "#/components/responses/MethodNotAllowed" }
         "500": { $ref: "#/components/responses/DatabaseError" }
+        "503": { $ref: "#/components/responses/ServerBusy" }
     head:
       tags: [database]
       operationId: headGlobals
@@ -499,6 +518,7 @@ paths:
         "404": { $ref: "#/components/responses/UnknownTarget" }
         "405": { $ref: "#/components/responses/MethodNotAllowed" }
         "500": { $ref: "#/components/responses/DatabaseError" }
+        "503": { $ref: "#/components/responses/ServerBusy" }
 
   /api/history:
     get:
@@ -530,6 +550,7 @@ paths:
         "404": { $ref: "#/components/responses/UnknownTarget" }
         "405": { $ref: "#/components/responses/MethodNotAllowed" }
         "500": { $ref: "#/components/responses/DatabaseError" }
+        "503": { $ref: "#/components/responses/ServerBusy" }
     head:
       tags: [database]
       operationId: headHistory
@@ -556,6 +577,7 @@ paths:
         "404": { $ref: "#/components/responses/UnknownTarget" }
         "405": { $ref: "#/components/responses/MethodNotAllowed" }
         "500": { $ref: "#/components/responses/DatabaseError" }
+        "503": { $ref: "#/components/responses/ServerBusy" }
 
 components:
   parameters:
@@ -573,17 +595,16 @@ components:
       in: query
       required: false
       description: |
-        A match status, matched case-insensitively and trimmed.  The legacy
-        spelling `NEAR_MATCH` is accepted as an alias of `NEAR_MATCHING`, so
-        the accepted set is the enum below plus that one value.  `UNKNOWN` is
-        the coverage DB default for a function with no STATUS, and is accepted
-        because the summary renders it as a filterable card.  A value
-        outside it is 400 `invalid_status` rather than an empty page, which
-        would read as "this target has no functions in that status".  A blank
-        value (`status=`) does not filter, like omitting it.
+        A match status, matched case-insensitively and trimmed.  `UNKNOWN`
+        is the coverage DB default for a function with no STATUS, and is
+        accepted because the summary renders it as a filterable card.  A value
+        outside the schema below is 400 `invalid_status` rather than an empty
+        page, which would read as "this target has no functions in that
+        status".  A blank value (`status=`) does not filter, like omitting it.
       schema:
-        type: string
-        enum: [EXACT, RELOC, PROVEN, NEAR_MATCHING, STUB, SKIP, UNKNOWN, INVALID_VA, MISSING_FILE, MISSING_SIZE, SIZE_MISMATCH, COMPILE_ERROR, EXTRACT_ERROR]
+        anyOf:
+          - $ref: "#/components/schemas/FilterStatus"
+          - $ref: "#/components/schemas/StatusAlias"
     Module:
       name: module
       in: query
@@ -591,7 +612,8 @@ components:
       description: |
         A module name as stored.  Omitting it does not filter; a *present*
         empty value (`module=`) matches rows with a blank module.  The value
-        is compared for equality, so `%` and `_` in it are ordinary
+        is trimmed first, so a whitespace-only value is that same blank-module
+        filter.  It is compared for equality, so `%` and `_` in it are ordinary
         characters and need no escaping.  A repeated parameter takes its
         first value.
       schema: { type: string }
@@ -603,7 +625,8 @@ components:
         A case-insensitive substring of the row's name (and symbol, on
         functions).  A hex number of four or more digits, with or without a
         `0x` prefix, also matches that virtual address exactly.  LIKE
-        wildcards are escaped.
+        wildcards are escaped.  Surrounding whitespace is trimmed, so a blank
+        value is no filter, like omitting it.
       schema: { type: string }
     Limit:
       name: limit
@@ -634,6 +657,22 @@ components:
       schema: { type: string }
 
   schemas:
+    FilterStatus:
+      type: string
+      description: |
+        The match statuses the coverage database column can hold, which is
+        exactly the set every status card in the summary can be filtered by.
+        `NEAR_MATCH` is accepted too (see `StatusAlias`); it is listed apart
+        so the vocabulary stays checkable against the database column.
+      enum: [EXACT, RELOC, PROVEN, NEAR_MATCHING, STUB, SKIP, UNKNOWN, INVALID_VA, MISSING_FILE, MISSING_SIZE, SIZE_MISMATCH, COMPILE_ERROR, EXTRACT_ERROR]
+    StatusAlias:
+      type: string
+      description: |
+        The legacy spelling of `NEAR_MATCHING`, accepted on request and
+        canonicalised to `NEAR_MATCHING` before the filter runs.  Rows are
+        never stored under it, so a response never carries it.
+      const: NEAR_MATCH
+
     Error:
       type: object
       description: |
@@ -665,6 +704,7 @@ components:
         - corrupt_function_stats
         - database_error
         - internal_error
+        - server_busy
         - bad_request
         - uri_too_long
         - header_fields_too_large
@@ -748,7 +788,7 @@ components:
         db: { type: string, description: Absolute path of the coverage database being served. }
         targets: { type: integer, minimum: 0, description: Target count read from the database. }
         requests: { type: integer, minimum: 0, description: Requests served since the server started. }
-        server_errors: { type: integer, minimum: 0, description: 5xx responses and unhandled handler faults since the server started. }
+        server_errors: { type: integer, minimum: 0, description: 5xx responses, including a connection refused by the in-flight cap, and unhandled handler faults since the server started. }
         slowest_ms: { type: number, minimum: 0, description: Slowest request handled since the server started, in milliseconds. }
 
     Summary:
@@ -1009,6 +1049,25 @@ components:
         read, `internal_error` for any other fault in a route.  A client
         that cannot branch any finer treats every 500 alike and retries
         later; the `code` is what distinguishes them.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+    ServerBusy:
+      description: |
+        The connection cap was full when this one arrived
+        (`server_busy`), so it is answered and closed without a handler and
+        without running the route.  Unlike every other status here, this one
+        costs nothing to retry: a slot frees when the client that holds it
+        closes its keep-alive connection, and `Retry-After` says how long to
+        wait for that.  A client that keeps retrying without waiting gets the
+        same answer every time.
+      headers:
+        Retry-After:
+          description: 'Seconds to wait before reconnecting.'
+          schema: { type: string }
+        Cache-Control: { $ref: "#/components/headers/CacheControl" }
+        X-Request-Id: { $ref: "#/components/headers/XRequestId" }
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }

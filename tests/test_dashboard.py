@@ -3541,10 +3541,16 @@ class TestConnectionCap:
         serve.start()
         return server, serve
 
-    def test_connection_past_the_cap_is_closed_on_arrival(
+    def test_connection_past_the_cap_is_refused_with_the_error_envelope(
         self, dashboard: Dashboard, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """A held-open connection must not buy a second thread and a second fd."""
+        """A held-open connection must not buy a second thread and a second fd.
+
+        The refusal is a 503, not a bare close: a client that sees the
+        connection drop has to guess between "the server died" and "try
+        again", while 503 plus ``Retry-After`` says both, in the same error
+        envelope every routed failure uses.
+        """
         import socket
 
         monkeypatch.setattr(_Handler, "timeout", 5.0)
@@ -3554,7 +3560,28 @@ class TestConnectionCap:
                 # Say nothing: the first handler thread stays parked in readline,
                 # so the cap is spent for as long as the peer holds the socket.
                 with socket.create_connection(server.server_address[:2], timeout=5) as second:
-                    assert second.recv(1) == b""
+                    second.settimeout(5.0)
+                    raw = b""
+                    while b"\r\n\r\n" not in raw:
+                        chunk = second.recv(4096)
+                        if not chunk:
+                            break
+                        raw += chunk
+                    head, _, body = raw.partition(b"\r\n\r\n")
+                    assert head.startswith(b"HTTP/1.1 503 "), head
+                    headers = {}
+                    for line in head.decode("ascii").split("\r\n")[1:]:
+                        name, _, value = line.partition(": ")
+                        headers[name] = value
+                    assert headers["Retry-After"] == "1"
+                    assert headers["Content-Type"] == "application/json; charset=utf-8"
+                    assert headers["Cache-Control"] == "no-store"
+                    assert headers["X-Content-Type-Options"] == "nosniff"
+                    assert headers["X-Request-Id"].startswith("r")
+                    assert json.loads(body)["code"] == "server_busy"
+                    assert "1 of 1" in json.loads(body)["error"]
+                    # The response is complete: the length is the body it sent.
+                    assert int(headers["Content-Length"]) == len(body)
                 first.settimeout(0.5)
                 with pytest.raises(TimeoutError):
                     first.recv(1)
@@ -3563,6 +3590,37 @@ class TestConnectionCap:
             server.server_close()
             serve.join(timeout=5)
             assert not serve.is_alive()
+
+    def test_a_refused_connection_counts_as_a_server_error(
+        self, dashboard: Dashboard, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A run that is shedding clients is a run the error total must show.
+
+        The refusal is written without a handler, so it never reaches
+        ``log_request``; without the explicit count, ``/api/health`` reported
+        a clean run while every client it had was being turned away.
+        """
+        import socket
+
+        from rebrew.dashboard import served_totals
+
+        monkeypatch.setattr(_Handler, "timeout", 5.0)
+        _Handler.reset_served_totals()
+        server, serve = self._server(dashboard, 1, monkeypatch)
+        try:
+            assert served_totals()["server_errors"] == 0
+            with (
+                socket.create_connection(server.server_address[:2], timeout=5),
+                socket.create_connection(server.server_address[:2], timeout=5) as second,
+            ):
+                second.settimeout(5.0)
+                while second.recv(4096):
+                    pass
+            assert served_totals()["server_errors"] == 1
+        finally:
+            server.shutdown()
+            server.server_close()
+            serve.join(timeout=5)
 
     def test_slot_comes_back_when_the_handler_thread_ends(
         self, dashboard: Dashboard, monkeypatch: pytest.MonkeyPatch
@@ -3697,8 +3755,28 @@ class TestOpenApiSpec:
         status the summary renders as a card can always be filtered on."""
         from rebrew.workspace.status import COVERAGE_DB_STATUSES
 
-        declared = _spec()["components"]["parameters"]["Status"]["schema"]["enum"]
+        declared = _spec()["components"]["schemas"]["FilterStatus"]["enum"]
         assert sorted(declared) == sorted(COVERAGE_DB_STATUSES)
+
+    def test_documented_status_alias_is_the_one_the_route_accepts(self) -> None:
+        """A legacy spelling the route folds in has to be in the schema.
+
+        The enum is the DB column's own vocabulary, so the alias is declared
+        beside it.  A client generated from a schema that omits it can neither
+        send the value nor recognise it as valid, and a client that does send
+        it gets 200 while its own validator says the request was impossible.
+        """
+        from rebrew.metadata import canonical_status
+
+        schema = _spec()["components"]["parameters"]["Status"]["schema"]
+        branches = [ref["$ref"].rsplit("/", 1)[-1] for ref in schema["anyOf"]]
+        assert branches == ["FilterStatus", "StatusAlias"]
+        alias = _spec()["components"]["schemas"]["StatusAlias"]["const"]
+        assert alias == "NEAR_MATCH"
+        # The declared alias is exactly the fold the route applies: an accepted
+        # value that lands inside the vocabulary, not a second spelling of its own.
+        assert canonical_status(alias) in _spec()["components"]["schemas"]["FilterStatus"]["enum"]
+        assert alias not in _spec()["components"]["schemas"]["FilterStatus"]["enum"]
 
     def test_error_codes_are_all_reachable(self) -> None:
         """A documented code the server can never emit is a lie to branch on."""
@@ -3771,7 +3849,7 @@ class TestOpenApiSpec:
                 responses = item[method]["responses"]
                 uncacheable = path in _UNCACHEABLE_ROUTES
                 assert ("304" in responses) is not uncacheable, (path, method)
-                for status in ("403", "405", "500"):
+                for status in ("403", "405", "500", "503"):
                     assert status in responses, (path, method, status)
         # The 405 documents the methods it refuses by; a client that cannot
         # read the Allow header has no way to know which verb to use.

@@ -7,6 +7,23 @@
   runner (the outer suite runs it beside the other subprocess tests) turned
   into a `TimeoutExpired` that reads as a color-handling regression. The
   budget is 180 seconds; the same command finishes in seconds once warm.
+- **A connection past the dashboard's in-flight cap is answered, not dropped.**
+  The 64-connection admission cap closed the socket with no bytes, so a client
+  that tripped it had to guess between "the server died" and "try again", and
+  got neither a status to branch on nor the ordinary `{"error", "code"}`
+  envelope every other failure uses. The refusal is now 503 `server_busy` with
+  `Retry-After: 1`, the same envelope, the same hardening headers, and its own
+  `X-Request-Id` (the log line carried an unassigned `-`, so a reported
+  refusal had no id to grep for). Additive: a client that already retried a
+  dropped connection retries this one, and one that did not has something to
+  read.
+- **The dashboard's OpenAPI `status` parameter declared fewer values than the
+  route accepts.** `/api/functions` folds the legacy spelling `NEAR_MATCH` into
+  `NEAR_MATCHING` before filtering, but the schema's enum listed only the
+  coverage DB's own vocabulary, so a generated client could neither send the
+  value nor validate a request built with it. The enum is now the
+  `FilterStatus` schema and the alias is declared beside it as `StatusAlias`,
+  which is exactly the fold the route applies.
 
 ## [2.15.0] - 2026-09-28
 

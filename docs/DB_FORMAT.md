@@ -524,7 +524,9 @@ Clients read the applied values back from the envelope.
 > `{"error": "<message>", "code": "<machine-readable code>"}`; branch on
 > `code` (`missing_target`, `unknown_target`, `invalid_status`, `not_found`,
 > `method_not_allowed`, `host_not_allowed`, `corrupt_function_stats`,
-> `database_error`, `internal_error`, plus `bad_request` / `uri_too_long` /
+> `database_error`, `internal_error`, `server_busy` (a connection refused
+> because the 64-connection cap was full, answered before routing with
+> `Retry-After: 1`), plus `bad_request` / `uri_too_long` /
 > `header_fields_too_large` / `http_version_not_supported` for requests
 > rejected before routing, and `request_error` for any other status raised
 > there). Every response, error included, carries `X-Request-Id: r<N>`, the id
