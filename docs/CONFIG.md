@@ -28,6 +28,11 @@ bin_dir = "bin/target_name"
 # origins = ["GAME", "ZLIB"]             # Recorded by `rebrew cfg add-target`; informational
 # only — module filters come from the annotations themselves
 # library_modules = ["MSVCRT", "ZLIB"]   # Modules that should use LIBRARY markers
+# raw_link = "bin/target_name/target_name_pre.dll"  # Image as the linker emitted
+# it, before any `rebrew postlink` fixer rewrote it. Optional; when it is set,
+# `rebrew status` compares against this file instead of `build/<target>`, so a
+# fixer-supplied byte is not reported as a regression. A configured path that
+# does not exist is an error, never a silent fallback to the postlinked image.
 # layout = "layout/target_name"          # Position-alignment package printed by
 # `rebrew gen-layout --layout-config`; parsed by the layout tooling, not the loader
 
@@ -69,6 +74,7 @@ libs = "toolchain/msvc/6.0-win32/source/VC98/Lib"
 | `external_ranges` | `[targets.<name>].external_ranges` | Inclusive address bands (`["0x5e0000-0x64ffff"]`) the binary fills from a statically linked library rather than project sources; tools that enumerate work left skip them |
 | `defines` | `[targets.<name>].defines` | Per-target compile-time defines (`["CLIENT"]`, `["CLIENT=1"]`) for shared multi-version sources (ADR-010). Each entry is `NAME` or `NAME=value` with no whitespace; anything else fails at load instead of compiling the wrong `#ifdef` side. `NAME=value` is emitted as `/DNAME=value` (or `-DNAME=value`) |
 | `library_modules` | `[targets.<name>].library_modules` | Module names that use `LIBRARY` markers |
+| `raw_link` | `[targets.<name>].raw_link` | Pre-postlink image to compare against instead of `build/<target>`; gates `rebrew verify --raw-link` and the `postlink-mangled` todo category. Unset by default |
 | `source_ext` | `[targets.<name>].source_ext` | Source extension used when discovering and creating files |
 | `ghidra_program_path` | `[targets.<name>].ghidra_program_path` | ReVa MCP program path override |
 | `origins` | `[targets.<name>].origins` | The target's module list, managed by `rebrew add-module` / `rebrew remove-module`. Carried for the editor and UI only; annotation filtering reads the markers themselves, not this list |

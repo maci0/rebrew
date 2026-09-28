@@ -2547,8 +2547,7 @@ class TestHostValidation:
         _, _, html = dashboard.handle("GET", "/", {})
         assert (
             f'<link rel="icon" href="/favicon.svg?v={_FAVICON_VERSION}" type="image/svg+xml"'
-            ' fetchpriority="low">'
-            in html
+            ' fetchpriority="low">' in html
         )
         assert "data:image/svg+xml" not in html
 

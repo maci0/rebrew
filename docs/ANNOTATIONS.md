@@ -247,8 +247,8 @@ functions the cache overrode, and how many are stuck on `MISSING_SIZE`
 (metadata `SIZE` missing → verify could not extract the function; set `SIZE`
 via `rebrew catalog --fix-sizes` or the inline `// SIZE:` marker and
 re-verify).  JSON output carries the same numbers
-under `verify_cache: {overrides, missing_size}` (present only when a verify
-cache exists).
+under `verify_cache: {overrides, missing_size, effective_matches}` (present
+only when a verify cache exists).
 
 `rebrew prove` applies the same overlay to its status gate: a function whose
 metadata `STATUS` lags (e.g. a flag-swept function still marked `STUB`) is

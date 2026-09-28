@@ -55,7 +55,7 @@ while `/G5`, `/G6` and `/QIfist` are accepted.  SSE/SSE2 code is written
 with the pack's intrinsics, or assembled from `.asm` with the shipped MASM.
 
 The `13.10.xxxx` compiler line belongs to VC7.1 (Visual Studio .NET 2003:
-`msvc-7.1` = 13.10.3077, `msvc710_sp1` = 13.10.6030), not to this pack.  The
+`msvc-7.1` = 13.10.3077, `msvc-7.1-sp1` = 13.10.6030), not to this pack.  The
 pack is SP5-only; SP6 removes it.
 
 ---

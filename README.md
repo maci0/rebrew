@@ -33,7 +33,7 @@ Rebrew is a reusable Python tooling package for reconstructing exact C source co
 | `rebrew rename` | Rename a function across the entire codebase (symbol, filename, cross-references) |
 | `rebrew split` | Break multi-function `.c` files into individual files; `--va` to extract one function |
 | `rebrew merge` | Combine single-function files into one multi-function file |
-| `rebrew lint` | Validate source marker correctness (10 E-codes, 20 W-codes incl. W019 inline-metadata and W020 asm-dump warnings; see ANNOTATIONS.md for the emitted set) |
+| `rebrew lint` | Validate source marker correctness (10 E-codes, 23 W-codes incl. W019 inline-metadata and W020 asm-dump warnings; see ANNOTATIONS.md for the emitted set) |
 
 ### Analysis
 
@@ -486,7 +486,7 @@ make test-one T=tests/test_annotation.py   # single-file edit-test loop
 make test                  # full suite (needs nasm + node)
 make lint                  # ruff check (same as CI)
 make format                # ruff format (writes)
-make all                   # local mirror of CI lint + test + cli-contract
+make all                   # local gates: format-check, lint, mypy, audit, coverage, gen-fixtures-check, cycles-check, layering-check, idempotency-check, cli-contract
 make check                 # pre-commit hook parity (before a PR)
 make build                 # sdist + wheel + dist/rebrew.buildinfo (CI package job)
 make clean                 # remove build/dist artifacts and caches

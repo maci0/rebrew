@@ -165,7 +165,7 @@ make format-check                     # ruff format --check
 make mypy                             # type check (0 issues expected; strict,
                                         # covers src/rebrew + tools + every tests/ module
                                         # that has come clean; the rest is not yet clean)
-make check                            # 16 of 18 pre-commit hooks — pytest (pre-push) and
+make check                            # 17 of 19 pre-commit hooks — pytest (pre-push) and
                                         # validate-skill-commands (manual) are stage-gated.
                                         # Exports NO_COLOR / TERM=dumb /
                                         # _TYPER_FORCE_DISABLE_TERMINAL first, so a
@@ -175,7 +175,7 @@ make check                            # 16 of 18 pre-commit hooks — pytest (pr
                                         # raw pre-commit call below does not, which is
                                         # why the make target is the documented one.
 NO_COLOR=1 TERM=dumb _TYPER_FORCE_DISABLE_TERMINAL=1 \
-  uv run --frozen pre-commit run --all-files   # same 18 hooks, ANSI-safe by hand
+  uv run --frozen pre-commit run --all-files   # same 17 hooks, ANSI-safe by hand
 make all                                # local gates: format-check, lint, mypy, audit, coverage, gen-fixtures-check, cycles-check, layering-check, idempotency-check, cli-contract
 make cli-contract                       # high-value --help greps (CI cli-contract job)
 make gen-fixtures                       # regenerate tests/fixtures/ (then commit)

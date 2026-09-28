@@ -40,7 +40,7 @@ Three ideas carry the whole tool:
 | Python 3.13+ and `uv` | runs rebrew | [uv installer](https://docs.astral.sh/uv/getting-started/installation/); `uv python install 3.13` |
 | docker | **every** compiler runs inside an image (wine/DOSBox live there; there is no host-wine path) | your distro's `docker` |
 | rizin | the main function discoverer (capstone sweep / eh_frame / pdata are fallbacks) | `apt install rizin` |
-| rebrew-flirt-sigs (optional) | signature sets for `rebrew flirt --init-matched`; only `flirt` needs them, and only when you point `REBREW_FLIRT_SIGS_DIR` at a non-directory | `git clone https://github.com/maci0/rebrew-flirt-sigs` next to this project |
+| rebrew-flirt-sigs (optional) | signature sets for `rebrew flirt --init-matched`; only `flirt` needs them. rebrew looks for a sibling of its own install, so clone it next to rebrew (not next to the project) or point `REBREW_FLIRT_SIGS_DIR` at the checkout; a value that is not a directory fails `rebrew flirt` outright | `git clone https://github.com/maci0/rebrew-flirt-sigs` next to your rebrew checkout |
 | A binary | the thing you are reversing | yours |
 
 Install rebrew itself:

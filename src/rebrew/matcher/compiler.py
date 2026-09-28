@@ -555,7 +555,7 @@ def build_candidate_obj_only(
                 # source's parent dir must reach the container for relative
                 # #include resolution (rebrew diff / flag sweep).
                 extra_include_dirs=extra_include_dirs,
-                # A --sweep-toolchain run swaps the compiler per iteration —
+                # A --flag-sweep-toolchains run swaps the compiler per iteration —
                 # the profile must drive the image, not the project default.
                 toolchain=profile,
             )

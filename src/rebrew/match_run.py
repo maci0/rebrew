@@ -211,7 +211,7 @@ def run_single_ga(
         kuna_snippet = kuna_seed_source(p.cfg.target_binary, p.va_int, p.cfg.root)
         if kuna_snippet is None:
             console.print(
-                "[yellow]warning:[/yellow] --kuna-seed set but kuna produced no "
+                "[yellow]warning:[/yellow] --seed-kuna set but kuna produced no "
                 "compilable C (install the kuna binary — "
                 "github.com/Noelo-Lab/kuna); running without the kuna seed"
             )
@@ -390,7 +390,7 @@ def _save_solution(
             return
         save_solution(cfg.root, entry)
     except Exception:
-        # A failed save silently breaks --seed-from-solved / find_similar for
+        # A failed save silently breaks --seed-solved / find_similar for
         # this function; visible at WARNING, not swallowed at DEBUG.
         log.warning("Solution save failed for %s", symbol, exc_info=True)
 
@@ -1174,7 +1174,7 @@ def run_all(
                     )
         except Exception:
             # Seeding is a batch-time enhancement, but a failed load silently
-            # disables --seed-from-solved for the whole batch — warn at
+            # disables --seed-solved for the whole batch, so warn at
             # WARNING so the user knows the run was not seed-informed.
             log.warning("Solution list load failed — cross-project seeding disabled", exc_info=True)
 

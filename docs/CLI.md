@@ -749,6 +749,9 @@ document stores them in.
 | `--gen-header` | Output `rebrew_globals.h` locally without fetching from Ghidra |
 | `--gen-header-out PATH` | Override output path for `--gen-header` (default: `{reversed_dir}/rebrew_globals.h`) |
 | `--force` | Overwrite an existing file when using `--gen-header` |
+| `--set-type 0xVA=TYPE` | Write a global's declared type into `rebrew-data.toml` (repeatable) |
+| `--set-section 0xVA=.data` | Write a global's PE section into `rebrew-data.toml` (repeatable) |
+| `--dry-run` | Preview changes without writing (applies to every mode that writes) |
 | `--json` | JSON output for all modes |
 
 ### `rebrew graph`
@@ -1443,7 +1446,7 @@ pre-extension `requested_size`.
 
 ### `rebrew imports`
 
-`rebrew imports [--json] [--target NAME]`
+`rebrew imports [BINARY] [--mark] [--dry-run] [--json] [--target NAME]`
 
 List the PE import table of the target binary (DLL → API, with IAT slot VAs)
 and detect `jmp [IAT]` import stubs.  Used to spot which functions are
@@ -1842,7 +1845,7 @@ Read-only.
 | `add-module NAME [--dry-run] [--json] [--target T]` / `remove-module NAME [--force] [--dry-run] [--json] [--target T]` | Manage a target's `origins` list |
 | `set-cflags MODULE FLAGS [--dry-run] [--json] [--target T]` | Set a module's cflags preset (global, or per-target with `--target`) |
 | `set-compiler TARGET PROFILE [--dry-run] [--json]` | Write a compiler profile (`msvc-6.0`, `msvc-7.0`, `clang-18.1.8`, `gcc-14.2.0`) onto a target |
-| `detect-crt [--write] [--dry-run]` | Scan `toolchain/` for known MSVC CRT source dirs |
+| `detect-crt [-w/--write] [--dry-run] [--json] [--target T]` | Scan `toolchain/` for known MSVC CRT source dirs |
 | `raw` | Dump `rebrew-project.toml` as JSON (`--format toml` for TOML) |
 | `effective [--json] [--target T]` | Print the values in force after env and default resolution; secrets redacted, env var names (not values) listed under `env_overrides` |
 | `path [--json]` | Print the path to `rebrew-project.toml` |
@@ -2913,7 +2916,7 @@ See [CI.md](CI.md) for workspace CI recipes (`verify --compare`,
 | `matcher/parsers.py` | COFF `.obj` and PE byte extraction (LIEF-based) |
 | `matcher/mutator.py` | 128 C mutation operators for GA |
 | `matcher/core.py` | GA types (`Score`, `BuildResult`, `GACheckpoint`) |
-| `solutions.py` | Cross-function solution transfer database (`.rebrew/ga_runs.jsonl` win records) |
+| `matcher/solutions.py` | Cross-function solution transfer database (`.rebrew/ga_runs.jsonl` win records) |
 
 ### Source Markers, Metadata & Sync
 

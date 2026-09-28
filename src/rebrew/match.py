@@ -419,7 +419,7 @@ def main(
         # "the endpoint returned nothing usable".
         error_exit(
             "--seed-llm is single-function only (batch mode seeds from "
-            "--seed-solutions-file and --extra-seed); run one target at a time",
+            "--seed-solutions-file and --seed-file); run one target at a time",
             json_mode=json_output,
         )
 
