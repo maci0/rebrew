@@ -272,7 +272,12 @@ only, and `db/verify_results.json` is gone).
 > `va` is dropped. Clamped `(target, va)` keys that collide keep the
 > latest row.  `--force` unlinks the file rather than dropping the table, so
 > every column of every row is read out beforehand and re-inserted inside the
-> rebuild's transaction.
+> rebuild's transaction, through the SAME clamping projection the in-place
+> migration uses (`verify_results_clamp_select`).  The saved rows land in an
+> unguarded staging table first: the current CHECKs would reject a pre-CHECK
+> row, and re-inserting it raw either dropped it silently (`INSERT OR IGNORE`
+> treats a CHECK violation as a reason to skip) or aborted the rebuild after
+> the file had already been unlinked.
 
 ### `history` Table
 Tracks function status changes over time.
@@ -309,8 +314,12 @@ no separate index over them.
 > transition, and the dedupe partitions on the *clamped* values because the
 > clamp can fuse two stored rows into one transition.  `--force` unlinks the
 > file rather than dropping the table, so every row is read out beforehand and
-> re-inserted inside the rebuild's transaction, skipping a transition already
-> recorded.
+> re-inserted inside the rebuild's transaction through the SAME clamping
+> projection the in-place migration uses (`history_clamp_select`), skipping a
+> transition already recorded.  The saved rows land in an unguarded staging
+> table first: a pre-CHECK row (negative VA, out-of-vocabulary status, empty
+> `changed_at`) re-inserted raw raised a CHECK failure inside the transaction,
+> after the file had already been unlinked, leaving no database at all.
 >
 > The UNIQUE does not replace that dedupe: SQLite treats NULLs as DISTINCT
 > inside a UNIQUE index, so two rows that both carry a NULL
