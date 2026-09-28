@@ -17,12 +17,16 @@ is rearmed per chunk, so the body read also compares the monotonic clock
 against the deadline the request started with.
 
 Untrusted boundaries: the seed source is project C (may contain adversarial
-fence breakouts if copied from elsewhere); the model response is never executed
+fence breakouts, chat-template control tokens, or bare role headers if copied
+from elsewhere); the model response is never executed
 — only tree-sitter-valid snippets that are a single top-level function
 definition (comments allowed), matching name *and* prototype, with no
 preprocessor directives, pragma operators, or inline asm (including forms that
 appear only after trigraph replacement or backslash-newline splicing), and
-size caps.  Request cost is bounded by source
+size caps.  A fenced block is scanned as C, so a ```` ``` ```` inside a string
+literal, a char literal, or a comment is part of the code instead of ending
+the block, and a fence tagged for another language is skipped whole.  Request
+cost is bounded by source
 truncation, ``max_tokens``, ``n=1``, an HTTP body ceiling before JSON parse,
 a cap on how many fenced blocks one response may put through the C gate plus a
 stop at the requested seed count (so a response stuffed with fenced blocks
@@ -186,6 +190,15 @@ _CONTROL_TOKENS_RE = re.compile(
 _DELIM_KEYWORD_RE = re.compile(r"\b(?:END_)?C_SOURCE\b", re.IGNORECASE)
 # Three or more angle brackets: the shape of the prompt's data delimiters.
 _ANGLE_RUN_RE = re.compile(r"<{3,}|>{3,}")
+# A line that is nothing but a role header.  ``build_prompt`` renders each turn
+# as ``[role]`` on its own line, so a source line spelled the same way ends the
+# user turn and opens a new one in front of a model that flattens ``messages``
+# into a single prompt (a local llama.cpp / vLLM chat template, or a provider
+# that renders the roles itself).  The roles match the ones the prompt uses.
+_ROLE_HEADER_RE = re.compile(
+    r"(?m)^[ \t]*\[(?:system|user|assistant|tool|developer)\][ \t]*$",
+    re.IGNORECASE,
+)
 # Root children allowed beside the single function_definition.
 _ALLOWED_TOP_LEVEL = frozenset({"function_definition", "comment"})
 
@@ -397,8 +410,9 @@ def _sanitize_source(source: str) -> str:
 
     Project C never needs literal ```; neutralizing them stops a retrieved or
     pasted snippet from closing a prompt fence and injecting instructions.
-    Also neutralize the XML-ish delimiters used in the user prompt and special
-    chat-template control tokens.  Invisible reordering characters go too, for
+    Also neutralize the XML-ish delimiters used in the user prompt, special
+    chat-template control tokens, and a line that is nothing but a role
+    header.  Invisible reordering characters go too, for
     the reason every other rebrew display surface strips them: a source that
     renders one way to a reader and another to the model (or hides a directive
     inside an override) is the same attack the display rule already refuses.
@@ -410,6 +424,11 @@ def _sanitize_source(source: str) -> str:
     text = text.replace("```", "'''")
     # Neutralize delimiter keyword variants inside the data block.
     text = _DELIM_KEYWORD_RE.sub("C_DATA", text)
+    # A bare role header is the one spelling that ends the user turn on a model
+    # rendering the roles into the prompt text, so it cannot stay a line of
+    # its own.  Renamed rather than deleted: it keeps the source's line count
+    # and stays legible in a --dry-run preview.
+    text = _ROLE_HEADER_RE.sub("[C_DATA]", text)
     # Break every <<< / >>> run (no valid C token) so no case or spacing
     # variant of our delimiters can fake the end of the data block.
     text = _ANGLE_RUN_RE.sub(lambda m: " ".join(m.group(0)), text)
@@ -669,18 +688,117 @@ def _resolve_model(cfg: Any) -> str:
     return validate_llm_model(model)
 
 
-#: ```c fenced block — code may start on the fence line itself
-#: (```c int f(void) {...}```) or on the next line; the fence may also carry
-#: a language tag in either case (```C) or none.
-_FENCE_RE = re.compile(r"```(?:c|C)?[ \t]*(?:\n)?(.*?)(?:\n```|```)", re.DOTALL)
+_FENCE = "```"
+#: Language tags that introduce C.  A block tagged anything else is prose or
+#: another language: it is skipped whole (its closing fence consumed with it,
+#: so the fences stay paired and a real C block cannot be half-swallowed), and
+#: it never reaches the C gate, so it cannot spend one of the
+#: :data:`_MAX_SEED_ATTEMPTS` parses the response budget allots.
+_FENCE_TAGS = frozenset({"", "c", "c++", "cpp", "cc"})
+#: Word chars the language tag is spelled from, so ```c int f(void) {...}```
+#: reads the tag as ``c`` and the block as the code after it.
+_FENCE_TAG_RE = re.compile(r"[A-Za-z0-9_+#.]*")
+
+
+def _find_fence_end(text: str, start: int) -> int | None:
+    """Index of the fence closing a block whose body begins at *start*, else None.
+
+    Walks the body as C rather than as prose: a ````` that sits inside a string
+    literal, a char literal, or a comment is part of the code, not the end of
+    the block.  A regex with a non-greedy body stops at the first ````` it
+    sees, so ``char *s = "```";`` truncated the function mid-string and the
+    seed was lost to a parse error that had nothing to do with the code.
+
+    Returns None when the block is unterminated: the rest of a response the
+    model cut off is not a seed, and treating its text as one would hand the
+    GA a fragment.
+    """
+    i = start
+    end = len(text)
+    quote = ""  # active string/char literal delimiter, "" outside one
+    in_block_comment = False
+    while i < end:
+        if in_block_comment:
+            if text.startswith("*/", i):
+                in_block_comment = False
+                i += 2
+            else:
+                i += 1
+            continue
+        if quote:
+            if text[i] == "\\":
+                i += 2
+            elif text[i] == quote:
+                quote = ""
+                i += 1
+            else:
+                i += 1
+            continue
+        pair = text[i : i + 2]
+        if pair == "/*":
+            in_block_comment = True
+            i += 2
+        elif pair == "//":
+            newline = text.find("\n", i)
+            i = end if newline == -1 else newline + 1
+        elif text[i] in "\"'":
+            quote = text[i]
+            i += 1
+        elif text.startswith(_FENCE, i):
+            return i
+        else:
+            i += 1
+    return None
+
+
+def _fenced_c_blocks(text: str) -> list[str]:
+    """Every C-tagged fenced block in *text*, whole and unstripped.
+
+    The tag is whatever follows the opening fence up to the first character
+    that cannot be part of it, so a block that starts on the fence line
+    (`````c int f(void) { return 1; }``) keeps its code instead of having it
+    read as the tag.  A block tagged for another language is skipped whole,
+    closing fence included, so the fences stay paired and a C block cannot be
+    half-swallowed by a prose block's backticks.
+    """
+    blocks: list[str] = []
+    i = 0
+    end = len(text)
+    while i < end:
+        start = text.find(_FENCE, i)
+        if start == -1:
+            return blocks
+        match = _FENCE_TAG_RE.match(text, start + len(_FENCE))
+        body_start = start + len(_FENCE)
+        tag = ""
+        if match is not None:
+            body_start = match.end()
+            tag = match.group().lower()
+        close = _find_fence_end(text, body_start)
+        if close is None:
+            return blocks
+        if tag in _FENCE_TAGS:
+            blocks.append(text[body_start:close])
+        i = close + len(_FENCE)
+    return blocks
 
 
 def extract_seeds(text: str) -> list[str]:
-    """Extract ```c fenced code blocks from an LLM response."""
+    """Extract C fenced code blocks from an LLM response.
+
+    Only blocks the fence tag claims are C are returned, and only whole ones:
+    an unterminated fence, an empty block, and a block past
+    :data:`_MAX_SEED_CHARS` are dropped here rather than spending one of the
+    :data:`_MAX_SEED_ATTEMPTS` tree-sitter parses the response budget allows.
+    """
     if len(text) > _MAX_RESPONSE_CHARS:
         text = text[:_MAX_RESPONSE_CHARS]
-    blocks = _FENCE_RE.findall(text)
-    return [b.strip() for b in blocks if b.strip() and len(b.strip()) <= _MAX_SEED_CHARS]
+    seeds = []
+    for block in _fenced_c_blocks(text):
+        seed = block.strip()
+        if seed and len(seed) <= _MAX_SEED_CHARS:
+            seeds.append(seed)
+    return seeds
 
 
 def _trigraph_repl(match: re.Match[str]) -> str:
