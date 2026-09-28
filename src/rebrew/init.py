@@ -349,6 +349,7 @@ def _copy_agent_skills(dest: Path, target_name: str) -> None:
     dest_skills = dest / ".agents" / "skills"
     dest_root = dest_skills.resolve()
     written = 0
+    refused = 0
     rendered: dict[str, bytes] = {}
     for rel, data in files.items():
         # User/community overlays (REBREW_SKILLS_DIR) feed this map: refuse
@@ -357,15 +358,20 @@ def _copy_agent_skills(dest: Path, target_name: str) -> None:
         rel_path = Path(rel)
         if rel_path.is_absolute() or ".." in rel_path.parts:
             console.print(f"[yellow]warning:[/yellow] skipping unsafe skill path {rel!r}")
+            refused += 1
             continue
         out = (dest_skills / rel_path).resolve()
         if not out.is_relative_to(dest_root):
             console.print(f"[yellow]warning:[/yellow] skipping escaping skill path {rel!r}")
+            refused += 1
             continue
         out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_bytes(data)
+        # Skip a byte-equal file, so a re-run leaves the skill tree's mtimes
+        # alone instead of reporting a regeneration that did not happen.
+        if not out.is_file() or out.read_bytes() != data:
+            out.write_bytes(data)
+            written += 1
         rendered[rel_path.as_posix()] = data
-        written += 1
 
     if rendered:
         _write_scaffold_manifest(
@@ -374,8 +380,10 @@ def _copy_agent_skills(dest: Path, target_name: str) -> None:
 
     if written:
         console.print("[green]Created .agents/skills/[/] (AI workflow instructions)")
-    else:
-        console.print("[yellow]warning:[/yellow] no agent-skills written (all paths skipped).")
+    if not written and refused:
+        console.print(
+            f"[yellow]warning:[/yellow] no agent-skills written ({refused} path(s) skipped)."
+        )
 
 
 def _write_completion_scripts(project_root: Path) -> list[Path]:

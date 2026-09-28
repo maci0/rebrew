@@ -14,6 +14,7 @@ from hypothesis import example, given, settings
 from hypothesis import strategies as st
 
 from rebrew.gen_layout import (
+    _imp_suffix,
     _resolve_imports,
     gen_crt_imports,
     gen_def,
@@ -531,3 +532,29 @@ def test_parse_pe_shaped_bytes_hold_invariants(blob: bytes) -> None:
     ``sections_at`` on the fields both read out of the same bytes.
     """
     _exercise_parse_pe(blob)
+
+
+class TestImpSuffix:
+    def test_picks_the_lowest_sorted_decoration_when_a_lib_has_several(self) -> None:
+        """A lib carrying two decorated variants of one name must resolve the
+        same way in every process, so a re-run of ``gen-layout`` rewrites the
+        same ``/include`` line rather than a hash-order dependent one.
+
+        The filler symbols matter: with only the two variants in the set, the
+        pre-fix first-match-wins loop happens to agree across seeds, and the
+        set has to be import-lib sized to expose the dependence.
+        """
+        lib_symbols = {f"__imp__Api{i}@{4 * (i % 13) + 4}" for i in range(300)}
+        lib_symbols |= {"__imp__CloseHandle@8", "__imp__CloseHandle@12"}
+        assert _imp_suffix("CloseHandle", lib_symbols, {}) == "CloseHandle@12"
+
+    def test_ignores_other_names_in_the_lib(self) -> None:
+        lib_symbols = {"__imp__CreateFileA@12", "__imp__CloseHandle@8"}
+        assert _imp_suffix("CloseHandle", lib_symbols, {}) == "CloseHandle@8"
+        assert _imp_suffix("CreateFileA", lib_symbols, {}) == "CreateFileA@12"
+
+    def test_falls_back_to_the_ordinal_map_when_the_lib_has_no_match(self) -> None:
+        assert _imp_suffix("send", set(), {"send": 16}) == "send@16"
+
+    def test_returns_none_without_a_decoration(self) -> None:
+        assert _imp_suffix("CloseHandle", {"__imp__CreateFileA@12"}, {}) is None

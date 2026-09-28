@@ -249,8 +249,14 @@ def _import_lib_symbols_from_image(dll_stem: str) -> set[str]:
 
 
 def _imp_suffix(name: str, lib_symbols: set[str], ordinal_map: dict[str, int]) -> str | None:
-    """Find the decorated suffix (``@N``) for an import name."""
-    for sym in lib_symbols:
+    """Find the decorated suffix (``@N``) for an import name.
+
+    ``sorted`` because a lib can carry more than one decorated variant of the
+    same name.  Iterating the set directly makes the winner a function of
+    ``PYTHONHASHSEED``, so two runs of ``gen-layout`` in different processes
+    can emit different ``/include`` decorations for the same input.
+    """
+    for sym in sorted(lib_symbols):
         if sym.startswith(f"__imp__{name}@"):
             return sym[len("__imp__") :]
     if name in ordinal_map:

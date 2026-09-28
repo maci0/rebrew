@@ -741,6 +741,36 @@ class TestInitAgentSkills:
         }
         assert second == first
 
+    def test_copies_leaves_untouched_files_alone(self, tmp_path: Path) -> None:
+        """A byte-equal re-run must not rewrite the tree: bumping every mtime
+        would report a regeneration that did not happen to anything watching
+        the scaffold for changes."""
+        import os
+
+        from rebrew.init import _copy_agent_skills
+
+        _copy_agent_skills(tmp_path, "test")
+        skills = tmp_path / ".agents" / "skills"
+        before = {
+            p.relative_to(skills).as_posix(): p.stat().st_mtime_ns
+            for p in skills.rglob("*")
+            if p.is_file()
+        }
+        assert before, "no skill files were rendered"
+        os.utime(next(skills.rglob("SKILL.md")), (0, 0))
+        before = {
+            p.relative_to(skills).as_posix(): p.stat().st_mtime_ns
+            for p in skills.rglob("*")
+            if p.is_file()
+        }
+        _copy_agent_skills(tmp_path, "test")
+        after = {
+            p.relative_to(skills).as_posix(): p.stat().st_mtime_ns
+            for p in skills.rglob("*")
+            if p.is_file()
+        }
+        assert after == before
+
     def test_skips_traversing_skill_paths(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
