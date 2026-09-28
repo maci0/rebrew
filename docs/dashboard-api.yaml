@@ -754,11 +754,11 @@ components:
     Health:
       type: object
       description: |
-        Liveness plus one real read of the target list.  The three running
-        totals are there so a probe can watch the error rate while the
+        Liveness plus one real read of the target list.  The running totals
+        are there so a probe can watch the error rate while the
         server is up, rather than learning of a run that fails every query
         only when the process stops.
-      required: [status, coverage_dir, targets, requests, server_errors, slowest_ms]
+      required: [status, coverage_dir, targets, requests, server_errors, slowest_ms, active_connections]
       properties:
         status: { type: string, const: ok }
         coverage_dir: { type: string, description: Absolute path of the coverage directory being served. }
@@ -766,6 +766,7 @@ components:
         requests: { type: integer, minimum: 0, description: Requests served since the server started. }
         server_errors: { type: integer, minimum: 0, description: 5xx responses, including a connection refused by the in-flight cap, and unhandled handler faults since the server started. }
         slowest_ms: { type: number, minimum: 0, description: Slowest request handled since the server started, in milliseconds. }
+        active_connections: { type: integer, minimum: 0, description: Connections currently holding a handler thread, the count the in-flight cap refuses on. A gauge, not a running total: it rises and falls with the clients connected right now. }
 
     Summary:
       type: object

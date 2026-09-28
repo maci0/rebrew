@@ -80,8 +80,9 @@ no-cache`` so browsers can 304 without serving a stale body after ``build-db``;
 the shell links ``/app.js?v=<content hash>``, which is ``immutable``.
 ``/api/health`` is the exception: it reads the documents, so it answers
 ``no-store`` with no ``ETag`` at all (see ``_UNCACHEABLE_ROUTES``).  It
-also reports the running request, 5xx, and worst-latency totals, so a
-probe can watch the error rate while the server is up.
+also reports the running request, 5xx, and worst-latency totals plus the
+in-flight connection count, so a probe can watch the error rate and the
+saturation behind it while the server is up.
 The server's own output is one stream: an access line per request (id, request
 line, status, size, handler milliseconds), a WARNING for a request past
 ``_SLOW_REQUEST_MS``, an ERROR with an escaped traceback for a failure, and
@@ -2230,7 +2231,8 @@ class Dashboard:
             # chain, so a slow route cannot make the probe flap.  The running
             # request and 5xx totals ride along: otherwise the only error count
             # the server has is the one it prints when it stops, so a run that
-            # fails every query still probes "ok" for its whole life.
+            # fails every query still probes "ok" for its whole life.  So does
+            # the in-flight connection gauge, the count admission refuses on.
             payload: dict[str, Any] = {
                 "status": "ok",
                 # Named for what it is: a directory of coverage documents.
@@ -3093,18 +3095,56 @@ class _Handler(BaseHTTPRequestHandler):
         )
 
 
+#: Connections holding a handler thread right now, with the lock guarding it.
+#: Module-level, like ``_Handler``'s counters, so the number ``/api/health``
+#: reports is the number admission compares against ``_MAX_ACTIVE_CONNECTIONS``.
+_ACTIVE_LOCK = threading.Lock()
+_ACTIVE_CONNECTIONS = 0
+
+
+def _reserve_connection_slot(cap: int) -> int | None:
+    """Take one handler slot, or report the in-flight count when the cap is full.
+
+    Returns the count that refused the connection, so the caller logs and
+    answers with the same number.
+    """
+    global _ACTIVE_CONNECTIONS
+    with _ACTIVE_LOCK:
+        if cap <= _ACTIVE_CONNECTIONS:
+            return _ACTIVE_CONNECTIONS
+        _ACTIVE_CONNECTIONS += 1
+        return None
+
+
+def _release_connection_slot() -> None:
+    global _ACTIVE_CONNECTIONS
+    with _ACTIVE_LOCK:
+        _ACTIVE_CONNECTIONS -= 1
+
+
+def active_connections() -> int:
+    """Connections currently holding a handler thread (a gauge, not a total)."""
+    with _ACTIVE_LOCK:
+        return _ACTIVE_CONNECTIONS
+
+
 def served_totals() -> dict[str, Any]:
-    """Running request, 5xx, and worst-latency totals for ``/api/health``.
+    """Running totals and the in-flight gauge for ``/api/health``.
 
     Read under the same lock that ``log_request`` updates, so the probe never
-    reports a total from a torn read.
+    reports a total from a torn read.  ``active_connections`` is a gauge
+    alongside them: a run shedding clients at the in-flight cap logs a refusal
+    per connection, but without the count a probe watching the probe has no way
+    to see the saturation building before the refusals start.
     """
     with _Handler._stats_lock:
-        return {
+        totals = {
             "requests": _Handler._requests,
             "server_errors": _Handler._server_errors,
             "slowest_ms": round(_Handler._slowest_ms, 1),
         }
+    totals["active_connections"] = active_connections()
+    return totals
 
 
 class _DashboardServer(ThreadingHTTPServer):
@@ -3124,10 +3164,17 @@ class _DashboardServer(ThreadingHTTPServer):
     #: ``_MAX_ACTIVE_CONNECTIONS``.  Instance-level so a test can lower it.
     _max_active_connections: int = _MAX_ACTIVE_CONNECTIONS
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        self._active_lock = threading.Lock()
-        self._active = 0
-        super().__init__(*args, **kwargs)
+    @property
+    def _active(self) -> int:
+        """Connections currently holding a handler slot.
+
+        The count is the module's, not this instance's (see
+        :data:`_ACTIVE_CONNECTIONS`), so ``/api/health`` reports the same number
+        admission decides on.  Read-only: a slot is taken and given back by
+        :func:`_reserve_connection_slot` and :func:`_release_connection_slot`,
+        never by assigning to it.
+        """
+        return active_connections()
 
     @override
     def process_request(
@@ -3145,12 +3192,8 @@ class _DashboardServer(ThreadingHTTPServer):
         "try again", while 503 plus ``Retry-After`` says both, in the same
         error envelope every other failure uses.
         """
-        with self._active_lock:
-            admitted = self._active < self._max_active_connections
-            active = self._active
-            if admitted:
-                self._active += 1
-        if not admitted:
+        active = _reserve_connection_slot(self._max_active_connections)
+        if active is not None:
             # Its own correlation id, not the accept thread's unset one, so the
             # refusal the client holds points at the line the log carries.
             request_id = f"r{next(_REQUEST_IDS)}"
@@ -3168,7 +3211,7 @@ class _DashboardServer(ThreadingHTTPServer):
         try:
             super().process_request(request, client_address)
         except BaseException:
-            self._release_connection()
+            _release_connection_slot()
             raise
 
     @override
@@ -3178,11 +3221,7 @@ class _DashboardServer(ThreadingHTTPServer):
         try:
             super().process_request_thread(request, client_address)
         finally:
-            self._release_connection()
-
-    def _release_connection(self) -> None:
-        with self._active_lock:
-            self._active -= 1
+            _release_connection_slot()
 
     @override
     def handle_error(

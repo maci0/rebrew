@@ -3741,6 +3741,48 @@ class TestConnectionCap:
             server.server_close()
             serve.join(timeout=5)
 
+    def test_health_reports_the_in_flight_connection_gauge(
+        self, dashboard: Dashboard, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A probe can only see saturation building if the probe reports it.
+
+        A run at the in-flight cap logs a refusal per connection, which is
+        after the fact; without the count in the body a client watching the
+        probe has nothing between a quiet run and the first 503.
+        """
+        import http.client
+        import socket
+
+        from rebrew.dashboard import served_totals
+
+        monkeypatch.setattr(_Handler, "timeout", 5.0)
+        served = Dashboard(dashboard.db_dir, served=served_totals)
+        server, serve = self._server(served, 4, monkeypatch)
+        try:
+            assert served_totals()["active_connections"] == 0
+            with socket.create_connection(server.server_address[:2], timeout=5):
+                deadline = time.monotonic() + 5.0
+                while served_totals()["active_connections"] != 1 and time.monotonic() < deadline:
+                    time.sleep(0.02)
+                assert served_totals()["active_connections"] == 1
+                conn = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=5)
+                conn.request(
+                    "GET", "/api/health", headers={"Host": f"127.0.0.1:{server.server_port}"}
+                )
+                response = conn.getresponse()
+                assert response.status == 200
+                # The probe's own connection holds a slot while it answers.
+                assert json.loads(response.read())["active_connections"] == 2
+                conn.close()
+            deadline = time.monotonic() + 5.0
+            while served_totals()["active_connections"] and time.monotonic() < deadline:
+                time.sleep(0.02)
+            assert served_totals()["active_connections"] == 0
+        finally:
+            server.shutdown()
+            server.server_close()
+            serve.join(timeout=5)
+
 
 class TestResponseFraming:
     """The cold-load response is one segment, with no interpreter banner.

@@ -1,5 +1,15 @@
 ## [Unreleased]
 
+### Added
+- **`/api/health` reports the in-flight connection count.** The server refuses
+  a connection past `_MAX_ACTIVE_CONNECTIONS` and logs each refusal, so a run
+  shedding clients was visible only after the fact. The probe now carries
+  `active_connections` beside the running `requests` / `server_errors` /
+  `slowest_ms` totals: a gauge, not a total, and the same count admission
+  decides on, so a client watching the probe sees the saturation building
+  before the first 503. `docs/dashboard-api.yaml`, `docs/CLI.md`,
+  `docs/COVERAGE_DOCUMENT.md` and `docs/THREAT_MODEL.md` document the field.
+
 ## [2.16.0] - 2026-09-28
 
 ### Added
