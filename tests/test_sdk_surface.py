@@ -976,6 +976,19 @@ class TestGhidraLazyExportsStayTyped:
         monkeypatch.setattr(client_mod, "init_mcp_session", sentinel)
         assert ghidra_mod.init_mcp_session is sentinel
 
+    def test_transport_protocols_are_reachable_from_the_package(self) -> None:
+        """A consumer names the protocols it injects without reaching into the module.
+
+        The ghidra AGENTS.md sends every caller to the package rather than
+        ``rebrew.ghidra.client``, so a protocol that lives only on the submodule
+        would leave the injection contract unnameable.
+        """
+        import rebrew.ghidra as ghidra_mod
+        import rebrew.ghidra.client as client_mod
+
+        assert ghidra_mod.McpHttpClient is client_mod.McpHttpClient
+        assert ghidra_mod.McpResponse is client_mod.McpResponse
+
 
 class TestDocumentedTransportInjection:
     """The README's fake-service snippet must work as written.

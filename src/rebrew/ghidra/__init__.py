@@ -44,6 +44,12 @@ if TYPE_CHECKING:
         McpErrorKind as McpErrorKind,
     )
     from .client import (
+        McpHttpClient as McpHttpClient,
+    )
+    from .client import (
+        McpResponse as McpResponse,
+    )
+    from .client import (
         apply_commands_via_mcp as apply_commands_via_mcp,
     )
     from .client import (
@@ -72,6 +78,8 @@ _LAZY_EXPORTS: dict[str, str] = {
     "McpApplyResult": ".client",
     "McpError": ".client",
     "McpErrorKind": ".client",
+    "McpHttpClient": ".client",
+    "McpResponse": ".client",
     "apply_commands_via_mcp": ".client",
     "end_mcp_session": ".client",
     "fetch_mcp_tool_raw": ".client",
@@ -89,6 +97,8 @@ __all__ = [
     "McpApplyResult",
     "McpError",
     "McpErrorKind",
+    "McpHttpClient",
+    "McpResponse",
     "apply_commands_via_mcp",
     "build_bookmark_commands",
     "build_new_function_commands",
