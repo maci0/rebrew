@@ -408,6 +408,20 @@ class TestStripCommentBlocks:
         src = 'const char *s = "a/*b";\nint code(void);\n'
         assert strip_comment_blocks(src) == 'const char *s = "a/*b";\nint code(void);'
 
+    def test_nel_inside_literal_stays_on_one_line(self) -> None:
+        # U+0085 is legal inside a C string literal.  str.splitlines breaks
+        # there, and the "\n" join would rewrite it as a newline in the
+        # generated preamble.
+        from rebrew.utils import strip_comment_blocks
+
+        src = 'const char *s = "a\u0085b";\nint code(void);\n'
+        assert strip_comment_blocks(src) == 'const char *s = "a\u0085b";\nint code(void);'
+
+    def test_crlf_source_lf_joins_terminator_free_lines(self) -> None:
+        from rebrew.utils import strip_comment_blocks
+
+        assert strip_comment_blocks("int x;\r\nint y;\r\n") == "int x;\nint y;"
+
     def test_other_quote_kind_inside_literal_does_not_close_it(self) -> None:
         from rebrew.utils import strip_comment_blocks
 
@@ -1373,6 +1387,20 @@ class TestSourceLines:
         text = raw.decode("latin-1")
         rebuilt = join_source_lines(text, split_source_lines(text))
         assert rebuilt.encode("latin-1") == raw
+
+    def test_keepends_matches_str_splitlines(self) -> None:
+        from rebrew.utils import split_source_lines
+
+        for text in ("a\nb\n", "a\nb", "", "a\n\n", "a\r\nb"):
+            assert split_source_lines(text, keepends=True) == text.splitlines(keepends=True)
+        assert split_source_lines("a\x85b\n", keepends=True) == ["a\x85b\n"]
+
+    def test_keepends_join_is_the_original(self) -> None:
+        from rebrew.utils import split_source_lines
+
+        raw = b'char *s = "caf\xe9 \x85 end";\r\nint f(void) { return 0; }\r\n'
+        text = raw.decode("latin-1")
+        assert "".join(split_source_lines(text, keepends=True)).encode("latin-1") == raw
 
 
 class TestIsSafeCIdent:

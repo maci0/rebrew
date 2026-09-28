@@ -45,6 +45,7 @@ from rebrew.utils import (
     read_source_text,
     rel_display_path,
     source_newline,
+    split_source_lines,
     strip_comment_blocks,
 )
 
@@ -411,7 +412,7 @@ def merge_preambles(preambles: list[str]) -> str:
     merged_lines: list[str] = []
 
     for preamble in preambles:
-        for line in strip_comment_blocks(preamble).splitlines():
+        for line in split_source_lines(strip_comment_blocks(preamble)):
             if not line.strip():
                 if merged_lines and merged_lines[-1]:
                     merged_lines.append("")

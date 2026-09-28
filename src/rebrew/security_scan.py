@@ -40,7 +40,7 @@ from rebrew.cli import (
 )
 from rebrew.errors import RebrewError
 from rebrew.sources import iter_sources
-from rebrew.utils import rel_display_path, untrusted_text
+from rebrew.utils import rel_display_path, split_source_lines, untrusted_text
 
 log = logging.getLogger(__name__)
 
@@ -344,7 +344,11 @@ def scan_source(text: str, *, file: str) -> list[dict[str, Any]]:
         return []
     _, language = parsed
 
-    lines = text.splitlines()
+    # ``split_source_lines``, not ``str.splitlines``: a row here is a
+    # tree-sitter 0-based line number, which counts "\n" only.  A NEL in a
+    # legacy source would add a line the parser never saw and shift every
+    # snippet after it onto the wrong source line.
+    lines = split_source_lines(text)
     cursor = ts.QueryCursor(_get_call_query(language))
     findings: list[dict[str, Any]] = []
     for _pattern_index, captures in cursor.matches(tree.root_node):

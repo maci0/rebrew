@@ -35,6 +35,7 @@ from rebrew.utils import (
     read_source_text,
     rel_display_path,
     source_newline,
+    split_source_lines,
 )
 from rebrew.workspace.status import MATCHED_STATUSES
 
@@ -257,7 +258,7 @@ def split_annotation_sections(text: str) -> tuple[str, list[str]]:
     than the preamble, so that annotations stay with their function during
     merge/split operations.
     """
-    lines = text.splitlines(keepends=True)
+    lines = split_source_lines(text, keepends=True)
     marker_indexes, in_block_comment = _scan_annotation_lines(lines)
 
     if not marker_indexes:
@@ -373,7 +374,7 @@ def block_markers(block: str) -> list[tuple[str, int]]:
     A shared source stacks one marker per target above a single body
     (ADR-010/022), so callers must not stop at the first marker.
     """
-    lines = block.splitlines()
+    lines = split_source_lines(block)
     marker_indexes, _ = _scan_annotation_lines(lines)
     out: list[tuple[str, int]] = []
     for idx in marker_indexes:
@@ -783,7 +784,7 @@ def _module_for_va_in_text(text: str, va: int) -> str:
     Shared by :func:`module_for_va` and the in-file edit paths, which already
     hold the file text and must not re-read it.
     """
-    for line in text.splitlines():
+    for line in split_source_lines(text):
         m = _MARKER_VA_RE.search(line)
         if m and int(m.group(2), 16) == va:
             return unicodedata.normalize("NFC", m.group(1))
@@ -829,7 +830,7 @@ def update_size_annotation(
         except OSError as e:
             warnings.warn(f"Cannot read {filepath} for size update: {e}", stacklevel=2)
             return False
-        for line in text.splitlines():
+        for line in split_source_lines(text):
             m = _VA_ONLY_RE.search(line)
             if m:
                 va = int(m.group(1), 16)
@@ -1540,7 +1541,7 @@ def _parse_structural_entries(text: str) -> list[Annotation]:
     relative path, no metadata.  Callers must treat the result as
     read-only shared state (see ``_finalize_entries``).
     """
-    return parse_new_format_multi(text.splitlines())
+    return parse_new_format_multi(split_source_lines(text))
 
 
 def _finalize_entries(
@@ -1781,7 +1782,7 @@ def update_annotation_key(
     target_module = _module_for_va_in_text(text, va)
     if not target_module:
         return False
-    lines = text.splitlines(keepends=True)
+    lines = split_source_lines(text, keepends=True)
     # An inserted line must carry the file's own terminator: a hardcoded "\n"
     # leaves a CRLF source with one LF-terminated line that the next
     # read/rewrite propagates through the whole file.
@@ -1885,7 +1886,7 @@ def parse_library_header(filepath: Path, metadata_dir: Path | None = None) -> li
         logger.warning("Skipping unreadable library header %s: %s", filepath, exc)
         return []
 
-    lines = text.splitlines()
+    lines = split_source_lines(text)
     if not lines:
         return []
 
@@ -2034,7 +2035,7 @@ def _strip_key_lines(filepath: Path, va: int, key: str, text: str, encoding: str
     target_module = _module_for_va_in_text(text, va)
     if not target_module:
         return False
-    raw_lines = text.splitlines(keepends=True)
+    raw_lines = split_source_lines(text, keepends=True)
     _key_pattern = _compile_key_pattern(key)
 
     def _is_key_line(line: str) -> bool:

@@ -68,7 +68,7 @@ from typing import Any, Protocol
 
 import diskcache
 
-from rebrew.utils import BYTES_PER_MIB
+from rebrew.utils import BYTES_PER_MIB, split_source_lines
 
 logger = logging.getLogger(__name__)
 
@@ -681,7 +681,7 @@ def _iter_include_specs(text: str) -> Iterator[tuple[str, str]]:
     comments and ``#include``-shaped text outside directives are not matched
     (lines are scanned only at directive position).
     """
-    for raw in text.splitlines():
+    for raw in split_source_lines(text):
         line = _strip_leading_comments(raw)
         if not line.startswith("#"):
             continue

@@ -63,6 +63,14 @@ class TestUnboundedCopy:
         found = {(f["line"], f["rule"]) for f in _scan(source)}
         assert found == {(2, "unbounded-copy"), (3, "unbounded-copy")}
 
+    def test_nel_before_the_call_keeps_the_snippet_on_its_line(self) -> None:
+        # U+0085 is legal inside a C string literal, and str.splitlines counts
+        # it as a line break, which shifts every later line by one against the
+        # tree-sitter row the finding is reported at.
+        source = 'char *note = "a\u0085b";\nvoid f(char *d, char *s) {\n    strcpy(d, s);\n}\n'
+        findings = _scan(source)
+        assert [(f["line"], f["snippet"]) for f in findings] == [(3, "strcpy(d, s);")]
+
 
 class TestFormatString:
     def test_non_literal_format_flagged(self) -> None:

@@ -499,20 +499,36 @@ def detect_source_encoding(data: bytes) -> str:
     return "latin-1"
 
 
-def split_source_lines(text: str) -> list[str]:
+def split_source_lines(text: str, *, keepends: bool = False) -> list[str]:
     """*text* split into lines on ``\\n`` only, terminators dropped.
 
     ``str.splitlines`` also breaks on VT, FF, NEL (U+0085), LS (U+2028) and
-    PS (U+2029).  Those code points are legal inside a C string literal, and
-    a source that falls back to Latin-1 (:func:`detect_source_encoding`)
-    decodes byte ``0x85`` as NEL, so a write-back that joins the result with
-    ``"\\n"`` turns that byte into a newline and corrupts the file.  Only
-    ``\\n`` ends a line in C source.
+    PS (U+2029).  Those code points are legal inside a C string literal and a
+    C comment — text pasted from a web page or a spreadsheet carries them —
+    and :func:`read_source_text` hands back a UTF-8 source with them intact,
+    so a write-back that joins the result with ``"\\n"`` turns each of them
+    into a newline and corrupts the file.  Only ``\\n`` ends a line in C
+    source.
 
     Trailing-newline handling matches ``splitlines``: a final ``"\\n"``
     produces no empty last element, so ``"\\n".join(split_source_lines(t))``
     plus that terminator reproduces a ``\\n``-only file byte for byte.
+
+    *keepends* returns each line with its own ``"\\n"`` (a CRLF line keeps its
+    ``"\\r"``) for an edit path that splices a line in and rejoins with
+    ``"".join``, where the terminator has to survive the round trip.
     """
+    if keepends:
+        lines: list[str] = []
+        start = 0
+        while True:
+            idx = text.find("\n", start)
+            if idx == -1:
+                if start < len(text):
+                    lines.append(text[start:])
+                return lines
+            lines.append(text[start : idx + 1])
+            start = idx + 1
     lines = text.split("\n")
     if lines and lines[-1] == "":
         lines.pop()
@@ -730,9 +746,16 @@ def strip_generated_timestamp(text: str) -> str:
     word: an annotation note is free text, and a bare substring test dropped
     the declaration carrying it from both sides of the comparison, so a
     changed note regenerated as "unchanged".
+
+    Line endings are normalized so the comparison does not report a rewrite
+    for a CRLF file whose freshly generated twin is LF, and only ``\n`` ends a
+    line (:func:`split_source_lines`) so a NEL inside a legacy string literal
+    does not count as a line of its own.
     """
     return "\n".join(
-        line for line in text.splitlines() if not line.lstrip().startswith(_GENERATED_STAMP_PREFIX)
+        line
+        for line in (ln.removesuffix("\r") for ln in split_source_lines(text))
+        if not line.lstrip().startswith(_GENERATED_STAMP_PREFIX)
     )
 
 
@@ -1398,11 +1421,18 @@ def strip_comment_blocks(text: str) -> str:
     comment — same-line (``a = b /* c */ + d;``) and after a multi-line
     block's close (``/* a\n * b\n */ int x;``).  Returns the code with
     blank-line runs collapsed and no trailing blank lines.
+
+    Only ``\n`` ends a line (:func:`split_source_lines`): ``str.splitlines``
+    would also break on NEL, LS, PS, VT, and FF, which are legal inside a C
+    string literal, so the join below would turn each of them into a newline.
+    The terminator is dropped per line, so the returned text is LF-separated
+    whatever the input used; callers join it with :func:`source_newline` in the
+    target file's own ending.
     """
     out: list[str] = []
     in_block = False
     in_string_global = ""  # the open quote character, "" outside a literal
-    for line in text.splitlines():
+    for line in (ln.removesuffix("\r") for ln in split_source_lines(text)):
         stripped = line.strip()
         if stripped == "*/":
             # Closes an open comment block (or a harmless orphan).

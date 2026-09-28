@@ -452,6 +452,23 @@ class TestMultiFunctionParsing:
         assert [r.symbol for r in results] == ["_a", "_b", "_c"]
         assert [r.size for r in results] == [10, 20, 30]
 
+    def test_line_separator_in_a_kv_value_is_not_a_line_break(self, tmp_path: Path) -> None:
+        # U+2028 is legal inside a C comment (text pasted from a web page
+        # carries it) and str.splitlines breaks there, so the value is stored
+        # as its first fragment and the tail reads as code.
+        from rebrew.annotation import parse_c_file_multi
+
+        f = tmp_path / "f.c"
+        f.write_text(
+            "// FUNCTION: SERVER 0x1000\n"
+            "// CALLERS: caf\u00e9 \u2028note\n"
+            "int f(void) { return 0; }\n",
+            encoding="utf-8",
+        )
+        annos = parse_c_file_multi(f)
+        assert annos[0].va == 0x1000
+        assert annos[0].callers == "café \u2028note"
+
     def test_single_function_returns_one(self) -> None:
         from rebrew.annotation import parse_new_format_multi
 
@@ -1792,6 +1809,29 @@ class TestUpdateAnnotationKeySameValue:
         # Annotation block ends at the blank line before the body.
         assert update_annotation_key(f, 0x1000, "TESTKEY", "tail") is True
         assert "// TESTKEY: tail" in f.read_text(encoding="utf-8")
+
+    def test_line_separator_in_a_string_literal_survives_the_edit(self, tmp_path: Path) -> None:
+        # U+2028 is legal inside a C string literal.  A splitlines-based line
+        # list treats it as a line break and the write-back emits 0x0A there.
+        from rebrew.annotation import update_annotation_key
+
+        f = tmp_path / "f.c"
+        f.write_text(
+            '// FUNCTION: SERVER 0x1000\nchar *note = "a\u2028b";\nint f(void){return 0;}\n',
+            encoding="utf-8",
+        )
+        assert update_annotation_key(f, 0x1000, "TESTKEY", "abc") is True
+        assert "a\u2028b" in f.read_text(encoding="utf-8")
+        assert "a\nb" not in f.read_text(encoding="utf-8")
+
+    def test_crlf_insert_uses_the_file_terminator(self, tmp_path: Path) -> None:
+        from rebrew.annotation import update_annotation_key
+
+        f = tmp_path / "f.c"
+        f.write_bytes(b"// FUNCTION: SERVER 0x1000\r\n\r\nint f(void) { return 0; }\r\n")
+        assert update_annotation_key(f, 0x1000, "TESTKEY", "abc") is True
+        assert b"// TESTKEY: abc\r\n" in f.read_bytes()
+        assert b"// TESTKEY: abc\n" not in f.read_bytes()
 
 
 class TestRemoveAnnotationKeyEdges:

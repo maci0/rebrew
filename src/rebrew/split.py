@@ -42,6 +42,7 @@ from rebrew.utils import (
     read_source_text,
     rel_display_path,
     source_newline,
+    split_source_lines,
     strip_comment_blocks,
 )
 
@@ -75,7 +76,7 @@ def _block_metadata(block: str) -> _BlockMeta | None:
     Returns ``None`` when the block contains no recognisable
     ``// FUNCTION: <MODULE> 0x<VA>`` marker.
     """
-    lines = block.splitlines()
+    lines = split_source_lines(block)
     marker_idx: int | None = None
     marker_match = None
     for idx, line in enumerate(lines):
