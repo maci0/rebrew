@@ -13,8 +13,8 @@ environment variables.  The per-request HTTP budget is
 ``REBREW_LLM_TIMEOUT`` (default 90s), because a local model can need minutes
 for a capped completion and a timed-out request is billed anyway.  It is a
 ceiling on the whole request, not on each socket read: the transport timeout
-is rearmed per chunk, so the body read also compares the wall clock against
-the deadline the request started with.
+is rearmed per chunk, so the body read also compares the monotonic clock
+against the deadline the request started with.
 
 Untrusted boundaries: the seed source is project C (may contain adversarial
 fence breakouts if copied from elsewhere); the model response is never executed
@@ -1108,9 +1108,10 @@ def _load_response_json(resp: Any, *, deadline_s: float | None = None) -> Any:
     stalled proxy in front of one) that trickles a byte per interval never
     trips it and the read runs for as long as it likes.  ``--seed-llm --watch``
     would then sit in a request that ``REBREW_LLM_TIMEOUT`` says is bounded
-    and that keeps billing.  Comparing the wall clock between chunks makes the
-    documented per-request budget an actual ceiling.  Omitted by direct
-    callers that read a body already in hand.
+    and that keeps billing.  Comparing the monotonic clock between chunks makes
+    the documented per-request budget an actual ceiling, and an NTP step mid-
+    request cannot stretch or shrink it.  Omitted by direct callers that read a
+    body already in hand.
     """
     headers = getattr(resp, "headers", None) or {}
     cl_raw = None
@@ -1209,7 +1210,7 @@ def _request(
         "POST", conf["endpoint"], json=payload, headers=headers, timeout=timeout
     ) as resp:
         resp.raise_for_status()
-        # The httpx timeout is rearmed per chunk, so the wall-clock deadline is
+        # The httpx timeout is rearmed per chunk, so the monotonic deadline is
         # what makes the budget a ceiling on the whole request.
         data = _load_response_json(resp, deadline_s=t0 + timeout)
     duration_s = time.monotonic() - t0
