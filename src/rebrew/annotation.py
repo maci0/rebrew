@@ -1088,9 +1088,9 @@ def parse_new_format(lines: list[str]) -> Annotation | None:
         if m:
             new_type = m.group("type")
             # If we already found a code-bearing marker (FUNCTION/LIBRARY/STUB),
-            # don't let a GLOBAL/DATA marker overwrite it — treat it as a
+            # don't let a data marker overwrite it — treat it as a
             # non-annotation line instead.
-            if marker_type in ("FUNCTION", "LIBRARY", "STUB") and new_type in ("GLOBAL", "DATA"):
+            if marker_type in FUNCTION_MARKERS and new_type in DATA_MARKERS:
                 if in_annotation_block:
                     break
                 continue
@@ -1254,14 +1254,14 @@ def parse_new_format_multi(lines: list[str]) -> list[Annotation]:
                 continue
 
         # Skip forward declarations (lines ending with ';') — only match
-        # actual function definitions.  Only FUNCTION/LIBRARY/STUB blocks take
-        # a C-definition name: a DATA/GLOBAL block followed by a function
+        # actual function definitions.  Only code-marker blocks take
+        # a C-definition name: a data block followed by a function
         # definition (e.g. extern decls then the real function) would
         # otherwise inherit that function's name, misnaming the data symbol
         # and corrupting symbol→VA resolution (guild-rebrew
         # DispatchLogOutput DATA entry got the function name).
         if (
-            current_marker_type in ("FUNCTION", "LIBRARY", "STUB")
+            current_marker_type in FUNCTION_MARKERS
             and "_C_FUNC_NAME" not in current_kv
             and not stripped.rstrip().endswith(";")
             # A C definition line must carry a parameter list — skip

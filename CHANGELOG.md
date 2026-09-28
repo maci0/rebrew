@@ -151,6 +151,13 @@
   `tests/test_security_scan.py` passed `monkeypatch` unannotated in two
   tests, so `uv run mypy` failed on a file the gate asserted was clean.
 
+- **Every data marker sorts ahead of code in `rebrew merge`.** The block rank
+  spelled out `DATA` / `GLOBAL` instead of reading `annotation.DATA_MARKERS`,
+  so a `VTABLE:` or `STRING:` block was ordered with the functions and could
+  land after the function that uses it, which is not valid C89. The same
+  re-spelling in the lint checks left `W016` (missing `// SECTION:`), the
+  duplicate-VA rule, the CFLAGS exemption and the legacy-`SECTION` strip
+  blind to the two data markers; they read the shared set now.
 - **`rebrew intake --dry-run --json` no longer reports `documented: 0`.** The
   preview runs the discoverers and reports the real function count, then
   emitted a zero for the documented subset that only a real run can classify

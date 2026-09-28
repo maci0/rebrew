@@ -18,6 +18,7 @@ from typing import Any
 import typer
 
 from rebrew.annotation import (
+    DATA_MARKERS,
     NEW_FUNC_CAPTURE_RE,
     NEW_KV_RE,
     block_markers,
@@ -606,15 +607,16 @@ def main(
     extern_report: ExternReport | None = None
     merged_preamble = merge_preambles(preambles)
 
-    # DATA/GLOBAL definition blocks sort before FUNCTION blocks: C89 needs
-    # declarations before use, and VA order alone can place a string table
-    # after its function (a GOLDTL 0x40xxxx function sorts before SERVER
-    # 0x1002xxxx data it references).  Within each class, VA ascending.
+    # Data definition blocks (every marker in ``DATA_MARKERS``: GLOBAL, DATA,
+    # VTABLE, STRING) sort before code blocks: C89 needs declarations before
+    # use, and VA order alone can place a string table after its function (a
+    # GOLDTL 0x40xxxx function sorts before SERVER 0x1002xxxx data it
+    # references).  Within each class, VA ascending.
     def _block_rank(block: str) -> int:
         for line in block.splitlines():
             m = NEW_FUNC_CAPTURE_RE.match(line.strip())
             if m:
-                return 0 if m.group("type") in ("DATA", "GLOBAL") else 1
+                return 0 if m.group("type") in DATA_MARKERS else 1
         return 1
 
     ranked = sorted(blocks_with_va, key=lambda x: (_block_rank(x[1]), x[0]))

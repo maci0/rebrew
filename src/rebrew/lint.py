@@ -32,6 +32,7 @@ from rich.text import Text
 
 from rebrew.annotation import (
     ALL_KNOWN_KEYS,
+    DATA_MARKERS,
     METADATA_KEYS,
     MIN_VALID_VA,
     NEW_FUNC_RE,
@@ -285,7 +286,6 @@ def _w019_key_backed(
     """
     marker_type, module, va = block
     mod_va = (module, va)
-    from rebrew.annotation import DATA_MARKERS
 
     if marker_type in DATA_MARKERS:
         if key.lower() in {"size", "section", "note"}:
@@ -414,16 +414,14 @@ def _check_E013_duplicate_va(
     # (a valid layout) is not flagged, while a true duplicate — same module
     # + VA, in the same or another file — is.
     key: Any = (module, va_int) if module else va_int
-    defines = _block_defines(lines, marker_line) if marker in ("DATA", "GLOBAL") else True
+    defines = _block_defines(lines, marker_line) if marker in DATA_MARKERS else True
     if key in seen_vas:
-        # DATA/GLOBAL duplicates collide only when BOTH sides define the
+        # Data-marker duplicates collide only when BOTH sides define the
         # symbol (two initializers = LNK4006 risk).  The normal
         # progressive-ownership shape — owner TU extern-declares (or bare
         # claim) while link scaffolding holds the single definition — is
         # unambiguous and must not fail the gate.
-        if marker in ("DATA", "GLOBAL") and not (
-            defines and (seen_va_defines or {}).get(key, False)
-        ):
+        if marker in DATA_MARKERS and not (defines and (seen_va_defines or {}).get(key, False)):
             if seen_va_defines is not None:
                 seen_va_defines[key] = seen_va_defines.get(key, False) or defines
             seen_vas[key] = f"{rel_display_path(filepath)}"
@@ -746,17 +744,7 @@ def _check_E015_marker_consistency(
     else:
         expected_marker = "FUNCTION"
         allowed = {"FUNCTION"}
-    if (
-        marker not in allowed
-        and marker in VALID_MARKERS
-        and marker
-        not in (
-            "GLOBAL",
-            "DATA",
-            "VTABLE",
-            "STRING",
-        )
-    ):
+    if marker not in allowed and marker in VALID_MARKERS and marker not in DATA_MARKERS:
         result.error(
             result.marker_line,
             "E015",
@@ -1062,7 +1050,7 @@ def _check_W016_section(
     section_for_va: Any = None,
     section_hits: list[MissingSection] | None = None,
 ) -> None:
-    if marker in ("DATA", "GLOBAL") and "SECTION" not in found_keys:
+    if marker in DATA_MARKERS and "SECTION" not in found_keys:
         result.warning(
             result.marker_line,
             "W016",
@@ -2020,7 +2008,7 @@ def lint_file(
                     metadata=_metadata_entries,
                 )
 
-            if marker not in ("GLOBAL", "DATA"):
+            if marker not in DATA_MARKERS:
                 # A stacked shared-source block for ANOTHER target answers to
                 # its own target's defaults, not this one's — flagging it for
                 # missing CFLAGS here is misattribution (ADR-010).
@@ -2552,9 +2540,9 @@ def main(
                 continue
             for module, va, key, value, marker in r._inline_fixes:
                 toml_key = key.lower()
-                is_data_marker = marker in ("DATA", "GLOBAL")
+                is_data_marker = marker in DATA_MARKERS
                 # ORIGIN is legacy everywhere; SECTION is legacy for functions
-                # but a real data-metadata field for DATA/GLOBAL markers.
+                # but a real data-metadata field for data markers.
                 # Legacy keys are never stored — just strip the inline form.
                 if key in ("ORIGIN", "UPDATED_BY", "UPDATED_AT") or (
                     not is_data_marker and key == "SECTION"

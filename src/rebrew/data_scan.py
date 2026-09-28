@@ -58,8 +58,9 @@ def _target_pointer_size(info: Any) -> int:
 
 # reccmp-compatible GLOBAL annotation:  // GLOBAL: SERVER 0x10031ae8
 #
-# `DATA:` is the same marker for this scan's purpose -- annotation.DATA_MARKERS
-# holds {"GLOBAL", "DATA"} and `Annotation.is_data` treats them identically.
+# `DATA:` is the same marker for this scan's purpose.  `VTABLE:` / `STRING:`
+# are data markers too (annotation.DATA_MARKERS) but name layout rather than a
+# plain global, and _ANY_MARKER_RE below is what recognises them.
 _GLOBAL_RE = re.compile(
     r"(?://|/\*)\s*(?:GLOBAL|DATA):\s*(?P<module>[A-Z0-9_]+)\s+(?P<va>0x[0-9a-fA-F]+)"
 )
