@@ -77,6 +77,18 @@
   hardcoding a hex it read out of the `TOKENS` table (`rebrew.theme`, re-exported
   by `rebrew.depgraph` and `rebrew.status_style`) needs the new palette. The
   names, roles and count are unchanged.
+- **Breaking:** the scratch-directory helpers moved out of `rebrew.utils` into
+  `rebrew.temp_dirs`. `writable_temp_dir`, `on_ram_filesystem`,
+  `sweep_stale_temp_dirs`, `remove_temp_dir` and `xdg_cache_home` are no
+  longer reachable from `rebrew.utils`, so `from rebrew.utils import
+  writable_temp_dir` raises `ImportError`; import them from
+  `rebrew.temp_dirs`, which is where the candidate order, the abandoned-sandbox
+  sweep and the DOSBox tmpfs rejection now live as one policy.
+- **Breaking:** `rebrew.dashboard.Dashboard.summary` is no longer public. The
+  lookup is `_summary_lookup` now, and the payload it built is derived from the
+  stored rows, so a consumer reads `Dashboard.snapshots()[target]` and derives
+  the same fields (`floor_pct` in `rebrew.coverage_toml` does the division) or
+  calls the unchanged `/api/summary` route. The HTTP contract is untouched.
 - **Lint gates ratchet.** Ruff selects ``S608`` (a SQL string built by
   interpolation; zero findings on the current tree) so a query assembled from
   runtime input cannot land, mypy covers ``tests/test_build_db_helpers.py``
@@ -310,25 +322,6 @@
   public scratch whose `claim_token` the analyst never received. Only the
   connect-stage failures (`ConnectError`, `ConnectTimeout`) are retried now
   (`_never_delivered` in `src/rebrew/decompme.py`).
-- **The canonical-size tail probe no longer claims every function on a
-  non-x86 target.** `_resolve_canonical_size` read the extra bytes for the
-  x86 `ret` encodings (`0xC3`/`0xC2`) on every arch, exactly as the
-  alignment-prefix probes above it are already gated to x86. No ARM or MIPS
-  tail ever contains those bytes, so the "no terminator" branch answered
-  yes for the whole target and the discovery list size overrode Ghidra's on
-  every function. Those targets now take the conservative
-  "unrecognized extra bytes" default. `src/rebrew/catalog/AGENTS.md` records
-  the arch gate.
-- **A PE whose code section is not named `.text` no longer loads as an image
-  with no code.** The ELF loader aliases the largest executable section as
-  `.text` when the name is absent (devkitARM ships `.main`); the PE loader
-  had no such fallback and left `text_va` at the image base with
-  `text_size == 0`, so the FLIRT scan and the jump-table probe behind
-  `_resolve_canonical_size` saw an empty region for the Borland, Delphi and
-  Watcom `CODE` spelling. `_load_pe` now applies the same alias, reading
-  `IMAGE_SCN_MEM_EXECUTE` off the section characteristics. Section `is_code`
-  is deliberately left as the loader set it, so no code walk starts visiting
-  a second time.
 
 ## [2.16.0] - 2026-09-28
 

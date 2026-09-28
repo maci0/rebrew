@@ -137,7 +137,10 @@ against the last tag removes or reshapes a public name and `[Unreleased]` has
 no `**Breaking:**` entry naming it.  A move that leaves the old path working
 is not a break and needs no entry: `rebrew.utils` owning a name that
 `rebrew.cli` still imports is scored as the origin's shape, so only the
-import path that actually went away is flagged.
+import path that actually went away is flagged.  A move that took the name
+out of the old module counts as a break either way, and the entry has to name
+the symbol or the module it moved to: a mention of the origin module alone
+says nothing about where the import goes now.
 
 - **One version, one place.**  `__version__` in `src/rebrew/__init__.py` is the
   source of truth; `pyproject.toml` reads it via `[tool.setuptools.dynamic]`.

@@ -145,7 +145,10 @@ def _named(notes: str, symbol: str, module: str, moved_to: str | None = None) ->
 
     A move is named by its destination, so the new module counts too.  The
     notes are required to give "the old and new import path" (CONTRIBUTING),
-    and the destination is the half a reader needs.
+    and the destination is the half a reader needs.  A move therefore drops
+    the origin module: a note about a different symbol that happens to say
+    `` `utils` `` did not name the five names that left it, and 2.17.0's
+    `rebrew.temp_dirs` split sailed through the gate on that mention.
     """
     leaf = _leaf(symbol)
     if len(leaf) >= _MIN_LEAF and any(
@@ -154,9 +157,8 @@ def _named(notes: str, symbol: str, module: str, moved_to: str | None = None) ->
         return True
     if any(f"`{part}`" in notes for part in _spellings(symbol)):
         return True
-    paths: tuple[str, ...] = (module, f"rebrew.{module}")
-    if moved_to is not None:
-        paths += (moved_to, f"rebrew.{moved_to}")
+    named_module = moved_to if moved_to is not None else module
+    paths: tuple[str, ...] = (named_module, f"rebrew.{named_module}")
     return any(f"`{path}`" in notes for path in paths)
 
 
@@ -192,6 +194,20 @@ class TestNoteNaming:
     def test_destination_module_names_a_moved_symbol(self) -> None:
         assert _named(
             "now `rebrew.verify_exports`", "exports.compare_exports", "exports", "verify_exports"
+        )
+
+    def test_origin_module_does_not_name_a_moved_symbol(self) -> None:
+        """A note about another name in the old module is not a migration path.
+
+        The `rebrew.temp_dirs` split: `utils` is named in the notes for a
+        re-export that is gone, and five names left it, so counting the origin
+        module let the break through undocumented.
+        """
+        assert not _named(
+            "nothing public is re-exported through `utils` now",
+            "utils.writable_temp_dir",
+            "utils",
+            "temp_dirs",
         )
 
     def test_unrelated_prose_does_not_name_the_symbol(self) -> None:
