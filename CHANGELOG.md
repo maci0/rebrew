@@ -25,6 +25,10 @@
   `docs/COVERAGE_DOCUMENT.md` and `docs/THREAT_MODEL.md` document the field.
 
 ### Changed
+- **The `rebrew init` AGENTS.md template stops calling the metadata store
+  per-directory.** One `rebrew-functions.toml` covers the whole tree, at
+  `cfg.metadata_dir`; the template told a new project to look for a file per
+  source directory, which nothing writes or reads.
 - **`round_trip` no longer routes the catalog key through its own alias.**
   `_catalog_key` was `resolve_symbol(ann, path)` and nothing else, so the
   three call sites now call `resolve_symbol` directly. The two sides still

@@ -91,7 +91,8 @@ void __cdecl function_name(void)
 ```
 
 Volatile metadata (status, size, compiler flags, notes, blockers) is stored
-**outside** the `.c` file in a per-directory `rebrew-functions.toml` metadata file:
+**outside** the `.c` file in the project's single `rebrew-functions.toml`
+(`cfg.metadata_dir`, one file for the whole tree):
 
 ```toml
 ["{target_name}.0x10001234"]
