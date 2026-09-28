@@ -1560,6 +1560,7 @@ __STATUS_FORCED__
 <button type="button" class="btn" id="retry-view" hidden>Retry</button>
 </div>
 <div id="view-functions" class="view-panel" role="tabpanel" tabindex="0" aria-labelledby="tab-functions">
+<h2 class="visually-hidden">Functions</h2>
 <p id="results-hint" hidden></p>
 <p id="empty-state" hidden></p>
 <div id="results" class="table-scroll" tabindex="0" role="region"
@@ -1575,6 +1576,7 @@ __STATUS_FORCED__
 </div>
 </div>
 <div id="view-sections" class="view-panel" role="tabpanel" tabindex="0" aria-labelledby="tab-sections" hidden>
+<h2 class="visually-hidden">Sections</h2>
 <p id="sections-hint" hidden></p>
 <p id="sections-empty" hidden>No section stats for this target. Run
   <code>rebrew build-db</code> for this project, then choose Reload.</p>
@@ -1590,6 +1592,7 @@ __STATUS_FORCED__
 </div>
 </div>
 <div id="view-globals" class="view-panel" role="tabpanel" tabindex="0" aria-labelledby="tab-globals" hidden>
+<h2 class="visually-hidden">Globals</h2>
 <p id="globals-hint" hidden></p>
 <p id="globals-empty" hidden></p>
 <div id="globals-results" class="table-scroll" tabindex="0" role="region"
@@ -1604,6 +1607,7 @@ __STATUS_FORCED__
 </div>
 </div>
 <div id="view-history" class="view-panel" role="tabpanel" tabindex="0" aria-labelledby="tab-history" hidden>
+<h2 class="visually-hidden">Status history</h2>
 <p id="history-hint" hidden></p>
 <p id="history-empty" hidden>No status changes recorded yet. History appears after
   <code>rebrew build-db</code> when function statuses change.</p>

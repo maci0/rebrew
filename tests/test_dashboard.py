@@ -667,6 +667,11 @@ class TestFocusManagement:
         _run_script("dashboard_focus.mjs")
 
 
+class TestTablistKeyboard:
+    def test_arrows_home_and_end_move_focus_and_switch_view(self) -> None:
+        _run_script("dashboard_tablist_keys.mjs")
+
+
 class TestListReset:
     def test_fresh_load_drops_stale_rows_and_title_names_the_target(self) -> None:
         _run_script("dashboard_list_reset.mjs")
@@ -828,6 +833,30 @@ class TestHandle:
         assert "Retry summary" in body
         # Errors announce via role=alert only (avoid double-speaking with status).
         assert 'results-status").textContent = message' not in body
+
+    def test_index_html_heading_outline(self, dashboard: Dashboard) -> None:
+        """One h1, then h2s only: a heading outline a screen reader can walk.
+
+        The four view panels carry the page's bulk content, so without a
+        heading each the outline stops at the h1 and heading navigation
+        reaches none of it (WCAG 1.3.1, 2.4.6).
+        """
+        _, _, html = dashboard.handle("GET", "/", {})
+        outline = [
+            (int(level), re.sub(r"<[^>]+>", "", text).strip())
+            for level, text in re.findall(r"<h([1-6])[^>]*>(.*?)</h\1>", html, re.S)
+        ]
+        assert [text for level, text in outline if level == 1] == ["Rebrew coverage"]
+        assert [level for level, _ in outline[1:]] == [2] * (len(outline) - 1)
+        # Every view panel is named, so switching tabs does not move the reader
+        # out of the outline.
+        for view in ("Functions", "Sections", "Globals", "Status history"):
+            assert f'<h2 class="visually-hidden">{view}</h2>' in html
+            panel = re.search(
+                rf'id="view-\w+"[^>]*>\s*<h2 class="visually-hidden">{view}</h2>', html
+            )
+            assert panel is not None, view
+        assert 'class="visually-hidden" id="summary-heading"' in html
 
     def test_app_js_route(self, dashboard: Dashboard) -> None:
         status, content_type, body = dashboard.handle("GET", "/app.js", {})
