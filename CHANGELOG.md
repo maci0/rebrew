@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [2.15.0] - 2026-09-28
+
 ### Added
 - **The public names a module already exported are now in its `__all__`.**
   `rebrew.annotation.iter_annotations`, `rebrew.annotation.block_markers`,
