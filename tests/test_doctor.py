@@ -1155,3 +1155,43 @@ class TestDoctorTableRendering:
         assert "[x] name" in text
         assert "missing [targets] section" in text
         assert "'rebrew[prove] @ git+url' and [compiler] profile" in text
+
+
+class TestLibcmtIndexFailures:
+    def test_parse_failure_is_not_absorbed(self, tmp_path: Path, monkeypatch) -> None:
+        """index_library reports through error_exit; doctor must not swallow it.
+
+        Absorbing the Exit leaves its JSON envelope inside doctor's --json
+        document and lets the check report a verdict computed without the
+        library refinement.
+        """
+        import typer
+
+        import rebrew.doctor as doctor_mod
+        import rebrew.lib_match as lib_match
+
+        monkeypatch.setattr(lib_match, "stock_lib_cache", lambda root, name: tmp_path / "x.lib")
+        monkeypatch.setattr(lib_match, "ensure_stock_lib", lambda *a, **k: True)
+
+        def _unparsable(path: Path) -> None:
+            raise typer.Exit(code=2)
+
+        monkeypatch.setattr(lib_match, "index_library", _unparsable)
+        cfg = SimpleNamespace(root=str(tmp_path), compiler_profile="msvc-6.0")
+        with pytest.raises(typer.Exit):
+            doctor_mod._libcmt_index(cfg)
+
+    def test_unreadable_archive_degrades_to_a_skip(self, tmp_path: Path, monkeypatch) -> None:
+        import rebrew.doctor as doctor_mod
+        import rebrew.lib_match as lib_match
+
+        monkeypatch.setattr(lib_match, "stock_lib_cache", lambda root, name: tmp_path / "x.lib")
+        monkeypatch.setattr(lib_match, "ensure_stock_lib", lambda *a, **k: True)
+
+        def _unreadable(path: Path) -> None:
+            raise OSError("permission denied")
+
+        monkeypatch.setattr(lib_match, "index_library", _unreadable)
+        cfg = SimpleNamespace(root=str(tmp_path), compiler_profile="msvc-6.0")
+        with pytest.raises(doctor_mod.LibIndexUnavailable):
+            doctor_mod._libcmt_index(cfg)

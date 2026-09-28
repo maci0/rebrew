@@ -43,6 +43,11 @@ from rebrew.utils import rel_display_path, untrusted_text
 
 log = logging.getLogger(__name__)
 
+
+class SecurityScanUnavailable(Exception):
+    """The scanner cannot run at all, so its zero findings mean nothing."""
+
+
 # ---------------------------------------------------------------------------
 # Rule model
 # ---------------------------------------------------------------------------
@@ -369,6 +374,11 @@ def scan_paths(paths: Sequence[Path]) -> list[dict[str, Any]]:
     """
     from rebrew.utils import read_source_text
 
+    # Every file would come back with no findings, so a report built from this
+    # run reads as clean.  Fail before scanning rather than after.
+    if get_ts_parser() is None:
+        raise SecurityScanUnavailable("tree-sitter C parser is unavailable")
+
     findings: list[dict[str, Any]] = []
     for path in paths:
         try:
@@ -403,7 +413,9 @@ def security_scan(directory: Path, *, recursive: bool = True) -> dict[str, Any]:
 
     Returns ``{"root", "files_scanned", "findings", "count", "by_severity"}``
     with findings sorted by file, line, then rule.  No findings is a valid
-    result: every ``by_severity`` key is present with a zero default.
+    result: every ``by_severity`` key is present with a zero default.  Raises
+    :class:`SecurityScanUnavailable` when no rule can run, so an empty result
+    is never mistaken for a clean tree.
     """
     paths = _source_files(directory, recursive=recursive)
     findings = scan_paths(paths)
@@ -483,7 +495,10 @@ def main(
             f"source directory not found: {directory}", json_mode=json_output, code=EXIT_ERROR
         )
 
-    result = _filter_result(security_scan(directory), min_severity)
+    try:
+        result = _filter_result(security_scan(directory), min_severity)
+    except SecurityScanUnavailable as exc:
+        error_exit(f"security scan did not run: {exc}", json_mode=json_output, code=EXIT_ERROR)
 
     if json_output:
         json_print(result)

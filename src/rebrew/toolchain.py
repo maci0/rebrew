@@ -940,8 +940,8 @@ def _retag_image(src: str, dst: str) -> None:
             timeout=60,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
-        # Rollback calls this inside ``suppress(ToolchainError)``.  A raw
-        # timeout here would replace the swap's original error.
+        # A raw timeout or OSError here would escape the rollback path as an
+        # unrelated type, so the swap cannot report what the restore did.
         raise ToolchainError(
             f"docker tag {src} -> {dst} failed: {exc}",
             kind="docker",
@@ -994,14 +994,31 @@ def swap_toolchain_image(tag: str, op: Callable[[], None]) -> str:
         raise
     current = _image_id(tag)
     if current is None:
+        restored = False
+        rollback_error: ToolchainError | None = None
         if backup is not None:
-            with contextlib.suppress(ToolchainError):
+            try:
                 _retag_image(backup, tag)
+            except ToolchainError as exc:
+                rollback_error = exc
+            else:
+                restored = _image_id(tag) == backup
         _drop_image_presence(tag)
         invalidate_toolchain_digest(tag)
+        # The rollback runs against the same container runtime the failed swap
+        # just failed against, so it can fail too.  Report what actually
+        # happened: a message that claims a restore that never landed sends
+        # the operator looking for a working toolchain that is not there.
+        if restored:
+            outcome = "previous image restored"
+        elif rollback_error is not None:
+            outcome = f"previous image NOT restored ({rollback_error})"
+        elif backup is not None:
+            outcome = f"previous image NOT restored; retag {backup} manually"
+        else:
+            outcome = "no previous image"
         raise ToolchainError(
-            f"image tag {tag!r} does not resolve after the swap"
-            + (" — previous image restored" if backup is not None else " (no previous image)")
+            f"image tag {tag!r} does not resolve after the swap — {outcome}"
         )
     _drop_image_presence(tag)
     invalidate_toolchain_digest(tag)

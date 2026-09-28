@@ -1708,8 +1708,19 @@ def _span_at(spans: list[tuple[int, int]], va: int) -> tuple[int, int] | None:
     return None
 
 
+class LibIndexUnavailable(Exception):
+    """The stock LIBCMT archive is present but its bytes could not be read."""
+
+
 def _libcmt_index(cfg: Any) -> Any:
-    """Indexed stock LIBCMT, or None when the archive cannot be read."""
+    """Indexed stock LIBCMT.
+
+    ``None`` when no archive applies (no profile, or the container runtime
+    that could extract one is absent), which is a skip.  An archive that is
+    there and unreadable is an error: :class:`LibIndexUnavailable` for a read
+    failure, and whatever ``index_library`` raises for a parse failure, so the
+    caller reports the cause instead of judging the flag on unrefined data.
+    """
     from rebrew.lib_match import ensure_stock_lib, index_library, stock_lib_cache
 
     name = "LIBCMT.LIB"
@@ -1719,15 +1730,23 @@ def _libcmt_index(cfg: Any) -> Any:
         if not profile or not ensure_stock_lib(cached, profile=profile, name=name):
             return None
         return index_library(cached)
-    except (OSError, ValueError, typer.Exit):
-        return None
+    except typer.Exit:
+        # index_library reports an unparsable archive through error_exit, which
+        # has already written the error envelope to stdout and picked the exit
+        # code. Absorbing the Exit would leave that object inside doctor's
+        # --json document and let the check go on to report a confident result
+        # computed without the library refinement.
+        raise
+    except (OSError, ValueError) as exc:
+        raise LibIndexUnavailable(f"cannot read {cached}: {exc}") from exc
 
 
 def _library_site_counts(cfg: Any, info: Any) -> tuple[int, int] | None:
     """How many of *info*'s wrapper sites sit in a stock LIBCMT body.
 
-    None when the archive or the inventory is unavailable, so the caller
-    keeps the whole-image reading.
+    None when the archive does not apply or the inventory is unavailable, so
+    the caller keeps the whole-image reading.  Raises
+    :class:`LibIndexUnavailable` when an archive is present but unreadable.
     """
     from rebrew.binary_loader import extract_raw_bytes
     from rebrew.lib_match import PREFIX_BYTES, match_bytes, match_leading_body
@@ -1805,7 +1824,12 @@ def check_opt_level(cfg: ProjectConfig) -> CheckResult:
         and getattr(info, "crt", "") == "LIBCMT"
         and getattr(info, "crt_linkage", "") == "static"
     ):
-        counts = _library_site_counts(cfg, info)
+        try:
+            counts = _library_site_counts(cfg, info)
+        except LibIndexUnavailable as exc:
+            return CheckResult(
+                name="Optimization level", status=_SKIP, message=f"stock LIBCMT unusable: {exc}"
+            )
         if counts is not None:
             refined = opt_level_without_library(
                 len(info.o2_wrapper_sites), len(info.o1_wrapper_sites), counts[0], counts[1]

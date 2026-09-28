@@ -96,6 +96,15 @@ def main(
     cfg = require_config(target=target, json_mode=json_output)
 
     funcs = cached_function_list(cfg)
+    if not funcs:
+        # cached_function_list collapses "unset", "missing" and "corrupt" into
+        # []. Documenting nothing because the inventory could not be read would
+        # report success for an unreadable target, so fail the command instead.
+        error_exit(
+            "No function inventory (unreadable or absent) — run `rebrew intake` or "
+            "`rebrew discover-functions` first",
+            json_mode=json_output,
+        )
     src_dir = cfg.reversed_dir
     if not src_dir.is_dir():
         error_exit(f"reversed dir not found: {src_dir}", json_mode=json_output)

@@ -950,6 +950,28 @@ def load_toml_for_write(path: Path, description: str) -> TOMLDocument:
         return tomlkit.document()
 
 
+def load_toml_for_write_strict(path: Path, description: str) -> TOMLDocument:
+    """Parse *path* for a read-modify-write cycle, refusing a corrupt store.
+
+    Identical to :func:`load_toml_for_write` for a readable or missing file.
+    An existing file that cannot be parsed raises ``ValueError`` instead of
+    being moved aside: that store holds state the caller never saw (every
+    other entry's STATUS, blockers, notes), so starting a fresh document
+    replaces the whole file with the one field being written.  Recovering from
+    the ``.corrupt`` sidecar is a decision the operator makes, not the writer.
+
+    *description* names the store in the message (e.g. ``"metadata"``).
+    """
+    try:
+        return tomlkit.parse(read_toml_text(path))
+    except FileNotFoundError:
+        return tomlkit.document()
+    except InternalParserError:
+        raise
+    except (ParseError, UnicodeDecodeError) as exc:
+        raise ValueError(f"refusing to overwrite unparseable {description} {path}: {exc}") from exc
+
+
 @contextlib.contextmanager
 def file_handle_lock(lock_fh: IO[str], *, shared: bool = False) -> Iterator[None]:
     """Hold an advisory ``flock`` on an open file handle.

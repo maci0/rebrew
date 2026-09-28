@@ -213,3 +213,13 @@ class TestDocumentUnmatched:
         assert not (project / "src" / "SERVER" / "fcn_00401020.c").exists(), (
             "the target-prefixed stub already documents this VA"
         )
+
+    def test_unreadable_inventory_fails_instead_of_reporting_zero(self, project: Path) -> None:
+        """A corrupt inventory must not read as "nothing left to document"."""
+        (project / "src" / "SERVER" / "function_structure.json").write_text(
+            "{ this is not json", encoding="utf-8"
+        )
+        result = CliRunner().invoke(app, ["document-unmatched", "--json"])
+        assert result.exit_code == 2, result.output
+        assert "inventory" in result.output
+        assert "Documented 0" not in result.output

@@ -908,6 +908,26 @@ class TestSwapToolchainImage:
         assert state["id"] is None
         assert not any(c[:2] == ["docker", "tag"] for c in calls)
 
+    def test_unresolvable_tag_reports_a_failed_rollback(self, monkeypatch) -> None:
+        """A rollback that could not land must not be reported as restored."""
+        from rebrew import toolchain as toolchain_mod
+        from rebrew.toolchain import ToolchainError, swap_toolchain_image
+
+        state, _calls = self._fake_docker(monkeypatch, "sha256:OLD")
+
+        def _retag(src: str, dst: str) -> None:
+            raise ToolchainError("docker tag sha256:OLD -> msvc-6.0 failed: daemon gone")
+
+        monkeypatch.setattr(toolchain_mod, "_retag_image", _retag)
+
+        def _ok_but_dangling() -> None:
+            state["id"] = None
+
+        with pytest.raises(ToolchainError, match="previous image NOT restored") as excinfo:
+            swap_toolchain_image(self.TAG, _ok_but_dangling)
+        assert "daemon gone" in str(excinfo.value)
+        assert "restored" not in str(excinfo.value).replace("NOT restored", "")
+
     def test_no_backup_success_returns_id(self, monkeypatch) -> None:
         from rebrew.toolchain import swap_toolchain_image
 

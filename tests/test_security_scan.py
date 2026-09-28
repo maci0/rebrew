@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
 from typer.testing import CliRunner
 
 import rebrew.main
@@ -370,3 +371,22 @@ class TestConcurrentQueryInit:
             assert len({id(q) for q in queries}) == 1
         finally:
             security_scan._call_query = old
+
+    def test_unavailable_parser_raises(self, tmp_path: Path, monkeypatch) -> None:
+        """Zero findings from a scanner that cannot parse mean nothing."""
+        import rebrew.security_scan as scan_mod
+
+        monkeypatch.setattr(scan_mod, "get_ts_parser", lambda: None)
+        path = _write(tmp_path, "noparser.c", "void f(void) {}\n")
+        with pytest.raises(scan_mod.SecurityScanUnavailable):
+            scan_paths([path])
+
+    def test_cli_reports_an_unavailable_scanner(self, tmp_path: Path, monkeypatch) -> None:
+        import rebrew.security_scan as scan_mod
+
+        monkeypatch.setattr(scan_mod, "get_ts_parser", lambda: None)
+        _write(tmp_path, "a.c", "void f(char *d, char *s) {\n    strcpy(d, s);\n}\n")
+        result = runner.invoke(rebrew.main.app, ["security-scan", str(tmp_path), "--json"])
+        assert result.exit_code == 2, result.output
+        assert "did not run" in result.output
+        assert "No security findings" not in result.output

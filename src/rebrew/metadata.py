@@ -126,7 +126,7 @@ from rebrew.metadata_doc import (
 from rebrew.utils import (
     atomic_write_locked,
     load_toml_for_write,
-    load_tomllib,
+    load_toml_for_write_strict,
     read_toml_text,
 )
 from rebrew.workspace.status import EARNED_STATUSES as EARNED_STATUSES
@@ -374,11 +374,7 @@ def save_metadata(
     with metadata_write_lock(dir_path, METADATA_FILENAME):
         # load_metadata reads an unparseable store as empty, so a caller's
         # load-modify-save would otherwise replace every entry it never saw.
-        if path.exists():
-            try:
-                load_tomllib(path)
-            except (tomllib.TOMLDecodeError, UnicodeDecodeError) as exc:
-                raise ValueError(f"refusing to overwrite unparseable {path}: {exc}") from exc
+        load_toml_for_write_strict(path, "metadata")
         atomic_write_locked(path, tomlkit.dumps(doc))
         pop_metadata_doc_cache(_metadata_cache, path)
 
@@ -699,11 +695,7 @@ def record_migrated_markers(metadata_dir: Path | str | Any, rows: list[dict[str,
     dir_path = resolve_metadata_dir(metadata_dir)
     path = (dir_path / METADATA_FILENAME).resolve()
     with metadata_write_lock(dir_path, METADATA_FILENAME):
-        if path.exists():
-            try:
-                load_tomllib(path)
-            except (tomllib.TOMLDecodeError, UnicodeDecodeError) as exc:
-                raise ValueError(f"refusing to overwrite unparseable {path}: {exc}") from exc
+        load_toml_for_write_strict(path, "metadata")
         doc = load_toml_for_write(path, "metadata")
         doc_dict = typing.cast(dict[str, Any], doc)
         key_index = build_metadata_key_index(doc_dict)
