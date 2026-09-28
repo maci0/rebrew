@@ -35,7 +35,11 @@ Operators should treat project source, configured HTTP endpoints
 downloads (wibo, SDK tarballs), docker/podman images (`REBREW_CONTAINER_RUNTIME`),
 cmake bridge wineprefix / profile pins (`REBREW_WINEPREFIX`, `REBREW_TOOLCHAIN`),
 `REBREW_SKILLS_DIR` overlays, BinSync state-repo git remotes (`rebrew binsync pull`
-fast-forwards and imports by default), and installed Python entry-point plugins
+fast-forwards and imports by default), a foreign splat project handed to
+`rebrew import-splat` (its `splat.yaml` and `symbol_addrs` files are written into
+the local project as metadata, source markers, and `library_<module>.h` names;
+the command is a dry run unless `--write` is passed), and installed Python
+entry-point plugins
 (including `rebrew.cache_backends`) as part of the trust boundary. So are the
 host-tool knobs outside the `REBREW_` namespace: `KUNA_SPECS` (else the first
 pypcode spec dir under `UV_TOOL_DIR` / `XDG_DATA_HOME`) is the SLEIGH language
