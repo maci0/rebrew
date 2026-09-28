@@ -708,9 +708,12 @@ def resolve_source_arg(cfg: ProjectConfig, source_arg: str) -> Path:
         with contextlib.suppress(ValueError):
             va_int = int(stripped, 16)
 
+    # One directory walk, reused by the VA scan and every stem pass below.
+    sources = iter_sources(src_dir, cfg)
+
     if va_int is not None:
         tm = target_marker(cfg)
-        for src in iter_sources(src_dir, cfg):
+        for src in sources:
             try:
                 annos = parse_c_file_multi(src, target_name=tm, metadata_dir=cfg.metadata_dir)
             except Exception:  # per-file parse noise in a scan
@@ -725,7 +728,6 @@ def resolve_source_arg(cfg: ProjectConfig, source_arg: str) -> Path:
     # ``_foo``).  The EXACT stem must win over an underscore variant: comparing
     # both sides stripped made `__foo.c`/`_foo.c` (path order 0x5F) beat
     # `foo.c`, so the wrong file was compiled and its VA got the STATUS write.
-    sources = iter_sources(src_dir, cfg)
     arg_norm = unicodedata.normalize("NFC", source_arg)
     arg_p = Path(arg_norm)
 

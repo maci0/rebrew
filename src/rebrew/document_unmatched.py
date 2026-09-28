@@ -19,6 +19,7 @@ unmatched and feeds them in.
 from __future__ import annotations
 
 import re
+import unicodedata
 from pathlib import Path
 from typing import Any
 
@@ -113,16 +114,20 @@ def main(
 
     if backfill_blockers:
         from rebrew.intake import blocker_reason
-        from rebrew.metadata import get_entry, set_fields_batch
+        from rebrew.metadata import load_metadata, set_fields_batch
         from rebrew.naming import load_data
 
         _ghidra, existing, _covered = load_data(cfg)
         backfilled = 0
         sizes_written = 0
         updates: list[dict[str, Any]] = []
+        # One read-only metadata table for the whole backfill. get_entry()
+        # deep-copies its entry, so calling it per function copied one
+        # function's fields thousands of times to read two scalars.
+        metadata = load_metadata(cfg.metadata_dir, deepcopy=False)
         for va, info in existing.items():
             module = info.get("module") or cfg.marker
-            entry = get_entry(cfg.metadata_dir, va, module)
+            entry = metadata.get((unicodedata.normalize("NFC", module), va)) or {}
             if info.get("status") == "STUB" and not entry.get("blocker"):
                 size = int(info.get("size") or 0)
                 fields: dict[str, Any] = {"blocker": blocker_reason(family, size, "")}

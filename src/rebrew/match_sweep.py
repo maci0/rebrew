@@ -633,6 +633,14 @@ def run_single_toolchain_sweep(
 
     name_to_va = build_name_to_va(p.cfg)
     iat_region = build_iat_region(p.cfg)
+    # Target normalization is loop-invariant: every toolchain scores the same
+    # target bytes, so disassemble and normalize them once here instead of
+    # once per toolchain (the flag sweep already precomputes them).
+    from rebrew.matcher import precompute_target
+
+    cs_mode = capstone_mode_for_arch(getattr(p.cfg, "arch", ""))
+    ptr_size = getattr(p.cfg, "pointer_size", 4)
+    pre_norm_target, pre_target_mnems = precompute_target(p.target_bytes, cs_mode=cs_mode)
     results: list[tuple[float, bool, int, int, str]] = []
     for profile, cl_cmd, inc_dir in toolchains:
         res = build_candidate_obj_only(
@@ -655,10 +663,14 @@ def run_single_toolchain_sweep(
         # 16-bit targets must be scored in 16-bit mode with 2-byte reloc
         # slots (omf16 emits rel16/disp16); the 32-bit defaults would
         # produce wrong mnemonics and mask the bytes after every reloc.
-        _cs_mode = capstone_mode_for_arch(getattr(p.cfg, "arch", ""))
-        _ptr_size = getattr(p.cfg, "pointer_size", 4)
         score = score_candidate(
-            p.target_bytes, obj, res.reloc_offsets, cs_mode=_cs_mode, pointer_size=_ptr_size
+            p.target_bytes,
+            obj,
+            res.reloc_offsets,
+            _pre_norm_target=pre_norm_target,
+            _pre_target_mnems=pre_target_mnems,
+            cs_mode=cs_mode,
+            pointer_size=ptr_size,
         )
         score_val: float = score.total
         matched, count, total, _relocs, _inv = smart_reloc_compare(

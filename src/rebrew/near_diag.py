@@ -791,6 +791,7 @@ def _run_all_batch(cfg: Any, fix_blocker: bool, json_output: bool, dry_run: bool
     sources = list(iter_sources(cfg.reversed_dir, cfg))
     tm = target_marker(cfg)
     candidates: list[tuple[Path, Any]] = []
+    all_annos: list[Any] = []
     skipped_files: list[str] = []
     for src in sources:
         try:
@@ -798,6 +799,7 @@ def _run_all_batch(cfg: Any, fix_blocker: bool, json_output: bool, dry_run: bool
         except Exception as exc:  # one bad file must not kill the batch
             skipped_files.append(f"{src.name}: {exc}")
             continue
+        all_annos.extend(annos)
         for a in annos:
             # Mirror prove --all: SIZE_MISMATCH functions are equally valid
             # classification targets (they do not byte-match and deserve a
@@ -827,7 +829,7 @@ def _run_all_batch(cfg: Any, fix_blocker: bool, json_output: bool, dry_run: bool
 
     from rebrew.coff_reloc import build_name_to_va
 
-    name_to_va = build_name_to_va(cfg)
+    name_to_va = build_name_to_va(cfg, annotations=all_annos)
     classified = 0
     failed = 0
     results: list[dict[str, Any]] = []

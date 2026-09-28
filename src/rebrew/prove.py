@@ -1535,7 +1535,11 @@ def main(
 
 
 def _resolve_watched_dir32(
-    obj_path: str | Path, symbol: str, cfg: ProjectConfig, watched_set: set[int]
+    obj_path: str | Path,
+    symbol: str,
+    cfg: ProjectConfig,
+    watched_set: set[int],
+    name_to_va: dict[str, int] | None = None,
 ) -> dict[int, int]:
     """Map DIR32 reloc offsets whose symbol resolves into *watched_set* → that VA.
 
@@ -1545,11 +1549,15 @@ def _resolve_watched_dir32(
     the addend), and the original blob needs no patch — its linked operand
     already holds the absolute address.  Best-effort: any failure yields
     ``{}`` (no watching, current behaviour).
+
+    Pass the run's already-built *name_to_va*; rebuilding it here re-scans and
+    re-parses every source file, which a batch would do once per function.
     """
     if not watched_set:
         return {}
     try:
-        name_to_va = build_name_to_va(cfg)
+        if name_to_va is None:
+            name_to_va = build_name_to_va(cfg)
     except Exception:  # best-effort; no resolution → no watching
         # User asked to watch VAs: a silent empty map would let prove run
         # without the memory check they requested.
@@ -1704,6 +1712,11 @@ def _prepare_prove_inputs(
 
     from rebrew.temp_dirs import writable_temp_dir
 
+    # Build the name→VA map once per function, before either consumer needs it:
+    # watched-VA resolution and the RELOC gate below both read it.
+    if name_to_va is None and (watched_vas or not (start_offset or end_offset)):
+        name_to_va = build_name_to_va(cfg)
+
     workdir = writable_temp_dir("rebrew_prove_")
     try:
         obj_path, err = compile_to_obj(
@@ -1719,7 +1732,7 @@ def _prepare_prove_inputs(
         obj_bytes, reloc_offsets = parse_obj_symbol_bytes(obj_path, symbol)
         if obj_bytes is None:
             raise _ProveError(f"Symbol '{symbol}' not found in compiled .obj")
-        dir32_watched = _resolve_watched_dir32(obj_path, symbol, cfg, set(watched_vas))
+        dir32_watched = _resolve_watched_dir32(obj_path, symbol, cfg, set(watched_vas), name_to_va)
     finally:
         from rebrew.temp_dirs import remove_temp_dir
 
@@ -1939,6 +1952,7 @@ def _run_all_batch(
 
     # Collect all eligible annotations
     candidates: list[tuple[Path, Any]] = []
+    all_annos: list[Any] = []
     for src in sources:
         try:
             annos = parse_c_file_multi(src, target_name=tm, metadata_dir=cfg.metadata_dir)
@@ -1947,6 +1961,7 @@ def _run_all_batch(
             # from one where every function was already out of scope.
             log.warning("Skipping %s: annotation parse failed: %s", src, exc, exc_info=True)
             continue
+        all_annos.extend(annos)
         for a in annos:
             if a.status not in NEAR_MATCH_CANDIDATE_STATUSES or not a.size:
                 continue
@@ -1982,7 +1997,7 @@ def _run_all_batch(
 
     # Build the DIR32 validation map once for the whole batch — per-candidate
     # rebuilds would re-scan every source for every function (O(F×S)).
-    name_to_va = build_name_to_va(cfg)
+    name_to_va = build_name_to_va(cfg, annotations=all_annos)
 
     if not json_output:
         scope = "GA_CEILING " if ceiling_only else ""
