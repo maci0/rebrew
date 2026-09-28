@@ -61,6 +61,26 @@ class TestExtractCommands:
         # --target are the ones the skills cite most, so they are checked.
         assert results == [("status", ["--json", "--target"])]
 
+    def test_mermaid_node_commands_are_extracted(self, tmp_path: Path) -> None:
+        # The flowchart is what an agent reads first, so a flag that drifts
+        # there has to fail the gate the same way a bash block does.
+        md = _md(
+            "```mermaid\n"
+            "graph TD\n"
+            "    Pick[Pick a function<br/>rebrew todo --json] --> Lint[rebrew lint --fix]\n"
+            "    Bss[Check BSS<br/>rebrew data --bss --json]\n"
+            "```\n",
+            tmp_path,
+        )
+        results = vsc._extract_commands(md)
+        assert ("todo", ["--json"]) in results
+        assert ("lint", ["--fix"]) in results
+        assert ("data", ["--bss", "--json"]) in results
+
+    def test_mermaid_placeholder_is_not_a_subcommand(self, tmp_path: Path) -> None:
+        md = _md("```mermaid\n    N[rebrew <cmd> 0x1]\n```\n", tmp_path)
+        assert vsc._extract_commands(md) == []
+
 
 class TestRunHelp:
     @pytest.mark.parametrize("returncode", [0, 1, 2])

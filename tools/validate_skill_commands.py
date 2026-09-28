@@ -40,6 +40,11 @@ _SKILLS_DIR = _REPO_ROOT / "src" / "rebrew" / "agent-skills"
 
 _BASH_BLOCK_RE = re.compile(r"```bash\n(.*?)```", re.DOTALL)
 _INLINE_SPAN_RE = re.compile(r"`(rebrew [^`]+)`")
+_MERMAID_BLOCK_RE = re.compile(r"```mermaid\n(.*?)```", re.DOTALL)
+#: Mermaid node labels, edge labels, and arrows: ``Pick[a<br/>rebrew todo --json]``
+#: splits here so each fragment is a bare command with no diagram punctuation.
+_MERMAID_SEP_RE = re.compile(r"[\[\]{}()|<>]+")
+_MERMAID_CMD_RE = re.compile(r"rebrew [a-z][a-z0-9-]*[^\n]*")
 _FLAG_RE = re.compile(r"(--[a-z][a-z0-9-]+)")
 
 # typer colors the help whenever GITHUB_ACTIONS/FORCE_COLOR/PY_COLORS is set
@@ -116,9 +121,10 @@ def _parse_command(line: str) -> tuple[str, list[str]] | None:
 def _extract_commands(skill_md: Path) -> list[tuple[str, list[str]]]:
     """Return list of (subcommand, [flags]) from *skill_md*.
 
-    Covers both ``bash`` code blocks and inline ``` `rebrew …` ``` spans in
-    prose.  Skills name commands in prose as often as in code blocks, and a
-    block-only check leaves those references unvalidated.
+    Covers ``bash`` code blocks, ``` `rebrew …` ``` spans in prose, and the
+    command lines inside ```mermaid``` flowcharts.  Skills name commands in
+    prose and in the diagram as often as in code blocks, and the diagram is
+    what an agent reads first, so a block-only check leaves those unvalidated.
     """
     text = skill_md.read_text(encoding="utf-8")
     lines = [
@@ -126,6 +132,12 @@ def _extract_commands(skill_md: Path) -> list[tuple[str, list[str]]]:
     ]
     # Inline spans wrapping a line break are prose sentences, not invocations.
     lines += [m.group(1) for m in _INLINE_SPAN_RE.finditer(text) if "\n" not in m.group(1)]
+    lines += [
+        m.group(0).strip()
+        for block in _MERMAID_BLOCK_RE.finditer(text)
+        for fragment in _MERMAID_SEP_RE.split(block.group(1))
+        for m in _MERMAID_CMD_RE.finditer(fragment)
+    ]
     return [cmd for line in lines if (cmd := _parse_command(line)) is not None]
 
 

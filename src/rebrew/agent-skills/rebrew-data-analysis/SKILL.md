@@ -9,7 +9,7 @@ description: >-
   'rebrew data', 'rebrew data --bss', 'rebrew data --fix-bss',
   'rebrew data --gen-header', 'data-drift',
   'start-data', 'fill-data', 'layout-audit', 'set-type', 'set-section', 'W016',
-  'W031',
+  'W031', 'W032', 'coverage document',
   'data placement', 'converge', 'fix-ownership', 'rebrew verify --data',
   or 'rebrew_globals.h'. Not for function bodies
   (rebrew-workflow/matching) or Ghidra data pulls (rebrew-ghidra-sync --pull-data).
