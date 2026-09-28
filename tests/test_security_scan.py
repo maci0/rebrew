@@ -347,6 +347,7 @@ class TestConcurrentQueryInit:
 
         import tree_sitter as ts
         import tree_sitter_c
+        from thread_util import join_all
 
         from rebrew import security_scan
 
@@ -361,11 +362,10 @@ class TestConcurrentQueryInit:
                 barrier.wait()
                 queries.append(security_scan._get_call_query(lang))
 
-            threads = [threading.Thread(target=_worker) for _ in range(8)]
+            threads = [threading.Thread(target=_worker, daemon=True) for _ in range(8)]
             for t in threads:
                 t.start()
-            for t in threads:
-                t.join()
+            join_all(threads)
 
             assert len(queries) == 8
             assert len({id(q) for q in queries}) == 1

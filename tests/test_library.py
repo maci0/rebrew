@@ -348,10 +348,12 @@ class TestLibraryCli:
             except BaseException as exc:  # pragma: no cover - reported below
                 errors.append(exc)
 
-        holder = threading.Thread(target=_hold)
+        holder = threading.Thread(target=_hold, daemon=True)
         holder.start()
         assert held.wait(10)
-        writer = threading.Thread(target=lambda: self._invoke("set", str(lib), "--cflags", "/O1"))
+        writer = threading.Thread(
+            target=lambda: self._invoke("set", str(lib), "--cflags", "/O1"), daemon=True
+        )
         writer.start()
         try:
             writer.join(2)
@@ -410,6 +412,8 @@ class TestLibraryCacheConcurrency:
         """Workers that all observe a deleted library file must not raise."""
         import threading
 
+        from thread_util import join_all
+
         from rebrew.metadata import (
             LIBRARY_METADATA_FILE,
             clear_library_override_cache,
@@ -433,9 +437,8 @@ class TestLibraryCacheConcurrency:
             except BaseException as exc:
                 errors.append(exc)
 
-        threads = [threading.Thread(target=_worker) for _ in range(16)]
+        threads = [threading.Thread(target=_worker, daemon=True) for _ in range(16)]
         for t in threads:
             t.start()
-        for t in threads:
-            t.join()
+        join_all(threads)
         assert errors == []

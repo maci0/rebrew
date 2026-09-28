@@ -731,8 +731,6 @@ class TestWritableTempDir:
         never into the interpreter's lib/ (the wheel install prefix)."""
         import tempfile
 
-        import rebrew.utils as utils
-
         blocked = tmp_path / "file"
         blocked.write_text("")
         monkeypatch.setenv("XDG_CACHE_HOME", str(blocked))
@@ -759,8 +757,6 @@ class TestWritableTempDir:
         enforces the constraint."""
         import tempfile
 
-        import rebrew.utils as utils
-
         ram = tmp_path / "ram-cache"
         real = tmp_path / "disk-cache"
         monkeypatch.setenv("XDG_CACHE_HOME", str(ram))
@@ -781,7 +777,6 @@ class TestWritableTempDir:
     ) -> None:
         """No real-disk candidate is an error naming the constraint, not a
         tmpfs dir handed back to fail later inside DOSBox."""
-        import rebrew.utils as utils
 
         monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "ram"))
         monkeypatch.setattr(temp_dirs, "SOURCE_CHECKOUT", None)
@@ -794,7 +789,6 @@ class TestWritableTempDir:
     ) -> None:
         """The plain workdir callers (docker mounts, host compilers) are fine
         on tmpfs, so the default must not reject it."""
-        import rebrew.utils as utils
 
         monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
         monkeypatch.setattr(temp_dirs, "on_ram_filesystem", lambda p: True)
@@ -814,7 +808,6 @@ class TestOnRamFilesystem:
     def test_matches_a_mountinfo_line(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import rebrew.utils as utils
 
         table = tmp_path / "mountinfo"
         table.write_text(
@@ -830,7 +823,6 @@ class TestOnRamFilesystem:
     ) -> None:
         """A tmpfs bind mount under a real-disk parent must be reported as
         tmpfs: the longest mount point is the one that applies."""
-        import rebrew.utils as utils
 
         table = tmp_path / "mountinfo"
         table.write_text(
@@ -845,7 +837,6 @@ class TestOnRamFilesystem:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The kernel escapes space/tab/newline/backslash in a mount point."""
-        import rebrew.utils as utils
 
         table = tmp_path / "mountinfo"
         table.write_text("99 25 0:99 / /mnt/my\\040ram rw,nosuid - tmpfs tmpfs rw\n")
@@ -857,7 +848,6 @@ class TestOnRamFilesystem:
     ) -> None:
         """A namespace without /proc cannot be probed; refusing every dir
         there would break the common case."""
-        import rebrew.utils as utils
 
         monkeypatch.setattr(temp_dirs, "_MOUNTINFO", tmp_path / "absent")
         assert temp_dirs.on_ram_filesystem(tmp_path) is False
@@ -1488,7 +1478,6 @@ class TestSweepStaleTempDirs:
         assert target.is_dir()
 
     def test_swept_once_per_base(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        import rebrew.utils as utils
 
         monkeypatch.setattr(temp_dirs, "_temp_swept_bases", set())
         calls: list[Path] = []

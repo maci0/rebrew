@@ -62,6 +62,8 @@ class TestMultiMarkerStrip:
 class TestSynthesisConcurrency:
     def test_parse_c_file_multi_threaded(self, tmp_path) -> None:
         """Synthesis under 8 threads: every file parses exactly once, correctly."""
+        from thread_util import join_all
+
         from rebrew.metadata import save_metadata
 
         src = tmp_path / "src"
@@ -94,11 +96,10 @@ class TestSynthesisConcurrency:
                 except Exception as e:
                     errors.append((f"f{i}", repr(e)))
 
-        threads = [threading.Thread(target=worker) for _ in range(8)]
+        threads = [threading.Thread(target=worker, daemon=True) for _ in range(8)]
         for t in threads:
             t.start()
-        for t in threads:
-            t.join()
+        join_all(threads)
         assert not errors, errors[:5]
 
 

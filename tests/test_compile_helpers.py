@@ -298,6 +298,8 @@ class TestNativeToolchainId:
         """Concurrent cache-key builds must not race the eviction mutation."""
         import threading
 
+        from thread_util import join_all
+
         from rebrew.compile import (
             _NATIVE_BINARY_CACHE_MAX,
             _native_binary_cache,
@@ -328,11 +330,10 @@ class TestNativeToolchainId:
             except BaseException as exc:
                 errors.append(exc)
 
-        threads = [threading.Thread(target=_worker, args=(i,)) for i in range(64)]
+        threads = [threading.Thread(target=_worker, args=(i,), daemon=True) for i in range(64)]
         for t in threads:
             t.start()
-        for t in threads:
-            t.join()
+        join_all(threads)
         assert errors == []
         assert len(_native_binary_cache) <= _NATIVE_BINARY_CACHE_MAX
 
@@ -490,6 +491,8 @@ class TestInvalidateToolchainDigest:
         """
         import threading
 
+        from thread_util import join_all
+
         import rebrew.toolchain as toolchain_mod
         from rebrew.toolchain import cached_image_digest, image_present
 
@@ -515,11 +518,10 @@ class TestInvalidateToolchainDigest:
             except BaseException as exc:  # collect; fail outside threads
                 errors.append(exc)
 
-        threads = [threading.Thread(target=_worker, args=(i,)) for i in range(64)]
+        threads = [threading.Thread(target=_worker, args=(i,), daemon=True) for i in range(64)]
         for t in threads:
             t.start()
-        for t in threads:
-            t.join()
+        join_all(threads)
         assert errors == []
         # Bounded eviction must leave at most the configured caps.
         assert (

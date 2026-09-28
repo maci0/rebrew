@@ -23,6 +23,31 @@ class TestQualifiedKey:
         assert qualified_key(nfd, 0x1000) == "MOD_\u00e9.0x00001000"
 
 
+class TestCanonicalVaKey:
+    """A cache row's VA and a hand-typed todo key must land on one key even
+    when they are spelled differently; anything that is not a VA has to stay
+    distinct instead of collapsing onto a neighbour."""
+
+    def test_hex_spellings_collapse_onto_one_int(self) -> None:
+        from rebrew.metadata_doc import canonical_va_key
+
+        assert canonical_va_key("0x1000") == canonical_va_key("0x00001000") == 0x1000
+        assert canonical_va_key(" 0X1000 ") == 0x1000
+
+    def test_int_passes_through(self) -> None:
+        from rebrew.metadata_doc import canonical_va_key
+
+        assert canonical_va_key(0x1000) == 0x1000
+
+    def test_non_va_values_stay_distinct(self) -> None:
+        from rebrew.metadata_doc import canonical_va_key
+
+        assert canonical_va_key("0xZZZZ") == "0xZZZZ"
+        assert canonical_va_key("Main") == "Main"
+        assert canonical_va_key(None) == "None"
+        assert len({canonical_va_key(v) for v in ("0xZZZZ", "Main", 12.0)}) == 3
+
+
 class TestParseMetadataKey:
     def test_valid(self) -> None:
         from rebrew.metadata_doc import parse_metadata_key
@@ -187,6 +212,8 @@ class TestMetadataWriteLock:
         import threading
         import tomllib
 
+        from thread_util import join_all
+
         from rebrew.metadata_doc import metadata_write_lock, parse_metadata_doc
         from rebrew.utils import atomic_write_text
 
@@ -203,11 +230,10 @@ class TestMetadataWriteLock:
                 )
                 atomic_write_text(target, lines)
 
-        threads = [threading.Thread(target=_write, args=(i,)) for i in range(16)]
+        threads = [threading.Thread(target=_write, args=(i,), daemon=True) for i in range(16)]
         for t in threads:
             t.start()
-        for t in threads:
-            t.join()
+        join_all(threads)
 
         doc = parse_metadata_doc(tomllib.loads(target.read_text(encoding="utf-8")))
         assert {va for _, va in doc} == set(range(16))

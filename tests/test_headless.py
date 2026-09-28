@@ -362,6 +362,8 @@ class TestEnsureXvfb:
         display, and spawn two Xvfb processes (one dies with "server
         already active").
         """
+        from thread_util import join_all
+
         from rebrew import headless
 
         monkeypatch.delenv("REBREW_XVFB_DISPLAY", raising=False)
@@ -414,11 +416,10 @@ class TestEnsureXvfb:
             barrier.wait()
             results.append(ensure_xvfb())
 
-        threads = [threading.Thread(target=_worker) for _ in range(4)]
+        threads = [threading.Thread(target=_worker, daemon=True) for _ in range(4)]
         for t in threads:
             t.start()
-        for t in threads:
-            t.join()
+        join_all(threads)
         assert len(results) == 4 and all(r is not None for r in results)
         assert len(set(results)) == 1  # all callers agree on one display
         assert len(spawned) == 1  # exactly one Xvfb was started
@@ -524,12 +525,12 @@ class TestXvfbCookieFor:
                 proceed.wait(timeout=5.0)
                 os.environ[headless.XVFB_DISPLAY_ENV] = ":99"
 
-        writer = threading.Thread(target=publish)
+        writer = threading.Thread(target=publish, daemon=True)
         writer.start()
         try:
             assert in_window.wait(timeout=5.0)
             reader = threading.Thread(
-                target=lambda: observed.append(headless.xvfb_cookie_for(":99"))
+                target=lambda: observed.append(headless.xvfb_cookie_for(":99")), daemon=True
             )
             reader.start()
             # The reader is parked on the lock, so nothing is observed yet.

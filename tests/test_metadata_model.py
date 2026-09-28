@@ -31,6 +31,33 @@ def test_load_corrupt_value_collects_problem(tmp_path: Path) -> None:
         e.validate()
 
 
+def test_problems_name_a_hand_edited_out_of_range_value(tmp_path: Path) -> None:
+    """The typed writers reject these, so they can only arrive from a hand
+    edit — which is exactly when `problems()` has to name them."""
+    from rebrew.metadata import metadata_path
+
+    metadata_path(tmp_path).write_text(
+        '["MAIN.0x00001000"]\nstatus = "FINISHED"\nsize = -4\nblocker_delta = -1\n',
+        encoding="utf-8",
+    )
+    e = _entry(tmp_path)
+    reported = e.problems()
+    assert any("unknown STATUS 'FINISHED'" in p for p in reported)
+    assert any("negative SIZE -4" in p for p in reported)
+    assert any("negative blocker_delta -1" in p for p in reported)
+    with pytest.raises(MetadataValidationError, match=r"MAIN\.0x00001000"):
+        e.validate()
+
+
+def test_problems_accept_a_negative_free_entry(tmp_path: Path) -> None:
+    """Zero and absent are fine; only a negative reads as a broken edit."""
+    e = _entry(tmp_path)
+    e.apply(tmp_path, size=0)
+    loaded = MetadataEntry.load(tmp_path, 0x1000, "MAIN")
+    assert loaded.size == 0
+    assert loaded.problems() == []
+
+
 def test_load_problems_empty_when_clean(tmp_path: Path) -> None:
     e = _entry(tmp_path)
     e.apply(tmp_path, size=8)

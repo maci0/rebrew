@@ -1492,6 +1492,8 @@ class TestHeadersHash:
         """Concurrent fills must not race the clear-then-store eviction."""
         import threading
 
+        from thread_util import join_all
+
         import rebrew.verify_hash as vh
 
         cfg = _make_cfg(tmp_path)
@@ -1509,11 +1511,10 @@ class TestHeadersHash:
             except BaseException as exc:
                 errors.append(exc)
 
-        threads = [threading.Thread(target=_worker) for _ in range(16)]
+        threads = [threading.Thread(target=_worker, daemon=True) for _ in range(16)]
         for t in threads:
             t.start()
-        for t in threads:
-            t.join()
+        join_all(threads)
         assert errors == []
         assert digests
         assert all(d == digests[0] for d in digests)

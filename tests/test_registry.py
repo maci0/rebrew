@@ -1781,7 +1781,7 @@ class TestRefreshAll:
                 errors.append(exc)
                 stop.set()
 
-        readers = [threading.Thread(target=_reader) for _ in range(4)]
+        readers = [threading.Thread(target=_reader, daemon=True) for _ in range(4)]
         for t in readers:
             t.start()
         try:
@@ -1914,6 +1914,8 @@ class TestConcurrentEntryPoints:
         """Concurrent entry-point discovery must not race or corrupt the snapshot."""
         import threading
 
+        from thread_util import join_all
+
         from rebrew import registry
 
         old = registry._entry_points_snapshot
@@ -1926,11 +1928,10 @@ class TestConcurrentEntryPoints:
                 barrier.wait()
                 results.append(registry._installed_entry_points())
 
-            threads = [threading.Thread(target=_worker) for _ in range(8)]
+            threads = [threading.Thread(target=_worker, daemon=True) for _ in range(8)]
             for t in threads:
                 t.start()
-            for t in threads:
-                t.join()
+            join_all(threads)
 
             assert len(results) == 8
             assert registry._entry_points_snapshot is not None

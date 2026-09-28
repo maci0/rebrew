@@ -114,7 +114,7 @@ class TestCompileCache:
 
         store.get = _blocking_get  # type: ignore[method-assign]
         got: list[bytes | None] = []
-        reader = threading.Thread(target=lambda: got.append(cache.get("k")))
+        reader = threading.Thread(target=lambda: got.append(cache.get("k")), daemon=True)
         reader.start()
         assert in_get.wait(10.0), "get() never entered the store"
 
@@ -124,7 +124,7 @@ class TestCompileCache:
             cache.close()
             closed.set()
 
-        closer = threading.Thread(target=_close)
+        closer = threading.Thread(target=_close, daemon=True)
         closer.start()
         # close() must block until the in-flight lookup is done.
         assert not closed.wait(0.2), "close() tore down the store under a live get()"
@@ -487,6 +487,8 @@ class TestIncludeFingerprint:
         """Parallel fills share the path memo and must not raise or diverge."""
         import threading
 
+        from thread_util import join_all
+
         inc = tmp_path / "inc"
         inc.mkdir()
         (inc / "a.h").write_text("x\n")
@@ -505,11 +507,10 @@ class TestIncludeFingerprint:
             except BaseException as exc:
                 errors.append(exc)
 
-        threads = [threading.Thread(target=_worker) for _ in range(8)]
+        threads = [threading.Thread(target=_worker, daemon=True) for _ in range(8)]
         for thread in threads:
             thread.start()
-        for thread in threads:
-            thread.join()
+        join_all(threads)
         assert errors == []
         assert digests
         assert all(digest == digests[0] for digest in digests)
@@ -1270,6 +1271,8 @@ class TestHitMissCounters:
         """Concurrent lookups and stats() reads must never observe torn counters."""
         import threading
 
+        from thread_util import join_all
+
         cache = CompileCache(tmp_path / "cc")
         cache.put("hit", b"\x01")
         stop = threading.Event()
@@ -1279,7 +1282,7 @@ class TestHitMissCounters:
                 cache.get("hit")
                 cache.get("miss")
 
-        threads = [threading.Thread(target=_worker) for _ in range(4)]
+        threads = [threading.Thread(target=_worker, daemon=True) for _ in range(4)]
         for t in threads:
             t.start()
         try:
@@ -1293,8 +1296,7 @@ class TestHitMissCounters:
                 assert info["session_hit_rate_pct"] <= 100.0
         finally:
             stop.set()
-            for t in threads:
-                t.join()
+            join_all(threads)
             cache.close()
 
 

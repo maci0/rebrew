@@ -239,6 +239,8 @@ class TestLoadSave:
         """
         import threading
 
+        from thread_util import join_all
+
         n = 16
         barrier = threading.Barrier(n)
 
@@ -254,11 +256,10 @@ class TestLoadSave:
                 ),
             )
 
-        threads = [threading.Thread(target=_saver, args=(i,)) for i in range(n)]
+        threads = [threading.Thread(target=_saver, args=(i,), daemon=True) for i in range(n)]
         for t in threads:
             t.start()
-        for t in threads:
-            t.join()
+        join_all(threads)
         loaded = load_solutions(project_root)
         assert {e.symbol for e in loaded} == {f"_func_{i}" for i in range(n)}
 
@@ -266,6 +267,8 @@ class TestLoadSave:
         """Parallel large appends must not splice JSON lines together."""
         import json
         import threading
+
+        from thread_util import join_all
 
         from rebrew.matcher.solutions import record_ga_run
 
@@ -289,11 +292,10 @@ class TestLoadSave:
                 mutations=[bulky],
             )
 
-        threads = [threading.Thread(target=_writer, args=(i,)) for i in range(n)]
+        threads = [threading.Thread(target=_writer, args=(i,), daemon=True) for i in range(n)]
         for t in threads:
             t.start()
-        for t in threads:
-            t.join()
+        join_all(threads)
 
         path = project_root / ".rebrew" / "ga_runs.jsonl"
         lines = path.read_text(encoding="utf-8").splitlines()

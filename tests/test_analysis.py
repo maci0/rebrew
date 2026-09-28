@@ -388,6 +388,8 @@ class TestConcurrentOpConstants:
         """Concurrent callers must receive the cached constants without race."""
         import threading
 
+        from thread_util import join_all
+
         from rebrew import analysis
 
         old = analysis._OP_CONSTANTS
@@ -400,11 +402,10 @@ class TestConcurrentOpConstants:
                 barrier.wait()
                 results.append(analysis._op_constants())
 
-            threads = [threading.Thread(target=_worker) for _ in range(8)]
+            threads = [threading.Thread(target=_worker, daemon=True) for _ in range(8)]
             for t in threads:
                 t.start()
-            for t in threads:
-                t.join()
+            join_all(threads)
 
             assert len(results) == 8
             first = results[0]

@@ -543,6 +543,119 @@ class TestRemoveField:
             remove_fields_batch(tmp_path, [{"module": "SERVER", "va": 0x1000, "keys": ["cflag"]}])
 
 
+class TestRecordMigratedMarkers:
+    """`rebrew migrate-markers` moves an inline marker block into the TOML
+    through this one writer, so the identity keys it owns are only ever
+    written here."""
+
+    def test_writes_identity_and_fields_for_a_new_entry(self, tmp_path: Path) -> None:
+        from rebrew.metadata import record_migrated_markers
+
+        record_migrated_markers(
+            tmp_path,
+            [
+                {
+                    "module": "SERVER",
+                    "va": 0x1000,
+                    "identity": {"file": "sub_1000.c", "symbol": "_fn", "marker_type": "func"},
+                    "fields": {"size": 16, "cflags": "/O2"},
+                }
+            ],
+        )
+        entry = get_entry(tmp_path, 0x1000, "SERVER")
+        assert entry == {
+            "file": "sub_1000.c",
+            "symbol": "_fn",
+            "marker_type": "func",
+            "size": 16,
+            "cflags": "/O2",
+        }
+
+    def test_merges_into_an_existing_entry_without_dropping_it(self, tmp_path: Path) -> None:
+        from rebrew.metadata import record_migrated_markers
+
+        save_metadata(tmp_path, {("SERVER", 0x1000): {"status": "EXACT", "note": "kept"}})
+        record_migrated_markers(
+            tmp_path,
+            [{"module": "SERVER", "va": 0x1000, "identity": {"file": "sub_1000.c"}}],
+        )
+        entry = get_entry(tmp_path, 0x1000, "SERVER")
+        assert entry["file"] == "sub_1000.c"
+        assert entry["status"] == "EXACT"
+        assert entry["note"] == "kept"
+
+    def test_keeps_the_existing_name_and_skips_empty_values(self, tmp_path: Path) -> None:
+        """`name` is the one identity key that must not overwrite a hand-set
+        one, and an empty value is not worth writing at all."""
+        from rebrew.metadata import record_migrated_markers
+
+        save_metadata(tmp_path, {("SERVER", 0x1000): {"name": "Sub_1000"}})
+        record_migrated_markers(
+            tmp_path,
+            [
+                {
+                    "module": "SERVER",
+                    "va": 0x1000,
+                    "identity": {"name": "_fn", "symbol": "", "file": "sub_1000.c"},
+                }
+            ],
+        )
+        entry = get_entry(tmp_path, 0x1000, "SERVER")
+        assert entry["name"] == "Sub_1000"
+        assert entry["file"] == "sub_1000.c"
+        assert "symbol" not in entry
+
+    def test_sets_name_when_absent(self, tmp_path: Path) -> None:
+        from rebrew.metadata import record_migrated_markers
+
+        record_migrated_markers(
+            tmp_path, [{"module": "SERVER", "va": 0x1000, "identity": {"name": "_fn"}}]
+        )
+        assert get_entry(tmp_path, 0x1000, "SERVER")["name"] == "_fn"
+
+    def test_strips_control_chars_like_set_fields(self, tmp_path: Path) -> None:
+        from rebrew.metadata import record_migrated_markers
+
+        record_migrated_markers(
+            tmp_path,
+            [
+                {
+                    "module": "SERVER",
+                    "va": 0x1000,
+                    "identity": {"file": "sub_1000.c"},
+                    "fields": {"note": "see\x1b[0m dump"},
+                }
+            ],
+        )
+        assert get_entry(tmp_path, 0x1000, "SERVER")["note"] == "see[0m dump"
+        assert load_metadata(tmp_path)[("SERVER", 0x1000)]["note"] == "see[0m dump"
+
+    def test_rejects_an_unknown_identity_field(self, tmp_path: Path) -> None:
+        from rebrew.metadata import record_migrated_markers
+
+        with pytest.raises(ValueError, match="unknown marker identity field 'cflags'"):
+            record_migrated_markers(
+                tmp_path, [{"module": "SERVER", "va": 0x1000, "identity": {"cflags": "/O2"}}]
+            )
+        assert get_entry(tmp_path, 0x1000, "SERVER") == {}
+
+    def test_rejects_status_and_a_missing_module(self, tmp_path: Path) -> None:
+        from rebrew.metadata import record_migrated_markers
+
+        with pytest.raises(ValueError, match="update_statuses_batch"):
+            record_migrated_markers(
+                tmp_path, [{"module": "SERVER", "va": 0x1000, "fields": {"status": "EXACT"}}]
+            )
+        with pytest.raises(ValueError, match="non-empty module"):
+            record_migrated_markers(tmp_path, [{"va": 0x1000, "identity": {"file": "a.c"}}])
+
+    def test_no_rows_writes_nothing(self, tmp_path: Path) -> None:
+        from rebrew.metadata import record_migrated_markers
+
+        record_migrated_markers(tmp_path, [])
+        assert not metadata_path(tmp_path).exists()
+
+
 # ---------------------------------------------------------------------------
 # merge_into_annotation
 # ---------------------------------------------------------------------------

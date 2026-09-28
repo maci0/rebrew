@@ -488,6 +488,8 @@ class TestWin32SimProcedures:
         """Concurrent callers must receive the fully initialized registry without torn reads."""
         import threading
 
+        from thread_util import join_all
+
         import rebrew.prove_simprocs as sp
 
         old = sp._WIN32_SIMPROCS
@@ -500,11 +502,10 @@ class TestWin32SimProcedures:
                 barrier.wait()
                 results.append(sp.get_win32_simprocs())
 
-            threads = [threading.Thread(target=_worker) for _ in range(8)]
+            threads = [threading.Thread(target=_worker, daemon=True) for _ in range(8)]
             for t in threads:
                 t.start()
-            for t in threads:
-                t.join()
+            join_all(threads)
 
             assert len(results) == 8
             for r in results:
