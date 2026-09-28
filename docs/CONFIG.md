@@ -77,7 +77,7 @@ libs = "toolchain/msvc/6.0-win32/source/VC98/Lib"
 | `raw_link` | `[targets.<name>].raw_link` | Pre-postlink image to compare against instead of `build/<target>`; gates `rebrew verify --raw-link` and the `postlink-mangled` todo category. Unset by default |
 | `source_ext` | `[targets.<name>].source_ext` | Source extension used when discovering and creating files |
 | `ghidra_program_path` | `[targets.<name>].ghidra_program_path` | ReVa MCP program path override |
-| `origins` | `[targets.<name>].origins` | The target's module list, managed by `rebrew add-module` / `rebrew remove-module`. Carried for the editor and UI only; annotation filtering reads the markers themselves, not this list |
+| `origins` | `[targets.<name>].origins` | The target's module list, managed by `rebrew cfg add-module` / `rebrew cfg remove-module`. Carried for the editor and UI only; annotation filtering reads the markers themselves, not this list |
 | `layout` | `[targets.<name>].layout` | Inline position-alignment package (image base, section geometry, exports, imports) printed by `rebrew gen-layout --layout-config` and written to `layout/<target>/rebrew-layout.toml`. Not read by this loader: the layout tooling parses the file directly. Recognised here so a target carrying it does not warn on every invocation and no config rewriter drops the block |
 | `ghidra_backend` | `[targets.<name>].ghidra_backend` | Ghidra transport: `reva` (MCP, default) or `cli`; an unknown value is a config error |
 | `binsync_state_dir` | `[targets.<name>].binsync_state_dir` | BinSync state directory (default for `--state-dir`) |
