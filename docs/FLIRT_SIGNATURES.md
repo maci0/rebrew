@@ -79,7 +79,7 @@ file directly. Rebrew includes `gen_flirt_pat.py` for this purpose.
 ```bash
 # Generate a .pat from the MSVC6 CRT library (vendored into the project)
 uv run --frozen rebrew gen-flirt-pat toolchain/msvc/6.0-win32/source/VC98/Lib/LIBCMT.LIB \
-    -o flirt_sigs/libcmt_vc6.pat
+    --output flirt_sigs/libcmt_vc6.pat
 ```
 
 **How it works:**
@@ -119,7 +119,7 @@ version and flags, then generate a `.pat` from the resulting `.lib`:
 #   uv run --frozen rebrew toolchain pull msvc-6.0
 docker run --rm -v "$PWD":/work -w /work rebrew/msvc:6.0-win32 /nologo /c /O2 /MT references/zlib-1.1.3/*.c
 docker run --rm -v "$PWD":/work -w /work --entrypoint wine rebrew/msvc:6.0-win32 /opt/msvc6.0/VC98/Bin/LIB.EXE /nologo /out:zlib_vc6.lib *.obj
-uv run --frozen rebrew gen-flirt-pat zlib_vc6.lib -o flirt_sigs/zlib113_vc6.pat
+uv run --frozen rebrew gen-flirt-pat zlib_vc6.lib --output flirt_sigs/zlib113_vc6.pat
 ```
 
 ### Method 2: Using IDA's `sigmake` / `pelf` / `pcf`

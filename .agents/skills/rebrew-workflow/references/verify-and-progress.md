@@ -6,7 +6,7 @@
 rebrew doctor                           # toolchain/config health (run first on breakage)
 rebrew verify --summary                 # summary table with match %
 rebrew verify --json                    # bulk compile + diff all reversed functions
-rebrew verify -j 8 -o report.json       # parallel compile, save report
+rebrew verify --jobs 8 --output report.json       # parallel compile, save report
 rebrew verify --compare --json          # regressions vs last baseline
 rebrew verify --watch                   # re-verify on every file change
 rebrew verify --full --json             # ignore cache
@@ -36,7 +36,7 @@ EXACT/RELOC clears BLOCKER unless the source still has `__asm`, `_asm`, or `__em
 `rebrew lint` exit 1 on errors. Link-only files use `// SUPPORT: <MODULE> <reason>`.
 
 `verify --data` suppresses DRIFT status write-backs unless `--raw-link` says the
-built binary is a raw link; without it `rebrew todo -c data-drift` stays empty.
+built binary is a raw link; without it `rebrew todo --category data-drift` stays empty.
 
 ## Coverage / interchange
 

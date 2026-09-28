@@ -10,7 +10,7 @@ signatures, deduplicated into one compilable ``ctx.c``.
 
 Usage:
     rebrew context --output ctx.c
-    rebrew context -t mygame --output include/ctx.c
+    rebrew context --target mygame --output include/ctx.c
 
 The output is a plain C translation unit of declarations (no bodies) —
 safe to ``#include`` from a single-purpose TU or to paste into a

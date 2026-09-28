@@ -194,7 +194,7 @@ _DECLSPEC_STRIP_RE = re.compile(r"__declspec\s*\([^)]*\)")
 
 
 # Process-lifetime memo for metadata-free parses (see parse_c_file_multi).
-# Guarded: ``rebrew verify -j N`` parses the same sources from worker threads,
+# Guarded: ``rebrew verify --jobs N`` parses the same sources from worker threads,
 # and the eviction path is a multi-step check-then-act on a shared dict.
 #
 # The bound is on retained SOURCE BYTES, not entries, the same discipline as
@@ -1285,7 +1285,7 @@ _METADATA_FILE_INDEX_MAX = 4
 #: live cache key.
 _METADATA_FILE_INDEX_OWNER: dict[int, dict[tuple[str, int], dict[str, Any]]] = {}
 #: The owner hit, the two eviction clears, and the two stores are one
-#: check-then-act over two parallel dicts; ``rebrew match --all -j N`` reaches
+#: check-then-act over two parallel dicts; ``rebrew match --all --jobs N`` reaches
 #: this from pool threads.  Held only for the dict work — the index build below
 #: walks the whole entry table and stays outside.
 _METADATA_FILE_INDEX_LOCK = threading.Lock()

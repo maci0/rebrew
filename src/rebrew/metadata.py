@@ -1448,7 +1448,7 @@ def all_library_presets() -> dict[str, dict[str, str]]:
 #: Entries hold ``((mtime_ns, size, inode), parsed_dict)`` so a repeated resolution
 #: skips the read+parse while any rewrite (new mtime/size) re-parses.  Cleared
 #: wholesale when full — library files per project are few.
-#: Guarded: ``rebrew verify -j N`` resolves overrides from worker threads and
+#: Guarded: ``rebrew verify --jobs N`` resolves overrides from worker threads and
 #: the clear-then-store eviction is a multi-step mutation on a shared dict.
 _LIBRARY_META_CACHE: dict[str, tuple[tuple[int, int, int], dict[str, Any]]] = {}
 _LIBRARY_META_CACHE_MAX = 64

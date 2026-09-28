@@ -436,7 +436,7 @@ def main(
     cfg = require_config(target=target, json_mode=json_output)
 
     # The optional compile context: a file of types/prototypes compiled with
-    # the source (typically `rebrew context -o ctx.c`).  It is a compile
+    # the source (typically `rebrew context --output ctx.c`).  It is a compile
     # input (merged into the compile unit and hashed into the result), so a
     # missing file fails loud instead of silently compiling without it.
     from rebrew.compile_context import load_compile_context

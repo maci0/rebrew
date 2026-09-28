@@ -171,7 +171,7 @@ expressed in C.
 ## Non-Matchable Functions
 
 > `rebrew todo` auto-detects and excludes unmatchable patterns. Use
-> `rebrew todo -c start-function` to see only actionable new functions.
+> `rebrew todo --category start-function` to see only actionable new functions.
 
 - **IAT thunks**: 6-byte `jmp [addr]` stubs — not C code
 - **ASM builtins**: `memset`, `strcmp`, `strstr`, `strchr`, `strlen`, `strncpy`,

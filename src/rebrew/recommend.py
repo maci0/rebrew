@@ -108,7 +108,7 @@ class Recommendation:
 
 def _merge_command(files: list[str], out: str) -> str:
     """`rebrew merge` invocation for *files* into *out*."""
-    return f"rebrew merge {' '.join(files)} -o {out} --consolidate"
+    return f"rebrew merge {' '.join(files)} --output {out} --consolidate"
 
 
 def recommend_layout(
@@ -317,7 +317,7 @@ def recommend_shared_twins(
                 functions=[],
                 files=ordered,
                 evidence=["identical bodies across per-target copies"],
-                command=f"rebrew merge {' '.join(ordered)} -o <shared> --shared",
+                command=f"rebrew merge {' '.join(ordered)} --output <shared> --shared",
                 applyable=True,
             )
         )
@@ -1086,8 +1086,8 @@ def _collect_hygiene(
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
     "  rebrew recommend · · · · · · · · All lanes (TU layout + hygiene + next)\n\n"
-    "  rebrew recommend -c tu · · · · · · Only TU layout (merge/split/move)\n\n"
-    "  rebrew recommend -c hygiene · · · Only hygiene (link-order/orphans/lint)\n\n"
+    "  rebrew recommend --category tu · · · · · · Only TU layout (merge/split/move)\n\n"
+    "  rebrew recommend --category hygiene · · · Only hygiene (link-order/orphans/lint)\n\n"
     "  rebrew recommend --apply · · · · · Auto-fix safe lanes (lint, link-order,\n"
     "                                  orphans-prune, shared twins)\n\n"
     "  rebrew recommend --json · · · · · Machine-readable output\n\n"

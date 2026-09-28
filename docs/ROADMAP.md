@@ -569,7 +569,7 @@ rebrew cfg set-cflags default "-O2 -G 8"    # per-overlay presets later
 rebrew analyze --output report.md            # toolchain, strings, SDK libs, FLIRT
 
 # 2. Triage
-rebrew todo -c start-function                # actionable funcs, filtered (skip SDK)
+rebrew todo --category start-function                # actionable funcs, filtered (skip SDK)
 rebrew similar 0x80001234 --top 5            # find similar funcs to batch
 
 # 3. Skeleton → edit → match
@@ -845,7 +845,7 @@ GB-specific encodings (`LDH`, `STOP`) need a post-pass or RGBDS's own disasm.
 | **Disasm** (`asm.py`, `scoring.py` mnemonic histogram) | Swap Capstone `arch/mode` (above). `asm 0x8000 --arch mos6502` works once preset exists. No reloc masking needed — asm bytes are verbatim. |
 | **Xrefs / data scan** (`analysis.py`, `data.py`, `xrefs.py`) | Identical: `scan_references` (capstone once per section) finds `JSR/JMP` targets, `LDA absolute` data refs, CHR/level pointer tables. `data --scan --dispatch` already handles jump tables — SNES/GB pointer tables are the same. |
 | **Similar** (`similar.py`) | Mnemonic-histogram clone detection is ISA-agnostic — finds copy-pasted PPU routines, sound drivers across banks. |
-| **TODO / status / verify** | `STATUS` vocabulary changes (see §A.6) but the overlay (`metadata STATUS` vs `verify cache effective STATUS`) is identical. `rebrew todo -c start-function` becomes `todo -c start-routine`. |
+| **TODO / status / verify** | `STATUS` vocabulary changes (see §A.6) but the overlay (`metadata STATUS` vs `verify cache effective STATUS`) is identical. `rebrew todo --category start-function` becomes `todo --category start-routine`. |
 | **Ghidra sync** | Ghidra has `6502`, `z80`, `68000`, `65816` processors; ReVa MCP works for any ISA (§5.5.3). Labels/comments/structs sync unchanged. |
 | **Report / dashboard** | `build_db → coverage.db → dashboard` is container-agnostic; banked Sections render as bank grid. |
 | **Lint / annotations** | Marker line generalizes: `// ROUTINE: BANK 0x8000` vs `// FUNCTION:` — or keep `FUNCTION` and add `BANK` field in `rebrew-functions.toml` (same seam as `overlay` in §5.5.2). |

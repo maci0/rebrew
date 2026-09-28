@@ -7,7 +7,7 @@ Usage::
 
     rebrew status                   Quick project overview
     rebrew status --json            Machine-readable JSON output
-    rebrew status -t client_exe     Status for a specific target
+    rebrew status --target client_exe     Status for a specific target
 """
 
 import json
@@ -1183,7 +1183,7 @@ _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
     "  rebrew status · · · · · · · Quick project overview\n\n"
     "  rebrew status --json · · · · Machine-readable JSON output\n\n"
-    "  rebrew status -t client_exe · Status for a specific target\n\n"
+    "  rebrew status --target client_exe · Status for a specific target\n\n"
     "[dim]Reads source markers, metadata, and function structure (no compilation needed). "
     "Run 'rebrew verify' first for verify stats, or 'rebrew catalog' for function data.[/dim]"
 )

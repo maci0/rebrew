@@ -101,7 +101,7 @@ def metadata_write_lock(directory: Path, filename: str) -> Iterator[None]:
 
 
 #: Serializes in-memory metadata-doc cache mutations (``rebrew-functions.toml``
-#: / ``rebrew-data.toml``).  ``rebrew verify -j N`` fills the cache from
+#: / ``rebrew-data.toml``).  ``rebrew verify --jobs N`` fills the cache from
 #: workers while ``rebrew test`` / match / GA writers pop after STATUS
 #: promotion — unguarded clear/pop vs fill races the shared dict.
 _METADATA_DOC_CACHE_LOCK = threading.Lock()

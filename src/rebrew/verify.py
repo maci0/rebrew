@@ -360,11 +360,11 @@ app = typer.Typer(
         "[bold]Examples:[/bold]\n\n"
         "  rebrew verify · · · · · · · · · · · · · Verify all .c files (rich progress bar)\n\n"
         "  rebrew verify --json · · · · · · · · · · Emit structured JSON report to stdout\n\n"
-        "  rebrew verify -o report.json · · · · · · Export the JSON report to a file\n\n"
-        "  rebrew verify -j 8 · · · · · · · · · · · Use 8 parallel compile jobs\n\n"
-        "  rebrew verify -t mygame · · · · · · · · · Verify a specific target\n\n"
+        "  rebrew verify --output report.json · · · · · · Export the JSON report to a file\n\n"
+        "  rebrew verify --jobs 8 · · · · · · · · · · · Use 8 parallel compile jobs\n\n"
+        "  rebrew verify --target mygame · · · · · · · · · Verify a specific target\n\n"
         "  rebrew verify --compare · · · · · · · · · Compare against last run, detect regressions\n\n"
-        "  rebrew verify --full -j 8 · · · · · · · · Force full re-verify with 8 workers\n\n"
+        "  rebrew verify --full --jobs 8 · · · · · · · · Force full re-verify with 8 workers\n\n"
         "  rebrew verify --summary · · · · · · · · · Show detailed STATUS breakdown table\n\n"
         "[bold]How it works:[/bold]\n\n"
         "  For each .c file in reversed_dir, compiles it, extracts the symbol, "
@@ -2234,8 +2234,8 @@ def run_verification(
     deferred_fixes: list[tuple[Annotation, str, int]] = []
 
     fresh_count = len(entries_to_verify)
-    # The CLI -j flag bypasses config's _positive_int validation — clamp
-    # here so `-j 0` (or negative) cannot crash ThreadPoolExecutor.
+    # The CLI --jobs flag bypasses config's _positive_int validation — clamp
+    # here so `--jobs 0` (or negative) cannot crash ThreadPoolExecutor.
     effective_jobs = max(1, min(jobs, fresh_count)) if fresh_count else 1
 
     try:

@@ -695,7 +695,7 @@ _EPILOG = (
     "  rebrew graph --format dot · · · · · · · · Graphviz DOT format\n\n"
     "  rebrew graph --format summary · · · · · · Text summary only\n\n"
     "  rebrew graph --focus _my_func --depth 2 · · Neighbourhood around one function\n\n"
-    "  rebrew graph -o graph.md · · · · · · · · · Write output to file\n\n"
+    "  rebrew graph --output graph.md · · · · · · · · · Write output to file\n\n"
     "  rebrew graph --cu-map · · · · · · · · · · Compilation unit boundary map\n\n"
     "  rebrew graph --include-dispatch · · · · · Fold dispatch-table edges into the graph\n\n"
     "  rebrew graph --include-dispatch --min-table-len 5 · Require ≥5 entries per table\n\n"

@@ -56,7 +56,7 @@ default target is used otherwise. For annotation syntax details, see
 ```bash
 rebrew status --json                    # Quick overview: counts per STATUS, % coverage
 rebrew todo --json                      # Primary: highest ROI action items
-rebrew todo -c start-function --json    # -c: setup | compile-error | extract-error | fix-delta | improve-match | start-function | missing-annotation | identify-library | run-prover | documented (audit-only) | naked-reconstruction | data-drift | start-data
+rebrew todo --category start-function --json    # --category: setup | compile-error | extract-error | fix-delta | improve-match | start-function | missing-annotation | identify-library | run-prover | documented (audit-only) | naked-reconstruction | data-drift | start-data
 rebrew flirt --json                     # FLIRT scan: identify known library functions (fast wins)
 rebrew crt-match --all --json           # Find matching CRT source files for LIBRARY functions
 rebrew similar 0x10001000 --json        # Find structurally similar functions (same source family)
@@ -66,7 +66,7 @@ rebrew similar 0x10001000 --json        # Find structurally similar functions (s
 The categories above are interleaved by one continuous ROI score, not a fixed
 tier ladder; `documented` is audit-only and hidden from the default list.
 `extract-error` = symbol missing from `.obj`; fix the marker/definition before GA.
-`naked-reconstruction` (`// SOURCE: naked`) is byte-exact asm and stays listed until real C matches. Any other `-c` value errors. BLOCKER text is the item's `blocker` field — there is no `blocked` category.
+`naked-reconstruction` (`// SOURCE: naked`) is byte-exact asm and stays listed until real C matches. Any other `--category` value errors. BLOCKER text is the item's `blocker` field — there is no `blocked` category.
 `coverage` in JSON is the progress source of truth; `status --json` is cheap recon.
 
 > [!IMPORTANT]
@@ -146,7 +146,7 @@ rebrew test src/bench/<file>.c --va 0x10001000 \
 rebrew test --all --json                   # batch test all reversed .c files
 rebrew test --all --origin GAME --json     # batch mode, filter by origin
 rebrew test --all --dir src/bench/ --json    # restrict to subdir
-rebrew test --all -j 8 --json              # parallel compile (default from config)
+rebrew test --all --jobs 8 --json              # parallel compile (default from config)
 rebrew test --all --dry-run                # list candidates without compiling
 rebrew test src/bench/<file>.c --dry-run  # compile but PREVIEW the STATUS change (no write)
 rebrew probe src/bench/<file>.c --json    # read-only ruler: strict + generous + aligned, never writes
@@ -177,8 +177,8 @@ For a byte diff of the current state:
 
 ```bash
 rebrew diff src/bench/<file>.c                # byte diff vs target
-rebrew diff src/bench/<file>.c -m             # mismatches only (** lines)
-rebrew diff src/bench/<file>.c -r             # register-aware (mark RR encoding diffs)
+rebrew diff src/bench/<file>.c --mismatches-only             # mismatches only (** lines)
+rebrew diff src/bench/<file>.c --register-aware             # register-aware (mark RR encoding diffs)
 rebrew diff src/bench/<file>.c --fix-blocker  # auto-write BLOCKER to rebrew-functions.toml
 rebrew diff src/bench/<file>.c --format csv   # CSV for spreadsheet analysis
 rebrew diff 0x<VA> --json                        # JSON diff + structural similarity + blockers

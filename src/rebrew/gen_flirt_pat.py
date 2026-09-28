@@ -28,8 +28,8 @@ app = typer.Typer(
     epilog=(
         "[bold]Examples:[/bold]\n\n"
         "  rebrew gen-flirt-pat toolchain/msvc/6.0-win32/VC98/Lib/LIBCMT.LIB\n\n"
-        "  rebrew gen-flirt-pat LIBCMT.LIB -o flirt_sigs/libcmt.pat\n\n"
-        "  rebrew gen-flirt-pat libultra.a -o flirt_sigs/libultra.pat\n\n"
+        "  rebrew gen-flirt-pat LIBCMT.LIB --output flirt_sigs/libcmt.pat\n\n"
+        "  rebrew gen-flirt-pat libultra.a --output flirt_sigs/libultra.pat\n\n"
         "[dim]Reads COFF .obj or ELF .o members from an ar archive, extracts public "
         "function symbols with relocations, and emits FLIRT .pat-format "
         "signatures.[/dim]"

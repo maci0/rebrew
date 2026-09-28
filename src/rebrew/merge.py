@@ -52,10 +52,10 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew merge src/game/func1.c src/game/func2.c -o merged.c · Merge two files\n\n"
-        "  rebrew merge src/game/ -o all_funcs.c · · · · · · · · · · · Merge entire directory\n\n"
-        "  rebrew merge src/game/ -o merged.c --delete · · · · · · · · Merge and delete originals\n\n"
-        "  rebrew merge src/game/ -o merged.c --consolidate · · · · · · Hoist declarations to the top\n\n"
+        "  rebrew merge src/game/func1.c src/game/func2.c --output merged.c · Merge two files\n\n"
+        "  rebrew merge src/game/ --output all_funcs.c · · · · · · · · · · · Merge entire directory\n\n"
+        "  rebrew merge src/game/ --output merged.c --delete · · · · · · · · Merge and delete originals\n\n"
+        "  rebrew merge src/game/ --output merged.c --consolidate · · · · · · Hoist declarations to the top\n\n"
         "[dim]Shared preambles (includes, typedefs) are deduplicated. "
         "Each function block retains its // FUNCTION: marker.[/dim]"
     ),

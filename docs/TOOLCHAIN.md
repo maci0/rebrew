@@ -893,7 +893,7 @@ DOS/Windows games and Borland Delphi 1.0 apps) are now parsed natively:
 
 The workflow for a 16-bit target is: `rebrew intake <ne.exe>` (enumerates +
 documents every function as a STUB blocker — Delphi functions are marked
-audit-only in `rebrew todo -c documented`), `rebrew analyze <ne.exe>` for the
+audit-only in `rebrew todo --category documented`), `rebrew analyze <ne.exe>` for the
 intelligence dossier (format, toolchain family, imports, strings),
 `rebrew asm <va>` for disassembly.  For byte matching, set `compiler.profile`
 to a `bits = 16` profile that emits a per-function object (for this MSVC

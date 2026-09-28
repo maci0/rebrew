@@ -7,7 +7,7 @@ Usage::
 
     rebrew todo                     Top 20 actions by ROI
     rebrew todo --count 50          Show top 50
-    rebrew todo -c fix-delta        Filter by category
+    rebrew todo --category fix-delta        Filter by category
     rebrew todo --stats             Show coverage stats header
     rebrew todo --json              Machine-readable output
 """
@@ -1205,8 +1205,8 @@ _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
     "  rebrew todo · · · · · · · · · · Top 20 actions by ROI (size + similarity to target)\n\n"
     "  rebrew todo --count 50 · · · · · Show top 50\n\n"
-    "  rebrew todo -c fix-delta · · · · Filter to quick-win near-misses (<= 20B diff)\n\n"
-    "  rebrew todo -c improve-match · · Filter to functions needing general work\n\n"
+    "  rebrew todo --category fix-delta · · · · Filter to quick-win near-misses (<= 20B diff)\n\n"
+    "  rebrew todo --category improve-match · · Filter to functions needing general work\n\n"
     "  rebrew todo --json · · · · · · · Machine-readable JSON output\n\n"
     "[bold]Categories (interleaved globally by continuous ROI score):[/bold]\n\n"
     "  setup · · · · · · · · · Project setup steps (fresh projects)\n\n"
@@ -1447,7 +1447,7 @@ def main(
     console.print(panel)
     console.print(f"  Showing top {len(display_items)} of {len(all_items)} items")
     console.print(
-        "  Tip: use [bold]rebrew todo -c <category>[/bold] to filter  |  [bold]rebrew todo -s[/bold] for stats"
+        "  Tip: use [bold]rebrew todo --category <category>[/bold] to filter  |  [bold]rebrew todo --stats[/bold] for stats"
     )
 
 

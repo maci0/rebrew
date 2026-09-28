@@ -6,7 +6,7 @@ BLOCKER_DELTA metadata based on structural analysis.
 
 Usage:
     rebrew diff src/game/my_func.c
-    rebrew diff src/game/my_func.c -m
+    rebrew diff src/game/my_func.c --mismatches-only
     rebrew diff src/game/my_func.c --fix-blocker
     rebrew diff src/game/my_func.c --json
 """
@@ -451,8 +451,8 @@ _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
     "  rebrew diff src/game/my_func.c · · · · · · · · Show full byte diff\n\n"
     "  rebrew diff 0x10009310 · · · · · · · · · · · · Resolve VA to its source and diff\n\n"
-    "  rebrew diff src/game/my_func.c -m · · · · · · · · Show only structural mismatches (**)\n\n"
-    "  rebrew diff src/game/my_func.c -r · · · · · · · · Normalize register encodings (mark as RR)\n\n"
+    "  rebrew diff src/game/my_func.c --mismatches-only · · · · · · · · Show only structural mismatches (**)\n\n"
+    "  rebrew diff src/game/my_func.c --register-aware · · · · · · · · Normalize register encodings (mark as RR)\n\n"
     "  rebrew diff src/game/my_func.c --fix-blocker · · Auto-write BLOCKER from diff analysis\n\n"
     "  rebrew diff src/game/my_func.c --format csv · · · CSV output\n\n"
     "  rebrew diff src/game/my_func.c --json · · · · · JSON structured diff\n\n"

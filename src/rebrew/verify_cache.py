@@ -298,7 +298,7 @@ def binary_id(cfg: ProjectConfig) -> str:
     Guards the verify cache: a rebuilt binary of the same target name must
     invalidate cached results, which the target-name check alone misses.
     Inode covers a same-size rename-over in one mtime tick
-    (``atomic_write_bytes``, ``cp -p`` then ``mv``): mtime and size stay
+    (``atomic_write_bytes``, ``cp --pop-size`` then ``mv``): mtime and size stay
     put, and verdicts earned against the previous image would otherwise
     be served for the new one.
     """
@@ -376,8 +376,8 @@ def verify_cache_matches_cfg(cache_path: Path, cfg: ProjectConfig) -> bool:
     The cache stores its ``target``/``compiler_hash``/``headers_hash``/
     ``binary_id`` provenance; patchers (``rebrew test`` promoting a STATUS)
     must not write into a cache that belongs to a DIFFERENT target or
-    compiler — in a multi-target project, ``rebrew test -t CLIENT`` would
-    otherwise patch the entries a previous ``verify -t SERVER`` wrote, and
+    compiler — in a multi-target project, ``rebrew test --target CLIENT`` would
+    otherwise patch the entries a previous ``verify --target SERVER`` wrote, and
     the next SERVER verify would accept the whole file and serve CLIENT's
     status for SERVER functions at the same VA.
 

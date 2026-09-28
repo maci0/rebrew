@@ -55,7 +55,7 @@ from rebrew.utils import container_runtime, find_install_tool, run_process_group
 
 _RUN_TIMEOUT = 300
 
-# Guards the docker presence / digest memos below.  ``rebrew verify -j N``,
+# Guards the docker presence / digest memos below.  ``rebrew verify --jobs N``,
 # flag sweeps, and the GA compile workers all call ``cached_image_digest`` /
 # ``image_present`` concurrently; the compound check-then-evict-then-store on
 # a plain dict is not atomic under the GIL and can raise

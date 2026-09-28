@@ -9,7 +9,7 @@ only read: preview the mutating ones first.
 
 ```bash
 rebrew split src/<target>/multi.c [--dry-run] [--va 0x...]
-rebrew merge a.c b.c -o merged.c
+rebrew merge a.c b.c --output merged.c
 rebrew merge-sweep --dry-run
 rebrew link-order --check
 rebrew layout-map

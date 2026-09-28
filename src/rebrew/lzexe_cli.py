@@ -27,7 +27,7 @@ app = typer.Typer(
     epilog=(
         "[bold]Examples:[/bold]\n\n"
         "  rebrew unpack-lzexe packed.exe · · · · · · · · Unpack in place (packed.exe.unpacked.exe)\n\n"
-        "  rebrew unpack-lzexe packed.exe -o original.exe · Write to a specific path\n\n"
+        "  rebrew unpack-lzexe packed.exe --output original.exe · Write to a specific path\n\n"
         "  rebrew unpack-lzexe packed.exe --json · · · · · Machine-readable result\n\n"
         "[dim]LZEXE (Fabrice Bellard, 1989-91) compressed many DOS games; the "
         "format is documented only by its own decompressor stub.  Detection "

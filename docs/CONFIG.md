@@ -593,12 +593,12 @@ resolves through the `server.dll` key.
 | `raw` | Dump entire config as JSON (default) or TOML (`--format toml`) | `rebrew cfg raw` |
 | `effective` | Print the values in force after env and default resolution (secrets redacted, env vars named only) | `rebrew cfg effective --json` |
 | `path` | Print absolute path to `rebrew-project.toml` | `rebrew cfg path` |
-| `add-target NAME` | Add a target section + create dirs | `rebrew cfg add-target client.exe -b original/client.exe` |
+| `add-target NAME` | Add a target section + create dirs | `rebrew cfg add-target client.exe --binary original/client.exe` |
 | `remove-target NAME` | Remove a target section | `rebrew cfg remove-target old_target` |
-| `set-cflags ORIGIN FLAGS` | Set cflags preset for an origin | `rebrew cfg set-cflags ZLIB "/O3" -t server.dll` |
+| `set-cflags ORIGIN FLAGS` | Set cflags preset for an origin | `rebrew cfg set-cflags ZLIB "/O3" --target server.dll` |
 | `set-compiler TARGET PROFILE` | Set compiler profile for a target | `rebrew cfg set-compiler client.exe msvc-7.0` |
-| `add-module MODULE` | Add a module to a target's origins list | `rebrew cfg add-module ZLIB -t server.dll` |
-| `remove-module MODULE` | Remove a module from a target's origins list | `rebrew cfg remove-module ZLIB -t server.dll` |
+| `add-module MODULE` | Add a module to a target's origins list | `rebrew cfg add-module ZLIB --target server.dll` |
+| `remove-module MODULE` | Remove a module from a target's origins list | `rebrew cfg remove-module ZLIB --target server.dll` |
 | `detect-crt` | Auto-detect MSVC CRT source directories | `rebrew cfg detect-crt --write` |
 
 ```bash

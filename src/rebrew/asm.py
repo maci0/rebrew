@@ -26,8 +26,8 @@ the file is self-contained for ``rebrew test`` (iterate with
 Usage:
     rebrew asm 0x10003ca0 --size 77
     rebrew asm 0x10003ca0 --format cfg
-    rebrew asm 0x10003ca0 --size 77 --format nasm -o func.asm
-    rebrew asm 0x10003ca0 --size 77 --format nasm --inline-c -o func.c
+    rebrew asm 0x10003ca0 --size 77 --format nasm --output func.asm
+    rebrew asm 0x10003ca0 --size 77 --format nasm --inline-c --output func.c
     rebrew asm --all --out-dir output/asm/ --format nasm
 """
 
@@ -1531,7 +1531,7 @@ _EPILOG = (
     "  rebrew asm 0x10003ca0 --no-annotate · · · · · · · · · Skip call/jmp name annotations\n\n"
     "  rebrew asm 0x10003ca0 --size 77 --format nasm · · NASM output\n\n"
     "  rebrew asm 0x10003ca0 --size 77 --format nasm --verify  Verify round-trip\n\n"
-    "  rebrew asm 0x10003ca0 --size 77 --format nasm --inline-c -o f.c  Inline C\n\n"
+    "  rebrew asm 0x10003ca0 --size 77 --format nasm --inline-c --output f.c  Inline C\n\n"
     "  rebrew asm 0x10003ca0 --format cfg · · · · · · · · Basic-block CFG + edges\n\n"
     "  rebrew asm --all --out-dir output/asm/ --format nasm · · Batch NASM extract\n\n"
     "  rebrew asm 0x10003ca0 --size 77 --json · · · · · · · · JSON output\n\n"

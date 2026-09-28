@@ -104,7 +104,7 @@ you what to attack next.
   override values.
 - `--no-promote` disables STATUS auto-update (also auto-skipped for files
   outside the project).
-- Batch mode: `--all` (+ optional `--dir`, `--origin`, `-j JOBS`, `--dry-run`).
+- Batch mode: `--all` (+ optional `--dir`, `--origin`, `--jobs JOBS`, `--dry-run`).
 - Exit codes: 0=EXACT/RELOC, 1=NEAR_MATCHING/STUB/SIZE_MISMATCH,
   2=tooling error (compile failure, unextractable target bytes, VA-map scan
   failure, or a usage error).
@@ -116,9 +116,9 @@ you what to attack next.
 
 - Compiles the source, compares to target, and renders a hex diff with
   marker codes (`==` identical, `~~` relocation diff, `RR` register
-  encoding diff with `-r`, `**` structural, `XX` invalid relocation).
-- `-m` shows only structural diff (`**`) lines.
-- `-r` normalises register encodings.
+  encoding diff with `--register-aware`, `**` structural, `XX` invalid relocation).
+- `--mismatches-only` shows only structural diff (`**`) lines.
+- `--register-aware` normalises register encodings.
 - `--format csv` emits CSV.
 - `--fix-blocker` writes the inferred BLOCKER/BLOCKER_DELTA to
   `rebrew-functions.toml`.
@@ -205,7 +205,7 @@ you what to attack next.
    `src/main/sub_10003da0.c` with embedded pseudocode.
 3. User edits the body and saves.
 4. `rebrew test src/main/sub_10003da0.c` reports `NEAR_MATCHING (delta 6)`.
-5. `rebrew diff src/main/sub_10003da0.c -m` shows three `**` lines all
+5. `rebrew diff src/main/sub_10003da0.c --mismatches-only` shows three `**` lines all
    tagged "register allocation".
 6. User flips `/Os` to `/O1` in CFLAGS via `rebrew cfg set-cflags`, reruns
    `rebrew test` — STATUS promotes to EXACT.
@@ -223,7 +223,7 @@ you what to attack next.
 
 1. After a long break, the user runs `rebrew todo --stats` and sees
    12 compile errors, 8 fix-delta candidates, 200 start-function items.
-2. They fix the compile errors first (`rebrew todo -c compile-error`),
+2. They fix the compile errors first (`rebrew todo --category compile-error`),
    knock out the fix-delta queue with `rebrew test`/`rebrew diff` cycles,
    and only then attack new functions.
 
@@ -264,7 +264,7 @@ rebrew test [SOURCE]
       --dir TEXT
       --origin GAME|MSVCRT|ZLIB|...
       --dry-run
-  -j, --jobs N
+  --jobs, --jobs N
       --no-promote
       --force-status
       --fix-sizes
@@ -272,12 +272,12 @@ rebrew test [SOURCE]
       --watch
       --context PATH
       --json
-  -t, --target TEXT
+  --target, --target TEXT
       --all-targets
 
 rebrew diff SEED_C
-  -m, --mismatches-only
-  -r, --register-aware
+  --mismatches-only, --mismatches-only
+  --register-aware, --register-aware
       --fix-blocker
       --dry-run
   -f, --format terminal|csv (default terminal)
@@ -310,7 +310,7 @@ rebrew split [SOURCE]
   -t, --target TEXT
 
 rebrew merge [SOURCES...]
-  -o, --output TEXT (required)
+  --output, --output TEXT (required)
       --consolidate
       --shared
       --dry-run
@@ -327,9 +327,9 @@ rebrew rename TARGET_IDENT NEW_NAME
   -t, --target TEXT
 
 rebrew todo
-  -n, --count N (default 20)
-  -c, --category TEXT
-  -s, --stats
+  --count, --count N (default 20)
+  --category, --category TEXT
+  --stats, --stats
       --json
   -t, --target TEXT
       --all-targets

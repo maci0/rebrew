@@ -103,7 +103,7 @@ class BinaryInfo:
 
         ``BinaryInfo`` instances are shared across worker threads via
         ``_load_binary_cache``, so the lazy fill is guarded: without the
-        lock every worker of ``rebrew verify -j N`` that touches a cold
+        lock every worker of ``rebrew verify --jobs N`` that touches a cold
         instance reads the whole target binary itself, spiking peak memory
         to N copies of the file for no benefit.
         """

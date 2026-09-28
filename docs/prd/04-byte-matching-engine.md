@@ -100,7 +100,7 @@ prover that promotes NEAR_MATCHING → PROVEN.
   (default 10 bytes).
 - `--flag-sweep` runs the flag sweep instead of GA on NEAR_MATCHING set;
   `--fix-cflags` writes wins back to `rebrew-functions.toml`.
-- `-j JOBS` parallelism, `--dry-run` previews changes without running.
+- `--jobs JOBS` parallelism, `--dry-run` previews changes without running.
 
 ### `rebrew prove`
 
@@ -144,9 +144,9 @@ prover that promotes NEAR_MATCHING → PROVEN.
 
 ### Story 2 — GA on a STUB
 
-1. `rebrew todo -c improve-match` highlights `bar.c` (STUB, body
+1. `rebrew todo --category improve-match` highlights `bar.c` (STUB, body
    approximated from r2dec).
-2. `rebrew match bar.c -g 200 -p 96 --seed 42` runs for ~20 minutes;
+2. `rebrew match bar.c --generations 200 --pop-size 96 --seed 42` runs for ~20 minutes;
    final candidate hits RELOC.
 3. `rebrew test bar.c` promotes STATUS in `rebrew-functions.toml`.
 
@@ -155,7 +155,7 @@ prover that promotes NEAR_MATCHING → PROVEN.
 1. `rebrew match --all --flag-sweep --fix-cflags --dry-run` lists 38
    NEAR_MATCHING functions.
 2. The user removes the `--dry-run`; the sweep runs in parallel with
-   `-j 8` and writes per-function CFLAGS into `rebrew-functions.toml`.
+   `--jobs 8` and writes per-function CFLAGS into `rebrew-functions.toml`.
 3. `rebrew verify` afterwards shows 22 new EXACT/RELOC promotions.
 
 ### Story 4 — Proving the remainder
@@ -196,9 +196,9 @@ rebrew match [SEED_C]
   GA tuning
       --seed N
       --mutation-focus register|equivalent|structural|auto
-  -g, --generations N (default 100)
-  -p, --pop-size N (default 64)
-  -j, --jobs N (default: from config)
+  --generations, --generations N (default 100)
+  --pop-size, --pop-size N (default 64)
+  --jobs, --jobs N (default: from config)
   Batch mode
       --all
       --all-targets

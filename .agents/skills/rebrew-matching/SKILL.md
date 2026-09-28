@@ -49,8 +49,8 @@ For the overall reversing workflow, see the `rebrew-workflow` skill.
 
 ```bash
 rebrew diff src/bench/<file>.c --json         # structured diff + structural similarity
-rebrew diff src/bench/<file>.c -m --json      # mismatches only (** lines)
-rebrew diff src/bench/<file>.c -r --json      # register-aware (mark RR encoding diffs)
+rebrew diff src/bench/<file>.c --mismatches-only --json      # mismatches only (** lines)
+rebrew diff src/bench/<file>.c --register-aware --json      # register-aware (mark RR encoding diffs)
 rebrew diff src/bench/<file>.c --format csv   # CSV for spreadsheet analysis
 rebrew diff 0x10009310 --json                    # resolve a VA directly (no .c path needed)
 rebrew drift src/bench/<file>.c --json        # localise branch-target drift windows
@@ -109,7 +109,7 @@ When no structural diffs remain, `--fix-blocker` clears them.
 For automated matching when manual tuning and diffs are insufficient:
 
 ```bash
-rebrew match src/bench/<file>.c --generations 200 --pop-size 64 -j 16
+rebrew match src/bench/<file>.c --generations 200 --pop-size 64 --jobs 16
 ```
 
 Key flags: `-g/--generations` (default 100), `-p/--pop-size` (64), `-j/--jobs`,

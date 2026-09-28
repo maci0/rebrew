@@ -78,7 +78,7 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
   `--dir` / `--origin` compose with file scope.
 - Reports EXACT, RELOC, NEAR_MATCHING (with delta), STUB, or
   COMPILE_ERROR.
-- Writes no default report file — `-o` is explicit export only
+- Writes no default report file — `--output` is explicit export only
   (>2026-09: was `db/verify_results.json` by default; the `--compare`
   baseline lives in `.rebrew/verify_baseline.json` and needs no flag).
 - `--compare` diffs against the last saved report and flags regressions
@@ -94,7 +94,7 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
   artifacts against the reference; `--raw-link` acknowledges that `--built`
   is a raw link (suppressing DRIFT write-backs); `--context PATH` compiles
   with extra declarations.
-- `-j JOBS` parallel compile jobs.
+- `--jobs JOBS` parallel compile jobs.
 - `--json` machine-readable.
 - Exit codes: 0=all passed, 1=failures or regressions, 2=config or
   infrastructure error (ADR-018).
@@ -134,7 +134,7 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
   detection (with `--include-dispatch`).
 - `--from-binary` builds call edges from the target binary's xrefs instead of
   the reversed C sources (16-bit NE support included).
-- `-o PATH` writes output to a file.
+- `--output PATH` writes output to a file.
 - `--json` emits a structured graph.
 
 ### `rebrew cache`
@@ -184,7 +184,7 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
 
 ### Story 3 — Visualising progress
 
-1. User runs `rebrew graph --format mermaid -o docs/graph.md`.
+1. User runs `rebrew graph --format mermaid --output docs/graph.md`.
 2. The Mermaid diagram colors nodes by STATUS from `status_style.STATUS_HEX`
    (EXACT green, RELOC blue, NEAR_MATCHING amber, STUB slate, machine
    verdicts such as COMPILE_ERROR red) and shows call edges, making the
@@ -214,8 +214,8 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
 ```
 rebrew verify [file.c] [OPTIONS]
       --root PATH
-  -j, --jobs N
-  -o, --output PATH (explicit export only; no default report file)
+  --jobs, --jobs N
+  --output, --output PATH (explicit export only; no default report file)
   -s, --summary
       --compare
       --full
@@ -234,12 +234,12 @@ rebrew verify [file.c] [OPTIONS]
       --whole-binary
       --context PATH
       --json
-  -t, --target TEXT
+  --target, --target TEXT
       --all-targets
 
 rebrew status [OPTIONS]
       --json
-  -t, --target TEXT
+  --target, --target TEXT
       --all-targets
 
 rebrew graph [OPTIONS]
@@ -251,7 +251,7 @@ rebrew graph [OPTIONS]
       --min-table-len N (default 3)
       --max-pointer-stride N (default 4)
       --from-binary
-  -o, --output PATH
+  --output, --output PATH
       --json
   -t, --target TEXT
 

@@ -23,8 +23,8 @@ app = typer.Typer(
     epilog=(
         "[bold]Examples:[/bold]\n\n"
         "  rebrew resource compare np_recompiled.exe original/notepad.exe\n"
-        "  rebrew resource compare -j np_recompiled.exe original/notepad.exe\n"
-        "  rebrew resource extract np_recompiled.exe -o out/notepad.rsrc\n"
+        "  rebrew resource compare --json np_recompiled.exe original/notepad.exe\n"
+        "  rebrew resource extract np_recompiled.exe --output out/notepad.rsrc\n"
     ),
 )
 

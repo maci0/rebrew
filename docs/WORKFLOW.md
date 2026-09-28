@@ -41,7 +41,7 @@ graph TD
 
 ```bash
 rebrew todo
-rebrew todo -c start-function    # easiest uncovered functions, ranked by size/difficulty
+rebrew todo --category start-function    # easiest uncovered functions, ranked by size/difficulty
 rebrew todo --stats              # coverage summary
 ```
 
@@ -258,10 +258,10 @@ rebrew test src/target_name/my_func.c --json | jq '.status'
 rebrew todo --stats --json | jq '.pct_matched'
 
 # List prioritized action items as JSON
-rebrew todo --json -n 10 | jq '.items[] | {category, roi_score, name}'
+rebrew todo --json --count 10 | jq '.items[] | {category, roi_score, name}'
 
 # List tiny-byte-diff quick wins (fix-delta is ≤20B; this filter narrows to ≤5B)
-rebrew todo -c fix-delta --json | jq '.items[] | select(.byte_delta != null and .byte_delta <= 5)'
+rebrew todo --category fix-delta --json | jq '.items[] | select(.byte_delta != null and .byte_delta <= 5)'
 
 # Structured diff output
 rebrew diff --json src/target_name/my_func.c | jq '.summary'

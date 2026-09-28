@@ -145,7 +145,7 @@ exit is 120, and click's is 1; `run_cli` overrides both.
 | `rebrew qual-sweep` | `qual_sweep.py` | Sweep declaration qualifiers over one function, keeping winners (`--rounds`, `--jobs`, `--dry-run`, `--json`) |
 | `rebrew residue` | `residue.py` | Section diffs plus per-function attribution of remaining `.text` bytes (`--baseline`, `--new-baseline`, `--json`) |
 | `rebrew diagnose` | `diagnose.py` | Explain why a function compiles with its toolchain+flags: prints the resolution chain (per-function metadata → nearest `rebrew-libraries.toml` → project defaults) and validates the declarations (unknown toolchains, preset contradictions, function-vs-library family drift); `--json` |
-| `rebrew recommend` | `recommend.py` | Deterministic project advice: TU layout, hygiene, next steps (`-c`, `--apply`, `--json`) |
+| `rebrew recommend` | `recommend.py` | Deterministic project advice: TU layout, hygiene, next steps (`--category`, `--apply`, `--json`) |
 | `rebrew stack-cmp` | `stack_cmp.py` | Compare a compiled function's stack frame against the target (reccmp `stackcmp` without a PDB): frame size, ebp-vs-esp (/Oy), `ret N` popping, `[ebp±N]` slot layout — flag-focused hints for per-function CFLAGS tuning |
 | `rebrew verify-exports` | `verify_exports.py` | Verify the recompiled binary's export table matches the original target (reccmp `verexp` equivalent; compares export names, exits 1 on missing/added) |
 | `rebrew round-trip` | `round_trip.py` | Splice matched functions back into the target PE and verify byte equality |
@@ -440,7 +440,7 @@ consumers can learn whether the blocker landed (mirrors `near-diag`'s
 | `--no-promote` | Skip STATUS metadata update |
 | `--force-status` | Write the STATUS even where the promotion policy refuses it: unpark a SKIP function or replace a STUB with SIZE_MISMATCH (single-function only) |
 | `--fix-sizes` | Fix a stale `SIZE` annotation when ALL common bytes match: writes the compiled size into metadata and reclassifies as EXACT/RELOC (no-op when the mismatch is a real byte difference; `--dry-run` previews). File-scoped — batch size repair is `rebrew verify --fix-sizes` |
-| `--context FILE` | Compile with these declarations (typically `rebrew context -o ctx.c` output) merged ahead of the source under `#line` directives, so a diagnostic names `ctx.c` or the source. The verdict is pinned to the context: the file's SHA-256 is recorded as `context_hash` in `--json` and in the compile-cache key, so a cached object is never reused under a changed context. Not combinable with `--linked` |
+| `--context FILE` | Compile with these declarations (typically `rebrew context --output ctx.c` output) merged ahead of the source under `#line` directives, so a diagnostic names `ctx.c` or the source. The verdict is pinned to the context: the file's SHA-256 is recorded as `context_hash` in `--json` and in the compile-cache key, so a cached object is never reused under a changed context. Not combinable with `--linked` |
 | `--linked` | Linked compare (single-function, VA required): compile in a padded `#pragma data_seg(".text$A")` + `code_seg(".text$B")` shell, LINK a real DLL at the target's image base inside the toolchain image, compare the linker-resolved bytes RAW — no relocation masking. rel32 displacements are linker-resolved and in-`.text` jump tables land in the window, so a match is byte-identical output, not RELOC-level. Sources with externals (imports, cross-TU calls) fail the link by design; MSVC docker toolchains only |
 | `--watch` | Re-test the source file on every save (single-file mode) |
 | `--json` | JSON structured output |
@@ -551,13 +551,13 @@ skeleton warns with the real extent and suggests `rebrew asm --size <extent>` /
 ```mermaid
 graph TD
     Start[rebrew verify] --> Collect[collect annotated sources<br/>--full to bypass cache]
-    Collect --> Compile[compile each .c with its CFLAGS<br/>parallel -j N]
+    Collect --> Compile[compile each .c with its CFLAGS<br/>parallel --jobs N]
     Compile --> Compare[byte-compare vs target<br/>reloc-aware · padding-tolerant]
     Compare --> Classify{result}
     Classify -->|EXACT / RELOC| Pass[pass · STATUS promoted]
     Classify -->|NEAR_MATCHING| NM[near-match · STATUS kept]
     Classify -->|MISMATCH / COMPILE_ERROR| Fail[fail · STATUS demoted]
-    Pass --> Report[aggregate report<br/>--json · -o file (baseline: .rebrew/verify_baseline.json)]
+    Pass --> Report[aggregate report<br/>--json · --output file (baseline: .rebrew/verify_baseline.json)]
     NM --> Report
     Fail --> Report
     Report -->|--data| Data[byte-compare built<br/>.data/.rdata per symbol]
@@ -580,7 +580,7 @@ graph TD
 | `-s` / `--summary` | Show EXACT/RELOC/NEAR_MATCHING summary table with match percentages |
 | `--full` | Force full verification, ignoring cached results (also required after header/include changes) |
 | `--json` | Structured JSON report to stdout |
-| `-o FILE` / `--output FILE` | Write report to specific file |
+| `--output FILE` / `-o FILE` | Write report to specific file |
 | `--dry-run` | Preview STATUS metadata changes without writing (JSON report carries `dry_run: true`) |
 | `--watch` | Re-verify all sources whenever any `.c` file changes |
 | `--nolib` | Exclude LIBRARY-marked functions from verification — the reccmp `--nolib` equivalent. They are neither compiled nor counted (`summary.library_excluded` reports the count), so the summary + CI gate reflect game code only (statically-linked CRT / vendored zlib sources are not part of the gate) |
@@ -745,7 +745,7 @@ count the same rows.  `rebrew catalog` writes the same set into
 | `--from-binary` | Build call edges from the target binary's xrefs instead of the reversed C sources (16-bit NE included, where the source graph is empty) |
 | `--focus NAME` | Neighbourhood of a specific function |
 | `--depth N` | Depth for focus mode |
-| `-o FILE` / `--output FILE` | Output file (default: stdout) |
+| `--output FILE` / `-o FILE` | Output file (default: stdout) |
 | `--json` | Output results as JSON |
 
 ### `rebrew lint`
@@ -1275,7 +1275,7 @@ Merge multiple single-function `.c` files into one multi-function file. Preamble
 
 ### `rebrew recommend`
 
-`rebrew recommend [-c tu|hygiene|next] [--min-confidence F] [--apply] [--dry-run] [--json] [--target NAME]`
+`rebrew recommend [--category tu|hygiene|next] [--min-confidence F] [--apply] [--dry-run] [--json] [--target NAME]`
 
 Deterministic project advice across lanes (read-only by default):
 
@@ -2679,7 +2679,7 @@ rebrew asm 0x100011f0 --size 64                   # Hex dump 64 bytes at VA
 rebrew asm 0x100011f0 --format nasm               # NASM disassembly at VA
 rebrew asm 0x100011f0 --format cfg                # Basic-block CFG: block VAs, sizes, edges
 rebrew asm 0x100011f0 --format cfg --json         #   ...same payload as JSON
-rebrew asm 0x100011f0 --format nasm --inline-c -o f.c  # Exact-bytes naked C skeleton
+rebrew asm 0x100011f0 --format nasm --inline-c --output f.c  # Exact-bytes naked C skeleton
 rebrew asm 0x100011f0 --target server.dll         # Use alternate target
 rebrew asm 0x100011f0 --imports                   # Annotate call/jmp [IAT] with import names
 rebrew asm 0x100011f0 --strings                   # Annotate push/mov/lea of strings with their text
@@ -2699,11 +2699,11 @@ rebrew test src/target_name/my_func.c --no-promote # compile without updating ST
 
 # Prioritization & action queue
 rebrew todo                                        # Top 20 ROI-ranked actions
-rebrew todo -c start-function                      # Only uncovered functions to start
-rebrew todo -c fix-delta -n 50                     # Tiny byte diffs (quick wins)
-rebrew todo -c compile-error                       # Build failures blocking progress
-rebrew todo -c extract-error                       # Symbols missing from .obj (marker/impl issue)
-rebrew todo -c documented                          # Audit-only: IAT thunks / non-reproducible code
+rebrew todo --category start-function                      # Only uncovered functions to start
+rebrew todo --category fix-delta --count 50                     # Tiny byte diffs (quick wins)
+rebrew todo --category compile-error                       # Build failures blocking progress
+rebrew todo --category extract-error                       # Symbols missing from .obj (marker/impl issue)
+rebrew todo --category documented                          # Audit-only: IAT thunks / non-reproducible code
 rebrew todo --stats --json                         # Coverage stats + full JSON report
 
 # Diff & investigation
@@ -2723,7 +2723,7 @@ rebrew match --all --dry-run                       # List candidates only
 rebrew verify                                      # Verify all reversed functions
 rebrew verify --compare                            # Compare against last report, detect regressions
 rebrew verify --json                               # Structured JSON report
-rebrew verify -o /tmp/verify_report.json           # Write report to file (explicit export path)
+rebrew verify --output /tmp/verify_report.json           # Write report to file (explicit export path)
 rebrew lint --fix && rebrew lint                   # Fix then re-lint
 rebrew status                                      # Reversing progress overview
 rebrew catalog                      # build catalog and show summary
@@ -2745,8 +2745,8 @@ rebrew split src/target_name/multi.c               # split all functions into in
 rebrew split src/target_name/multi.c --dry-run      # preview split
 rebrew split --va 0x10003DA0 src/target_name/multi.c  # extract one function into multi_c/
 rebrew split --va 0x10003DA0 --dry-run src/target_name/multi.c  # preview extraction
-rebrew merge a.c b.c -o merged.c                    # merge into one file
-rebrew merge multi_c/ multi.c -o multi.c --force --delete  # merge extracted function back
+rebrew merge a.c b.c --output merged.c                    # merge into one file
+rebrew merge multi_c/ multi.c --output multi.c --force --delete  # merge extracted function back
 
 # Semantic equivalence proving
 rebrew prove src/target_name/calculate_physics.c     # prove NEAR_MATCHING → PROVEN

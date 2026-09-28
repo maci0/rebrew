@@ -2040,7 +2040,7 @@ def _plan_payload(plan: ImportPlan, result: dict[str, Any], *, written: bool) ->
         "ignored_keys": [{"key": i.key, "reason": i.reason} for i in plan.splat.ignored],
         "written": result["written"],
         "unchanged": result["unchanged"],
-        "next": f"rebrew lint -t {plan.target} && rebrew status -t {plan.target}",
+        "next": f"rebrew lint --target {plan.target} && rebrew status --target {plan.target}",
     }
 
 

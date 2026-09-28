@@ -34,7 +34,7 @@ Usage:
     rebrew symbol-addrs --output symbol_addrs.csv
     rebrew symbol-addrs --pe-symbols --output symbol_addrs.csv
     rebrew symbol-addrs --references --output symbols.csv
-    rebrew symbol-addrs --csv -t mygame --output build/symbol_addrs.csv
+    rebrew symbol-addrs --csv --target mygame --output build/symbol_addrs.csv
 """
 
 from __future__ import annotations
