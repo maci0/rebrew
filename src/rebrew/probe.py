@@ -34,6 +34,7 @@ from rebrew.cli import (
     select_annotation,
 )
 from rebrew.compile import compile_to_obj
+from rebrew.utils import floor_pct
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
@@ -143,7 +144,7 @@ def main(
         "matched": strict_count,
         "matched_reloc": generous,
         "total": n,
-        "percent": round(100.0 * strict_count / n, 1),
+        "percent": floor_pct(strict_count, n),
         "reference_insns": len(ref_insns),
         "compiled_insns": len(obj_insns),
         # align_and_classify reports BYTES per category, not instructions:

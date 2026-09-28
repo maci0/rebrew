@@ -78,6 +78,7 @@ from rebrew.sources import (
     target_marker,
 )
 from rebrew.status_style import DISPLAY_STATUSES, STATUS_COLORS
+from rebrew.utils import floor_pct
 
 # At this match ratio, NEAR_MATCHING output is shown in bold yellow instead of
 # plain yellow — visually distinguishing "almost there" from "far off".
@@ -2045,7 +2046,7 @@ def print_batch_status_rows(result_counts: dict[str, int], total: int) -> None:
         if count == 0 or total <= 0:
             continue
         color = STATUS_COLORS.get(status, "white")
-        pct = round(100.0 * count / total, 1)
+        pct = floor_pct(count, total)
         bar = bar_plain(count, total)
         console.print(f"  [{color}]{status:12s}  {count:4d}  ({pct:5.1f}%)  {bar}[/{color}]")
 

@@ -126,7 +126,7 @@ class TestBuildResultDictFromCompare:
         )
         d = build_result_dict_from_compare("f.c", "_f", "0x1000", 2, cmp, b"\x55\x90")
         assert d["status"] == "NEAR_MATCHING"
-        assert d["match_count"] == 2  # round(0.8 * 2)
+        assert d["match_count"] == 1  # floor(0.8 * 2): a partial percent must not credit a byte
         assert len(d["mismatches"]) == 1  # offset 1 differs
 
     def test_error_status(self) -> None:

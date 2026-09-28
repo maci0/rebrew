@@ -109,6 +109,10 @@ def similarity_score(
     explicit *size_a*/*size_b* wins; otherwise the signature's own ``size``
     (its byte length) is used, so the gate applies even when the caller has
     no size to hand.
+
+    The score keeps six decimals: callers gate on it (``--min-score``,
+    cross-import's 95.0 default), and rounding to one decimal let a 94.96
+    through as 95.0.  Display rounds it, not this value.
     """
     if sig_a is None or sig_b is None:
         return 0.0
@@ -119,8 +123,8 @@ def similarity_score(
     branches = _ratio(sig_a["branches"], sig_b["branches"]) * 100.0
     if size_a and size_b:
         size = _ratio(size_a, size_b) * 100.0
-        return round(0.5 * hist + 0.15 * calls + 0.15 * branches + 0.2 * size, 1)
-    return round(0.6 * hist + 0.2 * calls + 0.2 * branches, 1)
+        return round(0.5 * hist + 0.15 * calls + 0.15 * branches + 0.2 * size, 6)
+    return round(0.6 * hist + 0.2 * calls + 0.2 * branches, 6)
 
 
 def find_similar(

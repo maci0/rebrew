@@ -28,6 +28,14 @@ class TestMatchedByteCount:
     def test_empty_compared(self) -> None:
         assert matched_byte_count(100.0, matched=False, compared_len=0, total=10) == 0
 
+    def test_percent_reconstruction_floors_never_credits_a_byte(self) -> None:
+        # 94.5% of 10 bytes is 9.45; round() would bank it to 9 but 45% of 10
+        # is 4.5, which banker's rounding sends to 4 and half-up to 5.
+        assert matched_byte_count(94.5, matched=False, compared_len=10, total=10) == 9
+        assert matched_byte_count(45.0, matched=False, compared_len=10, total=10) == 4
+        # 55% of 10 is 5.5: half-up would claim 6 of 10 matched.
+        assert matched_byte_count(55.0, matched=False, compared_len=10, total=10) == 5
+
     def test_explicit_match_count_wins_over_percent(self) -> None:
         # A 1-decimal rounded percent of a 1500B body round-trips off-by-one;
         # the integer from classify must win.

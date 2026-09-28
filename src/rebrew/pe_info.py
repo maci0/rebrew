@@ -78,7 +78,9 @@ _FILE_EXECUTABLE_IMAGE = 0x0002
 _FILE_DLL = 0x2000
 
 # IMAGE_SCN_* section characteristics (winnt.h), low bit first.  The ALIGN
-# nibble is a value, not a flag, and is resolved positionally.
+# nibble is a value, not a flag, and is resolved positionally: winnt.h writes
+# ALIGN_nBYTES as (log2(n) + 1) << 20, so the nibble indexes _SECTION_ALIGN_NAMES
+# one below its own value.
 _SECTION_ALIGN_MASK = 0x00F00000
 _SECTION_ALIGN_FIRST = 0x00100000
 _SECTION_ALIGN_NAMES: tuple[str, ...] = (

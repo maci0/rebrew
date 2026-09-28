@@ -415,7 +415,10 @@ def matched_byte_count(
         return match_count
     if compared_len <= 0 or match_percent is None or not math.isfinite(match_percent):
         return 0
-    return max(0, min(compared_len, round(match_percent / 100.0 * compared_len)))
+    # Floor, not round: this is a byte count, and rounding up would credit a
+    # byte that did not match (94.5% of 10 → 10).  Prefer ``match_count`` where
+    # classify computed the exact integer.
+    return max(0, min(compared_len, math.floor(match_percent / 100.0 * compared_len)))
 
 
 _INLINE_ASM = re.compile(r"\b(?:__asm|_asm|__emit)\b")

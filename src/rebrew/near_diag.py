@@ -50,6 +50,7 @@ from rebrew.cli import (
 from rebrew.match_semantics import is_effective_match
 from rebrew.pinned_diff import SequenceMatcherWithPins
 from rebrew.stack_cmp import analyze_frame, compare_frames
+from rebrew.utils import floor_pct
 from rebrew.workspace.status import NEAR_MATCH_CANDIDATE_STATUSES
 
 # Jump-equivalence checks — adapted from reccmp (isledecomp/reccmp, MIT
@@ -542,9 +543,7 @@ def analyze(
         "target_insns": len(target_insns),
         "compiled_insns": len(compiled_insns),
         "bytes": raw_total,
-        "categories": {
-            k: {"bytes": v, "percent": round(v / denom * 100, 1)} for k, v in counts.items()
-        },
+        "categories": {k: {"bytes": v, "percent": floor_pct(v, denom)} for k, v in counts.items()},
         "verdict": label,
         "suggestion": suggestion,
         "mutations": mutations,
