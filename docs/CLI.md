@@ -2680,7 +2680,7 @@ and the rest still serve.  `--json` prints `{"url", "coverage_dir"}` (the covera
 directory) and exits without serving (script-friendly bind probe).  The full JSON contract, kept against
 the code, is [dashboard-api.yaml](dashboard-api.yaml).
 
-Endpoints: `/`, `/app.js`, `/api/bootstrap`, `/api/targets`,
+Endpoints: `/`, `/app.js`, `/favicon.svg`, `/api/bootstrap`, `/api/targets`,
 `/api/health` (liveness plus one real read of the target list, so a
 directory yielding no readable document answers 500 `database_error`; reports
 `coverage_dir`, the running `requests`, `server_errors`, `client_errors`,
@@ -2705,9 +2705,10 @@ on globals. Four or more hex digits, with an optional `0x` prefix, also
 match that virtual address (`0x401000` and `00401000` are the same address).
 `by_module_counts` uses those same stored strings (`""` when unset). A repeated
 query parameter takes its first value; an unrecognised one is ignored.
-`/api/bootstrap` always answers 200: when its first target has no readable
-document, `summary` and `functions` are `null` so one broken target still
-returns the target list. Any other method on a served path → 405 with `Allow: GET,
+`/api/bootstrap` always answers 200, and `summary` and `functions` are `null`
+only when the directory holds no readable document at all; a listed target
+always has one to summarise, since an unparseable document is skipped rather
+than listed. Any other method on a served path → 405 with `Allow: GET,
 HEAD`; a path the server does not serve → 404 `not_found` whatever the method.
 Every error body is `{"error": "<message>", "code": "<code>"}`, malformed
 requests included; branch on `code` (`missing_target`, `unknown_target`,

@@ -496,13 +496,14 @@ Clients read the applied values back from the envelope.
 > rejected before routing, and `request_error` for any other status raised
 > there). Every response, error included, carries `X-Request-Id: r<N>`, the id
 > its access and error log lines carry.
-> A successful 200 carries an `ETag`: the content hash for `/` and `/app.js`,
+> A successful 200 carries an `ETag`: the content hash for `/` and the two
+> hashed assets (`/app.js`, `/favicon.svg`),
 > and every document's mtime and size — hashed together, so one target's rebuild
 > invalidates the tag for all of them — plus a hash of the request's path and
 > query for the JSON routes, so one validator never stands for two different
 > routes, targets, or filters. `Cache-Control` is `private, no-cache`
 > (revalidate, never serve stale after `build-db`) except on `/api/health`
-> (`no-store`, no `ETag`) and on `/app.js` at its `?v=` URL
+> (`no-store`, no `ETag`) and on `/app.js` or `/favicon.svg` at its `?v=` URL
 > (`private, max-age=31536000, immutable`). JSON and the shell negotiate
 > `zstd` then `gzip` by `Accept-Encoding` quality.
 > Its stderr log is one stream: every access line is

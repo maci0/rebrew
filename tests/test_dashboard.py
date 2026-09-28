@@ -4721,3 +4721,116 @@ size = 16
         assert pattern.fullmatch("0x10001000")
         assert pattern.fullmatch("0x00000000")
         assert not pattern.fullmatch("???")
+
+
+_DOCS = Path(__file__).resolve().parents[1] / "docs"
+
+
+def _cli_dashboard_section() -> str:
+    """The `rebrew dashboard` section of ``CLI.md``, from its heading to the next one."""
+    text = (_DOCS / "CLI.md").read_text(encoding="utf-8")
+    start = text.index("### `rebrew dashboard`")
+    end = text.index("\n## ", start)
+    return text[start:end]
+
+
+class TestHumanReadableContract:
+    """The prose pages restate the contract, so they are pinned to the code.
+
+    ``dashboard-api.yaml`` is machine-checked above; these two pages are what
+    a reader actually opens, and a sentence there that names two assets when
+    the server hashes three is the same drift a generated client would catch,
+    one page later.
+    """
+
+    def test_cli_page_names_every_served_path(self, dashboard: Dashboard) -> None:
+        """A path the server serves is on the page that lists them.
+
+        The endpoint list is prose, so a route added to ``_KNOWN_ROUTES`` and
+        to the spec can be missing from ``CLI.md`` without either failing: the
+        reader is left looking for a 404 they cannot cause.
+        """
+        section = _cli_dashboard_section()
+        for path in dashboard_module._KNOWN_ROUTES:
+            assert path in section, path
+
+    def test_human_summary_names_every_content_hashed_asset(self, dashboard: Dashboard) -> None:
+        """The ETag sentence names every asset the server tags by content hash.
+
+        The strong tag is computed per path, so the set is the code's, not a
+        hand-kept list: an asset that joins the hashed set without being named
+        here leaves a reader believing it revalidates.
+        """
+        block = _coverage_note_block()
+        sentence = _sentence_containing(block, "carries an `ETag`")
+        for path in dashboard_module._KNOWN_ROUTES:
+            if not dashboard.response_etag(path).startswith("W/"):
+                assert path in sentence, path
+
+    def test_human_summary_names_every_immutable_url(self) -> None:
+        """The Cache-Control sentence names every ``?v=`` URL served immutable.
+
+        The hashed URLs are the only ones whose freshness depends on a query
+        parameter, and a page that names ``/app.js`` alone reads as a favicon
+        that revalidates on every load.
+        """
+        from rebrew.dashboard import _CACHE_IMMUTABLE, _success_cache_control
+
+        sentence = _sentence_containing(_coverage_note_block(), "`Cache-Control` is")
+        for path, version in (("/app.js", _APP_JS_VERSION), ("/favicon.svg", _FAVICON_VERSION)):
+            assert _success_cache_control(path, {"v": [version]}) == _CACHE_IMMUTABLE, path
+            assert path in sentence, path
+
+    def test_bootstrap_null_case_is_the_empty_directory(self, empty_dashboard: Dashboard) -> None:
+        """A listed target has a document, so only an empty directory nulls.
+
+        ``targets()`` and the summary read the same pinned snapshot, so the
+        first target listed always has a document to summarise.  A page that
+        documents the null case as "one broken target" sends a client looking
+        for a state the server cannot produce, and misses the one it can: the
+        directory with nothing readable in it.
+        """
+        _, _, body = empty_dashboard.handle("GET", "/api/bootstrap", {})
+        payload = json.loads(body)
+        assert payload["targets"] == []
+        assert payload["summary"] is None
+        assert payload["functions"] is None
+
+        _write_document(
+            empty_dashboard.db_dir,
+            "t",
+            """
+[[functions]]
+va = 4096
+name = "func_a"
+status = "EXACT"
+markerType = "FUNCTION"
+size = 16
+""",
+        )
+        _, _, body = empty_dashboard.handle("GET", "/api/bootstrap", {})
+        payload = json.loads(body)
+        assert payload["targets"] == ["t"]
+        assert payload["summary"] is not None
+        assert payload["functions"] is not None
+
+
+def _coverage_note_block() -> str:
+    """The block-quoted note under the endpoint table in ``COVERAGE_DOCUMENT.md``."""
+    lines = (_DOCS / "COVERAGE_DOCUMENT.md").read_text(encoding="utf-8").splitlines()
+    table = next(i for i, line in enumerate(lines) if line.startswith("| `GET`, `HEAD` | `/"))
+    start = next(i for i in range(table, len(lines)) if lines[i].startswith(">"))
+    block = []
+    for line in lines[start:]:
+        if not line.startswith(">"):
+            break
+        block.append(line[1:].lstrip())
+    return " ".join(" ".join(block).split())
+
+
+def _sentence_containing(block: str, needle: str) -> str:
+    """The one sentence of *block* holding *needle*."""
+    sentences = block.split(". ")
+    matches = [sentence for sentence in sentences if needle in sentence]
+    assert len(matches) == 1, needle
+    return matches[0]

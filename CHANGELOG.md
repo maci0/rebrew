@@ -323,6 +323,19 @@
   the byte-mismatch code has to test for 2.
 
 ### Fixed
+- **The dashboard's human-readable contract named two assets where the server
+  serves three, and a `/api/bootstrap` null case that cannot happen.** The
+  prose in `docs/COVERAGE_DOCUMENT.md` credited the content-hash `ETag` to `/`
+  and `/app.js` only, and the `immutable` `?v=` URL to `/app.js` alone, while
+  `/favicon.svg` carries both (the table row on the same page said so), so a
+  reader concluded the mark revalidates on every load. `docs/CLI.md` left
+  `/favicon.svg` out of its endpoint list entirely, and described
+  `/api/bootstrap`'s null `summary`/`functions` as "one broken target": a
+  listed target is a readable document by construction, so the null case is a
+  directory with nothing readable in it. Both pages now match
+  `docs/dashboard-api.yaml` and the code, and `tests/test_dashboard.py`
+  derives the hashed-asset and immutable-URL sets from the server, so an asset
+  that joins either cannot be left unnamed in the prose.
 - **`[llm] max_requests` / `max_tokens` / `timeout` are project settings, and a
   pinned one is now honored.** The three budget knobs were env-only, so a
   project that could not afford a paid endpoint had to put the ceiling in
