@@ -77,7 +77,9 @@ commands that round-trip TOML.
   host PATH/vendored binary. The legacy `--install-wibo` host runner is
   ignored for image-backed profiles.
 - Doctor does not attempt to **fix** problems. It diagnoses and exits non-zero;
-  fixes are left to the user / `rebrew cfg set ...`.
+  fixes are left to the user / `rebrew cfg set ...`. The one exception is
+  `doctor --install-wibo`, which rewrites `runner` in `rebrew-project.toml`
+  for a non-image-backed profile.
 - No GUI; CLI only.
 
 ## Functional Requirements
@@ -139,7 +141,9 @@ commands that round-trip TOML.
 - `--json` mode emits the full check list with per-check `status` + `message`.
 - `--install-wibo` downloads the legacy host runner into `tools/wibo`; for
   docker-backed profiles it then prints a note and returns without running the
-  checks (the runner config is left untouched).
+  checks (the runner config is left untouched). For a profile that is not
+  image-backed it sets `runner = "tools/wibo"` in `rebrew-project.toml` in
+  place, then continues into the normal checks.
 
 ### `rebrew cfg`
 

@@ -10,7 +10,8 @@ percentage of bytes match today" with caching so it's cheap to ask, and
 guard against regressions when changes ship.
 
 > **Scope:** behavior spec (CLI contracts, goals, metrics) for `verify` /
-> `status` / `graph` / `cache`.  For the coverage document's fields see
+> `status` / `graph` / `cache` / `round-trip`.  For the coverage document's
+> fields see
 > [../COVERAGE_DOCUMENT.md](../COVERAGE_DOCUMENT.md).
 
 ## Problem It Solves
@@ -214,8 +215,8 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
 ```
 rebrew verify [file.c] [OPTIONS]
       --root PATH
-  --jobs, --jobs N
-  --output, --output PATH (explicit export only; no default report file)
+  -j, --jobs N
+  -o, --output PATH (explicit export only; no default report file)
   -s, --summary
       --compare
       --full
@@ -251,7 +252,7 @@ rebrew graph [OPTIONS]
       --min-table-len N (default 3)
       --max-pointer-stride N (default 4)
       --from-binary
-  --output, --output PATH
+  -o, --output PATH
       --json
   -t, --target TEXT
 

@@ -37,7 +37,8 @@ reports divergences read-only (exit 1 on any, for CI). Gaps that remain
   sync path.
 - **Struct fields — resolved.** `structs/<name>.toml` is now emitted with real
   `[fields.<name>]` entries (types parsed from `*.h` headers / sources via
-  tree-sitter; the raw `definition` is preserved). Placeholders remain only for
+  tree-sitter; only the field list is carried, the raw definition text is
+  dropped). Placeholders remain only for
   `STRUCT:` names with no scanned definition.
 - **Enums, typedefs, stack vars, per-instruction comments — resolved.**
   Export/import/overlay round-trip `enums.toml`, `typedefs.toml`, `LOCALS`
@@ -125,7 +126,7 @@ For each function in the BinSync state:
 - **Name** → if generic per `rebrew.binsync.importer.is_meaningful` (`func_<hex>`, `FUN_`, `DAT_`, `switchdata`, `thunk_`, `g_<hex>`), skip. If meaningful and rebrew already has a meaningful different name, report CONFLICT. Else update `ann.name` (writes `// FUNCTION: <module> 0x<va>` doesn't change; symbol declaration in `.c` does change, plus cross-references like `rebrew rename` does today).
 - **Prototype** → update the C function declaration via the prototype-rewrite path in `rebrew.binsync.importer` (the `--pull-signatures` flag it replaced is removed).
 - **Stack frame / locals** → write to a new `[locals]` block in `rebrew-functions.toml`. See F4.
-- **Per-instruction comments** → write as `// ANALYSIS:` style markers in the C body (the shape the removed `rebrew sync --pull-comments` flag wrote).
+- **Per-instruction comments** → write as `// ANALYSIS @ 0x<addr>: <text>` markers in the C body (the shape the removed `rebrew sync --pull-comments` flag wrote).
 - **Struct / enum / typedef** → write unknown type definitions into `binsync_types.h` in `reversed_dir` (see F5).
 - **Global variable** → write `name`/`size`/`type` into `rebrew-data.toml` (canonical data metadata file).
 

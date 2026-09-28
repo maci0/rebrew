@@ -25,8 +25,8 @@ Severities:
 - **enhancement** — feature gap or rough edge; PRD already flags as a goal.
 - **nit** — cosmetic / documentation only; safe to ignore short-term.
 
-Shipped: The round-trip command implementation shipped in commits
-`fd84782..4260a6c` (May 2026). PRD 05 now covers round-trip user surface,
+Shipped: The round-trip command implementation shipped on the branch in May
+2026. PRD 05 now covers round-trip user surface,
 workflows, and limitations.
 
 > **Refresh (audited 2026-08-22, re-audited 2026-09):** every entry below was
@@ -92,8 +92,8 @@ workflows, and limitations.
 ### Gap: `rebrew extract show` lacks a `--size` override, despite skeletons / asm needing one
 
 - **Gap:** `rebrew extract show VA` only accepts `--min-size`/`--max-size` as filters
-  (not overrides). `rebrew asm VA --size N` and `rebrew skeleton VA --name` accept
-  a `--size`, so the inconsistency surprises users.
+  (not overrides). `rebrew asm VA --size N` accepts a `--size` override, so the
+  two extraction commands are inconsistent.
 - **Evidence:** `uv run rebrew extract show --help` (no `--size`),
   `src/rebrew/extract.py:335` `show_candidate`.
 - **Severity:** enhancement (fixed)
@@ -265,9 +265,11 @@ workflows, and limitations.
 - **Evidence:** `src/rebrew/verify.py` cache lookup uses the per-file cache key
   derived from compile flags + source bytes; headers are not in the key.
 - **Severity:** blocker (fixed)
-- **Fixed:** `src/rebrew/verify.py:432` `_headers_hash` + per-entry reached-header
-  fingerprints (`_entry_headers_fp`, `verify.py:510`, served at `verify.py:1689`)
-  invalidate exactly the entries whose source reaches an edited header; the
+- **Fixed:** `src/rebrew/verify_hash.py` `headers_hash` + per-entry
+  reached-header fingerprints (`verify_hash.entry_headers_fp`, carried per
+  entry as `verify_cache.VerifyCacheEntry.headers_fp` and compared in
+  `src/rebrew/verify.py`) invalidate exactly the entries whose source reaches
+  an edited header; the
   compile cache tracks headers independently via `include_fingerprint`.
 - **Suggested fix:** Either hash the include-line fingerprint into the cache key, or
   invalidate the entire compile cache when any `.h` file under `reversed_dir`

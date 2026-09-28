@@ -134,8 +134,11 @@ Output `.bin` files land in the configured `bin_dir`.
 - Matches `LIBRARY:` annotations (or a single VA) against the indexed
   symbols and ranks candidates.
 - `--all` runs across every LIBRARY marker.
-- `--fix-source` records each match's `SOURCE` (the CRT source path) in the
-  matched function's `rebrew-functions.toml` entry; the `.c` file is not edited.
+- `--fix-source` records a match's `SOURCE` (`FILE:LINE`, or a bare `FILE` for
+  asm-only entries) in the matched function's `rebrew-functions.toml` entry;
+  the `.c` file is not edited. Only matches at confidence ≥ 0.85 with a known
+  source line are written; lower-confidence and filename-only matches are
+  skipped.
 - `--dry-run` previews `--fix-source` writes without modifying files.
 - `--index` prints the constructed CRT index for inspection.
 - `--json` emits structured matches.
@@ -165,7 +168,8 @@ Output `.bin` files land in the configured `bin_dir`.
   rows it was computed from.
 - `--force` is accepted and has no effect: each document is replaced whole, so
   there is no schema to migrate past.
-- `--regen` generates coverage data in-process per target without intermediate JSON files.
+- `--regen` is accepted and dropped: generating in this process is the only
+  mode left, so there is nothing for the flag to select.
 - The document carries its own `version`; a file from another version is not
   migrated, and a rebuild replaces it.
 
@@ -187,8 +191,8 @@ Output `.bin` files land in the configured `bin_dir`.
 1. User has dozens of `// LIBRARY: MSVCRT 0x...` annotations with empty
    bodies.
 2. User runs `rebrew cfg detect-crt` so the MSVC source mirror is registered.
-3. `rebrew crt-match --all --fix-source` records every match's
-   `SOURCE` (e.g. `vcsrc/.../strcpy.c`) in `rebrew-functions.toml`.
+3. `rebrew crt-match --all --fix-source` records each writable match's
+   `SOURCE` (e.g. `vcsrc/.../strcpy.c:1234`) in `rebrew-functions.toml`.
 4. The user then runs `rebrew test` on the candidates and many promote to
    EXACT/RELOC because the CRT source already compiles to identical bytes.
 

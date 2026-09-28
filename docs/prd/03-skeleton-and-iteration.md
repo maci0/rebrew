@@ -47,7 +47,8 @@ you what to attack next.
   - Compiles via MSVC6 (or configured compiler).
   - Byte-compares against the target.
   - Auto-promotes STATUS (EXACT / RELOC / NEAR_MATCHING / STUB /
-    SIZE_MISMATCH / MISSING_SIZE) in `rebrew-functions.toml`.
+    SIZE_MISMATCH) in `rebrew-functions.toml`. (`MISSING_SIZE` is a
+    `rebrew verify` verdict, not one `rebrew test` writes.)
 - A `diff` command that classifies mismatches into structural / relocation /
   register / invalid-relocation and can auto-write BLOCKER metadata.
 - A `lint` command that enforces marker discipline and migrates legacy
@@ -186,7 +187,13 @@ you what to attack next.
   - `identify-library` — uncovered library code: a library-module name, or
     bytes that match a cached stock archive and still have no `// LIBRARY:`
     marker.
-  - `run-prover` — small near-matches eligible for `rebrew prove`.
+  - `run-prover` — near-matches eligible for `rebrew prove`: delta ≤ 8 B
+    and function ≤ 500 B.
+  - `exact-only` — a `RELOC` function, identical with relocations masked but
+    not on its own; scored 0, below every actionable item.
+  - `postlink-mangled` — a function whose bytes in `build/<target>` a
+    postlink fixer rewrote, detected by diffing the span against a configured
+    `raw_link`; scored 0, and absent without one.
   - `documented` — IAT thunks / non-reproducible code (audit only, hidden
     from the default list).
   - `naked-reconstruction` — byte-exact via a generated naked skeleton
@@ -264,7 +271,7 @@ rebrew test [SOURCE]
       --dir TEXT
       --origin GAME|MSVCRT|ZLIB|...
       --dry-run
-  --jobs, --jobs N
+  -j, --jobs N
       --no-promote
       --force-status
       --fix-sizes
@@ -275,9 +282,9 @@ rebrew test [SOURCE]
   --target, --target TEXT
       --all-targets
 
-rebrew diff SEED_C
-  --mismatches-only, --mismatches-only
-  --register-aware, --register-aware
+rebrew diff [SOURCE]
+  -m, --mismatches-only
+  -r, --register-aware
       --fix-blocker
       --dry-run
   -f, --format terminal|csv (default terminal)
@@ -310,7 +317,7 @@ rebrew split [SOURCE]
   -t, --target TEXT
 
 rebrew merge [SOURCES...]
-  --output, --output TEXT (required)
+  -o, --output TEXT (required)
       --consolidate
       --shared
       --dry-run
@@ -327,9 +334,9 @@ rebrew rename TARGET_IDENT NEW_NAME
   -t, --target TEXT
 
 rebrew todo
-  --count, --count N (default 20)
-  --category, --category TEXT
-  --stats, --stats
+  -n, --count N (default 20)
+  -c, --category TEXT
+  -s, --stats
       --json
   -t, --target TEXT
       --all-targets

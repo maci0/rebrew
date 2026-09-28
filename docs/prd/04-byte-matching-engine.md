@@ -169,7 +169,7 @@ prover that promotes NEAR_MATCHING → PROVEN.
 ## CLI Surface
 
 ```
-rebrew match [SEED_C]
+rebrew match [SOURCE]
   Single-function controls
       --cl TEXT
       --inc TEXT
@@ -196,9 +196,9 @@ rebrew match [SEED_C]
   GA tuning
       --seed N
       --mutation-focus register|equivalent|structural|auto
-  --generations, --generations N (default 100)
-  --pop-size, --pop-size N (default 64)
-  --jobs, --jobs N (default: from config)
+  -g, --generations N (default 100)
+  -p, --pop-size N (default 64)
+  -j, --jobs N (default: from config)
   Batch mode
       --all
       --all-targets
@@ -219,7 +219,7 @@ rebrew match [SEED_C]
       --timeout-min N (default 30)
       --dry-run
       --ga-history
-      --seed-solved / --no-seed-solved (default seed-from-solved)
+      --seed-solved / --no-seed-solved (default: seed-solved)
       --collect-pairs PATH
   Output
       --json

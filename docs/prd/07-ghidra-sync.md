@@ -45,12 +45,12 @@ BinSync state directory for field-level sync and the ReVa MCP server
 - Single command (`rebrew sync`) with explicit push, pull, and inspect
   modes.
 - Safe defaults:
-  - Generic names (`FUN_`, `DAT_`, `func_`, `switchdata`) are never
-    overwritten.
+  - Generic names (`FUN_`, `DAT_`, `func_`, `switchdata`, `thunk_`, `g_<hex>`)
+    are never overwritten.
   - Conflicts (both sides have meaningful names) are reported, not
     silently resolved.
-  - Rebrew-authored plate comments are never pulled back into source as
-    NOTE.
+  - Rebrew-authored comments (the `[rebrew:note]` / `[rebrew:ghidra]` prefixes)
+    are never pulled back into source as NOTE.
 - Bulk operations for labels, sizes, new function creation, struct
   pushes, signature pushes, and data-label syncing.
 - Offline field sync: `--push`/`--pull` read and write only the BinSync state
@@ -95,8 +95,8 @@ BinSync state directory for field-level sync and the ReVa MCP server
 ### Structural operations (ReVa MCP)
 
 - `--create-functions`: creates Ghidra functions for every listed VA Ghidra has
-  not already detected (IAT thunks are skipped); when chained with `--pull`,
-  creates the imported VAs in Ghidra.
+  not already detected (IAT thunks and entries with no canonical size are
+  skipped); when chained with `--pull`, creates the imported VAs in Ghidra.
 - `--bookmarks`: sets status bookmarks in Ghidra via ReVa MCP.
 - `--pull-data`: pulls data labels from Ghidra and generates `rebrew_globals.h`.
 - Transport fallback: ReVa MCP HTTP is the default transport; when
@@ -152,8 +152,9 @@ BinSync state directory for field-level sync and the ReVa MCP server
 1. The user travels with no Ghidra running. `rebrew sync --pull --state-dir
    ./state` imports names, comments, prototypes, structs and globals from the
    BinSync state dir; no MCP connection is involved.
-2. `--create-functions`, `--bookmarks` and `--pull-data` wait until ReVa MCP
-   is reachable again.
+2. `--create-functions`, `--bookmarks` and `--pull-data` fail with an
+   `MCP unreachable at <endpoint>` error when ReVa MCP is down; re-run once
+   it is back.
 
 ### Story 4 — BinSync exchange with a teammate
 
