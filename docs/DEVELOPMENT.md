@@ -75,6 +75,13 @@ see [`AGENTS.md`](../AGENTS.md); for the CLI surface see [`CLI.md`](CLI.md).
   ...)` fails because the attribute doesn't exist on `rebrew.verify`.
 - `tools/detect_cycles.py` enforces no module-level import cycles (pre-commit
   hook).  `if TYPE_CHECKING:` guards are skipped by the detector.
+- `tools/check_layering.py` enforces import *direction*, which the cycle
+  detector cannot see: `rebrew.utils` imports no rebrew module (it is the leaf
+  every module may reach for), and only the composition layer (`plugin`,
+  `builtins`, `main`, `dashboard`) may import the composition layer at module
+  scope.  A command registers itself with the umbrella inside its own
+  `register()`, and `errors` re-exports `ComponentError` under
+  `TYPE_CHECKING`, so both stay legal (pre-commit hook).
 - `tools/public_surface.py` reads the public import surface out of the AST
   (no import of the package, so no optional extra is needed) and diffs it
   against a ref: `uv run --frozen python tools/public_surface.py --diff v2.14.0` prints
@@ -168,8 +175,8 @@ make check                            # 15 of 17 pre-commit hooks — pytest (pr
                                         # raw pre-commit call below does not, which is
                                         # why the make target is the documented one.
 NO_COLOR=1 TERM=dumb _TYPER_FORCE_DISABLE_TERMINAL=1 \
-  uv run --frozen pre-commit run --all-files   # same 15 hooks, ANSI-safe by hand
-make all                                # local gates: format-check, lint, mypy, audit, coverage, gen-fixtures-check, cycles-check, idempotency-check, cli-contract
+  uv run --frozen pre-commit run --all-files   # same 18 hooks, ANSI-safe by hand
+make all                                # local gates: format-check, lint, mypy, audit, coverage, gen-fixtures-check, cycles-check, layering-check, idempotency-check, cli-contract
 make cli-contract                       # high-value --help greps (CI cli-contract job)
 make gen-fixtures                       # regenerate tests/fixtures/ (then commit)
 make build                              # sdist+wheel (CI package job; run before a PR)

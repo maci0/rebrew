@@ -105,6 +105,7 @@ make gen-fixtures-check       # fixtures still match the generator
 make gen-skills               # regenerate .agents/skills/ after editing src/rebrew/agent-skills/
 make gen-skills-check         # rendered .agents/skills/ match the packaged source
 make cycles-check             # module-level import cycles (also runs in make check)
+make layering-check           # wrong-direction imports (also runs in make check)
 make idempotency-check        # every --json command run twice (CI test job)
 make release-check            # version/changelog/tag preflight before tagging
 ```

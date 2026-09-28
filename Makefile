@@ -166,6 +166,7 @@ help:
 		'  make gen-skills         # regenerate .agents/skills/ from src/rebrew/agent-skills/' \
 		'  make gen-skills-check   # verify .agents/skills/ matches src/rebrew/agent-skills/' \
 		'  make cycles-check       # tools/detect_cycles.py (also in pre-commit / make check)' \
+		'  make layering-check     # tools/check_layering.py (also in pre-commit / make check)' \
 		'  make idempotency-check  # tools/check_idempotency.py' \
 		'  make release-check      # version/changelog/tag preflight before tagging' \
 		'' \
@@ -751,10 +752,10 @@ smoke-wheel: dist/rebrew.buildinfo ensure-uv
 # Run all non-mutating verification gates (mirrors CI lint + test +
 # cli-contract jobs: ruff, mypy, uv audit, pytest under the COV_FLOOR gate
 # (CI's 3.13 test entry runs `make coverage`, not `make test`), fixture
-# freshness, idempotency sweep, CLI help greps, plus the import-cycle hook
-# that the CI pre-commit job also runs).  For full hook parity (hygiene +
-# skills validate) also run `make check` before a PR.
-all: format-check lint mypy audit coverage gen-fixtures-check cycles-check idempotency-check cli-contract
+# freshness, idempotency sweep, CLI help greps, plus the import-cycle and
+# import-layering hooks that the CI pre-commit job also runs).  For full hook
+# parity (hygiene + skills validate) also run `make check` before a PR.
+all: format-check lint mypy audit coverage gen-fixtures-check cycles-check layering-check idempotency-check cli-contract
 
 # Full local verification: single runnable step mirroring every CI gate
 # (all non-mutating gates + pre-commit hook parity + reproducible build +
@@ -791,6 +792,10 @@ gen-skills-check: ensure-uv
 # Module-level import cycles (pre-commit import-cycles hook / CI pre-commit job).
 cycles-check: ensure-uv
 	uv run --frozen python tools/detect_cycles.py
+
+# Import direction (pre-commit import-layering hook / CI pre-commit job).
+layering-check: ensure-uv
+	uv run --frozen python tools/check_layering.py
 
 # Idempotency sweep: every --json command, run twice (CI test job).
 idempotency-check: ensure-uv
