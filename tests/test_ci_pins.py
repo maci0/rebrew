@@ -179,6 +179,30 @@ class TestCiPins:
                 f"{name}: names resembl tag(s) {sorted(named) or ['none']}, pin is {ref}"
             )
 
+    def test_documented_required_checks_match_the_workflow(self) -> None:
+        """The merge-gate table in docs/CI.md lists the jobs ci.yml defines.
+
+        Branch protection cannot be set from the tree, so the list of contexts
+        a `main` rule has to name lives in the docs. A job the table omits is
+        advisory on every pull request, and a job it names after the workflow
+        dropped or renamed leaves a required context nothing reports, which
+        blocks every pull request. Neither drift is visible from the workflow
+        alone, so compare both directions.
+        """
+        import yaml
+
+        section = (
+            (ROOT / "docs" / "CI.md")
+            .read_text(encoding="utf-8")
+            .split("## Required status checks", 1)[1]
+            .split("\n## ", 1)[0]
+        )
+        documented = set(re.findall(r"(?m)^\| `([a-z0-9-]+)` \|", section))
+        jobs = set(yaml.safe_load(CI_YML.read_text(encoding="utf-8"))["jobs"])
+        assert documented == jobs, (
+            f"docs/CI.md names {sorted(documented)}, ci.yml defines {sorted(jobs)}"
+        )
+
     def test_hermetic_jobs_pin_exact_python_patch(self) -> None:
         """Every job but the test matrix takes the action's default, which is
         the exact ``.python-version`` patch.  The matrix's 3.13 entry (which

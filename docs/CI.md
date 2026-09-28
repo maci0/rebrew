@@ -197,6 +197,32 @@ drift either: `_live_commit_sha` retries a transport failure or a retryable
 status on the same backoff the pinned-media download uses, and only a 404-class
 answer is reported on the first attempt.
 
+## Required status checks
+
+Branch protection on `main` must require every job in `ci.yml`; a rule that
+lists a subset leaves the rest advisory. GitHub names the checks after the job
+id, with the `test` matrix expanded per entry, so the required contexts are
+`lint`, `test (3.13.15)`, `test (3.14)`, `pre-commit`, `package`, and
+`cli-contract`.
+
+| Job | Gate |
+|-----|------|
+| `lint` | ruff, ruff format, mypy, `uv audit` |
+| `test` | the full suite on 3.13 (under the coverage floor) and 3.14, fixture freshness, idempotency sweep |
+| `pre-commit` | hook parity, including shellcheck and yamllint |
+| `package` | reproducible sdist/wheel, smoke install, sdist member diff, SBOM |
+| `cli-contract` | the public `--help` surfaces |
+
+`tests/test_ci_pins.py` compares this table against the job ids `ci.yml`
+defines. A job added here stays unprotected until the branch-protection rule
+names it, and a job removed or renamed from the workflow leaves a required
+context nothing ever reports, which blocks every pull request until the rule
+is edited; the test is what keeps the two from drifting apart unnoticed.
+
+`toolchain-sync.yml` is deliberately absent: it is a nightly drift check, not
+a merge gate, and requiring it would hold a pull request on an upstream
+release-asset lookup.
+
 ## Project / workspace CI
 
 Wire these into the **game/workspace** repo (the one with `rebrew-project.toml`
