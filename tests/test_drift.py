@@ -171,6 +171,99 @@ class TestDeriveRegions:
 
 
 class TestDriftCommand:
+    """The command layer: the hand-assembled bytes above reach the JSON payload.
+
+    ``compile_and_compare`` is the only thing stubbed, so VA/size/symbol
+    resolution, the compare-result guard, and the window arithmetic are all
+    the production path.
+    """
+
+    def _project(self, tmp_path, monkeypatch, *, our: bytes, status: str = "SIZE_MISMATCH"):
+        from types import SimpleNamespace
+
+        from rebrew import drift_cli
+
+        src = tmp_path / "f.c"
+        src.write_text("// FUNCTION: GAME 0x10001000\nint f(void) { return 1; }\n")
+        ref = _jmp_rel8(4) + _nops(4) + b"\xc3"
+        cfg = SimpleNamespace(
+            metadata_dir=tmp_path,
+            marker="GAME",
+            target_name="GAME",
+            target_binary=tmp_path / "game.exe",
+            capstone_arch=capstone.CS_ARCH_X86,
+            capstone_mode=capstone.CS_MODE_32,
+        )
+        monkeypatch.setattr(drift_cli, "require_config", lambda **_kw: cfg)
+        monkeypatch.setattr(drift_cli, "target_marker", lambda _cfg: "GAME")
+        monkeypatch.setattr(drift_cli, "resolve_compile_overrides", lambda *_a, **_k: (None, ""))
+        monkeypatch.setattr(drift_cli, "extract_raw_bytes", lambda *_a, **_k: ref)
+        monkeypatch.setattr(
+            drift_cli,
+            "compile_and_compare",
+            lambda *_a, **_k: SimpleNamespace(obj_bytes=our, status=status),
+        )
+        return src
+
+    def test_json_reports_the_window_the_compare_produced(self, tmp_path, monkeypatch) -> None:
+        import json
+
+        from typer.testing import CliRunner
+
+        from rebrew import drift_cli
+
+        ours = _jmp_rel8(6) + _nops(6) + b"\xc3"
+        src = self._project(tmp_path, monkeypatch, our=ours)
+
+        result = CliRunner().invoke(
+            drift_cli.app, ["--va", "0x10001000", "--size", "7", "--json", str(src)]
+        )
+
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.stdout)
+        assert payload["va"] == "0x10001000"
+        assert payload["size"] == 7
+        assert payload["obj_size"] == len(ours)
+        assert payload["status"] == "SIZE_MISMATCH"
+        (window,) = payload["windows"]
+        assert (window["lo"], window["hi"], window["drift"]) == (0, 6, 2)
+        assert window["backward"] is False
+        assert payload["derived"] == []
+
+    def test_compile_failure_names_the_symbol_and_the_status(self, tmp_path, monkeypatch) -> None:
+        """No object bytes means the arithmetic has nothing to measure; the
+        error must say which symbol failed and why, not report zero drift."""
+        import json
+
+        from typer.testing import CliRunner
+
+        from rebrew import drift_cli
+
+        src = self._project(tmp_path, monkeypatch, our=None, status="COMPILE_ERROR")
+
+        result = CliRunner().invoke(
+            drift_cli.app, ["--va", "0x10001000", "--size", "7", "--json", str(src)]
+        )
+
+        assert result.exit_code != 0
+        error = json.loads(result.stdout)["error"]
+        assert "compile/extract failed" in error
+        assert "COMPILE_ERROR" in error
+
+    def test_text_output_states_the_object_size_delta(self, tmp_path, monkeypatch) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew import drift_cli
+
+        ours = _jmp_rel8(6) + _nops(6) + b"\xc3"
+        src = self._project(tmp_path, monkeypatch, our=ours)
+
+        result = CliRunner().invoke(drift_cli.app, ["--va", "0x10001000", "--size", "7", str(src)])
+
+        assert result.exit_code == 0, result.output
+        assert "object 9 (+2)" in result.output
+        assert "1 branch pair(s) measuring drift" in result.output
+
     def test_unknown_va_in_annotated_file_errors(self, tmp_path, monkeypatch) -> None:
         """--va naming no annotation must not borrow the first function's SIZE/SYMBOL."""
         import json

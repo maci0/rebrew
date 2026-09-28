@@ -244,3 +244,70 @@ def test_unpack_lzexe_fixture_mutation_no_crash(noise: bytes, n_flips: int) -> N
             assert len(rebuilt) == result.cparhdr * 16 + len(result.image)
     finally:
         tmp.unlink(missing_ok=True)
+
+
+class TestUnpackCli:
+    """``rebrew unpack-lzexe``'s own contract: where the bytes land, and what
+    the two error classes say.  The unpacker itself is covered above."""
+
+    def _run(self, *args: str):
+        from typer.testing import CliRunner
+
+        from rebrew import lzexe_cli
+
+        return CliRunner().invoke(lzexe_cli.app, list(args))
+
+    def test_default_output_sits_beside_the_packed_file(self, tmp_path: Path) -> None:
+        import json
+        import shutil
+
+        packed = tmp_path / "packed.exe"
+        shutil.copy(PACKED, packed)
+
+        result = self._run("--json", str(packed))
+
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.stdout)
+        default_out = tmp_path / "packed.exe.unpacked.exe"
+        assert payload["output"] == str(default_out)
+        assert payload["version"] == "0.91"
+        assert default_out.read_bytes() == unpack_lzexe(packed).to_bytes()
+        assert payload["size"] == default_out.stat().st_size
+
+    def test_output_option_honoured(self, tmp_path: Path) -> None:
+        import shutil
+
+        packed = tmp_path / "packed.exe"
+        shutil.copy(PACKED, packed)
+        out = tmp_path / "restored.exe"
+
+        result = self._run("--output", str(out), str(packed))
+
+        assert result.exit_code == 0, result.output
+        assert out.read_bytes() == unpack_lzexe(packed).to_bytes()
+        assert not (tmp_path / "packed.exe.unpacked.exe").exists()
+
+    def test_missing_binary_reports_the_path(self, tmp_path: Path) -> None:
+        import json
+
+        missing = tmp_path / "nope.exe"
+
+        result = self._run("--json", str(missing))
+
+        assert result.exit_code != 0
+        assert json.loads(result.stdout)["error"] == f"binary not found: {missing}"
+
+    def test_unpacked_mz_reports_the_packer_message(self, tmp_path: Path) -> None:
+        """A file that exists but is not packed must say so, not fail later."""
+        import json
+        import shutil
+
+        plain = tmp_path / "plain.exe"
+        shutil.copy(ORIGINAL, plain)
+
+        result = self._run("--json", str(plain))
+
+        assert result.exit_code != 0
+        error = json.loads(result.stdout)["error"]
+        assert "LZEXE" in error
+        assert not (tmp_path / "plain.exe.unpacked.exe").exists()

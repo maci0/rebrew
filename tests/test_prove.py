@@ -291,8 +291,14 @@ class TestProveCLIStatusGuard:
         metadata while the cache said NEAR_MATCHING, so prove refused them."""
         import json
 
+        from rebrew.config import load_config
+        from rebrew.verify_hash import compiler_config_hash, headers_hash
+
         proj_dir, src = self._make_project(tmp_path, "STUB")
-        # Write a target-guarded verify cache claiming NEAR_MATCHING for the VA.
+        # Write an identity-matching verify cache claiming NEAR_MATCHING for the
+        # VA: the overlay is consulted only for a cache the project owns, so a
+        # foreign one would be ignored and the gate would reject on metadata.
+        cfg = load_config(proj_dir, target="GAME")
         va = 0x1000
         cache_dir = proj_dir / ".rebrew"
         cache_dir.mkdir(exist_ok=True)
@@ -300,8 +306,8 @@ class TestProveCLIStatusGuard:
             json.dumps(
                 {
                     "version": 2,
-                    "compiler_hash": "",
-                    "headers_hash": "",
+                    "compiler_hash": compiler_config_hash(cfg),
+                    "headers_hash": headers_hash(cfg),
                     "target": "GAME",
                     "entries": {
                         f"0x{va:08x}": {
