@@ -39,14 +39,27 @@ def _new_registry_entry(
     cfg: ProjectConfig | None,
     *,
     is_export: bool = False,
+    iat_thunks: frozenset[int] | None = None,
 ) -> RegistryEntry:
-    """Create a default registry entry for *va*."""
+    """Create a default registry entry for *va*.
+
+    *iat_thunks* is the config's list, already set-ized by the caller: the
+    membership test runs once per inventory entry and a linear scan over a
+    PE's thunk table made it O(entries x thunks).
+    """
+    thunks = (
+        iat_thunks
+        if iat_thunks is not None
+        else frozenset(cfg.iat_thunks or ())
+        if cfg
+        else frozenset()
+    )
     return RegistryEntry(
         detected_by=[],
         size_by_tool={},
         list_name="",
         ghidra_name="",
-        is_thunk=va in cfg.iat_thunks if cfg else False,
+        is_thunk=va in thunks,
         is_export=is_export or (va in cfg.dll_exports if cfg else False),
         canonical_size=0,
     )
@@ -228,6 +241,7 @@ def build_function_registry(
 
     # --- Discovery inventory ---
     r2_bogus = set(getattr(cfg, "r2_bogus_vas", [])) if cfg else set()
+    iat_thunks = frozenset(getattr(cfg, "iat_thunks", []) or ()) if cfg else frozenset()
     for func in funcs:
         va = int(func["va"])
         if va in iat_vas:
@@ -236,7 +250,9 @@ def build_function_registry(
             # Ghidra jump-table case labels are data inside their parent
             # function, not functions; clustering them breaks overlap checks.
             continue
-        entry = registry.setdefault(va, _new_registry_entry(va, cfg))
+        entry = registry.get(va)
+        if entry is None:
+            entry = registry[va] = _new_registry_entry(va, cfg, iat_thunks=iat_thunks)
         if "list" not in entry["detected_by"]:
             entry["detected_by"].append("list")
         list_size = int(func["size"])
@@ -254,7 +270,9 @@ def build_function_registry(
         if va == 0 or struc_func.size == 0 or va in iat_vas:
             continue
 
-        entry = registry.setdefault(va, _new_registry_entry(va, cfg))
+        entry = registry.get(va)
+        if entry is None:
+            entry = registry[va] = _new_registry_entry(va, cfg, iat_thunks=iat_thunks)
         if "ghidra" not in entry["detected_by"]:
             entry["detected_by"].append("ghidra")
         entry["size_by_tool"]["ghidra"] = struc_func.size
@@ -263,7 +281,11 @@ def build_function_registry(
     # --- Exports ---
     exports: dict[int, str] = cfg.dll_exports if cfg else {}
     for va in exports:
-        entry = registry.setdefault(va, _new_registry_entry(va, cfg, is_export=True))
+        entry = registry.get(va)
+        if entry is None:
+            entry = registry[va] = _new_registry_entry(
+                va, cfg, is_export=True, iat_thunks=iat_thunks
+            )
         if "exports" not in entry["detected_by"]:
             entry["detected_by"].append("exports")
 

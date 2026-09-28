@@ -13,6 +13,7 @@ Usage::
 import json
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from operator import eq
 from pathlib import Path
 from typing import Any
 
@@ -293,11 +294,11 @@ def compare_file_bytes(reference: bytes, built: bytes) -> tuple[int, int]:
     unmatched, so a truncated image cannot score as the whole reference.
     """
     span = max(len(reference), len(built))
-    matched = 0
-    for i in range(min(len(reference), len(built))):
-        if reference[i] == built[i]:
-            matched += 1
-    return matched, span
+    if len(reference) == len(built) and reference == built:
+        return span, span
+    # map/eq drives the comparison loop in C; the index arithmetic in a Python
+    # loop over two multi-MB images is the whole cost of a `rebrew status`.
+    return sum(map(eq, reference, built)), span
 
 
 def linker_produced_match(
@@ -494,6 +495,8 @@ def load_verify_details(
     proving even though bytes differ.  *raw* is the already-validated
     document when the caller has one.
     """
+    from rebrew.metadata_doc import canonical_va_key
+
     if raw is None:
         raw = _load_cache_raw(cfg)
     if raw is None:
@@ -510,8 +513,6 @@ def load_verify_details(
         status = entry_data.get("status", "")
         if not status:
             continue
-        from rebrew.metadata_doc import canonical_va_key
-
         va = canonical_va_key(va_str)
         if not isinstance(va, int):
             continue
@@ -541,6 +542,17 @@ def effective_status(ann_status: str, cached: str | None) -> str:
 
 #: Fill bytes the linker and compiler place between functions.
 _PADDING_BYTES = frozenset((0xCC, 0x90, 0x00))
+_FILL_COUNTS = tuple(bytes((byte,)) for byte in sorted(_PADDING_BYTES))
+
+
+def _count_gap(chunk: bytes, padding: int, unattributed: int) -> tuple[int, int]:
+    """Fold one uncovered *chunk* into the running gap totals.
+
+    ``bytes.count`` scans in C; three passes over gap bytes beat one Python
+    iteration per byte of a whole ``.text`` section.
+    """
+    fill = sum(chunk.count(needle) for needle in _FILL_COUNTS)
+    return padding + fill, unattributed + (len(chunk) - fill)
 
 
 def classify_text_gaps(text: bytes, text_va: int, spans: list[tuple[int, int]]) -> tuple[int, int]:
@@ -549,20 +561,25 @@ def classify_text_gaps(text: bytes, text_va: int, spans: list[tuple[int, int]]) 
     *spans* are ``(va, size)`` function extents.  A gap byte that is
     alignment fill counts as padding; anything else is code or data no known
     function covers (a thunk, a switch table, an undiscovered function).
+
+    Only the complement of the spans is classified: the covered ranges are
+    merged into an interval list and the gaps between them are counted in
+    place, so the cost tracks the gap bytes rather than the section size.
     """
-    covered = bytearray(len(text))
+    intervals: list[tuple[int, int]] = []
     for va, size in spans:
         lo = max(0, va - text_va)
         hi = min(len(text), va - text_va + size)
         if hi > lo:
-            covered[lo:hi] = b"\x01" * (hi - lo)
+            intervals.append((lo, hi))
     padding = unattributed = 0
-    for byte, hit in zip(text, covered, strict=True):
-        if not hit:
-            if byte in _PADDING_BYTES:
-                padding += 1
-            else:
-                unattributed += 1
+    cursor = 0
+    for lo, hi in sorted(intervals):
+        if lo > cursor:
+            padding, unattributed = _count_gap(text[cursor:lo], padding, unattributed)
+        cursor = max(cursor, hi)
+    if cursor < len(text):
+        padding, unattributed = _count_gap(text[cursor:], padding, unattributed)
     return padding, unattributed
 
 

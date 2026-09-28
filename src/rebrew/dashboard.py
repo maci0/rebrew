@@ -167,6 +167,7 @@ from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
 from email.utils import formatdate
+from functools import cache
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -1670,10 +1671,28 @@ _CACHE_REVALIDATE = "private, no-cache"
 _CACHE_IMMUTABLE = "private, max-age=31536000, immutable"
 
 
-_INDEX_HTML_ZSTD = precompress(_INDEX_HTML_BYTES, "zstd")
-_INDEX_HTML_GZIP = precompress(_INDEX_HTML_BYTES, "gzip")
-_APP_JS_ZSTD = precompress(_APP_JS_BYTES, "zstd")
-_APP_JS_GZIP = precompress(_APP_JS_BYTES, "gzip")
+#: The entry assets compress at max effort (zstd 19 runs at MB/s), which cost
+#: ~10 ms of import time on every `rebrew` invocation because CLI composition
+#: imports this module for every command.  Build them on the first request that
+#: serves an asset instead; the server is the only caller.
+@cache
+def _index_html_zstd() -> bytes:
+    return precompress(_INDEX_HTML_BYTES, "zstd") or _INDEX_HTML_BYTES
+
+
+@cache
+def _index_html_gzip() -> bytes:
+    return precompress(_INDEX_HTML_BYTES, "gzip") or _INDEX_HTML_BYTES
+
+
+@cache
+def _app_js_zstd() -> bytes:
+    return precompress(_APP_JS_BYTES, "zstd") or _APP_JS_BYTES
+
+
+@cache
+def _app_js_gzip() -> bytes:
+    return precompress(_APP_JS_BYTES, "gzip") or _APP_JS_BYTES
 
 
 def _int_param(params: dict[str, list[str]], name: str, default: int) -> int:
@@ -2060,8 +2079,11 @@ class Dashboard:
                 rows.append(fn)
         # VA order, which is the file's own order (the writer sorts by VA) and
         # the ORDER BY this read used to carry.  Sorted here rather than
-        # trusted: a hand-edited document's row order is not a fact.
-        rows.sort(key=lambda fn: fn.va)
+        # trusted: a hand-edited document's row order is not a fact.  The
+        # ordering check is O(n) and settles the common writer-sorted case,
+        # which is the whole page for an unfiltered request.
+        if any(rows[i - 1].va > rows[i].va for i in range(1, len(rows))):
+            rows.sort(key=lambda fn: fn.va)
         page = rows[offset : offset + limit]
         return {
             "target": target,
@@ -2917,16 +2939,16 @@ class _Handler(BaseHTTPRequestHandler):
                 entry_asset = True
                 body_bytes, encoding = _precompressed_static(
                     accept,
-                    zstd_blob=_INDEX_HTML_ZSTD,
-                    gzip_blob=_INDEX_HTML_GZIP,
+                    zstd_blob=_index_html_zstd(),
+                    gzip_blob=_index_html_gzip(),
                     raw=_INDEX_HTML_BYTES,
                 )
             elif body is _APP_JS:
                 entry_asset = True
                 body_bytes, encoding = _precompressed_static(
                     accept,
-                    zstd_blob=_APP_JS_ZSTD,
-                    gzip_blob=_APP_JS_GZIP,
+                    zstd_blob=_app_js_zstd(),
+                    gzip_blob=_app_js_gzip(),
                     raw=_APP_JS_BYTES,
                 )
             else:

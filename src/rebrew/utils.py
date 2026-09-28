@@ -120,10 +120,16 @@ _BIDI_FORMAT_CHARS = frozenset(
     "\ufeff"  # zero-width no-break space (BOM)
 )
 _BIDI_FORMAT_TABLE = {ord(char): None for char in _BIDI_FORMAT_CHARS}
+#: Every stripped character is non-ASCII, so a regex scan over ordinary text
+#: finds nothing and skips the per-character translate table.  Dashboard
+#: responses scrub every cell of every row, where the translate dominated.
+_BIDI_FORMAT_SEARCH = re.compile(f"[{''.join(sorted(_BIDI_FORMAT_CHARS))}]")
 
 
 def strip_bidi_format(value: str) -> str:
     """*value* with the invisible reordering and hiding characters removed."""
+    if _BIDI_FORMAT_SEARCH.search(value) is None:
+        return value
     return value.translate(_BIDI_FORMAT_TABLE)
 
 

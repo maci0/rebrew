@@ -1956,12 +1956,12 @@ class TestEncodingNegotiation:
 
         from rebrew.dashboard import (
             _INDEX_HTML_BYTES,
-            _INDEX_HTML_ZSTD,
             _Handler,
+            _index_html_zstd,
             allowed_hosts_for,
         )
 
-        assert _INDEX_HTML_ZSTD is not None
+        assert _index_html_zstd()
         handler = _Handler.__new__(_Handler)
         handler.headers = {
             "Host": "127.0.0.1:8000",
@@ -1978,7 +1978,7 @@ class TestEncodingNegotiation:
         headers = dict(call.args for call in handler.send_header.call_args_list)
         body = handler.wfile.getvalue()
         assert headers["Content-Encoding"] == "zstd"
-        assert body == _INDEX_HTML_ZSTD
+        assert body == _index_html_zstd()
         assert zstandard.ZstdDecompressor().decompress(body) == _INDEX_HTML_BYTES
         assert len(body) < len(_INDEX_HTML_BYTES)
 
@@ -2691,10 +2691,10 @@ class TestHostValidation:
     @pytest.mark.parametrize(
         ("path", "accept", "encoding", "blob_attr", "raw_attr"),
         [
-            ("/", "gzip", "gzip", "_INDEX_HTML_GZIP", "_INDEX_HTML_BYTES"),
-            ("/", "zstd", "zstd", "_INDEX_HTML_ZSTD", "_INDEX_HTML_BYTES"),
-            ("/app.js", "gzip", "gzip", "_APP_JS_GZIP", "_APP_JS_BYTES"),
-            ("/app.js", "zstd", "zstd", "_APP_JS_ZSTD", "_APP_JS_BYTES"),
+            ("/", "gzip", "gzip", "_index_html_gzip", "_INDEX_HTML_BYTES"),
+            ("/", "zstd", "zstd", "_index_html_zstd", "_INDEX_HTML_BYTES"),
+            ("/app.js", "gzip", "gzip", "_app_js_gzip", "_APP_JS_BYTES"),
+            ("/app.js", "zstd", "zstd", "_app_js_zstd", "_APP_JS_BYTES"),
         ],
     )
     def test_handler_serves_precompressed_static(
@@ -2706,7 +2706,7 @@ class TestHostValidation:
         blob_attr: str,
         raw_attr: str,
     ) -> None:
-        """Static shell and /app.js are compressed once at import, not per request."""
+        """Static shell and /app.js are compressed once, on first use, not per request."""
         import gzip
 
         import zstandard
@@ -2714,14 +2714,14 @@ class TestHostValidation:
         import rebrew.dashboard as dash
         from rebrew.dashboard import _Handler, allowed_hosts_for
 
-        blob = getattr(dash, blob_attr)
+        blob = getattr(dash, blob_attr)()
         raw_bytes = getattr(dash, raw_attr)
-        assert blob is not None
+        assert blob
         assert len(blob) < len(raw_bytes)
-        if blob_attr.endswith("_ZSTD"):
-            gzip_attr = blob_attr.replace("_ZSTD", "_GZIP")
-            gzip_blob = getattr(dash, gzip_attr)
-            assert gzip_blob is not None
+        if blob_attr.endswith("_zstd"):
+            gzip_attr = blob_attr.replace("_zstd", "_gzip")
+            gzip_blob = getattr(dash, gzip_attr)()
+            assert gzip_blob
             assert len(blob) <= len(gzip_blob)
 
         handler = _Handler.__new__(_Handler)

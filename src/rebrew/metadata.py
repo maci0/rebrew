@@ -214,6 +214,9 @@ METADATA_FIELDS: frozenset[str] = frozenset(
     }
 )
 
+#: Case-folded field names, so a per-function writer does not rebuild the set.
+_LOWER_METADATA_FIELDS = frozenset(f.lower() for f in METADATA_FIELDS)
+
 __all__ = [
     "GA_CEILING_PREFIX",
     "KNOWN_STATUSES",
@@ -938,7 +941,7 @@ def remove_field(directory: Path | str | Any, va: int, key: str, module: str) ->
     key = key.lower()
     if key == "status":
         raise ValueError("Cannot delete STATUS directly")
-    if key not in {f.lower() for f in METADATA_FIELDS}:
+    if key not in _LOWER_METADATA_FIELDS:
         raise ValueError(
             f"unknown metadata field {key!r} (expected one of {sorted(METADATA_FIELDS)})"
         )

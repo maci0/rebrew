@@ -325,6 +325,7 @@ class CoeffectScope:
         self._ctx = ctx
         self._entries: list[_Entry] = []
         self._settling = False
+        self._bulk = False
         self._closed = False
         ctx._on_change.append(self._classify)
         # The scope is a fiber: disposing the context must close it.
@@ -335,7 +336,11 @@ class CoeffectScope:
         if self._closed:
             return
         self._entries.append(_Entry(component=component, needs=tuple(component.needs)))
-        self._classify()
+        # A bulk registration runs one classify pass instead of one per
+        # component: activation cascades are already resolved by the loop
+        # inside _classify, so per-add passes are quadratic for nothing.
+        if not self._bulk and not self._settling:
+            self._classify()
 
     def unresolved(self) -> list[Component]:
         """Registered components whose specification is still unsatisfied."""
@@ -439,8 +444,13 @@ def activate(components: Iterable[Component], ctx: Context) -> CoeffectScope:
     reactive, and closing it reverts every active component.
     """
     scope = CoeffectScope(ctx)
-    for component in components:
-        scope.add(component)
+    scope._bulk = True
+    try:
+        for component in components:
+            scope.add(component)
+    finally:
+        scope._bulk = False
+    scope._classify()
     return scope
 
 

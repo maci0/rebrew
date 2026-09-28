@@ -463,8 +463,10 @@ def _function_containing_va(
     """
     if not spans or va <= spans[0][0]:
         return None
-    starts = [s[0] for s in spans]
-    idx = bisect.bisect_right(starts, va) - 1
+    # bisect the span tuples themselves against (va, +inf, ""): the second and
+    # third elements only break ties at an exact start match, so the probe
+    # lands on the last span whose start is <= va, as a starts list did.
+    idx = bisect.bisect_right(spans, (va, float("inf"), "")) - 1
     # The latest start is not enough: a shorter span nested in a longer one
     # hides the outer tail. Walk back to the nearest span that still covers va.
     while idx >= 0:
