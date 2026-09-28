@@ -192,10 +192,15 @@ says nothing about where the import goes now.
   the only record of which `__version__` shipped, and the packaging tests read
   it (`test_every_git_tag_has_a_changelog_section`,
   `test_notes_added_after_the_tag_stay_unreleased`).  Nothing publishes
-  automatically, so the upload is a manual step from the release commit:
-  `make build` then `make sdist-check` then `make sbom` (that order, see
-  `pr-check`), then
+  automatically, so the upload is a manual step, and it uploads the bytes CI
+  verified rather than a fresh local build: download the release commit's
+  `rebrew-dist-<sha>` artifact from the green `package` run, unpack it into an
+  empty `dist/`, and run `make verify-dist` there (it re-derives the manifest
+  digests from the files beside it, so a truncated download fails before the
+  upload rather than after it), then
   `uv publish dist/rebrew-*.tar.gz dist/rebrew-*.whl` from that same `dist/`.
+  The artifact is the only build that ran the whole package job: reproducible
+  rebuild, sdist-to-wheel member diff, and clean-venv smoke install.
   Name both files: `uv publish` defaults to `dist/*`, which also matches
   `rebrew.buildinfo` and `rebrew.cdx.json`, and the index rejects a path that
   is not a distribution.  The credential is the environment, never the command
@@ -205,11 +210,16 @@ says nothing about where the import goes now.
   `--trusted-publishing always` with no token at all.  A version already on
   PyPI is immutable: if a release is wrong, cut the next patch rather than
   re-uploading.
-- **Verify the artifact, not just the tree.**  Before uploading, install the
-  built wheel into a throwaway environment and run `rebrew --version` plus
-  one real command against a project; `make sdist-check` proves the sdist
-  reproduces the wheel, but nothing here proves the uploaded file is the one
-  that was checked.
+- **Verify the artifact, not just the tree.**  Run `make smoke-wheel` against
+  the unpacked `rebrew-dist-<sha>` before uploading: it installs that exact
+  wheel into a throwaway `.venv-pkg` and smoke-imports it, so the file that
+  ships is the one that ran.  A wheel rebuilt locally says nothing about the
+  one on the index.
+- **A wrong release is yanked, not replaced.**  PyPI rejects a re-upload of an
+  existing version, so the recovery step is to yank it on the index: `pip
+  install rebrew` then stops resolving that version, while anyone who pinned it
+  keeps a resolvable file.  Yank once the fix is on PyPI, not before; a yank
+  with no successor published leaves installs broken either way.
 - **Preflight before tagging with `make release-check`** (which runs
   `tools/release_check.py`): verifies
   `__version__` is bumped past the last tag, the tree is clean, the

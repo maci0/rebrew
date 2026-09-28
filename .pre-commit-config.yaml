@@ -116,8 +116,12 @@ repos:
 
       - id: validate-skill-commands
         name: Validate SKILL.md command lines
+        # Pre-commit stage, not manual: a manual-stage hook runs from no
+        # command the project documents, so `make check` and the CI
+        # pre-commit job skipped it and a stale flag in a SKILL.md passed
+        # every gate. Files are not passed because the validator scans the
+        # whole agent-skills tree itself.
         entry: uv run --frozen python tools/validate_skill_commands.py
         language: system
         pass_filenames: false
         always_run: true
-        stages: [manual]

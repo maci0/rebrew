@@ -1322,6 +1322,13 @@ class TestCiPins:
             "dist/rebrew-*.tar.gz" in cmd and "dist/rebrew-*.whl" in cmd for cmd in commands
         ), f"the upload must name both distributions, not the dist/* default: {commands}"
         assert "UV_PUBLISH_TOKEN" in bullet
+        # The upload carries the bytes CI verified. Publishing from a fresh
+        # local `make build` ships a wheel no gate ran: not the reproducible
+        # rebuild, not the sdist member diff, not the clean-venv smoke import.
+        assert "rebrew-dist-" in bullet, "publish the package job's artifact, not a local rebuild"
+        assert "make verify-dist" in bullet, (
+            "the unpacked artifact's manifest must be re-checked before the upload"
+        )
         # A credential on the command line is readable through the process
         # table and lands in shell history; the docs must not show one.
         assert not re.search(r"(?<![\w-])(?:--token|--password|-p|-u)\s+\S", bullet), (
@@ -1489,6 +1496,39 @@ class TestCiPins:
         hook = text.split("- id: pytest\n", 1)[1].split("- id:", 1)[0]
         assert re.search(r"(?m)^\s*entry: make --no-print-directory test\s*$", hook)
         assert "stages: [pre-push]" in hook
+
+    def test_skill_command_validator_runs_in_the_check_gate(self) -> None:
+        """The SKILL.md flag validator must run where `make check` and CI run it.
+
+        AGENTS.md names `tools/validate_skill_commands.py` as a drift gate, but
+        the hook sat in the `manual` stage, which no documented command
+        invokes: `make check`, `make pr-check` and the CI pre-commit job all
+        skipped it, so a flag a skill documents and the CLI no longer accepts
+        passed every gate. Only pytest may be stage-gated away.
+        """
+        import yaml
+
+        text = (ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+        hook = text.split("- id: validate-skill-commands\n", 1)[1]
+        hook = hook.split("\n      - id:", 1)[0]
+        assert "stages: [manual]" not in hook
+        assert "pass_filenames: false" in hook
+        # The validator's argparse takes no positional arguments, so a hook
+        # that passed filenames would fail on every run.
+        assert re.search(
+            r"(?m)^\s*entry: uv run --frozen python tools/validate_skill_commands\.py\s*$", hook
+        )
+        config = yaml.safe_load(text)
+        validator = next(
+            h
+            for repo in config["repos"]
+            for h in repo["hooks"]
+            if h["id"] == "validate-skill-commands"
+        )
+        assert validator.get("stages", ["pre-commit"]) == ["pre-commit"]
+        # `make check` is `pre-commit run --all-files`, so a stage-gated hook
+        # is one no gate invokes.
+        assert "pre-commit run --all-files" in MAKEFILE.read_text(encoding="utf-8")
 
     def test_shellcheck_hook_is_installed_before_it_runs(self) -> None:
         """The hook exits 0 without shellcheck, so CI must install it or the gate is silent."""

@@ -16,7 +16,9 @@ it), both version-independent, so the 3.14 entry
 skips them — a pre-commit hook-parity job (`make check` with
 the two ruff hooks and the mypy hook skipped, since the lint job runs them; it installs
 shellcheck and yamllint first through `tools/ci_apt_install.sh`, so the shell
-and YAML hooks are enforced there), a package job
+and YAML hooks are enforced there; the SKILL.md command validator
+`tools/validate_skill_commands.py` runs there too, so a flag a skill
+documents but the CLI no longer accepts fails the job), a package job
 that builds the sdist/wheel via `make build` (SOURCE_DATE_EPOCH, umask 022, C/UTC,
 `PYTHONHASHSEED=0`; `tools/normalize_sdist.py` rewrites sdist tar metadata and
 wheel entry modes), checks both artifacts hash the same when
