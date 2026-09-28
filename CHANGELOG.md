@@ -282,6 +282,18 @@
   `rebrew.sources.scan_files` once and threads the result through the
   `scanned=` keyword of `iter_sources` / `iter_library_headers`, the way
   `status` and `catalog` already do.
+- **Breaking:** `rebrew doctor` returned the byte-mismatch code for a broken
+  project, and re-exported that code. Every failing doctor check is a missing
+  prerequisite, an unreadable `rebrew-project.toml`, or an unusable
+  toolchain, so the run exited 1 and a script could not tell it from a
+  function that did not match; `rebrew todo` in the same directory reported
+  the same missing config as 2. A failed check now exits 2, the code the
+  umbrella's exit table reserves for config and build errors, and
+  `rebrew doctor --help` states it. A clean report still exits 0.
+  `EXIT_MISMATCH` is no longer re-exported from `rebrew.doctor` (it was
+  reachable there only through the module's own import); import it from
+  `rebrew.cli`, where it has always been defined. A script testing doctor for
+  the byte-mismatch code has to test for 2.
 
 ### Fixed
 - **The coverage document's reader memo could not see a same-size rebuild.**
