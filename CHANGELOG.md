@@ -38,6 +38,14 @@
   `docs/COVERAGE_DOCUMENT.md` and `docs/THREAT_MODEL.md` document the field.
 
 ### Changed
+- **Breaking:** the `delphi-1.0` entry of `BUILTIN_TOOLCHAINS` (re-exported
+  by `rebrew.toolchain` and defined in `rebrew.toolchain_data`) — its
+  `host_path` is now `None` on a checkout where
+  `rebrew toolchain vendor delphi-1.0` has not run, where it used to carry
+  the vendored path whether or not anything was there. A caller asking
+  whether the host compiler is present now reads `None` instead of a path it
+  has to stat itself, the same shape `msvc-6.0` already had. The other five
+  vendored profiles are unchanged.
 - **The released SBOM scopes every component as required or optional.**
   `uv.lock` resolves the dev group, both install extras, and the
   non-shipping `similarity` / `m2c` groups into the same file the runtime
@@ -749,11 +757,7 @@
   `rebrew toolchain vendor <name>` could not assemble any of the six on a
   fresh checkout — it now downloads, verifies and, for `delphi-1.0`, renames
   the tarball's `delphi-lib/` to `DELPHI/LIB`, the path `find_dcc` and
-  `DCC.CFG` read.  One `BUILTIN_TOOLCHAINS` spec changed with it:
-  `delphi-1.0`'s `host_path` was a path that did not exist until
-  `rebrew toolchain vendor` had run, and it is now `None` on a checkout that
-  has not vendored it, so a caller asking whether the host compiler is
-  present reads `None` rather than a path it has to stat itself.
+  `DCC.CFG` read.
 - **Every gated metadata write now names itself, in both stores.** A
   `BLOCKER` / `NOTE` / `CFLAGS` edit went through `update_field` with no
   provenance, so a row's `UPDATED_BY` named the last *status* writer and a
