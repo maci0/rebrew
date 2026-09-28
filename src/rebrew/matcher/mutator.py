@@ -410,6 +410,7 @@ __all__ = [
     "mutate_chain",
     "mutate_code",
     "quick_validate",
+    "refresh_mutations",
     "set_target_range",
     "split_preamble_body",
 ]

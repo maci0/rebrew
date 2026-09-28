@@ -12,6 +12,7 @@ Library consumers typically import submodules directly, for example:
 * ``rebrew.sources`` — ``iter_sources``, ``iter_library_headers``
 * ``rebrew.toolchain`` — ``ToolchainError``, ``get_toolchain``, ``require_toolchains_repo``
 * ``rebrew.recompile_client`` — remote compile transport
+* ``rebrew.decompme`` — decomp.me scratch upload, same injectable-client shape
 * ``rebrew.registry`` / ``rebrew.plugin`` — entry-point extension hooks
 * ``rebrew.workspace`` — stdlib-light project/root and coverage.db helpers
 * ``rebrew.matcher`` — GA mutations and scoring

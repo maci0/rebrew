@@ -192,4 +192,5 @@ __all__ = [
     "Delphi16Error",
     "Delphi16Result",
     "compile_ne",
+    "find_dcc",
 ]

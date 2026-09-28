@@ -115,6 +115,8 @@ __all__ = [
     "load_data_metadata",
     "iter_data_symbols",
     "get_data_entry",
+    "delete_data_entries_batch",
+    "module_visible_to_target",
     "set_data_field",
     "set_data_fields_batch",
     "merge_into_data_annotation",

@@ -20,7 +20,7 @@ app = typer.Typer(
     rich_markup_mode="rich",
 )
 
-__all__ = ["app"]
+__all__ = ["app", "main", "main_entry"]
 
 
 @app.callback(invoke_without_command=True)

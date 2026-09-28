@@ -79,20 +79,29 @@ class TestRegistry:
             "ToolchainError",
             "ToolchainErrorKind",
             "ToolchainSpec",
+            "build_toolchain_registry",
             "cached_image_digest",
             "docker_available",
             "get_toolchain",
+            "image_msvc_env",
+            "image_present",
             "invalidate_toolchain_digest",
+            "kill_container",
             "list_toolchains",
+            "profile_family",
             "pull_toolchain",
             # Public per registry.refresh_all's docstring — a long-lived
             # process re-discovers plugin toolchains through it.
             "refresh_toolchain_registry",
+            "registry_snapshot",
             "require_toolchains_repo",
             "resolve_msvc_toolchain",
             "run_toolchain",
+            "runtime_on_path",
             "swap_toolchain_image",
+            "toolchain_from_toml",
             "toolchain_link_candidates",
+            "vendored_binary",
         ]
         for name in tc.__all__:
             assert getattr(tc, name, None) is not None, name

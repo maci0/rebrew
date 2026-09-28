@@ -799,6 +799,8 @@ __all__ = [
     "HttpResponse",
     "map_compiler",
     "map_platform",
+    "main",
+    "main_entry",
     "read_uploads",
     "record_upload",
     "recorded_upload",

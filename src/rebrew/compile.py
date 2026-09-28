@@ -2849,12 +2849,14 @@ def compile_and_compare_linked(
 
 __all__ = [
     "CompareResult",
+    "CompareResultError",
     "CompareStatus",
     "NEAR_MATCH_THRESHOLD",
     "build_linked_link_cmd",
     "classify_compare_result",
     "classify_match_status",
     "cleanup_batch_obj_dirs",
+    "clears_blocker",
     "compile_and_compare",
     "compile_and_compare_linked",
     "compile_batch_objs",

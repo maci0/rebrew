@@ -918,4 +918,6 @@ __all__ = [
     "run_for_each_target",
     "run_standalone",
     "select_annotation",
+    "untrusted_literal",
+    "untrusted_text",
 ]

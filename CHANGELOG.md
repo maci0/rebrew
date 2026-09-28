@@ -1,6 +1,20 @@
 ## [Unreleased]
 
 ### Added
+- **The public names a module already exported are now in its `__all__`.**
+  `rebrew.annotation.iter_annotations`, `rebrew.annotation.block_markers`,
+  `rebrew.metadata.apply_metadata_entry`,
+  `rebrew.metadata.nearest_library_metadata_path`, `rebrew.config`'s
+  `arch_is_big_endian` / `check_env_dir` / `parse_env_log_level`,
+  `rebrew.compile.clears_blocker`, `rebrew.cli`'s `untrusted_text` /
+  `untrusted_literal`, the `rebrew.toolchain` image and container helpers, and
+  the two command modules' `main` / `main_entry` were public (no underscore,
+  imported across the tree) but absent from their module's `__all__`, so
+  `from rebrew.annotation import *` dropped `iter_annotations` and the
+  `AGENTS.md` rule (a public name another module imports belongs in the
+  owning module's `__all__`) was broken in a dozen places. Additive: every
+  one was already importable by name. `tests/test_sdk_surface.py` now gates
+  the rule across every module that declares an `__all__`.
 - **`retries` on the decomp.me upload client.** `upload_scratch` had no retry
   knob, so a Cloudflare 503 or a dropped connection on a scratch upload
   failed outright while the recompile client re-attempted the same class of

@@ -5,11 +5,13 @@ from __future__ import annotations
 import ast
 import importlib
 import importlib.util
+import inspect
 import json
+import pkgutil
 import re
 import sys
 from pathlib import Path
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 
 import pytest
 
@@ -1024,3 +1026,57 @@ class TestDocumentedTransportInjection:
             def get(self, url: str, **kwargs: object) -> object: ...
 
         assert not isinstance(_RecompileFake(), McpHttpClient)
+
+
+class TestAllListsDeclareTheirModuleSurface:
+    """A module that declares ``__all__`` declares the whole public surface.
+
+    ``AGENTS.md`` makes a public name that another module imports a member of
+    the owning module's ``__all__``.  An unlisted one is a star-import hole,
+    so it is gated rather than left to review.
+    """
+
+    @staticmethod
+    def _modules() -> list[ModuleType]:
+        found: list[ModuleType] = []
+        for info in pkgutil.walk_packages(rebrew.__path__, "rebrew."):
+            try:
+                module = importlib.import_module(info.name)
+            except ImportError:
+                # A module behind an uninstalled extra ([prove] / [binsync])
+                # declares its surface without needing to be importable.
+                continue
+            if isinstance(module, ModuleType) and hasattr(module, "__all__"):
+                found.append(module)
+        return found
+
+    def test_every_public_name_is_listed(self) -> None:
+        unlisted: list[str] = []
+        modules = self._modules()
+        for module in modules:
+            listed = set(module.__all__)
+            for name, value in vars(module).items():
+                if name.startswith("_") or name in listed or inspect.ismodule(value):
+                    continue
+                # An imported re-export is not this module's own surface:
+                # ``rebrew.errors`` owns it, and the names it does own are
+                # listed there.
+                if getattr(value, "__module__", None) != module.__name__:
+                    continue
+                unlisted.append(f"{module.__name__}.{name}")
+        assert unlisted == [], "public names missing from __all__: " + ", ".join(unlisted)
+
+    def test_the_gate_covers_the_public_modules(self) -> None:
+        """A walk that stopped importing packages would gate almost nothing."""
+        names = {module.__name__ for module in self._modules()}
+        for expected in (
+            "rebrew.annotation",
+            "rebrew.cli",
+            "rebrew.compile",
+            "rebrew.config",
+            "rebrew.errors",
+            "rebrew.metadata",
+            "rebrew.toolchain",
+        ):
+            assert expected in names, f"{expected} is not covered by the __all__ gate"
+        assert len(names) >= 15, f"only {len(names)} modules declare __all__; the walk drifted"
