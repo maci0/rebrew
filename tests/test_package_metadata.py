@@ -39,6 +39,7 @@ _IMPORT_NAME_TO_DISTRIBUTION = {
     "flirt": "python-flirt",
     "tree_sitter": "tree-sitter",
     "tree_sitter_c": "tree-sitter-c",
+    "yaml": "pyyaml",
 }
 
 # The same pairs read the other way, for the reverse check: which module name
@@ -53,7 +54,6 @@ _OPTIONAL_IMPORTS = {
     "angr": "prove extra; prove.py / doctor.py raise a clear error without it",
     "claripy": "prove extra; direct import in prove.py / doctor.py",
     "declib": "binsync extra; only rebrew.binsync.serial touches it",
-    "git": "prove extra, angr's own dependency",
     "m2c": "m2c dependency group (commit-pinned), never in wheel METADATA; "
     "decompiler.py find_spec-probes it and drops the backend when absent",
     "ppdeep": "no requirement ships it: a user-installed PyPI distribution for "
@@ -69,7 +69,10 @@ _OPTIONAL_IMPORTS = {
 # Helpers that take a module name and import it, so the module name never
 # appears in an `import` statement the scan above can read.  Each literal
 # passed to one of these is a dependency edge the manifest must account for.
-# A new optional-import helper joins this set when it lands.
+# Matched on the last component of the callee's dotted path, so an attribute
+# call (``importlib.util.find_spec("m2c")``) is read as well as a bare name:
+# decompiler.py reaches m2c only that way.  A new optional-import helper
+# joins this set when it lands.
 _DYNAMIC_IMPORT_HELPERS = frozenset(
     {"__import__", "_optional_backend", "find_spec", "import_module"}
 )
@@ -114,10 +117,10 @@ def _declared_distributions() -> set[str]:
     return names
 
 
-def _top_level_imports() -> set[str]:
-    """Top-level modules imported by anything under ``src/rebrew``."""
+def _top_level_imports(root: Path = SRC) -> set[str]:
+    """Top-level modules imported by anything under ``root``."""
     found: set[str] = set()
-    for path in SRC.rglob("*.py"):
+    for path in root.rglob("*.py"):
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
@@ -127,20 +130,32 @@ def _top_level_imports() -> set[str]:
     return found
 
 
-def _dynamic_imports() -> set[str]:
+def _callee_name(func: ast.expr) -> str:
+    """The dotted path a call target spells out, or "" when it is computed."""
+    parts: list[str] = []
+    node: ast.expr = func
+    while isinstance(node, ast.Attribute):
+        parts.append(node.attr)
+        node = node.value
+    if not isinstance(node, ast.Name):
+        return ""
+    return ".".join([node.id, *reversed(parts)])
+
+
+def _dynamic_imports(root: Path = SRC) -> set[str]:
     """Top-level modules named by a literal handed to an import helper.
 
-    `importlib.import_module("m2c")` resolves a third-party package with no
+    `importlib.util.find_spec("m2c")` resolves a third-party package with no
     `import` statement for the scan in ``_top_level_imports`` to read, so an
     undeclared distribution would reach a user only as a runtime ImportError.
     """
     found: set[str] = set()
-    for path in SRC.rglob("*.py"):
+    for path in root.rglob("*.py"):
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in ast.walk(tree):
-            if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+            if not isinstance(node, ast.Call):
                 continue
-            if node.func.id not in _DYNAMIC_IMPORT_HELPERS:
+            if _callee_name(node.func).rsplit(".", 1)[-1] not in _DYNAMIC_IMPORT_HELPERS:
                 continue
             for arg in node.args:
                 if not isinstance(arg, ast.Constant) or not isinstance(arg.value, str):
@@ -304,6 +319,104 @@ class TestDeclaredDependencies:
             spec for spec in specs if " @ git+" in spec and not re.search(r"@[0-9a-f]{40}$", spec)
         ]
         assert not floating, f"git requirements not pinned to a commit: {floating}"
+
+
+# Distribution names a dependency group carries without a Python import
+# anywhere in the tree, each for a reason other than "it was already there".
+# A new entry needs that reason; deleting a group line makes the test below
+# name it, so the table cannot rot into a silent allowance.
+_GROUP_TOOL_ONLY = {
+    "mypy": "type gate over the configured file list; no module imports it",
+    "pre-commit": "the hook runner (`make check`, .pre-commit-config.yaml); no module imports it",
+    "ruff": "lint gate over the tree; no module imports it",
+    "skills-ref": "the pre-commit 'Validate Agent Skills' hook binary; no module imports it",
+    "slipcover": "coverage gate over `make test`; no module imports it",
+}
+
+_DEV_TREES = ("tests", "tools")
+
+
+class TestDevTreeDependencies:
+    """The manifest's dev half has the same contract as the shipped half.
+
+    A third-party import under ``tests/`` or ``tools/`` with no dev-group entry
+    reaches a contributor who runs ``uv sync --frozen`` and fails there, on a
+    machine that never sees the optional extras; a group line nothing imports
+    installs on every contributor and widens the same surface for nothing.  The
+    runtime list has gates for both directions above; these are their dev-tree
+    counterparts.
+    """
+
+    @staticmethod
+    def _dev_trees() -> list[Path]:
+        return [ROOT / name for name in _DEV_TREES]
+
+    @staticmethod
+    def _local_module_names() -> set[str]:
+        """Top-level modules this repo ships, so a sibling import is not third-party.
+
+        Read off the filesystem rather than kept by hand: a test module that
+        imports another test module is the common case, and a list of those
+        names would need editing on every new helper.
+        """
+        names = set(_LOCAL_IMPORTS)
+        for tree in (SRC, *(ROOT / name for name in _DEV_TREES)):
+            for path in tree.rglob("*.py"):
+                names.add(path.stem)
+        names.add("tools")
+        return names
+
+    @staticmethod
+    def _declared_everywhere() -> set[str]:
+        groups = _pyproject().get("dependency-groups", {})
+        assert isinstance(groups, dict)
+        return _declared_distributions() | {
+            _requirement_name(spec) for group in groups.values() for spec in group
+        }
+
+    def test_every_dev_tree_import_is_declared(self) -> None:
+        stdlib = set(sys.stdlib_module_names)
+        declared = self._declared_everywhere()
+        local = self._local_module_names()
+        undeclared: set[str] = set()
+        for tree in self._dev_trees():
+            for name in _top_level_imports(tree) | _dynamic_imports(tree):
+                if name in stdlib or name in local:
+                    continue
+                if name in declared or _IMPORT_NAME_TO_DISTRIBUTION.get(name, name) in declared:
+                    continue
+                undeclared.add(name)
+        assert not undeclared, (
+            "imported by a test or tool with no requirement line (add it to the "
+            "matching [dependency-groups] entry): "
+            f"{sorted(undeclared)}"
+        )
+
+    def test_every_group_requirement_is_reachable(self) -> None:
+        groups = _pyproject().get("dependency-groups", {})
+        assert isinstance(groups, dict)
+        imported = set()
+        for tree in [SRC, *self._dev_trees()]:
+            for name in _top_level_imports(tree) | _dynamic_imports(tree):
+                imported.add(_IMPORT_NAME_TO_DISTRIBUTION.get(name, name))
+        unused = sorted(
+            _requirement_name(spec)
+            for group in groups.values()
+            for spec in group
+            if _requirement_name(spec) not in imported
+            and _requirement_name(spec) not in _GROUP_TOOL_ONLY
+        )
+        assert not unused, (
+            f"declared in a dependency group but imported by nothing: {unused} "
+            "(drop the line, or record why in _GROUP_TOOL_ONLY)"
+        )
+
+    def test_tool_only_allowances_still_exist(self) -> None:
+        """An allowance for a dropped group line would silence the test above
+        for a dependency the project no longer carries."""
+        declared = self._declared_everywhere()
+        stale = sorted(set(_GROUP_TOOL_ONLY) - declared)
+        assert not stale, f"_GROUP_TOOL_ONLY names absent requirements: {stale}"
 
 
 class TestPackagedDataFiles:

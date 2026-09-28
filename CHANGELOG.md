@@ -24,6 +24,84 @@
   before the first 503. `docs/dashboard-api.yaml`, `docs/CLI.md`,
   `docs/COVERAGE_DOCUMENT.md` and `docs/THREAT_MODEL.md` document the field.
 
+### Changed
+- **The tracked YAML is linted, not just parsed.** `check-yaml` proved a
+  workflow loads and nothing else: a tab indent, a duplicate key, or a
+  malformed `run:` block reached the runner first. `.yamllint.yml` sets the
+  rules to the conventions the tree already follows (120 columns, one space
+  inside flow braces, no document start) and a `yamllint` pre-commit hook
+  runs them. The hook skips itself when the binary is absent, so the
+  pre-commit job installs it beside shellcheck through
+  `tools/ci_apt_install.sh`; `make doctor` reports a host that would
+  otherwise see a green `make check` and a red push.
+  `tests/fixtures/splat_config/win32_app.yaml` keeps its Python-style `True`
+  because it reproduces `splat create_config` output, so `truthy` stays a
+  warning and every error-level rule still blocks.
+- **Six more test modules sit under `--strict`.** `tests/test_cmake_flags.py`,
+  `tests/test_cmake_sources.py`, `tests/test_corpus_sweep.py`,
+  `tests/test_flirt.py`, `tests/test_orphans.py` and
+  `tests/test_skills_extended.py` join the `[tool.mypy] files` list, taking
+  the checked tree from 323 to 329 files.
+
+- **`rebrew cfg effective` reports a config it could not load.** The knobs
+  validated during the load (`REBREW_LLM_MAX_REQUESTS`, `REBREW_LLM_TIMEOUT`,
+  `REBREW_LLM_ENDPOINT`, `REBREW_RECOMPILE_URL`) aborted the command before it
+  printed anything, so the one command meant to diagnose a misconfiguration
+  could not show it. It now returns the `env_overrides` / `env_errors` it
+  gathered with `config` as `null` and still exits 2; `--json` emits a single
+  document. `cache_size_limit_mib` is now in the resolved dump, so a
+  silently-defaulted cache cap is visible.
+
+- **Breaking:** `rebrew.flirt.check_env_dir` is gone. It was a re-export of
+  `rebrew.config.check_env_dir` through an import that no longer exists;
+  import `check_env_dir` from `rebrew.config`, which is where it is defined.
+- **Breaking:** `rebrew.metadata.load_tomllib` is gone. The metadata store now
+  reads through the shared TOML reader it defines itself, so the name no longer
+  re-exported from `rebrew.utils`; import `load_tomllib` from `rebrew.utils`.
+- **Breaking:** the neutral chrome tokens changed value, so any consumer
+  hardcoding a hex it read out of the `TOKENS` table (`rebrew.theme`, re-exported
+  by `rebrew.depgraph` and `rebrew.status_style`) needs the new palette. The
+  names, roles and count are unchanged.
+- **Lint gates ratchet.** Ruff selects ``S608`` (a SQL string built by
+  interpolation; zero findings on the current tree) so a query assembled from
+  runtime input cannot land, mypy covers ``tests/test_build_db_helpers.py``
+  (323 files checked, up from 322), and a new ``.shellcheckrc`` sets
+  ``enable=all`` so the pre-commit shellcheck hook and CI run the optional
+  checks (``quote-safe-vars``, ``require-variable-braces``, ``SC2249``, …) the
+  default severity leaves off.  Both shell scripts already passed every one of
+  them except a ``case`` in ``tools/ci_clone_resembl.sh`` with no ``*)``
+  branch, which now has one.
+- **The report and the dashboard are painted in the mascot's palette.** The
+  chrome tokens were pure neutrals, so a page next to `docs/mascot.png` (a
+  brass machine under a leather harness) read as two different products. The
+  neutrals are now warm; the link/focus blue stays, because the six status
+  marks own green, teal, amber and red and an accent in those hues would read
+  as a verdict. `tests/test_theme.py` holds every text pair to 4.5:1 and every
+  border and focus pair to 3:1 on both surfaces, so the temperature costs no
+  contrast.
+- **Both HTML surfaces carry the rebrew mark.** The tab icon was `data:,`, a
+  blank held in place only to stop the `/favicon.ico` 404; it is now the
+  mascot's `0x` on the `ink` token, inlined as a data URI because both
+  surfaces forbid every off-site load. It costs 224 B of the dashboard's
+  compressed cold-path budget, which the congestion-window test still fits.
+- **A long symbol no longer stretches a dashboard table across the monitor.**
+  Table cells carried no wrap rule, so one unbreakable name set the row's
+  width at `width: 100%` and pushed `Status` a screen away from its VA. Cells
+  now take the same `overflow-wrap: anywhere` the report already used on its
+  long-text columns.
+- **The coverage writer shares the one atomic write.** ``coverage_toml`` carried
+  a private ``_atomic_write`` beside ``rebrew.utils.atomic_write_text``,
+  differing only in the temp file's name: the local one used a fixed ``.tmp``
+  sibling that two concurrent writers of the same ``coverage-<target>.toml``
+  would collide on, and skipped the fsync. The writer calls
+  ``atomic_write_text`` now, and the atomicity tests pin it there.
+- **Two error types join the `RebrewError` umbrella.** `LibIndexUnavailable`
+  (an unreadable stock LIBCMT archive) and `SecurityScanUnavailable` (no
+  tree-sitter C parser) inherited bare `Exception`, so the documented
+  `except RebrewError` handler a consumer writes missed both; the
+  `rebrew.errors` surface gate flagged it. Both now subclass
+  `RebrewError, RuntimeError` and are importable from `rebrew.errors`.
+
 ### Fixed
 - **`rebrew intake --dry-run --json` no longer reports `documented: 0`.** The
   preview runs the discoverers and reports the real function count, then
@@ -117,7 +195,23 @@
   `except RebrewError` handler a consumer writes missed both; the
   `rebrew.errors` surface gate flagged it. Both now subclass
   `RebrewError, RuntimeError` and are importable from `rebrew.errors`.
-
+- **The declared-dependency scan reads an attribute call.** It matched
+  dynamic imports by bare callee name, so `importlib.util.find_spec("m2c")`
+  in `decompiler.py` never entered the set and a distribution reached only
+  that way was invisible to `test_every_third_party_import_is_declared`. The
+  callee's dotted path is resolved and its last component matched, so the
+  probe reads like the statement it replaces. `git` also left
+  `_OPTIONAL_IMPORTS`, where it excused a module no file imports, while the
+  `gitpython` floor in the `prove` extra already covers the edge it claimed.
+- **The dependency groups get the same gates the shipped requirements
+  already had.** A third-party import under `tests/` or `tools/` with no
+  `[dependency-groups]` line failed on a machine that never installs the
+  optional extras, and a group line nothing imports installed on every
+  contributor for nothing; neither had a test, so `pyyaml` reached the tree
+  as a transitive of `pre-commit` until it broke. `TestDevTreeDependencies`
+  checks both directions, names the five requirements that are tool-only by
+  invocation rather than import, and fails when one of those five is no
+  longer declared.
 - **Two mypy findings in a module the strict list already claimed.**
   `tests/test_security_scan.py` passed `monkeypatch` unannotated in two
   tests, so `uv run mypy` failed on a file the gate asserted was clean.
