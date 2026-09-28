@@ -353,3 +353,46 @@ def index_local_and_catalog(
         )
 
     return local_by_va, catalog_sizes
+
+
+# ---------------------------------------------------------------------------
+# Result-dict readers
+# ---------------------------------------------------------------------------
+
+
+def result_count(result: dict[str, object], key: str, default: int = 0) -> int:
+    """Read a counter out of an export/import result, narrowing the ``object`` value.
+
+    A result that reaches a CLI printer may have been through a JSON round-trip,
+    so the value is checked rather than asserted.
+    """
+    value = result.get(key, default)
+    if value is None:
+        return default
+    if not isinstance(value, int):
+        raise TypeError(f"result field {key!r} is not an int: {value!r}")
+    return value
+
+
+def result_rows(result: dict[str, object], key: str) -> list[dict[str, Any]]:
+    """Read a list-of-mappings field out of an export/import result."""
+    value = _result_list(result, key)
+    rows: list[dict[str, Any]] = []
+    for row in value:
+        if not isinstance(row, dict):
+            raise TypeError(f"result field {key!r} holds a non-mapping row: {row!r}")
+        rows.append(row)
+    return rows
+
+
+def result_paths(result: dict[str, object], key: str) -> list[str]:
+    """Read a list-of-path-strings field out of an export/import result."""
+    return [str(item) for item in _result_list(result, key)]
+
+
+def _result_list(result: dict[str, object], key: str) -> list[Any]:
+    """Read the list behind *key*, treating an absent or null field as empty."""
+    value = result.get(key) or []
+    if not isinstance(value, list):
+        raise TypeError(f"result field {key!r} is not a list: {value!r}")
+    return value

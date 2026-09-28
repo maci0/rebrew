@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 
 class TestAnalysisMarkerSanitizing:
     def test_comment_newline_cannot_add_source_lines(self, tmp_path: Path) -> None:
@@ -59,3 +61,32 @@ class TestDefinitionValidation:
         assert (
             _definition_is_valid("typedef struct S { int x; } S;", "S", {"kind": "struct"}) is True
         )
+
+
+class TestResultFieldReaders:
+    """The CLI printers narrow the loosely-typed result dict instead of asserting it."""
+
+    def test_count_defaults_and_narrows(self) -> None:
+        from rebrew.binsync.state import result_count
+
+        assert result_count({}, "applied_structs") == 0
+        assert result_count({"applied_structs": None}, "applied_structs") == 0
+        assert result_count({"applied_structs": 3}, "applied_structs") == 3
+        with pytest.raises(TypeError):
+            result_count({"applied_structs": "3"}, "applied_structs")
+
+    def test_rows_rejects_non_mapping_entry(self) -> None:
+        from rebrew.binsync.state import result_rows
+
+        assert result_rows({}, "proposed") == []
+        assert result_rows({"proposed": [{"va": "0x1000"}]}, "proposed") == [{"va": "0x1000"}]
+        with pytest.raises(TypeError):
+            result_rows({"proposed": ["0x1000"]}, "proposed")
+
+    def test_paths_rejects_non_list(self) -> None:
+        from rebrew.binsync.state import result_paths
+
+        assert result_paths({}, "warnings") == []
+        assert result_paths({"warnings": ["a.c"]}, "warnings") == ["a.c"]
+        with pytest.raises(TypeError):
+            result_paths({"warnings": "a.c"}, "warnings")

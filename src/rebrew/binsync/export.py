@@ -36,6 +36,7 @@ import typer
 from rebrew.annotation import span_contains_factory
 from rebrew.binsync import serial
 from rebrew.binsync.git import run_git
+from rebrew.binsync.state import result_count, result_paths
 from rebrew.c_parser import type_from_declaration
 from rebrew.catalog import scan_reversed_dir
 from rebrew.cli import TargetOption, console, error_exit, json_print, require_config, run_standalone
@@ -1221,17 +1222,16 @@ def print_export_result(result: dict[str, object], *, json_output: bool, dry_run
     """Render an :func:`export_state` result (the CLI summary path)."""
     if bool(result.get("empty")):
         error_exit("No annotations found.", json_mode=json_output)
-    from typing import cast
 
     outdir = str(result["outdir"])
-    written_funcs = int(cast(int, result["functions"]))
-    globals_list = int(cast(int, result["globals"]))
-    written_structs = int(cast(int, result["structs"]))
-    written_enums = int(cast(int, result.get("enums") or 0))
-    written_typedefs = int(cast(int, result.get("typedefs") or 0))
-    written_comments = int(cast(int, result.get("comments") or 0))
-    warnings_list = list(cast(list[Any], result.get("warnings") or []))
-    cleaned = list(cast(list[Any], result.get("cleaned") or []))
+    written_funcs = result_count(result, "functions")
+    globals_list = result_count(result, "globals")
+    written_structs = result_count(result, "structs")
+    written_enums = result_count(result, "enums")
+    written_typedefs = result_count(result, "typedefs")
+    written_comments = result_count(result, "comments")
+    warnings_list = result_paths(result, "warnings")
+    cleaned = result_paths(result, "cleaned")
     commit_hash = result.get("commit")
     module = result.get("module")
     if json_output:
@@ -1244,9 +1244,9 @@ def print_export_result(result: dict[str, object], *, json_output: bool, dry_run
             "enums": written_enums,
             "typedefs": written_typedefs,
             "comments": written_comments,
-            "function_files": list(cast(list[Any], result.get("function_files") or [])),
+            "function_files": result_paths(result, "function_files"),
             "global_vars_file": result.get("global_vars_file"),
-            "struct_files": list(cast(list[Any], result.get("struct_files") or [])),
+            "struct_files": result_paths(result, "struct_files"),
             "enums_file": result.get("enums_file"),
             "typedefs_file": result.get("typedefs_file"),
             "comments_file": result.get("comments_file"),

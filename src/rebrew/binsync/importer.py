@@ -36,6 +36,9 @@ from rebrew.binsync.state import (
     load_binsync_state,
     load_binsync_structs,
     load_binsync_typedefs,
+    result_count,
+    result_paths,
+    result_rows,
 )
 from rebrew.cli import (
     EXIT_MISMATCH,
@@ -1185,27 +1188,33 @@ def import_type_definitions(
 
 def print_import_result(result: dict[str, object], *, json_output: bool, dry_run: bool) -> None:
     """Render an :func:`import_state` result (the CLI summary/exit path)."""
-    from typing import cast
-
     state_dir = str(result["state_dir"])
-    applied_names = int(cast(int, result["applied_names"]))
-    applied_protos = int(cast(int, result["applied_prototypes"]))
-    applied_globals = int(cast(int, result["applied_globals"]))
-    applied_structs = int(cast(int, result.get("applied_structs", 0)))
-    applied_enums = int(cast(int, result.get("applied_enums", 0)))
-    applied_typedefs = int(cast(int, result.get("applied_typedefs", 0)))
-    applied_locals = int(cast(int, result.get("applied_locals", 0)))
-    applied_comments = int(cast(int, result.get("applied_comments", 0)))
-    applied_notes = int(cast(int, result.get("applied_notes", 0)))
-    conflicts = int(cast(int, result["conflicts"]))
-    proposed = list(cast(list[Any], result.get("proposed") or []))
-    conflict_details = list(cast(list[Any], result.get("conflict_details") or []))
-    marker_writes_failed = [
-        str(p) for p in cast(list[Any], result.get("marker_writes_failed") or [])
-    ]
+    applied_names = result_count(result, "applied_names")
+    applied_protos = result_count(result, "applied_prototypes")
+    applied_globals = result_count(result, "applied_globals")
+    applied_structs = result_count(result, "applied_structs")
+    applied_enums = result_count(result, "applied_enums")
+    applied_typedefs = result_count(result, "applied_typedefs")
+    applied_locals = result_count(result, "applied_locals")
+    applied_comments = result_count(result, "applied_comments")
+    applied_notes = result_count(result, "applied_notes")
+    conflicts = result_count(result, "conflicts")
+    proposed = result_rows(result, "proposed")
+    conflict_details = result_rows(result, "conflict_details")
+    marker_writes_failed = result_paths(result, "marker_writes_failed")
     module = result.get("module")
     accept_binsync = bool(result.get("accept_binsync"))
     accept_local = bool(result.get("accept_local"))
+    applied_counts = (
+        applied_names,
+        applied_protos,
+        applied_globals,
+        applied_structs,
+        applied_enums,
+        applied_typedefs,
+        applied_locals,
+        applied_comments,
+    )
     if json_output:
         payload: dict[str, object] = {
             "state_dir": state_dir,
@@ -1220,7 +1229,7 @@ def print_import_result(result: dict[str, object], *, json_output: bool, dry_run
             "applied_comments": applied_comments,
             "applied_notes": applied_notes,
             "conflicts": conflicts,
-            "skipped": int(cast(int, result.get("skipped", 0))),
+            "skipped": result_count(result, "skipped"),
         }
         if marker_writes_failed:
             payload["marker_writes_failed"] = marker_writes_failed
@@ -1255,16 +1264,7 @@ def print_import_result(result: dict[str, object], *, json_output: bool, dry_run
         return
 
     # Non-dry-run, non-json summary
-    if (
-        applied_names
-        or applied_protos
-        or applied_globals
-        or applied_structs
-        or applied_enums
-        or applied_typedefs
-        or applied_locals
-        or applied_comments
-    ):
+    if any(applied_counts):
         console.print(
             f"[green]Imported[/green] {applied_names} name(s), {applied_protos} prototype(s), "
             f"{applied_globals} global(s), {applied_structs} struct(s), "
@@ -1289,17 +1289,7 @@ def print_import_result(result: dict[str, object], *, json_output: bool, dry_run
                 "[cyan]--accept-binsync[/cyan] or [cyan]--accept-local[/cyan] to resolve"
             )
             raise typer.Exit(code=EXIT_MISMATCH)
-    if (
-        not applied_names
-        and not applied_protos
-        and not applied_globals
-        and not applied_structs
-        and not applied_enums
-        and not applied_typedefs
-        and not applied_locals
-        and not applied_comments
-        and not conflicts
-    ):
+    if not any(applied_counts) and not conflicts:
         console.print("[green]Already in sync — nothing to import.[/green]")
 
 

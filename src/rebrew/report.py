@@ -1195,6 +1195,16 @@ def _ne_ranges(info: Any) -> list[tuple[int, int, str]]:
     return [(f.va, f.va + f.size, f"va:0x{f.va:08x}") for f in enumerate_ne_functions(info)]
 
 
+def _callees_by_source(edges: list[tuple[str, str]]) -> dict[str, list[str]]:
+    """Map each source node to its sorted callee names."""
+    by_source: dict[str, list[str]] = {}
+    for source, callee in edges:
+        by_source.setdefault(source, []).append(callee)
+    for names in by_source.values():
+        names.sort()
+    return by_source
+
+
 def _adjacency_list(
     nodes: dict[str, NodeInfo],
     edges: list[tuple[str, str]],
@@ -1202,26 +1212,18 @@ def _adjacency_list(
 ) -> str:
     """Plain-text adjacency list over *nodes*: ``name [status] va -> callees``."""
     lines = [f"{len(nodes)} nodes, {len(edges)} direct edges, {len(dispatch_edges)} dispatch edges"]
+    # The display label is the symbol, not the internal node key
+    # (`va:0x…`/`sym:…`); render_mermaid/render_dot already do this.
     labels = {name: (info.get("symbol", "") or name) for name, info in nodes.items()}
     # Build callee sets once instead of scanning the full edge list per node.
-    callees_by_src: dict[str, list[str]] = {}
-    for a, b in edges:
-        callees_by_src.setdefault(a, []).append(b)
-    for v in callees_by_src.values():
-        v.sort()
-    dispatch_by_src: dict[str, list[str]] = {}
-    for a, b in dispatch_edges:
-        dispatch_by_src.setdefault(a, []).append(b)
-    for v in dispatch_by_src.values():
-        v.sort()
+    callees_by_src = _callees_by_source(edges)
+    dispatch_by_src = _callees_by_source(dispatch_edges)
     for name in sorted(nodes):
         info = nodes[name]
         status = info.get("status", "")
         va = info.get("va", 0)
         va_str = f"0x{va:08x}" if va else "-"
-        # Display the symbol, not the internal node key (`va:0x…`/`sym:…`) —
-        # render_mermaid/render_dot already do, this fallback was missed.
-        label = info.get("symbol", "") or name
+        label = labels[name]
         callees = [labels.get(c, c) for c in callees_by_src.get(name, [])]
         dispatch = [labels.get(c, c) for c in dispatch_by_src.get(name, [])]
         if not callees and not dispatch:
