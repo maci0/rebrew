@@ -3549,6 +3549,24 @@ class TestOpenApiSpec:
         assert set(schemas["Health"]["properties"]) == set(payload)
         assert set(schemas["Health"]["required"]) == set(payload)
 
+    def test_documented_byte_counts_match_the_validated_ones(self) -> None:
+        """A byte count the handler validates is a byte count the spec names.
+
+        ``_summary_lookup`` reads all three of ``_FUNCTION_STAT_BYTE_COUNTS``
+        through the same guard, so a ``total_bytes`` the schema leaves free is
+        one a client may send and the server then answers 500
+        ``corrupt_function_stats`` for.  The published contract would promise a
+        request the route rejects, and a generated client would never null-check
+        the field it was never told about.
+        """
+        from rebrew import dashboard as module
+
+        description = _spec()["components"]["schemas"]["Summary"]["properties"]["function_stats"][
+            "description"
+        ]
+        for name in module._FUNCTION_STAT_BYTE_COUNTS:
+            assert name in description, name
+
     def test_every_route_declares_the_cross_cutting_statuses(self) -> None:
         """A status the server can answer on any route is documented on any
         route.  A client generated from a spec that omits one has no branch
@@ -3706,8 +3724,21 @@ class TestOpenApiSpec:
             assert answered == status, path
             assert json.loads(body)["code"] == code, path
             assert code in documented(path, status), (path, code)
-        for path in ("/api/summary", "/api/functions", "/api/sections", "/api/globals"):
+        # Every route that declares a 404 also answers 404 `not_found` on an
+        # unserved path, so its description has to carry both codes.  A route
+        # left out of this list is a route whose 404 description can lose the
+        # `not_found` mention without anything here noticing.
+        for path in (
+            "/api/summary",
+            "/api/functions",
+            "/api/sections",
+            "/api/globals",
+            "/api/history",
+        ):
+            assert "404" in spec["paths"][path]["get"]["responses"], path
             assert "not_found" in documented(path, 404), path
+            answered, _, body = dashboard.handle("GET", path, {"target": ["nope"]})
+            assert (answered, json.loads(body)["code"]) == (404, "unknown_target"), path
 
     def test_va_pattern_accepts_a_64_bit_address(self, dashboard: Dashboard) -> None:
         """A `va` past 32 bits serializes to more than eight hex digits.

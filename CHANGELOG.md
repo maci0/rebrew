@@ -436,6 +436,21 @@
   said so comes later.
 
 ### Fixed
+- **The dashboard OpenAPI contract names every byte count the summary
+  validates.** `_summary_lookup` reads `matched_bytes`, `covered_bytes`, and
+  `total_bytes` through the same non-negative-integer guard, but the
+  `Summary.function_stats` description named only the first two, so the
+  published schema left a client free to send a `total_bytes` the route then
+  answered 500 `corrupt_function_stats` for. All three are named now, with the
+  division the two percentages come from, and the three are read as one set
+  (`_FUNCTION_STAT_BYTE_COUNTS`) so the schema and the handler cannot drift
+  apart again.
+- **The 404 contract test covers `/api/history` too.** It checked that every
+  route declaring a 404 also documents `not_found` beside `unknown_target`,
+  but only for four of the five target-scoped routes, so `/api/history` could
+  lose that mention, or drift from answering 404 `unknown_target` for an
+  unknown target, with nothing noticing. It is in the loop now, and the loop
+  drives the handler rather than trusting the route list.
 - **Three threat-model claims narrowed to what the code does.** The model
   described `cross_import.import_shared_function` as joining a second target's
   metadata `file` onto the destination tree the way `import_function` does; it

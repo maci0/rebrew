@@ -761,9 +761,11 @@ components:
           description: |
             The stored `function_stats` metadata object, passed through
             untyped: fields added to it reach the client without a change
-            here.  `matched_bytes` and `covered_bytes` must be
-            non-negative integers when present; anything else makes the row
-            unreadable and answers 500 `corrupt_function_stats`.
+            here.  `matched_bytes`, `covered_bytes`, and `total_bytes` must
+            be non-negative integers when present; anything else makes the
+            row unreadable and answers 500 `corrupt_function_stats`.
+            `coverage_pct` and `identified_pct` are `matched_bytes` and
+            `covered_bytes` over `total_bytes`, each floored.
           additionalProperties: true
         coverage_pct:
           type: number

@@ -213,6 +213,10 @@ _MAX_LIMIT = 5000
 #: costs no reach.  A full default page costs 377 B more on the wire (706 -> 1083
 #: zstd at 40 rows) and 60 more rows of innerHTML before the page is interactive.
 _BOOTSTRAP_FUNCTION_LIMIT = 40
+#: The ``function_stats`` byte counts the summary percentages divide by.  All
+#: three are validated the same way, so they are read as one set: a count the
+#: summary ignores is still a count that can make the row unreadable.
+_FUNCTION_STAT_BYTE_COUNTS = ("matched_bytes", "covered_bytes", "total_bytes")
 _FUNCTION_COLS = ("va", "name", "symbol", "size", "status", "module", "files")
 _GLOBAL_COLS = ("va", "name", "decl", "size", "module")
 _HISTORY_COLS = ("va", "name", "old_status", "new_status", "changed_at")
@@ -1831,9 +1835,9 @@ class Dashboard:
         # second metadata row (key='summary') and probed its ".text" size, but
         # nothing writes a ".text" key there, so the branch never fired.
         try:
-            covered = _byte_count(stats.get("matched_bytes"))
-            identified = _byte_count(stats.get("covered_bytes"))
-            total_b = _byte_count(stats.get("total_bytes"))
+            matched_b, identified_b, total_b = (
+                _byte_count(stats.get(name)) for name in _FUNCTION_STAT_BYTE_COUNTS
+            )
         except ValueError as exc:
             # A byte count that is not a non-negative int (text, float, bool,
             # list, negative) is the same unreadable row as corrupt JSON.
@@ -1843,7 +1847,7 @@ class Dashboard:
         # outside .text) divides to 102.4%, and the coverage cards would render
         # that as a broken number.  The share is capped at a full section and
         # the excess is logged rather than shown.
-        for name, value in (("matched_bytes", covered), ("covered_bytes", identified)):
+        for name, value in (("matched_bytes", matched_b), ("covered_bytes", identified_b)):
             if total_b and value > total_b:
                 log.warning(
                     "function_stats for %r: %s is %d, past the %d-byte .text; capping",
@@ -1855,9 +1859,9 @@ class Dashboard:
         return "ok", {
             "target": target,
             "function_stats": stats,
-            "coverage_pct": floor_pct(min(covered, total_b) if total_b else covered, total_b),
+            "coverage_pct": floor_pct(min(matched_b, total_b) if total_b else matched_b, total_b),
             "identified_pct": floor_pct(
-                min(identified, total_b) if total_b else identified, total_b
+                min(identified_b, total_b) if total_b else identified_b, total_b
             ),
         }
 
