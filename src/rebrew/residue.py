@@ -117,9 +117,16 @@ def residue_report(
         diff = sum(1 for i in range(span) if reference[pr_r + i] != built[pr_p + i])
         sections[name] = {"ref_raw": rs_r, "built_raw": rs_p, "differing": diff, "span": span}
 
-    t_rva, t_vs, t_ptr, _ = sr[".text"]
-    p_rva, p_vs, p_ptr, _ = sp[".text"]
-    n = max(0, min(t_vs, p_vs, len(reference) - t_ptr, len(built) - p_ptr))
+    # The bound is the section's *raw* size, not its virtual size: the indices
+    # below read from ``pointer_to_raw_data``, and a virtual tail larger than
+    # ``SizeOfRawData`` (a BSS-style .text) would otherwise compare the next
+    # section's file bytes and inflate text_differing and text_percent.
+    t_rva, t_vs, t_ptr, t_rs = sr[".text"]
+    p_rva, p_vs, p_ptr, p_rs = sp[".text"]
+    n = max(
+        0,
+        min(t_vs, p_vs, t_rs, p_rs, len(reference) - t_ptr, len(built) - p_ptr),
+    )
     diffs = [i for i in range(n) if reference[t_ptr + i] != built[p_ptr + i]]
 
     # Attribute trailing tables to their owner: extend each extent to the

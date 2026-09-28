@@ -1198,7 +1198,7 @@ def disassemble_to_nasm(
         "total_instructions": total_insns,
         "nasm_ok": nasm_ok,
         "db_fallbacks": db_fallbacks,
-        "pct_nasm": (nasm_ok / total_insns * 100) if total_insns else 0,
+        "pct_nasm": (nasm_ok / total_insns * 100) if total_insns else 0.0,
         "total_bytes": len(code),
         "base_va": base_va,
     }

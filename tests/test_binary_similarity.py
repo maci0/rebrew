@@ -41,6 +41,17 @@ class TestScoreMatrix:
         m = score_matrix([a], [b])
         assert m[0][0] == 0.6 * 100.0 + 0.2 * (1 / 10) * 100.0 + 0.2 * 100.0
 
+    def test_score_keeps_precision_below_the_bucket_edges(self) -> None:
+        # A true 94.96 must not round up to 95.0 and land in
+        # ">= 95 (near-identical)": the aggregate buckets cut on the score.
+        # 60 (identical histogram) + 0.2*0.749 (call agreement) + 20
+        # (identical branches) = 94.98, which rounds up to 95.0 and would
+        # report as ">= 95 (near-identical)".
+        m = score_matrix(
+            [_sig(MOV_RET, calls=749, branches=1000)], [_sig(MOV_RET, calls=1000, branches=1000)]
+        )
+        assert m[0][0] < 95.0
+
     def test_empty_side(self) -> None:
         assert score_matrix([], [_sig(MOV_RET)]).shape == (0, 1)
 
