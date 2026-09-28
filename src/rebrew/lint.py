@@ -90,7 +90,9 @@ _HEADER_MARKER_RE = re.compile(r"(?://|/\*)\s*(\w+):\s*(\S+)\s+(0x[0-9a-fA-F]+)"
 _SIZE_ANNOTATION_RE = re.compile(r"//\s*SIZE\s+0x[0-9a-fA-F]+")
 # The two comment styles a marker header can wear (see _HEADER_MARKER_RE).
 # A check that recognizes only `//` silently skips a whole `/*` marker block.
-_DATA_MARKER_RE = re.compile(r"(?://|/\*)\s*(DATA|GLOBAL):")
+# Module is part of the identity: SERVER and GOLDTL may both annotate
+# g_log_newline. Two files annotating one name for the same module still warn.
+_DATA_MARKER_RE = re.compile(r"(?://|/\*)\s*(DATA|GLOBAL):\s*([A-Za-z_][A-Za-z0-9_]*)")
 
 
 def _is_comment_line(text: str) -> bool:
@@ -1212,7 +1214,7 @@ def _check_W021_duplicate_globals(
         ds_match = _DATA_MARKER_RE.match(s)
         if ds_match:
             pending = True
-            marker = ds_match.group(1)
+            marker = f"{ds_match.group(1)}:{ds_match.group(2)}"
             continue
         if not pending:
             continue

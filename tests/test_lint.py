@@ -1150,6 +1150,16 @@ class TestW021W022:
         msg = next(m for _, c, m in r2.warnings if c == "W021")
         assert "g_counter" in msg
 
+    def test_same_name_on_different_modules_is_not_a_duplicate(self, tmp_path: Path) -> None:
+        """SERVER and GOLDTL each own a g_counter. Same C name, different binary."""
+        from rebrew.lint import lint_file
+
+        seen: dict[str, str] = {}
+        f1 = _write_c(tmp_path, "server.c", "// DATA: SERVER 0x10001000\nextern int g_counter;\n")
+        f2 = _write_c(tmp_path, "client.c", "// DATA: GOLDTL 0x00677918\nextern int g_counter;\n")
+        assert not any(c == "W021" for _, c, _ in lint_file(f1, seen_globals=seen).warnings)
+        assert not any(c == "W021" for _, c, _ in lint_file(f2, seen_globals=seen).warnings)
+
     def test_unique_globals_no_warning(self, tmp_path: Path) -> None:
         from rebrew.lint import lint_file
 
