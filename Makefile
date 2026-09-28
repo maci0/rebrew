@@ -123,6 +123,19 @@ BUILD_INPUTS := Makefile pyproject.toml build-constraints.txt MANIFEST.in uv.loc
 SOURCE_DATE_EPOCH ?= $(shell git log -1 --pretty=%ct 2>/dev/null)
 override SOURCE_DATE_EPOCH := $(or $(SOURCE_DATE_EPOCH),0)
 
+# The tools/ helpers run on the pinned interpreter, never an ambient one.
+# `uv run --no-project` otherwise takes the first interpreter it discovers: an
+# activated venv, a parent checkout's .venv, else /usr/bin/python3.  One of
+# these helpers rewrites the artifacts (normalize_sdist.py), so a host on
+# another patch could produce bytes the python= line in dist/rebrew.buildinfo
+# does not describe.  `.python-version` is the pin `uv build` uses for its
+# isolated build env, so the environment that builds the wheel and the one
+# that normalizes it are the same interpreter; a host without it fails loud
+# instead of silently substituting another.  --offline keeps the no-network
+# promise the sbom and normalizer recipes already made.
+PYTHON_PIN := $(shell cat .python-version)
+UV_RUN_TOOLS := uv run --no-project --offline --python $(PYTHON_PIN)
+
 help:
 	@printf '%s\n' \
 		'  make doctor             # report every missing prerequisite (uv, resembl, nasm, node, shellcheck, extras)' \
@@ -475,7 +488,7 @@ build: warn-uv-version
 		uv build --sdist --out-dir dist --build-constraints build-constraints.txt --require-hashes
 	umask 022 && SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) TZ=UTC LC_ALL=C PYTHONHASHSEED=0 \
 		uv build --wheel --out-dir dist --build-constraints build-constraints.txt --require-hashes
-	SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) uv run --no-project --offline python tools/normalize_sdist.py dist/*.tar.gz dist/*.whl
+	SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) $(UV_RUN_TOOLS) python tools/normalize_sdist.py dist/*.tar.gz dist/*.whl
 	@rm -rf build rebrew.egg-info src/rebrew.egg-info
 	@set -eu; \
 	st=$$(sed -n 's/^requires = \["setuptools==\([0-9.][0-9.]*\)"\]/\1/p' pyproject.toml | head -n 1); \
@@ -504,7 +517,7 @@ build: warn-uv-version
 	tmpinfo=dist/.rebrew.buildinfo.tmp; \
 	trap 'rm -f "$$tmpinfo"' EXIT; \
 	uv_ver=$$(uv --version); \
-	py_ver=$$("$$(uv python find)" --version); \
+	py_ver=$$("$$(uv python find $(PYTHON_PIN))" --version); \
 	{ \
 	  echo "name=rebrew"; \
 	  echo "version=$$ver"; \
@@ -515,7 +528,7 @@ build: warn-uv-version
 	  echo "PYTHONHASHSEED=0"; \
 	  echo "uv=$$uv_ver"; \
 	  echo "python=$$py_ver"; \
-	  echo "python-version=$$(cat .python-version)"; \
+	  echo "python-version=$(PYTHON_PIN)"; \
 	  echo "setuptools=$$st"; \
 	  echo "build-constraints-sha256=$$bsum"; \
 	  echo "uv-lock-sha256=$$lksum"; \
@@ -658,7 +671,7 @@ verify-dist: dist/rebrew.buildinfo ensure-uv
 # its ../resembl path dep), --offline keeps the no-network promise.
 sbom: warn-uv-version
 	@mkdir -p dist
-	uv run --no-project --offline python tools/generate_sbom.py -o dist/rebrew.cdx.json
+	$(UV_RUN_TOOLS) python tools/generate_sbom.py -o dist/rebrew.cdx.json
 
 # Prove the sdist carries every runtime file the wheel ships.  The wheel is
 # smoke-installed; nothing else exercises the sdist, and its file list comes
@@ -695,7 +708,7 @@ sdist-check: ensure-uv dist/rebrew.buildinfo
 	umask 022 && SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) TZ=UTC LC_ALL=C PYTHONHASHSEED=0 \
 	  uv build --wheel --out-dir .sdist-check --build-constraints build-constraints.txt \
 	  --require-hashes "$$sdist"; \
-	uv run --no-project --offline python tools/check_sdist_wheel.py "$$wheel" .sdist-check/*.whl; \
+	$(UV_RUN_TOOLS) python tools/check_sdist_wheel.py "$$wheel" .sdist-check/*.whl; \
 	rm -rf .sdist-check
 
 # Install the built wheel into a throwaway venv and smoke-import it (CI

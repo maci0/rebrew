@@ -20,8 +20,8 @@ bytes, not zip metadata, so they stay valid.
 Usage::
 
     SOURCE_DATE_EPOCH=... uv run --no-project --offline \\
-        python tools/normalize_sdist.py dist/*.tar.gz dist/*.whl
-    make build   # runs this after ``uv build``
+        --python 3.13.15 python tools/normalize_sdist.py dist/*.tar.gz dist/*.whl
+    make build   # runs this after ``uv build``, on the .python-version pin
 """
 
 from __future__ import annotations

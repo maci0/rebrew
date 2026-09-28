@@ -999,21 +999,47 @@ class TestCiPins:
     def test_buildinfo_toolchain_lines_cannot_report_a_failed_command_as_empty(self) -> None:
         """A command substitution inside an ``echo`` argument hides its failure.
 
-        ``echo "python=$$("$$(uv python find)" --version)"`` succeeds whatever
-        the substitution did: a host with no managed interpreter got
-        ``python=`` and an otherwise complete manifest, and ``set -e`` never
-        saw the failure.  An assignment takes the command's exit status, so
-        both toolchain versions are captured before the block of echoes.
+        ``echo "python=$$(...)"`` succeeds whatever the substitution did: a
+        host with no managed interpreter got ``python=`` and an otherwise
+        complete manifest, and ``set -e`` never saw the failure.  An
+        assignment takes the command's exit status, so both toolchain
+        versions are captured before the block of echoes.
         """
         build = MAKEFILE.read_text(encoding="utf-8")
         build = build.split("\nbuild: warn-uv-version\n", 1)[1].split("\n# Prove the wheel", 1)[0]
         assert "uv_ver=$$(uv --version); \\" in build
-        assert 'py_ver=$$("$$(uv python find)" --version); \\' in build
+        assert 'py_ver=$$("$$(uv python find $(PYTHON_PIN))" --version); \\' in build
         block = build.split('echo "name=rebrew"', 1)[1]
         for line in block.splitlines():
             if line.lstrip().startswith("echo "):
                 assert "uv --version" not in line
                 assert "uv python find" not in line
+
+    def test_tools_helpers_run_on_the_pinned_interpreter(self) -> None:
+        """``uv run --no-project`` takes the first interpreter it finds.
+
+        With no ``--python``, uv runs an activated venv, a parent checkout's
+        ``.venv`` or ``/usr/bin/python3``.  ``normalize_sdist.py`` rewrites the
+        archives with that interpreter's zlib, so a host on another patch could
+        ship bytes the ``python=`` line in ``dist/rebrew.buildinfo`` does not
+        describe.  Every ``--no-project`` invocation goes through
+        ``$(UV_RUN_TOOLS)``, which pins ``--python`` to ``.python-version``, the
+        same pin ``uv build`` resolves its isolated build env from.
+        """
+        text = MAKEFILE.read_text(encoding="utf-8")
+        assert "PYTHON_PIN := $(shell cat .python-version)" in text
+        assert "UV_RUN_TOOLS := uv run --no-project --offline --python $(PYTHON_PIN)" in text
+        assert "$(shell cat .python-version)" not in text.split("UV_RUN_TOOLS :=", 1)[1]
+        recipes = text.split("help:\n", 1)[1]
+        invocations = re.findall(r"(?m)^\s*(?P<cmd>[^#\n]*\$\(UV_RUN_TOOLS\)[^\n]*)$", recipes)
+        assert len(invocations) >= 3, invocations
+        # No recipe may spell the runner out again: that is how an unpinned
+        # `uv run --no-project python …` sneaks back in.
+        assert "uv run --no-project" not in recipes
+        # The manifest records the pinned interpreter, not whatever
+        # `uv python find` discovers beside the checkout.
+        assert "uv python find $(PYTHON_PIN)" in text
+        assert "uv python find)" not in text
 
     def test_makefile_build_writes_buildinfo_and_cleans_residue(self) -> None:
         text = MAKEFILE.read_text(encoding="utf-8")
