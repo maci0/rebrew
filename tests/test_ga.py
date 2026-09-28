@@ -1810,6 +1810,60 @@ class TestGaHistory:
         assert len(data["recent"]) == 3
         assert data["recent"][0]["symbol"] == "_c"  # newest first
 
+    def test_history_console_shows_local_time(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Console history renders stored UTC instants in the reader's zone."""
+        import json
+
+        from typer.testing import CliRunner
+
+        from rebrew.match import app
+
+        self._setup(tmp_path, monkeypatch)
+        runs_dir = tmp_path / ".rebrew"
+        runs_dir.mkdir()
+        (runs_dir / "ga_runs.jsonl").write_text(
+            json.dumps(
+                {
+                    "ts": "2026-08-07T10:00:00+00:00",
+                    "target": "SERVER",
+                    "va": "0x1",
+                    "symbol": "_a",
+                    "matched": True,
+                    "score": 0.0,
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        result = CliRunner().invoke(app, ["--ga-history"])
+        assert result.exit_code == 0
+        assert "+00:00" not in result.output
+        assert "_a" in result.output
+
+    def test_display_instant_passes_through_unparseable(self) -> None:
+        from rebrew.match_run import _display_instant
+
+        assert _display_instant("not a timestamp") == "not a timestamp"
+        assert _display_instant("") == ""
+
+    def test_display_instant_reads_zone_less_as_utc(self) -> None:
+        from datetime import UTC, datetime
+
+        from rebrew.match_run import _display_instant
+
+        naive = _display_instant("2026-08-07T10:00:00")
+        aware = _display_instant("2026-08-07T10:00:00+00:00")
+        assert naive == aware
+        expected = (
+            datetime(2026, 8, 7, 10, 0, 0, tzinfo=UTC)
+            .astimezone()
+            .strftime("%Y-%m-%d %H:%M:%S %Z")
+            .strip()
+        )
+        assert aware == expected
+
     def test_history_empty(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         import json
 

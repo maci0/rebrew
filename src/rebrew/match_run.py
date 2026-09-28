@@ -843,6 +843,30 @@ def _maybe_document_ga_ceiling(
 # ---------------------------------------------------------------------------
 
 
+def _display_instant(value: object) -> str:
+    """Render a stored UTC instant as the reader's local wall time.
+
+    The log keeps instants, but ``--ga-history`` prints them for a person
+    reading over the shoulder of the person who ran the batch, so the raw
+    ``+00:00`` string shows UTC to whoever is not on UTC.  A CLI has no
+    per-viewer zone, so the host's local zone is the reader's.  A zone-less
+    value is read as UTC (the rule :func:`_filter_recently_run` applies to
+    the same field) and anything unparseable is passed through unchanged.
+    """
+    from datetime import UTC, datetime
+
+    raw = str(value).strip()
+    if not raw:
+        return ""
+    try:
+        moment = datetime.fromisoformat(raw)
+    except ValueError:
+        return raw
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=UTC)
+    return moment.astimezone().strftime("%Y-%m-%d %H:%M:%S %Z").strip()
+
+
 def show_ga_history(cfg: ProjectConfig, json_output: bool, *, target: str = "") -> None:
     """Summarize past GA runs (``.rebrew/ga_runs.jsonl``) for at-a-glance
     effectiveness triage: how many attempts, how many converged, score trends.
@@ -882,7 +906,9 @@ def show_ga_history(cfg: ProjectConfig, json_output: bool, *, target: str = "") 
     for rec in records[:10]:
         mark = "[green]MATCH[/green]" if rec.get("matched") else "[dim]no match[/dim]"
         score = f" score={rec['score']}" if rec.get("score") is not None else ""
-        console.print(f"  {mark}  {rec.get('ts', '')}  {rec.get('symbol', '?')}{score}")
+        console.print(
+            f"  {mark}  {_display_instant(rec.get('ts', ''))}  {rec.get('symbol', '?')}{score}"
+        )
 
 
 def _filter_recently_run(
