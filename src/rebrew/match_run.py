@@ -1559,37 +1559,56 @@ def _run_batch_flag_sweep(
                 va=int(stub.va, 16),
             )
             result_entry["cflags_updated"] = cflags_updated
-            update_source_status(
-                cfg.metadata_dir,
-                "EXACT",
-                module=stub.module,
-                va=int(stub.va, 16),
-                clear_blockers=True,
-                updated_by="match",
-            )
-            # Keep status/todo in sync with the fresh EXACT metadata (the
-            # verify cache may hold a stale NEAR_MATCHING entry).
             try:
-                from rebrew.verify_cache import patch_verify_cache_entries
-
-                patch_verify_cache_entries(
-                    cfg,
-                    [
-                        {
-                            "va": int(stub.va, 16),
-                            "status": "EXACT",
-                            "match_count": stub.size or 0,
-                            "total": stub.size or 0,
-                            "delta": 0,
-                        }
-                    ],
+                recorded = update_source_status(
+                    cfg.metadata_dir,
+                    "EXACT",
+                    module=stub.module,
+                    va=int(stub.va, 16),
+                    clear_blockers=True,
+                    updated_by="match",
                 )
-            except Exception:  # cache patch is best-effort
+            except (OSError, ValueError) as exc:
                 log.warning(
-                    "Verify-cache patch failed for %s (status may be stale)",
-                    stub.symbol,
-                    exc_info=True,
+                    "STATUS write failed for %s — not promoting: %s", stub.symbol, exc
                 )
+                recorded = False
+            if not recorded:
+                # The promotion policy refused (parked SKIP, documented STUB):
+                # nothing is recorded, so do not claim a promotion and do not
+                # patch the verify cache to a STATUS the store does not hold.
+                # The solution itself still stands — only the promotion did
+                # not land.
+                result_entry["promoted"] = False
+                log.warning(
+                    "promotion policy refused EXACT for %s — the function is parked "
+                    "or classified as a documented STUB",
+                    stub.symbol,
+                )
+            else:
+                # Keep status/todo in sync with the fresh EXACT metadata (the
+                # verify cache may hold a stale NEAR_MATCHING entry).
+                try:
+                    from rebrew.verify_cache import patch_verify_cache_entries
+
+                    patch_verify_cache_entries(
+                        cfg,
+                        [
+                            {
+                                "va": int(stub.va, 16),
+                                "status": "EXACT",
+                                "match_count": stub.size or 0,
+                                "total": stub.size or 0,
+                                "delta": 0,
+                            }
+                        ],
+                    )
+                except Exception:  # cache patch is best-effort
+                    log.warning(
+                        "Verify-cache patch failed for %s (status may be stale)",
+                        stub.symbol,
+                        exc_info=True,
+                    )
             solved_entries.append(
                 SolutionEntry(
                     symbol=stub.symbol,

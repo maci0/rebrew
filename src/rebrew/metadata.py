@@ -129,6 +129,8 @@ from rebrew.utils import (
     load_tomllib,
     read_toml_text,
 )
+from rebrew.workspace.status import EARNED_STATUSES as EARNED_STATUSES
+from rebrew.workspace.status import INFRASTRUCTURE_STATUSES as INFRASTRUCTURE_STATUSES
 from rebrew.workspace.status import KNOWN_STATUSES as KNOWN_STATUSES
 from rebrew.workspace.status import MATCHED_STATUSES as MATCHED_STATUSES
 from rebrew.workspace.status import STUB_PLACEHOLDER_STATUSES
@@ -502,6 +504,16 @@ def _ensure_entry_table(
         doc_dict[toml_key] = tomlkit.table()
         if key_index is not None:
             key_index[(norm_module, va)] = toml_key
+    elif not isinstance(doc_dict[toml_key], dict):
+        # Same predicate the loader uses to skip unusable entries, and the
+        # guard ``set_data_field`` applies to ``rebrew-data.toml``: a scalar
+        # (or AoT) at the key cannot hold fields, and indexing it raises a
+        # bare TypeError out of the CLI.  Failing loud beats corrupting or
+        # silently discarding whatever is there.
+        raise ValueError(
+            f"metadata entry {toml_key!r} is not a table "
+            f"({type(doc_dict[toml_key]).__name__}); repair or remove it first"
+        )
     return toml_key, typing.cast(dict[str, Any], doc_dict[toml_key])
 
 
@@ -940,11 +952,14 @@ def should_promote_status(current_status: str, new_status: str) -> bool:
     ``rebrew verify`` call sites and inside :func:`update_statuses_batch`
     (the writer layer).  Refuses to promote when the current status is
     parked (SKIP), when a STUB's placeholder size-mismatch would erase the
-    user's STUB classification, or when the status did not change.  Both
+    user's STUB classification, when a tooling failure would overwrite an
+    earned byte match or proof, or when the status did not change.  Both
     sides are compared case-insensitively.
 
-    PROVEN gets no protection: it records semantic equivalence, not a byte
-    match, so the next byte verdict from test/verify replaces it.
+    PROVEN gets no protection against a *byte* verdict: it records semantic
+    equivalence, not a byte match, so the next byte verdict from test/verify
+    replaces it.  It is protected against :data:`INFRASTRUCTURE_STATUSES`
+    like any other earned status.
     """
     current = canonical_status(current_status)
     new = canonical_status(new_status)
@@ -954,6 +969,18 @@ def should_promote_status(current_status: str, new_status: str) -> bool:
         # A documented STUB (typically blocker-documented) must not be
         # demoted by a placeholder size-mismatch or a missing-size
         # evaluation — that would erase the user's classification.
+        return False
+    if current in EARNED_STATUSES and new in INFRASTRUCTURE_STATUSES:
+        # A compile/extract error, a deleted source or an unaddressable VA
+        # says the tool failed, not that the match stopped holding.  Keep
+        # the earned status; the caller still reports the failure for this
+        # run, and a later successful run writes the real verdict.
+        logger.warning(
+            "refusing to overwrite earned STATUS %s with %s for this function: "
+            "the verdict came from a tooling failure, not from comparing bytes",
+            current,
+            new,
+        )
         return False
     return current != new
 
@@ -967,7 +994,7 @@ def update_source_status(
     clear_blockers: bool = True,
     force: bool = False,
     updated_by: str = "",
-) -> None:
+) -> bool:
     """Write STATUS for (module, va) to the metadata; never touches the .c file.
 
     This is the single canonical place to promote a function's STATUS.
@@ -993,24 +1020,35 @@ def update_source_status(
             ``lint``/``binsync-import``/``intake``/``match``).  Recorded as
             ``updated_by`` with a UTC ``updated_at`` timestamp.
 
+    Returns:
+        ``True`` when the entry was written, ``False`` when the promotion
+        policy refused the change (a parked SKIP, a documented STUB against
+        a placeholder verdict) or the entry already held *new_status* with
+        no blocker to clear.  A caller that pairs this write with another
+        durable artifact must treat ``False`` as "the artifact is not
+        recorded" and roll back, since a refused promotion raises nothing.
+
     Raises:
         ValueError: If *module* is empty — nothing would be written (the
             loader only reads qualified ``MODULE.0xVA`` keys).
 
     """
     _require_module(module)
-    update_statuses_batch(
-        metadata_dir,
-        [
-            {
-                "module": module,
-                "va": va,
-                "new_status": new_status,
-                "clear_blockers": clear_blockers,
-                "force": force,
-                "updated_by": updated_by,
-            }
-        ],
+    return (
+        update_statuses_batch(
+            metadata_dir,
+            [
+                {
+                    "module": module,
+                    "va": va,
+                    "new_status": new_status,
+                    "clear_blockers": clear_blockers,
+                    "force": force,
+                    "updated_by": updated_by,
+                }
+            ],
+        )
+        > 0
     )
 
 

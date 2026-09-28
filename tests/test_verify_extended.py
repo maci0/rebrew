@@ -1407,7 +1407,7 @@ class TestProvenIsNotAPass:
         monkeypatch.setattr("rebrew.verify._print_results", lambda *a, **k: None)
         return CliRunner().invoke(app, flags), cfg
 
-    @pytest.mark.parametrize("byte_status", ["NEAR_MATCHING", "STUB", "COMPILE_ERROR"])
+    @pytest.mark.parametrize("byte_status", ["NEAR_MATCHING", "STUB"])
     def test_byte_verdict_reported_and_recorded(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, byte_status: str
     ) -> None:
@@ -1430,6 +1430,21 @@ class TestProvenIsNotAPass:
         loaded = load_verify_cache(cfg.root / ".rebrew" / "verify_cache.json", cfg)
         assert loaded is not None
         assert loaded.entries["0x00001000"].status == byte_status
+
+    def test_tooling_failure_does_not_replace_proven(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A COMPILE_ERROR is a failing tool, not a byte verdict: verify
+        still reports the failure, but the earned PROVEN survives it."""
+        from rebrew.metadata import get_entry
+
+        result, _cfg = self._run(tmp_path, monkeypatch, "COMPILE_ERROR", ["--json"])
+        assert result.exit_code == 1
+        data = json.loads(result.stdout)
+        assert data["results"][0]["status"] == "COMPILE_ERROR"
+        assert data["summary"]["failed"] == 1
+        entry = get_entry(tmp_path, 0x1000, "SERVER")
+        assert entry.get("status") == "PROVEN"
 
     def test_byte_match_replaces_proven(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

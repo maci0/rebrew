@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import tomllib
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -1080,6 +1081,34 @@ class TestStatusCasePolicy:
         # SKIP is parked: never auto-unpark, even for a byte match.
         assert should_promote_status("skip", "EXACT") is False
         assert should_promote_status("SKIP", "RELOC") is False
+
+    def test_tooling_failure_does_not_overwrite_earned_status(self, tmp_path: Path) -> None:
+        from rebrew.metadata import should_promote_status, update_source_status
+
+        # A compile/extract error, a deleted source or an unaddressable VA is
+        # not a byte comparison: an earned match or proof survives it.
+        for current in ("EXACT", "RELOC", "PROVEN"):
+            for new in ("COMPILE_ERROR", "EXTRACT_ERROR", "MISSING_FILE", "INVALID_VA"):
+                assert should_promote_status(current, new) is False, (current, new)
+        # The same verdicts still stand over unearned work, and a real byte
+        # verdict still demotes an earned status.
+        for new in ("COMPILE_ERROR", "MISSING_FILE"):
+            assert should_promote_status("STUB", new) is True
+            assert should_promote_status("NEAR_MATCHING", new) is True
+        assert should_promote_status("EXACT", "SIZE_MISMATCH") is True
+        assert should_promote_status("EXACT", "NEAR_MATCHING") is True
+
+        # Through the writer, and the refusal is observable to the caller.
+        from rebrew.metadata_doc import qualified_key
+
+        update_source_status(tmp_path, "EXACT", "NP", 0x1000, updated_by="test")
+        assert update_source_status(tmp_path, "COMPILE_ERROR", "NP", 0x1000) is False
+        status = tomllib.loads((tmp_path / "rebrew-functions.toml").read_text())
+        assert status[qualified_key("NP", 0x1000)]["status"] == "EXACT"
+        # A byte verdict does land, and reports that it did.
+        assert update_source_status(tmp_path, "NEAR_MATCHING", "NP", 0x1000) is True
+        status = tomllib.loads((tmp_path / "rebrew-functions.toml").read_text())
+        assert status[qualified_key("NP", 0x1000)]["status"] == "NEAR_MATCHING"
 
     def test_merge_normalizes_near_match_alias(self, tmp_path: Path) -> None:
         from rebrew.annotation import Annotation

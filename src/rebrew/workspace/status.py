@@ -53,6 +53,20 @@ MATCHED_STATUSES: tuple[str, ...] = ("EXACT", "RELOC")
 # "PROVEN")`` at each site.
 EARNED_STATUSES: tuple[str, ...] = (*MATCHED_STATUSES, "PROVEN")
 
+# Machine verdicts a failing *tool* produced rather than a byte comparison:
+# the compile/extract run errored, the source file is gone, or the VA is not
+# addressable.  None of them says the source stopped matching, and all of
+# them are transient, so they may not overwrite :data:`EARNED_STATUSES` — a
+# missing compiler must not cost a reverser a byte match.  They remain the
+# honest verdict over a STUB, NEAR_MATCHING or empty status, where nothing
+# earned is at stake.
+INFRASTRUCTURE_STATUSES: tuple[str, ...] = (
+    "COMPILE_ERROR",
+    "EXTRACT_ERROR",
+    "MISSING_FILE",
+    "INVALID_VA",
+)
+
 # Machine verdicts that only mean "this stub has no real body yet": a
 # documented STUB keeps its classification instead of being demoted to one of
 # these.  Both the writer's promotion policy

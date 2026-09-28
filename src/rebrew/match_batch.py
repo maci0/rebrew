@@ -26,7 +26,7 @@ from rebrew.annotation import (
 from rebrew.cli import console
 from rebrew.config import ProjectConfig
 from rebrew.limits import NO_DELTA
-from rebrew.metadata import update_source_status
+from rebrew.metadata import canonical_status, get_entry, update_source_status
 from rebrew.sources import iter_sources
 from rebrew.utils import atomic_write_text, read_source_text
 
@@ -530,8 +530,9 @@ def update_stub_to_matched(
     atomic_write_text(filepath, updated, encoding=encoding)
 
     meta_root = metadata_dir or filepath.parent
+    promoted = False
     try:
-        update_source_status(meta_root, "RELOC", module, va_int, updated_by="match")
+        promoted = update_source_status(meta_root, "RELOC", module, va_int, updated_by="match")
     except (OSError, ValueError) as exc:
         # The .c now holds a matched body under a STUB status.  The next
         # test/verify would demote it back and blame the source, so put the
@@ -542,6 +543,27 @@ def update_stub_to_matched(
             f"the source was restored to its stub — fix the metadata store "
             f"({meta_root}) and re-run"
         ) from exc
+    if not promoted:
+        # False means either "already RELOC" (a re-run: nothing to write) or
+        # "the promotion policy refused" (a parked SKIP, a documented STUB).
+        # Only the second leaves a matched body under a status the next
+        # test/verify would demote, so only that one restores the stub.
+        stored = canonical_status(str(get_entry(meta_root, va_int, module).get("status", "")))
+        if stored == "RELOC":
+            from rebrew.utils import rel_display_path
+
+            display = rel_display_path(filepath, filepath.parent.parent)
+            console.print(
+                f"  [bold green]Updated[/] {display}: already RELOC (backup: {bak_path.name})"
+            )
+            return True
+        atomic_write_text(filepath, original, encoding=encoding)
+        raise RuntimeError(
+            f"{filepath} now compiles to a match, but the promotion policy refused "
+            f"RELOC in {meta_root} (the function is parked or classified as a "
+            f"documented STUB); the source was restored to its stub — unpark it "
+            f"or record STATUS by hand, then re-run"
+        )
 
     from rebrew.utils import rel_display_path
 
