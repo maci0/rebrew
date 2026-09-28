@@ -85,12 +85,15 @@ def _url_config_label(key: str) -> str | None:
     return None
 
 
-#: Config keys the loader reads with ``rebrew.config._as_bool``.  ``cfg set``
-#: takes every value as a string, so a boolean field written as ``yes`` or
-#: ``1`` lands in the TOML as a string; the loader then warns and keeps the
-#: default, which is how a flag someone just turned on ends up off.  Keep in
-#: step with the ``_as_bool`` fields in ``rebrew.config``.
-_BOOL_CONFIG_KEYS = frozenset({"recompile_emit_assembly"})
+#: Config keys the loader reads as booleans: ``rebrew.config._as_bool`` for
+#: ``compiler.recompile_emit_assembly``, the tri-state parser
+#: ``link.tsaware`` shares with.  ``cfg set`` takes every value as a string,
+#: so a boolean field written as ``yes`` or ``1`` lands in the TOML as a
+#: string; the loader then warns and keeps the default, which is how a flag
+#: someone just turned on ends up off.  Keep in step with the boolean fields
+#: in ``rebrew.config``; ``TestBoolConfigKeysStayInStepWithTheLoader`` fails
+#: when one is added there and missed here.
+_BOOL_CONFIG_KEYS = frozenset({"recompile_emit_assembly", "tsaware"})
 
 
 def _redact_secrets(obj: Any) -> Any:

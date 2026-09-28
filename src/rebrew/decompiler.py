@@ -38,6 +38,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from rebrew.config import expand_env_path
 from rebrew.registry import RegistryError
 from rebrew.utils import run_process_group
 
@@ -505,19 +506,25 @@ def _uv_tool_roots() -> list[Path]:
     fallback — uv honors it, and probing only the fallback misses the tree.
     """
     roots: list[Path] = []
-    env = os.environ.get("UV_TOOL_DIR")
-    if env:
-        roots.append(Path(env))
+    # expand_env_path, not Path(): a quoted or direnv-written `~` reached
+    # this probe unexpanded, so a real tool env missed every candidate and
+    # `rebrew decompile` returned nothing with the tools installed.
+    uv_tool = expand_env_path(os.environ.get("UV_TOOL_DIR", ""))
+    if uv_tool is not None:
+        roots.append(uv_tool)
     home = Path.home()
     # XDG spec: a relative XDG_DATA_HOME is invalid and ignored.
-    xdg_data = Path(os.environ.get("XDG_DATA_HOME", "").strip())
+    xdg_data = expand_env_path(os.environ.get("XDG_DATA_HOME", ""))
     linux_data = (
-        (xdg_data if xdg_data.is_absolute() else home / ".local" / "share") / "uv" / "tools"
+        (xdg_data if xdg_data is not None and xdg_data.is_absolute() else home / ".local" / "share")
+        / "uv"
+        / "tools"
     )
+    local_appdata = expand_env_path(os.environ.get("LOCALAPPDATA", ""))
     for candidate in (
         linux_data,
         home / "Library" / "Application Support" / "uv" / "tools",
-        Path(os.environ["LOCALAPPDATA"]) / "uv" / "tools" if "LOCALAPPDATA" in os.environ else None,
+        local_appdata / "uv" / "tools" if local_appdata is not None else None,
     ):
         if candidate is not None and candidate not in roots:
             roots.append(candidate)
@@ -636,8 +643,8 @@ def _kuna_specs_override() -> str | None:
     meant ``KUNA_SPECS=''`` discovered a spec dir and then refused to inject
     it, leaving kuna on its rarely-present ``/specs/`` default.
     """
-    explicit = os.environ.get("KUNA_SPECS", "").strip()
-    return str(Path(explicit).expanduser()) if explicit else None
+    explicit = expand_env_path(os.environ.get("KUNA_SPECS", ""))
+    return str(explicit) if explicit is not None else None
 
 
 def fetch_kuna(binary: Path, va: int, root: Path, **_kwargs: Any) -> str | None:

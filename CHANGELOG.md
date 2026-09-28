@@ -118,6 +118,22 @@
   `RebrewError, RuntimeError` and are importable from `rebrew.errors`.
 
 ### Fixed
+- **`rebrew cfg set link.tsaware yes` no longer reports success and sets
+  nothing.** `link.tsaware` sets bit `0x8000` in `DllCharacteristics`, and it
+  was the one boolean key missing from `cfg`'s `_BOOL_CONFIG_KEYS`, so the
+  string landed in `rebrew-project.toml` where the loader warned on every
+  later run and dropped it. The bit is not applied by
+  `round-trip --fix-headers` and `header_parity` then reports a mismatch the
+  user cannot name. A test reads the loader's boolean reads out of
+  `config.py` and fails when a key is added there and missed here.
+- **`UV_TOOL_DIR` and `XDG_DATA_HOME` expand a quoted `~` before the tool-env
+  probe.** A shell does not expand `~` inside a quoted assignment or inside
+  the `.env` file direnv points at, which is where these are usually written,
+  so the literal string missed every candidate and `rebrew decompile` and the
+  seed backends returned no decompilation with pypcode/angr installed. The
+  expansion rule now lives in `config.expand_env_path`, which `env_dir_path`
+  also uses, and a whitespace-only `UV_TOOL_DIR` is unset rather than a
+  cwd-relative candidate.
 - **Every data marker sorts ahead of code in `rebrew merge`.** The block rank
   spelled out `DATA` / `GLOBAL` instead of reading `annotation.DATA_MARKERS`,
   so a `VTABLE:` or `STRING:` block was ordered with the functions and could

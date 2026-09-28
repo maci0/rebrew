@@ -1342,28 +1342,42 @@ def validate_llm_model(model: str) -> str:
     return model
 
 
-#: Accepted spellings of a boolean environment variable (lowercased, stripped).
+#: Accepted spellings of a boolean config value (lowercased, stripped).
 ENV_TRUE = frozenset({"1", "true", "yes", "on"})
 ENV_FALSE = frozenset({"0", "false", "no", "off"})
 
 
-def parse_env_bool(name: str, raw: str, *, default: bool) -> bool:
-    """Parse a boolean environment variable strictly, or raise ``ConfigError``.
+def parse_bool(label: str, raw: Any, *, default: bool) -> bool:
+    """Parse a boolean from a config value, strictly, or raise ``ConfigError``.
 
-    Single source for every ``REBREW_*`` boolean knob, so a typo
-    (``REBREW_X=flase``) or a negated spelling (``REBREW_X=false``) can never be
-    read as "on": an opt-in gate that treats anything non-empty as true turns
-    one mistyped value into a wrong security decision.  Empty or unset keeps
-    *default*.
+    Single source for the boolean vocabulary of the whole tool.  An env knob
+    and a ``rebrew-functions.toml`` field that each spelled truthiness their
+    own way give one spelling two meanings: ``skip = "off"`` read as *skip*
+    while ``REBREW_WINE_HEADLESS=off`` read as *off*.  A reader that treats an
+    unrecognized spelling as true is the worse half, because one typo then
+    turns a gate on, so unknown is an error rather than a default.  Empty or
+    unset keeps *default*.
     """
-    value = raw.strip().lower()
+    value = str(raw).strip().lower()
     if not value:
         return default
     if value in ENV_TRUE:
         return True
     if value in ENV_FALSE:
         return False
-    raise ConfigError(f"{name}={raw!r} is not a boolean (use 1/true/yes/on or 0/false/no/off)")
+    raise ConfigError(f"{label}={raw!r} is not a boolean (use 1/true/yes/on or 0/false/no/off)")
+
+
+def parse_env_bool(name: str, raw: str, *, default: bool) -> bool:
+    """Parse a boolean environment variable strictly, or raise ``ConfigError``.
+
+    Every ``REBREW_*`` boolean knob routes here, so a typo
+    (``REBREW_X=flase``) or a negated spelling (``REBREW_X=false``) can never be
+    read as "on": an opt-in gate that treats anything non-empty as true turns
+    one mistyped value into a wrong security decision.  Empty or unset keeps
+    *default*.
+    """
+    return parse_bool(name, raw, default=default)
 
 
 #: ``REBREW_LOG_LEVEL`` spellings, and the level each selects.
@@ -1397,6 +1411,23 @@ def parse_env_log_level(raw: str, *, default: int) -> int:
     return ENV_LOG_LEVELS[value]
 
 
+def expand_env_path(raw: str) -> Path | None:
+    """Normalize a directory-valued env knob's text, or ``None`` when unset.
+
+    The one ``~``-expansion rule, split out of :func:`env_dir_path` so a knob
+    that *probes a list* of candidates rather than validating one entry can
+    share it.  A shell does not expand ``~`` inside a quoted assignment
+    (``UV_TOOL_DIR='~/.local/share/uv/tools'``) nor inside the ``.env`` file a
+    direnv points at, which is where these values are usually written: the
+    literal string then misses every candidate and the tool is reported as
+    not installed when it is.
+    """
+    value = raw.strip()
+    if not value:
+        return None
+    return Path(value).expanduser()
+
+
 def env_dir_path(name: str, raw: str) -> Path | None:
     """Resolve a directory-valued env knob to a validated path, or ``None``.
 
@@ -1413,15 +1444,14 @@ def env_dir_path(name: str, raw: str) -> Path | None:
     validating together is what keeps that from reappearing: every caller
     holds the expanded path, so none of them can disagree with the check.
     """
-    value = raw.strip()
-    if not value:
+    path = expand_env_path(raw)
+    if path is None:
         return None
-    path = Path(value).expanduser()
     if not path.is_dir():
         # Name the path that was actually probed: a ``~`` export reads as a
         # literal here, and the raw value alone leaves the user guessing where
         # rebrew looked.
-        raise ConfigError(f"{name}={value!r} is not a directory (resolved to {path})")
+        raise ConfigError(f"{name}={raw.strip()!r} is not a directory (resolved to {path})")
     return path
 
 

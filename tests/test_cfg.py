@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 from pathlib import Path
 
 import pytest
@@ -10,11 +11,15 @@ from bin_util import make_pe_stub
 from typer import Exit as TyperExit
 
 from rebrew.cfg import (
+    _BOOL_CONFIG_KEYS,
     _detect_format_and_arch,
     _resolve_target,
     load_toml,
     save_toml,
 )
+
+#: The loader module whose boolean reads ``_BOOL_CONFIG_KEYS`` must cover.
+_CONFIG_PY = Path(__file__).resolve().parents[1] / "src" / "rebrew" / "config.py"
 
 # ---------------------------------------------------------------------------
 # Helper
@@ -908,6 +913,31 @@ class TestCLISet:
         doc, _ = load_toml(tmp_path)
         assert doc["compiler"]["recompile_emit_assembly"] is True
 
+    def test_set_link_tsaware_rejects_a_non_boolean(self, tmp_path: Path, monkeypatch) -> None:
+        """``link.tsaware`` sets bit 0x8000 in DllCharacteristics.
+
+        It was missing from ``_BOOL_CONFIG_KEYS``, so ``cfg set link.tsaware
+        yes`` reported success and wrote the string "yes"; the loader then
+        warned on every later run and left the bit unset.  A silent success
+        from the command that sets a flag is worse than a refusal.
+        """
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        for bad in ("yes", "1", "on"):
+            result = runner.invoke(cfg_app, ["set", "link.tsaware", bad])
+            assert result.exit_code != 0, bad
+            assert "not a boolean" in result.output
+        doc, _ = load_toml(tmp_path)
+        assert "tsaware" not in doc.get("link", {})
+
+    def test_set_link_tsaware_writes_a_real_boolean(self, tmp_path: Path, monkeypatch) -> None:
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(cfg_app, ["set", "link.tsaware", "true"])
+        assert result.exit_code == 0
+        doc, _ = load_toml(tmp_path)
+        assert doc["link"]["tsaware"] is True
+
     def test_set_bare_inventory_file_routes_to_target(self, tmp_path: Path, monkeypatch) -> None:
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
@@ -916,6 +946,32 @@ class TestCLISet:
         doc, _ = load_toml(tmp_path)
         assert doc["targets"]["server.dll"]["inventory_file"] == "db/inv.json"
         assert "inventory_file" not in doc
+
+
+class TestBoolConfigKeysStayInStepWithTheLoader:
+    """A boolean key missing from ``_BOOL_CONFIG_KEYS`` is a silent no-op.
+
+    ``cfg set`` accepts any string, the loader drops a stringified boolean and
+    keeps the default, so a key added to the loader and missed here turns a
+    flag the user just set into a no-op that the setter reports as success.
+    """
+
+    def test_every_as_bool_field_is_guarded(self) -> None:
+        source = _CONFIG_PY.read_text(encoding="utf-8")
+        fields = set(re.findall(r'_as_bool\(\s*\w+\.get\("([^"]+)"', source))
+        assert fields, "no _as_bool fields found; the scan no longer matches the loader"
+        assert fields <= _BOOL_CONFIG_KEYS, f"unguarded boolean keys: {fields - _BOOL_CONFIG_KEYS}"
+
+    def test_link_tsaware_is_guarded(self) -> None:
+        """``link.tsaware`` is parsed inline, not through ``_as_bool``.
+
+        It keeps the tri-state (absent means "leave the bit alone"), so it
+        cannot just call ``_as_bool``, but it is still a boolean key and
+        ``cfg set`` still needs to refuse a stringified value.
+        """
+        source = _CONFIG_PY.read_text(encoding="utf-8")
+        assert 'link_raw.get("tsaware")' in source
+        assert "tsaware" in _BOOL_CONFIG_KEYS
 
 
 class TestCLIModules:

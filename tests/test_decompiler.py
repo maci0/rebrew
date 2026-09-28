@@ -813,6 +813,45 @@ class TestKunaBackend:
         roots = dc._uv_tool_roots()
         assert roots[0] == Path.home() / ".local" / "share" / "uv" / "tools"
 
+    def test_uv_tool_roots_expands_a_quoted_tilde(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A quoted or direnv-written ``~`` must reach the probe expanded.
+
+        A shell does not expand ``~`` inside a quoted assignment or inside the
+        ``.env`` file direnv points at, which is where these values are
+        usually written.  The literal string then missed every candidate, so
+        pypcode/angr SLEIGH specs were never found and the seed backends
+        returned no decompilation with the tools installed.
+        """
+        import rebrew.decompiler as dc
+
+        home = tmp_path / "home"
+        tool_root = home / "uv" / "tools"
+        tool_root.mkdir(parents=True)
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setenv("UV_TOOL_DIR", "~/uv/tools")
+        monkeypatch.setenv("XDG_DATA_HOME", "~/data")
+        roots = dc._uv_tool_roots()
+        assert roots[0] == tool_root
+        assert tool_root / "uv" / "tools" not in roots
+
+    def test_uv_tool_roots_ignores_a_blank_uv_tool_dir(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An empty or whitespace-only export is unset, not a relative probe.
+
+        ``Path(" ")`` is a real relative path, so the old truthiness check
+        appended a cwd-relative candidate that could never exist.
+        """
+        import rebrew.decompiler as dc
+
+        monkeypatch.delenv("XDG_DATA_HOME", raising=False)
+        monkeypatch.setenv("UV_TOOL_DIR", "  ")
+        roots = dc._uv_tool_roots()
+        assert Path(" ") not in roots
+        assert roots[0] == Path.home() / ".local" / "share" / "uv" / "tools"
+
     def test_rizin_sleigh_dirs_include_lib64(self) -> None:
         """Multi-lib Linux layouts are probed, not only /usr/lib."""
         import rebrew.decompiler as dc
