@@ -1508,3 +1508,47 @@ class TestSweepStaleTempDirs:
 
             shutil.rmtree(first, ignore_errors=True)
             shutil.rmtree(second, ignore_errors=True)
+
+    def test_second_thread_waits_for_the_walk(self, tmp_path: Path, monkeypatch) -> None:
+        """The base is claimed only after the walk, so a peer waits for it.
+
+        Claiming before the walk let a peer thread return immediately and
+        create its sandbox inside a base another thread was still removing
+        entries from.
+        """
+        import threading
+
+        monkeypatch.setattr(temp_dirs, "_temp_swept_bases", set())
+        base = tmp_path / "rebrew" / "tmp"
+        base.mkdir(parents=True)
+        real = temp_dirs.sweep_stale_temp_dirs
+        first_walk = threading.Event()
+        release_first = threading.Event()
+        walks: list[Path] = []
+
+        def _blocking(base_arg: Path) -> list[Path]:
+            walks.append(base_arg)
+            if len(walks) == 1:
+                first_walk.set()
+                release_first.wait(5.0)
+            return real(base_arg)
+
+        monkeypatch.setattr(temp_dirs, "sweep_stale_temp_dirs", _blocking)
+        walker = threading.Thread(target=temp_dirs._sweep_base_once, args=(base,))
+        walker.start()
+        assert first_walk.wait(5.0)
+
+        peer = threading.Thread(target=temp_dirs._sweep_base_once, args=(base,))
+        peer.start()
+        # The peer is still inside _sweep_base_once: it neither walked the
+        # base in parallel nor returned to create a sandbox mid-sweep.
+        assert peer.is_alive()
+        assert walks == [base]
+
+        release_first.set()
+        walker.join(5.0)
+        peer.join(5.0)
+        assert not walker.is_alive()
+        assert not peer.is_alive()
+        # The peer found the base claimed and never walked it again.
+        assert walks == [base]

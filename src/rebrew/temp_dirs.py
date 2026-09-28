@@ -148,20 +148,24 @@ def _sweep_base_once(base: Path) -> None:
     """Sweep *base* of abandoned sandboxes, the first time this process uses it.
 
     Every compile asks for a workdir, so an unguarded sweep would re-walk the
-    base (and re-``stat`` every leftover in it) once per compile.  Holding the
-    lock across the walk keeps two threads in the same process from sweeping
-    the same dir twice; concurrent processes each sweep once, and the losers
-    simply find the dir already gone.
+    base (and re-``stat`` every leftover in it) once per compile.  The lock is
+    held across the walk, not just the claim, so a second thread waits instead
+    of creating its sandbox in a base this thread is still removing entries
+    from.  Concurrent processes each sweep once, and the losers simply find the
+    dir already gone.
     """
     with _TEMP_SWEEP_LOCK:
         if base in _temp_swept_bases:
             return
+        try:
+            sweep_stale_temp_dirs(base)
+        except OSError:
+            # A sweep failure must not fail the compile that triggered it, and
+            # the base stays unclaimed so a later compile retries it.
+            return
+        # Claimed only after the walk, so a peer thread that arrives mid-sweep
+        # still waits for this one instead of walking the base in parallel.
         _temp_swept_bases.add(base)
-    try:
-        sweep_stale_temp_dirs(base)
-    except OSError:
-        # A sweep failure must not fail the compile that triggered it.
-        _temp_swept_bases.discard(base)
 
 
 def writable_temp_dir(prefix: str, *, require_real_disk: bool = False) -> Path:
