@@ -1926,7 +1926,7 @@ class TestLiveMutationFocus:
         from rebrew.match import live_mutation_weights
 
         monkeypatch.setattr(
-            "rebrew.matcher.build_candidate_obj_only",
+            "rebrew.match_ga.build_candidate_obj_only",
             lambda *a, **k: self._fake_build(b"\x55\x8b\xec"),
         )
         monkeypatch.setattr(
@@ -1939,11 +1939,31 @@ class TestLiveMutationFocus:
             "mut_inject_dummy_var": 6.0,
         }
 
+    def test_shares_the_ga_compile_seam(self, tmp_path: Path, monkeypatch: Any) -> None:
+        """The live classification compiles through the same module binding
+        as `BinaryMatchingGA._compile_source`, so one substituted compile
+        covers every compile `rebrew match` makes and a simulated GA never
+        reaches for a real compiler."""
+        import rebrew.match_ga as ga_mod
+        from rebrew.match import live_mutation_weights
+
+        assert ga_mod.build_candidate_obj_only is not None
+        monkeypatch.setattr(
+            ga_mod,
+            "build_candidate_obj_only",
+            lambda *a, **k: self._fake_build(b"\x55\x8b\xec"),
+        )
+        monkeypatch.setattr(
+            "rebrew.near_diag.analyze",
+            lambda *a, **k: {"mutations": ["mut_inject_dummy_var"]},
+        )
+        assert live_mutation_weights(self._params(tmp_path)) == {"mut_inject_dummy_var": 6.0}
+
     def test_no_mutations_returns_none(self, tmp_path: Path, monkeypatch: Any) -> None:
         from rebrew.match import live_mutation_weights
 
         monkeypatch.setattr(
-            "rebrew.matcher.build_candidate_obj_only",
+            "rebrew.match_ga.build_candidate_obj_only",
             lambda *a, **k: self._fake_build(b"\x55\x8b\xec"),
         )
         monkeypatch.setattr("rebrew.near_diag.analyze", lambda *a, **k: {"mutations": []})
@@ -1953,7 +1973,7 @@ class TestLiveMutationFocus:
         from rebrew.match import live_mutation_weights
 
         monkeypatch.setattr(
-            "rebrew.matcher.build_candidate_obj_only",
+            "rebrew.match_ga.build_candidate_obj_only",
             lambda *a, **k: self._fake_build(None, ok=False),
         )
         assert live_mutation_weights(self._params(tmp_path)) is None

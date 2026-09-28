@@ -229,7 +229,6 @@ def live_mutation_weights(params: BuildParams) -> dict[str, float] | None:
     if not params.seed_src:
         return None
     try:
-        from rebrew.matcher import build_candidate_obj_only
         from rebrew.near_diag import analyze
 
         res = build_candidate_obj_only(
