@@ -103,6 +103,10 @@
   `RebrewError, RuntimeError` and are importable from `rebrew.errors`.
 
 ### Fixed
+- **Two mypy findings in a module the strict list already claimed.**
+  `tests/test_security_scan.py` passed `monkeypatch` unannotated in two
+  tests, so `uv run mypy` failed on a file the gate asserted was clean.
+
 - **`rebrew intake --dry-run --json` no longer reports `documented: 0`.** The
   preview runs the discoverers and reports the real function count, then
   emitted a zero for the documented subset that only a real run can classify

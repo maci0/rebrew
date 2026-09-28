@@ -169,9 +169,17 @@ import path that actually went away is flagged.
   `test_notes_added_after_the_tag_stay_unreleased`).  Nothing publishes
   automatically, so the upload is a manual step from the release commit:
   `make build` then `make sdist-check` then `make sbom` (that order, see
-  `pr-check`), and upload `dist/rebrew-*.tar.gz` and `dist/rebrew-*.whl`
-  together.  A version already on PyPI is immutable: if a release is wrong,
-  cut the next patch rather than re-uploading.
+  `pr-check`), then
+  `uv publish dist/rebrew-*.tar.gz dist/rebrew-*.whl` from that same `dist/`.
+  Name both files: `uv publish` defaults to `dist/*`, which also matches
+  `rebrew.buildinfo` and `rebrew.cdx.json`, and the index rejects a path that
+  is not a distribution.  The credential is the environment, never the command
+  line, because argv is world-readable through the process table:
+  `export UV_PUBLISH_TOKEN=...` from the password manager, or configure
+  trusted publishing on the project and pass
+  `--trusted-publishing always` with no token at all.  A version already on
+  PyPI is immutable: if a release is wrong, cut the next patch rather than
+  re-uploading.
 - **Verify the artifact, not just the tree.**  Before uploading, install the
   built wheel into a throwaway environment and run `rebrew --version` plus
   one real command against a project; `make sdist-check` proves the sdist

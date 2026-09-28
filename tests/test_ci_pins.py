@@ -1302,6 +1302,32 @@ class TestCiPins:
             f"README Development has lock-unsafe uv run: {commands}"
         )
 
+    def test_release_upload_names_its_files_and_keeps_the_token_off_argv(self) -> None:
+        """The manual PyPI upload is the one deploy step with a credential.
+
+        `uv publish` defaults to `dist/*`, which also matches
+        `rebrew.buildinfo` and `rebrew.cdx.json`; the index rejects a path that
+        is not a distribution, so the documented command has to name the sdist
+        and the wheel. And the token is the environment, not argv: a secret on
+        the command line is readable through the process table for the life of
+        the process, and lands in a shell history on the way there.
+        """
+        text = (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
+        # The release bullet is the one place an upload command can appear, so
+        # the checks below stay scoped to it rather than the whole document.
+        bullet = text.split("Nothing publishes\n", 1)[1].split("\n- **", 1)[0]
+        commands = re.findall(r"`uv publish ([^`]*)`", bullet)
+        assert commands, "CONTRIBUTING.md must document the release upload"
+        assert all(
+            "dist/rebrew-*.tar.gz" in cmd and "dist/rebrew-*.whl" in cmd for cmd in commands
+        ), f"the upload must name both distributions, not the dist/* default: {commands}"
+        assert "UV_PUBLISH_TOKEN" in bullet
+        # A credential on the command line is readable through the process
+        # table and lands in shell history; the docs must not show one.
+        assert not re.search(r"(?<![\w-])(?:--token|--password|-p|-u)\s+\S", bullet), (
+            "CONTRIBUTING.md puts a credential on a command line; read it from the environment"
+        )
+
     def test_makefile_setup_warns_without_nasm(self) -> None:
         """Bootstrap should name the nasm host dep before the first test failure."""
         text = MAKEFILE.read_text(encoding="utf-8")
