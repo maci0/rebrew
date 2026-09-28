@@ -1952,12 +1952,17 @@ class Dashboard:
         *,
         load: Callable[[Path], Mapping[str, CoverageSnapshot]] = load_all_coverage_from,
         served: Callable[[], dict[str, Any]] | None = None,
+        expose_paths: bool = True,
     ) -> None:
         self.db_dir = Path(db_dir)
         self._load = load
         #: Running server totals the probe reports; ``None`` off the HTTP
         #: server (tests, direct queries), where no request has been served.
         self.served = served
+        #: Whether a wire response may carry the absolute coverage directory.
+        #: False on a non-loopback bind, where any client that can reach the
+        #: host would otherwise learn the operator's project path.
+        self.expose_paths = expose_paths
 
     def snapshots(self) -> Mapping[str, CoverageSnapshot]:
         """Every readable target's snapshot, keyed by target name.
@@ -2314,11 +2319,12 @@ class Dashboard:
             # the in-flight connection gauge, the count admission refuses on.
             payload: dict[str, Any] = {
                 "status": "ok",
-                # Named for what it is: a directory of coverage documents.
-                # The old key was `db`, from the SQLite store this replaced.
-                "coverage_dir": str(self.db_dir),
                 "targets": len(_readable_snapshots(self)),
             }
+            if self.expose_paths:
+                # Named for what it is: a directory of coverage documents.
+                # The old key was `db`, from the SQLite store this replaced.
+                payload["coverage_dir"] = str(self.db_dir)
             if self.served is not None:
                 payload.update(self.served())
             return self._json(200, payload)
@@ -3431,7 +3437,11 @@ def main(
     # has nothing to wait on and returns while an idle keep-alive client is
     # still up; block_on_close is deliberately not set either.
     server.daemon_threads = True
-    _Handler.dashboard = Dashboard(db_dir, served=served_totals)
+    _Handler.dashboard = Dashboard(
+        db_dir,
+        served=served_totals,
+        expose_paths=host in ("127.0.0.1", "localhost", "::1"),
+    )
     _Handler.allowed_hosts = allowed_hosts_for(host, port)
     _Handler.reset_served_totals()
     _server_notice(

@@ -179,6 +179,20 @@ def _sanitize_id(name: str) -> str:
     return f"n_{base}_{checksum}"
 
 
+def _mermaid_label(label: str) -> str:
+    """Escape a quoted Mermaid node label.
+
+    Symbol names come straight from the binary, so a ``"`` in one would
+    close the label and append further Mermaid statements to the graph.
+    """
+    return label.replace("\\", "\\\\").replace('"', "&quot;").replace("\r", " ").replace("\n", " ")
+
+
+def _dot_label(label: str) -> str:
+    """Escape a double-quoted Graphviz DOT label."""
+    return label.replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ")
+
+
 def _extract_callees(c_path: Path, text: str | None = None) -> list[str]:
     """Extract function names from extern declarations in a .c file.
 
@@ -555,7 +569,7 @@ def render_mermaid(
         if status not in ("UNKNOWN", ""):
             label = f"{label} [{status}]"
         style = _status_style(status)
-        lines.append(f'    {nid}["{label}"]:::{style}')
+        lines.append(f'    {nid}["{_mermaid_label(label)}"]:::{style}')
 
     lines.append("")
 
@@ -600,7 +614,7 @@ def render_dot(
         status = info["status"]
         # Unknown statuses stay on the UNKNOWN mark, not a second gray.
         color = STATUS_HEX.get(status, STATUS_HEX["UNKNOWN"])
-        shown = info.get("symbol", "") or name
+        shown = _dot_label(info.get("symbol", "") or name)
         label = f"{shown}\\n[{status}]" if status not in ("UNKNOWN", "DISPATCH") else shown
         lines.append(
             f'    {nid} [label="{label}", fillcolor="{color}", color="{TOKENS["ink"]}", '

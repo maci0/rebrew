@@ -16,7 +16,7 @@ from typing import Any, Literal, NamedTuple, Protocol, runtime_checkable
 
 from rebrew.errors import RebrewError
 from rebrew.ghidra.models import JsonRpcResponse, McpToolResult
-from rebrew.utils import RETRYABLE_HTTP_STATUS, close_response, console
+from rebrew.utils import RETRYABLE_HTTP_STATUS, close_response, console, untrusted_text
 
 logger = logging.getLogger(__name__)
 
@@ -198,7 +198,7 @@ def _parse_sse_response(text: str) -> JsonRpcResponse | None:
     return None
 
 
-def _response_within_limit(resp: McpResponse, tool_name: str, request_id: int) -> bool:
+def _response_within_limit(resp: McpResponse, tool_name: str, request_id: int | str) -> bool:
     """True when the body is small enough to parse and embed.
 
     The declared ``Content-Length`` is checked first so an oversized body is
@@ -813,7 +813,7 @@ def apply_commands_via_mcp(
     def _report_op_failure(tool: str, va: object, reason: object) -> None:
         """Print the first failures inline, count the rest for the run summary."""
         if errors <= MCP_ERROR_PRINT_LIMIT:
-            console.print(f"  ERROR at {va} ({tool}): {reason}")
+            console.print(f"  ERROR at {va} ({tool}): {untrusted_text(reason)}")
         elif errors == MCP_ERROR_PRINT_LIMIT + 1:
             console.print("  ... suppressing further errors")
         key = f"{tool}: {str(reason).splitlines()[0] if str(reason).strip() else reason}"
@@ -883,6 +883,8 @@ def apply_commands_via_mcp(
             resp = http.post(endpoint, json=payload, headers=headers, timeout=timeout)
             try:
                 resp.raise_for_status()
+                if not _response_within_limit(resp, str(cmd["tool"]), f"cmd-{cmd_id}"):
+                    return False, "MCP response exceeded the size limit"
                 # Read body once to avoid double-decode on non-UTF8 responses.
                 body = resp.text.strip()
                 if not body:
@@ -1003,7 +1005,7 @@ def apply_commands_via_mcp(
                         still_failing.append(cmd)
                         if retry == MCP_STRUCT_RETRY_PASSES - 1:
                             defn = cmd["args"].get("cDefinition", "")[:80]
-                            console.print(f"  PERMANENT FAIL: {error_msg} | {defn}")
+                            console.print(f"  PERMANENT FAIL: {untrusted_text(error_msg)} | {defn}")
                 except httpx.HTTPError as exc:
                     still_failing.append(cmd)
                     if retry == MCP_STRUCT_RETRY_PASSES - 1:

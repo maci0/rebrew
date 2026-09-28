@@ -456,6 +456,12 @@ def read_uploads(root: Path) -> dict[str, dict[str, str]]:
             continue
         if not isinstance(entry.get("slug"), str) or not isinstance(entry.get("claim_token"), str):
             continue
+        # Same filter the network path applies: a tampered ledger must not put
+        # arbitrary text into the printed claim URL.
+        if not _SCRATCH_ID_RE.fullmatch(str(entry["slug"])) or not _SCRATCH_ID_RE.fullmatch(
+            str(entry["claim_token"])
+        ):
+            continue
         entries[digest] = {k: str(v) for k, v in entry.items()}
     return entries
 

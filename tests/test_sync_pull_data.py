@@ -353,6 +353,58 @@ class TestPullDataGlobalsHeader:
         assert "*/ system(" not in header
         assert ".weird* / system(" in header
 
+    def test_hostile_data_type_cannot_inject_c(self, tmp_path: Any, monkeypatch: Any) -> None:
+        """A Ghidra ``dataType`` comes from the analysed program, so a name
+        carrying a ``;`` must not reach the compiled header as a second
+        declaration."""
+        symbols = [{"name": "g_evil", "address": "0x00403010", "isFunction": False}]
+        data_by_addr = {
+            "0x00403010": {
+                "address": "0x00403010",
+                "dataType": 'int; system("pwned")',
+                "length": 4,
+                "symbolName": "g_evil",
+            },
+        }
+
+        _runpull_data(monkeypatch, tmp_path, symbols, data_by_addr)
+        header = (tmp_path / "rebrew_globals.h").read_text(encoding="utf-8")
+        assert "extern unsigned char g_evil;" in header
+        assert "extern int; system(" not in header
+
+    def test_hostile_array_bound_cannot_inject_c(self, tmp_path: Any, monkeypatch: Any) -> None:
+        """The array bound is spliced into the declarator the same way."""
+        symbols = [{"name": "g_evil", "address": "0x00405000", "isFunction": False}]
+        data_by_addr = {
+            "0x00405000": {
+                "address": "0x00405000",
+                "dataType": 'char[4]; system("pwned")]',
+                "length": 4,
+                "symbolName": "g_evil",
+            },
+        }
+
+        _runpull_data(monkeypatch, tmp_path, symbols, data_by_addr)
+        header = (tmp_path / "rebrew_globals.h").read_text(encoding="utf-8")
+        assert "extern unsigned char g_evil[];" in header
+        assert "char[4]; system(" not in header
+
+    def test_qualified_pointer_type_is_kept(self, tmp_path: Any, monkeypatch: Any) -> None:
+        """The grammar accepts real declarators, not just bare words."""
+        symbols = [{"name": "g_msg", "address": "0x00405000", "isFunction": False}]
+        data_by_addr = {
+            "0x00405000": {
+                "address": "0x00405000",
+                "dataType": "char * const",
+                "length": 4,
+                "symbolName": "g_msg",
+            },
+        }
+
+        _runpull_data(monkeypatch, tmp_path, symbols, data_by_addr)
+        header = (tmp_path / "rebrew_globals.h").read_text(encoding="utf-8")
+        assert "extern char * const g_msg;" in header
+
     def test_section_grouping(self, tmp_path: Any, monkeypatch: Any) -> None:
         symbols = [
             {"name": "g_data", "address": "0x00403010", "isFunction": False},

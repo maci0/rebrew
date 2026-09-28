@@ -372,6 +372,39 @@ class TestRenderers:
         assert "n_FuncB_" in result
         assert "classDef exact" in result
 
+    def test_hostile_symbol_cannot_close_the_label(self) -> None:
+        """A symbol name is read out of the binary, so a quote in one must not
+        end the Mermaid node label and append graph statements."""
+        nodes = {
+            "FuncA": {
+                "status": "EXACT",
+                "va": 1,
+                "file": "",
+                "symbol": 'evil"]:::exact\n    click A "javascript:alert(1)"',
+            }
+        }
+        result = render_mermaid(nodes, [])
+        # The quote is neutralized and the newline folded to a space, so the
+        # text stays one escaped label instead of a second graph statement.
+        assert "&quot;" in result
+        assert 'evil"]:::' not in result
+        assert "click A &quot;javascript" in result
+        assert "\n    click A" not in result
+
+    def test_hostile_symbol_cannot_close_a_dot_label(self) -> None:
+        """Same name, Graphviz DOT branch: it must not append an attribute."""
+        nodes = {
+            "FuncA": {
+                "status": "EXACT",
+                "va": 1,
+                "file": "",
+                "symbol": 'evil", shape=box, URL="javascript:alert(1)',
+            }
+        }
+        result = render_dot(nodes, [])
+        assert 'URL=\\"javascript' in result
+        assert 'evil", shape' not in result
+
     def test_graph_chrome_comes_from_the_token_set(self) -> None:
         """Node stroke, node label and the dispatch mark read rebrew.theme.
 

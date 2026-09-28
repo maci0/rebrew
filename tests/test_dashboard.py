@@ -3561,6 +3561,22 @@ class TestHealthRoute:
         assert payload["coverage_dir"] == str(dashboard.db_dir)
         assert payload["targets"] == len(dashboard.targets())
 
+    def test_health_withholds_the_path_off_loopback(
+        self, tmp_path: Path, catalog: FakeCatalog
+    ) -> None:
+        """A wildcard bind has no auth, so the probe must not hand every LAN
+        client the operator's absolute project path."""
+        from rebrew.dashboard import Dashboard
+
+        _write_config(tmp_path, "server_dll")
+        build_db(tmp_path)
+        dashboard = Dashboard(tmp_path / "db", expose_paths=False)
+        status, _content_type, body = dashboard.handle("GET", "/api/health", {})
+        assert status == 200
+        payload = json.loads(body)
+        assert "coverage_dir" not in payload
+        assert payload["status"] == "ok"
+
     def test_health_reports_the_running_totals(
         self, dashboard: Dashboard, monkeypatch: pytest.MonkeyPatch
     ) -> None:

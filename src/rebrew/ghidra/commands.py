@@ -38,6 +38,20 @@ from rebrew.utils import (
 # Matches non-identifier characters to remove from symbol names.
 _NORMALIZE_NAME_RE = re.compile(r"[^A-Za-z0-9_]")
 
+#: A C type specifier the generated header may declare: a keyword or a
+#: one-or-more-word type name (``unsigned char``, ``struct my_type``), then
+#: ``const``/``volatile`` qualifiers and pointer stars, each optionally
+#: qualified.  Ghidra's ``dataType`` comes from the analysed program's type
+#: manager, so anything outside this grammar is dropped rather than compiled.
+_C_TYPE_RE = re.compile(
+    r"[A-Za-z_][A-Za-z0-9_]*(?:\s+[A-Za-z_][A-Za-z0-9_]*)*"
+    r"(?:\s+(?:const|volatile))*"
+    r"(?:\s*\*+(?:\s+(?:const|volatile))*)*"
+)
+
+#: An array dimension: a decimal or ``0x`` integer, nothing else.
+_C_DIM_RE = re.compile(r"0[xX][0-9a-fA-F]+|[0-9]+")
+
 #: Statuses that get a status bookmark.
 _BOOKMARK_STATUSES = frozenset({"EXACT", "RELOC", "NEAR_MATCHING", "STUB"})
 
@@ -264,6 +278,11 @@ def pull_data(
             base_lower = base.lower()
             if re.fullmatch(r"undefined(\d+)?", base_lower):
                 return f"extern void* {symbol_name};", ""
+            if not _C_TYPE_RE.fullmatch(_normalize_ghidra_type(base)):
+                return (
+                    f"extern void* {symbol_name};",
+                    f"unsupported Ghidra type: {base[:40]!r}",
+                )
             return f"extern {_normalize_ghidra_type(base)}* {symbol_name};", ""
 
         undef_match = re.fullmatch(r"undefined(\d+)?", lower)
@@ -284,11 +303,26 @@ def pull_data(
                 base = "unsigned char"
             else:
                 base = _normalize_ghidra_type(base)
+            if not _C_DIM_RE.fullmatch(dim):
+                return (
+                    f"extern unsigned char {symbol_name}[];",
+                    f"unsupported Ghidra array bound: {dim[:40]!r}",
+                )
+            if not _C_TYPE_RE.fullmatch(base):
+                return (
+                    f"extern unsigned char {symbol_name}[{dim}];",
+                    f"unsupported Ghidra type: {base[:40]!r}",
+                )
             return f"extern {base} {symbol_name}[{dim}];", ""
 
         if dtype:
             c_type = _normalize_ghidra_type(dtype)
             is_string_type = lower in {"string", "terminatedcstring"}
+            if not _C_TYPE_RE.fullmatch(c_type):
+                return (
+                    f"extern unsigned char {symbol_name};",
+                    f"unsupported Ghidra type: {dtype[:40]!r}",
+                )
             if is_string_type and length > 0:
                 return f"extern {c_type} {symbol_name}[{length}];", ""
             if is_string_type:

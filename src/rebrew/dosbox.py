@@ -31,6 +31,13 @@ def _build_dosbox_conf(sandbox: Path, autoexec: list[str]) -> str:
     the containerized path for the same 16-bit compilers, enforced identical
     by ``TestDosboxDriverSync``.
     """
+    # The conf is a line-oriented command file and DOSBox exposes the host root
+    # as ``Z:``, so a CR or LF in a caller-supplied line would add conf
+    # commands.  Refuse rather than sanitize, matching the sandbox-path refusal
+    # in make_sandbox_dir.
+    for line in autoexec:
+        if any(ch in line for ch in "\r\n"):
+            raise DosboxError(f"autoexec line has unsafe characters: {line[:40]!r}")
     body = "\n".join(
         [
             # Quote the path: DOSBox would split a sandbox whose path holds
