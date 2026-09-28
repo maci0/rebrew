@@ -22,6 +22,8 @@ from rebrew.config import (
     _detect_binary_layout,
     _resolve,
     arch_byte_order,
+    arch_padding_bytes,
+    arch_pointer_size,
     find_root,
     inventory_path_for,
     llm_max_requests,
@@ -723,6 +725,27 @@ class TestProjectConfig:
         assert cfg.padding_bytes == [0xCC, 0x90]
         assert cfg.image_base == 0
         assert cfg.text_va == 0
+
+    def test_arch_derived_values_track_arch(self) -> None:
+        """pointer_size/padding_bytes read the preset table, not a stored copy.
+
+        They used to be fields assigned once at load time, so a hand-built
+        config reported x86_32's layout whatever its arch said.
+        """
+        cfg = ProjectConfig(root=Path("."), arch="x86_64")
+        assert cfg.pointer_size == arch_pointer_size("x86_64") == 8
+        assert cfg.padding_bytes == arch_padding_bytes("x86_64")
+        cfg.arch = "mips32"
+        assert cfg.pointer_size == 4
+        assert cfg.padding_bytes == [0x00]
+
+    def test_unknown_arch_falls_back_to_the_default_profile(self) -> None:
+        """An arch with no preset sizes like x86_32, but validate() still fails it."""
+        cfg = ProjectConfig(root=Path("."), arch="powerpc64")
+        assert cfg.pointer_size == ARCH_PRESETS["x86_32"]["pointer_size"]
+        assert cfg.padding_bytes == ARCH_PRESETS["x86_32"]["padding_bytes"]
+        with pytest.raises(ConfigError):
+            cfg.validate()
 
 
 # ---------------------------------------------------------------------------

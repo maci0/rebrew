@@ -59,6 +59,25 @@ class TestSectionInfo:
         assert s.file_offset == 0x400
         assert s.raw_size == 0x2000
 
+    def test_absent_exec_flag_is_distinct_from_data(self) -> None:
+        """`is_code` is three-state: True, False, or unstated by the format."""
+        unstated = SectionInfo(name=".text", va=0x1000, size=0x10, file_offset=0, raw_size=0x10)
+        assert unstated.is_code is None
+        assert unstated.is_code_section is True
+        data = SectionInfo(name=".rdata", va=0x2000, size=0x10, file_offset=0, raw_size=0x10)
+        assert data.is_code_section is False
+
+    def test_stated_flag_overrides_the_name(self) -> None:
+        """A `.text` alias a loader deliberately did not flag is not code."""
+        alias = SectionInfo(
+            name=".text", va=0x1000, size=0x10, file_offset=0, raw_size=0x10, is_code=False
+        )
+        assert alias.is_code_section is False
+        flagged = SectionInfo(
+            name=".init", va=0x3000, size=0x10, file_offset=0, raw_size=0x10, is_code=True
+        )
+        assert flagged.is_code_section is True
+
 
 # -------------------------------------------------------------------------
 # BinaryInfo
@@ -259,8 +278,10 @@ class TestPeTextSection:
         assert info.text_va == 0x400000 + 0x1000
         assert info.text_size == 0x10
         assert info.sections[".text"].va == info.text_va
-        # The PE loader leaves is_code alone; only the alias is synthesized.
-        assert info.sections[".text"].is_code is False
+        # The PE loader states no exec flag, so is_code stays unstated rather
+        # than claiming the section is data; the name resolves it as code.
+        assert info.sections[".text"].is_code is None
+        assert info.sections[".text"].is_code_section is True
 
     def test_executable_section_is_aliased_as_text(self, tmp_path: Path) -> None:
         info = self._load(tmp_path, "CODE")

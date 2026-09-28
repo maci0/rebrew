@@ -38,6 +38,13 @@ MAX_BINARY_SIZE = 512 * BYTES_PER_MIB  # 512 MiB
 _data_load_lock = threading.Lock()
 
 
+#: Section names that hold code when a format states no executable flag of its
+#: own.  PE and Mach-O name the text section, ELF flags it SHF_EXECINSTR, and a
+#: stripped NE image has neither, so every reader of :attr:`SectionInfo.is_code`
+#: resolves the unknown case here instead of re-deciding it per call site.
+CODE_SECTION_NAMES = frozenset({".text", "text", "__text", "CODE"})
+
+
 @dataclass
 class SectionInfo:
     """Metadata for a single section in a binary."""
@@ -47,9 +54,22 @@ class SectionInfo:
     size: int  # virtual size (mapped)
     file_offset: int  # offset in the file on disk
     raw_size: int  # size on disk (may differ from virtual size)
-    # SHF_EXECINSTR.  Only the ELF loader populates this; PE/Mach-O loaders
-    # leave it False, and the FLIRT scanner then falls back to `.text`.
-    is_code: bool = False
+    # SHF_EXECINSTR.  Only the ELF loader states it; PE and Mach-O leave it
+    # None, meaning the format carries no such flag rather than that the
+    # section is data.  Read it through `is_code_section` unless the
+    # distinction is the point.
+    is_code: bool | None = None
+
+    @property
+    def is_code_section(self) -> bool:
+        """True when this section holds code, flag or name.
+
+        The single resolution of the three-state :attr:`is_code`: a stated
+        flag wins either way, and an absent one falls back to the name.
+        """
+        if self.is_code is None:
+            return self.name in CODE_SECTION_NAMES
+        return self.is_code
 
 
 @dataclass
@@ -126,4 +146,4 @@ class BinaryInfo:
         return self._data
 
 
-__all__ = ["MAX_BINARY_SIZE", "BinaryInfo", "SectionInfo"]
+__all__ = ["MAX_BINARY_SIZE", "CODE_SECTION_NAMES", "BinaryInfo", "SectionInfo"]

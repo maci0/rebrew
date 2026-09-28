@@ -286,6 +286,10 @@ _ARCH_BIG_ENDIAN = frozenset({"mips32", "mips64", "ppc32", "ppc64", "sh2"})
 #: rather than failing; every preset arch carries its real width.
 _DEFAULT_POINTER_SIZE = 4
 
+#: Fill bytes assumed for an arch string with no preset, matching the x86_32
+#: profile for the same reason as :data:`_DEFAULT_POINTER_SIZE`.
+_DEFAULT_PADDING_BYTES: list[int] = [0xCC, 0x90]
+
 
 def arch_pointer_size(arch: str) -> int:
     """On-disk pointer width in bytes for *arch*.
@@ -295,6 +299,17 @@ def arch_pointer_size(arch: str) -> int:
     """
     preset = ARCH_PRESETS.get(arch)
     return int(preset["pointer_size"]) if preset else _DEFAULT_POINTER_SIZE
+
+
+def arch_padding_bytes(arch: str) -> list[int]:
+    """Inter-function fill byte values for *arch*.
+
+    The counterpart to :func:`arch_pointer_size`: both read the preset table
+    so a config, a loader, and a gap classifier cannot disagree about the
+    target's data layout.
+    """
+    preset = ARCH_PRESETS.get(arch)
+    return list(preset["padding_bytes"]) if preset else list(_DEFAULT_PADDING_BYTES)
 
 
 def arch_is_big_endian(arch: str) -> bool:
@@ -579,9 +594,20 @@ class ProjectConfig:
         """
         return profile_flags_style(self.compiler_profile) == "posix"
 
-    # --- Computed from arch ---
-    pointer_size: int = 4
-    padding_bytes: list[int] = field(default_factory=lambda: [0xCC, 0x90])
+    # --- Derived from arch ---
+    #  Not stored: both read ARCH_PRESETS through arch_pointer_size and
+    #  arch_padding_bytes, so a hand-built config and a loaded one cannot
+    #  disagree with the preset table about the target's data layout.
+
+    @property
+    def pointer_size(self) -> int:
+        """On-disk pointer width in bytes for :attr:`arch`."""
+        return arch_pointer_size(self.arch)
+
+    @property
+    def padding_bytes(self) -> list[int]:
+        """Inter-function fill byte values for :attr:`arch`."""
+        return arch_padding_bytes(self.arch)
 
     # --- PE-specific (computed at load time if format == "pe") ---
     image_base: int = 0
@@ -2219,7 +2245,10 @@ def load_config(
             f"(known: {', '.join(sorted(TOOLCHAINS))})"
         )
 
-    arch_preset = ARCH_PRESETS[arch_name]
+    # An unknown arch fails at the end of this function, in validate(), with a
+    # ConfigError naming the known arches.  Nothing before that needs the
+    # preset: every arch-derived value is read through arch_pointer_size and
+    # arch_padding_bytes, which fall back rather than raise.
     bin_rel = tgt.get("binary")
     if bin_rel is None:
         raise ConfigKeyError(f"Target '{target}' in rebrew-project.toml is missing 'binary' path")
@@ -2393,9 +2422,6 @@ def load_config(
             DEFAULT_RECOMPILE_RETRIES,
             "compiler.recompile_retries",
         ),
-        # arch-derived
-        pointer_size=arch_preset["pointer_size"],
-        padding_bytes=arch_preset["padding_bytes"],
         # project-specific
         iat_thunks=_parse_int_list(tgt.get("iat_thunks", []), "iat_thunks"),
         dll_exports=_parse_hex_dict(tgt.get("dll_exports", {})),
@@ -2625,6 +2651,7 @@ __all__ = [
     "XVFB_DISPLAY_ENV",
     "arch_byte_order",
     "arch_is_big_endian",
+    "arch_padding_bytes",
     "arch_pointer_size",
     "check_env_dir",
     "check_env_display",

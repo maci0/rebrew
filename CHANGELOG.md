@@ -301,6 +301,28 @@
   `"packaged"` for a plugin profile the new registry already knew. Both tables
   now come from one `registry_snapshot()` read, as every other reader already
   did.
+- **`ProjectConfig` reported the x86_32 data layout whatever its `arch` said.**
+  `pointer_size` and `padding_bytes` were fields copied out of `ARCH_PRESETS`
+  once at load time, beside `arch_pointer_size()`, which already called
+  itself the single source of truth for the same fact. A config built
+  directly rather than through `load_config` therefore sized a 64-bit
+  target's pointer slots at 4 bytes and classified its 64-bit function
+  padding as non-padding. Both are now properties that read the preset table
+  through `arch_pointer_size()` and its new counterpart
+  `arch_padding_bytes()`, so the two readers cannot disagree.
+- **A PE or Mach-O section's unknown code flag read as "this is data".**
+  `SectionInfo.is_code` was a `bool` defaulting to `False`, but only the ELF
+  loader states it; every other format left the field at its default, which
+  is indistinguishable from a section the image really did mark as data.
+  Each reader compensated with its own private guess (`.text` here, a
+  largest-segment walk there). `is_code` is now `bool | None`, where `None`
+  means the format carries no such flag, and one `is_code_section` property
+  resolves flag-or-name for the readers that want a predicate.
+- **`rebrew doctor --json` on a clean report raised `NameError`.**
+  `tests/test_doctor.py` still referenced `_PASS`, the name the passing
+  status carried before it was renamed to `_OK` to keep ruff's hardcoded
+  credential rule active, so the one test covering a clean report's exit
+  code never reached its assertion.
 - **`rebrew doctor` returned the byte-mismatch code for a broken project.**
   Every failing doctor check is a missing prerequisite, an unreadable
   `rebrew-project.toml`, or an unusable toolchain, so the run exited 1 and a

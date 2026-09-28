@@ -238,7 +238,12 @@ def _sections_from_exec_segments(load_segments: Any) -> list[SectionInfo]:
 
 def _text_alias(source: SectionInfo) -> SectionInfo:
     """A `.text` alias of *source*, not flagged code so a scanner that walks
-    `is_code` sections does not visit the region twice."""
+    `is_code` sections does not visit the region twice.
+
+    The alias is the target's own code under a name it does not carry, so
+    `is_code_section` would resolve it as code by name; the stated False is
+    what keeps the two entries from scanning the same bytes twice.
+    """
     return replace(source, name=".text", is_code=False)
 
 
