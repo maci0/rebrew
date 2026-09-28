@@ -145,7 +145,7 @@ def _new_cookie() -> Path | None:
         fd, name = tempfile.mkstemp(prefix="rebrew-xvfb-", suffix=".cookie")
     except OSError:
         return None
-    with os.fdopen(fd, "w") as fh:
+    with os.fdopen(fd, "w", encoding="ascii") as fh:
         fh.write(secrets.token_hex(_XVFB_COOKIE_BYTES) + "\n")
     return Path(name)
 

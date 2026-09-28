@@ -1,6 +1,7 @@
 """Tests for decompme.py — decomp.me scratch uploader."""
 
 import json
+import os
 import struct
 from pathlib import Path
 from types import SimpleNamespace
@@ -157,6 +158,41 @@ class TestBuildPayload:
             context="",
         )
         assert "\ufffd" not in payload["data"]["source_code"]
+
+    def test_non_utf8_filename_yields_encodable_object_name(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A filename is bytes on disk, not Unicode.
+
+        ``caf\\xe9.c`` (one raw cp1252 byte) decodes to a lone surrogate, and
+        both the multipart form field and the ledger digest encode the object
+        name as UTF-8, so an unsanitized stem raised UnicodeEncodeError on the
+        first upload of a legal file.
+        """
+        cfg = _cfg(tmp_path)
+        cfg.reversed_dir.mkdir(exist_ok=True)
+        src = cfg.reversed_dir / os.fsdecode(b"caf\xe9.c")
+        src.write_text("int func_a(void){return 0;}\n", encoding="utf-8")
+        monkeypatch.setattr(
+            "rebrew.binary_loader.extract_raw_bytes", lambda p, va, size: b"\x55\x8b\xec\x5d\xc3"
+        )
+        payload = decompme.build_scratch_payload(
+            cfg,
+            src,
+            va=0x401000,
+            size=5,
+            symbol="_func_a",
+            name="func_a",
+            compiler="msvc6.0",
+            platform="win32",
+            compiler_flags="/O1",
+            context="",
+        )
+        fname = payload["files"]["target_obj"][0]
+        assert fname == "caf.o"
+        fname.encode("utf-8")
+        # And the digest the ledger keys on computes instead of raising.
+        assert decompme.scratch_digest(payload, "https://decomp.me")
 
     def test_missing_target_bytes_raises(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

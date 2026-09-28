@@ -62,6 +62,7 @@ from rebrew.utils import (
     atomic_write_text,
     close_response,
     file_lock,
+    filename_component,
     read_source_text,
     retry_backoff_delay,
     untrusted_text,
@@ -186,8 +187,15 @@ def build_scratch_payload(
         raise ValueError(f"failed to extract target bytes at 0x{va:08x}")
     import tempfile
 
+    # The object name travels to decomp.me as multipart form data and into the
+    # ledger digest, both of which encode it as UTF-8.  A filesystem name is
+    # not Unicode: `caf\xe9.c` (one raw cp1252 byte) decodes to a lone
+    # surrogate and the upload dies on the first encode.  `filename_component`
+    # is the project's one reduction for an untrusted name to a path piece, so
+    # every legal filename produces an encodable object name.
+    obj_name = f"{filename_component(source.stem)}.o"
     with tempfile.TemporaryDirectory(prefix="rebrew_decompme_") as tmp:
-        obj = Path(tmp) / f"{source.stem}.o"
+        obj = Path(tmp) / obj_name
         write_coff_object(obj, [(symbol or name or f"func_{va:08x}", 0, raw)])
         obj_bytes = obj.read_bytes()
 
@@ -205,7 +213,7 @@ def build_scratch_payload(
         "source_code": source_code,
         "name": name or diff_label,
     }
-    files = {"target_obj": (f"{source.stem}.o", obj_bytes, "application/octet-stream")}
+    files = {"target_obj": (obj_name, obj_bytes, "application/octet-stream")}
     return {"data": data, "files": files}
 
 
@@ -430,20 +438,26 @@ def scratch_digest(payload: dict[str, Any], api: str) -> str:
     file's name and bytes) and the service it goes to, so two runs of
     ``rebrew decompme`` share a digest exactly when decomp.me would receive
     the identical request.
+
+    ``surrogateescape`` on the text fields, as everywhere else a path or a
+    name off disk is hashed (``rebrew.compile_cache``,
+    ``rebrew.verify_hash``): a field carrying a lone surrogate for a
+    non-UTF-8 byte still gets a digest instead of raising out of the
+    idempotency check.
     """
     h = hashlib.sha256()
     h.update(api.encode("utf-8"))
     for key in sorted(payload.get("data", {})):
         h.update(key.encode("utf-8"))
         h.update(b"\0")
-        h.update(str(payload["data"][key]).encode("utf-8"))
+        h.update(str(payload["data"][key]).encode("utf-8", errors="surrogateescape"))
         h.update(b"\0")
     for key in sorted(payload.get("files", {})):
         entry = payload["files"][key]
         filename, blob = entry[0], entry[1]
         h.update(key.encode("utf-8"))
         h.update(b"\0")
-        h.update(str(filename).encode("utf-8"))
+        h.update(str(filename).encode("utf-8", errors="surrogateescape"))
         h.update(b"\0")
         h.update(blob if isinstance(blob, bytes) else bytes(blob))
         h.update(b"\0")
