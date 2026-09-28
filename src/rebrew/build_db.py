@@ -551,7 +551,16 @@ def import_verify_rows(
         # rejects a float VA the same way it rejects a non-numeric one.
         try:
             va_int = int(str(item.get("va", va_key)), 0)
-        except (ValueError, TypeError):
+        except (ValueError, TypeError) as exc:
+            # The whole-wipe guard below covers an entries table that yields
+            # nothing; one unreadable VA would still silently drop that row
+            # from the rebuilt coverage document.
+            log.warning(
+                "build_db: verify cache entry %r has an unusable va (%s); "
+                "its verdict is dropped from the coverage document",
+                va_key,
+                exc,
+            )
             continue
         rows.append(
             (

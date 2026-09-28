@@ -1270,3 +1270,48 @@ class TestLongLongSize:
         assert c_type_size("short") == 2
         assert c_type_size("char") == 1
         assert estimate_type_size("int tbl[4]") == 16
+
+
+def test_fix_ownership_rolls_back_when_a_write_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failure after the extern pass must not leave definitions stranded."""
+    import rebrew.data_layout as dl
+
+    data_base = 0x10027000
+    obj_a = _mingw_obj(tmp_path, "a", "int g_a = 1;\nint g_ab = 2;\n")
+    obj_b = _mingw_obj(tmp_path, "b", "int g_b = 3;\n")
+    _write_rsp(tmp_path, [obj_a, obj_b])
+    _write_layout(tmp_path, data_base, 0x1000, 0x1000)
+    (tmp_path / "original").mkdir(exist_ok=True)
+    binp = tmp_path / "original" / "x.dll"
+    binp.write_bytes(_make_pe(b"\x00" * 0x1000))
+    src = tmp_path / "src"
+    src.mkdir()
+    before = {"a.c": "int g_a = 1;\nint g_ab = 2;\n", "b.c": "int g_b = 3;\n"}
+    for name, text in before.items():
+        (src / name).write_text(text, encoding="utf-8")
+    meta = tmp_path / "rebrew-data.toml"
+    meta.write_text(
+        f'["SERVER.0x{data_base:x}"]\nname = "g_a"\nsection = ".data"\ntype = "int"\n'
+        f'["SERVER.0x{data_base + 4:x}"]\nname = "g_ab"\nsection = ".data"\ntype = "int"\n'
+        f'["SERVER.0x{data_base + 0x1000:x}"]\nname = "g_b"\nsection = ".data"\ntype = "int"\n',
+        encoding="utf-8",
+    )
+
+    real_write = dl.atomic_write_text
+    seen: list[Path] = []
+
+    def flaky(path: Path, text: str, **kwargs: object) -> None:
+        seen.append(path)
+        # Let the first write through, then fail: the tree is mid-transaction.
+        if len(seen) > 1:
+            raise OSError("no space left on device")
+        real_write(path, text, **kwargs)
+
+    monkeypatch.setattr(dl, "atomic_write_text", flaky)
+    with pytest.raises(OSError, match="no space left"):
+        dl.fix_ownership(tmp_path, meta, binp, src)
+
+    for name, text in before.items():
+        assert (src / name).read_text(encoding="utf-8") == text, name

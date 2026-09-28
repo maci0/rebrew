@@ -611,7 +611,16 @@ def main(
 
             bin_info = load_binary(bin_path)
             sections = sections_from_info(bin_info)
-        except (ImportError, OSError, KeyError, ValueError):
+        except (ImportError, OSError, KeyError, ValueError) as exc:
+            # Every section-derived view below (global sections, the
+            # out-of-range VA cross-check, BSS layout) is silently degraded
+            # without this, and the BSS report then tells the user to go
+            # annotate globals that were never the problem.
+            console.print(
+                f"[yellow]warning:[/yellow] cannot read sections from {bin_path} ({exc}); "
+                "global sections, the out-of-range VA check and the BSS layout "
+                "report are omitted"
+            )
             bin_info = None
             sections = {}
         enrich_with_sections(scan, sections)

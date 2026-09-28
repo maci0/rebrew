@@ -101,7 +101,12 @@ from rebrew.toolchain import (
     cached_image_digest,
     run_toolchain,
 )
-from rebrew.utils import container_runtime, read_source_text, safe_shlex_split
+from rebrew.utils import (
+    container_runtime,
+    interruptible_pool,
+    read_source_text,
+    safe_shlex_split,
+)
 from rebrew.workspace.config import config_path
 from rebrew.workspace.status import MATCHED_STATUSES
 
@@ -2266,7 +2271,7 @@ def precompile_batch(
         _BATCH_OBJ_DIRS.append(lasting_root)
     _register_batch_obj_atexit()
     batch_jobs = max(1, min(getattr(cfg, "default_jobs", 4) or 4, len(batchable)))
-    with _futures.ThreadPoolExecutor(max_workers=batch_jobs) as pool:
+    with interruptible_pool(batch_jobs) as pool:
         future_map = {
             pool.submit(_compile_group, tc, gf, ms): (tc, gf) for (tc, gf), ms in batchable.items()
         }

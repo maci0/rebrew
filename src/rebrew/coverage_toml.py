@@ -652,6 +652,16 @@ def render_coverage_toml(
     Nothing is written and nothing is read, so the same call is what the tests,
     the writer and an in-memory check all use.
     """
+    if previous is not None and previous.get("version") != _TOML_VERSION:
+        # Same data loss as the unreadable-file case _read_previous logs, and
+        # the rebuild below replaces the file, so it has to be said out loud.
+        log.warning(
+            "coverage_toml: prior document for %s carries version %r, not %r; "
+            "the rebuild carries no history",
+            target_name,
+            previous.get("version"),
+            _TOML_VERSION,
+        )
     prev = previous if previous is not None and previous.get("version") == _TOML_VERSION else {}
     fn_rows = dedupe_by_va(
         _function_rows(target_name, data), target_name=target_name, table="function"

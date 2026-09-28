@@ -620,8 +620,14 @@ def main(
         dry_root = Path(cfg.root) / ".rebrew" / "climb"
         dry_root.mkdir(parents=True, exist_ok=True)
         dry_dir = tempfile.TemporaryDirectory(dir=dry_root, prefix=f"{filename_component(sym)}-")
-        score_path = Path(dry_dir.name) / path.name
-        score_path.write_text(original, encoding=encoding)
+        try:
+            score_path = Path(dry_dir.name) / path.name
+            score_path.write_text(original, encoding=encoding)
+        except BaseException:
+            # The cleanup is in the finally far below, which this window
+            # never reaches, so the staged copy would survive to the GC.
+            dry_dir.cleanup()
+            raise
     else:
         dry_dir = None
         score_path = path

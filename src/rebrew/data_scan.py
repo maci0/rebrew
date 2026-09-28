@@ -27,6 +27,10 @@ from rebrew.utils import floor_pct, merged_span_bytes, read_source_text
 
 log = logging.getLogger(__name__)
 
+#: Latches after the first failed rebrew-data.toml lookup so one unreadable
+#: store does not emit a warning per global.  See :func:`_data_meta`.
+_data_meta_unreadable = False
+
 #: struct code per pointer width, for the dispatch-table scan.
 _PTR_FMT = {2: "H", 4: "I", 8: "Q"}
 
@@ -96,7 +100,19 @@ def _data_meta(cfg: ProjectConfig | None, module: str, va: int) -> dict[str, Any
 
     try:
         return get_data_entry(cfg.metadata_dir, va, module=module)
-    except (OSError, ValueError, KeyError):
+    except (OSError, ValueError, KeyError) as exc:
+        global _data_meta_unreadable
+        # A per-symbol miss and a store that exists but cannot be read both
+        # return {}, which reports every global with no type/size/section and
+        # no reason why.  Warn once so the message names the cause, not the
+        # first global that happened to hit it.
+        if not _data_meta_unreadable:
+            _data_meta_unreadable = True
+            log.warning(
+                "rebrew-data.toml entry lookup failed (%s); global fields are "
+                "reported empty",
+                exc,
+            )
         return {}
 
 

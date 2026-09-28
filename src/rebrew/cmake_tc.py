@@ -319,6 +319,11 @@ def _ensure_wineprefix(prefix: Path, spec: ToolchainSpec) -> None:
             # confusing wine errors — fail here where the cause is visible.
             stderr = r.stderr.decode("utf-8", errors="replace")[-400:].strip()
             error_exit(f"wineprefix init failed (rc={r.returncode}) at {prefix}: {stderr}")
+        # Stamp the initialized prefix while the lock is still held, so the
+        # two guards above actually mean "exactly once".  Without it every
+        # rebrew-cmake-* invocation serialized on this lock behind another
+        # wineboot against the same live prefix.
+        (prefix / ".update-timestamp").write_text("", encoding="utf-8")
 
 
 def _docker_run(spec: ToolchainSpec, mode: str, args: list[str]) -> int:

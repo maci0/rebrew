@@ -41,7 +41,12 @@ from rebrew.flag_data import (
 )
 from rebrew.flags import Checkbox, Flags, FlagSet
 from rebrew.toolchain_spec import FlagsStyle
-from rebrew.utils import read_source_text, run_process_group, safe_shlex_split
+from rebrew.utils import (
+    interruptible_pool,
+    read_source_text,
+    run_process_group,
+    safe_shlex_split,
+)
 
 from .core import BuildResult
 from .parsers import extract_function_from_binary, parse_obj_symbol_bytes
@@ -852,7 +857,7 @@ def flag_sweep(
             however long the compiles happen to take.
 
     """
-    from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+    from concurrent.futures import FIRST_COMPLETED, wait
 
     from .scoring import precompute_target, score_candidate
 
@@ -930,7 +935,7 @@ def flag_sweep(
                     _compile_errors.append(res.error_msg.strip()[:300])
         return float("inf"), flags
 
-    with ThreadPoolExecutor(max_workers=n_jobs) as executor:
+    with interruptible_pool(n_jobs) as executor:
         # Bounded submission: submitting every combo up front (thorough =
         # 258k before the cap, ~100k after, full = 6.2M before the cap)
         # builds one Future + one queued task per combo — hundreds of MB to

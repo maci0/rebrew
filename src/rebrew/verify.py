@@ -69,6 +69,7 @@ from rebrew.status_style import STATUS_COLORS
 from rebrew.utils import (
     atomic_write_text,
     floor_pct,
+    interruptible_pool,
     preset_module_key,
     read_json_text,
 )
@@ -2403,7 +2404,7 @@ def run_verification(
             if cached_count > 0:
                 progress.update(task, advance=cached_count, description="cached")
 
-            with concurrent.futures.ThreadPoolExecutor(max_workers=effective_jobs) as pool:
+            with interruptible_pool(effective_jobs) as pool:
                 # Bounded submission: submitting every entry up front (verify
                 # batches can be thousands of functions) builds one Future + one
                 # queued task per entry — the exact pattern flag_sweep was

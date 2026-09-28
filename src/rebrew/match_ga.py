@@ -15,7 +15,7 @@ import subprocess
 import threading
 import time
 from collections.abc import Callable
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import Future
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -36,6 +36,7 @@ from rebrew.utils import (
     atomic_write_text,
     file_lock,
     filename_component,
+    interruptible_pool,
     read_json_text,
 )
 
@@ -931,7 +932,7 @@ class BinaryMatchingGA:
         last_generation = self._start_generation
         now = clock if clock is not None else time.monotonic
         # One executor for the whole run, not one pool per generation.
-        with ThreadPoolExecutor(max_workers=self.num_jobs) as executor:
+        with interruptible_pool(self.num_jobs) as executor:
             for gen in range(self._start_generation, self.num_generations):
                 if deadline is not None and now() > deadline:
                     break

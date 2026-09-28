@@ -380,6 +380,18 @@ def _ensure_xvfb_locked() -> str | None:
     except OSError:
         _drop_cookie(cookie)
         return None
+    except BaseException:
+        # A Ctrl+C landing in the spawn window would otherwise leave the
+        # credential on disk and the child unreaped, since the atexit reaper
+        # only learns about it below.
+        _drop_cookie(cookie)
+        raise
+    # From here the pair is the reaper's responsibility: an interrupt before
+    # the socket appears must not bypass cleanup either.
+    _owned_xvfb.append((proc, cookie))
+    if not _xvfb_atexit_registered:
+        atexit.register(_release_owned_xvfb)
+        _xvfb_atexit_registered = True
     if not _wait_for_socket(display, proc=proc):
         # Same release path as the atexit hook: terminate AND wait, so a
         # server that died during startup is reaped instead of lingering
@@ -389,8 +401,4 @@ def _ensure_xvfb_locked() -> str | None:
         return None
     os.environ["XAUTHORITY"] = str(cookie)
     os.environ[XVFB_DISPLAY_ENV] = display
-    _owned_xvfb.append((proc, cookie))
-    if not _xvfb_atexit_registered:
-        atexit.register(_release_owned_xvfb)
-        _xvfb_atexit_registered = True
     return display

@@ -20,7 +20,6 @@ so flags, toolchain, and reloc masking resolve per project.
 
 from __future__ import annotations
 
-import concurrent.futures as cf
 import contextlib
 import re
 import tempfile
@@ -41,7 +40,12 @@ from rebrew.cli import (
 from rebrew.climb import function_span as climb_function_span
 from rebrew.compile import compile_and_compare
 from rebrew.compile_overrides import resolve_compile_overrides
-from rebrew.utils import atomic_write_text, filename_component, read_source_text
+from rebrew.utils import (
+    atomic_write_text,
+    filename_component,
+    interruptible_pool,
+    read_source_text,
+)
 
 app = typer.Typer(
     help="Sweep declaration qualifiers over one function, keeping winners.",
@@ -252,7 +256,7 @@ def main(
             # clamp before the pool: max_workers=0 raises ValueError.
             with (
                 tempfile.TemporaryDirectory(dir=sweep_root, prefix=f"{sym_file}-") as rnd_dir,
-                cf.ThreadPoolExecutor(max_workers=max(1, jobs)) as ex,
+                interruptible_pool(max(1, jobs)) as ex,
             ):
                 # Drain every future, one at a time, in submission order: a
                 # candidate that raises (a write error, an unexpected toolchain

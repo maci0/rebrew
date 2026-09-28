@@ -2200,20 +2200,23 @@ class TestGABuildCacheKey:
         ga.close()
 
     def test_run_uses_single_executor(self, tmp_path: Path, monkeypatch: Any) -> None:
-        """The whole run shares one ThreadPoolExecutor (no per-generation
-        churn): more than one generation must create exactly one pool."""
-        import rebrew.match_ga as _match_mod
+        """The whole run shares one pool (no per-generation churn): more than
+        one generation must create exactly one executor.  The pool is
+        ``utils.interruptible_pool`` so Ctrl+C is not blocked behind the whole
+        population's queued compiles, so the class is patched where that
+        helper builds it."""
+        import rebrew.utils as _utils_mod
         from rebrew.match_ga import BinaryMatchingGA
 
         created: list[Any] = []
-        _real_pool = _match_mod.ThreadPoolExecutor
+        _real_pool = _utils_mod.concurrent.futures.ThreadPoolExecutor
 
         class _CountingPool(_real_pool):  # type: ignore[misc]
             def __init__(self, *a: Any, **k: Any) -> None:
                 created.append(self)
                 super().__init__(*a, **k)
 
-        monkeypatch.setattr(_match_mod, "ThreadPoolExecutor", _CountingPool)
+        monkeypatch.setattr(_utils_mod.concurrent.futures, "ThreadPoolExecutor", _CountingPool)
 
         def _fake_build(src: str, *a: Any, **k: Any) -> Any:
             return _fail_result()

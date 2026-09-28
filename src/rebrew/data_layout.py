@@ -21,6 +21,7 @@ All addresses are full image VAs; the section geometry (``data_base``,
 
 from __future__ import annotations
 
+import contextlib
 import functools
 import math
 import re
@@ -1257,50 +1258,67 @@ def fix_ownership(
         additions[tu].append(def_line)
 
     n_edit = 0
-    for tu, names in removals.items():
-        text, encoding = read_source_text(tu)
-        # Collect spans and splice once, back to front: rewriting per name
-        # copied the whole translation unit on every iteration, so a header
-        # with N moved globals cost O(N * len(text)).  Later lookups see the
-        # same text either way, since an extern line only names the global it
-        # replaces, which no other name's pattern matches.
-        spans: list[tuple[int, int, str]] = []
-        for name in names:
-            r = _find_definition(text, name)
-            if r:
-                s, e, typ, sz = r
-                spans.append((s, e, f"extern {typ} {name}{sz};"))
+    # The two passes are one transaction: pass one turns every moved
+    # definition into an extern and pass two writes the new definitions.  A
+    # failure between or inside the passes (ENOSPC, a read-only file, Ctrl+C)
+    # would otherwise leave the project declaring globals it defines nowhere,
+    # so the pre-write bytes of every touched unit are restored on any exit
+    # that is not the normal one.
+    original: dict[Path, tuple[str, str]] = {}
+    if not dry_run:
+        for tu in (*removals, *additions):
+            if tu not in original:
+                original[tu] = read_source_text(tu)
+    try:
+        for tu, names in removals.items():
+            text, encoding = read_source_text(tu)
+            # Collect spans and splice once, back to front: rewriting per name
+            # copied the whole translation unit on every iteration, so a header
+            # with N moved globals cost O(N * len(text)).  Later lookups see the
+            # same text either way, since an extern line only names the global it
+            # replaces, which no other name's pattern matches.
+            spans: list[tuple[int, int, str]] = []
+            for name in names:
+                r = _find_definition(text, name)
+                if r:
+                    s, e, typ, sz = r
+                    spans.append((s, e, f"extern {typ} {name}{sz};"))
+                    n_edit += 1
+            for s, e, repl in sorted(spans, reverse=True):
+                text = text[:s] + repl + text[e:]
+            if not dry_run:
+                atomic_write_text(tu, text, encoding=encoding)
+        for tu, lines in additions.items():
+            text, encoding = read_source_text(tu)
+            text = text.rstrip("\n") + "\n"
+            appended: list[str] = []
+            for line in lines:
+                name_m = _ADDED_NAME_RE.search(line)
+                if not name_m:
+                    continue
+                name = name_m.group(1)
+                if _find_definition(text, name):
+                    continue
+                di = _decl_info(text, name)
+                if di and not di[0].startswith("extern"):
+                    continue
+                if di:
+                    line = _merged_definition_line(di[0], di[1], name, line)
+                appended.append(line)
                 n_edit += 1
-        for s, e, repl in sorted(spans, reverse=True):
-            text = text[:s] + repl + text[e:]
-        if not dry_run:
-            atomic_write_text(tu, text, encoding=encoding)
-    for tu, lines in additions.items():
-        text, encoding = read_source_text(tu)
-        text = text.rstrip("\n") + "\n"
-        appended: list[str] = []
-        for line in lines:
-            name_m = _ADDED_NAME_RE.search(line)
-            if not name_m:
-                continue
-            name = name_m.group(1)
-            if _find_definition(text, name):
-                continue
-            di = _decl_info(text, name)
-            if di and not di[0].startswith("extern"):
-                continue
-            if di:
-                line = _merged_definition_line(di[0], di[1], name, line)
-            appended.append(line)
-            n_edit += 1
-        # Appended definitions are complete one-liners holding a name no
-        # other addition references, so scanning the un-appended prefix
-        # answers every later lookup the same way.  Joining once also drops
-        # the per-line copy of the whole unit.
-        if appended:
-            text = text + "\n".join(appended) + "\n"
-        if not dry_run:
-            atomic_write_text(tu, text, encoding=encoding)
+            # Appended definitions are complete one-liners holding a name no
+            # other addition references, so scanning the un-appended prefix
+            # answers every later lookup the same way.  Joining once also drops
+            # the per-line copy of the whole unit.
+            if appended:
+                text = text + "\n".join(appended) + "\n"
+            if not dry_run:
+                atomic_write_text(tu, text, encoding=encoding)
+    except BaseException:
+        for tu, (text, encoding) in original.items():
+            with contextlib.suppress(OSError):
+                atomic_write_text(tu, text, encoding=encoding)
+        raise
     return {"edits": n_edit, "moved": sum(len(v) for v in removals.values())}
 
 
