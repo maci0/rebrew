@@ -763,14 +763,14 @@
   `db_version_matches` already did rather than reading as a mismatch.
 - **The SBOM asserted two license grants no artifact declares.** The
   expression/name form was picked by a regex over the recorded string, so any
-  single bare token read as an SPDX identifier. `resembl` states the trove
-  text `GPLv3` and `sympy` states `BSD`; neither is an SPDX id, and both
-  shipped in `dist/rebrew.cdx.json` as a `licenses[].expression`, which is a
-  claim about the grant rather than a quote of it. The form now comes from the
-  recorded SPDX identifier set (an id the table has not seen yet falls back to
-  `name`, the side that quotes instead of asserting), and the two entries are
-  recorded as their artifacts declare them, alongside the other trove text the
-  table already kept verbatim.
+  single bare token read as an SPDX identifier. `sympy` states the trove
+  text `BSD`, which is not an SPDX id, and that entry shipped in
+  `dist/rebrew.cdx.json` as a `licenses[].expression`, a claim about the grant
+  rather than a quote of it. The form now comes from the recorded SPDX
+  identifier set (an id the table has not seen yet falls back to `name`, the
+  side that quotes instead of asserting). `resembl` 3.0.0 declares
+  `License-Expression: GPL-3.0-only`, so the component carries that expression.
+  Trove text the table already kept verbatim stays a `name`.
 - **`NOTICE` attributed `resembl` to a version the lock stopped pinning.**
   The entry still read `resembl 2.0.0` after `RESEMBL_REF` and `uv.lock` moved
   to 3.0.0, so the attribution a consumer reads did not name the revision they

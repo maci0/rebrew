@@ -46,11 +46,11 @@ _VERSION_RE = re.compile(r'^__version__\s*=\s*"([^"]+)"', re.M)
 # A declared grant goes in ``expression`` when every id in it is an SPDX
 # identifier, and in ``name`` when it is the trove text or prose an artifact
 # actually ships.  Normalizing a classifier to an id the upstream never wrote
-# would put a license claim in a release artifact.  "BSD" (sympy) and "GPLv3"
-# (resembl) are both single bare tokens and neither is an SPDX id, so the set
-# of known ids is what decides the form, not the shape of the string.  An id
-# this table has not recorded yet falls back to ``name``: that form quotes the
-# declaration instead of asserting a claim, which is the side to err on.
+# would put a license claim in a release artifact.  "BSD" (sympy) is a single
+# bare token and not an SPDX id, so the set of known ids is what decides the
+# form, not the shape of the string.  An id this table has not recorded yet
+# falls back to ``name``: that form quotes the declaration instead of
+# asserting a claim, which is the side to err on.
 _SPDX_IDS = frozenset(
     {
         "0BSD",
@@ -92,9 +92,9 @@ def _license_field(source_kind: str, name: str, version: str) -> dict[str, Any]:
 # Copyleft dependencies pinned in uv.lock.  Expressions were read from the
 # locked artifacts: m2c aa869da ``License-Expression: GPL-3.0-only``, pyvex
 # 9.3.4 ``License-Expression: BSD-2-Clause AND GPL-2.0-or-later``, and the
-# MPL-2.0 packages below.  resembl states the trove text ``GPLv3`` (which
-# reads as GPL-3.0-only), so the emitted component carries that name rather
-# than an expression upstream never wrote.  certifi 2026.7.22 and hypothesis
+# MPL-2.0 packages below.  resembl 3.0.0 declares
+# ``License-Expression: GPL-3.0-only``, so the emitted component carries that
+# expression.  certifi 2026.7.22 and hypothesis
 # 6.168.0 declare ``MPL-2.0`` and every resolve pulls them in; tqdm 4.70.1
 # declares ``License-Expression: MPL-2.0 AND MIT`` and arrives with the
 # ``binsync`` extra (declib's progress bars).  See NOTICE.
@@ -105,7 +105,7 @@ def _license_field(source_kind: str, name: str, version: str) -> dict[str, Any]:
 # the attribution silently.  Only the names are load-bearing: the emitted
 # license always comes from ``tools/licenses.py``.
 _COPYLEFT_EXPRESSIONS = {
-    "resembl": "GPLv3",
+    "resembl": "GPL-3.0-only",
     "m2c": "GPL-3.0-only",
     "pyvex": "BSD-2-Clause AND GPL-2.0-or-later",
     "certifi": "MPL-2.0",

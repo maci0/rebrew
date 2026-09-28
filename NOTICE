@@ -19,12 +19,11 @@ similarity group — resembl
 --------------------------
 
 resembl 3.0.0 (sibling checkout ``../resembl``,
-https://github.com/maci0/resembl) declares ``License: GPLv3``. That reads as
-GPL-3.0-only: GNU GPL version 3, and the upstream declaration has no
-later-version clause. The SBOM records the declared ``GPLv3`` rather than the
-SPDX id upstream did not write. ``make setup`` installs this group through the
-path dependency in ``[dependency-groups]`` / ``[tool.uv.sources]``. Wheel
-Requires-Dist stays limited to packages that resolve on PyPI.
+https://github.com/maci0/resembl) declares
+``License-Expression: GPL-3.0-only``. ``make setup`` installs this group
+through the path dependency in ``[dependency-groups]`` /
+``[tool.uv.sources]``. Wheel Requires-Dist stays limited to packages that
+resolve on PyPI.
 
 m2c group — m2c
 ---------------

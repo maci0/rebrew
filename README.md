@@ -521,5 +521,5 @@ Projects rebrew integrates with or draws from:
 MIT. See [LICENSE](https://github.com/maci0/rebrew/blob/main/LICENSE).
 
 Optional installs use separate grants, named in [NOTICE](https://github.com/maci0/rebrew/blob/main/NOTICE): the
-`similarity` group (`resembl`, GPLv3), the `m2c` group (GPL-3.0-only), and
+`similarity` group (`resembl`, GPL-3.0-only), the `m2c` group (GPL-3.0-only), and
 the `prove` extra (`pyvex` ships LibVEX under GPL-2.0-or-later).

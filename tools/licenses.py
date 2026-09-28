@@ -24,10 +24,9 @@ from __future__ import annotations
 # and a commit-pinned git dependency are recorded by name.
 PATH_OR_GIT_LICENSES = {
     "m2c": "GPL-3.0-only",
-    # resembl states the trove text "GPLv3", not an SPDX id.  It reads as
-    # GPL-3.0-only (no later-version clause), but the SBOM records the string
-    # the artifact declares and the reader does the mapping.
-    "resembl": "GPLv3",
+    # resembl 3.0.0 declares License-Expression: GPL-3.0-only (PEP 639).
+    # There is no free-text License field on that artifact.
+    "resembl": "GPL-3.0-only",
 }
 
 # ``name==version`` -> the artifact's own declared license string.

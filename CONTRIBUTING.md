@@ -55,7 +55,7 @@ whether or not `make doctor` was run.
 
 `make setup` installs the `prove` extra and the `similarity` group. Those
 pull the copyleft components named in [`NOTICE`](NOTICE) (`pyvex`/LibVEX and
-GPLv3 `resembl`). Rebrew's own source stays under [`LICENSE`](LICENSE).
+GPL-3.0-only `resembl`). Rebrew's own source stays under [`LICENSE`](LICENSE).
 
 `make setup` is what puts the `prove` extra in `.venv`, and that is what
 `make mypy` type-checks against: a bare `uv sync` never installs optional

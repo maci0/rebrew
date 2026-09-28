@@ -560,7 +560,6 @@ class TestPackagingMetadata:
         # Wheel consumers need the optional copyleft grants traced to upstream.
         for needle in (
             "resembl",
-            "GPLv3",
             "GPL-3.0-only",
             "m2c",
             "aa869da289a565c68f701e734bd74606f1bd5ed4",
@@ -692,9 +691,8 @@ class TestCycloneDxSbom:
             ("advisories", "https://github.com/maci0/rebrew/blob/main/SECURITY.md"),
         }
         by_name = {c["name"]: c for c in bom["components"]}
-        # resembl states the trove text "GPLv3"; recording the SPDX id it does
-        # not write would put a license claim in a release artifact.
-        assert by_name["resembl"]["licenses"] == [{"license": {"name": "GPLv3"}}]
+        # resembl 3.0.0 declares License-Expression: GPL-3.0-only.
+        assert by_name["resembl"]["licenses"] == [{"expression": "GPL-3.0-only"}]
         assert by_name["m2c"]["licenses"] == [{"expression": "GPL-3.0-only"}]
         assert by_name["pyvex"]["licenses"] == [{"expression": "BSD-2-Clause AND GPL-2.0-or-later"}]
         assert by_name["certifi"]["licenses"] == [{"expression": "MPL-2.0"}]
@@ -714,7 +712,9 @@ class TestCycloneDxSbom:
             except importlib_metadata.PackageNotFoundError:
                 continue
         if "resembl" in installed:
-            assert installed["resembl"].get("License") == "GPLv3"
+            # The pinned sibling declares License-Expression (PEP 639).
+            # A pin that predates it would have to bring "License: GPLv3" back.
+            assert installed["resembl"].get("License-Expression") == "GPL-3.0-only"
         if "pyvex" in installed:
             assert installed["pyvex"].get("License-Expression") == (
                 "BSD-2-Clause AND GPL-2.0-or-later"
