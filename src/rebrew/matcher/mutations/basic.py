@@ -149,8 +149,7 @@ def mut_add_redundant_parens(s: str, rng: random.Random) -> str | None:
     """
     b_source = encode_source(s)
     tree = parse_c_ast(b_source)
-    q = _QUERY_IDENTIFIER
-    cursor = _cursor(q._get() if isinstance(q, _LazyQuery) else q)
+    cursor = _cursor(_QUERY_IDENTIFIER)
     candidates: list[ts.Node] = []
     for _pattern_index, captures in cursor.matches(tree.root_node):
         node = _capture(_first_caps(captures), "expr")
@@ -219,11 +218,7 @@ def mut_return_to_goto(s: str, rng: random.Random) -> str | None:
 
     b_source = encode_source(s)
     tree = parse_c_ast(b_source)
-    cursor = _cursor(
-        _QUERY_RETURN_FALSE._get()
-        if isinstance(_QUERY_RETURN_FALSE, _LazyQuery)
-        else _QUERY_RETURN_FALSE
-    )
+    cursor = _cursor(_QUERY_RETURN_FALSE)
     matches = cursor.matches(tree.root_node)
 
     if not matches:
@@ -242,11 +237,7 @@ def mut_return_to_goto(s: str, rng: random.Random) -> str | None:
     # before an arbitrary later `return 1;` (wrong value on the error path).
     label_pos = None
     tree2 = parse_c_ast(result)
-    cursor2 = _cursor(
-        _QUERY_RETURN_FALSE._get()
-        if isinstance(_QUERY_RETURN_FALSE, _LazyQuery)
-        else _QUERY_RETURN_FALSE
-    )
+    cursor2 = _cursor(_QUERY_RETURN_FALSE)
     for m2 in cursor2.matches(tree2.root_node):
         caps2 = _first_caps(m2[1])
         node = caps2["expr"]

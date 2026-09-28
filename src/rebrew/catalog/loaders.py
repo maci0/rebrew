@@ -270,9 +270,8 @@ def cached_sorted_function_vas(cfg: ProjectConfig) -> tuple[int, ...]:
     reversed_dir = getattr(cfg, "reversed_dir", "")
     path = str(inventory_path_for(reversed_dir, cfg)) if reversed_dir else ""
     fp = _inventory_fingerprint(path)
-    cache_key = path if path else ""
     with _function_list_cache_lock:
-        cached = _sorted_vas_cache.get(cache_key)
+        cached = _sorted_vas_cache.get(path)
         if cached is not None and cached[0] == fp:
             return cached[1]
     funcs = cached_function_list(cfg)
@@ -325,10 +324,6 @@ def parse_rizin_afl(text: str) -> list[tuple[int, int, str]]:
         funcs.append((va, size, name))
     return funcs
 
-
-# ---------------------------------------------------------------------------
-# DLL byte extraction
-# ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
 # Scanning

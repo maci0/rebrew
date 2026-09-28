@@ -51,12 +51,6 @@ class _LazyQuery:
                 self._query = ts.Query(self._lang, self._source)
             return self._query
 
-    def captures(self, *args: object, **kwargs: object) -> Any:
-        return self._get().captures(*args, **kwargs)
-
-    def matches(self, *args: object, **kwargs: object) -> Any:
-        return self._get().matches(*args, **kwargs)
-
 
 _QUERY_EQ_ZERO = _LazyQuery(
     C_LANGUAGE,

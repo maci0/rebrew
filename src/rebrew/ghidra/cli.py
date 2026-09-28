@@ -277,7 +277,6 @@ def main(
                     {
                         "tool": "create-function",
                         "args": {"programPath": program_path, "address": f"0x{va:08X}"},
-                        "_meta": {"reason": "imported from BinSync state"},
                     }
                     for va in touched
                 ]

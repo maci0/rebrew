@@ -96,8 +96,6 @@ def find_root(start: Path | str | None = None) -> Path:
     the project root verbatim, this one checks the marker and walks up.
     """
     origin = Path.cwd() if start is None else Path(start).resolve()
-    if start is not None and (origin / CONFIG_NAME).is_file():
-        return origin
     found = walk_up_to_root(origin)
     if found is None:
         raise WorkspaceNotFound(

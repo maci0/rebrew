@@ -272,7 +272,7 @@ def _entry_module(cfg: Any, local: Any = None) -> str:
 
 def _stub_text(cfg: Any, va: int, bs_name: str, bs_proto: str) -> tuple[Path, str, str]:
     """``(path, source, module)`` of the stub ``--create-missing`` would write."""
-    bs_stripped = strip_cdecl_prefix(bs_name) if bs_name.startswith("_") else bs_name
+    bs_stripped = strip_cdecl_prefix(bs_name)
     target_func = bs_stripped if is_safe_c_ident(bs_stripped) else f"func_{va:08x}"
     mod = module_marker(cfg)
     if not mod:
@@ -558,10 +558,8 @@ def import_state(
 
         # Resolve BinSync name to a local symbol form (strip cdecl prefix for comparison)
         # BinSync names are typically "_foo" (cdecl) — local symbol is also "_foo"
-        bs_stripped = strip_cdecl_prefix(bs_name) if bs_name.startswith("_") else bs_name
-        local_stripped = (
-            strip_cdecl_prefix(local_name) if local_name.startswith("_") else local_name
-        )
+        bs_stripped = strip_cdecl_prefix(bs_name)
+        local_stripped = strip_cdecl_prefix(local_name)
 
         # Prototype import (independent of name; whitespace-normalized compare).
         # A differing local prototype is a conflict like a differing name:
@@ -1142,12 +1140,11 @@ def import_type_definitions(
         existing, header_encoding = read_source_text(header)
     except FileNotFoundError:
         existing, header_encoding = "", "utf-8"
-    blocks = [existing]
-    if not blocks[0]:
-        blocks = [
-            "/* binsync_types.h - type definitions imported from BinSync.\n"
-            " * Regenerate/extend via: rebrew binsync-import\n */\n\n"
-        ]
+    blocks = [
+        existing
+        or "/* binsync_types.h - type definitions imported from BinSync.\n"
+        " * Regenerate/extend via: rebrew binsync-import\n */\n\n"
+    ]
     written = 0
     # ``landed`` includes blocks appended in this call so two keys that emit
     # the same text cannot both land.  The name check stays against the file

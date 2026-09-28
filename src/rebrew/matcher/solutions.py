@@ -233,8 +233,6 @@ def load_solutions_file(path: Path) -> list[SolutionEntry]:
     Returns an empty list when the file is missing or malformed (never
     raises).
     """
-    if not path.exists():
-        return []
     return _wins_from_records(path)
 
 

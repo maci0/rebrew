@@ -868,10 +868,8 @@ def flag_sweep(
 
     # First compiler error(s) collected from workers — surfaced when the whole
     # sweep fails so a broken toolchain is visible, not a silent empty result.
-    import threading as _thr
-
     _compile_errors: list[str] = []
-    _compile_errors_lock = _thr.Lock()
+    _compile_errors_lock = threading.Lock()
 
     def _eval_flags(flags: str) -> tuple[float, str]:
         full_flags = f"{base_cflags} {flags}"

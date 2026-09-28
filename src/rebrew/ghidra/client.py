@@ -830,14 +830,6 @@ def apply_commands_via_mcp(
         try:
             session_id = init_mcp_session(http, endpoint)
             session_cleanup.callback(end_mcp_session, http, endpoint, session_id)
-        except httpx.HTTPStatusError as exc:
-            code = exc.response.status_code
-            raise McpError(
-                f"Failed to initialize MCP session: HTTP {code}",
-                kind="http",
-                status_code=code,
-                retryable=code in RETRYABLE_HTTP_STATUS,
-            ) from exc
         except httpx.HTTPError as exc:
             raise McpError(
                 f"Failed to initialize MCP session: {exc}",

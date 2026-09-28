@@ -183,10 +183,6 @@ def build_new_function_commands(
                         "programPath": program_path,
                         "address": va_hex,
                     },
-                    "_meta": {
-                        "reason": "list only (not in Ghidra)",
-                        "list_size": entry.get("size_by_tool", {}).get("list", 0),
-                    },
                 }
             )
 

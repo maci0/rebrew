@@ -229,8 +229,6 @@ def _apply_query_once(
 ) -> bytes | None:
     """Apply an AST query and replace one matched occurrence."""
     tree = parse_c_ast(source)
-    if isinstance(query, _LazyQuery):
-        query = query._get()
     cursor = _cursor(query)
     matches = cursor.matches(tree.root_node)
 
