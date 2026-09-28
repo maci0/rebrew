@@ -500,11 +500,11 @@ class TestReportPayloadShape:
         # The pager repeats below the table so a reader at the bottom can move on.
         assert index.count("aria-label='Next page of functions'") == 2
         assert "aria-label='Table pages, bottom'" in index
-        # That copy sits under a full page of rows, so it follows the viewport;
-        # the copy above the table keeps the plain class and stays put.
+        # That copy sits under a full page of rows, so it stays in the flow:
+        # pinned to the viewport it covered the rows scrolling behind it.
         assert index.count("class='pager pager-end'") == 1
         assert index.count("class='pager'") == 1
-        assert "position: sticky; bottom: 0" in index
+        assert "position: sticky" not in index
 
     def test_pager_offers_first_and_last_on_middle_pages(self) -> None:
         from rebrew.report import _TABLE_PAGE_SIZE, _page_va_span, _pager_nav
@@ -769,3 +769,31 @@ class TestChromeTokens:
                 re.findall(r"font-size: ([0-9][0-9a-z.]*)", shell)
             )
             assert not literals - allowed, f"{name}: {sorted(literals - allowed)}"
+
+    def test_status_class_comes_from_the_vocabulary(self) -> None:
+        """A status the vocabulary does not know gets no mark selector.
+
+        The class name is what the stylesheet colours, so a token carrying
+        whitespace or a stray quote would paint the cell with a mark it does
+        not name. The dashboard validates its token the same way.
+        """
+        from rebrew.dashboard import _APP_JS
+        from rebrew.report import _function_rows_html
+
+        def row(status: str) -> dict[str, object]:
+            return {
+                "name": "f",
+                "va": 0x401000,
+                "file": "a.c",
+                "status": status,
+                "size": 1,
+                "cflags": "",
+                "blocker": "",
+            }
+
+        assert "class='st status-EXACT'" in _function_rows_html([row("EXACT")])
+        unknown = _function_rows_html([row("FOO BAR")])
+        assert "class='st'" in unknown
+        assert "status-FOO" not in unknown
+        # The shell's client keeps the same rule for the dashboard tables.
+        assert "/^[A-Z][A-Z0-9_]*$/" in _APP_JS

@@ -63,7 +63,7 @@ from rebrew.sources import (
     target_marker,
 )
 from rebrew.status import StatusReport, collect_status
-from rebrew.status_style import DISPLAY_STATUSES, status_mark_groups
+from rebrew.status_style import DISPLAY_STATUSES, STATUS_HEX, status_mark_groups
 from rebrew.utils import (
     atomic_write_bytes,
     atomic_write_text,
@@ -101,6 +101,18 @@ _OWNED_REPORT_FILE = re.compile(
     r"|^adjacency\.txt$"
     r"|^callgraph\.mmd$"
 )
+
+
+#: Status token -> the mark classes the stylesheet colours.  A status the
+#: vocabulary does not know (a stale marker, a hand-edited TOML) gets the
+#: bare ``st`` class rather than a class name built from the token, which
+#: would otherwise add selectors of its own.  DISPATCH is a graph fill and
+#: never body text.
+_STATUS_CLASSES: dict[str, str] = {
+    status: f"st status-{status}"
+    for status in STATUS_HEX
+    if status != "DISPATCH"
+}
 
 
 def _status_text_css() -> str:
@@ -188,11 +200,11 @@ __STATUS_FORCED__ { color: CanvasText; font-weight: 700; }
         border-radius: var(--rb-radius);
         padding: 0.9rem 1.1rem; color: var(--rb-note-ink); margin-bottom: 1.5rem; }
 .pager { color: var(--rb-muted); font-size: var(--rb-size-note); margin: 0.75rem 0 1rem; }
-/* The copy under the table would sit past 250 rows of them, so it follows the
-   viewport; the copy above the table stays where it is.  main is its
-   containing block, so it settles back in place at the end of the page. */
-.pager-end { position: sticky; bottom: 0; z-index: 2; padding-bottom: 0.35rem;
-             background: var(--rb-sunken); }
+/* The copy under the table repeats the one above it, so it stays in the flow.
+   Pinned to the viewport it would carry an opaque background over the rows
+   scrolling behind it, hiding their last line for anyone reading at 200% zoom
+   or under magnification. */
+.pager-end { margin-top: -0.75rem; }
 .pager a { color: var(--rb-accent); text-decoration: underline; min-height: 2.75rem; padding: 0.35rem 0.5rem;
            display: inline-flex; align-items: center; }
 .pager a:hover { color: var(--rb-accent-hi); }
@@ -554,7 +566,8 @@ def _function_rows_html(functions: list[dict[str, Any]]) -> str:
         f"<td class='mono'>{html.escape(fn['name'])}</td>"
         f"<td class='mono'>0x{fn['va']:08x}</td>"
         f"<td class='file'>{html.escape(fn['file'])}</td>"
-        f"<td class='st status-{html.escape(fn['status'])}'>{html.escape(fn['status'])}</td>"
+        f"<td class='{_STATUS_CLASSES.get(fn['status'], 'st')}'>"
+        f"{html.escape(fn['status'])}</td>"
         f"<td class='mono'>{fn['size']}</td>"
         f"<td class='mono'>{html.escape(fn['cflags'])}</td>"
         f"<td class='blocker'>{html.escape(fn['blocker'])}</td>"
