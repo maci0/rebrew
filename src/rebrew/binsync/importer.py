@@ -434,6 +434,7 @@ def import_state(
     applied_notes = 0
     skipped = 0
     touched_vas: list[int] = []
+    marker_writes_failed: list[str] = []
     stub_statuses: list[dict[str, Any]] = []
     stub_field_updates: list[dict[str, Any]] = []
 
@@ -892,6 +893,11 @@ def import_state(
             try:
                 write_analysis_markers(Path(cfg.reversed_dir) / filepath, markers)
             except OSError:
+                # The comments metadata entry is already written, so a later
+                # re-import treats it as done and never repairs the source
+                # marker.  Report the failure instead of counting the comment
+                # as fully applied.
+                marker_writes_failed.append(filepath)
                 log.warning("ANALYSIS marker write failed for %s", filepath, exc_info=True)
 
     return {
@@ -908,6 +914,7 @@ def import_state(
         "applied_notes": applied_notes,
         "conflicts": len(conflicts),
         "skipped": skipped,
+        "marker_writes_failed": sorted(marker_writes_failed),
         "touched_vas": sorted(set(touched_vas)),
         "proposed": proposed,
         "conflict_details": conflicts,
@@ -1163,6 +1170,9 @@ def print_import_result(result: dict[str, object], *, json_output: bool, dry_run
     conflicts = int(cast(int, result["conflicts"]))
     proposed = list(cast(list[Any], result.get("proposed") or []))
     conflict_details = list(cast(list[Any], result.get("conflict_details") or []))
+    marker_writes_failed = [
+        str(p) for p in cast(list[Any], result.get("marker_writes_failed") or [])
+    ]
     module = result.get("module")
     accept_binsync = bool(result.get("accept_binsync"))
     accept_local = bool(result.get("accept_local"))
@@ -1182,6 +1192,8 @@ def print_import_result(result: dict[str, object], *, json_output: bool, dry_run
             "conflicts": conflicts,
             "skipped": int(cast(int, result.get("skipped", 0))),
         }
+        if marker_writes_failed:
+            payload["marker_writes_failed"] = marker_writes_failed
         if proposed:
             payload["proposed"] = proposed
         if conflict_details:
@@ -1229,6 +1241,13 @@ def print_import_result(result: dict[str, object], *, json_output: bool, dry_run
             f"{applied_enums} enum(s), {applied_typedefs} typedef(s), "
             f"{applied_locals} locals, {applied_comments} comment(s) "
             f"from [cyan]{state_dir}[/cyan]"
+        )
+    if marker_writes_failed:
+        # The comment metadata landed; the // ANALYSIS: markers in the source
+        # did not.  A re-import will not retry them, so name the files.
+        console.print(
+            f"[yellow]ANALYSIS marker write failed for {len(marker_writes_failed)} file(s):[/yellow] "
+            + ", ".join(marker_writes_failed[:10])
         )
     if conflicts:
         if accept_binsync or accept_local:

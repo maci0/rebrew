@@ -1485,12 +1485,19 @@ def main(
         # Keep the blocker: PROVEN is not a byte match, and the next
         # verify/test replaces PROVEN with the byte verdict, which must
         # still carry the documented blocker.
-        update_source_status(
+        if not update_source_status(
             cfg.metadata_dir, "PROVEN", ann.module, va, clear_blockers=False, updated_by="prove"
-        )
-        _clear_prove_counterexample(cfg, ann)
-        result["action"] = "updated"
-        result["new_status"] = "PROVEN"
+        ):
+            # A refused promotion (parked SKIP) records nothing.  Keep the
+            # counterexample NOTE, which still describes the last failure,
+            # and say so instead of reporting a promotion that did not land.
+            result["action"] = "none"
+            result["new_status"] = ann.status
+            result["promotion_refused"] = True
+        else:
+            _clear_prove_counterexample(cfg, ann)
+            result["action"] = "updated"
+            result["new_status"] = "PROVEN"
     elif proven and dry_run:
         result["action"] = "would_update"
         result["new_status"] = "PROVEN"
@@ -1594,7 +1601,21 @@ def _promote_already_matched(cfg: Any, ann: Any, new_status: str) -> None:
     from rebrew.metadata import update_source_status
     from rebrew.verify_cache import patch_verify_cache_entries
 
-    update_source_status(cfg.metadata_dir, new_status, ann.module, ann.va, updated_by="prove")
+    if not update_source_status(
+        cfg.metadata_dir, new_status, ann.module, ann.va, updated_by="prove"
+    ):
+        # The two holders only move together: patching the cache to a STATUS
+        # the store refused would make the cache outrank the metadata
+        # permanently, so leave both at the pre-prove verdict.
+        log.warning(
+            "promotion policy refused %s for %s 0x%x: the function is parked "
+            "or classified as a documented STUB, so the verify cache is left alone",
+            new_status,
+            ann.module,
+            ann.va,
+        )
+        return
+
     patch_verify_cache_entries(
         cfg,
         [{"va": ann.va, "status": new_status, "match_percent": 100.0, "delta": 0}],
@@ -1809,10 +1830,17 @@ def _prove_single(
     if proven and not dry_run:
         from rebrew.metadata import update_source_status
 
-        update_source_status(
+        if update_source_status(
             cfg.metadata_dir, "PROVEN", ann.module, ann.va, clear_blockers=False, updated_by="prove"
-        )
-        _clear_prove_counterexample(cfg, ann)
+        ):
+            _clear_prove_counterexample(cfg, ann)
+        else:
+            log.warning(
+                "promotion policy refused PROVEN for %s 0x%x: the function is parked "
+                "as SKIP, so the counterexample NOTE is kept",
+                ann.module,
+                ann.va,
+            )
     elif not proven and not dry_run:
         _record_prove_counterexample(cfg, ann, message)
 

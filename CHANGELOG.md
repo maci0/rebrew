@@ -1,6 +1,28 @@
 ## [Unreleased]
 
 ### Fixed
+- **A refused `rebrew prove` promotion no longer destroys the counterexample
+  NOTE or patches the verify cache.** `update_source_status` returns `False`
+  rather than raising when the promotion policy refuses (a `SKIP`-parked
+  function, a documented `STUB` against a placeholder verdict), and every
+  `prove` caller discarded that return. A successful prove on a parked
+  function reported `action: "updated"`, stamped `new_status: "PROVEN"`, and
+  deleted the `prove: ...` NOTE that described the last failure, while
+  `rebrew-functions.toml` still said `SKIP`: the evidence was gone and nothing
+  said so. `_promote_already_matched` had the mirror-image half: it wrote
+  `EXACT` to the verify cache after a refused metadata write, and because
+  `status.effective_status` lets a cached verdict outrank the metadata STATUS,
+  the two holders then disagreed permanently. Both halves now check the
+  result: the NOTE survives a refused promotion, the run reports
+  `promotion_refused` instead of a promotion, and the verify cache is left at
+  the pre-prove verdict.
+- **A failed `// ANALYSIS:` marker write is now reported by
+  `rebrew binsync-import`.** The comments metadata entry is written before the
+  source marker, so an `OSError` on the source half left the import summary
+  counting the comment as applied while the `.c` file carried no marker, and
+  a re-import skips it (the metadata entry is now non-empty) so nothing ever
+  repaired it. The failed paths are collected into `marker_writes_failed`,
+  surfaced in the JSON payload and as a warning line in the text summary.
 - **The FORCE_COLOR regression test no longer fails on a slow runner.**
   `test_bare_pytest_survives_force_color` spawns a second `uv run` plus a
   pytest process and gave it 60 seconds, so a cold interpreter or a loaded

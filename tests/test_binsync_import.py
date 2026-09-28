@@ -1028,6 +1028,27 @@ class TestAnalysisMarkers:
         assert result.exit_code == 0, result.output
         assert json.loads(result.stdout)["applied_comments"] == 1
 
+    def test_failed_marker_write_is_reported(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The comments metadata is already written when the source marker write
+        fails, so a re-import treats the comment as done and never retries it.
+        The summary must name the files whose markers did not land."""
+        from rebrew.binsync import state as bs_state
+
+        def boom(path: Path, markers: Any) -> None:
+            raise OSError("read-only file system")
+
+        monkeypatch.setattr(bs_state, "write_analysis_markers", boom)
+        self._project_with_size(tmp_path)
+        state = self._state_with_comment(tmp_path, addr=0x1006)
+        result = _invoke_import(tmp_path, state, monkeypatch, "--json")
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.stdout)
+        assert payload["applied_comments"] == 1
+        assert payload["marker_writes_failed"] == ["foo.c"]
+        assert "// ANALYSIS" not in (tmp_path / "src" / "foo.c").read_text(encoding="utf-8")
+
 
 class TestBinsyncImportShared:
     """Pull writes shared files (../shared), not just reversed_dir."""

@@ -1683,3 +1683,32 @@ class TestPromoteAlreadyMatched:
         assert entry["passed"] is True
         assert entry["match_percent"] == 100.0
         assert entry["delta"] == 0
+
+    def test_refused_promotion_leaves_verify_cache_alone(self, tmp_path: Path) -> None:
+        """A parked SKIP must leave both holders alone, not just the metadata.
+
+        ``update_source_status`` returns False instead of raising when the
+        promotion policy refuses, and the verify cache outranks the metadata
+        STATUS.  Patching it anyway would pin a verdict the store never took.
+        """
+        import json
+        from types import SimpleNamespace
+
+        from rebrew.prove import _promote_already_matched
+
+        cfg = self._make_cfg(tmp_path)
+        va = 0x1000
+        (tmp_path / "rebrew-functions.toml").write_text(
+            f'["GAME.0x{va:08x}"]\nstatus = "SKIP"\nsize = 8\n', encoding="utf-8"
+        )
+        cache_path = tmp_path / ".rebrew" / "verify_cache.json"
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        original = {"version": 2, "entries": {}}
+        cache_path.write_text(json.dumps(original), encoding="utf-8")
+
+        _promote_already_matched(cfg, SimpleNamespace(va=va, module="GAME"), "EXACT")
+
+        from rebrew.metadata import load_metadata
+
+        assert load_metadata(tmp_path)[("GAME", va)]["status"] == "SKIP"
+        assert json.loads(cache_path.read_text(encoding="utf-8")) == original
