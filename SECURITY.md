@@ -117,27 +117,28 @@ plugin cache backends or remove the open upstream diskcache advisory.
   same image-less path (`check_compiler`); a docker-backed profile returns
   before the smoke. Treat a project tree from an untrusted source as able
   to run code on the host through the paths that do execute.
-- No claim that every metadata-supplied path is contained inside the project.
-  The `file` identity field is a path, and the containment check is per call
-  site, not a property of the field. `rebrew rename` resolves its source path
-  (`src/rebrew/rename.py`) and its destination name
-  (`rebrew/rename_ops.py`), `rebrew merge-sweep` re-roots a stored path under
-  the project, and `rebrew match`'s batch compile skips a `file` outside the
-  reversed dir; the verify cache's patch refresh resolves a stored `filepath`
-  inside `reversed_dir` before hashing it (`verify_cache.py`
-  `patch_verify_cache_entries`); `rebrew verify` (`cfg.reversed_dir /
-  entry.filepath` in `verify.py` `verify_entry`, plus that module's
-  cache-validity `stat()` and deferred STATUS pass), the batch cache-key probe
-  that reads the source at that path (`compile.py` `precompile_batch`),
-  `rebrew test`'s blocker clear, and the write path in `rebrew cross-import`
-  (`cross_import.py` `import_function`, `import_shared_function`, and
-  `promote_to_shared`, which write or `shutil.move` a second target's `file`
-  into the destination tree) do not. An entry in a cloned
-  `rebrew-functions.toml` naming an absolute or `../` path therefore makes
-  `rebrew verify` read that path with the analyst's privileges, and makes
-  `rebrew cross-import` write outside the destination tree. Fix direction
-  and full call-site list: [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) §4
-  and §5.
+- No claim that a cloned project's metadata can make rebrew read or
+  write outside the project, and no claim that a command other than the
+  validator enforces it. The `file` identity field is a path, and one
+  validator owns it: `contained_path` (`src/rebrew/sources.py`) resolves the
+  value under `source_roots` (`reversed_dir`, then `shared_dir`, with the
+  project `root` as the outer bound, since a shared-tree source is recorded
+  `../`-prefixed relative to `reversed_dir`) and refuses an empty, absolute,
+  or escaping value. Every read and write join calls it, including
+  `rebrew verify` (`verify.py` `verify_entry`, where a refused entry is
+  recorded `MISSING_FILE`), that module's cache-validity read and deferred
+  STATUS pass, the batch compile (`compile.py` `precompile_batch`), the
+  blocker clear in `rebrew test`, the `rebrew-objdiff-build` shim
+  (`objdiff_project.py`), `rebrew merge-sweep`, and every read and write in
+  `rebrew cross-import` (`cross_import.py` `import_function`,
+  `import_shared_function`, `promote_to_shared`); `rebrew rename`
+  (`rename.py`, `rename_ops.py`) and the verify cache's patch refresh
+  (`verify_cache.py`) keep their own resolve-and-compare. What this does
+  **not** claim: it is a shared function, not a type, so a new join that
+  skips it is unchecked, and `merge_sweep` keeps a second rule for an older
+  absolute value that tests containment against the project `root` only.
+  It says nothing about a project running host commands, which
+  [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) §4 covers separately.
 - No claim that `REBREW_CONTAINER_RUNTIME` is restricted to a container
   runtime rebrew trusts. `container_runtime` (`src/rebrew/utils.py`) rejects
   characters outside `^[a-zA-Z0-9_\-\./]+$` and, for a value with no path
