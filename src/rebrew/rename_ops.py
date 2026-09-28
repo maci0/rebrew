@@ -25,12 +25,16 @@ _AT_DECORATION_RE = re.compile(r"@\d+$")
 
 
 class RenameError(RebrewError, RuntimeError):
-    """A cross-reference rename applied the definition but not every call site.
+    """A cross-reference rename could not reach every file that names it.
 
-    The definition file was rewritten (and possibly renamed) but one or more
+    Two moments raise this.  After the fact (:func:`rename_function_everywhere`):
+    the definition file was rewritten (and possibly renamed) but one or more
     other sources could not be, so they still call the old symbol and the
-    tree no longer compiles.  ``files`` carries the paths that kept the old
-    name, so the caller can name them instead of only logging.
+    tree no longer compiles.  Before any write
+    (:func:`collect_matching_files`): a source could not be read, so the
+    candidate set is unknown and proceeding would split source from
+    metadata.  ``files`` carries the offending paths, so the caller can name
+    them instead of only logging.
     """
 
     def __init__(self, message: str, *, files: Sequence[Path]) -> None:
@@ -84,18 +88,36 @@ def substitute_name(pattern: re.Pattern[str], replacement: str, text: str) -> st
 def collect_matching_files(
     cfg: ProjectConfig, filepath: Path, pattern: re.Pattern[str]
 ) -> list[Path]:
-    """Source files whose content matches *pattern* (rename candidates)."""
+    """Source files whose content matches *pattern* (rename candidates).
+
+    Raises :class:`RenameError` when a candidate could not be read.  The
+    candidate list is what decides how far the rename reaches: a source
+    skipped here is never rewritten, and the definition plus the metadata
+    still get the new name, leaving a call site on the old one — a split
+    tree reported as a successful rename.  The same file on the write path
+    raises, so the scan has to agree with it.
+    """
     matched: list[Path] = []
+    unreadable: list[Path] = []
     candidates = [filepath] + [
         s for s in iter_sources_and_headers(cfg.reversed_dir, cfg) if s != filepath
     ]
     for src in candidates:
         try:
             text, _ = read_source_text(src)
-            if pattern.search(text):
-                matched.append(src)
         except (OSError, UnicodeDecodeError):
+            unreadable.append(src)
             continue
+        if pattern.search(text):
+            matched.append(src)
+    if unreadable:
+        listed = ", ".join(str(p) for p in unreadable)
+        raise RenameError(
+            f"cannot plan the rename: these sources could not be read, so a "
+            f"reference to the old name may be left behind: {listed}. Fix the "
+            f"permissions (or encoding) and re-run.",
+            files=unreadable,
+        )
     return matched
 
 

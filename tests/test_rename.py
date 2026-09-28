@@ -120,17 +120,25 @@ class TestRenameFunctionEverywhere:
 
 
 class TestRenameEdgeCases:
-    def test_dry_run_unreadable_file_skipped(self, tmp_path: Path, monkeypatch: Any) -> None:
-        from rebrew.rename_ops import rename_function_everywhere
+    def test_dry_run_unreadable_file_fails(self, tmp_path: Path, monkeypatch: Any) -> None:
+        """A candidate the scan cannot read fails the dry run.
+
+        The write path already raises on an unreadable source (the definition
+        renamed, the call site left behind).  Skipping it in the scan instead
+        made the preview under-report and the run silently leave the tree
+        split, so both now stop.
+        """
+        from rebrew.rename_ops import RenameError, rename_function_everywhere
 
         src = tmp_path / "src"
         src.mkdir()
         (src / "bad.c").mkdir()  # directory matching *.c → read raises OSError
         cfg = SimpleNamespace(reversed_dir=src, source_ext=".c")
-        result = rename_function_everywhere(
-            cfg, src / "bad.c", "old_fn", "_old_fn", "new_fn", dry_run=True
-        )
-        assert result == 0
+        with pytest.raises(RenameError) as excinfo:
+            rename_function_everywhere(
+                cfg, src / "bad.c", "old_fn", "_old_fn", "new_fn", dry_run=True
+            )
+        assert excinfo.value.files == [src / "bad.c"]
 
     def test_primary_file_oserror_warns(self, tmp_path: Path, monkeypatch: Any) -> None:
         """A missing/unreadable primary file aborts the rename BEFORE any
@@ -261,6 +269,9 @@ class TestRenameCli:
     def test_zero_padded_va_identifier(self, tmp_path: Path, monkeypatch: Any) -> None:
         """Regression: discovery writes zero-padded VAs (0x00001000);
         rename must accept them like every other VA-taking tool."""
+        f = tmp_path / "src" / "SERVER" / "old_fn.c"
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text("int old_fn(void) { return 0; }\n", encoding="utf-8")
         result = self._invoke(tmp_path, monkeypatch, "--dry-run", "0x00001000", "new_fn")
         assert result.exit_code == 0, result.output
         assert "new_fn" in result.output
@@ -268,6 +279,9 @@ class TestRenameCli:
     def test_unicode_normalization_nfc_nfd_target_ident(
         self, tmp_path: Path, monkeypatch: Any
     ) -> None:
+        f = tmp_path / "src" / "SERVER" / "func_é.c"
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text("int func_é(void) { return 0; }\n", encoding="utf-8")
         # Stored name is NFC (precomposed é)
         entries = [
             SimpleNamespace(
@@ -598,6 +612,52 @@ class TestRenameData:
         res = CliRunner().invoke(app, ["$SG18890", "g_100313fc", "--data", "--dry-run"])
         assert res.exit_code == 0, res.output
         assert get_data_entry(tmp_path, 0x313FC, "SERVER").get("name") == "$SG18890"
+
+    def test_rename_data_metadata_only_unreadable_sibling_aborts(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """One unreadable source must abort the metadata-only rename too.
+
+        The candidate scan used to skip it, so the write loop never saw the
+        failure it aborts on: the TOML entry took the new name while the
+        unreadable file kept the old one, and the command reported success.
+        """
+        import typer as _typer
+        from typer.testing import CliRunner
+
+        from rebrew.data_metadata import get_data_entry
+        from rebrew.rename import main as _rename_main
+
+        app = _typer.Typer()
+        app.command()(_rename_main)
+
+        src = tmp_path / "src"
+        src.mkdir(exist_ok=True)
+        (src / "use.c").write_text(
+            "// FUNCTION: SERVER 0x1000\nint f(void){return $SG18890;}\n", encoding="utf-8"
+        )
+        locked = src / "locked.c"
+        locked.write_text("int g(void){ return $SG18890; }\n", encoding="utf-8")
+        (tmp_path / "rebrew-data.toml").write_text(
+            '["SERVER.0x313fc"]\nname = "$SG18890"\nsize = 4\n',
+            encoding="utf-8",
+        )
+        monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: self._cfg(tmp_path))
+        import rebrew.utils as utils_module
+
+        real_read = utils_module.read_source_text
+
+        def _read(path: Path) -> tuple[str, str]:
+            if path == locked:
+                raise PermissionError(13, "Permission denied")
+            return real_read(path)
+
+        monkeypatch.setattr(utils_module, "read_source_text", _read)
+        res = CliRunner().invoke(app, ["$SG18890", "g_100313fc", "--data"])
+        assert res.exit_code != 0
+        assert str(locked) in res.output
+        assert get_data_entry(tmp_path, 0x313FC, "SERVER").get("name") == "$SG18890"
+        assert "$SG18890" in locked.read_text(encoding="utf-8")
 
     def test_rename_data_collision_refused(self, tmp_path: Path, monkeypatch) -> None:
         import typer as _typer

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -1941,6 +1942,47 @@ class TestDockerAvailableCache:
         # Positive hit is memoized — no third inspect.
         assert tc.docker_available() is True
         assert calls["n"] == 2
+
+
+class TestKillContainerReporting:
+    """A kill that exits non-zero must be visible: the caller only announces
+    the timeout, so an unlogged orphan runs to completion unnoticed."""
+
+    def test_daemon_failure_is_warned(self, monkeypatch: pytest.MonkeyPatch, caplog) -> None:
+        import rebrew.toolchain as tc
+
+        monkeypatch.setattr(tc, "container_runtime", lambda: "docker")
+        monkeypatch.setattr(
+            tc.subprocess,
+            "run",
+            lambda cmd, **kw: _FakeProc(1, "", "Cannot connect to the Docker daemon"),
+        )
+        with caplog.at_level(logging.WARNING, logger="rebrew.toolchain"):
+            tc.kill_container("rebrew-msvc-run-1")
+        assert "may still be running" in caplog.text
+        assert "Cannot connect to the Docker daemon" in caplog.text
+
+    def test_already_gone_is_not_warned(self, monkeypatch: pytest.MonkeyPatch, caplog) -> None:
+        import rebrew.toolchain as tc
+
+        monkeypatch.setattr(tc, "container_runtime", lambda: "docker")
+        monkeypatch.setattr(
+            tc.subprocess,
+            "run",
+            lambda cmd, **kw: _FakeProc(1, "", "Error: No such container: gone"),
+        )
+        with caplog.at_level(logging.WARNING, logger="rebrew.toolchain"):
+            tc.kill_container("gone")
+        assert caplog.text == ""
+
+    def test_successful_kill_is_silent(self, monkeypatch: pytest.MonkeyPatch, caplog) -> None:
+        import rebrew.toolchain as tc
+
+        monkeypatch.setattr(tc, "container_runtime", lambda: "docker")
+        monkeypatch.setattr(tc.subprocess, "run", lambda cmd, **kw: _FakeProc(0, "gone", ""))
+        with caplog.at_level(logging.WARNING, logger="rebrew.toolchain"):
+            tc.kill_container("done")
+        assert caplog.text == ""
 
 
 class TestDockerBuildProcessGroup:

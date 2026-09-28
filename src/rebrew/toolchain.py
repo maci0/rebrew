@@ -28,6 +28,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import os
+import re
 import shutil
 import subprocess
 import threading
@@ -805,6 +806,11 @@ def cached_image_digest(image: str) -> str:
     return digest
 
 
+#: ``docker kill`` reports an already-gone container this way.  Losing that
+#: race is the expected outcome, not a failure worth a warning.
+_ALREADY_GONE_RE = re.compile(r"no such (?:container|object)", re.IGNORECASE)
+
+
 def kill_container(name: str, timeout: int = 30) -> None:
     """Best-effort ``docker kill`` of a timed-out run container.
 
@@ -812,15 +818,45 @@ def kill_container(name: str, timeout: int = 30) -> None:
     Failures are logged but not raised: this is cleanup on an error path —
     losing the kill race must not mask the original timeout with a secondary
     failure, but a silent skip leaves an orphan under dockerd.
+
+    A non-zero exit is reported too.  ``check=False`` with the return code
+    discarded made a daemon error indistinguishable from a successful kill,
+    and the caller (which only announces the timeout) is the last thing the
+    operator sees, so an orphan would run to completion unnoticed.
+
+    ``ValueError`` is caught with the transport errors because
+    :func:`container_runtime` rejects a malformed ``REBREW_CONTAINER_RUNTIME``
+    by raising one, and this function promises never to raise over the
+    timeout it is cleaning up after.
     """
+    log = logging.getLogger(__name__)
     try:
-        subprocess.run(
-            [container_runtime(), "kill", name], capture_output=True, timeout=timeout, check=False
+        runtime = container_runtime()
+        r = subprocess.run(
+            [runtime, "kill", name],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout,
+            check=False,
         )
-    except (OSError, subprocess.SubprocessError) as exc:
-        logging.getLogger(__name__).warning(
-            "failed to kill container %s after timeout: %s", name, exc
-        )
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
+        log.warning("failed to kill container %s after timeout: %s", name, exc)
+        return
+    if r.returncode == 0:
+        return
+    detail = (r.stderr or r.stdout or "").strip() or f"exit {r.returncode}"
+    if _ALREADY_GONE_RE.search(detail):
+        log.debug("container %s was already gone: %s", name, detail)
+        return
+    log.warning(
+        "docker kill %s failed (%s); the container may still be running: %s kill %s",
+        name,
+        detail,
+        runtime,
+        name,
+    )
 
 
 def image_present(tag: str, use_cache: bool = True) -> bool:

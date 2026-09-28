@@ -411,7 +411,12 @@ def _rename_data(
             json_mode=json_output,
         )
     filepath = cfg.reversed_dir / old_fp
-    files = collect_matching_files(cfg, filepath, pattern)
+    try:
+        files = collect_matching_files(cfg, filepath, pattern)
+    except RenameError as exc:
+        # A source that cannot be read is a source that will not be rewritten:
+        # renaming the metadata over it would split the store from the tree.
+        error_exit(str(exc), json_mode=json_output)
     if dry_run:
         if json_output:
             json_print(
@@ -445,12 +450,12 @@ def _rename_data(
             try:
                 atomic_write_text(src, new_content, encoding=encoding)
                 updated += 1
-            except (OSError, UnicodeEncodeError):
+            except (OSError, UnicodeEncodeError) as exc:
                 # An undefined byte in the source's encoding (e.g. CP1252 0x81
                 # read back with errors="replace" as U+FFFD) makes the write
                 # raise UnicodeEncodeError; catching only OSError let it escape
                 # as a traceback mid-rename.
-                error_exit(f"Cannot write {src}", json_mode=json_output)
+                error_exit(f"Cannot write {src}: {exc}", json_mode=json_output)
     # `old_name` came from this same store (see above), so there is no
     # source-vs-metadata disagreement to resolve here — the field is renamed
     # unconditionally after the cross-references were rewritten.
@@ -515,8 +520,11 @@ def _rename_metadata_only(
     for src in iter_sources_and_headers(cfg.reversed_dir, cfg):
         try:
             text, _ = read_source_text(src)
-        except (OSError, UnicodeDecodeError):
-            continue
+        except (OSError, UnicodeDecodeError) as exc:
+            # Same abort-before-metadata rule as the write loop below: a file
+            # dropped from the candidate list is never rewritten, so the
+            # metadata rename would land with a reference left behind.
+            error_exit(f"Cannot read {src}: {exc}", json_mode=json_output)
         if pattern.search(text):
             files.append(src)
 
@@ -553,8 +561,11 @@ def _rename_metadata_only(
             try:
                 atomic_write_text(src, new_content, encoding=encoding)
                 updated += 1
-            except OSError:
-                error_exit(f"Cannot write {src}", json_mode=json_output)
+            except (OSError, UnicodeEncodeError) as exc:
+                # An undefined byte in the source's encoding writes as
+                # UnicodeEncodeError, not OSError; letting it escape raised a
+                # traceback from inside the rewrite loop.
+                error_exit(f"Cannot write {src}: {exc}", json_mode=json_output)
     set_data_field(cfg.metadata_dir, va, "name", new_name, module)
     if json_output:
         json_print(

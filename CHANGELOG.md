@@ -484,6 +484,23 @@
   The built archive is now inspected for the pruned trees and for bytecode, and
   the wheel gate covers every `AGENTS.md` on disk instead of two hand-picked
   ones, so a new subpackage's contributor doc cannot ride into the artifact.
+- **A rename no longer splits the tree from the metadata store over one
+  unreadable source.** `collect_matching_files` skipped a candidate whose read
+  raised, so the file never reached the rewrite loop — the loop whose stated
+  rule is to abort before the metadata write. A source the scan could not read
+  therefore kept the old name while `rebrew-data.toml` (or the definition
+  file) took the new one, and the command reported success. The scan now
+  raises `RenameError` naming the unreadable paths, as the write path already
+  did, and the dry run stops where the run would. The two `Cannot write`
+  aborts also carry the underlying error instead of naming the file alone.
+- **A container that survives a kill is no longer invisible.** `kill_container`
+  ran `docker kill` with `check=False` and discarded the return code, so a
+  daemon error looked exactly like a successful cleanup: the caller announces
+  the timeout and nothing else, and the orphan kept running unnoticed. A
+  non-zero exit is now logged with docker's own message and the command to
+  re-run by hand, an already-gone container stays at debug, and a malformed
+  `REBREW_CONTAINER_RUNTIME` is caught so the function keeps its promise never
+  to raise over the failure it is cleaning up after.
 - **A failed dashboard request is reported once, not twice.** The sqlite and
   last-resort handler guards printed the exception to the console *and* logged
   it through `_log_failed_request`, and the log handler writes to that same

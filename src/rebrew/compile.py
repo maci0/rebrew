@@ -2676,8 +2676,9 @@ def _link_obj_docker(
         if "--name" in cmd:
             from rebrew.toolchain import kill_container
 
-            with contextlib.suppress(Exception):
-                kill_container(cmd[cmd.index("--name") + 1])
+            # kill_container never raises: a failed kill is logged, so a
+            # timeout is still reported as the timeout.
+            kill_container(cmd[cmd.index("--name") + 1])
         return False, f"LINK.EXE timed out after {timeout}s"
     except OSError as exc:
         return False, str(exc)
@@ -2686,8 +2687,7 @@ def _link_obj_docker(
         if "--name" in cmd:
             from rebrew.toolchain import kill_container
 
-            with contextlib.suppress(Exception):
-                kill_container(cmd[cmd.index("--name") + 1])
+            kill_container(cmd[cmd.index("--name") + 1])
         raise
     if r.returncode != 0 or not Path(dll_path).exists():
         err = (r.stdout + "\n" + r.stderr).strip()
