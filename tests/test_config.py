@@ -216,6 +216,30 @@ profile = "gcc-14.2.0"
         cfg = load_config(root)
         assert cfg.metadata_dir == (root / "src").resolve()
 
+    def test_metadata_dir_is_the_outermost_store_for_a_nested_target(self, tmp_path: Path) -> None:
+        """A root store serves every target; a nested one must not fork the TOML."""
+        toml = """\
+[project]
+default_target = "game"
+
+[targets.game]
+binary = "game.exe"
+format = "pe"
+arch = "x86_32"
+reversed_dir = "src"
+
+[targets.nested]
+binary = "game.exe"
+format = "pe"
+arch = "x86_32"
+reversed_dir = "src/sub"
+"""
+        root = _make_project(tmp_path, toml)
+        (root / "src" / "sub").mkdir(parents=True)
+        (root / "rebrew-functions.toml").write_text("", encoding="utf-8")
+        assert load_config(root).metadata_dir == root.resolve()
+        assert load_config(root, target="nested").metadata_dir == root.resolve()
+
     def test_all_targets_listed(self, tmp_path: Path) -> None:
         root = _make_project(tmp_path, self.MULTI_TOML)
         cfg = load_config(root)

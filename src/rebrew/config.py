@@ -624,18 +624,31 @@ class ProjectConfig:
         This is the parent of ``reversed_dir`` — e.g. ``src/`` when
         ``reversed_dir`` is ``src/NP``.  When the whole tree is the source
         root (``reversed_dir`` is ``src`` itself) projects may keep the
-        TOMLs inside it; prefer the parent, but fall back to
-        ``reversed_dir`` when it holds ``rebrew-functions.toml`` and the
-        parent does not.  All metadata reads/writes must go through this
-        property so the location is centralized.
+        TOMLs inside it; fall back to ``reversed_dir`` in that case.  The
+        search walks every ancestor up to ``root``, so a project whose
+        store sits at the root still resolves there for a nested target
+        instead of silently picking a per-target directory.  All metadata
+        reads/writes must go through this property so the location is
+        centralized.
         """
         parent = self.reversed_dir.parent
-        if (
-            not (parent / METADATA_FILENAME).exists()
-            and (self.reversed_dir / METADATA_FILENAME).exists()
-        ):
-            return self.reversed_dir
-        return parent
+        if (parent / METADATA_FILENAME).exists():
+            return parent
+        # No store beside the source root: the project may keep its TOMLs
+        # further up (root) or, in the whole-tree layout, inside
+        # reversed_dir itself.  The outermost store found wins, so every
+        # target of a multi-target project reads and writes the same file.
+        outermost: Path | None = None
+        if (self.reversed_dir / METADATA_FILENAME).exists():
+            outermost = self.reversed_dir
+        candidate = parent
+        while True:
+            if (candidate / METADATA_FILENAME).exists():
+                outermost = candidate
+            if candidate in (self.root, candidate.parent):
+                break
+            candidate = candidate.parent
+        return outermost if outermost is not None else parent
 
     def __post_init__(self) -> None:
         """Coerce string path arguments to :class:`pathlib.Path` instances."""

@@ -692,6 +692,13 @@ def save_verify_cache(
     # If the prior cache exists but cannot be read (corrupt JSON, I/O error,
     # wrong shape), refuse to overwrite: falling back to `previous = {}` and
     # writing anyway would wipe every preserved VA with no signal.
+    #
+    # A prior cache written for ANOTHER identity is root-scoped, not
+    # target-scoped, so it can hold a sibling target's rows.  Carrying those
+    # into a document about to be stamped with THIS target's identity would
+    # misattribute the other target's verdicts to these VAs, and the stamped
+    # header would then pass the serve-path identity check.  Preserve nothing
+    # from it; the rows are the other target's to keep.
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     with _verify_cache_write_lock(cache_path):
         if preserve_keys and cache_path.exists():
@@ -715,6 +722,16 @@ def save_verify_cache(
                     len(preserve_keys),
                 )
                 return
+            if not cache_identity_matches(previous, cfg):
+                # Rows earned for another target/compiler.  Keep none of
+                # them; this run's own results are still written below.
+                logging.warning(
+                    "Verify cache %s was written for another target/compiler — "
+                    "preserving none of its %d excluded VAs",
+                    cache_path,
+                    len(preserve_keys),
+                )
+                prev_entries = {}
             for key in preserve_keys:
                 kept = prev_entries.get(key)
                 if key not in cache_entries and isinstance(kept, dict):

@@ -1434,16 +1434,28 @@ _LIBRARY_PRESETS_ALL: dict[str, dict[str, str]] = _merged_library_presets()
 #: snapshot in one section rather than rebind the global under them.
 _LIBRARY_PRESETS_LOCK = threading.Lock()
 
+#: Bumped on every :func:`refresh_library_presets` rebind.  Derived-state
+#: memos that read the preset table (the library-override memo in
+#: :mod:`rebrew.compile_overrides`) carry this in their key, so a refresh
+#: cannot leave them serving the previous generation's toolchain/cflags.
+_LIBRARY_PRESETS_GENERATION = 0
+
+
+def library_presets_generation() -> int:
+    """Counter identifying the current :data:`_LIBRARY_PRESETS_ALL` snapshot."""
+    return _LIBRARY_PRESETS_GENERATION
+
 
 def refresh_library_presets() -> dict[str, dict[str, str]]:
     """Re-run discovery and refresh the :data:`_LIBRARY_PRESETS_ALL` snapshot.
 
     Long-lived processes can pick up library-preset plugins installed after
     startup without a restart."""
-    global _LIBRARY_PRESETS_ALL
+    global _LIBRARY_PRESETS_ALL, _LIBRARY_PRESETS_GENERATION
 
     with _LIBRARY_PRESETS_LOCK:
         _LIBRARY_PRESETS_ALL = _merged_library_presets()
+        _LIBRARY_PRESETS_GENERATION += 1
     return _LIBRARY_PRESETS_ALL
 
 

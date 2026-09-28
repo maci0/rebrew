@@ -189,6 +189,40 @@ class TestResolvedOverridesMemo:
         )
 
 
+    def test_preset_refresh_is_seen(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A library file that only names a library is filled by the preset table."""
+        import rebrew.metadata as metadata_mod
+        from rebrew.compile_overrides import resolve_compile_overrides_cached
+
+        cfg = _make_cfg(tmp_path)
+        (tmp_path / "rebrew-libraries.toml").write_text('library = "REB_TEST_LIB"\n', "utf-8")
+        monkeypatch.setattr(metadata_mod, "_merged_library_presets", lambda: {})
+        try:
+            metadata_mod.refresh_library_presets()
+            from rebrew.compile_overrides import resolve_compile_overrides
+
+            baseline = resolve_compile_overrides(cfg, cfg.reversed_dir, "", "", "")
+            assert resolve_compile_overrides_cached(cfg, cfg.reversed_dir, "", "", "") == baseline
+
+            # A preset plugin installed after startup: the table is rebound
+            # without the library file changing at all.
+            monkeypatch.setattr(
+                metadata_mod,
+                "_merged_library_presets",
+                lambda: {"REB_TEST_LIB": {"cflags": "/DPLUGIN"}},
+            )
+            metadata_mod.refresh_library_presets()
+            assert resolve_compile_overrides_cached(cfg, cfg.reversed_dir, "", "", "") == (
+                None,
+                "/DPLUGIN",
+            )
+        finally:
+            monkeypatch.undo()
+            metadata_mod.refresh_library_presets()
+
+
 class TestSourceHash:
     def test_hash_changes_with_file_content(self, tmp_path: Path) -> None:
         path = tmp_path / "func.c"
@@ -1009,6 +1043,52 @@ class TestPatchVerifyCacheEntries:
             preserve_keys={"0x00001000"},
         )
         assert cache_path.read_text(encoding="utf-8") == prior
+
+    def test_filtered_save_keeps_no_rows_from_another_target(self, tmp_path: Path) -> None:
+        """A root-scoped cache written for a sibling target keeps none of its rows."""
+        cfg = _make_cfg(tmp_path)
+        cache_path = tmp_path / ".rebrew" / "verify_cache.json"
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        prior = json.dumps(
+            {
+                "version": 2,
+                "compiler_hash": compiler_config_hash(cfg),
+                "headers_hash": headers_hash(cfg),
+                "target": "CLIENT",
+                "binary_id": binary_id(cfg),
+                "entries": {
+                    "0x00001000": {
+                        "source_hash": "abc",
+                        "mtime_ns": 1,
+                        "status": "EXACT",
+                        "va": "0x00001000",
+                        "filepath": "lib.c",
+                        "name": "lib",
+                        "symbol": "_lib",
+                        "delta": 0,
+                        "match_percent": 100.0,
+                        "passed": True,
+                        "message": "",
+                        "size": 8,
+                    }
+                },
+            }
+        )
+        cache_path.write_text(prior, encoding="utf-8")
+
+        entries, results = _func_b_row(cfg)
+        save_verify_cache(
+            cache_path,
+            cfg,
+            results,
+            entries,
+            preserve_keys={"0x00001000"},
+        )
+        raw = json.loads(cache_path.read_text(encoding="utf-8"))
+        assert raw["target"] == "SERVER"
+        # The other target's verdict must not be re-stamped as this target's.
+        assert "0x00001000" not in raw["entries"]
+        assert raw["entries"]["0x00002000"]["status"] == "EXACT"
 
     def test_save_and_round_trip(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path)

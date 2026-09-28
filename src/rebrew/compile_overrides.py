@@ -163,8 +163,12 @@ def _override_memo_key(
     * the stat fingerprint of the nearest library file — a ``rebrew library
       set`` write (or a hand edit during ``verify --watch``) otherwise leaves
       the pre-write toolchain/CFLAGS in force for the process lifetime.
+    * the library-preset generation — a preset plugin installed after startup
+      (``refresh_all()``) fills toolchain/cflags for a library file that
+      declares only ``library = "..."``, and that write touches no file the
+      file fingerprint can see.
     """
-    from rebrew.metadata import library_override_fingerprint
+    from rebrew.metadata import library_override_fingerprint, library_presets_generation
 
     return (
         str(getattr(cfg, "root", "")),
@@ -179,6 +183,7 @@ def _override_memo_key(
         bool(getattr(cfg, "posix_style", False)),
         str(getattr(cfg, "cflags_presets", {}).get(preset_module_key(module), "")),
         library_override_fingerprint(Path(source_dir), getattr(cfg, "root", None)),
+        library_presets_generation(),
     )
 
 
