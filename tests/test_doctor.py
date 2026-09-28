@@ -1182,7 +1182,7 @@ class TestDoctorExitCode:
 
         report = DoctorReport(
             target="t",
-            checks=[CheckResult(name="rebrew-project.toml", status=_PASS, message="ok")],
+            checks=[CheckResult(name="rebrew-project.toml", status=_OK, message="ok")],
         )
         monkeypatch.setattr(doctor, "run_doctor", lambda target=None: report)
         assert CliRunner().invoke(doctor.app, ["--json"]).exit_code == EXIT_OK

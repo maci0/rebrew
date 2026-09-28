@@ -199,6 +199,7 @@ def _segment_blocks(
     # often land mid-block after a pre-header); self-edges (back-edges) are
     # meaningful and kept.
     edges: list[tuple[int, int]] = []
+    edge_set: set[tuple[int, int]] = set()
     block_idx_of_offset: dict[int, int] = {}
     for idx, b in enumerate(blocks):
         first = insns[b["start_idx"]]
@@ -215,18 +216,22 @@ def _segment_blocks(
         if mnem in _COND_JUMPS:
             target_off = _jump_target_off(last, va)
             if target_off is not None:
-                _add_edge(edges, idx, block_idx_of_offset, target_off)
+                _add_edge(edges, edge_set, idx, block_idx_of_offset, target_off)
             # fallthrough to the next block
             if start_idx + count < len(insns):
-                _add_edge(edges, idx, block_idx_of_offset, insns[start_idx + count].address - va)
+                _add_edge(
+                    edges, edge_set, idx, block_idx_of_offset, insns[start_idx + count].address - va
+                )
         elif mnem == "jmp":
             target_off = _jump_target_off(last, va)
             if target_off is not None:
-                _add_edge(edges, idx, block_idx_of_offset, target_off)
+                _add_edge(edges, edge_set, idx, block_idx_of_offset, target_off)
         elif mnem not in _BLOCK_END_MNEMONICS:
             # fallthrough
             if start_idx + count < len(insns):
-                _add_edge(edges, idx, block_idx_of_offset, insns[start_idx + count].address - va)
+                _add_edge(
+                    edges, edge_set, idx, block_idx_of_offset, insns[start_idx + count].address - va
+                )
 
     return blocks, edges
 
@@ -257,14 +262,22 @@ def _jump_target_off(insn: Any, base_va: int) -> int | None:
 
 def _add_edge(
     edges: list[tuple[int, int]],
+    edge_set: set[tuple[int, int]],
     from_idx: int,
     block_idx_of_offset: dict[int, int],
     target_off: int,
 ) -> None:
+    """Append the edge to *edges* unless it is already there.
+
+    *edge_set* mirrors *edges* for membership; scanning the list itself made a
+    self-jump chain quadratic in the block count (a run of ``jmp $`` is one
+    block and one edge per 2 bytes, so a 32 KiB extent spent seconds).
+    """
     to_idx = block_idx_of_offset.get(target_off)
     if to_idx is not None:
         edge = (from_idx, to_idx)
-        if edge not in edges:
+        if edge not in edge_set:
+            edge_set.add(edge)
             edges.append(edge)
 
 
