@@ -40,7 +40,7 @@ first-class proof target, with PPC/ARM as the follow-on set.
 | Object reloc parsing | `matcher/parsers.py` | done: `_parse_elf_symbol_bytes` is machine-agnostic (section-local reloc filter) |
 | Function discovery | `discover.py::_capstone_sweep` | `e8 rel32` call targets, `CC/90` padding, `ret` ends |
 | Stack frames | `stack_cmp.py` | esp/ebp frame analysis (x86-32) |
-| Jump tables | `catalog/registry.py::is_jump_table` | `0x90/0xCC` prefix + `8BFF` check (x86) |
+| Jump tables | `catalog/registry.py::is_jump_table` | done: arch-dispatched (`arch`/`endian` params); the `0x90/0xCC` prefix and `8BFF` hotpatch skip are x86-only |
 | Flags | `flag_data.py` | GCC family exists; no MIPS/PPC axes (`-mabi`, `-march`) |
 | Toolchain specs | `toolchain.py::ToolchainSpec` | `bits` field only; add `arch` for alignment/detection |
 | Import/PE lane | `round_trip`, `gen_layout`, `postlink`, `link_sweep`, `imports.py`, `pe_headers.py` | PE-specific — N/A for ELF targets (gate or ELF equivalents later) |
@@ -74,8 +74,7 @@ Small, behavior-neutral; unblocks every later phase. Exit: full suite green,
 5. `discover.py`: arch-aware sweep (terminators/padding from a table; call-target
    extraction per arch: `jal` for MIPS, `bl` for PPC vs `e8 rel32` for x86).
 6. `asm.py` (the one `CS_ARCH_X86` hardcode outside the presets path) cleanup.
-7. `doctor.py::_KNOWN_ARCHES` + `catalog/registry.is_jump_table` arch gate (x86
-   pattern only for x86; MIPS variant lands in Phase 1).
+7. ~~`doctor.py::_KNOWN_ARCHES` + `catalog/registry.is_jump_table` arch gate~~ *(DONE — `_KNOWN_ARCHES = set(ARCH_PRESETS)`; `is_jump_table` takes `arch`/`endian`, reads pointer-width/byte-order tables, and applies the x86 prefix heuristics only when `arch.startswith("x86")`)*.
 8. Tests: extent walker on synthetic MIPS/PPC bytes; `detect_format_and_arch` on
    tiny MIPS/PPC ELF fixtures; reloc masking with MIPS reloc records; the full
    existing suite stays green.
@@ -406,10 +405,10 @@ already committed to.
 | `WORKFLOW.md` | Canonical iteration loop `todo→skeleton→decomp→write→test→diff→match→prove→verify`; JSON purity; multi-binary `shared/` wrapper pattern. | Console projects reuse the loop unchanged. Add a sibling **`CODEGEN_PATTERNS` per ISA** (not one mega-doc): `docs/CODEGEN_PATTERNS_MIPS.md`, `CODEGEN_PATTERNS_PPC.md`, `CODEGEN_PATTERNS_SH.md` — each seeded from community flag docs + `decomp.me` axes. `CODEGEN_PATTERNS.md` itself gets an index paragraph linking to them. |
 | `ANNOTATIONS.md` + `METADATA_FORMAT.md` | `// FUNCTION: MODULE 0xVA` marker + `rebrew-functions.toml` keyed by `MODULE.VA`; library `library_*.h` alternative; lint E013 duplicate-VA across targets. | Overlays need `(overlay, VA)` scoping: extend `rebrew-functions.toml` section to `"MODULE.OVERLAY.0xVA"` or add `overlay = "boot"` field inside the entry (prefer the latter — avoids key-syntax churn, keeps `target_marker()` intact). Library headers already handle shared overlays (`library_libultra.h`). Call out E013 interaction: same VA in two overlays is not a duplicate — mark per-target, not cross-overlay. |
 | `COVERAGE_DOCUMENT.md` | Clear-text per-target documents (`db/coverage-<target>.toml`: `[sections]` with their cells, `[functions]`, `[globals]`, `[metadata]`, `[verify_results]`, `[history]`); every aggregate is derived at load, and there is no schema version to gate a rebuild on. | Overlay-aware is a **document-format addition**, not a migration: a stored function row gains `overlay`, and a section and its cells carry the overlay segment they belong to. Nothing needs dropping first — `build_db` replaces each document whole, so an overlay-aware writer and a document from an older build coexist until the next run. Record the added fields in `COVERAGE_DOCUMENT.md`. |
-| `GAP_ANALYSIS.md` | Fresh audit categories IMPLEMENT/RECORD/DONE. | Console support is not yet a tracked gap — add an entry `F5 — No console format/arch/toolchain` (RECORD → IMPLEMENT per phase, or new section "Console gap family") so the living audit reflects the roadmap and CI parity (`test_recovery_contract.py`) gets a console follow-up. |
+| *(GAP_ANALYSIS.md — deleted 2026-08 doc consolidation)* | No live successor; the standing source-side gap audit is [`prd/00-source-gap-report.md`](prd/00-source-gap-report.md) (closed, 33 gaps). | Console support is not a tracked gap anywhere. Record it in the ROADMAP phases themselves rather than reviving the deleted audit: each phase above is the tracker, and Phase 0's table row already carries the per-surface status. |
 | `OMF_NOTES.md` | Empirical OMF record framing research (Watcom) with sample bytes + "next steps" — the pattern for non-LIEF formats. | Use the **same research-note template** for each console container: one committed tiny fixture per format (real PS-EXE header bytes, real DOL header, one `z64` header + splat YAML snippet, one SH ELF LE/BE pair, one descrambled GD blob) + a `docs/{PSEXE,N64ROM,DOL,REL,GDROM}_NOTES.md` per format when it graduates from TODO. Do not speculate record tables — ship fixtures first. |
 | `AGENTS.md` + `pyproject.toml` | Build/test/lint conventions; `capstone>=5.0.8`, `lief<1`, `tree-sitter`. | No new dep for Phase 0 (capstone already covers MIPS/PPC/SH/ARM). Phase 1+ should not add `pyelftools`/`r2pipe` — LIEF + Capstone + `shlex`-dispatched flag axes cover console objects. If ISO9660/FST parsing needs a dep, prefer shelling out to `7z` (already on most hosts) over vendoring `pycdlib` — see §5.2. |
-| `IDEAS.md` | Completed vs Open vs Observations buckets. | On merge, move the 7 brainstorm items from §8 that are accepted (overlay editing, GP-relative, vtable triage) into `IDEAS.md` Open with `needs: Phase {N}` tags, so they appear in the normal triage flow rather than living only in the roadmap. |
+| `IDEAS-GUILD.md` (replaces the deleted `IDEAS.md`) | Unchecked `- [ ]` idea entries, each with observed pain + proposed feature, sourced from the byte-identical `server.dll` campaign. | On merge, move the §8 brainstorm items that are accepted (overlay editing, GP-relative, vtable triage) into `IDEAS-GUILD.md` as `- [ ]` entries carrying `needs: Phase {N}`, so they appear in the normal triage flow rather than living only in the roadmap. |
 
 ### 5.5.3 Cross-cutting invariants to preserve
 
@@ -507,7 +506,7 @@ Each phase is shippable independently and ordered by (decreasing payoff) / (incr
 - [ ] **SDK header packs** (`rebrew cfg detect-sdk`): like `detect_crt_sources`, detect vendored `include/` trees for `ultra64`, `dolphin`, `katana`, `sgl` (user-provided SDK dumps).
 - [ ] **`round-trip` for ROM/DOL**: add `--format dol|n64rom|psexe` that rebuilds with `ld.lld` + board linker script + (de)scramble step, then verifies header + segment checksums (N64 checksum, DOL BSS, PS1 stack). Invariant §5.5.3: verify **function bytes first**, re-packaging second (round-trip contract, not disc-image equivalence).
 - [ ] **Ghidra processor selection**: `ghidra/client.py` already passes VA; ensure console `arch` selects the correct Ghidra processor (MIPS:le:32, MIPS:be:32, ppc:BE:32, SuperH:*/SH2/SH4, ARM:LE:32:ARM).
-- [ ] **GAP_ANALYSIS + IDEAS housekeeping**: flip console gap family to IMPLEMENT and move the accepted §8 brainstorm items (overlay editing, GP-relative, vtable triage) into `IDEAS.md` Open with `needs: Phase {N}` tags (see §5.5.2).
+- [ ] **Console-gap + idea-backlog housekeeping**: move the accepted §8 brainstorm items (overlay editing, GP-relative, vtable triage) into [`IDEAS-GUILD.md`](IDEAS-GUILD.md) as `- [ ]` entries with `needs: Phase {N}` tags (see §5.5.2).
 
 ### Phase 5 — PPC / Big-Endian Convergence: Wii + Xbox 360 + PSP / Vita + Switch (2–4 weeks, committed)
 
@@ -914,7 +913,7 @@ These are additive — C-era `EXACT`/`RELOC`/`PROVEN`/`STUB`/`BLOCKER` stay. Lin
 ### A.8 Minimal Phase Sketch (not committed — sketch only)
 
 > These are additive to `§6 Phase 0–7` and intentionally lighter. Each is one
-> loader + one assembler spec + one header fixup. Serve as `IDEAS.md` candidates
+> loader + one assembler spec + one header fixup. Serve as `IDEAS-GUILD.md` candidates
 > when an ASM project wants Rebrew.
 
 | Phase | Scope | Est. | Depends |
@@ -957,4 +956,4 @@ These are additive — C-era `EXACT`/`RELOC`/`PROVEN`/`STUB`/`BLOCKER` stay. Lin
 
 *This section intentionally proposes no new deps beyond `capstone` modes already in Phase A0 — `cc65`/`sdcc`/`HuC` are PATH-natives (zlib/[GBDK](), SDCC) like `ca65`/`rgbds`/`wla` per `TOOLCHAIN.md`. Rebrew's `verify` assembler path (A2) is reused; the only add is a `--cc` flag that routes through `cc65 --target nes` / `sdcc -mz80` instead of straight `ca65`/`rgbasm`, mirroring `psyq → mipsel-gcc` in §1B.*
 
-*This addendum is the backlog for idea A2/A3/A6 in `IDEAS.md` after Phase 4 ships. It intentionally proposes no new deps beyond `capstone` modes already added in Phase 0 — assemblers are PATH natives, FLIRT packs are `.pat` files, and CHR preview reuses `matplotlib` (Available per `TOOLCHAIN.md`).*
+*This addendum is the backlog for idea A2/A3/A6 in `IDEAS-GUILD.md` after Phase 4 ships. It intentionally proposes no new deps beyond `capstone` modes already added in Phase 0 — assemblers are PATH natives, FLIRT packs are `.pat` files, and CHR preview reuses `matplotlib` (Available per `TOOLCHAIN.md`).*

@@ -46,7 +46,7 @@ hundreds.
   `test.emit_test_batch` → `verify.run_batch` → `run_verification`, so the
   speedup covers both commands.  The `compile_to_obj` loop that was described
   here at acceptance is now the single-source multi-function path
-  (`test._test_multi_function_file`).
+  (`test._test_multi`).
 - Docker is still one-shot per group (no daemon); the recompile service
   remains the persistent alternative.
 - MSVC `/Fo` per-file naming is lost inside a batch — outputs are matched
