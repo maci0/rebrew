@@ -1,11 +1,10 @@
 ---
 name: rebrew-workflow
 description: >-
-  Use for day-to-day reversing on an onboarded target: matching C against
-  target functions (pick work with `todo`, skeleton, edit, `test`/`diff`,
-  verify, lint, round-trip, progress), the catalog / `build-db` and the
-  coverage dashboard, source-tree reorg (split, merge, rename, call graph),
-  and the recon lane (`rebrew analyze`, `describe`, `diagnose`,
+  Use for day-to-day reversing on an onboarded target: `todo`, skeleton,
+  edit, `test`/`diff`, verify, lint, round-trip, the catalog / `build-db`,
+  the coverage dashboard, source-tree reorg (split, merge, rename, call
+  graph), and the recon lane (`rebrew analyze`, `describe`, `diagnose`,
   `recommend`, `refactor`, `xrefs`). Triggers on 'reverse',
   'match function', 'implement function', 'decompile',
   'skeleton', 'test function', 'verify', 'lint', 'todo', 'diff', 'asm',
@@ -15,8 +14,8 @@ description: >-
   'call graph', 'rebrew probe', 'rebrew similar', 'SOURCE: naked',
   'doctor fails', 'round-trip', 'splice', 'rebuild the catalog',
   'dashboard'. Hand off near-miss GA/prove to rebrew-matching; new binaries
-  to rebrew-intake; globals/BSS to rebrew-data-analysis; Ghidra to
-  rebrew-ghidra-sync.
+  to rebrew-intake; scaffold or profile choice to rebrew-init; globals/BSS to
+  rebrew-data-analysis; Ghidra to rebrew-ghidra-sync.
 license: MIT
 ---
 
@@ -86,7 +85,9 @@ tier ladder; `documented` is audit-only and hidden from the default list.
 > `lib-match` settles whole-body identity against the linked archive. Mark hits
 > `// LIBRARY:` and move on. `--stock-lib` extracts the archive from the
 > profile's docker image (a pull when it is not cached), so `rebrew toolchain
-> pull <profile>` may be needed first.
+> pull <profile>` may be needed first. It also refuses a `.scratch/` cache that
+> hashes differently from the image's copy: delete the cached archive to
+> re-extract, or drop `--stock-lib` for that run.
 
 ## 2. Generate Skeleton
 

@@ -52,12 +52,9 @@ rebrew match --all --dry-run
 rebrew match --ga-history --json
 rebrew solutions --best --json                       # best GA score per function from .rebrew/ga_runs.jsonl
 rebrew merge-sweep --dry-run                         # TU-partition search (original was amalgamated)
-rebrew climb src/<target>/<file>.c --json            # statement-order hill-climb
-rebrew climb src/<target>/<file>.c --objective aligned --json
-rebrew qual-sweep src/<target>/<file>.c --json       # declaration qualifier sweep
-rebrew qual-sweep src/<target>/<file>.c --dry-run --json
 ```
 
 Check `--ga-history` before long batches; `--skip-recent N` resumes; `--seed-solved`
-is on by default (`--no-seed-solved` to disable). Prefer `climb` / `qual-sweep` over
-another GA pass when `near-diag` says order or qualifier residue.
+is on by default (`--no-seed-solved` to disable). Prefer `climb` / `qual-sweep`
+(single-function, in SKILL.md §4) over another GA pass when `near-diag` says
+order or qualifier residue.

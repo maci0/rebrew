@@ -5,12 +5,13 @@ description: >-
   enumerate + STUB document) and first recon (doctor, FLIRT, catalog,
   build-db, triage, first skeletons). Triggers on 'intake', 'onboard',
   'onboard binary', 'new binary', 'new target', 'import binary',
-  'binary recon', 'analyze', 'fingerprints', 'FLIRT scan', 'first triage',
+  'binary recon', 'fingerprints', 'FLIRT scan', 'first triage',
   'first catalog', 'first coverage document', 'detect-crt', 'gen-layout'. Prefer
   this over rebrew-init when the user hands you a binary to onboard; use
   rebrew-init only when teaching `rebrew init` / profile / target naming. Not
-  for day-to-day flirt/todo/test, nor for a later catalog / build-db refresh
-  or the coverage dashboard on an already-onboarded target (rebrew-workflow).
+  for day-to-day flirt/todo/test, for `rebrew analyze` / `describe` / `xrefs`
+  recon on an already-onboarded target, nor for a later catalog / build-db
+  refresh or the coverage dashboard (rebrew-workflow).
 license: MIT
 ---
 
