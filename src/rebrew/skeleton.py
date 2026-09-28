@@ -53,6 +53,7 @@ from rebrew.config import (
     validate_http_url,
 )
 from rebrew.decompiler import fetch_decompilation
+from rebrew.ghidra.client import DEFAULT_MCP_ENDPOINT
 from rebrew.limits import NO_MAX_SIZE
 from rebrew.naming import (
     load_existing_vas,
@@ -484,7 +485,7 @@ def fetch_xref_context(
     """
     import httpx  # deferred: ~46 ms of startup for non-MCP commands
 
-    _sync_mod = importlib.import_module("rebrew.ghidra.client")
+    _sync_mod = importlib.import_module("rebrew.ghidra")
     _fetch_mcp_tool_raw = _sync_mod.fetch_mcp_tool_raw
     _init_mcp_session = _sync_mod.init_mcp_session
 
@@ -1005,7 +1006,7 @@ def _fetch_extras(
             endpoint=endpoint,
         )
     if xrefs:
-        _sync_mod = importlib.import_module("rebrew.ghidra.commands")
+        _sync_mod = importlib.import_module("rebrew.ghidra")
         _resolve = _sync_mod.resolve_program_path
         resolved_path = _resolve(cfg)
         xref_context_val = fetch_xref_context(
@@ -1404,7 +1405,7 @@ def main(
         help="Fetch cross-references from Ghidra and embed in skeleton",
     ),
     endpoint: str = typer.Option(
-        "http://localhost:8080/mcp/message",
+        DEFAULT_MCP_ENDPOINT,
         "--endpoint",
         help="ReVa MCP endpoint URL",
     ),

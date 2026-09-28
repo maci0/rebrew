@@ -51,9 +51,6 @@ _ANSI_RE = re.compile(r"\x1B\[[0-9;]*[a-zA-Z]")
 # (it degrades to None fast on x86 or when not installed).
 BACKENDS = ("r2ghidra", "r2dec", "kuna", "m2c")
 
-_DEFAULT_MCP_ENDPOINT = "http://localhost:8080/mcp/message"
-_MCP_TIMEOUT_S = 30.0
-
 
 def _clean_output(text: str) -> str | None:
     """Strip ANSI codes and trim blank leading/trailing lines."""
@@ -684,18 +681,21 @@ def fetch_ghidra(
     """
     import httpx  # deferred: ~46 ms of startup for non-MCP commands
 
-    endpoint: str = kwargs.get("endpoint") or _DEFAULT_MCP_ENDPOINT
-    program_path: str | None = kwargs.get("program_path")
-
-    _sync_mod = importlib.import_module("rebrew.ghidra.client")
+    _sync_mod = importlib.import_module("rebrew.ghidra")
     _fetch_raw = _sync_mod.fetch_mcp_tool_raw
     _init_session = _sync_mod.init_mcp_session
+
+    endpoint: str = kwargs.get("endpoint") or _sync_mod.DEFAULT_MCP_ENDPOINT
+    program_path: str | None = kwargs.get("program_path")
 
     if program_path is None:
         program_path = f"/{binary.name}"
 
     try:
-        with httpx.Client(timeout=_MCP_TIMEOUT_S) as client, contextlib.ExitStack() as cleanup:
+        with (
+            httpx.Client(timeout=_sync_mod.MCP_REQUEST_TIMEOUT_S) as client,
+            contextlib.ExitStack() as cleanup,
+        ):
             session_id = _init_session(client, endpoint)
             cleanup.callback(_sync_mod.end_mcp_session, client, endpoint, session_id)
             result = _fetch_raw(

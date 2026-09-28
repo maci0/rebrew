@@ -1,6 +1,5 @@
 """Tests for skeleton cross-reference generation via Ghidra MCP."""
 
-import importlib
 from pathlib import Path
 
 import httpx
@@ -23,22 +22,10 @@ class _DummyClient:
         return None
 
 
-def _make_import_mock(sync_mod: object) -> object:
-    """Return an import_module replacement that returns sync_mod for rebrew.ghidra.client."""
-
-    def _import(name: str) -> object:
-        if name == "rebrew.ghidra.client":
-            return sync_mod
-        return importlib.import_module(name)
-
-    return _import
-
-
 class TestFetchXrefContext:
     def test_returns_formatted_comment(self, monkeypatch) -> None:
         import rebrew.ghidra.client as sync_mod
 
-        monkeypatch.setattr(importlib, "import_module", _make_import_mock(sync_mod))
         monkeypatch.setattr(httpx, "Client", _DummyClient)
         monkeypatch.setattr(sync_mod, "init_mcp_session", lambda client, endpoint: "sid")
 
@@ -78,7 +65,6 @@ class TestFetchXrefContext:
     def test_no_callers_returns_none(self, monkeypatch) -> None:
         import rebrew.ghidra.client as sync_mod
 
-        monkeypatch.setattr(importlib, "import_module", _make_import_mock(sync_mod))
         monkeypatch.setattr(httpx, "Client", _DummyClient)
         monkeypatch.setattr(sync_mod, "init_mcp_session", lambda client, endpoint: "sid")
         monkeypatch.setattr(
@@ -91,7 +77,6 @@ class TestFetchXrefContext:
     def test_mcp_unreachable_returns_none(self, monkeypatch) -> None:
         import rebrew.ghidra.client as sync_mod
 
-        monkeypatch.setattr(importlib, "import_module", _make_import_mock(sync_mod))
         monkeypatch.setattr(httpx, "Client", _DummyClient)
 
         def _raise(*args, **kwargs):
@@ -105,7 +90,6 @@ class TestFetchXrefContext:
     def test_max_callers_limit(self, monkeypatch) -> None:
         import rebrew.ghidra.client as sync_mod
 
-        monkeypatch.setattr(importlib, "import_module", _make_import_mock(sync_mod))
         monkeypatch.setattr(httpx, "Client", _DummyClient)
         monkeypatch.setattr(sync_mod, "init_mcp_session", lambda client, endpoint: "sid")
 
@@ -154,7 +138,6 @@ class TestFetchXrefContext:
     def test_data_refs_included(self, monkeypatch) -> None:
         import rebrew.ghidra.client as sync_mod
 
-        monkeypatch.setattr(importlib, "import_module", _make_import_mock(sync_mod))
         monkeypatch.setattr(httpx, "Client", _DummyClient)
         monkeypatch.setattr(sync_mod, "init_mcp_session", lambda client, endpoint: "sid")
 

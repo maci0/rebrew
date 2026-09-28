@@ -14,6 +14,10 @@ Sync rebrew annotations with Ghidra. Field-level sync (names, comments, prototyp
 
 Externals (the only packages this one may import): `binary_loader`, `binsync.export`, `binsync.importer`, `catalog`, `cli`, `config`, `errors`, `sources`, `utils`. The `binsync.*` imports are the read side of the sync; a field write still goes out through `rebrew.binsync`.
 
+## Public surface
+
+`__init__.py` resolves names lazily via `__getattr__` and does not cache: an in-tree caller that needs `DEFAULT_MCP_ENDPOINT` alone does not load the MCP client, the command builders, or the `ghidra-cli` backend, and a stand-in swapped onto `rebrew.ghidra.client` is seen through the facade. `DEFAULT_MCP_ENDPOINT` and `MCP_REQUEST_TIMEOUT_S` are the single homes of the ReVa MCP default URL and request budget; a `--endpoint` option in another module names them instead of repeating the literal. Reach for the package (`rebrew.ghidra`), never `rebrew.ghidra.client` / `.commands` directly — a `skeleton` / `decompiler` caller that needs the module unloaded imports the package by name and reads the attribute off it, so the deferral survives the boundary.
+
 ## Contracts
 
 - **Two transports, one command list.** `commands.py` builds the operation list; `client.py` (MCP) or `cli_backend.py` (`ghidra-cli`) executes it. Adding an op means adding a builder, not a transport branch.

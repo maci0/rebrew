@@ -135,6 +135,9 @@ MCP_HEADERS = {
     "Content-Type": "application/json",
     "Accept": "application/json, text/event-stream",
 }
+#: ReVa MCP server the structural ops default to, and the default every
+#: ``--endpoint`` option across the tree offers.
+DEFAULT_MCP_ENDPOINT = "http://localhost:8080/mcp/message"
 MCP_REQUEST_TIMEOUT_S = 30
 #: Budget for the session-termination ``DELETE``; it runs on every exit path,
 #: so a stalled server must not hold up the caller for a full request timeout.
@@ -782,7 +785,7 @@ def is_idempotent_success(op: dict[str, Any] | None, error_msg: str) -> bool:
 
 def apply_commands_via_mcp(
     commands: list[dict[str, Any]],
-    endpoint: str = "http://localhost:8080/mcp/message",
+    endpoint: str = DEFAULT_MCP_ENDPOINT,
     *,
     client: McpHttpClient | None = None,
     timeout: float = MCP_REQUEST_TIMEOUT_S,

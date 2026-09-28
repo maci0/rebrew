@@ -16,7 +16,6 @@ import pytest
 from rebrew.config import ProjectConfig
 from rebrew.decompiler import (
     _BACKEND_MAP,
-    _DEFAULT_MCP_ENDPOINT,
     BACKENDS,
     _clean_output,
     _find_re_tool,
@@ -25,6 +24,7 @@ from rebrew.decompiler import (
     fetch_r2dec,
     fetch_r2ghidra,
 )
+from rebrew.ghidra.client import DEFAULT_MCP_ENDPOINT
 
 
 class TestCleanOutput:
@@ -495,7 +495,7 @@ class TestGhidraBackend:
             fetch_ghidra(Path("/fake/target.dll"), 0x1000)
 
         post_calls = mock_client.post.call_args_list
-        assert any(_DEFAULT_MCP_ENDPOINT in str(call) for call in post_calls)
+        assert any(DEFAULT_MCP_ENDPOINT in str(call) for call in post_calls)
 
     def test_sends_correct_program_path(self) -> None:
         import json

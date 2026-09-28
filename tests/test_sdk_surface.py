@@ -38,7 +38,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class TestTopLevelPackageExports:
     def test_top_level_package_all(self) -> None:
-        assert rebrew.__all__ == ["__version__"]
+        assert rebrew.__all__ == ["__version__", *sorted(rebrew._LAZY_EXPORTS)]
         assert isinstance(rebrew.__version__, str)
 
     def test_top_level_lazy_attribute_access(self) -> None:
@@ -904,6 +904,58 @@ class TestMatcherLazyExportsStayTyped:
         from rebrew.matcher.compiler import build_candidate
 
         assert matcher_mod.build_candidate is build_candidate
+
+
+class TestGhidraLazyExportsStayTyped:
+    """``rebrew.ghidra``'s lazy names must be typed and resolvable.
+
+    Same contract as the matcher facade: a consumer type-checking
+    ``from rebrew.ghidra import fetch_mcp_tool_raw`` gets the real signature,
+    and every name the facade advertises resolves to the attribute its owning
+    submodule defines.
+    """
+
+    def _type_checking_imports(self) -> set[str]:
+        import rebrew.ghidra as ghidra_mod
+
+        source = Path(ghidra_mod.__file__).read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        names: set[str] = set()
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.If) or not isinstance(node.test, ast.Name):
+                continue
+            if node.test.id != "TYPE_CHECKING":
+                continue
+            for stmt in node.body:
+                if isinstance(stmt, ast.ImportFrom):
+                    for alias in stmt.names:
+                        names.add(alias.asname or alias.name)
+        return names
+
+    def test_every_lazy_export_has_a_type_checking_re_export(self) -> None:
+        import rebrew.ghidra as ghidra_mod
+
+        assert self._type_checking_imports() == set(ghidra_mod._LAZY_EXPORTS)
+
+    def test_all_matches_the_lazy_exports(self) -> None:
+        import rebrew.ghidra as ghidra_mod
+
+        assert ghidra_mod.__all__ == sorted(ghidra_mod._LAZY_EXPORTS)
+
+    def test_lazy_export_resolves_to_the_defining_submodule(self) -> None:
+        import rebrew.ghidra as ghidra_mod
+        from rebrew.ghidra.client import fetch_mcp_tool_raw
+
+        assert ghidra_mod.fetch_mcp_tool_raw is fetch_mcp_tool_raw
+
+    def test_reads_through_to_a_swapped_submodule_attribute(self, monkeypatch) -> None:
+        """A transport stand-in swapped in on the submodule is seen by the facade."""
+        import rebrew.ghidra as ghidra_mod
+        import rebrew.ghidra.client as client_mod
+
+        sentinel = object()
+        monkeypatch.setattr(client_mod, "init_mcp_session", sentinel)
+        assert ghidra_mod.init_mcp_session is sentinel
 
 
 class TestDocumentedTransportInjection:

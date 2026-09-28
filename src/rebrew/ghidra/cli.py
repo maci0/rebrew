@@ -20,6 +20,7 @@ import typer
 
 from rebrew.cli import TargetOption, console, error_exit, json_print, require_config, run_standalone
 from rebrew.config import ConfigError, inventory_path_for, validate_http_url
+from rebrew.ghidra.client import DEFAULT_MCP_ENDPOINT
 from rebrew.ghidra.commands import (
     build_bookmark_commands,
     build_new_function_commands,
@@ -190,9 +191,7 @@ def main(
     create_missing: bool = typer.Option(
         False, "--create-missing", help="Create STUB files for BinSync functions not in the catalog"
     ),
-    endpoint: str = typer.Option(
-        "http://localhost:8080/mcp/message", "--endpoint", help="ReVa MCP endpoint URL"
-    ),
+    endpoint: str = typer.Option(DEFAULT_MCP_ENDPOINT, "--endpoint", help="ReVa MCP endpoint URL"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
