@@ -421,18 +421,23 @@ def _set_target_arch(project: Path, target_name: str, arch: str, fmt: str) -> No
     16-bit Windows 3.x binary."""
     import tomlkit
 
-    toml_path = project / "rebrew-project.toml"
-    doc = tomlkit.parse(toml_path.read_text(encoding="utf-8-sig"))
-    targets = doc.get("targets")
-    if targets is not None and target_name in targets:
-        current = targets[target_name]
-        # A re-discovery of the same binary must not rewrite the project file
-        # when the detected format and arch are already recorded.
-        if str(current.get("arch") or "") == arch and str(current.get("format") or "") == fmt:
-            return
-        current["arch"] = arch
-        current["format"] = fmt
-        atomic_write_text(toml_path, tomlkit.dumps(doc), encoding="utf-8")
+    from rebrew.config import project_toml_lock
+
+    # One locked read-modify-write: the arch/format patch is a two-key edit to
+    # a document parsed wholesale, so a concurrent writer of another key in the
+    # same file would have its edit dropped by the replace.
+    with project_toml_lock(project) as toml_path:
+        doc = tomlkit.parse(toml_path.read_text(encoding="utf-8-sig"))
+        targets = doc.get("targets")
+        if targets is not None and target_name in targets:
+            current = targets[target_name]
+            # A re-discovery of the same binary must not rewrite the project file
+            # when the detected format and arch are already recorded.
+            if str(current.get("arch") or "") == arch and str(current.get("format") or "") == fmt:
+                return
+            current["arch"] = arch
+            current["format"] = fmt
+            atomic_write_text(toml_path, tomlkit.dumps(doc), encoding="utf-8")
 
 
 def _link_toolchain(project: Path, profile: str) -> str | None:

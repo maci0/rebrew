@@ -1023,20 +1023,29 @@ def main(
             )
 
             entries = load_data_metadata(cfg.metadata_dir)
-            names_by_va: dict[int, tuple[str, str]] = {}
+            # One row per (module, va), but the verdicts are keyed by name and
+            # the byte comparison is keyed by VA — and several modules are
+            # visible to one target (the active marker plus every module that is
+            # not another target's).  A dict keyed on VA alone collapsed those
+            # rows: the second module at a shared address replaced the first,
+            # which then kept its old status forever with no warning.  Collect
+            # every visible row and index the names per VA for the lookups.
+            visible_rows: list[tuple[str, int, str]] = []
+            names_by_va: dict[int, set[str]] = {}
             for (module, va), fields in entries.items():
                 if not module_visible_to_target(module, cfg):
                     continue
                 name = str(fields.get("name") or "")
                 if name:
-                    names_by_va[va] = (module, name)
+                    visible_rows.append((module, va, name))
+                    names_by_va.setdefault(va, set()).add(name)
             drift_names = {str(m["name"]) for m in data_report["mismatched"]}
             missing_names = set(data_report["missing"])
             matched_names = {
-                names_by_va[va][1] for va in ref_sizes if va in names_by_va
+                name for va in ref_sizes for name in names_by_va.get(va, ())
             } - drift_names
             status_updates: list[dict[str, Any]] = []
-            for va, (module, name) in names_by_va.items():
+            for module, va, name in visible_rows:
                 if name in drift_names or name in missing_names:
                     status = DATA_STATUS_DRIFT
                 elif name in matched_names or va in built_bytes:

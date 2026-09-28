@@ -143,67 +143,74 @@ def drop_redundant_presets(
     """
     if not hits:
         return 0
-    toml_path = Path(cfg.root) / "rebrew-project.toml"
-    if not toml_path.exists():
+    if not (Path(cfg.root) / "rebrew-project.toml").exists():
         return 0
     import tomlkit
 
-    try:
-        doc = tomlkit.parse(toml_path.read_text(encoding="utf-8-sig"))
-    except (OSError, ValueError) as exc:
-        console.print(f"[yellow]warning:[/yellow] could not update {toml_path}: {exc}")
-        return 0
+    from rebrew.config import project_toml_lock
 
-    def _find(table: Any, mod_upper: str) -> tuple[Any, Any]:
-        if table is None:
+    # One locked read-modify-write.  This drops whole ``cflags_presets`` keys
+    # from a document it parsed before the lock, so a concurrent writer of
+    # another key in the same file (a splat import patching
+    # ``[targets.<name>].arch``, ``rebrew cfg add-target``) had its edit
+    # discarded wholesale by the replace at the end.
+    with project_toml_lock(cfg.root) as toml_path:
+        try:
+            doc = tomlkit.parse(toml_path.read_text(encoding="utf-8-sig"))
+        except (OSError, ValueError) as exc:
+            console.print(f"[yellow]warning:[/yellow] could not update {toml_path}: {exc}")
+            return 0
+
+        def _find(table: Any, mod_upper: str) -> tuple[Any, Any]:
+            if table is None:
+                return None, None
+            presets = table.get("cflags_presets")
+            if presets is None:
+                return None, None
+            for key in list(presets.keys()):
+                if preset_module_key(str(key)) == mod_upper:
+                    return presets, key
             return None, None
-        presets = table.get("cflags_presets")
-        if presets is None:
-            return None, None
-        for key in list(presets.keys()):
-            if preset_module_key(str(key)) == mod_upper:
-                return presets, key
-        return None, None
 
-    def _drop(presets: Any, key: Any, table: Any) -> None:
-        del presets[key]
-        if len(presets) == 0:
-            del table["cflags_presets"]
+        def _drop(presets: Any, key: Any, table: Any) -> None:
+            del presets[key]
+            if len(presets) == 0:
+                del table["cflags_presets"]
 
-    target_compiler: Any = None
-    target_name = str(getattr(cfg, "target_name", "") or "")
-    if target_name:
-        targets = doc.get("targets")
-        if targets is not None and target_name in targets:
-            tgt = targets[target_name]
-            target_compiler = tgt.get("compiler") if tgt is not None else None
-    global_compiler = doc.get("compiler")
+        target_compiler: Any = None
+        target_name = str(getattr(cfg, "target_name", "") or "")
+        if target_name:
+            targets = doc.get("targets")
+            if targets is not None and target_name in targets:
+                tgt = targets[target_name]
+                target_compiler = tgt.get("compiler") if tgt is not None else None
+        global_compiler = doc.get("compiler")
 
-    dropped = 0
-    for hit in hits:
-        expected = cflags_key(hit.cflags)
-        mod = preset_module_key(hit.module)
-        t_presets, t_key = _find(target_compiler, mod)
-        g_presets, g_key = _find(global_compiler, mod)
-        t_val = cflags_key(str(t_presets[t_key])) if t_key is not None else None
-        g_val = cflags_key(str(g_presets[g_key])) if g_key is not None else None
-        remaining = None
-        if t_val is not None and t_val != expected:
-            remaining = t_val
-        elif g_val is not None and g_val != expected:
-            remaining = g_val
-        if remaining is not None:
-            continue
-        changed = False
-        if t_key is not None and t_val == expected:
-            _drop(t_presets, t_key, target_compiler)
-            changed = True
-        if g_key is not None and g_val == expected:
-            _drop(g_presets, g_key, global_compiler)
-            changed = True
-        if changed:
-            dropped += 1
+        dropped = 0
+        for hit in hits:
+            expected = cflags_key(hit.cflags)
+            mod = preset_module_key(hit.module)
+            t_presets, t_key = _find(target_compiler, mod)
+            g_presets, g_key = _find(global_compiler, mod)
+            t_val = cflags_key(str(t_presets[t_key])) if t_key is not None else None
+            g_val = cflags_key(str(g_presets[g_key])) if g_key is not None else None
+            remaining = None
+            if t_val is not None and t_val != expected:
+                remaining = t_val
+            elif g_val is not None and g_val != expected:
+                remaining = g_val
+            if remaining is not None:
+                continue
+            changed = False
+            if t_key is not None and t_val == expected:
+                _drop(t_presets, t_key, target_compiler)
+                changed = True
+            if g_key is not None and g_val == expected:
+                _drop(g_presets, g_key, global_compiler)
+                changed = True
+            if changed:
+                dropped += 1
 
-    if dropped and not dry_run:
-        atomic_write_text(toml_path, tomlkit.dumps(doc), encoding="utf-8")
+        if dropped and not dry_run:
+            atomic_write_text(toml_path, tomlkit.dumps(doc), encoding="utf-8")
     return dropped

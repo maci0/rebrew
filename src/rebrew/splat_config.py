@@ -1485,22 +1485,26 @@ def _write_target_metadata(plan: ImportPlan, root: Path) -> bool:
     """
     import tomlkit
 
+    from rebrew.config import project_toml_lock
     from rebrew.utils import load_toml_for_write
 
     changed = False
-    toml_path = root / "rebrew-project.toml"
-    doc = load_toml_for_write(toml_path, "rebrew-project.toml")
-    targets = doc.setdefault("targets", tomlkit.table())
-    entry = targets.setdefault(plan.target, tomlkit.table())
-    entry["binary"] = plan.binary_dest
-    entry["format"] = plan.format
-    entry["arch"] = plan.arch
-    compiler = entry.setdefault("compiler", tomlkit.table())
-    compiler["profile"] = plan.profile
-    rendered = tomlkit.dumps(doc)
-    if not toml_path.is_file() or toml_path.read_text(encoding="utf-8-sig") != rendered:
-        atomic_write_text(toml_path, rendered, encoding="utf-8")
-        changed = True
+    # One locked read-modify-write: the document is parsed inside the lock so
+    # a concurrent writer of another key in the same file cannot have its edit
+    # dropped by the replace below.
+    with project_toml_lock(root) as toml_path:
+        doc = load_toml_for_write(toml_path, "rebrew-project.toml")
+        targets = doc.setdefault("targets", tomlkit.table())
+        entry = targets.setdefault(plan.target, tomlkit.table())
+        entry["binary"] = plan.binary_dest
+        entry["format"] = plan.format
+        entry["arch"] = plan.arch
+        compiler = entry.setdefault("compiler", tomlkit.table())
+        compiler["profile"] = plan.profile
+        rendered = tomlkit.dumps(doc)
+        if not toml_path.is_file() or toml_path.read_text(encoding="utf-8-sig") != rendered:
+            atomic_write_text(toml_path, rendered, encoding="utf-8")
+            changed = True
 
     # Layout package (rebrew-layout.toml only — a splat import has no reference
     # binary to derive hex blobs from; postlink fixers need a real package).

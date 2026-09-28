@@ -1245,28 +1245,32 @@ def main(
             )
             return
 
-        toml_path = cfg.root / "rebrew-project.toml"
-        if toml_path.exists():
+        if (cfg.root / "rebrew-project.toml").exists():
             import re
 
+            from rebrew.config import project_toml_lock
             from rebrew.utils import atomic_write_text
 
-            content = toml_path.read_text(encoding="utf-8-sig")
-            if re.search(r"(?m)^\s*runner\s*=", content):
-                new_content = re.sub(
-                    r'(?m)^(\s*runner\s*=\s*)"[^"]*"',
-                    r'\1"tools/wibo"',
-                    content,
-                )
-            else:
-                new_content = re.sub(
-                    r"(?m)^(\[compiler\]\s*\n)",
-                    r'\1runner = "tools/wibo"\n',
-                    content,
-                )
-            if new_content != content:
-                atomic_write_text(toml_path, new_content, encoding="utf-8")
-                console.print("Auto-enabled wibo in rebrew-project.toml")
+            # One locked read-modify-write: the rewrite is a regex over the
+            # whole file, so a concurrent writer of any other key in it would
+            # have its edit dropped by the replace.
+            with project_toml_lock(cfg.root) as toml_path:
+                content = toml_path.read_text(encoding="utf-8-sig")
+                if re.search(r"(?m)^\s*runner\s*=", content):
+                    new_content = re.sub(
+                        r'(?m)^(\s*runner\s*=\s*)"[^"]*"',
+                        r'\1"tools/wibo"',
+                        content,
+                    )
+                else:
+                    new_content = re.sub(
+                        r"(?m)^(\[compiler\]\s*\n)",
+                        r'\1runner = "tools/wibo"\n',
+                        content,
+                    )
+                if new_content != content:
+                    atomic_write_text(toml_path, new_content, encoding="utf-8")
+                    console.print("Auto-enabled wibo in rebrew-project.toml")
 
     report = run_doctor(target=target)
 

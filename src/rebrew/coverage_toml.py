@@ -25,10 +25,12 @@ Two consequences of writing TOML are load-bearing and stated once here:
   last section instead of beside it.
 """
 
+import contextlib
 import json
 import logging
+import threading
 import tomllib
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -55,7 +57,7 @@ from rebrew.build_db import (
 from rebrew.cli import console
 from rebrew.errors import RebrewError
 from rebrew.metadata import canonical_status
-from rebrew.utils import atomic_write_text, clip_span, floor_pct, toml_safe
+from rebrew.utils import atomic_write_text, clip_span, file_lock, floor_pct, toml_safe
 from rebrew.workspace import WorkspaceConfigError, db_dir
 from rebrew.workspace.status import MATCHED_STATUSES
 
@@ -589,6 +591,35 @@ def _read_previous(path: Path) -> dict[str, Any]:
         return {}
 
 
+#: One thread lock per target name; the cross-process half is the ``flock`` in
+#: :func:`_coverage_write_lock`.  Both dashboards regenerate from WSGI worker
+#: threads, so an in-process lock is not optional.
+_COVERAGE_WRITE_LOCKS: dict[str, threading.Lock] = {}
+_COVERAGE_WRITE_LOCKS_LOCK = threading.Lock()
+
+
+@contextlib.contextmanager
+def _coverage_write_lock(root_dir: Path, target_name: str) -> Iterator[None]:
+    """Hold the coverage read-modify-write lock for *target_name*.
+
+    Same discipline as :func:`rebrew.verify_cache._verify_cache_write_lock`: a
+    thread lock plus an advisory ``flock`` sidecar, so an in-process dashboard
+    regen and a second process's ``build-db`` cannot interleave.  The sidecar
+    lives under ``.rebrew/`` beside the verify cache's rather than in ``db/``,
+    which holds the delivered documents and nothing else.
+
+    Separate from the metadata write lock: the coverage document is derived
+    output, rewritten whole from the catalog, and shares no file with
+    ``rebrew-functions.toml`` or ``rebrew-data.toml``.
+    """
+    with _COVERAGE_WRITE_LOCKS_LOCK:
+        lock = _COVERAGE_WRITE_LOCKS.get(target_name)
+        if lock is None:
+            lock = _COVERAGE_WRITE_LOCKS[target_name] = threading.Lock()
+    with lock, file_lock(root_dir / ".rebrew" / f"coverage-{target_name}.toml.lock"):
+        yield
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -699,24 +730,34 @@ def write_coverage_toml(
     written: list[Path] = []
     for target_name, data in datasets:
         path = db_directory / f"coverage-{target_name}.toml"
-        previous = _read_previous(path)
-        # The verify cache is read here, not inside render: render stays a pure
-        # function of its arguments (see its docstring), and the previous
-        # document is already in hand for it to read the "was this measured
-        # identically before" mapping out of.
-        verify_rows = import_verify_rows(
-            root_dir,
-            target_name,
-            _previous_measured(previous),
-            # Only the fallback stamp: a cache file whose mtime cannot be read
-            # still has to be dateable, and the moment of this build is the
-            # honest answer.
-            datetime.now(UTC).isoformat(),
-        )
-        atomic_write_text(
-            path,
-            render_coverage_toml(target_name, data, previous=previous, verify_rows=verify_rows),
-        )
+        # The whole read-modify-write holds one write lock per target, like the
+        # other tool-owned stores.  atomic_write_text alone stops a torn file
+        # but not a lost update: two builders for one target (the dashboard
+        # regenerating while a manual `build-db` runs) each read the same
+        # `previous`, each carry its own delta rows into `history`, and the
+        # second replace drops the first's history and restamps
+        # `verified_at` — a silent reset of every chart, invisible until the
+        # retention window rolls the rows off.  The lock is per target, so
+        # builds of different targets still run concurrently.
+        with _coverage_write_lock(root_dir, target_name):
+            previous = _read_previous(path)
+            # The verify cache is read here, not inside render: render stays a
+            # pure function of its arguments (see its docstring), and the
+            # previous document is already in hand for it to read the "was
+            # this measured identically before" mapping out of.
+            verify_rows = import_verify_rows(
+                root_dir,
+                target_name,
+                _previous_measured(previous),
+                # Only the fallback stamp: a cache file whose mtime cannot be
+                # read still has to be dateable, and the moment of this build
+                # is the honest answer.
+                datetime.now(UTC).isoformat(),
+            )
+            atomic_write_text(
+                path,
+                render_coverage_toml(target_name, data, previous=previous, verify_rows=verify_rows),
+            )
         written.append(path)
     return written
 

@@ -157,13 +157,23 @@ whenever the reference binary changes — the layout files carry
    through `metadata_write_lock`, and the two function/data stores use
    `atomic_write_locked` on top (see `rebrew/metadata.py`,
    `rebrew/data_metadata.py`, `rebrew/library.py`).
+   `rebrew-project.toml` is a store too: every writer (`lint --fix` dropping a
+   `cflags_presets` key, a splat import patching `[targets.<name>].arch`, the
+   intake arch rewrite, the doctor wibo fixup) takes
+   `rebrew.config.project_toml_lock` around the whole read, edit, and write,
+   not just the write.  Each edits one key in a document it parsed wholesale,
+   so an unlocked writer drops a concurrent writer's key silently.
    No module-less metadata keys: the writers reject an empty module (a bare
    `0xVA` key was once writable but never readable — the guard now raises
    instead).
 4. Caches must be invalidation-correct: mtime-keyed or content-keyed, and
    written with the shared `atomic_write_text` / `metadata_write_lock`
    machinery (tool-owned TOML uses `atomic_write_locked` so the file stays
-   mode 0444).
+   mode 0444).  The coverage document is derived output but has history to
+   carry forward, so `write_coverage_toml` holds `_coverage_write_lock`
+   across its read of the previous document and its replace; without it two
+   builders for one target each carry their own delta rows and the second
+   write drops the first's history.
 5. Generated scaffolding that must survive without `original/` (layout
    package, `.def`, `crt_region/`, `link_stubs.c`, toolchain files) is
    **VCS-intended** — derive it once, commit it, rebuild only on binary

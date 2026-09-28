@@ -49,7 +49,7 @@ Writes use ``tomlkit`` for round-trip-safe serialisation and
 
 from __future__ import annotations
 
-import contextlib
+import logging
 import threading
 import unicodedata
 from collections.abc import Iterator
@@ -72,6 +72,8 @@ from rebrew.utils import atomic_write_locked, load_toml_for_write
 
 if TYPE_CHECKING:
     from rebrew.annotation import Annotation
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # In-memory cache for load_data_metadata() — mirrors metadata.py's cache for
@@ -411,6 +413,11 @@ def set_data_fields_batch(directory: Path | str | Any, updates: list[dict[str, A
     ``updated_by`` / ``updated_at`` pair in the same write when the update
     changes something.  Same-value short-circuit is preserved per field.
     Returns the number of entries that changed at least one field.
+
+    Raises :class:`ValueError` for an update missing ``module`` or ``va``, or
+    naming a negative VA.  A malformed update used to be skipped, so the rest
+    of the batch landed while the caller still believed every row had been
+    written — the function store's twin raises for the same reason.
     """
     if not updates:
         return 0
@@ -428,7 +435,7 @@ def set_data_fields_batch(directory: Path | str | Any, updates: list[dict[str, A
                 raise ValueError("data metadata writes require a non-empty module")
             va = u.get("va")
             if va is None:
-                continue
+                raise ValueError(f"data field update for {module!r} missing 'va': {u!r}")
             va_int = int(va)
             if va_int < 0:
                 raise ValueError(f"VA must be non-negative, got {va_int:#x}")
@@ -438,7 +445,10 @@ def set_data_fields_batch(directory: Path | str | Any, updates: list[dict[str, A
             toml_key = resolve_metadata_key(doc, module, va_int, index=key_index)
             if toml_key not in doc:
                 doc[toml_key] = tomlkit.table()
-                key_index[(module, va_int)] = toml_key
+                # The index is keyed on the NFC-normalized module
+                # (build_metadata_key_index parses with parse_metadata_key),
+                # so store it in that spelling or a later resolve misses.
+                key_index[(unicodedata.normalize("NFC", module), va_int)] = toml_key
             elif not isinstance(doc[toml_key], dict):
                 raise ValueError(
                     f"data metadata entry {toml_key!r} is not a table "
@@ -487,11 +497,12 @@ def delete_data_entries_batch(directory: Path | str | Any, targets: list[tuple[s
             if not module:
                 continue
             va_int = int(va)
-            toml_key = resolve_metadata_key(doc, str(module), va_int, index=key_index)
+            norm_mod = unicodedata.normalize("NFC", str(module))
+            toml_key = resolve_metadata_key(doc, norm_mod, va_int, index=key_index)
             if toml_key not in doc:
                 continue
             del doc[toml_key]
-            key_index.pop((str(module), va_int), None)
+            key_index.pop((norm_mod, va_int), None)
             removed += 1
         if removed:
             atomic_write_locked(path, tomlkit.dumps(doc))
@@ -531,8 +542,21 @@ def merge_into_data_annotation(ann: Annotation, directory: Path | str | Any) -> 
         ann.name = str(name)
 
     if "size" in entry:
-        with contextlib.suppress(ValueError, TypeError):
+        try:
             ann.size = as_metadata_int(entry["size"])
+        except (ValueError, TypeError) as exc:
+            # Leaving ann.size at 0 makes every later size comparison read the
+            # extent as genuinely unknown, and the coverage grid renders a
+            # zero-width cell for it.  Same guard as
+            # rebrew.metadata.apply_metadata_entry: name the entry and the value.
+            logger.warning(
+                "rebrew-data.toml size for %s[0x%x] is not an integer (%r: %s); "
+                "leaving the annotation's own size",
+                getattr(ann, "module", None) or getattr(ann, "name", None) or "?",
+                getattr(ann, "va", 0) or 0,
+                entry["size"],
+                exc,
+            )
 
     if "section" in entry:
         ann.section = str(entry["section"])

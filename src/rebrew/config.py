@@ -23,6 +23,7 @@ To load a specific target::
     cfg = load_config(target="client_exe")
 """
 
+import contextlib
 import ipaddress
 import logging
 import math
@@ -31,7 +32,7 @@ import re
 import shlex
 import tomllib
 import unicodedata
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field
 from functools import partial
 from pathlib import Path
@@ -39,6 +40,7 @@ from typing import Any, TypedDict, override
 from urllib.parse import urlparse
 
 from rebrew.errors import RebrewError
+from rebrew.metadata_doc import metadata_write_lock
 from rebrew.toolchain_spec import FlagsStyle
 from rebrew.utils import (
     BYTES_PER_MIB,
@@ -49,7 +51,7 @@ from rebrew.utils import (
     untrusted_text,
 )
 from rebrew.workspace import walk_up_to_root
-from rebrew.workspace.config import config_path
+from rebrew.workspace.config import CONFIG_NAME, config_path
 
 
 class ConfigError(RebrewError, ValueError):
@@ -104,6 +106,30 @@ def _config_warn(msg: str) -> None:
 
 METADATA_FILENAME = "rebrew-functions.toml"
 """Function metadata TOML, read and written through ``ProjectConfig.metadata_dir``."""
+
+
+@contextlib.contextmanager
+def project_toml_lock(root: Path | str) -> Iterator[Path]:
+    """Hold the ``rebrew-project.toml`` read-modify-write lock; yield its path.
+
+    The project document is a store like any other, and its writers edit one
+    key each: ``rebrew cfg add-target`` adds a ``[targets]`` table, a splat
+    import patches ``[targets.<name>].arch``, ``lint --fix`` drops a redundant
+    ``cflags_presets`` entry.  Each parses the whole document, mutates its own
+    keys, and writes the file back.  Two of those interleaving (an import in one
+    terminal while ``lint --fix`` runs in another) each publish a document that
+    is the other's parse plus their own edit, so one side's change is gone with
+    no error and no trace.
+
+    Same lock as ``rebrew-functions.toml`` and ``rebrew-data.toml`` — a
+    per-filename re-entrant thread lock plus a ``.lock`` flock sidecar — so a
+    second *process* waits instead of winning.  Every writer takes this around
+    the whole read, the edit, and the write, not around the write alone.
+    """
+    root_path = Path(root)
+    with metadata_write_lock(root_path, CONFIG_NAME):
+        yield root_path / CONFIG_NAME
+
 
 TOOLCHAIN_OVERLAY_ENV = "REBREW_TOOLCHAIN_OVERLAY_DIR"
 """Env var naming a directory of project-level toolchain ``*.toml`` overlays.
@@ -2730,6 +2756,7 @@ __all__ = [
     "parse_env_bool",
     "parse_env_log_level",
     "profile_flags_style",
+    "project_toml_lock",
     "validate_http_url",
     "validate_llm_model",
     "validate_target_name",
