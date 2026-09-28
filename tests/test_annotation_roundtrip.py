@@ -126,6 +126,20 @@ def test_update_same_value_idempotent(base_file: Path) -> None:
     )
 
 
+def test_update_equivalent_spelling_reports_no_change(base_file: Path) -> None:
+    """A differently-spelled equal value stores nothing and reports no change.
+
+    The writer coerces SIZE to an int, so ``"42"`` and ``"0x2A"`` are the same
+    stored value. The idempotency check compared raw text, so the second call
+    took the write path, wrote nothing, and still returned True.
+    """
+    assert update_annotation_key(base_file, 0x1000, "SIZE", "42", metadata_dir=base_file.parent)
+    assert (
+        update_annotation_key(base_file, 0x1000, "SIZE", "0x2A", metadata_dir=base_file.parent)
+        is False
+    )
+
+
 def test_inline_key_update_remove_roundtrip(base_file: Path) -> None:
     """Non-metadata keys round-trip through the .c file: update inserts a
     ``// KEY:`` line, remove strips it, the file is byte-identical after."""

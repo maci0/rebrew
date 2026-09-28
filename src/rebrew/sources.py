@@ -111,6 +111,14 @@ def scan_files(directory: Path | str) -> list[Path]:
                                 stack.append(Path(entry.path))
                             continue
                         if entry.is_symlink():
+                            # A symlinked file is out of scope (the contract is
+                            # every non-symlink file), but a symlinked directory
+                            # is a subtree the walk declines to enter, and every
+                            # consumer reads the result as the complete
+                            # inventory. Naming it is what keeps a linked
+                            # module from looking like an absent one.
+                            if entry.is_dir():
+                                logger.warning("skipping symlinked source directory %s", entry.path)
                             continue
                     except OSError as exc:
                         logger.warning(

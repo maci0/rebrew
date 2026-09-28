@@ -493,6 +493,17 @@ def main(
         # of them would be documented" next to the same payload's own count.
         funcs = _enumerate_functions(bin_path)
         preview_count = len(funcs)
+        if not preview_count:
+            # The same gate the real run applies.  docs/CLI.md: intake exits 2
+            # when no discoverer yields any function, and a preview that exits
+            # 0 over an empty inventory is the "successful empty onboarding"
+            # that gate exists to prevent — a missing rizin reads as a
+            # zero-function binary on the very command meant to rule it out.
+            error_exit(
+                "no functions discovered — install rizin (or register another "
+                "rebrew.discoverers plugin) and re-run intake",
+                json_mode=json_output,
+            )
         payload = {
             "dry_run": True,
             "target": target_name,

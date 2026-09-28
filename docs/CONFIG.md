@@ -71,6 +71,8 @@ libs = "toolchain/msvc/6.0-win32/source/VC98/Lib"
 | `library_modules` | `[targets.<name>].library_modules` | Module names that use `LIBRARY` markers |
 | `source_ext` | `[targets.<name>].source_ext` | Source extension used when discovering and creating files |
 | `ghidra_program_path` | `[targets.<name>].ghidra_program_path` | ReVa MCP program path override |
+| `origins` | `[targets.<name>].origins` | The target's module list, managed by `rebrew add-module` / `rebrew remove-module`. Carried for the editor and UI only; annotation filtering reads the markers themselves, not this list |
+| `layout` | `[targets.<name>].layout` | Inline position-alignment package (image base, section geometry, exports, imports) printed by `rebrew gen-layout --layout-config` and written to `layout/<target>/rebrew-layout.toml`. Not read by this loader: the layout tooling parses the file directly. Recognised here so a target carrying it does not warn on every invocation and no config rewriter drops the block |
 | `ghidra_backend` | `[targets.<name>].ghidra_backend` | Ghidra transport: `reva` (MCP, default) or `cli`; an unknown value is a config error |
 | `binsync_state_dir` | `[targets.<name>].binsync_state_dir` | BinSync state directory (default for `--state-dir`) |
 | `iat_thunks` / `dll_exports` / `ignored_symbols` / `r2_bogus_vas` | `[targets.<name>]` | Project-specific VA lists (`iat_thunks`, `r2_bogus_vas`: VAs with known-bad r2 size data), VA → name export map, and symbol names to ignore |

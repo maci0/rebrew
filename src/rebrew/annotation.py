@@ -1750,6 +1750,15 @@ def update_annotation_key(
                 return False
             fields: dict[str, Any] = {key.lower(): new_value}
             entry.apply(_dir, **fields)
+            # The check above compares raw text, but the writer coerces (SIZE
+            # "0x2A" stores as 42), so a differently-spelled equal value passes
+            # the pre-check and then stores nothing. Re-read and compare the
+            # coerced value, or the return says "written" for a file that did
+            # not change and every caller gating on it takes the wrong branch.
+            if attr is not None:
+                after = getattr(MetadataEntry.load(_dir, va, module), attr, None)
+                if after is not None and str(after) == str(existing):
+                    return False
         return True
     try:
         text, encoding = read_source_text(filepath)

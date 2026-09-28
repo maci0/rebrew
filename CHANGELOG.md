@@ -94,6 +94,13 @@
   are the same ones, now read from `DEFAULT_PROJECT_JOBS` and
   `DEFAULT_COMPILE_TIMEOUT` instead of being hardcoded in the template, so a
   generated project and a hand-written one start at the same budget.
+- **Breaking:** `rebrew.identify_library.filename_component` is gone. The
+  import name was a re-export of `rebrew.utils.filename_component` used to
+  build one library header name; the derivation now lives in
+  `rebrew.utils.library_header_name`, which both writers share, so
+  `from rebrew.identify_library import filename_component` raises
+  `ImportError`. Import `library_header_name` from `rebrew.utils`, or
+  `filename_component` itself if the reduction is what you need.
 - **Breaking:** `rebrew.flirt.check_env_dir` is gone. It was a re-export of
   `rebrew.config.check_env_dir` through an import that no longer exists;
   import `check_env_dir` from `rebrew.config`, which is where it is defined.
@@ -172,6 +179,17 @@
   send. `docs/COVERAGE_DOCUMENT.md`'s endpoint table gained the
   `/favicon.svg` row the spec and the server both serve. No response shape
   and no status changed.
+- **`rebrew intake --dry-run` exits 2 when no discoverer finds a function.**
+  The real run fails loudly there, because an empty inventory is a missing
+  rizin and not an onboarded target, and `docs/CLI.md` states the rule. The
+  preview enumerated the same inventory, printed `0 function(s) would be
+  enumerated` and exited 0, so the one command meant to rule a broken
+  toolchain out reported a clean empty onboarding.
+- **`update_annotation_key` reports whether the write landed.** It compared
+  the raw new value against the stored one, but the writer coerces (`SIZE
+  "0x2A"` stores as `42`), so a differently-spelled equal value took the write
+  path, stored nothing, and still returned `True`. A caller using the return to
+  decide "the file changed" now gets the truth.
 - **`rebrew cfg set link.tsaware yes` no longer reports success and sets
   nothing.** `link.tsaware` sets bit `0x8000` in `DllCharacteristics`, and it
   was the one boolean key missing from `cfg`'s `_BOOL_CONFIG_KEYS`, so the
