@@ -264,6 +264,23 @@
   `status` and `catalog` already do.
 
 ### Fixed
+- **The coverage document's reader memo could not see a same-size rebuild.**
+  The per-file stat fingerprint keyed the memoized directory scan on
+  `(name, mtime_ns, size)`, the only per-file memo in the tree without the
+  inode. A document replaced at the same byte count and the same `mtime_ns` — a
+  `cp -p` restore, a git checkout of a restored file, a coarse-timestamp
+  filesystem — matched the key and kept serving the previous snapshot, and the
+  dashboard reads this on the request path. The inode is now part of the key,
+  matching `verify_hash._SOURCE_MEMO`, `metadata_doc` and
+  `utils.read_source_text`.
+- **`rebrew toolchain list --json` could pair a profile with another
+  generation's origin.** It is the one reader that reports a profile beside its
+  provenance, and it read `TOOLCHAINS` and `TOOLCHAIN_ORIGINS` as two separate
+  module-level names, so a `refresh_all()` landing between the rows attributed
+  a retired generation's spec to the new generation's origin, or reported
+  `"packaged"` for a plugin profile the new registry already knew. Both tables
+  now come from one `registry_snapshot()` read, as every other reader already
+  did.
 - **`rebrew doctor` returned the byte-mismatch code for a broken project.**
   Every failing doctor check is a missing prerequisite, an unreadable
   `rebrew-project.toml`, or an unusable toolchain, so the run exited 1 and a

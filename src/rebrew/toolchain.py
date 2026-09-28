@@ -1298,8 +1298,17 @@ def list_toolchains() -> list[dict[str, Any]]:
     ``docker_available`` memoizes only a positive result, so with the CLI
     present and the daemon unresponsive every row used to pay another
     ``docker info`` up to its 15 s timeout.
+
+    The registry and the origins come from one :func:`registry_snapshot` read
+    because a row pairs a profile with its provenance.  Reading the two
+    module-level names directly let a ``refresh_all()`` landing between the
+    comprehension's ``TOOLCHAINS.values()`` and its per-row
+    ``TOOLCHAIN_ORIGINS.get`` attribute a retired generation's spec with the
+    new generation's origin, or report ``"packaged"`` for a plugin profile
+    whose origin the new registry already knows.
     """
     docker = docker_available()
+    registry, origins = registry_snapshot()
     return [
         {
             "name": s.name,
@@ -1310,10 +1319,10 @@ def list_toolchains() -> list[dict[str, Any]]:
             "obj_ext": s.obj_ext,
             "host_path": str(s.host_path) if s.host_path else None,
             "description": s.description,
-            "origin": TOOLCHAIN_ORIGINS.get(s.name, "packaged"),
+            "origin": origins.get(s.name, "packaged"),
             "docker": docker,
         }
-        for s in TOOLCHAINS.values()
+        for s in registry.values()
     ]
 
 

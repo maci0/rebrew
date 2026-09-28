@@ -1105,6 +1105,38 @@ class TestMemo:
         assert after is not before
         assert after.sections[".data"].buckets == {"reloc": 16, "thunk": 16}
 
+    def test_rename_over_at_the_same_size_and_mtime_invalidates(
+        self, write: Callable[[dict[str, Any]], list[Path]], data: dict[str, Any], tmp_path: Path
+    ) -> None:
+        """A replace-in-place with the stat fields restored still invalidates.
+
+        The mtime-only key cannot see this: a ``cp -p`` restore, a git checkout
+        of a restored file, or a coarse-timestamp filesystem all land a new
+        inode at the same byte count and the same mtime_ns.  Only the inode
+        distinguishes the two documents, so it is part of the key.
+        """
+        path = write(data)[0]
+        before = load_all_coverage(tmp_path)
+        assert before[TARGET].sections[".data"].buckets == {"exact": 16, "thunk": 16}
+
+        text = path.read_text(encoding="utf-8")
+        edited = text.replace('"exact"', '"reloc"')
+        assert len(edited) == len(text) and edited != text
+        st = path.stat()
+        # Stage the new content beside the target and rename it over, so the
+        # path keeps its name and size but lands a fresh inode.
+        staged = path.with_name(path.name + ".staged")
+        staged.write_text(edited, encoding="utf-8", newline="\n")
+        os.utime(staged, ns=(st.st_atime_ns, st.st_mtime_ns))
+        os.replace(staged, path)
+        assert path.stat().st_ino != st.st_ino
+        assert path.stat().st_mtime_ns == st.st_mtime_ns
+        assert path.stat().st_size == st.st_size
+
+        after = load_all_coverage(tmp_path)
+        assert after is not before
+        assert after[TARGET].sections[".data"].buckets == {"reloc": 16, "thunk": 16}
+
     def test_added_and_removed_files_invalidate(
         self, monkeypatch: pytest.MonkeyPatch, data: dict[str, Any], tmp_path: Path
     ) -> None:

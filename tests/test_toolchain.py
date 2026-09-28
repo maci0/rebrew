@@ -62,6 +62,30 @@ class TestRegistry:
         assert {"msvc-6.0", "delphi-1.0", "mingw-16.2.0"} <= set(TOOLCHAINS)
         assert {"ido-5.3", "ido-7.1"} <= set(TOOLCHAINS)
 
+    def test_list_toolchains_pairs_one_registry_generation(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A row's profile and its origin come from the same snapshot.
+
+        ``list_toolchains`` is the one reader that pairs the two tables, so
+        reading the module globals separately let a ``refresh_all()`` landing
+        between the rows straddle two generations.  The snapshot's origin
+        deliberately disagrees with the ambient ``TOOLCHAIN_ORIGINS`` so a
+        reader that goes back to the globals fails here.
+        """
+        import rebrew.toolchain as tc
+
+        spec = ToolchainSpec(name="probe-1.0", image="rebrew/probe:1.0")
+        monkeypatch.setattr(
+            tc, "registry_snapshot", lambda: ({"probe-1.0": spec}, {"probe-1.0": "entry-point"})
+        )
+        monkeypatch.setattr(tc, "docker_available", lambda: False)
+
+        rows = {row["name"]: row for row in tc.list_toolchains()}
+        assert set(rows) == {"probe-1.0"}
+        assert rows["probe-1.0"]["origin"] == "entry-point"
+        assert rows["probe-1.0"]["image"] == "rebrew/probe:1.0"
+
     def test_get_unknown_raises(self) -> None:
         with pytest.raises(ToolchainError, match="unknown toolchain") as ei:
             get_toolchain("nope")

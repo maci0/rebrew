@@ -482,9 +482,15 @@ _catalog_va_set_memo: tuple[dict[str, int], set[int]] | None = None
 def _catalog_va_set(name_to_va: dict[str, int] | None) -> set[int]:
     """``set(name_to_va.values())``, memoised against the last map seen.
 
-    Identity, not equality: the caller owns the dict and may mutate it, so the
-    memo holds a reference to the exact object and is reused only for that
-    object.  A single slot bounds the memory to one map and one set.
+    Identity, not equality, so a fresh ``build_name_to_va`` result builds its
+    own set instead of comparing a full symbol map on every call.  A single
+    slot bounds the memory to one map and one set.
+
+    Identity does NOT detect an in-place edit: a caller that mutates the dict
+    after the first call still gets the set taken before the edit.  Every
+    caller in the tree hands over a map ``build_name_to_va`` just built, so
+    that does not arise; a caller that reuses and mutates one must pass a copy
+    (or clear ``_catalog_va_set_memo``).
     """
     global _catalog_va_set_memo
     if not name_to_va:

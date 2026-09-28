@@ -1238,7 +1238,7 @@ def _read_document(path: Path, target: str) -> CoverageSnapshot:
     return _snapshot(path, doc, target)
 
 
-# Memoized directory scan: ((db_dir, ((name, mtime_ns, size), ...)), snapshots).
+# Memoized directory scan: ((db_dir, ((name, mtime_ns, size, ino), ...)), snapshots).
 # The key is every input the answer has — the directory and the stat of every
 # file in it — so a rebuilt file, an added target and a removed one all
 # invalidate.  load_all_coverage runs on the request path and re-reading and
@@ -1249,24 +1249,30 @@ def _read_document(path: Path, target: str) -> CoverageSnapshot:
 # Callers use the returned object's identity as their own cache key, so an
 # unchanged directory returns THE SAME snapshots, not equal copies.
 _ALL_CACHE: (
-    tuple[tuple[Path, tuple[tuple[str, int, int], ...]], dict[str, CoverageSnapshot]] | None
+    tuple[tuple[Path, tuple[tuple[str, int, int, int], ...]], dict[str, CoverageSnapshot]] | None
 ) = None
 
 
-def _stat_key(db_directory: Path) -> tuple[tuple[str, int, int], ...]:
-    """``(name, mtime_ns, size)`` for every ``coverage-*.toml`` in the directory.
+def _stat_key(db_directory: Path) -> tuple[tuple[str, int, int, int], ...]:
+    """``(name, mtime_ns, size, ino)`` for every ``coverage-*.toml`` in the directory.
 
     Sorted, because a directory listing's order is not a fact about the files.
     A file that vanishes between the listing and the stat is skipped: the next
     call's key differs, so the miss is caught then.
+
+    The inode is what catches a document replaced by a same-size rename-over
+    inside one mtime tick (a ``cp -p`` restore, a git checkout of a restored
+    file, a coarse-timestamp filesystem), which mtime and size alone cannot
+    see; this matches every other per-file memo in the tree
+    (``verify_hash._SOURCE_MEMO``, ``metadata_doc``, ``utils.read_source_text``).
     """
-    entries: list[tuple[str, int, int]] = []
+    entries: list[tuple[str, int, int, int]] = []
     for path in db_directory.glob(f"{_FILENAME_PREFIX}*{_FILENAME_SUFFIX}"):
         try:
             st = path.stat()
         except OSError:
             continue
-        entries.append((path.name, st.st_mtime_ns, st.st_size))
+        entries.append((path.name, st.st_mtime_ns, st.st_size, st.st_ino))
     entries.sort()
     return tuple(entries)
 
@@ -1289,7 +1295,7 @@ def load_all_coverage_from(db_directory: Path) -> dict[str, CoverageSnapshot]:
     if cached is not None and cached[0] == key:
         return cached[1]
     snapshots: dict[str, CoverageSnapshot] = {}
-    for name, _mtime_ns, _size in key[1]:
+    for name, _mtime_ns, _size, _ino in key[1]:
         target = name[len(_FILENAME_PREFIX) : -len(_FILENAME_SUFFIX)]
         path = db_directory / name
         try:
