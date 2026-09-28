@@ -50,7 +50,7 @@ Adopt an explicit **four-tier model** and document it as the contract
    `src/link_stubs.c`, `flirt_sigs/*.pat`, toolchain files.  Generated
    from the binary but committed so a rebuild never needs `original/`
    around; regenerable via the generating command (gen-layout,
-   discover-functions, gen-link-stubs, catalog).
+   discover-functions, gen-link-stubs).
 3. **Derived, gitignored (build output)** — grid JSON, coverage.db, CSV,
    `bin/<target>/*.bin`, `output/report/`.  (Amended: the grid JSON, the
    coverage database and the CSV are gone — see the amendment at the end.)  Rebuildable via one command;
@@ -58,7 +58,10 @@ Adopt an explicit **four-tier model** and document it as the contract
    `.rebrew/verify_baseline.json` (unguarded `db/verify_results.json`
    snapshots are no longer written — see `verify_cache.load_baseline`).
 4. **Cache (delete-safe)** — verify cache, Ghidra sync-state, compile
-   caches, GA build caches/checkpoints, in-memory mtime caches.  Except
+   caches, GA run checkpoints (`out_dir/checkpoints`, `out_dir/best.c`),
+   in-memory mtime caches.  There is no per-run GA build cache:
+   same-run compiles memoize in memory, cross-run persistence is the shared
+   compile cache's job.  Except
    `.rebrew/ga_runs.jsonl` (live GA history / win fingerprints; see
    `matcher/solutions.py` — `load_solutions` derives winners from the log;
    the old `.rebrew/solutions.json` store is gone).

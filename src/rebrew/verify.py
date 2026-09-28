@@ -437,12 +437,20 @@ def _va_display(key: Any) -> str:
     return str(key)
 
 
-def diff_reports(previous: dict[str, Any], current: dict[str, Any]) -> dict[str, Any]:
+def diff_reports(
+    previous: dict[str, Any],
+    current: dict[str, Any],
+    scope: set[str] | None = None,
+) -> dict[str, Any]:
     """Compare two JSON verify reports and highlight changes in status or match percentage.
 
     Args:
         previous: The previous run's full JSON results dict.
         current: The newly generated full JSON results dict.
+        scope: Display-form VA keys (``0x%08x``) the run covered.  A scoped run
+            leaves the baseline whole-project, so every out-of-scope entry is
+            absent from ``current`` and would otherwise be reported as
+            ``removed``.  ``None`` compares the whole corpus.
 
     Returns:
         A dict with 'regressions', 'improvements', 'new', and 'removed' lists
@@ -554,6 +562,8 @@ def diff_reports(previous: dict[str, Any], current: dict[str, Any]) -> dict[str,
 
     for va in sorted(previous_results, key=_sort_key):
         if va in current_results:
+            continue
+        if scope is not None and _va_display(va) not in scope:
             continue
         previous_item = previous_results[va]
         removed.append(
@@ -1494,7 +1504,10 @@ def _save_report(
     # failure leaves no new entries behind.
     diff_result: dict[str, Any] | None = None
     if diff_mode and previous_report is not None:
-        diff_result = diff_reports(previous_report, report)
+        # A scope flag leaves the baseline whole-project, so without this the
+        # out-of-scope entries read as `removed`.
+        scope = {str(r.get("va")) for r in results} or None
+        diff_result = diff_reports(previous_report, report, scope=scope)
     data_failed = 0
     if data_report is not None:
         data_failed = len(data_report.get("mismatched") or ()) + len(
@@ -1535,9 +1548,10 @@ def _save_report(
     # committed either).  A regressed run must not overwrite the last good
     # baseline, or the gate would self-heal on the next invocation:
     # --compare advances it only on a passing gate, plain verify always.
-    # A scope-filtered run never writes it: diff_reports keys by VA, so a
-    # per-directory baseline reports every other function as `removed` and
-    # makes the next full run report the whole corpus as `new`.
+    # A scope-filtered run never writes it: the next full run would then
+    # compare the whole corpus against a one-file baseline and report every
+    # out-of-scope function as `new`.  (The current run's own diff is
+    # scope-filtered above, so it reports no out-of-scope `removed` rows.)
     if not dry_run and not (diff_mode and gate_failed) and not batch.excluded_keys:
         from rebrew.verify_cache import save_baseline
 

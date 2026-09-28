@@ -42,9 +42,11 @@ hundreds.
 - `rebrew verify` wall time becomes ~compiles/groups + cache hits instead
   of ~compiles. Mixed-cflags projects degrade gracefully (one invocation
   per distinct flag set — usually 1-3).
-- `rebrew test --all` is not batched: it compiles each source through
-  `compile_to_obj` and does not use `run_verification`, so the speedup
-  covers `rebrew verify` only.
+- `rebrew test --all` is batched too: it routes through
+  `test.emit_test_batch` → `verify.run_batch` → `run_verification`, so the
+  speedup covers both commands.  The `compile_to_obj` loop that was described
+  here at acceptance is now the single-source multi-function path
+  (`test._test_multi_function_file`).
 - Docker is still one-shot per group (no daemon); the recompile service
   remains the persistent alternative.
 - MSVC `/Fo` per-file naming is lost inside a batch — outputs are matched

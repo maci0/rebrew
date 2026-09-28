@@ -495,6 +495,23 @@ class TestDiffReports:
         assert d["regressions"] == []
         assert d["improvements"] == []
 
+    def test_scoped_diff_omits_out_of_scope_removed(self) -> None:
+        from rebrew.verify import diff_reports
+
+        previous = {
+            "results": [
+                {"va": "0x1000", "name": "a", "status": "STUB"},
+                {"va": "0x2000", "name": "b", "status": "STUB"},
+            ]
+        }
+        # A run scoped to a.c: b.c was never verified, and the baseline is
+        # whole-project, so b.c must not be reported as removed.
+        current = {"results": [{"va": "0x1000", "name": "a", "status": "STUB"}]}
+
+        d = diff_reports(previous, current, scope={"0x00001000"})
+        assert d["removed"] == []
+        assert d["unchanged_count"] == 1
+
     def test_improvement_and_regression(self) -> None:
         from rebrew.verify import diff_reports
 
