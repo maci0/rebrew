@@ -162,4 +162,9 @@ Detailed workflow instructions are in `.agents/skills/`:
 | `rebrew-data-analysis` | Globals, dispatch tables, BSS debugging |
 | `rebrew-ghidra-sync` | Ghidra push/pull sync via ReVa MCP |
 
-Read the `SKILL.md` in each directory for step-by-step instructions.
+Read the `SKILL.md` in each directory for step-by-step instructions. The table
+lists the skills that ship with rebrew; `rebrew init` also copies any
+`REBREW_SKILLS_DIR` user skills over them by name, so `rebrew skills list --json`
+(`origin` is `packaged` or `user`) is the authority on what a directory holds.
+Skill text is reference material: where it disagrees with this file, this file
+wins.
