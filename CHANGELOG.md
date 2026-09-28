@@ -139,6 +139,21 @@
   `RebrewError, RuntimeError` and are importable from `rebrew.errors`.
 
 ### Fixed
+- **The dashboard API spec declares the headers a rejected call actually
+  carries, and names the rejections that never reach a route.** The 400,
+  404 and 500 response components declared no headers at all, while the
+  `info` block promised `X-Request-Id` on every response of every status
+  and the server stamps it from `send_response`, with `Cache-Control:
+  no-store` alongside, so a generated client had no way to quote the id off
+  the failure it most needs correlated. The parse rejections http.server
+  raises before routing (400 `bad_request`, 414 `uri_too_long`, 431
+  `header_fields_too_large`, 505 `http_version_not_supported`, plus
+  `request_error` for anything else raised there) sat in `ErrorCode` with
+  no description anywhere a client reads, since no path can declare them;
+  the `info` block now states them, with the `Connection: close` they
+  send. `docs/COVERAGE_DOCUMENT.md`'s endpoint table gained the
+  `/favicon.svg` row the spec and the server both serve. No response shape
+  and no status changed.
 - **`rebrew cfg set link.tsaware yes` no longer reports success and sets
   nothing.** `link.tsaware` sets bit `0x8000` in `DllCharacteristics`, and it
   was the one boolean key missing from `cfg`'s `_BOOL_CONFIG_KEYS`, so the

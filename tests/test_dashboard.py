@@ -4209,6 +4209,85 @@ class TestOpenApiSpec:
         allow = spec["components"]["responses"]["MethodNotAllowed"]["headers"]
         assert "Allow" in allow
 
+    def test_every_error_response_declares_the_headers_the_server_sends(
+        self, dashboard: Dashboard
+    ) -> None:
+        """A rejection is the response a client most wants to correlate.
+
+        ``send_response`` stamps ``X-Request-Id`` on every status and the
+        hardening set rides ``Cache-Control: no-store`` on every error, so a
+        caller holding a 400 or a 500 hands the operator one token instead of
+        guessing at a timestamp.  A response component that declares neither
+        documents a wire the server never writes, and a generated client
+        cannot read the id off the failure it needs to quote.
+        """
+        from io import BytesIO
+        from unittest.mock import Mock
+
+        from rebrew.dashboard import _Handler, allowed_hosts_for
+
+        for name in ("MissingTarget", "InvalidRequest", "UnknownTarget", "DatabaseError"):
+            headers = _spec()["components"]["responses"][name]["headers"]
+            assert "X-Request-Id" in headers, name
+            assert "Cache-Control" in headers, name
+
+        # The same two headers on the wire, for the two statuses a client can
+        # provoke without a fault injected into a route.
+        for path in ("/api/summary", "/api/nope"):
+            handler = _Handler.__new__(_Handler)
+            handler.rfile = BytesIO(f"GET {path} HTTP/1.1\r\nHost: 127.0.0.1:8000\r\n\r\n".encode())
+            handler.wfile = BytesIO()
+            handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
+            handler.dashboard = dashboard
+            handler.log_message = Mock()
+            handler.handle()
+            headers = handler.wfile.getvalue().split(b"\r\n\r\n", 1)[0]
+            assert b"Cache-Control: no-store\r\n" in headers, path
+            assert b"X-Request-Id: r" in headers, path
+
+    def test_pre_routing_rejections_are_named_and_close_the_connection(
+        self, dashboard: Dashboard
+    ) -> None:
+        """A request http.server rejects never reaches a route, so no path in
+        the spec can declare its status: the `info` block states them, and a
+        code it omits is one a client cannot branch on.
+
+        The connection closes with them, because the unread remainder of a
+        request the server could not parse is not the start of a next one.
+        """
+        from io import BytesIO
+        from unittest.mock import Mock
+
+        from rebrew import dashboard as module
+        from rebrew.dashboard import _Handler, allowed_hosts_for
+
+        description = _spec()["info"]["description"]
+        for code in (*module._HTTP_ERROR_CODES.values(), "request_error"):
+            assert f"`{code}`" in description, code
+
+        for request_line, status, code in (
+            (
+                b"GET / HTTP/9.9\r\nHost: 127.0.0.1:8000\r\n\r\n",
+                b"505 ",
+                "http_version_not_supported",
+            ),
+            (b"not a request line at all\r\n\r\n", b"400 ", "bad_request"),
+        ):
+            handler = _Handler.__new__(_Handler)
+            handler.rfile = BytesIO(request_line)
+            handler.wfile = BytesIO()
+            handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
+            handler.dashboard = dashboard
+            handler.log_message = Mock()
+            handler.handle_one_request()
+            raw = handler.wfile.getvalue()
+            headers, body = raw.split(b"\r\n\r\n", 1)
+            assert headers.startswith(b"HTTP/1.1 " + status), code
+            assert b"Connection: close\r\n" in headers, code
+            assert json.loads(body)["code"] == code
+            # A handler left open would read the leftover bytes as a request.
+            assert handler.close_connection is True
+
     def test_documented_cols_match_the_row_layout(self, dashboard: Dashboard) -> None:
         from rebrew import dashboard as module
 

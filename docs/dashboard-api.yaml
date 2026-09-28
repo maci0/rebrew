@@ -34,9 +34,15 @@ info:
     Three statuses are cross-cutting and declared on every route: 304 when the
     client's `If-None-Match` matched, 403 `host_not_allowed` for a `Host`
     header that is not the bound host, and 405 `method_not_allowed` with
-    `Allow: GET, HEAD`.  A fourth is answered before routing and so needs no
-    request: 503 `server_busy` with `Retry-After`, when every handler slot is
-    already taken by a connection the client is still holding.  Every
+    `Allow: GET, HEAD`.  Three more are answered before routing, so they carry
+    no path to declare them on and are stated here instead: 503 `server_busy`
+    with `Retry-After`, when every handler slot is already taken by a
+    connection the client is still holding; and the parse rejections
+    http.server raises on the request itself, 400 `bad_request`, 414
+    `uri_too_long`, 431 `header_fields_too_large`, and 505
+    `http_version_not_supported`, with `request_error` standing in for any
+    other status raised there.  All of them close the connection, so a client
+    that reads the body knows not to reuse the socket.  Every
     response, of every status, carries `X-Request-Id`.
 servers:
   - url: http://127.0.0.1:8000
@@ -1035,6 +1041,9 @@ components:
         `target` is missing or blank (`missing_target`).  `/api/functions`
         answers this status for a missing `target` as well as for a bad
         `status`, so branch on `code` rather than on the route.
+      headers:
+        Cache-Control: { $ref: "#/components/headers/CacheControl" }
+        X-Request-Id: { $ref: "#/components/headers/XRequestId" }
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
@@ -1045,6 +1054,9 @@ components:
         (`invalid_status`).  The same status also covers a missing or blank
         `target` (`missing_target`), so branch on `code`: `invalid_status`
         names the offending value, `missing_target` names the absent one.
+      headers:
+        Cache-Control: { $ref: "#/components/headers/CacheControl" }
+        X-Request-Id: { $ref: "#/components/headers/XRequestId" }
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
@@ -1054,6 +1066,9 @@ components:
         No target by that name has stats (`unknown_target`).  A path the
         server does not serve answers this same status with `not_found`
         whatever the method, since there is no resource to list methods for.
+      headers:
+        Cache-Control: { $ref: "#/components/headers/CacheControl" }
+        X-Request-Id: { $ref: "#/components/headers/XRequestId" }
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
@@ -1112,6 +1127,9 @@ components:
         readable document, `internal_error` for any other fault in a route.  A client
         that cannot branch any finer treats every 500 alike and retries
         later; the `code` is what distinguishes them.
+      headers:
+        Cache-Control: { $ref: "#/components/headers/CacheControl" }
+        X-Request-Id: { $ref: "#/components/headers/XRequestId" }
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }

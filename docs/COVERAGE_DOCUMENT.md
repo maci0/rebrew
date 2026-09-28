@@ -447,6 +447,7 @@ human summary, and both are checked against the code by
 |--------|----------|-------|-------------|
 | `GET`, `HEAD` | `/` | | Dashboard HTML shell (inlined CSS, deferred `/app.js`) |
 | `GET`, `HEAD` | `/app.js` | `v` | Dashboard client; `?v=<content hash>` is served `immutable` |
+| `GET`, `HEAD` | `/favicon.svg` | `v` | The rebrew mark, served as its own asset rather than inlined; `?v=<content hash>` is served `immutable` |
 | `GET`, `HEAD` | `/api/bootstrap` | | Targets plus the first target's summary and functions, in one round trip |
 | `GET`, `HEAD` | `/api/health` | | `{"status": "ok", "coverage_dir": "<coverage directory>", "targets": <n>, "requests": <n>, "server_errors": <n>, "slowest_ms": <ms>, "active_connections": <n>}` after one real read of the documents (`coverage_dir` is served only on a loopback bind, since a LAN client has no use for the analyst's absolute path; the next three are the running server totals and the last is the in-flight connection gauge, all absent off the HTTP server), so a directory that yields no readable document answers 500 `database_error`; served `no-store` with no `ETag`, so a probe cannot be cached or revalidated into a stale "healthy" |
 | `GET`, `HEAD` | `/api/targets` | | Every target with a readable document |
