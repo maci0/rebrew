@@ -36,6 +36,14 @@ UV_LOCK = ROOT / "uv.lock"
 _ENV_RE = re.compile(r'(?m)^\s*(?P<key>[A-Z][A-Z0-9_]+):\s*"(?P<val>[^"]+)"\s*$')
 _USES_RE = re.compile(r"(?m)^\s+uses:\s+(?P<uses>\S+)\s*(?:#.*)?$")
 _SHA_REF_RE = re.compile(r"^[0-9a-f]{40}$")
+_RESEMBL_TAG_RE = re.compile(r"v\d+\.\d+\.\d+")
+
+# Files whose prose tells a contributor which sibling resembl tag to clone.
+_RESEMBL_TAG_DOCS = ("README.md", "CONTRIBUTING.md", "docs/CI.md", "docs/DEVELOPMENT.md")
+# The tag can sit a few lines below the line naming resembl, since the prose
+# wraps mid-sentence ("a sibling `resembl` checkout at" / "`../resembl` (tag
+# `v3.1.0`, matching CI ...)").
+_RESEMBL_TAG_CONTEXT_LINES = 3
 
 
 def _makefile_prereqs(target: str) -> set[str]:
@@ -148,6 +156,27 @@ class TestCiPins:
         for path in (CI_YML, SYNC_YML):
             assert "RESEMBL_REF" not in _workflow_env(path), (
                 f"{path.name}: resembl is pinned in {UV_ENV_ACTION.name}; a workflow copy drifts"
+            )
+
+    def test_resembl_tag_documented_at_the_pin(self) -> None:
+        """The bootstrap prose names the sibling tag; it must be the pinned one.
+
+        The four files below tell a contributor which tag to clone. They were
+        written against v3.0.0 and left behind when the pin moved to v3.1.0,
+        and nothing else in the tree compares them, so a stale tag reads as
+        current until the clone fails on the SHA check.
+        """
+        ref = _makefile_resembl_ref()
+        for name in _RESEMBL_TAG_DOCS:
+            lines = (ROOT / name).read_text(encoding="utf-8").splitlines()
+            named: set[str] = set()
+            for index, line in enumerate(lines):
+                if "resembl" not in line.lower():
+                    continue
+                window = "\n".join(lines[index : index + _RESEMBL_TAG_CONTEXT_LINES])
+                named.update(_RESEMBL_TAG_RE.findall(window))
+            assert named == {ref}, (
+                f"{name}: names resembl tag(s) {sorted(named) or ['none']}, pin is {ref}"
             )
 
     def test_hermetic_jobs_pin_exact_python_patch(self) -> None:
