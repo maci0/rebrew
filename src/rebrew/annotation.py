@@ -1731,13 +1731,17 @@ def update_annotation_key(
             # claiming a write that stored nothing.
             if not should_promote_status(entry.status or "", canon):
                 return False
-            update_source_status(
+            # The pre-check reads an unlocked snapshot; the writer re-decides
+            # under the lock, so its return value is the only honest answer
+            # (a concurrent writer can refuse or no-op in between).
+            if not update_source_status(
                 _dir,
                 canon,
                 module,
                 va,
                 clear_blockers=canon in MATCHED_STATUSES,
-            )
+            ):
+                return False
         else:
             # Typed, validated write via the metadata facade: key case is
             # normalized, size/blocker_delta are coerced to int, and unknown

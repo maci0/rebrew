@@ -9,6 +9,7 @@ from typer.testing import CliRunner
 
 import rebrew.ghidra.cli as sync_cli
 from rebrew.ghidra.commands import build_bookmark_commands, build_new_function_commands
+from rebrew.status_style import DISPLAY_STATUSES
 
 runner = CliRunner()
 
@@ -64,6 +65,15 @@ class TestBuilders:
 
         assert key(before[0]) == key(after[0])
         assert after[0]["args"]["comment"] == "EXACT"
+
+    def test_bookmark_covers_every_display_status(self) -> None:
+        """PROVEN is a persisted user classification: a proven function must
+        overwrite its STUB bookmark, not leave the stale one behind."""
+        ops = build_bookmark_commands(
+            [{"va": 0x1000 + i, "status": s} for i, s in enumerate(DISPLAY_STATUSES)],
+            "/x.dll",
+        )
+        assert [o["args"]["comment"] for o in ops] == list(DISPLAY_STATUSES)
 
     def test_create_functions_empty_registry(self) -> None:
         assert build_new_function_commands({}, "/x.dll") == []

@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from rebrew.catalog import RegistryEntry
 
 from rebrew.config import ProjectConfig
+from rebrew.status_style import DISPLAY_STATUSES
 from rebrew.ghidra.client import (
     MAX_MCP_ITEMS,
     MAX_MCP_PAGES,
@@ -57,8 +58,12 @@ _C_TYPE_RE = re.compile(
 #: An array dimension: a decimal or ``0x`` integer, nothing else.
 _C_DIM_RE = re.compile(r"0[xX][0-9a-fA-F]+|[0-9]+")
 
-#: Statuses that get a status bookmark.
-_BOOKMARK_STATUSES = frozenset({"EXACT", "RELOC", "NEAR_MATCHING", "STUB"})
+#: Statuses that get a status bookmark: the user-visible classifications, the
+#: same set the report, dashboard and terminal paint.  Machine verdicts
+#: (COMPILE_ERROR, SIZE_MISMATCH, ...) and the parked SKIP are not
+#: classifications a Ghidra bookmark should claim, but PROVEN is: a function
+#: that proves and was a STUB must overwrite the STUB bookmark, not keep it.
+_BOOKMARK_STATUSES = frozenset(DISPLAY_STATUSES)
 
 #: One fixed bookmark category; the status rides in the comment.  Ghidra's
 #: ``setBookmark`` replaces the bookmark with the same address, type, and

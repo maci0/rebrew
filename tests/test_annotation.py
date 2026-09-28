@@ -1451,6 +1451,26 @@ class TestUpdateAnnotationKeyFile:
         update_annotation_key(f, 0x1000, "STATUS", "NEAR_MATCHING", metadata_dir=tmp_path)
         assert get_entry(tmp_path, 0x1000, "SERVER")["status"] == after
 
+    def test_status_return_value_reports_the_write(self, tmp_path: Path) -> None:
+        """The return value must track what the writer stored: a refused
+        promotion and a same-status write are both False, so a caller pairing
+        this with another artifact knows it is not recorded."""
+        from rebrew.annotation import update_annotation_key
+        from rebrew.metadata import update_source_status
+
+        f = tmp_path / "f.c"
+        f.write_text("// FUNCTION: SERVER 0x1000\nint f(void) { return 0; }\n", encoding="utf-8")
+        assert update_annotation_key(f, 0x1000, "STATUS", "STUB", metadata_dir=tmp_path) is True
+        # Parked SKIP: the gate refuses, so nothing is written.
+        update_source_status(tmp_path, "SKIP", "SERVER", 0x1000, force=True)
+        assert update_annotation_key(f, 0x1000, "STATUS", "EXACT", metadata_dir=tmp_path) is False
+        # Already held: idempotent no-op, reported as no write.
+        update_source_status(tmp_path, "NEAR_MATCHING", "SERVER", 0x1000, force=True)
+        assert (
+            update_annotation_key(f, 0x1000, "STATUS", "NEAR_MATCHING", metadata_dir=tmp_path)
+            is False
+        )
+
     def test_unknown_key_inserted(self, tmp_path: Path) -> None:
         from rebrew.annotation import update_annotation_key
 
