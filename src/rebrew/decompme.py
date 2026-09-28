@@ -269,6 +269,20 @@ class DecompmeError(RebrewError, RuntimeError):
         self.retryable = retryable
 
 
+def _never_delivered(exc: BaseException) -> bool:
+    """True when *exc* proves the create request never reached decomp.me.
+
+    ``POST /api/scratch`` has no idempotency key: every accepted request makes
+    a new public scratch.  A read timeout or a connection dropped mid-response
+    can follow a create the service already committed, so re-POSTing it leaves
+    an orphaned public scratch nobody can claim.  Only the connect-stage
+    failures (the connection was never established) are safe to re-send.
+    """
+    import httpx
+
+    return isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout))
+
+
 def _post_scratch(
     post_fn: Any,
     url: str,
@@ -280,7 +294,9 @@ def _post_scratch(
         resp = post_fn(url, data=payload["data"], files=payload["files"], **kw)
     except Exception as exc:
         raise DecompmeError(
-            f"decomp.me request failed: {exc}", kind="network", retryable=True
+            f"decomp.me request failed: {exc}",
+            kind="network",
+            retryable=_never_delivered(exc),
         ) from exc
     try:
         if resp.status_code >= 400:
@@ -331,10 +347,13 @@ def upload_scratch(
     *client*, when given, must provide a ``.post(...)`` method.
 
     *retries* re-attempts a :class:`DecompmeError` with ``retryable=True``
-    (transport blips and the transient HTTP statuses in
+    (connect-stage failures and the transient HTTP statuses in
     ``RETRYABLE_HTTP_STATUS``), sleeping :func:`rebrew.utils.retry_backoff_delay`
     between attempts.  A rejection decomp.me explained (validation, other
     4xx) fails immediately; ``retries=0`` (default) is a single attempt.
+    A transport failure after the request was sent (read timeout, dropped
+    connection) is not retried: the create may have committed, and a second
+    POST would orphan a public scratch.
     """
     import httpx  # deferred: ~46 ms of startup for non-decomp.me commands
 

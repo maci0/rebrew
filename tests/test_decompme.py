@@ -361,6 +361,28 @@ class TestUpload:
         decompme.upload_scratch({"data": {}, "files": {}}, retries=1)
         assert len(calls) == 2
 
+    def test_does_not_retry_after_the_request_was_sent(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A read timeout can follow a create that already landed.
+
+        decomp.me has no idempotency key, so a second POST would orphan a
+        public scratch; the run must fail instead.
+        """
+        import httpx
+
+        calls: list[int] = []
+
+        def _fake_post(url, **kwargs):
+            calls.append(1)
+            raise httpx.ReadTimeout("no reply")
+
+        monkeypatch.setattr("httpx.post", _fake_post)
+        monkeypatch.setattr("time.sleep", lambda _s: None)
+        with pytest.raises(RuntimeError, match="no reply"):
+            decompme.upload_scratch({"data": {}, "files": {}}, retries=3)
+        assert len(calls) == 1
+
     def test_retries_stop_on_a_rejection(self, monkeypatch: pytest.MonkeyPatch) -> None:
         calls: list[int] = []
 
