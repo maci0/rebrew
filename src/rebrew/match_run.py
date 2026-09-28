@@ -60,9 +60,6 @@ from rebrew.utils import (
 
 log = logging.getLogger(__name__)
 
-#: Serializes in-process appends to solutions_out across parallel batch workers.
-_SOLUTIONS_COLLECT_LOCK = threading.Lock()
-
 #: Guards the one-shot construction of the shared reloc-validation catalog, so
 #: a parallel batch builds it once instead of once per racing worker.
 _BATCH_CATALOG_LOCK = threading.Lock()
@@ -369,9 +366,13 @@ def _save_solution(
     written — the batch GA driver collects one entry per matched stub and
     flushes via ``save_solutions`` once, so N matches cost one whole-file
     read-modify-write instead of N (the flag-sweep batch already does this).
+    The list must belong to a single caller: the batch driver gives every
+    worker its own and concatenates them in stub order, so the flushed file is
+    a function of the stubs and their seeds rather than of which worker won
+    the race.
     """
     try:
-        from rebrew.matcher import SolutionEntry, save_solution
+        from rebrew.matcher import save_solution
 
         entry = SolutionEntry(
             symbol=symbol,
@@ -384,8 +385,7 @@ def _save_solution(
             mutations=mutations,
         )
         if collect_out is not None:
-            with _SOLUTIONS_COLLECT_LOCK:
-                collect_out.append(entry)
+            collect_out.append(entry)
             return
         save_solution(cfg.root, entry)
     except Exception:
@@ -1199,9 +1199,11 @@ def run_all(
     # The cooperative deadline (no SIGALRM) keeps this thread-safe.
     intra_jobs = min(jobs, 1)
 
-    # Collect solution entries across all stubs and flush ONCE at the end —
-    # _save_solution per matched stub re-read and rewrote the whole
-    # solutions file per match (O(matches × file size)).
+    # Solution entries are collected per stub and concatenated in stub order
+    # after the batch, then flushed ONCE — _save_solution per matched stub
+    # re-read and rewrote the whole solutions file per match (O(matches ×
+    # file size)), and a shared list would put thread completion order into
+    # the file, so the same --seed would not replay it byte-for-byte.
     solutions_out: list[SolutionEntry] = []
 
     def _run_stub(
@@ -1209,7 +1211,9 @@ def run_all(
         seeds: list[str],
         seed_cflags: str | None,
         seed_mutations: tuple[str, ...] = (),
-    ) -> tuple[StubInfo, bool, str, _GaRunRecord | None]:
+    ) -> tuple[StubInfo, bool, str, _GaRunRecord | None, list[SolutionEntry]]:
+        # Worker-private: the driver concatenates these in stub order.
+        stub_solutions: list[SolutionEntry] = []
         # A batch --mutation-focus overrides the per-stub transfer from the
         # seeded solution; without one, the seed's winning operators bias
         # this GA the same way a verdict blocker would.
@@ -1285,7 +1289,7 @@ def run_all(
                 rng_seed=stub_seed,
                 resume_from=resume_from,
                 mutation_weights=stub_weights,
-                solutions_out=solutions_out,
+                solutions_out=stub_solutions,
                 collect_pairs_path=Path(collect_pairs) if collect_pairs else None,
                 name_to_va=batch_catalog[0] if batch_catalog else None,
                 clock=clock,
@@ -1296,7 +1300,7 @@ def run_all(
                 f"  [yellow]warning:[/yellow] GA run failed for {stub.symbol}: "
                 f"{exc.__class__.__name__}: {exc}"
             )
-            return stub, False, f"error: {exc.__class__.__name__}: {exc}", None
+            return stub, False, f"error: {exc.__class__.__name__}: {exc}", None, []
         # The outcome is recorded by the caller, in stub order: appending
         # from the worker would put thread completion order into the log, so
         # the same --seed replays to a different ga_runs.jsonl.
@@ -1309,7 +1313,7 @@ def run_all(
             generations=generations_run,
             rng_seed=used_seed,
         )
-        return stub, matched, output_summary, record
+        return stub, matched, output_summary, record, stub_solutions
 
     if jobs > 1 and len(stubs) > 1:
         with interruptible_pool(jobs) as executor:
@@ -1329,19 +1333,19 @@ def run_all(
     # Persist the outcomes for cross-run progress tracking (append-only log).
     # Stub order, never completion order: the log is the replay record, and
     # --skip-recent / --ga-history read it back.
-    for outcome_stub, _matched, _summary, record in outcomes:
-        if record is None:
-            continue
-        try:
-            from rebrew.matcher import record_ga_run
+    for outcome_stub, _matched, _summary, record, stub_solutions in outcomes:
+        if record is not None:
+            try:
+                from rebrew.matcher import record_ga_run
 
-            record_ga_run(cfg.root, **record._asdict())
-        except Exception:
-            # A failed record makes --skip-recent re-run this stub next batch
-            # (hours of GA).  Visible at WARNING, not swallowed at DEBUG.
-            log.warning("GA run record failed for %s", outcome_stub.symbol, exc_info=True)
+                record_ga_run(cfg.root, **record._asdict())
+            except Exception:
+                # A failed record makes --skip-recent re-run this stub next batch
+                # (hours of GA).  Visible at WARNING, not swallowed at DEBUG.
+                log.warning("GA run record failed for %s", outcome_stub.symbol, exc_info=True)
+        solutions_out.extend(stub_solutions)
 
-    for stub, matched, output_summary, _record in outcomes:
+    for stub, matched, output_summary, _record, _stub_solutions in outcomes:
         result_entry: dict[str, Any] = {
             "file": str(stub.filepath),
             "va": stub.va,

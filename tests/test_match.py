@@ -851,6 +851,42 @@ class TestRunAllBatch:
         # same file, so lines follow stub order, not thread completion order.
         assert recorded == ["f1.c", "f2.c", "f3.c"]
 
+    def test_parallel_solutions_are_flushed_in_stub_order(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+
+        stubs = [self._stub(f"f{i}.c", f"0x1000{i:04x}") for i in range(1, 4)]
+        monkeypatch.setattr("rebrew.match_run.find_all_stubs", lambda *a, **k: stubs)
+
+        def _fake_ga(stub, cfg, gens, pop, jobs, timeout, seeds, solutions_out=None, **_kw):
+            # Reverse-duration so completion order is the opposite of stub
+            # order; the flushed file must not follow it.
+            time.sleep(0.05 * (3 - int(stub.symbol[1])))
+            if solutions_out is not None:
+                from rebrew.matcher import SolutionEntry
+
+                solutions_out.append(
+                    SolutionEntry(
+                        symbol=stub.symbol, cflags="/O2", size=stub.size, source_file=stub.symbol
+                    )
+                )
+            return True, "MATCHED", 0.0, 3, 7
+
+        saved: list[list[str]] = []
+        monkeypatch.setattr("rebrew.match_run._run_one_stub_ga", _fake_ga)
+        monkeypatch.setattr("rebrew.matcher.record_ga_run", lambda root, **kw: None)
+        monkeypatch.setattr(
+            "rebrew.matcher.save_solutions",
+            lambda root, entries: saved.append([e.symbol for e in entries]),
+        )
+        matched, failed = self._run(self._cfg(tmp_path), jobs=3, json_output=True)
+        assert (matched, failed) == (3, 0)
+        # The solutions file seeds later runs (--seed-from-solved, find_similar),
+        # so the same --seed must write it in stub order: a worker-private
+        # collect list, concatenated by the driver, not one shared list whose
+        # order is the thread race.
+        assert saved == [["f1.c", "f2.c", "f3.c"]]
+
 
 class TestUpdateStubToMatched:
     """The GA's stub→matched source splice must target the stub's OWN block."""
