@@ -10,6 +10,7 @@ import copy
 import json
 import re
 import sqlite3
+import unicodedata
 from pathlib import Path
 from typing import Any
 
@@ -2037,6 +2038,34 @@ class TestBuildDbTargetFiltering:
             "db_version": 3,
         }
 
+    def test_snapshot_filenames_differing_only_by_unicode_are_built_once(
+        self, tmp_path: Path
+    ) -> None:
+        """Two data_*.json files naming the same target after NFC are built once.
+
+        The file-glob path had no counterpart to the all_targets dedupe above,
+        so an NFD/NFC pair of snapshots (a decomposing volume beside a
+        hand-copied file) resolved to one target and the second insert aborted
+        the whole rebuild on the (target, key) / (target, name) primary keys.
+        """
+        db_dir = tmp_path / "db"
+        db_dir.mkdir()
+        (db_dir / "data_alpha.json").write_text(json.dumps(SAMPLE_DATA), encoding="utf-8")
+        # U+00E9 (NFC) vs 'e' + U+0301 (NFD): one target, two filenames.
+        shadowed = unicodedata.normalize("NFD", "café")
+        assert shadowed != "café"
+        (db_dir / f"data_{shadowed}.json").write_text(json.dumps(SAMPLE_DATA), encoding="utf-8")
+
+        build_db(tmp_path, json_output=True)
+
+        conn = sqlite3.connect(db_dir / "coverage.db")
+        targets = conn.execute("SELECT DISTINCT target FROM functions").fetchall()
+        meta = conn.execute("SELECT target, key FROM metadata ORDER BY key, target").fetchall()
+        conn.close()
+        assert sorted(t[0] for t in targets) == ["alpha", unicodedata.normalize("NFC", "café")]
+        # One row per (target, key) pair, plus the single __schema__ db_version.
+        assert len(meta) == len(set(meta))
+
     def test_nonexistent_target_raises(self, tmp_path: Path) -> None:
         """Filtering by a non-existent target should raise Exit (no JSON found)."""
         from typer import Exit as TyperExit
@@ -2674,6 +2703,141 @@ class TestPersistentRowSalvage:
         assert saved["verify_results"] == [
             ("alpha", 4096, "2026-01-01T00:00:00+00:00", 3, 7, 0.9, 2, None)
         ]
+
+    def test_precheck_verify_results_clamps_instead_of_dropping(self, tmp_path: Path) -> None:
+        """A pre-CHECK verify_results row must be clamped, not silently lost.
+
+        ``INSERT OR IGNORE`` used to swallow the row outright: a negative
+        byte_delta violates ``CHECK (byte_delta >= 0)``, OR IGNORE treats that
+        as a reason to skip, and the verdict vanished with no error.  The
+        percent-scale similarity is scaled down the same way the in-place
+        migration scales it.
+        """
+        db_path = tmp_path / "coverage.db"
+        conn = sqlite3.connect(db_path)
+        try:
+            conn.execute("""
+                CREATE TABLE verify_results (
+                    target TEXT NOT NULL,
+                    va INTEGER NOT NULL,
+                    verified_at TEXT NOT NULL,
+                    byte_delta INTEGER,
+                    diff_lines INTEGER,
+                    similarity REAL,
+                    reg_delta INTEGER,
+                    effective_match INTEGER,
+                    PRIMARY KEY (target, va)
+                )
+            """)
+            conn.execute(
+                "INSERT INTO verify_results VALUES"
+                " ('alpha', 4096, '2026-01-01T00:00:00+00:00', -3, 7, 85.0, -2, 1)"
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        saved = _unlink_db(db_path)
+        conn = sqlite3.connect(db_path)
+        try:
+            self._schema(conn)
+            cursor = conn.cursor()
+            _restore_persistent_rows(cursor, saved)
+            conn.commit()
+            row = conn.execute(
+                "SELECT va, byte_delta, similarity, reg_delta, effective_match FROM verify_results"
+            ).fetchall()
+        finally:
+            conn.close()
+        assert row == [(4096, 0, 0.85, 0, 1)]
+
+    def test_precheck_history_does_not_abort_the_restore(self, tmp_path: Path) -> None:
+        """A pre-CHECK history row must be clamped, never abort the rebuild.
+
+        A negative VA, an out-of-vocabulary status, and an empty changed_at all
+        violate the current CHECKs, so re-inserting the row raw raised
+        IntegrityError inside the transaction, after --force had
+        already unlinked the file, leaving no database at all.  Each is coerced the way
+        the in-place migration coerces it.
+        """
+        db_path = tmp_path / "coverage.db"
+        conn = sqlite3.connect(db_path)
+        try:
+            conn.execute("""
+                CREATE TABLE history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    target TEXT NOT NULL,
+                    va INTEGER NOT NULL,
+                    old_status TEXT,
+                    new_status TEXT,
+                    changed_at TEXT,
+                    updated_by TEXT
+                )
+            """)
+            conn.execute(
+                "INSERT INTO history (target, va, old_status, new_status, changed_at,"
+                " updated_by) VALUES ('alpha', -5, 'BOGUS', 'EXACT', '', 'test')"
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        saved = _unlink_db(db_path)
+        conn = sqlite3.connect(db_path)
+        try:
+            self._schema(conn)
+            cursor = conn.cursor()
+            _restore_persistent_rows(cursor, saved)
+            conn.commit()
+            row = conn.execute(
+                "SELECT va, old_status, new_status, changed_at, updated_by FROM history"
+            ).fetchall()
+        finally:
+            conn.close()
+        assert row == [(0, "UNKNOWN", "EXACT", "1970-01-01T00:00:00+00:00", "test")]
+
+    def test_clamped_history_transitions_dedupe_against_each_other(self, tmp_path: Path) -> None:
+        """Two raw rows the clamp fuses into one transition restore as one row.
+
+        The restore dedupes on the CLAMPED values, so the UNIQUE cannot reject
+        the second insert and abort the rebuild.
+        """
+        db_path = tmp_path / "coverage.db"
+        conn = sqlite3.connect(db_path)
+        try:
+            conn.execute("""
+                CREATE TABLE history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    target TEXT NOT NULL,
+                    va INTEGER NOT NULL,
+                    old_status TEXT,
+                    new_status TEXT,
+                    changed_at TEXT,
+                    updated_by TEXT
+                )
+            """)
+            for status in ("BOGUS", "UNKNOWN"):
+                conn.execute(
+                    "INSERT INTO history (target, va, old_status, new_status,"
+                    " changed_at, updated_by) VALUES ('alpha', 4096, ?, 'EXACT',"
+                    " '2026-01-01T00:00:00+00:00', 'test')",
+                    (status,),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+
+        saved = _unlink_db(db_path)
+        conn = sqlite3.connect(db_path)
+        try:
+            self._schema(conn)
+            cursor = conn.cursor()
+            _restore_persistent_rows(cursor, saved)
+            conn.commit()
+            rows = conn.execute("SELECT va, old_status FROM history").fetchall()
+        finally:
+            conn.close()
+        assert rows == [(4096, "UNKNOWN")]
 
     def test_unreadable_db_raises_and_keeps_the_file(self, tmp_path: Path) -> None:
         """A database that cannot be read must not be deleted: history and

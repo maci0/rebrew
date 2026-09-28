@@ -648,6 +648,16 @@ def _unlink_db(db_path: Path) -> dict[str, list[tuple[Any, ...]]]:
 def _restore_persistent_rows(c: sqlite3.Cursor, saved: dict[str, list[tuple[Any, ...]]]) -> None:
     """Re-insert rows saved by :func:`_unlink_db`, skipping ones already present.
 
+    The saved rows are re-inserted through a staging table and the SAME
+    clamping projection the in-place migrations use (:func:`verify_results_clamp_select`
+    / :func:`history_clamp_select`), because ``_unlink_db`` reads whatever an
+    older build wrote: a pre-CHECK ``verify_results`` can hold a negative
+    ``byte_delta`` or a percent-scale ``similarity``, and a pre-CHECK ``history``
+    a negative VA, an out-of-vocabulary status, or an empty ``changed_at``.
+    Re-inserting those raw aborts on the first CHECK failure, and that abort
+    lands inside the rebuild's transaction, AFTER the file has already been
+    unlinked, so ``--force`` would leave no database at all.
+
     Both restores are naturally idempotent, so a second --force rebuild over an
     already-restored database adds nothing:
     ``verify_results`` is keyed ``(target, va)``; a ``history`` row is the
@@ -655,38 +665,94 @@ def _restore_persistent_rows(c: sqlite3.Cursor, saved: dict[str, list[tuple[Any,
     ``changed_at`` is the same fact.
 
     The history dedupe compares with ``IS`` rather than ``=`` so two rows that
-    both carry a NULL old/new status count as the same transition.  That
-    doubles the statement's placeholders (the six inserted values are also the
-    six compared), so each row is bound twice.
+    both carry a NULL old/new status count as the same transition, and it runs
+    over the CLAMPED values: the clamp can fuse two distinct raw rows into one
+    transition, which the UNIQUE would otherwise reject.
 
-    ``history`` now carries a ``UNIQUE`` over exactly those six columns, so a
-    plain INSERT is enough for every transition whose statuses are non-NULL.
-    SQLite treats NULLs as DISTINCT inside a UNIQUE index, though, so a
-    NULL-status transition would insert a second time without the probe — the
-    probe is what covers them, and the UNIQUE index is what serves it.
+    ``history`` carries a ``UNIQUE`` over exactly those six columns, so a plain
+    INSERT is enough for every transition whose statuses are non-NULL.  SQLite
+    treats NULLs as DISTINCT inside a UNIQUE index, though, so a NULL-status
+    transition would insert a second time without the probe.  The probe is what
+    covers them, and the UNIQUE index is what serves it.
     """
     rows = saved.get("verify_results")
     if rows:
+        c.execute(_VERIFY_RESULTS_STAGE_SQL)
         c.executemany(
-            "INSERT OR IGNORE INTO verify_results (target, va, verified_at, byte_delta, "
+            "INSERT INTO _verify_results_restore (target, va, verified_at, byte_delta, "
             "diff_lines, similarity, reg_delta, effective_match) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             rows,
         )
+        # Same shape as the in-place migration, so a clamp collision resolves
+        # the same way on both paths: keep the LAST-saved row for a
+        # (target, va), which is the newest measurement.  A plain
+        # ``INSERT OR IGNORE ... ORDER BY`` would instead keep whichever row the
+        # plan happened to deliver first.
+        c.execute(
+            f"""
+            INSERT OR IGNORE INTO verify_results (
+                target, va, verified_at, byte_delta, diff_lines,
+                similarity, reg_delta, effective_match
+            )
+            SELECT
+                target, va, verified_at, byte_delta, diff_lines,
+                similarity, reg_delta, effective_match
+            FROM (
+                SELECT
+                    target, va, verified_at, byte_delta, diff_lines,
+                    similarity, reg_delta, effective_match,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY target, va ORDER BY src_rowid DESC
+                    ) AS rn
+                FROM (
+                    {verify_results_clamp_select("_verify_results_restore")}
+                )
+                -- Same drop as the in-place migration: only a NULL va is
+                -- discarded (the PK cannot hold it); a negative one has
+                -- already clamped to 0 in the projection.
+                WHERE va IS NOT NULL
+            )
+            WHERE rn = 1
+            """
+        )
+        c.execute("DROP TABLE _verify_results_restore")
     rows = saved.get("history")
     if rows:
+        c.execute(_HISTORY_STAGE_SQL)
         c.executemany(
-            """
-            INSERT INTO history (target, va, old_status, new_status, changed_at, updated_by)
-            SELECT ?, ?, ?, ?, ?, ?
-            WHERE NOT EXISTS (
-                SELECT 1 FROM history h
-                WHERE h.target IS ? AND h.va IS ? AND h.changed_at IS ?
-                  AND h.old_status IS ? AND h.new_status IS ? AND h.updated_by IS ?
-            )
-            """,
-            [(*row, *row) for row in rows],
+            "INSERT INTO _history_restore "
+            "(target, va, old_status, new_status, changed_at, updated_by) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            rows,
         )
+        # The clamp projection carries the dedupe (ROW_NUMBER over the clamped
+        # transition, keeping the last-saved row), so the NOT EXISTS probe only
+        # has to cover the NULL-status transitions the UNIQUE treats as
+        # distinct, and it compares the CLAMPED values, since that is what was
+        # inserted.
+        c.execute(
+            f"""
+            INSERT INTO history (
+                target, va, old_status, new_status, changed_at, updated_by
+            )
+            SELECT
+                target, va, old_status, new_status, changed_at, updated_by
+            FROM (
+                {history_clamp_select("_history_restore", order_by="rowid")}
+            ) AS clamped
+            WHERE rn = 1
+              AND NOT EXISTS (
+                SELECT 1 FROM history h
+                WHERE h.target IS clamped.target AND h.va IS clamped.va
+                  AND h.changed_at IS clamped.changed_at
+                  AND h.old_status IS clamped.old_status
+                  AND h.new_status IS clamped.new_status
+                  AND h.updated_by IS clamped.updated_by
+              )
+            """
+        )
+        c.execute("DROP TABLE _history_restore")
 
 
 def _check_db_version(
@@ -955,6 +1021,141 @@ def _nonneg_metric_sql(column: str) -> str:
     )
 
 
+#: Staging DDL for the ``--force`` restore.  Deliberately UNGUARDED (no CHECK,
+#: no UNIQUE, no PRIMARY KEY) rather than ``LIKE history`` / ``LIKE
+#: verify_results``: the whole point of the staging table is to hold rows the
+#: current constraints would reject, so a ``LIKE`` copy would abort on the
+#: first pre-CHECK row, the exact failure this path exists to survive.  The
+#: clamp projection is what makes a row legal on the way out.
+_VERIFY_RESULTS_STAGE_SQL = """
+    CREATE TEMP TABLE _verify_results_restore (
+        target TEXT,
+        va,
+        verified_at TEXT,
+        byte_delta,
+        diff_lines,
+        similarity,
+        reg_delta,
+        effective_match
+    )
+"""
+
+_HISTORY_STAGE_SQL = """
+    CREATE TEMP TABLE _history_restore (
+        target TEXT,
+        va,
+        old_status TEXT,
+        new_status TEXT,
+        changed_at TEXT,
+        updated_by TEXT
+    )
+"""
+
+#: The ``verify_results`` clamping as ONE named projection, shared by the
+#: in-place migration and the ``--force`` restore so the two cannot drift: the
+#: restore has to coerce exactly what the migration would, or a row the
+#: migration keeps is one the restore silently drops.
+#:
+#: A negative ``va`` clamps to 0 (two of them then collide, and the caller keeps
+#: the later row) and only a NULL ``va`` is dropped, since the PK cannot hold
+#: it; an empty ``verified_at`` becomes the epoch, exactly as the history
+#: timestamp does; percent-scale similarities (the
+#: ``(1, 100]`` values verify used to write) are divided down; negatives clamp
+#: to 0; non-finite and out-of-vocabulary ``effective_match`` values become
+#: NULL.  Declared after :func:`_nonneg_metric_sql` because it composes it.
+_VERIFY_RESULTS_CLAMP_SELECT = f"""
+    SELECT
+        rowid AS src_rowid,
+        target,
+        CASE
+            WHEN va IS NULL THEN NULL
+            WHEN va < 0 THEN 0
+            ELSE va
+        END AS va,
+        CASE
+            WHEN verified_at IS NULL OR verified_at = ''
+                THEN '1970-01-01T00:00:00+00:00'
+            ELSE verified_at
+        END AS verified_at,
+        {_nonneg_metric_sql("byte_delta")} AS byte_delta,
+        {_nonneg_metric_sql("diff_lines")} AS diff_lines,
+        CASE
+            WHEN similarity IS NULL THEN NULL
+            WHEN typeof(similarity) NOT IN ('integer', 'real') THEN NULL
+            WHEN similarity = similarity
+                 AND similarity >= 0.0 AND similarity <= 1.0
+                THEN similarity
+            WHEN similarity = similarity
+                 AND similarity > 1.0 AND similarity <= 100.0
+                THEN similarity / 100.0
+            WHEN similarity = similarity
+                 AND similarity < 0.0 AND abs(similarity) < 1e300
+                THEN 0.0
+            ELSE NULL
+        END AS similarity,
+        {_nonneg_metric_sql("reg_delta")} AS reg_delta,
+        CASE
+            WHEN effective_match IS NULL THEN NULL
+            WHEN typeof(effective_match) != 'integer' THEN NULL
+            WHEN effective_match IN (0, 1) THEN effective_match
+            ELSE NULL
+        END AS effective_match
+    FROM {{table}}
+"""
+
+#: The ``history`` clamping as one named projection, for the same reason: the
+#: restore coerces with the SAME expressions the in-place migration uses, so a
+#: pre-CHECK transition lands identically on either path.  ``ROW_NUMBER`` keeps
+#: the newest row of each transition, and the partition is over the CLAMPED
+#: values: two distinct raw rows can fuse into one transition, which the
+#: UNIQUE would otherwise reject.
+_HISTORY_CLAMP_SELECT = f"""
+    SELECT
+        {{order_by}} AS src_id,
+        target,
+        {_HISTORY_VA_SQL} AS va,
+        {_HISTORY_OLD_STATUS_SQL} AS old_status,
+        {_HISTORY_NEW_STATUS_SQL} AS new_status,
+        {_HISTORY_CHANGED_AT_SQL} AS changed_at,
+        {_HISTORY_UPDATED_BY_SQL} AS updated_by,
+        ROW_NUMBER() OVER (
+            PARTITION BY
+                target,
+                {_HISTORY_VA_SQL},
+                {_HISTORY_OLD_STATUS_SQL},
+                {_HISTORY_NEW_STATUS_SQL},
+                {_HISTORY_CHANGED_AT_SQL},
+                {_HISTORY_UPDATED_BY_SQL}
+            ORDER BY {{order_by}} DESC
+        ) AS rn
+    FROM {{table}}
+"""
+
+
+def verify_results_clamp_select(table: str = "_verify_results_migrate") -> str:
+    """The :data:`_VERIFY_RESULTS_CLAMP_SELECT` projection over *table*.
+
+    A function rather than a bare constant because the projection names its
+    source table, and the two callers (the in-place migration, the ``--force``
+    restore) each read their own temporary table under a different name.
+    """
+    if not table.isidentifier():
+        raise ValueError(f"not a table name: {table!r}")
+    return _VERIFY_RESULTS_CLAMP_SELECT.format(table=table)
+
+
+def history_clamp_select(table: str = "_history_migrate", *, order_by: str = "id") -> str:
+    """The :data:`_HISTORY_CLAMP_SELECT` projection over *table*.
+
+    *order_by* names the row the ``ROW_NUMBER`` keeps when two raw rows clamp
+    to the same transition: the migration keeps the highest ``id`` (it still
+    has one), the restore keeps the last row saved (it does not).
+    """
+    if not table.isidentifier() or not order_by.isidentifier():
+        raise ValueError(f"not an identifier: {table!r}.{order_by!r}")
+    return _HISTORY_CLAMP_SELECT.format(table=table, order_by=order_by)
+
+
 def _json_target_name(json_path: Path) -> str:
     """The target a ``data_<target>.json`` file names, in NFC.
 
@@ -1025,6 +1226,29 @@ def _load_coverage_datasets(
             json_mode=json_output,
             code=EXIT_ERROR,
         )
+    # Two snapshots whose stems differ only by Unicode normalization resolve to
+    # the SAME target (`data_café.json` written on a decomposing volume beside a
+    # hand-copied NFC `data_café.json`).  The loop below inserts one row set per
+    # file, so the second one aborts the whole rebuild on the (target, key) and
+    # (target, name) primary keys.  Same failure the --regen path already
+    # guards against with its all_targets dedupe.  Keep the first in sorted
+    # order and say which file lost.
+    by_target: dict[str, list[Path]] = {}
+    for json_path in json_files:
+        by_target.setdefault(_json_target_name(json_path), []).append(json_path)
+    if len(by_target) != len(json_files):
+        shadowed = sorted(
+            f"{name} ({paths[0].name}, {', '.join(p.name for p in paths[1:])})"
+            for name, paths in by_target.items()
+            if len(paths) > 1
+        )
+        logging.warning(
+            "build_db: %d data_*.json file(s) name the same target after NFC "
+            "normalization; using the first of each: %s",
+            len(json_files) - len(by_target),
+            "; ".join(shadowed),
+        )
+        json_files = [paths[0] for paths in by_target.values()]
     inputs = _snapshot_inputs(root_dir)
     for json_path in json_files:
         target_name = _json_target_name(json_path)
@@ -1415,14 +1639,16 @@ def _create_schema(c: sqlite3.Cursor, target: str | None) -> None:
         # and the clamp can even fuse two distinct raw rows into one
         # transition, which would abort the recreate outright.  The partition
         # is over the CLAMPED values, so it dedupes the rows the new table
-        # would actually reject.
+        # would actually reject.  Same projection the --force restore runs
+        # (``history_clamp_select``), so a pre-CHECK row is coerced
+        # identically on either path.
         c.execute(
             f"""
             INSERT INTO history (
                 id, target, va, old_status, new_status, changed_at, updated_by
             )
             SELECT
-                id,
+                src_id,
                 target,
                 va,
                 old_status,
@@ -1430,25 +1656,7 @@ def _create_schema(c: sqlite3.Cursor, target: str | None) -> None:
                 changed_at,
                 updated_by
             FROM (
-                SELECT
-                    id,
-                    target,
-                    {_HISTORY_VA_SQL} AS va,
-                    {_HISTORY_OLD_STATUS_SQL} AS old_status,
-                    {_HISTORY_NEW_STATUS_SQL} AS new_status,
-                    {_HISTORY_CHANGED_AT_SQL} AS changed_at,
-                    {_HISTORY_UPDATED_BY_SQL} AS updated_by,
-                    ROW_NUMBER() OVER (
-                        PARTITION BY
-                            target,
-                            {_HISTORY_VA_SQL},
-                            {_HISTORY_OLD_STATUS_SQL},
-                            {_HISTORY_NEW_STATUS_SQL},
-                            {_HISTORY_CHANGED_AT_SQL},
-                            {_HISTORY_UPDATED_BY_SQL}
-                        ORDER BY id DESC
-                    ) AS rn
-                FROM _history_migrate
+                {history_clamp_select("_history_migrate", order_by="id")}
             )
             WHERE rn = 1
             """
@@ -1492,9 +1700,6 @@ def _create_schema(c: sqlite3.Cursor, target: str | None) -> None:
     if vr_sql and ("effective_match IN (0, 1)" not in vr_sql or "verified_at != ''" not in vr_sql):
         c.execute("ALTER TABLE verify_results RENAME TO _verify_results_migrate")
         c.execute(f"CREATE TABLE verify_results ({_VERIFY_RESULTS_COLUMNS_SQL})")
-        byte_sql = _nonneg_metric_sql("byte_delta")
-        diff_sql = _nonneg_metric_sql("diff_lines")
-        reg_sql = _nonneg_metric_sql("reg_delta")
         c.execute(
             f"""
             INSERT INTO verify_results (
@@ -1512,49 +1717,11 @@ def _create_schema(c: sqlite3.Cursor, target: str | None) -> None:
                         PARTITION BY target, va ORDER BY src_rowid DESC
                     ) AS rn
                 FROM (
-                    SELECT
-                        rowid AS src_rowid,
-                        target,
-                        CASE
-                            WHEN va IS NULL THEN NULL
-                            WHEN va < 0 THEN 0
-                            ELSE va
-                        END AS va,
-                        CASE
-                            WHEN verified_at IS NULL OR verified_at = ''
-                                THEN '1970-01-01T00:00:00+00:00'
-                            ELSE verified_at
-                        END AS verified_at,
-                        {byte_sql} AS byte_delta,
-                        {diff_sql} AS diff_lines,
-                        CASE
-                            WHEN similarity IS NULL THEN NULL
-                            WHEN typeof(similarity) NOT IN ('integer', 'real') THEN NULL
-                            -- Keep finite in-range unit-interval values.
-                            -- ``x = x`` rejects NaN; percents from verify
-                            -- (``(1, 100]``) are scaled down — a plain
-                            -- ``> 1 → 1.0`` clamp used to store every
-                            -- real Sim% as a perfect match.
-                            WHEN similarity = similarity
-                                 AND similarity >= 0.0 AND similarity <= 1.0
-                                THEN similarity
-                            WHEN similarity = similarity
-                                 AND similarity > 1.0 AND similarity <= 100.0
-                                THEN similarity / 100.0
-                            WHEN similarity = similarity
-                                 AND similarity < 0.0 AND abs(similarity) < 1e300
-                                THEN 0.0
-                            ELSE NULL
-                        END AS similarity,
-                        {reg_sql} AS reg_delta,
-                        CASE
-                            WHEN effective_match IS NULL THEN NULL
-                            WHEN typeof(effective_match) != 'integer' THEN NULL
-                            WHEN effective_match IN (0, 1) THEN effective_match
-                            ELSE NULL
-                        END AS effective_match
-                    FROM _verify_results_migrate
+                    {verify_results_clamp_select("_verify_results_migrate")}
                 )
+                -- Only a NULL va is dropped here (the projection has already
+                -- clamped a negative one to 0): the PK cannot hold NULL, and
+                -- `va` is the projection's output column, not the source's.
                 WHERE va IS NOT NULL
             )
             WHERE rn = 1
