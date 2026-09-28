@@ -40,7 +40,14 @@ from urllib.parse import urlparse
 
 from rebrew.errors import RebrewError
 from rebrew.toolchain_spec import FlagsStyle
-from rebrew.utils import console, load_tomllib, parse_int_literal, preset_module_key, untrusted_text
+from rebrew.utils import (
+    BYTES_PER_MIB,
+    console,
+    load_tomllib,
+    parse_int_literal,
+    preset_module_key,
+    untrusted_text,
+)
 from rebrew.workspace import walk_up_to_root
 from rebrew.workspace.config import config_path
 
@@ -548,9 +555,12 @@ class ProjectConfig:
         """
         from rebrew.compile_cache import DEFAULT_CACHE_SIZE_LIMIT_MIB
 
-        if self.cache_size_limit_mib <= 0:
-            return DEFAULT_CACHE_SIZE_LIMIT_MIB * 1024 * 1024
-        return self.cache_size_limit_mib * 1024 * 1024
+        mib = (
+            self.cache_size_limit_mib
+            if self.cache_size_limit_mib > 0
+            else DEFAULT_CACHE_SIZE_LIMIT_MIB
+        )
+        return mib * BYTES_PER_MIB
 
     @property
     def posix_style(self) -> bool:

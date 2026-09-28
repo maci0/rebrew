@@ -14,6 +14,7 @@ from typing import Any
 import capstone
 
 from rebrew.errors import RebrewError
+from rebrew.utils import BYTES_PER_MIB
 
 from .core import Score, StructuralSimilarity
 
@@ -411,7 +412,7 @@ _OPCODE_MASK = 0xF8
 #: functions is tens of megabytes, and a ``match --all`` over a project of
 #: big functions pinned all of it until exit.  Same discipline as
 #: ``data_layout._OBJDUMP_CACHE`` and ``verify_hash._SOURCE_MEMO``.
-_REG_MASK_PLAN_MAX_BYTES = 8 * 1024 * 1024
+_REG_MASK_PLAN_MAX_BYTES = 8 * BYTES_PER_MIB
 #: Charged per retained plan entry on top of the code bytes: the four-tuple
 #: plus the int objects capstone allocates for its fields.  An estimate, not a
 #: measurement, but a flat one is enough to bound the heap.

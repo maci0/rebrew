@@ -29,7 +29,8 @@ it belongs to rather than starting a sixth.
   ``xdg_cache_home``, ``writable_temp_dir``, ``remove_temp_dir``,
   ``on_ram_filesystem`` / ``sweep_stale_temp_dirs``, ``rel_display_path``
 - **Presentation helpers**: ``console`` (the stderr sink every module imports,
-  so target strings are scrubbed once and for all), ``clip_span``,
+  so target strings are scrubbed once and for all), ``BYTES_PER_MIB``,
+  ``clip_span``,
   ``merged_span_bytes``, ``floor_pct``, ``close_response``,
   ``retry_backoff_delay``
   (plus ``RETRYABLE_HTTP_STATUS``)
@@ -211,6 +212,13 @@ class _TargetSafeConsole(Console):
 #: :func:`untrusted_text`.  Import it instead of constructing a bare
 #: ``Console(stderr=True)``.
 console = _TargetSafeConsole(stderr=True)
+
+
+#: Bytes per mebibyte.  Every byte figure rebrew sizes, caps, or displays is
+#: binary (1024-based), so the unit is MiB, not the decimal MB.  A project's
+#: ``[cache] size_limit_mib`` and every size cap and MiB readout convert
+#: through this one constant.
+BYTES_PER_MIB = 1024 * 1024
 
 
 def clip_span(starts: list[int], va: int, size: int) -> int:

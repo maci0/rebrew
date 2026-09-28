@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from rebrew.config import ProjectConfig
+from rebrew.utils import BYTES_PER_MIB
 
 #: Sentinel stored in VerifyCacheEntry.toolchain when no override names a
 #: compiler (the project's default profile applies).  Distinct from ``""`` so
@@ -438,7 +439,7 @@ def _headers_stat_fingerprint(src_dir: Path) -> tuple[tuple[str, int, int], ...]
 #: so ``verify --watch`` adds a fresh body per save and an entry count would
 #: let the total grow with the length of the session.
 #: Guarded: ``verify -j N`` fingerprints entries from worker threads.
-_SOURCE_MEMO_MAX_BYTES = 64 * 1024 * 1024
+_SOURCE_MEMO_MAX_BYTES = 64 * BYTES_PER_MIB
 _SOURCE_MEMO: OrderedDict[tuple[str, int, int, int], tuple[bytes, str]] = OrderedDict()
 _SOURCE_MEMO_BYTES = 0
 _SOURCE_MEMO_LOCK = threading.Lock()

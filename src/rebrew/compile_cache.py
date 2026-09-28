@@ -68,6 +68,8 @@ from typing import Any, Protocol
 
 import diskcache
 
+from rebrew.utils import BYTES_PER_MIB
+
 logger = logging.getLogger(__name__)
 
 # Bump on key semantics changes to invalidate stale entries.
@@ -107,14 +109,10 @@ def _warn_cache_failure(op: str, exc: Exception) -> None:
 # Extensions treated as headers when fingerprinting an include directory.
 _HEADER_SUFFIXES = frozenset({".h", ".hpp", ".hxx", ".inl", ".hh"})
 
-#: Bytes per mebibyte.  Every byte figure this module reports is binary
-#: (1024-based), so the display unit is MiB, not the decimal MB.
-_BYTES_PER_MIB = 1024 * 1024
-
 #: Default size limit: 500 MiB with LRU eviction when the limit is reached.
 #: Overridden per project by ``[cache] size_limit_mib`` in rebrew-project.toml.
 DEFAULT_CACHE_SIZE_LIMIT_MIB = 500
-_DEFAULT_SIZE_LIMIT = DEFAULT_CACHE_SIZE_LIMIT_MIB * _BYTES_PER_MIB
+_DEFAULT_SIZE_LIMIT = DEFAULT_CACHE_SIZE_LIMIT_MIB * BYTES_PER_MIB
 
 
 class NoPickleDisk(diskcache.Disk):  # type: ignore[misc]
@@ -323,8 +321,8 @@ class CompileCache:
         return {
             "entries": self.count,
             "volume_bytes": self.volume,
-            "volume_mib": round(self.volume / _BYTES_PER_MIB, 2),
-            "size_limit_mib": round(size_limit / _BYTES_PER_MIB, 2),
+            "volume_mib": round(self.volume / BYTES_PER_MIB, 2),
+            "size_limit_mib": round(size_limit / BYTES_PER_MIB, 2),
             "session_hits": hits,
             "session_misses": misses,
             "session_hit_rate_pct": hit_rate,
@@ -593,7 +591,7 @@ include_fingerprint.cache_clear = _clear_include_fingerprint_cache  # type: igno
 #: multi-hundred-KB sources stayed resident until exit.  Same discipline as
 #: ``verify_hash._SOURCE_MEMO``.  The value carries its own byte cost so
 #: eviction never re-encodes the key it is dropping.
-_SOURCE_DIGEST_MAX_BYTES = 64 * 1024 * 1024
+_SOURCE_DIGEST_MAX_BYTES = 64 * BYTES_PER_MIB
 _SOURCE_DIGEST_LOCK = threading.Lock()
 _source_digest_memo: OrderedDict[str, tuple[int, str]] = OrderedDict()
 _SOURCE_DIGEST_BYTES = 0

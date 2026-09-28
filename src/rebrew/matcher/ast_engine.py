@@ -10,6 +10,8 @@ from collections import OrderedDict
 import tree_sitter as ts
 import tree_sitter_c as tsc
 
+from rebrew.utils import BYTES_PER_MIB
+
 C_LANGUAGE = ts.Language(tsc.language())
 
 # tree-sitter documents TSParser as per-thread state; batch GA runs N worker
@@ -36,7 +38,7 @@ def _get_parser() -> ts.Parser:
 #: entry-count bound made the real limit the heap.  Measuring by source size
 #: keeps the memo's working set (one unchanged body per running worker) inside
 #: the budget at any ``-j``, and a miss is only a re-parse, never a wrong tree.
-_PARSE_TREE_MAX_BYTES = 16 * 1024 * 1024
+_PARSE_TREE_MAX_BYTES = 16 * BYTES_PER_MIB
 _PARSE_TREE_MEMO: OrderedDict[bytes, tuple[ts.Tree, int]] = OrderedDict()
 _PARSE_TREE_MEMO_BYTES = 0
 _PARSE_TREE_LOCK = threading.Lock()

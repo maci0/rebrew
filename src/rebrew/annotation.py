@@ -28,7 +28,13 @@ from pathlib import Path
 from typing import Any, ClassVar, Final
 
 from rebrew.c_parser import extract_function_name_from_line
-from rebrew.utils import atomic_write_text, preset_module_key, read_source_text, rel_display_path
+from rebrew.utils import (
+    BYTES_PER_MIB,
+    atomic_write_text,
+    preset_module_key,
+    read_source_text,
+    rel_display_path,
+)
 from rebrew.workspace.status import MATCHED_STATUSES
 
 logger = logging.getLogger(__name__)
@@ -208,7 +214,7 @@ _DECLSPEC_STRIP_RE = re.compile(r"__declspec\s*\([^)]*\)")
 # read path; LRU order (pop + reinsert, so a plain dict works when a test
 # injects one) keeps the files a scan revisits.
 _PARSE_MEMO: OrderedDict[bytes, tuple[int, list[Annotation]]] = OrderedDict()
-_PARSE_MEMO_MAX_BYTES = 32 * 1024 * 1024
+_PARSE_MEMO_MAX_BYTES = 32 * BYTES_PER_MIB
 _PARSE_MEMO_BYTES = 0
 _PARSE_MEMO_LOCK = threading.Lock()
 

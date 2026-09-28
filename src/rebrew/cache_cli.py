@@ -15,6 +15,7 @@ from rebrew.compile_cache import (
     DEFAULT_CACHE_SIZE_LIMIT_MIB,
     get_compile_cache,
 )
+from rebrew.utils import BYTES_PER_MIB
 
 app = typer.Typer(
     help="Manage the compile result cache (.rebrew/compile_cache/).",
@@ -62,7 +63,7 @@ def stats(
     cache = get_compile_cache(
         cfg.root,
         backend,
-        getattr(cfg, "cache_size_limit", DEFAULT_CACHE_SIZE_LIMIT_MIB * 1024 * 1024),
+        getattr(cfg, "cache_size_limit", DEFAULT_CACHE_SIZE_LIMIT_MIB * BYTES_PER_MIB),
     )
     try:
         info = cache.stats()
@@ -114,7 +115,7 @@ def clear(
     cache = get_compile_cache(
         cfg.root,
         backend,
-        getattr(cfg, "cache_size_limit", DEFAULT_CACHE_SIZE_LIMIT_MIB * 1024 * 1024),
+        getattr(cfg, "cache_size_limit", DEFAULT_CACHE_SIZE_LIMIT_MIB * BYTES_PER_MIB),
     )
     try:
         count = cache.count

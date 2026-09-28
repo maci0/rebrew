@@ -22,16 +22,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from rebrew.utils import BYTES_PER_MIB
+
 if TYPE_CHECKING:
     from rebrew.ne_loader import NeHeader, NeImportModule, NeSegment
 
-#: Bytes per mebibyte.  Every size this module reports is binary (1024-based),
-#: so the display unit is MiB, not the decimal MB.
-_BYTES_PER_MIB = 1024 * 1024
-
 #: Cap on any single byte request or lazily-read file image, so a corrupt
 #: size field cannot pull a multi-gigabyte file into memory.
-MAX_BINARY_SIZE = 512 * _BYTES_PER_MIB  # 512 MiB
+MAX_BINARY_SIZE = 512 * BYTES_PER_MIB  # 512 MiB
 
 # Guards the lazy ``BinaryInfo.data`` fill.  One global lock rather than a
 # per-instance one: the instance cache holds at most _LOAD_BINARY_CACHE_MAX
@@ -116,13 +114,13 @@ class BinaryInfo:
                     size = self.path.stat().st_size
                     if size > MAX_BINARY_SIZE:
                         raise ValueError(
-                            f"Binary file too large ({size / _BYTES_PER_MIB:.0f} MiB): {self.path}"
+                            f"Binary file too large ({size / BYTES_PER_MIB:.0f} MiB): {self.path}"
                         )
                     raw = self.path.read_bytes()
                     if len(raw) > MAX_BINARY_SIZE:
                         raise ValueError(
                             f"Binary file too large "
-                            f"({len(raw) / _BYTES_PER_MIB:.0f} MiB): {self.path}"
+                            f"({len(raw) / BYTES_PER_MIB:.0f} MiB): {self.path}"
                         )
                     self._data = raw
         return self._data
