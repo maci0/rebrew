@@ -17,6 +17,19 @@ if TYPE_CHECKING:
     from rebrew.config import ProjectConfig
 
 
+def _compiler_dir(value: Path) -> str:
+    """The include/lib directory as an env value, ``""`` when none is configured.
+
+    Configured empty (``includes = ""``) is valid and means "the toolchain ships
+    its own headers"; ``Path("")`` stringifies to ``"."``, so CL.EXE would get
+    ``INCLUDE=.`` — the wine cwd, i.e. the staging directory.  The import is
+    local so this module keeps no runtime edge on ``rebrew.config``.
+    """
+    from rebrew.config import compiler_dir
+
+    return compiler_dir(value)
+
+
 def resolve_runner_path(runner: str, root: Path) -> str:
     """Resolve a relative runner path (e.g. ``tools/wibo``) against *root*.
 
@@ -66,8 +79,8 @@ def msvc_env_from_config(cfg: "ProjectConfig") -> dict[str, str]:
         bin_dir = str(cl_path.parent)
     else:
         bin_dir = ""
-    inc_dir = str(cfg.compiler_includes)
-    lib_dir = str(cfg.compiler_libs)
+    inc_dir = _compiler_dir(cfg.compiler_includes)
+    lib_dir = _compiler_dir(cfg.compiler_libs)
 
     # Windows-style env vars consumed by CL.EXE
     env["INCLUDE"] = inc_dir

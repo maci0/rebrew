@@ -16,7 +16,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from rebrew.config import ProjectConfig
+from rebrew.config import ProjectConfig, compiler_dir
 from rebrew.utils import BYTES_PER_MIB
 
 #: Sentinel stored in VerifyCacheEntry.toolchain when no override names a
@@ -237,8 +237,8 @@ def compiler_config_hash(cfg: ProjectConfig) -> str:
         cfg.compiler_command,
         getattr(cfg, "compiler_runner", ""),
         cfg.base_cflags,
-        str(cfg.compiler_includes),
-        str(cfg.compiler_libs),
+        compiler_dir(cfg.compiler_includes),
+        compiler_dir(cfg.compiler_libs),
         # The compiler profile selects the toolchain the compile cache keys
         # on (_toolchain_cache_id), so it changes every verdict.  Left out,
         # a `[compiler] profile` edit kept serving results measured under the
@@ -286,9 +286,9 @@ def _external_includes_hash(cfg: ProjectConfig) -> str:
     from rebrew.compile_cache import include_fingerprint
 
     inc_dirs: list[str] = []
-    inc = getattr(cfg, "compiler_includes", None)
+    inc = compiler_dir(getattr(cfg, "compiler_includes", None))
     if inc:
-        inc_dirs.append(str(inc))
+        inc_dirs.append(inc)
     for flag in shlex.split(getattr(cfg, "base_cflags", "") or ""):
         if flag.startswith("-I"):
             inc_dirs.append(flag[2:])
@@ -537,7 +537,7 @@ def entry_headers_fp(
     )
 
     source_dir = filepath.parent
-    inc_path = str(getattr(cfg, "compiler_includes", "") or "")
+    inc_path = compiler_dir(getattr(cfg, "compiler_includes", None))
     flags = list(_split_flags(getattr(cfg, "base_cflags", "") or "")) + list(
         _split_flags(cflags_str)
     )

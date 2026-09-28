@@ -790,7 +790,11 @@ def _module_for_va_in_text(text: str, va: int) -> str:
 
 
 def update_size_annotation(
-    filepath: Path, new_size: int, target_va: int | None = None, metadata_dir: Path | None = None
+    filepath: Path,
+    new_size: int,
+    target_va: int | None = None,
+    metadata_dir: Path | None = None,
+    module: str = "",
 ) -> bool:
     """Update the SIZE for a function — only when it grows.
 
@@ -808,6 +812,10 @@ def update_size_annotation(
         target_va: VA of the specific function to update.
         metadata_dir: Root directory for ``rebrew-functions.toml``.
             When ``None``, falls back to ``filepath.parent``.
+        module: Metadata module key, when the caller already parsed it.  A
+            migrated ``.c`` is pure C (ADR-023) and carries no marker line, so
+            the module cannot be recovered from the source; without it the
+            write is skipped.
 
     """
     from rebrew.metadata import get_entry, update_field
@@ -829,7 +837,8 @@ def update_size_annotation(
     if va is None:
         return False
 
-    module = module_for_va(filepath, va)
+    if not module:
+        module = module_for_va(filepath, va)
     if not module:
         # A migrated .c is pure C (ADR-023) and carries no marker line, so
         # module_for_va finds nothing.  Nothing to key the write on.

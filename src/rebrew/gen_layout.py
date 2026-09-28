@@ -54,7 +54,7 @@ from typing import Any
 import typer
 
 from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
-from rebrew.config import module_marker
+from rebrew.config import compiler_dir, module_marker
 from rebrew.layout_meta import LayoutMetadata, extract_layout, write_package
 from rebrew.pe_headers import pe_image_base, pe_layout
 from rebrew.pe_image import PeImport, derive_link_options, parse_pe
@@ -474,14 +474,18 @@ def main(
     # to the toolchain image's own Lib dir (docker-only setups have no host
     # MSVC tree anymore).
     lib_symbols: set[str] = set()
-    libs_dir = cfg.compiler_libs
+    libs_dir = Path(compiler_dir(cfg.compiler_libs))
+    # Path("") is the "no lib dir" config and reports is_dir() for the current
+    # directory, which would import lib symbols out of whatever .lib happens to
+    # sit next to the project.
+    has_libs_dir = bool(libs_dir.parts) and libs_dir.is_dir()
     for dll in {i.dll for i in imports_raw}:
         # binary names imports "KERNEL32.dll"; the import libs on disk are
         # "KERNEL32.LIB" (case and extension differ, and Linux is
         # case-sensitive) — match "<stem>.lib", then the DLL name, ignoring case.
         stem = Path(dll).stem
         lib: Path | None = None
-        if libs_dir.is_dir():
+        if has_libs_dir:
             # NFC then casefold, as compile_cache's include search does: a
             # lib shipped as NFD "Café.lib" would otherwise never match the
             # cp1252-decoded NFC name the import table carries, and the

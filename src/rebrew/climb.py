@@ -31,6 +31,7 @@ import difflib
 import os
 import re
 import signal
+import tempfile
 from collections.abc import Callable
 from functools import lru_cache, partial
 from pathlib import Path
@@ -55,7 +56,7 @@ from rebrew.compile import CompareResult, compile_and_compare, matched_byte_coun
 from rebrew.compile_overrides import resolve_compile_overrides
 from rebrew.config import ProjectConfig
 from rebrew.sources import target_marker
-from rebrew.utils import atomic_write_text, read_source_text
+from rebrew.utils import atomic_write_text, filename_component, read_source_text
 
 app = typer.Typer(
     help="Deterministic single-statement hill-climb for one function.",
@@ -466,8 +467,8 @@ def _install_restore_handler(path: Path, original: str, encoding: str) -> dict[i
     return previous
 
 
-def _remove_restore_handler(previous: dict[int, Any]) -> None:
-    for number, handler in previous.items():
+def _remove_restore_handler(previous: dict[int, Any] | None) -> None:
+    for number, handler in (previous or {}).items():
         signal.signal(number, handler)
 
 
@@ -609,10 +610,26 @@ def main(
     else:
         scorer = _score
 
+    # Every scored candidate is written out and compiled.  Under --dry-run
+    # ("Preview changes without writing") that write goes to a scratch copy
+    # beside the project's other scratch state, so a run killed mid-search
+    # cannot leave a half-swept declaration in the real .c.  Toolchain and
+    # cflags were already resolved from the real source dir above, which is
+    # what makes a scratch-dir compile score the same candidate.
+    if dry_run:
+        dry_root = Path(cfg.root) / ".rebrew" / "climb"
+        dry_root.mkdir(parents=True, exist_ok=True)
+        dry_dir = tempfile.TemporaryDirectory(dir=dry_root, prefix=f"{filename_component(sym)}-")
+        score_path = Path(dry_dir.name) / path.name
+        score_path.write_text(original, encoding=encoding)
+    else:
+        dry_dir = None
+        score_path = path
+
     def score_fn(candidate: list[str]) -> float:
-        atomic_write_text(path, "".join(candidate), encoding=encoding)
+        atomic_write_text(score_path, "".join(candidate), encoding=encoding)
         matched, obj_len = scorer(
-            cfg, path, sym, target_bytes, cflags_str, name_to_va, va_int, toolchain_name
+            cfg, score_path, sym, target_bytes, cflags_str, name_to_va, va_int, toolchain_name
         )
         if not _within_size_budget(matched, obj_len, len(target_bytes), size_budget):
             return -1.0
@@ -625,10 +642,14 @@ def main(
     # Installed only now: nothing above writes the source, and every path
     # from here on runs the inverse in the finally below — an earlier
     # install leaked the handler on the span/chunks error_exit paths.
-    previous_handlers = _install_restore_handler(path, original, encoding)
+    # Nothing above writes the source, and every path from here on runs the
+    # inverse in the finally below — an earlier install leaked the handler on
+    # the span/chunks error_exit paths.  Under --dry-run the real file is never
+    # written (score_path is a scratch copy), so there is nothing to restore.
+    previous_handlers = _install_restore_handler(path, original, encoding) if not dry_run else None
     try:
         baseline, baseline_obj = scorer(
-            cfg, path, sym, target_bytes, cflags_str, name_to_va, va_int, toolchain_name
+            cfg, score_path, sym, target_bytes, cflags_str, name_to_va, va_int, toolchain_name
         )
         if baseline < 0:
             error_exit("baseline does not compile -- fix the function first", json_mode=json_output)
@@ -636,11 +657,15 @@ def main(
         console.print(f"baseline {sym}: {baseline:.0f} matched bytes")
         lines, best, moves = _climb(lines, chunks, score_fn, passes, sym, on_move=report)
         applied = best > baseline and not dry_run
-        atomic_write_text(path, "".join(lines) if applied else original, encoding=encoding)
+        if not dry_run:
+            atomic_write_text(path, "".join(lines) if applied else original, encoding=encoding)
     except BaseException:
-        atomic_write_text(path, original, encoding=encoding)
+        if not dry_run:
+            atomic_write_text(path, original, encoding=encoding)
         raise
     finally:
+        if dry_dir is not None:
+            dry_dir.cleanup()
         _remove_restore_handler(previous_handlers)
 
     payload = {

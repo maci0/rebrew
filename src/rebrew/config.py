@@ -2575,6 +2575,7 @@ __all__ = [
     "check_env_display",
     "check_env_toolchain_pin",
     "check_env_wineprefix",
+    "compiler_dir",
     "detect_crt_sources",
     "env_dir_path",
     "env_knob_errors",
@@ -2593,3 +2594,20 @@ __all__ = [
     "validate_llm_model",
     "validate_target_name",
 ]
+
+
+def compiler_dir(value: Path | str | None) -> str:
+    """A configured compiler directory as a flag or env value, ``""`` if unset.
+
+    ``compiler.includes`` and ``compiler.libs`` may be explicitly empty
+    ("no extra dir", for a toolchain that ships its own headers), which the
+    loader stores as :class:`pathlib.Path` ``""``.  That stringifies to ``"."``,
+    so ``str(cfg.compiler_includes)`` looked like a real directory to every
+    consumer that tested it for truth: ``-I.`` on the compile line, ``INCLUDE=.``
+    for CL.EXE, a cwd bind-mount into the container, and a header count globbed
+    out of the project root.  A path with no parts carries no directory.
+    """
+    if value is None:
+        return ""
+    text = str(value)
+    return text if Path(text).parts else ""

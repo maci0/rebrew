@@ -85,6 +85,7 @@ from rebrew.config import (
     DEFAULT_COMPILE_TIMEOUT,
     DEFAULT_RECOMPILE_RETRIES,
     ProjectConfig,
+    compiler_dir,
     parse_env_bool,
     validate_http_url,
 )
@@ -858,10 +859,11 @@ def resolve_compiler_env(
     # found").  shlex.join round-trips through shlex.split exactly.
     cl_cmd = shlex.join(resolve_cl_command(cfg))
 
-    inc_dir = str(cfg.compiler_includes)
-    inc_path = cfg.root / inc_dir
-    if inc_path.exists():
-        inc_dir = str(inc_path)
+    inc_dir = compiler_dir(cfg.compiler_includes)
+    if inc_dir:
+        inc_path = cfg.root / inc_dir
+        if inc_path.exists():
+            inc_dir = str(inc_path)
 
     env = msvc_env_from_config(cfg)
 
@@ -1581,7 +1583,7 @@ def compile_to_obj(
         # A separator would write the object outside the workdir (and the
         # docker mount) - reject it instead of silently losing the output.
         return None, f"obj_name must be a plain filename, got {obj_name!r}"
-    inc_path = str(cfg.compiler_includes)
+    inc_path = compiler_dir(cfg.compiler_includes)
     profile = getattr(cfg, "compiler_profile", "")
     # Per-function toolchain override (metadata TOOLCHAIN, e.g. "msvc-5.0"):
     # compile with THAT toolchain's image.  Every compile runs through the
@@ -1992,7 +1994,7 @@ def precompile_batch(
                         text,
                         _cache_src_name(cfile.name),
                         flags,
-                        str(cfg.compiler_includes),
+                        compiler_dir(cfg.compiler_includes),
                         src_parent,
                         None,
                         cfile.suffix or ".c",
@@ -2118,7 +2120,7 @@ def precompile_batch(
                 if root_p.exists():
                     batch_mounts.append((str(root_p), str(root_p)))
                     allowed.append(root_p)
-            inc_path = str(getattr(cfg, "compiler_includes", ""))
+            inc_path = compiler_dir(getattr(cfg, "compiler_includes", None))
             if inc_path:
                 inc_prefix = "/I" if spec.flags_style == "msvc" else "-I"
                 flags = [f"{inc_prefix}{inc_path}"] + flags
@@ -2159,7 +2161,7 @@ def precompile_batch(
                     staged_text,
                     _cache_src_name(src.name),
                     member_flags,
-                    str(cfg.compiler_includes),
+                    compiler_dir(cfg.compiler_includes),
                     src_parent,
                     None,
                     src.suffix or ".c",

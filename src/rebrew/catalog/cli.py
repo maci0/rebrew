@@ -128,13 +128,17 @@ def run_catalog(
 
         if progress.total_text_bytes > 0:
             # Same figure, same words, as `rebrew status`. Identified below
-            # counts every annotated function, stubs included.
+            # counts every annotated function, stubs included. byte_coverage_pct
+            # is the accounted share (matched function bytes plus the alignment
+            # between them), so the counts and the bar must use the same total
+            # or the percentage disagrees with the numbers beside it.
+            accounted = progress.accounted_text_bytes
             console.print(
                 f"Of .text: {progress.byte_coverage_pct}% "
-                f"({progress.matched_bytes}/{progress.total_text_bytes} bytes) "
-                "in byte-matched functions"
+                f"({accounted}/{progress.total_text_bytes} bytes) "
+                "in byte-matched functions and alignment"
             )
-            console.print(ratio_bar(progress.matched_bytes, progress.total_text_bytes))
+            console.print(ratio_bar(accounted, progress.total_text_bytes))
         console.print(
             f"Identified: {identified_pct:.1f}% of .text ({covered}/{text_size} bytes) "
             "claimed by an annotated function, stubs and library code included"
@@ -203,7 +207,13 @@ def run_catalog(
                     continue
                 reason = registry[va].get("size_reason", "")
                 if update_size_annotation(
-                    cfile, canonical, target_va=va, metadata_dir=cfg.metadata_dir
+                    cfile,
+                    canonical,
+                    target_va=va,
+                    metadata_dir=cfg.metadata_dir,
+                    # A migrated .c has no marker line to resolve the module
+                    # from, and the write target is the TOML either way.
+                    module=ann.module,
                 ):
                     diff = canonical - ann.size
                     from rebrew.utils import rel_display_path
@@ -214,6 +224,14 @@ def run_catalog(
                     )
                     updated += 1
                 else:
+                    # Say which file: a bare "N skipped" reads as "nothing to
+                    # do" when a run actually left a stale SIZE behind.
+                    from rebrew.utils import rel_display_path
+
+                    console.print(
+                        f"  {rel_display_path(cfile, reversed_dir)}: SIZE not written "
+                        f"(no module key, or metadata already at {canonical})"
+                    )
                     skipped += 1
         console.print(f"[green]Updated {updated} SIZE annotations[/] ({skipped} skipped)")
 

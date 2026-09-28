@@ -182,6 +182,14 @@ def all_targets_run(
         )
     cfg = require_config(target=None, json_mode=json_mode)
     names = list(getattr(cfg, "all_targets", []) or []) or [cfg.target_name]
+    if len(set(names)) != len(names):
+        # A target repeated in all_targets would compile (and write STATUS)
+        # twice; the second pass reports the first pass's work as its own.
+        logging.warning(
+            "duplicate target(s) in all_targets: %s; running each once",
+            ", ".join(sorted(set(names))),
+        )
+        names = list(dict.fromkeys(names))
     code = run_for_each_target(names, run_one, json_mode=json_mode)
     if code:
         raise typer.Exit(code=code)

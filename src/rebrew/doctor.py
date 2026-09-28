@@ -37,6 +37,7 @@ from rebrew.config import (
     ARCH_PRESETS,
     KNOWN_FORMATS,
     ProjectConfig,
+    compiler_dir,
     inventory_path_for,
     load_config,
 )
@@ -844,7 +845,16 @@ def check_includes(cfg: ProjectConfig) -> CheckResult:
     docker = _docker_toolchain_check(cfg, "Include path", "includes")
     if docker is not None:
         return docker
-    inc_path: Path = cfg.compiler_includes
+    inc_path = Path(compiler_dir(cfg.compiler_includes))
+    if not inc_path.parts:
+        # Explicitly empty means "the toolchain ships its own headers"
+        # (docs/CONFIG.md); Path("") would glob the current directory and
+        # report a header count that has nothing to do with the compiler.
+        return CheckResult(
+            name="Include path",
+            status=_SKIP,
+            message="no compiler.includes configured (toolchain provides headers)",
+        )
     if not inc_path.exists():
         return CheckResult(
             name="Include path",
@@ -866,7 +876,13 @@ def check_libs(cfg: ProjectConfig) -> CheckResult:
     docker = _docker_toolchain_check(cfg, "Lib path", "libs")
     if docker is not None:
         return docker
-    lib_path: Path = cfg.compiler_libs
+    lib_path = Path(compiler_dir(cfg.compiler_libs))
+    if not lib_path.parts:
+        return CheckResult(
+            name="Lib path",
+            status=_SKIP,
+            message="no compiler.libs configured (nothing to link against on the host)",
+        )
     if not lib_path.exists():
         return CheckResult(
             name="Lib path",
@@ -1649,7 +1665,9 @@ def check_crt_linkage(cfg: ProjectConfig) -> CheckResult:
 
     base_cflags = getattr(cfg, "base_cflags", "") or ""
     detected = info.base_cflags  # e.g. "/MD" or "/MT"
-    if detected in base_cflags:
+    # Whole-token compare: "/MD" is a prefix of the debug spellings "/MDd"
+    # and "/MTd", which link a different CRT than the detector reported.
+    if detected in base_cflags.replace("/", " /").split():
         return CheckResult(
             name="CRT linkage",
             status=_PASS,

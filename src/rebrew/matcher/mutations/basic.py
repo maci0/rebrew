@@ -1471,7 +1471,9 @@ def crossover(parent1: str, parent2: str, rng: random.Random) -> str:
         return parent1
     if child_body == p2_body:
         return parent2
-    child = p1_pre + "\n" + child_body
+    # The separator belongs to the split, not to the source: a source with no
+    # preamble line rejoins without it, matching mutate_code's rejoin.
+    child = p1_pre + "\n" + child_body if p1_pre else child_body
     if quick_validate(child):
         return child
     return parent1
