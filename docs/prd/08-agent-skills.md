@@ -253,10 +253,10 @@ rebrew skills show <name> --json  # name/description/path + raw content
   --flag` in the SKILL.md bash blocks and inline code spans (plus
   `references/*.md`) against live `--help` output, skipping only
   `--help` and `--version` (`_SKIP_FLAGS`; `--json` and `--target` are
-  validated like any other flag). It runs only
-  under the suite (`tests/test_skill_commands_validate.py`); the
-  `validate-skill-commands` pre-commit hook is registered with
-  `stages: [manual]`, so it is not part of `pre-commit run --all-files`.
+  validated like any other flag). It runs in
+  the suite (`tests/test_skill_commands_validate.py`) and as the
+  `validate-skill-commands` pre-commit hook, which runs on
+  `pre-commit run --all-files` (`make check`, and the CI pre-commit job).
   `tests/test_skills_sync.py` pins the rendered `.agents/skills/` copy to
   `src/rebrew/agent-skills/`.
 
@@ -265,8 +265,8 @@ rebrew skills show <name> --json  # name/description/path + raw content
 - Flag drift is auto-checked: `tools/validate_skill_commands.py` parses every
   `rebrew <subcommand>` line in the SKILL.md bash blocks, inline code spans,
   and `references/*.md`, then verifies each `--flag` against live `--help`.
-  It runs in the suite; the pre-commit hook is `stages: [manual]` and nothing
-  in CI or the Makefile invokes it. (Partly resolved — only `--version` and
+  It runs in the suite and in `make check` / the CI pre-commit job.
+  (Partly resolved — only `--version` and
   `--help` are skipped, so those two can still drift; so can frontmatter
   descriptions / trigger keywords, which are not validated against the CLI
   surface at all.)

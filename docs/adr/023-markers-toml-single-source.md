@@ -57,11 +57,12 @@ identity and state. A migrated `.c` file is pure C.**
 - **Interop as output.** *(Superseded — see the amendment at the end: the
   reccmp CSV, `data.json` and `objdiff.json` emitters are deleted, and a
   community recomp build reads the reccmp-compatible source tree.)*
-- **Interop as output (as decided).** The reccmp CSV, `data.json`, and
+- **Interop as output (original decision, kept for the record).** The reccmp CSV, `data.json`, and
   `objdiff.json` stay thin emitters over `build_function_registry`. A
   community recomp build that needs inline markers reads the reccmp CSV
   (`rebrew catalog --csv`) rather than reading the source tree as the
-  contract.
+  contract. *(Superseded — see the amendment at the end: these emitters are
+  deleted, so the command and file named here do not exist.)*
 
 ## Consequences
 

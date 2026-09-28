@@ -30,10 +30,11 @@ hid PROVEN functions that still needed work.
   metadata PROVEN over a cached verdict, since prove compiles after it.
 - PROVEN is shown on its own: a status row and bucket, `rebrew todo`
   improve-match items, never a `rebrew prove` item again.
-- Sites that protect earned work rather than claim a match name PROVEN
-  explicitly: orphan hold-back (`orphans.EARNED_STATUSES`), lint E017 (STUB
-  marker on a proven function), W028 and the `--fix-sizes` guard (prove
-  compiled and compared at the annotated VA and size).
+- Sites that protect earned work rather than claim a match test the shared
+  `EARNED_STATUSES` set (byte-matched statuses plus `PROVEN`) rather than
+  naming one status: orphan hold-back, lint E017 (STUB marker on a proven
+  function), W028 and the `--fix-sizes` guard (prove compiled and compared
+  at the annotated VA and size).
   Amended: W028 no longer names PROVEN. It skips byte-matched markers and
   markers whose annotated neighbour tiles a merged inventory entry.
 

@@ -36,9 +36,17 @@ place, 3 resolved by the BinSync-primary rework).
 ## Coverage
 
 The nine PRDs above cover the core reversing loop, not the whole CLI:
-`rebrew --help` lists 101 top-level commands, and 64 of them are named in no
+`rebrew --help` lists 101 top-level commands, and 66 of them are named in no
 PRD in this directory (`toolchain`, `library`, `dashboard`, `diagnose`, the
-`*-scan` family, and others) — counted by matching every
-`rebrew <command>` mention in these files against the top-level command list.
+`*-scan` family, and others). Re-measured 2026-09-29:
+
+```bash
+rebrew --help | grep -oP '^│ \K[a-z][a-z0-9-]*(?= )' | sort -u > cmds.txt
+while read -r c; do grep -qrE "rebrew $c( |\$)" . || echo "$c"; done < cmds.txt | wc -l
+```
+
+(A command is counted as covered when a `rebrew <command>` mention appears in
+any file of this directory, so a PRD that cites it only as a subcommand does
+not count.)
 A command absent from this directory is uncovered, not unplanned.
 `docs/CLI.md` is the exhaustive command reference.
