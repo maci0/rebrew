@@ -17,7 +17,6 @@ if TYPE_CHECKING:
     from rebrew.catalog import RegistryEntry
 
 from rebrew.config import ProjectConfig
-from rebrew.status_style import DISPLAY_STATUSES
 from rebrew.ghidra.client import (
     MAX_MCP_ITEMS,
     MAX_MCP_PAGES,
@@ -28,6 +27,7 @@ from rebrew.ghidra.client import (
     fetch_mcp_tool_raw,
     init_mcp_session,
 )
+from rebrew.status_style import DISPLAY_STATUSES
 from rebrew.utils import (
     atomic_write_text,
     c_comment_safe,
