@@ -41,6 +41,7 @@ import json
 import logging
 import re
 import time
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Literal, Protocol, runtime_checkable
 
@@ -339,8 +340,16 @@ def upload_scratch(
 ) -> dict[str, Any]:
     """POST the scratch to decomp.me; returns the response dict.
 
+    *payload* is the mapping :func:`build_scratch_payload` returns: a ``data``
+    form mapping and a ``files`` multipart mapping.  Both keys are checked
+    before the request is built, so a payload the caller assembled wrongly
+    raises :class:`DecompmeError` with ``kind="validation"`` rather than the
+    ``KeyError`` that reading it inside the transport's ``except`` clause
+    would report as a ``kind="network"`` failure, and could retry.
+
     Raises :class:`DecompmeError` (inherits :class:`RebrewError` and
-    :class:`RuntimeError`) on transport failure, a non-2xx response
+    :class:`RuntimeError`) on a malformed *payload* or a negative *retries*
+    (``kind="validation"``), transport failure, a non-2xx response
     (the body is included — decomp.me validation errors explain the reason),
     or a reply whose ``slug`` / ``claim_token`` are not URL-safe tokens.
 
@@ -356,6 +365,16 @@ def upload_scratch(
     POST would orphan a public scratch.
     """
     import httpx  # deferred: ~46 ms of startup for non-decomp.me commands
+
+    if retries < 0:
+        raise DecompmeError(f"retries must be >= 0, got {retries}", kind="validation")
+    for key in ("data", "files"):
+        if not isinstance(payload.get(key), Mapping):
+            raise DecompmeError(
+                f"scratch payload has no {key!r} mapping "
+                f"(got {type(payload.get(key)).__name__}); build it with build_scratch_payload()",
+                kind="validation",
+            )
 
     post_fn = client.post if client is not None else httpx.post
     kw: dict[str, Any] = {}

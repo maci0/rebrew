@@ -34,8 +34,11 @@ class RenameError(RebrewError, RuntimeError):
     (:func:`collect_matching_files`): a source could not be read, so the
     candidate set is unknown and proceeding would split source from
     metadata.  ``files`` carries the offending paths, so the caller can name
-    them instead of only logging.
+    them instead of only logging, and :meth:`RebrewError.to_dict` carries
+    them so a persisted failure still names the sources.
     """
+
+    _STRUCTURED_FIELDS = (*RebrewError._STRUCTURED_FIELDS, "files")
 
     def __init__(self, message: str, *, files: Sequence[Path]) -> None:
         super().__init__(message)

@@ -32,6 +32,25 @@ from rebrew.utils import is_safe_c_ident, rel_display_path
 # MSVC stdcall decoration (`foo@8`) — strip before matching C identifiers.
 _AT_DECORATION_RE = re.compile(r"@\d+$")
 
+#: Offending sources named in a rename failure, one line each.
+_RENAME_FAILURE_FILE_LIMIT = 10
+
+
+def _rename_failure(exc: RenameError) -> str:
+    """*exc*'s message plus the sources it names.
+
+    ``RenameError.files`` is the actionable half of the failure — a renamed
+    definition whose call sites are stale does not compile — and the message
+    alone says which operation failed, not which files to open.
+    """
+    if not exc.files:
+        return str(exc)
+    shown = ", ".join(rel_display_path(f) for f in exc.files[:_RENAME_FAILURE_FILE_LIMIT])
+    if len(exc.files) > _RENAME_FAILURE_FILE_LIMIT:
+        shown += f", and {len(exc.files) - _RENAME_FAILURE_FILE_LIMIT} more"
+    return f"{exc}\n  files: {shown}"
+
+
 # C89 keywords cannot be used as function names; `is_safe_c_ident()` alone
 # would let `if`, `int`, `struct`, ... through and generate uncompilable C.
 _C_KEYWORDS = frozenset(
@@ -258,8 +277,9 @@ def main(
         error_exit(str(exc), json_mode=json_output)
     except RenameError as exc:
         # The definition was renamed but call sites were not: the tree does not
-        # compile, so this is a failure, not a partial success to report.
-        error_exit(str(exc), json_mode=json_output)
+        # compile, so this is a failure, not a partial success to report.  The
+        # offending sources are the actionable part, so they are named.
+        error_exit(_rename_failure(exc), json_mode=json_output)
 
     if json_output:
         json_print(
@@ -416,7 +436,7 @@ def _rename_data(
     except RenameError as exc:
         # A source that cannot be read is a source that will not be rewritten:
         # renaming the metadata over it would split the store from the tree.
-        error_exit(str(exc), json_mode=json_output)
+        error_exit(_rename_failure(exc), json_mode=json_output)
     if dry_run:
         if json_output:
             json_print(

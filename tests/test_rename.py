@@ -266,6 +266,51 @@ class TestRenameCli:
         assert result.exit_code != 0
         assert "Could not find function" in result.output
 
+    def test_failure_names_the_files_it_could_not_rewrite(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """A stale call site is the actionable half of a rename failure.
+
+        ``RenameError`` carries the offending sources so the operator can open
+        them; the CLI reported only the message, which named the operation but
+        not the files.
+        """
+        from rebrew.rename_ops import RenameError
+
+        src = tmp_path / "src" / "SERVER"
+        src.mkdir(parents=True, exist_ok=True)
+        stale = src / "stale.c"
+        stale.write_text("extern int old_fn(void);\n", encoding="utf-8")
+        monkeypatch.setattr(
+            "rebrew.rename.rename_function_everywhere",
+            lambda *a, **kw: (_ for _ in ()).throw(
+                RenameError("call sites not rewritten", files=[stale])
+            ),
+        )
+        result = self._invoke(tmp_path, monkeypatch, "old_fn", "new_fn")
+        assert result.exit_code != 0
+        assert "call sites not rewritten" in result.output
+        assert "stale.c" in result.output
+
+    def test_failure_output_stays_within_the_file_cap(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        from rebrew.rename import _RENAME_FAILURE_FILE_LIMIT
+        from rebrew.rename_ops import RenameError
+
+        src = tmp_path / "src" / "SERVER"
+        many = [src / f"f{i:03d}.c" for i in range(_RENAME_FAILURE_FILE_LIMIT + 5)]
+        monkeypatch.setattr(
+            "rebrew.rename.rename_function_everywhere",
+            lambda *a, **kw: (_ for _ in ()).throw(
+                RenameError("call sites not rewritten", files=many)
+            ),
+        )
+        result = self._invoke(tmp_path, monkeypatch, "old_fn", "new_fn")
+        assert result.exit_code != 0
+        assert "5 more" in result.output
+        assert f"f{_RENAME_FAILURE_FILE_LIMIT + 4:03d}.c" not in result.output
+
     def test_zero_padded_va_identifier(self, tmp_path: Path, monkeypatch: Any) -> None:
         """Regression: discovery writes zero-padded VAs (0x00001000);
         rename must accept them like every other VA-taking tool."""

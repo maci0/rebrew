@@ -265,7 +265,10 @@ result.ok / result.obj_bytes / result.log / result.compiler_version
 # stand-in, and `retries=N` re-attempts a retryable `DecompmeError` on the
 # same backoff (`retry_backoff_delay` in `rebrew.utils`) and the same
 # transient status set, so both service clients recover from a blip the
-# same way.
+# same way. Its `payload` is what `build_scratch_payload` returns (a `data`
+# form mapping and a `files` multipart mapping); both keys are checked before
+# the request is built, so a payload you assembled wrongly arrives as
+# `kind="validation"`, not as a network failure a retry could chase.
 ```
 
 The ReVa MCP client (`rebrew.ghidra.client`, the transport behind

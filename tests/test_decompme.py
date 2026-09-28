@@ -320,6 +320,55 @@ class TestUpload:
     def test_scratch_url(self) -> None:
         assert decompme.scratch_url("abc", "tok") == "https://decomp.me/scratch/abc/claim?token=tok"
 
+    @pytest.mark.parametrize("retries", [-1, -5])
+    def test_negative_retries_is_a_validation_error(self, retries: int) -> None:
+        """A caller's bad knob is ``kind="validation"``, not a bare AssertionError.
+
+        ``attempts = retries + 1`` is zero or negative here, the retry loop
+        never runs, and the post-loop ``assert`` was what escaped.  A consumer
+        reading ``exc.kind`` got nothing it could act on.
+        """
+        with pytest.raises(decompme.DecompmeError) as excinfo:
+            decompme.upload_scratch({"data": {}, "files": {}}, retries=retries)
+        assert excinfo.value.kind == "validation"
+        assert excinfo.value.retryable is False
+
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            {},
+            {"data": {}},
+            {"files": {}},
+            {"data": "not a mapping", "files": {}},
+            {"data": {}, "files": None},
+        ],
+    )
+    def test_malformed_payload_is_a_validation_error(
+        self, payload: dict, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A payload missing ``data`` / ``files`` is the caller's bug, not the network's.
+
+        Reading the missing key happened inside the transport's ``except
+        Exception``, so a ``KeyError`` was reported as ``kind="network"`` and
+        a retryable check could have re-sent it.
+        """
+        posted: list[str] = []
+
+        def _fake_post(url, **kwargs):
+            posted.append(url)
+            return SimpleNamespace(
+                status_code=201,
+                json=lambda: {"slug": "abc123", "claim_token": "tok"},
+                close=lambda: None,
+            )
+
+        monkeypatch.setattr("httpx.post", _fake_post)
+        with pytest.raises(decompme.DecompmeError) as excinfo:
+            decompme.upload_scratch(payload, retries=1)
+        assert excinfo.value.kind == "validation"
+        assert excinfo.value.retryable is False
+        assert posted == []
+
     def test_retries_a_transient_status_then_succeeds(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import json
 from pathlib import Path
 from typing import Any
 
@@ -257,6 +258,50 @@ class TestSerializationRoundTrip:
 
         assert isinstance(rebuilt, CompareResultError)
         assert (rebuilt.matched, rebuilt.status) == (True, "EXACT")
+
+    def test_a_rename_keeps_the_files_it_could_not_reach(self) -> None:
+        """``files`` is a list of ``Path``, the one non-JSON structured field.
+
+        ``to_dict`` is documented as JSON-safe and the round trip as lossless,
+        so the paths are serialized as their ``str`` and read back as one.
+        """
+        from rebrew.rename_ops import RenameError
+
+        original = RenameError("call sites left stale", files=[Path("src/a.c"), Path("src/b.c")])
+        payload = original.to_dict()
+
+        assert json.dumps(payload)  # a Path would raise here
+        assert payload["files"] == ["src/a.c", "src/b.c"]
+        rebuilt = RebrewError.from_dict(payload)
+        assert isinstance(rebuilt, RenameError)
+        # ``from_dict`` assigns the JSON payload as-is, so ``files`` is a
+        # list of ``str`` on a rebuilt error (the declared ``list[Path]``
+        # describes the raised one). Both name the same sources.
+        assert [str(f) for f in rebuilt.files] == ["src/a.c", "src/b.c"]
+
+    def test_a_registry_conflict_keeps_its_origin(self) -> None:
+        from rebrew.registry import RegistryError
+
+        original = RegistryError(
+            "duplicate toolchain", group="rebrew.toolchains", name="msvc-6.0", origin="entry_points"
+        )
+        rebuilt = RebrewError.from_dict(original.to_dict())
+
+        assert isinstance(rebuilt, RegistryError)
+        assert (rebuilt.group, rebuilt.name, rebuilt.origin) == (
+            "rebrew.toolchains",
+            "msvc-6.0",
+            "entry_points",
+        )
+
+    def test_an_unresolved_symbol_keeps_the_symbol(self) -> None:
+        from rebrew.coff_reloc import UnresolvedSymbolError
+
+        original = UnresolvedSymbolError("_missing_label")
+        rebuilt = RebrewError.from_dict(original.to_dict())
+
+        assert isinstance(rebuilt, UnresolvedSymbolError)
+        assert rebuilt.symbol == "_missing_label"
 
     def test_an_unknown_type_keeps_the_fields_it_can(self) -> None:
         rebuilt = RebrewError.from_dict(

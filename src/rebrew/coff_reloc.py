@@ -104,7 +104,13 @@ class CatalogScanError(RebrewError, Exception):
 
 
 class UnresolvedSymbolError(RebrewError, Exception):
-    """Raised when a relocation references a symbol with no VA in the catalog."""
+    """Raised when a relocation references a symbol with no VA in the catalog.
+
+    ``symbol`` names the reference that could not be resolved, so a consumer
+    fixing a catalog does not have to parse it back out of the message.
+    """
+
+    _STRUCTURED_FIELDS = (*RebrewError._STRUCTURED_FIELDS, "symbol")
 
     def __init__(self, symbol: str) -> None:
         super().__init__(symbol)

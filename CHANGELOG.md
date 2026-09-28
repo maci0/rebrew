@@ -150,6 +150,25 @@
   expansion rule now lives in `config.expand_env_path`, which `env_dir_path`
   also uses, and a whitespace-only `UV_TOOL_DIR` is unset rather than a
   cwd-relative candidate.
+- **A caller's bad argument to a service client is a `validation` error, not a
+  crash or a network blip.** `upload_scratch` read `payload["data"]` inside the
+  transport's `except Exception`, so a payload the caller assembled without
+  `data` / `files` surfaced as a `KeyError` reported with `kind="network"`,
+  which a retryable check could re-send; and `retries=-1` skipped the retry
+  loop and escaped as a bare `AssertionError`. Both arguments are checked
+  before the request is built, so a caller branches on `exc.kind` like every
+  other failure (`compile_source` already did this for `retries`).
+- **A persisted error keeps the fields its own class carries.** `to_dict()`
+  serializes only `_STRUCTURED_FIELDS`, and `RenameError.files`,
+  `UnresolvedSymbolError.symbol`, and `RegistryError.origin` were never
+  declared in it, so a round trip through JSON read back without them: a
+  `RenameError` named no sources, and a registry conflict named no origin.
+  Each now extends the tuple, and a field holding a `Path` is serialized as
+  its `str` so the documented JSON-safe dict survives `json.dumps`.
+- **A failed rename names the files it could not rewrite.**
+  `RenameError.files` exists so the caller can name them, and both `rename`
+  catch sites reported only the message. The offending sources are now listed
+  (capped at ten, with a count of the rest).
 - **Every data marker sorts ahead of code in `rebrew merge`.** The block rank
   spelled out `DATA` / `GLOBAL` instead of reading `annotation.DATA_MARKERS`,
   so a `VTABLE:` or `STRING:` block was ordered with the functions and could

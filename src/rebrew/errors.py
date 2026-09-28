@@ -46,6 +46,7 @@ the defaults do not add empty keys to a serialized error.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from pathlib import PurePath
 from typing import TYPE_CHECKING, Any
 
 # Same names ``__getattr__`` loads at runtime.  Present here so a type
@@ -110,6 +111,24 @@ def _blank_error(target: type[RebrewError], message: str) -> RebrewError:
     return exc
 
 
+def _json_safe(value: Any) -> Any:
+    """*value* reduced to what :func:`json.dumps` accepts.
+
+    A structured field is whatever the raising module found useful, and a
+    ``Path`` or a list of them is common (the sources a rename could not
+    rewrite).  :mod:`json` refuses both, which would make
+    :meth:`RebrewError.to_dict` a dict that cannot be persisted, the one job
+    it exists for.  Anything else passes through unchanged.
+    """
+    if isinstance(value, PurePath):
+        return str(value)
+    if isinstance(value, Mapping):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return [_json_safe(v) for v in value]
+    return value
+
+
 class RebrewError(Exception):
     """Base of every error rebrew raises across its public modules.
 
@@ -135,7 +154,9 @@ class RebrewError(Exception):
 
     #: Structured attributes a subclass may set, serialized by
     #: :meth:`to_dict`.  Every one is optional: an error that cannot fill a
-    #: field simply omits it from the payload.
+    #: field simply omits it from the payload.  A subclass holding more than
+    #: the domain fields above extends the tuple, so its own data survives the
+    #: round trip instead of reading back absent.
     _STRUCTURED_FIELDS: tuple[str, ...] = ("kind", "name", "status_code", "group")
 
     def to_dict(self) -> dict[str, Any]:
@@ -150,6 +171,12 @@ class RebrewError(Exception):
         :meth:`from_dict` reads the payload back, so the round trip preserves
         ``kind`` / ``retryable`` / ``status_code`` without a consumer
         re-implementing this mapping.
+
+        A field's value is coerced on the way out, so the promise of a
+        JSON-safe dict holds for a subclass that carries a ``Path`` (a
+        ``RenameError`` names the sources it could not rewrite).  A ``Path``
+        reads back from JSON as its ``str``, which is the one asymmetry in the
+        round trip.
         """
         payload: dict[str, Any] = {
             "type": type(self).__name__,
@@ -159,7 +186,7 @@ class RebrewError(Exception):
         for field_name in self._STRUCTURED_FIELDS:
             value = getattr(self, field_name, None)
             if value is not None:
-                payload[field_name] = value
+                payload[field_name] = _json_safe(value)
         return payload
 
     @classmethod

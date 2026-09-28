@@ -62,6 +62,8 @@ class RegistryError(RebrewError, RuntimeError):
     - ``origin`` — where the failing registration came from
     """
 
+    _STRUCTURED_FIELDS = (*RebrewError._STRUCTURED_FIELDS, "origin")
+
     def __init__(
         self,
         message: str,
