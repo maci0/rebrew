@@ -199,7 +199,7 @@ def _print_trace(entry: dict[str, Any]) -> None:
 @app.callback(invoke_without_command=True)
 def main(
     source_arg: str = typer.Argument(
-        ..., help="Source file, directory, symbol name, or hex VA (0x…)"
+        ..., metavar="source", help="Source file, directory, symbol name, or hex VA (0x…)"
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,

@@ -195,7 +195,9 @@ def _compile_check(cfg: Any, source_text: str, src_hint: Path) -> str | None:
 
 @app.callback(invoke_without_command=True)
 def main(
-    source_file: Path = typer.Argument(..., help="Path to the pseudo-C file to fix"),
+    source_file: Path = typer.Argument(
+        ..., metavar="source", help="Path to the pseudo-C file to fix"
+    ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     out: Path | None = typer.Option(
         None, "--output", "-o", help="Write the fixed source to this path (default: <file>.fixed.c)"
@@ -208,7 +210,7 @@ def main(
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
-    """Sanitize SOURCE_FILE (and inject missing decls) so it compiles."""
+    """Sanitize a pseudo-C file (and inject missing decls) so it compiles."""
     if not source_file.exists():
         error_exit(f"source file not found: {source_file}", json_mode=json_output)
     # Keep the detected encoding: read_source_text decodes a legacy source as
