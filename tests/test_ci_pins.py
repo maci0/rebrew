@@ -1259,6 +1259,46 @@ class TestCiPins:
         assert "warn-nasm" in _makefile_prereqs("test-one")
         assert "ensure-nasm" in _makefile_prereqs("test")
 
+    def test_dashboard_js_tests_preflight_node(self) -> None:
+        """The dashboard interaction tests need node; CI runs them, a bare host skips them.
+
+        ``tests/test_dashboard.py`` shells out to ``tests/dashboard_*.mjs`` and
+        skips the whole class when ``node`` is absent, so a contributor without
+        it reads a green ``make test`` as full coverage of the dashboard JS
+        while the ubuntu-24.04 runner executes those same scripts.  Same posture
+        as nasm: hard for the suite, soft for a single file.
+        """
+        text = MAKEFILE.read_text(encoding="utf-8")
+        assert "ensure-node" in _makefile_prereqs("test")
+        assert "ensure-node" in _makefile_prereqs("coverage")
+        assert "warn-node" in _makefile_prereqs("test-one")
+        assert "command -v node" in text
+        wrapper = (ROOT / "tests" / "test_dashboard.py").read_text(encoding="utf-8")
+        # A script named in _run_script calls is driven by the suite; the rest
+        # of the dashboard_*.mjs set are shared helper modules it imports.
+        called = set(re.findall(r'_run_script\(\s*"([^"]+)"', wrapper))
+        scripts = {p.name for p in (ROOT / "tests").glob("dashboard_*.mjs")}
+        assert called, "no _run_script callers found; the wrapper was restructured"
+        assert called <= scripts, f"called but absent: {sorted(called - scripts)}"
+        # Every script that is not a helper module must have a caller, or the
+        # node it needs runs nowhere and a skip here hides that.
+        imported = {
+            m.group(1)
+            for p in (ROOT / "tests").glob("dashboard_*.mjs")
+            for m in re.finditer(r'from "\./([^"]+)"', p.read_text(encoding="utf-8"))
+        }
+        orphans = scripts - called - imported
+        assert not orphans, f"dashboard scripts with no pytest caller: {sorted(orphans)}"
+        # CI's runner image ships node, so the job asserts it instead of
+        # apt-installing an unpinned version; without the assert a runner that
+        # lost node reports green having skipped every one of those scripts.
+        test_job = next(
+            block
+            for block in re.split(r"\n(?=  [a-z][a-z-]*:\n)", CI_YML.read_text(encoding="utf-8"))
+            if block.splitlines()[0].strip().rstrip(":") == "test"
+        )
+        assert "node --version" in test_job
+
     def test_pr_check_installs_the_built_wheel(self) -> None:
         """The wheel smoke install is a CI gate; pr-check has to run it locally.
 
@@ -1315,7 +1355,9 @@ class TestCiPins:
         }
         # One host dep, two strengths: the hard check is the one doctor runs
         # (it is a superset of the soft one, which only downgrades the exit).
-        used.discard("warn-nasm")
+        for soft in [name for name in used if name.startswith("warn-")]:
+            if soft.replace("warn-", "ensure-", 1) in checked:
+                used.discard(soft)
         assert used, "no preflight targets found; the regex may be stale"
         assert used <= checked, f"make doctor skips: {sorted(used - checked)}"
         # Read-only: the report runs the checks, it must not install anything.

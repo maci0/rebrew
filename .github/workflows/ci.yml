@@ -114,6 +114,12 @@ jobs:
           set -euo pipefail
           bash tools/ci_apt_install.sh nasm
           nasm -v
+      - name: Assert node (dashboard interaction tests)
+        # tests/dashboard_*.mjs run through `node`, and test_dashboard.py skips
+        # them when it is absent, so a runner image without it would report a
+        # green job that never exercised the dashboard JS.  The image ships
+        # node; assert it rather than apt-install a version CI never pins.
+        run: node --version
       - name: Run tests
         if: matrix.python-version != '3.13.15'
         run: make test

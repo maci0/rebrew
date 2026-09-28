@@ -102,17 +102,21 @@ see [`AGENTS.md`](../AGENTS.md); for the CLI surface see [`CLI.md`](CLI.md).
 ## Validation commands
 
 System deps for a green local suite: **nasm** on `PATH` (asm round-trip tests;
-CI installs it).  Bootstrap also needs sibling `../resembl` at tag `v3.0.0`
+CI installs it) and **node** on `PATH` (the `tests/dashboard_*.mjs` interaction
+tests, which `tests/test_dashboard.py` skips without it).  Bootstrap also needs
+sibling `../resembl` at tag `v3.0.0`
 whose `HEAD` is the `RESEMBL_SHA` commit (CI `resembl-sha`) — `make setup`
 checks both and prints the clone or checkout line when either is wrong.  `make help`
 lists every contributor target.
 
 ```bash
 make doctor                             # report every missing prerequisite (uv, ../resembl, bash, nasm,
-                                        # shellcheck, venv extras) with the fix for each; read-only
+                                        # node, shellcheck, venv extras) with the fix for each; read-only
 make setup                              # --locked sync (extras + similarity) + pre-commit/pre-push hooks (push runs
                                         # make test, needs nasm; SKIP=pytest git push to skip)
 make test-one T=tests/test_annotation.py  # single file / pytest nodeid
+make test-one T=tests/test_annotation.py FLAGS="-k test_stdcall"   # narrow further
+make test-one T=tests/test_dashboard.py::TestSummaryRequests        # one class
 make test                               # full suite (ANSI-safe; same as CI)
 make lint                             # ruff check . (same scope as the pre-commit hook)
 make format-check                     # ruff format --check

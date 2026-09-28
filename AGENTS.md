@@ -4,7 +4,7 @@
 
 **Rebrew** is a compiler-in-the-loop decompilation workbench for binary-matching game reversing. Python package (`src/rebrew/`) with CLI tools to compile, compare, and match C source against target binary functions.
 
-Install editable (`uv pip install -e .`) inside a workspace containing binaries, sources, and toolchains. Contributor install: `make setup`; needs sibling `../resembl` whose version is `RESEMBL_REF` and whose HEAD is `RESEMBL_SHA` (both in the `Makefile`; a moved tag fails the SHA check) and **nasm** on `PATH` for the test suite. `make help` lists targets.
+Install editable (`uv pip install -e .`) inside a workspace containing binaries, sources, and toolchains. Contributor install: `make setup`; needs sibling `../resembl` whose version is `RESEMBL_REF` and whose HEAD is `RESEMBL_SHA` (both in the `Makefile`; a moved tag fails the SHA check) and **nasm** and **node** on `PATH` for the test suite (nasm for the asm round-trip tests, node for the `tests/dashboard_*.mjs` interaction tests, which skip without it). `make help` lists targets.
 
 ## Compiler Profiles
 
@@ -21,9 +21,9 @@ Docker build source lives in the sibling **rebrew-toolchains** checkout (`REBREW
 ## Build & Test Commands
 
 ```bash
-make doctor                               # report every missing prerequisite (uv, ../resembl, nasm, extras) and its fix
-make test-one T=tests/test_annotation.py  # edit-test loop; T takes a node id (::TestClass)
-make test                                 # full suite (needs nasm)
+make doctor                               # report every missing prerequisite (uv, ../resembl, nasm, node, extras) and its fix
+make test-one T=tests/test_annotation.py  # edit-test loop; T takes a node id (::TestClass), FLAGS= takes any pytest flag
+make test                                 # full suite (needs nasm + node)
 make lint / make format / make mypy
 make gen-fixtures                         # regenerate tests/fixtures/ after editing the generator
 make pr-check                             # before a PR: CI gates, pre-commit, reproducible build, dist provenance, SBOM

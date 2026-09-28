@@ -124,6 +124,11 @@ the pre-commit gate, jq for the nightly drift result gate): apt mirrors flake
 under load, so it retries update and
 install with a backoff, skips packages already on `PATH`, and fails the step
 naming the package after the last attempt.
+`node` is the one host binary the test job only asserts (`node --version`):
+the runner image ships it, `tests/dashboard_*.mjs` need it, and
+`test_dashboard.py` skips those scripts when it is missing, so a job that lost
+it would go green without ever running the dashboard JS. Asserting beats
+apt-installing a version CI never pins.
 The package job skips the sibling clone (`clone-resembl: "false"`): its
 lockfile sync uses
 `--no-dev --no-default-groups --no-install-project` (no path dep needed)

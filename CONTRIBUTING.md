@@ -18,8 +18,12 @@ pinned docker image).
 ## Bootstrap (clean clone)
 
 Needs **uv** (CI pins `uv-version` in `.github/actions/uv-env/action.yml`,
-currently `0.12.14`), **Python 3.13+** (see `.python-version`), and **nasm** on `PATH`
-(CI installs nasm for asm round-trip tests).  `make clone-resembl` also needs
+currently `0.12.14`), **Python 3.13+** (see `.python-version`), **nasm** on `PATH`
+(CI installs nasm for asm round-trip tests), and **node** on `PATH` (the
+`tests/dashboard_*.mjs` interaction tests skip without it, so a host with no
+node sees a green `make test` that never ran the dashboard JS the CI runner
+does; `make test` fails on a missing node, `make test-one` only warns).
+`make clone-resembl` also needs
 **bash**: it runs `tools/ci_clone_resembl.sh`, and the target says so instead of
 printing `bash: not found`.  **shellcheck** is optional locally
 but not in CI: the pre-commit shell hook exits 0 without the binary, so
@@ -47,7 +51,7 @@ make test-one T=tests/test_annotation.py   # smoke the edit-test loop
 ```
 
 `make doctor` is read-only and runs every preflight the other targets use (uv
-and its version, the sibling `../resembl` checkout, bash, nasm, shellcheck, and
+and its version, the sibling `../resembl` checkout, bash, nasm, node, shellcheck, and
 the `prove` extra / `similarity` group in `.venv`), so a host missing several of
 them sees all of them at once instead of one failed target at a time.  The
 checks still guard their own targets: a missing nasm surfaces at `make test`
@@ -73,11 +77,13 @@ a bare `uv: not found`.
 
 ```bash
 make help                     # list contributor make targets
-make doctor                   # report every missing prerequisite (uv, ../resembl, nasm, shellcheck, venv extras)
+make doctor                   # report every missing prerequisite (uv, ../resembl, nasm, node, shellcheck, venv extras)
 make clone-resembl            # clone sibling resembl pin into ../resembl (required for uv sync)
 make setup                    # locked sync (extras + similarity) + pre-commit install (checks uv + ../resembl first)
 make clean                    # remove build/dist artifacts and caches
 make test-one T=tests/test_annotation.py  # single file / nodeid (fast edit-test loop; defaults to test_annotation.py)
+make test-one T=tests/test_annotation.py FLAGS="-k stdcall"  # narrow further with any pytest flag
+make test-one T=tests/test_dashboard.py::TestSummaryRequests   # one class
 make test                     # full suite (a few minutes; needs nasm)
 make coverage                 # full suite under slipcover; fails below COV_FLOOR (CI test job, 3.13)
 make lint                     # ruff check .
