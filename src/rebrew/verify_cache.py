@@ -62,6 +62,28 @@ def _memo_path_key(cache_path: Path) -> str:
         return str(cache_path)
 
 
+def _cached_percent(value: Any) -> float | None:
+    """A cached ``match_percent`` as a float, ``None`` when absent or unusable.
+
+    The cache is a JSON file on disk, so a hand-edit or a partial write can
+    leave a non-numeric value behind; coercing it unguarded would raise
+    ``ValueError`` out of the write path, taking the verify that produced the
+    patch down with it.
+    """
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _drop_memo_for(path_key: str) -> None:
+    """Drop every memo fingerprint for *path_key*.  Caller holds the lock."""
+    for old in [k for k in _VERIFY_CACHE_MEMO if k[0] == path_key]:
+        del _VERIFY_CACHE_MEMO[old]
+
+
 def _read_cache_document(cache_path: Path) -> dict[str, Any]:
     """Parse *cache_path* as a JSON object.
 
@@ -86,11 +108,8 @@ def _invalidate_verify_cache_memo(cache_path: Path) -> None:
     that rename-over even before this drop runs.  Mirror ``atomic_write_text``'s
     source-text memo drop.
     """
-    path_key = _memo_path_key(cache_path)
     with _VERIFY_CACHE_MEMO_LOCK:
-        stale = [k for k in _VERIFY_CACHE_MEMO if k[0] == path_key]
-        for old in stale:
-            del _VERIFY_CACHE_MEMO[old]
+        _drop_memo_for(_memo_path_key(cache_path))
 
 
 def load_verify_cache_raw(cfg: Any) -> dict[str, Any] | None:
@@ -127,9 +146,7 @@ def load_verify_cache_raw(cfg: Any) -> dict[str, Any] | None:
             return copy.deepcopy(cached) if cached is not None else None
         # Drop prior fingerprints for this path before storing — otherwise each
         # verify rewrite orphans a full decoded dict under the old mtime key.
-        stale = [k for k in _VERIFY_CACHE_MEMO if k[0] == path_key]
-        for old in stale:
-            del _VERIFY_CACHE_MEMO[old]
+        _drop_memo_for(path_key)
         # Evict another path's entry when at capacity (FIFO on insertion order).
         while len(_VERIFY_CACHE_MEMO) >= _VERIFY_CACHE_MEMO_MAX:
             oldest = next(iter(_VERIFY_CACHE_MEMO))
@@ -470,8 +487,7 @@ def patch_verify_cache_entries(cfg: ProjectConfig, patches: list[dict[str, Any]]
             else:
                 # No byte counts and no percent: keep what the last real
                 # measurement recorded rather than overwriting it with 0.0.
-                cached_percent = entry.get("match_percent")
-                match_pct = float(cached_percent) if cached_percent is not None else None
+                match_pct = _cached_percent(entry.get("match_percent"))
             passed = p["status"] in MATCHED_STATUSES
             if p.get("delta") is not None:
                 delta = p["delta"]
@@ -483,7 +499,7 @@ def patch_verify_cache_entries(cfg: ProjectConfig, patches: list[dict[str, Any]]
             # (a GA run improving NEAR_MATCHING 60% -> 92%): skipping only on
             # status equality left todo's prover queue reading the stale
             # percent and dropping the candidate.
-            cached_pct = entry.get("match_percent")
+            cached_pct = _cached_percent(entry.get("match_percent"))
             pct_matches = (
                 cached_pct == match_pct
                 if cached_pct is None or match_pct is None

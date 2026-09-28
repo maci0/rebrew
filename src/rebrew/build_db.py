@@ -89,44 +89,18 @@ _SQLITE_INT_MAX = 2**63 - 1
 _SQLITE_INT_MIN = -(2**63)
 
 
-def parse_int(value: Any, default: int = 0) -> int:
-    """Parse an integer from JSON-ish input, returning *default* on invalid values.
+def _coerce_int(value: Any) -> int | None:
+    """Parse an integer from JSON-ish input, or ``None`` when *value* is unusable.
 
-    A value outside the signed 64-bit range the removed SQLite writer enforced
-    (see :data:`_SQLITE_INT_MAX`) is out of range for every field it feeds, so
-    it takes the same path as any other unusable value: *default*.
-    """
-    if isinstance(value, bool):
-        return default
-    if isinstance(value, int):
-        parsed = value
-    elif isinstance(value, float):
-        if not math.isfinite(value) or not value.is_integer():
-            return default
-        parsed = int(value)
-    elif isinstance(value, str):
-        s = value.strip()
-        if not s:
-            return default
-        try:
-            parsed = int(s, 0)
-        except ValueError:
-            return default
-    else:
-        return default
-    return parsed if _SQLITE_INT_MIN <= parsed <= _SQLITE_INT_MAX else default
-
-
-def clamp_nonneg_int(value: Any) -> int | None:
-    """Return a non-negative int, or ``None`` when *value* is absent/unusable.
-
-    Non-finite floats (``NaN``, ``±inf``) are rejected: ``int(inf)`` raises,
-    and on Python 3.13+ ``max``/``min`` with ``NaN`` can silently pick a
-    bound (``max(0, min(1, nan))`` → ``1``), which would invent a delta.
-    Non-integral floats (``12.9``, ``-1.5``) are also rejected: ``int()``
-    truncates toward zero and would store a wrong byte_delta (``12`` for
-    ``12.9``, or ``0`` after clamping a truncated ``-1``).  A value past the
-    64-bit ceiling is rejected, as :func:`parse_int` drops it.
+    ``bool`` is rejected on its own: it subclasses ``int``, so ``True`` would
+    land as ``1``.  Non-finite floats (``NaN``, ``±inf``) are rejected because
+    ``int(inf)`` raises, and on Python 3.13+ ``max``/``min`` with ``NaN`` can
+    silently pick a bound (``max(0, min(1, nan))`` → ``1``), which would invent
+    a delta.  Non-integral floats (``12.9``, ``-1.5``) are rejected too:
+    ``int()`` truncates toward zero and would store a wrong byte_delta (``12``
+    for ``12.9``, or ``0`` after clamping a truncated ``-1``).  A value outside
+    the signed 64-bit range the removed SQLite writer enforced (see
+    :data:`_SQLITE_INT_MAX`) is out of range for every field it feeds.
     """
     if value is None or isinstance(value, bool):
         return None
@@ -146,9 +120,19 @@ def clamp_nonneg_int(value: Any) -> int | None:
             return None
     else:
         return None
-    if parsed > _SQLITE_INT_MAX:
-        return None
-    return max(0, parsed)
+    return parsed if _SQLITE_INT_MIN <= parsed <= _SQLITE_INT_MAX else None
+
+
+def parse_int(value: Any, default: int = 0) -> int:
+    """Parse an integer from JSON-ish input, returning *default* on invalid values."""
+    parsed = _coerce_int(value)
+    return default if parsed is None else parsed
+
+
+def clamp_nonneg_int(value: Any) -> int | None:
+    """Return a non-negative int, or ``None`` when *value* is absent/unusable."""
+    parsed = _coerce_int(value)
+    return None if parsed is None else max(0, parsed)
 
 
 def positive_int_or(value: Any, default: int) -> int:

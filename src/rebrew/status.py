@@ -790,7 +790,7 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     report.total_text_bytes = _compute_text_size(cfg)
     # Functions nobody has started (not pseudo-functions, not library code).
     for va in ghidra_vas - existing.keys() - library_vas - pseudo_vas:
-        size = clip_span(starts, va, size_by_va.get(va, 0))
+        size = clip_span(starts, va, max(size_by_va.get(va, 0), 0))
         unmatched_bytes += size
         spans.append((va, size))
     report.unmatched_bytes = unmatched_bytes

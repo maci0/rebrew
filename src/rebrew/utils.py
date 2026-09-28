@@ -1349,6 +1349,13 @@ RETRYABLE_HTTP_STATUS = frozenset({408, 425, 429, 500, 502, 503, 504})
 RETRY_BACKOFF_BASE = 0.25
 RETRY_BACKOFF_CAP = 8.0
 
+#: First exponent whose delay already reaches ``RETRY_BACKOFF_CAP``.  Every
+#: attempt past it waits the cap, so clamping the exponent there keeps a large
+#: attempt from overflowing the float exponentiation before ``min`` can cap it.
+RETRY_BACKOFF_CAP_EXPONENT = next(
+    n for n in range(64) if RETRY_BACKOFF_BASE * (2.0**n) >= RETRY_BACKOFF_CAP
+)
+
 
 def retry_backoff_delay(attempt: int) -> float:
     """Seconds to wait before retry *attempt* (zero-based) of a retryable call.
@@ -1357,7 +1364,8 @@ def retry_backoff_delay(attempt: int) -> float:
     and ``decompme`` cannot drift on how hard they hammer a recovering
     service: ``delay = min(RETRY_BACKOFF_BASE * 2**attempt, RETRY_BACKOFF_CAP)``.
     """
-    return min(RETRY_BACKOFF_BASE * (2.0**attempt), RETRY_BACKOFF_CAP)
+    exponent = min(attempt, RETRY_BACKOFF_CAP_EXPONENT)
+    return min(RETRY_BACKOFF_BASE * (2.0**exponent), RETRY_BACKOFF_CAP)
 
 
 def close_response(resp: Any) -> None:

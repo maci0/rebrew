@@ -1147,7 +1147,9 @@ def _derive_function_stats(
         by_module_counts[module] = by_module_counts.get(module, 0) + 1
         if fn.size is None or fn.va is None:
             continue
-        size = clip_span(starts, fn.va, fn.size)
+        # A negative SIZE is truthy, so it would reach clip_span and move both
+        # totals the wrong way; the writer clamps it to 0 on the way in.
+        size = clip_span(starts, fn.va, max(fn.size, 0))
         covered_bytes += size
         if status in MATCHED_STATUSES:
             matched_bytes += size
