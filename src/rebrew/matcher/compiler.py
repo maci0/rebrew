@@ -215,6 +215,24 @@ def _merged_flag_sets() -> tuple[dict[str, Flags], dict[str, dict[str, list[str]
 
 _FLAGS_MAP, _TIERS_MAP = _merged_flag_sets()
 
+#: Held across the resolve-and-publish of the sweep tables.  A GA or sweep
+#: pool reads them from its worker threads while ``refresh_flag_sets`` can
+#: rebind them from a long-lived process (``rebrew.registry.refresh_all``, the
+#: dashboard serving a plugin install).  A tuple assignment stores the two
+#: globals one after another, so without this a reader could take the new flag
+#: set against the previous tiers and sweep axes the flags do not define.
+_FLAG_SETS_LOCK = threading.Lock()
+
+
+def _flag_set_snapshot() -> tuple[dict[str, Flags], dict[str, dict[str, list[str] | None]]]:
+    """Return the published ``(flags, tiers)`` tables from one refresh.
+
+    Every reader goes through this: the lock is what makes the two globals one
+    generation, so callers must not read them separately.
+    """
+    with _FLAG_SETS_LOCK:
+        return _FLAGS_MAP, _TIERS_MAP
+
 
 def refresh_flag_sets() -> tuple[dict[str, Flags], dict[str, dict[str, list[str] | None]]]:
     """Re-run discovery and refresh the ``_FLAGS_MAP``/``_TIERS_MAP`` snapshots.
@@ -223,8 +241,10 @@ def refresh_flag_sets() -> tuple[dict[str, Flags], dict[str, dict[str, list[str]
     startup without a restart."""
     global _FLAGS_MAP, _TIERS_MAP
 
-    _FLAGS_MAP, _TIERS_MAP = _merged_flag_sets()
-    return _FLAGS_MAP, _TIERS_MAP
+    flags, tiers = _merged_flag_sets()
+    with _FLAG_SETS_LOCK:
+        _FLAGS_MAP, _TIERS_MAP = flags, tiers
+    return flags, tiers
 
 
 def _ensure_wine_env(env: dict[str, str] | None, cmd: list[str]) -> dict[str, str]:
@@ -427,13 +447,16 @@ def generate_flag_combinations(tier: str = "targeted", profile: str = "msvc-6.0"
     """
     # Packaged/plugin flag sets first; a profile without one takes axes that
     # match its registry ``flags_style`` (a posix compiler must not be handed
-    # MSVC's /Gd axes), and its sweep tiers come from the same style.
-    flags = _FLAGS_MAP.get(profile)
+    # MSVC's /Gd axes), and its sweep tiers come from the same style.  Both
+    # tables come from one snapshot: a refresh landing between the two reads
+    # would pair this profile's flags with another generation's tiers.
+    flags_map, tiers_map = _flag_set_snapshot()
+    flags = flags_map.get(profile)
     if flags is None:
         flags, default_tiers = _default_flag_set(profile)
     else:
         default_tiers = MSVC_SWEEP_TIERS
-    tiers = _TIERS_MAP.get(profile, default_tiers)
+    tiers = tiers_map.get(profile, default_tiers)
     if tier not in tiers:
         raise ValueError(f"Unknown sweep tier {tier!r}, valid: {list(tiers)}")
     tier_ids = tiers[tier]  # None = all axes
@@ -835,7 +858,9 @@ def flag_sweep(
 
     now = clock if clock is not None else time.monotonic
 
-    if (posix_style or profile_flags_style(profile) == "posix") and profile not in _TIERS_MAP:
+    if (
+        posix_style or profile_flags_style(profile) == "posix"
+    ) and profile not in _flag_set_snapshot()[1]:
         # The sweep needs a flag database for the profile.  A posix profile
         # WITHOUT one (a plugin toolchain that declared no flag sets) would
         # sweep the generic GCC fallback — likely invalid for the compiler, so

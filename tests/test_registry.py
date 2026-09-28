@@ -828,6 +828,98 @@ class TestFlagSetRegistry:
         assert "-O1" in combos and "-O2" in combos
         assert not any("/O2" in c for c in combos)  # not the MSVC axes
 
+    def test_concurrent_refresh_publishes_one_generation(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A sweep worker never pairs one generation's flags with another's tiers.
+
+        ``refresh_flag_sets`` rebinds two module globals; readers combine them
+        into the axes a sweep runs.  A torn read (new flags, previous tiers)
+        selects an axis id neither list defines, so the profile sweeps as the
+        empty combo — a whole sweep silently discarded.
+        """
+        from rebrew.flags import FlagSet
+        from rebrew.matcher import compiler
+
+        def _generation(axis_flag: str) -> tuple[dict[str, Any], dict[str, Any]]:
+            return (
+                {"genprofile": [FlagSet(id="axis", flags=(axis_flag,))]},
+                {"genprofile": {"quick": ["axis"]}},
+            )
+
+        gen_a = _generation("-Oa")
+        gen_b = _generation("-Ob")
+        # Alternate generations so a reader straddling a publish sees both.
+        published: list[Any] = [gen_a]
+
+        def _fake_merge() -> tuple[dict[str, Any], dict[str, Any]]:
+            return published[0]
+
+        monkeypatch.setattr(compiler, "_merged_flag_sets", _fake_merge)
+        with monkeypatch.context() as ctx:
+            ctx.setattr(compiler, "_FLAGS_MAP", gen_a[0])
+            ctx.setattr(compiler, "_TIERS_MAP", gen_a[1])
+            bad: list[tuple[str, ...]] = []
+            stop = threading.Event()
+
+            def _refresh() -> None:
+                while not stop.is_set():
+                    published[0] = gen_a if published[0] is gen_b else gen_b
+                    compiler.refresh_flag_sets()
+
+            def _sweep() -> None:
+                while not stop.is_set() and len(bad) < 5000:
+                    bad.append(
+                        tuple(
+                            compiler.generate_flag_combinations(tier="quick", profile="genprofile")
+                        )
+                    )
+
+            refresher = threading.Thread(target=_refresh, daemon=True)
+            sweeper = threading.Thread(target=_sweep, daemon=True)
+            refresher.start()
+            sweeper.start()
+            stop.wait(0.5)
+            stop.set()
+            refresher.join()
+            sweeper.join()
+        assert bad, "the sweep thread never ran"
+        for combos in bad:
+            # A torn generation yields the empty axis product ("",); a
+            # consistent one yields the published axis plus its none-option.
+            assert combos in (("", "-Oa"), ("", "-Ob")), f"torn generation: {combos}"
+
+    def test_snapshot_reads_under_the_publish_lock(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """``_flag_set_snapshot`` acquires the lock ``refresh_flag_sets`` publishes under.
+
+        The lock is what makes the two globals one generation; a reader that
+        skips it can take the new flag set against the previous tiers.
+        """
+        from rebrew.matcher import compiler
+
+        lock = threading.Lock()
+        monkeypatch.setattr(compiler, "_FLAG_SETS_LOCK", lock)
+        monkeypatch.setattr(compiler, "_FLAGS_MAP", {"genprofile": []})
+        monkeypatch.setattr(compiler, "_TIERS_MAP", {"genprofile": {"quick": []}})
+
+        returned: list[Any] = []
+        done = threading.Event()
+
+        def _read() -> None:
+            returned.append(compiler._flag_set_snapshot())
+            done.set()
+
+        reader = threading.Thread(target=_read, daemon=True)
+        lock.acquire()
+        try:
+            reader.start()
+            assert not done.wait(0.2), "snapshot read while the publish lock was held"
+        finally:
+            lock.release()
+        assert done.wait(5.0), "snapshot never returned after the lock was released"
+        reader.join()
+        assert returned[0] == ({"genprofile": []}, {"genprofile": {"quick": []}})
+
     def test_bad_provider_skipped(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.matcher import compiler
 
