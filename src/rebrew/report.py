@@ -188,6 +188,11 @@ __STATUS_FORCED__ { color: CanvasText; font-weight: 700; }
         border-radius: var(--rb-radius);
         padding: 0.9rem 1.1rem; color: var(--rb-note-ink); margin-bottom: 1.5rem; }
 .pager { color: var(--rb-muted); font-size: var(--rb-size-note); margin: 0.75rem 0 1rem; }
+/* The copy under the table would sit past 250 rows of them, so it follows the
+   viewport; the copy above the table stays where it is.  main is its
+   containing block, so it settles back in place at the end of the page. */
+.pager-end { position: sticky; bottom: 0; z-index: 2; padding-bottom: 0.35rem;
+             background: var(--rb-sunken); }
 .pager a { color: var(--rb-accent); text-decoration: underline; min-height: 2.75rem; padding: 0.35rem 0.5rem;
            display: inline-flex; align-items: center; }
 .pager a:hover { color: var(--rb-accent-hi); }
@@ -243,11 +248,16 @@ def _pager_nav(
     noun: str,
     label: str = "Table pages",
     span: str = "",
+    *,
+    bottom: bool = False,
 ) -> str:
     """No-JS first/prev/next/last pager for multi-page report tables.
 
     *span* is the address range of this page (``0x10001000–0x10003f70``),
     so a reader can open the page that contains an address.
+
+    *bottom* marks the copy that repeats under the table, which a table of up
+    to ``_TABLE_PAGE_SIZE`` rows otherwise pushes off the screen.
     """
     if total_pages <= 1:
         return ""
@@ -278,7 +288,8 @@ def _pager_nav(
     if span:
         shown += f" ({html.escape(span)})"
     return (
-        f"<nav class='pager' aria-label='{html.escape(label, quote=True)}'>"
+        f"<nav class='{'pager pager-end' if bottom else 'pager'}'"
+        f" aria-label='{html.escape(label, quote=True)}'>"
         f"{shown}. "
         f"{' · '.join(links)}</nav>"
     )
@@ -652,6 +663,7 @@ def _render_index(
             "functions",
             label="Table pages, bottom",
             span=span,
+            bottom=True,
         )
         if page_num == 1:
             body = (
@@ -757,6 +769,7 @@ def _render_strings(cfg: ProjectConfig) -> list[tuple[str, str]]:
             "strings",
             label="Table pages, bottom",
             span=span,
+            bottom=True,
         )
         if page_num == 1:
             body = f"<h2>Strings</h2>{intro}{pager}{table}{pager_end}"
@@ -848,6 +861,7 @@ def _paginate_rows(
             noun,
             label="Table pages, bottom",
             span=span,
+            bottom=True,
         )
         if page_num == 1:
             body = f"{first_heading}{first_intro}{pager}{table}{pager_end}{extra_first}{extra_all}"

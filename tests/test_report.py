@@ -500,6 +500,11 @@ class TestReportPayloadShape:
         # The pager repeats below the table so a reader at the bottom can move on.
         assert index.count("aria-label='Next page of functions'") == 2
         assert "aria-label='Table pages, bottom'" in index
+        # That copy sits under a full page of rows, so it follows the viewport;
+        # the copy above the table keeps the plain class and stays put.
+        assert index.count("class='pager pager-end'") == 1
+        assert index.count("class='pager'") == 1
+        assert "position: sticky; bottom: 0" in index
 
     def test_pager_offers_first_and_last_on_middle_pages(self) -> None:
         from rebrew.report import _TABLE_PAGE_SIZE, _page_va_span, _pager_nav

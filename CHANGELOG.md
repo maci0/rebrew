@@ -94,6 +94,12 @@
   module every one of them already imported to respect the catalog/ghidra
   layering rule, and no module builds its own console. `rebrew.cli` re-exports
   the two public names, so the SDK surface is unchanged.
+- **The report's bottom pager follows the viewport.** Every paged report table
+  is 250 rows, and the copy of the pager under it was the only way on to the
+  next page, so it sat past every row the reader had to scroll to reach it. It
+  is sticky at the bottom of the page now (`pager pager-end`), bounded by the
+  page so it settles back in place at the end; the copy above the table is
+  unchanged.
 
 ## [2.15.0] - 2026-09-28
 
