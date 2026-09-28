@@ -92,6 +92,72 @@ def _project() -> dict:
     return tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))["project"]
 
 
+def _last_tag() -> str:
+    """The most recent tag reachable from HEAD, or skip without one."""
+    import subprocess
+
+    proc = subprocess.run(
+        ["git", "describe", "--tags", "--abbrev=0"],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0 or not proc.stdout.strip():
+        if os.environ.get("GITHUB_ACTIONS"):
+            pytest.fail("expected a v* tag in CI (test job must fetch tags)")
+        pytest.skip("no v* tags in this checkout")
+    return proc.stdout.strip()
+
+
+def _at_ref(last_tag: str, path: str) -> str:
+    """The contents of ``path`` at ``last_tag``, or skip when it cannot be read."""
+    import subprocess
+
+    show = subprocess.run(
+        ["git", "show", f"{last_tag}:{path}"],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if show.returncode != 0:
+        pytest.skip(f"cannot read {path} at {last_tag}")
+    return show.stdout
+
+
+def _notes_block(last_tag: str, subject: str) -> str:
+    """The changelog block a breaking change about ``subject`` has to appear in.
+
+    Between releases ``__version__`` stays pinned at the last tag, so the
+    staged notes are the ``[Unreleased]`` block; once a release is being cut
+    the same note belongs under the new ``[<version>]`` heading.  The block
+    ends at the next release heading either way.
+    """
+    from rebrew import __version__
+
+    text = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    if __version__ != last_tag.lstrip("v"):
+        header = f"## [{__version__}]"
+        assert header in text, f"CHANGELOG.md has no {header} section for {subject}"
+        block = text.split(header, 1)[1]
+    else:
+        first = next(line for line in text.splitlines() if line.startswith("## "))
+        assert first == "## [Unreleased]", (
+            f"{subject} changed since {last_tag} but CHANGELOG does not open with [Unreleased]"
+        )
+        block = text.split("## [Unreleased]", 1)[1]
+    next_header = block.find("\n## [")
+    return block if next_header == -1 else block[:next_header]
+
+
+def _extras() -> dict[str, list[str]]:
+    """The declared install extras, keyed by extra name."""
+    data: dict[str, Any] = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))
+    extras: dict[str, list[str]] = data["project"].get("optional-dependencies", {})
+    return extras
+
+
 class TestPackagingMetadata:
     def test_version_is_dynamic_from_package(self) -> None:
         proj = _project()
@@ -369,63 +435,92 @@ class TestPackagingMetadata:
         ``## [Unreleased]`` and must be labeled Breaking (``--force`` rebuild
         migration), matching schema ``"7"`` in 2.4.0.
         """
-        import subprocess
-
         from rebrew.build_db import _CURRENT_DB_VERSION
 
-        tag_proc = subprocess.run(
-            ["git", "describe", "--tags", "--abbrev=0"],
-            cwd=ROOT,
-            check=False,
-            capture_output=True,
-            text=True,
+        last_tag = _last_tag()
+        tagged = re.search(
+            r'_CURRENT_DB_VERSION\s*=\s*"([^"]+)"',
+            _at_ref(last_tag, "src/rebrew/build_db.py"),
         )
-        if tag_proc.returncode != 0 or not tag_proc.stdout.strip():
-            if os.environ.get("GITHUB_ACTIONS"):
-                pytest.fail("expected a v* tag in CI (test job must fetch tags)")
-            pytest.skip("no git tags in this checkout")
-        last_tag = tag_proc.stdout.strip()
-        show = subprocess.run(
-            ["git", "show", f"{last_tag}:src/rebrew/build_db.py"],
-            cwd=ROOT,
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        if show.returncode != 0:
-            pytest.skip(f"cannot read build_db.py at {last_tag}")
-        tagged = re.search(r'_CURRENT_DB_VERSION\s*=\s*"([^"]+)"', show.stdout)
         if tagged is None:
             pytest.skip(f"no _CURRENT_DB_VERSION at {last_tag}")
         if tagged.group(1) == _CURRENT_DB_VERSION:
             return
 
-        from rebrew import __version__
-
-        text = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-        if __version__ != last_tag.lstrip("v"):
-            section_hdr = f"## [{__version__}]"
-            assert section_hdr in text, f"CHANGELOG.md has no {section_hdr} section"
-            target_block = text.split(section_hdr, 1)[1]
-        else:
-            first = next(line for line in text.splitlines() if line.startswith("## "))
-            assert first == "## [Unreleased]", (
-                f"coverage.db bumped {_CURRENT_DB_VERSION!r} past {last_tag} "
-                f"({tagged.group(1)!r}) but CHANGELOG does not open with [Unreleased]"
-            )
-            target_block = text.split("## [Unreleased]", 1)[1]
-
-        next_hdr = target_block.find("\n## [")
-        if next_hdr != -1:
-            target_block = target_block[:next_hdr]
+        target_block = _notes_block(last_tag, f"coverage.db moved to {_CURRENT_DB_VERSION!r}")
         assert "**Breaking:**" in target_block, (
             f"coverage.db {_CURRENT_DB_VERSION!r} (was {tagged.group(1)!r} at "
-            f"{last_tag}) must have a **Breaking:** entry under [Unreleased] or [{__version__}]"
+            f"{last_tag}) must have a **Breaking:** entry under [Unreleased] or its version"
         )
         assert _CURRENT_DB_VERSION in target_block, (
             f"Breaking notes must name db_version {_CURRENT_DB_VERSION!r}"
         )
         assert "coverage.db" in target_block or "db_version" in target_block
+
+    def test_compile_cache_schema_bump_since_last_tag_is_breaking_in_unreleased(self) -> None:
+        """CONTRIBUTING: a compile-cache schema bump is ``**Breaking:**`` too.
+
+        The policy names both on-disk formats; only ``coverage.db`` had a gate,
+        so 5 -> 6 in 2.7.0 shipped under ``Fixed`` unprefixed.  A bump retires
+        every entry written under the old keys, so the notes have to say so.
+        """
+        from rebrew.compile_cache import CACHE_SCHEMA_VERSION
+
+        last_tag = _last_tag()
+        tagged = re.search(
+            r"^CACHE_SCHEMA_VERSION\s*=\s*(\d+)",
+            _at_ref(last_tag, "src/rebrew/compile_cache.py"),
+            flags=re.M,
+        )
+        if tagged is None:
+            pytest.skip(f"no CACHE_SCHEMA_VERSION at {last_tag}")
+        if tagged.group(1) == str(CACHE_SCHEMA_VERSION):
+            return
+
+        target_block = _notes_block(
+            last_tag, f"the compile cache is at schema {CACHE_SCHEMA_VERSION}"
+        )
+        assert "**Breaking:**" in target_block, (
+            f"the compile cache moved to schema {CACHE_SCHEMA_VERSION} (was "
+            f"{tagged.group(1)} at {last_tag}) with no **Breaking:** entry naming it"
+        )
+        assert "CACHE_SCHEMA_VERSION" in target_block or (
+            f"cache schema {CACHE_SCHEMA_VERSION}" in target_block
+        ), f"Breaking notes must name compile-cache schema {CACHE_SCHEMA_VERSION}"
+
+    def test_raised_minimum_python_since_last_tag_is_breaking_in_unreleased(self) -> None:
+        """CONTRIBUTING names a raised minimum Python as ``**Breaking:``."""
+        last_tag = _last_tag()
+        tagged = tomllib.loads(_at_ref(last_tag, "pyproject.toml"))["project"]
+        floor = _project()["requires-python"]
+        if tagged.get("requires-python") == floor:
+            return
+
+        target_block = _notes_block(last_tag, f"the Python floor moved to {floor}")
+        assert "**Breaking:**" in target_block, (
+            f"requires-python moved to {floor!r} (was "
+            f"{tagged.get('requires-python')!r} at {last_tag}) with no **Breaking:** entry"
+        )
+        assert "python" in target_block.lower()
+
+    def test_removed_install_extra_since_last_tag_is_breaking_in_unreleased(self) -> None:
+        """CONTRIBUTING: a removed install extra is a ``**Breaking:`` change.
+
+        An extra is how a consumer asks for an optional dependency, so
+        dropping its name fails ``pip install rebrew[<extra>]`` outright.
+        """
+        last_tag = _last_tag()
+        tagged = tomllib.loads(_at_ref(last_tag, "pyproject.toml"))["project"]
+        dropped = sorted(set(tagged.get("optional-dependencies", {})) - set(_extras()))
+        if not dropped:
+            return
+
+        target_block = _notes_block(last_tag, f"install extras {', '.join(dropped)} were removed")
+        undeclared = [name for name in dropped if name not in target_block]
+        assert undeclared == [], (
+            f"install extra(s) removed since {last_tag} with no **Breaking:** entry "
+            f"naming them: {', '.join(undeclared)}"
+        )
 
     def test_requires_python_matches_ci_floor(self) -> None:
         assert _project()["requires-python"] == ">=3.13"

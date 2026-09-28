@@ -207,6 +207,20 @@
   `BrokenPipeError` / `ConnectionResetError` a closing browser produces (not
   counted). The request id and request line are stamped per handler thread and
   reset each request. No `/api/*` JSON changed.
+- **Gates for the three breaking changes that had none.** CONTRIBUTING calls a
+  `coverage.db` `db_version` bump, a compile-cache schema bump, and a raised
+  minimum Python `**Breaking:**`, and a removed install extra a breaking change
+  to an install line, but only the first had anything checking it. The
+  compile-cache schema `5` -> `6` bump in 2.7.0 is what the gap let through: it
+  retires every cache entry written under the old keys and shipped under
+  `Fixed` with no `**Breaking:**` prefix. Three sibling tests in
+  `tests/test_packaging.py` now read the constant (or the manifest field) at the
+  last tag and fail when the value moved with no `**Breaking:**` entry naming
+  it under `[Unreleased]` or the release being cut, and a fourth requires a
+  removed extra to be named there. The tag lookup, the `git show` read, and the
+  `[Unreleased]`-or-`[<version>]` block selection the `coverage.db` test had
+  inline are now shared helpers (`_last_tag`, `_at_ref`, `_notes_block`), since
+  four copies of that block selection is how the fourth one goes missing.
 
 ### Changed
 - **Breaking:** **`theme.TOKENS` is one size ladder, not a per-component
