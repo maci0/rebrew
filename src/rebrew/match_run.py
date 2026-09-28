@@ -1569,9 +1569,7 @@ def _run_batch_flag_sweep(
                     updated_by="match",
                 )
             except (OSError, ValueError) as exc:
-                log.warning(
-                    "STATUS write failed for %s — not promoting: %s", stub.symbol, exc
-                )
+                log.warning("STATUS write failed for %s — not promoting: %s", stub.symbol, exc)
                 recorded = False
             if not recorded:
                 # The promotion policy refused (parked SKIP, documented STUB):
