@@ -21,6 +21,7 @@ from rebrew.cli import (
     select_annotation,
 )
 from rebrew.config import _config_warn
+from rebrew.utils import console as utils_console
 
 # ---------------------------------------------------------------------------
 # error_exit()
@@ -724,32 +725,32 @@ class TestUntrustedTextBidi:
     """Bidi and zero-width controls reorder or hide the text beside them."""
 
     def test_reordering_controls_dropped(self) -> None:
-        from rebrew.cli import untrusted_text
+        from rebrew.utils import untrusted_text
 
         # U+202E RIGHT-TO-LEFT OVERRIDE renders as nothing and flips the rest.
         assert untrusted_text("sub_A\u202etxt_b") == "sub_Atxt_b"
 
     def test_embeddings_marks_and_isolates_dropped(self) -> None:
-        from rebrew.cli import untrusted_text
+        from rebrew.utils import untrusted_text
 
         raw = "a\u202ab\u202cc\u2066d\u2069e\ufefff\u200bg"
         assert untrusted_text(raw) == "abcdefg"
 
     def test_plain_text_untouched(self) -> None:
-        from rebrew.cli import untrusted_text
+        from rebrew.utils import untrusted_text
 
         assert untrusted_text("sub_401000 [dim]") == r"sub_401000 \[dim]"
 
     @pytest.mark.parametrize("code", [0x1B, 0x07, 0x00, 0x9B, 0x7F])
     def test_terminal_drivers_are_neutralized(self, code: int) -> None:
         """A raw ESC/BEL would write the title or beep from a remote response body."""
-        from rebrew.cli import untrusted_text
+        from rebrew.utils import untrusted_text
 
         assert untrusted_text(f"a{chr(code)}b") == f"a\\x{code:02x}b"
 
     def test_tab_and_newline_survive(self) -> None:
         """Layout controls carry meaning in a message and are not terminal drivers."""
-        from rebrew.cli import untrusted_text
+        from rebrew.utils import untrusted_text
 
         assert untrusted_text("a\tb\nc") == "a\tb\nc"
 
@@ -762,22 +763,22 @@ class TestUntrustedLiteral:
     """
 
     def test_markup_is_not_escaped(self) -> None:
-        from rebrew.cli import untrusted_literal
+        from rebrew.utils import untrusted_literal
 
         assert untrusted_literal("int a[0]; [bold]x[/]") == "int a[0]; [bold]x[/]"
 
     def test_bidi_and_invisible_still_dropped(self) -> None:
-        from rebrew.cli import untrusted_literal
+        from rebrew.utils import untrusted_literal
 
         assert untrusted_literal("sub_A\u202etxt_b\u200b") == "sub_Atxt_b"
 
     def test_terminal_drivers_are_neutralized(self) -> None:
-        from rebrew.cli import untrusted_literal
+        from rebrew.utils import untrusted_literal
 
         assert untrusted_literal("\x1b]0;title\x07rest") == r"\x1b]0;title\x07rest"
 
     def test_tab_and_newline_survive(self) -> None:
-        from rebrew.cli import untrusted_literal
+        from rebrew.utils import untrusted_literal
 
         assert untrusted_literal("a\tb\nc") == "a\tb\nc"
 
@@ -826,6 +827,39 @@ class TestConsoleBackstop:
 
     def test_sep_and_end_still_honoured(self) -> None:
         assert self._capture("a", "b", sep="-", end="!\n") == "a-b!\n"
+
+    @pytest.mark.parametrize(
+        "module",
+        [
+            "rebrew.catalog.pipeline",
+            "rebrew.ghidra.cli_backend",
+            "rebrew.ghidra.client",
+            "rebrew.ghidra.commands",
+        ],
+    )
+    def test_every_module_console_is_the_backstop(self, module: str) -> None:
+        """No module builds its own bare ``Console``; each prints through the guard.
+
+        The ghidra and catalog modules print symbol names and MCP responses
+        straight from a target binary or a remote Ghidra server, and they import
+        ``rebrew.utils`` for the layering test, so ``rebrew.utils.console`` is
+        the one console they can share without pulling in the CLI graph.
+        """
+        import importlib
+
+        assert importlib.import_module(module).console is utils_console
+
+
+class TestConfigWarningEscapes:
+    """A config warning quotes a value read from rebrew-project.toml."""
+
+    def test_markup_in_a_config_value_is_printed_literally(self, tmp_path: Path) -> None:
+        from rebrew.utils import console
+
+        with console.capture() as buf, warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            _config_warn("bad value 'sub_[/bold]name'")
+        assert "sub_[/bold]name" in buf.get()
 
 
 # ---------------------------------------------------------------------------

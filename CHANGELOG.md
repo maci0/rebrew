@@ -62,6 +62,26 @@
   an unmodified auto-stub is ever removed. The pattern is now end-anchored to
   the whole generated file. Covered by
   `tests/test_intake.py::TestPruneStaleStubs::test_keeps_a_stub_the_user_wrote_into`.
+- **A crafted import table could inject C into a generated `library_*.h`.**
+  `rebrew identify-library` wrote the PE import table's DLL and function names
+  into the `// LIBRARY:` block verbatim. A newline in either ended the line
+  comment and made the rest compile as top-level C in a header the toolchain
+  builds, and a trailing backslash spliced the next entry onto the injected
+  line. The sibling import-stub writer (`imports.py`) already sanitized the
+  identical block, so the two now agree: both go through
+  `rebrew.utils.pe_name_token`. A module name still reaches the header
+  filename through `filename_component`, which was already in place.
+- **Five modules printed through a bare `Console` that no hostile string can
+  pass.** `rebrew.ghidra.{client,commands,cli_backend}`,
+  `rebrew.catalog.pipeline`, and `rebrew.config`'s warning printer each built
+  their own `Console(stderr=True)`, bypassing the guard that keeps a
+  `[bold]`-bearing symbol name from raising `MarkupError` out of `print` and
+  an ESC from driving the terminal. Those strings come from a target binary
+  and from the ReVa MCP server, so both were reachable. The guard now lives in
+  `rebrew.utils` (`console`, `untrusted_text`, `untrusted_literal`), the
+  module every one of them already imported to respect the catalog/ghidra
+  layering rule, and no module builds its own console. `rebrew.cli` re-exports
+  the two public names, so the SDK surface is unchanged.
 
 ## [2.15.0] - 2026-09-28
 

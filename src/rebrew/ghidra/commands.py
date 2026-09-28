@@ -16,8 +16,6 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from rebrew.catalog import RegistryEntry
 
-from rich.console import Console
-
 from rebrew.config import ProjectConfig
 from rebrew.ghidra.client import (
     MAX_MCP_ITEMS,
@@ -32,13 +30,10 @@ from rebrew.ghidra.client import (
 from rebrew.utils import (
     atomic_write_text,
     c_comment_safe,
+    console,
     parse_int_literal,
     strip_generated_timestamp,
 )
-
-# Local console: rebrew.ghidra must stay importable without rebrew.cli
-# (library layering test).
-console = Console(stderr=True)
 
 # Matches non-identifier characters to remove from symbol names.
 _NORMALIZE_NAME_RE = re.compile(r"[^A-Za-z0-9_]")

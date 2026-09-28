@@ -14,15 +14,10 @@ import time
 from collections.abc import Mapping
 from typing import Any, Literal, NamedTuple, Protocol, runtime_checkable
 
-from rich.console import Console
-
 from rebrew.errors import RebrewError
 from rebrew.ghidra.models import JsonRpcResponse, McpToolResult
-from rebrew.utils import RETRYABLE_HTTP_STATUS, close_response
+from rebrew.utils import RETRYABLE_HTTP_STATUS, close_response, console
 
-# Local console: rebrew.ghidra must stay importable without rebrew.cli
-# (library layering test).
-console = Console(stderr=True)
 logger = logging.getLogger(__name__)
 
 #: How a :class:`McpError` arose — callers branch on this instead of

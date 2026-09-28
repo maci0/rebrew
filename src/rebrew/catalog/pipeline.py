@@ -9,18 +9,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from rich.console import Console
-
 from rebrew.catalog.grid import generate_data_json
 from rebrew.catalog.loaders import cached_function_list, scan_reversed_dir
 from rebrew.catalog.registry import build_function_registry, count_detection_sources
 from rebrew.config import inventory_path_for
 from rebrew.sections import get_text_section_size
-
-# Deliberately NOT rebrew.cli's console: importing the Typer entry module
-# from this package would break the catalog/ghidra layering tests (library
-# callers must not pull the CLI graph).
-console = Console(stderr=True)
+from rebrew.utils import console
 
 
 def build_catalog_data(cfg: Any, *, with_data: bool = True) -> dict[str, Any]:

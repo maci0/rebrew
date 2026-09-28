@@ -19,6 +19,7 @@ from rebrew.identify_library import (
     write_candidates,
 )
 from rebrew.main import app
+from rebrew.utils import pe_name_token
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -612,6 +613,60 @@ def test_module_from_sig_file_properties(filename: str) -> None:
         assert module == "MSVCRT"
     elif stem == "zlib":
         assert module == "ZLIB"
+
+
+class TestAppendEntryInjection:
+    """A crafted import table must not write C into a header the toolchain compiles.
+
+    The module and the function name are raw bytes from the target binary's
+    import descriptors, so a newline in either would end the ``//`` comment
+    and compile the remainder as top-level C.  ``imports.py`` already
+    sanitizes the identical block; this pins the same defense here.
+    """
+
+    def test_newline_in_name_cannot_escape_the_comment(self, tmp_path: Path) -> None:
+        cfg = _cfg(tmp_path)
+        cfg.reversed_dir.mkdir()
+        header = cfg.reversed_dir / "library_evil.h"
+        cands = [
+            LibCandidate(
+                va=0x1000,
+                name="CreateFile\nvoid planted(void) { }\n/* rest",
+                module="EVIL",
+                kind="import",
+                confidence=0.3,
+            )
+        ]
+        assert write_candidates(cfg, cands, existing=set()) == 1
+        text = header.read_text(encoding="utf-8")
+        # Two comment lines and nothing else: no line of the header can be
+        # compiled as C, whatever the sanitizer's substitution is.
+        assert text.splitlines()[:2] == [
+            "// LIBRARY: EVIL 0x00001000",
+            "// " + pe_name_token("CreateFile\nvoid planted(void) { }\n/* rest"),
+        ]
+        assert "planted(void)" not in text.replace("planted_void", "")
+
+    def test_newline_in_module_cannot_escape_the_comment(self, tmp_path: Path) -> None:
+        cfg = _cfg(tmp_path)
+        cfg.reversed_dir.mkdir()
+        cands = [
+            LibCandidate(
+                va=0x1000,
+                name="_malloc",
+                module="KERNEL32\n#include <stdio.h>",
+                kind="import",
+                confidence=0.3,
+            )
+        ]
+        assert write_candidates(cfg, cands, existing=set()) == 1
+        header = next(cfg.reversed_dir.glob("library_*.h"))
+        text = header.read_text(encoding="utf-8")
+        assert text.splitlines()[:2] == [
+            f"// LIBRARY: {pe_name_token('KERNEL32\n#include <stdio.h>')} 0x00001000",
+            "// _malloc",
+        ]
+        assert "#include" not in text.splitlines()[1]
 
 
 class TestAppendEntryNewline:

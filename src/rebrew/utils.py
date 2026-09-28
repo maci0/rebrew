@@ -63,17 +63,16 @@ import unicodedata
 from collections import OrderedDict
 from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
-from typing import IO, Any
+from typing import IO, Any, override
 
 import tomlkit
 from rich.console import Console
+from rich.errors import MarkupError
+from rich.markup import escape as rich_escape
 from tomlkit import TOMLDocument
 from tomlkit.exceptions import InternalParserError, ParseError
 
 logger = logging.getLogger(__name__)
-
-#: Shared stderr console for utils' output (the watch loop's progress lines).
-console = Console(stderr=True)
 
 # The rebrew package's own vendored toolchains (toolchain/msvc/5.0-win32, toolchain/watcom/2.0-win32,
 # ...).  Projects resolve compiler paths project-relative first, then fall
@@ -122,6 +121,86 @@ _BIDI_FORMAT_TABLE = {ord(char): None for char in _BIDI_FORMAT_CHARS}
 def strip_bidi_format(value: str) -> str:
     """*value* with the invisible reordering and hiding characters removed."""
     return value.translate(_BIDI_FORMAT_TABLE)
+
+
+#: C0/C1 controls except tab and newline, rendered as ``\xNN``.  Error text
+#: carries remote response bodies and binary-derived names; a raw ESC would
+#: let them drive the terminal (OSC title/clipboard writes, screen clears).
+_TERMINAL_CONTROL_CHARS = {
+    code: f"\\x{code:02x}"
+    for code in (*range(0x20), *range(0x7F, 0xA0))
+    if code not in (ord("\t"), ord("\n"))
+}
+
+
+def untrusted_literal(value: object) -> str:
+    """*value* as terminal-safe text with its own characters left alone.
+
+    Same stripping as :func:`untrusted_text` (no invisible bidi or zero-width
+    formatting characters, C0/C1 controls other than tab/newline shown as
+    ``\\xNN``) but without Rich markup escaping, for a block printed with
+    ``markup=False``: an LLM prompt preview or a C snippet, where ``a[i]`` and
+    ``[bold]`` are the text under review and escaping them would misreport it.
+    """
+    return strip_bidi_format(str(value)).translate(_TERMINAL_CONTROL_CHARS)
+
+
+def untrusted_text(value: object) -> str:
+    """*value* as literal terminal text.
+
+    Rich markup is escaped, invisible bidi and zero-width formatting characters
+    are dropped, and C0/C1 controls other than tab/newline are rendered as
+    ``\\xNN``.  Use for any string derived from a target binary, a project file,
+    or a remote service: ``[bold]`` in an import name would otherwise restyle
+    the table, a raw ESC would drive the terminal (OSC title/clipboard writes,
+    screen clears), and a right-to-left override would reorder a neighbouring
+    column to read as a different name or status.
+    """
+    return rich_escape(untrusted_literal(value))
+
+
+class _TargetSafeConsole(Console):
+    """Console a hostile target string cannot crash or hijack.
+
+    Rich parses every ``[tag]`` in what it prints as markup, and rebrew prints
+    symbol, module, section, and import names read straight out of the target
+    binary. Two consequences a call site can forget to handle:
+
+    - a name carrying ``[/bold]`` or ``[/]`` makes Rich raise
+      :class:`~rich.errors.MarkupError` out of ``print``. No layer above
+      catches it, so one crafted symbol ended any command that printed it
+      with a traceback;
+    - a name carrying ESC (OSC 52 clipboard writes, screen clears) or a
+      right-to-left override reached the terminal verbatim and reordered the
+      column beside it.
+
+    :func:`untrusted_text` is the per-call fix and keeps the intended markup
+    styled. This is the backstop for the calls that do not use it: strings are
+    scrubbed of control and invisible characters (no rebrew-authored output
+    contains one, so styled output is unchanged), and a markup parse failure
+    is re-emitted as literal text instead of propagating.
+    """
+
+    @override
+    def print(self, *objects: Any, **kwargs: Any) -> None:  # (rich API)
+        scrubbed = tuple(untrusted_literal(obj) if isinstance(obj, str) else obj for obj in objects)
+        try:
+            super().print(*scrubbed, **kwargs)
+        except MarkupError:
+            # The offending markup is a hostile (or malformed) tag inside the
+            # data, not rebrew's own styling. Re-emit without markup: the tags
+            # show as the literal text they are, and a table cell's row
+            # survives instead of taking the whole command down.
+            kwargs.pop("markup", None)
+            kwargs.pop("highlight", None)
+            super().print(*scrubbed, markup=False, highlight=False, **kwargs)
+
+
+#: Every module's user-facing stderr output goes through this one console, so
+#: the guard covers the whole CLI rather than the commands that remembered
+#: :func:`untrusted_text`.  Import it instead of constructing a bare
+#: ``Console(stderr=True)``.
+console = _TargetSafeConsole(stderr=True)
 
 
 def clip_span(starts: list[int], va: int, size: int) -> int:

@@ -29,7 +29,7 @@ from typing import Any
 import typer
 
 from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
-from rebrew.utils import atomic_write_text, filename_component, read_source_text
+from rebrew.utils import atomic_write_text, filename_component, pe_name_token, read_source_text
 
 app = typer.Typer(
     help="Identify library functions (FLIRT + imports + CRT) into library_*.h.",
@@ -365,7 +365,16 @@ def collect_candidates(cfg: Any, default_module: str | None = None) -> list[LibC
 
 def _append_entry(header: Path, cand: LibCandidate) -> None:
     """Append one minimal reccmp-compatible LIBRARY entry to *header*."""
-    block = f"// LIBRARY: {cand.module} 0x{cand.va:08x}\n// {cand.name}\n\n"
+    # The module and the name are raw target-binary text: an import table's
+    # DLL and hint/name strings, or a FLIRT/.pat hit.  They reach a header the
+    # toolchain compiles, so a newline in either would end the ``//`` comment
+    # and compile the remainder as top-level C.  pe_name_token is the same
+    # sanitizer the sibling import-stub writer (``imports.py``) applies to the
+    # identical block.
+    block = (
+        f"// LIBRARY: {pe_name_token(cand.module)} 0x{cand.va:08x}\n"
+        f"// {pe_name_token(cand.name)}\n\n"
+    )
     # A pre-existing header may not end in a newline; a bare append would
     # splice the marker onto its last line (e.g. code), corrupting the entry.
     prefix = ""

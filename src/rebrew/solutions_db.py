@@ -13,7 +13,8 @@ from typing import Any
 import typer
 from rich.table import Table
 
-from rebrew.cli import TargetOption, console, json_print, require_config, untrusted_text
+from rebrew.cli import TargetOption, console, json_print, require_config
+from rebrew.utils import untrusted_text
 
 app = typer.Typer(
     help="Query the GA solutions database (winning fingerprints + run history).",

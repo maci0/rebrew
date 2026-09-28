@@ -37,10 +37,9 @@ from rebrew.cli import (
     error_exit,
     json_print,
     require_config,
-    untrusted_text,
 )
 from rebrew.sources import iter_sources
-from rebrew.utils import rel_display_path
+from rebrew.utils import rel_display_path, untrusted_text
 
 log = logging.getLogger(__name__)
 

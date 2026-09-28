@@ -22,7 +22,7 @@ from rich.markup import escape
 
 from rebrew.annotation import parse_c_file_multi
 from rebrew.binary_loader import capstone_mode_for_arch, extract_raw_bytes
-from rebrew.cli import EXIT_MISMATCH, console, json_print, untrusted_literal
+from rebrew.cli import EXIT_MISMATCH, console, json_print
 from rebrew.compile import resolve_compiler_env
 from rebrew.config import ProjectConfig
 from rebrew.limits import NO_DELTA, NO_MAX_SIZE
@@ -56,6 +56,7 @@ from rebrew.utils import (
     floor_pct,
     interruptible_pool,
     read_compile_source,
+    untrusted_literal,
 )
 
 log = logging.getLogger(__name__)

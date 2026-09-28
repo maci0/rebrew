@@ -53,7 +53,6 @@ from rebrew.cli import (
     json_print,
     parse_va,
     require_config,
-    untrusted_text,
 )
 from rebrew.config import validate_http_url
 from rebrew.errors import RebrewError
@@ -64,6 +63,7 @@ from rebrew.utils import (
     file_lock,
     read_source_text,
     retry_backoff_delay,
+    untrusted_text,
 )
 
 app = typer.Typer(

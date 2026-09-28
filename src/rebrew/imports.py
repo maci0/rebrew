@@ -24,11 +24,10 @@ from rebrew.cli import (
     json_print,
     require_config,
     resolve_binary_arg,
-    untrusted_text,
 )
 from rebrew.config import module_marker
 from rebrew.import_table import find_import_stubs, parse_imports
-from rebrew.utils import pe_name_token, read_source_text
+from rebrew.utils import pe_name_token, read_source_text, untrusted_text
 
 
 def imports_payload(

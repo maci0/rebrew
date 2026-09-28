@@ -19,15 +19,10 @@ import subprocess
 import time
 from typing import Any
 
-from rich.console import Console
-
-from rebrew.utils import run_process_group
+from rebrew.utils import console, run_process_group
 
 log = logging.getLogger(__name__)
 
-# Local console: rebrew.ghidra must stay importable without rebrew.cli
-# (library layering test).
-console = Console(stderr=True)
 
 #: Op failures printed inline before the stream is suppressed; the rest are
 #: counted by op tool and reported once in the run summary.

@@ -36,8 +36,8 @@ from rebrew.cli import (
     error_exit,
     json_print,
     resolve_binary_arg,
-    untrusted_text,
 )
+from rebrew.utils import untrusted_text
 
 # ---------------------------------------------------------------------------
 # Constant tables (fixed algorithm constants, embedded as literals)

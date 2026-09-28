@@ -29,7 +29,6 @@ import math
 import os
 import re
 import shlex
-import sys
 import tomllib
 import unicodedata
 from collections.abc import Callable, Mapping
@@ -41,7 +40,7 @@ from urllib.parse import urlparse
 
 from rebrew.errors import RebrewError
 from rebrew.toolchain_spec import FlagsStyle
-from rebrew.utils import load_tomllib, parse_int_literal, preset_module_key
+from rebrew.utils import console, load_tomllib, parse_int_literal, preset_module_key, untrusted_text
 from rebrew.workspace import walk_up_to_root
 from rebrew.workspace.config import config_path
 
@@ -80,12 +79,10 @@ def _config_warn(msg: str) -> None:
     import warnings
 
     warnings.warn(msg, ConfigWarning, stacklevel=2)
-    try:
-        from rich.console import Console
-
-        Console(stderr=True).print(f"[yellow]warning:[/yellow] {msg}")
-    except ImportError:
-        print(f"warning: {msg}", file=sys.stderr)
+    # The message quotes values read from rebrew-project.toml, so it renders
+    # as literal text: a `[bold]` in a project name must not be read as
+    # markup, and an ESC must not reach the terminal.
+    console.print(f"[yellow]warning:[/yellow] {untrusted_text(msg)}")
 
 
 # ---------------------------------------------------------------------------
