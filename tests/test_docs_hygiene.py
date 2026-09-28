@@ -62,6 +62,31 @@ _PROSE_AFTER_MAKE = frozenset(
     {"a", "an", "each", "it", "sure", "target", "targets", "that", "the", "this"}
 )
 
+#: Number words ``docs/PERFORMANCE.md`` spells out instead of using a digit.
+_NUMBER_WORDS = (
+    "zero",
+    "one",
+    "two",
+    "three",
+    "four",
+    "five",
+    "six",
+    "seven",
+    "eight",
+    "nine",
+    "ten",
+    "eleven",
+    "twelve",
+    "thirteen",
+    "fourteen",
+    "fifteen",
+    "sixteen",
+    "seventeen",
+    "eighteen",
+    "nineteen",
+    "twenty",
+)
+
 
 def test_every_lint_code_documented() -> None:
     src = (ROOT / "src" / "rebrew" / "lint.py").read_text(encoding="utf-8")
@@ -136,6 +161,43 @@ def test_architecture_diagram_format_pointer_resolves() -> None:
         if not (ROOT / "docs" / name).is_file()
     ]
     assert missing == [], f"architecture.drawio points at missing docs: {missing}"
+
+
+def test_performance_doc_command_counts_match_the_sweeps() -> None:
+    """``docs/PERFORMANCE.md`` quotes the size of the two idempotency sweeps.
+
+    ``tools/check_idempotency.py`` grows both lists without anything forcing
+    the prose to follow, and the counts went stale: the doc said 17 read-only
+    commands and nine mutating ones, and named ``catalog`` among the mutators
+    after it had been replaced by ``build-db``.  Only the counts and the named
+    mutators are checked; the prose around them is not a claim about the code.
+    """
+    script = (ROOT / "tools" / "check_idempotency.py").read_text(encoding="utf-8")
+    tree = ast.parse(script)
+    sweeps: dict[str, list[str]] = {}
+    for node in tree.body:
+        if not (
+            isinstance(node, ast.Assign)
+            and isinstance(node.targets[0], ast.Name)
+            and node.targets[0].id in ("DEFAULT_COMMANDS", "WRITE_COMMANDS")
+            and isinstance(node.value, (ast.List, ast.Tuple))
+        ):
+            continue
+        sweeps[node.targets[0].id] = [str(ast.literal_eval(e)) for e in node.value.elts]
+    prose = (ROOT / "docs" / "PERFORMANCE.md").read_text(encoding="utf-8")
+
+    quoted = re.findall(r"\b(\d+|\w+) (?:mutating )?commands\b", prose)
+    assert [int(n) if n.isdigit() else _NUMBER_WORDS.index(n) for n in quoted] == [
+        len(sweeps["DEFAULT_COMMANDS"]),
+        len(sweeps["WRITE_COMMANDS"]),
+    ], (
+        f"docs/PERFORMANCE.md quotes {quoted}, the sweeps hold {len(sweeps['DEFAULT_COMMANDS'])} and {len(sweeps['WRITE_COMMANDS'])}"
+    )
+
+    named = set(re.findall(r"`([a-z][a-z0-9-]+)", prose.partition("mutating commands")[2]))
+    assert {cmd.split()[0] for cmd in sweeps["WRITE_COMMANDS"]} <= named, (
+        "docs/PERFORMANCE.md does not name every WRITE_COMMANDS entry"
+    )
 
 
 def test_skill_local_reference_paths_exist() -> None:

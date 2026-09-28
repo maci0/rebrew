@@ -21,6 +21,23 @@ def _coerce_str(value: Any, default: str) -> str:
     return value if isinstance(value, str) else default
 
 
+#: The closed set of grid cell states a data label may carry.  ``loaders``
+#: classifies a label into exactly these two, and ``grid`` switches on them, so
+#: anything else reaching ``GhidraDataLabel.state`` is a cell nothing can draw.
+GHIDRA_LABEL_STATES = frozenset({"data", "thunk"})
+
+
+def _coerce_state(value: Any) -> str:
+    """*value* when it is a known grid cell state, else ``"data"``.
+
+    A string is not enough: untrusted export JSON carrying ``""`` (or any
+    other spelling) otherwise yields a state the grid cannot render.  The
+    ``isinstance`` guard comes first, because a JSON array or object is
+    unhashable and ``value in frozenset`` would raise on it.
+    """
+    return value if isinstance(value, str) and value in GHIDRA_LABEL_STATES else "data"
+
+
 def _parse_int(value: Any) -> int:
     """Parse an integer from various formats (int, hex string, decimal string).
 
@@ -101,5 +118,5 @@ class GhidraDataLabel:
             va=va,
             size=size,
             label=_coerce_str(d.get("label"), ""),
-            state=_coerce_str(d.get("state"), "data"),
+            state=_coerce_state(d.get("state")),
         )
