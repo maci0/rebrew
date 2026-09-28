@@ -265,6 +265,7 @@ def _load_side(
 
 def run_binary_similarity(
     other_binary: Path,
+    *,
     other_list: Path | None,
     json_output: bool,
     low_count: int,
@@ -391,10 +392,10 @@ def main(
             error_exit(f"cannot load target {other_target!r}: {exc}", json_mode=json_output)
         run_binary_similarity(
             other_cfg.target_binary,
-            inventory_path_for(other_cfg.reversed_dir, other_cfg),
-            json_output,
-            low,
-            target,
+            other_list=inventory_path_for(other_cfg.reversed_dir, other_cfg),
+            json_output=json_output,
+            low_count=low,
+            target=target,
         )
         return
 
@@ -403,7 +404,9 @@ def main(
             "a positional OTHER_BINARY (or --other-target) is required",
             json_mode=json_output,
         )
-    run_binary_similarity(other_binary, other_list, json_output, low, target)
+    run_binary_similarity(
+        other_binary, other_list=other_list, json_output=json_output, low_count=low, target=target
+    )
 
 
 def main_entry() -> None:

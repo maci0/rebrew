@@ -218,14 +218,19 @@ _SOURCE_TEXT_MEMO_LOCK = threading.Lock()
 _SOURCE_TEXT_MEMO_BY_PATH: dict[str, set[tuple[str, int, int, int]]] = {}
 
 
-def _memo_drop(memo_key: tuple[str, int, int, int]) -> None:
-    """Remove one entry from the source text memo and its path index."""
-    _SOURCE_TEXT_MEMO.pop(memo_key, None)
+def _memo_forget(memo_key: tuple[str, int, int, int]) -> None:
+    """Unlink *memo_key*'s path from the index, dropping an emptied entry."""
     keys = _SOURCE_TEXT_MEMO_BY_PATH.get(memo_key[0])
     if keys is not None:
         keys.discard(memo_key)
         if not keys:
             del _SOURCE_TEXT_MEMO_BY_PATH[memo_key[0]]
+
+
+def _memo_drop(memo_key: tuple[str, int, int, int]) -> None:
+    """Remove one entry from the source text memo and its path index."""
+    _SOURCE_TEXT_MEMO.pop(memo_key, None)
+    _memo_forget(memo_key)
 
 
 def _memo_store(memo_key: tuple[str, int, int, int], value: tuple[str, str]) -> None:
@@ -235,11 +240,7 @@ def _memo_store(memo_key: tuple[str, int, int, int], value: tuple[str, str]) -> 
         return
     while len(_SOURCE_TEXT_MEMO) >= _SOURCE_TEXT_MEMO_MAX:
         oldest, _value = _SOURCE_TEXT_MEMO.popitem(last=False)
-        keys = _SOURCE_TEXT_MEMO_BY_PATH.get(oldest[0])
-        if keys is not None:
-            keys.discard(oldest)
-            if not keys:
-                del _SOURCE_TEXT_MEMO_BY_PATH[oldest[0]]
+        _memo_forget(oldest)
     _SOURCE_TEXT_MEMO[memo_key] = value
     _SOURCE_TEXT_MEMO_BY_PATH.setdefault(memo_key[0], set()).add(memo_key)
 

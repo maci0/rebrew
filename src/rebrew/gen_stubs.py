@@ -120,7 +120,7 @@ def load_library_symbols(csv_path: Path) -> set[str]:
 # --- extern declaration parsing ----------------------------------------------
 
 
-def _array_element_count(brackets: str) -> str:
+def _array_size_text(brackets: str) -> str:
     """Decimal element count of every ``[N]`` in *brackets*.
 
     ``[2][4]`` is ``"8"`` and ``[010]`` (octal) is ``"8"``.  A bound that is
@@ -202,7 +202,7 @@ def parse_extern_decl(decl: str) -> dict[str, typing.Any] | None:
                 "params": None,
                 "full_decl": decl,
                 "is_array": True,
-                "array_size": _array_element_count(m.group(3)),
+                "array_size": _array_size_text(m.group(3)),
             }
 
     # Simple variable: TYPE NAME

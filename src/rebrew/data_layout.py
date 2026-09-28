@@ -723,7 +723,7 @@ def _parse_stub_globals(stub_file: Path) -> dict[str, tuple[str, int | None]]:
         if typ == "extern":
             continue
         brackets = m.group(3)
-        count = _array_element_count(brackets)
+        count = _element_count_or_none(brackets)
         # A declarator whose bounds are not all constants (``g[]``, ``g[N]``)
         # has no element count.  Storing None would materialize it as a scalar.
         if brackets and count is None:
@@ -775,7 +775,7 @@ _TYPE_SIZES: dict[str, int] = {
 _ARRAY_SUFFIX_RE = re.compile(r"\[\s*((?:0[xX][0-9a-fA-F]+|\d+)[uUlL]*)\s*\]")
 
 
-def _array_element_count(brackets: str) -> int | None:
+def _element_count_or_none(brackets: str) -> int | None:
     """Element count of a C array declarator, or None when *brackets* is empty.
 
     Every ``[N]`` counts: ``[2][4]`` is 8 elements, not 2.  ``010`` is octal
