@@ -35,6 +35,13 @@ class SimilarityUnavailable(RebrewError, RuntimeError):
 _DEFAULT_CS_ARCH = capstone.CS_ARCH_X86
 _DEFAULT_CS_MODE = capstone.CS_MODE_32
 
+#: ``flag_sensitive`` cuts: a structural ratio under this with a mnemonic
+#: agreement above :data:`_FLAG_SENSITIVE_MNEMONIC` means compiler flags alone
+#: may close the diff.  Compared against the 4-decimal ratios the record
+#: stores, so a JSON round-trip recomputes the same flag.
+_FLAG_SENSITIVE_STRUCTURAL = 0.5
+_FLAG_SENSITIVE_MNEMONIC = 0.8
+
 
 # Capstone ``Cs`` objects wrap a libcapstone handle whose internal state is
 # mutated on every ``disasm`` call, so a single instance cannot be shared
@@ -1110,12 +1117,21 @@ def structural_similarity(
     # reports the sweep as not mnemonic-compatible when it is.
     sm = difflib.SequenceMatcher(None, target_mnems, cand_mnems, autojunk=False)
     mnemonic_ratio = sm.ratio()
-
     structural_ratio = structural / total if total > 0 else 0.0
+
+    # Decide from the rounded ratios the record carries, not the raw ones: a
+    # StructuralSimilarity that round-trips through JSON must recompute the
+    # same flag_sensitive, and 0.49996 stored as 0.5 would flip it.
+    mnemonic_stored = round(mnemonic_ratio, 4)
+    structural_stored = round(structural_ratio, 4)
 
     # Sweep only when structure is close but not identical: register-only or
     # wildly different mnemonics won't be fixed by flags alone.
-    flag_sensitive = structural > 0 and structural_ratio < 0.5 and mnemonic_ratio > 0.80
+    flag_sensitive = (
+        structural > 0
+        and structural_stored < _FLAG_SENSITIVE_STRUCTURAL
+        and mnemonic_stored > _FLAG_SENSITIVE_MNEMONIC
+    )
 
     return StructuralSimilarity(
         total_insns=total,
@@ -1123,8 +1139,8 @@ def structural_similarity(
         reloc_only=reloc,
         register_only=reg,
         structural=structural,
-        mnemonic_match_ratio=round(mnemonic_ratio, 4),
-        structural_ratio=round(structural_ratio, 4),
+        mnemonic_match_ratio=mnemonic_stored,
+        structural_ratio=structural_stored,
         flag_sensitive=flag_sensitive,
     )
 

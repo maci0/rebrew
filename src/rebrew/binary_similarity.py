@@ -53,6 +53,10 @@ from rebrew.similar import disasm_signature
 
 log = logging.getLogger(__name__)
 
+#: Decimal places :func:`score_matrix` rounds to.  Deep enough to erase the
+#: float noise of the weighted sum, far above the 1 decimal shown in reports.
+_SCORE_NOISE_DECIMALS = 6
+
 
 def _pair_ratio(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     """Element-wise min/max ratio matching :func:`rebrew.similar._ratio`.
@@ -112,8 +116,15 @@ def score_matrix(sigs_a: list[dict[str, Any]], sigs_b: list[dict[str, Any]]) -> 
     ba = np.array([s["branches"] for s in sigs_a], dtype=float)[:, None]
     bb = np.array([s["branches"] for s in sigs_b], dtype=float)[None, :]
 
+    # Rounded only far enough to drop the float noise of the weighted sum
+    # (an identical pair weighs 99.99999999999999).  The caller picks the
+    # argmax and applies exact threshold buckets, so rounding to display
+    # precision here would tie near-equal candidates and move a score across
+    # a bucket edge: a true 94.96 becomes 95.0 and reports as
+    # ">= 95 (near-identical)".  Display rounds at the JSON/console layer.
     scores: np.ndarray = np.round(
-        0.6 * cos * 100.0 + 0.2 * _pair_ratio(ca, cb) * 100.0 + 0.2 * _pair_ratio(ba, bb) * 100.0, 1
+        0.6 * cos * 100.0 + 0.2 * _pair_ratio(ca, cb) * 100.0 + 0.2 * _pair_ratio(ba, bb) * 100.0,
+        _SCORE_NOISE_DECIMALS,
     )
     return scores
 
@@ -197,7 +208,7 @@ def aggregate_similarity(
                 "va": f"0x{va:08x}",
                 "size": size,
                 "name": name,
-                "score": float(best_scores[i]),
+                "score": round(float(best_scores[i]), 1),
                 "matches": {"va": f"0x{bva:08x}", "size": bsize, "name": bname},
             }
         )

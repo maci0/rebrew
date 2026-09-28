@@ -1,6 +1,8 @@
 """Tests for rebrew.matcher.scoring — score_candidate, diff_functions."""
 
+import json
 import random
+from dataclasses import asdict
 
 import capstone
 import pytest
@@ -516,6 +518,21 @@ class TestStructuralSimilarity:
         assert sim.total_insns == 0
         assert sim.structural_ratio == 0.0
         assert sim.flag_sensitive is False
+
+    def test_flag_sensitive_round_trips_through_json(self) -> None:
+        """The stored ratios decide the flag, so a JSON reload agrees.
+
+        A flag decided from the raw ratios while the record carries the
+        4-decimal ones means a consumer re-deriving the flag from the
+        persisted numbers can get the opposite answer.
+        """
+        target = b"\x90" * 7 + b"\x40\x40\x40"
+        cand = b"\x90" * 7 + b"\x48\x48\x48"
+        sim = structural_similarity(target, cand)
+        reloaded = StructuralSimilarity(**json.loads(json.dumps(asdict(sim))))
+        assert reloaded.flag_sensitive == sim.flag_sensitive
+        assert reloaded.structural_ratio == sim.structural_ratio
+        assert reloaded.mnemonic_match_ratio == sim.mnemonic_match_ratio
 
     def test_flag_sensitive_moderate_structural(self) -> None:
         # 7 identical nops + 3 structurally different: inc eax (40) vs dec eax (48)

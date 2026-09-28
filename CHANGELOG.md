@@ -46,6 +46,30 @@
 
 
 ### Fixed
+- **`rebrew residue` compares `.text` up to its raw size, not its virtual
+  size.** The byte indices run from `pointer_to_raw_data`, but the span was
+  bounded by `VirtualSize`, so a `.text` whose virtual size exceeds
+  `SizeOfRawData` (a BSS-style tail) read the next section's file bytes and
+  charged them to `.text`: a 0x10-byte `.text` in front of a 0x20-byte
+  `.rdata` reported the whole of `.rdata` as text residue, inflating
+  `text_differing` and `text_percent` and skewing the per-function
+  attribution that a `--baseline` diff compares.
+- **A whole-binary similarity score is no longer rounded to display precision
+  before it is bucketed.** `score_matrix` rounded to one decimal, then
+  `aggregate_similarity` applied exact 95/85/60 edges: a true 94.96 landed in
+  `>= 95 (near-identical)` and a 59.97 in `60 - 85 (related)`, so the
+  reported byte shares per bucket were wrong for every function within 0.05
+  of an edge, and near-equal candidates tied in the argmax. The matrix now
+  rounds only far enough to drop float noise; display rounds at the JSON and
+  console layer.
+- **`structural_similarity` decides `flag_sensitive` from the ratios it
+  stores.** The flag was computed from the raw ratios while the record
+  carried them rounded to four decimals, so a `StructuralSimilarity` that
+  round-trips through JSON (`--json` sweep output) recomputes the opposite
+  answer: a `structural_ratio` of 0.49996 stores as 0.5 and drops the flag.
+- **A zero-instruction `asm --json` payload carries `0.0`, not `0`, for
+  `pct_nasm`.** Every other run emits a float, so a data-only region
+  serialized an int and a strict consumer rejected the row.
 - **A refused `rebrew prove` promotion no longer destroys the counterexample
   NOTE or patches the verify cache.** `update_source_status` returns `False`
   rather than raising when the promotion policy refuses (a `SKIP`-parked

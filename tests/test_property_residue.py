@@ -138,6 +138,35 @@ def test_sections_clips_extent_past_eof() -> None:
     assert sections[".text"][3] == 0x400 - 0x200
 
 
+def test_residue_report_stops_at_the_raw_size_not_the_virtual_size() -> None:
+    """A .text whose virtual size exceeds its raw size compares only raw bytes.
+
+    The indices run from ``pointer_to_raw_data``, so a virtual tail past
+    ``SizeOfRawData`` would otherwise read the next section's file bytes and
+    report them as ``.text`` residue: a reference whose ``.text`` holds 0x10
+    bytes of code at raw 0x200 and a 0x20-byte ``.rdata`` at 0x210, against a
+    built image with the same 0x10 code bytes, must report 0 differing, not
+    the whole of ``.rdata``.
+    """
+    reference = _pe_image(
+        [
+            (".text", 0x1000, 0x100, 0x10, 0x200),  # vsize 0x100 > raw size 0x10
+            (".rdata", 0x2000, 0x20, 0x20, 0x210),
+        ]
+    )
+    body = b"\x01" * 0x10
+    built = _pe_image([(".text", 0x1000, 0x100, 0x10, 0x200)])
+    built = built[:0x200] + body + built[0x210:]
+    reference = reference[:0x200] + body + reference[0x210:]
+    # The reference carries payload in .rdata the built image does not, so a
+    # span that runs past the raw size counts those bytes as .text residue.
+    reference = reference[:0x210] + b"\x5a" * 0x20 + reference[0x230:]
+    report = residue_report(built, reference, [], 0)
+    assert report["text_size"] == 0x10
+    assert report["text_differing"] == 0
+    assert report["text_percent"] == 0.0
+
+
 def test_layout_map_gate_reports_unmeasured_for_an_empty_map() -> None:
     """No layout-map entries means alignment was never measured.
 
