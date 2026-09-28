@@ -885,6 +885,29 @@ class TestCLISet:
         assert result.exit_code != 0
         assert "unpinned alias" in result.output
 
+    def test_set_bool_rejects_a_non_boolean(self, tmp_path: Path, monkeypatch) -> None:
+        """A stringified flag is a flag that silently stayed off.
+
+        ``cfg set`` takes a string, so ``yes`` would land in the TOML as the
+        string "yes" and the loader would keep the default at every read.
+        """
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        for bad in ("yes", "1", "on"):
+            result = runner.invoke(cfg_app, ["set", "compiler.recompile_emit_assembly", bad])
+            assert result.exit_code != 0, bad
+            assert "not a boolean" in result.output
+        doc, _ = load_toml(tmp_path)
+        assert "recompile_emit_assembly" not in doc.get("compiler", {})
+
+    def test_set_bool_writes_a_real_boolean(self, tmp_path: Path, monkeypatch) -> None:
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(cfg_app, ["set", "compiler.recompile_emit_assembly", "true"])
+        assert result.exit_code == 0
+        doc, _ = load_toml(tmp_path)
+        assert doc["compiler"]["recompile_emit_assembly"] is True
+
     def test_set_bare_inventory_file_routes_to_target(self, tmp_path: Path, monkeypatch) -> None:
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)

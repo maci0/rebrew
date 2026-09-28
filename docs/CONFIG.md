@@ -205,7 +205,7 @@ profile = "msvc-7.0"
 | `base_cflags` | `string` | `"/nologo /c /MT"` | Always-on flags prepended to every compile. Posix-style profiles (`gcc-14.2.0`, `gcc-12.3.0`, `mingw-16.2.0`, `mingw-14.2.0`, `clang-18.1.8`, `clang-16.0.4`, `ido-5.3`, `ido-7.1`, `watcom-2.0-win32`, `watcom-2.0-win16`, `borland-5.5`, `borland-3.1`, `borland-2.0`) omit the MSVC glue and default to `"-c"` (the Borland and 16-bit Watcom profiles need it spelled out; the GCC/Clang/IDo profiles ship with an empty string) |
 | `runner` | `string` | `""` | Win32 PE runner (`wine`, `wibo`, or empty). Auto-detected from `command` if not set explicitly. Under docker-only execution the runner is empty for image-backed profiles; `rebrew init --install-wibo` writes `tools/wibo` only for native (non-image) profiles — it is ignored for docker-backed ones. A relative runner path resolves against the project root and needs a `command` without the runner prefix |
 | `recompile_url` | `string` | `""` | Base URL of the recompile compile service (e.g. `http://localhost:8000`). When set (or `REBREW_RECOMPILE_URL`), every compile routes through `POST /api/v1/compile` instead of local docker images: the same pinned images, plus the opt-in training tap |
-| `recompile_emit_assembly` | `bool` | `false` | Pass `emit_assembly=true` on remote compiles (the training-data tap). Off by default; when on, every remote compile sends it (`match --collect-pairs` is unrelated) |
+| `recompile_emit_assembly` | `bool` | `false` | Pass `emit_assembly=true` on remote compiles (the training-data tap). Off by default; when on, every remote compile sends it (`match --collect-pairs` is unrelated). A non-boolean value here is refused by `rebrew cfg set` and warned about by the loader, which would otherwise keep the default and leave the tap silently off |
 | `recompile_retries` | `integer` | `2` | Re-attempts of a retryable remote-compile failure (transport blips, `408/425/429/500/502/503/504`), with the backoff in `rebrew.utils.retry_backoff_delay`. `0` disables retries; a compile the service ran and rejected is never re-POSTed |
 | `timeout` | `integer` | `60` | Compile subprocess timeout in seconds |
 
@@ -434,7 +434,9 @@ by the CLI layer and win for that invocation.
 - `REBREW_WINEPREFIX` — Wine prefix for cmake toolchain bridge scripts.
   Must be an absolute path (`~` expands); a relative value is an error.
   Default: `$XDG_CACHE_HOME/rebrew-<toolchain>-wineprefix`.
-- `REBREW_TOOLCHAIN` — cmake bridge pin for the active profile name.
+- `REBREW_TOOLCHAIN` — cmake bridge pin for the active profile name.  A value
+  no toolchain registers is an error, reported by `rebrew cfg effective`
+  before the bridge runs.  Unset or blank keeps `[compiler] profile`.
 - `REBREW_COMPILER_RUNNER` — host PE runner path/name the matcher prepends to
   the compile argv.  Written by `msvc_env` from `[compiler] runner`; an ambient
   value is dropped on every compile path, because a shell export would run a
@@ -636,15 +638,18 @@ under is visible in the same dump.
 `env_errors` covers the knobs no command reads until the moment of use
 (`REBREW_CONTAINER_RUNTIME`, `REBREW_FLIRT_SIGS_DIR`,
 `REBREW_LLM_ALLOW_PROJECT_ENDPOINT`, `REBREW_LOG_LEVEL`, `REBREW_PROJECTS_ROOT`,
-`REBREW_SKILLS_DIR`, `REBREW_TOOLCHAIN_OVERLAY_DIR`, `REBREW_TOOLCHAINS_DIR`,
+`REBREW_SKILLS_DIR`, `REBREW_TOOLCHAIN`, `REBREW_TOOLCHAIN_OVERLAY_DIR`,
+`REBREW_TOOLCHAINS_DIR`,
 `REBREW_WINE_HEADLESS`, `REBREW_WINEPREFIX`, `REBREW_XVFB_DISPLAY`), which a
 mistyped value would otherwise report as a spawn failure from inside a compile,
 or (for the knobs whose consumers skip an unusable value) as silently reduced
 output: a `REBREW_FLIRT_SIGS_DIR` that is not a directory drops every
 standard-library signature, a `REBREW_PROJECTS_ROOT` that is not a directory
 audits nothing, and a `REBREW_XVFB_DISPLAY` that is not a local `:N` display
-never matches the running server, so a fresh one is spawned instead. The
-message is the one the code that reads the knob raises, so a name listed
+never matches the running server, so a fresh one is spawned instead, and a
+`REBREW_TOOLCHAIN` that names no registered profile would fail the cmake
+bridge from inside a CMake build. The message is the one the code that reads
+the knob raises, so a name listed
 here is unusable for the next command that touches it. A directory knob absent
 from the environment is not an error.
 

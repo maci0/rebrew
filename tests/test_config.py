@@ -2347,6 +2347,23 @@ class TestEnvKnobValidators:
             with pytest.raises(ConfigError, match="not a local X display"):
                 check_env_display(bad)
 
+    def test_toolchain_pin_knob_names_a_registered_profile(self) -> None:
+        """`REBREW_TOOLCHAIN` is a profile name, checked before the bridge runs.
+
+        The cmake bridge reads it as a toolchain name, so a typo would
+        otherwise surface as a build failure from inside CMake, where the env
+        var is one of three sources the name can come from.
+        """
+        from rebrew.config import check_env_toolchain_pin, env_knob_errors
+
+        assert check_env_toolchain_pin("") is None
+        assert check_env_toolchain_pin("  ") is None
+        check_env_toolchain_pin("msvc-6.0")
+        with pytest.raises(ConfigError, match="not a known toolchain"):
+            check_env_toolchain_pin("msvc-6.0-oops")
+        assert env_knob_errors({"REBREW_TOOLCHAIN": "  "}) == {}
+        assert "REBREW_TOOLCHAIN" in env_knob_errors({"REBREW_TOOLCHAIN": "msvc-6.0-oops"})
+
     def test_project_endpoint_trust_knob_is_reported(self) -> None:
         """The env-key opt-in is a strict boolean, reported before first use.
 

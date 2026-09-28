@@ -1372,6 +1372,29 @@ def check_env_wineprefix(raw: str) -> None:
         raise ConfigError(f"REBREW_WINEPREFIX={value!r} must be an absolute path")
 
 
+def check_env_toolchain_pin(raw: str) -> None:
+    """Raise when ``REBREW_TOOLCHAIN`` names a profile no toolchain registers.
+
+    The cmake bridge reads the pin as a toolchain name, so a typo otherwise
+    survives every config load and surfaces as a bridge failure from inside a
+    CMake build, where the env var is the least obvious of the three sources
+    the name can come from (the ``/REBREW_TOOLCHAIN:`` compile flag and
+    ``[compiler] profile`` both still resolve).  Unset or blank leaves the
+    bridge on the project profile.
+    """
+    value = raw.strip()
+    if not value:
+        return
+    from rebrew.toolchain import registry_snapshot
+
+    registry, _origins = registry_snapshot()
+    if value not in registry:
+        raise ConfigError(
+            f"REBREW_TOOLCHAIN={value!r} is not a known toolchain "
+            f"(known: {', '.join(sorted(registry))})"
+        )
+
+
 #: ``REBREW_*`` knobs whose value is only read at the point of use, so
 #: ``load_config`` never sees them and a typo surfaces as a spawn failure from
 #: inside a compile.  Each parser takes the raw value and returns ``None``; it
@@ -1408,6 +1431,7 @@ def _env_knob_parsers() -> tuple[tuple[str, Callable[[str], None]], ...]:
         (TOOLCHAIN_OVERLAY_ENV, partial(check_env_dir, TOOLCHAIN_OVERLAY_ENV)),
         (TOOLCHAINS_DIR_ENV, partial(check_env_dir, TOOLCHAINS_DIR_ENV)),
         ("REBREW_WINEPREFIX", check_env_wineprefix),
+        ("REBREW_TOOLCHAIN", check_env_toolchain_pin),
         ("REBREW_WINE_HEADLESS", _wine_headless),
         (XVFB_DISPLAY_ENV, check_env_display),
     )
@@ -2416,6 +2440,7 @@ __all__ = [
     "arch_byte_order",
     "arch_pointer_size",
     "check_env_display",
+    "check_env_toolchain_pin",
     "check_env_wineprefix",
     "detect_crt_sources",
     "env_knob_errors",

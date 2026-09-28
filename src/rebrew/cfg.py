@@ -85,6 +85,14 @@ def _url_config_label(key: str) -> str | None:
     return None
 
 
+#: Config keys the loader reads with ``rebrew.config._as_bool``.  ``cfg set``
+#: takes every value as a string, so a boolean field written as ``yes`` or
+#: ``1`` lands in the TOML as a string; the loader then warns and keeps the
+#: default, which is how a flag someone just turned on ends up off.  Keep in
+#: step with the ``_as_bool`` fields in ``rebrew.config``.
+_BOOL_CONFIG_KEYS = frozenset({"recompile_emit_assembly"})
+
+
 def _redact_secrets(obj: Any) -> Any:
     """Deep-copy *obj* with secret-named dict keys replaced by ``***``."""
     if isinstance(obj, dict):
@@ -834,6 +842,12 @@ def set_value(
     if (leaf == "arch" or key == "arch") and parsed_value and parsed_value not in ARCH_PRESETS:
         error_exit(
             f"unknown arch {parsed_value!r} (known: {', '.join(sorted(ARCH_PRESETS))})",
+            code=EXIT_ERROR,
+        )
+
+    if leaf in _BOOL_CONFIG_KEYS and not isinstance(parsed_value, bool):
+        error_exit(
+            f"{key} = {value!r} is not a boolean; use 'true' or 'false'",
             code=EXIT_ERROR,
         )
 
