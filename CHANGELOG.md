@@ -1,5 +1,13 @@
 ## [Unreleased]
 
+### Fixed
+- **The FORCE_COLOR regression test no longer fails on a slow runner.**
+  `test_bare_pytest_survives_force_color` spawns a second `uv run` plus a
+  pytest process and gave it 60 seconds, so a cold interpreter or a loaded
+  runner (the outer suite runs it beside the other subprocess tests) turned
+  into a `TimeoutExpired` that reads as a color-handling regression. The
+  budget is 180 seconds; the same command finishes in seconds once warm.
+
 ## [2.15.0] - 2026-09-28
 
 ### Added

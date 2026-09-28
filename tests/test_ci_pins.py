@@ -1199,7 +1199,13 @@ class TestCiPins:
             env=env,
             capture_output=True,
             text=True,
-            timeout=60,
+            # 180, not 60: this spawns a second `uv run` + pytest, so a cold
+            # interpreter, an unfrozen uv cache, or a loaded runner (the outer
+            # suite runs this alongside the other subprocess tests) can push it
+            # past a minute even though it finishes in seconds when warm. The
+            # old budget turned that into a TimeoutExpired that reads as a
+            # FORCE_COLOR regression instead of a slow machine.
+            timeout=180,
             check=False,
         )
         assert result.returncode == 0, result.stdout + result.stderr
