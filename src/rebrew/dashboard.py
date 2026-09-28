@@ -350,6 +350,7 @@ let pendingModuleBlank = false;
 let hashReady = false;
 let whenFormat = null;
 const VIEWS = ["functions", "sections", "globals", "history"];
+const PAGE_LIMIT = 100;
 const PAGE_STEP = 500;
 const PAGE_MAX = 5000;
 const loadErrors = { summary: "", functions: "", view: "" };
@@ -692,7 +693,7 @@ async function loadFunctions(options) {
   const offset = grow ? loadedCount : 0;
   const params = new URLSearchParams({
     target: t,
-    limit: String(grow ? PAGE_STEP : 100),
+    limit: String(grow ? PAGE_STEP : PAGE_LIMIT),
     offset: String(offset),
   });
   if ($("status").value) params.set("status", $("status").value);
@@ -946,7 +947,7 @@ async function loadGlobals(options) {
   const offset = grow ? loadedGlobalsCount : 0;
   const params = new URLSearchParams({
     target: t,
-    limit: String(grow ? PAGE_STEP : 100),
+    limit: String(grow ? PAGE_STEP : PAGE_LIMIT),
     offset: String(offset),
   });
   if ($("gq").value.trim()) params.set("q", $("gq").value.trim());
@@ -987,7 +988,7 @@ async function loadHistory(options) {
   const offset = grow ? loadedHistoryCount : 0;
   const params = new URLSearchParams({
     target: t,
-    limit: String(grow ? PAGE_STEP : 100),
+    limit: String(grow ? PAGE_STEP : PAGE_LIMIT),
     offset: String(offset),
   });
   $("history-empty").hidden = true;
@@ -2308,8 +2309,6 @@ def _local_interface_ips() -> set[str]:
     every real request was 403'd.  Resolver-based (no netlink walk): an
     unresolvable hostname just yields an empty set.
     """
-    import socket
-
     try:
         infos = socket.getaddrinfo(socket.gethostname(), None)
     except OSError:
@@ -2400,10 +2399,15 @@ def _negotiate_encoding(accept_encoding: str) -> _WireEncoding | None:
 
 
 def _compress(body: bytes, encoding: _WireEncoding) -> bytes:
-    """Compress *body* at the per-request effort for *encoding*."""
+    """Compress *body* at the per-request effort for *encoding*.
+
+    Gzip ``mtime=0`` like every other compressor here: the ETag is the
+    uncompressed hash, so two identical bodies must produce identical gzip
+    bytes or the same tag serves a different body across requests.
+    """
     if encoding == "zstd":
         return zstandard.ZstdCompressor(level=_ZSTD_LEVEL).compress(body)
-    return gzip.compress(body, compresslevel=_GZIP_LEVEL)
+    return gzip.compress(body, compresslevel=_GZIP_LEVEL, mtime=0)
 
 
 def _maybe_compress(

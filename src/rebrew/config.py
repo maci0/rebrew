@@ -1255,8 +1255,16 @@ def _normalized_targets(targets: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def is_key_safe_endpoint(endpoint: str) -> bool:
-    """True when a bearer key may be sent to *endpoint*: https, or http to loopback."""
-    parsed = urlparse(endpoint)
+    """True when a bearer key may be sent to *endpoint*: https, or http to loopback.
+
+    A malformed authority (``http://[::1``) makes ``urlparse`` raise, which
+    ``validate_http_url`` converts to a ``ConfigError``. Callers that only
+    want the answer get ``False``: an unparseable endpoint is never key-safe.
+    """
+    try:
+        parsed = urlparse(endpoint)
+    except ValueError:
+        return False
     if parsed.scheme == "https":
         return True
     host = parsed.hostname or ""
@@ -1452,7 +1460,7 @@ def env_knob_errors(environ: Mapping[str, str] | None = None) -> dict[str, str]:
             continue
         try:
             parser(env[name])
-        except (ConfigError, ValueError) as exc:
+        except ValueError as exc:  # ConfigError is a ValueError
             errors[name] = str(exc)
     return errors
 
@@ -1938,7 +1946,7 @@ def load_config(
     unknown_top = set(raw) - _KNOWN_TOP_KEYS
     if unknown_top:
         _config_warn(
-            f"rebrew-project.toml: unrecognized top-level keys: {unknown_top}",
+            f"rebrew-project.toml: unrecognized top-level keys: {sorted(unknown_top)}",
         )
     for sec_name, known_keys in (
         ("compiler", _KNOWN_COMPILER_KEYS),
@@ -1951,14 +1959,14 @@ def load_config(
         unknown_sec = set(sec) - known_keys
         if unknown_sec:
             _config_warn(
-                f"rebrew-project.toml [{sec_name}]: unrecognized keys: {unknown_sec}",
+                f"rebrew-project.toml [{sec_name}]: unrecognized keys: {sorted(unknown_sec)}",
             )
     for tgt_name, tgt_data in targets_dict.items():
         if isinstance(tgt_data, dict):
             unknown_tgt = set(tgt_data) - KNOWN_TARGET_KEYS
             if unknown_tgt:
                 _config_warn(
-                    f"rebrew-project.toml [targets.{tgt_name}]: unrecognized keys: {unknown_tgt}",
+                    f"rebrew-project.toml [targets.{tgt_name}]: unrecognized keys: {sorted(unknown_tgt)}",
                 )
             target_compiler = _as_table(
                 tgt_data.get("compiler", {}), f"targets.{tgt_name}.compiler"
@@ -1967,7 +1975,7 @@ def load_config(
             if unknown_target_compiler:
                 _config_warn(
                     f"rebrew-project.toml [targets.{tgt_name}.compiler]: "
-                    f"unrecognized keys: {unknown_target_compiler}",
+                    f"unrecognized keys: {sorted(unknown_target_compiler)}",
                 )
         else:
             raise ConfigError(f"rebrew-project.toml [targets.{tgt_name}] must be a TOML table")
@@ -2434,6 +2442,8 @@ __all__ = [
     "LinkConfig",
     "METADATA_FILENAME",
     "ProjectConfig",
+    "REBREW_FLIRT_SIGS_DIR_ENV",
+    "REBREW_PROJECTS_ROOT_ENV",
     "REBREW_SKILLS_DIR_ENV",
     "TOOLCHAIN_OVERLAY_ENV",
     "XVFB_DISPLAY_ENV",

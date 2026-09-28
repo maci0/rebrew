@@ -771,6 +771,10 @@ def strip_body(prototype: str) -> str:
     return prototype.strip()
 
 
+# Free-slot search bound for preserve_corrupt; see the loop there.
+_CORRUPT_SLOT_ATTEMPTS = 10_000
+
+
 def preserve_corrupt(path: Path) -> Path:
     """Move an unparseable file aside to ``<name>.corrupt`` and return the new path.
 
@@ -792,7 +796,7 @@ def preserve_corrupt(path: Path) -> Path:
         # hang if every candidate is somehow occupied (full directory /
         # adversarial stubs).  A few thousand bumps past the ns stamp is
         # already impossible under normal FS conditions.
-        for _ in range(10_000):
+        for _ in range(_CORRUPT_SLOT_ATTEMPTS):
             candidate = path.with_name(f"{path.name}.{suffix}.corrupt")
             if not candidate.exists():
                 backup = candidate
@@ -800,7 +804,8 @@ def preserve_corrupt(path: Path) -> Path:
             suffix += 1
         else:
             raise OSError(
-                f"cannot preserve corrupt store {path}: no free .corrupt slot after 10000 attempts"
+                f"cannot preserve corrupt store {path}: no free .corrupt slot "
+                f"after {_CORRUPT_SLOT_ATTEMPTS} attempts"
             )
     os.replace(path, backup)
     return backup
@@ -1004,6 +1009,10 @@ def run_process_group(
     ``popen_kwargs`` take ``subprocess.run``'s keywords except ``check``;
     ``input`` is written to the child's stdin.  Pass ``capture_output=True``
     to collect output.
+
+    The child is managed explicitly rather than through ``Popen.__exit__``,
+    which calls ``wait()`` with no timeout: on the wedged-writer case the
+    timeout path exists to survive, that ``wait()`` re-blocks forever.
     """
     stdin_input = popen_kwargs.pop("input", None)
     if popen_kwargs.pop("capture_output", False):
@@ -1014,23 +1023,26 @@ def run_process_group(
     if popen_kwargs.get("text") or popen_kwargs.get("universal_newlines"):
         popen_kwargs.setdefault("encoding", "utf-8")
         popen_kwargs.setdefault("errors", "replace")
-    with subprocess.Popen(list(cmd), start_new_session=True, **popen_kwargs) as proc:
+    # Not a `with`: see the docstring.  Every non-success path below calls
+    # `_stop_process_tree`, which kills the group and reaps with a bounded
+    # wait; the success path is already reaped by `communicate`.
+    proc = subprocess.Popen(list(cmd), start_new_session=True, **popen_kwargs)
+    try:
+        stdout, stderr = proc.communicate(stdin_input, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        _stop_process_tree(proc)
+        # Drain output the kill left in the pipe.  A short timeout covers
+        # a writer the snapshot missed; closing the read ends then lets
+        # the caller return instead of blocking on that writer.
         try:
-            stdout, stderr = proc.communicate(stdin_input, timeout=timeout)
+            proc.communicate(timeout=5)
         except subprocess.TimeoutExpired:
             _stop_process_tree(proc)
-            # Drain output the kill left in the pipe.  A short timeout covers
-            # a writer the snapshot missed; closing the read ends then lets
-            # the caller return instead of blocking on that writer.
-            try:
-                proc.communicate(timeout=5)
-            except subprocess.TimeoutExpired:
-                _stop_process_tree(proc)
-                _release_captured_pipes(proc)
-            raise
-        except BaseException:
-            _stop_process_tree(proc)
-            raise
+            _release_captured_pipes(proc)
+        raise
+    except BaseException:
+        _stop_process_tree(proc)
+        raise
     return subprocess.CompletedProcess(proc.args, proc.returncode, stdout, stderr)
 
 
@@ -1379,6 +1391,10 @@ def remove_temp_dir(path: Path, retries: int = 5, delay: float = 0.2) -> None:
     """
     import shutil
 
+    # retries=0 would make the loop below vacuous: the dir would be neither
+    # removed nor reported, silently stranding a temp dir.
+    if retries < 1:
+        raise ValueError(f"retries must be at least 1, got {retries}")
     for attempt in range(retries):
         try:
             shutil.rmtree(path)

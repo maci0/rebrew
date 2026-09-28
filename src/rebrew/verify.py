@@ -247,9 +247,7 @@ def verify_entry(
             # Best-effort hint: narrow the catch so a broken cache or config
             # parse surfaces as a real error instead of silently swallowing
             # the diagnostic worse than no hint at all.
-            import logging as _logging  # local to except
-
-            _logging.getLogger(__name__).debug("verify hint lookup failed: %s", exc)
+            log.debug("verify hint lookup failed: %s", exc)
         return _failed_result("EXTRACT_ERROR", "Cannot extract DLL bytes" + hint)
 
     result = compile_and_compare(
@@ -582,6 +580,10 @@ def diff_reports(previous: dict[str, Any], current: dict[str, Any]) -> dict[str,
 # (e.g. NEAR_MATCHING 95% → 40%).  Smaller wobbles are measurement noise.
 _COMPARE_DROP_PCT = 5.0
 
+# How many rows a display list shows before it stops printing; the JSON
+# report always carries every row.
+_DISPLAY_ROWS_MAX = 15
+
 
 @app.callback(invoke_without_command=True)
 def main(
@@ -698,6 +700,9 @@ def main(
 ) -> None:
     """Rebrew verification pipeline: compile each .c and verify bytes match."""
     all_targets = option_default(all_targets, False)
+    # An OptionInfo reaching the jobs bound is truthy, so a direct callback
+    # call from a test would feed min(jobs, fresh_count) an object.
+    jobs = option_default(jobs, None)
     if all_targets:
         # Per-target artifacts would collide: one watch loop blocks the
         # sweep, one --output file is overwritten by every target, one
@@ -1034,11 +1039,11 @@ def main(
                     f"(zero-fill tail) or outside {'.data/.rdata'} — a zero above bounds only what "
                     f"was compared[/dim]"
                 )
-            for m in data_report["mismatched"][:15]:
+            for m in data_report["mismatched"][:_DISPLAY_ROWS_MAX]:
                 console.print(
                     f"  [red]FAIL[/red] {m['name']} ({m['va']}): first diff at +{m['first_diff']}"
                 )
-            for name in data_report["missing"][:15]:
+            for name in data_report["missing"][:_DISPLAY_ROWS_MAX]:
                 console.print(f"  [yellow]MISSING[/yellow] {name} (no built bytes)")
 
     text_report: dict[str, Any] | None = None
@@ -1063,7 +1068,7 @@ def main(
             "correct": n_ok,
             "misplaced": n_bad,
             "missing": n_missing,
-            "misplaced_list": [r for r in rows if r["status"] != "OK"][:15],
+            "misplaced_list": [r for r in rows if r["status"] != "OK"][:_DISPLAY_ROWS_MAX],
         }
         if not json_output:
             console.print(
@@ -1518,7 +1523,7 @@ def _save_report(
         except (OSError, TypeError) as exc:
             # Warn on stderr regardless of json mode — silent cache-I/O
             # failures degrade performance invisibly.
-            logging.warning("Could not write verify cache to %s: %s", cache_path, exc)
+            log.warning("Could not write verify cache to %s: %s", cache_path, exc)
 
     # The --compare baseline lives in .rebrew next to the cache (both are
     # local, gitignored run state — db/verify_results.json was never
@@ -1537,7 +1542,7 @@ def _save_report(
             # Baseline I/O must not abort after a successful verify — the
             # report was already earned; losing the baseline only weakens
             # the next --compare gate.
-            logging.warning("Could not write verify baseline: %s", exc)
+            log.warning("Could not write verify baseline: %s", exc)
 
     # `-o` is an explicit export of the report just computed, independent of
     # the baseline: it was nested in the baseline guard above, so every
@@ -1549,7 +1554,7 @@ def _save_report(
             out_file.parent.mkdir(parents=True, exist_ok=True)
             atomic_write_text(out_file, json.dumps(report, indent=2), encoding="utf-8")
         except OSError as exc:
-            logging.warning("Could not write verify report to %s: %s", out_file, exc)
+            log.warning("Could not write verify report to %s: %s", out_file, exc)
         else:
             if not json_output:
                 console.print(f"Report written to {out_file}")
@@ -2497,11 +2502,11 @@ def apply_status_updates(
         # STATUS sync is best-effort — a read-only or unwritable metadata
         # file must not abort the whole verify run (and lose the report
         # the user waited for).  Warn and keep the verification results.
-        logging.warning("Could not update STATUS metadata: %s", exc)
+        log.warning("Could not update STATUS metadata: %s", exc)
     except Exception as exc:
         # Unexpected failures (parse bugs, lock races) must not wipe the
         # report either, but they are not routine I/O — keep the traceback.
-        logging.warning("Could not update STATUS metadata: %s", exc, exc_info=True)
+        log.warning("Could not update STATUS metadata: %s", exc, exc_info=True)
 
 
 def _print_results(
