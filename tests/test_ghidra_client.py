@@ -17,6 +17,7 @@ def test_ghidra_client_public_all() -> None:
 
     assert client.__all__ == [
         "MAX_MCP_PAGES",
+        "MAX_MCP_RESPONSE_BYTES",
         "MCP_HEADERS",
         "MCP_REQUEST_TIMEOUT_S",
         "McpApplyAborted",
@@ -203,6 +204,51 @@ class TestCallMcpToolBranches:
         payload = {"jsonrpc": "2.0", "id": 1, "result": {"isError": True, "content": []}}
         client, _ = _mock_client(text=json.dumps(payload))
         assert _call_mcp_tool(client, "http://x", "t", {}, 1, "") is None
+
+
+class TestMcpResponseSizeLimit:
+    """A tool result is untrusted text rebrew parses and writes into source, so
+    an oversized body is refused instead of parsed and embedded."""
+
+    def test_declared_content_length_over_limit(self) -> None:
+        from rebrew.ghidra.client import MAX_MCP_RESPONSE_BYTES
+
+        payload = {"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text"}]}}
+        client, _ = _mock_client(text=json.dumps(payload))
+        client.post("http://x").headers["content-length"] = str(MAX_MCP_RESPONSE_BYTES + 1)
+        assert _call_mcp_tool(client, "http://x", "t", {}, 1, "") is None
+
+    def test_oversized_body_without_declared_length(self) -> None:
+        from rebrew.ghidra.client import MAX_MCP_RESPONSE_BYTES, fetch_mcp_tool_raw
+
+        payload = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {"content": [{"type": "text", "text": "x" * (MAX_MCP_RESPONSE_BYTES + 1)}]},
+        }
+        client, _ = _mock_client(text=json.dumps(payload))
+        assert fetch_mcp_tool_raw(client, "http://x", "t", {}, 1) is None
+
+    def test_body_at_limit_is_returned(self) -> None:
+        from rebrew.ghidra.client import fetch_mcp_tool_raw
+
+        client = SimpleNamespace(
+            post=lambda *a, **k: SimpleNamespace(
+                status_code=200,
+                text=json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "result": {"content": [{"type": "text", "text": '{"x": 1}'}]},
+                    }
+                ),
+                headers={"content-type": "application/json"},
+                json=lambda: json.loads(
+                    '{"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": "{\\"x\\": 1}"}]}}'
+                ),
+            )
+        )
+        assert fetch_mcp_tool_raw(client, "http://x", "t", {}, 1) == {"x": 1}
 
 
 class TestMcpRequestEnvelope:

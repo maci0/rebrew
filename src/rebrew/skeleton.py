@@ -88,6 +88,33 @@ def c_comment_safe(text: str) -> str:
     return "".join(" " if not ch.isprintable() else ch for ch in text.replace("*/", "* /"))
 
 
+def _decomp_comment_lines(decomp_code: str, decomp_backend: str) -> list[str]:
+    """Wrap decompiler output in a block comment it cannot escape.
+
+    Decompilation is untrusted text: a Ghidra string constant decoded into the
+    pseudocode can carry ``*/`` and close the wrapper early, which injects live
+    C into a file the next ``rebrew test`` compiles.  Every line goes through
+    :func:`c_comment_safe`, the same defense Ghidra names and xref context get.
+    """
+    return [
+        f"/* === Decompilation ({c_comment_safe(decomp_backend)}) === */\n",
+        *(f"{c_comment_safe(line)}\n" for line in decomp_code.splitlines()),
+        "/* === End decompilation === */\n",
+    ]
+
+
+def _decompiled_body_usable(body: str, func_name: str) -> bool:
+    """True when decompiler output is safe to embed as the function body.
+
+    Delegates to the seed C gate, so a body that reaches the compiler has the
+    same shape the GA population requires: one function definition, named for
+    the marker.  Gate failures are the caller's to report, not swallowed here.
+    """
+    from rebrew.llm_seed import valid_c_source
+
+    return valid_c_source(body, expect_name=func_name, allow_declarations=True)
+
+
 def _render_annotation_block(
     marker: str,
     cfg_marker: str,
@@ -125,11 +152,25 @@ def _render_annotation_block(
         result = extract_function_name_and_proto(body)
         if result and result[0] != func_name:
             body = body.replace(result[0], func_name, 1)
-        lines.append(f"{body}\n")
+        if _decompiled_body_usable(body, func_name):
+            lines.append(f"{body}\n")
+        else:
+            # The body is the one place decompiler output becomes live code that
+            # `rebrew test` compiles and runs, so it passes the same C gate the
+            # LLM and Kuna seeds pass: one function definition, the marker's
+            # name, no preprocessor directives, pragma operators, or inline asm.
+            # Refused output lands in the comment block below instead, so the
+            # decompilation is still on the page, just not compiled.
+            warnings.warn(
+                f"decompiled body for {func_name} failed the C gate "
+                "(not a single function definition with the expected name, or it "
+                "carries a preprocessor directive, pragma, or inline asm); "
+                "embedded it as a comment instead of as code",
+                stacklevel=2,
+            )
+            lines.extend(_decomp_comment_lines(decomp_code, decomp_backend))
     elif decomp_code:
-        lines.append(f"/* === Decompilation ({decomp_backend}) === */\n")
-        lines.append(f"{decomp_code}\n")
-        lines.append("/* === End decompilation === */\n")
+        lines.extend(_decomp_comment_lines(decomp_code, decomp_backend))
     else:
         signature: str | None = None  # the fenced naked stub emits its own bodies
         if convention_stub is not None and convention_stub.startswith("#ifdef REBREW_ALLOW_NAKED"):

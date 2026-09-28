@@ -169,6 +169,14 @@ MAX_MCP_PAGES = 100_000
 #: ``MAX_MCP_PAGES * batch_size`` entries before it trips.
 MAX_MCP_ITEMS = 500_000
 
+#: Hard ceiling on one MCP tool response body, in bytes.  A tool result is
+#: untrusted text that rebrew parses, writes into generated C, and later feeds
+#: to the LLM seeder, so a server (or a stalled proxy in front of it) that
+#: answers with an unbounded body must not be able to grow the process or a
+#: source file without limit.  Generous next to real decompilation and
+#: cross-reference payloads, which land far below it.
+MAX_MCP_RESPONSE_BYTES = 1_000_000
+
 
 def _parse_sse_response(text: str) -> JsonRpcResponse | None:
     """Extract JSON-RPC result from an SSE (text/event-stream) response body."""
@@ -180,6 +188,45 @@ def _parse_sse_response(text: str) -> JsonRpcResponse | None:
             except json.JSONDecodeError:
                 continue
     return None
+
+
+def _response_within_limit(resp: McpResponse, tool_name: str, request_id: int) -> bool:
+    """True when the body is small enough to parse and embed.
+
+    The declared ``Content-Length`` is checked first so an oversized body is
+    refused before ``json.loads`` allocates for it; the encoded text is
+    measured too, because a server that declares nothing (or a chunked reply)
+    still gets a real ceiling.
+    """
+    declared_raw = resp.headers.get("content-length") or resp.headers.get("Content-Length")
+    if declared_raw is not None:
+        try:
+            declared = int(declared_raw)
+        except (TypeError, ValueError):
+            declared = None
+        if declared is not None and declared > MAX_MCP_RESPONSE_BYTES:
+            logger.warning(
+                "MCP tool %s request %s returned Content-Length %s, over the %d byte limit",
+                tool_name,
+                request_id,
+                declared_raw,
+                MAX_MCP_RESPONSE_BYTES,
+            )
+            return False
+    try:
+        actual = len(resp.text.encode("utf-8", errors="replace"))
+    except (AttributeError, TypeError, ValueError):
+        return True
+    if actual > MAX_MCP_RESPONSE_BYTES:
+        logger.warning(
+            "MCP tool %s request %s returned %d bytes, over the %d byte limit",
+            tool_name,
+            request_id,
+            actual,
+            MAX_MCP_RESPONSE_BYTES,
+        )
+        return False
+    return True
 
 
 def _call_mcp_tool(
@@ -222,6 +269,8 @@ def _call_mcp_tool(
                 resp.status_code,
                 endpoint,
             )
+            return None
+        if not _response_within_limit(resp, tool_name, request_id):
             return None
         ct = resp.headers.get("content-type", "").lower()
         if "text/event-stream" in ct:
@@ -989,6 +1038,7 @@ def apply_commands_via_mcp(
 
 __all__ = [
     "MAX_MCP_PAGES",
+    "MAX_MCP_RESPONSE_BYTES",
     "MCP_HEADERS",
     "MCP_REQUEST_TIMEOUT_S",
     "McpApplyAborted",

@@ -451,6 +451,25 @@
   lose that mention, or drift from answering 404 `unknown_target` for an
   unknown target, with nothing noticing. It is in the loop now, and the loop
   drives the handler rather than trusting the route list.
+- **Decompiler output cannot escape the skeleton it is embedded in, and only
+  reaches the compiler through the seed C gate.** `rebrew skeleton --decomp`
+  wrote the decompilation raw between `/* === Decompilation === */` markers, so
+  a Ghidra string constant decoding to `*/` closed the comment and turned the
+  rest into live C in a file the next `rebrew test` compiles. Every line now
+  goes through the same `c_comment_safe` the Ghidra names and xref context
+  already used. `--decomp-body` renamed the decompiled function and wrote it as
+  the body with no further check; it now passes the renamed body through
+  `valid_c_source`, the gate the LLM and Kuna seeds pass, and falls back to
+  the comment block with a warning when the body is not a single function
+  definition under the marker's name or carries a preprocessor directive,
+  pragma operator, or inline asm.
+- **An oversized MCP tool response is refused before it is parsed or
+  embedded.** `ghidra/client.py` capped page counts and retained items but not
+  the size of one reply, so a server (or proxy) answering an unbounded body fed
+  `json.loads` and, through the skeleton and decompiler paths, a generated C
+  file. `_call_mcp_tool` now checks `MAX_MCP_RESPONSE_BYTES` (1 MB) against the
+  declared `Content-Length` and again against the body, and returns `None` with
+  a warning when either is over.
 - **Three threat-model claims narrowed to what the code does.** The model
   described `cross_import.import_shared_function` as joining a second target's
   metadata `file` onto the destination tree the way `import_function` does; it

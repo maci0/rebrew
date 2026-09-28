@@ -656,6 +656,60 @@ class TestDecompBody:
         )
         assert "=== Decompilation (r2ghidra) ===" in content  # comment mode intact
 
+    def test_decomp_comment_neutralizes_comment_breakout(self, tmp_path: Path) -> None:
+        """A decoded string holding ``*/`` must not close the wrapper and put
+        its payload into the translation unit rebrew test compiles."""
+        cfg = self._cfg(tmp_path)
+        content = generate_skeleton(
+            cfg,
+            0x1000,
+            "my_func",
+            decomp_code='void f(void) { puts("*/ int injected(void) { return 1; }"); }',
+            decomp_backend="ghidra",
+            decomp_body=False,
+        )
+        assert (
+            "*/\n"
+            not in content.split("/* === End decompilation === */")[0].split(
+                "/* === Decompilation (ghidra) === */"
+            )[1]
+        )
+        assert "* /" in content  # the breakout is defused, not deleted
+
+    def test_decomp_body_rejects_unvalidated_code(self, tmp_path: Path) -> None:
+        """A body carrying a preprocessor directive is not written as code:
+        the seed C gate refuses it and it lands in the comment block instead."""
+        cfg = self._cfg(tmp_path)
+        with pytest.warns(UserWarning, match="failed the C gate"):
+            content = generate_skeleton(
+                cfg,
+                0x1000,
+                "my_func",
+                decomp_code="#include <stdlib.h>\nint my_func(int a) { return a + 1; }",
+                decomp_backend="ghidra",
+                decomp_body=True,
+            )
+        assert "#include <stdlib.h>" in content.split("/* === Decompilation (ghidra) === */")[1]
+        assert "=== Decompilation (ghidra) ===" in content
+
+    def test_decomp_body_rejects_a_second_definition(self, tmp_path: Path) -> None:
+        """Two definitions in one body is the Trojan-seed shape the gate
+        rejects: a second definition under a name the marker does not claim."""
+        cfg = self._cfg(tmp_path)
+        with pytest.warns(UserWarning, match="failed the C gate"):
+            content = generate_skeleton(
+                cfg,
+                0x1000,
+                "my_func",
+                decomp_code="int helper(void) { return 0; }\nint my_func(int a) { return a; }",
+                decomp_backend="ghidra",
+                decomp_body=True,
+            )
+        assert (
+            "int helper(void) { return 0; }"
+            not in content.split("/* === Decompilation (ghidra) === */")[0]
+        )
+
     def test_cli_rejects_decomp_body_without_decomp(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
