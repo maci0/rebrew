@@ -97,12 +97,8 @@ _CONTINUITY_MIN_RUN = 4  # a run must be LONGER than this to earn the bonus
 _PUSH_IMM_MIN = 0x10000000  # push imm32 / mov reg,imm32
 _DISP_ABS_MIN = 0x10000  # |disp32| on a memory operand
 
-# Final score = weighted sum of component scores.  Lower is better.
-# These weights control the relative importance of each signal:
-_WEIGHT_LEN_DIFF = 3.0  # per missing/extra byte
-_WEIGHT_BYTE = 1000.0  # per raw byte difference (weighted)
-_WEIGHT_RELOC = 500.0  # per reloc-normalized byte difference
-_WEIGHT_MNEMONIC = 200.0  # per mnemonic-level difference (0-100 scale)
+# The final score is the weighted sum of the component scores, computed by
+# ``Score.total``; the weights live in core.py beside that property.
 
 
 def _normalize_with_reloc_offsets(
@@ -559,7 +555,6 @@ def score_candidate(
             reloc_score=0.0,
             mnemonic_score=0.0,
             prologue_bonus=prologue_bonus,
-            total=prologue_bonus,
         )
 
     import numpy as np  # deferred: ~60 ms of startup for non-GA commands
@@ -710,21 +705,12 @@ def score_candidate(
     if min_len >= _PROLOGUE_LEN and target_bytes[:_PROLOGUE_LEN] == candidate_bytes[:_PROLOGUE_LEN]:
         prologue_bonus = _PROLOGUE_BONUS
 
-    total = (
-        (len_diff * _WEIGHT_LEN_DIFF)
-        + (byte_score * _WEIGHT_BYTE)
-        + (reloc_score * _WEIGHT_RELOC)
-        + (mnemonic_score * _WEIGHT_MNEMONIC)
-        + prologue_bonus
-    )
-
     return Score(
         length_diff=len_diff,
         byte_score=byte_score,
         reloc_score=reloc_score,
         mnemonic_score=mnemonic_score,
         prologue_bonus=prologue_bonus,
-        total=total,
     )
 
 

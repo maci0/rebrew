@@ -25,7 +25,7 @@ Externals (the only packages this one may import): `binary_loader`, `coff_reloc`
 
 ## Non-obvious types
 
-- **Score**: lower is better; `byte_score` 0.0 = perfect; `total` is weighted.
+- **Score**: lower is better; `byte_score` 0.0 = perfect; `total` is a property (the `WEIGHT_*` weighted sum of the five fields, defined beside it in `core.py`), not a stored field.
 - **BuildResult**: check `ok` before using bytes; reported compiler failures use `ok=False`. Build helpers can still raise during argument parsing, filesystem operations, or backend calls.
 - **StructuralSimilarity**: `exact` / `reloc_only` / `register_only` / `structural`; `flag_sensitive` means flags alone may fix it.
 - **GACheckpoint**: JSON resume state; `args_hash` rejects stale checkpoints.

@@ -15,17 +15,41 @@ from typing import Any
 #: non-exact score sits far above it and every exact one is 0 or -100.
 EXACT_SCORE_THRESHOLD = 0.1
 
+#: Weights of the five components of :attr:`Score.total`.  They live here, not
+#: in scoring.py, because ``total`` is derived from them: a stored total could
+#: disagree with the fields it summarizes, and the weights a reader needs to
+#: recompute it are the definition of the score rather than a scoring detail.
+WEIGHT_LEN_DIFF = 3.0  # per missing/extra byte
+WEIGHT_BYTE = 1000.0  # per raw byte difference (weighted)
+WEIGHT_RELOC = 500.0  # per reloc-normalized byte difference
+WEIGHT_MNEMONIC = 200.0  # per mnemonic-level difference (0-100 scale)
+
 
 @dataclass
 class Score:
-    """Multi-metric fitness score for a compiled candidate."""
+    """Multi-metric fitness score for a compiled candidate.
+
+    ``total`` is a property, not a field: it is the weighted sum of the five
+    components, so storing it would let a mutated or hand-built Score carry a
+    total its own fields do not imply.
+    """
 
     length_diff: int
     byte_score: float
     reloc_score: float
     mnemonic_score: float
     prologue_bonus: float
-    total: float
+
+    @property
+    def total(self) -> float:
+        """Weighted sum of the five components; lower is better."""
+        return (
+            (self.length_diff * WEIGHT_LEN_DIFF)
+            + (self.byte_score * WEIGHT_BYTE)
+            + (self.reloc_score * WEIGHT_RELOC)
+            + (self.mnemonic_score * WEIGHT_MNEMONIC)
+            + self.prologue_bonus
+        )
 
 
 @dataclass
@@ -58,8 +82,7 @@ class BuildResult:
     error_msg: str = ""
     #: Memoized GA fitness (score.total + excess penalty).  Populated by
     #: rebrew.match_ga's _compute_fitness; a warm-cache rerun of the same stub
-    #: skips re-scoring.  ``None`` = not scored yet.  Backward-compatible:
-    #: reads use getattr(res, "fitness", None) for pre-field pickles.
+    #: skips re-scoring.  ``None`` = not scored yet.
     fitness: float | None = None
 
 

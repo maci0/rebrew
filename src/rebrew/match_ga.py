@@ -755,7 +755,7 @@ class BinaryMatchingGA:
             memoized = self._lru_get(self._fitness_memo, src_hash)
         if memoized is not None:
             return cast(float, memoized)
-        cached_fitness = getattr(res, "fitness", None)
+        cached_fitness = res.fitness
         if res.ok and cached_fitness is not None:
             with self._memo_lock:
                 self._lru_put(self._fitness_memo, src_hash, float(cached_fitness))
@@ -799,8 +799,7 @@ class BinaryMatchingGA:
         # Memoize the fitness on the BuildResult so a warm-cache rerun (same
         # stub, same source hash → same obj bytes → same score) skips the
         # re-disassembly + re-scoring entirely (~2.8s per
-        # 300k-candidate warm batch).  getattr guards pickles written before
-        # the field existed.
+        # 300k-candidate warm batch).
         res.fitness = total
         # Drop the .obj payload before the in-memory store: warm hits take
         # the fitness memo / res.fitness path and never re-read obj_bytes.
