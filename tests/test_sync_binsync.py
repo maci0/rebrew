@@ -282,6 +282,37 @@ class TestSyncCli:
         assert len(applied) == 1
         assert applied[0]["tool"] == "create-function"
 
+    def test_create_functions_cli_backend_needs_no_mcp(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """ghidra_backend = "cli" applies the ops without contacting MCP."""
+        cfg = _patch_cfg(tmp_path, monkeypatch)
+        cfg.ghidra_backend = "cli"
+
+        def _must_not_probe(*_a, **_k):
+            raise AssertionError("the ghidra-cli backend must not probe MCP")
+
+        monkeypatch.setattr(sync_cli, "_probe_program_path", _must_not_probe)
+        monkeypatch.setattr("rebrew.catalog.cached_function_list", lambda _cfg: [])
+        monkeypatch.setattr(
+            "rebrew.catalog.build_function_registry",
+            lambda *a, **k: {
+                0x1000: {"detected_by": ["list"], "canonical_size": 8, "size_by_tool": {"list": 8}}
+            },
+        )
+        applied: list[list[dict]] = []
+        monkeypatch.setattr(
+            "rebrew.ghidra.cli_backend.resolve_ghidra_cli", lambda _cfg: "ghidra-cli"
+        )
+        monkeypatch.setattr(
+            "rebrew.ghidra.cli_backend.apply_commands_via_cli",
+            lambda ops, **kw: applied.append(ops) or (len(ops), 0),
+        )
+        r = runner.invoke(sync_cli.app, ["--create-functions"])
+        assert r.exit_code == 0
+        assert len(applied) == 1
+        assert applied[0][0]["tool"] == "create-function"
+
     def test_create_functions_dry_run_does_not_apply(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

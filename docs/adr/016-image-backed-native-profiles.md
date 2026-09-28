@@ -79,5 +79,5 @@ Every shipped compiler profile is image-backed:
 - The image-less native branch in `toolchain.py`/`compile.py` stays for a
   plugin toolchain registered without an `image`; no shipped profile uses it.
 - `watcom-2.0-win16`'s smoke golden changed with the snapshot (Open Watcom
-  `2026-09-01` codegen); the 32-bit `watcom-2.0-win32` golden is untouched, and
-  re-pinning that image to a dated release is a separate change.
+  `2026-09-01` codegen); the 32-bit `watcom-2.0-win32` golden is untouched —
+  the re-pin changed only which URL the same snapshot comes from.

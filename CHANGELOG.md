@@ -24,6 +24,22 @@
   value nor validate a request built with it. The enum is now the
   `FilterStatus` schema and the alias is declared beside it as `StatusAlias`,
   which is exactly the fold the route applies.
+- **`ghidra_backend = "cli"` no longer requires a reachable MCP endpoint.**
+  `rebrew sync --create-functions` / `--bookmarks` probed MCP reachability
+  before the transport was chosen, so the one configuration that exists to
+  avoid MCP hard-exited with "MCP unreachable" and never reached the
+  `ghidra-cli` backend it had selected. The probe now runs only when the run
+  will actually speak MCP (default `reva` transport, or any `--pull-data`).
+  `--pull-data` stays MCP-only. Covered by
+  `tests/test_sync_binsync.py::TestSyncCli::test_create_functions_cli_backend_needs_no_mcp`.
+- **The stale-stub prune no longer deletes a stub the user wrote into.**
+  `_AUTO_STUB_RE` matched only the stub's head (marker line, signature,
+  opening brace), so a `fcn_<va>.c` whose body had been filled in and whose
+  VA then fell out of rediscovery was unlinked along with its metadata
+  entry, despite ADR-004 and the function's own docstring promising that only
+  an unmodified auto-stub is ever removed. The pattern is now end-anchored to
+  the whole generated file. Covered by
+  `tests/test_intake.py::TestPruneStaleStubs::test_keeps_a_stub_the_user_wrote_into`.
 
 ## [2.15.0] - 2026-09-28
 

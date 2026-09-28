@@ -596,6 +596,22 @@ class TestPruneStaleStubs:
         # Re-running prune_stale_stubs is idempotent (prunes 0, touches nothing)
         assert prune_stale_stubs(tmp_path, src_dir, "TARGET", funcs, metadata_dir=meta_dir) == 0
 
+    def test_keeps_a_stub_the_user_wrote_into(self, tmp_path: Path) -> None:
+        """A filled-in body keeps the marker head but is no longer auto-generated."""
+        from rebrew.intake import prune_stale_stubs
+
+        src_dir = tmp_path / "src" / "target"
+        src_dir.mkdir(parents=True)
+        worked = src_dir / "fcn_00401010.c"
+        worked.write_text(
+            "// STUB: TARGET 0x00401010\n\n"
+            "void fcn_00401010(void)\n"
+            "{\n    /* reason */\n    g_ticks++;\n}\n"
+        )
+        funcs = [(0x401000, 32, "valid_fn")]
+        assert prune_stale_stubs(tmp_path, src_dir, "TARGET", funcs) == 0
+        assert worked.exists()
+
 
 class TestLinkToolchain:
     """_link_toolchain creates parent directories and is safe to re-run."""

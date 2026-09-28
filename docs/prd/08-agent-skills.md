@@ -38,9 +38,10 @@ recipes for each phase of a project.
 - Each skill explicitly states when **not** to use it, pointing at the
   sibling skill instead.
 - Machine-readable commands are documented with `--json` so the agent
-  receives structured output it can parse without ambiguity. (Convention,
-  not machine-checked: `tools/validate_skill_commands.py` skips `--json`,
-  so a batch command example without it is not flagged.)
+  receives structured output it can parse without ambiguity. (Enforced:
+  `tools/validate_skill_commands.py` validates `--json` and `--target`
+  like any other flag, so a command example that cites a flag the command
+  does not surface fails the gate.)
 
 ## Non-Goals
 
@@ -71,9 +72,11 @@ Excludes: in-project intake, day-to-day reversing, matching.
 
 ### `rebrew-workflow` (day-to-day reversing)
 
-Trigger keywords: `reverse`, `decompile`, `skeleton`, `test function`,
-`verify`, `lint`, `next function`, `workflow`, or any rebrew CLI not
-covered elsewhere.
+Trigger keywords: the shipped `description` frontmatter in
+`src/rebrew/agent-skills/rebrew-workflow/SKILL.md` (`reverse`, `decompile`,
+`skeleton`, `test function`, `verify`, `lint`, `todo`, `diff`, `split file`,
+`merge files`, `call graph`, `round-trip`, …). That file is the single
+source of truth for the trigger list.
 
 Scope:
 
@@ -248,8 +251,9 @@ rebrew skills show <name> --json  # name/description/path + raw content
 - A regression test asserts that example commands in each SKILL.md use real
   flags: `tools/validate_skill_commands.py` checks every `rebrew <subcommand>
   --flag` in the SKILL.md bash blocks and inline code spans (plus
-  `references/*.md`) against live `--help` output, skipping
-  `--help`/`--json`/`--target`/`--version` (`_SKIP_FLAGS`). It runs only
+  `references/*.md`) against live `--help` output, skipping only
+  `--help` and `--version` (`_SKIP_FLAGS`; `--json` and `--target` are
+  validated like any other flag). It runs only
   under the suite (`tests/test_skill_commands_validate.py`); the
   `validate-skill-commands` pre-commit hook is registered with
   `stages: [manual]`, so it is not part of `pre-commit run --all-files`.
@@ -262,10 +266,10 @@ rebrew skills show <name> --json  # name/description/path + raw content
   `rebrew <subcommand>` line in the SKILL.md bash blocks, inline code spans,
   and `references/*.md`, then verifies each `--flag` against live `--help`.
   It runs in the suite; the pre-commit hook is `stages: [manual]` and nothing
-  in CI or the Makefile invokes it. (Partly resolved — `--json`, `--target`,
-  `--version`, and `--help` are skipped, so those four can still drift; so can
-  frontmatter descriptions / trigger keywords, which are not validated against
-  the CLI surface at all.)
+  in CI or the Makefile invokes it. (Partly resolved — only `--version` and
+  `--help` are skipped, so those two can still drift; so can frontmatter
+  descriptions / trigger keywords, which are not validated against the CLI
+  surface at all.)
 - The `rebrew-ghidra-sync` skill and all CLI tools share a single canonical
   default endpoint of `http://localhost:8080/mcp/message`. (Resolved — was
   a dual-default between 8089 and 8080; see gap report for history.)

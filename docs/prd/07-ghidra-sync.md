@@ -100,10 +100,12 @@ BinSync state directory for field-level sync and the ReVa MCP server
 - `--bookmarks`: sets status bookmarks in Ghidra via ReVa MCP.
 - `--pull-data`: pulls data labels from Ghidra and generates `rebrew_globals.h`.
 - Transport fallback: ReVa MCP HTTP is the default transport; when
-  `ghidra_backend = "cli"` is configured in `rebrew-project.toml` (or MCP is
-  unreachable on initial connect), the `ghidra-cli` binary backend applies the
-  same push-direction structural operations (`--create-functions`,
-  `--bookmarks`). Only the apply/push direction is bridged: `--pull-data` is
+  `ghidra_backend = "cli"` is configured in `rebrew-project.toml`, the
+  `ghidra-cli` binary backend applies the same push-direction structural
+  operations (`--create-functions`, `--bookmarks`) without contacting MCP at
+  all. A transport that dies after the MCP probe but before any op landed also
+  falls back to `ghidra-cli`; an MCP that is down at the probe is refused up
+  front. Only the apply/push direction is bridged: `--pull-data` is
   ReVa MCP-only and has no `ghidra-cli` fallback.
 
 ### Runtime and common options

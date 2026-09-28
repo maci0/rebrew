@@ -26,7 +26,9 @@ The parser never validated counts, so garbage silently propagated into
 `parse_imports` sanity-gates the import table:
 
 - A per-module count outside `1..0x1000` (or past the file) aborts the
-  table walk — the module list is kept, per-API detail is dropped.
+  table walk — the module list is kept, and no detail past that module is
+  read (detail already read for the modules before it stands; a
+  misplaced by-name offset drops every module's detail).
 - By-name offsets must resolve to a printable Pascal string inside the
   imported names table; otherwise the block is treated as misplaced.
 - `rebrew imports` reports module-level records (dll + empty name) when a

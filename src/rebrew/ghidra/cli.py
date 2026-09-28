@@ -220,6 +220,12 @@ def main(
 
     cfg = require_config(target=target, json_mode=json_output)
 
+    # ``ghidra_backend = "cli"`` executes the structural ops through the
+    # ghidra-cli subprocess, so probing MCP first would refuse the run the
+    # config asks to make without MCP.  ``--pull-data`` is MCP-only either way.
+    cli_backend = getattr(cfg, "ghidra_backend", "reva") == "cli"
+    needs_mcp = pull_data or not cli_backend
+
     # --state-dir defaults to the configured binsync_state_dir (if any).
     if state_dir is None:
         configured = getattr(cfg, "binsync_state_dir", "") or ""
@@ -279,7 +285,8 @@ def main(
                 if dry_run:
                     _preview_ops(ops, json_output)
                 else:
-                    program_path = _probe_program_path(endpoint, program_path, json_output)
+                    if needs_mcp:
+                        program_path = _probe_program_path(endpoint, program_path, json_output)
                     _mcp_apply(ops, endpoint, program_path, json_output, cfg)
             elif not json_output:
                 console.print("[dim]Nothing imported — no functions to create.[/dim]")
@@ -288,8 +295,9 @@ def main(
     # --- MCP structural ops ---
     program_path = resolve_program_path(cfg)
     # A dry run only previews the ops: it must not POST them, and it must not
-    # require Ghidra to be reachable.
-    if not dry_run:
+    # require Ghidra to be reachable.  Neither may the ghidra-cli backend,
+    # which never speaks MCP.
+    if not dry_run and needs_mcp:
         program_path = _probe_program_path(endpoint, program_path, json_output)
 
     # Both structural ops may be requested in one run; the ops are collected

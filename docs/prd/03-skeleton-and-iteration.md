@@ -46,8 +46,8 @@ you what to attack next.
   - Auto-detects symbol, VA, size, and CFLAGS from source and metadata.
   - Compiles via MSVC6 (or configured compiler).
   - Byte-compares against the target.
-  - Auto-promotes STATUS (EXACT / RELOC / NEAR_MATCHING / STUB) in
-    `rebrew-functions.toml`.
+  - Auto-promotes STATUS (EXACT / RELOC / NEAR_MATCHING / STUB /
+    SIZE_MISMATCH / MISSING_SIZE) in `rebrew-functions.toml`.
 - A `diff` command that classifies mismatches into structural / relocation /
   register / invalid-relocation and can auto-write BLOCKER metadata.
 - A `lint` command that enforces marker discipline and migrates legacy
@@ -83,7 +83,7 @@ you what to attack next.
 - `--force` overwrites an existing file.
 - `--append PATH` appends the marker block to an existing multi-function
   `.c` file rather than creating a new one.
-- `--decomp [--decomp-backend auto|r2ghidra|r2dec|ghidra]` embeds a
+- `--decomp [--decomp-backend auto|r2ghidra|r2dec|ghidra|kuna|m2c]` embeds a
   decompilation as a starting point; `--decomp-body` writes the decompiled C
   as the function body (a real GA seed) instead of a comment block.
 - `--xrefs --endpoint URL` fetches cross-references from Ghidra and

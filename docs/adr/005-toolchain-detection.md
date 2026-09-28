@@ -31,7 +31,9 @@ the corpus:
 - `_diec_version_hint` falls back to the Microsoft Linker version when no
   compiler record exists, mapped through `_linker_era_hint`
   (5.10/5.11/5.12 → 5.0, 6.x → 6.0, 7.1 → 7.1, 7.x → 7.0, 8.x → 8.0,
-  9.x → 9.0, 10.x → 10.0, 11.x → 11.0; anything else → no hint),
+  9.x → 9.0, 10.x → 10.0, 11.x → 11.0; an unmapped version yields no era,
+  so the hint carries the raw linker version alone
+  ("MSVC-era (linker 4.10.3019)")),
   labeled with the raw linker version ("MSVC 5.0 (linker 5.12.9049)").
 
 ## Consequences

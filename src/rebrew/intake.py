@@ -258,8 +258,14 @@ def classify_all(
     return documented
 
 
+#: The whole generated stub, end-anchored: marker line, blank line,
+#: signature, the generated body comment, and the closing brace. A stub the
+#: user has written into (a filled-in body, extra lines, a trailing newline of
+#: their own) no longer matches, so the prune cannot delete real work.
 _AUTO_STUB_RE = re.compile(
-    r"^(?://|/\*) STUB: ([A-Za-z0-9_]+) 0x([0-9a-fA-F]{8})(?: \*/)?\n\nvoid fcn_\2\(void\)\n\{"
+    r"\A(?://|/\*) STUB: ([A-Za-z0-9_]+) 0x([0-9a-fA-F]{8})(?: \*/)?\n\n"
+    r"void fcn_\2\(void\)\n\{\n    /\*.*?\*/\n\}\n?\Z",
+    re.DOTALL,
 )
 
 
