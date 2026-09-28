@@ -38,7 +38,11 @@ BOM that reads to a scanner as a clean bill of health), writes
 from `pyproject.toml` + epoch knobs, the sha256 of `build-constraints.txt` and
 of `uv.lock` (the input the SBOM inventories and the smoke install resolves),
 the sha256 of the two artifacts the manifest ships beside, and
-the source commit and dirty flag), and installs the
+the source commit and dirty flag), re-reads that manifest against the bytes
+actually in `dist/` through `make verify-dist` (a stale or hand-edited manifest
+keeps every key and still describes the wrong artifact, and the check lives
+here so a contributor gets the same verdict from `make pr-check` before
+pushing), and installs the
 wheel into a clean venv for a smoke import through `make smoke-wheel` — the
 Makefile owns that recipe, the same way it owns the build, so the CI and
 contributor paths cannot drift. Runtime deps come from

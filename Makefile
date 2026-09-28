@@ -6,6 +6,7 @@
 	ensure-extras \
 	sdist-check \
 	build-repro \
+	verify-dist \
 	clone-resembl warn-uv-version
 
 # Force POSIX sh for recipes (ignore a caller-exported SHELL=bash).  Recipes
@@ -88,6 +89,10 @@ BUILD_REPRO_DIR ?= .scratch/rebuild
 # `make sbom` inventories that same lock), so a lock edit left a provenance
 # record naming the lock the artifacts were not built beside.
 #
+# .gitattributes is here for the same reason: it sets the line endings and the
+# binary marking of every tracked file, so flipping eol=lf or marking a pattern
+# binary rewrites the bytes setuptools copies into both archives.
+#
 # The directories are prerequisites too.  `find src -type f` only sees the files
 # that exist when make expands this list, and make rebuilds a target when a
 # prerequisite is *newer*, not when one disappears: adding or deleting a source
@@ -101,6 +106,7 @@ BUILD_INPUT_DIRS := $(shell find src -type d \
 	-not -path '*/__pycache__*' -not -path '*.egg-info*')
 BUILD_INPUTS := Makefile pyproject.toml build-constraints.txt MANIFEST.in uv.lock \
 	.python-version tools/normalize_sdist.py \
+	.gitattributes \
 	README.md CHANGELOG.md SECURITY.md LICENSE NOTICE \
 	$(shell find src -type f -not -path '*/__pycache__/*' -not -path '*.egg-info/*')
 
@@ -137,9 +143,10 @@ help:
 		'  make sbom               # CycloneDX 1.5 JSON from uv.lock (offline)' \
 		'  make sdist-check        # build a wheel from the sdist and diff it against dist/*.whl' \
 		'  make build-repro        # rebuild HEAD under .scratch/ at another path/mode/TZ/locale and diff the hashes (clean tree)' \
+		'  make verify-dist        # re-check dist/rebrew.buildinfo against the artifacts actually in dist/' \
 		'  make smoke-wheel        # install dist/*.whl into .venv-pkg and smoke-import it (CI package job)' \
 		'  make all                # local mirror of CI lint+test(+coverage floor)+cli-contract gates' \
-		'  make pr-check           # full local CI verification (all + check + build + sdist-check + smoke-wheel + build-repro + sbom)' \
+		'  make pr-check           # full local CI verification (all + check + build + sdist-check + smoke-wheel + build-repro + verify-dist + sbom)' \
 		'  make gen-fixtures       # regenerate tests/fixtures/ from tools/gen_fixtures.py' \
 		'  make gen-fixtures-check # tools/gen_fixtures.py --check' \
 		'  make gen-skills         # regenerate .agents/skills/ from src/rebrew/agent-skills/' \
@@ -515,6 +522,13 @@ build: warn-uv-version
 # trailing `rm -rf` never runs and the extracted copy would outlive it; the
 # EXIT trap covers the failure, the mismatch, and the happy path alike.
 #
+# The archive is written to a file and extracted, not piped: `set -e` in a
+# POSIX shell only sees the last command of a pipeline, so `git archive | tar`
+# reports success when git dies halfway, tar extracts the partial tree, and
+# the hash diff then blames the build for a repository problem.  The scratch
+# archive is a sibling of the tree, never inside it, so the second build never
+# sees a file the first checkout does not have.
+#
 # A mismatch names the differing members: two hashes say that the artifact
 # drifted, not what in it, and the usual causes (a timestamp, an ordering, a
 # path) are one diffoscope run from the cause.  diffoscope is optional and
@@ -533,11 +547,15 @@ build-repro: dist/rebrew.buildinfo
 	  git status --porcelain >&2; \
 	  exit 1; \
 	fi; \
-	trap 'rm -rf -- "$$repro"' EXIT; \
+	trap 'rm -rf -- "$$repro"; rm -f -- "$$archive"' EXIT; \
+	archive="$$repro.tar"; \
 	umask 077; \
 	rm -rf "$$repro"; \
+	rm -f "$$archive"; \
 	mkdir -p "$$repro"; \
-	git archive HEAD | tar -x -C "$$repro"; \
+	git archive --format=tar --output="$$archive" HEAD; \
+	tar -x -C "$$repro" -f "$$archive"; \
+	rm -f "$$archive"; \
 	SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) TZ=Asia/Tokyo LC_ALL=C.UTF-8 \
 		$(MAKE) -C "$$repro" build; \
 	sha() { \
@@ -563,6 +581,54 @@ build-repro: dist/rebrew.buildinfo
 		fi; \
 		echo ".$$ext reproducible: $$first"; \
 	done
+
+# Re-derive, from the files on disk, every fact `make build` recorded in
+# dist/rebrew.buildinfo.  `build` writes the manifest and the artifacts in one
+# recipe, so nothing has read the two back until now: a normalize_sdist.py
+# rewrite, a stray `uv build`, or a half-finished run leaves a manifest that
+# names bytes the shipped files no longer have, and a consumer that trusts it
+# gets a provenance record for the wrong artifact.
+#
+# The CI package job ran a weaker version of this as inline YAML: it grepped
+# that the keys exist and that SOURCE_DATE_EPOCH matches, which a hand-edited
+# or truncated manifest passes.  That check also ran nowhere else, so no
+# contributor could run it.  Here it lives next to the other gates, compares
+# the recorded digests against freshly computed ones, and `pr-check` runs it.
+#
+# Read-only: it hashes what is in dist/ and the two input files, and writes
+# nothing.
+verify-dist: dist/rebrew.buildinfo ensure-uv
+	@set -eu; \
+	for f in dist/*.whl; do set -- "$$@" "$$f"; done; \
+	[ $$# -eq 1 ] && [ -f "$$1" ] || { echo "ERROR: expected exactly one wheel in dist/ (run 'make build')"; exit 1; }; \
+	wheel=$$1; \
+	set --; \
+	for f in dist/*.tar.gz; do set -- "$$@" "$$f"; done; \
+	[ $$# -eq 1 ] && [ -f "$$1" ] || { echo "ERROR: expected exactly one sdist in dist/ (run 'make build')"; exit 1; }; \
+	sdist=$$1; \
+	[ -f dist/rebrew.buildinfo ] || { echo "ERROR: dist/rebrew.buildinfo missing (run 'make build')"; exit 1; }; \
+	if command -v sha256sum >/dev/null 2>&1; then \
+	  sha() { sha256sum "$$1" | cut -d' ' -f1; }; \
+	elif command -v shasum >/dev/null 2>&1; then \
+	  sha() { shasum -a 256 "$$1" | cut -d' ' -f1; }; \
+	else \
+	  echo "ERROR: no sha256sum or shasum on PATH (cannot check the build provenance)"; exit 1; \
+	fi; \
+	recorded() { \
+	  v=$$(sed -n "s/^$$1=//p" dist/rebrew.buildinfo | head -n 1); \
+	  [ -n "$$v" ] || { echo "ERROR: dist/rebrew.buildinfo has no $$1 line"; exit 1; }; \
+	  printf '%s' "$$v"; \
+	}; \
+	check() { \
+	  [ "$$2" = "$$3" ] || { echo "ERROR: $$1: buildinfo records $$2, the file on disk is $$3" >&2; exit 1; }; \
+	}; \
+	check wheel-sha256 "$$(recorded wheel-sha256)" "$$(sha "$$wheel")"; \
+	check sdist-sha256 "$$(recorded sdist-sha256)" "$$(sha "$$sdist")"; \
+	check build-constraints-sha256 "$$(recorded build-constraints-sha256)" "$$(sha build-constraints.txt)"; \
+	check uv-lock-sha256 "$$(recorded uv-lock-sha256)" "$$(sha uv.lock)"; \
+	check SOURCE_DATE_EPOCH "$$(recorded SOURCE_DATE_EPOCH)" "$(SOURCE_DATE_EPOCH)"; \
+	recorded setuptools >/dev/null; \
+	echo "dist provenance OK: $${wheel##*/} and $${sdist##*/} match dist/rebrew.buildinfo"
 
 # CycloneDX 1.5 SBOM from the committed lock (no network).  Writes
 # dist/rebrew.cdx.json so package CI / release consumers share one inventory.
@@ -649,8 +715,10 @@ all: format-check lint mypy audit coverage gen-fixtures-check cycles-check idemp
 # clears dist/*.cdx.json, and ``sdist-check`` depends on ``build``, so an
 # earlier sbom leaves dist/ with no BOM for the same reason CI had to move its
 # step.  ``smoke-wheel`` runs after ``sdist-check`` so it installs the same
-# wheel the sdist comparison already accepted.
-pr-check: all check build sdist-check smoke-wheel build-repro sbom
+# wheel the sdist comparison already accepted, and ``verify-dist`` runs after
+# both because it reads the bytes those two leave in dist/ and the manifest
+# ``build`` recorded for them.
+pr-check: all check build sdist-check smoke-wheel build-repro verify-dist sbom
 
 # Regenerate checked-in binary fixtures (run after editing tools/gen_fixtures.py).
 gen-fixtures: ensure-uv

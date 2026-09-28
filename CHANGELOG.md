@@ -453,6 +453,29 @@
   still unchecked on the `verify` compile join, the `test` blocker clear, the
   batch cache-key probe, and the cross-import write paths; the fix for those is
   one validator owning the field, not a per-command re-check.
+- **`make verify-dist` re-reads the build manifest it ships.** Nothing compared
+  `dist/rebrew.buildinfo` with the artifacts beside it: `make build` writes both
+  in one recipe, so a `normalize_sdist.py` rewrite, a stray `uv build`, or a
+  half-finished run left a provenance record naming bytes the shipped files no
+  longer had. The new target recomputes the wheel, sdist,
+  `build-constraints.txt` and `uv.lock` digests and the `SOURCE_DATE_EPOCH` and
+  fails on the first that disagrees. The CI package job ran a weaker version of
+  this as inline YAML (it grepped that the keys exist, which a stale manifest
+  passes) and nowhere else; the recipe now lives in the Makefile, `pr-check`
+  runs it, and the package job calls the target.
+- **`build-repro` no longer builds a partial source tree.** `git archive HEAD |
+  tar -x` runs under `set -e` in a POSIX shell, which only sees the last
+  command of a pipeline, so a `git archive` that failed halfway left tar
+  extracting a truncated tree. The second build then either died or, worse,
+  succeeded on incomplete input and the hash diff reported a reproducibility
+  failure that says nothing about the build. The archive is written to a file
+  and extracted, so git's exit status is checked, and the scratch archive is a
+  sibling of the tree rather than a member of it.
+- **`.gitattributes` invalidates `dist/`.** It sets the line endings and binary
+  marking of every tracked file, so flipping `eol=lf` or marking a pattern
+  binary rewrites the bytes in both archives, and `make sdist-check` /
+  `make smoke-wheel` kept verifying the artifacts of the previous tree. It is
+  now one of the build inputs behind `dist/rebrew.buildinfo`.
 - **A failed dashboard request is reported once, not twice.** The sqlite and
   last-resort handler guards printed the exception to the console *and* logged
   it through `_log_failed_request`, and the log handler writes to that same

@@ -11,6 +11,7 @@ retargeted major tag cannot silently change CI.
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import os
 import re
@@ -614,6 +615,10 @@ class TestCiPins:
         # artifacts.  None lives under src/, so the find() above cannot see it.
         for doc in ("README.md", "CHANGELOG.md", "SECURITY.md", "LICENSE", "NOTICE"):
             assert doc in build_inputs, f"{doc} ships but is not a build input"
+        # .gitattributes decides the line endings and the binary marking of
+        # every tracked file, so editing it changes the bytes in both archives
+        # while no file in the tree is touched.
+        assert ".gitattributes" in build_inputs
 
     def test_buildinfo_rule_rebuilds_on_a_source_add_or_delete(self) -> None:
         """`BUILD_INPUTS` alone cannot see a file appearing or disappearing.
@@ -777,7 +782,7 @@ class TestCiPins:
         )
         assert recipe is not None, "build-repro target not found"
         body = recipe.group("body")
-        assert "trap 'rm -rf -- \"$$repro\"' EXIT" in body
+        assert 'trap \'rm -rf -- "$$repro"; rm -f -- "$$archive"\' EXIT' in body
         # The trap is armed before the tree is created, and the literal
         # trailing rm is gone (the trap replaced it).
         assert body.index("trap ") < body.index('mkdir -p "$$repro"')
@@ -788,10 +793,20 @@ class TestCiPins:
         # umask must apply to the extract. Set after tar, it never reaches
         # the source modes setuptools copies into the wheel.
         assert re.search(
-            r"umask 077; \\\n\trm -rf \"\$\$repro\"; \\\n\tmkdir -p \"\$\$repro\"; \\\n"
-            r"\tgit archive HEAD \| tar -x -C \"\$\$repro\"",
+            r"umask 077; \\\n\trm -rf \"\$\$repro\"; \\\n\trm -f \"\$\$archive\"; \\\n"
+            r"\tmkdir -p \"\$\$repro\"; \\\n"
+            r"\tgit archive --format=tar --output=\"\$\$archive\" HEAD; \\\n"
+            r"\ttar -x -C \"\$\$repro\" -f \"\$\$archive\"",
             body,
         )
+        # A pipeline would hide a mid-stream `git archive` failure: `set -e`
+        # in a POSIX shell only sees the last command, so tar would extract
+        # the partial tree and the hash diff would blame the build.
+        assert "git archive HEAD | tar" not in body
+        # The scratch archive lives beside the tree, not inside it, so the
+        # second build never sees a file the first checkout does not have.
+        assert "$$archive" in body
+        assert 'archive="$$repro.tar"' in body
         # The second build has no .git of its own, so the epoch travels in
         # the environment; a different path, TZ and locale come with it.
         assert "SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) TZ=Asia/Tokyo LC_ALL=C.UTF-8" in body
@@ -816,7 +831,7 @@ class TestCiPins:
         body = recipe.group("body")
         guard = 'if git rev-parse --git-dir >/dev/null 2>&1 && [ -n "$$(git status --porcelain)" ]'
         assert guard in body
-        assert body.index(guard) < body.index("git archive HEAD")
+        assert body.index(guard) < body.index("git archive --format=tar")
         # The offending paths are named, or the contributor cannot tell what
         # to commit.
         assert "git status --porcelain >&2" in body
@@ -1007,10 +1022,78 @@ class TestCiPins:
         normalize = text.index("tools/normalize_sdist.py dist/*.tar.gz dist/*.whl")
         assert normalize < text.index("wheelsum=$$(sha")
         assert normalize < text.index("sdistsum=$$(sha")
-        # CI's package job asserts the same lines on the artifact it uploads.
+        # CI's package job runs the target that re-reads them; see
+        # test_verify_dist_compares_the_manifest_to_the_files_on_disk.
         package_job = CI_YML.read_text(encoding="utf-8")
-        for key in ("wheel-sha256=", "sdist-sha256=", "uv-lock-sha256="):
-            assert f"grep -q '^{key}' dist/rebrew.buildinfo" in package_job, key
+        assert "make verify-dist" in package_job
+
+    @staticmethod
+    def _fake_dist_tree(tmp_path: Path) -> Path:
+        """A dist/ whose buildinfo describes exactly the bytes beside it.
+
+        The real Makefile is copied in so the recipe under test is the shipped
+        one; ``-o dist/rebrew.buildinfo`` keeps make from running the rule that
+        would replace the manifest with a real build's.
+        """
+        (tmp_path / "src").mkdir()
+        (tmp_path / "dist").mkdir()
+        (tmp_path / "Makefile").write_text(MAKEFILE.read_text(encoding="utf-8"), encoding="utf-8")
+        (tmp_path / "build-constraints.txt").write_text("setuptools==0\n", encoding="utf-8")
+        (tmp_path / "uv.lock").write_text("version = 1\n", encoding="utf-8")
+        wheel = tmp_path / "dist" / "rebrew-1.0-py3-none-any.whl"
+        sdist = tmp_path / "dist" / "rebrew-1.0.tar.gz"
+        wheel.write_bytes(b"wheel")
+        sdist.write_bytes(b"sdist")
+
+        def digest(path: Path) -> str:
+            return hashlib.sha256(path.read_bytes()).hexdigest()
+
+        (tmp_path / "dist" / "rebrew.buildinfo").write_text(
+            "name=rebrew\nversion=1.0\nSOURCE_DATE_EPOCH=0\nsetuptools=0\n"
+            f"wheel-sha256={digest(wheel)}\n"
+            f"sdist-sha256={digest(sdist)}\n"
+            f"build-constraints-sha256={digest(tmp_path / 'build-constraints.txt')}\n"
+            f"uv-lock-sha256={digest(tmp_path / 'uv.lock')}\n",
+            encoding="utf-8",
+        )
+        return wheel
+
+    @pytest.mark.skipif(shutil.which("uv") is None, reason="the target preflights uv")
+    def test_verify_dist_compares_the_manifest_to_the_files_on_disk(self, tmp_path: Path) -> None:
+        """`build` writes the artifacts and the manifest together; read both back.
+
+        Nothing re-read dist/rebrew.buildinfo, so a normalize_sdist.py rewrite
+        or a stray `uv build` left a manifest naming bytes the shipped files no
+        longer had.  The CI package job grepped that the keys existed, which a
+        stale or hand-edited manifest passes; `make verify-dist` compares the
+        recorded digests against the bytes on disk, and it runs in `pr-check`
+        and in the package job so a contributor gets the same verdict before
+        pushing.
+        """
+        wheel = self._fake_dist_tree(tmp_path)
+        run_env = {**os.environ, "SOURCE_DATE_EPOCH": "0"}
+
+        def verify() -> subprocess.CompletedProcess[str]:
+            return subprocess.run(
+                ["make", "-C", str(tmp_path), "-o", "dist/rebrew.buildinfo", "verify-dist"],
+                env=run_env,
+                capture_output=True,
+                text=True,
+                timeout=120,
+                check=False,
+            )
+
+        ok = verify()
+        assert ok.returncode == 0, ok.stdout + ok.stderr
+        assert "dist provenance OK" in ok.stdout
+
+        # One byte appended to the wheel: the key is still present, the value
+        # no longer describes the file, which is what the old grep missed.
+        with wheel.open("ab") as handle:
+            handle.write(b"x")
+        stale = verify()
+        assert stale.returncode != 0, stale.stdout + stale.stderr
+        assert "wheel-sha256" in stale.stderr
 
     def test_build_warns_on_an_uncommitted_tree(self) -> None:
         """Artifacts from a dirty tree match no commit, and build-repro says so.

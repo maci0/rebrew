@@ -200,28 +200,16 @@ jobs:
         # owns locale knobs, egg-info cleanup, and dist/rebrew.buildinfo
         # (setuptools pin parsed from pyproject.toml).  Export SOURCE_DATE_EPOCH
         # here so the wheel-repro step below reuses the exact same epoch.
-        # Do not re-inline the build recipe — it has drifted before.
+        # `make verify-dist` re-derives the manifest's digests from the files in
+        # dist/, so a half-written buildinfo or a stray rewrite cannot ship
+        # beside artifacts it does not describe.  Do not re-inline either
+        # recipe — they have drifted before.
         run: |
           set -euo pipefail
           SOURCE_DATE_EPOCH="$(git log -1 --pretty=%ct)"
           export SOURCE_DATE_EPOCH
           make build
-          shopt -s nullglob
-          wheels=(dist/*.whl)
-          sdists=(dist/*.tar.gz)
-          if [[ ${#wheels[@]} -ne 1 || ${#sdists[@]} -ne 1 ]]; then
-            echo "expected exactly one wheel and one sdist in dist/" >&2
-            ls -la dist/ || true
-            exit 1
-          fi
-          test -f dist/rebrew.buildinfo
-          grep -q "^SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}$" dist/rebrew.buildinfo
-          grep -q '^setuptools=' dist/rebrew.buildinfo
-          # The manifest must name the bytes it ships beside, or nothing binds
-          # the provenance to those artifacts.
-          grep -q '^wheel-sha256=' dist/rebrew.buildinfo
-          grep -q '^sdist-sha256=' dist/rebrew.buildinfo
-          grep -q '^uv-lock-sha256=' dist/rebrew.buildinfo
+          make verify-dist
           ls -la dist/
       - name: Verify wheel and sdist reproducibility (second build, other path)
         # Rebuild the same commit with `make build` from a `git archive` copy

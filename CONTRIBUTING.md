@@ -90,7 +90,7 @@ make build                    # reproducible sdist+wheel + dist/rebrew.buildinfo
 make sbom                     # CycloneDX 1.5 JSON from uv.lock (offline)
 make cli-contract             # high-value --help greps (CI cli-contract job)
 make all                      # local mirror of CI lint+test+cli-contract gates
-make pr-check                 # full local CI verification (all + check + build + sdist-check + smoke-wheel + build-repro + sbom)
+make pr-check                 # full local CI verification (all + check + build + sdist-check + smoke-wheel + build-repro + verify-dist + sbom)
 make sdist-check              # build a wheel from the sdist, diff it against dist/*.whl
 make build-repro              # rebuild HEAD under .scratch/ at another path/mode/TZ/locale, diff the hashes (clean tree)
 make smoke-wheel              # install dist/*.whl into .venv-pkg and smoke-import it
@@ -182,7 +182,7 @@ no `**Breaking:**` entry naming it.
    `ci/`, `chore/`) and open the pull request against `main`; do not commit
    straight to `main`.  Every CI job runs on the pull request, so a green local
    `make pr-check` plus a green `pre-commit` job is what review expects.
-1. `make pr-check` (or `make all && make check && make build && make sdist-check && make smoke-wheel && make build-repro && make sbom`)
+1. `make pr-check` (or `make all && make check && make build && make sdist-check && make smoke-wheel && make build-repro && make verify-dist && make sbom`)
    — mirrors CI
    lint+test+cli-contract gates, the pre-commit job, the package job's
    `make build` (sdist/wheel + `dist/rebrew.buildinfo`), its
