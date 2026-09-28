@@ -1310,6 +1310,35 @@ class TestUpdateFieldTomlSafe:
         )
         assert load_metadata(tmp_path)[("SERVER", 0x1000)]["note"] == "see[0m dump"
 
+    def test_lone_surrogate_does_not_abort_the_write(self, tmp_path: Path) -> None:
+        """A legacy source read with ``surrogateescape`` yields lone surrogates,
+        and tomlkit writes one through as itself, so the ``utf-8`` encode in
+        ``atomic_write_locked`` raised ``UnicodeEncodeError`` and lost the
+        whole write.  The surrogate becomes U+FFFD, which keeps the position
+        of the byte rather than deleting it as a control is deleted.
+        """
+        from rebrew.metadata import update_field
+
+        update_field(tmp_path, 0x1000, "note", "Caf\udce9", module="SERVER")
+        assert get_entry(tmp_path, 0x1000, "SERVER")["note"] == "Caf�"
+
+    def test_save_metadata_replaces_lone_surrogates(self, tmp_path: Path) -> None:
+        """The bulk writer shares the gate, so the same value lands the same way."""
+        save_metadata(tmp_path, {("SERVER", 0x1000): {"note": "Caf\udce9"}})
+        assert load_metadata(tmp_path)[("SERVER", 0x1000)]["note"] == "Caf�"
+
+    def test_surrogate_replacement_does_not_collapse_two_names(self, tmp_path: Path) -> None:
+        """Dropping the unencodable character would make a legacy ``Café`` and
+        a plain ``Cafe`` one stored note; replacing it keeps them distinct."""
+        from rebrew.metadata import update_field
+
+        update_field(tmp_path, 0x1000, "note", "Café", module="SERVER")
+        update_field(tmp_path, 0x2000, "note", "Cafe", module="SERVER")
+        assert (
+            get_entry(tmp_path, 0x1000, "SERVER")["note"]
+            != get_entry(tmp_path, 0x2000, "SERVER")["note"]
+        )
+
 
 class TestSetFieldsValidation:
     """set_fields / set_fields_batch must enforce the same type gate as update_field."""

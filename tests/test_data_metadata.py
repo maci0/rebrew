@@ -119,6 +119,13 @@ class TestSetDataField:
         set_data_field(tmp_path, 0x10025000, "size", 256, "SERVER")
         assert get_data_entry(tmp_path, 0x10025000, "SERVER")["size"] == 256
 
+    def test_lone_surrogate_name_does_not_abort_the_write(self, tmp_path: Path) -> None:
+        """The data store shares ``toml_safe`` with the function store, so a
+        legacy cp1252 global name decoded with ``surrogateescape`` used to
+        abort the whole write with ``UnicodeEncodeError``."""
+        set_data_field(tmp_path, 0x10025000, "name", "Caf\udce9", "SERVER")
+        assert get_data_entry(tmp_path, 0x10025000, "SERVER")["name"] == "Caf�"
+
     def test_multiple_fields_same_entry(self, tmp_path: Path) -> None:
         set_data_field(tmp_path, 0x10025000, "size", 256, "SERVER")
         set_data_field(tmp_path, 0x10025000, "section", ".rdata", "SERVER")

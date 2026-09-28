@@ -162,6 +162,11 @@ def clear_metadata_cache() -> None:
 # Constants
 # ---------------------------------------------------------------------------
 
+#: Every surrogate code point, for the ``toml_safe`` membership test.
+_SURROGATE_CHARS = frozenset(chr(code) for code in range(0xD800, 0xE000))
+#: What a surrogate becomes in stored text (see :func:`toml_safe`).
+_REPLACEMENT_CHAR = "�"
+
 # Canonical TOML key order when writing an entry; unlisted fields follow, in
 # insertion order.  Mirrors ``data_metadata._CANONICAL_ORDER``.
 _CANONICAL_ORDER = [
@@ -484,10 +489,25 @@ def toml_safe(value: Any) -> Any:
     valid TOML and fails the next parse — a Ghidra comment or note carrying
     one would corrupt the whole metadata file.  Tab/newline survive (valid
     TOML escapes); other C0/C1 controls are dropped.
+
+    A surrogate is replaced with U+FFFD, not dropped.  A legacy cp1252 or
+    Shift-JIS source read by :func:`rebrew.utils.read_compile_source` yields
+    lone surrogates (U+DC80-U+DCFF) for bytes that are not valid UTF-8, and a
+    symbol name, Ghidra comment, or note copied out of one carries them here.
+    tomlkit writes such a code point through as itself rather than escaping it,
+    so the value reaches ``atomic_write_locked`` unchanged and its ``utf-8``
+    encode raises ``UnicodeEncodeError`` — the whole write aborts and the
+    field is lost with it.  Dropping the character instead would make
+    ``"Café"`` and ``"Cafe"`` the same stored note; U+FFFD keeps the
+    position of the byte that was there.
     """
     if not isinstance(value, str):
         return value
-    return "".join(ch for ch in value if ord(ch) >= 0x20 or ch in ("\t", "\n"))
+    return "".join(
+        _REPLACEMENT_CHAR if ch in _SURROGATE_CHARS else ch
+        for ch in value
+        if ord(ch) >= 0x20 or ch in ("\t", "\n")
+    )
 
 
 def _ensure_entry_table(
