@@ -1337,16 +1337,39 @@ def parse_env_log_level(raw: str, *, default: int) -> int:
     return ENV_LOG_LEVELS[value]
 
 
-def check_env_dir(name: str, raw: str) -> None:
-    """Raise unless a directory-valued env knob names a directory.
+def env_dir_path(name: str, raw: str) -> Path | None:
+    """Resolve a directory-valued env knob to a validated path, or ``None``.
 
     Single source for every ``REBREW_*`` path knob the point of use probes
     with ``is_dir()``.  A mistyped path otherwise degrades quietly: the
     consuming command runs with that knob silently out of play.
+
+    A leading ``~`` is expanded before the check, and the *expanded* path is
+    what the caller gets back.  A shell does not expand ``~`` inside a quoted
+    assignment (``REBREW_SKILLS_DIR='~/skills'``) nor inside the ``.env`` file
+    a direnv points at, which is where these knobs are usually written, so the
+    literal string reached :func:`check_env_dir` unexpanded, failed ``is_dir()``,
+    and reported a valid directory as "not a directory".  Resolving and
+    validating together is what keeps that from reappearing: every caller
+    holds the expanded path, so none of them can disagree with the check.
     """
     value = raw.strip()
-    if value and not Path(value).is_dir():
+    if not value:
+        return None
+    path = Path(value).expanduser()
+    if not path.is_dir():
         raise ConfigError(f"{name}={value!r} is not a directory")
+    return path
+
+
+def check_env_dir(name: str, raw: str) -> None:
+    """Raise unless a directory-valued env knob names a directory.
+
+    Validation half of :func:`env_dir_path`, for the callers that only need
+    the check (``rebrew cfg effective``).  Raises the same error for the same
+    inputs, on the same ``~``-expanded basis.
+    """
+    env_dir_path(name, raw)
 
 
 def check_env_display(raw: str) -> None:
@@ -2452,6 +2475,7 @@ __all__ = [
     "check_env_toolchain_pin",
     "check_env_wineprefix",
     "detect_crt_sources",
+    "env_dir_path",
     "env_knob_errors",
     "find_root",
     "inventory_path_for",

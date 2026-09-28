@@ -41,7 +41,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Literal
 
-from rebrew.config import TOOLCHAIN_OVERLAY_ENV, ConfigError, check_env_dir
+from rebrew.config import TOOLCHAIN_OVERLAY_ENV, ConfigError, env_dir_path
 from rebrew.errors import RebrewError
 from rebrew.registry import RegistryError, merge_provider_dict
 from rebrew.toolchain_data import BUILTIN_TOOLCHAINS, IMAGE_ENTRYPOINTS
@@ -214,12 +214,10 @@ def _toolchain_overlay_dir() -> Path | None:
     env = os.environ.get(TOOLCHAIN_OVERLAY_ENV, "").strip()
     if not env:
         return None
-    path = Path(env)
     try:
-        check_env_dir(TOOLCHAIN_OVERLAY_ENV, env)
+        return env_dir_path(TOOLCHAIN_OVERLAY_ENV, env)
     except ConfigError as exc:
         raise ToolchainError(str(exc), kind="validation") from exc
-    return path
 
 
 def _merge_toolchain_overlay(registry: dict[str, ToolchainSpec], origins: dict[str, str]) -> None:

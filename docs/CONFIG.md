@@ -395,6 +395,12 @@ by the CLI layer and win for that invocation.
 
 ### Paths / overlays
 
+Every path knob below expands a leading `~` before it is checked and before
+it is used. A shell does not expand the tilde inside a quoted assignment
+(`REBREW_SKILLS_DIR='~/skills'`) or inside the `.env` a direnv points at,
+which is where these are usually written, so the literal string is what
+rebrew receives.
+
 - `REBREW_TOOLCHAINS_DIR` — path to the sibling `rebrew-toolchains` checkout
   (Dockerfiles / wrappers). Default: sibling of this install.
 - `REBREW_TOOLCHAIN_OVERLAY_DIR` — directory of extra toolchain TOML overlays

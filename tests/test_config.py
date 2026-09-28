@@ -1,6 +1,7 @@
 """Tests for the config loader and multi-target support."""
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -2324,6 +2325,58 @@ class TestEnvKnobValidators:
             check_env_dir("REBREW_SKILLS_DIR", str(tmp_path / "absent"))
         check_env_dir("REBREW_SKILLS_DIR", "")
         check_env_dir("REBREW_SKILLS_DIR", str(tmp_path))
+
+    def test_dir_knob_expands_tilde(self, tmp_path: Path, monkeypatch: Any) -> None:
+        """A ``~``-prefixed knob resolves; the shell does not expand it for us.
+
+        ``REBREW_SKILLS_DIR='~/skills'`` in a direnv-managed ``.env`` reaches
+        the process with the tilde literal, so both the check and the path the
+        caller gets back must expand it or a valid directory reads as absent.
+        """
+        from rebrew.config import check_env_dir, env_dir_path
+
+        home = tmp_path / "home"
+        (home / "skills").mkdir(parents=True)
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setenv("USERPROFILE", str(home))
+
+        assert env_dir_path("REBREW_SKILLS_DIR", "~/skills") == home / "skills"
+        # The validation-only half agrees with the resolver.
+        check_env_dir("REBREW_SKILLS_DIR", "~/skills")
+        with pytest.raises(ConfigError, match="not a directory"):
+            env_dir_path("REBREW_SKILLS_DIR", "~/absent")
+
+    def test_dir_knob_blank_resolves_to_none(self) -> None:
+        from rebrew.config import env_dir_path
+
+        assert env_dir_path("REBREW_SKILLS_DIR", "") is None
+        assert env_dir_path("REBREW_SKILLS_DIR", "   ") is None
+
+    def test_dir_knob_resolvers_expand_tilde(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """Each point-of-use consumer hands back the expanded path.
+
+        The resolver and the consumer previously disagreed: the check ran on
+        the raw string while the caller kept it, so an accepted ``~`` path was
+        still looked up literally.
+        """
+        from rebrew import flirt, skills
+        from rebrew.toolchain_paths import toolchains_repo
+
+        home = tmp_path / "home"
+        (home / "sigs").mkdir(parents=True)
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setenv("USERPROFILE", str(home))
+
+        monkeypatch.setenv("REBREW_FLIRT_SIGS_DIR", "~/sigs")
+        assert flirt._flirt_sigs_repo() == home / "sigs"
+
+        monkeypatch.setenv("REBREW_SKILLS_DIR", "~/sigs")
+        assert skills.user_skills_dir() == home / "sigs"
+
+        monkeypatch.setenv("REBREW_TOOLCHAINS_DIR", "~/sigs")
+        assert toolchains_repo() == home / "sigs"
 
     def test_log_level_parsing(self) -> None:
         import logging
