@@ -75,6 +75,13 @@ PREFIX_BYTES = 32
 
 Index = dict[str, list[tuple[str, bytes, set[int]]]]
 
+_EPILOG = (
+    "[bold]Examples:[/bold]\n\n"
+    "  rebrew lib-match --lib msvcrt.lib · · · Compare against one static library\n\n"
+    "  rebrew lib-match --lib msvcrt.lib --stock-lib · · · Only the stock CRT\n\n"
+    "  rebrew lib-match --lib msvcrt.lib --va 0x10009310 --json · One function, machine-readable"
+)
+
 app = typer.Typer(
     help=(
         "Byte-compare reversed functions against linked static libraries "
@@ -82,6 +89,7 @@ app = typer.Typer(
     ),
     rich_markup_mode="rich",
     no_args_is_help=True,
+    epilog=_EPILOG,
 )
 
 

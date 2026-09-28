@@ -21,9 +21,18 @@ from rich.table import Table
 
 from rebrew.cli import TargetOption, console, json_print, require_config
 
+_EPILOG = (
+    "[bold]Examples:[/bold]\n\n"
+    "  rebrew refactor · · · · · · · · · · Suggest refactoring opportunities\n\n"
+    "  rebrew refactor --min-lines 400 --json · · Only large files, machine-readable\n\n"
+    "  rebrew refactor --root src/reversed · · · Point at a different tree\n"
+)
+
+
 app = typer.Typer(
     help="Analyse the rebrew source tree and suggest refactoring opportunities.",
     rich_markup_mode="rich",
+    epilog=_EPILOG,
 )
 
 

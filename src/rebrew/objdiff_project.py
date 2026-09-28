@@ -43,9 +43,18 @@ from rebrew.sources import (
 )
 from rebrew.utils import atomic_write_bytes, atomic_write_text
 
+_EPILOG = (
+    "[bold]Examples:[/bold]\n\n"
+    "  rebrew objdiff · · · · · · · · · · Write objdiff.json and copy the target objects\n\n"
+    "  rebrew objdiff --output objdiff.json --target-dir build/objdiff · Custom paths\n\n"
+    "  rebrew objdiff --dry-run --json · · Report the plan, write nothing\n"
+)
+
+
 app = typer.Typer(
     help="Generate an objdiff project (target objects + objdiff.json) for GUI diffing.",
     rich_markup_mode="rich",
+    epilog=_EPILOG,
 )
 
 # COFF constants (i386, little-endian).

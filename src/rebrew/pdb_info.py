@@ -41,7 +41,18 @@ from rebrew.cli import console, error_exit, json_print
 
 log = logging.getLogger(__name__)
 
-app = typer.Typer(help="Extract compiler version, flags, and function names from a PDB.")
+_EPILOG = (
+    "[bold]Examples:[/bold]\n\n"
+    "  rebrew pdb-info game.pdb · · · · · · Report compiler version, flags, names\n\n"
+    "  rebrew pdb-info game.pdb --write-cflags · Record the flags in the metadata\n\n"
+    "  rebrew pdb-info game.pdb --dry-run --json · Plan the write, change nothing\n"
+)
+
+
+app = typer.Typer(
+    help="Extract compiler version, flags, and function names from a PDB.",
+    epilog=_EPILOG,
+)
 
 #: S_COMPILE3 frontend version prefix -> MSVC family hint (best effort).
 _MSVC_VERSION_HINTS = {

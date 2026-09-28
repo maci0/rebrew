@@ -40,9 +40,20 @@ from rebrew.toolchain import ToolchainSpec, kill_container
 from rebrew.utils import atomic_write_text, container_runtime, file_lock, load_tomllib
 from rebrew.workspace import walk_up_to_root
 
+_EPILOG = (
+    "[bold]Examples:[/bold]\n\n"
+    "  rebrew cmake-toolchain --toolchain msvc-6.0 · · Write cmake/toolchain-msvc-6.0-docker.cmake\n\n"
+    "  rebrew cmake-toolchain --toolchain gcc-14.2.0 --output cmake/ · Choose the output directory\n\n"
+    "  cmake -B build --toolchain cmake/toolchain-msvc-6.0-docker.cmake\n\n"
+    "[dim]Then configure and build as usual; the file routes cl/link/lib through "
+    "rebrew-cmake-cl, rebrew-cmake-link, and rebrew-cmake-lib.[/dim]\n"
+)
+
+
 app = typer.Typer(
     help="Write a CMake toolchain file that drives a docker toolchain via rebrew-cmake-*.",
     rich_markup_mode="rich",
+    epilog=_EPILOG,
 )
 
 #: console-script basename -> tool mode

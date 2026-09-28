@@ -58,9 +58,18 @@ from rebrew.utils import (
     strip_comment_blocks,
 )
 
+_EPILOG = (
+    "[bold]Examples:[/bold]\n\n"
+    "  rebrew gen-stubs --dry-run · · · · · · List the unresolved symbols, write nothing\n\n"
+    "  rebrew gen-stubs --output src/stubs.c · · · Name the stub TU\n\n"
+    '  rebrew gen-stubs --build-cmd "build.bat" · · Resolve names from a link log\n'
+)
+
+
 app = typer.Typer(
     help="Generate a stub TU for unresolved linker symbols (LNK2001/LNK2019).",
     rich_markup_mode="rich",
+    epilog=_EPILOG,
 )
 
 #: Sibling copy of ``CMakeLists.txt`` held while ``--cmake-stub-var`` blanks

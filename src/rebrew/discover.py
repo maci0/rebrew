@@ -44,7 +44,19 @@ from rebrew.binary_loader import load_binary
 from rebrew.cli import console, error_exit, json_print
 from rebrew.utils import atomic_write_text, run_process_group
 
-app = typer.Typer(help="Enumerate functions: rizin aaa/aap + capstone sweep, sizes validated.")
+_EPILOG = (
+    "[bold]Examples:[/bold]\n\n"
+    "  rebrew discover-functions mini.exe · · · · List functions, sizes validated\n\n"
+    "  rebrew discover-functions mini.exe --output functions.csv · Write the inventory\n\n"
+    "  rebrew discover-functions mini.exe --min-size 32 --json · Machine-readable output\n"
+)
+
+
+app = typer.Typer(
+    help="Enumerate functions: rizin aaa/aap + capstone sweep, sizes validated.",
+    rich_markup_mode="rich",
+    epilog=_EPILOG,
+)
 
 #: setuptools entry-point group whose members register extra function
 #: discoverers.  A member is a callable ``fn(binary: Path) ->

@@ -57,9 +57,18 @@ def render_context_text(blocks: list[str]) -> str:
     return _CONTEXT_HEADER + "\n\n".join(blocks) + ("\n" if blocks else "")
 
 
+_EPILOG = (
+    "[bold]Examples:[/bold]\n\n"
+    "  rebrew context · · · · · · · · · Write ctx.c from headers and reversed sources\n\n"
+    "  rebrew context --sources-only · · · · · · Only the project's own declarations\n\n"
+    "  rebrew context --output decomp/ctx.c · · · Write somewhere else\n"
+)
+
+
 app = typer.Typer(
     help="Emit a universal C context file (types + signatures) for decompiler backends.",
     rich_markup_mode="rich",
+    epilog=_EPILOG,
 )
 
 

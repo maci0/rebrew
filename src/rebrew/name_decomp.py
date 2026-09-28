@@ -431,9 +431,17 @@ def _elem_type(elem_width: int) -> str:
 # CLI
 # ---------------------------------------------------------------------------
 
+_EPILOG = (
+    "[bold]Examples:[/bold]\n\n"
+    "  rebrew decompile 0x10009310 · · · · · Decompile one function\n\n"
+    "  rebrew decompile 0x10009310 --named · · Apply known struct and field names\n\n"
+    "  rebrew decompile 0x10009310 --decompiler ghidra --json · Pick a backend, machine-readable"
+)
+
 app = typer.Typer(
     help="Decompile a function, optionally applying known struct names.",
     rich_markup_mode="rich",
+    epilog=_EPILOG,
 )
 
 

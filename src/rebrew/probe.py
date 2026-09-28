@@ -35,9 +35,18 @@ from rebrew.cli import (
 )
 from rebrew.compile import compile_to_obj
 
+_EPILOG = (
+    "[bold]Examples:[/bold]\n\n"
+    "  rebrew probe src/game_dll/my_func.c · · Measure one function, write no metadata\n\n"
+    "  rebrew probe f.c --va 0x10009310 --size 42 · · Override VA and size\n\n"
+    '  rebrew probe f.c --cflags "/O1 /Gd" --json · Machine-readable measurements\n'
+)
+
+
 app = typer.Typer(
     help="Measure one function against the reference without writing metadata.",
     rich_markup_mode="rich",
+    epilog=_EPILOG,
 )
 
 

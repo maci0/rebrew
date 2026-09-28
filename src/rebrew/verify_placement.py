@@ -23,9 +23,17 @@ from rebrew.cli import EXIT_MISMATCH, TargetOption, console, error_exit, json_pr
 from rebrew.config import load_config
 from rebrew.data_layout import built_data_va
 
+_EPILOG = (
+    "[bold]Examples:[/bold]\n\n"
+    "  rebrew verify-placement · · · · · · Compare .data symbol VAs against the metadata\n\n"
+    "  rebrew verify-placement --target win16 --json · Machine-readable result\n"
+)
+
+
 app = typer.Typer(
     help="Compare .data symbol VAs of the current build against the data metadata.",
     rich_markup_mode="rich",
+    epilog=_EPILOG,
 )
 
 

@@ -41,9 +41,18 @@ from rebrew.utils import (
 )
 from rebrew.workspace import walk_up_to_root
 
+_EPILOG = (
+    "[bold]Examples:[/bold]\n\n"
+    "  rebrew calibrate-bss --dry-run · · · · · · · Show the pad search, write nothing\n\n"
+    "  rebrew calibrate-bss --stub src/link_stubs.c · · Target the TU the linker compiles\n\n"
+    "  rebrew calibrate-bss --target-vs 0x1A40 --max-iters 8 · Pin the reference .data size\n"
+)
+
+
 app = typer.Typer(
     help="Calibrate a BSS tail pad so the raw link's .data VirtualSize matches the reference.",
     rich_markup_mode="rich",
+    epilog=_EPILOG,
 )
 
 

@@ -68,9 +68,17 @@ from rebrew.status_style import STATUS_COLORS
 from rebrew.utils import atomic_write_bytes, floor_pct, merged_span_bytes, safe_shlex_split
 from rebrew.workspace.status import MATCHED_STATUSES
 
+_EPILOG = (
+    "[bold]Examples:[/bold]\n\n"
+    "  rebrew round-trip · · · · · · · · Splice matches back, verify byte equality\n\n"
+    "  rebrew round-trip --output build/roundtrip.exe --json · Report the result\n"
+)
+
+
 app = typer.Typer(
     help="Splice every matched function back into the target PE and verify byte equality.",
     rich_markup_mode="rich",
+    epilog=_EPILOG,
 )
 
 

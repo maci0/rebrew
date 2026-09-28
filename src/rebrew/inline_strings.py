@@ -41,9 +41,18 @@ from rebrew.utils import (
     split_source_lines,
 )
 
+_EPILOG = (
+    "[bold]Examples:[/bold]\n\n"
+    "  rebrew inline-strings --dry-run · · · · · Preview the globals, write nothing\n\n"
+    "  rebrew inline-strings --files src/a.c src/b.c · · Only these source files\n\n"
+    "  rebrew inline-strings --inline-only · · · · · Replace uses, add no new globals\n"
+)
+
+
 app = typer.Typer(
     help="Inline string-literal globals (s_<hint>_<ADDR>) from the reference binary.",
     rich_markup_mode="rich",
+    epilog=_EPILOG,
 )
 
 

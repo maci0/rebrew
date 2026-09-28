@@ -408,6 +408,30 @@ class TestGroupHelpEpilog:
                 bad.append(f"{comp.name} (epilog without an Examples section)")
         assert not bad, f"group help without usage examples: {bad}"
 
+    def test_every_command_help_shows_examples(self) -> None:
+        """Every single-command tool's `--help` closes with an Examples block.
+
+        The epilog is the only place a reader learns how the tool is actually
+        invoked; a tool whose `_EPILOG` is defined but never wired into
+        `typer.Typer(epilog=...)` prints the option list and nothing else.
+        """
+        from typer.models import DefaultPlaceholder
+
+        bad = []
+        for comp in BUILTIN_COMPONENTS:
+            if comp.is_group:
+                continue
+            app = getattr(importlib.import_module(comp.module), "app", None)
+            if app is None:
+                continue
+            epilog = getattr(app.info, "epilog", None)
+            if epilog is None or isinstance(epilog, DefaultPlaceholder):
+                bad.append(comp.name)
+                continue
+            if "Examples:" not in epilog and "Example:" not in epilog:
+                bad.append(f"{comp.name} (epilog without an Examples section)")
+        assert not bad, f"command help without usage examples: {bad}"
+
 
 class TestGroupWithoutSubcommand:
     def test_group_without_subcommand_is_usage_error_on_stderr(self) -> None:

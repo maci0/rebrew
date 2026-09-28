@@ -32,9 +32,17 @@ from rebrew.cli import (
 from rebrew.data_layout import built_text_va
 from rebrew.verify_hash import expected_text_functions as _expected_functions
 
+_EPILOG = (
+    "[bold]Examples:[/bold]\n\n"
+    "  rebrew text-audit · · · · · · · · Compare built .text VAs against the markers\n\n"
+    "  rebrew text-audit --json · · · · · · Machine-readable mismatch list\n"
+)
+
+
 app = typer.Typer(
     help="Compare .text function VAs of the current build against the source markers.",
     rich_markup_mode="rich",
+    epilog=_EPILOG,
 )
 
 

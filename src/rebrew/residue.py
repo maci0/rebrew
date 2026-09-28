@@ -62,9 +62,18 @@ def _name_column(name: str, width: int = _NAME_COLUMN) -> str:
     return out + " " * (width - cell_len(out))
 
 
+_EPILOG = (
+    "[bold]Examples:[/bold]\n\n"
+    "  rebrew residue build/game.exe · · · Measure residue against the baseline\n\n"
+    "  rebrew residue build/game.exe --new-baseline · · Record today's bytes as baseline\n\n"
+    "  rebrew residue build/game.exe --baseline old.json --json · Compare against a file\n"
+)
+
+
 app = typer.Typer(
     help="Measure linked byte-identity residue after postlink fixers.",
     rich_markup_mode="rich",
+    epilog=_EPILOG,
 )
 
 

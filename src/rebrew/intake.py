@@ -48,7 +48,18 @@ from rebrew.utils import (
     read_json_text,
 )
 
-app = typer.Typer(help="One-shot binary onboarding: init + detect + functions + document.")
+_EPILOG = (
+    "[bold]Examples:[/bold]\n\n"
+    "  rebrew intake mini.exe --dry-run · · · Plan the onboarding, write nothing\n\n"
+    "  rebrew intake mini.exe --toolchain msvc-6.0 · · Pin the toolchain profile\n\n"
+    "  rebrew intake mini.exe --json · · · · · Machine-readable intake summary\n"
+)
+
+
+app = typer.Typer(
+    help="One-shot binary onboarding: init + detect + functions + document.",
+    epilog=_EPILOG,
+)
 
 logger = logging.getLogger(__name__)
 

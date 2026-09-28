@@ -49,9 +49,17 @@ def compare_exports(original: Path, recomp: Path) -> dict[str, Any]:
     }
 
 
+_EPILOG = (
+    "[bold]Examples:[/bold]\n\n"
+    "  rebrew verify-exports · · · · · · · Compare the export table against the target\n\n"
+    "  rebrew verify-exports --target win16 --json · Machine-readable result\n"
+)
+
+
 app = typer.Typer(
     help="Verify the recompiled binary's export table matches the original target.",
     rich_markup_mode="rich",
+    epilog=_EPILOG,
 )
 
 

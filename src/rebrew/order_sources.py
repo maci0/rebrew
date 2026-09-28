@@ -15,9 +15,18 @@ import typer
 from rebrew.cli import console, error_exit, json_print
 from rebrew.link_order import order_sources
 
+_EPILOG = (
+    "[bold]Examples:[/bold]\n\n"
+    "  rebrew order-sources src/*.c · · · · · Print the VA-ordered source list\n\n"
+    "  rebrew order-sources src/*.c --first-va 0x10001000 · · Ignore files below this VA\n\n"
+    "  rebrew order-sources src/*.c --exclude tests/ --json · Machine-readable order\n"
+)
+
+
 app = typer.Typer(
     help="Order source files by their first function's original VA (position-aligned .text).",
     rich_markup_mode="rich",
+    epilog=_EPILOG,
 )
 
 __all__ = ["app", "main", "main_entry"]

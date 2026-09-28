@@ -816,9 +816,18 @@ def run_fixers(
 # CLI
 # ---------------------------------------------------------------------------
 
+_EPILOG = (
+    "[bold]Examples:[/bold]\n\n"
+    "  rebrew postlink build/game.exe ref/game.exe · Normalize the built layout\n\n"
+    "  rebrew postlink build/game.exe --dry-run · · Report the fixes, apply none\n\n"
+    "  rebrew postlink build/game.exe --fix headers,iat · · Run only these fixers\n"
+)
+
+
 app = typer.Typer(
     help="Normalize a built binary's layout onto a reference (post-link fixes).",
     rich_markup_mode="rich",
+    epilog=_EPILOG,
 )
 
 _FIX_CHOICES = ("all",) + FIXER_ORDER

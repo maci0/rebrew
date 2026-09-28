@@ -41,9 +41,18 @@ from rebrew.config import ProjectConfig, inventory_path_for
 from rebrew.cu_map import classify_gap
 from rebrew.utils import atomic_write_text
 
+_EPILOG = (
+    "[bold]Examples:[/bold]\n\n"
+    "  rebrew layout-map · · · · · · · · · Dump sections, gaps, IAT, and exports\n\n"
+    "  rebrew layout-map --output layout.json · Write the measurements to a file\n\n"
+    "  rebrew layout-map --target win16 --json · Machine-readable output\n"
+)
+
+
 app = typer.Typer(
     help="Dump reference-side layout measurements (sections, gaps, IAT, exports).",
     rich_markup_mode="rich",
+    epilog=_EPILOG,
 )
 
 log = logging.getLogger(__name__)

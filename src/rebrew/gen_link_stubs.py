@@ -25,9 +25,18 @@ from rebrew.cli import console, error_exit, json_print
 from rebrew.data_metadata import iter_data_symbols
 from rebrew.utils import atomic_write_text, is_safe_c_ident, load_tomllib, read_source_text
 
+_EPILOG = (
+    "[bold]Examples:[/bold]\n\n"
+    "  rebrew gen-link-stubs --dry-run · · · · · Preview the placeholder TU\n\n"
+    "  rebrew gen-link-stubs --output src/link_stubs.c · · Write the TU there\n\n"
+    "  rebrew gen-link-stubs --data-metadata rebrew-data.toml --json\n"
+)
+
+
 app = typer.Typer(
     help="Generate a link_stubs.c-style BSS placeholder TU from the data metadata.",
     rich_markup_mode="rich",
+    epilog=_EPILOG,
 )
 
 _TAIL_DEFAULT = 0x400000  # generous; `rebrew calibrate-bss` fixes it

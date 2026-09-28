@@ -32,9 +32,18 @@ from rebrew.cli import (
 )
 from rebrew.compile import compile_to_obj
 
+_EPILOG = (
+    "[bold]Examples:[/bold]\n\n"
+    "  rebrew gap-trace src/game_dll/my_func.c · · · · Trace the gap between streams\n\n"
+    "  rebrew gap-trace f.c --va 0x10009310 --size 42 · · Override VA and size\n\n"
+    '  rebrew gap-trace f.c --cflags "/O1 /Gd" --json · Machine-readable gap report\n'
+)
+
+
 app = typer.Typer(
     help="Trace length-gap drift between object and reference instruction streams.",
     rich_markup_mode="rich",
+    epilog=_EPILOG,
 )
 
 _BRANCHES = frozenset(

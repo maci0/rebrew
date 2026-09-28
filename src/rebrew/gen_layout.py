@@ -60,8 +60,17 @@ from rebrew.pe_headers import pe_image_base, pe_layout
 from rebrew.pe_image import PeImport, derive_link_options, parse_pe
 from rebrew.utils import atomic_write_text, container_runtime, fold_ident, pe_name_token
 
+_EPILOG = (
+    "[bold]Examples:[/bold]\n\n"
+    "  rebrew gen-layout --dry-run · · · · · · Show the generated script, write nothing\n\n"
+    "  rebrew gen-layout --def-only · · · · · · Only the module .def\n\n"
+    "  rebrew gen-layout --data-gap 0x40 · · · · Seed a BSS gap for the linker\n"
+)
+
+
 app = typer.Typer(
-    help="Generate linker-script scaffolding (def, layout manifest, IAT seed, data restore)."
+    help="Generate linker-script scaffolding (def, layout manifest, IAT seed, data restore).",
+    epilog=_EPILOG,
 )
 
 log = logging.getLogger(__name__)

@@ -542,9 +542,17 @@ def recover_structs(
 # CLI
 # ---------------------------------------------------------------------------
 
+_EPILOG = (
+    "[bold]Examples:[/bold]\n\n"
+    "  rebrew recover-structs --dry-run · · · · · Show the recovered typedefs, write nothing\n\n"
+    "  rebrew recover-structs --functions 0x10009310 0x10009400 · Only these functions\n\n"
+    "  rebrew recover-structs --apply --json · · · · · Write the headers, machine-readable"
+)
+
 app = typer.Typer(
     help="Recover struct definitions from decompiler output.",
     rich_markup_mode="rich",
+    epilog=_EPILOG,
 )
 
 

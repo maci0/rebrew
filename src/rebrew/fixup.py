@@ -151,9 +151,19 @@ def fixup_source(source: str, compile_errors: str | None = None) -> FixupResult:
 # CLI
 # ---------------------------------------------------------------------------
 
+_EPILOG = (
+    "[bold]Examples:[/bold]\n\n"
+    "  rebrew fix raw.c · · · · · · · · · · Write raw.fixed.c, print a diff summary\n\n"
+    "  rebrew fix raw.c --dry-run · · · · · · Report the fixes without writing\n\n"
+    "  rebrew fix raw.c --output cleaned.c --compile-check · · Write elsewhere and compile it\n\n"
+    "  rebrew fix raw.c --json · · · · · · · Machine-readable report\n"
+)
+
+
 app = typer.Typer(
     help="Make raw decompiler output compilable (DecBench-style fixup).",
     rich_markup_mode="rich",
+    epilog=_EPILOG,
 )
 
 

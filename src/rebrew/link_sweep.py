@@ -44,7 +44,18 @@ from rebrew.pe_headers import pe_layout
 from rebrew.pe_image import derive_link_options, parse_pe
 from rebrew.utils import run_process_group
 
-app = typer.Typer(help="Sweep LINK options to reproduce the reference PE header.")
+_EPILOG = (
+    "[bold]Examples:[/bold]\n\n"
+    "  rebrew link-sweep · · · · · · · · · Sweep LINK options against the reference\n\n"
+    '  rebrew link-sweep --link-cmd "link build\\out.exe *.obj" · · Use a custom link line\n\n'
+    "  rebrew link-sweep --keep --json · · · · Keep the candidate binaries for inspection\n"
+)
+
+
+app = typer.Typer(
+    help="Sweep LINK options to reproduce the reference PE header.",
+    epilog=_EPILOG,
+)
 
 #: Header fields the sweep compares, in a stable order:
 #: ``(name, struct format, base, offset)`` with base ``file``/``coff``/``opt``.

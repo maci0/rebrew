@@ -70,9 +70,19 @@ from rebrew.utils import (
 
 log = logging.getLogger(__name__)
 
+_EPILOG = (
+    "[bold]Examples:[/bold]\n\n"
+    "  rebrew decompme src/game_dll/my_func.c · · · Upload the function's scratch\n\n"
+    "  rebrew decompme f.c --dry-run · · · · · · · Print the upload plan, send nothing\n\n"
+    "  rebrew decompme f.c --va 0x10009310 --size 42 · · Override VA and size\n\n"
+    "  rebrew decompme f.c --no-context · · · · · · Omit the C context block\n"
+)
+
+
 app = typer.Typer(
     help="Upload a function to decomp.me as a collaborative scratch.",
     rich_markup_mode="rich",
+    epilog=_EPILOG,
 )
 
 _DEFAULT_API = "https://decomp.me"

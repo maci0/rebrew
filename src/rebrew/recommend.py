@@ -54,9 +54,18 @@ _W021_SYMBOL_RE = re.compile(r"global '([^']+)'")
 #: VA token inside a W028 message.
 _W028_VA_RE = re.compile(r"0x[0-9a-fA-F]+")
 
+_EPILOG = (
+    "[bold]Examples:[/bold]\n\n"
+    "  rebrew recommend · · · · · · · · · Project advice: TU layout, hygiene, next steps\n\n"
+    "  rebrew recommend --category hygiene --json · · Machine-readable advice\n\n"
+    "  rebrew recommend --apply --dry-run · · Show what --apply would change\n"
+)
+
+
 app = typer.Typer(
     help="Deterministic project advice: TU layout, hygiene, next steps.",
     rich_markup_mode="rich",
+    epilog=_EPILOG,
 )
 
 #: Lanes ``--apply`` may execute.  Mechanical and revertible (lint --fix,
@@ -1082,18 +1091,6 @@ def _collect_hygiene(
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
-
-_EPILOG = (
-    "[bold]Examples:[/bold]\n\n"
-    "  rebrew recommend · · · · · · · · All lanes (TU layout + hygiene + next)\n\n"
-    "  rebrew recommend --category tu · · · · · · Only TU layout (merge/split/move)\n\n"
-    "  rebrew recommend --category hygiene · · · Only hygiene (link-order/orphans/lint)\n\n"
-    "  rebrew recommend --apply · · · · · Auto-fix safe lanes (lint, link-order,\n"
-    "                                  orphans-prune, shared twins)\n\n"
-    "  rebrew recommend --json · · · · · Machine-readable output\n\n"
-    "[dim]Read-only by default. --apply runs only mechanical fixes; TU "
-    "merge/split/move stay advisory.[/dim]"
-)
 
 _KIND_TO_LANE = {
     "merge": "tu",

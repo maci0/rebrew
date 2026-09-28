@@ -50,9 +50,18 @@ from rebrew.config import ProjectConfig, inventory_path_for
 from rebrew.sources import contained_path, iter_sources, source_roots, target_marker
 from rebrew.utils import preset_module_key
 
+_EPILOG = (
+    "[bold]Examples:[/bold]\n\n"
+    "  rebrew merge-sweep · · · · · · · · · Search the deterministic TU partitions\n\n"
+    "  rebrew merge-sweep --passes 3 --max-compiles 200 · Cap the search budget\n\n"
+    "  rebrew merge-sweep --dry-run --json · · Plan the passes, compile nothing\n"
+)
+
+
 app = typer.Typer(
     help="Deterministic TU-partition search over cu-map clusters.",
     rich_markup_mode="rich",
+    epilog=_EPILOG,
 )
 
 #: Search caps from the spec: at most 3 full passes, at most 2n compiles.

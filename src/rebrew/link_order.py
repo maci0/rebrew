@@ -29,9 +29,18 @@ from rebrew.config import module_marker
 from rebrew.sources import iter_sources, source_exts
 from rebrew.utils import atomic_write_text, preset_module_key, read_source_text
 
+_EPILOG = (
+    "[bold]Examples:[/bold]\n\n"
+    "  rebrew link-order --check · · · · · · Fail if CMakeLists.txt drifts (CI gate)\n\n"
+    "  rebrew link-order --dry-run · · · · · Show the reordering, write nothing\n\n"
+    "  rebrew link-order --apply · · · · · · · Rewrite CMakeLists.txt in VA order\n"
+)
+
+
 app = typer.Typer(
     help="Enforce VA-ordered sources into CMakeLists.txt SOURCES (drift gate).",
     rich_markup_mode="rich",
+    epilog=_EPILOG,
 )
 
 _CMAKE_LISTS = "CMakeLists.txt"
