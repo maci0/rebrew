@@ -462,6 +462,10 @@ def _link_toolchain(
     relative to the project root; one symlink makes that resolve to the
     master installation (e.g. ``~/zine/tools``).  Returns the linked path,
     or None when the profile has no vendored toolchain dir.
+
+    Exits with a message naming the symlink constraint when the project
+    filesystem cannot create one; the generated ``compiler.command`` points
+    at ``toolchain/<rel>``, so a missing link is a hard error, not a warning.
     """
     tools_name = _PROFILE_TOOLS.get(compiler_profile)
     if tools_name is None:
@@ -492,7 +496,22 @@ def _link_toolchain(
         console.print(f"[yellow]toolchain/{rel} already exists; leaving it as-is[/]")
         return target
 
-    target.symlink_to(source, target_is_directory=True)
+    try:
+        target.symlink_to(source, target_is_directory=True)
+    except OSError as exc:
+        # exFAT/FAT32 volumes, some CIFS and NFS mounts, and Windows without
+        # Developer Mode have no symlink(2).  A traceback here reads as a
+        # rebrew bug; the profile's compiler.command is about to be written
+        # pointing at toolchain/<rel>, so a link that cannot exist must fail
+        # loud and say which constraint it hit.
+        error_exit(
+            f"cannot symlink toolchain/{rel} -> {source}: {exc}. "
+            "The project filesystem has no symlink support "
+            "(exFAT/FAT32 volumes and some network mounts cannot create one). "
+            "Init the project on a filesystem that does, or copy the toolchain "
+            "into place by hand and re-run without --link-tools-from.",
+            json_mode=json_output,
+        )
     console.print(f"[green]Linked toolchain/{rel} -> {source}[/]")
     return target
 

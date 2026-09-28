@@ -538,6 +538,33 @@ class TestInit:
                 toolchain_dir=master,
             )
 
+    def test_link_tools_from_no_symlink_support_fails_loud(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A filesystem without symlink(2) names the constraint, not a traceback."""
+        master = tmp_path / "master"
+        (master / "msvc" / "6.0-win32").mkdir(parents=True)
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(
+            Path,
+            "symlink_to",
+            lambda self, target, target_is_directory=False: (_ for _ in ()).throw(
+                OSError(95, "Operation not supported")
+            ),
+        )
+        with pytest.raises(Exit) as exc:
+            main(
+                target_name="t",
+                binary_name="t.exe",
+                compiler_profile="msvc-6.0",
+                install_wibo=False,
+                json_output=False,
+                install_completions=False,
+                toolchain_dir=master,
+            )
+        assert exc.value.exit_code != 0
+        assert not (tmp_path / "rebrew-project.toml").exists()
+
     def test_link_tools_from_path_profiles_skipped(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

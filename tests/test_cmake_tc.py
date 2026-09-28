@@ -44,10 +44,12 @@ class TestRewriteArgsCl:
         assert "/Fo" + r"Z:\tmp\out.obj" in out
         assert r"Z:\home\maci\src.c" in out
 
-    def test_relative_fo_becomes_absolute(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.chdir("/tmp")
+    def test_relative_fo_becomes_absolute(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
         out = _rewrite_args("cl", ["/Fodir/out.obj"])
-        assert out[0] == "/Fo" + r"Z:\tmp\dir\out.obj"
+        assert out[0] == "/Fo" + _to_w(str(tmp_path / "dir/out.obj"))
 
     def test_flags_pass_through(self) -> None:
         out = _rewrite_args("cl", ["/O2", "/Gd", "/DREBREW_ALLOW_NAKED", "/c"])
