@@ -87,8 +87,9 @@ migration debt that `lint --fix` (W019) moves to the TOML. Co-read exceptions:
 structural keys that stay inline: `// SOURCE: naked`, plus `STRUCT` /
 `CALLERS`. `SECTION` on DATA/GLOBAL migrates to `rebrew-data.toml`; on
 functions it is a legacy key that `--fix` strips. `TOOLCHAIN` and other
-`SOURCE` values are metadata-owned — W019 migrates them. There is no walk-up:
-callers must
+`SOURCE` values are metadata-owned — W019 migrates them. `cfg.metadata_dir` is the
+parent of `reversed_dir`, or the outermost store found walking up to the project root
+when no store sits beside it. There is no walk-up inside the loader: callers must
 pass the correct metadata root. Metadata is managed automatically by the CLI tools.
 
 > [!CAUTION]

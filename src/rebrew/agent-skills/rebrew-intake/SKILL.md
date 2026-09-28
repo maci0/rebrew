@@ -21,7 +21,7 @@ graph TD
     Fix --> Doctor
     Doctor -->|pass| Flirt[FLIRT library scan<br/>rebrew cfg detect-crt --write<br/>rebrew flirt --json]
     Flirt --> CrtMatch[Annotate library sources<br/>rebrew crt-match --all --fix-source]
-    CrtMatch --> Catalog[Build function catalog<br/>rebrew build-db<br/>rebrew catalog --export-ghidra-labels]
+    CrtMatch --> Catalog[Build function catalog<br/>rebrew catalog --export-ghidra-labels]
     Catalog --> BuildDb[Build coverage document<br/>rebrew build-db]
     BuildDb --> Triage[Initial triage<br/>rebrew status --json / rebrew todo --json]
     Triage --> CuMap[Infer compilation units<br/>rebrew graph --cu-map]

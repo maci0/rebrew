@@ -53,9 +53,12 @@ blocker = "missing CRT internals"
 source = "ENVIRON.C"
 ```
 
-The metadata file lives at `cfg.metadata_dir` (the parent of `reversed_dir` — e.g. `src/`
-for sources under `src/<target>/`). There is no walk-up: tools must be passed the correct
-metadata root. This includes **`rebrew lint`**,
+The metadata file lives **only** at `cfg.metadata_dir`: the parent of `reversed_dir` (e.g.
+`src/` for sources under `src/<target>/`) when a store sits there, otherwise the outermost
+`rebrew-functions.toml` found walking up to the project root, so one store serves every
+target of a multi-target project. The loader does no walk-up of its own — it reads exactly
+`directory / rebrew-functions.toml` — so library code must pass `cfg.metadata_dir`, not the
+`.c` file's directory. This includes **`rebrew lint`**,
 which reads the metadata file before validation so that STATUS, SIZE, CFLAGS etc. are accessible
 even when not present inline.
 

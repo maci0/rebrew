@@ -90,7 +90,12 @@ JSON response shapes and failure-mode table: `references/json-and-failures.md`.
 
 ## DATA Annotations
 
-DATA metadata lives in a **`rebrew-data.toml` metadata file** at `cfg.metadata_dir` (the parent of `reversed_dir`). There is no walk-up: callers must pass the correct metadata root.
+DATA metadata lives in a **`rebrew-data.toml`** beside `rebrew-functions.toml` at
+`cfg.metadata_dir`: the parent of `reversed_dir` (e.g. `src/` for sources under
+`src/<target>/`) when a store sits there, otherwise the outermost store found walking up to
+the project root, so one store covers every target. The loader does no walk-up of its own
+(it reads exactly `directory / rebrew-data.toml`), so library code must pass
+`cfg.metadata_dir` rather than the `.c` file's directory.
 Only the stable marker line stays in the `.c` file:
 
 **`.c` file:**

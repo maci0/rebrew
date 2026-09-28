@@ -3,18 +3,20 @@ name: rebrew-workflow
 description: >-
   Use for day-to-day reversing on an onboarded target: matching C against
   target functions (pick work with `todo`, skeleton, edit, `test`/`diff`,
-  verify, lint, round-trip, progress), refreshing the catalog / `build-db`
-  and the coverage dashboard, and reorganizing the source tree (split, merge,
-  rename, call graph). Triggers on 'reverse', 'reverse engineer',
-  'match function', 'implement function', 'decompile', 'skeleton',
-  'test function', 'verify', 'lint', 'todo', 'diff', 'asm', 'status',
-  'coverage', 'progress', 'blocker', 'flirt', 'crt-match', 'lib-match',
-  'library code', 'split file', 'merge files', 'one function per file',
-  'multi-function file', 'rename function', 'call graph', 'rebrew probe',
-  'rebrew similar', 'SOURCE: naked', 'doctor fails', 'round-trip', 'splice',
-  'rebuild the catalog', 'build-db', 'dashboard'. Hand off near-miss GA/prove
-  to rebrew-matching; new binaries to rebrew-intake; globals/BSS to
-  rebrew-data-analysis; Ghidra to rebrew-ghidra-sync.
+  verify, lint, round-trip, progress), the catalog / `build-db` and the
+  coverage dashboard, source-tree reorg (split, merge, rename, call graph),
+  and the recon lane (`rebrew analyze`, `describe`, `diagnose`,
+  `recommend`, `refactor`, `xrefs`). Triggers on 'reverse',
+  'match function', 'implement function', 'decompile',
+  'skeleton', 'test function', 'verify', 'lint', 'todo', 'diff', 'asm',
+  'status', 'coverage', 'progress', 'blocker', 'flirt', 'crt-match',
+  'lib-match', 'library code', 'split file', 'merge files',
+  'one function per file', 'multi-function file', 'rename function',
+  'call graph', 'rebrew probe', 'rebrew similar', 'SOURCE: naked',
+  'doctor fails', 'round-trip', 'splice', 'rebuild the catalog',
+  'dashboard'. Hand off near-miss GA/prove to rebrew-matching; new binaries
+  to rebrew-intake; globals/BSS to rebrew-data-analysis; Ghidra to
+  rebrew-ghidra-sync.
 license: MIT
 ---
 
