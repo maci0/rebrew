@@ -11,6 +11,7 @@ import subprocess
 import threading
 import time
 from pathlib import Path
+from typing import Any
 
 import pytest
 from typer.testing import CliRunner
@@ -3142,6 +3143,38 @@ class TestLifecycleLines:
         assert "INFO     Dashboard stopped." in rendered
         assert "INFO     served 0 requests, 0 server errors" in rendered
 
+    def test_a_crashed_run_is_reported_on_the_server_stream(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A fault in the accept loop must not read as a clean shutdown."""
+        import socket
+
+        from rebrew.dashboard import _attach_server_log_handler, app
+
+        db_dir = tmp_path / "db"
+        db_dir.mkdir()
+        with sqlite3.connect(db_dir / "coverage.db") as conn:
+            conn.execute("CREATE TABLE metadata (target TEXT, key TEXT, value TEXT)")
+
+        def _crash(self: object) -> None:
+            raise RuntimeError("accept loop died")
+
+        monkeypatch.setattr("rebrew.dashboard._DashboardServer.serve_forever", _crash)
+        with socket.socket() as probe:
+            probe.bind(("127.0.0.1", 0))
+            port = probe.getsockname()[1]
+
+        _attach_server_log_handler()
+        try:
+            with caplog.at_level(logging.ERROR, logger="rebrew.dashboard"):
+                result = CliRunner().invoke(app, ["--root", str(tmp_path), "--port", str(port)])
+        finally:
+            for attached in list(logging.getLogger("rebrew.dashboard").handlers):
+                logging.getLogger("rebrew.dashboard").removeHandler(attached)
+
+        assert result.exit_code != 0
+        assert "RuntimeError: accept loop died" in caplog.text
+
 
 class TestServedCounters:
     """The access log also feeds the lifetime totals printed on shutdown."""
@@ -3164,6 +3197,101 @@ class TestServedCounters:
         assert _Handler._requests == 2
         assert _Handler._server_errors == 1
         assert _Handler._slowest_ms >= 50.0
+
+
+class TestSlowRequestLine:
+    """A route that starts costing a second has to say so on the stream."""
+
+    @staticmethod
+    def _handler(elapsed_s: float) -> Any:
+        from rebrew.dashboard import _Handler
+
+        handler = _Handler.__new__(_Handler)
+        handler.client_address = ("127.0.0.1", 8000)
+        handler.requestline = "GET /api/summary?target=server_dll HTTP/1.1\x1b"
+        handler._request_id = "r51"
+        handler.log_message = lambda *a, **k: None  # type: ignore[method-assign]
+        handler._request_started = time.perf_counter() - elapsed_s
+        return handler
+
+    def test_slow_request_is_named_with_its_id(
+        self, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.dashboard import _SLOW_REQUEST_MS, _Handler
+
+        monkeypatch.setattr(_Handler, "_requests", 0)
+        with caplog.at_level(logging.WARNING, logger="rebrew.dashboard"):
+            self._handler(_SLOW_REQUEST_MS / 1000.0 + 0.05).log_request(200, 1024)
+
+        assert len(caplog.records) == 1
+        message = caplog.records[0].getMessage()
+        assert message.startswith("r51 slow request ")
+        assert "/api/summary?target=server_dll HTTP/1.1\\x1b" in message
+        assert "\x1b" not in message
+
+    def test_an_ordinary_request_is_not_reported(
+        self, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.dashboard import _Handler
+
+        monkeypatch.setattr(_Handler, "_requests", 0)
+        with caplog.at_level(logging.WARNING, logger="rebrew.dashboard"):
+            self._handler(0.02).log_request(200, 1024)
+
+        assert caplog.records == []
+
+
+class TestRouteWarningCorrelation:
+    """A route's own warning names the request whose response it explains.
+
+    The corrupt-row warning reports a 500 the access line carries, and a
+    capping warning reports a 200 the page silently rounded, so an operator
+    pivots from either by grepping one id.
+    """
+
+    @staticmethod
+    def _dashboard(tmp_path: Path, value: str) -> Dashboard:
+        import sqlite3
+
+        db = tmp_path / "coverage.db"
+        with sqlite3.connect(db) as conn:
+            conn.execute("CREATE TABLE metadata (target TEXT, key TEXT, value TEXT)")
+            conn.execute("INSERT INTO metadata VALUES ('broken', 'function_stats', ?)", (value,))
+        return Dashboard(db)
+
+    def test_summary_warning_carries_the_request_id(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        from rebrew.dashboard import _stamp_request
+
+        dashboard = self._dashboard(tmp_path, "{not-json")
+        _stamp_request("r52", "GET /api/summary?target=broken HTTP/1.1")
+        try:
+            with caplog.at_level(logging.WARNING, logger="rebrew.dashboard"):
+                status, _, _ = dashboard.handle("GET", "/api/summary", {"target": ["broken"]})
+        finally:
+            _stamp_request("-", "")
+
+        assert status == 500
+        assert (
+            caplog.records[-1]
+            .getMessage()
+            .startswith("r52 Ignoring corrupt function_stats for target 'broken'")
+        )
+
+    def test_off_the_server_the_id_is_a_dash(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The CLI reaches the same Dashboard with no request in flight."""
+        from rebrew.dashboard import _stamp_request
+
+        dashboard = self._dashboard(tmp_path, "{not-json")
+        _stamp_request("-", "")
+        with caplog.at_level(logging.WARNING, logger="rebrew.dashboard"):
+            status, _, _ = dashboard.handle("GET", "/api/summary", {"target": ["broken"]})
+
+        assert status == 500
+        assert caplog.records[-1].getMessage().startswith("- Ignoring corrupt function_stats")
 
 
 class TestThreadFaults:

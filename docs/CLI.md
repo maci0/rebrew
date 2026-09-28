@@ -2645,7 +2645,12 @@ requests included; branch on `code` (`missing_target`, `unknown_target`,
 `http_version_not_supported`, and `request_error` for any other status raised
 before routing) and show `error` to the reader. Every response, error
 included, carries `X-Request-Id: r<N>`, the same id the access and error log
-lines carry, so a reported failure is one grep away. List endpoints
+lines carry, so a reported failure is one grep away. The server writes one
+stream: an access line per request (id, request line, status, size, handler
+milliseconds), a WARNING for a request past 500 ms, an ERROR with an escaped
+traceback for a failure or a crashed run, and each route's own warning about
+its data, stamped with the id of the request in flight (`-` off the server,
+where the CLI reaches the same code without one). List endpoints
 also carry `paged`: `true` on `/api/functions`, `/api/globals`, and
 `/api/history` (where `limit` is the page size), `false` on `/api/sections`,
 `/api/targets`, and `/api/bootstrap` (where `limit` is the row count). Rows

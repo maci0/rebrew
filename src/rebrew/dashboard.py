@@ -79,6 +79,15 @@ each of which is ``immutable``.
 ``no-store`` with no ``ETag`` at all (see ``_UNCACHEABLE_ROUTES``).  It
 also reports the running request, 5xx, and worst-latency totals, so a
 probe can watch the error rate while the server is up.
+The server's own output is one stream: an access line per request (id, request
+line, status, size, handler milliseconds), a WARNING for a request past
+``_SLOW_REQUEST_MS``, an ERROR with an escaped traceback for a failure, and
+every warning a route raises about its own data, each stamped with the id of
+the request in flight.  A route-level warning reports a response the access
+line shows as a plain 200 (corrupt ``function_stats``, a byte count past the
+section), so it carries the id rather than leaving the operator to grep the
+message.  Off the server, the CLI reaches the same ``Dashboard`` with no
+request in flight and those warnings report ``-``.
 An inline ``data:,`` icon stops the per-load ``/favicon.ico`` 404.
 A matching ``If-None-Match`` on a routed path is answered 304 only when a GET
 would answer 200 (target-scoped ones need a known ``target``; ``/api/summary``
@@ -200,6 +209,24 @@ def _request_context() -> tuple[str, str]:
     return request_id, line or "-"
 
 
+def _warn_request(message: str, *args: Any) -> None:
+    """Warn with the request in flight named first, like the error lines are.
+
+    A route's own warning (a corrupt metadata row, a byte count past the
+    section size) explains a response the access line reports as a plain 200,
+    so it has to carry the same id or the operator reading the page has to
+    grep the message text to learn which request hit the bad row.  Off the
+    server the same ``Dashboard`` serves the CLI, which has no request in
+    flight and reports ``-``.
+    """
+    # Concatenated into a name first so the format string stays a plain
+    # template with its arguments lazy; a literal ``+`` in the call is the
+    # eager-format rule (G003), and the id is the one part of the line that
+    # cannot be a caller-supplied placeholder.
+    template = "%s " + message
+    log.warning(template, _request_context()[0], *args)
+
+
 #: Both log streams (access lines on ``console``, errors on ``log``) start with
 #: this stamp, so one grep orders the whole server output.  Both are stamped in
 #: UTC and label it: ``%(asctime)s`` defaults to localtime, so on a host in a
@@ -283,6 +310,13 @@ _KEEPALIVE_IDLE_TIMEOUT_S = 30.0
 # descriptor until the peer closes or the idle timeout fires, so the cap bounds
 # both.  A browser holds a handful; 64 leaves room for parallel reloads.
 _MAX_ACTIVE_CONNECTIONS = 64
+# Handler time past which a request is reported as a slow outlier.  Every
+# access line already carries its milliseconds; this names the ones no one
+# would scroll back for, so a route that started costing a second says so on
+# the stream instead of only showing up as the worst case in the shutdown
+# totals.  Well above a served route (a handful of indexed SQLite reads), so
+# an ordinary load never reaches it.
+_SLOW_REQUEST_MS = 500.0
 # Below this size framing usually costs more than it saves on a LAN.
 _MIN_COMPRESS_BYTES = 256
 # Per-request dynamic JSON: mid effort (bodies are rebuilt every request).
@@ -1817,14 +1851,14 @@ class Dashboard:
         except (json.JSONDecodeError, TypeError) as exc:
             # Corrupt metadata must not present as a real 0% summary — that
             # looks like an empty target and hides the broken row.
-            log.warning(
+            _warn_request(
                 "Ignoring corrupt function_stats for target %r: %s",
                 target,
                 exc,
             )
             return "corrupt", None
         if not isinstance(stats, dict):
-            log.warning(
+            _warn_request(
                 "Ignoring non-object function_stats for target %r (%s)",
                 target,
                 type(stats).__name__,
@@ -1844,7 +1878,7 @@ class Dashboard:
         except ValueError as exc:
             # A byte count that is not a non-negative int (text, float, bool,
             # list, negative) is the same unreadable row as corrupt JSON.
-            log.warning("Ignoring function_stats with bad byte count for %r: %s", target, exc)
+            _warn_request("Ignoring function_stats with bad byte count for %r: %s", target, exc)
             return "corrupt", None
         # A byte count past the .text size (stale SIZE fields, a function span
         # outside .text) divides to 102.4%, and the coverage cards would render
@@ -1852,7 +1886,7 @@ class Dashboard:
         # the excess is logged rather than shown.
         for name, value in (("matched_bytes", matched_b), ("covered_bytes", identified_b)):
             if total_b and value > total_b:
-                log.warning(
+                _warn_request(
                     "function_stats for %r: %s is %d, past the %d-byte .text; capping",
                     target,
                     name,
@@ -2887,6 +2921,17 @@ class _Handler(BaseHTTPRequestHandler):
             if status >= 500:
                 type(self)._server_errors += 1
             type(self)._slowest_ms = max(type(self)._slowest_ms, elapsed_ms)
+        if elapsed_ms >= _SLOW_REQUEST_MS:
+            # An outlier, not a fault: the access line already reports the
+            # status, and this reports the one number that says the route is
+            # the problem.  The request line is remote text, so it is escaped
+            # like every other request-derived string on this stream.
+            log.warning(
+                "%s slow request %.1fms: %s",
+                self._request_id,
+                elapsed_ms,
+                _escape_log_text(getattr(self, "requestline", "-")),
+            )
         self.log_message(
             '%s "%s" %s %s %.1fms',
             self._request_id,
@@ -3101,6 +3146,13 @@ def main(
         server.serve_forever()
     except KeyboardInterrupt:
         _server_notice("INFO", "[dim]Dashboard stopped.[/dim]")
+    except Exception as exc:
+        # A fault in the accept loop otherwise reaches the operator as a raw
+        # traceback, unstamped, on a stream the shutdown line has just declared
+        # a normal stop.  Record it with the stamp and level the rest of the
+        # run uses, then let it propagate as the non-zero exit it is.
+        _log_failed_request("dashboard server failed", "the accept loop", exc, "-")
+        raise
     finally:
         server.server_close()
         # Lifetime totals: the per-request access line says how one request
