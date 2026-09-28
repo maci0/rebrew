@@ -887,12 +887,58 @@ class TestWheelSmokeScript:
             [sys.executable, str(ROOT / "tools" / "smoke_wheel_install.py")],
             capture_output=True,
             text=True,
-            timeout=60,
+            timeout=300,
             check=False,
         )
         assert result.returncode == 0, result.stdout + result.stderr
         assert "rebrew" in result.stderr
         assert str(Path(rebrew.__file__).resolve().parent) in result.stderr
+
+    def test_probes_every_console_script_the_manifest_declares(self) -> None:
+        """The probe reads the installed entry points, so dropping a script
+        from ``[project.scripts]`` would shrink the gate with the artifact it
+        exists to check."""
+        from tools.smoke_wheel_install import console_scripts
+
+        assert console_scripts() == sorted(_project()["scripts"])
+
+    def test_names_a_console_script_that_exits_nonzero(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A shim that resolves but dies on first run is the packaging bug the
+        static entry-point check cannot see: the module imports, the entry
+        point resolves, and only running it fails."""
+        from tools.smoke_wheel_install import unusable_console_scripts
+
+        shim = tmp_path / "rebrew-broken"
+        shim.write_text("#!/bin/sh\necho 'Traceback: boom' >&2\nexit 3\n", encoding="utf-8")
+        shim.chmod(0o755)
+        monkeypatch.setattr(sys, "executable", str(tmp_path / "python"))
+        assert unusable_console_scripts(["rebrew-broken"]) == [
+            "rebrew-broken --help exited 3: Traceback: boom"
+        ]
+
+    def test_names_a_console_script_the_installer_did_not_write(self, tmp_path: Path) -> None:
+        """A declared target with no shim installs cleanly and fails when the
+        user types its name, which nothing else in the gates reaches."""
+        from tools.smoke_wheel_install import unusable_console_scripts
+
+        names = ["rebrew-not-a-real-command"]
+        assert unusable_console_scripts(names) == [
+            f"no console script installed at {Path(sys.executable).parent / names[0]}"
+        ]
+
+    def test_compiler_drivers_are_excluded_by_name_and_still_checked(self) -> None:
+        """The three CMake bridges take a compiler command line, so `--help` is
+        not a probe for them; the shim they are installed as still has to be
+        there, and the exclusion stays as narrow as the bridge set."""
+        from tools.smoke_wheel_install import COMPILER_DRIVERS, unusable_console_scripts
+
+        scripts = _project()["scripts"]
+        bridges = {name for name, target in scripts.items() if target.endswith(":tc_main")}
+        assert bridges == COMPILER_DRIVERS
+        for driver in sorted(COMPILER_DRIVERS):
+            assert unusable_console_scripts([driver]) == [], driver
 
     def test_names_every_missing_runtime_file(self, tmp_path: Path) -> None:
         """A wheel that imports but ships no agent-skills must fail the gate."""
@@ -905,7 +951,7 @@ class TestWheelSmokeScript:
         monkey = pytest.MonkeyPatch()
         monkey.setattr(rebrew, "__file__", str(package / "__init__.py"))
         try:
-            missing = check()
+            missing = check(probe_scripts=False)
         finally:
             monkey.undo()
         assert [message.split(" ", 2)[2] for message in missing] == [
@@ -934,7 +980,7 @@ class TestWheelSmokeScript:
         monkey = pytest.MonkeyPatch()
         monkey.setattr(rebrew, "__file__", str(package / "__init__.py"))
         try:
-            missing = check()
+            missing = check(probe_scripts=False)
         finally:
             monkey.undo()
         assert missing == [

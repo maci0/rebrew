@@ -728,7 +728,10 @@ sdist-check: ensure-uv dist/rebrew.buildinfo
 # package job).  This is the only gate that proves the artifact a user
 # installs is complete: `import rebrew` and the console script read nothing
 # that package-data drops, so a wheel missing agent-skills/ or py.typed runs
-# fine here and fails on the user's first `rebrew skills list`.
+# fine here and fails on the user's first `rebrew skills list`.  The smoke
+# script also runs every console script the installed distribution declares,
+# so a target whose import chain the wheel cannot satisfy fails here rather
+# than on the user's first invocation.
 # Runtime deps come from the lock with --no-default-groups
 # --no-install-project (no ../resembl needed); the wheel is then overlaid with
 # --no-deps so a live PyPI resolve cannot drift past the audited lock.

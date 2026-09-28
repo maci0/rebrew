@@ -53,7 +53,12 @@ live in `tools/smoke_wheel_install.py`, run with that venv's interpreter so
 the import resolves to the wheel's site-packages rather than `src/`: it
 reports the installed version and path and exits non-zero naming any of
 `agent-skills/`, `AGENTS.md.template`, `PRINCIPLES.md`, `py.typed`, or
-`workspace/py.typed` the wheel failed to ship. A `cli-contract`
+`workspace/py.typed` the wheel failed to ship. It then runs every console
+script the installed distribution declares, as the installer wrote it, and
+exits non-zero naming one that is missing from the bin directory or that fails
+to start; the three `rebrew-cmake-*` compiler-driver bridges are excluded
+because CMake hands them a compiler command line rather than a CLI one. A
+`cli-contract`
 job that greps the high-value `--help` surfaces. No pipeline step and no
 Makefile recipe inlines Python: each check is a `tools/` script
 (`release_check.py` for the release preflight, `require_extras.py` for the

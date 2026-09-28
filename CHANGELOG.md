@@ -25,6 +25,17 @@
   `docs/COVERAGE_DOCUMENT.md` and `docs/THREAT_MODEL.md` document the field.
 
 ### Changed
+- **The wheel smoke install runs every console script the wheel declares.**
+  `tools/smoke_wheel_install.py` checked the packaged data files and
+  `rebrew --help`, and the static gate imports each `[project.scripts]`
+  target in the development tree, where the dev groups and every extra are
+  installed. A target whose import chain reaches something the wheel does not
+  carry therefore installed cleanly and failed on the user's first
+  invocation. The smoke script now runs each installed script with `--help`
+  and names the ones the installer did not write or that fail to start. The
+  three `rebrew-cmake-*` compiler-driver bridges are excluded by name: CMake
+  hands them a compiler command line, and `rebrew-cmake-cl --help` forwards
+  the flag to `cl.exe`.
 - **The `rebrew init` AGENTS.md template stops calling the metadata store
   per-directory.** One `rebrew-functions.toml` covers the whole tree, at
   `cfg.metadata_dir`; the template told a new project to look for a file per
