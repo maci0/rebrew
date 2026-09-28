@@ -755,9 +755,10 @@ def generate_data_json(
     # above (no section, no resolvable size) must not be counted, or the
     # buckets exceed totalFunctions.
     _counters = count_statuses(emitted_by_va)
-    exact_count, reloc_count, near_match_count, stub_count = (
+    exact_count, reloc_count, proven_count, near_match_count, stub_count = (
         _counters["EXACT"],
         _counters["RELOC"],
+        _counters["PROVEN"],
         _counters["NEAR_MATCHING"],
         _counters["STUB"],
     )
@@ -778,6 +779,9 @@ def generate_data_json(
             "matchedFunctions": emitted_matched,
             "exactMatches": exact_count,
             "relocMatches": reloc_count,
+            # PROVEN is its own bucket: semantically equivalent, bytes differ,
+            # so it is neither a byte match nor a near miss.
+            "provenMatches": proven_count,
             "nearMatchCount": near_match_count,
             "stubCount": stub_count,
             "coveredBytes": adjusted_covered,

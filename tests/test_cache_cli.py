@@ -43,7 +43,15 @@ class TestStats:
         r = runner.invoke(cache_cli.app, ["stats", "--json"])
         assert r.exit_code == 0
         payload = json.loads(r.stdout)
-        assert payload == {"exists": False, "entries": 0, "volume_mib": 0}
+        # The absent path carries the same backend/cache_dir keys as the
+        # present one, so a consumer indexes one shape either way.
+        assert payload == {
+            "exists": False,
+            "backend": "diskcache",
+            "cache_dir": str(tmp_path / ".rebrew" / "compile_cache"),
+            "entries": 0,
+            "volume_mib": 0,
+        }
 
     def test_no_cache_dir_human(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _patch_cfg(monkeypatch, tmp_path)

@@ -385,7 +385,7 @@ never written to disk; it is an intermediate value, not a format.
   },
   "summary": {
     "totalFunctions": 471, "matchedFunctions": 100,
-    "exactMatches": 60, "relocMatches": 10, "nearMatchCount": 20, "stubCount": 10,
+    "exactMatches": 60, "relocMatches": 10, "provenMatches": 5, "nearMatchCount": 20, "stubCount": 10,
     "coveredBytes": 50000, "coveragePercent": 33.5, "textSize": 150000
   },
   "functions": {

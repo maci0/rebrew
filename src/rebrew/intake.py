@@ -508,6 +508,9 @@ def main(
             "family": result.family,
             "version_hint": result.version_hint,
             "function_count": preview_count,
+            # Nothing is written on a preview, so this is 0; the key is here
+            # because the real payload emits it for the same result object.
+            "documented": result.documented,
             "notes": notes,
             "actions": [
                 "rebrew init --target <name> --binary <name>.exe --toolchain <profile>",

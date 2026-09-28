@@ -47,6 +47,9 @@ class TestIntake:
         # The preview now runs the discoverers (read-only) so the user sees the real
         # function count before committing to the onboarding.
         assert data["function_count"] == 2
+        # Preview documents nothing, but the key rides along so both payloads
+        # describe the same result object.
+        assert data["documented"] == 0
         assert not (tmp_path / "rebrew-project.toml").exists()
 
     def test_full_intake_writes_project(self, tmp_path: Path, monkeypatch) -> None:

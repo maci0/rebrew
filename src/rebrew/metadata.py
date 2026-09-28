@@ -1283,6 +1283,11 @@ def apply_metadata_entry(ann: Annotation, entry: dict[str, Any]) -> None:
     if "analysis" in entry and not ann.note:
         ann.note = str(entry["analysis"])
 
+    # _FIELD_TYPES admits str | int | bool; str() keeps the value comparable
+    # to the raw entry, and the SKIP check reads the falsy spellings itself.
+    if "skip" in entry:
+        ann.skip = str(entry["skip"])
+
     if "globals" in entry:
         raw_g = entry["globals"]
         if isinstance(raw_g, list):

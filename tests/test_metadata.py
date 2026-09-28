@@ -849,6 +849,27 @@ class TestMergeAnnotationEdges:
         apply_metadata_entry(ann, {"size": float("inf")})
         assert ann.size == 99
 
+    def test_skip_overlays_onto_annotation(self, tmp_path: Path) -> None:
+        """``skip`` is a canonical metadata field, so the overlay carries it."""
+        from rebrew.annotation import Annotation
+        from rebrew.metadata import METADATA_FILENAME, merge_into_annotation, update_field
+
+        update_field(tmp_path, 0x1000, "skip", "parked for the archived path", "SERVER")
+        ann = Annotation(va=0x1000, module="SERVER", name="f")
+        merge_into_annotation(ann, tmp_path)
+        assert ann.skip == "parked for the archived path"
+
+        # A bool/int spelling round-trips as its str form; the SKIP check
+        # lowercases before reading the falsy spellings.
+        bool_dir = tmp_path / "bool"
+        bool_dir.mkdir()
+        (bool_dir / METADATA_FILENAME).write_text(
+            '["SERVER.0x00001000"]\nskip = false\n', encoding="utf-8"
+        )
+        ann2 = Annotation(va=0x1000, module="SERVER", name="f")
+        merge_into_annotation(ann2, bool_dir)
+        assert ann2.skip.lower() in ("", "0", "false", "no")
+
     def test_analysis_fills_empty_note(self, tmp_path: Path) -> None:
         from rebrew.annotation import Annotation
         from rebrew.metadata import merge_into_annotation, update_field

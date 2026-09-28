@@ -357,13 +357,18 @@ class TestGenerateDataJsonGrid:
         assert len(fn) == 7
         assert s["exactMatches"] == 1
         assert s["relocMatches"] == 1
+        assert s["provenMatches"] == 0
         assert s["nearMatchCount"] == 1
         assert s["stubCount"] == 4
         assert s["matchedFunctions"] == 2  # exact + reloc; NEAR_MATCHING is not matched
         # The dropped zero-size STUB (fn_z) is tallied nowhere: buckets sum
         # to the emitted total, never more.
         assert (
-            s["exactMatches"] + s["relocMatches"] + s["nearMatchCount"] + s["stubCount"]
+            s["exactMatches"]
+            + s["relocMatches"]
+            + s["provenMatches"]
+            + s["nearMatchCount"]
+            + s["stubCount"]
             == s["totalFunctions"]
         )
 

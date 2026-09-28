@@ -210,6 +210,34 @@ class TestGenerateDataJson:
         assert data["summary"]["nearMatchCount"] == 1
         assert data["summary"]["stubCount"] == 0
 
+    def test_proven_status_counted_in_its_own_bucket(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        entries = [
+            Annotation(
+                va=0x10001000,
+                name="func_a",
+                status="PROVEN",
+                size=64,
+                symbol="_func_a",
+                filepath="/src/func_a.c",
+                cflags="/O2",
+                marker_type="FUNCTION",
+            ),
+        ]
+        funcs = [{"va": 0x10001000, "size": 64, "name": "_func_a"}]
+        bin_path = self._laid_out(monkeypatch, tmp_path)
+        data = generate_data_json(entries, funcs, text_size=0x3000, bin_path=bin_path)
+        s = data["summary"]
+
+        # PROVEN is semantically equivalent but not byte-identical: its own
+        # bucket, and neither a byte match nor a near miss.
+        assert s["provenMatches"] == 1
+        assert s["exactMatches"] == 0
+        assert s["relocMatches"] == 0
+        assert s["nearMatchCount"] == 0
+        assert s["matchedFunctions"] == 0
+
     def test_no_layout_counters_reconcile_to_zero(self) -> None:
         """Without a binary layout nothing emits, so every bucket is 0:
         counters tally emitted functions only, never the raw annotations."""

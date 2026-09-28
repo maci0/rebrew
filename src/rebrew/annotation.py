@@ -502,6 +502,9 @@ class Annotation:
     blocker_delta: int | None = None
     note: str = ""
     ghidra: str = ""
+    # Parking signal from rebrew-functions.toml; distinct from status=SKIP
+    # (a STUB entry can still be parked).
+    skip: str = ""
     prototype: str = ""
     struct: str = ""
     callers: str = ""

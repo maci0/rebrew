@@ -44,7 +44,17 @@ def stats(
     cache_dir = cfg.root / ".rebrew" / "compile_cache"
     if backend == "diskcache" and not cache_dir.exists():
         if json_output:
-            json_print({"exists": False, "entries": 0, "volume_mib": 0})
+            # Same keys as the present-cache payload below, so a consumer
+            # reading backend/cache_dir does not KeyError on a fresh project.
+            json_print(
+                {
+                    "exists": False,
+                    "backend": backend,
+                    "cache_dir": str(cache_dir),
+                    "entries": 0,
+                    "volume_mib": 0,
+                }
+            )
         else:
             console.print("No compile cache found (not yet created).")
         return

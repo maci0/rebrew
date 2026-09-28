@@ -11,6 +11,24 @@
   `docs/COVERAGE_DOCUMENT.md` and `docs/THREAT_MODEL.md` document the field.
 
 ### Fixed
+- **The coverage grid counts PROVEN functions.** `count_statuses` returns
+  five status buckets and its caller unpacked four, so the PROVEN count
+  `_STATUS_PRIORITY` reserves a bucket for was dropped on the floor: a
+  semantically-proven function counted as neither exact, near-matching nor
+  stub. The summary now carries `provenMatches` beside the other three.
+- **`rebrew cache stats --json` reports the same shape with and without a
+  cache.** The not-yet-created branch emitted `exists`/`entries`/
+  `volume_mib` only, so a consumer reading `backend` or `cache_dir` got a
+  KeyError on a fresh project. Both keys now ride along on that path.
+- **`rebrew status --json` reports `naked_bytes`.** `naked_matched` was
+  serialized without the byte count it is always quoted with on the
+  terminal line, and every other byte figure in the report was.
+- **The metadata overlay carries `skip`.** `skip` is a canonical
+  `rebrew-functions.toml` field, a typed `MetadataEntry` attribute and a
+  `FIELD_TO_ATTR` entry whose comment says annotation overlays use the same
+  map, but `apply_metadata_entry` had no arm for it, so the SKIP check had
+  to re-read the raw entry. `Annotation` now has the field and the overlay
+  fills it.
 - **`rebrew cfg set`, `set-cflags`, `set-compiler` and `path` take `--json`.**
   The four `cfg` write commands were the only ones in the group without it
   (`add-target`, `remove-target`, `add-module` and `remove-module` all had
@@ -93,6 +111,7 @@
   connect-stage failures (`ConnectError`, `ConnectTimeout`) are retried now
   (`_never_delivered` in `src/rebrew/decompme.py`).
 
+### Changed
 - **`rebrew cfg effective` reports a config it could not load.** The knobs
   validated during the load (`REBREW_LLM_MAX_REQUESTS`, `REBREW_LLM_TIMEOUT`,
   `REBREW_LLM_ENDPOINT`, `REBREW_RECOMPILE_URL`) aborted the command before it

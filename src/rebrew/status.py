@@ -229,6 +229,7 @@ class StatusReport:
             "matched_pct": self.matched_pct,
             "decompiled_pct": self.decompiled_pct,
             "naked_matched": self.naked_matched,
+            "naked_bytes": self.naked_bytes,
             "source_files": self.source_files,
             "data": {
                 "verified": self.data_verified,
