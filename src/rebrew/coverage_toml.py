@@ -205,6 +205,18 @@ _VERIFY_RESULTS_COLUMNS: tuple[str, ...] = (
     "effective_match",
 )
 
+#: One status delta, as :func:`_merge_history` appends it.  The removed SQLite
+#: writer's ``history`` INSERT column list, less ``target``, in the INSERT's
+#: order, so a document built before the move and one built now hold the same
+#: keys in the same order.
+_HISTORY_COLUMNS: tuple[str, ...] = (
+    "va",
+    "old_status",
+    "new_status",
+    "changed_at",
+    "updated_by",
+)
+
 #: A bare TOML key is these characters only; anything else (``.text``, a
 #: section name with a dot or a space) has to be quoted or the document fails
 #: to parse.

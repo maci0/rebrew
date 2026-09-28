@@ -40,6 +40,16 @@
   `validate_bom` rejects a component with no scope and an inventory with
   nothing marked `required`, so the closure resolving empty fails the build
   rather than shipping a BOM that reads as complete.
+- **`BUILTIN_TOOLCHAINS` reports an absent `delphi-1.0` vendored path as
+  `None`.**
+  **Breaking:** `toolchain.BUILTIN_TOOLCHAINS` and
+  `toolchain_data.BUILTIN_TOOLCHAINS` spelled
+  `BUILTIN_TOOLCHAINS["delphi-1.0"].host_path` as the vendored path
+  unconditionally, so a checkout that has not vendored `delphi/1.0-win16` got
+  a path that was not there, where every other entry in the table already
+  reported `None`. The spec now guards on `vendored_path(...).exists()` like
+  the rest, and a caller that read `host_path` without testing it against
+  `None` sees the change on a machine that has never vendored Delphi.
 - **`binsync.state.index_local_and_catalog` returns a catalog VA to size map
   instead of a fabricated record plus a duplicate VA set.**
   **Breaking:** the two callers (`binsync.importer.index_local_and_catalog`,
