@@ -121,6 +121,30 @@ class TestWatchFiles:
         # The new file's mtime change triggered a retest — provider works.
         assert calls == ["retest"]
 
+    def test_injected_sleep_drives_the_poll(self, tmp_path: Path) -> None:
+        """The poll interval is spent through the injected sleeper.
+
+        Passing it lets a replay step a virtual clock instead of waiting on
+        wall-clock time, so the same edit sequence is observed every time.
+        """
+        from rebrew.utils import watch_files
+
+        a = tmp_path / "a.c"
+        a.write_text("1", encoding="utf-8")
+        calls: list[str] = []
+        slept: list[float] = []
+
+        def fake_sleep(seconds: float) -> None:
+            slept.append(seconds)
+            if not calls:
+                os.utime(a, ns=(1_800_000_000_000_000_000, 1_800_000_001_000_000_000))
+            else:
+                raise KeyboardInterrupt
+
+        watch_files([a], lambda: calls.append("retest"), interval=0.25, sleep=fake_sleep)
+        assert calls == ["retest"]
+        assert slept and set(slept) == {0.25}
+
 
 class TestVerifyWatchCli:
     def test_watch_dispatches_to_watch_files(self, monkeypatch: pytest.MonkeyPatch) -> None:

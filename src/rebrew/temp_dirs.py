@@ -102,7 +102,9 @@ _TEMP_SWEEP_LOCK = threading.Lock()
 _temp_swept_bases: set[Path] = set()
 
 
-def sweep_stale_temp_dirs(base: Path, age_s: float = STALE_TEMP_DIR_AGE_S) -> list[Path]:
+def sweep_stale_temp_dirs(
+    base: Path, age_s: float = STALE_TEMP_DIR_AGE_S, *, now: float | None = None
+) -> list[Path]:
     """Remove abandoned rebrew sandbox dirs from *base*; return what was removed.
 
     ``remove_temp_dir`` and the atexit hooks release a sandbox on every path a
@@ -116,13 +118,19 @@ def sweep_stale_temp_dirs(base: Path, age_s: float = STALE_TEMP_DIR_AGE_S) -> li
     a live sandbox (staged headers, ``.obj`` output, the link log) move that
     mtime, and a sandbox whose writes have stopped for a whole day belongs to no
     run still doing work.
+
+    *now* overrides the age reference, so a replay or a test decides the same
+    sweep from a fixed instant instead of from when the process happened to run.
     """
     import shutil
 
-    now = time.time()
+    if now is None:
+        now = time.time()
     removed: list[Path] = []
     try:
-        entries = list(base.iterdir())
+        # Sorted: iterdir yields readdir order, which the filesystem chooses,
+        # so an unsorted walk makes the same tree sweep to a different list.
+        entries = sorted(base.iterdir())
     except OSError:
         return removed
     for entry in entries:

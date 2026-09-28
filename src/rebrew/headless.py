@@ -37,6 +37,7 @@ import subprocess
 import tempfile
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 from rebrew.config import XVFB_DISPLAY_ENV as _XVFB_DISPLAY_ENV
@@ -226,23 +227,40 @@ def _pick_free_display() -> str:
     return f":{_XVFB_DISPLAY_RANGE.start + os.getpid() % (_XVFB_DISPLAY_RANGE.stop - _XVFB_DISPLAY_RANGE.start)}"
 
 
+#: Poll interval of :func:`_wait_for_socket` against a real clock.
+_SOCKET_POLL_INTERVAL_S = 0.05
+
+
 def _wait_for_socket(
-    display: str, timeout: float = 3.0, proc: subprocess.Popen[bytes] | None = None
+    display: str,
+    timeout: float = 3.0,
+    proc: subprocess.Popen[bytes] | None = None,
+    *,
+    clock: Callable[[], float] | None = None,
+    sleep: Callable[[float], None] | None = None,
 ) -> bool:
     """Poll until the X server's socket appears (it may take ~200-400 ms).
 
     When *proc* is given, bail early if the process exits — a server that
     dies during startup (bad args, missing deps) would otherwise burn the
     whole timeout on every call.
+
+    *clock* and *sleep* are the loop's only time sources, the same seam
+    :func:`rebrew.match_ga.BinaryMatchingGA.run` and
+    :func:`rebrew.matcher.compiler.flag_sweep` take: inject both to replay a
+    startup sequence from virtual time, with no real waiting and no
+    dependence on how fast this machine spawns Xvfb.
     """
+    now = clock if clock is not None else time.monotonic
+    nap = sleep if sleep is not None else time.sleep
     sock = _XVFB_SOCKET_DIR / f"X{display.removeprefix(':')}"
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
+    deadline = now() + timeout
+    while now() < deadline:
         if sock.exists():
             return True
         if proc is not None and proc.poll() is not None:
             return False
-        time.sleep(0.05)
+        nap(_SOCKET_POLL_INTERVAL_S)
     return False
 
 

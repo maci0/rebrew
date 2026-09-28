@@ -489,6 +489,57 @@ class TestWaitForSocket:
         assert sleeps
         assert clock["t"] >= 0.3
 
+    def test_injected_clock_and_sleep_drive_the_loop(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The loop takes its time from the injected seam, not from time.sleep.
+
+        A caller replaying a startup sequence passes both, so the wait costs
+        no real time and lands on the same result on any host.
+        """
+        from rebrew import headless
+
+        clock = {"t": 0.0}
+        sleeps: list[float] = []
+
+        def _monotonic() -> float:
+            return clock["t"]
+
+        def _sleep(seconds: float) -> None:
+            sleeps.append(seconds)
+            clock["t"] += seconds
+
+        monkeypatch.setattr(headless.time, "sleep", lambda _s: pytest.fail("real sleep used"))
+        monkeypatch.setattr(headless, "_XVFB_SOCKET_DIR", tmp_path)  # socket never appears
+
+        class AliveProc:
+            def poll(self) -> None:
+                return None
+
+        assert (
+            headless._wait_for_socket(
+                ":90", timeout=0.3, proc=AliveProc(), clock=_monotonic, sleep=_sleep
+            )
+            is False
+        )
+        assert sleeps
+        assert clock["t"] >= 0.3
+
+    def test_injected_clock_sees_the_socket_appear(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew import headless
+
+        sock_dir = tmp_path
+        monkeypatch.setattr(headless, "_XVFB_SOCKET_DIR", sock_dir)
+        (sock_dir / "X90").touch()
+        sleeps: list[float] = []
+        assert (
+            headless._wait_for_socket(":90", timeout=3.0, clock=lambda: 0.0, sleep=sleeps.append)
+            is True
+        )
+        assert sleeps == []
+
 
 class TestXvfbCookieFor:
     """The cookie/display pair is published under ``_XVFB_INIT_LOCK``."""

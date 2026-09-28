@@ -1520,8 +1520,36 @@ class TestSweepStaleTempDirs:
         assert temp_dirs.sweep_stale_temp_dirs(tmp_path) == []
         assert target.is_dir()
 
-    def test_swept_once_per_base(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_now_overrides_the_age_reference(self, tmp_path: Path) -> None:
+        """The sweep decides from the passed instant, not from when it ran.
 
+        With *now* fixed, the same tree is reclaimed (or kept) on every
+        host and in every run, so a replay sees the same sweep.  The result
+        is sorted by name, not left in readdir order.
+        """
+        now = 1_800_000_000.0
+        fresh = tmp_path / "rebrew_batch_fresh"
+        fresh.mkdir()
+        os.utime(
+            fresh,
+            (
+                now - temp_dirs.STALE_TEMP_DIR_AGE_S + 60,
+                now - temp_dirs.STALE_TEMP_DIR_AGE_S + 60,
+            ),
+        )
+        lost = tmp_path / "rebrew_batch_lost"
+        lost.mkdir()
+        self._age(lost, temp_dirs.STALE_TEMP_DIR_AGE_S + 60)
+        assert temp_dirs.sweep_stale_temp_dirs(tmp_path, now=now) == [lost]
+        assert fresh.is_dir()
+        # Two minutes later the fresh one has aged past the threshold, and the
+        # removal order follows the names rather than the directory order.
+        other = tmp_path / "rebrew_batch_other"
+        other.mkdir()
+        self._age(other, temp_dirs.STALE_TEMP_DIR_AGE_S + 60)
+        assert temp_dirs.sweep_stale_temp_dirs(tmp_path, now=now + 120) == [fresh, other]
+
+    def test_swept_once_per_base(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(temp_dirs, "_temp_swept_bases", set())
         calls: list[Path] = []
         real = temp_dirs.sweep_stale_temp_dirs

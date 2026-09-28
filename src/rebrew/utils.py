@@ -1307,6 +1307,7 @@ def watch_files(
     retest: Callable[[], None],
     interval: float = 1.0,
     path_provider: Callable[[], list[Path]] | None = None,
+    sleep: Callable[[float], None] | None = None,
 ) -> None:
     """Poll *paths* and call *retest* whenever any file's mtime changes.
 
@@ -1320,7 +1321,14 @@ def watch_files(
     files created during the session (e.g. a ``rebrew skeleton`` generating a
     fresh ``.c`` while ``verify --watch`` runs) are picked up instead of the
     loop silently stopping to cover them.
+
+    *sleep* is the poll's only time source: a replay passes a stepper that
+    advances a virtual clock, so the same sequence of edits is observed
+    without the run waiting on wall-clock time.  Left unset it reads
+    :func:`time.sleep` per poll, so a patched clock is still honoured.
     """
+
+    nap = sleep if sleep is not None else time.sleep
 
     def _current_paths() -> list[Path]:
         return path_provider() if path_provider is not None else paths
@@ -1340,7 +1348,7 @@ def watch_files(
     )
     try:
         while True:
-            time.sleep(interval)
+            nap(interval)
             current = _mtimes()
             if current == last:
                 continue

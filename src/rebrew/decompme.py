@@ -523,7 +523,9 @@ def recorded_upload(root: Path, digest: str, api: str) -> dict[str, str] | None:
     return entry
 
 
-def record_upload(root: Path, digest: str, slug: str, claim_token: str, api: str) -> None:
+def record_upload(
+    root: Path, digest: str, slug: str, claim_token: str, api: str, *, now: float | None = None
+) -> None:
     """Remember the scratch created for *digest*, pruning aged-out entries.
 
     The ledger holds a decomp.me claim token, which is the credential that
@@ -535,9 +537,14 @@ def record_upload(root: Path, digest: str, slug: str, claim_token: str, api: str
     Best-effort: a ledger that cannot be written (read-only project, full
     disk) must not turn a successful upload into a command failure, so the
     scratch is still created and only the dedup is lost.
+
+    *now* overrides the recording instant, so the retention prune and the
+    stored timestamp are reproducible instead of a function of when the
+    upload happened to run.
     """
     path = _uploads_path(root)
-    now = time.time()
+    if now is None:
+        now = time.time()
     try:
         with file_lock(path.with_suffix(".lock")):
             entries = read_uploads(root)

@@ -775,6 +775,15 @@ class TestUploadLedger:
         decompme.record_upload(tmp_path, digest, "abc", "tok", "https://decomp.me")
         assert decompme.recorded_upload(tmp_path, digest, "https://staging.decomp.me") is None
 
+    def test_recorded_at_follows_the_passed_instant(self, tmp_path: Path) -> None:
+        """The stored timestamp comes from *now*, so a replay writes the same ledger."""
+        digest = decompme.scratch_digest(self._payload(), "https://decomp.me")
+        decompme.record_upload(
+            tmp_path, digest, "abc", "tok", "https://decomp.me", now=1_700_000_000.0
+        )
+        entry = decompme.read_uploads(tmp_path)[digest]
+        assert entry["at"] == "1700000000.0"
+
     def test_expired_entries_are_pruned(self, tmp_path: Path) -> None:
         digest = decompme.scratch_digest(self._payload(), "https://decomp.me")
         decompme.record_upload(tmp_path, digest, "abc", "tok", "https://decomp.me")
