@@ -2,7 +2,8 @@
 # Install host packages in a CI job, retrying transient apt mirror failures.
 #
 # One helper for every apt step (nasm for the asm round-trip tests, shellcheck
-# for the pre-commit gate, jq for the nightly drift result gate): apt mirrors
+# and yamllint for the pre-commit gate, jq for the nightly drift result gate):
+# apt mirrors
 # flake under load, and a job that dies on the first 503 retries nothing.
 # Retries match tools/ci_clone_resembl.sh.
 #

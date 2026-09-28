@@ -15,7 +15,7 @@ import pytest
 from typer.testing import CliRunner
 
 from rebrew.cmake_sources import app, collect
-from rebrew.config import load_config
+from rebrew.config import ProjectConfig, load_config
 
 TOML = """\
 [project]
@@ -40,7 +40,7 @@ profile = "msvc-6.0"
 """
 
 
-def _project(tmp_path: Path, sources: dict[str, str]):
+def _project(tmp_path: Path, sources: dict[str, str]) -> ProjectConfig:
     (tmp_path / "rebrew-project.toml").write_text(TOML, encoding="utf-8")
     (tmp_path / "src/server_dll").mkdir(parents=True, exist_ok=True)
     (tmp_path / "src/shared").mkdir(parents=True, exist_ok=True)

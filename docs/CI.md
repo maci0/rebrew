@@ -15,8 +15,8 @@ against its own scratch project, requiring the first run to actually change
 it), both version-independent, so the 3.14 entry
 skips them — a pre-commit hook-parity job (`make check` with
 the two ruff hooks and the mypy hook skipped, since the lint job runs them; it installs
-shellcheck first through `tools/ci_apt_install.sh`, so the shell hook is
-enforced there), a package job
+shellcheck and yamllint first through `tools/ci_apt_install.sh`, so the shell
+and YAML hooks are enforced there), a package job
 that builds the sdist/wheel via `make build` (SOURCE_DATE_EPOCH, umask 022, C/UTC,
 `PYTHONHASHSEED=0`; `tools/normalize_sdist.py` rewrites sdist tar metadata and
 wheel entry modes), checks both artifacts hash the same when
@@ -119,8 +119,9 @@ the tag points anywhere else.  `make setup` checks the same commit
 (`RESEMBL_SHA` in the Makefile) so a local checkout on another commit fails
 before `uv sync`, with the checkout command, instead of diverging from CI.
 Every host package the jobs install comes from one helper,
-`tools/ci_apt_install.sh` (nasm for the asm round-trip tests, shellcheck for
-the pre-commit gate, jq for the nightly drift result gate): apt mirrors flake
+`tools/ci_apt_install.sh` (nasm for the asm round-trip tests, shellcheck and
+yamllint for the pre-commit gate, jq for the nightly drift result gate): apt
+mirrors flake
 under load, so it retries update and
 install with a backoff, skips packages already on `PATH`, and fails the step
 naming the package after the last attempt.

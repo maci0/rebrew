@@ -1,6 +1,7 @@
 .PHONY: help doctor setup clean test test-one lint format format-check check build sbom all pr-check \
 	gen-fixtures gen-fixtures-check gen-skills gen-skills-check cycles-check idempotency-check mypy audit \
 	cli-contract release-check coverage ensure-uv ensure-resembl ensure-nasm warn-nasm ensure-node warn-node warn-shellcheck \
+	warn-yamllint \
 	ensure-bash \
 	smoke-wheel \
 	ensure-extras \
@@ -138,7 +139,7 @@ UV_RUN_TOOLS := uv run --no-project --offline --python $(PYTHON_PIN)
 
 help:
 	@printf '%s\n' \
-		'  make doctor             # report every missing prerequisite (uv, resembl, nasm, node, shellcheck, extras)' \
+		'  make doctor             # report every missing prerequisite (uv, resembl, nasm, node, shellcheck, yamllint, extras)' \
 		'  make setup              # uv sync (locked + extras + similarity) + pre-commit/pre-push hooks' \
 		'  make clone-resembl      # clone sibling resembl pin into ../resembl (required for uv sync)' \
 		'  make clean              # remove build/dist artifacts and caches' \
@@ -171,7 +172,8 @@ help:
 		'Bootstrap (clean clone):' \
 		'  0. make doctor          # reports which of the steps below this host is missing' \
 		'  1. Install uv $(UV_VERSION)+ (CI pin), Python 3.13+ (.python-version), nasm + node on PATH' \
-		'     (shellcheck too: the pre-commit shell hook skips itself without it, CI runs it;' \
+		'     (shellcheck + yamllint too: the pre-commit shell and YAML hooks skip' \
+		'     themselves without them, CI runs both;' \
 		'     bash for step 2: tools/ci_clone_resembl.sh runs under it)' \
 		'  2. Clone sibling resembl at $(RESEMBL_REF) into ../resembl' \
 		'     git clone --depth 1 --branch $(RESEMBL_REF) https://github.com/maci0/resembl.git ../resembl' \
@@ -287,6 +289,15 @@ warn-shellcheck:
 	  echo "  apt install shellcheck / pacman -S shellcheck / dnf install shellcheck"; \
 	fi
 
+# Same skip-if-absent shape, same consequence, for the YAML gate.
+warn-yamllint:
+	@set -eu; \
+	if ! command -v yamllint >/dev/null 2>&1; then \
+	  echo "WARNING: yamllint not on PATH; the pre-commit YAML hook skips itself locally."; \
+	  echo "CI installs it, so a clean 'make check' here can still fail after push:"; \
+	  echo "  apt install yamllint / pacman -S yamllint / dnf install yamllint"; \
+	fi
+
 # tools/ci_clone_resembl.sh is bash (it needs ${var:?} and bash-only options).
 # A minimal host without it would read "bash: not found" as a clone failure.
 ensure-bash:
@@ -336,7 +347,7 @@ ensure-extras: ensure-uv
 doctor:
 	@set -u; \
 	rc=0; \
-	for check in ensure-uv warn-uv-version ensure-resembl ensure-bash ensure-nasm ensure-node warn-shellcheck ensure-extras; do \
+	for check in ensure-uv warn-uv-version ensure-resembl ensure-bash ensure-nasm ensure-node warn-shellcheck warn-yamllint ensure-extras; do \
 	  case $$check in \
 	    ensure-uv) label='uv on PATH' ;; \
 	    warn-uv-version) label="uv >= $(UV_VERSION) (CI pin)" ;; \
@@ -345,6 +356,7 @@ doctor:
 	    ensure-nasm) label='nasm on PATH (make test; optional for test-one)' ;; \
 	    ensure-node) label='node on PATH (dashboard interaction tests; optional for test-one)' ;; \
 	    warn-shellcheck) label='shellcheck on PATH (pre-commit shell hook)' ;; \
+	    warn-yamllint) label='yamllint on PATH (pre-commit YAML hook)' ;; \
 	    ensure-extras) label="venv extras (angr/claripy, rapidfuzz/resembl)" ;; \
 	  esac; \
 	  out=$$($(MAKE) --no-print-directory $$check 2>&1) || rc=1; \
@@ -407,7 +419,7 @@ format-check: ensure-uv
 
 # Run pre-commit checks on all files.  Match CI workflow env so Rich/typer
 # ANSI cannot split option names when GITHUB_ACTIONS/FORCE_COLOR is set.
-check: warn-shellcheck ensure-uv
+check: warn-shellcheck warn-yamllint ensure-uv
 	NO_COLOR=1 TERM=dumb _TYPER_FORCE_DISABLE_TERMINAL=1 \
 		uv run --frozen pre-commit run --all-files
 

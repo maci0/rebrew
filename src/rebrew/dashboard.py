@@ -1686,6 +1686,7 @@ _FAVICON_SVG = theme.FAVICON_SVG
 _FAVICON_SVG_BYTES = _FAVICON_SVG.encode("utf-8")
 _FAVICON_ETAG = '"' + hashlib.sha256(_FAVICON_SVG_BYTES).hexdigest()[:16] + '"'
 
+
 #: The entry assets compress at max effort (zstd 19 runs at MB/s), which cost
 #: ~10 ms of import time on every `rebrew` invocation because CLI composition
 #: imports this module for every command.  Build them on the first request that

@@ -372,7 +372,7 @@ class TestConcurrentQueryInit:
         finally:
             security_scan._call_query = old
 
-    def test_unavailable_parser_raises(self, tmp_path: Path, monkeypatch) -> None:
+    def test_unavailable_parser_raises(self, tmp_path: Path, monkeypatch: Any) -> None:
         """Zero findings from a scanner that cannot parse mean nothing."""
         import rebrew.security_scan as scan_mod
 
@@ -381,7 +381,7 @@ class TestConcurrentQueryInit:
         with pytest.raises(scan_mod.SecurityScanUnavailable):
             scan_paths([path])
 
-    def test_cli_reports_an_unavailable_scanner(self, tmp_path: Path, monkeypatch) -> None:
+    def test_cli_reports_an_unavailable_scanner(self, tmp_path: Path, monkeypatch: Any) -> None:
         import rebrew.security_scan as scan_mod
 
         monkeypatch.setattr(scan_mod, "get_ts_parser", lambda: None)

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from tools.corpus_sweep import check_project, discover_projects, is_skipped
 
 
@@ -42,7 +44,9 @@ class TestIsSkipped:
 
 
 class TestCheckProject:
-    def test_failing_command_reported(self, tmp_path: Path, monkeypatch) -> None:
+    def test_failing_command_reported(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """A non-zero exit or non-JSON stdout marks the command failed."""
         import os
 

@@ -171,6 +171,10 @@ jobs:
         # trusting the runner image to keep carrying it, through the same
         # retrying helper the test job installs nasm with.
         run: bash tools/ci_apt_install.sh shellcheck
+      - name: Install yamllint
+        # Same reason as shellcheck: the yamllint hook skips itself when the
+        # binary is missing, so the YAML gate exists only if this runs.
+        run: bash tools/ci_apt_install.sh yamllint
       - name: Run pre-commit hooks
         env:
           SKIP: ruff-check,ruff-format,mypy

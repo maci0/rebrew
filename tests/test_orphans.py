@@ -134,7 +134,9 @@ class TestOrphansPrune:
         assert get_entry(tmp_path, 0x2000, "SERVER") == {}
         assert get_entry(tmp_path, 0x1000, "SERVER").get("status") == "STUB"
 
-    def test_prune_include_matched_json(self, tmp_path: Path, monkeypatch) -> None:
+    def test_prune_include_matched_json(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """--prune --include-matched --json reports held_back 0 and prunes matched."""
         import json
 

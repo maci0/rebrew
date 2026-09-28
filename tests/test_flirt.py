@@ -88,7 +88,7 @@ class TestLoadSignatures:
         sigs = load_signatures(str(sig_dir))
         assert sigs == []
 
-    def test_no_flirt_module(self, monkeypatch) -> None:
+    def test_no_flirt_module(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Returns empty list when flirt module is not available."""
         import rebrew.flirt as flirt_mod
 

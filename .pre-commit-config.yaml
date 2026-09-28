@@ -74,6 +74,16 @@ repos:
         language: system
         types: [shell]
 
+      # `check-yaml` above proves the tracked YAML parses; this proves it is
+      # well-formed (tabs, trailing spaces, duplicate keys, a malformed
+      # `run:` block).  Same skip-if-absent shape as shellcheck, and the CI
+      # pre-commit job installs yamllint alongside it.
+      - id: yamllint
+        name: yamllint
+        entry: bash -c 'command -v yamllint >/dev/null 2>&1 || exit 0; exec yamllint "$@"' --
+        language: system
+        types: [yaml]
+
       - id: mypy
         name: Mypy type check
         # `make mypy` first checks the `prove` extra is installed: without it

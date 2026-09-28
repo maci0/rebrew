@@ -426,8 +426,8 @@ enable_error_code = [
 # here as it comes clean rather than relaxing the gate for the tree.
 # Every clean tests/ module is listed, test_check_sdist_wheel.py included: the
 # "Source file found twice under different module names" abort that used to
-# keep it out does not reproduce, and with it listed `uv run mypy` checks 323
-# files and reports the findings it did before.
+# keep it out does not reproduce, and with it listed `uv run mypy` reports the
+# findings it did before on a wider tree.
 files = [
     "src/rebrew",
     "tools",
@@ -443,6 +443,8 @@ files = [
     "tests/test_binsync_state.py",
     "tests/test_cache_cli.py",
     "tests/test_calibrate_bss.py",
+    "tests/test_cmake_flags.py",
+    "tests/test_cmake_sources.py",
     "tests/test_catalog_models.py",
     "tests/test_catalog.py",
     "tests/test_catalog_registry.py",
@@ -461,6 +463,7 @@ files = [
     "tests/test_docs_links.py",
     "tests/test_document_unmatched.py",
     "tests/test_elf_fixture.py",
+    "tests/test_flirt.py",
     "tests/test_env_docs.py",
     "tests/test_errors.py",
     "tests/test_external_libs.py",
@@ -485,6 +488,7 @@ files = [
     "tests/test_normalize_sdist.py",
     "tests/test_onboarding.py",
     "tests/test_order_sources.py",
+    "tests/test_orphans.py",
     "tests/test_pe_symbols.py",
     "tests/test_probe.py",
     "tests/test_project_toml_example.py",
@@ -495,6 +499,7 @@ files = [
     "tests/test_resource.py",
     "tests/test_security_scan.py",
     "tests/test_skill_commands_validate.py",
+    "tests/test_skills_extended.py",
     "tests/test_skills_sync.py",
     "tests/test_solutions.py",
     "tests/test_source_ext.py",
@@ -511,6 +516,7 @@ files = [
     "tests/test_verify_text.py",
     "tests/test_verify_watch.py",
     "tests/test_coverage_toml.py",
+    "tests/test_corpus_sweep.py",
     "tests/test_workspace_config.py",
     "tests/test_workspace_public_api.py",
     "tests/test_workspace_va.py",

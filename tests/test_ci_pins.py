@@ -1479,6 +1479,50 @@ class TestCiPins:
         assert "shellcheck" in pre_commit_job
         assert pre_commit_job.index("shellcheck") < pre_commit_job.index("make check")
 
+    def test_yamllint_hook_is_installed_before_it_runs(self) -> None:
+        """The YAML gate is only real if CI installs the binary it skips without.
+
+        Same contract as shellcheck: the hook exits 0 when yamllint is absent,
+        so a green local `make check` says nothing about a workflow's YAML.
+        """
+        text = (ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+        hook = text.split("- id: yamllint\n", 1)[1].split("- id:", 1)[0]
+        assert "command -v yamllint" in hook
+        assert "types: [yaml]" in hook
+        ci = CI_YML.read_text(encoding="utf-8")
+        pre_commit_job = next(
+            block
+            for block in re.split(r"\n(?=  [a-z][a-z-]*:\n)", ci)
+            if block.splitlines()[0].strip().rstrip(":") == "pre-commit"
+        )
+        assert "yamllint" in pre_commit_job
+        assert pre_commit_job.index("yamllint") < pre_commit_job.index("make check")
+
+    def test_every_tracked_yaml_passes_the_configured_rules(self) -> None:
+        """`.yamllint.yml` is the rule set; the tree must already pass it.
+
+        Runs the real binary on the tracked YAML (skipped when it is absent,
+        as the pre-commit hook is) so a workflow edit that a new rule rejects
+        fails here instead of on the runner.
+        """
+        if shutil.which("yamllint") is None:
+            pytest.skip("yamllint not on PATH")
+        targets = [
+            ROOT / ".pre-commit-config.yaml",
+            ROOT / ".yamllint.yml",
+            *sorted((ROOT / ".github").rglob("*.yml")),
+            *sorted((ROOT / ".github").rglob("*.yaml")),
+            *sorted((ROOT / "docs").glob("*.yaml")),
+            *sorted((ROOT / "tests").rglob("*.yaml")),
+        ]
+        result = subprocess.run(
+            ["yamllint", "--no-warnings", "-f", "parsable", *[str(p) for p in targets]],
+            capture_output=True,
+            text=True,
+            cwd=ROOT,
+        )
+        assert result.returncode == 0, result.stdout
+
     def test_pre_commit_job_skips_exactly_the_lint_jobs_hooks(self) -> None:
         """``SKIP`` is a hand-written list; a renamed or new hook id makes it lie.
 
@@ -1550,9 +1594,9 @@ class TestCiPins:
 
 
 class TestCiAptInstall:
-    """One retrying helper for every apt step (nasm, shellcheck, jq).
+    """One retrying helper for every apt step (nasm, shellcheck, yamllint, jq).
 
-    All three come from apt mirrors that flake under load; an inlined
+    All four come from apt mirrors that flake under load; an inlined
     retry loop per job is how one of them ends up without a retry.
     """
 
@@ -1572,7 +1616,7 @@ class TestCiAptInstall:
     def test_every_apt_step_uses_the_helper(self) -> None:
         """No workflow may inline `apt-get install`: the retrying helper is the
         one place the mirror-flake policy lives, and the drift result gate's
-        `jq` is as much a host dependency as nasm and shellcheck.
+        `jq` is as much a host dependency as nasm, shellcheck, and yamllint.
         """
         for path in (CI_YML, SYNC_YML):
             text = path.read_text(encoding="utf-8")
@@ -1580,8 +1624,8 @@ class TestCiAptInstall:
                 f"{path.name}: call tools/ci_apt_install.sh instead"
             )
         ci = CI_YML.read_text(encoding="utf-8")
-        assert ci.count("bash tools/ci_apt_install.sh") == 2, ci
-        for pkg in ("nasm", "shellcheck"):
+        assert ci.count("bash tools/ci_apt_install.sh") == 3, ci
+        for pkg in ("nasm", "shellcheck", "yamllint"):
             assert f"bash tools/ci_apt_install.sh {pkg}" in ci, pkg
         sync = SYNC_YML.read_text(encoding="utf-8")
         assert "bash tools/ci_apt_install.sh jq" in sync

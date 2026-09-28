@@ -1,5 +1,29 @@
 ## [Unreleased]
 
+### Changed
+- **The tracked YAML is linted, not just parsed.** `check-yaml` proved a
+  workflow loads and nothing else: a tab indent, a duplicate key, or a
+  malformed `run:` block reached the runner first. `.yamllint.yml` sets the
+  rules to the conventions the tree already follows (120 columns, one space
+  inside flow braces, no document start) and a `yamllint` pre-commit hook
+  runs them. The hook skips itself when the binary is absent, so the
+  pre-commit job installs it beside shellcheck through
+  `tools/ci_apt_install.sh`; `make doctor` reports a host that would
+  otherwise see a green `make check` and a red push.
+  `tests/fixtures/splat_config/win32_app.yaml` keeps its Python-style `True`
+  because it reproduces `splat create_config` output, so `truthy` stays a
+  warning and every error-level rule still blocks.
+- **Six more test modules sit under `--strict`.** `tests/test_cmake_flags.py`,
+  `tests/test_cmake_sources.py`, `tests/test_corpus_sweep.py`,
+  `tests/test_flirt.py`, `tests/test_orphans.py` and
+  `tests/test_skills_extended.py` join the `[tool.mypy] files` list, taking
+  the checked tree from 323 to 329 files.
+
+### Fixed
+- **Two mypy findings in a module the strict list already claimed.**
+  `tests/test_security_scan.py` passed `monkeypatch` unannotated in two
+  tests, so `uv run mypy` failed on a file the gate asserted was clean.
+
 ### Added
 - **`REBREW_LLM_MAX_TOKENS` bounds what LLM seeding can spend, not just how
   often it calls.** `REBREW_LLM_MAX_REQUESTS` priced a run in calls, but one

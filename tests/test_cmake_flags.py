@@ -18,7 +18,7 @@ from typer.testing import CliRunner
 
 from rebrew.cli import EXIT_ERROR
 from rebrew.cmake_flags import _defines, app, collect
-from rebrew.config import load_config
+from rebrew.config import ProjectConfig, load_config
 from rebrew.lint_cflags import codegen_cflags_key
 
 TOML = """\
@@ -37,7 +37,7 @@ profile = "msvc-6.0"
 """
 
 
-def _project(tmp_path: Path, functions_toml: str, sources: dict[str, str]):
+def _project(tmp_path: Path, functions_toml: str, sources: dict[str, str]) -> ProjectConfig:
     (tmp_path / "rebrew-project.toml").write_text(TOML, encoding="utf-8")
     (tmp_path / "src/server_dll").mkdir(parents=True, exist_ok=True)
     (tmp_path / "src/rebrew-functions.toml").write_text(functions_toml, encoding="utf-8")

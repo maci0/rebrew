@@ -677,7 +677,20 @@ components:
         the set every status card in the summary can be filtered by.
         `NEAR_MATCH` is accepted too (see `StatusAlias`); it is listed apart
         so the vocabulary stays checkable against the stored rows.
-      enum: [EXACT, RELOC, PROVEN, NEAR_MATCHING, STUB, SKIP, UNKNOWN, INVALID_VA, MISSING_FILE, MISSING_SIZE, SIZE_MISMATCH, COMPILE_ERROR, EXTRACT_ERROR]
+      enum:
+        - EXACT
+        - RELOC
+        - PROVEN
+        - NEAR_MATCHING
+        - STUB
+        - SKIP
+        - UNKNOWN
+        - INVALID_VA
+        - MISSING_FILE
+        - MISSING_SIZE
+        - SIZE_MISMATCH
+        - COMPILE_ERROR
+        - EXTRACT_ERROR
     StatusAlias:
       type: string
       description: |
@@ -800,9 +813,23 @@ components:
         coverage_dir: { type: string, description: Absolute path of the coverage directory being served. }
         targets: { type: integer, minimum: 0, description: Readable coverage documents in that directory. }
         requests: { type: integer, minimum: 0, description: Requests served since the server started. }
-        server_errors: { type: integer, minimum: 0, description: 5xx responses, including a connection refused by the in-flight cap, and unhandled handler faults since the server started. }
-        slowest_ms: { type: number, minimum: 0, description: Slowest request handled since the server started, in milliseconds. }
-        active_connections: { type: integer, minimum: 0, description: Connections currently holding a handler thread, the count the in-flight cap refuses on. A gauge, not a running total: it rises and falls with the clients connected right now. }
+        server_errors:
+          type: integer
+          minimum: 0
+          description: >-
+            5xx responses, including a connection refused by the in-flight cap,
+            and unhandled handler faults since the server started.
+        slowest_ms:
+          type: number
+          minimum: 0
+          description: Slowest request handled since the server started, in milliseconds.
+        active_connections:
+          type: integer
+          minimum: 0
+          description: >-
+            Connections currently holding a handler thread, the count the
+            in-flight cap refuses on. A gauge, not a running total: it rises
+            and falls with the clients connected right now.
 
     Summary:
       type: object
@@ -864,7 +891,21 @@ components:
             cols:
               type: array
               items: { type: string }
-              const: [name, size, total_cells, exact, reloc, near_match, stub, proven, size_mismatch, thunk, data, padding, none, other]
+              const:
+                - name
+                - size
+                - total_cells
+                - exact
+                - reloc
+                - near_match
+                - stub
+                - proven
+                - size_mismatch
+                - thunk
+                - data
+                - padding
+                - none
+                - other
             sections:
               type: array
               items:

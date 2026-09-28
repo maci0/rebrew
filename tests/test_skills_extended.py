@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+from typing import NoReturn
 
 import pytest
 from typer.testing import CliRunner
@@ -82,7 +83,7 @@ class TestSkillsCli:
         _skill_dir(tmp_path, "rebrew-intake")
         monkeypatch.setattr(skills, "_SKILLS_DIR", tmp_path)
 
-        def _boom(text):
+        def _boom(text: str) -> NoReturn:
             raise RuntimeError("no markdown")
 
         monkeypatch.setattr("rich.markdown.Markdown", _boom)
