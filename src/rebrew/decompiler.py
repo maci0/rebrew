@@ -841,8 +841,11 @@ def kuna_seed_source(binary: Path, va: int, root: Path) -> str | None:
 
 #: m2c (github.com/matt-kempster/m2c) decompiles GNU-as assembly into C that
 #: byte-matches the original compiler (IDO for N64, MWCC for GC/Wii).  It is
-#: installed from git, not PyPI (``pip install "m2c @ git+..."``) — hence the
-#: ``find_spec`` guard below rather than a hard dependency.
+#: installed from git, not PyPI (the index name is an unrelated OpenAPI
+#: package) — hence the ``find_spec`` guard below rather than a hard
+#: dependency.  :func:`fetch_m2c` carries the commit-pinned install command;
+#: ``tests/test_packaging.py`` keeps that rev, the ``m2c`` dependency group,
+#: ``uv.lock`` and ``NOTICE`` in step.
 _M2C_RUN_CMD = "from m2c.main import main; main()"
 
 #: m2c ``--target`` per rebrew arch.  m2c's PPC id is ``ppc-mwcc-c`` (no
@@ -967,9 +970,15 @@ def fetch_m2c(binary: Path, va: int, root: Path, **_kwargs: Any) -> str | None:
     ``rebrew context`` output as ``--context`` when a ``ctx.c`` exists in the
     project root (run ``rebrew context`` first to populate it).
 
-    Requires the ``m2c`` package — install with ``uv sync --group m2c`` or
-    ``uv pip install "m2c @ git+https://github.com/matt-kempster/m2c.git"``
-    (the real decompiler is not on PyPI under this name).  Returns ``None`` when
+    Requires the ``m2c`` package, which is not on PyPI under its real name
+    (the index name is an unrelated OpenAPI package).  Install with ``uv sync
+    --group m2c``, or with the audited commit spelled out:
+
+        uv pip install "m2c @ git+https://github.com/matt-kempster/m2c.git@aa869da289a565c68f701e734bd74606f1bd5ed4"
+
+    The rev is not decoration: it is the commit ``NOTICE`` records the
+    GPL-3.0-only grant against, and a bare branch would let upstream change
+    the decompiler under an unreviewed HEAD.  Returns ``None`` when
     m2c is unavailable, the arch has no m2c target (x86), the function does
     not cleanly disassemble, or m2c fails.  Disassembly follows the image
     endianness: MIPS, PPC, and SH2 default to big-endian, and a little-endian

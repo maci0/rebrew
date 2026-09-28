@@ -8,6 +8,7 @@ pins the metadata honesty rules that keep that artifact PyPI-safe.
 from __future__ import annotations
 
 import ast
+import inspect
 import os
 import re
 import subprocess
@@ -601,6 +602,38 @@ class TestPackagingMetadata:
             for dep in deps:
                 assert "@" not in dep, f"extra {name!r} has direct URL: {dep}"
                 assert "git+" not in dep, f"extra {name!r} has git URL: {dep}"
+
+    def test_m2c_rev_is_pinned_everywhere(self) -> None:
+        """The audited m2c commit must be the only one the tree can point at.
+
+        m2c is not on PyPI under its real name, so every install path is a
+        direct git URL.  A floating branch in the ``fetch_m2c`` docstring hands
+        the decompiler whatever upstream HEAD happens to be; the dependency
+        group, ``uv.lock`` and ``NOTICE`` carry the reviewed commit, and the
+        GPL grant in ``NOTICE`` is made against that commit.
+        """
+        import rebrew.decompiler
+
+        data = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))
+        (grouped,) = data["dependency-groups"]["m2c"]
+        rev = grouped.rsplit("@", 1)[1]
+        assert re.fullmatch(r"[0-9a-f]{40}", rev), rev
+        assert f"m2c.git@{rev}" in (ROOT / "NOTICE").read_text(encoding="utf-8")
+        assert f"m2c.git?rev={rev}" in (ROOT / "uv.lock").read_text(encoding="utf-8")
+        # Every install command in the shipped source carries the rev; a bare
+        # `m2c.git"` is the unpinned form this test exists to stop.
+        doc = inspect.getdoc(rebrew.decompiler.fetch_m2c) or ""
+        install_lines = [line for line in doc.splitlines() if "pip install" in line]
+        assert install_lines, "fetch_m2c no longer documents how to install m2c"
+        for line in install_lines:
+            assert f"m2c.git@{rev}" in line, f"unpinned m2c install: {line.strip()}"
+        for path in sorted(PKG.rglob("*.py")):
+            for line in path.read_text(encoding="utf-8").splitlines():
+                if "matt-kempster/m2c.git" not in line or "pip install" not in line:
+                    continue
+                assert f"m2c.git@{rev}" in line, (
+                    f"{path.name}: unpinned m2c install: {line.strip()}"
+                )
 
     def test_extra_install_hints_name_the_distribution(self) -> None:
         """Missing-extra hints must name the git source the README installs from.

@@ -30,8 +30,10 @@ m2c group — m2c
 
 m2c commit aa869da289a565c68f701e734bd74606f1bd5ed4
 (https://github.com/matt-kempster/m2c) declares
-``License-Expression: GPL-3.0-only``. Install with ``uv sync --group m2c``.
-The pin lives in ``[dependency-groups]``, same as resembl, so Requires-Dist
+``License-Expression: GPL-3.0-only``. Install with ``uv sync --group m2c``,
+or ``uv pip install "m2c @ git+https://github.com/matt-kempster/m2c.git@aa869da289a565c68f701e734bd74606f1bd5ed4"``
+— the commit is part of the grant, so a manual install must carry the same
+rev. The pin lives in ``[dependency-groups]``, same as resembl, so Requires-Dist
 leaves it out.
 
 prove extra — pyvex (via angr)

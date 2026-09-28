@@ -1017,9 +1017,7 @@ def swap_toolchain_image(tag: str, op: Callable[[], None]) -> str:
             outcome = f"previous image NOT restored; retag {backup} manually"
         else:
             outcome = "no previous image"
-        raise ToolchainError(
-            f"image tag {tag!r} does not resolve after the swap — {outcome}"
-        )
+        raise ToolchainError(f"image tag {tag!r} does not resolve after the swap — {outcome}")
     _drop_image_presence(tag)
     invalidate_toolchain_digest(tag)
     return current

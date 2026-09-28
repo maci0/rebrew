@@ -64,7 +64,7 @@ dependencies = [
 prove = [
     "angr>=9.3.4,<10",  # BSD-2-Clause; pulls pyvex (LibVEX is GPL-2.0-or-later, see NOTICE)
     "claripy>=9.3.4,<10",  # direct import in prove.py / doctor.py; same release train as angr
-    "gitpython>=3.1.62,<4",  # angr→gitpython transitively; 3.1.58+ fixes the RCE-class advisories
+    "gitpython>=3.1.62,<4",  # NO direct import — transitive security pin (same pattern as idna): 3.1.58+ fixes the RCE-class advisories angr would otherwise resolve
 ]
 # BinSync state I/O: declib is BinSync's artifact layer.  rebrew.binsync.serial
 # is the single module that touches it; the CLIs raise a clear install error
