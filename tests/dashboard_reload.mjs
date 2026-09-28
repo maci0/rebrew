@@ -21,7 +21,7 @@ const elements = installDom(
   { activeElement: {} },
 );
 globalThis.location = { hash: "" };
-globalThis.history = { replaceState() {} };
+globalThis.history = { replaceState() {}, pushState() {} };
 
 const summary = {
   function_stats: { by_status: { EXACT: 1 }, by_module_counts: { "": 1 }, total: 1 },

@@ -404,6 +404,9 @@ let pendingModule = "";
 let pendingModuleBlank = false;
 // Hash writes start once init has restored state, so a reload keeps it.
 let hashReady = false;
+// Target and view the hash was last written for: a change to either is a
+// navigation Back returns to, the rest of the state rides along with it.
+let lastNav = "";
 let whenFormat = null;
 const VIEWS = ["functions", "sections", "globals", "history"];
 const PAGE_LIMIT = 100;
@@ -589,7 +592,14 @@ function writeHash() {
   else if (moduleState.value || pendingModule) params.set("module", moduleState.value || pendingModule);
   if ($("q").value.trim()) params.set("q", $("q").value.trim());
   if ($("gq").value.trim()) params.set("gq", $("gq").value.trim());
-  history.replaceState(null, "", "#" + params);
+  // A view or target change is a place Back can return to, so it gets its
+  // own entry; filter edits replace it, or typing floods the history.
+  const url = "#" + params;
+  if (lastNav === $("target").value + "|" + currentView) history.replaceState(null, "", url);
+  else {
+    lastNav = $("target").value + "|" + currentView;
+    history.pushState(null, "", url);
+  }
 }
 function syncViewChrome() {
   const isFunctions = currentView === "functions";
@@ -1098,6 +1108,9 @@ function setView(name) {
   loadCurrentView(false);
 }
 function bindControls() {
+  // One document holds every view, so Back returns to the previous one:
+  // assignment (not addEventListener) keeps re-binding idempotent.
+  globalThis.onpopstate = () => { void start(); };
   $("target").onchange = () => {
     $("status").value = "";
     selectAnyModule();
@@ -1282,7 +1295,10 @@ async function init() {
     "<option value='" + esc(t) + "'>" + esc(t) + "</option>").join("");
   const saved = new URLSearchParams(location.hash.slice(1));
   if (targets.includes(saved.get("target"))) $("target").value = saved.get("target");
-  if (VIEWS.includes(saved.get("view"))) currentView = saved.get("view");
+  // The hash is the whole navigation state, so a hash without a view names the
+  // first one: Back to an entry written before the reader switched views
+  // returns to Functions rather than keeping the view they left.
+  currentView = VIEWS.includes(saved.get("view")) ? saved.get("view") : "functions";
   pendingStatus = saved.get("status") || "";
   pendingModule = saved.get("module") || "";
   pendingModuleBlank = saved.has("module") && !saved.get("module");
@@ -1301,6 +1317,9 @@ async function init() {
     // renders; without them, functions and the view load alongside it.
     if (pendingStatus || pendingModule || pendingModuleBlank) await summaryLoad;
   }
+  // The restored state is where this session already is, so the first write
+  // replaces the entry the reader arrived on rather than stacking a copy of it.
+  lastNav = $("target").value + "|" + currentView;
   hashReady = true;
   updateFilterActions();
   const moduleState = moduleFilterState();

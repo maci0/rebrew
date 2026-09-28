@@ -43,7 +43,7 @@ installDom(
   { body, activeElement: body },
 );
 globalThis.location = { hash: "#target=a" };
-globalThis.history = { replaceState() {} };
+globalThis.history = { replaceState() {}, pushState() {} };
 const row = (i) => ["0x" + i.toString(16), "f" + i, "", 1, "EXACT", "", ""];
 const page = (n) => Array.from({ length: n }, (_, i) => row(i));
 const summary = { function_stats: { total: 150, by_status: { EXACT: 150 }, by_module_counts: {} } };

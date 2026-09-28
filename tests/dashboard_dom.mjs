@@ -46,6 +46,6 @@ export function installStubDom({ hash = "", hidden, history, ...extras } = {}) {
   const body = { id: "body" };
   const elements = installDom((id) => stubElement(id, { hidden }), { body, activeElement: body, ...extras });
   globalThis.location = { hash };
-  globalThis.history = history || { replaceState() {} };
+  globalThis.history = history || { replaceState() {}, pushState() {} };
   return elements;
 }

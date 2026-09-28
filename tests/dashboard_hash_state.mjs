@@ -6,7 +6,10 @@ const hashes = [];
 installStubDom({
   hash: "#target=b&view=globals&status=EXACT&module=GAME&q=Win&gq=g_",
   hidden: true,
-  history: { replaceState(state, title, url) { hashes.push(url); } },
+  history: {
+    replaceState(state, title, url) { hashes.push(url); },
+    pushState(state, title, url) { hashes.push(url); },
+  },
 });
 const paths = [];
 const summary = { function_stats: { total: 1, by_status: { EXACT: 1 }, by_module_counts: { GAME: 1 } } };

@@ -655,6 +655,9 @@ class TestHashState:
     def test_restored_target_loads_summary_functions_and_view_in_parallel(self) -> None:
         _run_script("dashboard_parallel_boot.mjs")
 
+    def test_back_returns_to_the_view_left_behind(self) -> None:
+        _run_script("dashboard_back_nav.mjs")
+
 
 class TestFocusManagement:
     def test_show_more_keeps_keyboard_focus(self) -> None:
