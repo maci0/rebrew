@@ -1,6 +1,20 @@
 ## [Unreleased]
 
 ### Added
+- **`REBREW_LLM_MAX_TOKENS` bounds what LLM seeding can spend, not just how
+  often it calls.** `REBREW_LLM_MAX_REQUESTS` priced a run in calls, but one
+  call bills a prompt plus a capped completion, so raising the call ceiling
+  multiplied both: a `--watch` run over a long function could buy tens of
+  millions of tokens under a count that reads small. Each request is now
+  priced before it is sent and the one that no longer fits is refused with a
+  warning, leaving the GA to run without seeds. A request the provider
+  billed without reporting `usage` (omitted object, timeout, 5xx after
+  generation) is charged that request's ceiling rather than nothing, so the
+  running total is an upper bound on real spend instead of a partial one
+  that reads like a whole. Default `500000`, `0` lifts it, above
+  `100000000` clamps with a warning, a non-integer or negative value is a
+  `ConfigError` at config load like the other budget knobs, and
+  `rebrew cfg effective` reports the resolved value as `llm_max_tokens`.
 - **`/api/health` reports the in-flight connection count.** The server refuses
   a connection past `_MAX_ACTIVE_CONNECTIONS` and logs each refusal, so a run
   shedding clients was visible only after the fact. The probe now carries

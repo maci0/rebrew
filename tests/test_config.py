@@ -10,8 +10,10 @@ from rebrew.compile_cache import DEFAULT_CACHE_SIZE_LIMIT_MIB
 from rebrew.config import (
     ARCH_PRESETS,
     DEFAULT_LLM_MAX_REQUESTS,
+    DEFAULT_LLM_MAX_TOKENS,
     DEFAULT_LLM_TIMEOUT,
     MAX_LLM_MAX_REQUESTS,
+    MAX_LLM_MAX_TOKENS,
     ConfigError,
     ConfigKeyError,
     ConfigNotFoundError,
@@ -23,6 +25,7 @@ from rebrew.config import (
     find_root,
     inventory_path_for,
     llm_max_requests,
+    llm_max_tokens,
     load_config,
     validate_target_name,
 )
@@ -55,6 +58,7 @@ _CONFIG_ENV_VARS = (
     "REBREW_LLM_API_KEY",
     "REBREW_LLM_ENDPOINT",
     "REBREW_LLM_MAX_REQUESTS",
+    "REBREW_LLM_MAX_TOKENS",
     "REBREW_LLM_MODEL",
     "REBREW_LLM_TIMEOUT",
     "REBREW_LOG_LEVEL",
@@ -2163,26 +2167,49 @@ profile = "msvc-6.0"
         with pytest.warns(ConfigWarning, match="clamping to 10000"):
             assert llm_max_requests("99999") == MAX_LLM_MAX_REQUESTS
 
+    def test_llm_max_tokens_clamps_and_defaults(self) -> None:
+        assert llm_max_tokens("") == DEFAULT_LLM_MAX_TOKENS
+        assert llm_max_tokens("  ") == DEFAULT_LLM_MAX_TOKENS
+        assert llm_max_tokens("0") == 0
+        with pytest.raises(ConfigError, match=r"REBREW_LLM_MAX_TOKENS='lots' is not an int"):
+            llm_max_tokens("lots")
+        with pytest.raises(ConfigError, match=r"REBREW_LLM_MAX_TOKENS='-1' must be >= 0"):
+            llm_max_tokens("-1")
+        with pytest.warns(ConfigWarning, match="clamping to 100000000"):
+            assert llm_max_tokens("999999999") == MAX_LLM_MAX_TOKENS
+
     def test_llm_budget_knobs_resolve_into_the_config(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """`rebrew cfg effective` reports the LLM ceiling and request budget.
+        """`rebrew cfg effective` reports the LLM ceilings and request budget.
 
         They are the knobs that decide whether seeding runs and what it can
         bill, and they are env-only, so nothing else showed their value.
         """
         root = _make_project(tmp_path, self.BASE_TOML)
         monkeypatch.delenv("REBREW_LLM_MAX_REQUESTS", raising=False)
+        monkeypatch.delenv("REBREW_LLM_MAX_TOKENS", raising=False)
         monkeypatch.delenv("REBREW_LLM_TIMEOUT", raising=False)
         resolved = load_config(root).as_dict()
         assert resolved["llm_max_requests"] == DEFAULT_LLM_MAX_REQUESTS
+        assert resolved["llm_max_tokens"] == DEFAULT_LLM_MAX_TOKENS
         assert resolved["llm_timeout"] == DEFAULT_LLM_TIMEOUT
 
         monkeypatch.setenv("REBREW_LLM_MAX_REQUESTS", "7")
+        monkeypatch.setenv("REBREW_LLM_MAX_TOKENS", "70000")
         monkeypatch.setenv("REBREW_LLM_TIMEOUT", "600")
         resolved = load_config(root).as_dict()
         assert resolved["llm_max_requests"] == 7
+        assert resolved["llm_max_tokens"] == 70000
         assert resolved["llm_timeout"] == 600
+
+    def test_llm_max_tokens_invalid_env_raises(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        root = _make_project(tmp_path, self.BASE_TOML)
+        monkeypatch.setenv("REBREW_LLM_MAX_TOKENS", "-5")
+        with pytest.raises(ConfigError, match=r"REBREW_LLM_MAX_TOKENS='-5' must be >= 0"):
+            load_config(root)
 
     def test_llm_budget_clamps_into_the_config(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

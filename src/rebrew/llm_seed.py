@@ -29,7 +29,12 @@ stop at the requested seed count (so a response stuffed with fenced blocks
 cannot buy one tree-sitter parse each), and a process-wide request budget
 (``REBREW_LLM_MAX_REQUESTS``, default 32;
 ``0`` disables further calls; a set-but-invalid value raises ``ValueError``)
-so ``--seed-llm --watch`` cannot bill unboundedly.  A prompt this process
+so ``--seed-llm --watch`` cannot bill unboundedly.  A call count does not
+bound spend on its own, since one request bills a prompt plus a capped
+completion, so a second process-wide ceiling on the tokens themselves
+(``REBREW_LLM_MAX_TOKENS``) prices each request before it is sent and refuses
+the one that no longer fits; a request the provider billed without reporting
+``usage`` is charged its ceiling rather than nothing.  A prompt this process
 already sent is answered from an in-process cache instead of the endpoint, so
 a watch rerun that leaves the function under match byte-identical costs
 nothing (only non-empty results are cached: an empty answer is a refusal, a
@@ -80,6 +85,7 @@ from rebrew.config import (
     LLM_PROJECT_ENDPOINT_TRUST_ENV,
     is_key_safe_endpoint,
     llm_max_requests,
+    llm_max_tokens,
     llm_timeout,
     parse_env_bool,
     validate_http_url,
@@ -117,6 +123,12 @@ _MIN_COMPLETION_TOKENS = 256
 _SEED_TEMPERATURE = 0.8
 _MIN_COUNT = 1
 _MAX_COUNT = 8
+#: Characters per token in the prompt-side estimate.  Only used to price a
+#: request the provider has not billed yet (a pre-flight ceiling check, or a
+#: request that failed before reporting ``usage``), so it is a deliberately
+#: coarse divisor held well below the real ratio of a C prompt: over-charging
+#: stops seeding early, under-charging lets the run exceed its budget.
+_CHARS_PER_TOKEN = 4
 #: Candidates a single response may put through the C gate.  Each one costs a
 #: tree-sitter parse, and the stop at :data:`_MAX_COUNT` seeds only fires once a
 #: block *passes*, so a response packed with tiny rejected fences would
@@ -179,6 +191,13 @@ _ALLOWED_TOP_LEVEL = frozenset({"function_definition", "comment"})
 
 _request_count = 0
 _request_lock = threading.Lock()
+# Tokens this process has billed.  The call ceiling above bounds how often the
+# endpoint is asked, not what the answers cost: one request bills a prompt plus
+# a capped completion, and raising REBREW_LLM_MAX_REQUESTS multiplies both.  A
+# second ceiling on the tokens themselves is what keeps a long ``--watch`` run
+# on a big function inside a budget, so the spend is charged here as well.
+_spent_tokens = 0
+_token_lock = threading.Lock()
 # Validated seeds from prompts this process already sent, so an identical
 # rerun costs nothing.  Guarded separately from the request budget so a cache
 # lookup never waits on a slot another thread is spending.
@@ -480,10 +499,12 @@ def llm_config(cfg: Any) -> dict[str, str] | None:
             "REBREW_LLM_ENDPOINT instead, or set "
             f"{_TRUST_ENV_VAR}=1 to accept the project's endpoint."
         )
-    # Validate the process ceiling, request budget, and model id while
-    # resolving config so a bad REBREW_LLM_MAX_REQUESTS, REBREW_LLM_TIMEOUT,
-    # or model fails before the first HTTP call.
+    # Validate the process ceiling, request budget, token budget, and model id
+    # while resolving config so a bad REBREW_LLM_MAX_REQUESTS,
+    # REBREW_LLM_MAX_TOKENS, REBREW_LLM_TIMEOUT, or model fails before the
+    # first HTTP call.
     _max_requests()
+    _max_tokens()
     _request_timeout()
     _resolve_model(cfg)
     return {"endpoint": endpoint, "api_key": api_key}
@@ -513,6 +534,66 @@ def _is_loopback_host(endpoint: str) -> bool:
 def _max_requests() -> int:
     """Process-wide LLM call ceiling (env override, clamped at 10_000)."""
     return llm_max_requests(os.environ.get("REBREW_LLM_MAX_REQUESTS", ""))
+
+
+def _max_tokens() -> int:
+    """Process-wide LLM token ceiling (env override, ``0`` lifts it)."""
+    return llm_max_tokens(os.environ.get("REBREW_LLM_MAX_TOKENS", ""))
+
+
+def spent_tokens() -> int:
+    """Tokens billed by the LLM requests this process has sent.
+
+    What a provider reported, plus the worst case for a request that reported
+    nothing (a timeout, a 5xx after generation, an endpoint that omits
+    ``usage``), so the number is an upper bound on real spend rather than a
+    partial total that reads like a whole one.
+    """
+    with _token_lock:
+        return _spent_tokens
+
+
+def _completion_token_cap(count: int) -> int:
+    """``max_tokens`` for a request asking for *count* seeds.
+
+    The cap has to cover the ask: a cap below ``count *
+    :data:`_TOKENS_PER_SEED` returns a clipped answer, which the completion
+    gate discards whole, so the request is billed and no seed survives.
+    """
+    return min(
+        _MAX_COMPLETION_TOKENS,
+        max(_MIN_COMPLETION_TOKENS, count * _TOKENS_PER_SEED),
+    )
+
+
+def _request_token_ceiling(source: str, count: int) -> int:
+    """Most tokens one seed request for *source* can bill.
+
+    The completion cap plus an estimate of the prompt, which is the exact
+    text :func:`chat_messages` sends: the system prompt and the sanitized,
+    truncated source.  Used both to decide whether another request fits in the
+    remaining budget and to price a request whose ``usage`` never arrived.
+    """
+    prompt_chars = len(_SYSTEM_PROMPT.format(count=count)) + len(
+        _USER_PROMPT.format(source=_sanitize_source(source))
+    )
+    return prompt_chars // _CHARS_PER_TOKEN + _completion_token_cap(count)
+
+
+def _has_token_budget(ceiling: int) -> bool:
+    """True when a request costing at most *ceiling* tokens still fits the budget."""
+    limit = _max_tokens()
+    if limit == 0:
+        return True
+    with _token_lock:
+        return _spent_tokens + ceiling <= limit
+
+
+def _charge_tokens(tokens: int) -> None:
+    """Add *tokens* to what this process has billed."""
+    global _spent_tokens
+    with _token_lock:
+        _spent_tokens += max(0, tokens)
 
 
 def _request_timeout() -> float:
@@ -795,6 +876,7 @@ def _log_usage(
     duration_s: float | None = None,
     seeds: int = 0,
     rejected: int = 0,
+    billed_ceiling: int,
 ) -> SeedUsage | None:
     """Log token counts and latency, and record them for the run summary.
 
@@ -806,7 +888,8 @@ def _log_usage(
 
     *seeds* / *rejected* are what the billed tokens bought, and the caller
     knows them only after the C gate has run, so the record is made once, at
-    the end of the request.
+    the end of the request.  *billed_ceiling* prices the request against the
+    process token budget when the provider reported no count.
     """
     if duration_s is None:
         return None
@@ -824,7 +907,7 @@ def _log_usage(
         seeds=seeds,
         rejected=rejected,
     )
-    _record_usage(record)
+    _record_usage(record, billed_ceiling=billed_ceiling)
     if usage:
         reported = sanitize_log_value(data.get("model") or model)
         logging.info(
@@ -915,20 +998,28 @@ def _cache_seeds(key: str, seeds: list[str]) -> None:
             del _seed_cache[next(iter(_seed_cache))]
 
 
-def _record_usage(record: SeedUsage) -> None:
-    """Add *record* to the cost total this thread's run summary reports."""
+def _record_usage(record: SeedUsage, *, billed_ceiling: int) -> None:
+    """Add *record* to the cost total this thread's run summary reports.
+
+    *billed_ceiling* is the most the request could have cost (see
+    :func:`_request_token_ceiling`).  It charges the process token budget
+    whenever the provider reported no usable ``total_tokens``, so a request
+    that was billed but never reported cannot slip past the ceiling.
+    """
     total: SeedUsage | None = getattr(_usage_tls, "value", None)
     _usage_tls.value = record if total is None else merge_usage(total, record)
+    _charge_tokens(record.total_tokens if record.total_tokens is not None else billed_ceiling)
 
 
-def _record_attempt(model: str, duration_s: float) -> None:
+def _record_attempt(model: str, duration_s: float, *, billed_ceiling: int) -> None:
     """Record a request that was sent but answered with no usage object.
 
     A timeout, a 5xx after generation, or a dropped connection is billed and
     yields no ``usage`` to read, so the success path never records it and a
     paid endpoint looks free.  The elapsed time is the only cost evidence
     there is; the token counts stay None, which ``describe()`` renders as
-    "token usage unreported" rather than as a zero.
+    "token usage unreported" rather than as a zero.  The token budget is still
+    charged the request's ceiling, because the provider may have billed it.
     """
     _record_usage(
         SeedUsage(
@@ -939,7 +1030,8 @@ def _record_attempt(model: str, duration_s: float) -> None:
             total_tokens=None,
             duration_s=duration_s,
             unreported=1,
-        )
+        ),
+        billed_ceiling=billed_ceiling,
     )
 
 
@@ -1047,8 +1139,13 @@ def _request(
     expect: tuple[str, str],
     *,
     model: str = _DEFAULT_MODEL,
+    billed_ceiling: int,
 ) -> list[str]:
     """POST the prompt and return validated C seeds.
+
+    *billed_ceiling* is what the request can cost at most, priced by
+    :func:`_request_token_ceiling` and charged to the process token budget if
+    the provider reports no count.
 
     Raises on HTTP/parse failure — the no-raise guarantee for the GA is
     enforced by the caller :func:`request_seeds`.
@@ -1057,10 +1154,7 @@ def _request(
     if conf.get("api_key"):
         headers["Authorization"] = f"Bearer {conf['api_key']}"
     expect_name = expect[0]
-    # Cap completion size so the ask and the cap agree: a cap under
-    # count * _TOKENS_PER_SEED returns a clipped answer, which the completion
-    # gate then discards in full.
-    max_tokens = min(_MAX_COMPLETION_TOKENS, max(_MIN_COMPLETION_TOKENS, count * _TOKENS_PER_SEED))
+    max_tokens = _completion_token_cap(count)
     payload = {
         "model": model,
         "messages": chat_messages(source, count),
@@ -1112,6 +1206,7 @@ def _request(
         duration_s=duration_s,
         seeds=len(seeds),
         rejected=examined - len(seeds),
+        billed_ceiling=billed_ceiling,
     )
     if not seeds:
         # --seed-llm was asked for: say why nothing arrived instead of
@@ -1150,6 +1245,10 @@ def request_seeds(
     cost in the total rather than hiding it.  An identical prompt this process
     already answered is answered from :func:`_cached_seeds` instead: no HTTP,
     no request slot, and no cost record, because nothing was billed.
+    Two budgets can say no before a request is sent: the call ceiling
+    (``REBREW_LLM_MAX_REQUESTS``) and the token ceiling
+    (``REBREW_LLM_MAX_TOKENS``, checked against :func:`spent_tokens`), which
+    is what bounds a run whose per-request cost is large.
     """
     try:
         conf = llm_config(cfg)
@@ -1195,6 +1294,19 @@ def request_seeds(
         # requests the operator actually paid for.
         logging.debug("LLM seeding: %d cached seed(s) for an identical prompt", len(seeds))
         return seeds
+    # Price the request before it is sent: the call ceiling says how often the
+    # endpoint may be asked, this says what the answer may cost.  A cached
+    # prompt returned above, so this runs only on a request that would bill.
+    billed_ceiling = _request_token_ceiling(source, count)
+    if not _has_token_budget(billed_ceiling):
+        logging.warning(
+            "LLM seeding token budget exhausted (%s token(s) billed this process, "
+            "one more request can cost %s; set REBREW_LLM_MAX_TOKENS to raise) — "
+            "GA continues without seeds",
+            spent_tokens(),
+            billed_ceiling,
+        )
+        return []
     if not _consume_request_slot():
         logging.warning(
             "LLM seeding request budget exhausted (%s calls this process; "
@@ -1205,17 +1317,21 @@ def request_seeds(
     _started = time.monotonic()
     try:
         if client is not None:
-            seeds = _request(client, conf, source, count, expect, model=model)
+            seeds = _request(
+                client, conf, source, count, expect, model=model, billed_ceiling=billed_ceiling
+            )
         else:
             import httpx
 
             with httpx.Client(timeout=_request_timeout()) as http:
-                seeds = _request(http, conf, source, count, expect, model=model)
+                seeds = _request(
+                    http, conf, source, count, expect, model=model, billed_ceiling=billed_ceiling
+                )
     except Exception as exc:  # LLM availability must never break the GA
         # The request left this process, so the provider may already have
         # billed it; without a record the run reports no cost for a call that
         # spent money.
-        _record_attempt(model, time.monotonic() - _started)
+        _record_attempt(model, time.monotonic() - _started, billed_ceiling=billed_ceiling)
         # --seed-llm was explicitly requested; a silent empty result hides a
         # misconfigured endpoint/key.  Warn so the user knows seeds were asked
         # for but never arrived (still return [] — the GA must run unchanged).

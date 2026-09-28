@@ -370,6 +370,18 @@ by the CLI layer and win for that invocation.
   counts, latency, and what the spend bought (`N seed(s) kept`, plus
   candidates the C gate rejected), so a run that bills without seeding is
   visible as such.
+- `REBREW_LLM_MAX_TOKENS` — process-wide ceiling on the tokens those calls
+  bill (default `500000`). A call count does not price a run: one request
+  bills a prompt plus a capped completion, so raising
+  `REBREW_LLM_MAX_REQUESTS` multiplies both. Each request is priced before
+  it is sent and the one that no longer fits is refused with a warning, so
+  the GA continues without seeds. A request the provider billed but did not
+  report (`usage` omitted, a timeout, a 5xx after generation) is charged
+  that request's ceiling rather than nothing, so the running total is an
+  upper bound on real spend. `0` lifts the ceiling for the process. A
+  set-but-non-integer or negative value is a `ValueError`; above
+  `100000000` the value clamps with a warning. The resolved ceiling is
+  reported as `llm_max_tokens` by `rebrew cfg effective`.
 - `REBREW_LLM_TIMEOUT` — per-request HTTP budget for one LLM seeding call,
   in seconds (default `90`). A timed-out request is still billed and its
   seeds are lost, so raise it for a local model that needs minutes for a
@@ -531,14 +543,15 @@ non-empty values must use `http(s)`, have a hostname, and use a numeric port in
 characters are rejected. Surrounding whitespace is trimmed; empty values remain
 unset. TOML values are validated at load; environment values are validated when
 resolved, before any HTTP request. `REBREW_LLM_MAX_REQUESTS`, when set, must be
-a non-negative integer, and `REBREW_LLM_TIMEOUT` an integer no lower than 5.
-Both are parsed by `load_config`, so a mistyped value is a `ConfigError` for
+a non-negative integer, `REBREW_LLM_MAX_TOKENS` likewise, and
+`REBREW_LLM_TIMEOUT` an integer no lower than 5.
+All three are parsed by `load_config`, so a mistyped value is a `ConfigError` for
 every command that reads a project config, not a silent reset to the default;
-`rebrew cfg effective` reports the two resolved values as `llm_max_requests` and
-`llm_timeout`. The remaining LLM settings (endpoint URL, key/host pairing, model
-id) are resolved later, at seeding time: a value that fails there is
-reported by `rebrew match --seed-llm` and the run continues without LLM seeds;
-it does not abort the GA.
+`rebrew cfg effective` reports the resolved values as `llm_max_requests`,
+`llm_max_tokens`, and `llm_timeout`. The remaining LLM settings (endpoint URL,
+key/host pairing, model id) are resolved later, at seeding time: a value that
+fails there is reported by `rebrew match --seed-llm` and the run continues
+without LLM seeds; it does not abort the GA.
 
 `cflags` are user-facing defaults (e.g. `/O2 /Gd`). `base_cflags` are always-on
 flags prepended by the compile helpers (default `/nologo /c /MT`) and must not be
@@ -637,8 +650,9 @@ told apart. `llm_api_key` prints as `***`; the `env_overrides` list holds
 variable names only, never their values. Presence there is not precedence: a
 set `[llm] endpoint` / `model` still wins over the matching env var, while
 `REBREW_LLM_API_KEY` and `REBREW_RECOMPILE_URL` win over TOML.
-`llm_max_requests` and `llm_timeout` are the resolved, clamped
-`REBREW_LLM_MAX_REQUESTS` / `REBREW_LLM_TIMEOUT`, so the budget a run works
+`llm_max_requests`, `llm_max_tokens`, and `llm_timeout` are the resolved,
+clamped `REBREW_LLM_MAX_REQUESTS` / `REBREW_LLM_MAX_TOKENS` /
+`REBREW_LLM_TIMEOUT`, so the budget a run works
 under is visible in the same dump.
 
 `env_errors` covers the knobs no command reads until the moment of use
@@ -659,7 +673,8 @@ the knob raises, so a name listed
 here is unusable for the next command that touches it. A directory knob absent
 from the environment is not an error.
 
-Other knobs (`REBREW_LLM_MAX_REQUESTS`, `REBREW_LLM_TIMEOUT`,
+Other knobs (`REBREW_LLM_MAX_REQUESTS`, `REBREW_LLM_MAX_TOKENS`,
+`REBREW_LLM_TIMEOUT`,
 `REBREW_LLM_ENDPOINT`, `REBREW_RECOMPILE_URL`) are validated while the config
 loads, so a bad value there fails before the report is printed. `cfg effective`
 still prints it: `config` comes back `null`, the `env_errors` and

@@ -170,6 +170,15 @@ DEFAULT_LINT_MAX_LINE_LENGTH = 200
 #: highest value honored before clamping.
 DEFAULT_LLM_MAX_REQUESTS = 32
 MAX_LLM_MAX_REQUESTS = 10_000
+#: ``REBREW_LLM_MAX_TOKENS`` process ceiling on billed LLM tokens.  A call
+#: ceiling alone does not bound spend: one request bills a prompt plus a capped
+#: completion, and raising ``REBREW_LLM_MAX_REQUESTS`` multiplies both, so a
+#: ``--watch`` run on a long function can buy tens of millions of tokens under
+#: a call count that reads small.  The default sits above what the default call
+#: budget can spend, so it only binds once an operator has deliberately raised
+#: that budget.
+DEFAULT_LLM_MAX_TOKENS = 500_000
+MAX_LLM_MAX_TOKENS = 100_000_000
 #: ``REBREW_LLM_TIMEOUT`` per-request HTTP budget, in seconds.  The default
 #: suits a hosted chat API; a local model on CPU needs the upper end, and a
 #: value below :data:`MIN_LLM_TIMEOUT` cannot cover one request.
@@ -515,6 +524,14 @@ class ProjectConfig:
     at all and how much it can bill, and the two knobs that say so are
     otherwise invisible outside a debug log.
     """
+    llm_max_tokens: int = DEFAULT_LLM_MAX_TOKENS
+    """``REBREW_LLM_MAX_TOKENS`` after clamping, the process token budget.
+
+    Env-only (no ``[llm]`` counterpart), and the second half of the spend
+    ceiling: ``llm_max_requests`` bounds how many times the endpoint is asked,
+    this bounds what the answers cost.  Resolved at load so ``rebrew cfg
+    effective`` reports the budget in force.
+    """
     llm_timeout: int = DEFAULT_LLM_TIMEOUT
     """``REBREW_LLM_TIMEOUT`` after clamping, the per-request budget in seconds."""
     cache_backend: str = "diskcache"  # compile-cache store ([cache] backend)
@@ -721,6 +738,7 @@ class ProjectConfig:
             else self.llm_api_key,
             "llm_model": self.llm_model,
             "llm_max_requests": self.llm_max_requests,
+            "llm_max_tokens": self.llm_max_tokens,
             "llm_timeout": self.llm_timeout,
             "cache_backend": self.cache_backend,
             # The resolved cap, not the raw field: 0 means "unset" and falls
@@ -1545,6 +1563,35 @@ def llm_max_requests(raw: str) -> int:
             f"clamping to {MAX_LLM_MAX_REQUESTS}"
         )
         return MAX_LLM_MAX_REQUESTS
+    return parsed
+
+
+def llm_max_tokens(raw: str) -> int:
+    """Parse the ``REBREW_LLM_MAX_TOKENS`` ceiling, the process LLM token budget.
+
+    Empty / unset keeps :data:`DEFAULT_LLM_MAX_TOKENS`; ``0`` is an intentional
+    kill switch that lifts the ceiling, matching ``REBREW_LLM_MAX_REQUESTS=0``.
+    A non-integer or negative value raises ``ConfigError`` so a typo cannot
+    silently restore the default and bill a paid endpoint.  Above
+    :data:`MAX_LLM_MAX_TOKENS` the value clamps with a warning.  Single source
+    for ``load_config`` (fail fast at startup) and ``rebrew.llm_seed`` (the
+    per-call check).
+    """
+    value = raw.strip()
+    if not value:
+        return DEFAULT_LLM_MAX_TOKENS
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise ConfigError(f"REBREW_LLM_MAX_TOKENS={value!r} is not an int") from exc
+    if parsed < 0:
+        raise ConfigError(f"REBREW_LLM_MAX_TOKENS={value!r} must be >= 0")
+    if parsed > MAX_LLM_MAX_TOKENS:
+        _config_warn(
+            f"REBREW_LLM_MAX_TOKENS={value!r} exceeds {MAX_LLM_MAX_TOKENS}; "
+            f"clamping to {MAX_LLM_MAX_TOKENS}"
+        )
+        return MAX_LLM_MAX_TOKENS
     return parsed
 
 
@@ -2446,11 +2493,12 @@ def load_config(
                 "(plain http is allowed only for loopback hosts)"
             )
 
-    # Parsed here, not only validated: these two are the LLM budget, and
+    # Parsed here, not only validated: these three are the LLM budget, and
     # `rebrew cfg effective` has to report what is in force. A bad value still
     # raises ConfigError, so a typo fails at startup rather than at the first
     # billed request.
     cfg.llm_max_requests = llm_max_requests(os.environ.get("REBREW_LLM_MAX_REQUESTS", ""))
+    cfg.llm_max_tokens = llm_max_tokens(os.environ.get("REBREW_LLM_MAX_TOKENS", ""))
     cfg.llm_timeout = llm_timeout(os.environ.get("REBREW_LLM_TIMEOUT", ""))
 
     # --- [cache] section: compile-cache backend selection ---
@@ -2524,6 +2572,7 @@ __all__ = [
     "inventory_path_for",
     "is_key_safe_endpoint",
     "llm_max_requests",
+    "llm_max_tokens",
     "llm_timeout",
     "load_config",
     "module_marker",

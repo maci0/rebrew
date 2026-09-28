@@ -38,6 +38,7 @@ from rebrew.llm_seed import (
     _log_usage,
     _parse_response,
     _request_timeout,
+    _request_token_ceiling,
     _resolve_model,
     _sanitize_source,
     build_prompt,
@@ -48,6 +49,7 @@ from rebrew.llm_seed import (
     request_seeds,
     sanitize_log_value,
     seed_usage_total,
+    spent_tokens,
     valid_c_source,
 )
 
@@ -56,9 +58,11 @@ from rebrew.llm_seed import (
 def _reset_llm_request_budget(monkeypatch: pytest.MonkeyPatch) -> None:
     """Each test gets a fresh process budget and seed cache (both are process-wide)."""
     monkeypatch.setattr("rebrew.llm_seed._request_count", 0)
+    monkeypatch.setattr("rebrew.llm_seed._spent_tokens", 0)
     rebrew.llm_seed._seed_cache.clear()
     rebrew.llm_seed.reset_last_seed_usage()
     monkeypatch.delenv("REBREW_LLM_MAX_REQUESTS", raising=False)
+    monkeypatch.delenv("REBREW_LLM_MAX_TOKENS", raising=False)
     monkeypatch.delenv("REBREW_LLM_TIMEOUT", raising=False)
     monkeypatch.delenv("REBREW_LLM_ALLOW_PROJECT_ENDPOINT", raising=False)
 
@@ -858,7 +862,7 @@ class TestRequestSeeds:
             "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
         }
         with caplog.at_level(logging.INFO):
-            _log_usage(data, "gpt-4o-mini-2024-07-18", duration_s=1.23)
+            _log_usage(data, "gpt-4o-mini-2024-07-18", duration_s=1.23, billed_ceiling=600)
         assert "prompt_tokens=10" in caplog.text
         assert "total_tokens=30" in caplog.text
         assert "latency=1.23s" in caplog.text
@@ -1107,6 +1111,113 @@ class TestRequestSeeds:
             seeds = request_seeds(_cfg("https://llm/v1"), "int f(void){return 0;}", client=client)
         assert seeds == []
         assert "1 fenced block(s), 1 checked, none a valid f" in caplog.text
+
+
+class TestTokenBudget:
+    """The token ceiling is the second half of the spend bound.
+
+    A call count cannot price a run: one request bills a prompt plus a capped
+    completion, so a raised ``REBREW_LLM_MAX_REQUESTS`` multiplies both.  These
+    pin that a request which no longer fits is refused *before* it is sent.
+    """
+
+    def test_reported_tokens_are_charged_to_the_process(self) -> None:
+        client = _FakeClient(
+            {
+                "choices": [{"message": {"content": "```c\nint f(void){return 0;}\n```"}}],
+                "usage": {"prompt_tokens": 100, "completion_tokens": 200, "total_tokens": 300},
+            }
+        )
+        assert request_seeds(
+            _cfg("https://llm/v1"), "int f(void) { return 0; }", client=client
+        ) == ["int f(void){return 0;}"]
+        assert spent_tokens() == 300
+
+    def test_a_request_that_does_not_fit_is_not_sent(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        monkeypatch.setenv("REBREW_LLM_MAX_TOKENS", "1")
+        counting = _CountingClient(
+            {"choices": [{"message": {"content": "```c\nint f(void){return 0;}\n```"}}]}
+        )
+        with caplog.at_level(logging.WARNING):
+            assert (
+                request_seeds(_cfg("https://llm/v1"), "int f(void) { return 0; }", client=counting)
+                == []
+            )
+        assert counting.calls == 0
+        assert "token budget exhausted" in caplog.text
+        assert spent_tokens() == 0
+
+    def test_spend_up_to_the_ceiling_still_fits(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The refusal is about the next request's cost, not a spent total alone.
+
+        One seed request costs far more than the completion cap, so a budget
+        below that price refuses everything; a budget above it lets the first
+        request through and refuses the second once the first is charged.
+        """
+        ceiling = _request_token_ceiling("int f(void) { return 0; }", 3)
+        monkeypatch.setenv("REBREW_LLM_MAX_TOKENS", str(ceiling))
+        client = _FakeClient(
+            {
+                "choices": [{"message": {"content": "```c\nint f(void){return 0;}\n```"}}],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
+            }
+        )
+        assert request_seeds(
+            _cfg("https://llm/v1"), "int f(void) { return 0; }", client=client
+        ) == ["int f(void){return 0;}"]
+        counting = _CountingClient(
+            {"choices": [{"message": {"content": "```c\nint g(void){return 0;}\n```"}}]}
+        )
+        assert (
+            request_seeds(_cfg("https://llm/v1"), "int g(void) { return 0; }", client=counting)
+            == []
+        )
+        assert counting.calls == 0
+
+    def test_zero_lifts_the_ceiling(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("REBREW_LLM_MAX_TOKENS", "0")
+        rebrew.llm_seed._spent_tokens = 10_000_000
+        client = _FakeClient(
+            {"choices": [{"message": {"content": "```c\nint f(void){return 0;}\n```"}}]}
+        )
+        assert request_seeds(
+            _cfg("https://llm/v1"), "int f(void) { return 0; }", client=client
+        ) == ["int f(void){return 0;}"]
+
+    def test_a_billed_request_without_usage_is_charged_its_ceiling(self) -> None:
+        """A request that left the process may be billed whatever it reported.
+
+        Charging zero for an unreported request would let a run whose endpoint
+        omits ``usage`` spend past the ceiling without ever tripping it.
+        """
+        client = _FakeClient({"choices": [{"message": {"content": "no code here"}}]})
+        source = "int f(void) { return 0; }"
+        assert request_seeds(_cfg("https://llm/v1"), source, client=client) == []
+        assert spent_tokens() == _request_token_ceiling(source, 3)
+
+    def test_a_failed_request_is_charged_its_ceiling(self) -> None:
+        class _Broken:
+            def stream(self, *a: object, **k: object) -> None:
+                raise OSError("connection refused")
+
+        source = "int f(void) { return 0; }"
+        assert request_seeds(_cfg("https://llm/v1"), source, client=_Broken()) == []
+        assert spent_tokens() == _request_token_ceiling(source, 3)
+
+    def test_a_cached_prompt_bills_nothing(self) -> None:
+        client = _FakeClient(
+            {
+                "choices": [{"message": {"content": "```c\nint f(void){return 0;}\n```"}}],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
+            }
+        )
+        source = "int f(void) { return 0; }"
+        assert request_seeds(_cfg("https://llm/v1"), source, client=client) != []
+        charged = spent_tokens()
+        assert request_seeds(_cfg("https://llm/v1"), source, client=client) != []
+        assert spent_tokens() == charged
 
 
 class TestStreamingResponse:
@@ -1646,6 +1757,7 @@ class TestMisconfigurationDoesNotRaise:
             ("REBREW_LLM_ENDPOINT", "ftp://evil.example/v1"),
             ("REBREW_LLM_MODEL", "latest"),
             ("REBREW_LLM_MAX_REQUESTS", "many"),
+            ("REBREW_LLM_MAX_TOKENS", "many"),
         ],
     )
     def test_returns_no_seeds(self, monkeypatch: pytest.MonkeyPatch, var: str, value: str) -> None:
