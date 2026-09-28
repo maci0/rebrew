@@ -235,6 +235,10 @@
   `[Unreleased]`-or-`[<version>]` block selection the `coverage.db` test had
   inline are now shared helpers (`_last_tag`, `_at_ref`, `_notes_block`), since
   four copies of that block selection is how the fourth one goes missing.
+- **`rebrew.workspace.SQLITE_TIMEOUT_SECONDS` is the coverage.db busy
+  timeout.** `open_sqlite_ro` waits 30 seconds when another process holds
+  the file. The constant is on the package's public list so a caller uses
+  the same budget instead of a second number.
 
 ### Changed
 - **Breaking:** **`theme.TOKENS` is one size ladder, not a per-component

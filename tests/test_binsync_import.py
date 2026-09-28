@@ -777,9 +777,11 @@ class TestUnparsedTypeComment:
         )
         text = (src / "binsync_types.h").read_text(encoding="utf-8")
         # Only the header banner and the two wrappers close a comment.
+        # Newlines inside the definition are spaces, so a directive cannot
+        # start a line of its own inside the comment.
         assert text.count("*/") == 3
         assert "x * / int injected" in text
-        assert "\n/* UNPARSED from BinSync (no known layout):\ntypedef int Pp;\n#include" in text
+        assert 'typedef int Pp; #include "/etc/passwd" typedef int Q;' in text
 
 
 class TestEnumTypedefImport:

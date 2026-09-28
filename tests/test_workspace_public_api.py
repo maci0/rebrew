@@ -37,6 +37,7 @@ def test_workspace_public_api_snapshot() -> None:
         "SECTION_CELLS_AGG_SQL",
         "SECTION_CELLS_COLUMN",
         "SECTION_CELLS_TABLE",
+        "SQLITE_TIMEOUT_SECONDS",
         "VA_MAX",
         "WorkspaceConfigError",
         "WorkspaceNotFound",

@@ -116,13 +116,18 @@ class TestWatchCli:
         with pytest.raises(typer.Exit):
             test_mod.main(source=None, watch=True, context=None)
 
-    def test_watch_dispatches_to_loop(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_watch_dispatches_to_loop(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """--watch with a source file dispatches to _watch_loop with a retest closure."""
+        src = tmp_path / "func.c"
+        src.write_text("int f(void) { return 1; }\n", encoding="utf-8")
+        monkeypatch.chdir(tmp_path)
         seen: dict[str, object] = {}
         monkeypatch.setattr(
             test_mod,
             "require_config",
-            lambda target=None, json_mode=False: SimpleNamespace(metadata_dir=Path("/tmp")),
+            lambda target=None, json_mode=False: SimpleNamespace(metadata_dir=tmp_path),
         )
 
         def fake_loop(path: Path, retest: object) -> None:

@@ -376,15 +376,18 @@ class TestDefinesCompile:
         """The raw subprocess path (an image-less plugin toolchain) must not
         emit a bare -I when the include dir is empty — compile.py already
         guards this; the matcher path must too."""
+        import rebrew.matcher.compiler as compiler_mod
+        import rebrew.toolchain as toolchain_mod
         from rebrew.matcher.compiler import build_candidate_obj_only
-        from rebrew.toolchain import TOOLCHAINS
         from rebrew.toolchain_spec import ToolchainSpec
 
-        monkeypatch.setitem(
-            TOOLCHAINS,
-            "hostcc",
-            ToolchainSpec(name="hostcc", image=None, binary="i686-w64-mingw32-gcc"),
-        )
+        # TOOLCHAINS is a mapping proxy, so the image-less profile is a new
+        # registry. Drop the memo or the raw-subprocess path still sees the
+        # previous image-backed set.
+        registry = dict(toolchain_mod.TOOLCHAINS)
+        registry["hostcc"] = ToolchainSpec(name="hostcc", image=None, binary="i686-w64-mingw32-gcc")
+        monkeypatch.setattr(toolchain_mod, "TOOLCHAINS", registry)
+        monkeypatch.setattr(compiler_mod, "_DOCKER_BACKED_PROFILES", None)
         captured: dict[str, list[str]] = {}
 
         def _fake_run(cmd, **kw):
