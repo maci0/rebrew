@@ -36,7 +36,9 @@ place, 3 resolved by the BinSync-primary rework).
 ## Coverage
 
 The nine PRDs above cover the core reversing loop, not the whole CLI:
-`rebrew --help` lists 101 top-level commands, and roughly 60 of them
-(`toolchain`, `library`, `dashboard`, `diagnose`, the `*-scan` family, and
-others) have no PRD. A command absent from this directory is uncovered, not
-unplanned. `docs/CLI.md` is the exhaustive command reference.
+`rebrew --help` lists 101 top-level commands, and 64 of them are named in no
+PRD in this directory (`toolchain`, `library`, `dashboard`, `diagnose`, the
+`*-scan` family, and others) — counted by matching every
+`rebrew <command>` mention in these files against the top-level command list.
+A command absent from this directory is uncovered, not unplanned.
+`docs/CLI.md` is the exhaustive command reference.

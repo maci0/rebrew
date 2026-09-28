@@ -10,8 +10,9 @@
 > `overlay`) ships alongside the flat commands. State I/O is **declib**
 > (the `binsync` extra) — stack vars, per-instruction comments, enums, and
 > typedefs round-trip. What remains: divergent git merge as the default
-> sync substrate (today: export `--git` commit, pull `--ff-only`, push
-> `--git-push`). PRDs are historical records; shipped-status lines below
+> sync substrate (today: `binsync-export --git` commit, `binsync pull` runs
+> `git pull --ff-only` unless `--no-git`, `binsync push --git-push`).
+> PRDs are historical records; shipped-status lines below
 > track the CHANGELOG.
 
 **Feature name:** Bidirectional BinSync ↔ Rebrew Sync (git-backed state, declib format)
@@ -64,7 +65,7 @@ substrate (ff-only pull + local commit / optional `--git-push` ship today).
   `summary`, `init` subcommands. Mirrors `rebrew sync`'s shape for
   muscle-memory. (Shipped — umbrella plus flat commands coexist; `diff`
   and `overlay` also ship under the umbrella.)
-- True bidirectional sync via git: `rebrew binsync pull` does `git pull` on the state directory before reading; `push` does `git commit` + optional `git push` after writing. (Shipped: export/`push` commit, pull `--ff-only`, `--git-push`. Open: divergent upstream merge as the primary path.)
+- True bidirectional sync via git: `rebrew binsync pull` does `git pull` on the state directory before reading; `push` does `git commit` + optional `git push` after writing. (Shipped: export/`push` commit, pull's `git pull --ff-only` unless `--no-git`, `push --git-push`. Open: divergent upstream merge as the primary path.)
 - Real declib-compatible struct fields, enums, typedefs. (Shipped via declib artifacts.)
 - Annotation surface for stack vars / local vars (see "Annotation Surface" below). (Shipped: `LOCALS` metadata ↔ `Function.stack_vars`.)
 - Conflict detection on pull: when both rebrew and BinSync have meaningful (non-generic) names for the same VA, report and let the user pick via `--accept-binsync` / `--accept-local` (same pattern as `rebrew sync`). (Shipped on umbrella `pull` and flat `binsync-import`.)
@@ -88,7 +89,8 @@ substrate (ff-only pull + local commit / optional `--git-push` ship today).
 serialization ships (`rebrew[binsync]`), including structs with fields,
 enums, typedefs, `LOCALS`, and per-instruction `COMMENTS`.  Still open:
 divergent git merge as the default sync substrate (export/`push` local
-commit, pull `--ff-only`, and `--git-push` are the git steps today).
+commit, pull's `git pull --ff-only` unless `--no-git`, and `push --git-push`
+are the git steps today).
 
 ### F1 — `rebrew binsync` umbrella
 
