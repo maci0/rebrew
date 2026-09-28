@@ -31,7 +31,7 @@ rules:
     allowed-values: ["true", "false", "on"]
     check-keys: false
 
-  # Longest tracked line is 103 characters; 120 leaves headroom without
+  # Longest tracked line is 119 characters; 120 leaves headroom without
   # exempting a run of unreadable single-line shell in a `run:` block.
   line-length:
     max: 120

@@ -831,7 +831,12 @@ components:
             analyst's own disk layout and a LAN client has no use for it, so it
             is withheld exactly where exposing it would be a disclosure.
         targets: { type: integer, minimum: 0, description: Readable coverage documents in that directory. }
-        requests: { type: integer, minimum: 0, description: Requests answered since the server started, refused connections included. }
+        requests:
+          type: integer
+          minimum: 0
+          description: >-
+            Requests answered since the server started, refused connections
+            included.
         server_errors:
           type: integer
           minimum: 0

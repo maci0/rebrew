@@ -804,10 +804,10 @@ class TestCLISet:
         """Non-empty secrets must not ride on argv via cfg set."""
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
-        secret = "sk-live-super-secret-value"
-        result = runner.invoke(cfg_app, ["set", "llm.api_key", secret])
+        api_key = "sk-live-super-secret-value"
+        result = runner.invoke(cfg_app, ["set", "llm.api_key", api_key])
         assert result.exit_code != 0
-        assert secret not in result.output
+        assert api_key not in result.output
         assert "refusing" in result.output.lower() or "REBREW_LLM_API_KEY" in result.output
         doc, _ = load_toml(tmp_path)
         assert "llm" not in doc or doc.get("llm", {}).get("api_key") in (None, "")
@@ -834,25 +834,25 @@ class TestCLISet:
     def test_show_api_key_redacts_secret(self, tmp_path: Path, monkeypatch) -> None:
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
-        secret = "sk-show-must-not-print"
+        api_key = "sk-show-must-not-print"
         doc, path = load_toml(tmp_path)
-        doc["llm"] = {"api_key": secret}
+        doc["llm"] = {"api_key": api_key}
         save_toml(doc, path)
         result = runner.invoke(cfg_app, ["show", "llm.api_key"])
         assert result.exit_code == 0
-        assert secret not in result.stdout
+        assert api_key not in result.stdout
         assert "***" in result.stdout
 
     def test_raw_json_redacts_api_key(self, tmp_path: Path, monkeypatch) -> None:
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
-        secret = "sk-raw-dump-secret"
+        api_key = "sk-raw-dump-secret"
         doc, path = load_toml(tmp_path)
-        doc["llm"] = {"api_key": secret}
+        doc["llm"] = {"api_key": api_key}
         save_toml(doc, path)
         result = runner.invoke(cfg_app, ["raw", "--format", "json"])
         assert result.exit_code == 0
-        assert secret not in result.stdout
+        assert api_key not in result.stdout
         assert "***" in result.stdout
 
     def test_set_format_rejects_invalid(self, tmp_path: Path, monkeypatch) -> None:

@@ -716,7 +716,7 @@ class TestUploadLedger:
         entry = decompme.recorded_upload(tmp_path, digest, "https://decomp.me")
         assert entry is not None
         assert entry["slug"] == "abc"
-        assert entry["claim_token"] == "tok"
+        assert entry["claim_token"] == "tok"  # noqa: S105 - fixture token, not a credential
 
     def test_ledger_is_owner_only(self, tmp_path: Path) -> None:
         """The ledger stores claim tokens, so it must not be group/world readable."""

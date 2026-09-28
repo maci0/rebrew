@@ -242,6 +242,10 @@ extend-exclude = [".hypothesis", ".scratch"]
 # siblings (S101/S108/S311/S603/…, TRY003/…, ARG001/…) stay off until clean.
 # INT001–INT003 (a gettext plural argument evaluated before the call) and
 # FURB192 (`min` over `sorted`) join that subset: zero findings on the tree.
+# S105 (a credential-shaped string literal) joined with its findings renamed
+# rather than suppressed: doctor's `_PASS` status label (now `_OK`, same
+# "pass" value), the redaction tests' `secret` locals, and the clone-helper
+# test's `token`. A decomp.me fixture token keeps a scoped, reasoned noqa.
 # pylint (PLW/PLC/PLR), flake8-type-checking (TC), flake8-errmsg (EM),
 # flake8-pytest-style (PT), and ISC003 are the same ratchet: only codes the
 # tree already passes.  ISC001/ISC002 stay off (formatter conflict); TID*
@@ -302,7 +306,7 @@ select = [
     "RUF048", "RUF049", "RUF051", "RUF053", "RUF057", "RUF058", "RUF060",
     "RUF061", "RUF063", "RUF064", "RUF068", "RUF101", "RUF102",
     "RUF103", "RUF104", "RUF200", "RUF010", "RUF023", "RUF046",
-    "S102", "S103", "S106", "S107", "S110", "S112", "S113", "S201", "S202", "S301",
+    "S102", "S103", "S105", "S106", "S107", "S110", "S112", "S113", "S201", "S202", "S301",
     "S302", "S303", "S304", "S305", "S306", "S307", "S308", "S310", "S312",
     "S313", "S314", "S315", "S316", "S317", "S318", "S319", "S321", "S323",
 

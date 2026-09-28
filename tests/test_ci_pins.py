@@ -507,13 +507,13 @@ class TestCiPins:
             encoding="utf-8",
         )
         fake.chmod(0o755)
-        token = "test-token-not-a-secret"
+        stub_credential = "test-token-not-a-secret"
         sha = "a" * 40
         dest = tmp_path / "resembl"
         env = {
             **os.environ,
             "PATH": f"{bindir}{os.pathsep}{os.environ.get('PATH', '')}",
-            "GH_TOKEN": token,
+            "GH_TOKEN": stub_credential,
             "GITHUB_TOKEN": "other-secret-not-used",
             "RESEMBL_REF": "v2.0.0",
             "RESEMBL_SHA": sha,
@@ -531,7 +531,7 @@ class TestCiPins:
         recorded = log.read_text(encoding="utf-8") if log.exists() else ""
         assert result.returncode == 0, result.stdout + result.stderr + recorded
         assert "TOKEN_IN_ENV" not in recorded
-        assert token not in "\n".join(
+        assert stub_credential not in "\n".join(
             line for line in recorded.splitlines() if line.startswith("ARGV ")
         )
         assert "core.hooksPath=/dev/null" in recorded
@@ -540,7 +540,7 @@ class TestCiPins:
         assert "LFS 1" in recorded
         assert "MODE 600" in recorded
         assert "-- https://github.com/maci0/resembl.git" in recorded
-        basic = base64.b64encode(f"x-access-token:{token}".encode()).decode()
+        basic = base64.b64encode(f"x-access-token:{stub_credential}".encode()).decode()
         assert f"AUTHORIZATION: basic {basic}" in recorded
         cfg_line = next(line for line in recorded.splitlines() if line.startswith("CFG "))
         assert not Path(cfg_line.removeprefix("CFG ")).exists()

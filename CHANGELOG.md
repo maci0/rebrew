@@ -286,6 +286,21 @@
 - **Two group epilogs did not use the `Examples:` heading** every other group
   does (`rebrew`, `rebrew dashboard`), so `--help` scanning for the section
   found neither.
+- **The lint gate now watches for credential-shaped literals (ruff S105).**
+  The bandit family was selected code by code, and the one rule that names a
+  hardcoded password was not among them, so a token pasted into a constant or
+  a test fixture read as nothing in particular to the gate. S105 is on and
+  the tree passes: doctor's `_PASS` check-status label is `_OK` (same
+  `"pass"` value, no `_` prefix name that reads as a password), the redaction
+  tests bind the fake key to `api_key`, and the clone-helper test names its
+  stub credential `stub_credential`. The one suppression it needed is a
+  scoped `noqa: S105` on a decomp.me fixture token, with the reason inline.
+- **`docs/dashboard-api.yaml` failed the configured yamllint rules.** The
+  `/api/health` `requests` field was a 135-character flow mapping against a
+  120-character cap, so `test_ci_pins.py`'s
+  `test_every_tracked_yaml_passes_the_configured_rules` was red on a clean
+  checkout. The field is a block mapping like its neighbours, and
+  `.yamllint.yml`'s recorded longest line is back to the truth (119).
 - **`rebrew.ghidra` reached for `status_style` outside its declared
   boundaries.** `commands.py` imports `DISPLAY_STATUSES` to order a sync
   summary, but `src/rebrew/ghidra/AGENTS.md` did not list `status_style` in
