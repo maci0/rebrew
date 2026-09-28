@@ -754,12 +754,15 @@ class TestLintCli:
         assert data["files"][0]["warnings"] == []
 
     def test_errors_exit_nonzero(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        import json
+
         src = tmp_path / "src"
         src.mkdir()
         (src / "bad.c").write_text("not a c file\n", encoding="utf-8")
         result = self._invoke(tmp_path, monkeypatch, ["--json", str(src / "bad.c")])
         assert result.exit_code == 1
-        assert '"code": "E001"' in result.stdout
+        data = json.loads(result.stdout)
+        assert [e["code"] for e in data["files"][0]["errors"]] == ["E001"]
 
     def test_summary_flag(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         src = tmp_path / "src"

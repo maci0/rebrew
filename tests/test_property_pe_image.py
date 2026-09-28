@@ -18,6 +18,7 @@ from typing import Any
 from hypothesis import event, given, settings
 from hypothesis import strategies as st
 
+from rebrew.pe_headers import SECTION_ENTRY_SIZE
 from rebrew.pe_image import PeImport, derive_link_options, parse_pe
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -117,6 +118,8 @@ def test_parse_pe_random_bytes_rejected_or_consistent(blob: bytes) -> None:
         return
     sections, exports, imports, pe = parsed
     assert pe["header_size"] <= len(blob)
-    assert len(sections) >= 0
+    # sections_at stops at the end of the image, so a forged
+    # NumberOfSections cannot inflate the list past the bytes the file holds.
+    assert len(sections) * SECTION_ENTRY_SIZE <= len(blob)
     assert all(isinstance(section.name, str) for section in sections)
     assert all(isinstance(imp.dll, str) for imp in imports)

@@ -466,6 +466,8 @@ class TestBinsyncExportModuleFilter:
     def test_module_filter_unknown_exits_nonzero(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        import json as _json
+
         _make_project(
             tmp_path,
             {
@@ -474,7 +476,7 @@ class TestBinsyncExportModuleFilter:
         )
         result, _ = _invoke(tmp_path, monkeypatch, "--module", "UNKNOWN", "--json")
         assert result.exit_code == 2
-        assert '"error": "No annotations found."' in result.stdout
+        assert _json.loads(result.stdout) == {"error": "No annotations found.", "code": 2}
 
     def test_module_filter_json(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         import json as _json

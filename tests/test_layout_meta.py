@@ -301,6 +301,10 @@ class TestExportTableCaps:
     ``struct.error`` — the same contract as the import-slot caps."""
 
     def test_huge_export_counts_degrade_cleanly(self) -> None:
+        """A forged count must not hang, raise ``struct.error``, or emit one
+        entry per claimed slot: the walk stops at the end of the file, so the
+        exports are exactly the non-zero table entries the image really holds.
+        """
         pe = bytearray(_make_pe(_SECTIONS))
         exp_file, exp_rva = 0x200, 0x3000
         e = struct.unpack_from("<I", pe, 0x3C)[0]
@@ -309,12 +313,20 @@ class TestExportTableCaps:
         struct.pack_into("<I", pe, exp_file + 16, 1)  # Base
         struct.pack_into("<I", pe, exp_file + 20, 0xFFFFFFFF)  # NumberOfFunctions
         struct.pack_into("<I", pe, exp_file + 24, 0xFFFFFFFF)  # NumberOfNames
+        # Function table at rva 0x3040 (file 0x240); the name and ordinal
+        # tables point outside every section, so no names resolve.
         struct.pack_into("<I", pe, exp_file + 28, exp_rva + 0x40)
-        struct.pack_into("<I", pe, exp_file + 32, exp_rva + 0x50)
-        struct.pack_into("<I", pe, exp_file + 36, exp_rva + 0x60)
-        # Must return (possibly empty exports) — never hang / struct.error.
+        struct.pack_into("<I", pe, exp_file + 32, 0x9000)
+        struct.pack_into("<I", pe, exp_file + 36, 0x9000)
+        # Three claimed slots: two code RVAs and a hole, then zero padding
+        # for the rest of the file the forged count would claim.
+        for slot, func_rva in enumerate((0x1040, 0x1050, 0)):
+            struct.pack_into("<I", pe, 0x240 + 4 * slot, func_rva)
         meta = extract_layout(bytes(pe), "t.dll")
-        assert isinstance(meta.exports, list)
+        assert meta.exports == [
+            {"name": None, "ordinal": 1, "va": _IMAGE_BASE + 0x1040},
+            {"name": None, "ordinal": 2, "va": _IMAGE_BASE + 0x1050},
+        ]
 
 
 # ---------------------------------------------------------------------------
