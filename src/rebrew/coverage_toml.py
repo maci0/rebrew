@@ -504,19 +504,13 @@ def _merge_history(
             if new_s not in FUNCTION_DB_STATUSES:
                 new_s = "UNKNOWN"
             carried.append(
-                dict(
-                    zip(
-                        _HISTORY_COLUMNS,
-                        (
-                            max(0, parse_int(new_va, 0)),
-                            old_s,
-                            new_s,
-                            now_iso,
-                            updated_by or "",
-                        ),
-                        strict=True,
-                    )
-                )
+                {
+                    "va": max(0, parse_int(new_va, 0)),
+                    "old_status": old_s,
+                    "new_status": new_s,
+                    "changed_at": now_iso,
+                    "updated_by": updated_by or "",
+                }
             )
     # Retention: the newest HISTORY_RETENTION rows.  ``sorted`` is stable, so
     # two rows sharing a changed_at keep write order and the file stays

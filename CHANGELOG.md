@@ -127,6 +127,14 @@
   are the same ones, now read from `DEFAULT_PROJECT_JOBS` and
   `DEFAULT_COMPILE_TIMEOUT` instead of being hardcoded in the template, so a
   generated project and a hand-written one start at the same budget.
+- **Breaking:** `BUILTIN_TOOLCHAINS["delphi-1.0"].host_path`
+  (`rebrew.toolchain_data`, re-exported by `rebrew.toolchain`) is `None` when
+  the vendored toolchain directory is not on disk, where every entry carried
+  the path either way. The `msvc-*` entries already made that check and
+  `delphi-1.0` was the one that did not, so a consumer reaching for
+  `spec.host_path.exists()` now raises `AttributeError` on `None`, and
+  `rebrew toolchain list --json` reports `"host_path": null` instead of a path
+  to a directory that was never there.
 - **Breaking:** `rebrew.identify_library.filename_component` is gone. The
   import name was a re-export of `rebrew.utils.filename_component` used to
   build one library header name; the derivation now lives in
@@ -449,6 +457,14 @@
   resolved overrides, the include closure on the reached headers' stats), so
   the assembly is now recomputed per call and the per-process freshness
   `header_dependency_hash` documents is preserved.
+- **A `#include "../../game_types.h"` now reaches the compile-cache key.**
+  `_find_in_dirs` refuses a traversal or absolute include, so such a header
+  resolved nowhere, joined the closure as nothing, and an edit to it left the
+  key unmoved: the next compile was a hit and served an object built against
+  the previous header. The name is resolved against the same search dirs the
+  compiler uses, and one that resolves nowhere on the host (it lives in the
+  toolchain image, or the tree moved) takes the conservative per-directory
+  fingerprint rather than caching an entry with an unknown closure.
 - **The declared-dependency scan reads an attribute call.** It matched
   dynamic imports by bare callee name, so `importlib.util.find_spec("m2c")`
   in `decompiler.py` never entered the set and a distribution reached only

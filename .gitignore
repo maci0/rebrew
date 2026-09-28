@@ -7,6 +7,11 @@ __pycache__/
 # Commit .python-version so local uv/python match CI's default (3.13).
 # Do not ignore it: an untracked pin cannot be shared or enforced.
 
+# Desktop metadata: macOS drops one in every directory it visits, and the
+# skill tree ships as package data, so a stray one lands in the wheel and
+# fails the skill-asset test.
+.DS_Store
+
 # IDE / tool caches
 .pytest_cache/
 .hypothesis/
