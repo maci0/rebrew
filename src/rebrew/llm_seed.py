@@ -197,6 +197,9 @@ _request_lock = threading.Lock()
 # second ceiling on the tokens themselves is what keeps a long ``--watch`` run
 # on a big function inside a budget, so the spend is charged here as well.
 _spent_tokens = 0
+#: Ceilings of requests that passed the budget check and are waiting on the
+#: provider.  Guarded by :data:`_token_lock` with :data:`_spent_tokens`.
+_reserved_tokens = 0
 _token_lock = threading.Lock()
 # Validated seeds from prompts this process already sent, so an identical
 # rerun costs nothing.  Guarded separately from the request budget so a cache
@@ -580,19 +583,51 @@ def _request_token_ceiling(source: str, count: int) -> int:
     return prompt_chars // _CHARS_PER_TOKEN + _completion_token_cap(count)
 
 
-def _has_token_budget(ceiling: int) -> bool:
-    """True when a request costing at most *ceiling* tokens still fits the budget."""
+def _reserve_token_budget(ceiling: int) -> bool:
+    """Commit *ceiling* tokens to one request, or report the budget exhausted.
+
+    The check and the commit are one critical section, and the ceiling stays
+    committed until :func:`_charge_tokens` reconciles it against what the
+    provider actually billed.  Testing the budget on its own was a
+    check-then-act across a network round trip: a ``match --seed-llm -j N``
+    batch seeds one stub per worker, every worker passed the check while
+    :data:`_spent_tokens` still read zero, and the process then billed up to N
+    times ``REBREW_LLM_MAX_TOKENS``.
+
+    Callers that reserve and then never send must release the ceiling with
+    :func:`_release_token_budget`.
+    """
+    global _reserved_tokens
     limit = _max_tokens()
-    if limit == 0:
-        return True
+    amount = max(0, ceiling)
     with _token_lock:
-        return _spent_tokens + ceiling <= limit
+        if limit != 0 and _spent_tokens + _reserved_tokens + amount > limit:
+            return False
+        _reserved_tokens += amount
+    return True
 
 
-def _charge_tokens(tokens: int) -> None:
-    """Add *tokens* to what this process has billed."""
-    global _spent_tokens
+def _release_token_budget(ceiling: int) -> None:
+    """Give back a ceiling reserved by :func:`_reserve_token_budget`.
+
+    For a request that was admitted and then never sent, so the process keeps
+    the whole budget for a later call.
+    """
+    global _reserved_tokens
     with _token_lock:
+        _reserved_tokens = max(0, _reserved_tokens - max(0, ceiling))
+
+
+def _charge_tokens(tokens: int, *, billed_ceiling: int = 0) -> None:
+    """Reconcile one in-flight request's reservation against what it billed.
+
+    *billed_ceiling* is the ceiling :func:`_reserve_token_budget` committed for
+    this request; it is given back either way, and only the provider's report
+    (or that same ceiling, when nothing usable came back) stays spent.
+    """
+    global _spent_tokens, _reserved_tokens
+    with _token_lock:
+        _reserved_tokens = max(0, _reserved_tokens - max(0, billed_ceiling))
         _spent_tokens += max(0, tokens)
 
 
@@ -1008,7 +1043,10 @@ def _record_usage(record: SeedUsage, *, billed_ceiling: int) -> None:
     """
     total: SeedUsage | None = getattr(_usage_tls, "value", None)
     _usage_tls.value = record if total is None else merge_usage(total, record)
-    _charge_tokens(record.total_tokens if record.total_tokens is not None else billed_ceiling)
+    _charge_tokens(
+        record.total_tokens if record.total_tokens is not None else billed_ceiling,
+        billed_ceiling=billed_ceiling,
+    )
 
 
 def _record_attempt(model: str, duration_s: float, *, billed_ceiling: int) -> None:
@@ -1247,8 +1285,9 @@ def request_seeds(
     no request slot, and no cost record, because nothing was billed.
     Two budgets can say no before a request is sent: the call ceiling
     (``REBREW_LLM_MAX_REQUESTS``) and the token ceiling
-    (``REBREW_LLM_MAX_TOKENS``, checked against :func:`spent_tokens`), which
-    is what bounds a run whose per-request cost is large.
+    (``REBREW_LLM_MAX_TOKENS``, which a request reserves its own worst case
+    against before it goes out, so parallel workers cannot each pass the same
+    headroom), which is what bounds a run whose per-request cost is large.
     """
     try:
         conf = llm_config(cfg)
@@ -1298,7 +1337,7 @@ def request_seeds(
     # endpoint may be asked, this says what the answer may cost.  A cached
     # prompt returned above, so this runs only on a request that would bill.
     billed_ceiling = _request_token_ceiling(source, count)
-    if not _has_token_budget(billed_ceiling):
+    if not _reserve_token_budget(billed_ceiling):
         logging.warning(
             "LLM seeding token budget exhausted (%s token(s) billed this process, "
             "one more request can cost %s; set REBREW_LLM_MAX_TOKENS to raise) — "
@@ -1308,6 +1347,9 @@ def request_seeds(
         )
         return []
     if not _consume_request_slot():
+        # Admitted against the token budget, then refused by the call ceiling:
+        # nothing is sent, so the ceiling goes back to the pool.
+        _release_token_budget(billed_ceiling)
         logging.warning(
             "LLM seeding request budget exhausted (%s calls this process; "
             "set REBREW_LLM_MAX_REQUESTS to raise) — GA continues without seeds",
@@ -1353,5 +1395,11 @@ def request_seeds(
         else:
             logging.warning("LLM seeding requested but failed: %s", detail)
         return []
+    except BaseException:
+        # KeyboardInterrupt, SystemExit: no cost record follows, so hand the
+        # reserved ceiling back rather than leaving it stranded for every
+        # later request in this process.
+        _release_token_budget(billed_ceiling)
+        raise
     _cache_seeds(key, seeds)
     return seeds

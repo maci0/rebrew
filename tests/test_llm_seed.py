@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 import time
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
@@ -59,6 +61,7 @@ def _reset_llm_request_budget(monkeypatch: pytest.MonkeyPatch) -> None:
     """Each test gets a fresh process budget and seed cache (both are process-wide)."""
     monkeypatch.setattr("rebrew.llm_seed._request_count", 0)
     monkeypatch.setattr("rebrew.llm_seed._spent_tokens", 0)
+    monkeypatch.setattr("rebrew.llm_seed._reserved_tokens", 0)
     rebrew.llm_seed._seed_cache.clear()
     rebrew.llm_seed.reset_last_seed_usage()
     monkeypatch.delenv("REBREW_LLM_MAX_REQUESTS", raising=False)
@@ -1218,6 +1221,68 @@ class TestTokenBudget:
         charged = spent_tokens()
         assert request_seeds(_cfg("https://llm/v1"), source, client=client) != []
         assert spent_tokens() == charged
+
+    def test_parallel_requests_cannot_each_spend_the_same_headroom(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A ``-j N`` batch seeds one stub per worker; the ceiling stays a ceiling.
+
+        A worker's request blocks in the transport until the whole batch has
+        reached it, so every worker runs the budget check while nothing has
+        been billed yet.  Testing the budget without committing it let every
+        in-flight request spend the same headroom, and the process billed past
+        the cap.
+        """
+        workers = 4
+        admitted = workers - 1
+        source = "int f(void) { return 0; }"
+        # Same-length prompts, so the same worst case for every worker.
+        ceiling = _request_token_ceiling(f"{source}\n/* w0 */", 3)
+        monkeypatch.setenv("REBREW_LLM_MAX_TOKENS", str(ceiling * admitted))
+        monkeypatch.setenv("REBREW_LLM_MAX_REQUESTS", str(workers))
+        payload = {
+            "choices": [{"message": {"content": "```c\nint f(void){return 0;}\n```"}}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
+        }
+        in_flight = 0
+        arrived = threading.Condition()
+
+        class _Slow:
+            """A client whose request waits for the rest of the batch."""
+
+            def stream(self, *a: object, **k: object) -> Iterator[_FakeResponse]:
+                nonlocal in_flight
+                with arrived:
+                    in_flight += 1
+                    # A worker admitted past the cap would trip the count
+                    # below; the timeout keeps a refusal from wedging the test.
+                    arrived.wait_for(lambda: in_flight >= admitted, timeout=5)
+                return _FakeClient(payload).stream(*a, **k)
+
+        def _seed(i: int) -> list[str]:
+            # A distinct prompt per worker: identical keys hit the seed cache
+            # and never reach the budget at all.
+            return request_seeds(_cfg("https://llm/v1"), f"{source}\n/* w{i} */", client=_Slow())
+
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            results = [f.result() for f in [pool.submit(_seed, i) for i in range(workers)]]
+
+        assert in_flight == admitted
+        assert sum(1 for r in results if r) == admitted
+        assert spent_tokens() == admitted * 30
+        assert rebrew.llm_seed._reserved_tokens == 0
+
+    def test_a_refused_call_ceiling_leaves_the_token_budget_intact(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Admitted on tokens, then refused on calls: the ceiling is not stranded."""
+        source = "int f(void) { return 0; }"
+        monkeypatch.setenv("REBREW_LLM_MAX_TOKENS", "1000000")
+        monkeypatch.setenv("REBREW_LLM_MAX_REQUESTS", "1")
+        monkeypatch.setattr("rebrew.llm_seed._request_count", 1)
+        assert request_seeds(_cfg("https://llm/v1"), source, client=_FakeClient({})) == []
+        assert spent_tokens() == 0
+        assert rebrew.llm_seed._reserved_tokens == 0
 
 
 class TestStreamingResponse:
