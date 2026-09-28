@@ -333,6 +333,33 @@ def md5_file(path: Path) -> str:
 # fallback rather than a first guess).
 _SOURCE_ENCODINGS = ("utf-8", "shift_jis", "cp1252")
 
+#: Half-width katakana, the single-byte Shift-JIS range 0xA1-0xDF.  The rest of
+#: Shift-JIS's single-byte set (0x81-0x9F, 0xE0-0xFC) covers currency signs and
+#: the ``\\ | ~ ¬`` block — the same bytes CP1252 spells as ``é è ê ë``.
+_SHIFT_JIS_HALFWIDTH_KATAKANA = range(0xFF61, 0xFFA0)
+
+
+def _looks_shift_jis(text: str) -> bool:
+    """True when *text* holds Japanese, not just bytes Shift-JIS accepts.
+
+    Every 0xE0-0xFC byte is a valid single-byte Shift-JIS character, so a
+    CP1252 source holding ``café`` (0xE9) decodes as Shift-JIS without error
+    and every accented letter reads as katakana.  The write-back is still
+    byte-identical, so the misdecode is silent: only the text a caller prints,
+    compares, or slices is wrong.  Requiring a CJK or kana character keeps a
+    real Japanese source on Shift-JIS and hands the Latin one to CP1252, which
+    round-trips the same bytes just as well.
+    """
+    return any(
+        "぀" <= ch <= "ヿ"  # hiragana, katakana, CJK punctuation
+        or "一" <= ch <= "鿿"  # CJK unified ideographs
+        or "豈" <= ch <= "﫿"  # CJK compatibility ideographs
+        or "＀" <= ch <= "￯"  # half-width and full-width forms
+        or ch in "。、〜「」"  # kana punctuation
+        or ord(ch) in _SHIFT_JIS_HALFWIDTH_KATAKANA
+        for ch in text
+    )
+
 
 def detect_source_encoding(data: bytes) -> str:
     """Return the encoding *data* is in: UTF-8 when it decodes cleanly,
@@ -342,7 +369,8 @@ def detect_source_encoding(data: bytes) -> str:
     writing it back permanently replaces every non-ASCII byte with U+FFFD;
     detecting the real encoding on read lets write-backs round-trip
     byte-for-byte.  Ordering note: cp1252 is tried last; shift_jis is
-    stricter and catches Japanese sources first.
+    stricter and catches Japanese sources first, but only once
+    :func:`_looks_shift_jis` confirms the decoded text is actually Japanese.
 
     A UTF-8 BOM answers ``utf-8-sig`` rather than ``utf-8``: plain UTF-8
     keeps U+FEFF as the text's first character, which hides a leading
@@ -353,10 +381,12 @@ def detect_source_encoding(data: bytes) -> str:
         return "utf-8-sig"
     for enc in _SOURCE_ENCODINGS:
         try:
-            data.decode(enc)
-            return enc
+            decoded = data.decode(enc)
         except UnicodeDecodeError:
             continue
+        if enc == "shift_jis" and not _looks_shift_jis(decoded):
+            continue
+        return enc
     # Only a CP1252 undefined byte (0x81, 0x8D, 0x8F, 0x90, 0x9D) gets here.
     # Latin-1 maps every byte to one code point, so the write-back encodes to
     # the same bytes; a cp1252 decode would yield U+FFFD, which cp1252 cannot

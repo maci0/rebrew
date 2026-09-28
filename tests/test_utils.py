@@ -497,6 +497,26 @@ class TestSourceEncoding:
         data = "// 日本語コメント\n".encode("shift_jis")
         assert detect_source_encoding(data) == "shift_jis"
 
+    def test_detect_shift_jis_kana_only(self) -> None:
+        data = "// テスト\n".encode("shift_jis")
+        assert detect_source_encoding(data) == "shift_jis"
+
+    def test_detect_shift_jis_halfwidth_kana(self) -> None:
+        data = "// ｱｲ\n".encode("shift_jis")
+        assert detect_source_encoding(data) == "shift_jis"
+
+    def test_cp1252_accent_is_not_read_as_katakana(self) -> None:
+        """A CP1252 Latin source must not be detected as Shift-JIS.
+
+        Bytes 0xE0-0xFC are single-byte Shift-JIS characters, so ``é`` (0xE9)
+        decodes without error and the write-back stays byte-identical: the
+        misdecode is silent and only the decoded text is wrong.  Round-trip
+        fidelity alone cannot separate the two; the kana test does.
+        """
+        data = "// naïve café “quoted”\n".encode("cp1252")
+        assert detect_source_encoding(data) == "cp1252"
+        assert data.decode("cp1252") == "// naïve café “quoted”\n"
+
     def test_detect_utf8_bom_is_sig(self) -> None:
         assert detect_source_encoding(b"\xef\xbb\xbfint x;\n") == "utf-8-sig"
 
