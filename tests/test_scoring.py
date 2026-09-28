@@ -707,6 +707,50 @@ class TestScoreFastPaths:
         assert s.mnemonic_score > 0.0  # real diff still penalized
 
 
+class TestLongMnemonicStreams:
+    """difflib's autojunk heuristic against a real-length function.
+
+    ``autojunk`` marks any mnemonic occurring more than ``len // 100 + 1``
+    times in the second sequence as popular and refuses to anchor on it, so
+    past 200 instructions a stream of ``push``/``mov``/``cmp`` stops aligning
+    and every instruction reads as a diff.
+    """
+
+    @staticmethod
+    def _long_pair() -> tuple[bytes, bytes]:
+        rng = random.Random(3)
+        encodings = {
+            "push": b"\x53",
+            "mov": b"\x89\xe8",
+            "add": b"\x05\x01\x00\x00\x00",
+            "cmp": b"\x81\xfa\x02\x00\x00\x00",
+            "jne": b"\x75\xf0",
+            "lea": b"\x8d\x40\x01",
+            "xor": b"\x33\xc0",
+            "call": b"\xe8\x00\x00\x00\x00",
+            "pop": b"\x5b",
+            "sub": b"\x83\xec\x08",
+        }
+        keys = list(encodings)
+        body = b"".join(encodings[rng.choice(keys)] for _ in range(300))
+        target = b"\x55\x8b\xec" + body + b"\x5d\xc3"
+        candidate = bytearray(target)
+        for off in (100, 300, 500, 700):
+            candidate[off] = 0x90  # four instructions replaced by nops
+        return target, bytes(candidate)
+
+    def test_four_nops_in_300_instructions_cost_no_mnemonic_score(self) -> None:
+        target, candidate = self._long_pair()
+        s = score_candidate(target, candidate, {})
+        assert s.mnemonic_score == 0.0
+        assert s.byte_score == 4.0  # the four nops are the only real difference
+
+    def test_mnemonic_ratio_survives_a_long_stream(self) -> None:
+        target, candidate = self._long_pair()
+        sim = structural_similarity(target, candidate)
+        assert sim.mnemonic_match_ratio > 0.9
+
+
 # -------------------------------------------------------------------------
 # code_similarity (optional `resembl` scoring core)
 # -------------------------------------------------------------------------

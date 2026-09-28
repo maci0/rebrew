@@ -73,10 +73,15 @@ class TestCollectFunctions:
 
         def _fake_load_data(cfg):
             class _F:
-                def __init__(self, size: int) -> None:
+                def __init__(self, va: int, size: int) -> None:
+                    self.va = va
                     self.size = size
 
-            return [_F(100), _F(30)], {0x401000: {"filename": "a.c"}, 0x401020: {}}, {}
+            return (
+                [_F(0x401000, 100), _F(0x401020, 30)],
+                {0x401000: {"filename": "a.c"}, 0x401020: {}},
+                {},
+            )
 
         monkeypatch.setattr("rebrew.naming.load_data", _fake_load_data)
         out = _collect_functions(cfg)
@@ -85,6 +90,35 @@ class TestCollectFunctions:
         assert out["total"] == 2
         assert out["total_bytes"] == 130
         assert out["covered"] == 2
+
+    def test_annotations_outside_the_inventory_do_not_inflate_covered(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """covered is the intersection, so it can never exceed total."""
+        from rebrew.analyze import _collect_functions
+
+        cfg = SimpleNamespace(
+            reversed_dir=tmp_path / "src",
+            metadata_dir=tmp_path / "src",
+        )
+        (tmp_path / "src").mkdir(exist_ok=True)
+
+        def _fake_load_data(cfg):
+            class _F:
+                def __init__(self, va: int, size: int) -> None:
+                    self.va = va
+                    self.size = size
+
+            return (
+                [_F(0x401000, 100), _F(0x401020, 30)],
+                {0x401000: {}, 0x401020: {}, 0x409000: {}},
+                {},
+            )
+
+        monkeypatch.setattr("rebrew.naming.load_data", _fake_load_data)
+        out = _collect_functions(cfg)
+        assert out["covered"] == 2
+        assert out["covered"] <= out["total"]
 
     def test_inventory_fallback(self, tmp_path: Path) -> None:
         """Without a Ghidra export, functions.total comes from the discovery

@@ -206,6 +206,29 @@ class TestDecompDevReport:
         assert doc["units"][0]["measures"]["fuzzy_match_percent"] == 99.99
         assert doc["measures"]["fuzzy_match_percent"] == 99.99
 
+    def test_fuzzy_percent_cannot_exceed_100(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A stale SIZE summing past .text must not report 150% fuzzy."""
+        annos = [
+            _fake_ann(0x1000, 1000, "big_fn", "NEAR_MATCHING"),
+            _fake_ann(0x1200, 500, "overlap_fn", "NEAR_MATCHING"),
+        ]
+        self._setup(tmp_path, monkeypatch, annos)
+        self._mock_progress(monkeypatch, total_functions=1, status_counts={}, total_text_bytes=1000)
+
+        class _Entry:
+            match_percent = 100.0
+
+        class _Cache:
+            entries = {0x1000: _Entry(), 0x1200: _Entry()}
+
+        monkeypatch.setattr("rebrew.verify_cache.load_verify_cache", lambda _p, _c: _Cache())
+        out = tmp_path / "report.json"
+        report.generate_decomp_dev_report(_cfg(tmp_path), out)
+        doc = json.loads(out.read_text(encoding="utf-8"))
+        assert doc["measures"]["fuzzy_match_percent"] == 100.0
+
     def test_shared_progress_denominator(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

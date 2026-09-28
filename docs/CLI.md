@@ -369,8 +369,8 @@ overrun but cannot pad a gap).
 
 Compile the source and report the match against the reference bytes —
 `matched` (strict, both-sides reloc rule), `matched-reloc` (generous,
-either-side — the historical number quoted in old headers), `aligned`
-instruction count (the gradient to climb on large functions where
+either-side — the historical number quoted in old headers), `aligned_bytes`
+(`aligned_bytes_total` bytes; the gradient to climb on large functions where
 fixed-offset saturates), and COMDAT span vs trimmed code length. Unlike
 `rebrew test` this never writes STATUS metadata: the no-side-effect ruler
 for edit → measure loops. Compare with `rebrew test --no-promote` only

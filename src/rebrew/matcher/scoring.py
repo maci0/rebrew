@@ -613,7 +613,11 @@ def score_candidate(
         total_diffed = 0
         longest_run = len(target_mnems)
     else:
-        sm = difflib.SequenceMatcher(None, target_mnems, cand_mnems)
+        # autojunk=False: difflib's default drops "popular" elements from
+        # anchoring once a sequence passes 200 items, and x86 mnemonics
+        # (`push`, `mov`, `cmp`) cross that bar in any real function, so the
+        # alignment collapsed and every instruction read as a diff.
+        sm = difflib.SequenceMatcher(None, target_mnems, cand_mnems, autojunk=False)
 
         # Walk opcodes: reward contiguous equal blocks, penalise diffs
         total_diffed = 0
@@ -1049,7 +1053,10 @@ def structural_similarity(
         md = get_cs(cs_arch, cs_mode)
         target_mnems = [m for (_a, _s, m, _o) in md.disasm_lite(target_bytes, 0)]
         cand_mnems = [m for (_a, _s, m, _o) in md.disasm_lite(candidate_bytes, 0)]
-    sm = difflib.SequenceMatcher(None, target_mnems, cand_mnems)
+    # autojunk=False for the same reason as the fitness walk: a mnemonic stream
+    # over 200 items marks its most common opcodes as junk, and the ratio then
+    # reports the sweep as not mnemonic-compatible when it is.
+    sm = difflib.SequenceMatcher(None, target_mnems, cand_mnems, autojunk=False)
     mnemonic_ratio = sm.ratio()
 
     structural_ratio = structural / total if total > 0 else 0.0

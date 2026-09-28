@@ -7,8 +7,10 @@ with `jq` or Python; do not parse the terminal output.
 
 All three emit this inventory. `--conflicts` keeps only conflicting names in
 `globals` (and recounts `summary`); `--summary` replaces `summary` with
-`{"sections": [{"name", "globals", "annotated", "annotated_bytes", "section_size",
-"coverage_pct"}], "conflicts"}`:
+`{"sections": [{"name", "globals", "annotated", "annotated_bytes", "declared_bytes",
+"section_size", "coverage_pct"}], "conflicts"}` (`annotated_bytes` is the union
+of the annotated spans clipped to the section, the same number `coverage_pct`
+is taken from; `declared_bytes` is the raw sum of the declared type sizes):
 
 ```json
 {"globals": {"g_name": {"name": "g_name", "type": "int *", "va": "0x10025000",

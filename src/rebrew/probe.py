@@ -137,8 +137,10 @@ def main(
         "percent": round(100.0 * strict_count / n, 1),
         "reference_insns": len(ref_insns),
         "compiled_insns": len(obj_insns),
-        "aligned": aligned,
-        "aligned_total": total_cls,
+        # align_and_classify reports BYTES per category, not instructions:
+        # a 12-instruction function of 42 matching bytes reports 42.
+        "aligned_bytes": aligned,
+        "aligned_bytes_total": total_cls,
         "comdat_span": span,
         "code_len": code_len,
         "object": obj_path,
@@ -153,7 +155,7 @@ def main(
         + (f" (code {code_len})" if code_len != span else "")
     )
     console.print(
-        f"  aligned {aligned}/{total_cls} reference instructions "
+        f"  aligned {aligned}/{total_cls} reference bytes "
         f"({100.0 * aligned / max(1, total_cls):.1f}%)"
     )
     console.print(f"  object: {obj_path}")

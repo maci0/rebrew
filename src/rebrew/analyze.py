@@ -273,13 +273,19 @@ def _collect_functions(cfg: Any) -> dict[str, Any] | None:
     if ghidra_funcs:
         total = len(ghidra_funcs)
         total_bytes = sum(getattr(f, "size", 0) or 0 for f in ghidra_funcs)
+        # Annotations outside the inventory (a hand-added VA, a library header
+        # for a function the export missed) are not functions the target has, so
+        # counting them printed "1187/1180 functions covered". The numerator is
+        # the intersection, matching `rebrew status`.
+        covered = len(existing.keys() & {f.va for f in ghidra_funcs})
     else:
         # No Ghidra export — fall back to the project's own function list so
         # functions.total reflects the real target size instead of 0.
         total, total_bytes = _function_list_stats(cfg)
+        covered = len(existing)
     return {
         "total": total,
-        "covered": len(existing),
+        "covered": covered,
         "total_bytes": total_bytes,
     }
 

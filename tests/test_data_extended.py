@@ -687,6 +687,45 @@ class TestSectionSummary:
         assert data_row["annotated_bytes"] == 24
         assert data_row["coverage_pct"] == 9.3
 
+    def test_overlapping_names_count_once(self, tmp_path: Path) -> None:
+        """Two names for one address: the byte count and the ratio agree.
+
+        The raw sum of the type sizes is 8, the union 4, so a row that showed
+        8B beside a 4.0 % coverage disagreed with itself.
+        """
+        cfg = _cfg(tmp_path)
+        (cfg.reversed_dir / "a.c").write_text(
+            "// GLOBAL: SERVER 0x1000\nextern int g_count;\n", encoding="utf-8"
+        )
+        (cfg.reversed_dir / "b.c").write_text(
+            "// GLOBAL: SERVER 0x1000\nextern int g_count_alias;\n", encoding="utf-8"
+        )
+        scan = scan_globals(cfg.reversed_dir, cfg)
+        sections = {".data": {"va": 0x1000, "size": 0x100}}
+        from rebrew.data_scan import enrich_with_sections
+
+        enrich_with_sections(scan, sections)
+        data_row = next(r for r in section_summary(scan, sections) if r["name"] == ".data")
+        assert data_row["annotated_bytes"] == 4
+        assert data_row["declared_bytes"] == 8
+        assert data_row["coverage_pct"] == 1.5  # 4 / 256, floored
+
+    def test_size_hint_past_the_section_is_clipped(self, tmp_path: Path) -> None:
+        """A stale `extern char g[0x8000]` cannot report more bytes than exist."""
+        cfg = _cfg(tmp_path)
+        (cfg.reversed_dir / "a.c").write_text(
+            "// GLOBAL: SERVER 0x1000\nextern char g_buf[0x8000];\n", encoding="utf-8"
+        )
+        scan = scan_globals(cfg.reversed_dir, cfg)
+        sections = {".data": {"va": 0x1000, "size": 0x400}}
+        from rebrew.data_scan import enrich_with_sections
+
+        enrich_with_sections(scan, sections)
+        data_row = next(r for r in section_summary(scan, sections) if r["name"] == ".data")
+        assert data_row["annotated_bytes"] == 0x400
+        assert data_row["declared_bytes"] == 0x8000
+        assert data_row["coverage_pct"] == 100.0
+
     def test_unaddressed_declaration_is_not_a_section(self, tmp_path: Path) -> None:
         """A link stand-in with no VA does not open an unknown section.
 

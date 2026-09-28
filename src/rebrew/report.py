@@ -1380,6 +1380,13 @@ def generate_decomp_dev_report(cfg: ProjectConfig, out_path: Path) -> dict[str, 
     matched_code = status.matched_bytes
     text_size = status.total_text_bytes or get_text_section_size(cfg.target_binary) or 0
 
+    # The fuzzy numerator sums each annotation's declared SIZE; a size running
+    # past .text, or two annotations over one function, adds up past the whole
+    # binary and the consumer renders a progress bar above 100%. The HTML
+    # report already special-cases that overflow; cap it so both agree.
+    if text_size:
+        fuzzy_code = min(fuzzy_code, float(text_size))
+
     # Data measures: rebrew places data rather than "matching" it, so report
     # the totals honestly and leave matched/complete data at 0.
     data_size = 0
