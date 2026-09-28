@@ -22,7 +22,7 @@ from rebrew.config import (
     FUNCTION_STRUCTURE_JSON,
     REBREW_PROJECTS_ROOT_ENV,
     ConfigError,
-    check_env_dir,
+    env_dir_path,
     load_config,
 )
 from rebrew.data_metadata import load_data_metadata
@@ -41,11 +41,11 @@ def _default_root() -> Path:
     env = os.environ.get(REBREW_PROJECTS_ROOT_ENV, "").strip()
     if not env:
         return Path(__file__).resolve().parents[2]
-    root = Path(env).expanduser()
     try:
-        check_env_dir(REBREW_PROJECTS_ROOT_ENV, env)
+        root = env_dir_path(REBREW_PROJECTS_ROOT_ENV, env)
     except ConfigError as exc:
         raise SystemExit(f"audit_projects: {exc}") from exc
+    assert root is not None  # a non-empty value never resolves to None
     return root
 
 

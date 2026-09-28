@@ -29,7 +29,7 @@ from rich.console import Console
 from rich.table import Table
 
 from rebrew.cli import console, error_exit, json_print
-from rebrew.config import REBREW_SKILLS_DIR_ENV
+from rebrew.config import REBREW_SKILLS_DIR_ENV, ConfigError, env_dir_path
 
 logger = logging.getLogger(__name__)
 
@@ -146,15 +146,17 @@ def user_skills_dir() -> Path | None:
     env = os.environ.get(REBREW_SKILLS_DIR_ENV, "").strip()
     if not env:
         return None
-    path = Path(env)
-    if not path.is_dir() and not _missing_dir_warned:
-        _missing_dir_warned = True
-        logger.warning(
-            "%s=%s is not a directory — community skills are disabled until it exists",
-            REBREW_SKILLS_DIR_ENV,
-            env,
-        )
-    return path
+    try:
+        return env_dir_path(REBREW_SKILLS_DIR_ENV, env)
+    except ConfigError:
+        if not _missing_dir_warned:
+            _missing_dir_warned = True
+            logger.warning(
+                "%s=%s is not a directory — community skills are disabled until it exists",
+                REBREW_SKILLS_DIR_ENV,
+                env,
+            )
+        return None
 
 
 def _list_skills() -> list[dict[str, Any]]:

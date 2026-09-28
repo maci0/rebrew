@@ -38,7 +38,7 @@ def _flirt_sigs_repo() -> Path:
     """
     env = os.environ.get(REBREW_FLIRT_SIGS_DIR_ENV, "").strip()
     if env:
-        return Path(env)
+        return Path(env).expanduser()
     return Path(__file__).resolve().parents[2].parent / "rebrew-flirt-sigs"
 
 

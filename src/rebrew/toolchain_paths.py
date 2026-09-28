@@ -34,7 +34,7 @@ def toolchains_repo() -> Path:
     """
     env = os.environ.get(TOOLCHAINS_DIR_ENV, "").strip()
     if env:
-        return Path(env)
+        return Path(env).expanduser()
     for parent in Path(__file__).resolve().parents:
         if (parent / "pyproject.toml").is_file():
             return parent.parent / "rebrew-toolchains"
