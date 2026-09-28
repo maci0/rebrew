@@ -457,7 +457,7 @@ def _looks_shift_jis(text: str) -> bool:
     return any(
         "぀" <= ch <= "ヿ"  # hiragana, katakana, CJK punctuation
         or "一" <= ch <= "鿿"  # CJK unified ideographs
-        or "豈" <= ch <= "﫿"  # CJK compatibility ideographs
+        or "豈" <= ch <= "﫿"  # CJK compatibility ideographs
         or "＀" <= ch <= "￯"  # half-width and full-width forms
         or ch in "。、〜「」"  # kana punctuation
         or ord(ch) in _SHIFT_JIS_HALFWIDTH_KATAKANA

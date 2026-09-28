@@ -323,8 +323,7 @@ def render_block(text: str, block: _Block, ordered: list[str]) -> str:
         )
         extras = []
         for k in range(len(spans), len(ordered)):
-            raw = spans[k][2] if k < len(spans) else ""
-            extras.append(_quote(raw, ordered[k]))
+            extras.append(_quote(spans[-1][2], ordered[k]))
         out = out[:anchor] + sep.join(["", *extras]) + out[anchor:]
     return out
 

@@ -794,8 +794,11 @@ def _element_count_or_none(brackets: str) -> int | None:
             return None
         if n < 0:
             return None
+        # ``T[0]`` is a flexible-array extension; count it as one element, the
+        # same rule estimate_type_size applies, so the two size models agree
+        # and no symbol reaches the layout with a zero size.
         if n == 0:
-            return 0
+            n = 1
         total *= n
     return total
 

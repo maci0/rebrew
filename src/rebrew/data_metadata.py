@@ -59,7 +59,7 @@ from typing import TYPE_CHECKING, Any
 
 import tomlkit
 
-from rebrew.metadata import as_metadata_int, resolve_metadata_dir
+from rebrew.metadata import as_metadata_int, canonical_status, resolve_metadata_dir
 from rebrew.metadata_doc import (
     MetadataDocCache,
     build_metadata_key_index,
@@ -541,6 +541,6 @@ def merge_into_data_annotation(ann: Annotation, directory: Path | str | Any) -> 
         ann.note = str(entry["note"])
 
     if "status" in entry:
-        ann.status = str(entry["status"])
+        ann.status = canonical_status(str(entry["status"]))
 
     return ann

@@ -296,7 +296,7 @@ def iter_sources(
     ``cfg.reversed_dir``).
 
     Uses :func:`source_exts` to determine the file extensions and an
-    ``os.walk`` to descend into nested subdirectories, skipping
+    ``os.scandir`` walk to descend into nested subdirectories, skipping
     :data:`_EXCLUDE_DIRS` (``.git``, ``.venv``, ``build``, …) at every
     level.  Extension matching is case-insensitive (``FOO.C`` counts as
     ``.c``), uniformly for single- and

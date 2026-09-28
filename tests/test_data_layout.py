@@ -231,6 +231,17 @@ def test_parse_stub_globals(tmp_path: Path) -> None:
     assert "foo" not in parsed  # functions are not global defs
 
 
+def test_parse_stub_globals_counts_zero_length_array_as_one(tmp_path: Path) -> None:
+    """``T[0]`` is a flexible-array extension. estimate_type_size counts it as
+    one element; the declarator parser must agree, or the symbol reaches the
+    layout with size 0 and is silently dropped."""
+    from rebrew.data_layout import _parse_stub_globals
+
+    stub = tmp_path / "link_stubs.c"
+    stub.write_text("int g_flex[0] = {0};\n", encoding="utf-8")
+    assert _parse_stub_globals(stub)["g_flex"] == ("int", 1)
+
+
 # ---------------------------------------------------------------------------
 # Scalar literal rendering (float bit-exactness, non-finite handling)
 # ---------------------------------------------------------------------------

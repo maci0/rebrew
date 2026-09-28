@@ -1362,7 +1362,7 @@ def _detect_toolchain_core(
             delphi_hits = ["Borland Delphi"]
         else:
             delphi_hits = [m for m in _DELPHI_MARKERS if m.encode() in raw][:3]
-    msvc_hits = [s for s in strings if s in _MSVC_MARKERS]
+    msvc_hits = [m for m in _MSVC_MARKERS if any(m in s for s in strings)]
     watcom_hits = [m for m in _WATCOM_MARKERS if any(m in s for s in strings)]
     borlandc_hits = [m for m in _BORLANDC_MARKERS if any(m in s for s in strings)]
     symantec_hits = [m for m in _SYMANTEC_MARKERS if any(m in s for s in strings)]

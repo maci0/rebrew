@@ -532,6 +532,36 @@ class TestDiffReports:
         assert d["regressions"][0]["va"] == "0x00002000"
         assert d["regressions"][0]["delta"] == 5
 
+    def test_parking_a_neutral_status_is_not_a_regression(self) -> None:
+        """SKIP is a parking classification, not a verdict: _STATUS_RANK ranks
+        it with the whole neutral band, so parking or unparking one of those
+        verdicts must not read as a regression or an improvement."""
+        from rebrew.verify import diff_reports
+
+        for verdict in ("STUB", "NEAR_MATCHING", "SIZE_MISMATCH", "PROVEN"):
+            for before, after in (
+                ({"status": verdict}, {"status": "SKIP"}),
+                ({"status": "SKIP"}, {"status": verdict}),
+            ):
+                d = diff_reports(
+                    {"results": [{"va": "0x1000", "name": "a", **before}]},
+                    {"results": [{"va": "0x1000", "name": "a", **after}]},
+                )
+                assert d["regressions"] == [], f"{before} -> {after} regressed"
+                assert d["improvements"] == [], f"{before} -> {after} improved"
+                assert d["unchanged_count"] == 1
+
+    def test_parking_a_matched_status_is_still_a_regression(self) -> None:
+        """SKIP is neutral against the unmatched band only; an EXACT function
+        parked as SKIP gives up a real match and must still fail the gate."""
+        from rebrew.verify import diff_reports
+
+        d = diff_reports(
+            {"results": [{"va": "0x1000", "name": "a", "status": "EXACT"}]},
+            {"results": [{"va": "0x1000", "name": "a", "status": "SKIP"}]},
+        )
+        assert len(d["regressions"]) == 1
+
     def test_unknown_status_ranks_as_fail(self) -> None:
         from rebrew.verify import diff_reports
 

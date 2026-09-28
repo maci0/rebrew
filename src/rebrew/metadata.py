@@ -1372,7 +1372,9 @@ def coerce_metadata_value(key: str, value: Any) -> Any:
     passes through untouched.  String spellings follow ``metadata_model._coerce``:
     both decimal (``"42"``) and hex (``"0x2A"``) are accepted.
     """
-    if key in ("size", "blocker_delta") and not isinstance(value, int):
+    if key in ("size", "blocker_delta") and not (
+        isinstance(value, int) and not isinstance(value, bool)
+    ):
         with contextlib.suppress(ValueError, TypeError):
             return as_metadata_int(value)
     return value

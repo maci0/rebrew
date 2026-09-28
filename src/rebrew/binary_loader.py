@@ -264,6 +264,11 @@ def _load_elf(binary: lief.ELF.Binary, path: Path) -> BinaryInfo:
         vsize = section.size
         raw_offset = section.offset
         raw_size = section.original_size if hasattr(section, "original_size") else vsize
+        sec_type = getattr(section, "type", None)
+        if sec_type is not None and int(sec_type) == int(lief.ELF.Section.TYPE.NOBITS):
+            # SHT_NOBITS occupies no file space: LIEF reports the virtual size
+            # as original_size, which would let a reader run past the segment.
+            raw_size = 0
 
         sections[name] = SectionInfo(
             name=name,

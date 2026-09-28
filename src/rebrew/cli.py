@@ -33,7 +33,6 @@ from typing import Any, Literal, NoReturn, override
 
 import typer
 from rich.console import Console
-from rich.markup import escape
 from typer._click.core import Command as TyperBaseCommand
 from typer._click.core import Context as TyperContext
 from typer._click.core import Parameter as TyperParameter
@@ -573,7 +572,7 @@ def run_cli(app: Callable[[], Any]) -> None:
         if _json_requested():
             print(json.dumps({"error": str(e), "code": EXIT_ERROR}, indent=2))
         else:
-            console.print(f"[red]error:[/red] {escape(str(e))}", soft_wrap=True)
+            console.print(f"[red]error:[/red] {untrusted_text(str(e))}", soft_wrap=True)
         raise SystemExit(EXIT_ERROR) from None
     except KeyboardInterrupt:
         console.print("[red]error:[/red] Interrupted by user")

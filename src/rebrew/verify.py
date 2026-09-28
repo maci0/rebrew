@@ -436,6 +436,20 @@ _STATUS_ORDER: dict[str, int] = {
     "FAIL": 8,
 }
 
+#: Statuses that rank with SKIP in ``_STATUS_RANK``: a verdict the user has not
+#: reached yet.  Parking or unparking one of them is status-equal, so neither
+#: direction reads as a regression or an improvement.
+_NEUTRAL_BAND: frozenset[str] = frozenset({"PROVEN", "STUB", "NEAR_MATCHING", "SIZE_MISMATCH"})
+
+
+def _parking_equal(previous_status: str, current_status: str) -> bool:
+    """True when the only change is SKIP entering or leaving the neutral band."""
+    if previous_status == current_status:
+        return False
+    if "SKIP" not in (previous_status, current_status):
+        return False
+    return current_status in _NEUTRAL_BAND or previous_status in _NEUTRAL_BAND
+
 
 def _va_display(key: Any) -> str:
     """Render a canonical VA key back to a readable string."""
@@ -528,6 +542,10 @@ def diff_reports(
         previous_item = previous_results[va]
         previous_status = str(previous_item.get("status", "FAIL"))
         previous_order = _STATUS_ORDER.get(previous_status, unknown_order)
+
+        if _parking_equal(previous_status, current_status):
+            unchanged_count += 1
+            continue
 
         if current_order == previous_order:
             # Same fine-grained status: only a match-percentage drop beyond
@@ -2475,10 +2493,11 @@ def _apply_or_preview_status(
     if dry_run:
         for entry, status, _delta in deferred_fixes:
             module: str = getattr(entry, "module", "") or ""
-            # Mirror apply_status_updates' decision so the preview only claims
-            # updates a real run would actually write: parked SKIP never moves
-            # and a STUB's placeholder size-mismatch keeps the user's
-            # classification.
+            # Mirror apply_status_updates' promotion decision so the preview
+            # only claims updates a real run would actually write: parked SKIP
+            # never moves and a STUB's placeholder size-mismatch keeps the
+            # user's classification.  The path guards are the writer's alone —
+            # a preview names what the run decided, not what it will find.
             if not should_promote_status(getattr(entry, "status", ""), status):
                 continue
             console.print(

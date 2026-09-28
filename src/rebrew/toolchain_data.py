@@ -566,7 +566,9 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         bits=16,  # 16-bit target (arch-alignment check)
         flags_style="msvc",
         obj_ext=".exe",  # DCC emits a linked NE, not an object
-        host_path=vendored_path("delphi/1.0-win16"),
+        host_path=vendored_path("delphi/1.0-win16")
+        if vendored_path("delphi/1.0-win16").exists()
+        else None,
         description="Borland Delphi 1.0 (16-bit NE) — DOSBox",
     ),
     "mingw-16.2.0": ToolchainSpec(

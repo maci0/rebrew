@@ -574,8 +574,13 @@ def _parse_subsegment(entry: Any, path: Path) -> Subsegment:
 def _parse_segment(entry: Any, path: Path, ignored: list[Ignored]) -> Segment | None:
     """Read one top-level ``segments`` entry (``None`` for the rom-end sentinel)."""
     if isinstance(entry, list):
-        # ``- [0x800]`` is splat's rom-end sentinel, not a segment.
-        return None
+        if len(entry) == 1:
+            # ``- [0x800]`` is splat's rom-end sentinel, not a segment.
+            return None
+        # splat also spells a segment as a list; this importer supports only the
+        # mapping form.  Dropping it silently would leave its symbols stranded
+        # outside every segment with no diagnostic, so it fails loudly.
+        raise ValueError(f"{path}: segment entry must be a mapping or the rom-end sentinel list")
     if not isinstance(entry, dict):
         raise ValueError(f"{path}: segment entry must be a mapping or a rom-end list")
 

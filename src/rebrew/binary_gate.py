@@ -70,9 +70,12 @@ def snapshot_binary(binary_path: Path) -> dict[str, Any]:
     rsrc: bytes | None = None
     sec = info.sections.get(".rsrc")
     if sec is not None:
-        try:
-            rsrc = bytes(info.data[sec.file_offset : sec.file_offset + sec.raw_size])
-        except (IndexError, TypeError):
+        # A section claiming more bytes than the file holds is a corrupt header;
+        # slicing would silently yield a short resource rather than fail.
+        end = sec.file_offset + sec.raw_size
+        if sec.file_offset >= 0 and end <= len(info.data):
+            rsrc = bytes(info.data[sec.file_offset : end])
+        else:
             rsrc = None
     try:
         from rebrew.binary_loader import parse_exports
@@ -165,9 +168,12 @@ def check_layout_freshness(pkg_dir: Path, binary_path: Path) -> dict[str, Any]:
     if not fingerprint_file.exists():
         return {"match": True, "status": "unknown", "expected": None, "actual": None}
     try:
-        expected = fingerprint_file.read_text(encoding="utf-8").strip().split()[0]
+        recorded = fingerprint_file.read_text(encoding="utf-8").strip().split()
     except OSError:
         return {"match": True, "status": "unknown", "expected": None, "actual": None}
+    if not recorded:
+        return {"match": True, "status": "unknown", "expected": None, "actual": None}
+    expected = recorded[0]
     actual = layout_fingerprint(binary_path)
     if not actual:
         return {"match": True, "status": "unknown", "expected": expected, "actual": None}

@@ -2103,9 +2103,11 @@ def load_config(
         ("project", KNOWN_PROJECT_KEYS),
         ("link", _KNOWN_LINK_KEYS),
     ):
-        sec = global_compiler_raw if sec_name == "compiler" else project_raw
-        if sec_name == "link":
-            sec = _as_table(raw.get("link", {}), "link")
+        sec = (
+            _as_table(raw.get("link", {}), "link")
+            if sec_name == "link"
+            else (global_compiler_raw if sec_name == "compiler" else project_raw)
+        )
         unknown_sec = set(sec) - known_keys
         if unknown_sec:
             _config_warn(

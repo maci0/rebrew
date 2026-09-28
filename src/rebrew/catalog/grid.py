@@ -394,7 +394,7 @@ def generate_data_json(
         if _bin_data is not None:
             # Clamp to avoid overlapping next function
             raw = _bin_data[
-                file_off : file_off + min(canonical_size, _bin_data.__len__() - file_off)
+                file_off : file_off + min(canonical_size, max(0, _bin_data.__len__() - file_off))
             ]
             # Trim trailing CC/90 padding (same as extract_dll_bytes)
             raw = raw[: trim_trailing_padding(raw)] if raw else b""

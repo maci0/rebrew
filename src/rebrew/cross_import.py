@@ -1445,7 +1445,10 @@ def main(
     for dst_va in sorted(dest_bytes):
         # Check the budget BEFORE importing: the old post-import guard ran with
         # the first import already appended, so ``--limit 0`` still imported one.
-        if limit is not None and len([r for r in results if r["action"] != "skipped"]) >= limit:
+        if (
+            limit is not None
+            and len([r for r in results if not r["action"].startswith("skipped")]) >= limit
+        ):
             break
         if dst_va not in matched_vas:
             results.append(
@@ -1563,7 +1566,7 @@ def main(
         res["src_status"] = src_status
         res["dst_status"] = dst_status
         merge_sizeless_warning(res, disasm_size)
-        if res["action"] not in ("skipped", "error"):
+        if not res["action"].startswith("skipped") and res["action"] != "error":
             imported_src_files[src_file] = res["dst_va"]
         results.append(res)
 
@@ -1581,12 +1584,12 @@ def main(
             }
         )
 
-    skipped = sum(1 for r in results if r["action"] == "skipped")
+    skipped = sum(1 for r in results if r["action"].startswith("skipped"))
     if candidates_only:
         # A "find what is already reversed elsewhere" run has four thousand
         # destination functions and a handful of findings: the per-function
         # "no match" rows are noise in both the table and the JSON.
-        results = [r for r in results if r["action"] != "skipped"]
+        results = [r for r in results if not r["action"].startswith("skipped")]
 
     if json_output:
         payload: dict[str, Any] = {
