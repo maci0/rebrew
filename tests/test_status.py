@@ -12,7 +12,10 @@ from rebrew.status import (
     StatusReport,
     VerifyInfo,
     collect_status,
+    compare_file_bytes,
     effective_status,
+    find_built_image,
+    linker_produced_match,
 )
 
 
@@ -1860,3 +1863,67 @@ class TestEffectiveStatus:
 
     def test_cached_verdict_overrides_metadata(self) -> None:
         assert effective_status("NEAR_MATCHING", "EXACT") == "EXACT"
+
+
+class TestFileSimilarity:
+    def test_shorter_tail_is_unmatched(self) -> None:
+        matched, span = compare_file_bytes(b"abcdef", b"abXd")
+        assert (matched, span) == (3, 6)
+
+    def test_floor_pct_does_not_round_up(self) -> None:
+        report = StatusReport(file_matched_bytes=2, file_total_bytes=6)
+        assert report.file_similarity_pct == 33.3
+
+    def test_splice_is_not_linker_produced(self) -> None:
+        body = b"AAAAzzzzBBBB"
+        matched, span = linker_produced_match(body, body, (4, 8))
+        assert (matched, span) == (8, 8)
+
+    def test_splice_of_differing_bytes_does_not_raise_the_score(self) -> None:
+        ref = b"AAAAzzzzBBBB"
+        built = b"AAAAyyyyBBBB"
+        matched, span = linker_produced_match(ref, built, (4, 8))
+        assert (matched, span) == (8, 8)
+
+    def test_differences_outside_the_splice_still_count(self) -> None:
+        body = b"AXAAzzzzBXBB"
+        matched, span = linker_produced_match(body, b"AAAAzzzzBBBB", (4, 8))
+        assert (matched, span) == (6, 8)
+
+    def test_raw_link_is_the_scored_file(self, tmp_path: Path) -> None:
+        build = tmp_path / "build"
+        build.mkdir()
+        raw = build / "split_poc.dll"
+        raw.write_bytes(b"raw-image")
+        post = build / "server.dll"
+        post.write_bytes(b"postlinked")
+        assert find_built_image(tmp_path, "server.dll", raw) == raw
+
+    def test_missing_raw_link_does_not_fall_back(self, tmp_path: Path) -> None:
+        build = tmp_path / "build"
+        build.mkdir()
+        (build / "server.dll").write_bytes(b"postlinked")
+        missing = build / "split_poc.dll"
+        assert find_built_image(tmp_path, "server.dll", missing) is None
+
+    def test_collect_status_scores_the_raw_image(self, tmp_path: Path) -> None:
+        ref = tmp_path / "ref.dll"
+        ref.write_bytes(b"ABCDEFGH")
+        build = tmp_path / "build"
+        build.mkdir()
+        (build / "server.dll").write_bytes(b"ABCDEFGH")
+        raw = build / "split_poc.dll"
+        raw.write_bytes(b"ABCDXXXX")
+        (tmp_path / "src").mkdir()
+        cfg = _make_cfg(
+            tmp_path,
+            target_name="server.dll",
+            target_binary=ref,
+            raw_link=raw,
+        )
+        report = collect_status(cfg)  # type: ignore[arg-type]
+        assert report.file_matched_bytes == 4
+        assert report.file_total_bytes == 8
+        assert report.file_similarity_pct == 50.0
+        assert report.file_built == "build/split_poc.dll"
+        assert report.to_dict()["file"]["built"] == "build/split_poc.dll"

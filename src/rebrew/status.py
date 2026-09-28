@@ -134,6 +134,12 @@ class StatusReport:
     data_verified_bytes: int = 0
     data_total_bytes: int = 0
 
+    # Whole-file compare of the image the linker wrote. Span is the longer
+    # length, so a shorter file's tail counts as unmatched.
+    file_matched_bytes: int = 0
+    file_total_bytes: int = 0
+    file_built: str = ""
+
     # Derived percentages
     @property
     def coverage_pct(self) -> float:
@@ -198,6 +204,13 @@ class StatusReport:
             return 0.0
         return floor_pct(self.data_verified_bytes, self.data_total_bytes)
 
+    @property
+    def file_similarity_pct(self) -> float:
+        """Same-offset share of the longer of the reference and the built image."""
+        if self.file_total_bytes == 0:
+            return 0.0
+        return floor_pct(self.file_matched_bytes, self.file_total_bytes)
+
     def to_dict(self) -> dict[str, Any]:
         """Serialize for JSON output."""
         d: dict[str, Any] = {
@@ -256,12 +269,103 @@ class StatusReport:
             }
         if self.inline_metadata_warning:
             d["inline_metadata_warning"] = self.inline_metadata_warning
+        if self.file_total_bytes > 0:
+            d["file"] = {
+                "matched_bytes": self.file_matched_bytes,
+                "total_bytes": self.file_total_bytes,
+                "similarity_pct": self.file_similarity_pct,
+                "built": self.file_built,
+            }
         return d
 
 
 # ---------------------------------------------------------------------------
 # Data collection
 # ---------------------------------------------------------------------------
+
+_IMAGE_SUFFIXES = {".dll", ".exe", ".so", ".dylib"}
+
+
+def compare_file_bytes(reference: bytes, built: bytes) -> tuple[int, int]:
+    """Same-offset match count and span.
+
+    The span is the longer length. Bytes the shorter file does not have are
+    unmatched, so a truncated image cannot score as the whole reference.
+    """
+    span = max(len(reference), len(built))
+    matched = 0
+    for i in range(min(len(reference), len(built))):
+        if reference[i] == built[i]:
+            matched += 1
+    return matched, span
+
+
+def linker_produced_match(
+    reference: bytes,
+    built: bytes,
+    splice: tuple[int, int] | None = None,
+) -> tuple[int, int]:
+    """Match count and span, with a reference-byte splice left out of both.
+
+    ``splice`` is a half-open ``[start, end)`` in each buffer. Dropping it
+    from the span means copied answer-key bytes cannot raise the score. A
+    tail past the shorter file still counts as unmatched.
+    """
+    if splice is None:
+        return compare_file_bytes(reference, built)
+    start, end = splice
+    if start < 0 or end < start:
+        return compare_file_bytes(reference, built)
+
+    def cut(buf: bytes) -> bytes:
+        if start >= len(buf):
+            return buf
+        return buf[:start] + buf[min(end, len(buf)) :]
+
+    return compare_file_bytes(cut(reference), cut(built))
+
+
+def find_built_image(root: Path, target_name: str, raw_link: Path | None = None) -> Path | None:
+    """The image status scores.
+
+    A configured ``raw_link`` is that file only: a missing one does not fall
+    back to the postlinked ``build/<target>``. Without one, ``build/<target>``
+    wins, then the sole image sitting directly in ``build/``.
+    """
+    if raw_link is not None:
+        path = Path(raw_link)
+        return path if path.is_file() else None
+    build = Path(root) / "build"
+    direct = build / target_name
+    if direct.is_file():
+        return direct
+    if not build.is_dir():
+        return None
+    images = [p for p in build.iterdir() if p.is_file() and p.suffix.lower() in _IMAGE_SUFFIXES]
+    if len(images) == 1:
+        return images[0]
+    return None
+
+
+def _display_built(root: Path, path: Path) -> str:
+    try:
+        return path.resolve().relative_to(Path(root).resolve()).as_posix()
+    except ValueError:
+        return str(path)
+
+
+def _attach_file_similarity(report: StatusReport, cfg: ProjectConfig) -> None:
+    """Score the raw link when configured, otherwise the built image."""
+    built = find_built_image(cfg.root, cfg.target_name, getattr(cfg, "raw_link", None))
+    if built is None:
+        return
+    ref = Path(getattr(cfg, "target_binary", "") or "")
+    if not ref.is_file():
+        return
+    matched, total = compare_file_bytes(ref.read_bytes(), built.read_bytes())
+    report.file_matched_bytes = matched
+    report.file_total_bytes = total
+    report.file_built = _display_built(cfg.root, built)
 
 
 def _entry_va(entry_data: dict[str, Any]) -> int | None:
@@ -526,6 +630,7 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
         # Graceful degradation: return zeroed report.  ValueError is what the
         # loaders raise for a corrupt structure JSON, so omitting it meant the
         # documented fallback skipped exactly the case it exists for.
+        _attach_file_similarity(report, cfg)
         return report
 
     ghidra_vas = {f.va for f in ghidra_funcs}
@@ -704,6 +809,7 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     from rebrew.lint import count_migratable_files
 
     report.inline_metadata_warning = count_migratable_files(src_dir, cfg)
+    _attach_file_similarity(report, cfg)
 
     return report
 
@@ -981,6 +1087,21 @@ def _panel_title(report: StatusReport) -> str:
     return "  ".join(parts)
 
 
+def _file_rows(report: StatusReport) -> list[Any]:
+    """Whole-file line under the .text bar. Empty when no image was scored."""
+    if report.file_total_bytes <= 0:
+        return []
+    text = Text()
+    text.append(f"{report.file_similarity_pct}% of file", style="bold green")
+    text.append(
+        f"    {report.file_matched_bytes:,}B / {report.file_total_bytes:,}B",
+        style="dim",
+    )
+    if report.file_built:
+        text.append(f"    {report.file_built}", style="dim")
+    return [text, _bar(report.file_matched_bytes, report.file_total_bytes, _BAR_WIDTH)]
+
+
 def _headline(report: StatusReport) -> tuple[Text, Text | None]:
     """The one progress percentage, and the bar that pictures it.
 
@@ -1147,6 +1268,7 @@ def _render_terminal(report: StatusReport) -> None:
     panel_rows: list[Any] = [headline]
     if bar is not None:
         panel_rows.append(bar)
+    panel_rows.extend(_file_rows(report))
     if report.total_functions > 0:
         counts = Text()
         if report.total_text_bytes > 0:

@@ -428,6 +428,9 @@ class ProjectConfig:
     default_jobs: int = 4  # Default parallelism for batch operations (matches [project] jobs)
     db_dir: Path = field(default_factory=lambda: Path())
     output_dir: Path = field(default_factory=lambda: Path())
+    # Image the linker wrote, before postlink copies reference bytes.
+    # None: status scores build/<target>, or the only image directly in build/.
+    raw_link: Path | None = None
 
     # --- compiler ---
     compiler_profile: str = "msvc-6.0"
@@ -1831,6 +1834,8 @@ KNOWN_TARGET_KEYS = {
     # warning; canonical home is [targets.X.compiler.cflags_presets].  Kept in
     # known keys so projects that still have it do not also get an
     # "unrecognized keys" warning (and so a rewriter does not drop it).
+    "raw_link",  # pre-postlink image. A missing file must not fall back to
+    # the postlinked build/<target>. An unrecognised key is one a rewriter drops.
     "layout",  # printed by `rebrew gen-layout --layout-config`: the position-alignment
     # package (image base, section geometry, exports, imports).  Not read by
     # this loader -- the layout tooling parses it directly -- but it must be
@@ -2193,6 +2198,11 @@ def load_config(
         default_jobs=_positive_int(project_raw.get("jobs", 4), 4, "project.jobs"),
         db_dir=db_dir,
         output_dir=output_dir,
+        raw_link=(
+            _required_path(root, tgt.get("raw_link"), "", f"targets.{target}.raw_link")
+            if "raw_link" in tgt
+            else None
+        ),
         # compiler
         compiler_profile=profile_val,
         compiler_command=compiler_command,
