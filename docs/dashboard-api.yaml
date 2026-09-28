@@ -112,6 +112,36 @@ paths:
         "500": { $ref: "#/components/responses/DatabaseError" }
         "503": { $ref: "#/components/responses/ServerBusy" }
 
+  /favicon.svg:
+    get:
+      tags: [assets]
+      operationId: getFavicon
+      summary: The rebrew mark.
+      description: |
+        Served rather than inlined so the shell does not carry 443 B of
+        percent-encoded data URI on the cold flight.  `Cache-Control: private,
+        no-cache`, like every asset whose URL is not content-hashed.
+      responses:
+        "200":
+          $ref: "#/components/responses/FaviconOk"
+        "304": { $ref: "#/components/responses/NotModified" }
+        "403": { $ref: "#/components/responses/HostNotAllowed" }
+        "405": { $ref: "#/components/responses/MethodNotAllowed" }
+        "500": { $ref: "#/components/responses/DatabaseError" }
+        "503": { $ref: "#/components/responses/ServerBusy" }
+    head:
+      tags: [assets]
+      operationId: headFavicon
+      summary: Headers for the rebrew mark.
+      responses:
+        "200":
+          $ref: "#/components/responses/FaviconOk"
+        "304": { $ref: "#/components/responses/NotModified" }
+        "403": { $ref: "#/components/responses/HostNotAllowed" }
+        "405": { $ref: "#/components/responses/MethodNotAllowed" }
+        "500": { $ref: "#/components/responses/DatabaseError" }
+        "503": { $ref: "#/components/responses/ServerBusy" }
+
   /api/health:
     get:
       tags: [database]
@@ -939,6 +969,17 @@ components:
         X-Request-Id: { $ref: "#/components/headers/XRequestId" }
       content:
         application/javascript:
+          schema: { type: string }
+
+    FaviconOk:
+      description: The mark.
+      headers:
+        ETag: { $ref: "#/components/headers/ETag" }
+        Cache-Control: { $ref: "#/components/headers/CacheControl" }
+        Vary: { $ref: "#/components/headers/Vary" }
+        X-Request-Id: { $ref: "#/components/headers/XRequestId" }
+      content:
+        image/svg+xml:
           schema: { type: string }
 
     MissingTarget:

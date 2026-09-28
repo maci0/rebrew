@@ -32,6 +32,7 @@ the report then cannot drift apart.
 """
 
 import re
+from urllib.parse import quote
 
 #: Semantic name -> value for the shared chrome.
 TOKENS: dict[str, str] = {
@@ -74,19 +75,20 @@ TOKENS: dict[str, str] = {
 
 #: The rebrew mark: the mascot's ``0x`` mug, in phosphor green on the harness
 #: leather (the ``ink`` token, so the tab and the page cannot drift apart).
-#: Inline as a data URI because both surfaces ship one self-contained file and
-#: forbid every off-site load, and because an inline mark still stops the
-#: per-load ``/favicon.ico`` 404 a blank ``data:,`` icon was there to stop.
-#: Percent-encoded, so the value needs no attribute quoting from either
-#: surface.
-FAVICON = (
-    "data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22"
-    "%20viewBox%3D%220%200%2016%2016%22%3E%3Crect%20width%3D%2216%22%20height%3D%2216%22"
-    "%20rx%3D%223%22%20fill%3D%22" + TOKENS["ink"].replace("#", "%23") + "%22%2F%3E%3Ctext%20"
-    "x%3D%228.2%22%20y%3D%2212.1%22%20font-family%3D%22monospace%22%20font-size%3D%2212%22"
-    "%20font-weight%3D%22bold%22%20text-anchor%3D%22middle%22%20letter-spacing%3D%22-0.6%22"
-    "%20fill%3D%22%237ee0a3%22%3E0x%3C%2Ftext%3E%3C%2Fsvg%3E"
+#: One source for both surfaces: the report has no server behind it and inlines
+#: this as a data URI, while the dashboard links it as a same-origin route, so
+#: the shell does not carry 443 bytes of percent-encoded payload the browser
+#: cannot compress.
+FAVICON_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">'
+    '<rect width="16" height="16" rx="3" fill="' + TOKENS["ink"] + '"/>'
+    '<text x="8.2" y="12.1" font-family="monospace" font-size="12" font-weight="bold"'
+    ' text-anchor="middle" letter-spacing="-0.6" fill="#7ee0a3">0x</text></svg>'
 )
+
+#: The same mark as a data URI, for a surface with no server to link it from.
+#: Percent-encoded, so the value needs no attribute quoting.
+FAVICON = "data:image/svg+xml," + quote(FAVICON_SVG, safe="")
 
 _VAR = re.compile(r"var\(--rb-([a-z-]+)\)")
 

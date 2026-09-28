@@ -167,11 +167,22 @@ plus that one script's `sha256`, never `'unsafe-inline'`. Gates:
 `test_boot_guard_rides_the_precompressed_shell`.
 
 Repeat loads: the shell links `/app.js?v=<content hash>`, served
-`private, max-age=31536000, immutable`, and the inline `theme.FAVICON` mark
-replaces the implicit `/favicon.ico` fetch (a no-store 404). A warm reload drops
+`private, max-age=31536000, immutable`, and the mark is served from
+`/favicon.svg` (revalidating) instead of being requested as an implicit
+`/favicon.ico` (a no-store 404). A warm reload drops
 from four requests (shell 304, `/app.js` 304, bootstrap,
-favicon 404) to two (shell 304, bootstrap). Gates: `test_handler_caches_only_hashed_client_urls_immutable`,
-`test_index_html_links_favicon_inline`.
+favicon 304) to three. Gates: `test_handler_caches_only_hashed_client_urls_immutable`,
+`test_index_html_links_the_served_favicon`, `test_favicon_route_serves_the_theme_mark`.
+
+The mark moved out of the shell for the cold flight, not for the request count.
+A percent-encoded data URI is 443 raw bytes of near-incompressible payload
+inside the one document that has to fit RFC 6928's initial window, and it cost
+178 gzip bytes of the shell; linked, it is fetched off the critical path (a tab
+icon is not first paint) and 304s after the first load. The entry assets are
+now 12694 zstd / 13299 gzip against the 13320 B budget, so gzip has 21 B of
+room. Two of the three `--favicon` shapes are worth not repeating: deduplicating
+near-identical JavaScript *raised* the compressed size by 340 B even though it
+removed 262 raw ones, because the copies were what gzip matched.
 
 First page default is 100 rows (Show more still 500). On 2000 synthetic
 functions, `/api/functions` CPU / 100: 500 rows 0.059 s / 32 KB → 100 rows

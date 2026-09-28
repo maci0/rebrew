@@ -2475,12 +2475,20 @@ class TestHostValidation:
         assert [v for k, v in sent if k == "status"] == [304]
         assert ("Cache-Control", cache_control) in sent
 
-    def test_index_html_links_favicon_inline(self, dashboard: Dashboard) -> None:
-        """An inline icon keeps browsers from requesting /favicon.ico (a 404) per load."""
-        from rebrew.theme import FAVICON
-
+    def test_index_html_links_the_served_favicon(self, dashboard: Dashboard) -> None:
+        """A linked mark keeps /favicon.ico from being requested, without
+        putting 443 B of data URI in the document the cold flight budgets."""
         _, _, html = dashboard.handle("GET", "/", {})
-        assert f'<link rel="icon" href="{FAVICON}">' in html
+        assert '<link rel="icon" href="/favicon.svg" type="image/svg+xml">' in html
+        assert "data:image/svg+xml" not in html
+
+    def test_favicon_route_serves_the_theme_mark(self, dashboard: Dashboard) -> None:
+        """The route serves the same mark the report inlines, so they cannot drift."""
+        from rebrew.theme import FAVICON_SVG
+
+        status, content_type, body = dashboard.handle("GET", "/favicon.svg", {})
+        assert (status, content_type) == (200, "image/svg+xml")
+        assert body == FAVICON_SVG
 
     def test_handler_304_skips_the_route_query(self, dashboard: Dashboard) -> None:
         """A matching If-None-Match on a JSON route answers 304 without querying."""

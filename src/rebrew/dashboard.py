@@ -91,8 +91,11 @@ the request in flight.  A route-level warning reports a response the access
 line shows as a plain 200 (a byte count past the section), so it carries the
 id rather than leaving the operator to grep the message.  Off the server, the CLI reaches the same ``Dashboard`` with no
 request in flight and those warnings report ``-``.
-An inline icon (the rebrew mark, ``theme.FAVICON``) stops the per-load
-``/favicon.ico`` 404.
+The rebrew mark is served from ``/favicon.svg`` rather than inlined as a data
+URI: a linked icon still stops the per-load ``/favicon.ico`` 404, and keeps
+443 B of near-incompressible payload out of the document the cold flight
+budgets.  It is a tab icon, not first paint, so it fetches off the critical
+path and 304s on every load after the first.
 A matching ``If-None-Match`` on a routed path is answered 304 only when a GET
 would answer 200 (target-scoped ones need a known ``target``; ``/api/summary``
 a readable document; ``/api/functions`` a ``status`` inside the vocabulary),
@@ -104,8 +107,9 @@ wire size stays inside the RFC 6928 initial congestion window minus a
 per-response header reserve, so a cold connection paints without an extra
 round trip; a test pins that budget, and a change that does not fit pays for
 itself in the client's own comment prose rather than in the budget.  As
-measured: 12086 B zstd and 12649 B gzip against a 13320 B budget, so gzip has
-671 B of room and zstd 1234 B — a client-side edit budgets against gzip.  The
+measured: 12694 B zstd and 13299 B gzip against a 13320 B budget, so gzip has
+21 B of room and zstd 626 B — a client-side edit budgets against gzip, and gzip
+is the binding encoding.  The
 reserve is what makes gzip the tight one, not the encoder: the two responses
 send 518 and 560 B of headers as served, against the 640 B each is given.
 The preloaded ``/api/bootstrap`` is a third cold-flight response (774 B gzip
@@ -296,8 +300,12 @@ _TARGET_ROUTES = frozenset(
         "/api/history",
     }
 )
+#: Same-origin path the shell links for the mark.
+_FAVICON_PATH = "/favicon.svg"
 #: Paths ``Dashboard.handle`` serves; only these may short-circuit to 304.
-_ROUTES = frozenset({"/", "/app.js", "/api/bootstrap", "/api/targets"}) | _TARGET_ROUTES
+_ROUTES = (
+    frozenset({"/", "/app.js", _FAVICON_PATH, "/api/bootstrap", "/api/targets"}) | _TARGET_ROUTES
+)
 #: Routes that answer 200 but must carry no validator and no cache directive.
 #: ``/api/health`` reads the documents, so a revalidated body would keep
 #: reporting "ok" for a process whose coverage has since gone unreadable.
@@ -1392,7 +1400,7 @@ _INDEX_HTML = """<!doctype html>
 <title>Rebrew coverage dashboard</title>
 <link rel="preload" href="/api/bootstrap" as="fetch" crossorigin fetchpriority="high">
 <link rel="preload" href="__APP_JS_URL__" as="script">
-<link rel="icon" href="__FAVICON__">
+<link rel="icon" href="__FAVICON__" type="image/svg+xml">
 <style>
   body { font-family: var(--rb-sans); margin: 1.5rem;
     background: var(--rb-sunken); color: var(--rb-ink); }
@@ -1663,13 +1671,20 @@ _INDEX_HTML = theme.inline(_INDEX_HTML)
 _INDEX_HTML = (
     _INDEX_HTML.replace("__APP_JS_URL__", _APP_JS_URL)
     .replace("__BOOT_GUARD_JS__", _BOOT_GUARD_JS)
-    .replace("__FAVICON__", theme.FAVICON)
+    .replace("__FAVICON__", _FAVICON_PATH)
 )
 _INDEX_HTML_BYTES = _INDEX_HTML.encode("utf-8")
 _INDEX_ETAG = '"' + hashlib.sha256(_INDEX_HTML_BYTES).hexdigest()[:16] + '"'
 _CACHE_REVALIDATE = "private, no-cache"
 _CACHE_IMMUTABLE = "private, max-age=31536000, immutable"
 
+#: The mark, served rather than inlined. A percent-encoded data URI is 443 B
+#: of near-incompressible payload in the document that has to fit the initial
+#: congestion window, and a tab icon is not first paint: linked, it costs the
+#: cold flight nothing and is cached beside the other entry assets.
+_FAVICON_SVG = theme.FAVICON_SVG
+_FAVICON_SVG_BYTES = _FAVICON_SVG.encode("utf-8")
+_FAVICON_ETAG = '"' + hashlib.sha256(_FAVICON_SVG_BYTES).hexdigest()[:16] + '"'
 
 #: The entry assets compress at max effort (zstd 19 runs at MB/s), which cost
 #: ~10 ms of import time on every `rebrew` invocation because CLI composition
@@ -1693,6 +1708,16 @@ def _app_js_zstd() -> bytes:
 @cache
 def _app_js_gzip() -> bytes:
     return precompress(_APP_JS_BYTES, "gzip") or _APP_JS_BYTES
+
+
+@cache
+def _favicon_zstd() -> bytes:
+    return precompress(_FAVICON_SVG_BYTES, "zstd") or _FAVICON_SVG_BYTES
+
+
+@cache
+def _favicon_gzip() -> bytes:
+    return precompress(_FAVICON_SVG_BYTES, "gzip") or _FAVICON_SVG_BYTES
 
 
 def _int_param(params: dict[str, list[str]], name: str, default: int) -> int:
@@ -2250,6 +2275,8 @@ class Dashboard:
             return _INDEX_ETAG
         if parsed.path == "/app.js":
             return _APP_JS_ETAG
+        if parsed.path == _FAVICON_PATH:
+            return _FAVICON_ETAG
         scope = _query_scope(f"{parsed.path}?{parsed.query}" if parsed.query else "")
         return f'W/"{_coverage_etag(self.db_dir)}{scope}"'
 
@@ -2270,6 +2297,8 @@ class Dashboard:
             return 200, "text/html; charset=utf-8", _INDEX_HTML
         if parsed.path == "/app.js":
             return 200, "application/javascript; charset=utf-8", _APP_JS
+        if parsed.path == _FAVICON_PATH:
+            return 200, "image/svg+xml", _FAVICON_SVG
         if parsed.path == "/api/bootstrap":
             return self._json(200, self.bootstrap())
         if parsed.path == "/api/health":
@@ -2950,6 +2979,13 @@ class _Handler(BaseHTTPRequestHandler):
                     zstd_blob=_app_js_zstd(),
                     gzip_blob=_app_js_gzip(),
                     raw=_APP_JS_BYTES,
+                )
+            elif body is _FAVICON_SVG:
+                body_bytes, encoding = _precompressed_static(
+                    accept,
+                    zstd_blob=_favicon_zstd(),
+                    gzip_blob=_favicon_gzip(),
+                    raw=_FAVICON_SVG_BYTES,
                 )
             else:
                 body_bytes, encoding = _maybe_compress(
