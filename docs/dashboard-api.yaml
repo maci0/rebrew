@@ -107,36 +107,6 @@ paths:
         "500": { $ref: "#/components/responses/DatabaseError" }
         "503": { $ref: "#/components/responses/ServerBusy" }
 
-  /boot-guard.js:
-    get:
-      tags: [assets]
-      operationId: getBootGuardJs
-      summary: Reports a client that never reached its first statement.
-      parameters:
-        - $ref: "#/components/parameters/CacheBuster"
-      responses:
-        "200":
-          $ref: "#/components/responses/ScriptOk"
-        "304": { $ref: "#/components/responses/NotModified" }
-        "403": { $ref: "#/components/responses/HostNotAllowed" }
-        "405": { $ref: "#/components/responses/MethodNotAllowed" }
-        "500": { $ref: "#/components/responses/DatabaseError" }
-        "503": { $ref: "#/components/responses/ServerBusy" }
-    head:
-      tags: [assets]
-      operationId: headBootGuardJs
-      summary: Headers for the boot guard.
-      parameters:
-        - $ref: "#/components/parameters/CacheBuster"
-      responses:
-        "200":
-          $ref: "#/components/responses/ScriptOk"
-        "304": { $ref: "#/components/responses/NotModified" }
-        "403": { $ref: "#/components/responses/HostNotAllowed" }
-        "405": { $ref: "#/components/responses/MethodNotAllowed" }
-        "500": { $ref: "#/components/responses/DatabaseError" }
-        "503": { $ref: "#/components/responses/ServerBusy" }
-
   /api/health:
     get:
       tags: [database]
@@ -1095,7 +1065,7 @@ components:
       description: |
         `route;dur=<ms>`, the server time the route itself took, so a
         client can separate query time from transfer time.  Absent on the
-        three entry assets (`/`, `/app.js`, `/boot-guard.js`), whose cold
+        entry assets (`/` and `/app.js`), whose cold
         flight is budgeted against the initial congestion window and would
         read as a constant anyway.  Absent on every error and on 304.
       schema: { type: string }

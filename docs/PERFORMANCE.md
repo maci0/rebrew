@@ -111,34 +111,34 @@ globals JSON 8053 → 4597 bytes (0.57×); gzip-5 872 → 821. Gate:
 Gates: `test_sections`, `test_api_sections_includes_count_total`.
 
 Wire encoding: responses negotiate `zstd` then `gzip` from `Accept-Encoding`
-(q-values; zstd wins ties). HTML shell, `/app.js`, and `/boot-guard.js` are
-precompressed at both codecs at import. Measured 500-row functions JSON:
+(q-values; zstd wins ties). HTML shell and `/app.js` are precompressed at both
+codecs at import. Measured 500-row functions JSON:
 gzip-5 4728 → zstd-5 2912 bytes. Gates: `TestEncodingNegotiation`,
 `test_handler_serves_precompressed_static`.
 
-Shell HTML (zstd-19): 3353 bytes on the wire (was ~8.2 KB with inlined JS).
-All three entry assets total 12092 bytes zstd / 12666 gzip, inside the RFC 6928
+Shell HTML (zstd-19): 3544 bytes on the wire (was ~8.2 KB with inlined JS).
+Both entry assets total 12086 bytes zstd / 12649 gzip, inside the RFC 6928
 14600-byte initial window less a 640-byte-per-response header reserve
-(`_ENTRY_WIRE_BUDGET_BYTES`, 12680), so the loading chrome paints before
-`/app.js` (8507 zstd) and `/boot-guard.js` (232 zstd) finish. Gate:
+(`_ENTRY_WIRE_BUDGET_BYTES`, 13320), so the loading chrome paints before
+`/app.js` (8542 zstd) finishes. Gate:
 `test_entry_assets_fit_initial_congestion_window`.
 
-The gzip path is the binding one: 12666 of 12680 budgeted bytes, 14 to spare
-(zstd has 588). With the measured 1728 bytes of response headers the cold
-flight is 14394 of the 14600-byte window. Any shell or client growth has to
-come out of those 14 gzip bytes, so trim copy before adding an asset.
+The gzip path is the binding one: 12649 of 13320 budgeted bytes, 671 to spare
+(zstd has 1234). With the measured response headers the cold flight sits about
+1300 bytes under the 14600-byte window. Any shell or client growth has to come
+out of those 671 gzip bytes, so trim copy before adding an asset.
 
 Every non-entry 200 answers `Server-Timing: route;dur=<ms>`, so the browser's
 Network panel separates the query from the transfer and a slow route shows up
-before the access log does. The three entry assets omit it: their cold flight
+before the access log does. The entry assets omit it: their cold flight
 is budgeted to the byte, and the value is a constant there. Gate:
 `TestServerTiming`.
 
 Two per-response costs came off that same window. `send_response` is overridden
 to send the status line, `Date` and `X-Request-Id` only, dropping the stdlib
 `Server: BaseHTTP/0.6 Python/<patch>` banner: measured header blocks 592 → 555
-(shell), 624 → 587 (`/app.js`), 623 → 586 (`/boot-guard.js`), 13797 bytes for
-the three responses with bodies instead of 14070. `disable_nagle_algorithm`
+(shell) and 624 → 587 (`/app.js`), 13324 bytes for
+the two responses with bodies instead of 13797. `disable_nagle_algorithm`
 is set because headers and body leave as two writes on an unbuffered socket,
 so Nagle would hold the body's first segment until the header block is
 acknowledged. Gates: `TestResponseFraming`.
@@ -149,18 +149,22 @@ bootstrap overlap the deferred client download. The client `fetch()` keeps
 the default `same-origin` credentials, the mode `crossorigin` (anonymous)
 preloads with; any other mode misses the preload and fetches bootstrap twice. Gate: `test_index_html_bootstraps_in_one_round_trip`.
 
-`/boot-guard.js` runs deferred after the client and reports a client that
-never set `globalThis.__rebrewBooted`, so an aborted transfer or a parse error
-leaves a message and a reload prompt instead of a permanent "Loading coverage…".
-It is a same-origin asset, not an `onerror` attribute, because the shell's CSP
-allows `script-src 'self'` with no inline script. Gates:
-`test_boot_guard_js_route`, `test_boot_guard_follows_the_client_and_keeps_its_message`.
+The boot guard is inline in the shell and runs on `DOMContentLoaded`, which
+every deferred client precedes, so a client that never set
+`globalThis.__rebrewBooted` (aborted transfer, parse error) leaves a message
+and a reload prompt instead of a permanent "Loading coverage…". It was a
+deferred `/boot-guard.js` asset, which cost a third request, ~640 bytes of
+header reserve, and 245 gzip bytes for 424 raw ones: inline it compresses
+with the shell it rides in, and the cold flight drops to two responses. The
+policy still allows no inline script it has not hashed: `script-src 'self'`
+plus that one script's `sha256`, never `'unsafe-inline'`. Gates:
+`test_boot_guard_is_inline_and_runs_after_the_client`,
+`test_boot_guard_rides_the_precompressed_shell`.
 
-Repeat loads: the shell links `/app.js?v=<content hash>` and
-`/boot-guard.js?v=<content hash>`, both served
+Repeat loads: the shell links `/app.js?v=<content hash>`, served
 `private, max-age=31536000, immutable`, and an inline `data:,` icon replaces
 the implicit `/favicon.ico` fetch (a no-store 404). A warm reload drops from
-five requests (shell 304, `/app.js` 304, `/boot-guard.js` 304, bootstrap,
+four requests (shell 304, `/app.js` 304, bootstrap,
 favicon 404) to two (shell 304, bootstrap). Gates: `test_handler_caches_only_hashed_client_urls_immutable`,
 `test_index_html_links_favicon_inline`.
 
@@ -198,8 +202,8 @@ stylesheet already requires Safari 15.4 for `content-visibility`; the report
 page carries the same dead declaration and it is gone there too. Gate:
 `test_entry_assets_fit_initial_congestion_window` is what forces the trade.
 
-Dashboard shell gzip is 3433 bytes, `/app.js` gzip is 8988 bytes, and
-`/boot-guard.js` gzip is 245 (same
+Dashboard shell gzip is 3632 bytes (the inline guard included) and
+`/app.js` gzip is 9017 bytes (same
 `mtime=0` makes those bytes a function of the content, so a restart does
 not serve a different body under the same ETag. Gate:
 `test_handler_serves_precompressed_static`.

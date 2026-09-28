@@ -1,5 +1,17 @@
 ## [Unreleased]
 
+### Changed
+- **The dashboard boot guard is inline in the shell, so a cold load is two
+  requests instead of three.** `/boot-guard.js` was a third deferred asset
+  sharing the initial congestion window with the shell and `/app.js`: 245
+  gzip bytes plus ~640 bytes of header reserve, for 424 bytes of script that
+  compresses with the shell it now rides in. It runs on `DOMContentLoaded`,
+  which every deferred client precedes, so it still fires only when the
+  client never set `globalThis.__rebrewBooted`. The policy is unchanged in
+  force: `script-src 'self'` plus that one script's `sha256`, never
+  `'unsafe-inline'`. The route is gone; the entry wire budget drops from
+  three header reserves to two, so gzip goes from 14 bytes of room to 671.
+
 ### Fixed
 - **A refused `rebrew prove` promotion no longer destroys the counterexample
   NOTE or patches the verify cache.** `update_source_status` returns `False`

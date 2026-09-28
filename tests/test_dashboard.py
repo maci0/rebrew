@@ -22,7 +22,6 @@ from rebrew.dashboard import (
     _APP_JS_URL,
     _APP_JS_VERSION,
     _BOOT_GUARD_JS,
-    _BOOT_GUARD_JS_VERSION,
     _BOOTSTRAP_FUNCTION_LIMIT,
     _DEFAULT_LIMIT,
     Dashboard,
@@ -832,35 +831,64 @@ class TestHandle:
         assert body is _APP_JS
         assert 'get("/api/bootstrap")' in body
 
-    def test_boot_guard_js_route(self, dashboard: Dashboard) -> None:
-        status, content_type, body = dashboard.handle("GET", "/boot-guard.js", {})
-        assert status == 200
-        assert "javascript" in content_type
-        assert body is _BOOT_GUARD_JS
-
-    def test_boot_guard_follows_the_client_and_keeps_its_message(
-        self, dashboard: Dashboard
-    ) -> None:
-        """The shell must order the guard after the client, or it fires every load."""
-        from rebrew.dashboard import _BOOT_GUARD_JS_URL
+    def test_boot_guard_is_inline_and_runs_after_the_client(self, dashboard: Dashboard) -> None:
+        """The guard is inline but still ordered after the deferred client."""
+        from rebrew.dashboard import _BOOT_GUARD_HASH
 
         _, _, html = dashboard.handle("GET", "/", {})
-        _, _, guard = dashboard.handle("GET", "/boot-guard.js", {})
         assert f'<script src="{_APP_JS_URL}" defer></script>' in html
-        assert f'<script src="{_BOOT_GUARD_JS_URL}" defer></script>' in html
-        assert html.index(_APP_JS_URL) < html.index(_BOOT_GUARD_JS_URL)
+        assert f"<script>{_BOOT_GUARD_JS}</script>" in html
+        # Deferred scripts run before DOMContentLoaded, so the guard is after
+        # the client without a second request on the cold path.
+        assert "DOMContentLoaded" in _BOOT_GUARD_JS
+        assert "/boot-guard.js" not in html
         # Without this the guard would report a failure on a healthy load.
         assert "__rebrewBooted = true" in _APP_JS
-        assert "!globalThis.__rebrewBooted" in guard
+        assert "globalThis.__rebrewBooted) return" in _BOOT_GUARD_JS
         # A stuck client leaves the user a message, not a permanent spinner.
-        assert 'getElementById("boot-status")' in guard
-        assert "Reload to retry" in guard
+        assert 'getElementById("boot-status")' in _BOOT_GUARD_JS
+        assert "Reload to retry" in _BOOT_GUARD_JS
         # ...and a control that does what the message says, since the client
         # that normally reveals the Reload button is what failed.
-        assert 'getElementById("reload")' in guard
-        assert "location.reload()" in guard
-        # Same-origin asset, not an inline handler the CSP would block.
+        assert 'getElementById("reload")' in _BOOT_GUARD_JS
+        assert "location.reload()" in _BOOT_GUARD_JS
+        # Inline, but the policy still names only this script, not
+        # 'unsafe-inline'.
+        assert _BOOT_GUARD_HASH.startswith("sha256-")
         assert "onerror" not in html
+
+    def test_csp_hash_covers_the_served_inline_guard(self, dashboard: Dashboard) -> None:
+        """A hash that drifts from the shell's bytes blocks the guard silently."""
+        import base64
+        import hashlib
+        import re
+        from io import BytesIO
+        from unittest.mock import Mock
+
+        from rebrew.dashboard import _BOOT_GUARD_HASH, _INDEX_HTML, _Handler, allowed_hosts_for
+
+        match = re.search(r"<script>(.*?)</script>", _INDEX_HTML, re.S)
+        assert match is not None
+        served = (
+            "sha256-" + base64.b64encode(hashlib.sha256(match.group(1).encode()).digest()).decode()
+        )
+        assert served == _BOOT_GUARD_HASH
+
+        handler = _Handler.__new__(_Handler)
+        handler.headers = {"Host": "127.0.0.1:8000"}
+        handler.path = "/"
+        handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
+        handler.dashboard = dashboard
+        handler.send_response = Mock()
+        handler.send_header = Mock()
+        handler.end_headers = Mock()
+        handler.wfile = BytesIO()
+        handler._respond("GET")
+        csp = dict(call.args for call in handler.send_header.call_args_list)[
+            "Content-Security-Policy"
+        ]
+        assert f"script-src 'self' '{_BOOT_GUARD_HASH}'" in csp
+        assert "unsafe-inline" not in csp.split("style-src")[0]
 
     def test_api_bootstrap(self, dashboard: Dashboard) -> None:
         """Cold start packs targets + first target summary/functions in one response."""
@@ -1626,7 +1654,6 @@ class TestHttpMethods:
         [
             "/",
             "/app.js",
-            "/boot-guard.js",
             "/api/bootstrap",
             "/api/targets",
             "/api/summary",
@@ -1801,7 +1828,7 @@ class TestEncodingNegotiation:
             ("zstd;q=invalid", None),
         ],
     )
-    @pytest.mark.parametrize("path", ["/", "/app.js", "/boot-guard.js", "/api/bootstrap"])
+    @pytest.mark.parametrize("path", ["/", "/app.js", "/api/bootstrap"])
     def test_response_encoding(
         self, dashboard: Dashboard, accept: str, encoding: str | None, path: str
     ) -> None:
@@ -1874,10 +1901,9 @@ class TestEncodingNegotiation:
         assert zstandard.ZstdDecompressor().decompress(body) == _INDEX_HTML_BYTES
         assert len(body) < len(_INDEX_HTML_BYTES)
 
-    def test_boot_guard_is_precompressed_not_compressed_per_request(
-        self, dashboard: Dashboard
-    ) -> None:
-        """The guard is a static asset, so it ships the import-time blob."""
+    def test_boot_guard_rides_the_precompressed_shell(self, dashboard: Dashboard) -> None:
+        """The inline guard costs no second request, only shell bytes."""
+        import gzip
         from io import BytesIO
         from unittest.mock import Mock
 
@@ -1885,7 +1911,7 @@ class TestEncodingNegotiation:
 
         handler = _Handler.__new__(_Handler)
         handler.headers = {"Host": "127.0.0.1:8000", "Accept-Encoding": "gzip"}
-        handler.path = "/boot-guard.js"
+        handler.path = "/"
         handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
         handler.dashboard = dashboard
         handler.send_response = Mock()
@@ -1894,10 +1920,9 @@ class TestEncodingNegotiation:
         handler.wfile = BytesIO()
         handler._respond("GET")
         headers = dict(call.args for call in handler.send_header.call_args_list)
-        body = handler.wfile.getvalue()
+        body = gzip.decompress(handler.wfile.getvalue())
         assert headers["Content-Encoding"] == "gzip"
-        assert gzip.decompress(body) == _BOOT_GUARD_JS.encode()
-        assert len(body) < len(_BOOT_GUARD_JS.encode())
+        assert _BOOT_GUARD_JS.encode() in body
 
     @pytest.mark.parametrize("accept", ["gzip", "zstd"])
     def test_entry_assets_fit_initial_congestion_window(
@@ -1945,13 +1970,13 @@ class TestEncodingNegotiation:
         """The window claim is checked against the headers actually sent.
 
         The budget charges each entry response a fixed 640 B, so it cannot
-        notice a security header growing and it is the reason gzip sits 4 B
-        from the ceiling.  This measures the status line and every header as
-        served instead: the three entry assets must fit RFC 6928's 10-segment
+        notice a security header growing.  This measures the status line and
+        every header as
+        served instead: the entry assets must fit RFC 6928's 10-segment
         initial window with their real headers, which pins the flight rather
         than a guess at it.
 
-        ``/api/bootstrap`` is the fourth cold-flight response.  It is
+        ``/api/bootstrap`` is the third cold-flight response.  It is
         reported, not asserted: the entry assets carry the first paint, and
         the bootstrap body is bounded by its own budget.  Printing it in the
         failure message is what makes the unreserved tail visible in a diff.
@@ -2160,7 +2185,7 @@ class TestServerTiming:
         assert float(timing.removeprefix("route;dur=")) >= 0.0
         # The shell and the content-hashed clients are on the congestion
         # window budget: no extra header bytes there.
-        for path in ("/", _APP_JS_URL, "/boot-guard.js"):
+        for path in ("/", _APP_JS_URL):
             assert "Server-Timing" not in self._headers(dashboard, path), path
 
     def test_route_duration_tracks_the_query(self, dashboard: Dashboard) -> None:
@@ -2330,9 +2355,6 @@ class TestHostValidation:
             (f"/app.js?v={_APP_JS_VERSION}", "private, max-age=31536000, immutable"),
             ("/app.js?v=stale", "private, no-cache"),
             ("/app.js", "private, no-cache"),
-            (f"/boot-guard.js?v={_BOOT_GUARD_JS_VERSION}", "private, max-age=31536000, immutable"),
-            ("/boot-guard.js?v=stale", "private, no-cache"),
-            ("/boot-guard.js", "private, no-cache"),
             ("/", "private, no-cache"),
         ],
     )

@@ -2611,7 +2611,7 @@ directory by default).  `--json` prints `{"url", "db"}` and exits without
 serving (script-friendly bind probe).  The full JSON contract, kept against
 the code, is [dashboard-api.yaml](dashboard-api.yaml).
 
-Endpoints: `/`, `/app.js`, `/boot-guard.js`, `/api/bootstrap`, `/api/targets`,
+Endpoints: `/`, `/app.js`, `/api/bootstrap`, `/api/targets`,
 `/api/health` (liveness plus one real read of the target list, so an
 unreadable `coverage.db` answers 500 `database_error`; also reports the
 running `requests`, `server_errors`, and `slowest_ms` totals, so a probe can
