@@ -300,10 +300,80 @@ def read_uppercase(sandbox: Path, name: str) -> str:
     return ""
 
 
+#: Directories of a vendored 16-bit compiler tree linked into its sandbox.
+TREE_SUBDIRS = ("BIN", "INCLUDE", "LIB")
+
+#: Fixed 8.3-safe name the staged source is compiled under: DOSBox truncates
+#: long names and the 16-bit compilers reject the truncated stem (C1083).
+STAGED_SOURCE_NAME = "SRC.C"
+
+
+def stage_tree_source(
+    sandbox: Path, tree: Path, c_source: str | Path, staged_name: str = STAGED_SOURCE_NAME
+) -> str:
+    """Stage *c_source* into *sandbox* beside a symlinked *tree*, for DOSBox.
+
+    Links the vendored compiler tree's :data:`TREE_SUBDIRS` into the sandbox
+    (DOSBox follows host symlinks), writes *c_source* there as *staged_name*,
+    and drops any ``.OBJ`` that stem already produced, so a reused
+    caller-supplied *sandbox* cannot report the previous run's object as this
+    one's.  Returns the source's own name, for the error message when the
+    compiler produces no object.
+
+    The write is by raw bytes: a UTF-8 ``errors="replace"`` round-trip
+    permanently turns legacy bytes (Shift-JIS / CP1252 string literals in
+    Japanese-era TUs) into U+FFFD, so the DOS compiler never sees the
+    original encoding.  A path source is copied byte-for-byte; in-memory text
+    is written as UTF-8 + surrogateescape.
+    """
+    src_path = Path(c_source) if Path(c_source).exists() else None
+    if src_path is not None:
+        src_name = src_path.name
+        staged_bytes = src_path.read_bytes()
+    else:
+        src_name = "probe.c"
+        staged_bytes = str(c_source).encode("utf-8", errors="surrogateescape")
+
+    sandbox.mkdir(parents=True, exist_ok=True)
+    for sub in TREE_SUBDIRS:
+        link = sandbox / sub
+        target = tree / sub
+        # Replace a stale symlink when the sandbox is reused with a different
+        # compiler version (a workdir staged for one version must not silently
+        # keep compiling with it when another is requested).
+        if link.is_symlink() and link.resolve() != target.resolve():
+            link.unlink()
+        if not link.exists():
+            link.symlink_to(target, target_is_directory=True)
+    (sandbox / staged_name).write_bytes(staged_bytes)
+    _drop_stale_object(sandbox, Path(staged_name).stem)
+    return src_name
+
+
+def find_staged_object(sandbox: Path, staged_name: str = STAGED_SOURCE_NAME) -> Path | None:
+    """The ``.OBJ`` the staged *staged_name* produced, or ``None``."""
+    stem = Path(staged_name).stem.upper()
+    return next(
+        (p for p in sandbox.iterdir() if p.suffix.upper() == ".OBJ" and p.stem.upper() == stem),
+        None,
+    )
+
+
+def _drop_stale_object(sandbox: Path, stem: str) -> None:
+    upper = stem.upper()
+    for stale in sandbox.iterdir():
+        if stale.suffix.upper() == ".OBJ" and stale.stem.upper() == upper:
+            stale.unlink()
+
+
 __all__ = [
+    "STAGED_SOURCE_NAME",
+    "TREE_SUBDIRS",
     "DosboxError",
+    "find_staged_object",
     "make_sandbox_dir",
     "read_uppercase",
     "release_sandbox",
     "run_dosbox",
+    "stage_tree_source",
 ]

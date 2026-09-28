@@ -22,7 +22,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from rebrew.dosbox import DosboxError, make_sandbox_dir, read_uppercase, run_dosbox
+from rebrew.dosbox import (
+    STAGED_SOURCE_NAME,
+    DosboxError,
+    find_staged_object,
+    make_sandbox_dir,
+    read_uppercase,
+    run_dosbox,
+    stage_tree_source,
+)
 from rebrew.errors import RebrewError
 
 __all__ = ["Tc16Error", "Tc16Result", "compile_c"]
@@ -91,31 +99,9 @@ def compile_c(
     """
     tree = _find_tc16(version)
 
-    # Stage by raw bytes so Shift-JIS / CP1252 sources reach TCC unchanged
-    # (UTF-8 errors="replace" → write_text would inject U+FFFD).
-    src_path = Path(c_source) if Path(c_source).exists() else None
-    if src_path is not None:
-        src_name = src_path.name
-        staged_bytes = src_path.read_bytes()
-    else:
-        src_name = "probe.c"
-        staged_bytes = str(c_source).encode("utf-8", errors="surrogateescape")
-
-    # DOSBox 8.3-truncates long names — stage under a fixed short name.
-    staged_name = "SRC.C"
     sandbox = Path(workdir) if workdir is not None else make_sandbox_dir("tc16-")
-    sandbox.mkdir(parents=True, exist_ok=True)
-    for sub in ("BIN", "INCLUDE", "LIB"):
-        link = sandbox / sub
-        target = tree / sub
-        # Replace a stale symlink when the sandbox is reused with a different
-        # compiler version (a workdir staged for 3.1 must not silently keep
-        # compiling with 3.1 when version="2.0" is requested).
-        if link.is_symlink() and link.resolve() != target.resolve():
-            link.unlink()
-        if not link.exists():
-            link.symlink_to(target, target_is_directory=True)
-    (sandbox / staged_name).write_bytes(staged_bytes)
+    staged_name = STAGED_SOURCE_NAME
+    src_name = stage_tree_source(sandbox, tree, c_source, staged_name)
 
     flags = cflags if cflags is not None else ["-c"]
     cmd = (
@@ -123,22 +109,13 @@ def compile_c(
         + " ".join(flags)
         + f" -I\\INCLUDE -oSRC.OBJ {staged_name} > C:\\tcout.txt"
     )
-    # A reused caller-supplied workdir keeps the PREVIOUS run's SRC.OBJ, so a
-    # failed compile still "found" output and was reported as success; drop any
-    # file the search below would match before running.
-    for stale in sandbox.iterdir():
-        if stale.suffix.upper() == ".OBJ" and stale.stem.upper() == "SRC":
-            stale.unlink()
     try:
         run_dosbox(sandbox, [cmd], timeout=timeout)
     except DosboxError as exc:
         raise Tc16Error(str(exc)) from exc
 
     log = read_uppercase(sandbox, "tcout.txt")
-    obj = next(
-        (p for p in sandbox.iterdir() if p.suffix.upper() == ".OBJ" and p.stem.upper() == "SRC"),
-        None,
-    )
+    obj = find_staged_object(sandbox, staged_name)
     if obj is None:
         raise Tc16Error(
             f"TCC {version} produced no object for {src_name} "
