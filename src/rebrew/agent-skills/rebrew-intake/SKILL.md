@@ -98,7 +98,7 @@ rebrew toolchain pull <profile>         # fetch the profile's docker image when 
 rebrew cfg list-targets                 # confirm target is configured
 ```
 
-Exit 1 on any `fail`. `--json` → `checks[].fix` repair commands. Missing image →
+Exit 2 on any `fail`. `--json` → `checks[].fix` repair commands. Missing image →
 `rebrew toolchain pull <profile>`; `build` compiles it from the sibling
 rebrew-toolchains checkout (long, and it fails without that checkout), so ask
 first. Config fail → `rebrew init` or `rebrew intake`.
