@@ -21,7 +21,7 @@ Docker build source lives in the sibling **rebrew-toolchains** checkout (`REBREW
 ## Build & Test Commands
 
 ```bash
-make doctor                               # report every missing prerequisite (uv, ../resembl, nasm, node, extras) and its fix
+make doctor                               # report every missing prerequisite (uv, the pinned uv version, ../resembl, bash, nasm, node, shellcheck, venv extras) and its fix
 make test-one T=tests/test_annotation.py  # edit-test loop; T takes a node id (::TestClass), FLAGS= takes any pytest flag
 make test                                 # full suite (needs nasm + node)
 make lint / make format / make mypy
