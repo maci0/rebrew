@@ -439,45 +439,60 @@ def _normalize_cflags(cflags: str) -> str:
 # winning entry per (target, symbol) from this same log — no second file.
 #
 # Replaying a stub (same seed, same source, same outcome) writes the same
-# record again, so an immediate repeat is dropped rather than appended: every
-# consumer counts records (`--skip-recent`, `--ga-history`), and a duplicate
-# says "ran twice" where the truth is "ran once, re-entered".
+# record again, so a repeat already in the log is dropped rather than
+# appended: every consumer counts records (`--skip-recent`, `--ga-history`),
+# and a duplicate says "ran twice" where the truth is "ran once, re-entered".
+# The check spans the whole tail window, not just the final line, because a
+# batch (`match --all`) appends one record per stub and a replayed batch only
+# ever matches its own last record, never the first one it repeats.
 
 #: Fields that differ between two otherwise identical runs.
 _VOLATILE_RECORD_FIELDS = frozenset({"ts", "solved_at"})
 
-#: How far back the repeat check reads.  A record larger than this is never
-#: recognized as a repeat and is appended, which is safe: the only cost of a
-#: miss is the duplicate the drop was meant to avoid.
-_TAIL_READ_BYTES = 64 * 1024
+#: How far back the repeat check reads.  Sized to hold a full-project batch
+#: replay (a record is a few hundred bytes); a repeat that falls outside it is
+#: appended, which is safe: the only cost of a miss is the duplicate the drop
+#: was meant to avoid.
+_TAIL_READ_BYTES = 1024 * 1024
 
 
-def _last_record(path: Path) -> dict[str, Any] | None:
-    """Return the last well-formed record in *path*, or None if there is none."""
+def _recent_records(path: Path) -> list[dict[str, Any]]:
+    """Return the well-formed records in the tail window of *path*, oldest first.
+
+    A torn or malformed line is skipped rather than aborting the scan: one
+    unreadable line must not turn every later append into a duplicate.
+    """
     try:
         with path.open("rb") as fh:
             fh.seek(0, os.SEEK_END)
             fh.seek(max(0, fh.tell() - _TAIL_READ_BYTES))
             tail = fh.read().decode("utf-8", errors="replace")
     except OSError:
-        return None
-    for line in reversed(tail.splitlines()):
+        return []
+    records: list[dict[str, Any]] = []
+    for line in tail.splitlines():
         line = line.strip()
         if not line:
             continue
         try:
             record = json.loads(line)
         except json.JSONDecodeError:
-            continue  # a torn or malformed line: the check declines to judge
-        return record if isinstance(record, dict) else None
-    return None
+            continue
+        if isinstance(record, dict):
+            records.append(record)
+    return records
 
 
-def _same_run(left: dict[str, Any], right: dict[str, Any]) -> bool:
-    """True when two records describe the same GA run, clock fields aside."""
-    return {k: v for k, v in left.items() if k not in _VOLATILE_RECORD_FIELDS} == {
-        k: v for k, v in right.items() if k not in _VOLATILE_RECORD_FIELDS
-    }
+def _run_key(record: dict[str, Any]) -> str:
+    """Identity of the run a record describes, clock fields aside.
+
+    Sorted, so two records differing only in JSON key order compare equal.
+    """
+    return json.dumps(
+        {k: v for k, v in record.items() if k not in _VOLATILE_RECORD_FIELDS},
+        sort_keys=True,
+        default=str,
+    )
 
 
 def record_ga_run(
@@ -504,9 +519,10 @@ def record_ga_run(
     *rng_seed* is the seed the GA ran from; replay the stub with
     ``rebrew match --seed <rng_seed>``.
 
-    A record identical to the log's last one apart from *ts* / *solved_at* is
-    a replay of the run already recorded, so it is dropped: re-running a seed
-    must not inflate the count ``--skip-recent`` and ``--ga-history`` read.
+    A record identical to one already in the log's tail window apart from
+    *ts* / *solved_at* is a replay of a run already recorded, so it is
+    dropped: re-running a seed, alone or as a batch, must not inflate the
+    count ``--skip-recent`` and ``--ga-history`` read.
     """
     record: dict[str, Any] = {
         "ts": datetime.now(UTC).isoformat(),
@@ -537,8 +553,7 @@ def record_ga_run(
     p = _ensure_runs_dir(project_root)
     line = json.dumps(record) + "\n"
     with _ga_runs_append_lock(p):
-        previous = _last_record(p)
-        if previous is not None and _same_run(previous, record):
+        if _run_key(record) in {_run_key(r) for r in _recent_records(p)}:
             return p
         with p.open("a", encoding="utf-8") as f:
             f.write(line)

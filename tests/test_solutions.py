@@ -462,16 +462,42 @@ class TestGaRunHistory:
     def test_a_different_run_still_appends(self, project_root: Path) -> None:
         record_ga_run(project_root, target="SERVER", va=0x1000, symbol="_a", matched=False)
         record_ga_run(project_root, target="SERVER", va=0x1000, symbol="_a", matched=True)
-        # A different outcome for the same stub, and a run between two
-        # identical ones, all stay in the log.
+        # A different outcome for the same stub, and a different stub in
+        # between, both stay in the log.
         record_ga_run(project_root, target="CLIENT", va=0x2000, symbol="_b", matched=False)
-        record_ga_run(project_root, target="SERVER", va=0x1000, symbol="_a", matched=True)
         assert [r["target"] for r in iter_ga_runs(project_root)] == [
             "SERVER",
             "SERVER",
             "CLIENT",
-            "SERVER",
         ]
+
+    def test_a_replay_anywhere_in_the_log_does_not_grow_it(self, project_root: Path) -> None:
+        # The repeat is not the last line: a batch appends one record per
+        # stub, so a replayed batch repeats its first record against the
+        # previous batch's last.  Comparing only the tail line doubled the
+        # whole log on every re-run of `match --all`.
+        record_ga_run(project_root, target="SERVER", va=0x1000, symbol="_a", matched=True)
+        record_ga_run(project_root, target="SERVER", va=0x2000, symbol="_b", matched=False)
+        record_ga_run(project_root, target="SERVER", va=0x1000, symbol="_a", matched=True)
+        assert [r["symbol"] for r in iter_ga_runs(project_root)] == ["_a", "_b"]
+
+    def test_a_replayed_batch_does_not_double_the_log(self, project_root: Path) -> None:
+        def run_batch() -> None:
+            for i in range(5):
+                record_ga_run(
+                    project_root,
+                    target="SERVER",
+                    va=0x1000 + i,
+                    symbol=f"_f{i}",
+                    matched=i % 2 == 0,
+                    rng_seed=i,
+                )
+
+        run_batch()
+        after_first = [r["symbol"] for r in iter_ga_runs(project_root)]
+        run_batch()
+        assert after_first == ["_f0", "_f1", "_f2", "_f3", "_f4"]
+        assert [r["symbol"] for r in iter_ga_runs(project_root)] == after_first
 
     def test_target_filter(self, project_root: Path) -> None:
         record_ga_run(project_root, target="SERVER", va=0x1000, symbol="_a", matched=True)
