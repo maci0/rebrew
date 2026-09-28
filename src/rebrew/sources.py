@@ -177,6 +177,54 @@ def _resolve_dir_and_cfg(
     return Path(target_dir), cfg
 
 
+def source_roots(cfg: ProjectConfig | None) -> tuple[Path, ...]:
+    """The trees a metadata ``file`` may name, in resolution order.
+
+    A shared-tree source is recorded relative to ``reversed_dir`` with a
+    ``../`` prefix (see :func:`rebrew.utils.rel_display_path`), so
+    ``reversed_dir`` alone is not the containment boundary.  ``shared_dir``
+    is included when configured, and the project ``root`` is the outermost
+    bound.
+    """
+    if cfg is None:
+        return ()
+    roots: list[Path] = []
+    for value in (getattr(cfg, "reversed_dir", None), getattr(cfg, "shared_dir", None)):
+        if value:
+            roots.append(Path(value))
+    root = getattr(cfg, "root", None)
+    if root:
+        roots.append(Path(root))
+    return tuple(roots)
+
+
+def contained_path(roots: Path | str | Sequence[Path | str], relative: str | Path) -> Path | None:
+    """Resolve metadata-relative *relative* under *roots*, or ``None`` if it escapes.
+
+    An annotation's ``file`` field is a path, not a label: it arrives from
+    ``rebrew-functions.toml`` (or BinSync state) and is joined onto
+    ``reversed_dir`` by several commands.  A value that is absolute, or that
+    climbs out with ``..`` past every source root, would read or write a path
+    of the tree author's choosing with the analyst's privileges, so every
+    join goes through here.
+
+    *roots* accepts one root or a sequence of them, tried in order: the value
+    is joined onto the first (the display base, normally ``reversed_dir``) and
+    accepted when the result lands inside any of them.  Returns the resolved
+    path, or ``None`` when *relative* is empty, absolute, or resolves outside
+    every root.
+    """
+    candidate = Path(relative)
+    if not candidate.parts or candidate.is_absolute():
+        return None
+    base = (Path(roots),) if isinstance(roots, (str, Path)) else tuple(Path(r) for r in roots)
+    try:
+        resolved = (base[0].resolve() / candidate).resolve()
+        return next((resolved for root in base if resolved.is_relative_to(root.resolve())), None)
+    except (OSError, ValueError):
+        return None
+
+
 def _should_include_shared(dir_path: Path, cfg: ProjectConfig | None) -> Path | None:
     if cfg is None:
         return None
@@ -312,6 +360,7 @@ def iter_sources_and_headers(
 
 
 __all__ = [
+    "contained_path",
     "files_with_ext",
     "iter_headers",
     "iter_library_headers",
@@ -320,5 +369,6 @@ __all__ = [
     "scan_files",
     "source_exts",
     "source_glob",
+    "source_roots",
     "target_marker",
 ]

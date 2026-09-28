@@ -64,6 +64,7 @@ from rebrew.config import ProjectConfig, inventory_path_for, module_marker
 from rebrew.match_semantics import EFFECTIVE_MATCH_NOTE, is_effective_match
 from rebrew.metadata import should_promote_status
 from rebrew.metadata_doc import canonical_va_key
+from rebrew.sources import contained_path, source_roots
 from rebrew.status_style import STATUS_COLORS
 from rebrew.utils import (
     atomic_write_text,
@@ -190,7 +191,13 @@ def verify_entry(
     """
     from rebrew.compile import compile_and_compare
 
-    cfile = cfg.reversed_dir / entry.filepath
+    cfile = contained_path(source_roots(cfg), entry.filepath)
+    if cfile is None:
+        # ``file`` is metadata-supplied: an absolute or ``..`` value would
+        # compile a path outside the project's source trees.
+        return _failed_result(
+            "MISSING_FILE", f"MISSING_FILE: {entry.filepath} escapes the source trees"
+        )
     if not cfile.exists():
         return _failed_result("MISSING_FILE", f"MISSING_FILE: {cfile}")
 
@@ -2146,8 +2153,12 @@ def prepare_entries(
         # None and were only ever written by bare-source runs).
         if cached_entry.context_hash != (context.sha256 if context is not None else None):
             continue
+        cached_source = contained_path(source_roots(cfg), getattr(entry, "filepath", ""))
+        if cached_source is None:
+            # A ``file`` outside the source trees is not a cache candidate.
+            continue
         try:
-            (cfg.reversed_dir / getattr(entry, "filepath", "")).stat()
+            cached_source.stat()
         except OSError:
             # File deleted between fingerprint and stat — treat as a miss.
             continue
@@ -2489,8 +2500,8 @@ def apply_status_updates(
     """
     updates: list[dict[str, Any]] = []
     for entry, status, _delta in deferred_fixes:
-        fp = cfg.reversed_dir / getattr(entry, "filepath", "")
-        if not fp.exists():
+        fp = contained_path(source_roots(cfg), getattr(entry, "filepath", ""))
+        if fp is None or not fp.exists():
             continue
         module: str = getattr(entry, "module", "") or ""
         if not module:

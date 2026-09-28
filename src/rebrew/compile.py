@@ -94,6 +94,7 @@ from rebrew.headless import XVFB_RUN_SERVER_ARGS, ensure_xvfb, xvfb_cookie_for
 from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
 from rebrew.metadata import canonical_status
 from rebrew.msvc_env import msvc_env_from_config, resolve_runner_path
+from rebrew.sources import contained_path, source_roots
 from rebrew.toolchain import (
     ToolchainError,
     ToolchainSpec,
@@ -1959,8 +1960,10 @@ def precompile_batch(
     _text_by_path: dict[Path, str] = {}
     for e in entries:
         try:
-            cfile = Path(cfg.reversed_dir) / e.filepath
-            if not cfile.is_file():
+            cfile = contained_path(source_roots(cfg), e.filepath)
+            if cfile is None or not cfile.is_file():
+                # A ``file`` escaping the source trees is read below for the
+                # cache key and staged for the build; refuse the group.
                 continue
             toolchain, cflags = resolve_compile_overrides(
                 cfg,
@@ -2045,19 +2048,27 @@ def precompile_batch(
                     f"failed to stage the source tree {rev} into {workdir}: {exc}"
                 ) from exc
             for e in members:
-                source = Path(cfg.reversed_dir) / e.filepath
                 # Mirror the source tree (foo/bar.c → workdir/foo/bar.c):
                 # flat staging breaks relative #includes
                 # ("../../Units/Err/x.h") and same-dir header lookup.
                 # Several functions can share one file: stage the path once
                 # but track EVERY entry (path → entries) so each gets the
                 # built object fanned out below.
-                rel = source.relative_to(cfg.reversed_dir)
-                if ".." in rel.parts:
+                contained = contained_path(source_roots(cfg), e.filepath)
+                if contained is None:
                     # ``file`` comes from the metadata TOML: a value escaping
-                    # the reversed dir would stage outside the workdir (and
+                    # the source trees would stage outside the workdir (and
                     # outside the container mount) instead of compiling.
                     continue
+                source = contained
+                # The workdir mirrors the reversed tree, which is the tree the
+                # relative #include chains were written against; a shared-tree
+                # source resolves outside it and has no place in that mirror,
+                # so it falls back to the per-function path.
+                rev_resolved = Path(cfg.reversed_dir).resolve()
+                if not source.is_relative_to(rev_resolved):
+                    continue
+                rel = source.relative_to(rev_resolved)
                 target = workdir / rel
                 rel_s = rel.as_posix()
                 if rel_s in staged:

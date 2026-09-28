@@ -44,7 +44,7 @@ from rebrew.cli import (
 )
 from rebrew.config import ProjectConfig, inventory_path_for
 from rebrew.similar import disasm_signature, similarity_score
-from rebrew.sources import iter_sources, target_marker
+from rebrew.sources import contained_path, iter_sources, source_roots, target_marker
 from rebrew.utils import (
     atomic_write_text,
     preset_module_key,
@@ -709,8 +709,15 @@ def promote_to_shared(
             "filepath": src_file,
             "message": "shared_dir is disabled — set project.shared_dir first",
         }
-    src_path = Path(cfg_src.reversed_dir) / src_file
-    dst_path = Path(shared_root) / src_file
+    src_path = contained_path(source_roots(cfg_src), src_file)
+    dst_path = contained_path(shared_root, src_file)
+    if src_path is None or dst_path is None:
+        return {
+            "action": "error",
+            "status": "READ_ERROR",
+            "filepath": src_file,
+            "message": f"file escapes its tree: {src_file!r}",
+        }
     if not src_path.is_file():
         return {
             "action": "error",
@@ -826,11 +833,20 @@ def import_shared_function(
     unverified import leaves the stub in place.
     """
     shared_root = getattr(cfg_src, "shared_dir", None)
-    shared_path = Path(shared_root) / src_file if shared_root is not None else None
-    if shared_path is not None and shared_path.is_file():
-        target_path = shared_path
-    else:
-        target_path = Path(cfg_src.reversed_dir) / src_file
+    shared_path = contained_path(shared_root, src_file) if shared_root is not None else None
+    reversed_path = contained_path(source_roots(cfg_src), src_file)
+    if reversed_path is None:
+        return _import_result(
+            dst_va,
+            src_va,
+            action="error",
+            status="READ_ERROR",
+            filepath=src_file,
+            message=f"file escapes reversed_dir: {src_file!r}",
+        )
+    target_path = (
+        shared_path if shared_path is not None and shared_path.is_file() else reversed_path
+    )
     try:
         text, encoding = read_source_text(target_path)
     except OSError as exc:
@@ -988,8 +1004,8 @@ def import_shared_function(
             else f"{message} (stack reverted)"
         )
     if result.matched and dst_file:
-        stub_path = Path(cfg_dst.reversed_dir) / dst_file
-        if stub_path.resolve() != target_path.resolve() and stub_path.is_file():
+        stub_path = contained_path(source_roots(cfg_dst), dst_file)
+        if stub_path is not None and stub_path != target_path and stub_path.is_file():
             try:
                 stub_path.unlink()
                 message = f"{message} (superseded {dst_file})".strip()
@@ -1040,7 +1056,16 @@ def import_function(
 
     Returns a per-function result dict for the CLI/JSON report.
     """
-    src_path = Path(cfg_src.reversed_dir) / src_file
+    src_path = contained_path(source_roots(cfg_src), src_file)
+    if src_path is None:
+        return _import_result(
+            dst_va,
+            src_va,
+            action="error",
+            status="READ_ERROR",
+            filepath=src_file,
+            message=f"file escapes reversed_dir: {src_file!r}",
+        )
     try:
         text, src_encoding = read_source_text(src_path)
     except OSError as exc:
@@ -1077,8 +1102,17 @@ def import_function(
         # multi-function source no longer collide on the bare name) and keeps
         # the directory depth the copy's relative #includes assume.
         dst_file = src_file if not Path(src_file).is_absolute() else src_path.name
-    dst_path = Path(cfg_dst.reversed_dir) / dst_file
+    dst_path = contained_path(source_roots(cfg_dst), dst_file)
     rel_dst = str(Path(dst_file))
+    if dst_path is None:
+        return _import_result(
+            dst_va,
+            src_va,
+            action="error",
+            status="READ_ERROR",
+            filepath=rel_dst,
+            message=f"destination file escapes reversed_dir: {dst_file!r}",
+        )
 
     # Refuse to clobber.  The copy path writes ONE extracted function over
     # whatever the destination path holds, so it is only safe when that file
@@ -1480,7 +1514,12 @@ def main(
             # root — auto-promote a per-target source there first so the
             # stacked marker lands on the one file every target scans.
             shared_root = getattr(cfg_src, "shared_dir", None)
-            if shared_root is not None and not (Path(shared_root) / src_file).is_file():
+            shared_candidate = (
+                contained_path(shared_root, src_file) if shared_root is not None else None
+            )
+            if shared_root is not None and not (
+                shared_candidate is not None and shared_candidate.is_file()
+            ):
                 promo = promote_to_shared(cfg_src, src_file, dry_run=dry_run)
                 if promo["action"] == "error":
                     promo.update(

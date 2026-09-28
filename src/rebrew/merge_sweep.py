@@ -47,7 +47,7 @@ from rebrew.cli import (
 from rebrew.coff_reloc import build_name_to_va
 from rebrew.compile_overrides import resolve_compile_overrides
 from rebrew.config import ProjectConfig, inventory_path_for
-from rebrew.sources import iter_sources, target_marker
+from rebrew.sources import contained_path, iter_sources, source_roots, target_marker
 from rebrew.utils import preset_module_key
 
 app = typer.Typer(
@@ -398,16 +398,24 @@ class _PartitionScorer:
             ann = self._annotations.get(va)
             if ann is None:
                 continue
-            path = Path(ann.filepath)
-            if not path.is_absolute():
-                # The stored path is a display form: shared sources sit
-                # outside the reversed dir, so it can be ``../``-prefixed.
-                # Re-root one that escapes the whole project and there is
-                # nothing legitimate left to read.
-                root = Path(self._cfg.root).resolve()
-                if not (root / self._cfg.reversed_dir / path).resolve().is_relative_to(root):
+            # The stored path is a display form: shared sources sit outside
+            # the reversed dir, so it can be ``../``-prefixed, and an older
+            # absolute value resolves as itself.  Re-root and refuse anything
+            # that lands outside the project's source trees — there is nothing
+            # legitimate left to read.
+            resolved = contained_path(
+                source_roots(self._cfg),
+                ann.filepath,
+            )
+            if resolved is None:
+                path = Path(ann.filepath)
+                if not path.is_absolute() or not path.resolve().is_relative_to(
+                    Path(self._cfg.root).resolve()
+                ):
                     continue
-                path = self._cfg.reversed_dir / path
+                path = path.resolve()
+            else:
+                path = resolved
             key = str(path)
             if key not in seen_files:
                 seen_files.add(key)

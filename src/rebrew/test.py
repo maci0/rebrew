@@ -73,6 +73,8 @@ from rebrew.metadata import (
 )
 from rebrew.present import bar_plain
 from rebrew.sources import (
+    contained_path,
+    source_roots,
     target_marker,
 )
 from rebrew.status_style import DISPLAY_STATUSES, STATUS_COLORS
@@ -1790,9 +1792,8 @@ def _test_multi(
                             f"0x{ann.va:x} ({ann.module})[/dim]"
                         )
                 else:
-                    clear = clears_blocker(
-                        new_status, cfg.reversed_dir / getattr(ann, "filepath", "")
-                    )
+                    ann_source = contained_path(source_roots(cfg), getattr(ann, "filepath", ""))
+                    clear = clears_blocker(new_status, ann_source) if ann_source else False
                     written = update_source_status(
                         cfg.metadata_dir,
                         new_status,

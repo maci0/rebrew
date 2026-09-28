@@ -34,7 +34,13 @@ import typer
 
 from rebrew.annotation import iter_annotations
 from rebrew.cli import TargetOption, console, error_exit, require_config, run_cli
-from rebrew.sources import iter_sources, source_exts, target_marker
+from rebrew.sources import (
+    contained_path,
+    iter_sources,
+    source_exts,
+    source_roots,
+    target_marker,
+)
 from rebrew.utils import atomic_write_bytes, atomic_write_text
 
 app = typer.Typer(
@@ -205,7 +211,9 @@ def _build_one_object(cfg: Any, base_object: Path) -> None:
     if not rel.endswith(".o"):
         error_exit(f"rebrew-objdiff-build: unexpected object path {base_object}")
     source_rel = rel[: -len(".o")]
-    source = cfg.reversed_dir / source_rel
+    source = contained_path(source_roots(cfg), source_rel)
+    if source is None:
+        error_exit(f"rebrew-objdiff-build: source path escapes the project: {source_rel}")
     if not source.exists():
         error_exit(f"rebrew-objdiff-build: no source file for {source_rel} ({source})")
 

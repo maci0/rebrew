@@ -170,6 +170,26 @@
   against an unresponsive daemon made the listing pay the 15 s `docker info`
   timeout for every registered toolchain. The probe is hoisted out of the
   comprehension; the rows and the CLI's `--json` output are unchanged.
+- **A metadata `file` value can no longer read or write outside the project's
+  source trees.** An annotation's `file` is a path, not a label: it arrives
+  from `rebrew-functions.toml` (or BinSync state) and is joined onto
+  `reversed_dir` by several commands, but each call site carried its own
+  check or none at all. `rebrew verify` compiled `cfg.reversed_dir /
+  entry.filepath` with no containment test, so a `../`-prefixed or absolute
+  value in a cloned metadata file made a run compile a path of the tree
+  author's choosing; `rebrew cross-import` **wrote** the same field
+  (`import_function`, `import_shared_function`, `promote_to_shared`), so an
+  import could plant C outside the tree, and `promote_to_shared` could
+  `shutil.move` a file in from one. The batch precompile cache probe read
+  the escaped path before the staging loop dropped it, and
+  `rebrew-objdiff-build` joined a caller-supplied object path with only an
+  existence check. One validator now owns the field:
+  `rebrew.sources.contained_path` resolves a `file` against
+  `source_roots(cfg)` (`reversed_dir`, then `shared_dir`, then the project
+  root) and returns `None` for a value that is empty, absolute, or resolves
+  outside every root, and every join goes through it. A shared-tree source
+  recorded as `../shared/f.c` still resolves, since the shared dir is a
+  declared root.
 - **The dashboard API spec declares the headers a rejected call actually
   carries, and names the rejections that never reach a route.** The 400,
   404 and 500 response components declared no headers at all, while the

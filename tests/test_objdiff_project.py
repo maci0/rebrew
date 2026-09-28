@@ -213,6 +213,63 @@ class TestObjdiffProject:
         assert calls[0][0] == src_file
         assert calls[0][3] == base.name
 
+    def test_build_entry_refuses_parent_escape(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An object path escaping the project must not name a source to compile.
+
+        The shim stripped ``build/objdiff/current/`` and joined the rest onto
+        reversed_dir with only an existence check, so a crafted base_path
+        compiled a file outside the project.
+        """
+        cfg = self._cfg(tmp_path)
+        (cfg.reversed_dir / "funcs").mkdir(exist_ok=True)
+        outside = tmp_path.parent / "outside.c"
+        outside.write_text("int outside(void){return 0;}\n", encoding="utf-8")
+        monkeypatch.setattr(
+            objdiff_project, "require_config", lambda target=None, json_mode=False: cfg
+        )
+        calls: list[object] = []
+        monkeypatch.setattr(
+            "rebrew.compile.compile_to_obj",
+            lambda *a, **kw: calls.append(a) or ("x.o", ""),
+        )
+        import sys
+
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            ["rebrew-objdiff-build", "T", "build/objdiff/current/../../outside.c.o"],
+        )
+        with pytest.raises(SystemExit):
+            objdiff_project.objdiff_build_entry()
+        assert calls == []
+
+    def test_build_entry_refuses_absolute_source(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An absolute base_path resolves as itself, so it must be contained too."""
+        cfg = self._cfg(tmp_path)
+        (cfg.reversed_dir / "funcs").mkdir(exist_ok=True)
+        outside = tmp_path / "outside.c"
+        outside.write_text("int outside(void){return 0;}\n", encoding="utf-8")
+        monkeypatch.setattr(
+            objdiff_project, "require_config", lambda target=None, json_mode=False: cfg
+        )
+        calls: list[object] = []
+        monkeypatch.setattr(
+            "rebrew.compile.compile_to_obj",
+            lambda *a, **kw: calls.append(a) or ("x.o", ""),
+        )
+        import sys
+
+        monkeypatch.setattr(
+            sys, "argv", ["rebrew-objdiff-build", "T", str(outside.with_suffix(".c.o"))]
+        )
+        with pytest.raises(SystemExit):
+            objdiff_project.objdiff_build_entry()
+        assert calls == []
+
     def test_build_entry_help_prints_usage(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
