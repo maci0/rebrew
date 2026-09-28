@@ -238,7 +238,13 @@ def parse_metadata_key(key: str) -> tuple[str, int] | None:
 
     """
     if ".0x" in key:
-        dot = key.index(".0x")
+        # The VA suffix is the LAST ``.0x``: a module name is arbitrary text
+        # (the target name in rebrew-project.toml) and may carry one itself,
+        # and splitting at the first occurrence read ``srv.0x10.0x00024000``
+        # as module ``srv`` with the unparseable tail ``0x10.0x00024000``,
+        # dropping the whole entry.  For a plain ``MODULE.0xVA`` key the two
+        # positions coincide.
+        dot = key.rindex(".0x")
         module = unicodedata.normalize("NFC", key[:dot])
         hex_part = key[dot + 1 :]  # includes leading 0x
         try:

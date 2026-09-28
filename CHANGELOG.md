@@ -1,28 +1,5 @@
 ## [Unreleased]
 
-### Fixed
-- **The verify cache keys on the toolchain it actually compiled with.** The
-  compiler identity hashed `compiler_command`, the runner, base flags,
-  includes and libs, but not `cfg.compiler_profile` (which selects the
-  toolchain the compile cache keys on) and not the remote
-  `[compiler] recompile_url`. Changing either served every cached verdict,
-  so `rebrew status` reported EXACT for functions measured under the previous
-  profile, or against local docker after the project moved to the service.
-  Both dimensions now hash into `compiler_config_hash`.
-- **`rebrew prove` refuses a verify cache that is not this project's.**
-  `_cached_verify_status` checked the schema version and the target name
-  only, so a cache left behind by a rebuild of the target binary gated
-  prove's NEAR_MATCHING acceptance with another image's verdicts. It now
-  calls `verify_cache.cache_identity_matches`, the one identity predicate
-  `verify`, `status`, `todo`, `residue` and `build_db` already share.
-- **A `#include` with `..` in it reaches the cache key.** The closure scan
-  refuses traversal (so it cannot escape the include roots) and treated the
-  result as an untracked miss, leaving the object valid against a header the
-  key never mentioned: edit `../../game_types.h` and the entry survived with
-  the stale `.obj`. Such an include is now resolved against the same search
-  dirs the compiler uses, and one that resolves nowhere on the host falls
-  back to the conservative per-directory fingerprint.
-
 ### Added
 - **`/api/health` reports the in-flight connection count.** The server refuses
   a connection past `_MAX_ACTIVE_CONNECTIONS` and logs each refusal, so a run
@@ -47,6 +24,16 @@
   emitting JSON for a `.csv` consumer: the two flags select different machine
   formats and there was no precedence between them. Same rule
   `rebrew-symbol-addrs` already applies to `--csv` / `--references`.
+- **A metadata key whose module name contains `.0x` is read back.** The
+  qualified-key parser split at the *first* `.0x`, so `srv.0x10.0x00024000`
+  parsed as module `srv` with the unparseable tail `10.0x00024000` and the
+  whole entry was dropped from every store read. It splits at the last one,
+  which is the same position for a plain `MODULE.0xVA` key.
+- **A CFLAGS string that `shlex` cannot tokenize is a cache miss, not a
+  traceback.** `cflags_equivalent` shlex-split both sides, so an unbalanced
+  quote in a stored or configured CFLAGS string raised `ValueError` out of the
+  verify cache hit check. An untokenizable side is now never equivalent, the
+  same verdict an empty one gets: re-verify the entry once.
 - **A wholly environment-configured LLM endpoint is no longer refused as if a
   checked-out project had named the host.** `load_config` folds
   `REBREW_LLM_ENDPOINT` into `ProjectConfig.llm_endpoint`, so `llm_config`

@@ -9,7 +9,7 @@ it belongs to rather than starting a sixth.
 - **Text and identifiers**: ``strip_bidi_format``, ``strip_body``,
   ``strip_comment_blocks``, ``strip_generated_timestamp``, ``filename_component``,
   ``is_safe_c_ident``, ``c_comment_safe``, ``pe_name_token``, ``fold_ident``,
-  ``ascii_slug``, ``preset_module_key``,
+  ``ascii_slug``, ``preset_module_key``, ``toml_safe``,
   ``parse_int_literal``, ``parse_c_integer_literal``, ``source_newline``,
   ``safe_shlex_split``
 - **Source and config reading**: ``read_source_text`` / ``read_compile_source``
@@ -595,6 +595,43 @@ def read_toml_text(path: Path) -> str:
     the BOM so a BOM-prefixed ``rebrew-project.toml`` still loads.
     """
     return path.read_text(encoding="utf-8-sig")
+
+
+#: Every surrogate code point, for the :func:`toml_safe` membership test.
+_SURROGATE_CHARS = frozenset(chr(code) for code in range(0xD800, 0xE000))
+#: What a surrogate becomes in stored text (see :func:`toml_safe`).
+_REPLACEMENT_CHAR = "�"
+
+
+def toml_safe(value: Any) -> Any:
+    """Strip control characters from strings before TOML serialization.
+
+    tomlkit>=0.15 emits some controls (e.g. ESC) as ``\\e``, which is
+    not valid TOML and fails the next parse — a Ghidra comment or note
+    carrying one would corrupt the whole metadata file, key or value.  This
+    runs on both: :func:`rebrew.metadata_doc.build_metadata_doc` sends every
+    qualified key through it too, because a target name carrying a control
+    character writes a key no reader can parse back.  Tab/newline survive
+    (valid TOML escapes); other C0/C1 controls are dropped.
+
+    A surrogate is replaced with U+FFFD, not dropped.  A legacy cp1252 or
+    Shift-JIS source read by :func:`read_compile_source` yields lone
+    surrogates (U+DC80-U+DCFF) for bytes that are not valid UTF-8, and a
+    symbol name, Ghidra comment, or note copied out of one carries them here.
+    tomlkit writes such a code point through as itself rather than escaping it,
+    so the value reaches ``atomic_write_locked`` unchanged and its ``utf-8``
+    encode raises ``UnicodeEncodeError`` — the whole write aborts and the
+    field is lost with it.  Dropping the character instead would make
+    ``"Café"`` and ``"Cafe"`` the same stored note; U+FFFD keeps the
+    position of the byte that was there.
+    """
+    if not isinstance(value, str):
+        return value
+    return "".join(
+        _REPLACEMENT_CHAR if ch in _SURROGATE_CHARS else ch
+        for ch in value
+        if ord(ch) >= 0x20 or ch in ("\t", "\n")
+    )
 
 
 def load_tomllib(path: Path) -> dict[str, Any]:

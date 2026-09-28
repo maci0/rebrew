@@ -96,7 +96,9 @@ def cflags_equivalent(stored: str, current: str) -> bool:
     Raw strings may differ cosmetically (flag reorder, dedup) while landing
     in the same canonical equivalence class — only a material difference
     invalidates the entry.  A legacy/degenerate empty side is never
-    equivalent (re-verify once).
+    equivalent (re-verify once), and neither is one that ``shlex`` cannot
+    tokenize at all: an unbalanced quote makes a stored CFLAGS string
+    unreadable rather than wrong, and the entry is re-verified once.
     """
     import shlex
 
@@ -106,7 +108,12 @@ def cflags_equivalent(stored: str, current: str) -> bool:
         return True
     from rebrew.compile_cache import canonicalize_cflags
 
-    return canonicalize_cflags(shlex.split(stored)) == canonicalize_cflags(shlex.split(current))
+    try:
+        stored_flags = shlex.split(stored)
+        current_flags = shlex.split(current)
+    except ValueError:
+        return False
+    return canonicalize_cflags(stored_flags) == canonicalize_cflags(current_flags)
 
 
 def _package_source_fingerprint() -> tuple[tuple[str, int, int], ...]:

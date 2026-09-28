@@ -374,7 +374,7 @@ def set_data_field(
                 f"({type(doc[toml_key]).__name__}); repair or remove it first"
             )
 
-        from rebrew.metadata import toml_safe
+        from rebrew.utils import toml_safe
 
         # Same-value short-circuit: a re-run that sets the field to what is
         # already stored must not rewrite the TOML (mtime churn would invalidate
@@ -410,7 +410,7 @@ def set_data_fields_batch(directory: Path | str | Any, updates: list[dict[str, A
     with metadata_write_lock(dir_path, DATA_METADATA_FILENAME):
         doc = load_toml_for_write(path, "data metadata")
         key_index = build_metadata_key_index(doc)
-        from rebrew.metadata import toml_safe
+        from rebrew.utils import toml_safe
 
         for u in updates:
             module = str(u.get("module") or "")
