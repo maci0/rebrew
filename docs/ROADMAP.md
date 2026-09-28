@@ -555,9 +555,10 @@ Each phase is shippable independently and ordered by (decreasing payoff) / (incr
 The snippets below sketch the console workflow this roadmap is aiming at.
 They are not the shipped CLI: some flags (`rebrew data --scan`,
 `rebrew report --serve`, `rebrew identify-library --all`,
-`rebrew cfg set-cflags`) belong to phases described earlier and do not exist
-yet. Where a flag does ship under a different name, the roadmap uses the
-shipped name. Verify any flag against `rebrew <command> --help`.
+`rebrew round-trip --format`, `rebrew intake --splat`) belong to phases
+described earlier and do not exist yet. Where a flag does ship under a
+different name, the roadmap uses the shipped name. Verify any flag against
+`rebrew <command> --help`.
 
 ### 7.1 The solo reverser (one ROM, no prior RE)
 

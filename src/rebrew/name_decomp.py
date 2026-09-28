@@ -439,9 +439,7 @@ app = typer.Typer(
 
 @app.callback(invoke_without_command=True)
 def main(
-    address: str = typer.Argument(
-        ..., metavar="va", help="Function VA (hex, e.g. 0x1000d350)"
-    ),
+    address: str = typer.Argument(..., metavar="va", help="Function VA (hex, e.g. 0x1000d350)"),
     decompiler: str = typer.Option(
         "kuna",
         "--decompiler",

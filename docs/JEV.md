@@ -632,13 +632,14 @@ serialized link-test queue.
 
 #### Decompiler backend / seed policy
 
-`rebrew decompile` has kuna / r2ghidra / ghidra. `--seed-llm` is
+`rebrew decompile` takes `--decompiler` (default `kuna`; also
+`r2ghidra`, `r2dec`, `ghidra`, `auto`). `rebrew match --seed-llm` is
 optional. Pick the expensive path only when the cheap one is
 hopeless.
 
 | Question | Options / type | Action |
 | -------- | -------------- | ------ |
-| `decomp_backend` | Choice: `kuna` / `r2ghidra` / `ghidra` / `skip` | `rebrew decompile --backend …` |
+| `decomp_backend` | Choice: `kuna` / `r2ghidra` / `r2dec` / `ghidra` / `auto` | `rebrew decompile --decompiler …` |
 | `seed_policy` | Choice: `none` / `seed_solved` / `seed_llm` / `both` | flags on `rebrew match` |
 
 State = size, `near-diag`, whether a solved sibling exists,
