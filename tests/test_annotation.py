@@ -1461,6 +1461,17 @@ class TestUpdateAnnotationKeyFile:
         assert update_annotation_key(f, 0x1000, "TESTKEY", "abc") is True
         assert "// TESTKEY: abc" in f.read_text(encoding="utf-8")
 
+    def test_unknown_key_inserted_keeps_crlf(self, tmp_path: Path) -> None:
+        """An inserted annotation line carries the file's own terminator."""
+        from rebrew.annotation import update_annotation_key
+
+        f = tmp_path / "f.c"
+        f.write_bytes(b"// FUNCTION: SERVER 0x1000\r\nint f(void) { return 0; }\r\n")
+        assert update_annotation_key(f, 0x1000, "TESTKEY", "abc") is True
+        written = f.read_bytes()
+        assert b"// TESTKEY: abc\r\n" in written
+        assert b"\n" not in written.replace(b"\r\n", b"")
+
     def test_va_not_in_file_noop(self, tmp_path: Path) -> None:
         from rebrew.annotation import update_annotation_key
 

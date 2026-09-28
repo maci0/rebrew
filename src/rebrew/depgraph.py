@@ -170,6 +170,19 @@ def _split_entry_blocks(text: str) -> list[str]:
     return ["".join(lines[a:b]) for a, b in zip(starts, ends, strict=True)]
 
 
+def _register_spellings(name_lookup: dict[str, str], label: str, key: str) -> None:
+    """Record *label* under every spelling a call site may use for it.
+
+    Keys are ``fold_ident`` (NFC + casefold), matching every other symbol-name
+    lookup in the tree: a symbol stored NFD and declared NFC in a library
+    header resolves to one node, and ``STRASSE`` reaches ``straße``.  The
+    underscore variants are kept because a C extern can spell the leading
+    underscore differently from the annotation.
+    """
+    for spelling in (label, label.lstrip("_"), f"_{label}"):
+        name_lookup.setdefault(fold_ident(spelling), key)
+
+
 def _sanitize_id(name: str) -> str:
     """Sanitize a function name for use as a graph node ID."""
     base = _NODE_ID_RE.sub("_", name).strip("_")
@@ -328,10 +341,7 @@ def build_graph(
                 "symbol": label,
             }
             # Every spelling of the symbol resolves to this node
-            name_lookup[label] = key
-            name_lookup[label.lstrip("_")] = key
-            if not label.startswith("_"):
-                name_lookup["_" + label] = key
+            _register_spellings(name_lookup, label, key)
             # The entry's own annotation block carries its externs — a
             # merged TU's union of externs no longer leaks across functions.
             own_va = int(getattr(entry, "va", 0) or 0)
@@ -360,16 +370,13 @@ def build_graph(
                 "file": header_rel,
                 "symbol": label,
             }
-            name_lookup[label] = key
-            name_lookup[label.lstrip("_")] = key
-            if not label.startswith("_"):
-                name_lookup["_" + label] = key
+            _register_spellings(name_lookup, label, key)
 
     # Extract extern callees and build edges (reuses cached file text)
     for cfile, caller_key, _caller_label, cached_text in file_callers:
         callees = _extract_callees(cfile, text=cached_text)
         for callee in callees:
-            callee_key = name_lookup.get(callee, callee)
+            callee_key = name_lookup.get(fold_ident(callee), callee)
             # Add unknown callee as an unreversed node
             if callee_key not in nodes:
                 nodes[callee_key] = {

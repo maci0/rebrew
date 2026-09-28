@@ -34,6 +34,7 @@ from rebrew.utils import (
     preset_module_key,
     read_source_text,
     rel_display_path,
+    source_newline,
 )
 from rebrew.workspace.status import MATCHED_STATUSES
 
@@ -1768,6 +1769,10 @@ def update_annotation_key(
     if not target_module:
         return False
     lines = text.splitlines(keepends=True)
+    # An inserted line must carry the file's own terminator: a hardcoded "\n"
+    # leaves a CRLF source with one LF-terminated line that the next
+    # read/rewrite propagates through the whole file.
+    newline = source_newline(text)
     in_target_block = False
     last_annotation_idx = -1
     modified = False
@@ -1810,13 +1815,13 @@ def update_annotation_key(
                 line.strip().startswith("//") or line.strip().startswith("/*") or line.strip() == ""
             ):
                 if last_annotation_idx != -1:
-                    lines.insert(last_annotation_idx + 1, f"// {key}: {new_value}\n")
+                    lines.insert(last_annotation_idx + 1, f"// {key}: {new_value}{newline}")
                     modified = True
                 break
 
     # If the file ends with the annotation block and we didn't insert
     if in_target_block and not modified and last_annotation_idx != -1:
-        lines.insert(last_annotation_idx + 1, f"// {key}: {new_value}\n")
+        lines.insert(last_annotation_idx + 1, f"// {key}: {new_value}{newline}")
         modified = True
 
     if modified:

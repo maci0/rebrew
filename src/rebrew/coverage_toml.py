@@ -55,7 +55,7 @@ from rebrew.build_db import (
 from rebrew.cli import console
 from rebrew.errors import RebrewError
 from rebrew.metadata import canonical_status
-from rebrew.utils import atomic_write_text, clip_span, floor_pct
+from rebrew.utils import atomic_write_text, clip_span, floor_pct, toml_safe
 from rebrew.workspace import WorkspaceConfigError, db_dir
 from rebrew.workspace.status import MATCHED_STATUSES
 
@@ -204,8 +204,14 @@ def _string(value: str) -> str:
     ``\\t``, ``\\uXXXX``) are exactly TOML's, and every remaining code point
     either passes through or is escaped to one.  A dedicated escaper would be a
     second, separately-tested answer to the same question.
+
+    :func:`rebrew.utils.toml_safe` runs first because JSON escapes a lone
+    surrogate (U+DC80-U+DCFF, what ``read_compile_source`` yields for a
+    cp1252 or Shift-JIS byte) as ``\\udc80``, which TOML has no escape for:
+    the document is written and then rejected by every reader, losing the whole
+    coverage file rather than the one bad name.
     """
-    return json.dumps(value)
+    return json.dumps(toml_safe(value))
 
 
 def _key(name: str) -> str:

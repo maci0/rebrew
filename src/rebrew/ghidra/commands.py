@@ -38,6 +38,11 @@ from rebrew.utils import (
 # Matches non-identifier characters to remove from symbol names.
 _NORMALIZE_NAME_RE = re.compile(r"[^A-Za-z0-9_]")
 
+#: A sanitized name that still carries one real identifier character.  A name
+#: that sanitizes to bare underscores says nothing about the symbol it stands
+#: for, so it falls back to the address-derived name (see ``_normalize_name``).
+_KEPT_IDENT_RE = re.compile(r"[A-Za-z0-9]")
+
 #: A C type specifier the generated header may declare: a keyword or a
 #: one-or-more-word type name (``unsigned char``, ``struct my_type``), then
 #: ``const``/``volatile`` qualifiers and pointer stars, each optionally
@@ -229,7 +234,11 @@ def pull_data(
             raw_name = unicodedata.normalize("NFC", raw_name)
         candidate = raw_name or f"g_{fallback_addr.lower().replace('0x', '')}"
         candidate = _NORMALIZE_NAME_RE.sub("_", candidate)
-        if not candidate:
+        # Every non-ASCII code point becomes one ``_``, so a name with none
+        # left (``α``, ``変数``, an emoji) sanitizes to a string of underscores
+        # rather than to ``""``: the empty check below would not catch it, and
+        # two such symbols would both declare ``_``.
+        if not candidate or not _KEPT_IDENT_RE.search(candidate):
             candidate = f"g_{fallback_addr.lower().replace('0x', '')}"
         if candidate[0].isdigit():
             candidate = f"g_{candidate}"
@@ -434,6 +443,7 @@ def pull_data(
 
         rows: list[dict[str, Any]] = []
         failed = 0
+        name_owner: dict[str, int] = {}
         for sym in data_symbols:
             sym_addr = str(sym.get("address", "")).strip()
             if not sym_addr:
@@ -469,6 +479,15 @@ def pull_data(
                 str(data_info.get("symbolName") or sym.get("name") or ""),
                 address,
             )
+            # Sanitizing is lossy, so two distinct symbols can land on one C
+            # identifier (``α_table`` and ``β_table`` both become ``_table``),
+            # and the header declares each name exactly once.  Fold the address
+            # in until the name is free.  A repeat of an address the name is
+            # already taken by is the duplicate-VA case the dedup below drops,
+            # so it keeps the name and the loop stays stable.
+            while name_owner.get(symbol_name, va) != va:
+                symbol_name = f"{symbol_name}_{va:x}"
+            name_owner[symbol_name] = va
 
             length_raw = data_info.get("length", 0)
             # Ghidra/JSON sometimes emits whole lengths as floats (16.0).

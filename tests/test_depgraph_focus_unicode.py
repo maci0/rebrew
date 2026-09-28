@@ -2,7 +2,8 @@
 
 import unicodedata
 
-from rebrew.depgraph import _focus_graph
+from rebrew.depgraph import _focus_graph, _register_spellings
+from rebrew.utils import fold_ident
 
 
 def _nodes(*names):
@@ -34,3 +35,20 @@ def test_focus_still_resolves_plain_name_and_va() -> None:
     assert ge == edges
     got_va, _, _ = _focus_graph(nodes, edges, "0x1000")
     assert "main" in got_va
+
+
+def test_callee_spelling_folds_to_the_annotation_node() -> None:
+    """A library header spelling the extern NFC reaches an NFD symbol."""
+    nfd = unicodedata.normalize("NFD", "café")
+    lookup: dict[str, str] = {}
+    _register_spellings(lookup, nfd, "node-key")
+    # The call site folds the callee exactly as build_graph does.
+    assert lookup.get(fold_ident("café")) == "node-key"
+    assert lookup.get(fold_ident("Café")) == "node-key"
+    assert lookup.get(fold_ident("unknown_fn"), "unknown_fn") == "unknown_fn"
+
+
+def test_callee_spelling_folds_case() -> None:
+    lookup: dict[str, str] = {}
+    _register_spellings(lookup, "straße", "node-key")
+    assert lookup.get(fold_ident("STRASSE")) == "node-key"

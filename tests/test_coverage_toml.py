@@ -1261,3 +1261,19 @@ class TestReaderFailures:
         for bad in ("../coverage-server.dll", "sub/server.dll", "", "."):
             with pytest.raises(CoverageTomlError, match="is not a target name"):
                 load_coverage(tmp_path, bad)
+
+
+def test_lone_surrogate_in_a_name_still_renders_a_parsable_document() -> None:
+    """A cp1252 byte read with surrogateescape must not poison the whole file.
+
+    ``json.dumps`` escapes U+DC80 as ``\\udc80``, which TOML has no escape for,
+    so the document would be written and then rejected by every reader.
+    """
+    from rebrew.coverage_toml import render_coverage_toml
+
+    data = copy.deepcopy(SAMPLE_DATA)
+    fns = data["functions"]
+    key = next(iter(fns))
+    fns[key] = {**fns[key], "name": "Caf\udc80"}
+    doc = tomllib.loads(render_coverage_toml(TARGET, data, previous={}))
+    assert any(fn["name"] == "Caf\ufffd" for fn in doc["functions"])
