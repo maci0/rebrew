@@ -413,6 +413,21 @@ WRITE_COMMANDS = [
     # tree on the second pass.
     "data --set-type 0x00403000=int",
     "data --set-section 0x00403000=.data",
+    # The ``cfg`` writers into rebrew-project.toml, one per shape the file can
+    # take: a scalar assignment, a whole-table write (``set-compiler`` rewrites
+    # the [compiler] block), an append to a list (``add-module`` pushes onto
+    # ``origins``), a nested table insert (``set-cflags``), and a new top-level
+    # section (``add-target``).  Every one is a second write of the same value
+    # on a re-run, and a writer that appended a second key, a repeated header,
+    # or a duplicate list entry instead would show up as a changed tree.
+    "cfg set project.name idem",
+    "cfg set-compiler SERVER msvc-6.0",
+    "cfg add-module GAME -t SERVER",
+    # ``--`` keeps the leading-dash flags out of typer's option parser: a cflags
+    # value is almost always ``-O2`` or ``/O2``, so without it the command
+    # cannot be written the way it is documented.
+    "cfg set-cflags -t SERVER -- GAME -O2",
+    "cfg add-target CLIENT --binary original/mini_pe.exe",
     # ``inline-strings`` is deliberately absent: it reads the layout package
     # that ``gen-layout`` writes, and that needs a reference binary the
     # read-only fixture does not ship.  It exited 2 on every run, which the
