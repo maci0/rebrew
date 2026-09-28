@@ -580,7 +580,7 @@
         <mxCell id="h-meta" value="&lt;b&gt;rebrew-functions.toml&lt;/b&gt;&lt;br&gt;STATUS CFLAGS BLOCKER&lt;br&gt;0444; CLI writers only" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffedd5;strokeColor=#ea580c;fontColor=#7c2d12;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="700" y="116" width="180" height="70" as="geometry"/>
         </mxCell>
-        <mxCell id="h-db" value="&lt;b&gt;db/coverage-&lt;target&gt;.toml&lt;/b&gt;&lt;br&gt;format: DB_FORMAT.md" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="h-db" value="&lt;b&gt;db/coverage-&lt;target&gt;.toml&lt;/b&gt;&lt;br&gt;format: COVERAGE_DOCUMENT.md" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="900" y="116" width="170" height="70" as="geometry"/>
         </mxCell>
         <mxCell id="h-ga" value="&lt;b&gt;ga_runs.jsonl&lt;/b&gt;&lt;br&gt;solutions DB&lt;br&gt;seeds next match" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=11;" vertex="1" parent="1">

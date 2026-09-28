@@ -14,6 +14,7 @@ Pins the docs to the code so drift is caught in CI:
   the ``Externals`` allowlists above do not cover);
 - every ``make <target>`` the ``AGENTS.md`` files name is a Makefile target, and
   the same for the docs that spell out the human contributor path;
+- the architecture diagram's format pointer names a doc that exists;
 - every repo path, ``rebrew <command>``, and make target a rule file cites
   resolves, in the repo's own ``AGENTS.md``, each subpackage's, and the
   ``AGENTS.md.template`` that ``rebrew init`` renders into a user project.
@@ -117,6 +118,24 @@ def test_every_cli_command_covered_by_agent_skills() -> None:
         f"commands {missing} are not mentioned in any agent-skills markdown — "
         "add them to the relevant skill/reference or document the carve-out"
     )
+
+
+def test_architecture_diagram_format_pointer_resolves() -> None:
+    """The diagram's ``format: <doc>.md`` label must name a doc that exists.
+
+    2.16.0 renamed ``docs/DB_FORMAT.md`` to ``docs/COVERAGE_DOCUMENT.md`` and
+    the diagram kept the old name, so the one place a reader is told where the
+    coverage-document format is written down pointed at a file the release
+    deleted.  Only the format pointer is checked: the diagram also names docs
+    in a sibling ``ai-decomp`` wiki, which no file here owns.
+    """
+    diagram = (ROOT / "docs" / "architecture.drawio").read_text(encoding="utf-8")
+    missing = [
+        name
+        for name in re.findall(r"format: (\S+\.md)", diagram)
+        if not (ROOT / "docs" / name).is_file()
+    ]
+    assert missing == [], f"architecture.drawio points at missing docs: {missing}"
 
 
 def test_skill_local_reference_paths_exist() -> None:
