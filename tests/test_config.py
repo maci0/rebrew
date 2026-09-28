@@ -2376,9 +2376,7 @@ class TestEnvKnobValidators:
         assert env_dir_path("REBREW_SKILLS_DIR", "") is None
         assert env_dir_path("REBREW_SKILLS_DIR", "   ") is None
 
-    def test_dir_knob_resolvers_expand_tilde(
-        self, tmp_path: Path, monkeypatch: Any
-    ) -> None:
+    def test_dir_knob_resolvers_expand_tilde(self, tmp_path: Path, monkeypatch: Any) -> None:
         """Each point-of-use consumer hands back the expanded path.
 
         The resolver and the consumer previously disagreed: the check ran on
