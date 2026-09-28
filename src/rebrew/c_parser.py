@@ -303,8 +303,7 @@ def iter_function_name_and_proto(source: str) -> list[tuple[str, str]]:
     The prototype includes the return type, calling convention, name, and
     parameter list (without the body).  Definitions inside ERROR fragments are
     skipped.  This is the shared primitive behind
-    :func:`extract_function_name_and_proto` (first match) and the
-    per-function rewrites in ``ghidra/params.py``.
+    :func:`extract_function_name_and_proto`, which takes the first match.
     """
     try:
         tree, src_bytes = parse_c_source(source)

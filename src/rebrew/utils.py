@@ -381,7 +381,7 @@ def container_runtime(runtime: str | None = None) -> str:
 
     Pass *runtime* to validate a candidate value without reading (or writing)
     the process environment; ``rebrew.config.env_knob_errors`` uses that to
-    report a mistyped variable through ``rebrew config effective``.
+    report a mistyped variable through ``rebrew cfg effective``.
 
     Raises :class:`rebrew.config.ConfigError`, which is also a ``ValueError``:
     the compile call sites do not guard this call, so a bare ``ValueError``

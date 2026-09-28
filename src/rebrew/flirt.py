@@ -428,8 +428,9 @@ def match_text(
     identification never guesses.  Shared by ``rebrew flirt``, ``rebrew
     analyze``, and ``rebrew identify-library``.
 
-    *stride* defaults to the probe stride for *arch* (4 bytes for RISC, 16 for
-    x86); function sizes are decoded with the same architecture and *endian*
+    *stride* defaults to :func:`arch_stride` for *arch* (2 for SH2, 4 for the
+    other RISC arches, 16 for x86); function sizes are decoded with the same
+    architecture and *endian*
     (``"little"``/``"big"``/``""``) — MIPS ships in both byte orders.
     """
     if stride is None:

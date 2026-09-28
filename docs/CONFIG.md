@@ -66,7 +66,7 @@ libs = "toolchain/msvc/6.0-win32/source/VC98/Lib"
 | `reversed_dir` | `[targets.<name>].reversed_dir` | Where `.c` files are stored |
 | `inventory_file` | `[targets.<name>].inventory_file` | Function-inventory path override, relative to project root (default: `reversed_dir/function_structure.json`); per-target inventories for one shared source tree |
 | `shared_dir` | `[project].shared_dir` | Project-level shared-sources root (`src/shared` by default); sources here are scanned for every target and may carry one `// FUNCTION: <target> <va>` marker per target. Empty value disables shared sources. When the whole tree is the source root (`reversed_dir` is `src` itself), the TOMLs may live inside it |
-| `metadata_dir` | Derived: parent of `reversed_dir` when it holds `rebrew-functions.toml`, otherwise the outermost store found walking up to `reversed_dir` and its ancestors up to the project root, then `reversed_dir` itself | Canonical home of `rebrew-functions.toml` / `rebrew-data.toml`; the loaders do no walk-up, so callers must pass it explicitly |
+| `metadata_dir` | Derived: the parent of `reversed_dir` when it holds `rebrew-functions.toml`, otherwise the outermost store found walking up through `reversed_dir` and its ancestors to the project root, falling back to `reversed_dir`'s parent when no store exists yet | Canonical home of `rebrew-functions.toml` / `rebrew-data.toml`; the loaders do no walk-up, so callers must pass it explicitly |
 | `capstone_arch` / `capstone_mode` | Derived from `arch` and the target image header | Capstone disassembly constants. MIPS, PPC, and SH2 set `CS_MODE_BIG_ENDIAN` unless the image header is little-endian; ARM sets it only when the image is big-endian |
 | `padding_bytes` | Derived from `arch` | `(0xCC, 0x90)` for x86_32/x86_64 (see Architecture Presets) |
 | `external_libs` | `[targets.<name>].external_libs` | External `.lib` code — `module = "link-spec"` table (e.g. `LIBCMT = "LIBCMT.lib"`, `D3DX8 = "references/dxsdk8/lib/d3dx8.lib"`, `MSVCRT = ""` for identified-only).  The one flag for "not our work": rows attributed to these modules leave the progress accounting, `rebrew lib-match` ingests the archives by default, and `rebrew cmake-sources` emits the non-empty specs as `REBREW_EXTERNAL_LIBS` for `target_link_libraries` — config order is link order (static archives last) |
@@ -671,7 +671,7 @@ resolves through the `server.dll` key.
 |------------|-------------|---------|
 | `list-targets` | List all defined targets | `rebrew cfg list-targets` |
 | `show [KEY]` | Print config or a dot-separated key | `rebrew cfg show compiler.cflags` |
-| `set KEY VALUE` | Set a scalar config key (refuses non-empty secret keys such as `llm.api_key` — use `REBREW_LLM_API_KEY`; URL fields are validated) | `rebrew cfg set compiler.cflags "/O1"` |
+| `set KEY VALUE` | Set a scalar config key (refuses non-empty secret keys such as `llm.api_key` — use `REBREW_LLM_API_KEY`; URL, boolean, format, arch, and `[llm]` budget fields are parsed by the same validator the loader uses, so a mistyped value fails here) | `rebrew cfg set compiler.cflags "/O1"` |
 | `raw` | Dump entire config as JSON (default) or TOML (`--format toml`) | `rebrew cfg raw` |
 | `effective` | Print the values in force after env and default resolution (secrets redacted, env vars named only) | `rebrew cfg effective --json` |
 | `path` | Print absolute path to `rebrew-project.toml` | `rebrew cfg path` |

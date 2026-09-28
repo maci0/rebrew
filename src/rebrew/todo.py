@@ -600,8 +600,7 @@ def _collect_prover_candidates(
         va_key = f"0x{va:08x}"
         cached = verify_entries.get(va_key)
         # The shared overlay, not a bare "cache wins": a metadata STUB keeps
-        # its classification over a placeholder verdict.  The local used to be
-        # named ``effective_status``, shadowing the imported policy.
+        # its classification over a placeholder verdict.
         reported = effective_status(ann_status, cached.status if cached else None)
         if reported != "NEAR_MATCHING":
             continue

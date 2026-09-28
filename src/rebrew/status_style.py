@@ -58,11 +58,12 @@ STATUS_COLORS: dict[str, str] = {
 # ``tests/test_theme`` holds every mark to 4.5:1 on both surfaces, and white on
 # the fill to 4.5:1 for the graph, so the retune costs no contrast.
 #
-# Every KNOWN_STATUS has a mark: the report table, the dashboard cards and
+# Every match status has a mark: the report table, the dashboard cards and
 # the call-graph labels all emit ``status-<STATUS>`` for whatever STATUS a
 # row carries, so a machine verdict (COMPILE_ERROR, MISSING_SIZE, ...) with
 # no entry here renders as unstyled body ink while the terminal paints it
-# red (STATUS_COLORS above).  Both tables cover the same vocabulary.
+# red (STATUS_COLORS above).  UNKNOWN and DISPATCH are page-only: neither is a
+# STATUS from rebrew.status, so STATUS_COLORS has no counterpart for them.
 STATUS_HEX: dict[str, str] = {
     "EXACT": "#1a6b3c",
     "RELOC": "#0f6a5f",

@@ -167,7 +167,7 @@ exit is 120, and click's is 1; `run_cli` overrides both.
 | `rebrew cross-import` | `cross_import.py` | Import functions matched in another target |
 | `rebrew decompile` | `name_decomp.py` | Decompile a function, optionally applying known struct names (`--named`) |
 | `rebrew decompme` | `decompme.py` | Upload a function to decomp.me as a scratch |
-| `rebrew discover-functions` | `discover.py` | Function enumeration via `rebrew.discoverers` plugins (packaged: rizin, capstone, NE/MZ) |
+| `rebrew discover-functions` | `discover.py` | Function enumeration via `rebrew.discoverers` plugins (packaged: rizin analysis, capstone sweep, `.eh_frame`, `pdata`, NE loader, MZ sweep) |
 | `rebrew document-unmatched` | `document_unmatched.py` | STUB skeletons + blockers for remaining functions |
 | `rebrew fix` | `fixup.py` | DecBench-style compilability fixup for decompiler output |
 | `rebrew gen-layout` | `gen_layout.py` | Linker-script scaffolding from a target binary (writes `layout.fingerprint`) |
@@ -448,6 +448,7 @@ consumers can learn whether the blocker landed (mirrors `near-diag`'s
 | `--watch` | Re-test the source file on every save (single-file mode) |
 | `--json` | JSON structured output |
 | `--target NAME` | Select a target from `rebrew-project.toml` |
+| `--all-targets` | Repeat the run across every configured target; mutually exclusive with `--target` and with the single-function-only flags, which each target needs its own copy of |
 
 `rebrew test <file.c> [--va 0xHEX] [--symbol NAME] [--size N]` tests one
 function. On a multi-function file, `--va` selects the annotation AT that VA
@@ -497,7 +498,7 @@ model and reports offsets the declaration does not cover or covers too
 narrowly. No writes; exit 0 with findings listed (JSON carries
 `structs`/`findings`).
 
-`rebrew types apply-type <file|symbol> --param N --type T [--dry-run]`
+`rebrew types apply-type <file|symbol> --param N --type T [--dry-run] [--json] [--target NAME]`
 
 Rewrite one parameter's type in project C source, so recovered struct types
 reach the compiler (tree-sitter span edit, encoding-preserving atomic write).
@@ -512,6 +513,7 @@ Re-running with the same type is a no-op (exit 0, JSON `changed: false`).
 | `-s` / `--stats` | Show the coverage stats header |
 | `--json` | Output results as JSON |
 | `--target NAME` / `-t NAME` | Select a target from `rebrew-project.toml` |
+| `--all-targets` | Show the list for every configured target; mutually exclusive with `--target` |
 
 `improve-match` items whose blocker was written by `near-diag --fix-blocker`
 carry a `mutations` array in `--json` (the GA operators to try next) and a
@@ -613,6 +615,8 @@ graph TD
 | `--dir TEXT` | Restrict to this subdirectory — project-relative first (`src/shared` scopes the shared tree), then relative to reversed_dir |
 | `--origin TEXT` | Restrict to one module (e.g. GAME) |
 | `--no-promote` | Measure only: write NOTHING to rebrew-functions.toml (report + cache still save) |
+| `--target NAME` | Select a target from `rebrew-project.toml` |
+| `--all-targets` | Verify every configured target and report the aggregate; mutually exclusive with `--target` and with the options each target resolves on its own (`--dir`, `--origin`, `--built`, `--root`) |
 
 The `--json` report carries `dry_run`, `size_divergences`, and `missing_sizes`
 (plus `sizes_fixed` when `--fix-sizes` ran); VAs fixed by `--fix-sizes` are
@@ -772,6 +776,7 @@ document stores them in.
 | `--depth N` | Depth for focus mode |
 | `--output FILE` / `-o FILE` | Output file (default: stdout) |
 | `--json` | Output results as JSON |
+| `--target NAME` | Select a target from `rebrew-project.toml` |
 
 ### `rebrew lint`
 
@@ -784,6 +789,8 @@ document stores them in.
 | `--json` | Output results as JSON |
 | `--summary` | Print status/origin breakdown table |
 | `FILE...` | Specific files to check (positional) instead of full scan |
+| `--target NAME` | Select a target from `rebrew-project.toml` |
+| `--all-targets` | Lint every configured target; mutually exclusive with `--target` |
 
 Project-specific linting rules can be configured in `rebrew-project.toml` under `[project.lint]`:
 - `naming_convention`: "snake_case", "camelCase", or "none" (default)
@@ -811,7 +818,7 @@ health is `rebrew doctor`'s job, not lint's.
 ```
 rebrew blocker set <function> <blocker> [--delta INT] [--va HEX] [--dry-run] [--json] [--target NAME]
 rebrew blocker clear <function> [--va HEX] [--dry-run] [--json] [--target NAME]
-rebrew blocker show <function> [--json] [--target NAME]
+rebrew blocker show <function> [--va HEX] [--json] [--target NAME]
 ```
 
 Manage `BLOCKER` / `BLOCKER_DELTA` in `rebrew-functions.toml` for a single
@@ -948,7 +955,7 @@ from `build/CMakeFiles/*/link.txt` when present, or passed as
 
 ### `rebrew gen-link-stubs`
 
-`rebrew gen-link-stubs [--data-metadata src/rebrew-data.toml] [--output src/link_stubs.c]`
+`rebrew gen-link-stubs [--data-metadata src/rebrew-data.toml] [--output src/link_stubs.c] [--dry-run] [--json]`
 
 Generate a `link_stubs.c`-style BSS placeholder TU: a `char <sym>[1] = {0};`
 stub per `.data` symbol in the data metadata plus a `g_bss_tail[0x400000]`
@@ -962,7 +969,7 @@ stub, so a re-annotated global cannot produce a TU that does not compile.
 
 ### `rebrew calibrate-bss`
 
-`rebrew calibrate-bss [--stub src/link_stubs.c] [--symbol g_bss_tail] [--target-vs 0x...] [--max-iters 8] [--dry-run] [--json]`
+`rebrew calibrate-bss [--stub src/link_stubs.c] [--symbol g_bss_tail] [--target-vs 0x...] [--max-iters 8] [--compile-cmd rebrew-cmake-cl] [--cflags "/O2 /Gd"] [--dry-run] [--json]`
 
 Size the BSS tail pad empirically so the raw link's `.data` VirtualSize
 matches the reference (from `layout/<target>/rebrew-layout.toml`):
@@ -1037,7 +1044,7 @@ writing; `--check` exits 1 with a unified diff on drift (CI gate).
 
 ### `rebrew cmake-sources`
 
-`rebrew cmake-sources [--output PATH] [--json] [--target NAME]`
+`rebrew cmake-sources [--output PATH] [--var REBREW_SOURCES] [--dry-run] [--json] [--target NAME]`
 
 Write the target's marker-selected source list as a CMake include fragment
 (the `reversed_dir` files that carry at least one marker for this target),
@@ -1068,7 +1075,7 @@ second run finds nothing to strip. See
 
 ### `rebrew verify-placement`
 
-`rebrew verify-placement [--data-metadata src/rebrew-data.toml] [--json]`
+`rebrew verify-placement [--data-metadata src/rebrew-data.toml] [--built PATH] [--limit 15] [--json]`
 
 Post-edit check: walk the link's object files (objdump, link order), compute
 each symbol's current `.data` VA, and compare against the data metadata.
@@ -1392,6 +1399,17 @@ stamps forward, so history survives without a database to migrate.
 ### `rebrew asm`
 
 `rebrew asm <VA> [--format hex|nasm|cfg] [--size N] [--imports] [--strings] [--hints] [--json] [--target NAME]`
+
+| Flag | Description |
+|------|-------------|
+| `--annotate` / `--no-annotate` | (hex) Annotate calls with known function names. On by default; `--no-annotate` turns it off |
+| `--bin PATH` | (nasm) Disassemble a raw `.bin` file instead of the target binary |
+| `--base-va HEX` | (nasm) Base VA the `--bin` bytes are addressed from (default `0`) |
+| `--label NAME` | (nasm) Label name for the function in the emitted listing |
+| `--output FILE` / `-o FILE` | Write to a file instead of stdout |
+| `--verify` | (nasm) Round-trip the listing: assemble it and compare against the target bytes |
+| `--stats` | (nasm) Print stats only, no listing |
+| `--out-dir PATH` | (nasm) Output directory for `--all` / `--batch-stubs` batch mode |
 
 Disassemble a single function from the target binary as a hex dump (default) or
 NASM-style listing (`--format nasm`).  `--imports`/`--strings`/`--hints` annotate the
@@ -2277,7 +2295,7 @@ Per-function recon dossier: callers, callees, strings, imports, globals.
 
 ### `rebrew discover-functions`
 
-`rebrew discover-functions [OPTIONS] BINARY`
+`rebrew discover-functions [--output PATH] [--min-size 8] [--json] BINARY`
 
 Chained function enumeration: rizin `aaa` → `aa; aap` → a capstone linear
 sweep, merged with boundary validation and gap-based sizes — fixes rizin's
@@ -2331,7 +2349,7 @@ rebrew drift --va 0x10002770 --size 2115 --json src/…/CrashDump.c
 
 ### `rebrew gen-flirt-pat`
 
-`rebrew gen-flirt-pat [OPTIONS] LIB_PATH`
+`rebrew gen-flirt-pat [--output PATH] [--json] LIB_PATH`
 
 Generate FLIRT `.pat` files from a compiler `.lib` archive (e.g. MSVC6's
 `msvcrt.lib`), the input for `rebrew flirt`. A library with no signable
@@ -2340,7 +2358,7 @@ output path is removed.
 
 ### `rebrew identify-library`
 
-`rebrew identify-library [OPTIONS]`
+`rebrew identify-library [--module MODULE] [--lib-dir PATH] [--build-sigs] [--dry-run] [--json] [--target NAME]`
 
 Mark VAs as library glue (CRT/ZLIB/etc.) using the library-identification
 backends — powers `rebrew analyze`'s library section.
@@ -2603,6 +2621,10 @@ pass) — one line per function with dispatch/case counts and the exact
 
 `rebrew strings [OPTIONS] [BINARY]`
 
+`--xref` (show referencing addresses), `--section` (repeatable; default
+`.rdata`/`.data`/`.rodata`), `--filter` (case-insensitive regex on the string
+text), `--min-len`, `--json`, and `--target NAME`.
+
 Extract printable strings from the binary's data sections, with
 cross-references.
 
@@ -2862,6 +2884,7 @@ rebrew round-trip --output path/to/file    # override output PE path
 rebrew round-trip --dry-run             # in-memory only
 rebrew round-trip --filter SUBSTR       # restrict to matching symbols
 rebrew round-trip --allow-naked         # define REBREW_ALLOW_NAKED for splice builds
+rebrew round-trip --fix-headers         # rewrite stale generated headers before compiling
 ```
 
 `--allow-naked` is the round-trip-only switch for **fenced naked functions**:

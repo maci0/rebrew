@@ -884,9 +884,9 @@ class Section:
 
 
 #: What :func:`_bucket_counts` collapses each stored state into.  The database
-#: computed these with ``_SECTION_CELL_STATS_SELECT``'s CASE sums; this is that
-#: SELECT's rule, restated once because both dashboards serve the counts and a
-#: second copy would be a second answer.  ``verified`` is an exact match,
+#: computed these with recoverage's ``server.SECTION_STATS_SQL`` CASE sums; this
+#: is that SELECT's rule, restated once because both dashboards serve the counts
+#: and a second copy would be a second answer.  ``verified`` is an exact match,
 #: ``near_matching`` is the near-match bucket, and a state with no name of its
 #: own lands in ``other``.
 _BUCKET_OF_STATE: Mapping[str, str] = MappingProxyType(
