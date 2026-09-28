@@ -734,9 +734,9 @@ def _run_build(
     try:
         argv = shlex.split(build_cmd)
     except ValueError as exc:
-        error_exit(f"invalid --build-cmd: {exc}", json_mode=False)
+        error_exit(f"invalid --build-cmd: {exc}", json_mode=json_mode)
     if not argv:
-        error_exit("--build-cmd is empty", json_mode=False)
+        error_exit("--build-cmd is empty", json_mode=json_mode)
 
     cmake_path = root / "CMakeLists.txt"
     cmake_backup = cmake_path.with_name(cmake_path.name + _CMAKE_BACKUP_SUFFIX)
@@ -790,7 +790,7 @@ def _run_build(
             )
         except subprocess.TimeoutExpired:
             # A hung build must surface as a clean error, not a raw traceback.
-            error_exit(f"build timed out after 600s: {build_cmd}", json_mode=False)
+            error_exit(f"build timed out after 600s: {build_cmd}", json_mode=json_mode)
         return result.stdout + result.stderr
     finally:
         # Each restore gets its own guard: a failed first restore must not
@@ -809,7 +809,7 @@ def _run_build(
                 # Only fail the command when nothing else is propagating: the
                 # build error is the more useful one to report.
                 if sys.exc_info()[0] is None:
-                    error_exit(f"restore of {cmake_path} failed: {exc}", json_mode=False)
+                    error_exit(f"restore of {cmake_path} failed: {exc}", json_mode=json_mode)
         if renamed is not None:
             try:
                 renamed[1].rename(renamed[0])
@@ -819,7 +819,7 @@ def _run_build(
                     f"to {renamed[0].name}: {exc}"
                 )
                 if sys.exc_info()[0] is None:
-                    error_exit(f"restore of {renamed[0].name} failed: {exc}", json_mode=False)
+                    error_exit(f"restore of {renamed[0].name} failed: {exc}", json_mode=json_mode)
 
 
 @app.callback(invoke_without_command=True)

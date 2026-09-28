@@ -34,7 +34,7 @@ app = typer.Typer(
     help="Compiler-in-the-loop decompilation workbench for binary-matching reversing.",
     rich_markup_mode="rich",
     epilog=(
-        "[bold]Typical workflow:[/bold]\n\n"
+        "[bold]Examples:[/bold]\n\n"
         "rebrew todo · · · · · · · · See what needs work (prioritized by ROI)\n\n"
         "rebrew skeleton 0x<VA> · · · Generate a .c skeleton from address\n\n"
         "rebrew test src/<func>.c · · Compile, byte-compare, and auto-update STATUS\n\n"

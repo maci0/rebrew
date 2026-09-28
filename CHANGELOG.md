@@ -264,6 +264,28 @@
   `status` and `catalog` already do.
 
 ### Fixed
+- **`rebrew doctor` returned the byte-mismatch code for a broken project.**
+  Every failing doctor check is a missing prerequisite, an unreadable
+  `rebrew-project.toml`, or an unusable toolchain, so the run exited 1 and a
+  script could not tell it from a function that did not match. `rebrew todo`
+  in the same directory reported the same missing config as 2. A failed check
+  now exits 2, the code the umbrella's exit table reserves for config and
+  build errors, and `rebrew doctor --help` states it. A clean report still
+  exits 0.
+- **`rebrew gen-stubs --json` lost its error envelope on the build-failure
+  paths.** `_run_build` hardcoded `json_mode=False` at all five `error_exit`
+  sites, so a malformed `--build-cmd`, an empty one, a build that timed out,
+  and the two restore failures printed Rich markup to stderr and left stdout
+  empty where every other `--json` command emits `{"error", "code"}`. Those
+  are the paths a CI run actually reaches.
+- **An unknown `--decompiler` backend wrote to stderr behind the shared
+  console's back.** `rebrew.decompiler` used a bare `print(..., file=sys.stderr)`,
+  the only one in the tree, which skipped Rich markup escaping on a
+  user-supplied value and duplicated the message `rebrew name-decomp` emits a
+  line later. It now goes through `console` as a note.
+- **Two group epilogs did not use the `Examples:` heading** every other group
+  does (`rebrew`, `rebrew dashboard`), so `--help` scanning for the section
+  found neither.
 - **`rebrew.ghidra` reached for `status_style` outside its declared
   boundaries.** `commands.py` imports `DISPLAY_STATUSES` to order a sync
   summary, but `src/rebrew/ghidra/AGENTS.md` did not list `status_style` in

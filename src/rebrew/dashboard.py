@@ -3494,7 +3494,7 @@ app = typer.Typer(
     help="Serve a read-only web dashboard over the coverage documents.",
     rich_markup_mode="rich",
     epilog=(
-        "[bold]Usage:[/bold]\n\n"
+        "[bold]Examples:[/bold]\n\n"
         "  rebrew build-db · · · · · · · · Write db/coverage-<target>.toml first\n\n"
         "  rebrew dashboard · · · · · · · Serve on http://127.0.0.1:8000\n\n"
         "  rebrew dashboard --port 9000 · Custom port\n\n"

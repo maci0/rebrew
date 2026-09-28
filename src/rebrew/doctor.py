@@ -32,7 +32,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from rebrew.cli import EXIT_MISMATCH, TargetOption, console, json_print, require_config
+from rebrew.cli import EXIT_ERROR, TargetOption, console, json_print, require_config
 from rebrew.config import (
     ARCH_PRESETS,
     KNOWN_FORMATS,
@@ -1167,10 +1167,13 @@ def run_doctor(target: str | None = None) -> DoctorReport:
 # ---------------------------------------------------------------------------
 
 _EPILOG = (
-    "[bold]Example:[/bold]\n\n"
+    "[bold]Examples:[/bold]\n\n"
     "  rebrew doctor · · · · · · · · · Check default target\n\n"
     "  rebrew doctor --target mygame · · Check specific target\n\n"
     "  rebrew doctor --json · · · · · · Machine-readable output\n\n"
+    "[dim]Exits 0 when every check passes, 2 when any check fails.  A failing check is "
+    "a missing prerequisite, an unreadable config, or an unusable toolchain, so it is "
+    "never the 1 that a byte mismatch returns.[/dim]\n\n"
     "[dim]Validates: rebrew-project.toml, target binary, arch/format, compiler "
     "toolchain & runner, include/lib paths, function inventory, source dir, bin dir, "
     "and metadata files.  Per-function/corpus checks (markers, VAs, metadata "
@@ -1271,7 +1274,12 @@ def main(
         render_doctor(report)
 
     if not report.passed:
-        raise typer.Exit(code=EXIT_MISMATCH)
+        # A failing check is always a missing prerequisite, an unreadable
+        # config, or an unusable toolchain — never a byte mismatch, which is
+        # what EXIT_MISMATCH is reserved for.  `rebrew todo` in the same
+        # directory reports the same missing rebrew-project.toml as
+        # EXIT_ERROR, and a script must not have to special-case doctor.
+        raise typer.Exit(code=EXIT_ERROR)
 
 
 def render_doctor(report: DoctorReport) -> None:

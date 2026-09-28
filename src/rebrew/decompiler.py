@@ -40,7 +40,7 @@ from typing import Any
 
 from rebrew.config import expand_env_path, warn_env_dir
 from rebrew.registry import RegistryError
-from rebrew.utils import run_process_group
+from rebrew.utils import console, run_process_group, untrusted_literal
 
 # ANSI escape code stripper
 _ANSI_RE = re.compile(r"\x1B\[[0-9;]*[a-zA-Z]")
@@ -1220,9 +1220,9 @@ def fetch_decompilation(
 
     backend_fn = _BACKEND_MAP.get(backend)
     if backend_fn is None:
-        print(
-            f"decompiler: unknown backend '{backend}'. Available: {', '.join(_BACKEND_MAP)}, auto",
-            file=sys.stderr,
+        console.print(
+            f"[yellow]note:[/yellow] decompiler: unknown backend "
+            f"'{untrusted_literal(backend)}'. Available: {', '.join(_BACKEND_MAP)}, auto"
         )
         return None, backend
 

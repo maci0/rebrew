@@ -40,8 +40,8 @@ _JSON_COMMANDS: list[tuple[str, set[int]]] = [
     ("data --json", {0}),
     (
         "doctor --json",
-        {0, 1},
-    ),  # 1 = a check fails (e.g. compiler absent in CI); stdout stays pure JSON
+        {0, 2},
+    ),  # 2 = a check failed (e.g. compiler absent in CI); stdout stays pure JSON
     ("cache stats --json", {0}),
     ("cfg show --json", {0}),
     ("flirt --binary original/mini_pe.exe --json", {2}),  # 2 = no signatures loaded

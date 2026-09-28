@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from rebrew.cli import EXIT_ERROR, EXIT_OK
 from rebrew.doctor import (
     _FAIL,
     _PASS,
@@ -1155,6 +1156,36 @@ class TestDoctorTableRendering:
         assert "[x] name" in text
         assert "missing [targets] section" in text
         assert "'rebrew[prove] @ git+url' and [compiler] profile" in text
+
+
+class TestDoctorExitCode:
+    """A failed check is an environment/config error, never a byte mismatch."""
+
+    def test_failing_check_exits_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from typer.testing import CliRunner
+
+        import rebrew.doctor as doctor
+
+        report = DoctorReport(
+            target="t",
+            checks=[CheckResult(name="rebrew-project.toml", status=_FAIL, message="not found")],
+        )
+        monkeypatch.setattr(doctor, "run_doctor", lambda target=None: report)
+        result = CliRunner().invoke(doctor.app, ["--json"])
+        assert result.exit_code == EXIT_ERROR
+        assert result.output.lstrip().startswith("{")
+
+    def test_clean_report_exits_ok(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from typer.testing import CliRunner
+
+        import rebrew.doctor as doctor
+
+        report = DoctorReport(
+            target="t",
+            checks=[CheckResult(name="rebrew-project.toml", status=_PASS, message="ok")],
+        )
+        monkeypatch.setattr(doctor, "run_doctor", lambda target=None: report)
+        assert CliRunner().invoke(doctor.app, ["--json"]).exit_code == EXIT_OK
 
 
 class TestLibcmtIndexFailures:

@@ -704,6 +704,10 @@ Output prefixes for unambiguous parsing:
 | `--install-wibo` | Download wibo to `tools/wibo` if missing (no-op if already installed); for image-backed profiles downloads only — does not rewrite `compiler.runner` |
 | `--json` | Output results as JSON |
 
+Exits 0 when every check passes, 2 when any check fails. A failing check is
+a missing prerequisite, an unreadable config, or an unusable toolchain, so it
+never returns the 1 that a byte mismatch produces.
+
 Checks: project toml, target binary, arch/format, toolchain alignment
 (diec → PDB → PE metadata → heuristics), CRT linkage, optimization level, compiler +
 CL.EXE reachability, runner, include/lib paths, function list, source dirs,
