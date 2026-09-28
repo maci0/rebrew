@@ -159,6 +159,12 @@
   writable_temp_dir` raises `ImportError`; import them from
   `rebrew.temp_dirs`, which is where the candidate order, the abandoned-sandbox
   sweep and the DOSBox tmpfs rejection now live as one policy.
+- **Breaking:** the `delphi-1.0` entry of `BUILTIN_TOOLCHAINS`
+  (`rebrew.toolchain_data`, re-exported by `rebrew.toolchain`) reports
+  `host_path` as `None` when the toolchain is not vendored, where it used to
+  carry a path that did not exist. A consumer that joined onto `host_path`
+  unconditionally needs the `None` branch; the other profiles already carried
+  the conditional and are unchanged.
 - **Breaking:** `rebrew.dashboard.Dashboard.summary` is no longer public. The
   lookup is `_summary_lookup` now, and the payload it built is derived from the
   stored rows, so a consumer reads `Dashboard.snapshots()[target]` and derives

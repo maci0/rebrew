@@ -13,6 +13,7 @@ rebrew profile, so its functions are documented as blockers.
 
 from __future__ import annotations
 
+import os
 import shutil
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -65,6 +66,26 @@ def find_dcc() -> Path:
         "DPMI16BI.OVL are required) — run `rebrew toolchain vendor delphi-1.0`, "
         "which downloads the pinned archaic-toolchains/delphi10 tarball"
     )
+
+
+def _wine_prefix() -> Path:
+    """The Wine prefix holding the extracted ``DELPHI/LIB`` units.
+
+    ``REBREW_WINEPREFIX`` (rebrew's own override, same field the cmake
+    bridge binds mounts with) wins over Wine's own ``WINEPREFIX``, and Wine's
+    default ``~/.wine`` is the last resort.  A user who installed the units
+    into a non-default prefix — a second prefix, or any setup where
+    ``~/.wine`` is not the prefix — otherwise gets no units staged and every
+    ``uses`` clause fails in the sandbox.
+    """
+    for var in ("REBREW_WINEPREFIX", "WINEPREFIX"):
+        value = os.environ.get(var, "").strip()
+        # A relative prefix resolves against the caller's cwd, which is the
+        # sandbox; only an absolute one names a real prefix.
+        candidate = Path(value).expanduser() if value else None
+        if candidate is not None and candidate.is_absolute():
+            return candidate
+    return Path.home() / ".wine"
 
 
 def _is_83_safe(name: str) -> bool:
@@ -131,10 +152,10 @@ def compile_ne(
             inspection).
         timeout: DOSBox subprocess timeout.
         units_dir: Directory of extracted RTL/VCL units (``UNITS.PAK`` +
-            ``LIB.PAK`` output, e.g. ``DELPHI/LIB``).  Defaults to the
-            known location from the holiday.exe mission
-            (``~/.wine/drive_c/DELPHI/LIB``) when present; DELPHI.DSL-only
-            programs compile without units.
+            ``LIB.PAK`` output, e.g. ``DELPHI/LIB``).  Defaults to
+            ``<wine prefix>/drive_c/DELPHI/LIB`` (``REBREW_WINEPREFIX``,
+            then ``WINEPREFIX``, then ``~/.wine``) when present;
+            DELPHI.DSL-only programs compile without units.
         extra_args: Extra DCC switches (e.g. ``("-$R+", "$Q+")``) placed
             before the source name.  A byte-matching rebuild has to pin the
             project's switches; without them the caller can only take DCC's
@@ -189,7 +210,7 @@ def compile_ne(
     if units_dir is not None:
         lib_dir = Path(units_dir)
     else:
-        home_lib = Path.home() / ".wine/drive_c/DELPHI/LIB"
+        home_lib = _wine_prefix() / "drive_c" / "DELPHI" / "LIB"
         if home_lib.is_dir():
             lib_dir = home_lib
         elif (dcc.parent / "DELPHI/LIB").is_dir():

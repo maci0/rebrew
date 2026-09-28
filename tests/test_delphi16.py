@@ -252,3 +252,92 @@ class TestWholeProgramStaging:
         compile_ne(src, workdir, dcc_cfg="/uC:\\PROJ\\UNITS\n")
 
         assert (workdir / "DCC.CFG").read_text(encoding="utf-8") == "/uC:\\PROJ\\UNITS\n"
+
+
+class TestWinePrefixUnits:
+    """The extracted RTL/VCL units live in a Wine prefix, which is not
+    necessarily ``~/.wine``: ``REBREW_WINEPREFIX`` and ``WINEPREFIX`` both
+    relocate it. A prefix that is ignored stages no units, and every ``uses``
+    clause then fails inside the sandbox."""
+
+    def _stub_toolchain(self, tmp_path: Path, monkeypatch) -> None:
+        tree = tmp_path / "dcc"
+        tree.mkdir()
+        for fname in ("DCC.EXE", "DELPHI.DSL", "DPMI16BI.OVL", "RTM.EXE"):
+            (tree / fname).write_bytes(b"\x00")
+        monkeypatch.setattr("rebrew.delphi16.find_dcc", lambda: tree / "DCC.EXE")
+
+    def _no_op_dosbox(self, tmp_path: Path, monkeypatch) -> Path:
+        workdir = tmp_path / "sandbox"
+
+        def _run(sandbox, autoexec, **kwargs):
+            from test_ne_loader import _build_ne
+
+            code = b"\x01\x00" + bytes.fromhex("55 8b ec 5d c3") + b"\x00" * 8
+            (Path(sandbox) / "DCCOUT.TXT").write_text("HELLO.DPR(1)\n", encoding="utf-8")
+            (Path(sandbox) / "HELLO.EXE").write_bytes(_build_ne(segments=[(code, 0x01)]))
+
+        monkeypatch.setattr("rebrew.dosbox.run_dosbox", _run)
+        return workdir
+
+    def _prefix_with_units(self, tmp_path: Path, name: str, marker: str) -> Path:
+        prefix = tmp_path / name
+        lib = prefix / "drive_c" / "DELPHI" / "LIB"
+        lib.mkdir(parents=True)
+        (lib / f"{marker}.DCU").write_bytes(b"\x00")
+        return prefix
+
+    def _compile(self, tmp_path: Path, monkeypatch) -> Path:
+        from rebrew.delphi16 import compile_ne
+
+        # The `~/.wine` fallback must be empty, or a developer's own Delphi
+        # install would satisfy the lookup these tests are pinning.
+        home = tmp_path / "home"
+        home.mkdir(exist_ok=True)
+        monkeypatch.setenv("HOME", str(home))
+        self._stub_toolchain(tmp_path, monkeypatch)
+        workdir = self._no_op_dosbox(tmp_path, monkeypatch)
+        src = tmp_path / "hello.dpr"
+        src.write_text("program Hello;\nbegin end.\n", encoding="utf-8")
+        compile_ne(src, workdir)
+        return workdir
+
+    @staticmethod
+    def _clear_prefix_env(monkeypatch) -> None:
+        monkeypatch.delenv("REBREW_WINEPREFIX", raising=False)
+        monkeypatch.delenv("WINEPREFIX", raising=False)
+
+    def test_wineprefix_env_locates_the_units(self, tmp_path: Path, monkeypatch) -> None:
+        self._clear_prefix_env(monkeypatch)
+        prefix = self._prefix_with_units(tmp_path, "altprefix", "SYS")
+        monkeypatch.setenv("WINEPREFIX", str(prefix))
+
+        workdir = self._compile(tmp_path, monkeypatch)
+
+        assert (workdir / "DELPHI" / "LIB" / "SYS.DCU").is_file()
+        assert "/uC:\\DELPHI\\LIB" in (workdir / "DCC.CFG").read_text(encoding="utf-8")
+
+    def test_rebrew_wineprefix_wins_over_wineprefix(self, tmp_path: Path, monkeypatch) -> None:
+        self._clear_prefix_env(monkeypatch)
+        self._prefix_with_units(tmp_path, "wineprefix", "FROMWINE")
+        chosen = self._prefix_with_units(tmp_path, "rebrewprefix", "SYS")
+        monkeypatch.setenv("WINEPREFIX", str(tmp_path / "wineprefix"))
+        monkeypatch.setenv("REBREW_WINEPREFIX", str(chosen))
+
+        workdir = self._compile(tmp_path, monkeypatch)
+
+        staged = {p.stem for p in (workdir / "DELPHI" / "LIB").iterdir()}
+        assert staged == {"SYS"}
+
+    def test_relative_prefix_is_ignored(self, tmp_path: Path, monkeypatch) -> None:
+        """A relative prefix resolves against the cwd, not a real prefix, so
+        it must not be probed."""
+        self._clear_prefix_env(monkeypatch)
+        monkeypatch.chdir(tmp_path)
+        self._prefix_with_units(tmp_path, "relprefix", "REL")
+        monkeypatch.setenv("WINEPREFIX", "relprefix")
+        monkeypatch.setenv("REBREW_WINEPREFIX", "relprefix")
+
+        workdir = self._compile(tmp_path, monkeypatch)
+
+        assert not (workdir / "DELPHI").exists()

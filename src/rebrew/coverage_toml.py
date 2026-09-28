@@ -128,6 +128,17 @@ _CELL_COLUMNS: tuple[str, ...] = (
 #: a new one diff against each other instead of being trusted.
 _SECTION_COLUMNS: tuple[str, ...] = ("va", "size", "fileOffset", "unitBytes", "columns")
 
+#: One ``history`` row, in the order :func:`_merge_history` zips it.  The
+#: table is written as whole dicts (it is a delta log, not a fixed-arity
+#: measurement), so the names live here rather than as a reader.
+_HISTORY_COLUMNS: tuple[str, ...] = (
+    "va",
+    "old_status",
+    "new_status",
+    "changed_at",
+    "updated_by",
+)
+
 #: ``build_db``'s ``functions`` INSERT column list, less ``target``, in the
 #: INSERT's order.  The list is the parity contract: a column added to the
 #: database and not here shows up as a missing key, not as a silent omission.
