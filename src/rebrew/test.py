@@ -518,7 +518,6 @@ def main(
             json_mode=json_output,
             code=EXIT_ERROR,
         )
-        return
 
     if watch:
 

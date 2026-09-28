@@ -2681,6 +2681,8 @@ class _Handler(BaseHTTPRequestHandler):
     _request_started: float
     #: Correlation id stamped per request; ``"-"`` until the first one is parsed.
     _request_id: str = "-"
+    #: Body length the access line reports; ``"-"`` until a body is built.
+    _response_size: int | str = "-"
     #: Served-request totals, printed once when the server stops.
     _stats_lock: ClassVar[threading.Lock] = threading.Lock()
     _requests: ClassVar[int] = 0
@@ -2704,6 +2706,7 @@ class _Handler(BaseHTTPRequestHandler):
                 403, "host_not_allowed", "request Host not allowed (wrong or missing Host header)"
             )
             body_bytes = body.encode("utf-8")
+            self._response_size = len(body_bytes)
             self.send_response(403)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body_bytes)))
@@ -2811,6 +2814,7 @@ class _Handler(BaseHTTPRequestHandler):
                     body_bytes, accept, cold_start=parsed.path == _BOOTSTRAP_PATH
                 )
 
+        self._response_size = len(body_bytes)
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body_bytes)))
@@ -2895,7 +2899,7 @@ class _Handler(BaseHTTPRequestHandler):
         ``X-Request-Id`` carries the same ``r<N>`` the access and error log
         lines use, so a caller holding a 500 can hand the operator one token.
         """
-        self.log_request(code)
+        self.log_request(code, self._response_size)
         self.send_response_only(code, message)
         self.send_header("Date", self.date_time_string())
         self.send_header("X-Request-Id", self._request_id)
@@ -2936,6 +2940,7 @@ class _Handler(BaseHTTPRequestHandler):
             },
             separators=(",", ":"),
         ).encode()
+        self._response_size = len(body)
         self.send_response(code, message)
         self.send_header("Connection", "close")
         self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -2969,6 +2974,7 @@ class _Handler(BaseHTTPRequestHandler):
         # produces.
         self._request_started = time.perf_counter()
         self._request_id = f"r{next(_REQUEST_IDS)}"
+        self._response_size = "-"
         # Reset the line with the id: a parse error never reaches ``_respond``,
         # and a stale line from the previous request on this keep-alive thread
         # would point a fault at the wrong request.

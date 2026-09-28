@@ -1432,6 +1432,18 @@ class TestBatchGroupKey:
 
         assert _batch_group_key("", "-O2 -Ifoo") == _batch_group_key("", "-O2 -Ibar")
 
+    def test_two_token_include_ignored_with_its_operand(self) -> None:
+        """``/I path`` must drop the path with the ``/I``, not leave it behind.
+
+        Filtering the bare ``/I`` out on its own would keep the operand as a
+        dangling group flag, shattering groups per include directory.
+        """
+        from rebrew.compile import _batch_group_key
+
+        assert _batch_group_key("", "/O2 /I ../Units") == _batch_group_key("", "/O2 /I ../Other")
+        assert _batch_group_key("", "/O2 /I ../Units") == _batch_group_key("", "/O2")
+        assert _batch_group_key("", "/O2 /I ../Units") != _batch_group_key("", "/O2 /O1")
+
 
 class TestPrecompileBatchCleanup:
     def test_group_workdir_removed_after_compile(

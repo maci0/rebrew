@@ -1754,22 +1754,23 @@ def patch_cache_from_results(cfg: Any, v_results: list[dict[str, Any]]) -> None:
             continue
         if r.get("status") == "INTERNAL_ERROR":
             continue
-        pct = r.get("match_percent") or 0.0
-        patches.append(
-            {
-                "va": va_int,
-                "status": r.get("status", ""),
-                # No byte counts: the row carries only a percent, and a
-                # percent-scale total would fill a missing byte delta with
-                # 100 - percent (todo.py's ROI thresholds read it as bytes).
-                "match_percent": pct,
-                "delta": r.get("delta"),
-                # Cache identity: the row's own context digest, so a patch
-                # never leaves the entry pointing at the context of an
-                # earlier run.
-                "context_hash": r.get("context_hash"),
-            }
-        )
+        # No byte counts: the row carries only a percent, and a percent-scale
+        # total would fill a missing byte delta with 100 - percent (todo.py's
+        # ROI thresholds read it as bytes).  An absent percent is left out
+        # rather than written as 0.0: the writer keeps the last real
+        # measurement when a patch carries neither counts nor percent.
+        patch: dict[str, Any] = {
+            "va": va_int,
+            "status": r.get("status", ""),
+            "delta": r.get("delta"),
+            # Cache identity: the row's own context digest, so a patch never
+            # leaves the entry pointing at the context of an earlier run.
+            "context_hash": r.get("context_hash"),
+        }
+        pct = r.get("match_percent")
+        if pct is not None:
+            patch["match_percent"] = pct
+        patches.append(patch)
     patch_verify_cache_entries(cfg, patches)
 
 
@@ -2579,9 +2580,7 @@ def _print_results(
         # Sort failures: lowest match_percent first, then by VA
         def _fail_sort_key(item: tuple[Annotation, str]) -> tuple[float, int]:
             entry, _ = item
-            r = res_by_va.get(entry.va)
-            mp = r.get("match_percent") if r else 0.0
-            return (mp or 0.0, entry.va)
+            return (_row_match_pct(res_by_va.get(entry.va)), entry.va)
 
         for entry, msg in sorted(fail_details, key=_fail_sort_key):
             res_dict = res_by_va.get(entry.va)
@@ -2590,7 +2589,7 @@ def _print_results(
             ln = getattr(entry, "line", 0)
             fp_suffix = f" [dim]({fp}:{ln})[/]" if fp and ln else f" [dim]({fp})[/]" if fp else ""
             if st in ("STUB", "NEAR_MATCHING"):
-                match_pct = float(res_dict.get("match_percent", 0.0)) if res_dict else 0.0
+                match_pct = _row_match_pct(res_dict)
                 sim = res_dict.get("similarity") if res_dict else None
                 sim_str = f" / sim {sim:.1f}" if isinstance(sim, (int, float)) else ""
                 console.print(
@@ -2634,6 +2633,18 @@ def _print_results(
         )
 
 
+def _row_match_pct(row: dict[str, Any] | None) -> float:
+    """Match percent of a report row, 0.0 when absent.
+
+    A cache-served row carries no percent when no real measurement ever
+    recorded one (``VerifyCacheEntry.match_percent`` is ``float | None``).
+    """
+    if row is None:
+        return 0.0
+    pct = row.get("match_percent")
+    return float(pct) if isinstance(pct, (int, float)) and math.isfinite(pct) else 0.0
+
+
 def render_verify_summary(results: list[dict[str, Any]]) -> None:
     """Print the verification summary tables. Match % has a bar of that ratio."""
     from rebrew.present import bar_plain, count_column
@@ -2654,7 +2665,7 @@ def render_verify_summary(results: list[dict[str, Any]]) -> None:
         st_str = f"[{color}]{st}[/{color}]"
 
         show_pct = st in ("STUB", "NEAR_MATCHING")
-        pct = f"{floor_pct(r['match_percent'], 100):.1f}%" if show_pct else "-"
+        pct = f"{floor_pct(_row_match_pct(r), 100):.1f}%" if show_pct else "-"
         dt = f"{r.get('delta', 0)}B" if show_pct else "-"
         sim = r.get("similarity")
         sim_str = f"{sim:.1f}%" if isinstance(sim, (int, float)) else "-"
@@ -2680,9 +2691,9 @@ def render_verify_summary(results: list[dict[str, Any]]) -> None:
     for r in results:
         if r["status"] not in ("STUB", "NEAR_MATCHING"):
             continue
-        match_val = floor_pct(r["match_percent"], 100)
-        console.print(f"{r['name']}  {match_val:.1f}% match")
-        console.print(bar_plain(r["match_percent"], 100))
+        match_pct = _row_match_pct(r)
+        console.print(f"{r['name']}  {floor_pct(match_pct, 100):.1f}% match")
+        console.print(bar_plain(match_pct, 100))
 
 
 def main_entry() -> None:

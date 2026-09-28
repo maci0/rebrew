@@ -1406,6 +1406,16 @@ def contextualized_source(
     )
 
 
+def _cache_src_name(name: str) -> str:
+    """The source name as the compiler sees it, for cache keys.
+
+    A leading ``@`` or ``-`` would be read by the compiler as a response
+    file or an option rather than a source, so both the compile command and
+    the cache key spell it ``./name``.
+    """
+    return "./" + name if name.startswith(("@", "-")) else name
+
+
 def _cache_key_for(
     cfg: ProjectConfig,
     spec: "ToolchainSpec | None",
@@ -1558,9 +1568,7 @@ def compile_to_obj(
     source_path = Path(source_path)
     workdir = Path(workdir)
 
-    src_name = source_path.name
-    if src_name.startswith(("@", "-")):
-        src_name = "./" + src_name
+    src_name = _cache_src_name(source_path.name)
     local_src = workdir / src_name
 
     obj_name = obj_name or (source_path.stem + ".obj")
@@ -1977,7 +1985,7 @@ def precompile_batch(
                         cfg,
                         spec,
                         text,
-                        cfile.name,
+                        _cache_src_name(cfile.name),
                         flags,
                         str(cfg.compiler_includes),
                         src_parent,
@@ -2038,7 +2046,7 @@ def precompile_batch(
                 # but track EVERY entry (path → entries) so each gets the
                 # built object fanned out below.
                 rel = source.relative_to(cfg.reversed_dir)
-                if rel.is_absolute() or ".." in rel.parts:
+                if ".." in rel.parts:
                     # ``file`` comes from the metadata TOML: a value escaping
                     # the reversed dir would stage outside the workdir (and
                     # outside the container mount) instead of compiling.
@@ -2073,7 +2081,9 @@ def precompile_batch(
                 )
                 member_cflags[id(e)] = own_cflags
                 member_includes.extend(
-                    f for f in safe_shlex_split(own_cflags) if f.startswith(("/I", "-I"))
+                    f
+                    for f in _merged_include_tokens(safe_shlex_split(own_cflags))
+                    if f.startswith(("/I", "-I"))
                 )
             if len(staged) < 2:
                 return group_out
@@ -2142,7 +2152,7 @@ def precompile_batch(
                     cfg,
                     spec,
                     staged_text,
-                    src.name,
+                    _cache_src_name(src.name),
                     member_flags,
                     str(cfg.compiler_includes),
                     src_parent,
@@ -2258,8 +2268,10 @@ def _batch_group_key(toolchain: str, cflags: str | list[str]) -> tuple[str, str]
     on the rest merges aggressively.  Order-normalized: ``/O2 /Gd /DFOO``
     and ``/DFOO /O2 /Gd`` compile identically.
     """
-    flags = safe_shlex_split(cflags) if isinstance(cflags, str) else list(cflags)
-    core = sorted(f for f in flags if not f.startswith(("/I", "-I")))
+    raw = safe_shlex_split(cflags) if isinstance(cflags, str) else list(cflags)
+    # Merge the two-token "/I path" form first: filtering the bare "/I" out
+    # on its own would leave the path behind as a dangling group flag.
+    core = sorted(f for f in _merged_include_tokens(raw) if not f.startswith(("/I", "-I")))
     return toolchain, " ".join(core)
 
 

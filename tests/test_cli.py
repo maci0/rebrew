@@ -404,6 +404,34 @@ class TestLoadVerifyCacheRaw:
         assert patched["match_percent"] == 72.3
         assert patched["delta"] == 7
 
+    def test_verify_patch_without_percent_keeps_last_measurement(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A row with no percent must not overwrite a cached one with 0.0.
+
+        Same rule as the single-function path (``test._patch_verify_cache``)
+        and as the writer itself: a patch carrying neither byte counts nor a
+        percent leaves the last real measurement alone.
+        """
+        import json
+        from types import SimpleNamespace
+
+        import rebrew.verify_cache as vc_mod
+        from rebrew.verify import patch_cache_from_results
+
+        monkeypatch.setattr(vc_mod, "_VERIFY_CACHE_MEMO", {})
+        cache_dir = tmp_path / ".rebrew"
+        cache_dir.mkdir()
+        path = cache_dir / "verify_cache.json"
+        entry = {"status": "STUB", "va": "0x00001000", "match_percent": 64.5, "delta": 7}
+        path.write_text(json.dumps({"entries": {"0x00001000": entry}}), encoding="utf-8")
+        cfg = SimpleNamespace(root=tmp_path, target_name="GAME", reversed_dir=tmp_path)
+        monkeypatch.setattr(vc_mod, "cache_identity_matches", lambda _raw, _cfg: True)
+        patch_cache_from_results(cfg, [{"va": "0x00001000", "status": "NEAR_MATCHING"}])
+        patched = json.loads(path.read_text(encoding="utf-8"))["entries"]["0x00001000"]
+        assert patched["status"] == "NEAR_MATCHING"
+        assert patched["match_percent"] == 64.5
+
 
 # ---------------------------------------------------------------------------
 # resolve_source_arg()
