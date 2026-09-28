@@ -71,7 +71,7 @@ class TestCollectFunctions:
         )
         (tmp_path / "src").mkdir(exist_ok=True)
 
-        def _fake_load_data(cfg):
+        def _fake_load_data(cfg, **kw):
             class _F:
                 def __init__(self, va: int, size: int) -> None:
                     self.va = va
@@ -103,7 +103,7 @@ class TestCollectFunctions:
         )
         (tmp_path / "src").mkdir(exist_ok=True)
 
-        def _fake_load_data(cfg):
+        def _fake_load_data(cfg, **kw):
             class _F:
                 def __init__(self, va: int, size: int) -> None:
                     self.va = va

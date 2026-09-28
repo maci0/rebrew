@@ -10,7 +10,7 @@ Extracted from skeleton.py and todo.py to eliminate circular dependencies.
 import bisect
 import re
 import unicodedata
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -255,6 +255,8 @@ def estimate_difficulty(
 
 def load_data(
     cfg: ProjectConfig,
+    *,
+    tree: Sequence[Path] | None = None,
 ) -> tuple[list["FunctionEntry"], dict[int, dict[str, str]], dict[int, str]]:
     """Load all project data.
 
@@ -262,6 +264,11 @@ def load_data(
     - ghidra_funcs: list of FunctionEntry objects
     - existing: dict mapping VA -> {filename, size, status, blocker, blocker_delta, symbol, source, module, marker_type}
     - covered_vas: dict mapping VA -> filename (for find_neighbor_file)
+
+    *tree* is a :func:`rebrew.sources.scan_files` result for ``cfg.reversed_dir``.
+    Both the source pass and the library-header pass below are whole-tree
+    walks, so a caller that already holds the traversal passes it here instead
+    of paying for both walks again.
     """
     from rebrew.catalog import load_function_structure
 
@@ -275,10 +282,12 @@ def load_data(
     # multi-function files (not just the first annotation).
     existing: dict[int, dict[str, str]] = {}
     covered_vas: dict[int, str] = {}
-    for cfile in iter_sources(src_dir, cfg):
-        entries = parse_c_file_multi(
-            cfile, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir
-        )
+    # Hoisted out of the per-file loops below: `metadata_dir` re-derives its
+    # answer with a filesystem probe per ancestor on every access.
+    metadata_root = cfg.metadata_dir
+    marker_name = target_marker(cfg)
+    for cfile in iter_sources(src_dir, cfg, scanned=tree):
+        entries = parse_c_file_multi(cfile, target_name=marker_name, metadata_dir=metadata_root)
         rel_name = rel_display_path(cfile, src_dir)
         for entry in entries:
             if entry.is_data:
@@ -304,12 +313,12 @@ def load_data(
     # holds every target's headers, so a marker counts only when its module is
     # this target's marker or one of its external_libs; another target's
     # LIBRARY marker at the same VA must not replace this target's function.
-    marker = target_marker(cfg)
+    marker = marker_name
     own_modules = {preset_module_key(m) for m in (getattr(cfg, "external_libs", None) or ())}
     if marker:
         own_modules.add(preset_module_key(marker))
-    for hfile in iter_library_headers(src_dir, cfg):
-        lib_entries = parse_library_header(hfile, metadata_dir=cfg.metadata_dir)
+    for hfile in iter_library_headers(src_dir, cfg, scanned=tree):
+        lib_entries = parse_library_header(hfile, metadata_dir=metadata_root)
         for entry in lib_entries:
             if entry.va < min_valid_va_for(cfg):
                 continue

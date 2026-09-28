@@ -309,7 +309,7 @@ class TestCollectStatus:
         monkeypatch.setattr(
             rebrew.naming,
             "load_data",
-            lambda cfg: ([], existing, {0x1000: "a.c", 0x2000: "library_x.h"}),
+            lambda cfg, **kw: ([], existing, {0x1000: "a.c", 0x2000: "library_x.h"}),
         )
         report = collect_status(cfg)  # type: ignore[arg-type]
         assert report.status_counts.get("EXACT") == 1
@@ -337,7 +337,7 @@ class TestCollectStatus:
         monkeypatch.setattr(
             rebrew.naming,
             "load_data",
-            lambda cfg: ([], existing, {0x1000: "a.c", 0x2000: "b.c", 0x3000: "library_x.h"}),
+            lambda cfg, **kw: ([], existing, {0x1000: "a.c", 0x2000: "b.c", 0x3000: "library_x.h"}),
         )
         report = collect_status(cfg)  # type: ignore[arg-type]
         assert report.status_counts == {"EXACT": 1, "PROVEN": 1}
@@ -383,7 +383,7 @@ class TestCollectStatus:
         monkeypatch.setattr(
             rebrew.naming,
             "load_data",
-            lambda cfg: ([FunctionEntry(va=0x1000, size=0x40)], existing, {0x1000: "x"}),
+            lambda cfg, **kw: ([FunctionEntry(va=0x1000, size=0x40)], existing, {0x1000: "x"}),
         )
         assert collect_status(cfg).matched_bytes == 0x40  # type: ignore[arg-type]
 
@@ -428,7 +428,9 @@ class TestCollectStatus:
             0x2000: {"filename": "library_x.h", "size": "16", "marker_type": "LIBRARY"},
         }
         monkeypatch.setattr(
-            rebrew.naming, "load_data", lambda cfg: ([], existing, dict.fromkeys(existing, "x"))
+            rebrew.naming,
+            "load_data",
+            lambda cfg, **kw: ([], existing, dict.fromkeys(existing, "x")),
         )
         rows = {
             f"0x{va:08x}": {"status": "EXACT", "va": f"0x{va:08x}", "passed": True}
@@ -484,7 +486,7 @@ class TestCollectStatus:
         monkeypatch.setattr(
             rebrew.naming,
             "load_data",
-            lambda cfg: ([], existing, dict.fromkeys(existing, "library_x.h")),
+            lambda cfg, **kw: ([], existing, dict.fromkeys(existing, "library_x.h")),
         )
         report = collect_status(cfg)  # type: ignore[arg-type]
         assert report.matched_bytes == 40
@@ -507,7 +509,7 @@ class TestCollectStatus:
             },
         }
         monkeypatch.setattr(
-            rebrew.naming, "load_data", lambda cfg: ([], existing, {0x2000: "library_x.h"})
+            rebrew.naming, "load_data", lambda cfg, **kw: ([], existing, {0x2000: "library_x.h"})
         )
         report = collect_status(cfg)  # type: ignore[arg-type]
         assert report.library_identified == 1
@@ -532,7 +534,7 @@ class TestCollectStatus:
         monkeypatch.setattr(
             rebrew.naming,
             "load_data",
-            lambda cfg: ([], existing, {0x1000: "a.c", 0x2000: "library_x.h"}),
+            lambda cfg, **kw: ([], existing, {0x1000: "a.c", 0x2000: "library_x.h"}),
         )
         report = collect_status(cfg)  # type: ignore[arg-type]
         assert report.module_status["TEST"] == {"PROVEN": 1, "LIBRARY": 1}
@@ -558,7 +560,7 @@ class TestCollectStatus:
         monkeypatch.setattr(
             rebrew.naming,
             "load_data",
-            lambda cfg: ([], existing, dict.fromkeys(existing, "library_x.h")),
+            lambda cfg, **kw: ([], existing, dict.fromkeys(existing, "library_x.h")),
         )
         report = collect_status(cfg)  # type: ignore[arg-type]
         assert report.library_identified == 3

@@ -6,7 +6,7 @@ guesswork:
 
 1. annotation parsing   — ``parse_c_file_multi`` over a synthetic multi-function .c
 2. metadata loading     — ``load_metadata`` over a generated rebrew-functions.toml
-3. catalog grid build   — the real ``catalog --data-json`` pipeline on the fixture binary
+3. catalog grid build   — the real ``catalog --json`` pipeline on the fixture binary
 4. verify-cache I/O     — save + load of a large VerifyCache
 5. near-diag classify   — ``analyze()`` on synthetic byte pairs
 6. binary-similarity    — ``score_matrix`` over synthetic signature sets
@@ -166,15 +166,10 @@ def bench_catalog_grid() -> dict[str, float]:
         os.chdir(root)
         try:
             # Warm once (writes db/data_*.json); measure a second invocation.
-            assert (
-                runner.invoke(
-                    app, ["catalog", "--data-json", "--json"], catch_exceptions=False
-                ).exit_code
-                == 0
-            )
+            assert runner.invoke(app, ["catalog", "--json"], catch_exceptions=False).exit_code == 0
 
             def run() -> None:
-                r = runner.invoke(app, ["catalog", "--data-json", "--json"], catch_exceptions=False)
+                r = runner.invoke(app, ["catalog", "--json"], catch_exceptions=False)
                 assert r.exit_code == 0
 
             return {"ops": 1, "seconds": _timeit(run, repeat=5)}

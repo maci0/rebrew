@@ -21,6 +21,7 @@ import logging
 import re
 import threading
 from collections import Counter
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -309,7 +310,9 @@ def _w019_key_backed(
     return key.lower() in names
 
 
-def count_migratable_files(src_dir: Path, cfg: Any) -> int:
+def count_migratable_files(
+    src_dir: Path, cfg: Any, *, sources: Sequence[Path] | None = None
+) -> int:
     """Return the number of source files ``rebrew lint --fix`` can migrate.
 
     The count twin of W019 (see ``_check_W019_inline_metadata``): a file
@@ -323,7 +326,8 @@ def count_migratable_files(src_dir: Path, cfg: Any) -> int:
     always actionable.
 
     Only scans files returned by ``iter_sources`` so that the extension
-    filter (``cfg.source_ext``) is respected.
+    filter (``cfg.source_ext``) is respected.  *sources* is that list when the
+    caller already holds it, sparing a whole-tree walk.
     """
     fn_entries = load_metadata(cfg.metadata_dir, deepcopy=False)
     data_entries = load_data_metadata(cfg.metadata_dir)
@@ -331,7 +335,7 @@ def count_migratable_files(src_dir: Path, cfg: Any) -> int:
     # One lowercased field-name set per metadata entry, reused across every
     # key of every block in the tree.
     lowered_keys: dict[tuple[str, int, str], frozenset[str]] = {}
-    for src in iter_sources(src_dir, cfg):
+    for src in iter_sources(src_dir, cfg) if sources is None else sources:
         try:
             lines = split_source_lines(read_source_text(src)[0])
         except OSError as exc:

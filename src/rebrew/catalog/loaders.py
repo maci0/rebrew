@@ -13,7 +13,7 @@ from typing import Any
 from rebrew.annotation import Annotation, parse_c_file_multi, parse_library_header
 from rebrew.catalog.models import FunctionEntry, GhidraDataLabel
 from rebrew.config import ProjectConfig, inventory_path_for, module_marker
-from rebrew.sources import iter_library_headers, iter_sources, target_marker
+from rebrew.sources import iter_library_headers, iter_sources, scan_files, target_marker
 from rebrew.utils import preset_module_key, read_json_text
 
 # ---------------------------------------------------------------------------
@@ -347,12 +347,16 @@ def scan_reversed_dir(reversed_dir: Path, cfg: ProjectConfig | None = None) -> l
     not loaded.
     """
     entries: list[Annotation] = []
-    for cfile in iter_sources(reversed_dir, cfg):
+    # Hoisted: `metadata_dir` re-derives its answer with a filesystem probe
+    # per ancestor, and this loop runs once per source file.
+    metadata_root = cfg.metadata_dir if cfg else None
+    tree = scan_files(reversed_dir)
+    for cfile in iter_sources(reversed_dir, cfg, scanned=tree):
         parsed = parse_c_file_multi(
             cfile,
             target_name=target_marker(cfg),
             base_dir=reversed_dir,
-            metadata_dir=cfg.metadata_dir if cfg else None,
+            metadata_dir=metadata_root,
         )
         entries.extend(parsed)
 
@@ -362,8 +366,8 @@ def scan_reversed_dir(reversed_dir: Path, cfg: ProjectConfig | None = None) -> l
     # Headers carry no target affinity in their path, so keep only rows of
     # this target's module (sources are scoped by parse_c_file_multi above).
     marker = preset_module_key(module_marker(cfg)) if cfg else ""
-    for hfile in iter_library_headers(reversed_dir, cfg):
-        parsed = parse_library_header(hfile, metadata_dir=cfg.metadata_dir if cfg else None)
+    for hfile in iter_library_headers(reversed_dir, cfg, scanned=tree):
+        parsed = parse_library_header(hfile, metadata_dir=metadata_root)
         entries.extend(
             e for e in parsed if not marker or preset_module_key(e.module or "") in ("", marker)
         )

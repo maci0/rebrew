@@ -626,7 +626,7 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     not counted as byte-matched.
     """
     from rebrew.naming import load_data
-    from rebrew.sources import iter_sources
+    from rebrew.sources import iter_sources, scan_files
 
     report = StatusReport(
         target=cfg.target_name,
@@ -634,8 +634,14 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
         arch=cfg.arch,
     )
 
+    # One traversal of the reversed tree serves every consumer below
+    # (`load_data`'s source and library-header passes, the file count, and the
+    # inline-metadata census).  Each of those is a whole-tree walk on its own,
+    # and a project's tree holds one directory read per subdirectory per walk.
+    tree = scan_files(cfg.reversed_dir)
+
     try:
-        ghidra_funcs, existing, _covered_vas = load_data(cfg)
+        ghidra_funcs, existing, _covered_vas = load_data(cfg, tree=tree)
         from rebrew.naming import external_vas, inside_annotated_vas, scope_to_target
 
         # Before scoping: external .lib rows carry library modules
@@ -666,7 +672,8 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     report.covered_functions = len(function_vas)
 
     src_dir = Path(cfg.reversed_dir)
-    report.source_files = len(iter_sources(src_dir, cfg))
+    sources = iter_sources(src_dir, cfg, scanned=tree)
+    report.source_files = len(sources)
 
     # Load verify cache to override source statuses.
     # Metadata statuses may be optimistic (e.g. STATUS: RELOC) while
@@ -826,7 +833,7 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     # lint's own rule (shared header parser, no full lint run).
     from rebrew.lint import count_migratable_files
 
-    report.inline_metadata_warning = count_migratable_files(src_dir, cfg)
+    report.inline_metadata_warning = count_migratable_files(src_dir, cfg, sources=sources)
     _attach_file_similarity(report, cfg)
 
     return report

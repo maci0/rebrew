@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from rebrew.config import ProjectConfig
@@ -75,31 +75,74 @@ _EXCLUDE_DIRS = {
 }
 
 
-def _files_matching(directory: Path | str, predicate: Callable[[Path], bool]) -> list[Path]:
-    """Sorted non-symlink files under *directory* matching *predicate*, skipping :data:`_EXCLUDE_DIRS`.
+def scan_files(directory: Path | str) -> list[Path]:
+    """Every non-symlink file under *directory*, sorted, skipping :data:`_EXCLUDE_DIRS`.
+
+    The one traversal behind :func:`files_with_ext` and
+    :func:`_library_headers_under`.  Call it directly when a single command
+    needs both halves of the same tree, then hand the result to the
+    ``scanned=`` keyword of :func:`iter_sources` /
+    :func:`iter_library_headers`: two filters over one walk instead of two
+    walks.
 
     A directory the walk cannot enter is logged and skipped rather than
     silently dropped: every consumer (``verify``, ``test``, ``rename``,
     orphan pruning) treats the result as the complete inventory, so a
     permission-denied or stale-mount subtree would otherwise look like an
     absent one.
+
+    ``os.scandir`` rather than ``os.walk`` + ``Path.is_symlink()``: the walk
+    runs on every source-touching command and a project's tree holds one
+    ``lstat`` per file under that shape, all re-reading directory entries the
+    kernel had just returned.  A ``DirEntry`` already carries the symlink
+    flag from the same ``getdents`` batch, so the per-file syscall is gone
+    and one directory costs one read instead of one per entry.
     """
-    dir_path = Path(directory)
+    files: list[Path] = []
+    stack: list[Path] = [Path(directory)]
+    while stack:
+        current = stack.pop()
+        try:
+            with os.scandir(current) as entries:
+                for entry in entries:
+                    try:
+                        if entry.is_dir(follow_symlinks=False):
+                            if entry.name not in _EXCLUDE_DIRS:
+                                stack.append(Path(entry.path))
+                            continue
+                        if entry.is_symlink():
+                            continue
+                    except OSError as exc:
+                        logger.warning(
+                            "skipping unreadable source directory %s: %s",
+                            exc.filename or entry.path,
+                            exc,
+                        )
+                        continue
+                    files.append(Path(entry.path))
+        except OSError as exc:
+            logger.warning("skipping unreadable source directory %s: %s", exc.filename, exc)
+    return sorted(files)
 
-    def _on_walk_error(exc: OSError) -> None:
-        logger.warning("skipping unreadable source directory %s: %s", exc.filename, exc)
 
-    matches: list[Path] = []
-    for root, dirs, files in os.walk(dir_path, onerror=_on_walk_error):
-        dirs[:] = [name for name in dirs if name not in _EXCLUDE_DIRS]
-        for f in files:
-            p = Path(root) / f
-            if not p.is_symlink() and predicate(p):
-                matches.append(p)
-    return sorted(matches)
+def _files_matching(
+    directory: Path | str,
+    predicate: Callable[[Path], bool],
+    *,
+    scanned: Sequence[Path] | None = None,
+) -> list[Path]:
+    """Sorted non-symlink files under *directory* matching *predicate*, skipping :data:`_EXCLUDE_DIRS`.
+
+    *scanned* is a :func:`scan_files` result for the same *directory*; pass
+    it to filter an existing traversal instead of repeating it.
+    """
+    files = list(scanned) if scanned is not None else scan_files(directory)
+    return [p for p in files if predicate(p)]
 
 
-def _library_headers_under(directory: Path | str) -> list[Path]:
+def _library_headers_under(
+    directory: Path | str, *, scanned: Sequence[Path] | None = None
+) -> list[Path]:
     """``library_*.h`` files under *directory*, skipping :data:`_EXCLUDE_DIRS`.
 
     The exclusion set matches :func:`files_with_ext` — without it the header
@@ -107,7 +150,9 @@ def _library_headers_under(directory: Path | str) -> list[Path]:
     counting their headers as the project's own library markers.
     """
     return _files_matching(
-        directory, lambda p: p.name.startswith("library_") and p.name.endswith(".h")
+        directory,
+        lambda p: p.name.startswith("library_") and p.name.endswith(".h"),
+        scanned=scanned,
     )
 
 
@@ -143,6 +188,8 @@ def _should_include_shared(dir_path: Path, cfg: ProjectConfig | None) -> Path | 
 def iter_library_headers(
     directory: Path | str | ProjectConfig,
     cfg: ProjectConfig | None = None,
+    *,
+    scanned: Sequence[Path] | None = None,
 ) -> list[Path]:
     """Return all library_*.h files under *directory*, recursively.
 
@@ -156,27 +203,35 @@ def iter_library_headers(
     :func:`rebrew.catalog.scan_reversed_dir` already did for headers.  Without
     it, shared ``library_*.h`` markers are invisible to coverage (`status`,
     `todo`), `crt-match`, the call graph, and ``rebrew context``.
+
+    *scanned* is a :func:`scan_files` result for the same directory.
     """
     dir_path, cfg = _resolve_dir_and_cfg(directory, cfg)
-    files = _library_headers_under(dir_path)
+    files = _library_headers_under(dir_path, scanned=scanned)
     shared = _should_include_shared(dir_path, cfg)
     if shared is not None:
         files = sorted(set(files) | set(_library_headers_under(shared)))
     return files
 
 
-def files_with_ext(directory: Path | str, wanted: set[str]) -> list[Path]:
+def files_with_ext(
+    directory: Path | str, wanted: set[str], *, scanned: Sequence[Path] | None = None
+) -> list[Path]:
     """Sorted files under *directory* whose lower-cased suffix is in *wanted*.
 
     Shared by the target's own scan and the shared-sources scan so both halves
     apply the same extension set and the same exclusion rules.
+
+    *scanned* is a :func:`scan_files` result for the same directory.
     """
-    return _files_matching(directory, lambda p: p.suffix.lower() in wanted)
+    return _files_matching(directory, lambda p: p.suffix.lower() in wanted, scanned=scanned)
 
 
 def iter_sources(
     directory: Path | str | ProjectConfig,
     cfg: ProjectConfig | None = None,
+    *,
+    scanned: Sequence[Path] | None = None,
 ) -> list[Path]:
     """Return all source files under *directory*, recursively, sorted by path.
 
@@ -199,11 +254,13 @@ def iter_sources(
     ``src/shared``) is merged in: files there serve **every** target, with
     one ``// FUNCTION: <target> <va>`` marker per target and ``#ifdef``
     deltas driven by the per-target ``defines``.
+
+    *scanned* is a :func:`scan_files` result for the same directory.
     """
     dir_path, cfg = _resolve_dir_and_cfg(directory, cfg)
     exts = source_exts(cfg) or [".c"]
     wanted = {ext.lower() for ext in exts}
-    base = files_with_ext(dir_path, wanted)
+    base = files_with_ext(dir_path, wanted, scanned=scanned)
 
     shared = _should_include_shared(dir_path, cfg)
     if shared is not None:
@@ -252,6 +309,7 @@ __all__ = [
     "iter_library_headers",
     "iter_sources",
     "iter_sources_and_headers",
+    "scan_files",
     "source_exts",
     "source_glob",
     "target_marker",

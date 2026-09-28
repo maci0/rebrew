@@ -10,7 +10,14 @@ from unittest.mock import patch
 
 from rebrew.binary_loader import detect_source_language
 from rebrew.config import ProjectConfig
-from rebrew.sources import source_glob
+from rebrew.sources import (
+    files_with_ext,
+    iter_headers,
+    iter_library_headers,
+    iter_sources,
+    scan_files,
+    source_glob,
+)
 
 
 def test_sources_public_all() -> None:
@@ -30,6 +37,7 @@ def test_sources_public_all() -> None:
         "iter_library_headers",
         "iter_sources",
         "iter_sources_and_headers",
+        "scan_files",
         "source_exts",
         "source_glob",
         "target_marker",
@@ -40,6 +48,51 @@ def test_sources_public_all() -> None:
     exec("from rebrew.sources import *", ns)  # noqa: S102
     exported = {k for k in ns if not k.startswith("_")}
     assert exported == set(sources.__all__)
+
+
+class TestScanFiles:
+    """``scan_files`` is the one traversal behind every source enumerator."""
+
+    def _tree(self, root: Path) -> Path:
+        src = root / "src"
+        (src / "sub" / "deep").mkdir(parents=True)
+        (src / "build").mkdir()
+        (src / "a.c").write_text("x", encoding="utf-8")
+        (src / "B.CPP").write_text("x", encoding="utf-8")
+        (src / "sub" / "b.c").write_text("x", encoding="utf-8")
+        (src / "sub" / "deep" / "c.cpp").write_text("x", encoding="utf-8")
+        (src / "sub" / "library_zlib.h").write_text("x", encoding="utf-8")
+        (src / "build" / "skip.c").write_text("x", encoding="utf-8")
+        (src / "linkdir").symlink_to(src / "sub", target_is_directory=True)
+        (src / "linkfile.c").symlink_to(src / "a.c")
+        (src / "broken.c").symlink_to(src / "nowhere")
+        return src
+
+    def test_scan_matches_a_plain_walk(self, tmp_path: Path) -> None:
+        """Sorted, symlink-free, exclusions applied, nested and case-insensitive."""
+        src = self._tree(tmp_path)
+        assert [p.name for p in scan_files(src)] == [
+            "B.CPP",
+            "a.c",
+            "b.c",
+            "c.cpp",
+            "library_zlib.h",
+        ]
+
+    def test_filtered_views_agree_with_scanned_passthrough(self, tmp_path: Path) -> None:
+        """Passing ``scanned=`` filters the same traversal instead of redoing it.
+
+        This is what lets one command (``rebrew status``) walk the reversed
+        tree once for its source pass, its library-header pass, and its file
+        count; the results must not depend on whether the tree was walked
+        once or three times.
+        """
+        src = self._tree(tmp_path)
+        cfg = ProjectConfig(root=tmp_path, reversed_dir=src, target_name="t", marker="T")
+        tree = scan_files(src)
+        assert iter_sources(src, cfg, scanned=tree) == iter_sources(src, cfg)
+        assert iter_library_headers(src, cfg, scanned=tree) == iter_library_headers(src, cfg)
+        assert iter_headers(src, cfg) == files_with_ext(src, {".h"})
 
 
 # ---------------------------------------------------------------------------
