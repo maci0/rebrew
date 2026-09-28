@@ -109,7 +109,8 @@ Six bundled skills for AI coding agent integration:
 > profile executes inside its toolchain image (wine/DOSBox live in the image;
 > there is no host wine path) — build or pull it with
 > `rebrew toolchain build <name>` (see [docs/TOOLCHAIN.md](https://github.com/maci0/rebrew/blob/main/docs/TOOLCHAIN.md)).
-> Shipped compiler images are `*-linux-x64` / `*-win32` / `*-win16`; CI runs on
+> Shipped compiler images are `*-linux-x64` / `*-win32` / `*-win16`, plus the
+> IDO `rebrew/ido:<version>-linux` images; CI runs on
 > `ubuntu-24.04` (x86_64). Analysis-only commands (`asm`, `analyze`, `flirt`,
 > `catalog`, …) are pure Python 3.13+ and avoid host-OS assumptions in path and
 > text I/O, but are only CI-validated on Linux x86_64.

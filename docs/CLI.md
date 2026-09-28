@@ -586,11 +586,11 @@ graph TD
 | `--nolib` | Exclude LIBRARY-marked functions from verification — the reccmp `--nolib` equivalent. They are neither compiled nor counted (`summary.library_excluded` reports the count), so the summary + CI gate reflect game code only (statically-linked CRT / vendored zlib sources are not part of the gate) |
 | `--fix-sizes` | Backfill `SIZE` into metadata from the binary-derived size: stale sizes (false `SIZE_MISMATCH`) and missing sizes (`MISSING_SIZE` stubs, which `rebrew test` refuses) |
 | `--prune-orphans` | Delete metadata blocks whose VA has no source marker before verifying (same scan as `rebrew orphans --prune`; EXACT/RELOC/PROVEN blocks held back) |
-| `--data` | Byte-compare built `.data`/`.rdata` against the reference, per metadata symbol with first-diff attribution (needs `--built`); verdicts persist as data STATUS (`VERIFIED`/`DRIFT`/`UNCHECKED`) and surface in `status` + `todo data-drift` |
+| `--data` | Byte-compare built `.data`/`.rdata` against the reference, per metadata symbol with first-diff attribution; verdicts persist as data STATUS (`VERIFIED`/`DRIFT`/`UNCHECKED`) and surface in `status` + `todo data-drift` |
 | `--built PATH` | Built binary for `--data` / `--text` / `--whole-binary` comparison (default `build/<target>`) |
 | `--raw-link` | Ack that `--built` is the raw link, not a postlinked deliverable. Without it, `--data` suppresses DRIFT status write-backs (a raw link's `.data` divergence is postlink-supplied and would flip wrong statuses) |
-| `--text` | Check built `.text` function placement against the `// FUNCTION:` markers via `text-audit` (needs `--built`); exit 1 on any misplaced function |
-| `--whole-binary` | Compare built binary against the reference: section sizes, exports, imports, `.rsrc` bytes, headers, plus layout-freshness check (needs `--built`) |
+| `--text` | Check built `.text` function placement against the `// FUNCTION:` markers via `text-audit`; exit 1 on any misplaced function |
+| `--whole-binary` | Compare built binary against the reference: section sizes, exports, imports, `.rsrc` bytes, headers, plus layout-freshness check |
 | `--context FILE` | Compile every source with these declarations merged ahead of it under `#line` directives (see `rebrew test --context`); each result and the report carry `context_hash`. Each entry records the context digest it was earned under, so a cached verdict is served only to a run pinned to the exact same context (a changed or absent digest re-verifies); context runs write back like bare runs |
 | `--dir TEXT` | Restrict to this subdirectory — project-relative first (`src/shared` scopes the shared tree), then relative to reversed_dir |
 | `--origin TEXT` | Restrict to one module (e.g. GAME) |
@@ -1665,7 +1665,7 @@ progress excludes them).
 `rebrew similar <VA> --submatch --other <VA2> [--min-run N] [--json]`
 `rebrew similar [<VA>] --cluster [--min-cluster-size N] [--json]`
 
-Find functions in the target binary that are structurally similar to the function at `<VA>`. The score (0–100) blends the mnemonic histogram cosine (60%) with call-count and branch-count agreement (20% each). Useful for finding which STUBs likely share the same source and optimisation approach as a solved function.
+Find functions in the target binary that are structurally similar to the function at `<VA>`. The score (0–100) blends the mnemonic histogram cosine (50%) with size agreement (20%), call-count agreement (15%), and branch-count agreement (15%), so a 10-byte thunk cannot score near 100 against a 1000-byte function with the same opcode mix. Useful for finding which STUBs likely share the same source and optimisation approach as a solved function.
 
 | Flag | Description |
 |------|-------------|

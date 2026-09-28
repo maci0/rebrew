@@ -661,7 +661,7 @@ def main(
         False,
         "--data",
         help="Byte-compare built .data/.rdata against the reference, "
-        "per metadata symbol (needs --built)",
+        "per metadata symbol",
     ),
     built: Path | None = typer.Option(
         None,
@@ -684,7 +684,7 @@ def main(
         False,
         "--whole-binary",
         help="Compare built binary against the reference: sections, "
-        "exports, imports, resources, headers (needs --built)",
+        "exports, imports, resources, headers",
     ),
     context: Path | None = typer.Option(
         None,

@@ -315,8 +315,9 @@ wrapper" model.
 
 Notes:
 
-- **Watcom** (`wcc386`) emits **OMF** objects — converted to COFF via the
-  vendored **objconv** (tools/objconv) and parsed by LIEF transparently;
+- **Watcom** (`wcc386`) emits **OMF** objects — converted to COFF via an
+  **objconv** you supply under `tools/objconv` (gitignored, not shipped) and
+  parsed by LIEF transparently;
   32-bit OMF byte-matching is enabled.  A project configured with
   `profile = "watcom-2.0-win32"` compiles through the toolchain runner in
   `rebrew.compile` (`-fo=`/`-I` flag shape, docker image), so
@@ -665,14 +666,14 @@ pull these images without rebrew itself.
 | `msvc-1.0` | 1.0 (1992, 16-bit) | — | 16-bit Phar Lap | WinWorld floppies, pinned tarball | DOSBox |
 | `msvc-1.5` | 1.5 (1993, 16-bit) | — | 16-bit Phar Lap | archive.org `en_vc152`, pinned tarball | DOSBox |
 | `msvc-1.52` | 1.52 (1995, 16-bit) | — | 16-bit Phar Lap | archive.org `en_vc152_202512`, pinned tarball | DOSBox |
-| `msvc-2.0` | 2.0 (1994) | 9.00 | first 32-bit | archaic-msvc `msvc-2.0` | docker |
+| `msvc-2.0` | 2.0 (1994) | 9.00 | first 32-bit | archaic-msvc `msvc200` | docker |
 | `msvc-4.0` | 4.0 (1995) | 10.00.5270 | | itsmattkc `MSVC400` | docker |
-| `msvc-4.1` | 4.1 (1996) | 10.10.6038 | | archaic-msvc `msvc-4.1` | docker |
-| `msvc-4.2` | 4.2 (1996) | 10.20 | | archaic-msvc `msvc-4.2` | docker |
+| `msvc-4.1` | 4.1 (1996) | 10.10.6038 | | archaic-msvc `msvc410` | docker |
+| `msvc-4.2` | 4.2 (1996) | 10.20 | | archaic-msvc `msvc420` | docker |
 | `msvc-5.0` | 5.0 (1997) | 11.00.7022 | | archaic-msvc `msvc500` | docker |
-| `msvc-5.0-sp1` | 5.0 SP1 | 11.00.7022 | (same CL) | archaic-msvc `msvc-5.0-sp1` | docker |
-| `msvc-5.0-sp2` | 5.0 SP2 | 11.00.7022 | (same CL) | archaic-msvc `msvc-5.0-sp2` | docker |
-| `msvc-5.0-sp3` | 5.0 SP3 | 11.00.7022 | (same CL) | archaic-msvc `msvc-5.0-sp3` | docker |
+| `msvc-5.0-sp1` | 5.0 SP1 | 11.00.7022 | (same CL) | archaic-msvc `msvc500sp1` | docker |
+| `msvc-5.0-sp2` | 5.0 SP2 | 11.00.7022 | (same CL) | archaic-msvc `msvc500sp2` | docker |
+| `msvc-5.0-sp3` | 5.0 SP3 | 11.00.7022 | (same CL) | archaic-msvc `msvc500sp3` | docker |
 | `msvc-6.0` | 6.0 (1998) | 12.00.8168 | RTM..SP3 | archaic-msvc `msvc600` | docker |
 | `msvc-6.0-sp1` | 6.0 SP1 | 12.00.8168 | (same CL) | archaic-toolchains `msvc600_sp1` (RTM + SP1 fixes; SP1 payload not preserved) | docker |
 | `msvc-6.0-sp2` | 6.0 SP2 | 12.00.8168 | (same CL) | archaic-toolchains `msvc600_sp2` (RTM + official SP2 payload) | docker |
@@ -682,17 +683,17 @@ pull these images without rebrew itself.
 | `msvc-6.0-sp6` | 6.0 SP6 | 12.00.8804 | (same CL) | archaic-msvc `msvc600_sp6` | docker |
 | `msvc-6.0-win9x` | 6.0 (Win9x target) | 12.00.8168 | distinct C2.DLL, wibo runtime | vendored `msvc/6.0-win9x-win32` | docker (wibo) |
 | `msvc-7.0` | 7.0 (2002) | 13.10.3077 | .NET 2003 build | archaic-msvc `msvc-7.1` | docker |
-| `msvc-7.0-rtm` | 7.0 RTM | 13.00.9466 | true 7.0 | archaic-msvc `msvc-7.0-rtm` | docker |
+| `msvc-7.0-rtm` | 7.0 RTM | 13.00.9466 | true 7.0 | archaic-msvc `msvc700` | docker |
 | `msvc-7.0-sp1` | 7.0 SP1 | 13.00.9466 | (same CL) | archaic-msvc `msvc700_sp1` | docker |
 | `msvc-7.1` | 7.1 (2003) | 13.10.3077 | | archaic-msvc `msvc-7.1` | docker |
 | `msvc-7.1-sp1` | 7.1 SP1 | 13.10.6030 | | archaic-msvc `msvc710_sp1` | docker |
-| `msvc-8.0` | 8.0 (2005) | 14.00.50727 | | archaic-msvc `msvc-8.0` | docker |
+| `msvc-8.0` | 8.0 (2005) | 14.00.50727 | | archaic-msvc `msvc800` | docker |
 | `msvc-8.0-sp1` | 8.0 SP1 | 14.00.50727.762 | | archaic-msvc `msvc800_sp1` | docker |
-| `msvc-9.0` | 9.0 (2008) | 15.00.21022 | | archaic-msvc `msvc-9.0` | docker |
+| `msvc-9.0` | 9.0 (2008) | 15.00.21022 | | archaic-msvc `msvc900` | docker |
 | `msvc-9.0-sp1` | 9.0 SP1 | 15.00.30729 | | archaic-toolchains `msvc900_sp1` (msvc-9.0 + SP1 compiler) | docker |
-| `msvc-10.0` | 10.0 (2010) | 16.00.30319 | | archaic-msvc `msvc-10.0` | docker |
+| `msvc-10.0` | 10.0 (2010) | 16.00.30319 | | archaic-msvc `msvc1000` | docker |
 | `msvc-10.0-sp1` | 10.0 SP1 | 16.00.40219 | | archaic-msvc `msvc1000_sp1` | docker |
-| `msvc-11.0` | 11.0 (2012) | 17.00.50522 | | archaic-msvc `msvc-11.0` | docker |
+| `msvc-11.0` | 11.0 (2012) | 17.00.50522 | | archaic-msvc `msvc1100` | docker |
 
 Notes:
 
