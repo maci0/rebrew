@@ -38,6 +38,24 @@
   `docs/COVERAGE_DOCUMENT.md` and `docs/THREAT_MODEL.md` document the field.
 
 ### Changed
+- **`rebrew cache stats --json` prints one key set, and a plugin cache
+  backend no longer has to carry counters it cannot attribute.**
+  The absent-cache branch wrote five keys while the present one wrote nine
+  (`volume_bytes` and the three `session_*` counters were missing), so a
+  consumer indexing the payload keyed on `exists`; the branch also reported
+  `size_limit_mib: 0` for a project whose configured limit is not zero. The
+  absent payload now carries every key the backend reports, with the
+  configured limit and zeroed counters. `CacheBackend` drops the `hits` /
+  `misses` attributes (nothing outside the packaged diskcache backend read
+  them; the counters reach a caller through `stats()`), and `stats()`'
+  `session_hits` / `session_misses` / `session_hit_rate_pct` are documented as
+  optional, because a shared or remote store cannot attribute one process's
+  lookups, so `rebrew cache stats` reads them with a default and reports no
+  lookups instead of dying on a `KeyError`. `entries`, `volume_mib` and
+  `size_limit_mib` stay required. `rebrew cache clear --json` prints the same
+  `cache_dir` / `backend` fields on its nothing-to-clear path as on the
+  clearing one. `docs/CLI.md` and `docs/CONFIG.md` carry
+  the contract.
 - **Breaking:** `rebrew doctor` no longer re-exports `EXIT_MISMATCH`.
   `rebrew.doctor` imported the exit code from `rebrew.cli` and a failing check
   raised it, so `doctor.EXIT_MISMATCH` was part of the public import surface.

@@ -347,11 +347,16 @@ class CompileCache:
 #: registry consults it under its own lock to drop a dead backend rather than
 #: hand it to the next compile.  A plugin backend must answer it without
 #: blocking, since the registry lock is process-wide.
+#:
+#: ``stats`` is the reporting surface ``rebrew cache stats`` reads, and it is
+#: the only one: a backend that tracks its own counters does so privately and
+#: publishes them here.  ``entries``, ``volume_mib`` and ``size_limit_mib``
+#: are required (the command renders all three); the ``session_*`` keys are
+#: per-process counters a remote or shared store has no way to attribute, so a
+#: backend that cannot count them omits those three and the command reports no
+#: lookups instead of failing on a missing key.
 class CacheBackend(Protocol):
     """Store interface for compile-cache backends."""
-
-    hits: int
-    misses: int
 
     def get(self, key: str) -> bytes | None: ...
     def put(self, key: str, obj_bytes: bytes) -> None: ...

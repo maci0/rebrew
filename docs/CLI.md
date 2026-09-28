@@ -225,7 +225,7 @@ discovered components merge on top.  Conflict and failure policy per group:
 | Binary family detector | `rebrew.binary_detectors` | `module:attr` — `(path) -> ToolchainInfo \| None`; runs when the packaged backends (DIE/PDB/PE-meta/heuristics) leave the family unknown, so a novel compiler is detectable end-to-end (`detected_by` = `plugin-<name>`) |
 | Binary loader | `rebrew.binary_loaders` | `module:attr` — `(path, fmt) -> BinaryInfo \| None`; runs when LIEF cannot parse the file, so a novel container format can be loaded |
 | MSVC version table | `rebrew.msvc_versions` | `module:attr` — zero-arg callable returning `dict["build:<n>" \| "linker:<M>.<m>", list[profile]]`; a plugin MSVC-derivative declares which exact builds it byte-matches, joining the version-exact `suggested_profiles` (union per key) |
-| Compile-cache backend | `rebrew.cache_backends` | `module:attr` — factory `(cache_dir, size_limit) -> CacheBackend` (get/put/volume/count/clear/close/stats); selected via `[cache] backend` in `rebrew-project.toml`; the keying semantics are shared and not pluggable |
+| Compile-cache backend | `rebrew.cache_backends` | `module:attr` — factory `(cache_dir, size_limit) -> CacheBackend` (get/put/volume/count/clear/close/stats; `stats()` must carry `entries`, `volume_mib`, `size_limit_mib`, the `session_*` counters are optional); selected via `[cache] backend` in `rebrew-project.toml`; the keying semantics are shared and not pluggable |
 | Function discoverer | `rebrew.discoverers` | `module:attr`: `(binary: Path) -> list[(va, size, name)]`; merged into `rebrew discover-functions` by entry-point name; return `[]` when nothing is found (a raise, or anything but a list of `(int >= 0, int >= 0, str)` tuples, is skipped with a warning) |
 
 CLI tools (packaged and third-party) mount through `rebrew.plugin`.
@@ -1826,6 +1826,15 @@ For the "keep the same `.c` for multiple target versions" workflow (binary versi
 |------------|-------------|
 | `stats [--json] [--target NAME]` | Cache size, entry count, and session hit/miss rate |
 | `clear [--force] [--json] [--target NAME]` | Empty the compile result cache |
+
+`stats --json` prints one key set whether or not the cache exists yet:
+`exists`, `backend`, `cache_dir`, `entries`, `volume_bytes`, `volume_mib`,
+`size_limit_mib`, `session_hits`, `session_misses`, `session_hit_rate_pct`.
+A project with no cache on disk gets the same keys with zeroed counters and
+the configured `size_limit_mib`; only a plugin backend can omit the
+`session_*` keys (see the cache-backend registration table above).
+`clear --json` prints `cleared`, `cache_dir` and `backend` on both paths, and
+adds `message` when there was nothing to clear.
 
 ### `rebrew solutions`
 

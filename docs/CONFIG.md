@@ -299,7 +299,11 @@ opens.  The default is the packaged `diskcache` backend (SQLite +
 filesystem at `{project_root}/.rebrew/compile_cache/`); a plugin registers a
 new backend through the `rebrew.cache_backends` entry-point group (a factory
 `(cache_dir: Path, size_limit: int) -> CacheBackend` — the directory doubles
-as the per-project namespace even for remote/shared stores).
+as the per-project namespace even for remote/shared stores).  `stats()` is the
+only reporting surface `rebrew cache stats` reads: `entries`, `volume_mib` and
+`size_limit_mib` are required, and the per-process `session_hits` /
+`session_misses` / `session_hit_rate_pct` are optional, since a shared store
+cannot attribute one process's lookups.
 
 ```toml
 [cache]

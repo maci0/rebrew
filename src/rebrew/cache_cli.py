@@ -43,28 +43,32 @@ def stats(
 
     backend = getattr(cfg, "cache_backend", DEFAULT_CACHE_BACKEND)
     cache_dir = cfg.root / ".rebrew" / "compile_cache"
+    size_limit = getattr(cfg, "cache_size_limit", DEFAULT_CACHE_SIZE_LIMIT_MIB * BYTES_PER_MIB)
     if backend == "diskcache" and not cache_dir.exists():
         if json_output:
-            # Same keys as the present-cache payload below, so a consumer
-            # reading backend/cache_dir does not KeyError on a fresh project.
+            # Same key set as the present-cache payload below, so a consumer
+            # indexes one shape either way.  The limit is the configured one
+            # (a cache that does not exist yet still has a budget), and the
+            # counters are zero because no lookup has run.
             json_print(
                 {
                     "exists": False,
                     "backend": backend,
                     "cache_dir": str(cache_dir),
                     "entries": 0,
+                    "volume_bytes": 0,
                     "volume_mib": 0,
+                    "size_limit_mib": round(size_limit / BYTES_PER_MIB, 2),
+                    "session_hits": 0,
+                    "session_misses": 0,
+                    "session_hit_rate_pct": 0.0,
                 }
             )
         else:
             console.print("No compile cache found (not yet created).")
         return
 
-    cache = get_compile_cache(
-        cfg.root,
-        backend,
-        getattr(cfg, "cache_size_limit", DEFAULT_CACHE_SIZE_LIMIT_MIB * BYTES_PER_MIB),
-    )
+    cache = get_compile_cache(cfg.root, backend, size_limit)
     try:
         info = cache.stats()
         if json_output:
@@ -75,12 +79,15 @@ def stats(
             console.print(f"Entries:         {info['entries']}")
             console.print(f"Disk usage:      {info['volume_mib']} MiB")
             console.print(f"Size limit:      {info['size_limit_mib']} MiB")
-            hits = int(info["session_hits"])
-            misses = int(info["session_misses"])
+            # The session counters are per-process: a shared or remote store
+            # cannot attribute them, so a backend omits them rather than
+            # counting someone else's lookups (see CacheBackend).
+            hits = int(info.get("session_hits", 0))
+            misses = int(info.get("session_misses", 0))
             if hits + misses > 0:
                 console.print(
                     f"Session:         {hits} hits, {misses} misses"
-                    f" ({info['session_hit_rate_pct']}% hit rate)"
+                    f" ({info.get('session_hit_rate_pct', 0.0)}% hit rate)"
                 )
             else:
                 console.print("Session:         no lookups this session")
@@ -101,7 +108,14 @@ def clear(
     cache_dir = cfg.root / ".rebrew" / "compile_cache"
     if backend == "diskcache" and not cache_dir.exists():
         if json_output:
-            json_print({"cleared": 0, "message": "No compile cache found"})
+            json_print(
+                {
+                    "cleared": 0,
+                    "cache_dir": str(cache_dir),
+                    "backend": backend,
+                    "message": "No compile cache found",
+                }
+            )
         else:
             console.print("No compile cache found (nothing to clear).")
         return

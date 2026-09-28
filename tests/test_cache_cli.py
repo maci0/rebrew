@@ -43,15 +43,59 @@ class TestStats:
         r = runner.invoke(cache_cli.app, ["stats", "--json"])
         assert r.exit_code == 0
         payload = json.loads(r.stdout)
-        # The absent path carries the same backend/cache_dir keys as the
-        # present one, so a consumer indexes one shape either way.
+        # The absent path carries the same key set as the present one, so a
+        # consumer indexes one shape either way.
         assert payload == {
             "exists": False,
             "backend": "diskcache",
             "cache_dir": str(tmp_path / ".rebrew" / "compile_cache"),
             "entries": 0,
+            "volume_bytes": 0,
             "volume_mib": 0,
+            "size_limit_mib": round(cache_cli.DEFAULT_CACHE_SIZE_LIMIT_MIB, 2),
+            "session_hits": 0,
+            "session_misses": 0,
+            "session_hit_rate_pct": 0.0,
         }
+
+    def test_absent_and_present_payloads_share_a_key_set(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The parity the absent branch claims, asserted against the real one.
+
+        The absent payload is a hand-written dict, so it drifted from the
+        backend's ``stats()`` once (``volume_bytes`` and the ``session_*``
+        counters were missing).  Comparing the key sets fails on the next
+        drift instead of waiting for a consumer's ``KeyError``.
+        """
+        (tmp_path / ".rebrew" / "compile_cache").mkdir(parents=True)
+        _patch_cfg(monkeypatch, tmp_path)
+
+        def fake_cache(
+            _root: Path, backend: str = "diskcache", size_limit: int = 0
+        ) -> SimpleNamespace:
+            return SimpleNamespace(
+                stats=lambda: {
+                    "entries": 1,
+                    "volume_bytes": 2,
+                    "volume_mib": 0.0,
+                    "size_limit_mib": 100.0,
+                    "session_hits": 0,
+                    "session_misses": 0,
+                    "session_hit_rate_pct": 0.0,
+                },
+                close=lambda: None,
+            )
+
+        monkeypatch.setattr(cache_cli, "get_compile_cache", fake_cache)
+        present = json.loads(
+            runner.invoke(cache_cli.app, ["stats", "--json"]).stdout,
+        )
+
+        (tmp_path / ".rebrew" / "compile_cache").rmdir()
+        absent = json.loads(runner.invoke(cache_cli.app, ["stats", "--json"]).stdout)
+
+        assert set(absent) == set(present)
 
     def test_no_cache_dir_human(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _patch_cfg(monkeypatch, tmp_path)
@@ -97,6 +141,32 @@ class TestStats:
         assert "2 hits, 1 misses" in r.output
         assert "66.7" in r.output
 
+    def test_backend_without_session_counters_still_reports(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A shared store cannot attribute per-process lookups; omit, don't fail.
+
+        ``CacheBackend.stats`` makes the ``session_*`` keys optional, so a
+        backend that leaves them out prints its size instead of dying on a
+        ``KeyError`` the caller cannot catch.
+        """
+        (tmp_path / ".rebrew" / "compile_cache").mkdir(parents=True)
+        _patch_cfg(monkeypatch, tmp_path)
+
+        def fake_cache(
+            _root: Path, backend: str = "diskcache", size_limit: int = 0
+        ) -> SimpleNamespace:
+            return SimpleNamespace(
+                stats=lambda: {"entries": 7, "volume_mib": 2.0, "size_limit_mib": 100},
+                close=lambda: None,
+            )
+
+        monkeypatch.setattr(cache_cli, "get_compile_cache", fake_cache)
+        r = runner.invoke(cache_cli.app, ["stats"])
+        assert r.exit_code == 0
+        assert "7" in r.output
+        assert "no lookups this session" in r.output
+
 
 class TestClear:
     def test_no_cache_dir_json(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -104,7 +174,15 @@ class TestClear:
         r = runner.invoke(cache_cli.app, ["clear", "--json"])
         assert r.exit_code == 0
         payload = json.loads(r.stdout)
-        assert payload["cleared"] == 0
+        # cache_dir / backend are the same fields the clearing path prints,
+        # so a consumer reads one shape whether or not there was anything to
+        # clear.
+        assert payload == {
+            "cleared": 0,
+            "cache_dir": str(tmp_path / ".rebrew" / "compile_cache"),
+            "backend": "diskcache",
+            "message": "No compile cache found",
+        }
 
     def test_force_clears_without_prompt(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
