@@ -367,8 +367,19 @@ def _display_built(root: Path, path: Path) -> str:
 
 def _attach_file_similarity(report: StatusReport, cfg: ProjectConfig) -> None:
     """Score the raw link when configured, otherwise the built image."""
-    built = find_built_image(cfg.root, cfg.target_name, getattr(cfg, "raw_link", None))
+    raw = getattr(cfg, "raw_link", None)
+    built = find_built_image(cfg.root, cfg.target_name, raw)
     if built is None:
+        # A configured raw_link never falls back to build/<target>, so a
+        # missing one scores nothing at all.  Say so: the panel would
+        # otherwise read as "not built yet" on a project that built fine.
+        if raw is not None:
+            log.warning(
+                "status: configured raw_link %s does not exist — no image "
+                "similarity score (not falling back to build/%s)",
+                raw,
+                cfg.target_name,
+            )
         return
     ref = Path(getattr(cfg, "target_binary", "") or "")
     if not ref.is_file():
