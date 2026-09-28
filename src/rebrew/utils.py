@@ -760,6 +760,20 @@ def filename_component(name: str) -> str:
     return cleaned
 
 
+def library_header_name(module: str) -> str:
+    """The ``library_<module>.h`` file name for *module*.
+
+    One derivation for every writer that appends IAT/LIBRARY entries to a
+    library header (:mod:`rebrew.splat_config`, :mod:`rebrew.identify_library`).
+    The module comes from a PE import table or a ``.pat`` stem, so it goes
+    through :func:`filename_component`; building the name by hand
+    (``f"library_{module.lower()}.h"``) splits one DLL's annotations across two
+    headers as soon as the stem is not ASCII, and a ``../`` stem escapes the
+    reversed dir.
+    """
+    return f"library_{filename_component(module.lower())}.h"
+
+
 def atomic_write_text(
     filepath: Path,
     text: str,

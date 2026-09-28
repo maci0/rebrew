@@ -95,7 +95,7 @@ from rebrew.cli import (
 )
 from rebrew.layout_meta import SectionMeta
 from rebrew.sources import iter_sources, target_marker
-from rebrew.utils import atomic_write_text, parse_int_literal
+from rebrew.utils import atomic_write_text, library_header_name, parse_int_literal
 from rebrew.workspace.config import config_path
 
 if TYPE_CHECKING:
@@ -1180,7 +1180,7 @@ def _plan_annotations(
             if library_module:
                 kind = "LIBRARY"
                 module = library_module
-                rel = f"library_{module.lower()}.h"
+                rel = library_header_name(module)
                 path = None  # a library header is appended to, not owned
             else:
                 kind = "FUNCTION"
@@ -1325,7 +1325,7 @@ def _plan_library_annotations(
             continue
         name = sanitize_name(row.name)
         module = infer_module(row.name, marker or "LIBRARY")
-        rel = f"library_{module.lower()}.h"
+        rel = library_header_name(module)
         # No file check for a library entry: the header is appended to, so it
         # existing is the normal case.
         state, message, overridable = _annotation_state(existing, None, rel, row.va, name)

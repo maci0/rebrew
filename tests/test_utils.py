@@ -23,6 +23,7 @@ from rebrew.utils import (
     filename_component,
     floor_pct,
     is_safe_c_ident,
+    library_header_name,
     load_tomllib,
     merged_span_bytes,
     read_compile_source,
@@ -128,6 +129,14 @@ def test_filename_component_folds_nfc_and_nfd_to_one_name() -> None:
 
 def test_filename_component_keeps_distinct_names_distinct() -> None:
     assert filename_component("Café") != filename_component("Cafe")
+
+
+def test_library_header_name_is_one_name_per_module() -> None:
+    # splat-config and identify-library both append to this file; a hand-built
+    # f"library_{module.lower()}.h" split a non-ASCII module across two headers.
+    assert library_header_name("MSVCRT") == "library_msvcrt.h"
+    assert library_header_name("CAFÉ") == library_header_name("CAFE\u0301")
+    assert "/" not in library_header_name("../../etc")
 
 
 def test_atomic_write_text_overwrite(tmp_path: Path) -> None:

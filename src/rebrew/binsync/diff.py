@@ -25,7 +25,7 @@ from rebrew.cli import (
     require_config,
     run_standalone,
 )
-from rebrew.utils import strip_body
+from rebrew.utils import fold_ident, strip_body
 
 log = logging.getLogger(__name__)
 
@@ -116,10 +116,12 @@ def main(
 
         if not bs_name or not is_meaningful(bs_name):
             continue
-        # same name ignoring cdecl prefix
+        # same name ignoring cdecl prefix, and same name under NFC + casefold
+        # (importer.py): a state file written on Windows and a source checked
+        # out on macOS spell one symbol two ways, and that is not a divergence.
         bs_stripped = bs_name[1:] if bs_name.startswith("_") else bs_name
         local_stripped = local_name[1:] if local_name.startswith("_") else local_name
-        if bs_stripped == local_stripped:
+        if fold_ident(bs_stripped) == fold_ident(local_stripped):
             continue
         if not is_meaningful(local_name):
             divergences.append(

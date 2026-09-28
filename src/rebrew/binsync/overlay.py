@@ -75,7 +75,7 @@ from rebrew.cross_import import (
     target_bytes_by_va,
     unmatched_dest_bytes,
 )
-from rebrew.utils import strip_body
+from rebrew.utils import fold_ident, strip_body
 
 log = logging.getLogger(__name__)
 
@@ -385,7 +385,11 @@ def overlay_state(
             local_stripped = (
                 strip_cdecl_prefix(local_name) if local_name.startswith("_") else local_name
             )
-            if bs_name and is_meaningful(bs_name) and bs_stripped != local_stripped:
+            if (
+                bs_name
+                and is_meaningful(bs_name)
+                and fold_ident(bs_stripped) != fold_ident(local_stripped)
+            ):
                 local_meaningful = is_meaningful(local_name)
                 if local_meaningful:
                     conflicts.append(_conflict(dst_va, src_va, "name", local_name, bs_name))
@@ -658,7 +662,7 @@ def overlay_state(
                 local_name = str(
                     get_data_entry(cfg.metadata_dir, dst_va, mod).get("name") or ""
                 ).strip()
-                if local_name == bs_name:
+                if fold_ident(local_name) == fold_ident(bs_name):
                     continue
                 if is_meaningful(local_name):
                     conflicts.append(_conflict(dst_va, src_va, "name", local_name, bs_name))

@@ -29,7 +29,12 @@ from typing import Any
 import typer
 
 from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
-from rebrew.utils import atomic_write_text, filename_component, pe_name_token, read_source_text
+from rebrew.utils import (
+    atomic_write_text,
+    library_header_name,
+    pe_name_token,
+    read_source_text,
+)
 
 app = typer.Typer(
     help="Identify library functions (FLIRT + imports + CRT) into library_*.h.",
@@ -417,9 +422,10 @@ def write_candidates(cfg: Any, candidates: list[LibCandidate], existing: set[int
 
     for module, cands in sorted(by_module.items()):
         # The module comes from the target's import table (or a .pat stem), so
-        # it is untrusted text: filename_component keeps a "../" DLL name from
-        # writing its header outside the reversed dir.
-        header = cfg.reversed_dir / f"library_{filename_component(module.lower())}.h"
+        # it is untrusted text: library_header_name keeps a "../" DLL name from
+        # writing its header outside the reversed dir, and gives every writer
+        # the same file for one module.
+        header = cfg.reversed_dir / library_header_name(module)
         for cand in cands:
             _append_entry(header, cand)
             existing.add(cand.va)

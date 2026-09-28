@@ -48,7 +48,7 @@ from rebrew.cli import (
 )
 from rebrew.config import ProjectConfig, module_marker
 from rebrew.naming import avoid_windows_reserved
-from rebrew.utils import c_comment_safe, is_safe_c_ident, strip_body
+from rebrew.utils import c_comment_safe, fold_ident, is_safe_c_ident, strip_body
 
 log = logging.getLogger(__name__)
 
@@ -668,8 +668,12 @@ def import_state(
         if not bs_name or not is_meaningful(bs_name):
             continue
 
-        # If local already has same meaningful name (ignoring _ prefix), skip
-        if bs_stripped == local_stripped:
+        # If local already has same meaningful name (ignoring _ prefix), skip.
+        # fold_ident as well: the state file is written on one machine and read
+        # on another, so the same symbol arrives NFC from Windows and NFD from
+        # a macOS volume.  A byte comparison calls that a rename conflict and
+        # --accept-binsync rewrites every occurrence to the other spelling.
+        if fold_ident(bs_stripped) == fold_ident(local_stripped):
             continue
 
         # If local is generic and BinSync is meaningful → safe to apply
