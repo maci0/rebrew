@@ -329,11 +329,18 @@ def refresh_all() -> dict[str, int]:
     single-registry ``refresh_*`` (e.g.
     :func:`rebrew.toolchain.refresh_toolchain_registry`).
 
-    The groups are refreshed as one composition under a single lock, so no
-    reader sees a half-refreshed system.  CLI command groups are the documented
-    exception: a command the app already mounted is not unmounted, so a second
-    refresh could not restore that generation either — ``cordis-boundary:``
-    forward-only, compensated by re-mounting the umbrella app.
+    The refreshes run as one composition under a single lock, so two
+    concurrent calls cannot interleave and leave a mixture of two composite
+    refreshes.  It does not order a refresh against a reader: each module
+    publishes under its own lock, so a reader that takes only those sees each
+    group at whatever generation it had reached.  A caller that needs every
+    group at one generation must read them under the module locks itself
+    (``registry_snapshot``, ``detection_tables``).
+
+    CLI command groups are the documented forward-only exception: a command
+    the app already mounted is not unmounted, so a second refresh cannot
+    restore that generation either — compensated by re-mounting the umbrella
+    app.
     """
     from rebrew import (
         binary_loader,

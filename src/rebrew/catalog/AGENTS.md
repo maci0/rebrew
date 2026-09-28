@@ -21,7 +21,7 @@ Reversed `.c` + `library_*.h` → `scan_reversed_dir` → annotations; discovery
 
 ## Invariants
 
-- **Canonical size**: when the discovery list is longer than Ghidra, `_resolve_canonical_size` keeps the list size for padding (`0x90`/`0xCC`), a jump/switch table, out-of-line code (jumps back), or a tail with no `ret` (`0xC3`/`0xC2`). No binary bytes, or extra bytes that match none of those: Ghidra size.
+- **Canonical size**: when the discovery list is longer than Ghidra, `_resolve_canonical_size` keeps the list size for padding (`0x90`/`0xCC`), a jump/switch table, out-of-line code (jumps back), or a tail with no `ret` (`0xC3`/`0xC2`, probed on x86 targets only, since those are the x86 `ret` encodings). No binary bytes, extra bytes on a non-x86 target, or extra bytes that match none of those: Ghidra size.
 - **Target byte order**: jump-table probes read pointer slots through `config.arch_byte_order(arch, endian)`, where `endian` is `BinaryInfo.endian`. The image header wins over the arch default (a little-endian MIPS build is little-endian); an empty `endian` falls back to `arch_is_big_endian`. Pass the loaded image's `arch`/`endian` down rather than defaulting to `x86_32`, which also picks the wrong pointer width.
 - **Gap absorption**: predecessor absorbs gaps that are jump tables, OOL code, or tail ≤64B; repeats until stable.
 - **Cell sizes**: `.text` 64B (64 cols/row); `.data`/`.rdata` 16B; `.bss` 4096B.

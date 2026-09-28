@@ -95,6 +95,23 @@ class TestResolveCanonicalSize:
             "list (code tail, no terminator)",
         )
 
+    def test_code_tail_probe_is_x86_only(self) -> None:
+        # 0xC3/0xC2 are the x86 ret encodings, so the "no terminator" probe
+        # must not run on another arch: no ARM or MIPS tail ever contains
+        # them, and running it there made every such function claim the list
+        # size.  A non-x86 target takes the conservative default.
+        sizes = {"list": 64, "ghidra": 32}
+        data = b"\x90" * 32 + b"\x31\xc7\x00\x10\x37\xc7\x00\x10" * 4
+        assert _resolve_canonical_size(sizes, 0x1000, data, 0x1000, 0x1000) == (
+            64,
+            "list (code tail, no terminator)",
+        )
+        for arch in ("arm32", "mips32", "ppc32"):
+            assert _resolve_canonical_size(sizes, 0x1000, data, 0x1000, 0x1000, arch) == (
+                32,
+                "ghidra (unrecognized extra bytes)",
+            )
+
     def test_extra_ret_imm_no_terminator(self) -> None:
         # ret imm16 (0xC2) also counts as a terminator.
         sizes = {"list": 64, "ghidra": 32}

@@ -212,7 +212,14 @@ def _resolve_canonical_size(
     # arrays, etc.).  Trust the list size there: a truncated canonical size
     # silently drops real code from comparisons, while an over-count at worst
     # makes the byte comparison visibly mismatch.
-    if 0xC3 not in extra and 0xC2 not in extra:
+    #
+    # x86-only, like the alignment-prefix probes above: 0xC3/0xC2 are the x86
+    # RET encodings.  No other arch emits them, so probing an ARM or MIPS tail
+    # for those bytes always answers "no terminator" and made this branch
+    # claim the list size for every function on those targets.  They fall
+    # through to the conservative default instead, which is also what an x86
+    # tail that does end in a ret gets.
+    if arch.startswith("x86") and 0xC3 not in extra and 0xC2 not in extra:
         return list_size, "list (code tail, no terminator)"
 
     # Default: trust Ghidra when we can't identify the extra bytes

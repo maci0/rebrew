@@ -46,6 +46,7 @@ def make_pe(
     text_va: int = 0x1000,
     imports: list[tuple[str, list[str]]] | None = None,
     pe32_plus: bool = False,
+    section_name: str = ".text",
 ) -> bytes:
     """Build a minimal PE with one real ``.text`` section containing *code*.
 
@@ -62,6 +63,9 @@ def make_pe(
     With *pe32_plus*, the image is a 64-bit one: AMD64 COFF machine, magic
     0x20B, an 8-byte ImageBase at optional-header offset 24, 8-byte
     stack/heap sizes, and 8-byte INT/IAT thunk entries.
+
+    *section_name* renames that code section (``CODE`` for the Borland and
+    Watcom spelling), keeping the CODE|EXECUTE|READ characteristics.
     """
     sec_align, file_align, sizeof_headers = 0x1000, 0x200, 0x200
     thunk_size = 8 if pe32_plus else 4
@@ -119,7 +123,7 @@ def make_pe(
 
     sec = struct.pack(
         "<8sIIIIIIHHI",
-        b".text\x00\x00\x00",
+        section_name.encode("ascii")[:8].ljust(8, b"\x00"),
         len(section_data),  # VirtualSize
         text_va,  # VirtualAddress
         raw_size,  # SizeOfRawData

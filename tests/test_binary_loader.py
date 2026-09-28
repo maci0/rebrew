@@ -231,6 +231,62 @@ class TestVaToFileOffset:
         assert extract_bytes_at_va(info, 0x10002000, 4) is None
 
 
+# ---------------------------------------------------------------------------
+# PE .text resolution
+# ---------------------------------------------------------------------------
+
+
+class TestPeTextSection:
+    """The code section is found by name first, then by the EXECUTE flag.
+
+    Borland, Delphi and Watcom name it `CODE` rather than `.text`; without the
+    executable-flag fallback those images kept `text_va == image_base` and
+    `text_size == 0`, so every consumer of the code region (FLIRT scan, the
+    jump-table probe) saw an empty image.
+    """
+
+    def _load(self, tmp_path: Path, section_name: str) -> BinaryInfo:
+        from bin_util import make_pe
+
+        from rebrew.binary_loader import load_binary
+
+        f = tmp_path / "test.exe"
+        f.write_bytes(make_pe(b"\xc3" * 0x10, section_name=section_name))
+        return load_binary(f)
+
+    def test_dot_text_is_used_directly(self, tmp_path: Path) -> None:
+        info = self._load(tmp_path, ".text")
+        assert info.text_va == 0x400000 + 0x1000
+        assert info.text_size == 0x10
+        assert info.sections[".text"].va == info.text_va
+        # The PE loader leaves is_code alone; only the alias is synthesized.
+        assert info.sections[".text"].is_code is False
+
+    def test_executable_section_is_aliased_as_text(self, tmp_path: Path) -> None:
+        info = self._load(tmp_path, "CODE")
+        code = info.sections["CODE"]
+        assert ".text" in info.sections
+        # The alias is not flagged code, so an is_code walk does not visit
+        # the same bytes twice under both names.
+        assert info.sections[".text"].is_code is False
+        assert info.sections[".text"].va == code.va
+        assert info.text_va == code.va
+        assert info.text_size == code.size
+        assert info.text_raw_offset == code.file_offset
+
+    def test_data_only_image_keeps_no_text(self, tmp_path: Path) -> None:
+        from bin_util import append_pe_section, make_pe
+
+        from rebrew.binary_loader import load_binary
+
+        f = tmp_path / "data.exe"
+        f.write_bytes(append_pe_section(make_pe(b"\xc3" * 0x10), ".rdata", b"\x00" * 0x40))
+        info = load_binary(f)
+        # `.text` is present under its own name, so nothing is aliased.
+        assert info.sections[".text"].va == 0x400000 + 0x1000
+        assert ".rdata" in info.sections
+
+
 # -------------------------------------------------------------------------
 # detect_format_and_arch
 # -------------------------------------------------------------------------

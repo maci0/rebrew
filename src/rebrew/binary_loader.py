@@ -152,12 +152,16 @@ def decode_binary_name(raw: str | bytes) -> str:
 
 def _load_pe(binary: lief.PE.Binary, path: Path) -> BinaryInfo:
     """Extract layout information from a PE binary."""
+    import lief
+
     image_base = binary.optional_header.imagebase
 
     sections: dict[str, SectionInfo] = {}
     text_va = image_base
     text_size = 0
     text_raw_offset = 0
+    exec_flag = lief.PE.Section.CHARACTERISTICS.MEM_EXECUTE
+    exec_names: list[str] = []
 
     for section in binary.sections:
         name = decode_binary_name(section.name).rstrip("\x00")
@@ -173,11 +177,24 @@ def _load_pe(binary: lief.PE.Binary, path: Path) -> BinaryInfo:
             file_offset=raw_offset,
             raw_size=raw_size,
         )
+        if section.has_characteristic(exec_flag):
+            exec_names.append(name)
 
         if name == ".text":
             text_va = va
             text_size = vsize
             text_raw_offset = raw_offset
+
+    if ".text" not in sections and exec_names:
+        # Borland, Delphi and Watcom name their code section `CODE` or
+        # `text`, not `.text`.  Without the alias below they keep
+        # `text_va == image_base` and `text_size == 0`, and every consumer
+        # that reads those (the FLIRT scan, the jump-table probe behind
+        # `_resolve_canonical_size`) sees an empty code region.  The ELF
+        # loader already aliases the largest executable section the same way.
+        best = max((sections[name] for name in exec_names), key=lambda sec: sec.size)
+        sections[".text"] = _text_alias(best)
+        text_va, text_size, text_raw_offset = best.va, best.size, best.file_offset
 
     return BinaryInfo(
         path=path,
