@@ -266,7 +266,7 @@ Status `open` unless noted. Promote to ROADMAP when scoped.
   with a 290,816-byte deliverable against the correct 286,720 / 8628.
   Feature: `rebrew build-check` (and a `rebrew doctor` clause) comparing
   `build.make`'s compile lines against CMake's own `flags.make` records —
-  already prototyped in-tree as `scripts/build_tree_check.py`, ~60 lines.
+  shipped as `src/rebrew/build_check.py`.
   Evidence: guild-rebrew `docs/workflow-traps.md` §20.
 
 - **Post-link failure messages should report the measurement, not one hypothesis.**

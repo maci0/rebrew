@@ -4,10 +4,11 @@ Measured facts about where rebrew's hot paths spend time, and what was done
 (and deliberately *not* done) about it.
 
 Every figure below carries the workload it was taken on, and the sections that
-have a committed gate name it. The host and the commit are not recorded:
-re-measure rather than trust a number, and `tools/bench_hotpaths.py` is the
-repeatable harness for the pure-Python rows (fixed seeds, `score_candidate`
-among them).
+have a committed gate name it. The host and the commit are not recorded, so
+re-measure rather than trust a number. The pure-Python rows are reproducible
+from `tools/bench_hotpaths.py` (fixed seeds, `score_candidate` among them):
+
+    uv run --frozen python tools/bench_hotpaths.py --bench ga_scoring --compare
 
 ## GA scoring hot loop (`score_candidate`)
 
