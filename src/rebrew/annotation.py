@@ -1107,7 +1107,6 @@ def parse_new_format(lines: list[str]) -> Annotation | None:
         if not in_annotation_block:
             continue
 
-        # Try to extract function name from C definition line.
         # Skip forward declarations (lines ending with ';') — only match
         # actual function definitions (lines ending with '{' or just a signature
         # without a semicolon).
@@ -1217,7 +1216,6 @@ def parse_new_format_multi(lines: list[str]) -> list[Annotation]:
                 current_kv["_INLINE_ERROR"] = stripped
             continue
 
-        # Collect key-value lines
         m2 = NEW_KV_RE.match(stripped) if is_comment else None
         if m2:
             key = m2.group("key").upper()
@@ -1237,7 +1235,6 @@ def parse_new_format_multi(lines: list[str]) -> list[Annotation]:
                 current_kv["_FUNC_NAME_HINT"] = m3.group("name")
                 continue
 
-        # Try to extract function name from C definition line.
         # Skip forward declarations (lines ending with ';') — only match
         # actual function definitions.  Only FUNCTION/LIBRARY/STUB blocks take
         # a C-definition name: a DATA/GLOBAL block followed by a function

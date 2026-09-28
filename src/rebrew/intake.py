@@ -228,11 +228,9 @@ def classify_all(
             continue
         prev_blocker = str(prev.get("blocker") or "")
         fields: dict[str, Any] = {}
-        if prev_blocker and prev_blocker != reason:
-            # A user-supplied blocker survives re-runs; only the auto reason
-            # for a fresh/unblocked stub is written.
-            pass
-        else:
+        # A user-supplied blocker survives re-runs; only the auto reason
+        # for a fresh/unblocked stub is written.
+        if not prev_blocker or prev_blocker == reason:
             fields["blocker"] = reason
         # Record the disassembly-derived size in metadata: a documented stub
         # without a SIZE is untestable (rebrew test refuses "Invalid SIZE: 0",

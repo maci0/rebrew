@@ -263,8 +263,6 @@ def validate(*, quiet: bool = False) -> bool:
                 errors.append(err)
                 if not quiet:
                     print(f"FAIL  {err}")
-            elif not quiet:
-                pass  # verbose success suppressed by default
 
     if not quiet:
         print(

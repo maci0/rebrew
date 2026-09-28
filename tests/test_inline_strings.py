@@ -158,10 +158,6 @@ class TestDefineRemaining:
         assert 'char s_msg_10027000[3] = "hi";' in text
 
 
-if __name__ == "__main__":
-    pass
-
-
 class TestEncodingSafety:
     def test_inline_uses_preserves_source_encoding(self, tmp_path: Path) -> None:
         """A legacy-encoded source must not be rewritten as UTF-8."""

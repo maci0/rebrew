@@ -32,7 +32,6 @@ def build_catalog_data(cfg: Any, *, with_data: bool = True) -> dict[str, Any]:
     console.print(f"Scanning {reversed_dir}...", style="dim")
     entries = scan_reversed_dir(reversed_dir, cfg=cfg)
 
-    # Load the discovery inventory
     funcs = cached_function_list(cfg)
 
     # The .text size drives the coverage percentage.  With no binary there
