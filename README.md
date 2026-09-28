@@ -159,6 +159,18 @@ except ToolchainError as exc:
     # Branch on exc.kind / exc.name / exc.retryable — not message substrings.
     raise
 
+# The legal profile names are the registry, not a hardcoded list. TOOLCHAINS
+# maps name -> ToolchainSpec, so a consumer can enumerate and inspect them
+# with attributes rather than parsing `rebrew toolchain list` output:
+from rebrew.toolchain import TOOLCHAINS, get_toolchain
+
+for name, spec in sorted(TOOLCHAINS.items()):
+    print(name, spec.family, spec.bits, spec.obj_ext, spec.image)
+
+# `list_toolchains()` is the other view of the same table: `rebrew toolchain
+# list --json` prints it verbatim, as a list of dicts. Reach for it when you
+# want the origin and the docker-present flag alongside each row.
+
 # Byte-level matching uses the same entry as the CLI:
 #   from rebrew.compile import CompareResult, CompareStatus, compile_and_compare
 #   result = compile_and_compare(cfg, source_path, symbol, target_bytes, cflags)

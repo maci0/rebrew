@@ -164,6 +164,12 @@
   `RebrewError, RuntimeError` and are importable from `rebrew.errors`.
 
 ### Fixed
+- **`rebrew toolchain list` asks docker once, not once per toolchain.**
+  `list_toolchains` read `docker_available()` inside the row comprehension
+  and that helper memoizes only a positive answer, so a present docker CLI
+  against an unresponsive daemon made the listing pay the 15 s `docker info`
+  timeout for every registered toolchain. The probe is hoisted out of the
+  comprehension; the rows and the CLI's `--json` output are unchanged.
 - **The dashboard API spec declares the headers a rejected call actually
   carries, and names the rejections that never reach a route.** The 400,
   404 and 500 response components declared no headers at all, while the

@@ -1292,7 +1292,14 @@ def run_toolchain(
 
 
 def list_toolchains() -> list[dict[str, Any]]:
-    """Registry view for `rebrew toolchain list --json`."""
+    """Registry view for `rebrew toolchain list --json`.
+
+    The docker answer is probed once for the whole table, not once per row:
+    ``docker_available`` memoizes only a positive result, so with the CLI
+    present and the daemon unresponsive every row used to pay another
+    ``docker info`` up to its 15 s timeout.
+    """
+    docker = docker_available()
     return [
         {
             "name": s.name,
@@ -1304,7 +1311,7 @@ def list_toolchains() -> list[dict[str, Any]]:
             "host_path": str(s.host_path) if s.host_path else None,
             "description": s.description,
             "origin": TOOLCHAIN_ORIGINS.get(s.name, "packaged"),
-            "docker": docker_available(),
+            "docker": docker,
         }
         for s in TOOLCHAINS.values()
     ]

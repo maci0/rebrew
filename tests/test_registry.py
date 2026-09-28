@@ -1392,6 +1392,27 @@ class TestToolchainOrigin:
         assert rows["mytc"]["origin"] == f"data-file {overlay / 'mytc.toml'}"
         assert rows["msvc-6.0"]["origin"] == "packaged"
 
+    def test_docker_probed_once_for_the_whole_table(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """One `docker info` per listing, not one per toolchain.
+
+        `docker_available` memoizes only a positive answer, so a present CLI
+        against an unresponsive daemon re-probes every call; a per-row probe
+        made the listing pay that timeout once per registered toolchain.
+        """
+        import rebrew.toolchain as toolchain
+
+        probes: list[int] = []
+
+        def fake_available() -> bool:
+            probes.append(1)
+            return False
+
+        monkeypatch.setattr(toolchain, "docker_available", fake_available)
+        rows = toolchain.list_toolchains()
+        assert probes == [1]
+        assert len(rows) == len(toolchain.TOOLCHAINS)
+        assert all(row["docker"] is False for row in rows)
+
 
 class TestToolchainRegistryConcurrency:
     """A refresh must publish a new generation, never edit the live one.
