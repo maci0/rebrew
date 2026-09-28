@@ -69,12 +69,19 @@ def _fake_entry_points(**groups: list[tuple[str, str]]) -> Any:
     return _entry_points
 
 
-def _install_fake_module(name: str, **attrs: Any) -> types.ModuleType:
-    """Insert an importable fake module into sys.modules (importlib hits it)."""
+def _install_fake_module(
+    monkeypatch: pytest.MonkeyPatch, name: str, **attrs: Any
+) -> types.ModuleType:
+    """Insert an importable fake module into sys.modules (importlib hits it).
+
+    Registered through ``monkeypatch.setitem`` so the entry is gone again when
+    the test ends: a bare ``sys.modules[name] = mod`` leaves every fake plugin
+    importable for the rest of the session.
+    """
     mod = types.ModuleType(name)
     for k, v in attrs.items():
         setattr(mod, k, v)
-    sys.modules[name] = mod
+    monkeypatch.setitem(sys.modules, name, mod)
     return mod
 
 
@@ -408,6 +415,7 @@ class TestToolchainRegistry:
 
         monkeypatch.delenv("REBREW_TOOLCHAIN_OVERLAY_DIR", raising=False)
         _install_fake_module(
+            monkeypatch,
             "tc_provider_test",
             provider=lambda: {"plugtc": ToolchainSpec(name="plugtc", image=None, binary="pcc")},
         )
@@ -425,6 +433,7 @@ class TestToolchainRegistry:
 
         monkeypatch.delenv("REBREW_TOOLCHAIN_OVERLAY_DIR", raising=False)
         _install_fake_module(
+            monkeypatch,
             "tc_provider_conflict",
             provider=lambda: {"msvc-6.0": ToolchainSpec(name="msvc-6.0", image=None, binary="cl")},
         )
@@ -445,7 +454,7 @@ class TestDecompilerRegistry:
         def _fake_backend(binary: Path, va: int, root: Path, **_kwargs: Any) -> str | None:
             return None
 
-        _install_fake_module("backend_provider_test", backend=_fake_backend)
+        _install_fake_module(monkeypatch, "backend_provider_test", backend=_fake_backend)
         monkeypatch.setattr(
             "rebrew.registry.entry_points",
             _fake_entry_points(
@@ -465,7 +474,7 @@ class TestDecompilerRegistry:
         def _fake_backend(binary: Path, va: int, root: Path, **_kwargs: Any) -> str | None:
             return None
 
-        _install_fake_module("backend_provider_dup", backend=_fake_backend)
+        _install_fake_module(monkeypatch, "backend_provider_dup", backend=_fake_backend)
         monkeypatch.setattr(
             "rebrew.registry.entry_points",
             _fake_entry_points(
@@ -532,7 +541,7 @@ class TestMutationRegistry:
         def _mut_plugin(s: str, rng: Any) -> str | None:
             return None
 
-        _install_fake_module("mutation_provider_test", mut_fn=_mut_plugin)
+        _install_fake_module(monkeypatch, "mutation_provider_test", mut_fn=_mut_plugin)
         monkeypatch.setattr(
             "rebrew.registry.entry_points",
             _fake_entry_points(
@@ -566,7 +575,7 @@ class TestMutationRegistry:
             mutator.mutate_code(src, random.Random(1), mutation_weights=weights)
             assert calls == []
 
-            _install_fake_module("mutation_weight_test", mut_fn=_mut_plugin)
+            _install_fake_module(monkeypatch, "mutation_weight_test", mut_fn=_mut_plugin)
             monkeypatch.setattr(
                 "rebrew.registry.entry_points",
                 _fake_entry_points(
@@ -616,7 +625,7 @@ class TestMutationRegistry:
         def _mut_plugin(s: str, rng: Any) -> str | None:
             return None
 
-        _install_fake_module("mutation_provider_dup", mut_fn=_mut_plugin)
+        _install_fake_module(monkeypatch, "mutation_provider_dup", mut_fn=_mut_plugin)
         monkeypatch.setattr(
             "rebrew.registry.entry_points",
             _fake_entry_points(
@@ -636,7 +645,7 @@ class TestMutationRegistry:
     def test_module_without_attr_skipped(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.matcher.mutator import _merge_entry_point_mutations
 
-        _install_fake_module("mutation_provider_mod")
+        _install_fake_module(monkeypatch, "mutation_provider_mod")
         monkeypatch.setattr(
             "rebrew.registry.entry_points",
             _fake_entry_points(**{"rebrew.mutations": [("mut_x", "mutation_provider_mod")]}),
@@ -761,7 +770,7 @@ class TestCliRegistry:
         """A module:attr plugin of the wrong kind (non-callable single
         command) degrades to a stub instead of bricking registration."""
         fresh = typer.Typer()
-        _install_fake_module("wrong_kind_plugin", not_a_command=42)
+        _install_fake_module(monkeypatch, "wrong_kind_plugin", not_a_command=42)
         monkeypatch.setattr(
             "rebrew.registry.entry_points",
             _fake_entry_points(
@@ -779,7 +788,7 @@ class TestCliRegistry:
     ) -> None:
         """A non-Typer-app object in rebrew.multicommands degrades to a stub."""
         fresh = typer.Typer()
-        _install_fake_module("wrong_kind_multi", not_an_app=42)
+        _install_fake_module(monkeypatch, "wrong_kind_multi", not_an_app=42)
         monkeypatch.setattr(
             "rebrew.registry.entry_points",
             _fake_entry_points(
@@ -803,7 +812,7 @@ class TestFlagSetRegistry:
                 )
             }
 
-        _install_fake_module("flag_provider_test", provider=_provider)
+        _install_fake_module(monkeypatch, "flag_provider_test", provider=_provider)
         monkeypatch.setattr(
             "rebrew.registry.entry_points",
             _fake_entry_points(**{"rebrew.flag_sets": [("p", "flag_provider_test:provider")]}),
@@ -923,7 +932,7 @@ class TestFlagSetRegistry:
     def test_bad_provider_skipped(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.matcher import compiler
 
-        _install_fake_module("flag_provider_bad", provider=lambda: [1, 2])
+        _install_fake_module(monkeypatch, "flag_provider_bad", provider=lambda: [1, 2])
         monkeypatch.setattr(
             "rebrew.registry.entry_points",
             _fake_entry_points(**{"rebrew.flag_sets": [("p", "flag_provider_bad:provider")]}),
@@ -937,7 +946,7 @@ class TestLibraryPresetRegistry:
         def _provider() -> dict[str, dict[str, str]]:
             return {"my-runtime": {"toolchain": "mytc", "cflags": "-O2"}}
 
-        _install_fake_module("preset_provider_test", provider=_provider)
+        _install_fake_module(monkeypatch, "preset_provider_test", provider=_provider)
         monkeypatch.setattr(
             "rebrew.registry.entry_points",
             _fake_entry_points(
@@ -988,7 +997,7 @@ class TestToolchainDetectorRegistry:
         def _provider() -> dict[str, list[str]]:
             return {"msvc": ["mytc"], "delphi": ["mytc"]}
 
-        _install_fake_module("detector_provider_test", provider=_provider)
+        _install_fake_module(monkeypatch, "detector_provider_test", provider=_provider)
         monkeypatch.setattr(
             "rebrew.registry.entry_points",
             _fake_entry_points(
@@ -1013,7 +1022,9 @@ class TestToolchainDetectorRegistry:
     def test_bad_provider_skipped(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.toolchain_detect import _merged_profile_compat
 
-        _install_fake_module("detector_provider_bad", provider=lambda: {"msvc": "nope"})
+        _install_fake_module(
+            monkeypatch, "detector_provider_bad", provider=lambda: {"msvc": "nope"}
+        )
         monkeypatch.setattr(
             "rebrew.registry.entry_points",
             _fake_entry_points(
@@ -1058,8 +1069,8 @@ class TestDetectionTablesSnapshot:
         def _version_provider() -> dict[str, list[str]]:
             return {"linker:12.0": ["mytc2"], "build:9999": ["mytc2"]}
 
-        _install_fake_module("detector_pair_a", provider=_detector_provider)
-        _install_fake_module("detector_pair_b", provider=_version_provider)
+        _install_fake_module(monkeypatch, "detector_pair_a", provider=_detector_provider)
+        _install_fake_module(monkeypatch, "detector_pair_b", provider=_version_provider)
         monkeypatch.setattr(
             "rebrew.registry.entry_points",
             _fake_entry_points(
@@ -1146,7 +1157,7 @@ class TestBinaryDetectorRegistry:
                 )
             return None
 
-        _install_fake_module("detector_fn_test", detect=_detect)
+        _install_fake_module(monkeypatch, "detector_fn_test", detect=_detect)
         monkeypatch.setattr(
             "rebrew.registry.entry_points",
             _fake_entry_points(
@@ -1174,7 +1185,7 @@ class TestBinaryDetectorRegistry:
     def test_non_callable_detector_skipped(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import rebrew.toolchain_detect as td
 
-        _install_fake_module("detector_fn_bad", detect="not-callable")
+        _install_fake_module(monkeypatch, "detector_fn_bad", detect="not-callable")
         monkeypatch.setattr(
             "rebrew.registry.entry_points",
             _fake_entry_points(**{"rebrew.binary_detectors": [("bad", "detector_fn_bad:detect")]}),
@@ -1236,7 +1247,7 @@ class TestMsvcVersionRegistry:
         def _provider() -> dict[str, list[str]]:
             return {"build:8168": ["mytc"], "linker:12.0": ["mytc"]}
 
-        _install_fake_module("msvc_ver_provider", provider=_provider)
+        _install_fake_module(monkeypatch, "msvc_ver_provider", provider=_provider)
         monkeypatch.setattr(
             "rebrew.registry.entry_points",
             _fake_entry_points(**{"rebrew.msvc_versions": [("p", "msvc_ver_provider:provider")]}),
@@ -1257,7 +1268,7 @@ class TestMsvcVersionRegistry:
     def test_bad_key_skipped(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import rebrew.toolchain_detect as td
 
-        _install_fake_module("msvc_ver_bad", provider=lambda: {"8168": ["mytc"]})
+        _install_fake_module(monkeypatch, "msvc_ver_bad", provider=lambda: {"8168": ["mytc"]})
         monkeypatch.setattr(
             "rebrew.registry.entry_points",
             _fake_entry_points(**{"rebrew.msvc_versions": [("p", "msvc_ver_bad:provider")]}),
@@ -1268,7 +1279,7 @@ class TestMsvcVersionRegistry:
     def test_empty_profiles_skipped(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import rebrew.toolchain_detect as td
 
-        _install_fake_module("msvc_ver_empty", provider=lambda: {"build:8168": []})
+        _install_fake_module(monkeypatch, "msvc_ver_empty", provider=lambda: {"build:8168": []})
         monkeypatch.setattr(
             "rebrew.registry.entry_points",
             _fake_entry_points(**{"rebrew.msvc_versions": [("p", "msvc_ver_empty:provider")]}),
@@ -1300,7 +1311,7 @@ class TestBinaryLoaderRegistry:
                 return BinaryInfo(path=path, format="plugin")
             return None
 
-        _install_fake_module("loader_plugin_test", load=_load)
+        _install_fake_module(monkeypatch, "loader_plugin_test", load=_load)
         monkeypatch.setattr(
             "rebrew.registry.entry_points",
             _fake_entry_points(**{"rebrew.binary_loaders": [("plug", "loader_plugin_test:load")]}),
@@ -1331,7 +1342,9 @@ class TestBinaryLoaderRegistry:
     ) -> None:
         import rebrew.binary_loader as bl
 
-        _install_fake_module("loader_plugin_dict", load=lambda path, fmt: {"format": "plugin"})
+        _install_fake_module(
+            monkeypatch, "loader_plugin_dict", load=lambda path, fmt: {"format": "plugin"}
+        )
         monkeypatch.setattr(
             "rebrew.registry.entry_points",
             _fake_entry_points(**{"rebrew.binary_loaders": [("dict", "loader_plugin_dict:load")]}),
@@ -1346,7 +1359,7 @@ class TestBinaryLoaderRegistry:
     def test_non_callable_loader_skipped(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import rebrew.binary_loader as bl
 
-        _install_fake_module("loader_plugin_bad", load="nope")
+        _install_fake_module(monkeypatch, "loader_plugin_bad", load="nope")
         monkeypatch.setattr(
             "rebrew.registry.entry_points",
             _fake_entry_points(**{"rebrew.binary_loaders": [("bad", "loader_plugin_bad:load")]}),
@@ -1410,7 +1423,7 @@ class TestCacheBackendRegistry:
         ) -> TestCacheBackendRegistry._MemoryBackend:
             return self._MemoryBackend(cache_dir, size_limit)
 
-        _install_fake_module("cache_backend_test", factory=_factory)
+        _install_fake_module(monkeypatch, "cache_backend_test", factory=_factory)
         monkeypatch.setattr(
             "rebrew.registry.entry_points",
             _fake_entry_points(
@@ -1434,7 +1447,7 @@ class TestCacheBackendRegistry:
     def test_plugin_conflict_skipped(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import rebrew.compile_cache as cc
 
-        _install_fake_module("cache_backend_dup", factory=lambda *a, **k: None)
+        _install_fake_module(monkeypatch, "cache_backend_dup", factory=lambda *a, **k: None)
         monkeypatch.setattr(
             "rebrew.registry.entry_points",
             _fake_entry_points(
@@ -1727,7 +1740,7 @@ class TestDecompilerAutoProbe:
 
         if marked:
             _fake_backend.__rebrew_auto_probe__ = True  # type: ignore[attr-defined]
-        _install_fake_module("backend_auto_test", backend=_fake_backend)
+        _install_fake_module(monkeypatch, "backend_auto_test", backend=_fake_backend)
         monkeypatch.setattr(
             "rebrew.registry.entry_points",
             _fake_entry_points(
@@ -1763,6 +1776,7 @@ class TestEntryPointProvenance:
 
         monkeypatch.delenv("REBREW_TOOLCHAIN_OVERLAY_DIR", raising=False)
         _install_fake_module(
+            monkeypatch,
             "prov_module_test",
             provider=lambda: {"plugtc": ToolchainSpec(name="plugtc", image=None, binary="pcc")},
         )
@@ -1924,7 +1938,7 @@ class TestRefreshAll:
         def _factory(cache_dir: Path, size_limit: int = 0) -> object:
             return None
 
-        _install_fake_module("cache_backend_refresh", factory=_factory)
+        _install_fake_module(monkeypatch, "cache_backend_refresh", factory=_factory)
         monkeypatch.setattr(
             "rebrew.registry.entry_points",
             _fake_entry_points(

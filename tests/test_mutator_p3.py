@@ -1,4 +1,9 @@
-"""Tests for Phase 3 mutation operators in rebrew.matcher.mutator."""
+"""C89 hoisting and Phase 3 mutation operators in rebrew.matcher.mutator.
+
+The operators themselves are covered in ``test_mutator.py``; what is unique
+here is that every mutation that introduces a declaration puts it at the top
+of the function body, which C89 requires.
+"""
 
 import random
 import re
@@ -10,12 +15,8 @@ from rebrew.matcher.mutator import (
     mut_extract_complex_args,
     mut_extract_condition_to_var,
     mut_introduce_temp_for_call,
-    mut_loop_condition_extraction,
     mut_loop_to_memcpy,
     mut_memcpy_to_loop,
-    mut_merge_nested_ifs,
-    mut_split_and_condition,
-    mut_split_or_condition,
     mut_toggle_dllimport,
     mut_widen_local_type,
 )
@@ -52,46 +53,7 @@ def _decl_before_first_stmt(result: str, decl_pattern: str) -> bool:
     )
 
 
-class TestSplitAndCondition:
-    def test_basic(self) -> None:
-        src = "if (a && b) {\n    x = 1;\n}"
-        res = mut_split_and_condition(src, _rng())
-        assert res is not None
-        assert "if (a) {\n        if (b) {\n    x = 1;\n}" in res
-
-    def test_no_match(self) -> None:
-        src = "if (a || b) {\n    x = 1;\n}"
-        assert mut_split_and_condition(src, _rng()) is None
-
-
-class TestSplitOrCondition:
-    def test_basic(self) -> None:
-        src = "if (a || b) {\n    x = 1;\n}"
-        res = mut_split_or_condition(src, _rng())
-        assert res is not None
-        assert "if (a) {\n    x = 1;\n}\n    else if (b) {\n    x = 1;\n}" in res
-
-    def test_no_match(self) -> None:
-        src = "if (a && b) {\n    x = 1;\n}"
-        assert mut_split_or_condition(src, _rng()) is None
-
-
-class TestMergeNestedIfs:
-    def test_basic(self) -> None:
-        src = "if (a) {\n    if (b) {\n        x = 1;\n    }\n}"
-        res = mut_merge_nested_ifs(src, _rng())
-        assert res is not None
-        assert "if ((a) && (b))" in res
-
-
-class TestExtractConditionToVar:
-    def test_basic(self) -> None:
-        src = "int f(int a, int b) {\n    if (a == b) {\n        x = 1;\n    }\n}"
-        res = mut_extract_condition_to_var(src, _rng())
-        assert res is not None
-        assert "int _cond_" in res
-        assert " = (a == b);" in res
-
+class TestC89ExtractConditionToVar:
     def test_c89_decl_hoisted(self) -> None:
         """Declaration must be at function body top, not inline before the if."""
         src = "int f(int a, int b) {\n    x = 0;\n    if (a == b) {\n        x = 1;\n    }\n}"
@@ -116,15 +78,6 @@ class TestExtractConditionToVar:
         assert res is not None
         # The declaration should be hoisted to the function body, not inside switch
         assert _decl_before_first_stmt(res, r"int _cond_\d+;")
-
-
-class TestLoopConditionExtraction:
-    def test_basic(self) -> None:
-        src = "while (a < b) {\n    x = 1;\n}"
-        res = mut_loop_condition_extraction(src, _rng())
-        assert res is not None
-        assert "while (1) {" in res
-        assert "if (!(a < b)) break;" in res
 
 
 # -------------------------------------------------------------------------
@@ -154,8 +107,10 @@ class TestC89IntroduceTempForCall:
         src = "int f() {\n    x = 0;\n    result = FuncA(a, b);\n    return result;\n}"
         res = mut_introduce_temp_for_call(src, _rng())
         assert res is not None
-        if "BOOL tmp;" in res:
-            assert _decl_before_first_stmt(res, r"BOOL tmp;")
+        # Unconditional: a hoisting regression that dropped the declaration
+        # entirely must fail here, not slip past a guarded assert.
+        assert "BOOL tmp;" in res, res
+        assert _decl_before_first_stmt(res, r"BOOL tmp;")
         # The assignment should be inline
         assert "tmp = FuncA(a, b);" in res
 
@@ -164,8 +119,13 @@ class TestC89IntroduceTempForCall:
         src = "int f() {\n    int tmp;\n    result = FuncA(a, b);\n    return result;\n}"
         res = mut_introduce_temp_for_call(src, _rng())
         assert res is not None
-        # Should NOT have a second declaration of tmp
-        assert res.count("BOOL tmp;") == 0
+        # The existing declaration is reused as-is: no BOOL redeclaration, and
+        # the number of tmp declarations is unchanged.
+        assert "BOOL tmp;" not in res
+        assert len(re.findall(r"^\s*(?:int|BOOL)\s+tmp;\s*$", res, re.M)) == 1, res
+        # The call still goes through the temp.
+        assert "tmp = FuncA(a, b);" in res
+        assert "result = tmp;" in res
 
 
 class TestC89VolatileIntermediate:
