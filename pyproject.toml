@@ -423,10 +423,10 @@ enable_error_code = [
 # regression would reach only at runtime) plus every tests/ module that already
 # passes --strict clean.  The rest of tests/ is still unchecked; add a module
 # here as it comes clean rather than relaxing the gate for the tree.
-# tests/test_check_sdist_wheel.py is clean but cannot be listed: `tests` is on
-# mypy_path, so its stem collides with tools/check_sdist_wheel.py and mypy
-# aborts with "Source file found twice under different module names", which
-# stops it from checking anything after the collision.
+# Every clean tests/ module is listed, test_check_sdist_wheel.py included: the
+# "Source file found twice under different module names" abort that used to
+# keep it out does not reproduce, and with it listed `uv run mypy` checks 323
+# files and reports the findings it did before.
 files = [
     "src/rebrew",
     "tools",
@@ -445,6 +445,7 @@ files = [
     "tests/test_catalog.py",
     "tests/test_catalog_registry.py",
     "tests/test_catalog_resilience.py",
+    "tests/test_check_sdist_wheel.py",
     "tests/test_cfg_ged.py",
     "tests/test_cli_visual.py",
     "tests/test_coff_reloc.py",

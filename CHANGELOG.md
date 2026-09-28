@@ -326,6 +326,12 @@
   the same budget instead of a second number.
 
 ### Changed
+- **`tests/test_check_sdist_wheel.py` is type-checked.** It was the one
+  `tests/` module already clean under `--strict` that the mypy file list left
+  out, on a recorded "Source file found twice under different module names"
+  abort that no longer reproduces: with the module listed, `make mypy` checks
+  323 files and reports what it did before. The ratchet is now at every clean
+  module in the tree.
 - **Breaking:** **`theme.TOKENS` is one size ladder, not a per-component
   scale.** `rebrew.theme.TOKENS` dropped `size-bar` and moved every other
   `size-*` entry onto a 24/20/18 display and 15/14/13 text ladder, so a
