@@ -441,6 +441,10 @@ paths:
       tags: [database]
       operationId: getGlobals
       summary: Paged global data rows for one target, ordered by address.
+      description: |
+        Ordered by address.  `q` matches the global's name and its address
+        exactly; unlike `/api/functions`, a global carries no linkage symbol,
+        so there is no second text column to match.
       parameters:
         - $ref: "#/components/parameters/Target"
         - $ref: "#/components/parameters/Module"
@@ -577,6 +581,7 @@ components:
         outside the schema below is 400 `invalid_status` rather than an empty
         page, which would read as "this target has no functions in that
         status".  A blank value (`status=`) does not filter, like omitting it.
+        A repeated parameter takes its first value.
       schema:
         anyOf:
           - $ref: "#/components/schemas/FilterStatus"
@@ -602,7 +607,8 @@ components:
         functions).  A hex number of four or more digits, with or without a
         `0x` prefix, also matches that virtual address exactly.  LIKE
         wildcards are escaped.  Surrounding whitespace is trimmed, so a blank
-        value is no filter, like omitting it.
+        value is no filter, like omitting it.  A repeated parameter takes its
+        first value.
       schema: { type: string }
     Limit:
       name: limit

@@ -25,6 +25,7 @@ from typing import Any
 import pytest
 from typer.testing import CliRunner
 
+from rebrew import dashboard as dashboard_module
 from rebrew.build_db import build_db
 from rebrew.coverage_toml import CoverageSnapshot, CoverageTomlError
 from rebrew.dashboard import (
@@ -995,6 +996,60 @@ class TestHandle:
             status, _, body = dashboard.handle("GET", path, {"target": ["nope"]})
             assert status == 404, path
             assert "unknown target" in json.loads(body)["error"]
+
+    def test_every_known_route_dispatches_to_its_own_payload(
+        self, dashboard: Dashboard, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A served path answers with its own resource, never a neighbour's.
+
+        ``_KNOWN_ROUTES`` is the 404-vs-405 decision, so a new entry in
+        ``_TARGET_ROUTES`` reaches the dispatcher without a branch of its own.
+        With the branch sequence ending in ``/api/history``, such a path
+        answered 200 with history rows under the requested path's name: a
+        silent wrong answer, not a visible failure.  Each route's own key is
+        what pins the dispatch, plus a path added to the known set here would
+        404 rather than borrow a payload.
+        """
+        unscoped = [
+            ("/api/health", "status", "targets[]"),
+            ("/api/targets", "targets", "summary"),
+            ("/api/bootstrap", "summary", None),
+        ]
+        for path, key, absent in unscoped:
+            status, _, body = dashboard.handle("GET", path, {})
+            assert status == 200, path
+            payload = json.loads(body)
+            assert key in payload, path
+            if absent is not None:
+                assert absent not in payload, path
+        for path in ("/", "/app.js"):
+            assert dashboard.handle("GET", path, {})[0] == 200, path
+        for path, key in (
+            ("/api/summary", "function_stats"),
+            ("/api/functions", "functions"),
+            ("/api/sections", "sections"),
+            ("/api/globals", "globals"),
+            ("/api/history", "history"),
+        ):
+            status, _, body = dashboard.handle("GET", path, {"target": ["server_dll"]})
+            assert status == 200, path
+            assert key in json.loads(body), path
+        # A path the dispatcher has no branch for answers 404 `not_found`,
+        # never 500 `internal_error` and never another route's payload.
+        assert dashboard.handle("GET", "/api/wide", {"target": ["server_dll"]})[0] == 404
+        status, _, body = dashboard.handle("GET", "/api/wide", {"target": ["server_dll"]})
+        assert json.loads(body)["code"] == "not_found"
+        # The regression itself: a path added to the known set with no branch
+        # of its own used to fall through to the last branch and answer 200
+        # with ``/api/history``'s rows.
+        monkeypatch.setattr(
+            dashboard_module, "_KNOWN_ROUTES", dashboard_module._KNOWN_ROUTES | {"/api/wide"}
+        )
+        monkeypatch.setattr(
+            dashboard_module, "_TARGET_ROUTES", dashboard_module._TARGET_ROUTES | {"/api/wide"}
+        )
+        status, _, body = dashboard.handle("GET", "/api/wide", {"target": ["server_dll"]})
+        assert (status, json.loads(body)["code"]) == (404, "not_found")
 
     def test_every_error_body_carries_a_code(self, dashboard: Dashboard) -> None:
         """A client branches on ``code``; ``error`` stays the human text."""

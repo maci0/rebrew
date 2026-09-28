@@ -2338,14 +2338,27 @@ class Dashboard:
                         offset=_offset_param(query, "offset", 0),
                     ),
                 )
-            return self._json(
-                200,
-                self.history(
-                    target,
-                    limit=_int_param(query, "limit", _DEFAULT_LIMIT),
-                    offset=_offset_param(query, "offset", 0),
-                ),
-            )
+            # Named, not a fall-through: a path that reaches here is in
+            # ``_KNOWN_ROUTES`` and not one of the branches above, so the
+            # unguarded tail this replaces would have served ``/api/history``'s
+            # rows under whatever path the client asked for.  That is a silent
+            # wrong answer rather than a visible failure, and the only way it
+            # happens is a new entry in ``_TARGET_ROUTES`` with no branch.
+            if parsed.path == "/api/history":
+                return self._json(
+                    200,
+                    self.history(
+                        target,
+                        limit=_int_param(query, "limit", _DEFAULT_LIMIT),
+                        offset=_offset_param(query, "offset", 0),
+                    ),
+                )
+            # Unreachable while ``_KNOWN_ROUTES`` and these branches agree.
+            # 404 rather than a raise: the client asked for a path this server
+            # does not serve, which is exactly what the 404 above the 405
+            # answers, and an exception here would surface as 500
+            # ``internal_error`` for a client-side mistake.
+            return self._error(404, "not_found", f"no such endpoint {parsed.path!r}")
 
     @staticmethod
     def _json(status: int, payload: dict[str, Any]) -> tuple[int, str, str]:
