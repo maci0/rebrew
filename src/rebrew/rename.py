@@ -27,6 +27,7 @@ from rebrew.rename_ops import (
     rename_function_everywhere,
     substitute_name,
 )
+from rebrew.sources import contained_path, source_roots
 from rebrew.utils import is_safe_c_ident, rel_display_path
 
 # MSVC stdcall decoration (`foo@8`) — strip before matching C identifiers.
@@ -430,7 +431,16 @@ def _rename_data(
             f"DATA/GLOBAL '{old_name}' has no source file — cannot rewrite references.",
             json_mode=json_output,
         )
-    filepath = cfg.reversed_dir / old_fp
+    # old_fp is metadata-supplied (MARKER_IDENTITY_FIELDS carries "file"),
+    # so it is joined through the shared containment validator: an absolute or
+    # "../" value would put the rewrite outside the source roots.  Same rule
+    # as the function path in main(), one shared validator (sources.contained_path).
+    filepath = contained_path(source_roots(cfg), old_fp)
+    if filepath is None:
+        error_exit(
+            f"function file escapes the source roots: {old_fp!r}",
+            json_mode=json_output,
+        )
     try:
         files = collect_matching_files(cfg, filepath, pattern)
     except RenameError as exc:

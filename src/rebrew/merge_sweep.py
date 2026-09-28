@@ -445,10 +445,16 @@ class _PartitionScorer:
     def _real_source_dir(self, va: int) -> Path:
         """Directory holding *va*'s real source file (override resolution root)."""
         ann = self._annotations.get(va)
-        path = Path(getattr(ann, "filepath", "") or "")
-        if not path.is_absolute():
-            path = self._cfg.reversed_dir / path
-        return path.parent
+        rel = str(getattr(ann, "filepath", "") or "")
+        # The stored path is metadata-supplied and the walk-up that follows
+        # reads a rebrew-libraries.toml at every level, so it must not start
+        # outside the source roots: an escaping value would pick up a
+        # libraries file the tree author does not own and hand its flags to
+        # the compiler.  Unresolvable falls back to the display base.
+        resolved = contained_path(source_roots(self._cfg), rel) if rel else None
+        if resolved is None:
+            resolved = Path(self._cfg.reversed_dir)
+        return resolved.parent
 
     def _cluster_overrides(self, cluster: list[int]) -> tuple[str | None, str]:
         """Effective (toolchain, cflags) for one merged TU.

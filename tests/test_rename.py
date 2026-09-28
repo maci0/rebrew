@@ -704,6 +704,44 @@ class TestRenameData:
         assert get_data_entry(tmp_path, 0x313FC, "SERVER").get("name") == "$SG18890"
         assert "$SG18890" in locked.read_text(encoding="utf-8")
 
+    def test_rename_data_source_file_outside_source_roots_errors(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """A data entry's metadata filepath escaping the source roots must fail
+        before any write: the value is joined onto reversed_dir and then read
+        and rewritten, so a `../` value would edit a file outside the tree."""
+        from types import SimpleNamespace
+
+        import typer as _typer
+        from typer.testing import CliRunner
+
+        from rebrew.data_metadata import get_data_entry
+        from rebrew.rename import main as _rename_main
+
+        app = _typer.Typer()
+        app.command()(_rename_main)
+
+        self._project(tmp_path)
+        outside = tmp_path.parent / "outside_data_rename.c"
+        outside.write_text("int g_old;\n", encoding="utf-8")
+        entries = [
+            SimpleNamespace(
+                name="g_old",
+                symbol="g_old",
+                filepath="../../outside_data_rename.c",
+                va=0x2000,
+                module="SERVER",
+                is_data=True,
+            )
+        ]
+        monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: self._cfg(tmp_path))
+        monkeypatch.setattr("rebrew.rename.scan_reversed_dir", lambda *a, **kw: entries)
+        res = CliRunner().invoke(app, ["g_old", "g_new", "--data"])
+        assert res.exit_code != 0
+        assert "escapes the source roots" in res.output
+        assert outside.read_text(encoding="utf-8") == "int g_old;\n"
+        assert get_data_entry(tmp_path, 0x2000, "SERVER").get("name") == "g_old"
+
     def test_rename_data_collision_refused(self, tmp_path: Path, monkeypatch) -> None:
         import typer as _typer
         from typer.testing import CliRunner
