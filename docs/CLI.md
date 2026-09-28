@@ -2341,7 +2341,7 @@ document; `rebrew build-db` does, afterwards.
 |------|-------------|
 | `--toolchain NAME` | Compiler profile (default: auto-detected) |
 | `-t NAME` / `--target NAME` | Target name (default: binary stem) |
-| `--dry-run` | Preview the onboarding without writing — runs the discoverers (read-only) and reports how many functions would be documented |
+| `--dry-run` | Preview the onboarding without writing — runs the discoverers (read-only) and reports how many functions would be enumerated. The documented subset is `null` in the JSON: classifying writes a per-function `SIZE`, so a real run is the only thing that can report it |
 | `--json` | Structured JSON result |
 
 Intake fails (exit 2) when no discoverer yields **any** function — a missing

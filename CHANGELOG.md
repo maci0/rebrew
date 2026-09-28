@@ -49,6 +49,22 @@
   `docs/COVERAGE_DOCUMENT.md` and `docs/THREAT_MODEL.md` document the field.
 
 ### Fixed
+- **`rebrew intake --dry-run --json` no longer reports `documented: 0`.** The
+  preview runs the discoverers and reports the real function count, then
+  emitted a zero for the documented subset that only a real run can classify
+  (classifying writes a per-function `SIZE`), so a consumer reading the JSON
+  saw "none of them would be documented" beside a non-zero count. The key is
+  now `null`, and the human line says "enumerated", which is what the preview
+  actually measured. `docs/CLI.md` documents it.
+- **A header edit invalidates a verify-cache entry within the same process.**
+  `entry_fingerprint` had gained a per-file memo whose key named the source
+  and the config but not the headers, so an edit to a reached header left
+  `headers_fp` frozen for the rest of the run and `verify` reported the entry
+  as cached when it was not. The steps the memo wrapped are already memoized
+  where their inputs can change (the source body on its stat identity, the
+  resolved overrides, the include closure on the reached headers' stats), so
+  the assembly is now recomputed per call and the per-process freshness
+  `header_dependency_hash` documents is preserved.
 - **The coverage grid counts PROVEN functions.** `count_statuses` returns
   five status buckets and its caller unpacked four, so the PROVEN count
   `_STATUS_PRIORITY` reserves a bucket for was dropped on the floor: a

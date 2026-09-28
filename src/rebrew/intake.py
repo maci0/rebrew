@@ -486,31 +486,22 @@ def main(
 
     if dry_run:
         # Preview mode: enumerate functions too (discoverers are read-only
-        # — no writes happen), so the preview tells the user how
-        # many functions would actually be documented instead of a thin 0.
+        # — no writes happen), so the preview tells the user how many
+        # functions intake would find.  It stops there: `classify_all` writes
+        # a per-function SIZE while it classifies, so the documented subset is
+        # unknown until a real run, and a 0 in the payload would read as "none
+        # of them would be documented" next to the same payload's own count.
         funcs = _enumerate_functions(bin_path)
         preview_count = len(funcs)
-        result = IntakeResult(
-            target=target_name,
-            binary=bin_path,
-            profile=profile,
-            family=family,
-            version_hint=hint,
-            function_count=preview_count,
-            documented=0,
-            errors=[],
-        )
         payload = {
             "dry_run": True,
-            "target": result.target,
-            "binary": str(result.binary),
-            "profile": result.profile,
-            "family": result.family,
-            "version_hint": result.version_hint,
+            "target": target_name,
+            "binary": str(bin_path),
+            "profile": profile,
+            "family": family,
+            "version_hint": hint,
             "function_count": preview_count,
-            # Nothing is written on a preview, so this is 0; the key is here
-            # because the real payload emits it for the same result object.
-            "documented": result.documented,
+            "documented": None,
             "notes": notes,
             "actions": [
                 "rebrew init --target <name> --binary <name>.exe --toolchain <profile>",
@@ -525,8 +516,8 @@ def main(
         else:
             console.print("[cyan]dry-run:[/cyan] would onboard this binary:")
             console.print(
-                f"  target={result.target} profile={result.profile} family={result.family}"
-                f" — {preview_count} function(s) would be documented"
+                f"  target={target_name} profile={profile} family={family}"
+                f" — {preview_count} function(s) would be enumerated"
             )
             for note in notes:
                 console.print(f"  [yellow]note:[/yellow] {note}")

@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import os
 import threading
 from collections import OrderedDict
 from dataclasses import dataclass
@@ -29,10 +28,6 @@ log = logging.getLogger(__name__)
 #: CFLAGS strings are a handful of distinct values across a batch, so the
 #: tokenization behind every entry fingerprint is memoized on the raw string.
 _FLAG_SPLIT_CACHE_MAX = 256
-
-#: Bound on :data:`_FILE_IDENTITY_MEMO`, sized for a large project's source
-#: tree so a batch never evicts an entry it will ask for again.
-_FILE_IDENTITY_MEMO_MAX = 4096
 
 #: Guard for :data:`_HEADERS_HASH_CACHE`.  Eviction is clear-then-store on a
 #: shared dict; concurrent ``headers_hash`` callers (parallel saves / tests /
@@ -59,91 +54,23 @@ class EntryFingerprint:
     mtime_ns: int
 
 
-#: What one source file contributes to the cache identity of every entry in
-#: it.  A merged multi-function TU shares one file, so this is computed once
-#: per (file, flags) rather than once per function.
-_FileIdentity = tuple[str, str, str, str, str, int]
-
-#: Bounded memo for :func:`_file_identity`.  The key names every field the
-#: computation reads besides the resolved overrides (which carry their own
-#: memo in ``compile_overrides``), plus the source's ``(path, mtime_ns, size,
-#: ino)`` stat identity, so an edit mid-run recomputes instead of serving the
-#: previous value.  Each value pins its ``cfg``, so the ``id(cfg)`` component
-#: of the key can never name a reused address.
-_FILE_IDENTITY_MEMO: OrderedDict[Any, tuple[ProjectConfig, _FileIdentity | None]] = OrderedDict()
-_FILE_IDENTITY_LOCK = threading.Lock()
-
-
-def _file_identity(
-    cfg: ProjectConfig,
-    filepath: Path,
-    entry: Any,
-    st: os.stat_result,
-) -> _FileIdentity | None:
-    """``(toolchain, cflags, defines, headers_fp, source_hash, mtime_ns)``."""
-    from rebrew.compile_overrides import resolve_compile_overrides_cached
-
-    resolved = str(filepath.resolve())
-    key = (
-        id(cfg),
-        str(getattr(cfg, "root", "") or ""),
-        str(getattr(cfg, "compiler_includes", "") or ""),
-        getattr(cfg, "base_cflags", "") or "",
-        str(getattr(cfg, "shared_dir", "") or ""),
-        getattr(cfg, "compiler_profile", "") or "",
-        getattr(cfg, "cflags", "") or "",
-        bool(getattr(cfg, "cflags_explicit", False)),
-        bool(getattr(cfg, "posix_style", False)),
-        tuple(sorted((getattr(cfg, "cflags_presets", None) or {}).items())),
-        "\x00".join(sorted(getattr(cfg, "defines", None) or [])) or "(none)",
-        resolved,
-        st.st_mtime_ns,
-        st.st_size,
-        st.st_ino,
-        str(filepath.parent),
-        getattr(entry, "toolchain", "") or "",
-        getattr(entry, "cflags", "") or "",
-        getattr(entry, "module", "") or "",
-    )
-    with _FILE_IDENTITY_LOCK:
-        hit = _FILE_IDENTITY_MEMO.get(key)
-        if hit is not None:
-            _FILE_IDENTITY_MEMO.move_to_end(key)
-            return hit[1]
-    try:
-        source_bytes, source_digest = _source_body(resolved, st.st_mtime_ns, st.st_size, st.st_ino)
-    except OSError:
-        identity: _FileIdentity | None = None
-    else:
-        toolchain, cflags = resolve_compile_overrides_cached(
-            cfg,
-            filepath.parent,
-            getattr(entry, "toolchain", "") or "",
-            getattr(entry, "cflags", "") or "",
-            getattr(entry, "module", "") or "",
-        )
-        identity = (
-            toolchain or DEFAULT_TOOLCHAIN,
-            cflags,
-            "\x00".join(sorted(getattr(cfg, "defines", None) or [])) or "(none)",
-            entry_headers_fp(cfg, filepath, cflags, source_bytes=source_bytes),
-            source_digest,
-            st.st_mtime_ns,
-        )
-    with _FILE_IDENTITY_LOCK:
-        _FILE_IDENTITY_MEMO[key] = (cfg, identity)
-        _FILE_IDENTITY_MEMO.move_to_end(key)
-        while len(_FILE_IDENTITY_MEMO) > _FILE_IDENTITY_MEMO_MAX:
-            _FILE_IDENTITY_MEMO.popitem(last=False)
-    return identity
-
-
 def entry_fingerprint(cfg: ProjectConfig, entry: Any) -> EntryFingerprint | None:
     """Compute the cache identity for *entry*, or None when unreadable.
 
     Returns None when the entry has no source path or the file cannot be
     read — the caller treats that as a cache miss, never a hit.
+
+    Every step is already memoized at the granularity where its inputs can
+    change (the source body on its stat identity, the resolved overrides in
+    ``compile_overrides``, the include closure on the reached headers' stats
+    in ``compile_cache``).  Memoizing the assembled fingerprint as well buys
+    nothing and costs correctness: a per-file key that named the source and
+    the config but not the headers would serve a stale ``headers_fp`` for
+    the rest of the process, which is the one input a long ``verify`` run can
+    see change under it.
     """
+    from rebrew.compile_overrides import resolve_compile_overrides_cached
+
     relative_path = getattr(entry, "filepath", "") or ""
     if not relative_path:
         return None
@@ -152,25 +79,28 @@ def entry_fingerprint(cfg: ProjectConfig, entry: Any) -> EntryFingerprint | None
         st = filepath.stat()
     except OSError:
         return None
-    identity = _file_identity(cfg, filepath, entry, st)
-    if identity is None:
+    try:
+        source_bytes, source_digest = _source_body(
+            str(filepath.resolve()), st.st_mtime_ns, st.st_size, st.st_ino
+        )
+    except OSError:
         return None
-    toolchain, cflags, defines, headers_fp, source_digest, mtime_ns = identity
-    return EntryFingerprint(
-        toolchain=toolchain,
-        cflags=cflags,
-        defines=defines,
-        size=getattr(entry, "size", 0) or 0,
-        headers_fp=headers_fp,
-        source_hash=source_digest,
-        mtime_ns=mtime_ns,
+    toolchain, cflags = resolve_compile_overrides_cached(
+        cfg,
+        filepath.parent,
+        getattr(entry, "toolchain", "") or "",
+        getattr(entry, "cflags", "") or "",
+        getattr(entry, "module", "") or "",
     )
-
-
-def clear_file_identity_cache() -> None:
-    """Drop the per-file fingerprint memo (a config or library rewrite)."""
-    with _FILE_IDENTITY_LOCK:
-        _FILE_IDENTITY_MEMO.clear()
+    return EntryFingerprint(
+        toolchain=toolchain or DEFAULT_TOOLCHAIN,
+        cflags=cflags,
+        defines="\x00".join(sorted(getattr(cfg, "defines", None) or [])) or "(none)",
+        size=getattr(entry, "size", 0) or 0,
+        headers_fp=entry_headers_fp(cfg, filepath, cflags, source_bytes=source_bytes),
+        source_hash=source_digest,
+        mtime_ns=st.st_mtime_ns,
+    )
 
 
 def cflags_equivalent(stored: str, current: str) -> bool:

@@ -1924,3 +1924,24 @@ class TestEntryFingerprint:
         after = entry_fingerprint(cfg, entry)
         assert before is not None and after is not None
         assert before.source_hash != after.source_hash
+
+    def test_header_edit_changes_the_header_fingerprint(self, tmp_path: Path) -> None:
+        """An edit to a reached header invalidates the entry within one process.
+
+        The source file is untouched, so only the header fingerprint can see
+        this; a memo keyed on the source alone would keep reporting the entry
+        as cached for the rest of the run.
+        """
+        cfg = _make_cfg(tmp_path)
+        (cfg.reversed_dir / "h.h").write_text("int h(void) { return 0; }\n", encoding="utf-8")
+        (cfg.reversed_dir / "a.c").write_text(
+            '#include "h.h"\nint a(void) { return h(); }\n', encoding="utf-8"
+        )
+        entry = SimpleNamespace(filepath="a.c", size=4, cflags="", module="", toolchain="")
+        before = entry_fingerprint(cfg, entry)
+        (cfg.reversed_dir / "h.h").write_text(
+            "int h(void) { return 0; }\n#define EXTRA 1\n", encoding="utf-8"
+        )
+        after = entry_fingerprint(cfg, entry)
+        assert before is not None and after is not None
+        assert before.headers_fp != after.headers_fp
