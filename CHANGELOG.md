@@ -10,7 +10,50 @@
   before the first 503. `docs/dashboard-api.yaml`, `docs/CLI.md`,
   `docs/COVERAGE_DOCUMENT.md` and `docs/THREAT_MODEL.md` document the field.
 
+### Fixed
+- **A wholly environment-configured LLM endpoint is no longer refused as if a
+  checked-out project had named the host.** `load_config` folds
+  `REBREW_LLM_ENDPOINT` into `ProjectConfig.llm_endpoint`, so `llm_config`
+  could not tell an operator endpoint from a `[llm] endpoint` in
+  `rebrew-project.toml` and applied the project trust gate to both. Setting
+  `REBREW_LLM_ENDPOINT` and `REBREW_LLM_API_KEY` with no `[llm]` table failed
+  with "refusing to send REBREW_LLM_API_KEY to [llm].endpoint from
+  rebrew-project.toml" until the operator opted in with
+  `REBREW_LLM_ALLOW_PROJECT_ENDPOINT=1`, for a host no project named.
+  `ProjectConfig.llm_endpoint_from_project` records the source at load and the
+  gate follows it; the project path is unchanged, and the opt-in is still
+  required for a real project endpoint.
+- **`REBREW_FLIRT_SIGS_DIR` that is not a directory is a hard error.** The
+  read bypassed the shared `env_dir_path` validator that the `flirt` command's
+  own duplicate check used, so the primary call site accepted a typo'd path and
+  every standard-library signature was silently dropped, leaving matches built
+  from the project's `flirt_sigs/` alone. Both sites now go through the
+  validator, and its message names the path it probed.
+- **`KUNA_SPECS=''` no longer discards a discovered spec dir.** One predicate
+  drove the discovery fallback and a different one (mere presence) drove the
+  injection into the `kuna` child, so a blank export resolved a spec dir and
+  then withheld it, leaving kuna on its rarely-present `/specs/` default. A
+  leading `~` is now expanded, as for every other path knob.
+- **`XAUTHORITY='~/.Xauthority'` is expanded**, so an operator-supplied
+  authenticated X server is adopted instead of a second Xvfb being started.
+- **`REBREW_CONTAINER_RUNTIME` with an unusable value is a `ConfigError`**
+  rather than a bare `ValueError`, which escaped as a traceback from inside a
+  compile. `ConfigError` is a `ValueError` subclass, so existing handlers keep
+  working and the CLI's error contract now applies.
+
 ### Changed
+- **`rebrew cfg effective` reports a config it could not load.** The knobs
+  validated during the load (`REBREW_LLM_MAX_REQUESTS`, `REBREW_LLM_TIMEOUT`,
+  `REBREW_LLM_ENDPOINT`, `REBREW_RECOMPILE_URL`) aborted the command before it
+  printed anything, so the one command meant to diagnose a misconfiguration
+  could not show it. It now returns the `env_overrides` / `env_errors` it
+  gathered with `config` as `null` and still exits 2; `--json` emits a single
+  document. `cache_size_limit_mib` is now in the resolved dump, so a
+  silently-defaulted cache cap is visible.
+
+- **Breaking:** `rebrew.flirt.check_env_dir` is gone. It was a re-export of
+  `rebrew.config.check_env_dir` through an import that no longer exists;
+  import `check_env_dir` from `rebrew.config`, which is where it is defined.
 - **Lint gates ratchet.** Ruff selects ``S608`` (a SQL string built by
   interpolation; zero findings on the current tree) so a query assembled from
   runtime input cannot land, mypy covers ``tests/test_build_db_helpers.py``

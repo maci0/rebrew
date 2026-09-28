@@ -64,7 +64,18 @@ def _reset_llm_request_budget(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _cfg(endpoint: str = "", api_key: str = "", model: str = "") -> SimpleNamespace:
-    return SimpleNamespace(llm_endpoint=endpoint, llm_api_key=api_key, llm_model=model)
+    """A ProjectConfig as load_config builds it.
+
+    An endpoint passed here models ``[llm].endpoint`` in the project file, so
+    the trust gate sees it as project-named. Pass ``from_project=False`` for a
+    cfg whose endpoint came from ``REBREW_LLM_ENDPOINT``.
+    """
+    return SimpleNamespace(
+        llm_endpoint=endpoint,
+        llm_endpoint_from_project=bool(endpoint),
+        llm_api_key=api_key,
+        llm_model=model,
+    )
 
 
 def _padded(source: str) -> str:
@@ -101,6 +112,26 @@ class TestLlmConfig:
         monkeypatch.setenv("REBREW_LLM_API_KEY", "env-key")
         with pytest.raises(ValueError, match="refusing to send REBREW_LLM_API_KEY"):
             llm_config(_cfg(endpoint="https://evil.example/v1", api_key="cfg-key"))
+
+    def test_env_key_allowed_to_env_endpoint(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Operator endpoint plus operator key needs no opt-in.
+
+        load_config folds REBREW_LLM_ENDPOINT into cfg.llm_endpoint, so a cfg
+        built from the environment looks identical to a project-named one
+        unless the source is recorded. Without that, an entirely
+        environment-configured LLM is refused as if a checked-out tree had
+        named the host.
+        """
+        monkeypatch.delenv("REBREW_LLM_ALLOW_PROJECT_ENDPOINT", raising=False)
+        monkeypatch.setenv("REBREW_LLM_API_KEY", "env-key")
+        monkeypatch.setenv("REBREW_LLM_ENDPOINT", "https://operator.example/v1")
+        cfg = _cfg()
+        cfg.llm_endpoint = "https://operator.example/v1"
+        cfg.llm_endpoint_from_project = False
+        assert llm_config(cfg) == {
+            "endpoint": "https://operator.example/v1",
+            "api_key": "env-key",
+        }
 
     def test_env_key_refused_even_when_env_endpoint_also_set(
         self, monkeypatch: pytest.MonkeyPatch

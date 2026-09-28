@@ -496,6 +496,15 @@ class ProjectConfig:
     # ``[llm] endpoint``/``model`` in rebrew-project.toml win over env;
     # ``REBREW_LLM_API_KEY`` wins when present (including empty) over TOML.
     llm_endpoint: str = ""
+    llm_endpoint_from_project: bool = False
+    """Whether :attr:`llm_endpoint` came from ``[llm].endpoint`` in the project
+    file rather than ``REBREW_LLM_ENDPOINT``.
+
+    The two have opposite trust: a checked-out tree names any host, so only a
+    project endpoint needs ``REBREW_LLM_ALLOW_PROJECT_ENDPOINT`` before an
+    operator key may be sent to it. The merged string alone cannot tell them
+    apart, so the source is recorded here at load.
+    """
     llm_api_key: str = field(default="", repr=False)
     llm_model: str = ""
     llm_max_requests: int = DEFAULT_LLM_MAX_REQUESTS
@@ -678,6 +687,8 @@ class ProjectConfig:
 
     def as_dict(self, redact_secrets: bool = True) -> dict[str, Any]:
         """Return configuration as a dictionary, optionally redacting sensitive keys."""
+        from rebrew.compile_cache import DEFAULT_CACHE_SIZE_LIMIT_MIB
+
         return {
             "root": str(self.root),
             "target_name": self.target_name,
@@ -712,6 +723,9 @@ class ProjectConfig:
             "llm_max_requests": self.llm_max_requests,
             "llm_timeout": self.llm_timeout,
             "cache_backend": self.cache_backend,
+            # The resolved cap, not the raw field: 0 means "unset" and falls
+            # back to the backend default, which is the value that matters.
+            "cache_size_limit_mib": self.cache_size_limit_mib or DEFAULT_CACHE_SIZE_LIMIT_MIB,
             "all_targets": list(self.all_targets),
             "ghidra_program_path": self.ghidra_program_path,
             "ghidra_backend": self.ghidra_backend,
@@ -1376,7 +1390,10 @@ def env_dir_path(name: str, raw: str) -> Path | None:
         return None
     path = Path(value).expanduser()
     if not path.is_dir():
-        raise ConfigError(f"{name}={value!r} is not a directory")
+        # Name the path that was actually probed: a ``~`` export reads as a
+        # literal here, and the raw value alone leaves the user guessing where
+        # rebrew looked.
+        raise ConfigError(f"{name}={value!r} is not a directory (resolved to {path})")
     return path
 
 
@@ -2387,6 +2404,7 @@ def load_config(
     raw_endpoint = _as_str(llm_raw.get("endpoint"), "", "llm.endpoint").strip()
     if raw_endpoint:
         cfg.llm_endpoint = validate_http_url(raw_endpoint, "llm.endpoint")
+        cfg.llm_endpoint_from_project = True
     elif "REBREW_LLM_ENDPOINT" in os.environ and os.environ["REBREW_LLM_ENDPOINT"].strip():
         cfg.llm_endpoint = validate_http_url(
             os.environ["REBREW_LLM_ENDPOINT"].strip(), "REBREW_LLM_ENDPOINT"

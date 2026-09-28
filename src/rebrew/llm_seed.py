@@ -447,8 +447,15 @@ def llm_config(cfg: Any) -> dict[str, str] | None:
     the destination and takes precedence over ``REBREW_LLM_ENDPOINT``, so a
     hostile tree would otherwise collect the key as a bearer token.
     """
-    from_project = str(getattr(cfg, "llm_endpoint", "") or "").strip()
-    endpoint = from_project or os.environ.get("REBREW_LLM_ENDPOINT", "").strip()
+    endpoint = str(getattr(cfg, "llm_endpoint", "") or "").strip()
+    # load_config has already folded REBREW_LLM_ENDPOINT into cfg.llm_endpoint,
+    # so the merged string alone cannot say who named the host. Trust follows
+    # the recorded source: an operator endpoint is the analyst's own, while a
+    # [llm].endpoint in a checked-out tree may point anywhere.
+    from_project = bool(getattr(cfg, "llm_endpoint_from_project", False))
+    if not endpoint:
+        endpoint = os.environ.get("REBREW_LLM_ENDPOINT", "").strip()
+        from_project = False
     # Secret: env presence wins so an empty export clears a TOML key.
     if "REBREW_LLM_API_KEY" in os.environ:
         api_key = os.environ["REBREW_LLM_API_KEY"].strip()
@@ -468,8 +475,9 @@ def llm_config(cfg: Any) -> dict[str, str] | None:
         raise ValueError(
             "refusing to send REBREW_LLM_API_KEY to [llm].endpoint from "
             "rebrew-project.toml: a project tree can name any host, so that "
-            "combination hands the key to whoever wrote the project. Point "
-            "REBREW_LLM_ENDPOINT at the same host, or set "
+            "combination hands the key to whoever wrote the project. Remove "
+            "[llm].endpoint from the project file to use "
+            "REBREW_LLM_ENDPOINT instead, or set "
             f"{_TRUST_ENV_VAR}=1 to accept the project's endpoint."
         )
     # Validate the process ceiling, request budget, and model id while

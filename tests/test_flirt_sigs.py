@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from rebrew.config import ConfigError
 from rebrew.flirt import _flirt_sigs_repo, _sig_files
 
 
@@ -26,8 +27,25 @@ def test_sig_files_dedup_project_wins(tmp_path: Path) -> None:
     assert len(names) == 3
 
 
-def test_flirt_sigs_repo_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("REBREW_FLIRT_SIGS_DIR", "/tmp/sigs")
-    assert _flirt_sigs_repo() == Path("/tmp/sigs")
+def test_flirt_sigs_repo_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    sigs = tmp_path / "sigs"
+    sigs.mkdir()
+    monkeypatch.setenv("REBREW_FLIRT_SIGS_DIR", str(sigs))
+    assert _flirt_sigs_repo() == sigs
     monkeypatch.delenv("REBREW_FLIRT_SIGS_DIR")
     assert _flirt_sigs_repo().name == "rebrew-flirt-sigs"
+
+
+def test_flirt_sigs_repo_env_typo_raises(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A mistyped dir must be reported, not silently drop every stdlib sig."""
+    monkeypatch.setenv("REBREW_FLIRT_SIGS_DIR", str(tmp_path / "typo"))
+    with pytest.raises(ConfigError, match="REBREW_FLIRT_SIGS_DIR=.* is not a directory"):
+        _flirt_sigs_repo()
+
+
+def test_flirt_sigs_repo_env_expands_tilde(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A quoted ``~`` in a direnv-style export is expanded before the check."""
+    monkeypatch.setenv("REBREW_FLIRT_SIGS_DIR", "~/sigs")
+    monkeypatch.setenv("HOME", "/home/analyst")
+    with pytest.raises(ConfigError, match="/home/analyst/sigs"):
+        _flirt_sigs_repo()

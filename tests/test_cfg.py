@@ -1711,6 +1711,35 @@ class TestCLIEffective:
         assert result.exit_code == 0
         assert json.loads(result.stdout)["env_errors"] == {}
 
+    def test_effective_reports_env_error_despite_config_failure(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """The report must survive the misconfiguration it exists to diagnose.
+
+        Several knobs are validated during the load, so a bad value used to
+        abort `cfg effective` before it could print anything. The exit code
+        still signals failure; the report is what makes it actionable.
+        """
+        _make_project(tmp_path, '[project]\ndefault_target = "server.dll"\n\n' + SAMPLE_TOML)
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("REBREW_LLM_MAX_REQUESTS", "abc")
+        monkeypatch.setenv("REBREW_CONTAINER_RUNTIME", "dockre")
+        result = runner.invoke(cfg_app, ["effective", "--json"])
+        assert result.exit_code == 2
+        payload = json.loads(result.stdout)
+        assert payload["config"] is None
+        assert "REBREW_LLM_MAX_REQUESTS" in payload["error"]
+        assert "REBREW_CONTAINER_RUNTIME" in payload["env_errors"]
+
+    def test_effective_json_failure_is_one_document(self, tmp_path: Path, monkeypatch) -> None:
+        """A failing `--json` run must not emit a second error envelope."""
+        _make_project(tmp_path, '[project]\ndefault_target = "server.dll"\n\n' + SAMPLE_TOML)
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("REBREW_LLM_MAX_REQUESTS", "abc")
+        result = runner.invoke(cfg_app, ["effective", "--json"])
+        # A second document (the error envelope) would make this raise.
+        assert json.loads(result.stdout)["code"] == 2
+
     def test_every_env_var_reaches_effective(self, tmp_path: Path, monkeypatch) -> None:
         """Every documented env knob is named by `cfg effective`, in force or not.
 

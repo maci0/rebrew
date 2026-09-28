@@ -460,15 +460,49 @@ def effective(
     `env_errors` names the knobs whose value the code that reads them would
     reject, so a mistyped container runtime or wine-headless flag is reported
     here rather than as a spawn failure from inside a compile.
-    """
-    from rebrew.cli import require_config
 
-    cfg = require_config(target=target, json_mode=json_output)
+    A config that fails to load is itself the finding, so the env report is
+    still printed: several knobs (`REBREW_LLM_MAX_REQUESTS`,
+    `REBREW_LLM_ENDPOINT`, `REBREW_RECOMPILE_URL`, ...) are validated during
+    the load, and aborting on the first one would leave this command unable to
+    report the very error it exists to diagnose.
+    """
+    from rebrew.config import load_config
+
+    env_overrides = env_vars_present()
+    env_errors = env_knob_errors()
+    try:
+        # load_config, not require_config: the latter turns the failure into
+        # its own exit, which is exactly the report this command must print.
+        cfg = load_config(target=target)
+    except (FileNotFoundError, KeyError, ValueError) as exc:
+        if json_output:
+            # One document per invocation: error_exit's envelope would be a
+            # second JSON object on stdout, so carry the report here instead.
+            json_print(
+                {
+                    "config": None,
+                    "env_overrides": env_overrides,
+                    "env_errors": env_errors,
+                    "error": f"Config error: {exc}",
+                    "code": EXIT_ERROR,
+                }
+            )
+            raise typer.Exit(EXIT_ERROR) from exc
+        console.print(f"[bold]config error[/bold]: {exc}")
+        if env_overrides:
+            console.print(
+                "[bold]env vars present[/bold] (name only, values stay in the environment): "
+                + ", ".join(env_overrides)
+            )
+        for name, message in env_errors.items():
+            console.print(f"[bold]{name}[bold]: {message}")
+        error_exit(f"Config error: {exc}", json_mode=json_output)
     resolved: dict[str, Any] = cfg.as_dict()
     payload: dict[str, Any] = {
         "config": resolved,
-        "env_overrides": env_vars_present(),
-        "env_errors": env_knob_errors(),
+        "env_overrides": env_overrides,
+        "env_errors": env_errors,
     }
     if json_output:
         json_print(payload)

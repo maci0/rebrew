@@ -621,11 +621,23 @@ def _kuna_spec_dirs() -> list[Path]:
 def kuna_spec_dir() -> str | None:
     """Where kuna reads its SLEIGH specs: an explicit ``KUNA_SPECS``, else the
     first working dir :func:`_kuna_spec_dirs` finds, else None."""
-    explicit = os.environ.get("KUNA_SPECS")
-    if explicit:
+    explicit = _kuna_specs_override()
+    if explicit is not None:
         return explicit
     found = _kuna_spec_dirs()
     return str(found[0]) if found else None
+
+
+def _kuna_specs_override() -> str | None:
+    """The operator's ``KUNA_SPECS``, or None when unset or blank.
+
+    One predicate for both the discovery fallback and the injection decision
+    in :func:`fetch_kuna`. Splitting them (truthiness here, presence there)
+    meant ``KUNA_SPECS=''`` discovered a spec dir and then refused to inject
+    it, leaving kuna on its rarely-present ``/specs/`` default.
+    """
+    explicit = os.environ.get("KUNA_SPECS", "").strip()
+    return str(Path(explicit).expanduser()) if explicit else None
 
 
 def fetch_kuna(binary: Path, va: int, root: Path, **_kwargs: Any) -> str | None:
@@ -648,7 +660,7 @@ def fetch_kuna(binary: Path, va: int, root: Path, **_kwargs: Any) -> str | None:
     if kuna is None:
         return None
     # An explicit KUNA_SPECS is inherited as is; otherwise the discovered dir is injected.
-    spec_dir = None if "KUNA_SPECS" in os.environ else kuna_spec_dir()
+    spec_dir = None if _kuna_specs_override() is not None else kuna_spec_dir()
     env = None if spec_dir is None else {**os.environ, "KUNA_SPECS": spec_dir}
     try:
         result = run_process_group(

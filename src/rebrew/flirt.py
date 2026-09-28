@@ -19,7 +19,7 @@ import typer
 
 from rebrew.binary_loader import load_binary
 from rebrew.cli import TargetOption, console, error_exit, json_print, parse_va, require_config
-from rebrew.config import REBREW_FLIRT_SIGS_DIR_ENV, ConfigError, check_env_dir
+from rebrew.config import REBREW_FLIRT_SIGS_DIR_ENV, ConfigError, env_dir_path
 from rebrew.utils import atomic_write_bytes, read_json_text
 
 _MAX_FUNC_SCAN = 4096
@@ -35,10 +35,16 @@ def _flirt_sigs_repo() -> Path:
     Defaults to the sibling checkout (same workspace as this repo), like
     rebrew-toolchains; overridable via REBREW_FLIRT_SIGS_DIR.  Project-specific
     sigs stay in the project's own ``flirt_sigs/`` and are merged on top.
+
+    Raises :class:`ConfigError` when the env override is not a directory, so a
+    typo is reported instead of silently dropping every standard-library
+    signature. The ``match`` command turns that into its own error exit.
     """
     env = os.environ.get(REBREW_FLIRT_SIGS_DIR_ENV, "").strip()
     if env:
-        return Path(env).expanduser()
+        resolved = env_dir_path(REBREW_FLIRT_SIGS_DIR_ENV, env)
+        assert resolved is not None  # a non-blank value never resolves to None
+        return resolved
     return Path(__file__).resolve().parents[2].parent / "rebrew-flirt-sigs"
 
 
@@ -79,7 +85,10 @@ def _init_project_sigs(cfg: Any, json_output: bool, matched_only: bool = False) 
     """
     from rebrew.cli import error_exit, json_print
 
-    repo = _flirt_sigs_repo()
+    try:
+        repo = _flirt_sigs_repo()
+    except ConfigError as exc:
+        error_exit(str(exc), json_mode=json_output)
     if not repo.is_dir():
         error_exit(
             f"signature source not found: {repo} — clone rebrew-flirt-sigs "
@@ -142,7 +151,12 @@ def _matched_sig_names(linkage: str) -> set[str]:
     static binary never matches msvcrt imports and vice versa).
     """
     names: set[str] = set()
-    repo = _flirt_sigs_repo()
+    try:
+        repo = _flirt_sigs_repo()
+    except ConfigError:
+        # Best-effort helper reached only after the caller already validated
+        # the same env value, so there is nothing left to report here.
+        return names
     if not repo.is_dir():
         return names
     for src in _sig_files([repo]):
@@ -538,15 +552,10 @@ def main(
         sig_sources = [str(sig_dir)]
     else:
         project_dir = cfg.root / "flirt_sigs"
-        repo_dir = _flirt_sigs_repo()
-        # Same strip() _flirt_sigs_repo applies, so a whitespace-only export
-        # is "unset" here too and cannot be reported as a bad path.
-        sigs_env = os.environ.get(REBREW_FLIRT_SIGS_DIR_ENV, "").strip()
-        if sigs_env:
-            try:
-                check_env_dir(REBREW_FLIRT_SIGS_DIR_ENV, sigs_env)
-            except ConfigError as exc:
-                error_exit(str(exc), json_mode=json_output)
+        try:
+            repo_dir = _flirt_sigs_repo()
+        except ConfigError as exc:
+            error_exit(str(exc), json_mode=json_output)
         sigs = load_signatures_for([project_dir, repo_dir], arch)
         sig_sources = [str(project_dir), str(repo_dir)]
     if not sigs:

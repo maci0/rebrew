@@ -364,14 +364,21 @@ def container_runtime(runtime: str | None = None) -> str:
     Pass *runtime* to validate a candidate value without reading (or writing)
     the process environment; ``rebrew.config.env_knob_errors`` uses that to
     report a mistyped variable through ``rebrew config effective``.
+
+    Raises :class:`rebrew.config.ConfigError`, which is also a ``ValueError``:
+    the compile call sites do not guard this call, so a bare ``ValueError``
+    escaped as a traceback from the middle of a build instead of the CLI's
+    error message.
     """
+    from rebrew.config import ConfigError
+
     if runtime is None:
         runtime = os.environ.get("REBREW_CONTAINER_RUNTIME", DEFAULT_CONTAINER_RUNTIME)
     runtime = runtime.strip() or DEFAULT_CONTAINER_RUNTIME
     if not _CONTAINER_RUNTIME_RE.fullmatch(runtime):
-        raise ValueError(f"REBREW_CONTAINER_RUNTIME={runtime!r} contains invalid characters")
+        raise ConfigError(f"REBREW_CONTAINER_RUNTIME={runtime!r} contains invalid characters")
     if "/" not in runtime and runtime not in CONTAINER_RUNTIMES:
-        raise ValueError(
+        raise ConfigError(
             f"REBREW_CONTAINER_RUNTIME={runtime!r} is not a known container runtime "
             f"({', '.join(CONTAINER_RUNTIMES)}); set a path to the binary to use another one"
         )

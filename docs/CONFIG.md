@@ -659,6 +659,14 @@ the knob raises, so a name listed
 here is unusable for the next command that touches it. A directory knob absent
 from the environment is not an error.
 
+Other knobs (`REBREW_LLM_MAX_REQUESTS`, `REBREW_LLM_TIMEOUT`,
+`REBREW_LLM_ENDPOINT`, `REBREW_RECOMPILE_URL`) are validated while the config
+loads, so a bad value there fails before the report is printed. `cfg effective`
+still prints it: `config` comes back `null`, the `env_errors` and
+`env_overrides` it gathered are returned alongside the `error`, and the exit
+code is still 2. The command that exists to report a misconfiguration should
+not be the one command that cannot show it.
+
 ## Compiler profiles from `rebrew init`
 
 `rebrew init --toolchain <profile>` supports the full toolchain matrix (run

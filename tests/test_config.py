@@ -2075,6 +2075,19 @@ profile = "msvc-6.0"
         assert cfg.llm_endpoint == "http://localhost:11434/v1"
         assert cfg.llm_api_key == "env-key"
         assert cfg.llm_model == "qwen-2.5-coder"
+        # An env-named host is the analyst's own, so it is not the untrusted
+        # project endpoint the trust gate refuses to send an env key to.
+        assert cfg.llm_endpoint_from_project is False
+
+    def test_llm_toml_endpoint_recorded_as_project(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        toml = self.BASE_TOML + '\n[llm]\nendpoint = "https://project.example/v1"\n'
+        root = _make_project(tmp_path, toml)
+        monkeypatch.delenv("REBREW_LLM_ENDPOINT", raising=False)
+        cfg = load_config(root)
+        assert cfg.llm_endpoint == "https://project.example/v1"
+        assert cfg.llm_endpoint_from_project is True
 
     def test_llm_api_key_empty_env_clears(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

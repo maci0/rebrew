@@ -849,6 +849,41 @@ class TestKunaBackend:
         assert dc.fetch_kuna(binary, 0x401000, tmp_path) is not None
         assert seen.get("env", {}).get("KUNA_SPECS") == str(spec)
 
+    def test_fetch_kuna_injects_specs_when_override_blank(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """``KUNA_SPECS=''`` is unset, not an override.
+
+        Truthiness drove the discovery fallback while mere presence drove the
+        injection decision, so a blank export resolved a spec dir and then
+        withheld it, leaving kuna on its rarely-present ``/specs/`` default.
+        """
+        import rebrew.decompiler as dc
+
+        binary = tmp_path / "x.exe"
+        binary.write_bytes(b"MZ")
+        monkeypatch.setattr(dc.shutil, "which", lambda n: "/usr/bin/kuna")
+        monkeypatch.setenv("KUNA_SPECS", "  ")
+        spec = tmp_path / "specs"
+        spec.mkdir()
+        (spec / "x86.sla").write_bytes(b"sla\x04binary")
+        monkeypatch.setattr(dc, "_kuna_spec_dirs", lambda: [spec])
+
+        seen: dict = {}
+
+        class _R:
+            returncode = 0
+            stdout = "int f(void) { return 0; }\n"
+            stderr = ""
+
+        def _run(cmd, **kw):
+            seen.update(kw)
+            return _R()
+
+        monkeypatch.setattr(dc, "run_process_group", _run)
+        assert dc.fetch_kuna(binary, 0x401000, tmp_path) is not None
+        assert seen.get("env", {}).get("KUNA_SPECS") == str(spec)
+
     def test_fetch_kuna_honors_explicit_specs(self, tmp_path: Path, monkeypatch) -> None:
         """An explicit KUNA_SPECS is never overridden."""
         import rebrew.decompiler as dc

@@ -121,9 +121,13 @@ def _local_cookie() -> Path | None:
 
     ``xvfb-run`` and a prior rebrew run both set it, so an operator-supplied
     authenticated server stays reusable.
+
+    ``~`` is expanded: a quoted ``XAUTHORITY='~/.Xauthority'`` reaches the
+    process as a literal, and without expansion the cookie is unreadable, so
+    rebrew starts a second Xvfb instead of adopting the operator's.
     """
     raw = os.environ.get("XAUTHORITY", "").strip()
-    return _readable_cookie(Path(raw)) if raw else None
+    return _readable_cookie(Path(raw).expanduser()) if raw else None
 
 
 def _new_cookie() -> Path | None:
