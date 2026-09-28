@@ -12,6 +12,7 @@ from typing import Any
 
 import pytest
 
+from rebrew import temp_dirs
 from rebrew.utils import (
     atomic_write_bytes,
     atomic_write_text,
@@ -651,7 +652,7 @@ class TestWritableTempDir:
     out of ~)."""
 
     def test_creates_prefixed_dir(self) -> None:
-        from rebrew.utils import writable_temp_dir
+        from rebrew.temp_dirs import writable_temp_dir
 
         d = writable_temp_dir("rebrew_test_")
         try:
@@ -665,7 +666,7 @@ class TestWritableTempDir:
     def test_created_under_allowed_parents(self) -> None:
         import tempfile
 
-        from rebrew.utils import writable_temp_dir
+        from rebrew.temp_dirs import writable_temp_dir
 
         xdg = os.environ.get("XDG_CACHE_HOME", "").strip()
         cache_root = Path(xdg) if xdg else Path.home() / ".cache"
@@ -683,7 +684,7 @@ class TestWritableTempDir:
             shutil.rmtree(d, ignore_errors=True)
 
     def test_honors_xdg_cache_home(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.utils import writable_temp_dir
+        from rebrew.temp_dirs import writable_temp_dir
 
         xdg = tmp_path / "xdg-cache"
         monkeypatch.setenv("XDG_CACHE_HOME", str(xdg))
@@ -699,7 +700,7 @@ class TestWritableTempDir:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A relative XDG_CACHE_HOME is invalid per the XDG spec: use ~/.cache."""
-        from rebrew.utils import writable_temp_dir
+        from rebrew.temp_dirs import writable_temp_dir
 
         monkeypatch.chdir(tmp_path)
         monkeypatch.setenv("XDG_CACHE_HOME", "rel-cache")
@@ -713,7 +714,7 @@ class TestWritableTempDir:
             shutil.rmtree(d, ignore_errors=True)
 
     def test_not_directly_in_home(self) -> None:
-        from rebrew.utils import writable_temp_dir
+        from rebrew.temp_dirs import writable_temp_dir
 
         d = writable_temp_dir("rebrew_test_")
         try:
@@ -735,8 +736,8 @@ class TestWritableTempDir:
         blocked = tmp_path / "file"
         blocked.write_text("")
         monkeypatch.setenv("XDG_CACHE_HOME", str(blocked))
-        monkeypatch.setattr(utils, "SOURCE_CHECKOUT", None)
-        d = utils.writable_temp_dir("rebrew_test_")
+        monkeypatch.setattr(temp_dirs, "SOURCE_CHECKOUT", None)
+        d = temp_dirs.writable_temp_dir("rebrew_test_")
         try:
             assert d.parent == Path(tempfile.gettempdir())
         finally:
@@ -747,7 +748,7 @@ class TestWritableTempDir:
     def test_wheel_install_has_no_vendored_tools(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import rebrew.utils as utils
 
-        monkeypatch.setattr(utils, "SOURCE_CHECKOUT", None)
+        monkeypatch.setattr(temp_dirs, "SOURCE_CHECKOUT", None)
         assert utils.find_install_tool("tools/diec") is None
 
     def test_skips_tmpfs_candidate_when_real_disk_required(
@@ -763,10 +764,10 @@ class TestWritableTempDir:
         ram = tmp_path / "ram-cache"
         real = tmp_path / "disk-cache"
         monkeypatch.setenv("XDG_CACHE_HOME", str(ram))
-        monkeypatch.setattr(utils, "SOURCE_CHECKOUT", None)
-        monkeypatch.setattr(utils, "on_ram_filesystem", lambda p: p.is_relative_to(ram))
+        monkeypatch.setattr(temp_dirs, "SOURCE_CHECKOUT", None)
+        monkeypatch.setattr(temp_dirs, "on_ram_filesystem", lambda p: p.is_relative_to(ram))
         monkeypatch.setattr(tempfile, "gettempdir", lambda: str(real))
-        d = utils.writable_temp_dir("rebrew_test_", require_real_disk=True)
+        d = temp_dirs.writable_temp_dir("rebrew_test_", require_real_disk=True)
         try:
             assert d.parent == real
             assert not list(ram.glob("rebrew_test_*"))
@@ -783,10 +784,10 @@ class TestWritableTempDir:
         import rebrew.utils as utils
 
         monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "ram"))
-        monkeypatch.setattr(utils, "SOURCE_CHECKOUT", None)
-        monkeypatch.setattr(utils, "on_ram_filesystem", lambda p: True)
+        monkeypatch.setattr(temp_dirs, "SOURCE_CHECKOUT", None)
+        monkeypatch.setattr(temp_dirs, "on_ram_filesystem", lambda p: True)
         with pytest.raises(OSError, match="real disk"):
-            utils.writable_temp_dir("rebrew_test_", require_real_disk=True)
+            temp_dirs.writable_temp_dir("rebrew_test_", require_real_disk=True)
 
     def test_tmpfs_tolerated_without_the_requirement(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -796,8 +797,8 @@ class TestWritableTempDir:
         import rebrew.utils as utils
 
         monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
-        monkeypatch.setattr(utils, "on_ram_filesystem", lambda p: True)
-        d = utils.writable_temp_dir("rebrew_test_")
+        monkeypatch.setattr(temp_dirs, "on_ram_filesystem", lambda p: True)
+        d = temp_dirs.writable_temp_dir("rebrew_test_")
         try:
             assert d.is_dir()
         finally:
@@ -820,9 +821,9 @@ class TestOnRamFilesystem:
             "36 25 0:32 / / rw,relatime - ext4 /dev/sda1 rw\n"
             "99 25 0:99 / /run/user/1000 rw,nosuid - tmpfs tmpfs rw,size=163840k\n"
         )
-        monkeypatch.setattr(utils, "_MOUNTINFO", table)
-        assert utils.on_ram_filesystem(Path("/run/user/1000/sandbox")) is True
-        assert utils.on_ram_filesystem(Path("/var/tmp/sandbox")) is False
+        monkeypatch.setattr(temp_dirs, "_MOUNTINFO", table)
+        assert temp_dirs.on_ram_filesystem(Path("/run/user/1000/sandbox")) is True
+        assert temp_dirs.on_ram_filesystem(Path("/var/tmp/sandbox")) is False
 
     def test_nested_mount_wins_over_parent(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -836,9 +837,9 @@ class TestOnRamFilesystem:
             "36 25 0:32 / / rw,relatime - ext4 /dev/sda1 rw\n"
             "99 25 0:99 / /home/u/.cache/ram rw,nosuid - tmpfs tmpfs rw,size=163840k\n"
         )
-        monkeypatch.setattr(utils, "_MOUNTINFO", table)
-        assert utils.on_ram_filesystem(Path("/home/u/.cache/ram/rebrew")) is True
-        assert utils.on_ram_filesystem(Path("/home/u/.cache/disk/rebrew")) is False
+        monkeypatch.setattr(temp_dirs, "_MOUNTINFO", table)
+        assert temp_dirs.on_ram_filesystem(Path("/home/u/.cache/ram/rebrew")) is True
+        assert temp_dirs.on_ram_filesystem(Path("/home/u/.cache/disk/rebrew")) is False
 
     def test_octal_escaped_mount_point(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -848,8 +849,8 @@ class TestOnRamFilesystem:
 
         table = tmp_path / "mountinfo"
         table.write_text("99 25 0:99 / /mnt/my\\040ram rw,nosuid - tmpfs tmpfs rw\n")
-        monkeypatch.setattr(utils, "_MOUNTINFO", table)
-        assert utils.on_ram_filesystem(Path("/mnt/my ram/x")) is True
+        monkeypatch.setattr(temp_dirs, "_MOUNTINFO", table)
+        assert temp_dirs.on_ram_filesystem(Path("/mnt/my ram/x")) is True
 
     def test_missing_mountinfo_assumes_real_disk(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -858,13 +859,13 @@ class TestOnRamFilesystem:
         there would break the common case."""
         import rebrew.utils as utils
 
-        monkeypatch.setattr(utils, "_MOUNTINFO", tmp_path / "absent")
-        assert utils.on_ram_filesystem(tmp_path) is False
+        monkeypatch.setattr(temp_dirs, "_MOUNTINFO", tmp_path / "absent")
+        assert temp_dirs.on_ram_filesystem(tmp_path) is False
 
 
 class TestRemoveTempDir:
     def test_removes_dir(self, tmp_path: Path) -> None:
-        from rebrew.utils import remove_temp_dir
+        from rebrew.temp_dirs import remove_temp_dir
 
         d = tmp_path / "sandbox"
         d.mkdir()
@@ -873,7 +874,7 @@ class TestRemoveTempDir:
         assert not d.exists()
 
     def test_repeated_cleanup(self, tmp_path: Path) -> None:
-        from rebrew.utils import remove_temp_dir
+        from rebrew.temp_dirs import remove_temp_dir
 
         d = tmp_path / "sandbox"
         d.mkdir()
@@ -888,7 +889,7 @@ class TestRemoveTempDir:
         import errno
         import shutil
 
-        from rebrew.utils import remove_temp_dir
+        from rebrew.temp_dirs import remove_temp_dir
 
         d = tmp_path / "sandbox"
         d.mkdir()
@@ -912,7 +913,7 @@ class TestRemoveTempDir:
     ) -> None:
         import shutil
 
-        from rebrew.utils import remove_temp_dir
+        from rebrew.temp_dirs import remove_temp_dir
 
         d = tmp_path / "sandbox"
         d.mkdir()
@@ -1457,53 +1458,50 @@ class TestSweepStaleTempDirs:
         os.utime(d, (stale, stale))
 
     def test_removes_abandoned_sandbox(self, tmp_path: Path) -> None:
-        import rebrew.utils as utils
 
         lost = tmp_path / "rebrew_batch_abc"
         lost.mkdir()
         (lost / "toolchain.lib").write_bytes(b"x" * 32)
-        self._age(lost, utils.STALE_TEMP_DIR_AGE_S + 60)
-        assert utils.sweep_stale_temp_dirs(tmp_path) == [lost]
+        self._age(lost, temp_dirs.STALE_TEMP_DIR_AGE_S + 60)
+        assert temp_dirs.sweep_stale_temp_dirs(tmp_path) == [lost]
         assert not lost.exists()
 
     def test_keeps_fresh_and_foreign_entries(self, tmp_path: Path) -> None:
-        import rebrew.utils as utils
 
         fresh = tmp_path / "rebrew_batch_live"
         fresh.mkdir()
         foreign = tmp_path / "someone-elses-build"
         foreign.mkdir()
-        self._age(foreign, utils.STALE_TEMP_DIR_AGE_S + 60)
-        assert utils.sweep_stale_temp_dirs(tmp_path) == []
+        self._age(foreign, temp_dirs.STALE_TEMP_DIR_AGE_S + 60)
+        assert temp_dirs.sweep_stale_temp_dirs(tmp_path) == []
         assert fresh.is_dir()
         assert foreign.is_dir()
 
     def test_skips_symlink(self, tmp_path: Path) -> None:
-        import rebrew.utils as utils
 
         target = tmp_path / "target"
         target.mkdir()
         link = tmp_path / "rebrew_batch_link"
         link.symlink_to(target)
-        self._age(target, utils.STALE_TEMP_DIR_AGE_S + 60)
-        assert utils.sweep_stale_temp_dirs(tmp_path) == []
+        self._age(target, temp_dirs.STALE_TEMP_DIR_AGE_S + 60)
+        assert temp_dirs.sweep_stale_temp_dirs(tmp_path) == []
         assert target.is_dir()
 
     def test_swept_once_per_base(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         import rebrew.utils as utils
 
-        monkeypatch.setattr(utils, "_temp_swept_bases", set())
+        monkeypatch.setattr(temp_dirs, "_temp_swept_bases", set())
         calls: list[Path] = []
-        real = utils.sweep_stale_temp_dirs
+        real = temp_dirs.sweep_stale_temp_dirs
 
         def _record(base: Path) -> list[Path]:
             calls.append(base)
             return real(base)
 
-        monkeypatch.setattr(utils, "sweep_stale_temp_dirs", _record)
+        monkeypatch.setattr(temp_dirs, "sweep_stale_temp_dirs", _record)
         monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
-        first = utils.writable_temp_dir("rebrew_test_")
-        second = utils.writable_temp_dir("rebrew_test_")
+        first = temp_dirs.writable_temp_dir("rebrew_test_")
+        second = temp_dirs.writable_temp_dir("rebrew_test_")
         try:
             assert calls.count(tmp_path / "rebrew" / "tmp") == 1
             assert first.parent == second.parent

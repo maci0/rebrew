@@ -35,14 +35,9 @@ import typer
 
 from rebrew.cli import console, error_exit, json_print
 from rebrew.config import ConfigError, check_env_wineprefix
+from rebrew.temp_dirs import xdg_cache_home
 from rebrew.toolchain import ToolchainSpec, kill_container
-from rebrew.utils import (
-    atomic_write_text,
-    container_runtime,
-    file_lock,
-    load_tomllib,
-    xdg_cache_home,
-)
+from rebrew.utils import atomic_write_text, container_runtime, file_lock, load_tomllib
 from rebrew.workspace import walk_up_to_root
 
 app = typer.Typer(

@@ -528,7 +528,7 @@ def _run_round_trip(
     # .text-relative spans, for the byte-coverage union below.
     spliced_ranges: list[tuple[int, int]] = []
     extra_string_syms: dict[str, int] = {}
-    from rebrew.utils import remove_temp_dir, writable_temp_dir
+    from rebrew.temp_dirs import remove_temp_dir, writable_temp_dir
 
     work_dir = writable_temp_dir("rebrew-rt-")
     try:

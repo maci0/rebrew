@@ -140,7 +140,7 @@ def _reap_dead_thread_sandboxes_locked() -> list[Path]:
 
 def make_sandbox_dir(prefix: str) -> Path:
     """Create a writable DOSBox sandbox dir, preferring a real-disk,
-    container-visible location (see :func:`rebrew.utils.writable_temp_dir`).
+    container-visible location (see :func:`rebrew.temp_dirs.writable_temp_dir`).
 
     DOSBox breaks on tmpfs mounts and the docker runner mounts the workdir at
     /work, so the user cache dir is preferred when writable; read-only homes
@@ -161,7 +161,7 @@ def make_sandbox_dir(prefix: str) -> Path:
     own its lifetime.
 
     Raises :class:`DosboxError` when no candidate is writable."""
-    from rebrew.utils import writable_temp_dir
+    from rebrew.temp_dirs import writable_temp_dir
 
     # Per-thread key: sequential reuse on one worker, isolation across -j N.
     cache_key = (prefix, _sandbox_token())

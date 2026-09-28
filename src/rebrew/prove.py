@@ -1701,7 +1701,7 @@ def _prepare_prove_inputs(
                 )
             watched_vas.append(_va)
 
-    from rebrew.utils import writable_temp_dir
+    from rebrew.temp_dirs import writable_temp_dir
 
     workdir = writable_temp_dir("rebrew_prove_")
     try:
@@ -1720,7 +1720,7 @@ def _prepare_prove_inputs(
             raise _ProveError(f"Symbol '{symbol}' not found in compiled .obj")
         dir32_watched = _resolve_watched_dir32(obj_path, symbol, cfg, set(watched_vas))
     finally:
-        from rebrew.utils import remove_temp_dir
+        from rebrew.temp_dirs import remove_temp_dir
 
         with contextlib.suppress(OSError):
             remove_temp_dir(workdir)

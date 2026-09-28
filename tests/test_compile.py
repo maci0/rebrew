@@ -1453,7 +1453,7 @@ class TestPrecompileBatchCleanup:
         from types import SimpleNamespace
 
         from rebrew.compile import cleanup_batch_obj_dirs, precompile_batch
-        from rebrew.utils import writable_temp_dir as _real_wtd
+        from rebrew.temp_dirs import writable_temp_dir as _real_wtd
 
         rev = tmp_path / "reversed"
         rev.mkdir()
@@ -1471,7 +1471,7 @@ class TestPrecompileBatchCleanup:
                 workdirs.append(d)
             return d
 
-        monkeypatch.setattr("rebrew.utils.writable_temp_dir", _tracking_wtd)
+        monkeypatch.setattr("rebrew.temp_dirs.writable_temp_dir", _tracking_wtd)
 
         def _fake_batch(spec, src_names, flags, workdir, mounts, timeout):
             out = {}
@@ -1541,7 +1541,7 @@ class TestPrecompileBatchCleanup:
                 raise OSError("Device or resource busy")
             path.rmdir()
 
-        monkeypatch.setattr("rebrew.utils.remove_temp_dir", _remove)
+        monkeypatch.setattr("rebrew.temp_dirs.remove_temp_dir", _remove)
         compile_mod.cleanup_batch_obj_dirs()
         assert [busy] == compile_mod._BATCH_OBJ_DIRS
         assert busy.is_dir()

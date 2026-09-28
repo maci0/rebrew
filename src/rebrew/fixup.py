@@ -170,7 +170,7 @@ def _compile_check(cfg: Any, source_text: str, src_hint: Path) -> str | None:
 
     from rebrew.compile import compile_to_obj
     from rebrew.compile_overrides import resolve_cflags
-    from rebrew.utils import writable_temp_dir
+    from rebrew.temp_dirs import writable_temp_dir
 
     workdir = writable_temp_dir("rebrew_fixup_")
     try:
@@ -187,7 +187,7 @@ def _compile_check(cfg: Any, source_text: str, src_hint: Path) -> str | None:
             return (err or "compile failed").strip()
         return None
     finally:
-        from rebrew.utils import remove_temp_dir
+        from rebrew.temp_dirs import remove_temp_dir
 
         with contextlib.suppress(OSError):
             remove_temp_dir(workdir)

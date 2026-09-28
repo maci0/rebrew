@@ -1141,7 +1141,7 @@ def smoke_cmd(
     reproducible = True
     # A real-disk, docker-visible workdir (the system temp dir may be
     # tmpfs or docker-invisible in sandboxed environments).
-    from rebrew.utils import remove_temp_dir, writable_temp_dir
+    from rebrew.temp_dirs import remove_temp_dir, writable_temp_dir
 
     workdir = writable_temp_dir("rebrew_smoke_")
     try:
@@ -1778,7 +1778,7 @@ def update_cmd(
                 _rewrite_dockerfile_sha(name, src.sha256)
             raise
         # 4. regenerate the smoke golden (stable across two compiles) + write it.
-        from rebrew.utils import remove_temp_dir, writable_temp_dir
+        from rebrew.temp_dirs import remove_temp_dir, writable_temp_dir
 
         workdir = writable_temp_dir("rebrew_smoke_")
         try:

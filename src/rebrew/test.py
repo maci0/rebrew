@@ -1451,8 +1451,9 @@ def _test_multi(
     # a CI script must not read them as "fix your code" (exit 1).
     any_extract_error = False
 
+    from rebrew.temp_dirs import writable_temp_dir
     from rebrew.toolchain import TOOLCHAINS
-    from rebrew.utils import safe_shlex_split, writable_temp_dir
+    from rebrew.utils import safe_shlex_split
 
     workdir = writable_temp_dir("test_multi_")
     try:
@@ -1817,7 +1818,7 @@ def _test_multi(
         if json_output:
             json_print({"source": source, "results": results_list})
     finally:
-        from rebrew.utils import remove_temp_dir
+        from rebrew.temp_dirs import remove_temp_dir
 
         with contextlib.suppress(OSError):
             remove_temp_dir(workdir)

@@ -1886,7 +1886,7 @@ def cleanup_batch_obj_dirs() -> None:
     for the next cleanup / atexit pass instead of orphaning it on disk with
     no retry handle.
     """
-    from rebrew.utils import remove_temp_dir
+    from rebrew.temp_dirs import remove_temp_dir
 
     with _BATCH_OBJ_DIRS_LOCK:
         pending = list(_BATCH_OBJ_DIRS)
@@ -1949,7 +1949,7 @@ def precompile_batch(
     if base_spec is not None and base_spec.effective_arg_style not in ("posix", "msvc"):
         return {}
 
-    from rebrew.utils import remove_temp_dir, writable_temp_dir
+    from rebrew.temp_dirs import remove_temp_dir, writable_temp_dir
 
     out: dict[int, str] = {}
     lasting_root: Path | None = None
@@ -2432,7 +2432,7 @@ def compile_and_compare(
             # docker runner mounts it at /work, so a system-temp sandbox
             # (tmpfs / docker-invisible under sandboxed environments) would
             # compile an empty dir.  Cleaned up in finally.
-            from rebrew.utils import writable_temp_dir
+            from rebrew.temp_dirs import writable_temp_dir
 
             workdir = writable_temp_dir("rebrew_cmp_")
             obj_path, err = compile_to_obj(
@@ -2486,7 +2486,7 @@ def compile_and_compare(
             # Retry-removes absorb the docker mount-unmount race (a busy
             # mountpoint leaves an empty dir behind); best-effort on
             # persistent failures.
-            from rebrew.utils import remove_temp_dir
+            from rebrew.temp_dirs import remove_temp_dir
 
             with contextlib.suppress(OSError):
                 remove_temp_dir(workdir)
@@ -2798,7 +2798,7 @@ def compile_and_compare_linked(
 
     workdir: Path | None = None
     try:
-        from rebrew.utils import writable_temp_dir
+        from rebrew.temp_dirs import writable_temp_dir
 
         workdir = writable_temp_dir("rebrew_linked_")
         shell_path = workdir / ("linked_" + Path(source_path).name)
@@ -2878,7 +2878,7 @@ def compile_and_compare_linked(
         return classify_compare_result(False, f"COMPILE_ERROR: {exc}", target_bytes, None, None)
     finally:
         if workdir is not None:
-            from rebrew.utils import remove_temp_dir
+            from rebrew.temp_dirs import remove_temp_dir
 
             with contextlib.suppress(OSError):
                 remove_temp_dir(workdir)

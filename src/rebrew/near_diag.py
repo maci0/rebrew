@@ -649,7 +649,7 @@ def _diagnose_one(
         getattr(ann, "cflags", ""),
         getattr(ann, "module", ""),
     )
-    from rebrew.utils import writable_temp_dir
+    from rebrew.temp_dirs import writable_temp_dir
 
     workdir = writable_temp_dir("rebrew_near_diag_")
     try:
@@ -667,7 +667,7 @@ def _diagnose_one(
         if compiled_bytes is None:
             raise _DiagnoseError(f"Symbol '{symbol or '(none)'}' not found in compiled .obj")
     finally:
-        from rebrew.utils import remove_temp_dir
+        from rebrew.temp_dirs import remove_temp_dir
 
         with contextlib.suppress(OSError):
             remove_temp_dir(workdir)

@@ -530,7 +530,7 @@ def build_candidate_obj_only(
         # and the bind mount silently loses the source (the image wrapper
         # then reports "no readable source file").  writable_temp_dir
         # prefers the workspace .cache for exactly this reason.
-        from rebrew.utils import writable_temp_dir
+        from rebrew.temp_dirs import writable_temp_dir
 
         base = writable_temp_dir("matcher_")
         try:
@@ -563,7 +563,7 @@ def build_candidate_obj_only(
                 return BuildResult(ok=False, error_msg=f"Compile failed: {err}")
             return _obj_result(obj_file, symbol)
         finally:
-            from rebrew.utils import remove_temp_dir
+            from rebrew.temp_dirs import remove_temp_dir
 
             with contextlib.suppress(OSError):
                 remove_temp_dir(base)
