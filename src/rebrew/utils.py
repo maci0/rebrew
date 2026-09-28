@@ -1356,6 +1356,84 @@ def on_ram_filesystem(path: Path) -> bool:
     return best is not None and best[1] in _RAM_FS_TYPES
 
 
+#: A sandbox left in the shared base is presumed abandoned once nothing has
+#: touched it for this long.  Long enough that a live rebrew process (whose
+#: compiles are bounded by ``--timeout-min``) never has its own sandbox swept
+#: from under it, short enough that a host that hard-kills runs does not fill
+#: the cache dir with multi-GB stragglers.
+STALE_TEMP_DIR_AGE_S = 24 * 60 * 60
+
+#: Every :func:`writable_temp_dir` prefix starts with this, so a sweep of a
+#: shared base (``SOURCE_CHECKOUT/.cache``) touches rebrew scratch and nothing
+#: else that happens to live there.
+_TEMP_DIR_PREFIX = "rebrew"
+
+_TEMP_SWEEP_LOCK = threading.Lock()
+_temp_swept_bases: set[Path] = set()
+
+
+def sweep_stale_temp_dirs(base: Path, age_s: float = STALE_TEMP_DIR_AGE_S) -> list[Path]:
+    """Remove abandoned rebrew sandbox dirs from *base*; return what was removed.
+
+    ``remove_temp_dir`` and the atexit hooks release a sandbox on every path a
+    run can take, so what is left here is what a run that never got to clean up
+    stranded: SIGKILL, an OOM kill, a host reboot, a container killed mid
+    batch.  Each of those leaves a staged toolchain and a container workdir
+    behind, and nothing in the codebase ever looks at the parent again, so the
+    base grows by one full sandbox per lost run.
+
+    A dir counts as abandoned when its mtime is older than *age_s*.  Writes into
+    a live sandbox (staged headers, ``.obj`` output, the link log) move that
+    mtime, and a sandbox whose writes have stopped for a whole day belongs to no
+    run still doing work.
+    """
+    import shutil
+
+    now = time.time()
+    removed: list[Path] = []
+    try:
+        entries = list(base.iterdir())
+    except OSError:
+        return removed
+    for entry in entries:
+        if not entry.name.startswith(_TEMP_DIR_PREFIX) or entry.is_symlink():
+            continue
+        try:
+            if not entry.is_dir() or now - entry.stat().st_mtime < age_s:
+                continue
+        except OSError:
+            continue
+        try:
+            shutil.rmtree(entry)
+        except OSError as exc:
+            # Busy mount, or a peer that recreated it: leave it for the next
+            # run rather than failing the compile that asked for a temp dir.
+            logging.getLogger(__name__).debug("could not sweep %s: %s", entry, exc)
+            continue
+        removed.append(entry)
+    return removed
+
+
+def _sweep_base_once(base: Path) -> None:
+    """Sweep *base* of abandoned sandboxes, the first time this process uses it.
+
+    Every compile asks for a workdir, so an unguarded sweep would re-walk the
+    base (and re-``stat`` every leftover in it) once per compile.  Holding the
+    lock across the walk keeps two threads in the same process from sweeping
+    the same dir twice; concurrent processes each sweep once, and the losers
+    simply find the dir already gone.
+    """
+    with _TEMP_SWEEP_LOCK:
+        if base in _temp_swept_bases:
+            return
+        _temp_swept_bases.add(base)
+    try:
+        sweep_stale_temp_dirs(base)
+    except OSError:
+        # A sweep failure must not fail the compile that triggered it.
+        _temp_swept_bases.discard(base)
+
+
 def writable_temp_dir(prefix: str, *, require_real_disk: bool = False) -> Path:
     """Create a writable temp dir on a real-disk, container-visible location.
 
@@ -1370,7 +1448,9 @@ def writable_temp_dir(prefix: str, *, require_real_disk: bool = False) -> Path:
     Cache sandboxes live under ``$XDG_CACHE_HOME/rebrew/tmp`` when that
     variable is set, otherwise ``~/.cache/rebrew/tmp``, so that a straggler
     left behind by a hard-killed run stays out of ``~`` and is trivially
-    sweepable.
+    sweepable.  The first two candidates are swept of abandoned sandboxes
+    once per process on the way in (see :func:`sweep_stale_temp_dirs`); the
+    system temp dir is left alone, since it is shared with every other tool.
 
     *require_real_disk* additionally rejects a candidate sitting on tmpfs or
     ramfs, for the callers that mount the dir into DOSBox (see
@@ -1382,13 +1462,14 @@ def writable_temp_dir(prefix: str, *, require_real_disk: bool = False) -> Path:
     Raises :class:`OSError` when no candidate is writable."""
     import tempfile
 
-    candidates = [xdg_cache_home() / "rebrew" / "tmp"]
+    candidates = [(xdg_cache_home() / "rebrew" / "tmp", True)]
     if SOURCE_CHECKOUT is not None:
-        candidates.append(SOURCE_CHECKOUT / ".cache")
+        candidates.append((SOURCE_CHECKOUT / ".cache", True))
     with contextlib.suppress(Exception):
-        candidates.append(Path(tempfile.gettempdir()))
+        # Shared with every other tool on the box: never swept.
+        candidates.append((Path(tempfile.gettempdir()), False))
     ram_only: list[Path] = []
-    for base in candidates:
+    for base, sweepable in candidates:
         try:
             base.mkdir(parents=True, exist_ok=True)
         except OSError:
@@ -1396,6 +1477,8 @@ def writable_temp_dir(prefix: str, *, require_real_disk: bool = False) -> Path:
         if require_real_disk and on_ram_filesystem(base):
             ram_only.append(base)
             continue
+        if sweepable:
+            _sweep_base_once(base)
         try:
             return Path(tempfile.mkdtemp(prefix=prefix, dir=base))
         except OSError:

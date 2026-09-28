@@ -1447,3 +1447,68 @@ class TestInterruptiblePool:
 
         with interruptible_pool(3) as ex:
             assert sorted(ex.map(lambda i: i * 2, range(4))) == [0, 2, 4, 6]
+
+
+class TestSweepStaleTempDirs:
+    """A hard-killed run strands its sandbox; the next run must reclaim it."""
+
+    def _age(self, d: Path, seconds: float) -> None:
+        stale = time.time() - seconds
+        os.utime(d, (stale, stale))
+
+    def test_removes_abandoned_sandbox(self, tmp_path: Path) -> None:
+        import rebrew.utils as utils
+
+        lost = tmp_path / "rebrew_batch_abc"
+        lost.mkdir()
+        (lost / "toolchain.lib").write_bytes(b"x" * 32)
+        self._age(lost, utils.STALE_TEMP_DIR_AGE_S + 60)
+        assert utils.sweep_stale_temp_dirs(tmp_path) == [lost]
+        assert not lost.exists()
+
+    def test_keeps_fresh_and_foreign_entries(self, tmp_path: Path) -> None:
+        import rebrew.utils as utils
+
+        fresh = tmp_path / "rebrew_batch_live"
+        fresh.mkdir()
+        foreign = tmp_path / "someone-elses-build"
+        foreign.mkdir()
+        self._age(foreign, utils.STALE_TEMP_DIR_AGE_S + 60)
+        assert utils.sweep_stale_temp_dirs(tmp_path) == []
+        assert fresh.is_dir()
+        assert foreign.is_dir()
+
+    def test_skips_symlink(self, tmp_path: Path) -> None:
+        import rebrew.utils as utils
+
+        target = tmp_path / "target"
+        target.mkdir()
+        link = tmp_path / "rebrew_batch_link"
+        link.symlink_to(target)
+        self._age(target, utils.STALE_TEMP_DIR_AGE_S + 60)
+        assert utils.sweep_stale_temp_dirs(tmp_path) == []
+        assert target.is_dir()
+
+    def test_swept_once_per_base(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        import rebrew.utils as utils
+
+        monkeypatch.setattr(utils, "_temp_swept_bases", set())
+        calls: list[Path] = []
+        real = utils.sweep_stale_temp_dirs
+
+        def _record(base: Path) -> list[Path]:
+            calls.append(base)
+            return real(base)
+
+        monkeypatch.setattr(utils, "sweep_stale_temp_dirs", _record)
+        monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+        first = utils.writable_temp_dir("rebrew_test_")
+        second = utils.writable_temp_dir("rebrew_test_")
+        try:
+            assert calls.count(tmp_path / "rebrew" / "tmp") == 1
+            assert first.parent == second.parent
+        finally:
+            import shutil
+
+            shutil.rmtree(first, ignore_errors=True)
+            shutil.rmtree(second, ignore_errors=True)
