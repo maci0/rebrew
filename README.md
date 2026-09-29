@@ -33,7 +33,7 @@ Rebrew recompiles your C with the compiler that built the target and compares th
 | `rebrew rename` | Rename a function across the entire codebase (symbol, filename, cross-references) |
 | `rebrew split` | Break multi-function `.c` files into individual files; `--va` to extract one function |
 | `rebrew merge` | Combine single-function files into one multi-function file |
-| `rebrew lint` | Validate source marker correctness (10 E-codes, 23 W-codes incl. W019 inline-metadata and W020 asm-dump warnings; see ANNOTATIONS.md for the emitted set) |
+| `rebrew lint` | Validate source marker correctness (10 E-codes, 26 W-codes incl. W019 inline-metadata and W020 asm-dump warnings; see ANNOTATIONS.md for the emitted set) |
 
 ### Analysis
 

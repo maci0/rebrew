@@ -2829,6 +2829,53 @@ class TestW032CoverageStore:
         assert self._messages(tmp_path, monkeypatch) == ""
 
 
+class TestW036StrayMetadataStore:
+    """W036: a store copy no configured directory reads."""
+
+    def _messages(self, tmp_path: Path, metadata_dir: Path) -> str:
+        from rebrew.lint import _check_W036_stray_metadata_store
+
+        cfg = SimpleNamespace(
+            root=tmp_path,
+            metadata_dir=metadata_dir,
+            reversed_dir=metadata_dir,
+            shared_dir=None,
+        )
+        return "\n".join(
+            m for res in _check_W036_stray_metadata_store(cfg) for _, _, m in res.warnings
+        )
+
+    def test_store_in_the_configured_directory_is_silent(self, tmp_path: Path) -> None:
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "rebrew-data.toml").write_text("format = 1\n", encoding="utf-8")
+        (src / "rebrew-functions.toml").write_text("format = 1\n", encoding="utf-8")
+        assert self._messages(tmp_path, src) == ""
+
+    def test_stray_store_is_reported(self, tmp_path: Path) -> None:
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "rebrew-data.toml").write_text("format = 1\n", encoding="utf-8")
+        (tmp_path / "rebrew-data.toml").write_text("format = 1\n", encoding="utf-8")
+        message = self._messages(tmp_path, src)
+        assert "outside the configured directory" in message
+        assert str(tmp_path) in message
+
+    def test_store_under_an_ignored_directory_is_skipped(self, tmp_path: Path) -> None:
+        src = tmp_path / "src"
+        src.mkdir()
+        scratch = tmp_path / ".scratch"
+        scratch.mkdir()
+        (scratch / "rebrew-data.toml").write_text("format = 1\n", encoding="utf-8")
+        assert self._messages(tmp_path, src) == ""
+
+    def test_other_toml_files_are_not_stores(self, tmp_path: Path) -> None:
+        src = tmp_path / "src"
+        src.mkdir()
+        (tmp_path / "rebrew-project.toml").write_text("[project]\n", encoding="utf-8")
+        assert self._messages(tmp_path, src) == ""
+
+
 class TestW031W032Cli:
     """End-to-end: the store checks ride the normal lint report and count."""
 

@@ -1058,12 +1058,8 @@ def _check_W036_stray_metadata_store(cfg: ProjectConfig) -> list[LintResult]:
     dirs: set[Path] = set()
     for attr in ("metadata_dir", "reversed_dir", "shared_dir"):
         value = getattr(cfg, attr, None)
-        # these are already absolute Paths on a loaded config; a bare
-        # string is still accepted, because that is what the TOML holds.
-        if isinstance(value, Path):
-            dirs.add(value.resolve())
-        elif isinstance(value, str) and value:
-            dirs.add((cfg.root / value).resolve())
+        if value:
+            dirs.add(Path(value).resolve())
     results: list[LintResult] = []
     skip = {".git", "build", ".scratch", "node_modules", ".venv"}
     for path in sorted(cfg.root.rglob("*.toml")):

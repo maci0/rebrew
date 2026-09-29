@@ -1,12 +1,11 @@
 ## [Unreleased]
 
 ### Added
-- **W036 reports a metadata store outside the directory the readers use.**
-  `rebrew-data.toml` / `rebrew-functions.toml` are resolved by directory, with
-  no walk-up and no fallback, so a second copy elsewhere in the tree is not a
-  backup: it answers for its own directory when a tool is pointed at it and is
-  invisible everywhere else.  A store outside `metadata_dir`, `reversed_dir`
-  and `shared_dir` is now a warning naming the directory that would read it.
+- **`rebrew lint` reports a metadata store outside the directory the readers
+  use (W036).** The stores resolve by directory with no fallback, so a second
+  `rebrew-data.toml` or `rebrew-functions.toml` is not a backup: pointed at its
+  directory it answers with its own smaller entry set, and is invisible
+  otherwise. Warn-only, since a stray copy is not a defect by itself.
 
 ### Changed
 - **The contributor pin on the sibling resembl checkout is the rewritten
