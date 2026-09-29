@@ -5,7 +5,7 @@ default: every `-bt=`/`-fo=`/`owcc` combination tested produced OMF, not
 COFF.  LIEF cannot parse OMF; Watcom byte-matching is handled via the
 objconv→COFF conversion in `matcher/parsers.py` and the built-in 16-bit
 parser in `omf16.py` (see the updates below; the README's
-"Object Parsing" is ✅ for Watcom).
+"Object Parsing" is "yes" for Watcom).
 This file records the empirical findings from the 2026-08-11 investigation
 so the parser starts from ground truth.
 

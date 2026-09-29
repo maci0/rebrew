@@ -755,10 +755,10 @@ rebrew test src/server.dll/getenv.c
 
 | Use case | Recommendation |
 |----------|---------------|
-| Related CRT functions (`getenv`/`setenv`/`putenv`) | ✅ Group together |
-| Functions sharing static data | ✅ Group together |
-| Independent game functions | ❌ Keep separate |
-| Functions with different CFLAGS | ⚠️ Only if all share the same flags for compilation |
+| Related CRT functions (`getenv`/`setenv`/`putenv`) | Group together |
+| Functions sharing static data | Group together |
+| Independent game functions | Keep separate |
+| Functions with different CFLAGS | Only if all share the same flags for compilation |
 
 > [!IMPORTANT]
 > All functions in a multi-function file are compiled together with the **same CFLAGS**.

@@ -21,13 +21,13 @@ UNDOCUMENTED  →  STUB  →  NEAR_MATCHING  →  RELOC  →  EXACT
 
 | Status | Byte match | Set by | Counts in coverage |
 |--------|-----------|--------|-------------------|
-| *(undocumented)* | n/a | Automatic (no `.c` file); the coverage document records `UNKNOWN` | ❌ No |
-| `STUB` | <60% | `rebrew test` (demotion) | ❌ No |
-| `NEAR_MATCHING` | ≥60% | `rebrew test` | ⚠️ Partial |
-| `RELOC` | 100% (masked) | `rebrew test` | ✅ Yes |
-| `EXACT` | 100% (raw) | `rebrew test` | ✅ Yes |
-| `PROVEN` | Semantic (bytes differ) | `rebrew prove` | ❌ No (shown separately) |
-| `SKIP` | N/A | Manual (metadata) | ✅ Yes (excluded) |
+| *(undocumented)* | n/a | Automatic (no `.c` file); the coverage document records `UNKNOWN` | No |
+| `STUB` | <60% | `rebrew test` (demotion) | No |
+| `NEAR_MATCHING` | ≥60% | `rebrew test` | Partial |
+| `RELOC` | 100% (masked) | `rebrew test` | Yes |
+| `EXACT` | 100% (raw) | `rebrew test` | Yes |
+| `PROVEN` | Semantic (bytes differ) | `rebrew prove` | No (shown separately) |
+| `SKIP` | N/A | Manual (metadata) | Yes (excluded) |
 
 `rebrew test` / `rebrew verify` also persist machine verdicts (`SIZE_MISMATCH`,
 `COMPILE_ERROR`, `EXTRACT_ERROR`, `MISSING_SIZE`, `MISSING_FILE`, `INVALID_VA`)
