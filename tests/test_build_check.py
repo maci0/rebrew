@@ -48,6 +48,18 @@ def test_parse_recorded_reads_multiline_flags_make():
     }
 
 
+def test_parse_recorded_strips_crlf_before_flag_split():
+    """A CRLF flags.make must yield the same tokens as the LF one.
+
+    ``re.M`` anchors ``$`` before the ``\\n``, so a bare ``$`` left the ``\\r``
+    glued to the last flag token while ``parse_compile_lines`` reads build.make
+    through ``splitlines()``, which strips it.  The two halves then disagreed on
+    a token neither side held, and the check reported drift in a clean tree.
+    """
+    crlf = FLAGS_MAKE.replace("\n", "\r\n")
+    assert parse_recorded(crlf) == parse_recorded(FLAGS_MAKE)
+
+
 def test_parse_compile_lines_skips_listing_rules():
     text = BUILD_MAKE + (
         "CMakeFiles/server_dll.dir/src/a/one.c.s: flags.make\n"

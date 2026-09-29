@@ -617,13 +617,16 @@ def _append_durable(path: Path, line: str) -> None:
         os.close(fd)
     if not existed:
         # A file created but not yet linked into a synced directory can be
-        # dropped by a crash even though its own bytes were fsynced.
-        dir_fd = os.open(path.parent, os.O_RDONLY)
-        try:
-            with contextlib.suppress(OSError):
+        # dropped by a crash even though its own bytes were fsynced.  The open
+        # is inside the suppress too: a directory that cannot be opened
+        # O_RDONLY (some container overlay mounts) must not turn a durable win
+        # into an exception from the caller.
+        with contextlib.suppress(OSError):
+            dir_fd = os.open(path.parent, os.O_RDONLY)
+            try:
                 os.fsync(dir_fd)
-        finally:
-            os.close(dir_fd)
+            finally:
+                os.close(dir_fd)
 
 
 def _prune_loss_records(path: Path) -> None:

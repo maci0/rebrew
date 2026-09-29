@@ -1,5 +1,6 @@
 """Tests for rebrew.matcher.solutions — cross-function solution transfer database."""
 
+import errno
 import hashlib
 import json
 from pathlib import Path
@@ -341,6 +342,39 @@ class TestAppendDurability:
         assert len(synced) >= 2
         records = list(iter_ga_runs(project_root))
         assert [r["symbol"] for r in records] == ["_demo"]
+
+    def test_an_unopenable_directory_does_not_fail_a_durable_win(
+        self, project_root: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A directory fsync that cannot even be opened must stay best-effort.
+
+        The log's own bytes are already fsynced by then, so the run is durable;
+        some container overlay mounts refuse ``O_RDONLY`` on a directory, and
+        raising there turned a completed win into an exception from the caller.
+        The file's bytes are still on disk either way.
+        """
+        import os
+
+        real_open = os.open
+
+        def _open(path: object, flags: int, *args: object, **kwargs: object) -> int:
+            if flags == os.O_RDONLY and not isinstance(path, int):
+                raise OSError(errno.EACCES, "no directory fd here")
+            return real_open(path, flags, *args, **kwargs)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(os, "open", _open)
+        record_ga_run(
+            project_root,
+            target="T",
+            va="0x1000",
+            symbol="_demo",
+            matched=True,
+            score=0.0,
+            cflags="/O2",
+            size=4,
+            source_file="demo.c",
+        )
+        assert [r["symbol"] for r in iter_ga_runs(project_root)] == ["_demo"]
 
     def test_a_later_record_does_not_resync_the_directory(
         self, project_root: Path, monkeypatch: pytest.MonkeyPatch

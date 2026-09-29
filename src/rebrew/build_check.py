@@ -70,7 +70,16 @@ PREFIX_SKIP = ("/F", "/Y", "/Z")
 #: without enumerating path prefixes.
 _FLAG = re.compile(r"^/[A-Z]")
 
-_RECORDED = re.compile(r"Custom (?:flags|options): \S*?(\S+\.obj)_(?:FLAGS|OPTIONS) = (.*)$", re.M)
+# `[^\S\n]*$`, not `$`: `re.M` anchors before the `\n`, so on a CRLF
+# `flags.make` a bare `$` leaves the `\r` as the last flag token while
+# `parse_compile_lines` reads `build.make` through `splitlines()`, which strips
+# it.  The two halves would then disagree on a token neither side actually
+# holds.  The class is horizontal whitespace only, so the match cannot run past
+# the end of its own line.
+_RECORDED = re.compile(
+    r"Custom (?:flags|options): \S*?(\S+\.obj)_(?:FLAGS|OPTIONS) = (.*?)[^\S\n]*$",
+    re.M,
+)
 
 _OBJ_IN_LINE = re.compile(r"(CMakeFiles/[^ ]*?\.obj)\b")
 

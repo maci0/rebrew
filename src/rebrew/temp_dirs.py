@@ -35,9 +35,21 @@ def xdg_cache_home() -> Path:
 
     The XDG Base Directory spec requires ignoring a relative value; honoring
     one would resolve against the cwd and hand docker a relative bind mount.
+
+    Raises :class:`OSError` when no home can be determined: ``Path.home``
+    raises ``RuntimeError`` when neither ``HOME`` nor a passwd entry names one,
+    which a passwd-less container running as a bare uid hits.  That would
+    escape the ``OSError`` contract :func:`writable_temp_dir` documents and
+    fail every compile with a traceback instead of naming the fix.
     """
     xdg = Path(os.environ.get("XDG_CACHE_HOME", "").strip())
-    return xdg if xdg.is_absolute() else Path.home() / ".cache"
+    if xdg.is_absolute():
+        return xdg
+    with contextlib.suppress(RuntimeError):
+        return Path.home() / ".cache"
+    raise OSError(
+        "no home directory to resolve ~/.cache from: set XDG_CACHE_HOME to an absolute path"
+    )
 
 
 #: ``/proc/self/mountinfo`` (not ``/proc/mounts``): it lists every mount in

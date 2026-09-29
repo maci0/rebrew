@@ -39,6 +39,11 @@ from rebrew.utils import (
 )
 
 
+def _raise_no_home() -> Path:
+    """Stand in for a host where ``Path.home()`` has nothing to resolve from."""
+    raise RuntimeError("Could not determine home directory.")
+
+
 def test_container_runtime_defaults_to_docker(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("REBREW_CONTAINER_RUNTIME", raising=False)
     assert container_runtime() == "docker"
@@ -803,6 +808,24 @@ class TestWritableTempDir:
             import shutil
 
             shutil.rmtree(d, ignore_errors=True)
+
+    def test_no_home_raises_oserror(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A passwd-less container running as a bare uid must not raise RuntimeError.
+
+        ``Path.home()`` raises ``RuntimeError`` when neither ``HOME`` nor a passwd
+        entry names a home.  ``writable_temp_dir`` documents OSError as its only
+        failure, so an unconverted RuntimeError escapes its candidate loop and
+        fails every compile with a traceback instead of the fix.
+        """
+        from rebrew.temp_dirs import writable_temp_dir, xdg_cache_home
+
+        monkeypatch.delenv("XDG_CACHE_HOME", raising=False)
+        monkeypatch.delenv("HOME", raising=False)
+        monkeypatch.setattr(Path, "home", _raise_no_home)
+        with pytest.raises(OSError):
+            xdg_cache_home()
+        with pytest.raises(OSError):
+            writable_temp_dir("rebrew_test_")
 
     def test_not_directly_in_home(self) -> None:
         from rebrew.temp_dirs import writable_temp_dir
