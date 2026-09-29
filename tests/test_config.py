@@ -176,6 +176,16 @@ class TestArchByteOrder:
         assert arch_byte_order("mips32", "") == ">"
         assert arch_byte_order("x86_32", "") == "<"
 
+    def test_arch_name_alone_names_the_stored_order(self) -> None:
+        """The predicate behind the fallback: the big-endian arches are named,
+        and an arch the tool does not know is little-endian by default."""
+        from rebrew.config import arch_is_big_endian
+
+        for arch in ("mips32", "mips64", "ppc32", "ppc64", "sh2"):
+            assert arch_is_big_endian(arch) is True, arch
+        for arch in ("x86_32", "x86_64", "arm32", "arm64", "z80", "unknown-arch"):
+            assert arch_is_big_endian(arch) is False, arch
+
 
 # ---------------------------------------------------------------------------
 # load_config() — multi-target format
@@ -2628,3 +2638,49 @@ class TestEnvKnobValidators:
 
         assert env_knob_errors({"REBREW_TOOLCHAINS_DIR": "  "}) == {}
         assert env_knob_errors({}) == {}
+
+
+class TestBooleanVocabulary:
+    """``parse_bool`` is the single boolean reader for env knobs and TOML
+    fields, so its vocabulary and its refusal of anything else are the
+    contract: a reader that treats an unknown spelling as true turns one typo
+    into a gate that is silently on."""
+
+    @pytest.mark.parametrize("raw", ["1", "true", "TRUE", "Yes", " on "])
+    def test_every_true_spelling(self, raw: str) -> None:
+        from rebrew.config import parse_bool
+
+        assert parse_bool("REBREW_X", raw, default=False) is True
+
+    @pytest.mark.parametrize("raw", ["0", "false", "FALSE", "No", " off "])
+    def test_every_false_spelling(self, raw: str) -> None:
+        from rebrew.config import parse_bool
+
+        assert parse_bool("REBREW_X", raw, default=True) is False
+
+    @pytest.mark.parametrize("raw", ["", "   "])
+    def test_empty_keeps_the_default(self, raw: Any) -> None:
+        from rebrew.config import parse_bool
+
+        assert parse_bool("REBREW_X", raw, default=True) is True
+        assert parse_bool("REBREW_X", raw, default=False) is False
+
+    @pytest.mark.parametrize("raw", ["flase", "2", "y", "enabled", "onoff"])
+    def test_unknown_spelling_raises_with_the_knob_name(self, raw: str) -> None:
+        from rebrew.config import parse_bool
+
+        with pytest.raises(ConfigError, match="REBREW_X"):
+            parse_bool("REBREW_X", raw, default=False)
+
+    def test_env_spelling_shares_the_vocabulary(self) -> None:
+        """An env knob and a TOML field spelling truthiness two ways is the
+        bug this function exists to prevent, so the env entry point is the
+        same reader, error included."""
+        from rebrew.config import parse_bool, parse_env_bool
+
+        assert parse_env_bool("REBREW_X", "off", default=True) is False
+        with pytest.raises(ConfigError, match="REBREW_X"):
+            parse_env_bool("REBREW_X", "flase", default=False)
+        assert parse_env_bool("REBREW_X", "", default=True) is parse_bool(
+            "REBREW_X", "", default=True
+        )

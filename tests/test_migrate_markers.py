@@ -210,5 +210,11 @@ class TestMigrateMarkersEndToEnd:
         assert oct(store.stat().st_mode & 0o777) == "0o444"
 
     def test_cli_app_runs_help(self) -> None:
+        """The command is registered and advertises the flags it honors: a
+        migration tool whose ``--dry-run`` is missing from help is a tool whose
+        ``--dry-run`` nobody uses."""
         result = runner.invoke(app, ["--help"])
-        assert result.exit_code == 0
+        assert result.exit_code == 0, result.output
+        assert "rebrew-functions.toml" in result.output
+        for flag in ("--dry-run", "--json", "--target"):
+            assert flag in result.output, flag

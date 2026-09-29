@@ -28,6 +28,34 @@ pytestmark = pytest.mark.skipif(shutil.which("git") is None, reason="git not ins
 
 _BINARY = b"MZ\x90\x00" + bytes(range(64))
 
+#: Seconds a killed process may take to disappear from the process table.
+_EXIT_POLL_SECONDS = 5.0
+
+
+def _wait_for_exit(pid: int) -> bool:
+    """True once *pid* holds no process any more.
+
+    A zombie counts as gone: the kernel has already released every resource
+    the process held, and whether init has reaped the entry yet is not
+    something a group-kill controls, so treating it as still running would
+    make the check depend on the init of the machine running the suite.
+    """
+    deadline = time.monotonic() + _EXIT_POLL_SECONDS
+    proc_stat = Path(f"/proc/{pid}/stat")
+    while time.monotonic() < deadline:
+        if proc_stat.exists():
+            try:
+                fields = proc_stat.read_text(encoding="utf-8", errors="replace").rsplit(")", 1)[-1]
+            except OSError:
+                return True
+            return fields.split()[0] == "Z"
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            return True
+        time.sleep(0.1)
+    return False
+
 
 def _git(state: Path, *args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
@@ -252,8 +280,10 @@ class TestRunGitProcessGroup:
         result = run_git(tmp_path, "push", "origin", "binsync/user")
         assert seen["argv"] == git_argv(tmp_path, "push", "origin", "binsync/user")
         assert seen["kwargs"]["timeout"] == 30
-        # A timeout comes back as a nonzero result, never an exception.
-        assert result.returncode != 0
+        # A timeout comes back as a nonzero result, never an exception, and
+        # says so: 1 with the TimeoutExpired text, not a silent failure code.
+        assert result.returncode == 1
+        assert "timed out" in result.stderr
 
     def test_real_timeout_does_not_leave_the_child(self, tmp_path: Path, monkeypatch) -> None:
         """The end-to-end shape: a git that forks a long-lived grandchild has
@@ -272,9 +302,7 @@ class TestRunGitProcessGroup:
         state = tmp_path / "state"
         state.mkdir()
         result = run_git(state, "--version", timeout=2)
-        assert result.returncode != 0
+        assert result.returncode == 1
+        assert "timed out" in result.stderr
         grandchild = int(pid_file.read_text(encoding="utf-8").strip())
-        with pytest.raises(OSError):
-            for _ in range(50):
-                os.kill(grandchild, 0)
-                time.sleep(0.1)
+        assert _wait_for_exit(grandchild)
