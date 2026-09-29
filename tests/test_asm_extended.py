@@ -9,7 +9,6 @@ import pytest
 from rebrew.asm import (
     _parse_annotations,
     build_function_lookup,
-    capstone_to_nasm,
     disasm_bytes,
     disassemble_to_nasm,
     generate_inline_c,
@@ -71,14 +70,6 @@ class TestHexMode:
         with pytest.raises(typer.Exit) as exc:
             _run_hex_mode(0x99999999, 16, cfg, False, False)
         assert exc.value.exit_code == 2
-
-
-class TestCapstoneToNasm:
-    def test_with_operands(self) -> None:
-        assert capstone_to_nasm("mov", "dword ptr [eax]") == "mov dword [eax]"
-
-    def test_no_operands(self) -> None:
-        assert capstone_to_nasm("ret", "") == "ret"
 
 
 @requires_nasm

@@ -11,8 +11,6 @@ from rebrew.config import ProjectConfig
 from rebrew.naming import (
     find_neighbor_file,
     load_existing_vas,
-    make_filename,
-    sanitize_name,
 )
 from rebrew.skeleton import (
     _ret_arg_count,
@@ -22,60 +20,6 @@ from rebrew.skeleton import (
     generate_test_command,
     list_uncovered,
 )
-
-# -------------------------------------------------------------------------
-# sanitize_name
-# -------------------------------------------------------------------------
-
-
-class TestSanitizeName:
-    def test_fun_prefix(self) -> None:
-        assert sanitize_name("FUN_10001000") == "func_10001000"
-
-    def test_special_chars(self) -> None:
-        assert sanitize_name("my.func!@#$") == "my_func"
-
-    def test_leading_digit(self) -> None:
-        assert sanitize_name("123abc") == "_123abc"
-
-    def test_consecutive_underscores(self) -> None:
-        assert sanitize_name("my___func") == "my_func"
-
-    def test_empty(self) -> None:
-        assert sanitize_name("") == "unnamed"
-
-    def test_max_length(self) -> None:
-        long_name = "a" * 100
-        result = sanitize_name(long_name)
-        assert len(result) <= 64
-
-    def test_strip_underscores(self) -> None:
-        assert sanitize_name("__my_func__") == "my_func"
-
-
-# -------------------------------------------------------------------------
-# make_filename
-# -------------------------------------------------------------------------
-
-
-class TestMakeFilename:
-    def test_fun_prefix(self) -> None:
-        assert make_filename("FUN_10001000") == "func_10001000.c"
-
-    def test_custom_name(self) -> None:
-        result = make_filename("whatever", "my_func")
-        assert result.endswith(".c")
-        assert "my_func" in result
-
-    def test_no_origin_prefix(self) -> None:
-        assert make_filename("ParsePacket") == "ParsePacket.c"
-
-    def test_no_origin_prefix_msvcrt(self) -> None:
-        assert make_filename("memset") == "memset.c"
-
-    def test_name_with_prefix_unchanged(self) -> None:
-        assert make_filename("game_something") == "game_something.c"
-
 
 # -------------------------------------------------------------------------
 # generate_test_command

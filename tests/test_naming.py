@@ -106,6 +106,26 @@ class TestSanitizeName:
         nfd = "caf\u0065\u0301"
         assert sanitize_name(nfc) == sanitize_name(nfd) == "caf"
 
+    def test_punctuation_run_becomes_one_underscore(self) -> None:
+        # Every non-alphanumeric in a run collapses to a single underscore, so
+        # the result never carries the empty runs the character sub alone leaves.
+        assert sanitize_name("my.func!@#$") == "my_func"
+        assert sanitize_name("my___func") == "my_func"
+
+    def test_surrounding_underscores_stripped(self) -> None:
+        assert sanitize_name("__my_func__") == "my_func"
+
+    def test_empty_and_all_underscore_are_unnamed(self) -> None:
+        assert sanitize_name("") == "unnamed"
+        assert sanitize_name("   ") == "unnamed"
+        assert sanitize_name("___") == "unnamed"
+
+    def test_capped_at_64_chars(self) -> None:
+        # The cap keeps a generated identifier inside MSVC's limit; it slices
+        # after the strip, so a long leading underscore run cannot eat the cap.
+        assert len(sanitize_name("a" * 100)) == 64
+        assert sanitize_name("_" * 10 + "b" * 100) == "b" * 64
+
 
 class TestMakeFilename:
     def test_custom_name_wins(self) -> None:
@@ -117,6 +137,14 @@ class TestMakeFilename:
     def test_sanitized_ghidra_name(self) -> None:
         # sanitize_name preserves case; only special chars are replaced.
         assert make_filename("BitReverse") == "BitReverse.c"
+
+    def test_crt_symbol_gets_its_own_file(self) -> None:
+        # A CRT import's own name is already the file's subject; prefixing it
+        # would bury it under a directory the reversing guide never mentions.
+        assert make_filename("memset") == "memset.c"
+
+    def test_existing_prefix_is_kept_verbatim(self) -> None:
+        assert make_filename("game_something") == "game_something.c"
 
     def test_custom_extension(self) -> None:
         cfg = SimpleNamespace(source_ext=".cpp")

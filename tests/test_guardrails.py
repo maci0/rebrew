@@ -328,9 +328,8 @@ class TestSanitizeName:
         assert "__" not in result
 
     def test_max_length_64(self) -> None:
-        long_name = "a" * 100
-        result = sanitize_name(long_name)
-        assert len(result) <= 64
+        result = sanitize_name("a" * 100)
+        assert result == "a" * 64
 
     def test_empty_name_returns_unnamed(self) -> None:
         result = sanitize_name("!!!")
