@@ -1704,7 +1704,7 @@ def compile_to_obj(
             obj_name,
             active,
             emit_assembly=bool(getattr(cfg, "recompile_emit_assembly", False)),
-            source_text=compile_text if context is not None else None,
+            source_text=compile_text,
             backend_errors=backend_errors,
         )
         if obj_path is None or cc is None or cache_key is None:

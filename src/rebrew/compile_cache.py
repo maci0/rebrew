@@ -758,6 +758,12 @@ def _find_in_dirs(name: Path, dirs: list[Path]) -> Path | None:
 # ``(source, source_dir, include_dirs, dir_mtimes) →
 #   (paths, fallback, header_stats, unresolved)``.
 # Bounded + locked: verify -j N and GA workers share this map.
+#
+# The bound is on retained source CHARACTERS, not entries: the key carries
+# the whole translation unit, so an entry count left the real limit the heap
+# (a full-tree verify pins every source it ever keyed).  Same discipline as
+# the source-digest memo below and ``verify_hash._SOURCE_MEMO``.  The value
+# carries its own cost so eviction never re-measures the key it is dropping.
 _INCLUDE_CLOSURE_MEMO: dict[
     tuple[str, str | None, tuple[str, ...], tuple[int, ...]],
     tuple[
@@ -765,9 +771,11 @@ _INCLUDE_CLOSURE_MEMO: dict[
         bool,
         tuple[tuple[int, int, int], ...],
         tuple[tuple[str, tuple[str, ...]], ...],
+        int,
     ],
 ] = {}
-_INCLUDE_CLOSURE_MEMO_MAX = 1024
+_INCLUDE_CLOSURE_MEMO_MAX_BYTES = 32 * BYTES_PER_MIB
+_include_closure_memo_chars = 0
 _INCLUDE_CLOSURE_LOCK = threading.Lock()
 
 
@@ -871,13 +879,51 @@ def _resolve_include_paths(
             return existing[0], existing[1]
         if _header_stats(paths) != observed or not _unresolved_still_missing(misses):
             return paths, fallback
-        if (
-            len(_INCLUDE_CLOSURE_MEMO) >= _INCLUDE_CLOSURE_MEMO_MAX
-            and key not in _INCLUDE_CLOSURE_MEMO
-        ):
-            _INCLUDE_CLOSURE_MEMO.pop(next(iter(_INCLUDE_CLOSURE_MEMO)), None)
-        _INCLUDE_CLOSURE_MEMO[key] = (paths, fallback, observed, tuple(misses))
+        _store_include_closure(key, paths, fallback, observed, tuple(misses))
     return paths, fallback
+
+
+def _include_closure_cost(
+    key: tuple[str, str | None, tuple[str, ...], tuple[int, ...]], paths: tuple[str, ...]
+) -> int:
+    """Retained characters one closure entry costs: its source key plus paths."""
+    return (
+        len(key[0])
+        + (len(key[1]) if key[1] else 0)
+        + sum(len(d) for d in key[2])
+        + sum(len(p) for p in paths)
+    )
+
+
+def _store_include_closure(
+    key: tuple[str, str | None, tuple[str, ...], tuple[int, ...]],
+    paths: tuple[str, ...],
+    fallback: bool,
+    observed: tuple[tuple[int, int, int], ...],
+    misses: tuple[tuple[str, tuple[str, ...]], ...],
+) -> None:
+    """Publish one closure under :data:`_INCLUDE_CLOSURE_LOCK`, evicting by bytes."""
+    global _include_closure_memo_chars
+    cost = _include_closure_cost(key, paths)
+    with _INCLUDE_CLOSURE_LOCK:
+        stale = _INCLUDE_CLOSURE_MEMO.pop(key, None)
+        if stale is not None:
+            _include_closure_memo_chars -= stale[4]
+        _INCLUDE_CLOSURE_MEMO[key] = (paths, fallback, observed, misses, cost)
+        _include_closure_memo_chars += cost
+        # Keep at least the newest entry: a source larger than the budget
+        # would otherwise be evicted the moment it is stored.
+        while (
+            _include_closure_memo_chars > _INCLUDE_CLOSURE_MEMO_MAX_BYTES
+            and len(_INCLUDE_CLOSURE_MEMO) > 1
+        ):
+            _include_closure_memo_chars -= _INCLUDE_CLOSURE_MEMO.pop(
+                next(iter(_INCLUDE_CLOSURE_MEMO))
+            )[4]
+        if not _INCLUDE_CLOSURE_MEMO:
+            # A caller that emptied the map directly left the running total
+            # stale; over-counting only evicts early, but rebase it anyway.
+            _include_closure_memo_chars = 0
 
 
 def _header_stats(paths: tuple[str, ...]) -> tuple[tuple[int, int, int], ...]:
