@@ -38,7 +38,7 @@ Manual inspection and linkage tools outside the main reverse loop. Run
 | `rebrew solutions` | Query the GA solutions database (`.rebrew/ga_runs.jsonl` wins + run history). |
 | `rebrew residue` | Measure linked byte-identity residue after postlink fixers. |
 | `rebrew xrefs` | Show cross-references (callers/callees) to/from a target address. |
-| `rebrew cache` | Manage the compile result cache (`rebrew cache stats/clear`). |
+| `rebrew cache` | Manage the compile result cache (`rebrew cache stats` to inspect; `clear` prompts before deleting, `--force` skips the prompt). |
 | `rebrew imports` | List import-table symbols (PE IAT/ELF/NE) and detect/mark import stubs (`--mark`). |
 | `rebrew strings` | Extract strings from binary with cross-references (`--xref`, `--section`). |
 | `rebrew identify-library` | Batch identify library functions (FLIRT + imports + CRT) into `library_<module>.h`. |

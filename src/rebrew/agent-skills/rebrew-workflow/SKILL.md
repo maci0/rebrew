@@ -60,7 +60,7 @@ rebrew status --json                    # Quick overview: counts per STATUS, % c
 rebrew todo --json                      # Primary: highest ROI action items
 rebrew todo --category start-function --json    # --category: setup | compile-error | extract-error | fix-delta | improve-match | start-function | missing-annotation | identify-library | run-prover | documented (audit-only) | naked-reconstruction | data-drift | start-data | exact-only | postlink-mangled
 rebrew flirt --json                     # FLIRT scan: identify known library functions (fast wins)
-rebrew crt-match --all --json           # Find matching CRT source files for LIBRARY functions
+rebrew crt-match --all --json           # CRT sources per LIBRARY function (needs `rebrew cfg detect-crt --write` first)
 rebrew similar 0x10001000 --json        # Find structurally similar functions (same source family)
 ```
 
@@ -83,7 +83,9 @@ tier ladder; `documented` is audit-only and hidden from the default list.
 >
 > A miss is inconclusive. FLIRT can under-match across library builds;
 > `lib-match` settles whole-body identity against the linked archive. Mark hits
-> `// LIBRARY:` and move on. `--stock-lib` extracts the archive from the
+> `// LIBRARY:` and move on. `crt-match` errors with "No crt_sources
+> configured" until they are registered: run `rebrew cfg detect-crt --write`
+> once, then retry. `--stock-lib` extracts the archive from the
 > profile's docker image (a pull when it is not cached), so `rebrew toolchain
 > pull <profile>` may be needed first. It also refuses a `.scratch/` cache that
 > hashes differently from the image's copy: delete the cached archive to
@@ -119,13 +121,7 @@ rebrew asm 0x<VA> --size 128 --json        # structured JSON output
 ```
 
 ### Multiple Target Synchronization
-Rebrew filters annotations by the active `--target`. Multiple `// FUNCTION: <MODULE>` marker lines in the same C file are supported, with **no other metadata in the .c file**:
-```c
-// FUNCTION: LEGO1 0x1009a8c0
-
-// FUNCTION: BETA10 0x101832f7
-void my_func() {}
-```
+Rebrew filters annotations by the active `--target`. Several `// FUNCTION: <MODULE>` marker lines may share one `.c` body, with no other metadata in the file: `references/annotation-format.md`.
 
 ### Volatile Metadata
 
@@ -136,7 +132,7 @@ void my_func() {}
 > LOCALS, COMMENTS, PROVE_CONSTRAINTS, UPDATED_BY/UPDATED_AT (SECTION lives in
 > `rebrew-data.toml`). STATUS via `rebrew test`/`verify` only; use `rebrew blocker
 > set/clear`, `rebrew lint --fix` for migrations. Files are mode 0444
-> (`atomic_write_locked`). Full rules: `references/annotation-format.md`.
+> (`atomic_write_locked`). Marker rules: `references/annotation-format.md`.
 
 ## 4. Implement and Test
 

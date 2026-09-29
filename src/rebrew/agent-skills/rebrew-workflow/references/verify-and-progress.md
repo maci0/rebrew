@@ -20,7 +20,8 @@ rebrew orphans                          # metadata blocks with no source marker
 rebrew orphans --prune --dry-run        # preview prune (EXACT/RELOC/PROVEN held back)
 rebrew verify --prune-orphans --dry-run # preview the same prune inside a verify pass
 rebrew verify --prune-orphans           # deletes orphan blocks; --dry-run / --no-promote only counts
-rebrew orphans drop 0x<VA>              # delete one VA's metadata block (functions + data)
+rebrew orphans drop 0x<VA> --dry-run    # preview one VA's block (functions + data)
+rebrew orphans drop 0x<VA>              # delete it; no undo, confirm with the user first
 rebrew types                            # struct layouts vs decompiler evidence
 rebrew types apply-type <file> --param N --type T
 rebrew verify --data --built build/<target>
