@@ -687,6 +687,30 @@ def test_rule_files_name_real_cli_commands() -> None:
     )
 
 
+class TestStatusReferenceLines:
+    """``status_style.STATUS_SUMMARIES`` condenses ``docs/MATCH_TYPES.md``.
+
+    The report's "Status reference" disclosure ships the one-liners, so a
+    status added to the vocabulary without a line there, or a line for a
+    status the vocabulary dropped, is a reference that is wrong in one of the
+    two places.  Pin the overlap: the human-classification statuses have their
+    own section in the reference, the machine verdicts are named in the
+    classification table above it.
+    """
+
+    _SECTION_RE = re.compile(r"^## (?P<title>\S+)$", re.M)
+
+    def test_every_summary_status_is_documented(self) -> None:
+        from rebrew.status_style import STATUS_SUMMARIES
+
+        doc = (ROOT / "docs" / "MATCH_TYPES.md").read_text(encoding="utf-8")
+        sections = {m["title"] for m in self._SECTION_RE.finditer(doc)}
+        for status in STATUS_SUMMARIES:
+            assert status in sections or f"`{status}`" in doc, (
+                f"{status} has a report reference line but no entry in MATCH_TYPES.md"
+            )
+
+
 class TestCellStateMarks:
     """``docs/COVERAGE_DOCUMENT.md`` names the marks the surfaces actually paint.
 

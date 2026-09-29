@@ -2487,6 +2487,10 @@ Generate a static self-contained HTML documentation site (`index.html`,
 `strings.html`, `imports.html`, `graph.html`). The function index table
 includes a `File` column naming the source each function came from and a
 `Blocker` column carrying near-diag/diff blocker guidance.
+A closed `Status reference` disclosure under the index cards gives one line
+per status the page names, so a bare `NEAR_MATCHING` is not the reader's
+only clue. When no reversed function is found, the note names the
+`reversed_dir` the loader read rather than the config key.
 Function, string, import, and import-stub tables split across `*-pN.html`
 once they pass 250 rows, so the first page stays a few hundred rows.
 A function-index or strings page past the first names the address span

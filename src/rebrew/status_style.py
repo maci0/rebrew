@@ -87,6 +87,60 @@ STATUS_HEX: dict[str, str] = {
 # then the unmatched ones.
 DISPLAY_STATUSES: tuple[str, ...] = (*MATCHED_STATUSES, "PROVEN", "NEAR_MATCHING", "STUB")
 
+#: One line per status for a reader who has the token in front of them and not
+#: the vocabulary behind it.  The report prints these tokens in a summary card
+#: and a table cell on every page, where nothing else names them; ``docs/
+#: MATCH_TYPES.md`` is the long form, and a static page cannot link a local
+#: checkout to it.  Kept to one sentence each, and to the verdict rather than
+#: the mechanism: what the token says about the function, not which command
+#: wrote it.
+STATUS_SUMMARIES: dict[str, str] = {
+    "EXACT": "Compiled bytes match the target exactly.",
+    "RELOC": "Compiled bytes match after relocation masking.",
+    "PROVEN": "Proven semantically equal; the bytes still differ.",
+    "NEAR_MATCHING": "60% or more of the bytes match; the structure still differs.",
+    "STUB": "A placeholder: no source, or a rewrite is needed.",
+    "UNKNOWN": "In the catalog, but no source file exists yet.",
+    "SKIP": "Parked on purpose; not expected to match.",
+    "SIZE_MISMATCH": "The source compiles to a different length than the target.",
+    "COMPILE_ERROR": "The source did not compile.",
+    "EXTRACT_ERROR": "The object file could not be read back.",
+    "MISSING_SIZE": "No target size is recorded, so no comparison is possible.",
+    "MISSING_FILE": "The recorded source file is gone.",
+    "INVALID_VA": "The address is not a valid one for this binary.",
+}
+
+#: Every status a legend can name, in the order a reader works through them:
+#: matched first, then the ones that are close, then the stubs, then the
+#: machine verdicts that say nothing about the bytes.
+STATUS_LEGEND_ORDER: tuple[str, ...] = (
+    *DISPLAY_STATUSES,
+    "UNKNOWN",
+    "SKIP",
+    "SIZE_MISMATCH",
+    "COMPILE_ERROR",
+    "EXTRACT_ERROR",
+    "MISSING_SIZE",
+    "MISSING_FILE",
+    "INVALID_VA",
+)
+
+
+def status_legend_rows(statuses: set[str]) -> list[tuple[str, str]]:
+    """``(status, one-line meaning)`` for the *statuses* that have one.
+
+    Ordered by :data:`STATUS_LEGEND_ORDER`, so two reports list the same
+    statuses the same way.  A status with no summary (a hand-edited metadata
+    file, a newer tool) is left out rather than given a placeholder, and a
+    token the vocabulary does not know keeps its raw spelling in the table
+    where the reader met it.
+    """
+    return [
+        (status, STATUS_SUMMARIES[status])
+        for status in STATUS_LEGEND_ORDER
+        if status in statuses and status in STATUS_SUMMARIES
+    ]
+
 
 def status_mark_groups() -> list[tuple[tuple[str, ...], str]]:
     """Return ``STATUS_HEX`` text marks grouped by colour, in table order.
@@ -109,5 +163,8 @@ __all__ = [
     "DISPLAY_STATUSES",
     "STATUS_COLORS",
     "STATUS_HEX",
+    "STATUS_LEGEND_ORDER",
+    "STATUS_SUMMARIES",
+    "status_legend_rows",
     "status_mark_groups",
 ]

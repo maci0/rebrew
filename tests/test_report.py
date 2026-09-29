@@ -10,7 +10,13 @@ from typer.testing import CliRunner
 
 from rebrew.import_table import parse_import_table
 from rebrew.report import app
-from rebrew.status_style import STATUS_HEX
+from rebrew.status_style import (
+    STATUS_HEX,
+    STATUS_LEGEND_ORDER,
+    STATUS_SUMMARIES,
+    status_legend_rows,
+)
+from rebrew.workspace.status import COVERAGE_DB_STATUSES
 
 runner = CliRunner()
 
@@ -815,6 +821,102 @@ class TestSummaryCards:
         assert "<dd class='value'>100%+</dd>" in page
         assert "102.4%" not in page
         assert "more than the 4096-byte .text section" in page
+
+
+class TestStatusLegend:
+    """The index names the status tokens its own cards and table print."""
+
+    def test_every_status_a_report_can_print_is_explained(self) -> None:
+        """A new STATUS reaches the report; the reference must follow it."""
+        assert set(COVERAGE_DB_STATUSES) == set(STATUS_SUMMARIES)
+        assert set(COVERAGE_DB_STATUSES) == set(STATUS_LEGEND_ORDER)
+        assert set(STATUS_SUMMARIES) == set(STATUS_HEX) - {"DISPATCH", "INTERNAL_ERROR"}
+        assert status_legend_rows(set(COVERAGE_DB_STATUSES)) == [
+            (status, STATUS_SUMMARIES[status]) for status in STATUS_LEGEND_ORDER
+        ]
+        assert status_legend_rows({"NOPE"}) == []
+
+    def test_legend_explains_every_status_the_page_shows(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _write_project(tmp_path, pe_bytes=make_pe(b"\x90" * 32))
+        monkeypatch.chdir(tmp_path)
+        site = tmp_path / "site"
+        result = runner.invoke(app, ["--output", str(site)])
+        assert result.exit_code == 0, result.output
+        page = (site / "index.html").read_text(encoding="utf-8")
+        # Closed by default, so the reference does not push the table down.
+        assert "<details class='legend'><summary>Status reference (5)</summary>" in page
+        # The five the page names: the two the fixture's metadata holds, plus
+        # the three the fixed cards print at a hard zero.
+        assert "<dt class='st status-EXACT'>EXACT</dt>" in page
+        assert "Compiled bytes match the target exactly." in page
+        assert "<dt class='st status-NEAR_MATCHING'>NEAR_MATCHING</dt>" in page
+        assert "<dt class='st status-PROVEN'>PROVEN</dt>" in page
+        # A status no card names gets no line of its own (the stylesheet
+        # still carries a mark rule for every status, so the check is on the
+        # legend's <dt>, not on the class anywhere in the page).
+        assert "<dt class='st status-SKIP'>" not in page
+        assert "<dt class='st status-COMPILE_ERROR'>" not in page
+
+    def test_legend_lists_a_status_the_extra_cards_add(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A non-standard status gets a card, so it also gets a line."""
+        _write_project(tmp_path, pe_bytes=make_pe(b"\x90" * 32))
+        (tmp_path / "rebrew-functions.toml").write_text(
+            '["SERVER.0x10001000"]\nstatus = "EXACT"\n'
+            '["SERVER.0x10002000"]\nstatus = "COMPILE_ERROR"\n',
+            encoding="utf-8",
+        )
+        monkeypatch.chdir(tmp_path)
+        site = tmp_path / "site"
+        result = runner.invoke(app, ["--output", str(site)])
+        assert result.exit_code == 0, result.output
+        page = (site / "index.html").read_text(encoding="utf-8")
+        assert "<dt class='st status-COMPILE_ERROR'>COMPILE_ERROR</dt>" in page
+        assert "The source did not compile." in page
+
+    def test_legend_ships_with_the_zero_count_cards(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An empty project still prints the four standard cards, so it explains them."""
+        _write_project(tmp_path, pe_bytes=make_pe(b"\x90" * 32))
+        (tmp_path / "rebrew-functions.toml").write_text("", encoding="utf-8")
+        for source in (tmp_path / "src").glob("*.c"):
+            source.write_text("int nothing(void) { return 0; }\n", encoding="utf-8")
+        monkeypatch.chdir(tmp_path)
+        site = tmp_path / "site"
+        result = runner.invoke(app, ["--output", str(site)])
+        assert result.exit_code == 0, result.output
+        page = (site / "index.html").read_text(encoding="utf-8")
+        assert "No reversed functions found" in page
+        assert "<details class='legend'>" in page
+        assert "<dt class='st status-PROVEN'>PROVEN</dt>" in page
+
+    def test_empty_project_names_the_directory_it_read(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """"The project's reversed directory" is a config key, not a place.
+
+        The note has to carry the path the loader actually read, so a reader
+        can tell an empty directory from the wrong one.  Both pages that carry
+        the note say the same thing.
+        """
+        _write_project(tmp_path, pe_bytes=make_pe(b"\x90" * 32))
+        (tmp_path / "rebrew-functions.toml").write_text("", encoding="utf-8")
+        for source in (tmp_path / "src").glob("*.c"):
+            source.write_text("int nothing(void) { return 0; }\n", encoding="utf-8")
+        monkeypatch.chdir(tmp_path)
+        site = tmp_path / "site"
+        result = runner.invoke(app, ["--output", str(site)])
+        assert result.exit_code == 0, result.output
+        expected = f"<code>{tmp_path / 'src'}</code>"
+        for page in ("index.html", "graph.html"):
+            text = (site / page).read_text(encoding="utf-8")
+            assert "No reversed functions found." in text, page
+            assert expected in text, page
+            assert "the project's reversed directory" not in text, page
 
 
 class TestChromeTokens:

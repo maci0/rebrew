@@ -4,7 +4,9 @@ Generates a self-contained (no external JS/CSS/CDN) static site into an
 output directory with four pages:
 
 - ``index.html``   — summary cards + function table (name, VA, file, status,
-  size, cflags, blocker), sorted by VA.  Large tables split across
+  size, cflags, blocker), sorted by VA.  A closed "Status reference"
+  disclosure under the cards gives one line per status the page names.
+  Large tables split across
   ``index-pN.html`` so the first paint stays within a few hundred rows.
 - ``strings.html`` — printable strings extracted from the binary's data
   sections (via :mod:`rebrew.analysis`) with per-string reference counts;
@@ -63,7 +65,12 @@ from rebrew.sources import (
     target_marker,
 )
 from rebrew.status import StatusReport, collect_status
-from rebrew.status_style import DISPLAY_STATUSES, STATUS_HEX, status_mark_groups
+from rebrew.status_style import (
+    DISPLAY_STATUSES,
+    STATUS_HEX,
+    status_legend_rows,
+    status_mark_groups,
+)
 from rebrew.utils import (
     atomic_write_bytes,
     atomic_write_text,
@@ -190,6 +197,16 @@ td details { max-width: 40rem; overflow-wrap: anywhere; }
 /* The disclosure toggle is the only way to read a full string or every ref, so
    it is pinned past 24px tall; the 14px cell font left it at the threshold. */
 td summary { cursor: pointer; padding: 0.25rem 0; min-height: 1.5rem; }
+/* The status reference sits between the cards and the table, so it takes the
+   card surface rather than the page's. */
+.legend { background: var(--rb-surface); border: 1px solid var(--rb-line);
+          border-radius: var(--rb-radius); padding: 0.6rem 1.1rem; margin: 0 0 1.5rem; }
+.legend > summary { cursor: pointer; font-weight: 600; min-height: 1.5rem;
+                    padding: 0.25rem 0; }
+.legend dl { display: grid; grid-template-columns: max-content 1fr;
+             gap: 0.35rem 1.25rem; margin: 0.75rem 0 0.25rem; }
+.legend dt { font-family: var(--rb-mono); font-weight: 600; }
+.legend dd { margin: 0; }
 __STATUS_TEXT_CSS__
 @media (forced-colors: active) {
 __STATUS_FORCED__ { color: CanvasText; font-weight: 700; }
@@ -401,6 +418,47 @@ def _data_table(caption: str, headers: list[str], rows_html: str) -> str:
     return _table_scroll(table, aria_label=caption)
 
 
+def _no_functions_note(reversed_dir: Path | None) -> str:
+    """Why the index and the call graph are empty, naming the directory read.
+
+    "The project's reversed directory" names a config key, not a place: a
+    reader who has to go looking for it cannot tell an empty directory from the
+    wrong one.  The path the loader actually read is the one thing on the page
+    that settles that.
+    """
+    if reversed_dir is None:
+        return (
+            "No reversed functions found. Set <code>reversed_dir</code> in "
+            "rebrew-project.toml, then regenerate this report."
+        )
+    return (
+        "No reversed functions found. Add annotated sources under "
+        f"<code>{html.escape(str(reversed_dir))}</code>, then regenerate this report."
+    )
+
+
+def _status_legend(statuses: set[str]) -> str:
+    """A disclosure naming every status the page shows, one line each.
+
+    The cards and the table both print bare tokens, and a static page cannot
+    link a reader to ``docs/MATCH_TYPES.md`` on the machine that generated it.
+    Closed by default: the names are reference, not the first thing to read,
+    and an open block would push a long table off the screen.
+    """
+    rows = status_legend_rows(statuses)
+    if not rows:
+        return ""
+    items = "".join(
+        f"<dt class='{_STATUS_CLASSES.get(status, 'st')}'>{html.escape(status)}</dt>"
+        f"<dd>{html.escape(meaning)}</dd>"
+        for status, meaning in rows
+    )
+    return (
+        f"<details class='legend'><summary>Status reference "
+        f"({len(rows)})</summary><dl>{items}</dl></details>"
+    )
+
+
 def _page(title: str, target: str, active: str, body: str) -> str:
     """Wrap *body* in the shared page skeleton (inline CSS, no external assets)."""
     nav = "".join(_nav_link(href, label, href == active) for href, label in _PAGES)
@@ -599,6 +657,7 @@ def _render_index(
     report: StatusReport,
     functions: list[dict[str, Any]],
     ne: dict[str, Any] | None = None,
+    reversed_dir: Path | None = None,
 ) -> list[tuple[str, str]]:
     """Render index.html (+ ``index-pN.html`` when the table exceeds one page)."""
     sc = report.status_counts
@@ -648,6 +707,9 @@ def _render_index(
     )
 
     card_html = _cards(cards)
+    # The cards print the tokens the legend explains, so the two travel
+    # together: DISPLAY_STATUSES has a card whether or not the count is zero.
+    legend_html = _status_legend(set(sc) | set(DISPLAY_STATUSES))
 
     # 16-bit NE targets get their own card set (segments, VMTs).
     ne_html = ""
@@ -666,11 +728,8 @@ def _render_index(
         ne_html = f"<h2>16-bit NE target</h2>{ne_cards}"
 
     if not functions:
-        table = (
-            "<p class='note'>No reversed functions found. Add annotated sources under "
-            "the project's reversed directory, then regenerate this report.</p>"
-        )
-        body = f"<h2>Function index</h2>{card_html}{over_text_html}{ne_html}{table}"
+        table = f"<p class='note'>{_no_functions_note(reversed_dir)}</p>"
+        body = f"<h2>Function index</h2>{card_html}{legend_html}{over_text_html}{ne_html}{table}"
         return [("index.html", _page("Function index", target, "index.html", body))]
 
     total = len(functions)
@@ -702,8 +761,8 @@ def _render_index(
         )
         if page_num == 1:
             body = (
-                f"<h2>Function index</h2>{card_html}{over_text_html}{ne_html}"
-                f"{intro}{pager}{table}{pager_end}"
+                f"<h2>Function index</h2>{card_html}{legend_html}"
+                f"{over_text_html}{ne_html}{intro}{pager}{table}{pager_end}"
             )
             title = "Function index"
         else:
@@ -1130,9 +1189,7 @@ def _render_graph(cfg: ProjectConfig) -> tuple[str, str | None, str | None]:
         nodes, edges, dispatch_edges = build_graph(Path(reversed_dir), cfg=cfg)
         if not nodes:
             note = (
-                "<h2>Call graph</h2>"
-                "<p class='note'>No reversed functions found. Add annotated sources under the "
-                "project's reversed directory, then regenerate this report.</p>"
+                f"<h2>Call graph</h2><p class='note'>{_no_functions_note(Path(reversed_dir))}</p>"
             )
             return (
                 _page("Call graph", target, "graph.html", note),
@@ -1269,10 +1326,19 @@ def generate_report(cfg: ProjectConfig, out: Path) -> dict[str, Any]:
     report = collect_status(cfg)
     functions = _collect_functions(cfg)
     target = _target_name(cfg)
+    reversed_dir = getattr(cfg, "reversed_dir", None)
 
     graph_html, adjacency, spilled_mermaid = _render_graph(cfg)
     page_files: list[tuple[str, str]] = []
-    page_files.extend(_render_index(target, report, functions, ne=_ne_summary(cfg)))
+    page_files.extend(
+        _render_index(
+            target,
+            report,
+            functions,
+            ne=_ne_summary(cfg),
+            reversed_dir=reversed_dir,
+        )
+    )
     page_files.extend(_render_strings(cfg))
     page_files.extend(_render_imports(cfg))
     page_files.append(("graph.html", graph_html))
