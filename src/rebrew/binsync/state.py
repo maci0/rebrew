@@ -288,7 +288,9 @@ def load_binsync_enums(state_dir: Path) -> dict[str, dict[str, object]]:
         # As with struct members, a name that is not an identifier would carry
         # more than a member into the synthesized enumerator list.
         members = {k: v for k, v in raw_members.items() if is_safe_c_ident(k)}
-        for skipped in raw_members.keys() - members.keys():
+        # Sorted: the difference is a set, so its order follows str hashing and
+        # the same state dir would warn in a different order on every process.
+        for skipped in sorted(raw_members.keys() - members.keys()):
             log.warning("skipping enum %s member %r: not an identifier", name, skipped)
         if not members:
             continue

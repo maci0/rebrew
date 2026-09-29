@@ -1,5 +1,8 @@
 """Tests for rebrew.match — BinaryMatchingGA initialization and population logic."""
 
+import os
+import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
@@ -478,6 +481,71 @@ class TestGAVirtualClockReplay:
         frozen = self._seeded_run(tmp_path, monkeypatch, lambda: 0.0, 10.0)
         assert frozen[1] == 8
         assert frozen[2] == 0.0
+
+
+class TestGAReplayAcrossProcesses:
+    """One seed replays a run *between interpreters*, not just inside one.
+
+    Every other replay test shares this process, where ``str.__hash__`` is
+    already fixed: an iteration order that leaks into RNG consumption (a set
+    of operators, a dict of weights, a ``{a, b} - {c}`` difference) looks
+    deterministic there and changes with ``PYTHONHASHSEED`` on the next run.
+    Two fresh interpreters, two hash seeds, one seed: any difference is a
+    determinism leak.
+    """
+
+    #: The child runs the GA with the compile seam stubbed, so the fingerprint
+    #: is the search, not the toolchain: population, RNG state, best.c bytes.
+    _DRIVER = """\\
+import hashlib, json, sys
+from pathlib import Path
+from rebrew.match_ga import BinaryMatchingGA
+from rebrew.matcher import BuildResult
+
+out = Path(sys.argv[1])
+ga = BinaryMatchingGA(
+    seed_source="int f(void) { return 0; }",
+    target_bytes=b"\\x55\\x8b\\xec\\xc3",
+    cl_cmd="wine CL.EXE",
+    inc_dir="/fake/include",
+    cflags="/O2 /Gd",
+    symbol="_f",
+    out_dir=out / "ga_out",
+    pop_size=8,
+    num_generations=4,
+    num_jobs=4,
+    rng_seed=42,
+)
+ga.population = [f"int f(void) {{ return {i}; }}" for i in range(8)]
+ga._compile_source = lambda src: BuildResult(ok=True, obj_bytes=b"\\x90", fitness=100.0)
+with ga:
+    ga.run()
+print(json.dumps({
+    "population": hashlib.sha256("\\n".join(ga.population).encode()).hexdigest(),
+    "rng": hashlib.sha256(repr(ga.rng.getstate()).encode()).hexdigest(),
+    "best_c": hashlib.sha256((out / "ga_out" / "best.c").read_bytes()).hexdigest(),
+}, sort_keys=True))
+"""
+
+    @staticmethod
+    def _fingerprint(driver: Path, out_dir: Path, hash_seed: str) -> str:
+        env = dict(os.environ, PYTHONHASHSEED=hash_seed)
+        proc = subprocess.run(
+            [sys.executable, str(driver), str(out_dir)],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=300,
+        )
+        assert proc.returncode == 0, proc.stderr
+        return proc.stdout.strip().splitlines()[-1]
+
+    def test_seeded_run_is_identical_under_two_hash_seeds(self, tmp_path: Path) -> None:
+        driver = tmp_path / "ga_replay_driver.py"
+        driver.write_text(self._DRIVER, encoding="utf-8")
+        first = self._fingerprint(driver, tmp_path / "a", "0")
+        second = self._fingerprint(driver, tmp_path / "b", "12345")
+        assert first == second
 
 
 class TestGATournamentSelection:
