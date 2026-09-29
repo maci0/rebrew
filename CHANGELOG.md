@@ -405,6 +405,15 @@
   `docs/dashboard-api.yaml` and the code, and `tests/test_dashboard.py`
   derives the hashed-asset and immutable-URL sets from the server, so an asset
   that joins either cannot be left unnamed in the prose.
+- **A seed request that never left the process is re-sent.** `match
+  --seed-llm` made exactly one attempt, so a local endpoint that was still
+  starting, a DNS blip, or a proxy that could not be reached cost the run its
+  whole seed round: one warning, then a GA with no seeds. Those failures
+  happen before any prompt is written, so nothing was billed and re-sending
+  them is free. The request is retried up to 3 times within 30s on the shared
+  backoff, without consuming a second request slot or token budget. Anything
+  the provider may already have generated stays single-shot, as the 429/503/529
+  statuses already were, so a retry storm cannot bill twice.
 - **`[llm] max_requests` / `max_tokens` / `timeout` are project settings, and a
   pinned one is now honored.** The three budget knobs were env-only, so a
   project that could not afford a paid endpoint had to put the ceiling in

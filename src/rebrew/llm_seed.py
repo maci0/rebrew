@@ -46,7 +46,14 @@ truncation, or an outage, and re-asking can succeed).  A cache hit is
 re-checked against the same name-and-prototype gate a live response passes,
 because the key carries a source truncated at a fixed length and a collision
 would otherwise hand one function's seeds to another.  Rate limits / overload
-(429/503/529) are never retried, so the GA continues with empty seeds.  A
+(429/503/529) are never retried, so the GA continues with empty seeds, and
+neither is anything else the provider may have been billed for: a read timeout,
+a body cut mid-stream, a 5xx after generation.  Only a connect-stage failure
+(DNS, refused connection, TLS handshake, unreachable proxy, connect/pool
+timeout) is re-sent, because that request never left the process and so cannot
+be billed twice; it is retried up to :data:`_CONNECT_ATTEMPTS` times within
+:data:`_CONNECT_RETRY_WINDOW_S`, so a local endpoint that is still starting
+recovers on its own instead of costing the run its whole seed round.  A
 response whose reported ``model`` differs from the pinned id warns (a
 substituted model means different cost and different seeds),
 ``finish_reason=length`` warns that the token cap cut the answer, and every
@@ -95,7 +102,7 @@ from rebrew.config import (
     validate_http_url,
     validate_llm_model,
 )
-from rebrew.utils import strip_bidi_format
+from rebrew.utils import retry_backoff_delay, strip_bidi_format
 
 # Cost / injection caps at the single LLM call site.
 _MAX_SOURCE_CHARS = 16_000  # ~4k tokens of C; larger functions truncate
@@ -147,6 +154,16 @@ _DEFAULT_MODEL = "gpt-4o-mini-2024-07-18"  # dated snapshot; bare alias floats
 _PROMPT_VERSION = "llm-seed-v1"
 # Provider overload / rate-limit statuses: never retry (retry storms = spend).
 _NO_RETRY_HTTP = frozenset({429, 503, 529})
+#: Attempts for one seed request.  Only a connect-stage failure is retried (see
+#: :func:`_never_billed`), and such a failure returns in milliseconds, so the
+#: count costs no wall clock on the happy path and no money at all when it does
+#: fire: the request never reached the provider.
+_CONNECT_ATTEMPTS = 3
+#: Wall-clock ceiling on the connect retries of one seed request.  A connect
+#: failure is fast, so this only bites when the provider is blackholing packets
+#: and ``ConnectTimeout`` is doing the waiting; without it three attempts could
+#: stretch past the single-request budget ``REBREW_LLM_TIMEOUT`` documents.
+_CONNECT_RETRY_WINDOW_S = 30.0
 # Seeds must be self-contained; any preprocessor line (#include, #define,
 # pragma, #line, …) lets model output change the TU trust boundary.
 _PREPROC_RE = re.compile(r"^\s*#", re.MULTILINE)
@@ -1413,6 +1430,84 @@ def _request(
     return seeds
 
 
+def _never_billed(exc: BaseException) -> bool:
+    """True when *exc* proves the request never reached the provider.
+
+    A seed request is billed on the far side of the connection, so a retry is
+    free only while the connection was never established: DNS resolution, a
+    refused connection, a TLS handshake failure, an unreachable proxy, or a
+    connect/pool timeout.  Each returns in milliseconds and each sent no
+    prompt, so re-sending costs no tokens and consumes no extra request slot.
+
+    Everything else stays single-shot.  A response arrived, or generation may
+    have started, so a second attempt is real spend: a read timeout, a
+    connection dropped mid-body, a 5xx after generation, the provider overload
+    statuses of :data:`_NO_RETRY_HTTP`, and a malformed body are all billed or
+    may be.  The same rule and the same reasoning as
+    :func:`rebrew.decompme._never_delivered`, which keeps a re-POST from
+    minting a second orphan there.
+    """
+    import httpx
+
+    return isinstance(
+        exc, (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout, httpx.ProxyError)
+    )
+
+
+def _send_seeds(
+    client: Any | None,
+    conf: dict[str, str],
+    source: str,
+    count: int,
+    expect: tuple[str, str],
+    model: str,
+    billed_ceiling: int,
+) -> list[str]:
+    """One seed request, re-sent only on failures that were never billed.
+
+    A local endpoint that is still starting, a proxy between the operator and
+    a hosted model, and a DNS blip all fail before the prompt leaves the
+    process, and every one of them was fatal to the whole seed round: the run
+    logged a warning and the GA started with no seeds.  Re-sending those costs
+    nothing, so they are retried with the shared backoff.
+
+    Anything the provider may have seen is re-raised for the caller's single
+    failure path, which keeps the cost record and the warning text unchanged.
+    """
+    started = time.monotonic()
+    attempt = 0
+    while True:
+        try:
+            if client is not None:
+                return _request(
+                    client, conf, source, count, expect, model=model, billed_ceiling=billed_ceiling
+                )
+            import httpx
+
+            with httpx.Client(timeout=_request_timeout()) as http:
+                return _request(
+                    http, conf, source, count, expect, model=model, billed_ceiling=billed_ceiling
+                )
+        except Exception as exc:
+            attempt += 1
+            if (
+                not _never_billed(exc)
+                or attempt >= _CONNECT_ATTEMPTS
+                or time.monotonic() - started >= _CONNECT_RETRY_WINDOW_S
+            ):
+                raise
+            delay = retry_backoff_delay(attempt - 1)
+            logging.warning(
+                "LLM seeding connect attempt %d/%d never reached the provider (%s); "
+                "retrying in %.1fs",
+                attempt,
+                _CONNECT_ATTEMPTS,
+                sanitize_log_value(exc, secrets=(conf.get("api_key", ""),)),
+                delay,
+            )
+            time.sleep(delay)
+
+
 def request_seeds(
     cfg: Any,
     source: str,
@@ -1427,7 +1522,9 @@ def request_seeds(
     *source* has no parseable signature; empty when the request fails or the
     response carries no valid C.
     Never raises (the GA must run unchanged when the LLM is unavailable).
-    Never retries on 429/503/529 — a retry storm would multiply spend.
+    Never retries on 429/503/529, nor on any failure the provider may already
+    have billed — a retry storm would multiply spend.  A request that never
+    reached the provider is re-sent (see :func:`_send_seeds`), which is free.
     Adds to :func:`seed_usage_total`: a request that was sent and then failed
     still records one, with unreported token counts, because the provider may
     have billed it, and a call that bills nothing leaves the earlier requests'
@@ -1509,17 +1606,7 @@ def request_seeds(
         return []
     _started = time.monotonic()
     try:
-        if client is not None:
-            seeds = _request(
-                client, conf, source, count, expect, model=model, billed_ceiling=billed_ceiling
-            )
-        else:
-            import httpx
-
-            with httpx.Client(timeout=_request_timeout()) as http:
-                seeds = _request(
-                    http, conf, source, count, expect, model=model, billed_ceiling=billed_ceiling
-                )
+        seeds = _send_seeds(client, conf, source, count, expect, model, billed_ceiling)
     except Exception as exc:  # LLM availability must never break the GA
         # The request left this process, so the provider may already have
         # billed it; without a record the run reports no cost for a call that

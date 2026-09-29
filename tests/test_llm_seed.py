@@ -1101,6 +1101,107 @@ class TestRequestSeeds:
         assert client.calls == 1  # no retry storm
         assert str(status) in caplog.text
 
+    def test_connect_failure_is_retried(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A request that never reached the provider is re-sent; one was never billed.
+
+        A local endpoint that is still starting fails the first connect and
+        used to cost the run its whole seed round.  Nothing left the process,
+        so re-sending is free: the recovered answer arrives, and the retry did
+        not consume a second request slot or a second token budget.
+        """
+        monkeypatch.setattr("rebrew.llm_seed.retry_backoff_delay", lambda _attempt: 0.0)
+
+        class _ConnRefusedThenOk:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            @contextmanager
+            def stream(self, *a: object, **k: object) -> Iterator[_FakeResponse]:
+                self.calls += 1
+                if self.calls == 1:
+                    raise httpx.ConnectError("[Errno 111] Connection refused")
+                yield _FakeResponse(
+                    {
+                        "choices": [{"message": {"content": "```c\nint f(void){return 0;}\n```"}}],
+                        "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
+                    }
+                )
+
+        client = _ConnRefusedThenOk()
+        seeds = request_seeds(_cfg("https://llm/v1"), "int f(void){return 0;}", client=client)
+        assert seeds == ["int f(void){return 0;}"]
+        assert client.calls == 2
+        # One billed request, however many connects it took.
+        assert rebrew.llm_seed._request_count == 1
+        assert spent_tokens() == 30
+
+    def test_connect_failure_gives_up_after_the_attempt_cap(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """An endpoint that stays unreachable fails once, after the capped retries."""
+        monkeypatch.setattr("rebrew.llm_seed.retry_backoff_delay", lambda _attempt: 0.0)
+
+        class _NeverConnects:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def stream(self, *a: object, **k: object) -> None:
+                self.calls += 1
+                raise httpx.ConnectError("[Errno 113] No route to host")
+
+        client = _NeverConnects()
+        with caplog.at_level(logging.WARNING):
+            assert (
+                request_seeds(_cfg("https://llm/v1"), "int f(void){return 0;}", client=client) == []
+            )
+        assert client.calls == rebrew.llm_seed._CONNECT_ATTEMPTS
+        assert rebrew.llm_seed._request_count == 1
+        assert "never reached the provider" in caplog.text
+
+    def test_billed_failure_is_not_retried(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A read timeout may follow a generation the provider already billed.
+
+        Re-sending it would buy the same prompt twice, so it stays single-shot
+        like the overload statuses above.
+        """
+        monkeypatch.setattr("rebrew.llm_seed.retry_backoff_delay", lambda _attempt: 0.0)
+
+        class _TimedOutMidGeneration:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def stream(self, *a: object, **k: object) -> None:
+                self.calls += 1
+                raise httpx.ReadTimeout("timed out")
+
+        client = _TimedOutMidGeneration()
+        assert request_seeds(_cfg("https://llm/v1"), "int f(void){return 0;}", client=client) == []
+        assert client.calls == 1
+
+    def test_connect_retry_window_stops_further_attempts(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A blackholed endpoint cannot stretch one request past its time budget.
+
+        ``ConnectTimeout`` is the one retryable failure that waits, so three
+        attempts at the full ``REBREW_LLM_TIMEOUT`` would run three times as
+        long as the budget documents.
+        """
+        monkeypatch.setattr("rebrew.llm_seed.retry_backoff_delay", lambda _attempt: 0.0)
+        monkeypatch.setattr("rebrew.llm_seed._CONNECT_RETRY_WINDOW_S", 0.0)
+
+        class _Blackholed:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def stream(self, *a: object, **k: object) -> None:
+                self.calls += 1
+                raise httpx.ConnectTimeout("timed out")
+
+        client = _Blackholed()
+        assert request_seeds(_cfg("https://llm/v1"), "int f(void){return 0;}", client=client) == []
+        assert client.calls == 1
+
     def test_oversized_body_rejected(self) -> None:
         huge = b"x" * (_MAX_HTTP_BODY_BYTES + 1)
         client = _FakeClient({"choices": []}, body=huge)
