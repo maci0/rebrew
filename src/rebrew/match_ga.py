@@ -1170,9 +1170,9 @@ def _ga_args_hash(
     """Stable fingerprint of the GA parameters — invalidates stale checkpoints.
 
     Every tuning parameter that shapes the search is folded in: resuming
-    after changing --mutation-focus / --generations / --elitism etc. must
-    reject the old checkpoint instead of silently continuing the previous
-    population with stale RNG state.
+    after changing ``mutation_weights`` / ``num_generations`` / ``elitism``
+    etc. must reject the old checkpoint instead of silently continuing the
+    previous population with stale RNG state.
 
     The compile inputs are folded in for the same reason.  A checkpoint
     restores a population selected by *scoring* candidates this run will

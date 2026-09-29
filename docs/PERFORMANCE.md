@@ -185,8 +185,8 @@ inside the one document that has to fit RFC 6928's initial window, and it cost
 icon is not first paint). Hashing the linked URL cost 16 gzip bytes of the
 shell and buys the whole icon request back on every load after the first. The
 entry assets are now 12682 zstd / 13299 gzip against the 13320 B budget, so
-gzip has 21 B of room. Two of the three `--favicon` shapes are worth not
-repeating: deduplicating near-identical JavaScript *raised* the compressed
+gzip has 21 B of room. One shell-trimming idea is a negative result worth
+recording: deduplicating near-identical JavaScript *raised* the compressed
 size by 340 B even though it removed 262 raw ones, because the copies were
 what gzip matched.
 

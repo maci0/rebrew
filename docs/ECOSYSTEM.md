@@ -119,8 +119,9 @@ Integration with rebrew is at the package level: the `similarity` dependency
 group path-pins the sibling `resembl` checkout, and rebrew reuses
 `resembl/scoring.py` (importable without resembl's DB stack) for the
 `verify_results.similarity` column; the structural score verify reports for
-unmatched functions. resembl itself has no rebrew dependency and keeps its
-own database.
+every verified function with compiled bytes, matched and unmatched alike (the
+neighbouring `diff_lines` is unmatched-only). resembl itself has no rebrew
+dependency and keeps its own database.
 
 Boundary with rebrew's own matchers: `resembl` owns the *persisted corpus and
 approximate search* case (a snippet library built across projects, near
