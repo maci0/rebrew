@@ -90,7 +90,19 @@ def _discover_binary_loaders() -> list[tuple[str, Any]]:
     ]
 
 
+#: Published loader list.  ``load_binary`` runs from batch worker threads
+#: while a long-lived process may refresh it, so the writer builds a fresh
+#: list off-lock and rebinds it here, and the reader takes the list under the
+#: same lock; a refresh that lands mid-parse then applies to the next load
+#: rather than splitting one load across two generations.
+_PLUGIN_LOADERS_LOCK = threading.Lock()
 _PLUGIN_LOADERS: list[tuple[str, Any]] = _discover_binary_loaders()
+
+
+def _plugin_loaders() -> list[tuple[str, Any]]:
+    """The current loader snapshot, frozen for the whole of one load."""
+    with _PLUGIN_LOADERS_LOCK:
+        return _PLUGIN_LOADERS
 
 
 def refresh_loaders() -> list[tuple[str, Any]]:
@@ -100,8 +112,10 @@ def refresh_loaders() -> list[tuple[str, Any]]:
     startup without a restart."""
     global _PLUGIN_LOADERS
 
-    _PLUGIN_LOADERS = _discover_binary_loaders()
-    return _PLUGIN_LOADERS
+    discovered = _discover_binary_loaders()
+    with _PLUGIN_LOADERS_LOCK:
+        _PLUGIN_LOADERS = discovered
+        return _PLUGIN_LOADERS
 
 
 #: Real-mode linear addresses are 20 bits: ``segment*16 + offset`` wraps at
@@ -528,10 +542,11 @@ def load_binary(path: Path, fmt: str = "auto") -> BinaryInfo:
         except ValueError:
             # LIEF cannot parse it — a plugin binary loader (novel container
             # format) gets the fallback before we give up.
-            if not _PLUGIN_LOADERS:
+            loaders = _plugin_loaders()
+            if not loaders:
                 raise
             result = None
-            for name, fn in _PLUGIN_LOADERS:
+            for name, fn in loaders:
                 try:
                     candidate = fn(path, fmt)
                 except Exception:

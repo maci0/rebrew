@@ -573,7 +573,10 @@ def _python_dir_version(directory: Path) -> tuple[int, ...]:
 
 #: ``KUNA_SPECS`` values already reported as non-directories.  The spec dir is
 #: resolved once per seeded function, so without this a bad path would print
-#: the same warning for every function in a GA run.
+#: the same warning for every function in a GA run.  The latch is a
+#: check-then-act, so it needs the lock: seeding runs from the batch pools, and
+#: two workers resolving one bad path would both warn.
+_WARNED_KUNA_SPECS_LOCK = threading.Lock()
 _WARNED_KUNA_SPECS: set[str] = set()
 
 
@@ -653,8 +656,12 @@ def _kuna_specs_override() -> str | None:
     if path is None:
         return None
     if not path.is_dir():
-        if str(path) not in _WARNED_KUNA_SPECS:
+        with _WARNED_KUNA_SPECS_LOCK:
+            first = str(path) not in _WARNED_KUNA_SPECS
             _WARNED_KUNA_SPECS.add(str(path))
+        # Warned outside the lock: the add above already made exactly one
+        # caller the warner, and the warning writes to the console.
+        if first:
             warn_env_dir(KUNA_SPECS_ENV, raw)
         return None
     return str(path)

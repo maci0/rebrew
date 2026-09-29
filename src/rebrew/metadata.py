@@ -1672,8 +1672,12 @@ def refresh_library_presets() -> dict[str, dict[str, str]]:
     startup without a restart."""
     global _LIBRARY_PRESETS_ALL, _LIBRARY_PRESETS_GENERATION
 
+    # Discovery imports plugin modules, so it runs outside the lock: a plugin
+    # whose body calls back into all_library_presets would otherwise wait on
+    # this non-reentrant lock forever.
+    merged = _merged_library_presets()
     with _LIBRARY_PRESETS_LOCK:
-        _LIBRARY_PRESETS_ALL = _merged_library_presets()
+        _LIBRARY_PRESETS_ALL = merged
         _LIBRARY_PRESETS_GENERATION += 1
     return _LIBRARY_PRESETS_ALL
 

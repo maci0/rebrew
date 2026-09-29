@@ -411,10 +411,13 @@ def _discover_cache_backends() -> dict[str, Callable[[Path, int], CacheBackend]]
 
 _CACHE_BACKENDS: dict[str, Callable[[Path, int], CacheBackend]] = _discover_cache_backends()
 
-#: Held across the re-discovery and the rebind of :data:`_CACHE_BACKENDS`.
+#: Held across the rebind of :data:`_CACHE_BACKENDS`.
 #: ``verify --jobs N`` and the GA pool call :func:`get_compile_cache` from worker
 #: threads, so a refresh running alongside them must publish the new snapshot in
 #: one section; a reader either sees the whole old dict or the whole new one.
+#: Discovery stays outside it: it imports plugin modules, and a plugin whose
+#: body calls back into :func:`available_cache_backends` would otherwise wait
+#: on this non-reentrant lock forever.
 _CACHE_BACKENDS_LOCK = threading.Lock()
 
 
@@ -425,8 +428,9 @@ def refresh_cache_backends() -> dict[str, Callable[[Path, int], CacheBackend]]:
     startup without a restart."""
     global _CACHE_BACKENDS
 
+    discovered = _discover_cache_backends()
     with _CACHE_BACKENDS_LOCK:
-        _CACHE_BACKENDS = _discover_cache_backends()
+        _CACHE_BACKENDS = discovered
     return _CACHE_BACKENDS
 
 
@@ -865,7 +869,7 @@ def _resolve_include_paths(
             return existing[0], existing[1]
         if _header_stats(paths) != observed or not _unresolved_still_missing(misses):
             return paths, fallback
-        _store_include_closure(key, paths, fallback, observed, tuple(misses))
+        _store_include_closure_locked(key, paths, fallback, observed, tuple(misses))
     return paths, fallback
 
 
@@ -881,35 +885,35 @@ def _include_closure_cost(
     )
 
 
-def _store_include_closure(
+def _store_include_closure_locked(
     key: tuple[str, str | None, tuple[str, ...], tuple[int, ...]],
     paths: tuple[str, ...],
     fallback: bool,
     observed: tuple[tuple[int, int, int], ...],
     misses: tuple[tuple[str, tuple[str, ...]], ...],
 ) -> None:
-    """Publish one closure under :data:`_INCLUDE_CLOSURE_LOCK`, evicting by bytes."""
+    """Publish one closure, evicting by bytes. Caller holds
+    :data:`_INCLUDE_CLOSURE_LOCK`, so this must not take it again."""
     global _include_closure_memo_chars
     cost = _include_closure_cost(key, paths)
-    with _INCLUDE_CLOSURE_LOCK:
-        stale = _INCLUDE_CLOSURE_MEMO.pop(key, None)
-        if stale is not None:
-            _include_closure_memo_chars -= stale[4]
-        _INCLUDE_CLOSURE_MEMO[key] = (paths, fallback, observed, misses, cost)
-        _include_closure_memo_chars += cost
-        # Keep at least the newest entry: a source larger than the budget
-        # would otherwise be evicted the moment it is stored.
-        while (
-            _include_closure_memo_chars > _INCLUDE_CLOSURE_MEMO_MAX_BYTES
-            and len(_INCLUDE_CLOSURE_MEMO) > 1
-        ):
-            _include_closure_memo_chars -= _INCLUDE_CLOSURE_MEMO.pop(
-                next(iter(_INCLUDE_CLOSURE_MEMO))
-            )[4]
-        if not _INCLUDE_CLOSURE_MEMO:
-            # A caller that emptied the map directly left the running total
-            # stale; over-counting only evicts early, but rebase it anyway.
-            _include_closure_memo_chars = 0
+    stale = _INCLUDE_CLOSURE_MEMO.pop(key, None)
+    if stale is not None:
+        _include_closure_memo_chars -= stale[4]
+    _INCLUDE_CLOSURE_MEMO[key] = (paths, fallback, observed, misses, cost)
+    _include_closure_memo_chars += cost
+    # Keep at least the newest entry: a source larger than the budget
+    # would otherwise be evicted the moment it is stored.
+    while (
+        _include_closure_memo_chars > _INCLUDE_CLOSURE_MEMO_MAX_BYTES
+        and len(_INCLUDE_CLOSURE_MEMO) > 1
+    ):
+        _include_closure_memo_chars -= _INCLUDE_CLOSURE_MEMO.pop(
+            next(iter(_INCLUDE_CLOSURE_MEMO))
+        )[4]
+    if not _INCLUDE_CLOSURE_MEMO:
+        # A caller that emptied the map directly left the running total
+        # stale; over-counting only evicts early, but rebase it anyway.
+        _include_closure_memo_chars = 0
 
 
 def _header_stats(paths: tuple[str, ...]) -> tuple[tuple[int, int, int], ...]:
