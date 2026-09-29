@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import errno
 import os
-import shutil
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -20,6 +19,7 @@ import pytest
 from bin_util import make_pe
 
 import rebrew.cross_import as ci
+from rebrew.toolchain import TOOLCHAINS, image_present
 
 # Hand-crafted 32-bit x86 blobs: shared prologue/epilogue, distinct bodies.
 F1 = bytes.fromhex("55 8b ec 8b 05 00 00 00 00 5d c3")  # mov eax, [x]
@@ -927,11 +927,11 @@ class TestCLI:
 
 
 class TestMingwEndToEnd:
-    """Real compile+verify round-trip with the native mingw-16.2.0 toolchain."""
+    """Real compile+verify round-trip through the mingw-16.2.0 docker image."""
 
     @pytest.mark.skipif(
-        shutil.which("i686-w64-mingw32-gcc") is None,
-        reason="mingw-16.2.0 toolchain not installed",
+        not image_present(TOOLCHAINS["mingw-16.2.0"].image or ""),
+        reason="mingw-16.2.0 image not built (rebrew toolchain build mingw-16.2.0)",
     )
     def test_import_compiles_and_verifies(self, tmp_path: Path) -> None:
         from rebrew.config import ProjectConfig
