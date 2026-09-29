@@ -28,7 +28,13 @@ _FOO = "// FUNCTION: A 0x401000\n// STATUS: EXACT\n// SIZE: 11\nint foo(void) { 
 
 
 def _git(state: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(["git", "-C", str(state), *args], capture_output=True, text=True)
+    return subprocess.run(
+        ["git", "-C", str(state), *args],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
 
 
 def _make_project(tmp_path: Path) -> Path:
@@ -104,7 +110,13 @@ class TestBinsyncUmbrella:
         _make_project(tmp_path)
         state = tmp_path / "state"
         bare = tmp_path / "remote.git"
-        subprocess.run(["git", "init", "--bare", str(bare)], capture_output=True, text=True)
+        subprocess.run(
+            ["git", "init", "--bare", str(bare)],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
         self._init(state, tmp_path, monkeypatch)
         assert _git(state, "remote", "add", "origin", str(bare)).returncode == 0
 

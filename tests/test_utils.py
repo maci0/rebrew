@@ -1,6 +1,7 @@
 """Tests for rebrew.utils."""
 
 import contextlib
+import errno
 import os
 import signal
 import subprocess
@@ -109,6 +110,24 @@ def test_atomic_write_bytes_ignores_planted_symlink(tmp_path: Path) -> None:
     atomic_write_bytes(link, b"payload")
     assert outside.read_bytes() == b"untouched"
     assert link.read_bytes() == b"payload"
+
+
+def test_atomic_write_bytes_survives_a_refused_fsync(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A FUSE, virtiofs, overlayfs or NFS mount can answer fsync with
+    # EINVAL/ENOTSUP.  Durability is best effort (_fsync_path), so the write
+    # must still land instead of the whole call failing.
+    real_fsync = os.fsync
+
+    def refuse(fd: int) -> None:
+        raise OSError(errno.EINVAL, "Invalid argument")
+
+    monkeypatch.setattr(os, "fsync", refuse)
+    target = tmp_path / "postlinked.exe"
+    atomic_write_bytes(target, b"MZ payload")
+    monkeypatch.setattr(os, "fsync", real_fsync)
+    assert target.read_bytes() == b"MZ payload"
 
 
 def test_filename_component_is_one_safe_component() -> None:

@@ -545,7 +545,14 @@ def test_a_stripped_elf_is_discovered_from_its_unwind_records(tmp_path: Path) ->
     subprocess.run([cc, "-O2", "-o", str(full), str(src)], check=True, capture_output=True)
     stripped = tmp_path / "prog.stripped"
     subprocess.run(["strip", "-o", str(stripped), str(full)], check=True, capture_output=True)
-    symbols = subprocess.run(["nm", "-S", str(full)], check=True, capture_output=True, text=True)
+    symbols = subprocess.run(
+        ["nm", "-S", str(full)],
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
     truth = {}
     for line in symbols.stdout.splitlines():
         parts = line.split()
@@ -577,7 +584,14 @@ def test_a_stripped_x64_pe_is_discovered_from_its_pdata(tmp_path: Path) -> None:
     subprocess.run([cc, "-O2", "-o", str(full), str(src)], check=True, capture_output=True)
     stripped = tmp_path / "stripped.exe"
     subprocess.run([strip, "-o", str(stripped), str(full)], check=True, capture_output=True)
-    symbols = subprocess.run([nm, str(full)], check=True, capture_output=True, text=True).stdout
+    symbols = subprocess.run(
+        [nm, str(full)],
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    ).stdout
     wanted = {"scale", "both", "main"}
     truth = {
         int(parts[0], 16)

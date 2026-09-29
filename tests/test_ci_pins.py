@@ -488,6 +488,8 @@ class TestCiPins:
             },
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=10,
             check=False,
         )
@@ -549,6 +551,8 @@ class TestCiPins:
             env=env,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=10,
             check=False,
         )
@@ -608,6 +612,8 @@ class TestCiPins:
             },
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=30,
             check=False,
         )
@@ -1158,6 +1164,8 @@ class TestCiPins:
                 env=run_env,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=120,
                 check=False,
             )
@@ -1220,6 +1228,8 @@ class TestCiPins:
             check=True,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
         ).stdout.strip()
         assert extracted == pin, (extracted, pin)
 
@@ -1278,6 +1288,8 @@ class TestCiPins:
             env=env,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             # 180, not 60: this spawns a second `uv run` + pytest, so a cold
             # interpreter, an unfrozen uv cache, or a loaded runner (the outer
             # suite runs this alongside the other subprocess tests) can push it
@@ -1610,6 +1622,8 @@ class TestCiPins:
             ["yamllint", "--strict", "-f", "parsable", *[str(p) for p in targets]],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             cwd=ROOT,
         )
         assert result.returncode == 0, result.stdout
@@ -1789,6 +1803,8 @@ class TestCiAptInstall:
             env=env,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=10,
             check=False,
         )
@@ -1824,6 +1840,8 @@ class TestCiAptInstall:
             env=env,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=60,
             check=False,
         )
@@ -1923,6 +1941,8 @@ uv() {
             },
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=10,
             check=False,
         )

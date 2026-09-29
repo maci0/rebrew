@@ -45,6 +45,8 @@ def assert_valid(paths: Sequence[Path]) -> None:
         [vnu, "--format", "text", "--also-check-css", *[str(path) for path in paths]],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=_TIMEOUT_S,
         check=False,
     )

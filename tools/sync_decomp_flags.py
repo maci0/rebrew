@@ -131,6 +131,8 @@ def resolved_commit(repo_dir: Path) -> str:
         capture_output=True,
         check=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     return result.stdout.strip()
 

@@ -30,7 +30,13 @@ _BINARY = b"MZ\x90\x00" + bytes(range(64))
 
 
 def _git(state: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(["git", "-C", str(state), *args], capture_output=True, text=True)
+    return subprocess.run(
+        ["git", "-C", str(state), *args],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
 
 
 def _make_project(tmp_path: Path, *, write_binary: bool = True) -> Path:

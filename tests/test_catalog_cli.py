@@ -430,7 +430,13 @@ class TestPackageLayering:
     def test_package_import_does_not_load_cli(self, package: str) -> None:
         code = f"import sys, {package}; print(sorted(m for m in sys.modules if m.endswith('.cli')))"
         out = subprocess.run(
-            [sys.executable, "-c", code], capture_output=True, text=True, check=True, timeout=60
+            [sys.executable, "-c", code],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=True,
+            timeout=60,
         ).stdout
         assert f"{package}.cli" not in out
         assert "'rebrew.cli'" not in out

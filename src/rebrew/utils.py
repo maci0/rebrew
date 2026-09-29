@@ -893,7 +893,12 @@ def atomic_write_bytes(filepath: Path, data: bytes, mode: int = _DEFAULT_FILE_MO
         with os.fdopen(fd, "wb") as fh:
             fh.write(data)
             fh.flush()
-            os.fsync(fh.fileno())
+        # Durability comes from _atomic_replace's best-effort _fsync_path on
+        # the temp path, which also syncs the parent directory.  A bare
+        # fsync() on the write fd would be redundant there and would fail the
+        # whole write on a mount that refuses it (FUSE, virtiofs, some
+        # overlayfs and NFS configurations answer EINVAL/ENOTSUP), which is a
+        # successful write reported as a crash.
 
 
 def atomic_write_locked(filepath: Path | str, text: str, encoding: str = "utf-8") -> None:

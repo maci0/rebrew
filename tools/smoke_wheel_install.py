@@ -113,6 +113,8 @@ def unusable_console_scripts(names: list[str] | None = None) -> list[str]:
                 [str(shim), "--help"],
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=_SCRIPT_TIMEOUT,
                 check=False,
             )

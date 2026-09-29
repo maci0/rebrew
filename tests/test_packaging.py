@@ -103,6 +103,8 @@ def _last_tag() -> str:
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     if proc.returncode != 0 or not proc.stdout.strip():
         if os.environ.get("GITHUB_ACTIONS"):
@@ -121,6 +123,8 @@ def _at_ref(last_tag: str, path: str) -> str:
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     if show.returncode != 0:
         pytest.skip(f"cannot read {path} at {last_tag}")
@@ -195,6 +199,8 @@ class TestPackagingMetadata:
             check=False,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
         )
         if proc.returncode != 0:
             if os.environ.get("GITHUB_ACTIONS"):
@@ -310,6 +316,8 @@ class TestPackagingMetadata:
             check=False,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
         )
         if tag_proc.returncode != 0 or not tag_proc.stdout.strip():
             if os.environ.get("GITHUB_ACTIONS"):
@@ -322,6 +330,8 @@ class TestPackagingMetadata:
             check=False,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
         )
         if show.returncode != 0:
             pytest.skip(f"cannot read CHANGELOG.md at {last_tag}")
@@ -385,6 +395,8 @@ class TestPackagingMetadata:
             check=False,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
         )
         if tag_proc.returncode != 0 or not tag_proc.stdout.strip():
             if os.environ.get("GITHUB_ACTIONS"):
@@ -397,6 +409,8 @@ class TestPackagingMetadata:
             check=False,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
         )
         if show.returncode != 0:
             pytest.skip(f"cannot read pyproject.toml at {last_tag}")
@@ -970,6 +984,8 @@ class TestWheelSmokeScript:
             [sys.executable, str(ROOT / "tools" / "smoke_wheel_install.py")],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=300,
             check=False,
         )
@@ -1271,6 +1287,8 @@ class TestSdistManifest:
             check=False,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             env=env,
         )
         assert proc.returncode == 0, proc.stderr or proc.stdout
@@ -1343,6 +1361,8 @@ class TestSdistManifest:
             check=False,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             env=env,
         )
         assert proc.returncode == 0, proc.stderr or proc.stdout

@@ -64,6 +64,8 @@ def _run_script(script: str, **env: str) -> None:
         input=_APP_JS,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=15,
         check=False,
         env=environ,

@@ -70,7 +70,14 @@ class TestWriteCoffObject:
             path,
             [("_first", 0, b"\xc3"), ("_long_function_name_over_8", 16, b"\x90")],
         )
-        r = subprocess.run(["objdump", "-t", str(path)], capture_output=True, text=True, timeout=30)
+        r = subprocess.run(
+            ["objdump", "-t", str(path)],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30,
+        )
         assert r.returncode == 0, r.stderr
         assert "_first" in r.stdout
         assert "_long_function_name_over_8" in r.stdout

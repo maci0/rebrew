@@ -42,5 +42,11 @@ def test_shared_libraries_do_not_import_command_modules() -> None:
         "bad = [n for n in ('rebrew.cli', 'rebrew.gen_layout', 'rebrew.fixup') if n in sys.modules]\n"
         "raise SystemExit(0 if not bad else ','.join(bad))\n"
     )
-    proc = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    proc = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
     assert proc.returncode == 0, proc.stdout + proc.stderr

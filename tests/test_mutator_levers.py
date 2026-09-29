@@ -214,6 +214,8 @@ class TestHomeByteInParamSlot:
                 input=src,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 check=True,
                 timeout=30,
                 env={

@@ -54,6 +54,8 @@ def _unreleased() -> str:
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     if not tagged.stdout.strip():
         heading = f"## [{__version__}]"
@@ -69,6 +71,8 @@ def _last_tag() -> str:
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     if proc.returncode != 0 or not proc.stdout.strip():
         if os.environ.get("GITHUB_ACTIONS"):
