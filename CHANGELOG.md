@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [2.17.1] - 2026-09-29
+
 ### Changed
 - **The contributor pin on the sibling resembl checkout is `v3.1.1`.**
   `RESEMBL_REF` / `RESEMBL_SHA`, the `uv-env` action defaults, `uv.lock` and
