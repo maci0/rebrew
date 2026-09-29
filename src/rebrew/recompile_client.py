@@ -31,15 +31,10 @@ from rebrew.utils import (
     RETRYABLE_HTTP_STATUS,
     close_response,
     retry_backoff_delay,
-    untrusted_literal,
+    retry_log_detail,
 )
 
 log = logging.getLogger(__name__)
-
-#: How much of a failed attempt's message reaches the log line.  The message
-#: carries a slice of the service's response body, and a warning is read on a
-#: terminal, not diffed.
-_RETRY_LOG_MESSAGE_CHARS = 300
 
 #: Request cap mirrored from the service (recompile ``_MAX_FLAGS``): longer
 #: flag lists 422 instead of compiling.
@@ -422,10 +417,9 @@ def compile_source(
                 exc.kind,
                 "" if exc.status_code is None else f" {exc.status_code}",
                 delay,
-                untrusted_literal(exc)[:_RETRY_LOG_MESSAGE_CHARS],
+                retry_log_detail(exc),
             )
             nap(delay)
-            continue
     assert last_exc is not None  # attempts >= 1
     raise last_exc
 

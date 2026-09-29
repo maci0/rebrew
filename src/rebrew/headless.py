@@ -392,14 +392,14 @@ def _ensure_xvfb_locked() -> str | None:
     if shutil.which("Xvfb") is None:
         # Not a fault: a machine without Xvfb is configured to fall back, and
         # every compile asks again, so this stays off the warning stream.
-        log.debug("headless: no Xvfb binary on PATH; wine will run without a virtual display")
+        log.debug("no Xvfb binary on PATH; wine will run without a virtual display")
         return None
 
     display = _pick_free_display()
     cookie = _new_cookie()
     if cookie is None:
         log.warning(
-            "headless: could not create an Xvfb cookie file; "
+            "could not create an Xvfb cookie file; "
             "wine will run without a virtual display (temp dir unwritable?)"
         )
         return None
@@ -414,7 +414,7 @@ def _ensure_xvfb_locked() -> str | None:
     except OSError as exc:
         _drop_cookie(cookie)
         log.warning(
-            "headless: could not start Xvfb on %s (%s); wine will run without a virtual display",
+            "could not start Xvfb on %s (%s); wine will run without a virtual display",
             display,
             exc.strerror or type(exc).__name__,
         )
@@ -442,7 +442,7 @@ def _ensure_xvfb_locked() -> str | None:
         # of a headless setup that never worked is a run whose wine compiles
         # behave differently from the ones the operator configured.
         log.warning(
-            "headless: Xvfb on %s never came up%s; wine will run without a virtual display",
+            "Xvfb on %s never came up%s; wine will run without a virtual display",
             display,
             "" if exit_code is None else f" (exited {exit_code})",
         )

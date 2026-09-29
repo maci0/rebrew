@@ -15,6 +15,7 @@ import pytest
 
 from rebrew import temp_dirs
 from rebrew.utils import (
+    RETRY_LOG_MESSAGE_CHARS,
     atomic_write_bytes,
     atomic_write_text,
     clear_source_text_memo,
@@ -31,6 +32,7 @@ from rebrew.utils import (
     read_compile_source,
     read_source_text,
     read_toml_text,
+    retry_log_detail,
     run_process_group,
     strip_bidi_format,
 )
@@ -1725,3 +1727,23 @@ def test_atomic_write_text_lenient_legacy_round_trip(tmp_path: Path) -> None:
     text, encoding = read_source_text(f)
     atomic_write_text(f, text + "// שלום\n", encoding=encoding, lenient=True)
     assert f.read_bytes() == b"int caf\xe9_x;\n// ????\n"
+
+
+#: Right-to-left override: invisible in an editor, reorders what a terminal
+#: prints next to it.
+RLO = chr(0x202E)
+
+
+class TestRetryLogDetail:
+    """The shared detail line both service clients log before a backoff."""
+
+    def test_caps_a_long_remote_body(self) -> None:
+        line = retry_log_detail(RuntimeError("x" * 5000))
+        assert len(line) == RETRY_LOG_MESSAGE_CHARS
+        assert line.startswith("xxx")
+
+    def test_strips_terminal_and_bidi_controls(self) -> None:
+        # A response body carrying ESC and an RLO would otherwise drive the
+        # terminal and reorder whatever it printed next to it.
+        line = retry_log_detail(RuntimeError(f"before\x1b[31m{RLO}after"))
+        assert line == "before\\x1b[31mafter"

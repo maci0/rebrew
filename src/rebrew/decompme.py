@@ -65,16 +65,11 @@ from rebrew.utils import (
     filename_component,
     read_source_text,
     retry_backoff_delay,
-    untrusted_literal,
+    retry_log_detail,
     untrusted_text,
 )
 
 log = logging.getLogger(__name__)
-
-#: How much of a failed attempt's message reaches the log line.  The message
-#: carries a slice of decomp.me's response body, and a warning is read on a
-#: terminal, not diffed.
-_RETRY_LOG_MESSAGE_CHARS = 300
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
@@ -437,7 +432,7 @@ def upload_scratch(
                 exc.kind,
                 "" if exc.status_code is None else f" {exc.status_code}",
                 delay,
-                untrusted_literal(exc)[:_RETRY_LOG_MESSAGE_CHARS],
+                retry_log_detail(exc),
             )
             nap(delay)
     assert last_exc is not None  # attempts >= 1

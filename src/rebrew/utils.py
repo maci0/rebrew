@@ -32,8 +32,8 @@ it belongs to rather than starting a sixth.
   so target strings are scrubbed once and for all), ``BYTES_PER_MIB``,
   ``clip_span``,
   ``merged_span_bytes``, ``floor_pct``, ``close_response``,
-  ``retry_backoff_delay``
-  (plus ``RETRYABLE_HTTP_STATUS``)
+  ``retry_backoff_delay``, ``retry_log_detail``
+  (plus ``RETRYABLE_HTTP_STATUS``, ``RETRY_LOG_MESSAGE_CHARS``)
 
 ``utils`` is not a place for domain logic.  A helper that knows about a
 toolchain, a metadata field, or a rebrew-project layout belongs in the
@@ -1513,6 +1513,23 @@ def retry_backoff_delay(attempt: int) -> float:
     """
     exponent = min(attempt, RETRY_BACKOFF_CAP_EXPONENT)
     return min(RETRY_BACKOFF_BASE * (2.0**exponent), RETRY_BACKOFF_CAP)
+
+
+#: How much of a failed attempt's message reaches a retry log line.  The
+#: message carries a slice of a remote response body, and a warning is read on
+#: a terminal, not diffed.
+RETRY_LOG_MESSAGE_CHARS = 300
+
+
+def retry_log_detail(exc: BaseException) -> str:
+    """*exc* as one bounded, terminal-safe line for a retry warning.
+
+    The one way ``recompile_client`` and ``decompme`` quote a failed
+    attempt, so their backoff logs cannot drift on how much of a hostile
+    response body reaches the terminal.  ``llm_seed`` does not use it: that
+    warning has to redact the API key out of the text first.
+    """
+    return untrusted_literal(exc)[:RETRY_LOG_MESSAGE_CHARS]
 
 
 def close_response(resp: Any) -> None:
