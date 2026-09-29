@@ -6,6 +6,13 @@
 
 Install editable (`uv pip install -e .`) inside a workspace containing binaries, sources, and toolchains. Contributor install: `make setup`; needs sibling `../resembl` whose version is `RESEMBL_REF` and whose HEAD is `RESEMBL_SHA` (both in the `Makefile`; a moved tag fails the SHA check) and **nasm** and **node** on `PATH` for the test suite (nasm for the asm round-trip tests, node for the `tests/dashboard_*.mjs` interaction tests, vnu for the W3C validation of the two HTML surfaces, each skipping without it; the test job installs the last one through `tools/ci_install_vnu.sh`, so it never skips there). `make help` lists targets.
 
+## Never
+
+Two prohibitions come first because breaking either loses data a later run cannot recover:
+
+- **Never hand-edit `rebrew-functions.toml`.** It is the only copy of the volatile fields; every writer goes through `rebrew.metadata`.
+- **Never write `STATUS` in a `.c` file.** `rebrew test` / `rebrew verify` promote and demote it from the byte comparison, so a hand-set value is overwritten by the next run.
+
 ## Compiler Profiles
 
 Names are `"<image-family>-<version>"` (lowercase, version dots kept), e.g. `msvc-6.0`, `gcc-14.2.0`, `mingw-16.2.0`. Append a target suffix only when one family+version spans more than one target (`watcom-2.0-win32` / `watcom-2.0-win16` / `msvc-6.0-win9x`). Service-pack and variant markers keep their words (`msvc-6.0-sp1`, `msvc-7.0-rtm`, `msvc-6.0-sp5-pp`). See ADR 017; old names are gone, not aliased. Default profile: `msvc-6.0`.
@@ -89,7 +96,7 @@ No `conftest.py`: use `tmp_path` + inline helpers. Group by class; helpers `_`-p
 - **No backward compat**: one name per function, no aliases/shims/wrappers
 - **Import direction**: `utils.py` is the leaf (no rebrew imports); the Typer composition layer (`plugin.py`, `builtins.py`, `main.py`, `dashboard.py`) is a sink, imported at module scope only by itself (a command attaches itself to the umbrella inside its `register()`). `make cycles-check` gates cycles, `make layering-check` gates direction (a subpackage leaves itself only through the externals its own `AGENTS.md` lists)
 - **Underscore means module-private**: another module importing a `_name` is a boundary violation. Promote it to a public name, and list it in the owning module's `__all__` when that module has one. The `matcher/mutations/` family is the one exception (a private sub-package)
-- **Volatile metadata** (`METADATA_FIELDS` in `rebrew.metadata`): live in `rebrew-functions.toml`; never hand-edit the TOML. Most fields are metadata-only (`STATUS`, `TOOLCHAIN`, `BLOCKER`, …). Unmigrated `.c` files still co-read `SIZE`/`CFLAGS` (inline + TOML). `rebrew migrate-markers` makes the TOML the only copy, including identity (`file`, `symbol`, `name`, `marker_type`); do not put the marker block back into that `.c`. STATUS via `update_source_status` / `update_statuses_batch`; BLOCKER via `update_field` / `remove_field` (`rebrew blocker` or auto-writers). Written **mode 0444** (`atomic_write_locked`); same lock for `rebrew-data.toml` and declib binsync artifacts
-- **STATUS is earned**: `rebrew test` / `rebrew verify` promote/demote from byte comparison; never write `STATUS` in `.c` files. `PROVEN` (from `rebrew prove`) is not a byte match and not protected: the next test/verify records the byte result over it. `SKIP` stays parked, and a `STUB` is not replaced by `SIZE_MISMATCH` or `MISSING_SIZE`, unless the writer is called with `force=True`
+- **Volatile metadata** (`METADATA_FIELDS` in `rebrew.metadata`): `STATUS`, `TOOLCHAIN`, `BLOCKER`, … are metadata-only. Unmigrated `.c` files still co-read `SIZE`/`CFLAGS` (inline + TOML). `rebrew migrate-markers` makes the TOML the only copy, including identity (`file`, `symbol`, `name`, `marker_type`); do not put the marker block back into that `.c`. STATUS via `update_source_status` / `update_statuses_batch`; BLOCKER via `update_field` / `remove_field` (`rebrew blocker` or auto-writers). Written **mode 0444** (`atomic_write_locked`); same lock for `rebrew-data.toml` and declib binsync artifacts
+- **STATUS is earned**: only the byte comparison writes it. `PROVEN` (from `rebrew prove`) is not a byte match and not protected: the next test/verify records the byte result over it. `SKIP` stays parked, and a `STUB` is not replaced by `SIZE_MISMATCH` or `MISSING_SIZE`, unless the writer is called with `force=True`
 - **Compile result**: `CompareResult`; use `.matched`, `.status`, `.delta`, `.match_percent`; never tuple-unpack
 - **Compile backends**: local docker image by default; `[compiler] recompile_url` / `REBREW_RECOMPILE_URL` → `rebrew.recompile_client`. Cache id pins the backend. Only a plugin toolchain without `image` runs as a host binary. See ADR 015
