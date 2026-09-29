@@ -44,11 +44,38 @@ supplies its own tag.
   a status write; `update_field` and `set_fields` stamp on every other field, so
   a `BLOCKER` / `NOTE` / `CFLAGS` / `GHIDRA` edit names the tool that made it
   instead of leaving the last status writer's tag standing.  `MetadataEntry.apply`
-  (the typed facade) forwards the same keyword.  Tags in use: `test`, `verify`,
-  `prove`, `match`, `diff`, `near-diag`, `blocker`, `skeleton`, `lint`,
-  `cross-import`, `binsync-import`, `fix-sizes`, `intake`, plus `rename` on data
-  rows.  A writer that passes no tag leaves the stored stamp alone, so an
-  un-tagged programmatic write is never mistaken for a tool's work.
+  (the typed facade) forwards the same keyword.  A writer that passes no tag
+  leaves the stored stamp alone, so an un-tagged programmatic write is never
+  mistaken for a tool's work.
+- **The tag vocabulary is closed.**
+  `rebrew.metadata.PROVENANCE_TAGS` lists the eighteen writers (`binsync-import`,
+  `blocker`, `cross-import`, `crt-match`, `data`, `diff`, `document-unmatched`,
+  `fix-sizes`, `identify-library`, `intake`, `lint`, `match`, `near-diag`,
+  `prove`, `rename`, `skeleton`, `test`, `verify`).  A tag outside it is a typo
+  or a tool nobody updated the list for; `rebrew lint` reports both (W031)
+  rather than letting "who wrote this" be answerable only by grepping the
+  writers.
+- **Each store carries a format stamp.**  The top-level `format`
+  (`rebrew.metadata.FORMAT_VERSION`, currently `1`) is added by the first write
+  to a file that has none and never rewritten, including when a file carries a
+  foreign value: silently upgrading the stamp would hide the mismatch it exists
+  to report.  Readers ignore it; W031 reports a missing or foreign one.
+- **The pair means "last changed", not "last checked".**  A writer that sets a
+  field to the value it already holds returns without a write, so a re-run of
+  `verify --data` that finds the same `VERIFIED` / `DRIFT` / `UNCHECKED` verdict
+  leaves the stamp where the last *change* left it.  "When was this measured" is
+  the coverage document's `verify_results[].verified_at`; "who changed this, and
+  when" is the pair.
+- **Deletes leave no tombstone.**  `remove_field` / `remove_fields_batch` and
+  the orphan pruning drop a field or a row outright; the coverage document's
+  `history[]` records status transitions only.  A store that needs an audit
+  trail of removals gets one deliberately (a log the tools append to), not by
+  hoping the absence is reconstructable.
+- **Identity paths are gated.**  The `file` field is joined onto the project
+  root by `verify`, `rename` and BinSync, so `validate_identity_file` refuses an
+  absolute path or a `..` segment at the write, and W034 reports rows written
+  before that gate.  W035 reports a row whose module matches no target marker or
+  library module — invisible to `status`/`todo`, which filter by module.
 - **Data store.** `set_data_field` / `set_data_fields_batch` stamp the same pair
   alongside whichever field they change, tagged by the writer that ran: `verify`
   from `verify --data` on a

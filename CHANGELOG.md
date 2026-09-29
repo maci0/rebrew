@@ -1,6 +1,23 @@
 ## [Unreleased]
 
 ### Added
+- **Both metadata stores carry a `format` stamp, and the provenance tag
+  vocabulary is closed.**  The top-level `format` (`rebrew.metadata.FORMAT_VERSION`)
+  is added by a write when the file has none and never rewritten, including when
+  a file carries a foreign value.  `rebrew.metadata.PROVENANCE_TAGS` names the
+  eighteen writers that may appear in `UPDATED_BY`, and `rebrew lint` reports a
+  tag outside it.  W031 now reads both stores' raw documents rather than the
+  parsed data store alone, so it also catches an unknown field in
+  `rebrew-functions.toml`, a stray top-level key that is neither `format` nor a
+  `MODULE.0xVA` entry, and a missing or foreign format stamp.
+- **`validate_identity_file` gates the stored `file` identity, and new codes
+  report the drift.**  An absolute path or a `..` segment is refused at the one
+  write gate because `verify`, `rename` and BinSync join the value onto the
+  project root; **W034** reports rows written before the gate, and **W035**
+  reports a metadata row whose module matches no target marker or library module
+  (invisible to `status`/`todo`, which filter by module).
+- **`rebrew blocker show` reports the row's last write**, so the provenance pair
+  answers a question instead of sitting in the TOML.
 - **`rebrew.ghidra` exports the MCP transport it is built on.** The facade
   carried the ReVa commands and left `McpHttpClient` and `McpResponse` to be
   imported from `rebrew.ghidra.client`, the same two names a consumer

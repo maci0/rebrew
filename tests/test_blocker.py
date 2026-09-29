@@ -169,3 +169,27 @@ class TestBlockerJson:
         data = json.loads(res.output)
         assert data["written"] is True
         assert data["blocker"] == "j"
+
+
+class TestBlockerShowProvenance:
+    """`blocker show` reports the row's last write, not just its blocker."""
+
+    def test_show_reports_the_provenance_pair(self, tmp_path: Path) -> None:
+        from types import SimpleNamespace
+        from unittest.mock import patch
+
+        from rebrew.blocker import app
+        from rebrew.metadata import update_field
+
+        update_field(tmp_path, 0x1000, "blocker", "struct diff", "SERVER", updated_by="diff")
+        cfg = SimpleNamespace(
+            metadata_dir=tmp_path, marker="SERVER", root=tmp_path, target_name="SERVER"
+        )
+        runner = CliRunner()
+        with (
+            patch("rebrew.blocker.require_config", return_value=cfg),
+            patch("rebrew.blocker.resolve_function", return_value=("SERVER", 0x1000)),
+        ):
+            result = runner.invoke(app, ["show", "0x1000"])
+        assert result.exit_code == 0, result.output
+        assert "last write: diff" in result.output

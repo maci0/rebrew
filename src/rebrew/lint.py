@@ -2321,8 +2321,18 @@ app = typer.Typer(
         "  W029   Redundant cflags — per-function or preset cflags that only repeat\n"
         "         the inherited value (project cflags / module preset) — --fix drops them\n"
         "         (the fallback chain already supplies the same flags)\n\n"
+        "  W030   A file's FUNCTION/STUB markers for one module do not ascend by VA\n\n"
+        "  W031   Metadata store problem — an unknown field, a STATUS outside the store's\n"
+        "         vocabulary, half an updated_by/updated_at pair, an unknown provenance\n"
+        "         tag, a stray top-level key, or a missing / foreign format stamp\n\n"
+        "  W032   Coverage store hygiene — a leftover artifact from a store rebrew no\n"
+        "         longer reads, or a coverage-<target>.toml the dashboards cannot serve\n\n"
+        "  W033   Rendered agent instructions have drifted from the packaged skills\n\n"
+        "  W034   A stored `file` identity is absolute or escapes the project with '..'\n\n"
+        "  W035   A metadata row's module matches no target marker or library module\n"
+        "         (invisible to status/todo after a rename)\n\n"
         "[dim]Checks for reccmp-style markers in each .c file, plus project-level\n"
-        "corpus hygiene (W029 cflags redundancy via rebrew-functions.toml / presets).[/dim]"
+        "corpus hygiene (W029 cflags redundancy, W031-W035 store and scaffold drift).[/dim]"
     ),
 )
 

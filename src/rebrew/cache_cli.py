@@ -24,7 +24,9 @@ __all__ = [
     "DEFAULT_CACHE_BACKEND",
     "DEFAULT_CACHE_SIZE_LIMIT_MIB",
     "app",
+    "clear",
     "main_entry",
+    "stats",
 ]
 
 
