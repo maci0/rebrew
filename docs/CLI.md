@@ -328,9 +328,13 @@ annotated function's body, scored with the same compile → compare path as
 as a unit. The sweep repeats for `--passes`, stopping early when a sweep finds
 nothing.
 
-Candidates are compiled from a sibling scratch copy of the source and the real
-file is written **only** when the climb wins, so an interrupted run leaves the
-tree clean; `--dry-run` reports the moves without writing at all.
+Candidates are scored by writing them to the real `.c` and compiling it, and the
+run restores the pre-run bytes unless the climb wins. The restore covers the
+normal, exception, and `SIGTERM`/`SIGINT`/`SIGHUP` paths; a kill that runs no
+Python at all (`SIGKILL`, an OOM kill, a power cut) is why the pre-run copy goes
+to `.rebrew/source-backups/` before the first candidate, with its path printed
+as it is written. The copy is deleted when the run finishes, so one left behind
+means the run did not. `--dry-run` scores a scratch copy and writes nothing.
 
 | Option | Description |
 | --- | --- |
@@ -353,7 +357,10 @@ residue that is register *naming* rather than order: where the target keeps
 a counter in `ebx` and we keep it in `edi` with identical instruction
 kinds, changing a local's qualifying type perturbs the allocator without
 changing what the code does. Candidates compile from copies under
-`.rebrew/qualsweep/`; the real file is written only per winning round.
+`.rebrew/qualsweep/`; the real file is written only per winning round,
+with the pre-run bytes copied to `.rebrew/source-backups/` first (removed
+again when the run finishes) so a kill that runs no cleanup still leaves a
+way back to the source as it was.
 A candidate must meet or beat the target size (the composition trims an
 overrun but cannot pad a gap).
 

@@ -523,6 +523,9 @@ def record_ga_run(
     *ts* / *solved_at* is a replay of a run already recorded, so it is
     dropped: re-running a seed, alone or as a batch, must not inflate the
     count ``--skip-recent`` and ``--ga-history`` read.
+
+    The record is on disk before this returns (see :func:`_append_durable`):
+    the log is the only copy of a run that cost hours to produce.
     """
     record: dict[str, Any] = {
         "ts": datetime.now(UTC).isoformat(),
@@ -555,9 +558,39 @@ def record_ga_run(
     with _ga_runs_append_lock(p):
         if _run_key(record) in {_run_key(r) for r in _recent_records(p)}:
             return p
-        with p.open("a", encoding="utf-8") as f:
-            f.write(line)
+        _append_durable(p, line)
     return p
+
+
+def _append_durable(path: Path, line: str) -> None:
+    """Append *line* to *path* and return only once it has reached the disk.
+
+    This log is the only record of a GA outcome: a win costs the run that
+    produced it, hours of compile-and-compare, and it is the fingerprint later
+    runs seed from.  A buffered append acknowledged at close survives the
+    process dying but not the host losing power, so the win could be gone with
+    nothing left to say it ever happened.  One fsync per recorded run is
+    nothing beside the run itself, and the directory is synced when the log is
+    created so the file does not vanish with its own directory entry.
+    """
+    existed = path.exists()
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o666)
+    try:
+        view = memoryview(line.encode("utf-8"))
+        while view:
+            view = view[os.write(fd, view) :]
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    if not existed:
+        # A file created but not yet linked into a synced directory can be
+        # dropped by a crash even though its own bytes were fsynced.
+        dir_fd = os.open(path.parent, os.O_RDONLY)
+        try:
+            with contextlib.suppress(OSError):
+                os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
 
 
 def load_ga_runs(

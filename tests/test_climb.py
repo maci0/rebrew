@@ -15,6 +15,7 @@ from pathlib import Path
 
 import rebrew.climb
 from rebrew.climb import _climb, _statements, _swap, _within_size_budget, function_span
+from rebrew.utils import SOURCE_BACKUP_DIRNAME
 
 REPO_SRC = str(Path(rebrew.climb.__file__).resolve().parents[1])
 
@@ -352,6 +353,35 @@ class TestRestoreOnSignal:
         assert proc.returncode == -signal.SIGTERM
         assert source.read_text() == original
 
+    def test_sigkill_leaves_the_pre_run_copy_on_disk(self, tmp_path: Path) -> None:
+        """SIGKILL runs no handler and no finally, so the copy of the source
+        written before the sweep is the only way back to the pre-run bytes."""
+        source = tmp_path / "probe.c"
+        original = "int demo(void) { return 0; }\n"
+        source.write_text(original)
+        backup_dir = tmp_path / ".rebrew" / SOURCE_BACKUP_DIRNAME
+        script = tmp_path / "probe.py"
+        script.write_text(
+            "import os, signal, sys\n"
+            "from pathlib import Path\n"
+            f"sys.path.insert(0, {REPO_SRC!r})\n"
+            "from rebrew.utils import SOURCE_BACKUP_DIRNAME, source_backup\n"
+            "path = Path(sys.argv[1])\n"
+            "original = path.read_text()\n"
+            "with source_backup(path, original, 'utf-8',\n"
+            "                 path.parent / '.rebrew' / SOURCE_BACKUP_DIRNAME, label='demo'):\n"
+            "    path.write_text('int demo(void) { return 1; }\\n')\n"
+            "    os.kill(os.getpid(), signal.SIGKILL)\n"
+        )
+        proc = subprocess.run(
+            [sys.executable, str(script), str(source)],
+            capture_output=True,
+            env={**os.environ, "PYTHONPATH": REPO_SRC},
+            timeout=60,
+        )
+        assert proc.returncode == -signal.SIGKILL
+        assert [p.read_text() for p in backup_dir.glob("*.orig")] == [original]
+
     def test_error_exit_paths_leave_handlers_alone(self, tmp_path: Path, monkeypatch) -> None:
         """The span/chunks error exits fire before the restore handler is
         installed, so no inverse is owed there. An install above those checks
@@ -392,7 +422,9 @@ class TestRestoreOnSignal:
 
         source = tmp_path / "demo.c"
         source.write_text("// FUNCTION: SERVER 0x1000\nint demo(void)\n{\n    return 0;\n}\n")
-        cfg = SimpleNamespace(metadata_dir=str(tmp_path), target_binary=str(tmp_path / "t.bin"))
+        cfg = SimpleNamespace(
+            root=str(tmp_path), metadata_dir=str(tmp_path), target_binary=str(tmp_path / "t.bin")
+        )
         ann = SimpleNamespace(
             symbol="demo", size=4, va=0x1000, module="SERVER", cflags="/O1", toolchain="msvc-4.2"
         )
@@ -412,3 +444,45 @@ class TestRestoreOnSignal:
         CliRunner().invoke(climb_mod.app, [str(source)])
         assert calls
         assert calls[0][2:] == ("msvc-4.2", "/O1", "SERVER")
+
+    def test_pre_run_copy_is_on_disk_for_every_scored_candidate(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """The pre-run bytes must exist before the first destructive write, not
+        only on the paths that get to restore, and must not outlive a clean run."""
+        from types import SimpleNamespace
+
+        from typer.testing import CliRunner
+
+        import rebrew.climb as climb_mod
+
+        source = tmp_path / "demo.c"
+        source.write_text(
+            "// FUNCTION: SERVER 0x1000\n"
+            "int demo(int arg)\n{\n\tint a;\n\ta = arg;\n\treturn a;\n}\n"
+        )
+        cfg = SimpleNamespace(
+            root=str(tmp_path), metadata_dir=str(tmp_path), target_binary=str(tmp_path / "t.bin")
+        )
+        ann = SimpleNamespace(symbol="demo", size=4, va=0x1000, module="SERVER", cflags=None)
+        backup_dir = tmp_path / ".rebrew" / SOURCE_BACKUP_DIRNAME
+        seen: list[list[Path]] = []
+
+        def _score(*args: object, **_kwargs: object) -> tuple[float, int]:
+            seen.append(sorted(backup_dir.glob("*.orig")))
+            return 2.0, len(args[3])  # type: ignore[arg-type]
+
+        monkeypatch.setattr(climb_mod, "require_config", lambda **kw: cfg)
+        monkeypatch.setattr(climb_mod, "target_marker", lambda c: "SERVER")
+        monkeypatch.setattr(climb_mod, "parse_c_file_multi", lambda *a, **k: [ann])
+        monkeypatch.setattr(climb_mod, "extract_raw_bytes", lambda *a: b"\x90\x90\x90\x90")
+        monkeypatch.setattr(
+            climb_mod, "resolve_compile_overrides", lambda *a, **k: ("msvc-6.0", "")
+        )
+        monkeypatch.setattr(climb_mod, "build_name_to_va", lambda c: {})
+        monkeypatch.setattr(climb_mod, "_score", _score)
+
+        result = CliRunner().invoke(climb_mod.app, [str(source)])
+        assert result.exit_code == 0, result.output
+        assert seen and all(seen), "a candidate was scored with no pre-run copy on disk"
+        assert not list(backup_dir.glob("*.orig"))

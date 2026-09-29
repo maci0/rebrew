@@ -19,7 +19,8 @@ it belongs to rather than starting a sixth.
   ``load_toml_for_write`` / ``load_toml_for_write_strict``, ``read_json_text``
 - **Atomic and locked writes**: ``atomic_write_text`` / ``atomic_write_bytes``,
   ``atomic_write_locked``, ``file_lock`` / ``file_handle_lock``,
-  ``preserve_corrupt``
+  ``preserve_corrupt``, ``source_backup`` / ``SOURCE_BACKUP_DIRNAME`` (the
+  pre-run copy of a source a sweep rewrites in place)
 - **Subprocesses**: ``run_process_group`` (process-tree teardown, timeout,
   captured pipes), ``interruptible_pool`` (leaving the pool does not wait on
   the queue), ``watch_files``
@@ -1070,6 +1071,66 @@ def preserve_corrupt(path: Path) -> Path:
             )
     os.replace(path, backup)
     return backup
+
+
+#: Directory under a project's scratch state where :func:`source_backup` keeps
+#: the pre-run copy of a source file a sweep is about to rewrite in place.
+SOURCE_BACKUP_DIRNAME = "source-backups"
+
+
+@contextlib.contextmanager
+def source_backup(
+    path: Path,
+    text: str,
+    encoding: str,
+    backup_dir: Path,
+    *,
+    label: str = "",
+) -> Iterator[Path]:
+    """Hold *text*, the content of *path* before an in-place rewrite, on disk for the span.
+
+    A sweep scores candidates by compiling them out of the real ``.c``, so the
+    run rewrites that file many times and puts *text* back on its normal and
+    exception paths.  A catchable signal gets the same treatment, but SIGKILL,
+    an OOM kill, a power cut, or a stopped container runs no Python at all: the
+    file is left holding whichever candidate was last scored, and hand-written
+    work that exists nowhere else is lost with no record of how it got there.
+    Writing the pre-run bytes under *backup_dir* before the first destructive
+    write is what survives that; the in-process restore cannot.
+
+    The backup is removed when the body returns -- the source is then in its
+    intended final state -- and kept when the body raises, with its path
+    logged.  A caller that can be killed without warning should print the
+    yielded path before its first destructive write, since a recovery copy
+    nothing points at is not a recovery path.  The writer's pid is in the file
+    name, so two sweeps of one symbol cannot overwrite each other's copy and a
+    run that was killed leaves its predecessor's alone.
+
+    A backup that cannot be written is logged and the body still runs: the
+    in-process restore covers the common case, and refusing to sweep would
+    trade a narrow window for no work at all.
+    """
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    stem = filename_component(label or path.stem)
+    backup_path = backup_dir / f"{path.name}.{stem}.{os.getpid()}.orig"
+    try:
+        atomic_write_text(backup_path, text, encoding=encoding)
+    except OSError:
+        logger.warning(
+            "could not back up %s to %s before rewriting it in place",
+            path,
+            backup_path,
+            exc_info=True,
+        )
+        yield backup_path
+        return
+    try:
+        yield backup_path
+    except BaseException:
+        logger.warning("kept the pre-run copy of %s at %s", path, backup_path)
+        raise
+    with contextlib.suppress(OSError):
+        backup_path.unlink()
 
 
 def load_toml_for_write(path: Path, description: str) -> TOMLDocument:

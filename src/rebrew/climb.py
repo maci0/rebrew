@@ -27,6 +27,7 @@ own order at 0x10018c49 / 0x10018c59.
 
 from __future__ import annotations
 
+import contextlib
 import difflib
 import os
 import re
@@ -56,7 +57,13 @@ from rebrew.compile import CompareResult, compile_and_compare, matched_byte_coun
 from rebrew.compile_overrides import resolve_compile_overrides
 from rebrew.config import ProjectConfig
 from rebrew.sources import target_marker
-from rebrew.utils import atomic_write_text, filename_component, read_source_text
+from rebrew.utils import (
+    SOURCE_BACKUP_DIRNAME,
+    atomic_write_text,
+    filename_component,
+    read_source_text,
+    source_backup,
+)
 
 app = typer.Typer(
     help="Deterministic single-statement hill-climb for one function.",
@@ -648,23 +655,41 @@ def main(
     # Installed only now: nothing above writes the source, and every path
     # from here on runs the inverse in the finally below — an earlier
     # install leaked the handler on the span/chunks error_exit paths.
-    # Nothing above writes the source, and every path from here on runs the
-    # inverse in the finally below — an earlier install leaked the handler on
-    # the span/chunks error_exit paths.  Under --dry-run the real file is never
-    # written (score_path is a scratch copy), so there is nothing to restore.
+    # Under --dry-run the real file is never written (score_path is a scratch
+    # copy), so there is nothing to restore or back up.
     previous_handlers = _install_restore_handler(path, original, encoding) if not dry_run else None
-    try:
-        baseline, baseline_obj = scorer(
-            cfg, score_path, sym, target_bytes, cflags_str, name_to_va, va_int, toolchain_name
+    # The handler above and the restore below both need Python to run.  A
+    # SIGKILL, an OOM kill, a power cut, or a stopped container runs neither,
+    # leaving the last candidate scored in the file, so the pre-run bytes go
+    # to disk before the first destructive write.
+    backup = (
+        source_backup(
+            path,
+            original,
+            encoding,
+            Path(cfg.root) / ".rebrew" / SOURCE_BACKUP_DIRNAME,
+            label=sym,
         )
-        if baseline < 0:
-            error_exit("baseline does not compile -- fix the function first", json_mode=json_output)
-        size_budget = abs(baseline_obj - len(target_bytes))
-        console.print(f"baseline {sym}: {baseline:.0f} matched bytes")
-        lines, best, moves = _climb(lines, chunks, score_fn, passes, sym, on_move=report)
-        applied = best > baseline and not dry_run
-        if not dry_run:
-            atomic_write_text(path, "".join(lines) if applied else original, encoding=encoding)
+        if not dry_run
+        else contextlib.nullcontext(None)
+    )
+    try:
+        with backup as backup_path:
+            if backup_path is not None:
+                console.print(f"  [dim]pre-run copy: {backup_path}[/dim]")
+            baseline, baseline_obj = scorer(
+                cfg, score_path, sym, target_bytes, cflags_str, name_to_va, va_int, toolchain_name
+            )
+            if baseline < 0:
+                error_exit(
+                    "baseline does not compile -- fix the function first", json_mode=json_output
+                )
+            size_budget = abs(baseline_obj - len(target_bytes))
+            console.print(f"baseline {sym}: {baseline:.0f} matched bytes")
+            lines, best, moves = _climb(lines, chunks, score_fn, passes, sym, on_move=report)
+            applied = best > baseline and not dry_run
+            if not dry_run:
+                atomic_write_text(path, "".join(lines) if applied else original, encoding=encoding)
     except BaseException:
         if not dry_run:
             atomic_write_text(path, original, encoding=encoding)

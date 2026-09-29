@@ -307,6 +307,72 @@ class TestLoadSave:
         assert symbols == {f"_big_{i}" for i in range(n)}
 
 
+class TestAppendDurability:
+    """The log is the only record of a run that cost hours; a win acknowledged
+    at close but not fsynced is a win the host can take away."""
+
+    def test_record_is_fsynced_before_the_call_returns(
+        self, project_root: Path, monkeypatch
+    ) -> None:
+        import os
+
+        synced: list[int] = []
+        real_fsync = os.fsync
+
+        def _fsync(fd: int) -> None:
+            synced.append(fd)
+            real_fsync(fd)
+
+        monkeypatch.setattr(os, "fsync", _fsync)
+        record_ga_run(
+            project_root,
+            target="T",
+            va="0x1000",
+            symbol="_demo",
+            matched=True,
+            score=0.0,
+            cflags="/O2",
+            size=4,
+            source_file="demo.c",
+        )
+        # The log file itself and the directory holding it: a synced file in an
+        # unsynced directory is still a file a crash can unlink.
+        assert len(synced) >= 2
+        records = list(iter_ga_runs(project_root))
+        assert [r["symbol"] for r in records] == ["_demo"]
+
+    def test_a_later_record_does_not_resync_the_directory(
+        self, project_root: Path, monkeypatch
+    ) -> None:
+        """The directory entry needs syncing once, when the log is created; the
+        per-run fsync of the file is what every later record pays for."""
+        import os
+
+        synced: list[int] = []
+        real_fsync = os.fsync
+
+        def _fsync(fd: int) -> None:
+            synced.append(fd)
+            real_fsync(fd)
+
+        record_ga_run(
+            project_root,
+            target="T",
+            va="0x1000",
+            symbol="_first",
+            matched=False,
+        )
+        monkeypatch.setattr(os, "fsync", _fsync)
+        record_ga_run(
+            project_root,
+            target="T",
+            va="0x2000",
+            symbol="_second",
+            matched=False,
+        )
+        assert len(synced) == 1
+
+
 # -------------------------------------------------------------------------
 # find_similar
 # -------------------------------------------------------------------------

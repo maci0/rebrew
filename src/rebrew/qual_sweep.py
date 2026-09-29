@@ -41,10 +41,12 @@ from rebrew.climb import function_span as climb_function_span
 from rebrew.compile import compile_and_compare
 from rebrew.compile_overrides import resolve_compile_overrides
 from rebrew.utils import (
+    SOURCE_BACKUP_DIRNAME,
     atomic_write_text,
     filename_component,
     interruptible_pool,
     read_source_text,
+    source_backup,
 )
 
 app = typer.Typer(
@@ -234,7 +236,20 @@ def main(
 
     sweep_root = Path(cfg.root) / ".rebrew" / "qualsweep"
     sweep_root.mkdir(parents=True, exist_ok=True)
-    with _restore_source_on_error(path, original, encoding):
+    # The restore below needs Python to run; a SIGKILL, an OOM kill, a power
+    # cut, or a stopped container runs none of it and leaves the last
+    # candidate scored in the file.  The pre-run bytes go to disk first.
+    with (
+        source_backup(
+            path,
+            original,
+            encoding,
+            Path(cfg.root) / ".rebrew" / SOURCE_BACKUP_DIRNAME,
+            label=sym,
+        ) as backup_path,
+        _restore_source_on_error(path, original, encoding),
+    ):
+        console.print(f"  [dim]pre-run copy: {backup_path}[/dim]")
         for rnd in range(rounds):
             cands = [(k, lab, new) for k in decls for lab, new in variants(units[k])]
 
@@ -254,8 +269,16 @@ def main(
             # between its write and its compile, scoring the wrong source.
             # -j 0 (or negative) bypasses config's _positive_int validation, so
             # clamp before the pool: max_workers=0 raises ValueError.
+            # The cleanup does not raise on a failed remove: the pool below
+            # deliberately leaves its in-flight workers running when the round
+            # is interrupted, so one of them can still be writing a candidate
+            # as this dir goes away.  That raced the removal into an OSError
+            # that replaced the Ctrl+C the user pressed, and left the round
+            # dir behind; sweep_stale_temp_dirs reclaims it by age instead.
             with (
-                tempfile.TemporaryDirectory(dir=sweep_root, prefix=f"{sym_file}-") as rnd_dir,
+                tempfile.TemporaryDirectory(
+                    dir=sweep_root, prefix=f"{sym_file}-", ignore_cleanup_errors=True
+                ) as rnd_dir,
                 interruptible_pool(max(1, jobs)) as ex,
             ):
                 # Drain every future, one at a time, in submission order: a

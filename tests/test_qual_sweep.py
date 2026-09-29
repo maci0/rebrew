@@ -16,6 +16,7 @@ import pytest
 
 import rebrew.qual_sweep
 from rebrew.qual_sweep import main
+from rebrew.utils import SOURCE_BACKUP_DIRNAME
 
 SOURCE = """// FUNCTION: DEMO 0x10001000
 int demo(int arg)
@@ -120,3 +121,60 @@ class TestWinnerIsIndependentOfThreadOrder:
             )
 
         assert src.read_text(encoding="utf-8") == SOURCE
+
+    def test_pre_run_copy_survives_an_unrestorable_kill(self, monkeypatch, tmp_path) -> None:
+        """A kill that runs no Python (SIGKILL, OOM, power cut) leaves neither
+        the restore nor the log line, so the pre-run bytes have to be on disk
+        before the first round writes a winner into the .c."""
+        backup_dir = tmp_path / ".rebrew" / SOURCE_BACKUP_DIRNAME
+        seen: list[list[Path]] = []
+
+        def score(cfg: object, path: Path, *args: object) -> tuple[float, int]:
+            seen.append(sorted(backup_dir.glob("*.orig")))
+            return (50.0, 12)
+
+        src = _prepare(monkeypatch, tmp_path, score)
+
+        main(
+            source=str(src),
+            va=None,
+            symbol=None,
+            rounds=1,
+            jobs=1,
+            dry_run=False,
+            json_output=False,
+            target=None,
+        )
+
+        # seen[0] is the baseline score, which runs before anything writes.
+        assert len(seen) > 1 and all(seen[1:])
+        # The run finished, so the copy is gone rather than left to rot.
+        assert not list(backup_dir.glob("*.orig"))
+
+    def test_pre_run_copy_is_kept_when_the_sweep_fails(self, monkeypatch, tmp_path) -> None:
+        """The restore puts the source back; the copy is what a second failure
+        (or a kill right after it) would need."""
+        backup_dir = tmp_path / ".rebrew" / SOURCE_BACKUP_DIRNAME
+        calls = {"n": 0}
+
+        def score(cfg: object, path: Path, *args: object) -> tuple[float, int]:
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return (50.0, 12)
+            raise KeyboardInterrupt
+
+        src = _prepare(monkeypatch, tmp_path, score)
+
+        with pytest.raises(KeyboardInterrupt):
+            main(
+                source=str(src),
+                va=None,
+                symbol=None,
+                rounds=2,
+                jobs=1,
+                dry_run=False,
+                json_output=False,
+                target=None,
+            )
+
+        assert [p.read_text(encoding="utf-8") for p in backup_dir.glob("*.orig")] == [SOURCE]
