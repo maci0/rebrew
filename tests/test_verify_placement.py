@@ -11,15 +11,37 @@ import json
 from pathlib import Path
 
 import pytest
+from bin_util import make_pe
 from typer.testing import CliRunner
 
 FAKE_DATA_VA = 0x3000
 
+PROJECT_TOML = """\
+[project]
+name = "t"
+default_target = "server"
+
+[targets.server]
+binary = "build/server"
+format = "pe"
+arch = "x86_32"
+reversed_dir = "src"
+marker = "SERVER"
+
+[compiler]
+profile = "gcc-14.2.0"
+command = "gcc"
+includes = ""
+libs = ""
+"""
+
 
 def _project(tmp_path: Path) -> Path:
+    """A project whose active target's build output is ``build/server``."""
     root = tmp_path
+    (root / "rebrew-project.toml").write_text(PROJECT_TOML, encoding="utf-8")
     (root / "build").mkdir()
-    (root / "build" / "server.dll").write_bytes(b"MZ")
+    (root / "build" / "server").write_bytes(make_pe(b"\xc3"))
     (root / "src").mkdir()
     (root / "src" / "rebrew-data.toml").write_text("", encoding="utf-8")
     return root
@@ -57,7 +79,8 @@ class TestVerifyPlacement:
     def test_missing_metadata_errors(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.verify_placement import app
 
-        monkeypatch.chdir(tmp_path)
+        root = _project(tmp_path)
+        monkeypatch.chdir(root)
         result = CliRunner().invoke(app, ["--data-metadata", "src/nope.toml"])
         assert result.exit_code == 2
         assert "data metadata not found" in result.output
@@ -66,6 +89,7 @@ class TestVerifyPlacement:
         from rebrew.verify_placement import app
 
         monkeypatch.chdir(tmp_path)
+        (tmp_path / "rebrew-project.toml").write_text(PROJECT_TOML, encoding="utf-8")
         (tmp_path / "src").mkdir()
         (tmp_path / "src" / "rebrew-data.toml").write_text("", encoding="utf-8")
         # Wide terminal: Rich wraps at terminal width, which varies by
@@ -74,8 +98,21 @@ class TestVerifyPlacement:
         monkeypatch.setenv("COLUMNS", "200")
         result = CliRunner().invoke(app, [])
         assert result.exit_code == 2
-        assert "server.dll" in result.output
+        assert "build/server" in result.output
         assert "not found — build the project first" in result.output
+
+    def test_outside_a_project_reports_the_config_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """No guessed binary name: an unreadable project must say so."""
+        from rebrew.verify_placement import app
+
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "src").mkdir()
+        (tmp_path / "src" / "rebrew-data.toml").write_text("", encoding="utf-8")
+        result = CliRunner().invoke(app, [])
+        assert result.exit_code == 2
+        assert "rebrew-project.toml" in result.output
 
     def test_custom_built_path_honored(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

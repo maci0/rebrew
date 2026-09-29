@@ -13,7 +13,6 @@ Usage:
 
 from __future__ import annotations
 
-import contextlib
 from pathlib import Path
 from typing import Any
 
@@ -26,10 +25,10 @@ from rebrew.cli import (
     error_exit,
     json_print,
     option_default,
+    require_config,
     require_non_negative,
     untrusted_ident,
 )
-from rebrew.config import load_config
 from rebrew.data_layout import built_data_va
 
 _EPILOG = (
@@ -62,19 +61,18 @@ def main(
 ) -> None:
     """Build-then-compare: .data symbol VAs of the current build vs the metadata."""
     limit = require_non_negative(option_default(limit, 15), "--limit", json_mode=json_output)
-    root = Path.cwd()
+    cfg = require_config(target=target, json_mode=json_output)
+    root = Path(cfg.root)
     metadata = data_metadata if data_metadata.is_absolute() else root / data_metadata
     if not metadata.exists():
         error_exit(f"data metadata not found: {metadata}", json_mode=json_output)
     if built is not None and not isinstance(built, Path):
         built = None  # direct-call default guard (see cli.option_default)
     if built is None:
-        # Default to the ACTIVE target's build output — one project serves
-        # several binaries and each keeps its own build/<target> file.
-        target_name = "server.dll"
-        with contextlib.suppress(FileNotFoundError, KeyError, ValueError):
-            target_name = load_config(root=root, target=target).target_name
-        built = Path("build") / target_name
+        # The ACTIVE target's build output — one project serves several
+        # binaries and each keeps its own build/<target> file.  text-audit
+        # resolves the same default the same way.
+        built = Path("build") / cfg.target_name
     dll = built if built.is_absolute() else root / built
     if not dll.exists():
         error_exit(

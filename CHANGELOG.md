@@ -38,7 +38,21 @@
   Python slice, where a negative bound keeps everything but the last N rows
   and still exits 0: a script storing the report never learns it is one. They
   now exit 2 through `rebrew.cli.require_non_negative`, which leaves 0 legal
-  (several of them spell it "no cap").
+  (several of them spell it "no cap"). `rebrew graph --depth -1` was the same
+  bug one layer down: `range(-1)` walked no rounds, so the focus node printed
+  alone under exit 0 and read as "nothing calls it".
+- **`rebrew verify-placement` guessed a binary name outside a project.** It
+  swallowed every `load_config` failure and fell back to `build/server.dll`,
+  so a missing or malformed `rebrew-project.toml` reported "build the project
+  first" against a path the project never named. It loads the config through
+  `rebrew.cli.require_config` like its `text-audit` sibling, and `--built`
+  still overrides.
+- **`rebrew.metadata.set_fields_batch` counted a provenance-only rewrite as a
+  change.** An update carrying `updated_by` but no changed field stamped
+  `updated_at` and rewrote the TOML on every run, under exit 0, and an update
+  with an empty `fields` created a bare table holding nothing but provenance.
+  The stamp now lands only on a row that changed, `0` changed rows skip the
+  write, and the writer takes the same `now` its data-store twin does.
 - **`analyze --output` and `layout-map --output` had no short form.** The
   other 24 `--output` options are `--output -o`, so a script written against
   those two failed with "No such option". Both take `-o` now, and

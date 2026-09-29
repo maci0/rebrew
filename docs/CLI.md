@@ -780,7 +780,7 @@ document stores them in.
 | `--max-pointer-stride N` | Maximum byte stride between pointer slots when scanning tables (`--include-dispatch`, default 4) |
 | `--from-binary` | Build call edges from the target binary's xrefs instead of the reversed C sources (16-bit NE included, where the source graph is empty) |
 | `--focus NAME` | Neighbourhood of a specific function |
-| `--depth N` | Depth for focus mode |
+| `--depth N` | Depth for focus mode; a negative value is a usage error (exit 2) |
 | `--output FILE` / `-o FILE` | Output file (default: stdout) |
 | `--json` | Output results as JSON |
 | `--target NAME` | Select a target from `rebrew-project.toml` |
@@ -1087,7 +1087,10 @@ second run finds nothing to strip. See
 Post-edit check: walk the link's object files (objdump, link order), compute
 each symbol's current `.data` VA, and compare against the data metadata.
 Misplaced symbols mean the object order or a TU's layout drifted (the reccmp
-"0 aligned" symptom); exits 1 when any symbol is misplaced.
+"0 aligned" symptom); exits 1 when any symbol is misplaced. Run inside a
+project: `--built` defaults to the active target's `build/<target>`, and a
+missing or unreadable `rebrew-project.toml` is a usage error rather than a
+guessed binary name.
 
 Output also carries reccmp `roadmap`-style placement statistics: per-object
 drift tallies (`symbols`, `misplaced`, `mean_delta`) for every linked object

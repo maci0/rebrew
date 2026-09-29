@@ -692,18 +692,27 @@ def set_fields(
             pop_metadata_doc_cache(_metadata_cache, path)
 
 
-def set_fields_batch(metadata_dir: Path | str | Any, updates: list[dict[str, Any]]) -> int:
+def set_fields_batch(
+    metadata_dir: Path | str | Any,
+    updates: list[dict[str, Any]],
+    *,
+    now: datetime | None = None,
+) -> int:
     """Set fields for many ``(module, va)`` entries in ONE TOML read-modify-write.
 
     Avoids a full tomlkit parse + dumps + atomic write under the global
     lock per entry, while keeping per-field idempotency.
     Rejects ``status`` (use :func:`update_statuses_batch`, which enforces
     promotion rules).  An update's optional ``updated_by`` stamps the row's
-    provenance pair via :func:`stamp_provenance`, mirroring
-    :func:`rebrew.data_metadata.set_data_fields_batch`; it must be a member of
+    provenance pair via :func:`stamp_provenance` in the same write, but only
+    for a row whose fields actually changed; it must be a member of
     :data:`PROVENANCE_TAGS`, so a writer cannot invent a tag that ``rebrew lint``
     would then report against.  Returns the number of entries whose fields
-    changed.
+    changed.  *now* fixes the instant the stamp records, so a replay driven
+    from a seed lands the same bytes.
+
+    An update with no fields is a no-op: creating an entry for it would leave
+    a bare table holding nothing but provenance.
 
     Raises :class:`ValueError` for an update missing ``module`` or ``va``, or
     naming an unknown provenance tag.  A malformed update used to be skipped,
@@ -727,9 +736,18 @@ def set_fields_batch(metadata_dir: Path | str | Any, updates: list[dict[str, Any
             if va is None:
                 raise ValueError(f"field update for {module!r} missing 'va': {u!r}")
             va_int = int(va)
+            fields = u.get("fields") or {}
+            if not fields:
+                continue
+            tag = str(u.get("updated_by") or "")
+            if tag and tag not in PROVENANCE_TAGS:
+                raise ValueError(
+                    f"field update for {module!r} 0x{va_int:x} names unknown "
+                    f"provenance tag {tag!r}, not in {sorted(PROVENANCE_TAGS)}"
+                )
             _, entry = _ensure_entry_table(doc_dict, module, va_int, key_index)
             changed = False
-            for key, value in (u.get("fields") or {}).items():
+            for key, value in fields.items():
                 key = key.lower()
                 if key == "status":
                     raise ValueError("Use update_statuses_batch() for STATUS changes")
@@ -737,17 +755,11 @@ def set_fields_batch(metadata_dir: Path | str | Any, updates: list[dict[str, Any
                 if entry.get(key) != safe:
                     entry[key] = safe
                     changed = True
-            tag = str(u.get("updated_by") or "")
+            if not changed:
+                continue
             if tag:
-                if tag not in PROVENANCE_TAGS:
-                    raise ValueError(
-                        f"field update for {module!r} 0x{va_int:x} names unknown "
-                        f"provenance tag {tag!r}, not in {sorted(PROVENANCE_TAGS)}"
-                    )
-                stamp_provenance(entry, tag)
-                changed = True
-            if changed:
-                changed_entries += 1
+                stamp_provenance(entry, tag, now=now)
+            changed_entries += 1
         if changed_entries:
             stamp_format(doc)
             atomic_write_locked(path, tomlkit.dumps(doc))

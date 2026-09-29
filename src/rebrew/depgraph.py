@@ -30,6 +30,7 @@ from rebrew.cli import (
     error_exit,
     json_print,
     require_config,
+    require_non_negative,
 )
 from rebrew.config import ProjectConfig
 from rebrew.sources import (
@@ -794,6 +795,9 @@ def main(
             code=EXIT_ERROR,
         )
     cfg = require_config(target=target, json_mode=json_output)
+    # range(-1) walks zero rounds, so a negative depth prints the focus node
+    # alone under exit 0 and reads as "nothing calls it".
+    depth = require_non_negative(depth, "--depth", json_mode=json_output)
 
     if cu_map:
         from rebrew.cu_map import main as _cu_map_main

@@ -484,6 +484,7 @@ class TestRowCountOptions:
         ("text-audit", "limit", "--limit"),
         ("analyze", "top_strings", "--top-strings"),
         ("recover-structs", "limit", "--limit"),
+        ("graph", "depth", "--depth"),
     )
 
     def test_negative_row_count_exits_2(self) -> None:
