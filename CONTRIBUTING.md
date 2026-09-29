@@ -160,8 +160,8 @@ meaning, takes a major version bump and a `**Breaking:**` changelog entry.
 On-disk format bumps (`coverage-<target>.toml` `version`, compile-cache schema)
 and a raised minimum Python are also `**Breaking:**`; they may ship in a minor,
 because the migration is a wholesale document rewrite (`build-db` replaces each
-file whole) or a cold cache (as with schema `"7"` in 2.4.0 and the Python 3.13
-floor in 2.3.0).
+file whole) or a cold cache (as with the compile-cache schema `5` -> `6` bump in
+2.7.0 and the Python 3.13 floor in 2.3.0).
 The Python import surface (module paths, functions, classes, `__all__`) and
 the `rebrew dashboard` `/api/*` JSON are not frozen: a removal, move, or
 signature change there ships in a minor with a `**Breaking:**` entry naming

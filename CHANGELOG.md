@@ -204,6 +204,33 @@
   now guards both.
 
 ### Changed
+- **Breaking:** the coverage-document library moved out of `rebrew.build_db`
+  into `rebrew.coverage_db`, and `rebrew.build_db` is now only the
+  `rebrew build-db` command front. Import `COVERAGE_DB_STATUSES`,
+  `DATA_STATUS_DRIFT`, `DATA_STATUS_UNCHECKED`, `DATA_STATUS_VERIFIED`,
+  `DEFAULT_GRID_GEOMETRY`, `HISTORY_RETENTION`, `KNOWN_STATUSES`, `build_db`,
+  `clamp_nonneg_int`, `clamp_unit_interval`, `console`, `db_dir`,
+  `dedupe_by_va`, `dedupe_cell_rows`, `error_exit`, `import_verify_rows`,
+  `json_print`, `load_config`, `load_coverage_datasets`, `normalize_cell_row`,
+  `parse_int`, `positive_int_or`, `resolve_db_dir` and `write_coverage` from
+  `rebrew.coverage_db`. A `from rebrew.build_db import ...` of one of them is
+  an `ImportError` now. `rebrew.coverage_toml` re-exports most of that list
+  under the same names, so a caller importing it there keeps its import and
+  meets only the signature change below. The split is a layering fix: those
+  names are the normalizers, the catalog loader and the verify-cache import,
+  and `coverage_toml` needs them without depending on the module that builds a
+  console script.
+- **Breaking:** `coverage_toml.load_coverage_datasets` lost its `db_directory`
+  argument. It was
+  `load_coverage_datasets(root_dir, db_directory, *, target, json_output, regen)`
+  and is now `load_coverage_datasets(root_dir, *, target, json_output, regen)`:
+  the catalog is generated in this process, so there is no directory to read
+  from and the second positional argument is a `TypeError` now.
+  `coverage_toml.FUNCTION_DB_STATUSES` and `coverage_toml.GLOBAL_DB_STATUSES`
+  keep their spelling and their values; they re-export from `coverage_db`.
+- **Breaking:** `verify_placement.load_config` is no longer re-exported. It was
+  importable as `from rebrew.verify_placement import load_config` and now comes
+  from `rebrew.config`, the module that owns it.
 - **Breaking:** `analyze.main` and `layout_map.main` take `-o` beside
   `--output` in their rendered signatures. The two commands gained the short
   option the other 24 `--output`s already had, and the public surface gate
