@@ -210,7 +210,11 @@ def section_summary(scan: ScanResult, sections: dict[str, dict[str, Any]]) -> li
                 s["ranges"].append((entry.va, entry.va + size_hint))
 
     out: list[dict[str, Any]] = []
-    for sec_name in [".data", ".rdata", ".bss", "unknown"]:
+    # The four canonical names lead, in a fixed order; any other section the
+    # loader reported (an NE target's SEG0/SEG3, say) follows sorted, so a
+    # global in it still reaches the table instead of only the `total`.
+    known = [".data", ".rdata", ".bss", "unknown"]
+    for sec_name in known + sorted(set(per_section) - set(known)):
         sec_data = per_section.get(sec_name)
         if sec_data is None:
             continue

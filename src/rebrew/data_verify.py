@@ -13,6 +13,8 @@ link; the binary-reading thin layer lives in ``verify --data``.
 from pathlib import Path
 from typing import Any
 
+from rebrew.data_metadata import iter_data_symbols
+
 
 def verify_data_bytes(
     *,
@@ -44,18 +46,9 @@ def verify_data_bytes(
     db = load_tomllib(metadata_path)
     names: dict[int, str] = {}
     kept: set[int] = set()
-    for key, val in db.items():
-        if not isinstance(val, dict):
-            continue
+    for _module, va, val in iter_data_symbols(db, section=None):
         name = val.get("name")
         if not name:
-            continue
-        _module, sep, addr_text = str(key).rpartition(".")
-        if not sep:
-            continue
-        try:
-            va = int(addr_text, 16)
-        except ValueError:
             continue
         names[va] = str(name)
         if _section_selected(str(val.get("section") or ""), sections):
@@ -167,22 +160,13 @@ def section_symbol_bytes(
     info = load_binary(binary_path)
     by_va: dict[int, bytes] = {}
     sizes: dict[int, int] = {}
-    for key, val in db.items():
-        if not isinstance(val, dict):
-            continue
+    for module, va, val in iter_data_symbols(db, section=None):
         declared = str(val.get("section") or "")
         if not _section_selected(declared, sections):
             continue
         if not val.get("name"):
             continue
-        module, sep, addr_text = str(key).rpartition(".")
-        if not sep:
-            continue
         if not module_visible_to_target(module, cfg):
-            continue
-        try:
-            va = int(addr_text, 16)
-        except ValueError:
             continue
         try:
             size = int(val.get("size") or 0)

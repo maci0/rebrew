@@ -34,6 +34,9 @@ _DECL_LINE_RE = re.compile(
 )
 _EXISTING_MARKER_RE = re.compile(r"^\s*(?://|/\*)\s*(?:DATA|GLOBAL):")
 _ARRAY_TYPE_RE = re.compile(r"\s*(\[[^\]]*\])$")
+#: Label for a global whose section name is empty, in both the emitted header
+#: and the returned report, so a caller can match one against the other.
+_UNKNOWN_SECTION_LABEL = "(unknown section)"
 _FUNCPTR_TYPE_RE = re.compile(r"^(.*?)\(\s*([^()]*?)\s*\*\s*\)(.*)$")
 #: A C type spelled out in metadata: word chars, whitespace, and the
 #: declarator punctuation only.
@@ -90,7 +93,6 @@ def annotate_globals(
             name: (mod, addr) for name, (mod, addr) in symbols.items() if addr not in existing
         }
         insertions: list[tuple[int, str]] = []
-        used: set[int] = set()
         for i, ln in enumerate(lines):
             if not pending:
                 break
@@ -100,12 +102,9 @@ def annotate_globals(
             name = m.group(1)
             if name not in pending:
                 continue
-            if i in used:
-                continue
             if i > 0 and _EXISTING_MARKER_RE.match(lines[i - 1]):
                 continue
             _mod, sym_addr = pending.pop(name)
-            used.add(i)
             insertions.append((i, f"// GLOBAL: {marker} 0x{sym_addr:08x}"))
         if not insertions:
             continue
@@ -464,7 +463,7 @@ def gen_globals_header(
 
     for sec in sorted(by_section):
         if sec not in emitted:
-            _emit_section(sec or "(unknown)", by_section[sec])
+            _emit_section(sec or _UNKNOWN_SECTION_LABEL, by_section[sec])
 
     header_lines += ["#endif /* REBREW_GLOBALS_H */", ""]
 
@@ -492,7 +491,9 @@ def gen_globals_header(
             "written": written,
             "dry_run": dry_run,
             "globals": len(rows),
-            "sections": {(sec or "(unknown)"): len(by_section[sec]) for sec in ordered},
+            "sections": {
+                (sec or _UNKNOWN_SECTION_LABEL): len(by_section[sec]) for sec in ordered
+            },
         }
 
     if dry_run or is_identical:

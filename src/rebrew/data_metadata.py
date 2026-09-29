@@ -60,6 +60,7 @@ from typing import TYPE_CHECKING, Any
 import tomlkit
 
 from rebrew.metadata import (
+    PROVENANCE_TAGS,
     as_metadata_int,
     canonical_status,
     resolve_metadata_dir,
@@ -457,6 +458,12 @@ def set_data_fields_batch(
             fields = u.get("fields") or {}
             if not fields:
                 continue
+            tag = str(u.get("updated_by") or "")
+            if tag and tag not in PROVENANCE_TAGS:
+                raise ValueError(
+                    f"data field update for {module!r} 0x{va_int:x} names unknown "
+                    f"provenance tag {tag!r}, not in {sorted(PROVENANCE_TAGS)}"
+                )
             toml_key = resolve_metadata_key(doc, module, va_int, index=key_index)
             if toml_key not in doc:
                 doc[toml_key] = tomlkit.table()
@@ -582,5 +589,11 @@ def merge_into_data_annotation(ann: Annotation, directory: Path | str | Any) -> 
 
     if "status" in entry:
         ann.status = canonical_status(str(entry["status"]))
+
+    if updated_by := entry.get("updated_by"):
+        ann.updated_by = str(updated_by)
+
+    if updated_at := entry.get("updated_at"):
+        ann.updated_at = str(updated_at)
 
     return ann

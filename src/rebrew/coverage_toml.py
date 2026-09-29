@@ -440,11 +440,13 @@ def _global_rows(target_name: str, data: dict[str, Any]) -> list[tuple[Any, ...]
     return rows
 
 
-def _section_table(sec_name: str, sec: dict[str, Any]) -> list[str]:
+def _section_table(target_name: str, sec_name: str, sec: dict[str, Any]) -> list[str]:
     """Render one ``[sections."<name>"]`` table: the scalars, then the cells.
 
     The section's name is the table's key, not a field inside it, so the five
-    scalars here are the ``sections`` row's other columns.
+    scalars here are the ``sections`` row's other columns.  *target_name* is
+    separate: it names the target in the duplicate-cell warning, where the
+    section name already follows.
     """
     values = (
         clamp_nonneg_int(sec.get("va")),
@@ -463,7 +465,7 @@ def _section_table(sec_name: str, sec: dict[str, Any]) -> list[str]:
             for cell in sec.get("cells", [])
             if isinstance(cell, dict)
         ],
-        target_name=sec_name,
+        target_name=target_name,
         sec_name=sec_name,
     )
     lines.extend(_kv_block("cells", [_rows_from(_CELL_COLUMNS, r) for r in cell_rows]))
@@ -713,7 +715,7 @@ def render_coverage_toml(
     lines.append(_kv("paths", data.get("paths", {})))
     for sec_name, sec in sections.items():
         lines.append("")
-        lines.extend(_section_table(sec_name, sec))
+        lines.extend(_section_table(target_name, sec_name, sec))
     return "\n".join(lines) + "\n"
 
 
@@ -750,7 +752,6 @@ def write_coverage_toml(
     db_directory = resolve_db_dir(root_dir, json_output=json_output)
     datasets = load_coverage_datasets(
         root_dir,
-        db_directory,
         target=target,
         json_output=json_output,
         regen=regen,
@@ -1216,7 +1217,7 @@ def _derive_function_stats(
     change the value.
     """
     rows = [f for f in functions if f.markerType in FUNCTION_MARKERS]
-    starts = sorted(f.va for f in rows if f.va is not None)
+    starts = sorted(f.va for f in rows)
     by_status: dict[str, int] = {}
     by_module_counts: dict[str, int] = {}
     covered_bytes = 0
@@ -1228,7 +1229,7 @@ def _derive_function_stats(
         # so a blank must not be counted under it.
         module = fn.module or ""
         by_module_counts[module] = by_module_counts.get(module, 0) + 1
-        if fn.size is None or fn.va is None:
+        if fn.size is None:
             continue
         # A negative SIZE is truthy, so it would reach clip_span and move both
         # totals the wrong way; the writer clamps it to 0 on the way in.

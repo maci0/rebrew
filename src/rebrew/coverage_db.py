@@ -368,7 +368,6 @@ def resolve_db_dir(root_dir: Path, *, json_output: bool = False) -> Path:
 
 def load_coverage_datasets(
     root_dir: Path,
-    db_directory: Path,
     *,
     target: str | None,
     json_output: bool,

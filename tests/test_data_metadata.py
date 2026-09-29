@@ -212,6 +212,23 @@ class TestSetDataFieldsBatch:
         assert path.read_bytes() == before
         assert path.stat().st_mtime_ns == before_mtime
 
+    def test_batch_rejects_unknown_provenance_tag(self, tmp_path: Path) -> None:
+        from rebrew.data_metadata import set_data_fields_batch
+
+        with pytest.raises(ValueError, match="unknown provenance tag"):
+            set_data_fields_batch(
+                tmp_path,
+                [
+                    {
+                        "module": "SERVER",
+                        "va": 0x1000,
+                        "fields": {"size": 4},
+                        "updated_by": "not-a-tag",
+                    }
+                ],
+            )
+        assert not (tmp_path / DATA_METADATA_FILENAME).exists()
+
 
 # ---------------------------------------------------------------------------
 # delete_data_field
@@ -225,6 +242,25 @@ class TestMergeIntoDataAnnotation:
         assert ann.size == 256
         assert ann.section == ".rdata"
         assert ann.note == "test"
+
+    def test_merge_carries_the_provenance_pair(self, tmp_path: Path) -> None:
+        from rebrew.data_metadata import set_data_fields_batch
+
+        set_data_fields_batch(
+            tmp_path,
+            [
+                {
+                    "module": "SERVER",
+                    "va": 0x10025000,
+                    "fields": {"size": 4, "section": ".data"},
+                    "updated_by": "verify",
+                }
+            ],
+        )
+        ann = _make_annotation(size=0, section="", note="")
+        merge_into_data_annotation(ann, tmp_path)  # type: ignore[arg-type]
+        assert ann.updated_by == "verify"
+        assert ann.updated_at != ""
 
 
 class TestDataMetadataEdgeCases:
