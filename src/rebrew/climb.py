@@ -57,6 +57,7 @@ from rebrew.compile import CompareResult, compile_and_compare, matched_byte_coun
 from rebrew.compile_overrides import resolve_compile_overrides
 from rebrew.config import ProjectConfig
 from rebrew.sources import target_marker
+from rebrew.temp_dirs import sweep_stale_temp_dirs
 from rebrew.utils import (
     SOURCE_BACKUP_DIRNAME,
     atomic_write_text,
@@ -627,6 +628,9 @@ def main(
     if dry_run:
         dry_root = Path(cfg.root) / ".rebrew" / "climb"
         dry_root.mkdir(parents=True, exist_ok=True)
+        # A run the `finally` below never reaches (SIGKILL, an OOM kill) strands
+        # its staging dir here, and the compile-base sweep never walks this tree.
+        sweep_stale_temp_dirs(dry_root, prefixes=(f"{filename_component(sym)}-",))
         dry_dir = tempfile.TemporaryDirectory(dir=dry_root, prefix=f"{filename_component(sym)}-")
         try:
             score_path = Path(dry_dir.name) / path.name

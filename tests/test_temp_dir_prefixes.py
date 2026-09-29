@@ -96,3 +96,21 @@ def _backdate(path: Path) -> None:
 
     old = 0.0
     os.utime(path, (old, old))
+
+
+class TestCallerSuppliedPrefixes:
+    """A per-run scratch root sweeps by the prefix its caller names."""
+
+    def test_caller_prefix_selects_what_is_removed(self, tmp_path: Path) -> None:
+        from rebrew.temp_dirs import sweep_stale_temp_dirs
+
+        stale = tmp_path / "func_a-round1"
+        stale.mkdir()
+        _backdate(stale)
+        foreign = tmp_path / "func_b-round1"
+        foreign.mkdir()
+        _backdate(foreign)
+
+        assert sweep_stale_temp_dirs(tmp_path, age_s=60, prefixes=("func_a-",)) == [stale]
+        assert not stale.exists()
+        assert foreign.exists()

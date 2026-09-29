@@ -155,7 +155,11 @@ def _newest_mtime(root: Path) -> float | None:
 
 
 def sweep_stale_temp_dirs(
-    base: Path, age_s: float = STALE_TEMP_DIR_AGE_S, *, now: float | None = None
+    base: Path,
+    age_s: float = STALE_TEMP_DIR_AGE_S,
+    *,
+    now: float | None = None,
+    prefixes: tuple[str, ...] = _TEMP_DIR_PREFIXES,
 ) -> list[Path]:
     """Remove abandoned rebrew sandbox dirs from *base*; return what was removed.
 
@@ -178,6 +182,11 @@ def sweep_stale_temp_dirs(
 
     *now* overrides the age reference, so a replay or a test decides the same
     sweep from a fixed instant instead of from when the process happened to run.
+    *prefixes* replaces the owned-name filter for a caller whose sandboxes live
+    under a directory of their own (a sweep's per-round scratch, a dry-run
+    staging dir) rather than in a compile base, and so cannot be named by the
+    shared table; it keeps the same rule, that the sweep only ever removes a
+    name the caller declares.
     """
     import shutil
 
@@ -191,7 +200,7 @@ def sweep_stale_temp_dirs(
     except OSError:
         return removed
     for entry in entries:
-        if not entry.name.startswith(_TEMP_DIR_PREFIXES) or entry.is_symlink():
+        if not entry.name.startswith(prefixes) or entry.is_symlink():
             continue
         try:
             if not entry.is_dir():

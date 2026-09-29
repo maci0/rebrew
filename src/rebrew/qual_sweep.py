@@ -40,6 +40,7 @@ from rebrew.cli import (
 from rebrew.climb import function_span as climb_function_span
 from rebrew.compile import compile_and_compare
 from rebrew.compile_overrides import resolve_compile_overrides
+from rebrew.temp_dirs import sweep_stale_temp_dirs
 from rebrew.utils import (
     SOURCE_BACKUP_DIRNAME,
     atomic_write_text,
@@ -237,6 +238,10 @@ def main(
 
     sweep_root = Path(cfg.root) / ".rebrew" / "qualsweep"
     sweep_root.mkdir(parents=True, exist_ok=True)
+    # A hard-killed run strands its round dir here, and the compile-base sweep
+    # never walks this tree, so the leftovers are reclaimed by age on the way in
+    # instead of one dir per lost run.
+    sweep_stale_temp_dirs(sweep_root, prefixes=(f"{sym_file}-",))
     # The restore below needs Python to run; a SIGKILL, an OOM kill, a power
     # cut, or a stopped container runs none of it and leaves the last
     # candidate scored in the file.  The pre-run bytes go to disk first.
@@ -280,8 +285,8 @@ def main(
             # deliberately leaves its in-flight workers running when the round
             # is interrupted, so one of them can still be writing a candidate
             # as this dir goes away.  That raced the removal into an OSError
-            # that replaced the Ctrl+C the user pressed, and left the round
-            # dir behind; sweep_stale_temp_dirs reclaims it by age instead.
+            # that replaced the Ctrl+C the user pressed; the round dir this
+            # strands is reclaimed by the age sweep above on the next run.
             with (
                 tempfile.TemporaryDirectory(
                     dir=sweep_root, prefix=f"{sym_file}-", ignore_cleanup_errors=True
