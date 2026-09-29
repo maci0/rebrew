@@ -323,6 +323,13 @@
   the byte-mismatch code has to test for 2.
 
 ### Fixed
+- **The dashboard's error alert can now reach a reader at the foot of a long
+  table.** The alert renders above the view panels, so a failure raised by
+  `Show more` on a 100-row function list landed off screen with nothing to tell
+  the reader the page was incomplete. A new message now scrolls itself into
+  view; a repeated one does not, so a re-sync cannot yank the page while it is
+  being read. The empty-state search link is also named `Clear filters`, the
+  label the Clear control below it already carries.
 - **The dashboard's human-readable contract named two assets where the server
   serves three, and a `/api/bootstrap` null case that cannot happen.** The
   prose in `docs/COVERAGE_DOCUMENT.md` credited the content-hash `ETag` to `/`

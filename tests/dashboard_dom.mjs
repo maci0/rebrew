@@ -38,6 +38,7 @@ export function stubElement(id, { hidden = id !== "main" } = {}) {
     querySelectorAll() { return []; },
     closest() { return null; },
     focus() { document.activeElement = this; },
+    scrollIntoView() { this.scrolled = (this.scrolled || 0) + 1; },
   };
 }
 
