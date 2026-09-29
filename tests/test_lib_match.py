@@ -340,6 +340,21 @@ class TestStockLib:
         monkeypatch.setattr(lm, "container_runtime", lambda: "docker")
         monkeypatch.setattr(shutil, "which", lambda name: f"/usr/bin/{name}")
 
+    def test_cache_path_is_scoped_to_the_profile(self, tmp_path: Path) -> None:
+        """Two profiles must not share one extracted archive.
+
+        The archive's bytes come from the profile's image and
+        ``ensure_stock_lib`` accepts any file already at the path, so a
+        name-only key made the first extraction outlive every later profile.
+        """
+        import rebrew.lib_match as lm
+
+        first = lm.stock_lib_cache(tmp_path, "LIBCMT.LIB", "msvc-6.0")
+        second = lm.stock_lib_cache(tmp_path, "LIBCMT.LIB", "msvc-6.0-sp6")
+        assert first != second
+        assert first.name == "msvc-6.0_libcmt_stock.LIB"
+        assert first.parent == tmp_path / ".scratch"
+
     def test_ensure_stock_lib_extracts_from_registry_image(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

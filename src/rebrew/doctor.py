@@ -1762,8 +1762,8 @@ def _libcmt_index(cfg: Any) -> Any:
     from rebrew.lib_match import ensure_stock_lib, index_library, stock_lib_cache
 
     name = "LIBCMT.LIB"
-    cached = stock_lib_cache(Path(cfg.root), name)
     profile = str(getattr(cfg, "compiler_profile", "") or "")
+    cached = stock_lib_cache(Path(cfg.root), name, profile)
     try:
         if not profile or not ensure_stock_lib(cached, profile=profile, name=name):
             return None

@@ -31,7 +31,7 @@ Automatic via content hash — different inputs produce different keys.
 Header dependencies participate via :func:`header_dependency_hash`: the
 source's ``#include`` closure (resolved transitively against the source
 directory and the ``/I`` dirs) is fingerprinted **per reached header**
-(name + size + mtime, ccache-style), so editing a header invalidates only
+(name + size + mtime + inode, ccache-style), so editing a header invalidates only
 the entries whose translation unit reaches it — an edit to an unrelated
 header in the same include dir is a cache hit.  Headers that cannot be
 resolved on the host (e.g. the MSVC CRT headers inside the immutable
@@ -758,7 +758,7 @@ _INCLUDE_CLOSURE_MEMO: dict[
     tuple[
         tuple[str, ...],
         bool,
-        tuple[tuple[int, int], ...],
+        tuple[tuple[int, int, int], ...],
         tuple[tuple[str, tuple[str, ...]], ...],
     ],
 ] = {}
@@ -875,16 +875,23 @@ def _resolve_include_paths(
     return paths, fallback
 
 
-def _header_stats(paths: tuple[str, ...]) -> tuple[tuple[int, int], ...]:
-    """``(mtime_ns, size)`` per path; ``(-1, -1)`` for one that cannot be stat'ed."""
-    out: list[tuple[int, int]] = []
+def _header_stats(paths: tuple[str, ...]) -> tuple[tuple[int, int, int], ...]:
+    """``(mtime_ns, size, ino)`` per path; ``(-1, -1, -1)`` for an unstat'able one.
+
+    The inode is what a same-size rename-over inside one mtime tick changes
+    (an editor's atomic save, a ``cp -p`` restore, a coarse-timestamp
+    filesystem) and mtime+size cannot see: without it a header swapped that
+    way leaves the memoized closure and the key looking untouched, and the
+    old object is served against the new header.
+    """
+    out: list[tuple[int, int, int]] = []
     for p in paths:
         try:
             st = Path(p).stat()
         except OSError:
-            out.append((-1, -1))
+            out.append((-1, -1, -1))
             continue
-        out.append((st.st_mtime_ns, st.st_size))
+        out.append((st.st_mtime_ns, st.st_size, st.st_ino))
     return tuple(out)
 
 
@@ -894,10 +901,10 @@ def _scan_include_closure(
     include_dirs: tuple[str, ...],
     *,
     unresolved: list[tuple[str, tuple[str, ...]]] | None = None,
-) -> tuple[tuple[str, ...], bool, tuple[tuple[int, int], ...], bool]:
+) -> tuple[tuple[str, ...], bool, tuple[tuple[int, int, int], ...], bool]:
     """Uncached body of :func:`_resolve_include_paths`.
 
-    The third element is ``(mtime_ns, size)`` captured around each header
+    The third element is ``(mtime_ns, size, ino)`` captured around each header
     read, in the same order as the returned paths.  The fourth is False when
     a header's stat changed between the read's bracketing stats — the bytes
     and the snapshot do not describe the same file, so the caller must not
@@ -916,7 +923,7 @@ def _scan_include_closure(
     misses: list[tuple[str, tuple[str, ...]]] = [] if unresolved is None else unresolved
 
     reached: set[str] = set()
-    observed: dict[str, tuple[int, int]] = {}
+    observed: dict[str, tuple[int, int, int]] = {}
     fallback = False
     consistent = True
 
@@ -973,9 +980,13 @@ def _scan_include_closure(
                 consistent = False
                 reached.discard(found_str)
                 return
-            if (before.st_mtime_ns, before.st_size) != (after.st_mtime_ns, after.st_size):
+            if (before.st_mtime_ns, before.st_size, before.st_ino) != (
+                after.st_mtime_ns,
+                after.st_size,
+                after.st_ino,
+            ):
                 consistent = False
-            observed[found_str] = (after.st_mtime_ns, after.st_size)
+            observed[found_str] = (after.st_mtime_ns, after.st_size, after.st_ino)
             header_text = raw.decode("utf-8", errors="surrogateescape")
             _scan(header_text, found.parent)
             if fallback:
@@ -983,14 +994,14 @@ def _scan_include_closure(
 
     _scan(source_content, Path(source_dir) if source_dir else None)
     paths = tuple(sorted(reached))
-    stats = tuple(observed.get(p, (-1, -1)) for p in paths)
+    stats = tuple(observed.get(p, (-1, -1, -1)) for p in paths)
     return paths, fallback, stats, consistent
 
 
 def _header_key_entries(
     paths: tuple[str, ...], source_dir: str | None, include_dirs: list[str]
-) -> list[tuple[int, str, int, int]]:
-    """Map resolved header paths to sorted ``(anchor, rel_path, size, mtime)``.
+) -> list[tuple[int, str, int, int, int]]:
+    """Map resolved header paths to sorted ``(anchor, rel_path, size, mtime, ino)``.
 
     *anchor* is the index of the search dir the header lives under — 0 for
     the source directory, ``i + 1`` for ``include_dirs[i]`` — so the key is
@@ -1004,7 +1015,7 @@ def _header_key_entries(
         anchors.append(Path(source_dir).resolve())
     anchors += [Path(d).resolve() for d in include_dirs]
 
-    entries: list[tuple[int, str, int, int]] = []
+    entries: list[tuple[int, str, int, int, int]] = []
     for p_str in paths:
         p = Path(p_str).resolve()
         rel = p.name
@@ -1021,10 +1032,11 @@ def _header_key_entries(
         except OSError:
             # Omitting the header makes this key identical to one where the
             # file does not exist, so a .obj compiled before the read failure
-            # is served from cache.  -1 is not a reachable size or mtime_ns.
-            entries.append((anchor_idx, rel, -1, -1))
+            # is served from cache.  -1 is not a reachable size, mtime_ns, or
+            # inode, so the marker cannot collide with a real entry.
+            entries.append((anchor_idx, rel, -1, -1, -1))
             continue
-        entries.append((anchor_idx, rel, st.st_size, st.st_mtime_ns))
+        entries.append((anchor_idx, rel, st.st_size, st.st_mtime_ns, st.st_ino))
     return sorted(entries)
 
 
@@ -1144,7 +1156,7 @@ def header_dependency_hash(
     """SHA-256 over the translation unit's reached-header dependencies.
 
     Resolves the transitive ``#include`` closure of *source_content* and
-    hashes each reached header's ``(anchor, rel_path, size, mtime_ns)`` in
+    hashes each reached header's ``(anchor, rel_path, size, mtime_ns, ino)`` in
     sorted order.  An edit to a reached header changes the digest; an edit
     to an unreached header does not.  Falls back to conservative per-directory
     fingerprints when the closure cannot be resolved statically (non-literal
@@ -1161,9 +1173,13 @@ def header_dependency_hash(
     if not paths:
         return _NO_DEPS_HASH
     h = hashlib.sha256()
-    for anchor_idx, rel, size, mtime_ns in _header_key_entries(paths, source_dir, include_dirs):
+    for anchor_idx, rel, size, mtime_ns, ino in _header_key_entries(
+        paths, source_dir, include_dirs
+    ):
         h.update(
-            f"{anchor_idx}\0{rel}\0{size}\0{mtime_ns}\0".encode("utf-8", errors="surrogateescape")
+            f"{anchor_idx}\0{rel}\0{size}\0{mtime_ns}\0{ino}\0".encode(
+                "utf-8", errors="surrogateescape"
+            )
         )
     return h.hexdigest()
 

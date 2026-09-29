@@ -580,7 +580,8 @@ class TestHeaderDependencyHash:
         header = inc / "a.h"
         header.write_text("typedef int A;\n")
         good = _header_key_entries((str(header),), None, [str(inc)])
-        assert good == [(0, "a.h", header.stat().st_size, header.stat().st_mtime_ns)]
+        st = header.stat()
+        assert good == [(0, "a.h", st.st_size, st.st_mtime_ns, st.st_ino)]
 
         real_stat = Path.stat
 
@@ -592,7 +593,7 @@ class TestHeaderDependencyHash:
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr(Path, "stat", _fail)
             unreadable = _header_key_entries((str(header),), None, [str(inc)])
-        assert unreadable == [(0, "a.h", -1, -1)]
+        assert unreadable == [(0, "a.h", -1, -1, -1)]
         assert unreadable != good
 
     def test_unreached_header_edit_keeps_key(self, tmp_path: Path) -> None:
@@ -616,6 +617,30 @@ class TestHeaderDependencyHash:
         k1 = compile_cache_key(src, "f.c", ["/O2"], [str(inc)], "wine CL")
 
         (inc / "a.h").write_text("typedef long A;\n")
+        k2 = compile_cache_key(src, "f.c", ["/O2"], [str(inc)], "wine CL")
+        assert k1 != k2
+
+    def test_same_size_rename_over_header_changes_key(self, tmp_path: Path) -> None:
+        """A header replaced by an equal-length rename-over must invalidate.
+
+        An editor's atomic save, a ``cp -p``, and a coarse-timestamp
+        filesystem all swap a header without moving mtime_ns or its size;
+        the inode is the only part of the fingerprint that moves.
+        """
+        inc = tmp_path / "inc"
+        inc.mkdir()
+        (inc / "a.h").write_text("typedef int A;\n")
+        src = "#include <a.h>\nint f(void){return 1;}\n"
+        k1 = compile_cache_key(src, "f.c", ["/O2"], [str(inc)], "wine CL")
+
+        # A true rename-over (what atomic_write_text and an editor's save
+        # do): same byte length, restored mtime, new inode.
+        st = (inc / "a.h").stat()
+        tmp = inc / "a.h.tmp"
+        tmp.write_text("typedef long A\n")
+        os.utime(tmp, ns=(st.st_atime_ns, st.st_mtime_ns))
+        os.replace(tmp, inc / "a.h")
+        assert (inc / "a.h").stat().st_size == st.st_size
         k2 = compile_cache_key(src, "f.c", ["/O2"], [str(inc)], "wine CL")
         assert k1 != k2
 

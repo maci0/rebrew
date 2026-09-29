@@ -21,6 +21,7 @@ import functools
 import json
 import logging
 import math
+from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -2010,38 +2011,50 @@ def _inventory_count(cfg: ProjectConfig, reversed_dir: Path) -> int:
 def _library_header_rows(cfg: Any) -> dict[int, dict[str, str]]:
     """Rows the ``library_*.h`` headers of this target contribute, cached.
 
-    Keyed on the header paths and their mtimes, so an edited header re-parses
-    and ``verify --watch`` still sees the change while two calls in one run
-    (the library set and the ``--nolib`` filter) parse the tree once.
+    Keyed on the header paths and their ``(mtime_ns, size, ino)``, so an edited
+    header re-parses and ``verify --watch`` still sees the change while two
+    calls in one run (the library set and the ``--nolib`` filter) parse the
+    tree once.  The size and inode are what catch a same-size rename-over
+    inside one mtime tick (an editor's atomic save, a ``cp -p`` restore, a
+    coarse-timestamp filesystem), which mtime alone cannot see; same triple
+    every other per-file memo in the tree carries.
     """
     from rebrew.annotation import parse_library_header
     from rebrew.sources import iter_library_headers
 
     marker = preset_module_key(module_marker(cfg))
     headers = list(iter_library_headers(cfg.reversed_dir, cfg))
-    key = (marker, tuple((str(h), _mtime_ns(h)) for h in headers))
+    key = (marker, tuple((str(h), *_stat_identity(h)) for h in headers))
     cached = _LIBRARY_HEADER_CACHE.get(key)
     if cached is not None:
+        _LIBRARY_HEADER_CACHE.move_to_end(key)
         return cached
     rows: dict[int, dict[str, str]] = {}
     for header in headers:
         for e in parse_library_header(header, metadata_dir=cfg.metadata_dir):
             if preset_module_key(e.module or "") in ("", marker):
                 rows[e.va] = {"marker_type": e.marker_type or "LIBRARY", "module": e.module or ""}
-    _LIBRARY_HEADER_CACHE.clear()
+    # Bounded LRU, not clear-on-miss: ``verify --all-targets`` walks one
+    # target per iteration in this process, and a single slot re-parsed the
+    # whole ``library_*.h`` tree on every target's turn.
     _LIBRARY_HEADER_CACHE[key] = rows
+    _LIBRARY_HEADER_CACHE.move_to_end(key)
+    while len(_LIBRARY_HEADER_CACHE) > _LIBRARY_HEADER_CACHE_MAX:
+        del _LIBRARY_HEADER_CACHE[next(iter(_LIBRARY_HEADER_CACHE))]
     return rows
 
 
-_LIBRARY_HEADER_CACHE: dict[Any, dict[int, dict[str, str]]] = {}
+_LIBRARY_HEADER_CACHE: OrderedDict[Any, dict[int, dict[str, str]]] = OrderedDict()
+_LIBRARY_HEADER_CACHE_MAX = 8
 
 
-def _mtime_ns(path: Path) -> int:
-    """mtime in nanoseconds, or 0 when the header is unreadable."""
+def _stat_identity(path: Path) -> tuple[int, int, int]:
+    """``(mtime_ns, size, ino)`` for *path*, all 0 when it is unreadable."""
     try:
-        return path.stat().st_mtime_ns
+        st = path.stat()
     except OSError:
-        return 0
+        return (0, 0, 0)
+    return (st.st_mtime_ns, st.st_size, st.st_ino)
 
 
 def _library_vas(cfg: Any, entries: list[Annotation]) -> set[int]:

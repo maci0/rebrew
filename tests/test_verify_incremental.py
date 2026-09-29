@@ -1490,7 +1490,7 @@ class TestHeadersHash:
 
         monkeypatch.setattr(Path, "stat", lambda self: (_ for _ in ()).throw(OSError("boom")))
         during = vh._headers_stat_fingerprint(cfg.reversed_dir)
-        assert during == ((str(cfg.reversed_dir / "types.h"), -1, -1),)
+        assert during == ((str(cfg.reversed_dir / "types.h"), -1, -1, -1),)
 
 
 class TestHeadersHashCacheInvalidation:
@@ -1644,7 +1644,7 @@ class TestCompareLogicHashMembership:
         # _extract_and_compare both live in compile.py), all under src/.
         assert len(names) == 5
         assert all("rebrew" in n for n in names)
-        covered = {path for path, _mtime, _size in _package_source_fingerprint()}
+        covered = {path for path, _mtime, _size, _ino in _package_source_fingerprint()}
         missing = {str(Path(n).resolve()) for n in names} - covered
         assert not missing, sorted(missing)
         h = _compare_logic_hash()

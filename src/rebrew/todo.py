@@ -778,8 +778,12 @@ def _collect_new_functions(
     _lib_index = None
     from rebrew.lib_match import index_library, stock_lib_cache
 
-    _cached = stock_lib_cache(cfg.root, "LIBCMT.LIB")
-    if _cached.exists():
+    # Only this project's profile: the archive is another toolchain's code, so
+    # indexing one extracted for a different profile would filter this list
+    # against library bodies the build never links.
+    _profile = str(getattr(cfg, "compiler_profile", "") or "")
+    _cached = stock_lib_cache(cfg.root, "LIBCMT.LIB", _profile) if _profile else None
+    if _cached is not None and _cached.exists():
         try:
             _lib_index = index_library(_cached)
         except Exception as exc:  # any archive parse failure; the filter is advisory

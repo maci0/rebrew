@@ -135,8 +135,8 @@ def cflags_equivalent(stored: str, current: str) -> bool:
     return canonicalize_cflags(stored_flags) == canonicalize_cflags(current_flags)
 
 
-def _package_source_fingerprint() -> tuple[tuple[str, int, int], ...]:
-    """``(path, mtime_ns, size)`` for every ``.py`` file in the rebrew package.
+def _package_source_fingerprint() -> tuple[tuple[str, int, int, int], ...]:
+    """``(path, mtime_ns, size, ino)`` for every ``.py`` file in the package.
 
     Not memoized, for the reason :func:`_headers_stat_fingerprint` is not: a
     long-lived process (``verify --watch``, the dashboard) must see an edit to
@@ -145,7 +145,7 @@ def _package_source_fingerprint() -> tuple[tuple[str, int, int], ...]:
     import rebrew
 
     pkg_root = Path(rebrew.__file__).resolve().parent
-    entries: list[tuple[str, int, int]] = []
+    entries: list[tuple[str, int, int, int]] = []
     for path in pkg_root.rglob("*.py"):
         try:
             st = path.stat()
@@ -155,9 +155,9 @@ def _package_source_fingerprint() -> tuple[tuple[str, int, int], ...]:
             # existed is re-served as current.  An unreadable marker keeps
             # the key distinct (same rule as
             # ``compile_cache.include_fingerprint``).
-            entries.append((f"{path}\0unreadable", 0, 0))
+            entries.append((f"{path}\0unreadable", 0, 0, 0))
             continue
-        entries.append((str(path), st.st_mtime_ns, st.st_size))
+        entries.append((str(path), st.st_mtime_ns, st.st_size, st.st_ino))
     return tuple(sorted(entries))
 
 
@@ -165,7 +165,7 @@ def _package_source_fingerprint() -> tuple[tuple[str, int, int], ...]:
 #: fingerprint.  Lock-guarded: ``verify -j N`` computes cache identity from
 #: worker threads.
 _COMPARE_LOGIC_MEMO_LOCK = threading.Lock()
-_COMPARE_LOGIC_MEMO: tuple[tuple[tuple[str, int, int], ...], str] | None = None
+_COMPARE_LOGIC_MEMO: tuple[tuple[tuple[str, int, int, int], ...], str] | None = None
 
 
 def _compare_logic_hash() -> str:
@@ -203,7 +203,7 @@ def _compare_logic_hash() -> str:
     h = hashlib.sha256()
     # Deterministic order; only .py source (skip vendored binaries,
     # __pycache__, .so/.pyd extensions).
-    for path_str, _mtime_ns, _size in fingerprint:
+    for path_str, _mtime_ns, _size, _ino in fingerprint:
         if path_str.endswith("\0unreadable"):
             h.update(f"\0unreadable\0{path_str}\0".encode("utf-8", errors="surrogateescape"))
             h.update(b"\x00")
@@ -331,7 +331,7 @@ def headers_hash(cfg: ProjectConfig) -> str:
     # with equal-size, equal-mtime header trees hash to the same tuple: the
     # resolved source directory is part of the key or the second root is
     # served the first root's digest.
-    stat_fp: tuple[tuple[str, int, int] | str, ...] = (
+    stat_fp: tuple[tuple[str, int, int, int] | str, ...] = (
         str(src_dir.resolve()),
         *_headers_stat_fingerprint(src_dir),
         ext_digest,
@@ -386,7 +386,7 @@ def headers_hash(cfg: ProjectConfig) -> str:
 # Key for the memoized headers_hash — avoids re-reading every .h when the
 # tree is unchanged across the two calls per verify run.
 # Guarded by :data:`_HEADERS_HASH_CACHE_LOCK` (clear-then-store eviction).
-_HEADERS_HASH_CACHE: dict[tuple[tuple[str, int, int] | str, ...], str] = {}
+_HEADERS_HASH_CACHE: dict[tuple[tuple[str, int, int, int] | str, ...], str] = {}
 _HEADERS_HASH_CACHE_MAX = 8  # one entry per distinct header-tree state
 
 
@@ -411,25 +411,28 @@ def expected_text_functions(cfg: ProjectConfig) -> dict[str, int]:
     return out
 
 
-def _headers_stat_fingerprint(src_dir: Path) -> tuple[tuple[str, int, int], ...]:
-    """Return sorted (rel_path, mtime_ns, size) tuples for all .h files.
+def _headers_stat_fingerprint(src_dir: Path) -> tuple[tuple[str, int, int, int], ...]:
+    """Return sorted (rel_path, mtime_ns, size, ino) tuples for all .h files.
 
     Not memoized: headers can change within a process lifetime (``verify
     --watch`` re-runs in-process; tests mutate headers between calls), and a
-    stale fingerprint would serve a stale ``headers_hash``.
+    stale fingerprint would serve a stale ``headers_hash``.  The inode is what
+    catches a header replaced by a same-size rename-over inside one mtime tick
+    (an editor's atomic save, a ``cp -p`` restore, a coarse-timestamp
+    filesystem), which mtime and size alone cannot see.
     """
-    entries: list[tuple[str, int, int]] = []
+    entries: list[tuple[str, int, int, int]] = []
     for hfile in src_dir.rglob("*.h"):
         try:
             st = hfile.stat()
             rel = hfile.relative_to(src_dir).as_posix()
-            entries.append((rel, st.st_mtime_ns, st.st_size))
+            entries.append((rel, st.st_mtime_ns, st.st_size, st.st_ino))
         except OSError:
             # A header that cannot be stat'ed must still change the key, or
             # the memo serves a digest taken while it was unreadable.  -1 is
-            # not a reachable mtime_ns or size, so the marker cannot collide
-            # with a real entry.
-            entries.append((hfile.as_posix(), -1, -1))
+            # not a reachable mtime_ns, size, or inode, so the marker cannot
+            # collide with a real entry.
+            entries.append((hfile.as_posix(), -1, -1, -1))
     return tuple(sorted(entries))
 
 

@@ -1473,23 +1473,32 @@ def watch_files(
     def _current_paths() -> list[Path]:
         return path_provider() if path_provider is not None else paths
 
-    def _mtimes() -> dict[Path, int]:
-        out: dict[Path, int] = {}
+    def _stat_keys() -> dict[Path, tuple[int, int, int]]:
+        """``(mtime_ns, size, ino)`` per watched path.
+
+        mtime alone misses an edit that preserves it: ``cp -p``, a
+        ``git checkout`` of a restored file, and a coarse-timestamp
+        filesystem all leave mtime_ns and size equal while the content
+        changes, and the run then never re-tests.  Same triple every
+        stat-keyed memo in the tree carries.
+        """
+        out: dict[Path, tuple[int, int, int]] = {}
         for p in _current_paths():
             try:
-                out[p] = p.stat().st_mtime_ns
+                st = p.stat()
             except OSError:
                 continue
+            out[p] = (st.st_mtime_ns, st.st_size, st.st_ino)
         return out
 
-    last = _mtimes()
+    last = _stat_keys()
     console.print(
         f"[dim]Watching {len(last)} file(s) — re-run on every save (Ctrl+C to stop)...[/dim]"
     )
     try:
         while True:
             nap(interval)
-            current = _mtimes()
+            current = _stat_keys()
             if current == last:
                 continue
             last = current

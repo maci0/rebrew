@@ -52,6 +52,7 @@ def _make_cfg(tmp_path: Path, **overrides: object) -> SimpleNamespace:
         "iat_thunks": [],
         "ignored_symbols": [],
         "library_modules": set(),
+        "compiler_profile": "msvc-6.0",
     }
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
@@ -636,7 +637,7 @@ class TestCollectors:
         (status counts it as unstarted): it becomes an identify-library action."""
         cached = tmp_path / "libcmt.lib"
         cached.write_bytes(b"")
-        monkeypatch.setattr("rebrew.lib_match.stock_lib_cache", lambda root, name: cached)
+        monkeypatch.setattr("rebrew.lib_match.stock_lib_cache", lambda root, name, profile: cached)
         monkeypatch.setattr("rebrew.lib_match.index_library", lambda path: {})
         monkeypatch.setattr(
             "rebrew.lib_match.match_bytes", lambda index, data: ("_strncnt", "strncnt.obj")

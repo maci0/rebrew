@@ -316,9 +316,19 @@ def stock_lib_source(profile: str, name: str) -> tuple[str, str]:
     return spec.image, str(Path(spec.tool_root).parent / "Lib" / name)
 
 
-def stock_lib_cache(root: Path, name: str) -> Path:
-    """Where a stock archive is cached: ``.scratch/<stem>_stock<suffix>``."""
-    return root / ".scratch" / f"{Path(name).stem.lower()}_stock{Path(name).suffix}"
+def stock_lib_cache(root: Path, name: str, profile: str) -> Path:
+    """Where a stock archive is cached: ``.scratch/<profile>_<stem>_stock<suffix>``.
+
+    The profile is part of the path because the archive's bytes come out of
+    that toolchain's image, and nothing downstream can tell one image's
+    ``LIBCMT.LIB`` from another's: a path keyed on the name alone kept the
+    first profile's extraction forever (``ensure_stock_lib`` accepts any
+    existing file), so a later profile read the wrong archive — ``todo``
+    filtered its work list against another toolchain's library code, and
+    ``assert_library_is_stock`` compared the image's copy against a file from
+    a different image.
+    """
+    return root / ".scratch" / f"{profile}_{Path(name).stem.lower()}_stock{Path(name).suffix}"
 
 
 def ensure_stock_lib(dest: Path, *, profile: str, name: str) -> bool:
@@ -527,7 +537,7 @@ def main(
 
     archives = list(lib or [])
     for name in stock_lib or []:
-        cached = stock_lib_cache(cfg.root, name)
+        cached = stock_lib_cache(cfg.root, name, cfg.compiler_profile)
         try:
             if not ensure_stock_lib(cached, profile=cfg.compiler_profile, name=name):
                 console.print(

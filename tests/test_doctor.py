@@ -1203,7 +1203,9 @@ class TestLibcmtIndexFailures:
         import rebrew.doctor as doctor_mod
         import rebrew.lib_match as lib_match
 
-        monkeypatch.setattr(lib_match, "stock_lib_cache", lambda root, name: tmp_path / "x.lib")
+        monkeypatch.setattr(
+            lib_match, "stock_lib_cache", lambda root, name, profile: tmp_path / "x.lib"
+        )
         monkeypatch.setattr(lib_match, "ensure_stock_lib", lambda *a, **k: True)
 
         def _unparsable(path: Path) -> None:
@@ -1218,7 +1220,9 @@ class TestLibcmtIndexFailures:
         import rebrew.doctor as doctor_mod
         import rebrew.lib_match as lib_match
 
-        monkeypatch.setattr(lib_match, "stock_lib_cache", lambda root, name: tmp_path / "x.lib")
+        monkeypatch.setattr(
+            lib_match, "stock_lib_cache", lambda root, name, profile: tmp_path / "x.lib"
+        )
         monkeypatch.setattr(lib_match, "ensure_stock_lib", lambda *a, **k: True)
 
         def _unreadable(path: Path) -> None:
