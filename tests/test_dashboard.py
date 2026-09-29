@@ -1744,6 +1744,11 @@ class TestIntParam:
         # A value past every ceiling still clamps to the page-size cap rather
         # than falling back: it is a number, just a large one.
         assert _int_param({"limit": ["9" * 40]}, "limit", _DEFAULT_LIMIT) == _MAX_LIMIT
+        # A negative value too long to parse is not a number the ceiling can
+        # answer: the contract is that a non-positive limit uses the default,
+        # and clamping it to the cap answered a page of 5000 to a client that
+        # sent a negative one.
+        assert _int_param({"limit": ["-" + "9" * 40]}, "limit", _DEFAULT_LIMIT) == _DEFAULT_LIMIT
         # Surrounding whitespace is the one thing still read, as everywhere else
         # in the query: a URL that lost a space to an encoding bug is the same
         # number the client meant.
@@ -1782,6 +1787,11 @@ class TestOffsetParam:
         # A plain run of digits is a number however long: past the ceiling it
         # clamps, which is an empty page rather than a 500.
         assert _offset_param({"offset": ["9" * 40]}, "offset") == VA_MAX
+        # The same run of digits under a minus sign is not a skip at all, and
+        # the clamp that answers a positive one is the wrong answer here: it
+        # sent the page past the end of the table, an empty page that reads as
+        # "this target has no rows", where the contract says 0.
+        assert _offset_param({"offset": ["-" + "9" * 40]}, "offset") == 0
 
 
 class TestLiteralSearch:

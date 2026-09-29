@@ -1834,13 +1834,23 @@ def _paging_int(raw: str, ceiling: int) -> int | None:
 
     ``None`` is the "fall back" answer every caller gives its default, so the
     one place that decides what a number is decides it for every paging
-    parameter.
+    parameter.  A value too long to parse is not one: it falls back when it is
+    negative and clamps to *ceiling* when it is not, because only the positive
+    direction has a documented answer to clamp to.
     """
     text = raw.strip()
     if _PAGING_INT_RE.fullmatch(text) is None:
         return None
     if len(text.removeprefix("-")) > _PAGING_DIGIT_LIMIT:
-        return ceiling
+        # Too long to turn into an int without building one.  Positive, the
+        # documented clamp: a value past ``limit``'s ceiling is that ceiling,
+        # past ``offset``'s is ``VA_MAX``, and both are numbers a client sent.
+        # Negative, the documented fallback, which the ceiling cannot answer:
+        # a negative skip is no skip at all, so clamping one to ``VA_MAX`` sent
+        # the page past the end of the table (an empty page that reads as "no
+        # rows") where the contract says 0, and a negative page size became the
+        # page-size cap instead of the default.
+        return None if text.startswith("-") else ceiling
     return min(int(text), ceiling)
 
 
