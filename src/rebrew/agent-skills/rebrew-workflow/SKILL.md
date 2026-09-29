@@ -184,20 +184,18 @@ NEAR/STUB · `2` compile/extract error.
 For a byte diff of the current state:
 
 ```bash
-rebrew diff src/<target>/<file>.c                # byte diff vs target
-rebrew diff src/<target>/<file>.c --mismatches-only             # mismatches only (** lines)
-rebrew diff src/<target>/<file>.c --register-aware             # register-aware (mark RR encoding diffs)
-rebrew diff src/<target>/<file>.c --fix-blocker  # auto-write BLOCKER to rebrew-functions.toml
-rebrew diff src/<target>/<file>.c --format csv   # CSV for spreadsheet analysis
-rebrew diff 0x<VA> --json                        # JSON diff + structural similarity + blockers
-rebrew blocker set src/<target>/<file>.c "needs RE structs"   # programmatic BLOCKER for STUBs diff cannot classify
-rebrew blocker set 0x<VA> "SEH helper -- not matchable from C"
-rebrew blocker clear src/<target>/<file>.c       # remove BLOCKER again
+rebrew diff src/<target>/<file>.c        # byte diff vs target
+rebrew diff 0x<VA> --json                # JSON diff + structural similarity + blockers
 ```
 
-`rebrew diff` accepts VA/symbol. Exit: `0` clean · `1` structural `**` · `2` build fail.
-`--fix-blocker` writes BLOCKER metadata. Unresolved `[0]` globals → add `// GLOBAL:`.
-Deep GA/prove → `rebrew-matching`.
+`rebrew diff` accepts a VA/symbol in place of the path. Exit: `0` clean ·
+`1` structural `**` · `2` build fail. Unresolved `[0]` globals → add `// GLOBAL:`
+(`rebrew-data-analysis`).
+
+The rest of the diff surface: `--mismatches-only`, `--register-aware`,
+`--format csv`, `--fix-blocker`, `rebrew blocker set/clear`, the `**`/`RR`/`XX`
+marker legend, and BLOCKER metadata rules are in `rebrew-matching` §1. Deep
+GA/prove → `rebrew-matching`.
 
 ## 5. File Organization and Dependency Graph
 

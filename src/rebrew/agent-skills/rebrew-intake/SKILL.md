@@ -9,12 +9,8 @@ description: >-
   'first catalog', 'first coverage document', 'detect-crt', 'gen-layout',
   'rebrew pe-info', 'rebrew strings', 'crypto-scan', 'security-scan',
   'Rich header', 'which compiler', 'packed', 'lzexe', '16-bit', 'MZ',
-  'NE binary', 'discover-functions', 'extract batch'. Prefer
-  this over rebrew-init when the user hands you a binary to onboard; use
-  rebrew-init only when teaching `rebrew init` / profile / target naming. Not
-  for day-to-day flirt/todo/test, for `rebrew analyze` / `describe` / `xrefs`
-  recon on an already-onboarded target, nor for a later catalog / build-db
-  refresh or the coverage dashboard (rebrew-workflow).
+  'NE binary', 'discover-functions', 'extract batch'. Prefer this over
+  rebrew-init when the user hands you a binary to onboard.
 license: MIT
 ---
 
@@ -41,6 +37,8 @@ Onboard a binary and run the first recon pass (library ID → catalog → triage
 
 - Teaching bare-dir `rebrew init` / profile / target naming only → use `rebrew-init`
 - Day-to-day reversing on an already-onboarded target → use `rebrew-workflow`
+- `rebrew analyze` / `describe` / `xrefs` recon on an already-onboarded target → use `rebrew-workflow`
+- A later catalog / build-db refresh, or the coverage dashboard → use `rebrew-workflow`
 - Deep matching for a single function → use `rebrew-matching`
 
 Use once per new target (or when re-running initial recon). Re-run individual
