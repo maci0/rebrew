@@ -26,7 +26,7 @@ inputs:
       Commit the resembl-ref tag must resolve to. A retargeted tag fails the
       clone instead of silently changing the path dependency.
     required: false
-    default: "c86cdd6697779c2dbc5fac8e56a3bb56af66248c"
+    default: "6f94aad3cd1423ce445297f700fb32963e45063e"
   clone-resembl:
     description: >-
       Clone the sibling resembl checkout. Set to "false" for jobs whose sync
