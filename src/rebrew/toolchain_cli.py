@@ -1381,7 +1381,7 @@ def _run_smoke_container(
     """
     import uuid
 
-    from rebrew.toolchain import kill_container
+    from rebrew.toolchain import bind_mount, kill_container
 
     container = f"{name_prefix}-{uuid.uuid4().hex[:12]}"
     try:
@@ -1395,7 +1395,7 @@ def _run_smoke_container(
                 "--name",
                 container,
                 "-v",
-                f"{workdir}:/work",
+                bind_mount(workdir, "/work"),
                 "-w",
                 "/work",
                 image,

@@ -1133,6 +1133,23 @@ def _resolve_binary(spec: ToolchainSpec) -> str:
     )
 
 
+def bind_mount(host: str | Path, container: str | Path, *, readonly: bool = False) -> str:
+    """A ``-v`` argument binding *host* at *container* inside a container.
+
+    The single place a host path becomes a mount argument, so every call site
+    resolves it the same way.  ``-v`` splits on the first ``:``, so a host
+    path that is relative is taken against the *daemon's* cwd rather than
+    rebrew's: under podman (daemonless, supported via
+    ``REBREW_CONTAINER_RUNTIME``) that is a different directory, and the
+    compiler sees an empty tree.  Resolving also collapses the symlinked
+    prefixes a temp dir or a project checkout behind, so the path docker
+    reports back matches the one rebrew wrote.
+
+    *container* is always POSIX and absolute, so it never needs converting.
+    """
+    return f"{Path(host).resolve()}:{container}{':ro' if readonly else ''}"
+
+
 def run_toolchain(
     spec: ToolchainSpec,
     args: list[str],
@@ -1210,14 +1227,14 @@ def run_toolchain(
             "--name",
             f"rebrew-{uuid.uuid4().hex[:12]}",
             "-v",
-            f"{workdir.resolve()}:/work",
+            bind_mount(workdir, "/work"),
             "-w",
             "/work",
         ]
         for host_dir, container_dir in mounts or []:
             # Read-only: include trees are only read, and the compiler
             # must not be able to rewrite the project tree (e.g. .git/hooks).
-            cmd += ["-v", f"{Path(host_dir).resolve()}:{container_dir}:ro"]
+            cmd += ["-v", bind_mount(host_dir, container_dir, readonly=True)]
         for key, value in image_msvc_env(spec).items():
             cmd += ["-e", f"{key}={value}"]
         if spec.image_entrypoint is not None:
@@ -1386,6 +1403,7 @@ __all__ = [
     "ToolchainError",
     "ToolchainErrorKind",
     "ToolchainSpec",
+    "bind_mount",
     "build_toolchain_registry",
     "cached_image_digest",
     "docker_available",

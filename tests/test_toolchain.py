@@ -12,6 +12,7 @@ from rebrew.toolchain import (
     TOOLCHAINS,
     ToolchainError,
     ToolchainSpec,
+    bind_mount,
     get_toolchain,
     image_msvc_env,
     run_toolchain,
@@ -103,6 +104,7 @@ class TestRegistry:
             "ToolchainError",
             "ToolchainErrorKind",
             "ToolchainSpec",
+            "bind_mount",
             "build_toolchain_registry",
             "cached_image_digest",
             "docker_available",
@@ -333,6 +335,26 @@ class TestImageMsvcEnv:
             == {}
         )
         assert image_msvc_env(TOOLCHAINS["mingw-16.2.0"]) == {}
+
+
+class TestBindMount:
+    def test_host_path_is_absolute_and_resolved(self, tmp_path: Path) -> None:
+        # docker reads a relative -v source against the daemon's cwd, so every
+        # call site goes through this helper rather than f-strings.
+        assert bind_mount(tmp_path, "/work") == f"{tmp_path.resolve()}:/work"
+
+    def test_relative_host_path_resolves_against_cwd(self, tmp_path: Path, monkeypatch) -> None:
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "sub").mkdir()
+        assert bind_mount("sub", "/out") == f"{(tmp_path / 'sub').resolve()}:/out"
+
+    def test_readonly_appends_the_ro_suffix(self, tmp_path: Path) -> None:
+        assert bind_mount(tmp_path, "/work", readonly=True) == f"{tmp_path.resolve()}:/work:ro"
+
+    def test_container_path_is_left_verbatim(self, tmp_path: Path) -> None:
+        # The same path inside the container is what the toolchain sees, so it
+        # must not be rewritten by the host-side resolve.
+        assert bind_mount(tmp_path, str(tmp_path)) == f"{tmp_path.resolve()}:{tmp_path}"
 
 
 class TestRunToolchain:

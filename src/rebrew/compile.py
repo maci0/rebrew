@@ -98,6 +98,7 @@ from rebrew.sources import contained_path, source_roots
 from rebrew.toolchain import (
     ToolchainError,
     ToolchainSpec,
+    bind_mount,
     cached_image_digest,
     run_toolchain,
 )
@@ -2702,7 +2703,7 @@ def build_linked_link_cmd(
         "--env",
         f"REBREW_LINK_EXE={spec.tool_root}/LINK.EXE",
         "-v",
-        f"{Path(workdir).resolve()}:/work",
+        bind_mount(workdir, "/work"),
         "-w",
         "/work",
         "--entrypoint",

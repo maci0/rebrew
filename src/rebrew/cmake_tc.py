@@ -36,7 +36,7 @@ import typer
 from rebrew.cli import console, error_exit, json_print
 from rebrew.config import ConfigError, check_env_wineprefix
 from rebrew.temp_dirs import xdg_cache_home
-from rebrew.toolchain import ToolchainSpec, kill_container
+from rebrew.toolchain import ToolchainSpec, bind_mount, kill_container
 from rebrew.utils import atomic_write_text, container_runtime, file_lock, load_tomllib
 from rebrew.workspace import walk_up_to_root
 
@@ -297,7 +297,7 @@ def _ensure_wineprefix(prefix: Path, spec: ToolchainSpec) -> None:
                     "-e",
                     f"WINEPREFIX={prefix}",
                     "-v",
-                    f"{prefix}:{prefix}",
+                    bind_mount(prefix, prefix),
                     "--entrypoint",
                     _WINE,
                     spec.image,
@@ -360,9 +360,9 @@ def _docker_run(spec: ToolchainSpec, mode: str, args: list[str]) -> int:
         "-e",
         f"LIB={lib}",
         "-v",
-        f"{root}:{root}",
+        bind_mount(root, root),
         "-v",
-        f"{prefix}:{prefix}",
+        bind_mount(prefix, prefix),
         "-w",
         str(Path.cwd()),
         "--entrypoint",
