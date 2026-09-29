@@ -2031,8 +2031,12 @@ def _library_header_rows(cfg: Any) -> dict[int, dict[str, str]]:
     key = (marker, tuple((str(h), *_stat_identity(h)) for h in headers))
     with _LIBRARY_HEADER_CACHE_LOCK:
         cached = _LIBRARY_HEADER_CACHE.get(key)
+        if cached is not None:
+            # Promote inside the lock, like the insert below.  Releasing it
+            # first lets a peer's eviction drop the key, and the orphaned
+            # move_to_end then raises KeyError instead of returning the rows.
+            _LIBRARY_HEADER_CACHE.move_to_end(key)
     if cached is not None:
-        _LIBRARY_HEADER_CACHE.move_to_end(key)
         return cached
     rows: dict[int, dict[str, str]] = {}
     for header in headers:
