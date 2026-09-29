@@ -1389,6 +1389,7 @@ def build_report(
     text_report: dict[str, Any] | None = None,
     whole_report: dict[str, Any] | None = None,
     inventory_count: int = 0,
+    now: datetime | None = None,
 ) -> dict[str, Any]:
     """Assemble the batch report — one shape for ``verify`` and ``test --all``.
 
@@ -1396,8 +1397,12 @@ def build_report(
     verify-only extras (``data``/``text``/``whole_binary``) are null on the
     test path, and ``files``/``functions`` stay test-``--dry-run``-only
     (a candidate listing, not a verdict report).
+
+    *now* overrides the report's ``timestamp`` (the default is the current
+    UTC instant), so a report captured from a replayed run is byte-comparable
+    with the run it replays instead of differing in that one field.
     """
-    timestamp = datetime.now(UTC).isoformat()
+    timestamp = (now or datetime.now(UTC)).isoformat()
     # Single-pass status counting instead of 7 separate iterations.
     _status_counts: dict[str, int] = {}
     for _r in results:
@@ -1462,6 +1467,7 @@ def _save_report(
     fix_sizes: bool,
     orphans_pruned: int,
     no_promote: bool = False,
+    now: datetime | None = None,
 ) -> None:
     """Assemble the verify report, save cache + baseline, print, gate."""
     results = batch.results
@@ -1490,6 +1496,7 @@ def _save_report(
         inventory_count=batch.inventory_count,
         library_passed=library_passed,
         library_total=library_total,
+        now=now,
     )
 
     # Warn only on ACTIONABLE divergences.  An EXACT/RELOC annotation

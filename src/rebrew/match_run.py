@@ -67,17 +67,24 @@ log = logging.getLogger(__name__)
 _BATCH_CATALOG_LOCK = threading.Lock()
 
 
-def _utc_now_iso() -> str:
+def _utc_now_iso(now: Callable[[], datetime] | None = None) -> str:
     """The current UTC instant, as the ``ts`` every other writer emits.
 
     One rule for one field: the run log is read back by ``--skip-recent`` and
     ``--ga-history``, which both parse it as an aware instant, so the writer
     has to produce one (an offset and a fixed ``+00:00`` suffix, not ``Z``,
-    which :func:`datetime.fromisoformat` rejects on Python 3.10).
-    """
-    from datetime import UTC, datetime
+    which :func:`datetime.fromisoformat` rejects on Python 3.10).  The wall
+    clock itself lives in :func:`rebrew.matcher.solutions.utc_now_iso`, the
+    one place that reads it.
 
-    return datetime.now(UTC).isoformat()
+    *now* overrides the instant, so a batch replayed under one seed writes a
+    ``ga_runs.jsonl`` that differs from the first run only in the stamps it
+    was given, which is what makes two replays diffable against each other.
+    The default is the wall clock, so nothing but a replay sees the change.
+    """
+    from rebrew.matcher import utc_now_iso
+
+    return utc_now_iso() if now is None else now().isoformat()
 
 
 class _GaRunRecord(NamedTuple):
@@ -122,12 +129,16 @@ def run_single_ga(
     mutation_weights: dict[str, float] | None = None,
     link: str | None = None,
     clock: Callable[[], float] | None = None,
+    now: Callable[[], datetime] | None = None,
 ) -> None:
     """Run the full GA matching engine for a single source file.
 
     *clock* is the time source the GA loop reads (the default is the wall
     clock), so an injected virtual clock makes ``elapsed_sec`` and the
-    generation count a function of the seed alone.
+    generation count a function of the seed alone.  *now* is the wall-clock
+    source of the solution entry's ``solved_at`` stamp (the default is the
+    current UTC instant), so a replayed run writes the same
+    ``solutions.jsonl``.
     """
     out_dir_path = Path(out_dir)
     if not out_dir_path.is_absolute():
@@ -345,6 +356,7 @@ def run_single_ga(
             best_score,
             generations,
             mutations=tuple(sorted(getattr(ga, "applied_mutations", ()))),
+            now=now,
         )
     else:
         # Documented exit-code contract: 0 = match, 1 = no match, 2 = build
@@ -376,6 +388,7 @@ def _save_solution(
     *,
     mutations: tuple[str, ...] = (),
     collect_out: list[SolutionEntry] | None = None,
+    now: Callable[[], datetime] | None = None,
 ) -> None:
     """Save an exact-match solution to the solutions database.
 
@@ -390,6 +403,10 @@ def _save_solution(
     worker its own and concatenates them in stub order, so the flushed file is
     a function of the stubs and their seeds rather than of which worker won
     the race.
+
+    *now* is the wall-clock source of ``solved_at`` (the default is the
+    current UTC instant), so a replayed batch writes the same
+    ``solutions.jsonl`` twice instead of differing in one field per entry.
     """
     try:
         from rebrew.matcher import save_solution
@@ -401,6 +418,7 @@ def _save_solution(
             source_file=source_file,
             target=getattr(cfg, "target_name", ""),
             score=score,
+            solved_at=_utc_now_iso(now),
             generations=generations,
             mutations=mutations,
         )
@@ -435,6 +453,7 @@ def _run_one_stub_ga(
     collect_pairs_path: Path | None = None,
     name_to_va: dict[str, int] | None = None,
     clock: Callable[[], float] | None = None,
+    now: Callable[[], datetime] | None = None,
 ) -> tuple[bool, str, float, int, int | None]:
     """Run one GA pass for a single stub in-process.
 
@@ -456,6 +475,10 @@ def _run_one_stub_ga(
     injecting one (virtual time) makes the generation count a function of the
     seed rather than of how fast the compiles ran, so a replay reproduces the
     run exactly.
+
+    *now* is the wall-clock source of the ``solved_at`` stamp the collected
+    entry carries (the default is the current UTC instant), so two replays of
+    one seed flush an identical ``solutions.jsonl``.
     """
     from rebrew.metadata import METADATA_FILENAME
 
@@ -694,6 +717,7 @@ def _run_one_stub_ga(
                     generations,
                     mutations=tuple(sorted(getattr(ga, "applied_mutations", ()))),
                     collect_out=solutions_out,
+                    now=now,
                 )
             # Only claim a match when the source was actually updated — a
             # stub whose block could not be spliced is still a stub, and
@@ -1059,6 +1083,7 @@ def run_all(
     mutation_weights: dict[str, float] | None = None,
     collect_pairs: str | None = None,
     clock: Callable[[], float] | None = None,
+    now: Callable[[], datetime] | None = None,
 ) -> tuple[int, int]:
     """Batch driver: run GA or flag sweep across all discovered functions.
 
@@ -1069,7 +1094,10 @@ def run_all(
     *clock* is the time source every stub's budget is stamped from and read
     back from (the default is :func:`time.monotonic`), so a batch replayed
     under one seed runs the same generations for the same stubs however fast
-    the machine compiles them.
+    the machine compiles them.  *now* is the wall-clock source of the ``ts``
+    each run-log record carries (the default is the current UTC instant), so
+    a replay stamps the log from an injected instant and two replays of one
+    seed produce byte-identical ``ga_runs.jsonl`` files.
     """
     reversed_dir = cfg.reversed_dir
     ignored = set(cfg.ignored_symbols or [])
@@ -1181,6 +1209,7 @@ def run_all(
             name_to_va=name_to_va,
             timeout_min=timeout_min,
             clock=clock,
+            now=now,
         )
         return matched, failed
 
@@ -1395,6 +1424,7 @@ def run_all(
                 collect_pairs_path=Path(collect_pairs) if collect_pairs else None,
                 name_to_va=batch_catalog[0] if batch_catalog else None,
                 clock=clock,
+                now=now,
             )
         except Exception as exc:  # one bad stub must not abort the batch
             log.debug("GA run failed for %s", stub.symbol, exc_info=True)
@@ -1417,7 +1447,7 @@ def run_all(
             score=best_score,
             generations=generations_run,
             rng_seed=used_seed,
-            ts=_utc_now_iso(),
+            ts=_utc_now_iso(now),
         )
         return stub, matched, output_summary, record, stub_solutions
 
@@ -1517,6 +1547,7 @@ def _run_batch_flag_sweep(
     name_to_va: dict[str, int] | None = None,
     timeout_min: int = 0,
     clock: Callable[[], float] | None = None,
+    now: Callable[[], datetime] | None = None,
 ) -> tuple[int, int]:
     """Execute batch flag sweep across all discovered NEAR_MATCHING functions.
 
@@ -1526,6 +1557,9 @@ def _run_batch_flag_sweep(
     *clock* is the time source the per-stub sweep budget is stamped from and
     read back from (the default is :func:`time.monotonic`), so a replayed
     batch sweeps the same number of combinations whatever the machine's speed.
+    *now* is the wall-clock source of each solved entry's ``solved_at``
+    (the default is the current UTC instant), so a replayed sweep flushes an
+    identical ``solutions.jsonl``.
     """
     from rebrew.matcher import SolutionEntry, save_solutions
     from rebrew.metadata import update_source_status
@@ -1727,6 +1761,7 @@ def _run_batch_flag_sweep(
                     source_file=str(stub.filepath),
                     target=cfg.target_name,
                     score=0.0,
+                    solved_at=_utc_now_iso(now),
                     generations=1,
                 )
             )

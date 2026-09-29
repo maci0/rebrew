@@ -57,6 +57,16 @@ def _ga_runs_append_lock(path: Path) -> Iterator[None]:
         yield
 
 
+def utc_now_iso() -> str:
+    """The current aware UTC instant, as an ISO 8601 stamp.
+
+    The default source for every ``solved_at`` / ``ts`` this module writes.
+    A replay supplies the instant instead (the ``solved_at=`` / ``ts=``
+    arguments), so a re-run of one seed leaves a byte-identical file.
+    """
+    return datetime.now(UTC).isoformat()
+
+
 @dataclass
 class SolutionEntry:
     """Fingerprint of a GA-solved function."""
@@ -86,7 +96,7 @@ class SolutionEntry:
     score: float = 0.0
     """Best GA fitness score (0.0 = exact byte match)."""
 
-    solved_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+    solved_at: str = field(default_factory=utc_now_iso)
     """ISO 8601 timestamp of when the match was found."""
 
     generations: int = 0
@@ -558,7 +568,7 @@ def record_ga_run(
     ``match --all`` files 500 runs under one hour-30 timestamp and
     ``--skip-recent`` then re-runs the ones that finished 30 hours ago.
     """
-    finished = ts or datetime.now(UTC).isoformat()
+    finished = ts or utc_now_iso()
     record: dict[str, Any] = {
         "ts": finished,
         "target": target,

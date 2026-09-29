@@ -2219,6 +2219,36 @@ class TestReportInventory:
         assert report["summary"]["total"] == 1
         assert report["summary"]["inventory_count"] == inventory_count
 
+    def test_report_timestamp_comes_from_the_injected_instant(self) -> None:
+        """The report is the artifact a replay is diffed against, so its one
+        wall-clock field has to be suppliable: two captures of the same run
+        under a fixed instant are byte-identical."""
+        from datetime import UTC, datetime
+
+        from rebrew.verify import build_report
+
+        cfg = SimpleNamespace(target_name="SERVER", target_binary=Path("/x"))
+        stamp = datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
+        reports = [
+            build_report(
+                cfg,
+                [],
+                1,
+                0,
+                1,
+                [],
+                [],
+                [],
+                dry_run=False,
+                compile_context=None,
+                provenance="verify",
+                now=stamp,
+            )
+            for _ in range(2)
+        ]
+        assert reports[0] == reports[1]
+        assert reports[0]["timestamp"] == stamp.isoformat()
+
 
 class TestLibraryAttributedPasses:
     """verify's passes include library-attributed functions that `rebrew

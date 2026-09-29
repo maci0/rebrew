@@ -732,6 +732,8 @@ class TestRunAllBatch:
         seed_from_solved: bool = False,
         sweep_then_ga: bool = False,
         flag_sweep: bool = False,
+        clock: Any = None,
+        now: Any = None,
     ) -> tuple[int, int]:
         from rebrew.match import run_all
 
@@ -756,6 +758,8 @@ class TestRunAllBatch:
             tier="targeted",
             flag_sweep_then_ga=sweep_then_ga,
             skip_recent_hours=skip_recent_hours,
+            clock=clock,
+            now=now,
         )
 
     def test_dry_run_json_lists_stubs(
@@ -829,6 +833,7 @@ class TestRunAllBatch:
             collect_pairs_path=None,
             name_to_va=None,
             clock=None,
+            now=None,
         ):
             return True, "MATCHED", 0.0, 3, 1234
 
@@ -885,6 +890,7 @@ class TestRunAllBatch:
             collect_pairs_path=None,
             name_to_va=None,
             clock=None,
+            now=None,
         ):
             if "bad" in stub.symbol:
                 raise RuntimeError("boom")
@@ -902,7 +908,7 @@ class TestRunAllBatch:
         monkeypatch.setattr("rebrew.match_run.find_all_stubs", lambda *a, **k: stubs)
         monkeypatch.setattr(
             "rebrew.match_run._run_one_stub_ga",
-            lambda stub, cfg, gens, pop, jobs, timeout, seeds, cflags_override=None, rng_seed=None, resume_from=None, mutation_weights=None, solutions_out=None, collect_pairs_path=None, name_to_va=None, clock=None: (
+            lambda stub, cfg, gens, pop, jobs, timeout, seeds, cflags_override=None, rng_seed=None, resume_from=None, mutation_weights=None, solutions_out=None, collect_pairs_path=None, name_to_va=None, clock=None, now=None: (
                 True,
                 "MATCHED",
                 0.0,
@@ -947,6 +953,27 @@ class TestRunAllBatch:
         # ga_runs.jsonl is the replay record: the same --seed must produce the
         # same file, so lines follow stub order, not thread completion order.
         assert recorded == ["f1.c", "f2.c", "f3.c"]
+
+    def test_run_log_is_stamped_from_the_injected_instant(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The run log is the replay record, so its ``ts`` has to come from
+        the same seam as the budget: a replayed seed given a fixed instant
+        must produce the same bytes twice, or a divergent replay has no
+        clean diff to be read against."""
+        from datetime import UTC, datetime
+
+        stubs = [self._stub(f"f{i}.c", f"0x1000{i:04x}") for i in range(1, 3)]
+        monkeypatch.setattr("rebrew.match_run.find_all_stubs", lambda *a, **k: stubs)
+        monkeypatch.setattr(
+            "rebrew.match_run._run_one_stub_ga",
+            lambda stub, cfg, gens, pop, jobs, timeout, seeds, **_kw: (True, "MATCHED", 0.0, 3, 7),
+        )
+        recorded: list[dict[str, Any]] = []
+        monkeypatch.setattr("rebrew.matcher.record_ga_run", lambda root, **kw: recorded.append(kw))
+        stamp = datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
+        self._run(self._cfg(tmp_path), json_output=True, now=lambda: stamp)
+        assert [r["ts"] for r in recorded] == [stamp.isoformat()] * 2
 
     def test_parallel_solutions_are_flushed_in_stub_order(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

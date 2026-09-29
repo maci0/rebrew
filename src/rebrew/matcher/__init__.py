@@ -184,6 +184,7 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
     "record_ga_run": (".solutions", "record_ga_run"),
     "save_solution": (".solutions", "save_solution"),
     "save_solutions": (".solutions", "save_solutions"),
+    "utc_now_iso": (".solutions", "utc_now_iso"),
     # mutator core surface (ops arrive via _load_mutator_exports)
     "mutate_code": (".mutator", "mutate_code"),
     "ALL_MUTATIONS": (".mutator", "ALL_MUTATIONS"),
@@ -243,6 +244,7 @@ __all__ = [
     "set_target_range",
     "split_preamble_body",
     "structural_similarity",
+    "utc_now_iso",
 ]
 
 _mutator_loaded = False
