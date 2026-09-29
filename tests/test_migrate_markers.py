@@ -28,6 +28,7 @@ class TestMigrateMarkersEndToEnd:
             encoding="utf-8",
         )
         cfg = SimpleNamespace(
+            root=tmp_path,
             reversed_dir=src,
             metadata_dir=tmp_path,
             marker="S",
@@ -80,7 +81,9 @@ class TestMigrateMarkersEndToEnd:
         (src / "f.c").write_text(
             "// FUNCTION: S 0x1000\nint f(void) { return 0; }\n", encoding="utf-8"
         )
-        cfg = SimpleNamespace(reversed_dir=src, metadata_dir=tmp_path, marker="S", source_ext=".c")
+        cfg = SimpleNamespace(
+            root=tmp_path, reversed_dir=src, metadata_dir=tmp_path, marker="S", source_ext=".c"
+        )
         from rebrew.migrate_markers import _migrate_file
 
         row = _migrate_file(cfg, src / "f.c", "S", dry_run=True)
@@ -89,6 +92,32 @@ class TestMigrateMarkersEndToEnd:
         from rebrew.metadata import load_metadata
 
         assert load_metadata(tmp_path) == {}
+
+    def test_pre_migration_copy_survives_a_clean_run(self, tmp_path: Path) -> None:
+        """The strip is one-shot, so the pre-migration bytes stay on disk.
+
+        Nothing puts a removed marker line back; a strip that turned out to
+        have taken a hand-written line with it has to be undoable from the
+        backup the row names, not from memory.
+        """
+        src = tmp_path / "src"
+        src.mkdir()
+        original = "// FUNCTION: S 0x1000\n// SIZE: 4\nint a(void) { return 0; }\n"
+        (src / "f.c").write_text(original, encoding="utf-8")
+        cfg = SimpleNamespace(
+            root=tmp_path, reversed_dir=src, metadata_dir=tmp_path, marker="S", source_ext=".c"
+        )
+        from rebrew.migrate_markers import _migrate_file
+
+        row = _migrate_file(cfg, src / "f.c", "S", dry_run=False)
+        assert row is not None
+        backup = Path(str(row["backup"]))
+        assert backup.is_file()
+        assert backup.read_text(encoding="utf-8") == original
+        # A dry run writes nothing, so it names no copy.
+        (src / "g.c").write_text(original, encoding="utf-8")
+        dry = _migrate_file(cfg, src / "g.c", "S", dry_run=True)
+        assert dry is not None and dry["backup"] is None
 
     def test_legacy_encoding_survives_the_strip(self, tmp_path: Path) -> None:
         """Stripping markers must not transcode the rest of the file.
@@ -101,7 +130,9 @@ class TestMigrateMarkersEndToEnd:
         src.mkdir()
         body = 'const char *s = "Caf\xe9";\n'
         (src / "f.c").write_bytes(("// FUNCTION: S 0x1000\n// SIZE: 4\n" + body).encode("latin-1"))
-        cfg = SimpleNamespace(reversed_dir=src, metadata_dir=tmp_path, marker="S", source_ext=".c")
+        cfg = SimpleNamespace(
+            root=tmp_path, reversed_dir=src, metadata_dir=tmp_path, marker="S", source_ext=".c"
+        )
         from rebrew.migrate_markers import _migrate_file
 
         assert _migrate_file(cfg, src / "f.c", "S", dry_run=False) is not None
@@ -119,7 +150,9 @@ class TestMigrateMarkersEndToEnd:
             "// FUNCTION: S 0x1000\n// SIZE: 4\nint f(void) { return 0; }\n", encoding="utf-8"
         )
         md.update_source_status(tmp_path, "STUB", "S", 0x1000)
-        cfg = SimpleNamespace(reversed_dir=src, metadata_dir=tmp_path, marker="S", source_ext=".c")
+        cfg = SimpleNamespace(
+            root=tmp_path, reversed_dir=src, metadata_dir=tmp_path, marker="S", source_ext=".c"
+        )
 
         real_record = md.record_migrated_markers
         writer = threading.Thread(
@@ -152,7 +185,9 @@ class TestMigrateMarkersEndToEnd:
         (src / "f.c").write_text(
             "// FUNCTION: S 0x1000\n// SIZE: 4\nint f(void) { return 0; }\n", encoding="utf-8"
         )
-        cfg = SimpleNamespace(reversed_dir=src, metadata_dir=tmp_path, marker="S", source_ext=".c")
+        cfg = SimpleNamespace(
+            root=tmp_path, reversed_dir=src, metadata_dir=tmp_path, marker="S", source_ext=".c"
+        )
 
         def _fail(*_a: Any, **_kw: Any) -> None:
             raise OSError("disk full")
@@ -173,7 +208,9 @@ class TestMigrateMarkersEndToEnd:
         store = tmp_path / "rebrew-functions.toml"
         corrupt = '["S.0x2000"\nstatus = "EXACT"\n'
         store.write_text(corrupt, encoding="utf-8")
-        cfg = SimpleNamespace(reversed_dir=src, metadata_dir=tmp_path, marker="S", source_ext=".c")
+        cfg = SimpleNamespace(
+            root=tmp_path, reversed_dir=src, metadata_dir=tmp_path, marker="S", source_ext=".c"
+        )
 
         with pytest.raises(ValueError, match="unparseable"):
             _migrate_file(cfg, src / "f.c", "S", dry_run=False)
@@ -195,7 +232,9 @@ class TestMigrateMarkersEndToEnd:
             '["unqualified"]\nnote = "loader skips this key"\n',
             encoding="utf-8",
         )
-        cfg = SimpleNamespace(reversed_dir=src, metadata_dir=tmp_path, marker="S", source_ext=".c")
+        cfg = SimpleNamespace(
+            root=tmp_path, reversed_dir=src, metadata_dir=tmp_path, marker="S", source_ext=".c"
+        )
 
         assert _migrate_file(cfg, src / "f.c", "S", dry_run=False) is not None
 

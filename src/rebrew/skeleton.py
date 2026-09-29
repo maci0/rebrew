@@ -64,10 +64,12 @@ from rebrew.sources import (
     target_marker,
 )
 from rebrew.utils import (
+    SOURCE_BACKUP_DIRNAME,
     atomic_write_text,
     c_comment_safe,
     read_source_text,
     rel_display_path,
+    source_backup,
     source_newline,
     untrusted_ident,
 )
@@ -1029,6 +1031,33 @@ def _fetch_extras(
     return d_code, d_backend, xref_context_val
 
 
+def _preserve_overwrite(cfg: ProjectConfig, filepath: Path) -> Path | None:
+    """Copy an existing source aside before ``--force`` replaces it.
+
+    ``--force`` is the one path that discards a hand-edited ``.c`` wholesale,
+    and the generated skeleton does not carry any of it.  The copy lands in
+    the same ``.rebrew/source-backups/`` the in-place sweeps use, and the
+    caller prints its path: a recovery copy nothing names is not a recovery
+    path.  ``None`` when there was nothing to preserve or the copy failed.
+    """
+    if not filepath.is_file():
+        return None
+    try:
+        text, encoding = read_source_text(filepath)
+    except OSError as exc:
+        logger.warning("could not read %s before overwriting it: %s", filepath, exc)
+        return None
+    with source_backup(
+        filepath,
+        text,
+        encoding,
+        Path(cfg.root) / ".rebrew" / SOURCE_BACKUP_DIRNAME,
+        label="pre-skeleton",
+        keep=True,
+    ) as backup_path:
+        return backup_path
+
+
 def _run_batch_mode(
     cfg: ProjectConfig,
     ghidra_funcs: list[FunctionEntry],
@@ -1101,9 +1130,11 @@ def _run_batch_mode(
             decomp_body=decomp_body,
             func_lookup=batch_func_lookup,
         )
+        overwrite_backup: Path | None = None
         if dry_run:
             console.print(f"[dim]Would create[/dim] {untrusted_ident(rel_path)} ({size_val}B)")
         else:
+            overwrite_backup = _preserve_overwrite(cfg, filepath)
             atomic_write_text(filepath, content, encoding="utf-8")
             _write_skeleton_metadata(cfg, va_val, size_val, cfg.marker)
 
@@ -1113,6 +1144,11 @@ def _run_batch_mode(
 
         if not dry_run:
             console.print(f"[bold green]CREATED[/] {untrusted_ident(rel_path)} ({size_val}B)")
+            if overwrite_backup is not None:
+                console.print(
+                    f"  [dim]replaced source kept at: "
+                    f"{untrusted_ident(str(overwrite_backup))}[/dim]"
+                )
         console.print(f"  [dim]TEST:[/] {untrusted_ident(test_cmd)}")
         if size_warning:
             console.print(f"  [yellow]warning:[/yellow] {size_warning}")
@@ -1124,6 +1160,7 @@ def _run_batch_mode(
                 "size_warning": size_warning,
                 "symbol": symbol_val,
                 "test_command": test_cmd,
+                "replaced_backup": str(overwrite_backup) if overwrite_backup else None,
             }
         )
 
@@ -1327,9 +1364,11 @@ def _run_single_va_mode(
         decomp_backend=decomp_backend_name,
         decomp_body=decomp_body,
     )
+    overwrite_backup: Path | None = None
     if dry_run:
         console.print(f"[dim]Would create[/dim] {untrusted_ident(rel_path_val)}")
     else:
+        overwrite_backup = _preserve_overwrite(cfg, filepath_val)
         atomic_write_text(filepath_val, content_val, encoding="utf-8")
         _write_skeleton_metadata(cfg, va_int, size, module_val)
 
@@ -1350,12 +1389,18 @@ def _run_single_va_mode(
                 "symbol": symbol_val,
                 "test_command": test_cmd,
                 "diff_command": diff_cmd,
+                "replaced_backup": str(overwrite_backup) if overwrite_backup else None,
             }
         )
     else:
         size_warning = _stale_size_note(cfg, va_int, size)
         if not dry_run:
             console.print(f"[bold green]Created:[/] {untrusted_ident(rel_path_val)}")
+            if overwrite_backup is not None:
+                console.print(
+                    f"  [dim]replaced source kept at: "
+                    f"{untrusted_ident(str(overwrite_backup))}[/dim]"
+                )
         console.print(f"  VA:     [cyan]0x{va_int:08x}[/]")
         console.print(f"  Size:   {size}B")
         if size_warning:

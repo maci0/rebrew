@@ -16,6 +16,7 @@ from rebrew.migrate_markers import _migrate_file
 
 class _Cfg:
     def __init__(self, root):
+        self.root = root
         self.reversed_dir = root / "src"
         self.reversed_dir.mkdir(parents=True, exist_ok=True)
         self.metadata_dir = root

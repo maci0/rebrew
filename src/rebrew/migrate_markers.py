@@ -45,7 +45,13 @@ from rebrew.annotation import (
     NEW_KV_RE,
 )
 from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
-from rebrew.utils import atomic_write_text, read_source_text, untrusted_ident
+from rebrew.utils import (
+    SOURCE_BACKUP_DIRNAME,
+    atomic_write_text,
+    read_source_text,
+    source_backup,
+    untrusted_ident,
+)
 
 app = typer.Typer(
     help="Move inline markers into rebrew-functions.toml (ADR 023: pure-C sources).",
@@ -134,6 +140,7 @@ def _migrate_file(
         return _skip(filepath, "unrecorded-markers")
 
     file_rel = filepath.resolve().relative_to(Path(cfg.metadata_dir).resolve()).as_posix()
+    backup_path: Path | None = None
     if not dry_run:
         rows: list[dict[str, Any]] = []
         for ann in recorded:
@@ -165,8 +172,25 @@ def _migrate_file(
         record_migrated_markers(cfg.metadata_dir, rows)
         # Strip only once the TOML holds the values: a failed metadata write
         # must leave the inline markers in place.
-        atomic_write_text(filepath, "".join(kept), encoding=encoding)
-    return {"file": str(filepath), "functions": len(recorded)}
+        #
+        # The strip is one-shot over the whole tree and no code path puts a
+        # removed marker line back, so the pre-migration bytes are kept on
+        # disk.  A strip that turns out to have dropped a line the operator
+        # wrote is otherwise unrecoverable once the working tree is committed.
+        with source_backup(
+            filepath,
+            text,
+            encoding,
+            Path(cfg.root) / ".rebrew" / SOURCE_BACKUP_DIRNAME,
+            label="pre-migration",
+            keep=True,
+        ) as backup_path:
+            atomic_write_text(filepath, "".join(kept), encoding=encoding)
+    return {
+        "file": str(filepath),
+        "functions": len(recorded),
+        "backup": str(backup_path) if backup_path else None,
+    }
 
 
 @app.callback(invoke_without_command=True)
@@ -208,6 +232,10 @@ def main(
             console.print(
                 f"  {verb} [bold]{untrusted_ident(src)}[/bold] ({row['functions']} function(s))"
             )
+            if row.get("backup"):
+                console.print(
+                    f"    [dim]pre-migration copy: {untrusted_ident(str(row['backup']))}[/dim]"
+                )
     if json_output:
         json_print(
             {

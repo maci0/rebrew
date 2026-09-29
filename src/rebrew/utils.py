@@ -1124,6 +1124,7 @@ def source_backup(
     backup_dir: Path,
     *,
     label: str = "",
+    keep: bool = False,
 ) -> Iterator[Path | None]:
     """Hold *text*, the content of *path* before an in-place rewrite, on disk for the span.
 
@@ -1138,7 +1139,11 @@ def source_backup(
 
     The backup is removed when the body returns -- the source is then in its
     intended final state -- and kept when the body raises, with its path
-    logged.  A caller that can be killed without warning should print the
+    logged.  *keep* holds the copy after a clean return too, for a one-shot
+    rewrite that has no in-process restore: the strip in
+    :mod:`rebrew.migrate_markers` has no second chance, so the pre-migration
+    bytes stay on disk where the operator can put them back.
+    A caller that can be killed without warning should print the
     yielded path before its first destructive write, since a recovery copy
     nothing points at is not a recovery path.  The writer's pid is in the file
     name, so two sweeps of one symbol cannot overwrite each other's copy and a
@@ -1169,6 +1174,9 @@ def source_backup(
     except BaseException:
         logger.warning("kept the pre-run copy of %s at %s", path, backup_path)
         raise
+    if keep:
+        logger.info("kept the pre-run copy of %s at %s", path, backup_path)
+        return
     with contextlib.suppress(OSError):
         backup_path.unlink()
 

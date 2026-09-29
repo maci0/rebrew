@@ -582,6 +582,37 @@ class TestSkeletonDryRun:
         assert "already exists" in result.output
         assert existing.read_text(encoding="utf-8") == before
 
+    def test_force_overwrite_keeps_the_replaced_source(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """--force discards a hand-edited .c, so the old bytes must survive.
+
+        The generated skeleton carries none of the hand-written work, and the
+        overwrite has no undo, so the pre-overwrite copy stays on disk and the
+        run names it.
+        """
+        from typer.testing import CliRunner
+
+        import rebrew.skeleton as sk
+        from rebrew.skeleton import make_filename
+
+        cfg = self._cfg(tmp_path)
+        cfg.dll_exports = {}
+        existing = cfg.reversed_dir / make_filename("fcn.10001000", cfg=cfg)
+        hand = "/* hand-edited */\nint keep(void) { return 1; }\n"
+        existing.write_text(hand, encoding="utf-8")
+        monkeypatch.setattr(sk, "require_config", lambda target=None, json_mode=False: cfg)
+        result = CliRunner().invoke(sk.app, ["--force", "0x10001000"])
+        assert result.exit_code == 0
+        assert existing.read_text(encoding="utf-8") != hand
+        backups = list((tmp_path / ".rebrew" / "source-backups").glob(f"{existing.name}.*"))
+        assert len(backups) == 1
+        assert backups[0].read_text(encoding="utf-8") == hand
+        # Named in the output, so the copy is findable without hunting for it
+        # (rich hard-wraps the path across lines).
+        assert "replaced source kept at" in result.output
+        assert backups[0].name in "".join(result.output.split())
+
     def test_batch_dry_run_creates_nothing(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

@@ -555,7 +555,7 @@ straight from the toolchain`).
 | `--append FILE` | Append to existing multi-function file |
 | `--name NAME` | Override function name |
 | `-o FILE` / `--output FILE` | Output file path |
-| `--force` | Overwrite existing files |
+| `--force` | Overwrite existing files (the replaced file is copied to `.rebrew/source-backups/` and its path printed) |
 
 The generated stub signature follows the target's calling convention
 (thiscall → `__fastcall`/naked `__declspec(naked)` with `ret N`, stdcall →
@@ -1071,7 +1071,12 @@ marker block (marker line, attached `// KEY:` comments, bare name hints)
 is removed. Per-file, flag-free: `parse_c_file_multi` synthesizes
 Annotations from the TOML entries for any marker-less file, so a project
 migrates file-by-file and every consumer keeps working. Idempotent: a
-second run finds nothing to strip. See
+second run finds nothing to strip. The strip is one-shot and nothing puts
+a removed line back, so each file's pre-migration bytes are copied to
+`.rebrew/source-backups/<name>.pre-migration.<pid>.orig` first and the
+path is printed (and carried in the JSON row) as it is written; those
+copies are kept after a clean run, unlike the in-flight copies the sweeps
+make. See
 [adr/023-markers-toml-single-source.md](adr/023-markers-toml-single-source.md).
 
 | Flag | Description |
