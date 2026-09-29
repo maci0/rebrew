@@ -1106,26 +1106,13 @@ def _merge_entry_point_backends() -> tuple[dict[str, Callable[..., str | None]],
     ``BACKENDS`` plus every plugin backend whose callable carries the
     ``__rebrew_auto_probe__ = True`` marker (a plugin backend may opt into
     auto-probing; without the marker it stays name-selectable only)."""
-    from rebrew.registry import (
-        entry_point_registrations,
-        load_registration_optional,
-        merge_into,
-    )
+    from rebrew.registry import iter_optional_callables, merge_into
 
     merged = dict(_BACKEND_MAP)
     auto_probe: list[str] = []
-    for reg in entry_point_registrations(DECOMPILER_ENTRY_POINT_GROUP):
-        backend_fn = load_registration_optional(reg, logger)
-        if backend_fn is None:
-            continue
-        if not callable(backend_fn):
-            logger.warning(
-                "skipping %s registration %r: expected a callable backend, got %s",
-                reg.group,
-                reg.name,
-                type(backend_fn).__name__,
-            )
-            continue
+    for reg, backend_fn in iter_optional_callables(
+        DECOMPILER_ENTRY_POINT_GROUP, logger, expected="backend"
+    ):
         try:
             merge_into(merged, reg.name, backend_fn, reg.origin, group=reg.group)
         except RegistryError as exc:

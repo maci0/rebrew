@@ -80,23 +80,14 @@ def _discover_binary_loaders() -> list[tuple[str, Any]]:
 
     An optional registry: a broken or non-callable member is skipped with a
     warning (loading degrades to the packaged NE/MZ/LIEF path)."""
-    from rebrew.registry import entry_point_registrations, load_registration_optional
+    from rebrew.registry import iter_optional_callables
 
-    loaders: list[tuple[str, Any]] = []
-    for reg in entry_point_registrations(BINARY_LOADER_ENTRY_POINT_GROUP):
-        fn = load_registration_optional(reg, log)
-        if fn is None:
-            continue
-        if not callable(fn):
-            log.warning(
-                "skipping %s registration %r: expected a callable loader, got %s",
-                reg.group,
-                reg.name,
-                type(fn).__name__,
-            )
-            continue
-        loaders.append((reg.name, fn))
-    return loaders
+    return [
+        (reg.name, fn)
+        for reg, fn in iter_optional_callables(
+            BINARY_LOADER_ENTRY_POINT_GROUP, log, expected="loader"
+        )
+    ]
 
 
 _PLUGIN_LOADERS: list[tuple[str, Any]] = _discover_binary_loaders()

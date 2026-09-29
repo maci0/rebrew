@@ -406,23 +406,14 @@ def _discover_binary_detectors() -> list[tuple[str, Any]]:
 
     An optional registry: a broken or non-callable member is skipped with a
     warning (novel-family detection degrades to the packaged backends)."""
-    from rebrew.registry import entry_point_registrations, load_registration_optional
+    from rebrew.registry import iter_optional_callables
 
-    detectors: list[tuple[str, Any]] = []
-    for reg in entry_point_registrations(BINARY_DETECTOR_ENTRY_POINT_GROUP):
-        fn = load_registration_optional(reg, logger)
-        if fn is None:
-            continue
-        if not callable(fn):
-            logger.warning(
-                "skipping %s registration %r: expected a callable detector, got %s",
-                reg.group,
-                reg.name,
-                type(fn).__name__,
-            )
-            continue
-        detectors.append((reg.name, fn))
-    return detectors
+    return [
+        (reg.name, fn)
+        for reg, fn in iter_optional_callables(
+            BINARY_DETECTOR_ENTRY_POINT_GROUP, logger, expected="detector"
+        )
+    ]
 
 
 _PLUGIN_DETECTORS: list[tuple[str, Any]] = _discover_binary_detectors()

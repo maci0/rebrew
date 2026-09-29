@@ -362,28 +362,14 @@ def discoverer_map() -> dict[str, Discoverer]:
     broken or conflicting plugin is skipped with a warning (discovery
     degrades to the packaged set) instead of bricking onboarding.
     """
-    from rebrew.registry import (
-        RegistryError,
-        entry_point_registrations,
-        load_registration_optional,
-        merge_into,
-    )
+    from rebrew.registry import RegistryError, iter_optional_callables, merge_into
 
     merged: dict[str, Discoverer] = dict(_PACKAGED_DISCOVERERS)
-    for reg in entry_point_registrations(DISCOVERER_ENTRY_POINT_GROUP):
-        fn = load_registration_optional(reg, logger)
-        if fn is None:
-            continue
-        if not callable(fn):
-            logger.warning(
-                "skipping %s registration %r: expected a callable discoverer, got %s",
-                reg.group,
-                reg.name,
-                type(fn).__name__,
-            )
-            continue
+    for reg, discoverer in iter_optional_callables(
+        DISCOVERER_ENTRY_POINT_GROUP, logger, expected="discoverer"
+    ):
         try:
-            merge_into(merged, reg.name, fn, reg.origin, group=reg.group)
+            merge_into(merged, reg.name, discoverer, reg.origin, group=reg.group)
         except RegistryError as exc:
             logger.warning("skipping %s registration %r: %s", reg.group, reg.name, exc)
     return merged

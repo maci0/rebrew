@@ -66,8 +66,7 @@ def main(
     metadata = data_metadata if data_metadata.is_absolute() else root / data_metadata
     if not metadata.exists():
         error_exit(f"data metadata not found: {metadata}", json_mode=json_output)
-    if built is not None and not isinstance(built, Path):
-        built = None  # direct-call default guard (see cli.option_default)
+    built = option_default(built, None)
     if built is None:
         # The ACTIVE target's build output — one project serves several
         # binaries and each keeps its own build/<target> file.  text-audit

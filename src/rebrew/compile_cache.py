@@ -396,26 +396,12 @@ def _discover_cache_backends() -> dict[str, Callable[[Path, int], CacheBackend]]
     An optional registry: a broken or conflicting member is skipped with a
     warning (the store falls back to ``diskcache``; a configured backend
     name that never registered still errors at ``get_compile_cache``)."""
-    from rebrew.registry import (
-        RegistryError,
-        entry_point_registrations,
-        load_registration_optional,
-        merge_into,
-    )
+    from rebrew.registry import RegistryError, iter_optional_callables, merge_into
 
     backends: dict[str, Callable[[Path, int], CacheBackend]] = {"diskcache": CompileCache}
-    for reg in entry_point_registrations(CACHE_BACKEND_ENTRY_POINT_GROUP):
-        factory = load_registration_optional(reg, logger)
-        if factory is None:
-            continue
-        if not callable(factory):
-            logger.warning(
-                "skipping %s registration %r: expected a callable factory, got %s",
-                reg.group,
-                reg.name,
-                type(factory).__name__,
-            )
-            continue
+    for reg, factory in iter_optional_callables(
+        CACHE_BACKEND_ENTRY_POINT_GROUP, logger, expected="factory"
+    ):
         try:
             merge_into(backends, reg.name, factory, reg.origin, group=reg.group)
         except RegistryError as exc:

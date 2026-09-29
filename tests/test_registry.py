@@ -8,6 +8,7 @@ backends, GA mutations, CLI commands).
 from __future__ import annotations
 
 import json
+import logging
 import random
 import sys
 import threading
@@ -26,6 +27,7 @@ from rebrew.registry import (
     RegistryError,
     entry_point_registrations,
     import_registration,
+    iter_optional_callables,
     merge_into,
     merge_provider_dict,
 )
@@ -40,6 +42,7 @@ def test_registry_public_all() -> None:
         "RegistryError",
         "entry_point_registrations",
         "import_registration",
+        "iter_optional_callables",
         "iter_optional_provider_dicts",
         "load_registration_optional",
         "merge_into",
@@ -445,6 +448,58 @@ class TestToolchainRegistry:
         )
         with pytest.raises(RegistryError, match="duplicate.*msvc-6.0"):
             build_toolchain_registry()
+
+
+class TestIterOptionalCallables:
+    """The shared body every optional callable registry merges through."""
+
+    def test_yields_callables_and_skips_the_rest(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        _install_fake_module(monkeypatch, "optional_good", thing=lambda: None)
+        _install_fake_module(monkeypatch, "optional_broken", thing=7)
+        monkeypatch.setattr(
+            "rebrew.registry.entry_points",
+            _fake_entry_points(
+                **{
+                    "rebrew.binary_loaders": [
+                        ("good", "optional_good:thing"),
+                        ("bad", "optional_broken:thing"),
+                        ("gone", "no_such_module:thing"),
+                    ]
+                }
+            ),
+        )
+        log = logging.getLogger("rebrew.test_optional_callables")
+        with caplog.at_level("WARNING", logger=log.name):
+            found = list(iter_optional_callables("rebrew.binary_loaders", log, expected="loader"))
+        assert [reg.name for reg, _fn in found] == ["good"]
+        messages = " ".join(r.message for r in caplog.records)
+        assert "expected a callable loader, got int" in messages
+        assert "no_such_module" in messages
+
+    def test_sort_key_ranks_registrations(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _install_fake_module(monkeypatch, "optional_sort", thing=lambda: None)
+        monkeypatch.setattr(
+            "rebrew.registry.entry_points",
+            _fake_entry_points(
+                **{
+                    "rebrew.mutations": [
+                        ("zulu", "optional_sort:thing"),
+                        ("alpha", "optional_sort:thing"),
+                    ]
+                }
+            ),
+        )
+        found = list(
+            iter_optional_callables(
+                "rebrew.mutations",
+                logging.getLogger("rebrew.test_optional_callables"),
+                expected="mutation",
+                sort_key=lambda reg: (reg.name, reg.module, reg.attr),
+            )
+        )
+        assert [reg.name for reg, _fn in found] == ["alpha", "zulu"]
 
 
 class TestDecompilerRegistry:

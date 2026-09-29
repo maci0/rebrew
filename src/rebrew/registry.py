@@ -223,6 +223,39 @@ def load_registration_optional(reg: Registration, log: logging.Logger) -> Any | 
         return None
 
 
+def iter_optional_callables(
+    group: str,
+    log: logging.Logger,
+    *,
+    expected: str,
+    sort_key: Callable[[Registration], Any] | None = None,
+) -> Iterator[tuple[Registration, Any]]:
+    """Yield ``(reg, member)`` for each callable member of optional *group*.
+
+    The shared body of every optional callable registry (decompiler backends,
+    GA mutations, discoverers, binary loaders, binary detectors, cache
+    backends): a member that fails to import or is not callable is skipped
+    with a warning, and *expected* names the kind in that warning.  Order is
+    discovery order unless *sort_key* ranks the registrations."""
+    regs = entry_point_registrations(group)
+    if sort_key is not None:
+        regs = sorted(regs, key=sort_key)
+    for reg in regs:
+        member = load_registration_optional(reg, log)
+        if member is None:
+            continue
+        if not callable(member):
+            log.warning(
+                "skipping %s registration %r: expected a callable %s, got %s",
+                reg.group,
+                reg.name,
+                expected,
+                type(member).__name__,
+            )
+            continue
+        yield reg, member
+
+
 def iter_optional_provider_dicts(
     group: str, log: logging.Logger, *, expected: str
 ) -> Iterator[tuple[Registration, dict[Any, Any]]]:
@@ -375,6 +408,7 @@ __all__ = [
     "RegistryError",
     "entry_point_registrations",
     "import_registration",
+    "iter_optional_callables",
     "iter_optional_provider_dicts",
     "load_registration_optional",
     "merge_into",

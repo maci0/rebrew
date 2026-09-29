@@ -335,36 +335,15 @@ def _merge_entry_point_mutations() -> list[Callable[..., str | None]]:
     An optional registry: a broken or conflicting plugin mutation is
     skipped with a warning (the GA keeps the packaged operators) instead of
     bricking ``rebrew match``."""
-    from rebrew.registry import (
-        RegistryError,
-        entry_point_registrations,
-        load_registration_optional,
-        merge_into,
-    )
+    from rebrew.registry import RegistryError, iter_optional_callables, merge_into
 
     merged: dict[str, Callable[..., str | None]] = {m.__name__: m for m in _BUILTIN_MUTATIONS}
-    for reg in sorted(
-        entry_point_registrations(MUTATION_ENTRY_POINT_GROUP),
-        key=lambda reg: (reg.name, reg.module, reg.attr),
+    for reg, mut_fn in iter_optional_callables(
+        MUTATION_ENTRY_POINT_GROUP,
+        logger,
+        expected="mutation",
+        sort_key=lambda reg: (reg.name, reg.module, reg.attr),
     ):
-        if not reg.attr:
-            logger.warning(
-                "skipping %s registration %r: expected 'module:attr' naming a mutation function",
-                reg.group,
-                reg.name,
-            )
-            continue
-        mut_fn = load_registration_optional(reg, logger)
-        if mut_fn is None:
-            continue
-        if not callable(mut_fn):
-            logger.warning(
-                "skipping %s registration %r: expected a callable mutation, got %s",
-                reg.group,
-                reg.name,
-                type(mut_fn).__name__,
-            )
-            continue
         try:
             merge_into(merged, reg.name, mut_fn, reg.origin, group=reg.group)
         except RegistryError as exc:
