@@ -2051,6 +2051,15 @@ def _coverage_etag(db_dir: Path) -> str:
     than concatenated so the header stays a fixed size however many targets a
     project grows.  An absent or unreadable directory hashes to the same value
     every time, which never matches a tag from a readable one.
+
+    The inode is part of the tag because the documents are written by
+    rename-over: a rebuild that lands inside one timestamp tick and preserves
+    the byte length (a status swapped for another of equal width) leaves mtime
+    and size untouched, the ETag does not move, and a browser revalidating
+    against it is answered 304 with the pre-rebuild rows.  Every other
+    stat-keyed memo in the tree already carries the inode for this reason
+    (``coverage_toml._ALL_CACHE``, ``verify_cache.binary_id``,
+    ``catalog.loaders._inventory_fingerprint``).
     """
     parts: list[str] = []
     for path in sorted(db_dir.glob(_COVERAGE_GLOB)):
@@ -2058,7 +2067,7 @@ def _coverage_etag(db_dir: Path) -> str:
             st = path.stat()
         except OSError:
             continue
-        parts.append(f"{path.name}:{st.st_mtime_ns:x}:{st.st_size:x}")
+        parts.append(f"{path.name}:{st.st_mtime_ns:x}:{st.st_size:x}:{st.st_ino:x}")
     return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()[:16]
 
 

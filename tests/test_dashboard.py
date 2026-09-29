@@ -2900,6 +2900,30 @@ class TestHostValidation:
         os.utime(doc, ns=(st.st_atime_ns, st.st_mtime_ns + 10**9))
         assert dashboard.response_etag("/api/targets") != bare
 
+    def test_etag_moves_on_same_size_same_mtime_rebuild(self, dashboard: Dashboard) -> None:
+        """A document replaced at the same size and mtime still moves the tag.
+
+        The writer replaces a document by rename, so a rebuild inside one
+        timestamp tick that preserves the byte length leaves mtime and size
+        untouched.  The inode is what distinguishes the two revisions, and
+        without it a browser revalidating against the old tag is answered 304
+        with the pre-rebuild rows.
+        """
+        import os
+
+        doc = dashboard.db_dir / "coverage-server_dll.toml"
+        before = dashboard.response_etag("/api/targets")
+        st = doc.stat()
+        original = doc.read_bytes()
+        # Same byte count, same mtime, new inode (the writer's rename-over).
+        replacement = doc.with_name(doc.name + ".tmp")
+        replacement.write_bytes(original)
+        os.utime(replacement, ns=(st.st_atime_ns, st.st_mtime_ns))
+        os.replace(replacement, doc)
+        assert doc.stat().st_size == st.st_size
+        assert doc.stat().st_mtime_ns == st.st_mtime_ns
+        assert dashboard.response_etag("/api/targets") != before
+
     def test_etag_of_one_route_does_not_304_another(self, dashboard: Dashboard) -> None:
         """A validator held from one route must not stand in for another."""
         from rebrew.dashboard import _Handler, allowed_hosts_for
