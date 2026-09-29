@@ -834,7 +834,7 @@ class TestWritableTempDir:
     def test_wheel_install_has_no_vendored_tools(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import rebrew.utils as utils
 
-        monkeypatch.setattr(temp_dirs, "SOURCE_CHECKOUT", None)
+        monkeypatch.setattr(utils, "SOURCE_CHECKOUT", None)
         assert utils.find_install_tool("tools/diec") is None
 
     def test_skips_tmpfs_candidate_when_real_disk_required(

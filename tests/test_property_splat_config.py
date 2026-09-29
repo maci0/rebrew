@@ -21,7 +21,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from hypothesis import assume, given, settings
+from hypothesis import assume, example, given, settings
 from hypothesis import strategies as st
 
 from rebrew.splat_config import SUPPORTED_PLATFORM, SplatConfig, parse_splat_config
@@ -297,8 +297,7 @@ def _assert_model_invariants(cfg: SplatConfig) -> None:
             hit = seg.subsegment_at(va)
             if hit is None or seg.vram is None or seg.rom_start is None:
                 continue
-            assert hit in seg.subsegments
-            index = seg.subsegments.index(hit)
+            index = next(i for i, sub in enumerate(seg.subsegments) if sub is hit)
             sub_end = (
                 seg.subsegments[index + 1].rom_start
                 if index + 1 < len(seg.subsegments)
@@ -322,6 +321,13 @@ def _assert_model_invariants(cfg: SplatConfig) -> None:
 
 @settings(max_examples=250, deadline=None)
 @given(text=_config_text())
+# Two equal subsegments: the invariant must locate the hit by identity, since
+# `list.index` returns the first equal one and its span is empty.
+@example(
+    text="options:\n  target_path: ..\n  platform: win32\n  compiler: msvc\nsegments:\n"
+    "  - name: \n    start: 0x0\n    vram: 0x0\n    subsegments:\n      - [0x0]\n"
+    "      - [0x0]\n  - [0x0]\n  - name: \n    start: 0x1"
+)
 def test_arbitrary_config_text_is_rejected_or_modelled(text: str) -> None:
     """Any config text either raises ``ValueError`` naming the problem or
     returns a model that satisfies every importer invariant — never a

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import struct
 
-from hypothesis import given
+from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from rebrew.omf16 import Omf16Error, Omf16Module, _match_symbol, is_omf16, parse_omf16
@@ -100,6 +100,10 @@ class TestParseOmf16Robust:
         # 0xC2 code records are concatenated after any 0xA0 code.
         assert mod.code.endswith(b"".join(mod.code_records))
 
+    # A LEDATA offset near 0xFFFF pads the segment to 64 KiB, and the reloc
+    # scan disassembles the whole span: ~200 ms per lookup, over the default
+    # deadline on a loaded host while bounded by the 16-bit segment size.
+    @settings(deadline=None)
     @given(_omf_stream(), _ascii_name)
     def test_symbol_lookup_never_crashes(self, data: bytes, symbol: bytes) -> None:
         mod = _parse_or_none(data)

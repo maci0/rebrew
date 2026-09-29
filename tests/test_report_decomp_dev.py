@@ -45,17 +45,17 @@ class TestDecompDevReport:
         src = cfg.reversed_dir
         src.mkdir(exist_ok=True)
         src_file = src / "funcs.c"
-        monkeypatch.setattr("rebrew.sources.iter_sources", lambda d, cfg=None: [src_file])
+        monkeypatch.setattr(report, "iter_sources", lambda d, cfg=None: [src_file])
         monkeypatch.setattr(
-            "rebrew.annotation.iter_annotations",
+            report,
+            "iter_annotations",
             lambda sources, target=None, metadata_dir=None: [(src_file, annos)],
         )
         monkeypatch.setattr("rebrew.sections.get_text_section_size", lambda _p: 0x1000)
         monkeypatch.setattr("rebrew.verify_cache.load_verify_cache", lambda _p, _c: None)
         # No data sections → data measures stay 0 without erroring.
         monkeypatch.setattr(
-            report,
-            "load_binary",
+            "rebrew.binary_loader.load_binary",
             lambda _p: SimpleNamespace(sections={}),
         )
         return cfg
@@ -254,9 +254,10 @@ class TestDecompDevDataMeasure:
         src = cfg.reversed_dir
         src.mkdir(exist_ok=True)
         src_file = src / "funcs.c"
-        monkeypatch.setattr("rebrew.sources.iter_sources", lambda d, cfg=None: [src_file])
+        monkeypatch.setattr(report, "iter_sources", lambda d, cfg=None: [src_file])
         monkeypatch.setattr(
-            "rebrew.annotation.iter_annotations",
+            report,
+            "iter_annotations",
             lambda sources, target=None, metadata_dir=None: [
                 (src_file, [_fake_ann(0x1000, 64, "f", "EXACT")])
             ],
