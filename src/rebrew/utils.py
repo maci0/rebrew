@@ -357,6 +357,31 @@ _SOURCE_TEXT_MEMO_LOCK = threading.Lock()
 # instead of scanning the whole LRU.
 _SOURCE_TEXT_MEMO_BY_PATH: dict[str, set[tuple[str, int, int, int]]] = {}
 
+# ``str(path)`` -> its resolved path, for :func:`read_source_text`.  The body
+# memo is keyed by the resolved path, but producing it walks every component
+# with an ``lstat``; a whole-tree scan reads each source more than once
+# (``naming.load_data`` then ``lint.count_migratable_files``), so that walk
+# ran once per read.  Bounded and lock-guarded with the body memo it fronts.
+_RESOLVED_SOURCE_PATHS: OrderedDict[str, Path] = OrderedDict()
+_RESOLVED_SOURCE_PATHS_MAX = _SOURCE_TEXT_MEMO_MAX
+
+
+def _resolved_source_path(filepath: Path) -> Path:
+    """Return *filepath* resolved, memoized per input path spelling."""
+    key = str(filepath)
+    with _SOURCE_TEXT_MEMO_LOCK:
+        hit = _RESOLVED_SOURCE_PATHS.get(key)
+        if hit is not None:
+            _RESOLVED_SOURCE_PATHS.move_to_end(key)
+            return hit
+    resolved = filepath.resolve()
+    with _SOURCE_TEXT_MEMO_LOCK:
+        _RESOLVED_SOURCE_PATHS[key] = resolved
+        _RESOLVED_SOURCE_PATHS.move_to_end(key)
+        while len(_RESOLVED_SOURCE_PATHS) > _RESOLVED_SOURCE_PATHS_MAX:
+            _RESOLVED_SOURCE_PATHS.popitem(last=False)
+    return resolved
+
 
 def _memo_forget(memo_key: tuple[str, int, int, int]) -> None:
     """Unlink *memo_key*'s path from the index, dropping an emptied entry."""
@@ -632,7 +657,7 @@ def read_source_text(filepath: Path) -> tuple[str, str]:
     scan_globals).  A content-digest parse memo still re-reads every file;
     this layer skips the syscall+decode when the inode metadata is unchanged.
     """
-    resolved = filepath.resolve()
+    resolved = _resolved_source_path(filepath)
     try:
         st = resolved.stat()
     except OSError:
@@ -657,10 +682,11 @@ def read_source_text(filepath: Path) -> tuple[str, str]:
 
 
 def clear_source_text_memo() -> None:
-    """Drop every cached source body and its path index."""
+    """Drop every cached source body, its path index, and the resolved-path memo."""
     with _SOURCE_TEXT_MEMO_LOCK:
         _SOURCE_TEXT_MEMO.clear()
         _SOURCE_TEXT_MEMO_BY_PATH.clear()
+        _RESOLVED_SOURCE_PATHS.clear()
 
 
 def read_toml_text(path: Path) -> str:

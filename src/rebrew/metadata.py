@@ -103,6 +103,7 @@ import threading
 import tomllib
 import typing
 import unicodedata
+from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -157,6 +158,8 @@ def clear_metadata_cache() -> None:
     or after writing metadata to ensure subsequent reads see fresh data.
     """
     clear_metadata_doc_cache(_metadata_cache)
+    with _RESOLVED_METADATA_PATHS_LOCK:
+        _RESOLVED_METADATA_PATHS.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -311,6 +314,33 @@ def metadata_path(directory: Path | str | Any) -> Path:
     return resolve_metadata_dir(directory) / METADATA_FILENAME
 
 
+#: Metadata roots seen this process, so :func:`load_metadata` resolves each
+#: one once instead of once per call.  ``load_metadata`` is on the whole-tree
+#: scan path (once per source file), and the resolve costs an ``lstat`` per
+#: path component.  Bounded so a long-lived process walking many project roots
+#: cannot grow it without limit; entries are pure derivations of the input
+#: string, so eviction only costs a re-resolve.
+_RESOLVED_METADATA_PATHS: OrderedDict[str, Path] = OrderedDict()
+_RESOLVED_METADATA_PATHS_MAX = 64
+_RESOLVED_METADATA_PATHS_LOCK = threading.Lock()
+
+
+def _resolved_metadata_path(directory: str) -> Path:
+    """``<directory>/rebrew-functions.toml`` resolved, memoized per directory."""
+    with _RESOLVED_METADATA_PATHS_LOCK:
+        hit = _RESOLVED_METADATA_PATHS.get(directory)
+        if hit is not None:
+            _RESOLVED_METADATA_PATHS.move_to_end(directory)
+            return hit
+    path = (Path(directory) / METADATA_FILENAME).resolve()
+    with _RESOLVED_METADATA_PATHS_LOCK:
+        _RESOLVED_METADATA_PATHS[directory] = path
+        _RESOLVED_METADATA_PATHS.move_to_end(directory)
+        while len(_RESOLVED_METADATA_PATHS) > _RESOLVED_METADATA_PATHS_MAX:
+            _RESOLVED_METADATA_PATHS.popitem(last=False)
+    return path
+
+
 # ---------------------------------------------------------------------------
 # Load / Save
 # ---------------------------------------------------------------------------
@@ -343,7 +373,12 @@ def load_metadata(
     """
     dir_path = resolve_metadata_dir(directory)
     # Resolve so cache keys are stable across relative/absolute call sites.
-    path = (dir_path / METADATA_FILENAME).resolve()
+    # Memoized per directory spelling: a whole-tree scan calls load_metadata
+    # once per source file (annotation._finalize_entries) plus once per
+    # annotating command, and the resolve itself walks every path component
+    # with an lstat.  A symlink re-pointed mid-process is the only way the
+    # answer changes, and the doc cache re-stats the file on every read.
+    path = _resolved_metadata_path(str(dir_path))
     if not path.exists():
         pop_metadata_doc_cache(_metadata_cache, path)
         return {}
