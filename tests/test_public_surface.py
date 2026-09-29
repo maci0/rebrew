@@ -4,7 +4,8 @@ CONTRIBUTING.md keeps the Python import surface unfrozen but requires a
 ``**Breaking:**`` entry for a removal, move, or signature change.  Nothing
 checked that, so a moved helper reached a release whenever its author forgot
 the prefix.  These tests diff the surface against the last tag and hold the
-notes to it.
+notes to it.  ``TestDashboardRoutes`` does the same for the dashboard's route
+table, the other half CONTRIBUTING holds unfrozen.
 """
 
 from __future__ import annotations
@@ -16,7 +17,13 @@ from pathlib import Path
 
 import pytest
 
-from tools.public_surface import diff_surfaces, public_surface, surface_at_ref
+from tools.public_surface import (
+    dashboard_routes,
+    diff_surfaces,
+    public_surface,
+    routes_at_ref,
+    surface_at_ref,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 PKG = ROOT / "src" / "rebrew"
@@ -555,6 +562,56 @@ class TestBreakClassification:
             {"builtins": {"BUILTIN_COMPONENTS": _table(", is_group=True", "'dev'")}},
         )
         assert changed
+
+
+class TestDashboardRoutes:
+    """Reading the dashboard's route table, and the gate over its delta.
+
+    CONTRIBUTING.md holds the ``/api/*`` JSON unfrozen but requires a
+    ``**Breaking:**`` entry for a removed route, and nothing read the table:
+    only the Python import surface was checked, so a route the browser's
+    ``get()`` still called could go out unflagged.
+    """
+
+    def test_union_of_frozensets_and_a_named_path_reads(self) -> None:
+        source = (
+            '_FAVICON = "/favicon.svg"\n'
+            '_API = frozenset({"/api/targets"})\n'
+            '_EXTRA = frozenset({"/api/health"})\n'
+            '_KNOWN_ROUTES = (frozenset({"/", _FAVICON}) | _API) | _EXTRA\n'
+        )
+        assert dashboard_routes(source) == frozenset(
+            {"/", "/favicon.svg", "/api/targets", "/api/health"}
+        )
+
+    def test_a_computed_table_reads_as_nothing(self) -> None:
+        """An unreadable table must not score as a table with no routes."""
+        assert dashboard_routes("_KNOWN_ROUTES = frozenset(_PATHS)\n") is None
+        assert dashboard_routes("_PATHS = ['/api/targets']\n") is None
+
+    def test_the_shipped_table_reads(self) -> None:
+        routes = dashboard_routes((PKG / "dashboard.py").read_text(encoding="utf-8"))
+        assert routes is not None
+        assert "/api/bootstrap" in routes
+
+    def test_removed_route_ships_as_breaking_and_by_path(self) -> None:
+        old = routes_at_ref(_last_tag(), cwd=ROOT)
+        if old is None:
+            pytest.skip(f"cannot read {_last_tag()} from this checkout")
+        current = dashboard_routes((PKG / "dashboard.py").read_text(encoding="utf-8"))
+        if current is None:
+            pytest.fail("the route table is no longer spelled as literals")
+        removed = sorted(old - current)
+        if not removed:
+            pytest.skip("no dashboard route removed since the last tag")
+
+        notes = _unreleased()
+        assert BREAKING_PREFIX in notes, (
+            f"the dashboard dropped {removed} but CHANGELOG.md has no "
+            f"{BREAKING_PREFIX} entry under [Unreleased]"
+        )
+        unnamed = [path for path in removed if path not in notes]
+        assert unnamed == [], f"**Breaking:** entries do not name {unnamed}"
 
 
 if __name__ == "__main__":

@@ -1,6 +1,15 @@
 ## [Unreleased]
 
 ### Added
+- **A dropped `rebrew dashboard` route is now gated.** CONTRIBUTING holds the
+  `/api/*` JSON unfrozen but requires a `**Breaking:**` entry for a removed
+  path, and only the Python import surface was read, so a route the shell's
+  `get()` still called could go out unflagged. `tools/public_surface.py` reads
+  `_KNOWN_ROUTES` out of `dashboard.py` and
+  `tests/test_public_surface.py::TestDashboardRoutes` fails the build when a
+  path disappears since the last tag with no entry naming it. A route table
+  spelled as anything but literals stops the gate rather than reading as a
+  table with no routes.
 - **`rebrew lint` reports a metadata store outside the directory the readers
   use (W036).** The stores resolve by directory with no fallback, so a second
   `rebrew-data.toml` or `rebrew-functions.toml` is not a backup: pointed at its
@@ -61,6 +70,14 @@
   `.python-version` pin the build and the tools helpers use.
 
 ### Changed
+- **Breaking:** `stock_lib_cache` takes a third argument. It was
+  `rebrew.lib_match.stock_lib_cache(root, name)` and is now
+  `rebrew.lib_match.stock_lib_cache(root, name, profile)`: the cached archive's
+  bytes come out of that profile's image, and a path keyed on the name alone
+  kept the first profile's extraction forever (`ensure_stock_lib` accepts any
+  existing file), so a later profile read another toolchain's `LIBCMT.LIB`.  A
+  caller passing two arguments now raises `TypeError`; pass the profile whose
+  image the archive comes from.
 - **The release preflight checks the upload's provenance.**
   `uv publish` uploads a PEP 740 attestation by default and has no flag to ask
   for one, so whether a release ships verifiable files depended entirely on

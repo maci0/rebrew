@@ -36,6 +36,10 @@ Run from the repo root::
     python tools/public_surface.py > /tmp/surface.json
     python tools/public_surface.py --diff v2.14.0        # delta against a tag
 
+The same module reads the dashboard's route table (:func:`dashboard_routes`),
+which the note contract below covers the same way: a path the browser's
+``get()`` still calls is a break a client sees as a 404.
+
 Also importable for tests::
 
     from tools.public_surface import diff_surfaces, public_surface
@@ -637,6 +641,103 @@ def _git(*args: str, cwd: Path) -> subprocess.CompletedProcess[str]:
         encoding="utf-8",
         errors="replace",
     )
+
+
+# --- dashboard routes -----------------------------------------------------
+
+#: Module holding the dashboard's route table, read for the paths it serves.
+DASHBOARD_MODULE = Path("src") / "rebrew" / "dashboard.py"
+
+#: Name of the module-level set of every path ``Dashboard.handle`` serves.
+_KNOWN_ROUTES = "_KNOWN_ROUTES"
+
+#: How many resolution passes a table written as a union of other sets gets.
+_MAX_SET_HOPS = 8
+
+#: Stands in for a module that binds no route table, so the resolver has an
+#: expression to read that no set literal can.
+_NO_BINDING = ast.Constant(value=None)
+
+
+def _string_set(node: ast.expr, values: Mapping[str, object]) -> frozenset[str] | None:
+    """A set of string literals spelled in this module, or ``None``.
+
+    A route table is a literal set, sometimes wrapped in ``frozenset()`` and
+    sometimes the union of two, and its members are literals or names bound to
+    a literal.  Anything computed has no stable text to compare, so it reads as
+    unreadable rather than as an empty table, which would score every route as
+    removed.
+    """
+    if isinstance(node, ast.Name):
+        bound = values.get(node.id)
+        return bound if isinstance(bound, frozenset) else None
+    if isinstance(node, ast.Call) and _called_name(node.func) in {"frozenset", "set"}:
+        if len(node.args) != 1 or node.keywords:
+            return None
+        node = node.args[0]
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+        left = _string_set(node.left, values)
+        right = _string_set(node.right, values)
+        return None if left is None or right is None else left | right
+    if not isinstance(node, (ast.Set, ast.List, ast.Tuple)):
+        return None
+    members: list[str] = []
+    for element in node.elts:
+        if isinstance(element, ast.Constant) and isinstance(element.value, str):
+            members.append(element.value)
+        elif isinstance(element, ast.Name) and isinstance(values.get(element.id), str):
+            members.append(str(values[element.id]))
+        else:
+            return None
+    return frozenset(members)
+
+
+def _module_bindings(tree: ast.Module) -> dict[str, ast.expr]:
+    """Every module-level name bound to an expression, annotations included."""
+    out: dict[str, ast.expr] = {}
+    for node in tree.body:
+        targets: list[ast.expr]
+        if isinstance(node, ast.Assign):
+            targets = list(node.targets)
+        elif isinstance(node, ast.AnnAssign):
+            targets = [node.target]
+        else:
+            continue
+        for target in targets:
+            if isinstance(target, ast.Name) and node.value is not None:
+                out[target.id] = node.value
+    return out
+
+
+def dashboard_routes(source: str) -> frozenset[str] | None:
+    """The paths the dashboard serves, read from the module's route table.
+
+    ``None`` when the table is not spelled as literals, which is the one
+    outcome the caller must not score: a table it cannot read is not a table
+    with no routes.
+    """
+    bindings = _module_bindings(ast.parse(source))
+    values: dict[str, object] = {}
+    for _ in range(_MAX_SET_HOPS):
+        if _string_set(bindings.get(_KNOWN_ROUTES, _NO_BINDING), values) is not None:
+            break
+        for name, node in bindings.items():
+            if name in values:
+                continue
+            constant = _string_set(node, values)
+            if constant is not None:
+                values[name] = constant
+            elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+                values[name] = node.value
+    return _string_set(bindings.get(_KNOWN_ROUTES, _NO_BINDING), values)
+
+
+def routes_at_ref(ref: str, cwd: Path = Path(".")) -> frozenset[str] | None:
+    """The dashboard routes as of *ref*, or ``None`` outside a checkout."""
+    blob = _git("show", f"{ref}:{DASHBOARD_MODULE}", cwd=cwd)
+    if blob.returncode != 0:
+        return None
+    return dashboard_routes(blob.stdout)
 
 
 def surface_at_ref(

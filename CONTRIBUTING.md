@@ -164,6 +164,13 @@ import path that actually went away is flagged.  A move that took the name
 out of the old module counts as a break either way, and the entry has to name
 the symbol or the module it moved to: a mention of the origin module alone
 says nothing about where the import goes now.
+A dropped `/api/*` route is the same break for a client reading the JSON:
+`tools/public_surface.py::dashboard_routes` reads `_KNOWN_ROUTES` out of
+`src/rebrew/dashboard.py` and
+`tests/test_public_surface.py::TestDashboardRoutes` fails the build when the
+delta against the last tag drops a path and `[Unreleased]` has no
+`**Breaking:**` entry naming it.  A route table spelled as anything but
+literals stops the gate instead of reading as a table with no routes.
 
 - **One version, one place.**  `__version__` in `src/rebrew/__init__.py` is the
   source of truth; `pyproject.toml` reads it via `[tool.setuptools.dynamic]`.
