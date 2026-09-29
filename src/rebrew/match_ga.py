@@ -523,6 +523,8 @@ class BinaryMatchingGA:
             posix_style=self.posix_style,
             extra_include_dirs=self.extra_include_dirs,
             defines=list(getattr(self.cfg, "defines", None) or []),
+            cl_cmd=self.cl_cmd,
+            inc_dir=self.inc_dir,
         )
         self._start_generation = 0
         # Generations actually executed by the last run() (resume-aware), read
@@ -1166,6 +1168,8 @@ def _ga_args_hash(
     posix_style: bool = False,
     extra_include_dirs: list[str] | None = None,
     defines: list[str] | None = None,
+    cl_cmd: str = "",
+    inc_dir: str = "",
 ) -> str:
     """Stable fingerprint of the GA parameters — invalidates stale checkpoints.
 
@@ -1216,6 +1220,8 @@ def _ga_args_hash(
                 "posix_style": posix_style,
                 "extra_include_dirs": sorted(extra_include_dirs or []),
                 "defines": sorted(defines or []),
+                "cl_cmd": cl_cmd,
+                "inc_dir": inc_dir,
                 # Loop-shape constants.  They come from the module rather than
                 # the call, but a release that changes selection, the
                 # mutation-rate ramp, or the restart policy must not resume a

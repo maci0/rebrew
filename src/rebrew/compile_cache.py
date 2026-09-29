@@ -757,8 +757,14 @@ def _find_in_dirs(name: Path, dirs: list[Path]) -> Path | None:
 # Include-closure memo for :func:`_resolve_include_paths`:
 # ``(source, source_dir, include_dirs, dir_mtimes) →
 #   (paths, fallback, header_stats, unresolved)``.
-# Bounded + locked: verify -j N and GA workers share this map.
-_INCLUDE_CLOSURE_MEMO: dict[
+# Bounded by BYTES + locked: verify -j N and GA workers share this map.
+# The key holds the whole source text, so an entry-count cap made the real
+# limit the heap (a full-tree verify keys every compile in the tree) — the
+# same discipline as :data:`_SOURCE_DIGEST_MAX_BYTES` and
+# ``verify_hash._SOURCE_MEMO_MAX_BYTES`` below.  Values keep their own shape;
+# the retained-byte total is tracked alongside so eviction never re-encodes
+# the key it is dropping.
+_INCLUDE_CLOSURE_MEMO: OrderedDict[
     tuple[str, str | None, tuple[str, ...], tuple[int, ...]],
     tuple[
         tuple[str, ...],
@@ -766,9 +772,20 @@ _INCLUDE_CLOSURE_MEMO: dict[
         tuple[tuple[int, int, int], ...],
         tuple[tuple[str, tuple[str, ...]], ...],
     ],
-] = {}
-_INCLUDE_CLOSURE_MEMO_MAX = 1024
+] = OrderedDict()
+_INCLUDE_CLOSURE_MAX_BYTES = 64 * BYTES_PER_MIB
+_INCLUDE_CLOSURE_BYTES = 0
 _INCLUDE_CLOSURE_LOCK = threading.Lock()
+
+
+def _closure_key_bytes(key: tuple[str, str | None, tuple[str, ...], tuple[int, ...]]) -> int:
+    """Retained bytes of one include-closure memo key."""
+    source, source_dir, include_dirs, _dir_mtimes = key
+    return (
+        len(source)
+        + (len(source_dir) if source_dir is not None else 0)
+        + sum(len(d) for d in include_dirs)
+    )
 
 
 def _resolve_escaping_include(name: Path, dirs: Sequence[Path]) -> Path | None:
@@ -846,6 +863,7 @@ def _resolve_include_paths(
     A still-valid peer entry is kept instead of overwritten, so parallel
     flag-sweep workers cannot clobber a fresher closure with a slower scan.
     """
+    global _INCLUDE_CLOSURE_BYTES
     key = (source_content, source_dir, include_dirs, _search_dir_mtimes(source_dir, include_dirs))
     with _INCLUDE_CLOSURE_LOCK:
         cached = _INCLUDE_CLOSURE_MEMO.get(key)
@@ -871,12 +889,24 @@ def _resolve_include_paths(
             return existing[0], existing[1]
         if _header_stats(paths) != observed or not _unresolved_still_missing(misses):
             return paths, fallback
-        if (
-            len(_INCLUDE_CLOSURE_MEMO) >= _INCLUDE_CLOSURE_MEMO_MAX
-            and key not in _INCLUDE_CLOSURE_MEMO
-        ):
-            _INCLUDE_CLOSURE_MEMO.pop(next(iter(_INCLUDE_CLOSURE_MEMO)), None)
+        if key in _INCLUDE_CLOSURE_MEMO:
+            _INCLUDE_CLOSURE_BYTES -= _closure_key_bytes(key)
         _INCLUDE_CLOSURE_MEMO[key] = (paths, fallback, observed, tuple(misses))
+        _INCLUDE_CLOSURE_BYTES += _closure_key_bytes(key)
+        # FIFO on insertion order, same as the source-digest memo: a long run
+        # keeps the closures it is still reaching and drops the oldest.
+        while (
+            _INCLUDE_CLOSURE_BYTES > _INCLUDE_CLOSURE_MAX_BYTES and len(_INCLUDE_CLOSURE_MEMO) > 1
+        ):
+            oldest_key = next(iter(_INCLUDE_CLOSURE_MEMO))
+            if oldest_key == key:
+                break
+            _INCLUDE_CLOSURE_MEMO.pop(oldest_key, None)
+            _INCLUDE_CLOSURE_BYTES -= _closure_key_bytes(oldest_key)
+        if not _INCLUDE_CLOSURE_MEMO:
+            # An emptied memo carries no bytes; a caller that cleared the map
+            # directly must not leave the total inflated.
+            _INCLUDE_CLOSURE_BYTES = 0
     return paths, fallback
 
 

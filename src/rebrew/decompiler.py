@@ -1074,13 +1074,20 @@ def fetch_m2c(binary: Path, va: int, root: Path, **_kwargs: Any) -> str | None:
 
 # Backends share the (binary, va, root) core plus optional keyword args;
 # fetch_ghidra ignores root (the MCP server holds its own project).
-_BACKEND_MAP: dict[str, Callable[..., str | None]] = {
+#: The packaged backends every discovery pass starts from.  A refresh must
+#: seed from this, not from the published :data:`_BACKEND_MAP`: re-merging
+#: entry points into a map that already holds them raised a duplicate on
+#: every refresh, so a plugin backend kept its first-loaded callable and lost
+#: its ``__rebrew_auto_probe__`` slot in the republished probe order.
+PACKAGED_BACKEND_MAP: dict[str, Callable[..., str | None]] = {
     "r2ghidra": fetch_r2ghidra,
     "r2dec": fetch_r2dec,
     "ghidra": fetch_ghidra,
     "kuna": fetch_kuna,
     "m2c": fetch_m2c,
 }
+
+_BACKEND_MAP: dict[str, Callable[..., str | None]] = dict(PACKAGED_BACKEND_MAP)
 
 #: setuptools entry-point group whose members register extra decompiler
 #: backends.  A member is a callable with the backend signature — ``fn(
@@ -1111,7 +1118,7 @@ def _merge_entry_point_backends() -> tuple[dict[str, Callable[..., str | None]],
         merge_into,
     )
 
-    merged = dict(_BACKEND_MAP)
+    merged = dict(PACKAGED_BACKEND_MAP)
     auto_probe: list[str] = []
     for reg in entry_point_registrations(DECOMPILER_ENTRY_POINT_GROUP):
         backend_fn = load_registration_optional(reg, logger)
