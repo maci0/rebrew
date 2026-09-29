@@ -1,5 +1,15 @@
 ## [Unreleased]
 
+### Changed
+- **`docs/mascot.png` has a white outline around the art**, so the steam and
+  the `A0 0D` glyphs, drawn dark for a white page, stay readable on a dark
+  one. The background outside the outline stays transparent.
+
+### Fixed
+- **`NOTICE` names resembl 3.1.1**, the version the contributor pin installs.
+  It still named 3.1.0 after the 2.17.1 pin bump; the license is unchanged
+  (`GPL-3.0-only`).
+
 ## [2.17.1] - 2026-09-29
 
 ### Changed
