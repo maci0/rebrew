@@ -3,6 +3,8 @@
 	cycles-check idempotency-check mypy audit \
 	cli-contract release-check coverage ensure-uv ensure-resembl ensure-nasm warn-nasm ensure-node warn-node warn-shellcheck \
 	warn-yamllint \
+	warn-vnu \
+	vnu \
 	ensure-bash \
 	smoke-wheel \
 	require-dist \
@@ -142,12 +144,13 @@ UV_RUN_TOOLS := uv run --no-project --offline --python $(PYTHON_PIN)
 
 help:
 	@printf '%s\n' \
-		'  make doctor             # report every missing prerequisite (uv, resembl, nasm, node, shellcheck, yamllint, extras)' \
+		'  make doctor             # report every missing prerequisite (uv, resembl, nasm, node, shellcheck, yamllint, vnu, extras)' \
 		'  make setup              # uv sync (locked + extras + similarity) + pre-commit/pre-push hooks' \
 		'  make add-dep ADD_DEP_SPEC=<spec>  # uv add <spec> (pyproject.toml + uv.lock), then the license-table step' \
 		'  make clone-resembl      # clone sibling resembl pin into ../resembl (required for uv sync)' \
+		'  make vnu                # install the pinned W3C validator and print the PATH line for it' \
 		'  make clean              # remove build/dist artifacts and caches' \
-		'  make test               # full pytest suite (needs nasm + node on PATH)' \
+		'  make test               # full pytest suite (needs nasm + node on PATH; warns without vnu)' \
 		'  make test-one T=<node>  # one file/nodeid, e.g. T=tests/test_foo.py::TestBar (nasm/node optional)' \
 		'  make coverage           # full suite under slipcover with the COV_FLOOR fail-under gate' \
 		'  make lint               # ruff check .' \
@@ -180,7 +183,8 @@ help:
 		'  0. make doctor          # reports which of the steps below this host is missing' \
 		'  1. Install uv $(UV_VERSION)+ (CI pin), Python 3.13+ (.python-version), nasm + node on PATH' \
 		'     (shellcheck + yamllint too: the pre-commit shell and YAML hooks skip' \
-		'     themselves without them, CI runs both;' \
+		'     themselves without them, CI runs both; vnu for the W3C HTML gate,' \
+		'     which skips without it, so run make vnu and eval the line it prints;' \
 		'     bash for step 2: tools/ci_clone_resembl.sh runs under it)' \
 		'  2. Clone sibling resembl at $(RESEMBL_REF) into ../resembl' \
 		'     git clone --depth 1 --branch $(RESEMBL_REF) https://github.com/maci0/resembl.git ../resembl' \
@@ -305,6 +309,31 @@ warn-yamllint:
 	  echo "  apt install yamllint / pacman -S yamllint / dnf install yamllint"; \
 	fi
 
+# Same warn-level shape, same consequence, for the W3C validator: the two
+# tests in tests/html_validate.py skip when `vnu` is off PATH, and the CI test
+# job installs it, so a green `make test` on a host without it never opened the
+# dashboard shell or the generated report pages at all.  The pin (archive
+# digest + version) lives in tools/ci_install_vnu.sh, so `make vnu` installs
+# the same bytes CI validates with instead of naming a second source.
+warn-vnu:
+	@set -eu; \
+	if ! command -v vnu >/dev/null 2>&1; then \
+	  echo "WARNING: vnu not on PATH; the W3C HTML validation tests skip."; \
+	  echo "CI installs it, so invalid markup passes 'make test' here and fails after push:"; \
+	  echo "  make vnu    # then eval the line it prints"; \
+	fi
+
+# Install the pinned W3C validator into the local cache and print the PATH
+# line that picks it up.  A thin wrapper over the CI helper: the version and
+# sha256 pins are asserted there, and a second copy of them here is the drift
+# the pin exists to prevent.  Nothing is installed implicitly — a contributor
+# opts in by running the target.
+vnu: ensure-bash
+	@set -eu; \
+	dir=$$(bash tools/ci_install_vnu.sh); \
+	echo "vnu installed; add this to your shell to run the HTML gate:"; \
+	echo "  export PATH=\"$$dir:\$$PATH\""
+
 # tools/ci_clone_resembl.sh is bash (it needs ${var:?} and bash-only options).
 # A minimal host without it would read "bash: not found" as a clone failure.
 ensure-bash:
@@ -395,13 +424,14 @@ ensure-extras: ensure-uv
 #
 # Read-only: it runs the preflight targets and nothing else, installs nothing,
 # and never edits .venv.  It runs the hard checks (uv, ../resembl, nasm, node,
-# the venv extras) and the warn-level ones (the uv version, shellcheck), so a
+# the venv extras) and the warn-level ones (the uv version, shellcheck,
+# yamllint, vnu), so a
 # non-zero exit names a prerequisite the suite or the lint gate needs, and a
 # warning still prints for a host that only costs a CI-only gate.
 doctor:
 	@set -u; \
 	rc=0; \
-	for check in ensure-uv warn-uv-version ensure-resembl ensure-bash ensure-nasm ensure-node warn-shellcheck warn-yamllint ensure-extras; do \
+	for check in ensure-uv warn-uv-version ensure-resembl ensure-bash ensure-nasm ensure-node warn-shellcheck warn-yamllint warn-vnu ensure-extras; do \
 	  case $$check in \
 	    ensure-uv) label='uv on PATH' ;; \
 	    warn-uv-version) label="uv >= $(UV_VERSION) (CI pin)" ;; \
@@ -411,6 +441,7 @@ doctor:
 	    ensure-node) label='node on PATH (dashboard interaction tests; optional for test-one)' ;; \
 	    warn-shellcheck) label='shellcheck on PATH (pre-commit shell hook)' ;; \
 	    warn-yamllint) label='yamllint on PATH (pre-commit YAML hook)' ;; \
+	    warn-vnu) label='vnu on PATH (W3C validation of the HTML surfaces)' ;; \
 	    ensure-extras) label="venv extras (angr/claripy, rapidfuzz/resembl)" ;; \
 	  esac; \
 	  out=$$($(MAKE) --no-print-directory $$check 2>&1) || rc=1; \
@@ -433,7 +464,7 @@ doctor:
 # help/status text.  The pytest plugin ``pytest_ansi_env`` sets the same
 # trio for bare ``uv run pytest``; export here too so the recipe stays
 # self-documenting and covers any non-pytest child processes.
-test: ensure-nasm ensure-node ensure-uv
+test: ensure-nasm ensure-node warn-vnu ensure-uv
 	NO_COLOR=1 TERM=dumb _TYPER_FORCE_DISABLE_TERMINAL=1 \
 		uv run --frozen pytest tests/ -v --tb=short
 
@@ -445,7 +476,7 @@ test-one: warn-nasm warn-node ensure-uv
 
 # Coverage floor (AGENTS.md: ratchet up, never down).  slipcover ignores
 # [tool.slipcover] fail_under, so the floor is passed on the command line.
-coverage: ensure-nasm ensure-node ensure-uv
+coverage: ensure-nasm ensure-node warn-vnu ensure-uv
 	NO_COLOR=1 TERM=dumb _TYPER_FORCE_DISABLE_TERMINAL=1 \
 		uv run --frozen python -m slipcover --fail-under $(COV_FLOOR) -m pytest tests/ -q --tb=short
 

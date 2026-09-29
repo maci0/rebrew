@@ -897,11 +897,12 @@ class TestStatusLegend:
     def test_empty_project_names_the_directory_it_read(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """"The project's reversed directory" is a config key, not a place.
+        """The reversed-directory note must not echo the config key.
 
-        The note has to carry the path the loader actually read, so a reader
-        can tell an empty directory from the wrong one.  Both pages that carry
-        the note say the same thing.
+        "The project's reversed directory" is a config key, not a place.  The
+        note has to carry the path the loader actually read, so a reader can
+        tell an empty directory from the wrong one.  Both pages that carry the
+        note say the same thing.
         """
         _write_project(tmp_path, pe_bytes=make_pe(b"\x90" * 32))
         (tmp_path / "rebrew-functions.toml").write_text("", encoding="utf-8")

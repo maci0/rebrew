@@ -19,7 +19,10 @@ skips them; the 3.13 entry also installs the W3C validator through
 every generated report page) would otherwise never be parsed by a
 validator in CI. The archive is pinned by sha256 (the release asset sits
 under a moving `latest` tag) and bundles its own JRE, so the step needs
-no `java` install. A pre-commit hook-parity job (`make check` with
+no `java` install. `make vnu` runs that same helper for a contributor and
+prints the PATH line for the directory it installed into, so a local
+`make test` can run the gate instead of skipping it; `make doctor` reports
+a missing `vnu` and `make test` warns. A pre-commit hook-parity job (`make check` with
 the two ruff hooks and the mypy hook skipped, since the lint job runs them; it installs
 shellcheck and yamllint first through `tools/ci_apt_install.sh`, so the shell
 and YAML hooks are enforced there; the SKILL.md command validator

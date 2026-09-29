@@ -28,7 +28,13 @@ does; `make test` fails on a missing node, `make test-one` only warns).
 printing `bash: not found`.  **shellcheck** is optional locally
 but not in CI: the pre-commit shell hook exits 0 without the binary, so
 `make check` on a host without it can pass where CI's pre-commit job (which
-installs shellcheck) fails; `make check` warns when it is missing.  `uv sync` also
+installs shellcheck) fails; `make check` warns when it is missing.  The W3C
+validator **vnu** is optional locally for the same reason: `tests/html_validate.py`
+skips the dashboard shell and the generated report pages without it, the CI test
+job installs it, and `make test` / `make coverage` warn when it is missing.
+`make vnu` installs the pinned archive (the same helper and the same sha256 the
+CI job uses) into `~/.cache/rebrew/vnu` and prints the `export PATH=` line to
+eval.  `uv sync` also
 needs the sibling
 [`resembl`](https://github.com/maci0/resembl) checkout at `../resembl`: the
 path pin in `pyproject.toml` / `uv.lock` (tag `v3.1.1`, same as CI's
@@ -47,11 +53,13 @@ cd rebrew
 make doctor                   # report every missing prerequisite, with the fix for each
 make clone-resembl            # clones sibling resembl pin (tag v3.1.1) into ../resembl
 make setup                    # uv sync --locked --all-extras --group similarity + pre-commit/pre-push hooks
+make vnu                      # optional: the W3C HTML gate skips without it, CI runs it
 make test-one T=tests/test_annotation.py   # smoke the edit-test loop
 ```
 
 `make doctor` is read-only and runs every preflight the other targets use (uv
-and its version, the sibling `../resembl` checkout, bash, nasm, node, shellcheck, and
+and its version, the sibling `../resembl` checkout, bash, nasm, node, shellcheck,
+yamllint, vnu, and
 the `prove` extra / `similarity` group in `.venv`), so a host missing several of
 them sees all of them at once instead of one failed target at a time.  The
 checks still guard their own targets: a missing nasm surfaces at `make test`
@@ -98,15 +106,16 @@ in `tests/test_packaging.py` fails the suite listing every distribution left
 
 ```bash
 make help                     # list contributor make targets
-make doctor                   # report every missing prerequisite (uv, ../resembl, bash, nasm, node, shellcheck, yamllint, venv extras)
+make doctor                   # report every missing prerequisite (uv, ../resembl, bash, nasm, node, shellcheck, yamllint, vnu, venv extras)
 make clone-resembl            # clone sibling resembl pin into ../resembl (required for uv sync)
+make vnu                      # install the pinned W3C HTML validator and print the PATH line for it
 make setup                    # locked sync (extras + similarity) + pre-commit install (checks uv + ../resembl first)
 make add-dep ADD_DEP_SPEC=<spec>  # add a dependency (wraps `uv add`; prints the license-table step)
 make clean                    # remove build/dist artifacts and caches
 make test-one T=tests/test_annotation.py  # single file / nodeid (fast edit-test loop; defaults to test_annotation.py)
 make test-one T=tests/test_annotation.py FLAGS="-k stdcall"  # narrow further with any pytest flag
 make test-one T=tests/test_dashboard.py::TestSummaryRequests   # one class
-make test                     # full suite (a few minutes; needs nasm + node)
+make test                     # full suite (a few minutes; needs nasm + node, warns without vnu)
 make coverage                 # full suite under slipcover; fails below COV_FLOOR (CI test job, 3.13)
 make lint                     # ruff check .
 make format                   # ruff format (writes)

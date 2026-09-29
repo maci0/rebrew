@@ -1576,6 +1576,35 @@ class TestCiPins:
         )
         assert "node --version" in test_job
 
+    def test_vnu_is_preflighted_and_installable_locally(self) -> None:
+        """The W3C skip must be visible on the dev path, and its fix runnable.
+
+        The CI side of this gate is already pinned by
+        ``test_html_surfaces_are_validated_in_ci``: the job installs the
+        validator, so it never skips.  Locally ``tests/html_validate.py``
+        skips when ``vnu`` is off PATH and nothing said so: ``make doctor``
+        checked the other host deps, ``make test`` ran the suite and reported
+        green, and the two HTML surfaces the project rules require to validate
+        were never opened.  A warn-level preflight costs a contributor without
+        the jar nothing, and names the one command that closes the gap.
+        """
+        text = MAKEFILE.read_text(encoding="utf-8")
+        assert "command -v vnu" in text
+        assert "warn-vnu" in _makefile_prereqs("test")
+        assert "warn-vnu" in _makefile_prereqs("coverage")
+        # Single-file loop stays soft, like nasm and node: the HTML tests skip
+        # on their own, so unrelated work does not need the jar.
+        assert "warn-vnu" not in _makefile_prereqs("test-one")
+        # The warning has to end in something runnable, and the pins live in
+        # the CI helper, so the local target wraps it rather than restating
+        # the URL and sha256 the helper already asserts.
+        recipe = text.split("\nvnu:", 1)[1].split("\n# ", 1)[0]
+        assert "tools/ci_install_vnu.sh" in recipe
+        assert "vnu.linux.zip" not in text
+        # Nothing installs implicitly: a preflight is read-only, and the
+        # target only runs when a contributor asks for it by name.
+        assert "vnu" not in _makefile_prereqs("setup")
+
     def test_pr_check_installs_the_built_wheel(self) -> None:
         """The wheel smoke install is a CI gate; pr-check has to run it locally.
 

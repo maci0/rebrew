@@ -111,6 +111,11 @@
   now guards both.
 
 ### Changed
+- **Breaking:** `analyze.main` and `layout_map.main` take `-o` beside
+  `--output` in their rendered signatures. The two commands gained the short
+  option the other 24 `--output`s already had, and the public surface gate
+  reads a Typer callback's option list as part of the signature, so both names
+  count as changed. The import paths and the long options are unchanged.
 - **Breaking:** `stock_lib_cache` takes a third argument. It was
   `rebrew.lib_match.stock_lib_cache(root, name)` and is now
   `rebrew.lib_match.stock_lib_cache(root, name, profile)`: the cached archive's
