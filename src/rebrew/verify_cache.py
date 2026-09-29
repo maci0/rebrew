@@ -133,18 +133,33 @@ def _memo_path_key(cache_path: Path) -> str:
         return str(cache_path)
 
 
+def _clamp_percent(value: float) -> float:
+    """A ``match_percent`` confined to ``[0.0, 100.0]``.
+
+    A non-finite value becomes ``0.0``; anything outside the range is clamped,
+    because every consumer treats the field as a fraction of the function's
+    bytes: ``report`` multiplies it by a size, ``todo`` derives an estimated
+    byte diff from ``size * (100 - pct) / 100``, and a percent above 100 makes
+    that diff negative, so the "too far apart" gate never fires.
+    """
+    if not math.isfinite(value):
+        return 0.0
+    return max(0.0, min(100.0, value))
+
+
 def _cached_percent(value: Any) -> float | None:
     """A cached ``match_percent`` as a float, ``None`` when absent or unusable.
 
     The cache is a JSON file on disk, so a hand-edit or a partial write can
     leave a non-numeric value behind; coercing it unguarded would raise
     ``ValueError`` out of the write path, taking the verify that produced the
-    patch down with it.
+    patch down with it.  Non-finite and out-of-range values are clamped rather
+    than dropped, so a corrupt row still ranks last instead of vanishing.
     """
     if value is None:
         return None
     try:
-        return float(value)
+        return _clamp_percent(float(value))
     except (TypeError, ValueError):
         return None
 
@@ -550,10 +565,13 @@ def patch_verify_cache_entries(cfg: ProjectConfig, patches: list[dict[str, Any]]
             if p.get("match_percent") is not None:
                 raw_pct = float(p["match_percent"])
                 # Reject NaN/inf so a corrupt patch cannot poison status/todo
-                # ranking (NaN sorts break; isfinite comparisons are always false).
+                # ranking (NaN sorts break; isfinite comparisons are always false),
+                # and clamp to 0-100: a percent above 100 makes the report's
+                # fuzzy totals and todo's est_diff gate read as more matched than
+                # the function has bytes.
                 # Unrounded, like a full verify's rows: rounding lifted 59.96 to
                 # 60.0, across the NEAR_MATCHING threshold todo ranks by.
-                match_pct = raw_pct if math.isfinite(raw_pct) else 0.0
+                match_pct = _clamp_percent(raw_pct)
             elif total > 0:
                 match_pct = 100.0 * p["match_count"] / total
             else:

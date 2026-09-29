@@ -187,6 +187,9 @@ def calculate_roi(size: int, match_pct: float | None, delta: int | None) -> floa
     """
     if match_pct is None:
         match_pct = 0.0
+    # 0-100 only: a percent above 100 (corrupt cache row) drives the base
+    # score negative and would rank a function as easier than a fresh one.
+    match_pct = max(0.0, min(100.0, match_pct))
 
     # Invert the score: 0% match = 65 base, 100% match = 25 base
     base_score = 65.0 - (match_pct * 0.4)
@@ -625,6 +628,12 @@ def _collect_prover_candidates(
         # 340B function) is not provable — the prover just exhausts its
         # timeout.  Skip it; it belongs in improve-match/fix-delta instead.
         if match_pct is not None:
+            # Clamp: the field is a fraction of the function's bytes, and a
+            # cached value above 100 makes est_diff negative, so the gate below
+            # never fires and a badly mismatched function is queued for the
+            # prover.  Clamped, not rejected: an out-of-range row still means
+            # "measured, and not a match".
+            match_pct = max(0.0, min(100.0, match_pct))
             est_diff = size * (100.0 - match_pct) / 100.0
             if est_diff > _PROVE_MAX_DIFF_BYTES:
                 continue

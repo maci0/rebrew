@@ -1429,10 +1429,13 @@ def generate_decomp_dev_report(cfg: ProjectConfig, out_path: Path) -> dict[str, 
                 except (TypeError, ValueError):
                     continue
                 # Corrupt cache entries once stored NaN; NaN * size poisons
-                # the unit/project fuzzy totals (and sorts break on NaN).
+                # the unit/project fuzzy totals (and sorts break on NaN).  A
+                # percent above 100 is clamped too: it is a fraction of the
+                # function's bytes, so it would report more matched code than
+                # the unit has.
                 if not math.isfinite(pct):
                     continue
-                cached_pct[va_key] = pct
+                cached_pct[va_key] = max(0.0, min(100.0, pct))
     except (OSError, ValueError, TypeError) as exc:
         logging.getLogger(__name__).warning(
             "verify cache unavailable for fuzzy match percents: %s", exc

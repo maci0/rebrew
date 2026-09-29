@@ -27,6 +27,7 @@ from rebrew.cli import (
     parse_va,
     require_config,
     require_non_negative,
+    require_positive_size,
 )
 from rebrew.config import ProjectConfig, inventory_path_for
 from rebrew.instruction_clones import (
@@ -126,8 +127,11 @@ def similarity_score(
     """
     if sig_a is None or sig_b is None:
         return 0.0
-    size_a = int(sig_a.get("size") or 0) if size_a is None else size_a
-    size_b = int(sig_b.get("size") or 0) if size_b is None else size_b
+    # A negative size is not a byte count; treating it as unknown keeps the
+    # size term off, where a negative would score outside 0-100 (min/max of
+    # two opposite-signed operands is negative).
+    size_a = max(0, int(sig_a.get("size") or 0)) if size_a is None else max(0, size_a)
+    size_b = max(0, int(sig_b.get("size") or 0)) if size_b is None else max(0, size_b)
     hist = _cosine(sig_a["histogram"], sig_b["histogram"]) * 100.0
     calls = _ratio(sig_a["calls"], sig_b["calls"]) * 100.0
     branches = _ratio(sig_a["branches"], sig_b["branches"]) * 100.0
@@ -358,6 +362,10 @@ def main(
 ) -> None:
     """Find functions structurally similar to the one at VA."""
     top = require_non_negative(option_default(top, 10), "--top", json_mode=json_output)
+    if size is not None:
+        # A negative size reaches `f.read(-N)` (the rest of the file) and the
+        # size-agreement ratio, which then reports a score outside 0-100.
+        size = require_positive_size(size, json_mode=json_output)
     cfg = require_config(target=target, json_mode=json_output)
     query_va = parse_va(va, json_mode=json_output) if va is not None else None
 

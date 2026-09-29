@@ -225,7 +225,8 @@ class TestVerifyPlacement:
 
         monkeypatch.chdir(_project(tmp_path))
         # TU#0: sym_a misplaced by +1, sym_b misplaced by -2 -> delta_sum = -1, misplaced = 2
-        # -1 // 2 was -1 (floor bias); round(-1 / 2) is 0
+        # The mean keeps its fraction: round(-1 / 2) with no digits returned the
+        # int 0, so an object whose symbols sit half a byte off read as no drift.
         _patch_layout(
             monkeypatch,
             objects=[(32, {"sym_a": 1, "sym_b": 14})],
@@ -233,4 +234,4 @@ class TestVerifyPlacement:
         )
         result = CliRunner().invoke(app, [])
         assert result.exit_code == 1
-        assert "mean delta +0x0" in result.output
+        assert "mean delta -0.50B" in result.output

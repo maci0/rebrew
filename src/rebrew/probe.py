@@ -160,13 +160,13 @@ def main(
         return
     console.print(
         f"0x{va_int:x} size {size_val}: matched {strict_count}/{n} "
-        f"({100.0 * strict_count / n:.1f}%), matched-reloc {generous}/{n}, "
+        f"({payload['percent']:.1f}%), matched-reloc {generous}/{n}, "
         f"instructions {len(obj_insns)} vs {len(ref_insns)}, comdat span {span}"
         + (f" (code {code_len})" if code_len != span else "")
     )
     console.print(
         f"  aligned {aligned}/{total_cls} reference bytes "
-        f"({100.0 * aligned / max(1, total_cls):.1f}%)"
+        f"({floor_pct(aligned, total_cls):.1f}%)"
     )
     console.print(f"  object: {obj_path}")
 

@@ -122,7 +122,14 @@ def main(
     # Only objects with at least one misplaced symbol, worst delta first.
     drifted: list[dict[str, Any]] = sorted(
         (
-            {"object": obj, **stats, "mean_delta": round(stats["delta_sum"] / stats["misplaced"])}
+            # Two decimals: round() with no digits returns an int and banks
+            # rounds, so a mean byte delta of 1/2 read as 0 and the sort put
+            # the drifted object last.
+            {
+                "object": obj,
+                **stats,
+                "mean_delta": round(stats["delta_sum"] / stats["misplaced"], 2),
+            }
             for obj, stats in per_object.items()
             if stats["misplaced"]
         ),
@@ -157,7 +164,7 @@ def main(
                 console.print(
                     f"    {untrusted_ident(Path(stats['object']).name):32} "
                     f"{stats['misplaced']}/{stats['symbols']} misplaced  "
-                    f"mean delta {stats['mean_delta']:+#x}"
+                    f"mean delta {stats['mean_delta']:+.2f}B"
                 )
     if bad:
         raise typer.Exit(code=EXIT_MISMATCH)
