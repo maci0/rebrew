@@ -1583,6 +1583,61 @@ class TestPrecompileBatchCleanup:
         assert not sandbox.exists()
         assert compile_mod._BATCH_OBJ_DIRS == []
 
+    def test_pending_queue_is_bounded_and_oldest_goes_first(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Only ``verify`` drains the queue per pass, so a match/GA run that
+        keeps hitting a busy mount must not hold one entry per compile."""
+        import rebrew.compile as compile_mod
+
+        dirs = []
+        for i in range(compile_mod._BATCH_OBJ_DIRS_MAX + 5):
+            d = tmp_path / f"objs{i}"
+            d.mkdir()
+            dirs.append(d)
+        monkeypatch.setattr(compile_mod, "_BATCH_OBJ_DIRS", list(dirs))
+        monkeypatch.setattr(
+            "rebrew.temp_dirs.remove_temp_dir",
+            lambda path, retries=5, delay=0.2: (_ for _ in ()).throw(
+                OSError("Device or resource busy")
+            ),
+        )
+        compile_mod.cleanup_batch_obj_dirs()
+        assert dirs[-compile_mod._BATCH_OBJ_DIRS_MAX :] == compile_mod._BATCH_OBJ_DIRS
+
+    def test_discard_drains_the_queue_once_it_overflows(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The overflow drain is the retry a never-drained run would not get."""
+        import rebrew.compile as compile_mod
+
+        stale = tmp_path / "stale_objs"
+        stale.mkdir()
+        fresh = tmp_path / "fresh_sandbox"
+        fresh.mkdir()
+        queued = [
+            stale,
+            *(tmp_path / f"objs{i}" for i in range(compile_mod._BATCH_OBJ_DIRS_MAX - 1)),
+        ]
+        monkeypatch.setattr(compile_mod, "_BATCH_OBJ_DIRS", queued)
+        monkeypatch.setattr(compile_mod, "_BATCH_ATEXIT_REGISTERED", True)
+
+        calls: list[Path] = []
+
+        def _remove(path: Path, retries: int = 5, delay: float = 0.2) -> None:
+            calls.append(path)
+            if path == stale:
+                path.rmdir()
+                return
+            raise OSError("Device or resource busy")
+
+        monkeypatch.setattr("rebrew.temp_dirs.remove_temp_dir", _remove)
+        compile_mod._discard_temp_dir(fresh)
+        assert stale in calls, "overflow must retry the older queued dirs"
+        assert fresh in calls, "the new entry is retried by the drain too"
+        assert stale not in compile_mod._BATCH_OBJ_DIRS
+        assert not stale.exists()
+
     def test_atexit_hook_armed_once_and_sweeps_dirs(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

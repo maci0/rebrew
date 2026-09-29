@@ -4352,6 +4352,49 @@ class TestConnectionCap:
             server.server_close()
             serve.join(timeout=5)
 
+    def test_slot_and_descriptor_come_back_when_the_thread_cannot_start(
+        self, dashboard: Dashboard, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A refused thread must not cost the run a slot or a descriptor.
+
+        ``ThreadingMixIn.process_request`` has no cleanup of its own around
+        ``t.start()``, and thread pressure is exactly what the cap exists for.
+        ``_handle_request_noblock`` closes the accepted socket around this
+        call, so both are this server's to account for.
+        """
+        import socket
+
+        monkeypatch.setattr(_Handler, "timeout", 5.0)
+        server, serve = self._server(dashboard, 1, monkeypatch)
+        shut: list[object] = []
+        real_shutdown = server.shutdown_request
+
+        def _record(request: object) -> None:
+            shut.append(request)
+            real_shutdown(request)
+
+        def _no_threads(self: object, request: object, client_address: object) -> None:
+            raise RuntimeError("can't start new thread")
+
+        server.shutdown_request = _record  # type: ignore[method-assign]
+        monkeypatch.setattr(
+            "socketserver.ThreadingMixIn.process_request", _no_threads, raising=True
+        )
+        try:
+            with socket.create_connection(server.server_address[:2], timeout=5) as conn:
+                deadline = time.monotonic() + 5.0
+                while not shut and time.monotonic() < deadline:
+                    time.sleep(0.02)
+                assert server._active == 0, "the refused slot must come back"
+                assert len(shut) == 1, "the accepted socket must be closed, not leaked"
+                conn.settimeout(2.0)
+                assert conn.recv(4096) == b"", "the peer must see the close"
+        finally:
+            monkeypatch.undo()
+            server.shutdown()
+            server.server_close()
+            serve.join(timeout=5)
+
     def test_health_reports_the_in_flight_connection_gauge(
         self, dashboard: Dashboard, monkeypatch: pytest.MonkeyPatch
     ) -> None:

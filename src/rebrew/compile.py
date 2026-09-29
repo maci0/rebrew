@@ -1886,6 +1886,13 @@ def compile_batch_objs(
 _BATCH_OBJ_DIRS: list[Path] = []
 _BATCH_ATEXIT_REGISTERED = False
 _BATCH_OBJ_DIRS_LOCK = threading.Lock()
+#: Cap on :data:`_BATCH_OBJ_DIRS`.  Only ``verify`` drains it per pass, so a
+#: long ``rebrew match --all`` or GA run against a runtime that keeps a bind
+#: mount busy past :func:`~rebrew.temp_dirs.remove_temp_dir`'s retry window
+#: re-queued one dir per compile and never retried any of them before exit.
+#: Overflow drains the queue (see :func:`_discard_temp_dir`) and then drops
+#: the oldest entries, which the 24 h stale sweep still reclaims on disk.
+_BATCH_OBJ_DIRS_MAX = 64
 
 
 def _discard_temp_dir(path: Path) -> None:
@@ -1898,15 +1905,25 @@ def _discard_temp_dir(path: Path) -> None:
     compile, and only the once-per-process stale sweep (24 h) reclaims it.
     Re-queue instead, so the next :func:`cleanup_batch_obj_dirs` / atexit
     pass tries again.
+
+    Past :data:`_BATCH_OBJ_DIRS_MAX` the queue is drained here, because those
+    callers are the only ones that would have retried the entries this run is
+    still accumulating.  Whatever is still busy after that drain is dropped
+    oldest-first rather than held for the rest of the process.
     """
     from rebrew.temp_dirs import remove_temp_dir
 
     try:
         remove_temp_dir(path)
+        return
     except OSError:
-        with _BATCH_OBJ_DIRS_LOCK:
-            _BATCH_OBJ_DIRS.append(path)
-        _register_batch_obj_atexit()
+        pass
+    with _BATCH_OBJ_DIRS_LOCK:
+        _BATCH_OBJ_DIRS.append(path)
+        overflow = len(_BATCH_OBJ_DIRS) > _BATCH_OBJ_DIRS_MAX
+    _register_batch_obj_atexit()
+    if overflow:
+        cleanup_batch_obj_dirs()
 
 
 def cleanup_batch_obj_dirs() -> None:
@@ -1922,7 +1939,9 @@ def cleanup_batch_obj_dirs() -> None:
     A path is dropped from the tracking list only after a successful remove
     (or when it is already gone).  A busy mount that raises leaves the entry
     for the next cleanup / atexit pass instead of orphaning it on disk with
-    no retry handle.
+    no retry handle, up to :data:`_BATCH_OBJ_DIRS_MAX` entries; past that the
+    oldest are released to the stale sweep so a run that never drains cannot
+    grow the list for its whole lifetime.
     """
     from rebrew.temp_dirs import remove_temp_dir
 
@@ -1935,6 +1954,13 @@ def cleanup_batch_obj_dirs() -> None:
             remove_temp_dir(path)
         except OSError:
             remaining.append(path)
+    if len(remaining) > _BATCH_OBJ_DIRS_MAX:
+        logging.getLogger(__name__).debug(
+            "%d temp dirs still busy, keeping the newest %d for a later pass",
+            len(remaining),
+            _BATCH_OBJ_DIRS_MAX,
+        )
+        remaining = remaining[-_BATCH_OBJ_DIRS_MAX:]
     if remaining:
         with _BATCH_OBJ_DIRS_LOCK:
             _BATCH_OBJ_DIRS.extend(remaining)

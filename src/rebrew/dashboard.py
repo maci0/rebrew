@@ -3591,6 +3591,8 @@ class _DashboardServer(ThreadingHTTPServer):
         try:
             super().process_request(request, client_address)
         except BaseException:
+            # The socket is closed by ``_handle_request_noblock``'s own handler
+            # around this call; only the slot is this method's to give back.
             _release_connection_slot()
             raise
 
