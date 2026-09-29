@@ -234,7 +234,7 @@ extend-exclude = [".hypothesis", ".scratch"]
 # only; PLE after the mutator `__all__` extend() fix).
 # Individual RUF codes below are the stable (non-preview) subset of the RUF
 # family the tree already passes; debt codes
-# (RUF001/002/003/005/007/012/021/022/043/059) stay off until
+# (RUF001/002/003/005/012/021/022/043/059) stay off until
 # clean — no repo-wide ignore for them.  Preview-only RUF/FURB codes are
 # omitted (selecting them is a no-op without preview=true).
 # Bandit/tryceratops/refurb/pie/ret/flake8-builtins/logging/unused-arg codes
@@ -248,8 +248,9 @@ extend-exclude = [".hypothesis", ".scratch"]
 # test's `token`. A decomp.me fixture token keeps a scoped, reasoned noqa.
 # pylint (PLW/PLC/PLR), flake8-type-checking (TC), flake8-errmsg (EM),
 # flake8-pytest-style (PT), and ISC003 are the same ratchet: only codes the
-# tree already passes.  ISC001/ISC002 stay off (formatter conflict); TID*
-# stays off until a banned-api list exists (empty config would be a no-op).
+# tree already passes.  ISC001/ISC002 stay off (formatter conflict); TID252
+# (relative imports) is on as the layering rule's teeth, and TID251/253/254/255
+# stay off until a banned-api list exists (an empty list would be a no-op).
 # T100/T203 (debugger/pprint) and the zero-finding PTH subset join as
 # ratchets; B904 is enforced after exception-chain fixes (do not re-add
 # it to ignore).  S112 (a `continue` that swallows the exception), PTH118
@@ -272,7 +273,7 @@ extend-exclude = [".hypothesis", ".scratch"]
 # reads better than an inlined comprehension), D101-D103/D205/D209/D401
 # (thousands of findings), N802/N806/N814 (Win32 API names), PYI034/
 # PYI036, D203/D206/D213/D300 (formatter or D211/D212 conflicts), and
-# D415 (41 findings: docstring summary lines ending without punctuation).
+# D415 (5 findings: docstring summary lines ending without punctuation).
 # TRY400 (logging.error inside an except, which drops the traceback), PLC0206
 # (dict key looked up instead of the value the loop ignores), PERF402/403,
 # FURB136/FURB171, PLR1711/PLR1714/PLR5501 and the rest of this batch joined
@@ -422,12 +423,14 @@ enable_error_code = [
 ]
 # src/ is the shipped library; tools/ are the repo's own dev scripts (CI and
 # the pre-commit hook both run plain `uv run mypy`, which checks both).  The
-# tests/ modules below are the ones that came clean first: the two non-test_
-# helper modules (the pytest plugin every run loads through `addopts`, and
-# the COFF builders the fixture generator imports, both of which a typing
-# regression would reach only at runtime) plus every tests/ module that already
-# passes --strict clean.  The rest of tests/ is still unchecked; add a module
-# here as it comes clean rather than relaxing the gate for the tree.
+# tests/ modules below are the ones that came clean first: the five non-test_
+# helper modules (the pytest plugin every run loads through `addopts`, the
+# COFF builders the fixture generator imports, the on-disk cache builders,
+# the bounded thread join, and the W3C validator both HTML surfaces go through,
+# none of which a typing regression would reach only at runtime) plus every
+# tests/ module that already passes --strict clean.  The rest of tests/ is
+# still unchecked; add a module here as it comes clean rather than relaxing
+# the gate for the tree.
 # Every clean tests/ module is listed, test_check_sdist_wheel.py included: the
 # "Source file found twice under different module names" abort that used to
 # keep it out does not reproduce, and with it listed `uv run mypy` reports the
@@ -437,6 +440,9 @@ files = [
     "tools",
     "tests/pytest_ansi_env.py",
     "tests/bin_util.py",
+    "tests/cache_util.py",
+    "tests/html_validate.py",
+    "tests/thread_util.py",
     "tests/test_annotation_roundtrip.py",
     "tests/test_apply_relocations.py",
     "tests/test_asm.py",
@@ -453,6 +459,7 @@ files = [
     "tests/test_catalog.py",
     "tests/test_catalog_registry.py",
     "tests/test_catalog_resilience.py",
+    "tests/test_check_layering.py",
     "tests/test_check_sdist_wheel.py",
     "tests/test_cfg_ged.py",
     "tests/test_cli_visual.py",

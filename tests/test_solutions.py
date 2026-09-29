@@ -313,7 +313,7 @@ class TestAppendDurability:
     at close but not fsynced is a win the host can take away."""
 
     def test_record_is_fsynced_before_the_call_returns(
-        self, project_root: Path, monkeypatch
+        self, project_root: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         import os
 
@@ -343,7 +343,7 @@ class TestAppendDurability:
         assert [r["symbol"] for r in records] == ["_demo"]
 
     def test_a_later_record_does_not_resync_the_directory(
-        self, project_root: Path, monkeypatch
+        self, project_root: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The directory entry needs syncing once, when the log is created; the
         per-run fsync of the file is what every later record pays for."""

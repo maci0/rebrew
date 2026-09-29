@@ -8,6 +8,18 @@
   otherwise. Warn-only, since a stray copy is not a defect by itself.
 
 ### Fixed
+- **Two modules the strict mypy gate covers were not type-clean.**
+  `tests/test_solutions.py` left the `monkeypatch` fixture parameters of both
+  fsync-durability tests unannotated, and `tests/test_verify_watch.py` typed
+  its captured watch arguments as `dict[str, object]`, so the indexed
+  `kwargs["path_provider"]` read was an error rather than a check. Both files
+  are listed in `[tool.mypy].files`, so `make mypy` reported them.
+- **Four clean `tests/` modules were outside the mypy gate.**
+  `tests/cache_util.py`, `tests/thread_util.py`, `tests/html_validate.py` and
+  `tests/test_check_layering.py` pass `--strict` and are now listed, so a
+  typing regression in a shared helper fails the same gate as the library.
+
+### Fixed
 - **Four W036 lint tests never ran.** `tests/test_lint.py` held two classes
   named `TestW036StrayMetadataStore`, so the first was shadowed at collection:
   its cases (a store inside the configured directory, a stray one naming its

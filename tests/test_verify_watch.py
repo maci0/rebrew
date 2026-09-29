@@ -3,6 +3,7 @@
 import os
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -148,7 +149,7 @@ class TestWatchFiles:
 
 class TestVerifyWatchCli:
     def test_watch_dispatches_to_watch_files(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        seen: dict[str, object] = {}
+        seen: dict[str, Any] = {}
         monkeypatch.setattr(
             verify_mod,
             "require_config",
