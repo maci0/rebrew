@@ -17,6 +17,17 @@ from rebrew.compile_cache import (
 )
 from rebrew.utils import BYTES_PER_MIB
 
+#: Re-exported for callers that render the CLI's own default (the JSON report
+#: exposes ``size_limit_mib``): mypy's implicit-reexport rule needs the name in
+#: ``__all__`` before a test may read it off this module.
+__all__ = [
+    "DEFAULT_CACHE_BACKEND",
+    "DEFAULT_CACHE_SIZE_LIMIT_MIB",
+    "app",
+    "main_entry",
+]
+
+
 app = typer.Typer(
     help="Manage the compile result cache (.rebrew/compile_cache/).",
     rich_markup_mode="rich",

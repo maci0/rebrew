@@ -1530,3 +1530,56 @@ class TestSetFieldsValidation:
                 [{"module": "SERVER", "va": 0x2000, "fields": {"note": "x"}}, bad],
             )
         assert get_entry(tmp_path, 0x2000, "SERVER") == {}
+
+
+class TestFormatStamp:
+    """Each store carries a format stamp its writers add and never rewrite."""
+
+    def test_a_write_stamps_the_format_version(self, tmp_path: Path) -> None:
+        from rebrew.metadata import FORMAT_KEY, FORMAT_VERSION, update_field
+
+        update_field(tmp_path, 0x1000, "note", "x", "SERVER", updated_by="lint")
+        text = (tmp_path / "rebrew-functions.toml").read_text(encoding="utf-8")
+        assert f"{FORMAT_KEY} = {FORMAT_VERSION}" in text
+
+    def test_a_foreign_stamp_is_preserved(self, tmp_path: Path) -> None:
+        from rebrew.metadata import FORMAT_KEY, update_field
+
+        (tmp_path / "rebrew-functions.toml").write_text(
+            f'{FORMAT_KEY} = 99\n\n["SERVER.0x1000"]\nstatus = "STUB"\n', encoding="utf-8"
+        )
+        update_field(tmp_path, 0x1000, "note", "x", "SERVER", updated_by="lint")
+        text = (tmp_path / "rebrew-functions.toml").read_text(encoding="utf-8")
+        assert f"{FORMAT_KEY} = 99" in text
+
+    def test_the_tag_vocabulary_is_closed(self) -> None:
+        from rebrew.metadata import PROVENANCE_TAGS
+
+        assert {"test", "verify", "prove", "match", "diff", "blocker"} <= PROVENANCE_TAGS
+        assert not any(not tag or " " in tag for tag in PROVENANCE_TAGS)
+
+
+class TestIdentityFileValidator:
+    """`file` is joined onto a project root by several consumers."""
+
+    def test_relative_paths_pass_through(self) -> None:
+        from rebrew.metadata import validate_identity_file
+
+        assert validate_identity_file("src/server/a.c") == "src/server/a.c"
+        assert validate_identity_file("") == ""
+
+    def test_absolute_and_escaping_paths_raise(self) -> None:
+        from rebrew.metadata import validate_identity_file
+
+        for bad in ("/etc/passwd", "C:/Windows/x.c", "../outside.c", "a/../../b.c"):
+            with pytest.raises(ValueError):
+                validate_identity_file(bad)
+
+    def test_migrate_markers_refuses_an_escaping_path(self, tmp_path: Path) -> None:
+        from rebrew.metadata import record_migrated_markers
+
+        with pytest.raises(ValueError, match="escape the project"):
+            record_migrated_markers(
+                tmp_path,
+                [{"module": "SERVER", "va": 0x1000, "identity": {"file": "../x.c"}}],
+            )

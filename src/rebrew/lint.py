@@ -67,6 +67,8 @@ from rebrew.lint_cflags import (
     inline_equals_store,
 )
 from rebrew.metadata import (
+    MARKER_IDENTITY_FIELDS,
+    METADATA_FIELDS,
     canonical_status,
     is_table_field,
     load_metadata,
@@ -838,45 +840,178 @@ def _check_W015_va_case(result: LintResult, va_str: str) -> None:
             )
 
 
-def _check_W031_data_metadata(cfg: ProjectConfig) -> list[LintResult]:
-    """W031: hand-edit problems in ``rebrew-data.toml`` entries.
+def _check_W031_metadata_store(cfg: ProjectConfig) -> list[LintResult]:
+    """W031: the metadata TOMLs carry something a reader will not honour.
 
-    The gated writers reject these shapes, so a file that carries one was
-    edited by hand (or written by an older tree): an unknown field, a STATUS
-    outside the three data verdicts, or half a provenance pair.  Each is
-    reported on its own entry rather than raising — the rest of the store is
-    still usable, and the reader tolerates the field.
+    The gated writers reject these shapes, so a file that holds one was edited
+    by hand (or written by an older tree): an unknown field, a STATUS outside
+    the store's vocabulary, half a provenance pair, a provenance tag outside
+    :data:`rebrew.metadata.PROVENANCE_TAGS`, a top-level key that is neither the
+    format stamp nor a ``MODULE.0xVA`` entry, or a missing / foreign format
+    stamp.  A reader drops an unknown key silently and falls back to the
+    default, so the symptom is a flag that "did not apply" with nothing to
+    explain it.  Warn-only, reported per entry: the rest of the store loads.
     """
     from rebrew.data_metadata import (
         DATA_METADATA_FIELDS,
         DATA_METADATA_FILENAME,
         DATA_STATUSES,
     )
+    from rebrew.metadata import FORMAT_KEY, FORMAT_VERSION, PROVENANCE_TAGS
+    from rebrew.metadata_doc import parse_metadata_key
+    from rebrew.utils import load_tomllib
 
-    path = Path(cfg.metadata_dir) / DATA_METADATA_FILENAME
     results: list[LintResult] = []
-    for (module, va), fields in sorted(load_data_metadata(cfg.metadata_dir).items()):
+
+    def check_store(
+        path: Path,
+        fields: frozenset[str],
+        statuses: frozenset[str] | None,
+    ) -> None:
+        if not path.is_file():
+            return
+        try:
+            doc = load_tomllib(path)
+        except (OSError, ValueError):
+            return
+        if not isinstance(doc, dict):
+            return
         problems: list[str] = []
-        present = {k.lower() for k in fields}
-        for key in fields:
-            if str(key).upper() not in DATA_METADATA_FIELDS:
-                problems.append(
-                    f"unknown field {key!r} (the writers reject it; rebrew-data.toml is tool-owned)"
-                )
-        status = str(fields.get("status") or "")
-        if status and status not in DATA_STATUSES:
+        stamp = doc.get(FORMAT_KEY)
+        if stamp is None:
             problems.append(
-                f"STATUS {status!r} is not a data verdict ({', '.join(sorted(DATA_STATUSES))})"
+                f"no {FORMAT_KEY} stamp (a writer adds {FORMAT_KEY} = {FORMAT_VERSION})"
             )
-        if ("updated_by" in present) != ("updated_at" in present):
-            problems.append("half a provenance pair: updated_by / updated_at are written together")
-        if not problems:
-            continue
-        res = LintResult(path)
-        for problem in problems:
-            res.warning(1, "W031", f"{module} 0x{va:08x}: {problem}")
-        results.append(res)
+        elif stamp != FORMAT_VERSION:
+            problems.append(f"{FORMAT_KEY} = {stamp!r}, this rebrew reads {FORMAT_VERSION}")
+        known_fields = {f.upper() for f in fields}
+        for key, entry in doc.items():
+            if key == FORMAT_KEY:
+                continue
+            if not isinstance(entry, dict):
+                problems.append(
+                    f"top-level {key!r} is neither {FORMAT_KEY!r} nor a MODULE.0xVA entry"
+                )
+                continue
+            if parse_metadata_key(key) is None:
+                problems.append(f"top-level {key!r} is not a MODULE.0xVA entry")
+            lower = {str(k).lower() for k in entry}
+            for name in entry:
+                if str(name).upper() not in known_fields:
+                    problems.append(f"{key}: unknown field {name!r} (every reader ignores it)")
+            status = str(entry.get("status") or "")
+            if statuses is not None and status and status not in statuses:
+                problems.append(
+                    f"{key}: STATUS {status!r} is not one of {', '.join(sorted(statuses))}"
+                )
+            if ("updated_by" in lower) != ("updated_at" in lower):
+                problems.append(
+                    f"{key}: half a provenance pair (updated_by / updated_at are written together)"
+                )
+            tag = str(entry.get("updated_by") or "")
+            if tag and tag not in PROVENANCE_TAGS:
+                problems.append(f"{key}: unknown provenance tag {tag!r}")
+        if problems:
+            res = LintResult(path)
+            for problem in problems:
+                res.warning(1, "W031", problem)
+            results.append(res)
+
+    # METADATA_FIELDS is upper-case while MARKER_IDENTITY_FIELDS is lower-case
+    # (`file`, `symbol`, `name`, `marker_type`): compare both spellings, or a
+    # `migrate-markers` identity field reads as unknown.
+    function_fields = frozenset(f.upper() for f in METADATA_FIELDS) | frozenset(
+        f.upper() for f in MARKER_IDENTITY_FIELDS
+    )
+    check_store(
+        (Path(cfg.metadata_dir) / "rebrew-functions.toml").resolve(),
+        function_fields,
+        None,
+    )
+    check_store(
+        (Path(cfg.metadata_dir) / DATA_METADATA_FILENAME).resolve(),
+        DATA_METADATA_FIELDS,
+        DATA_STATUSES,
+    )
     return results
+
+
+def _check_W034_identity_paths(cfg: ProjectConfig) -> list[LintResult]:
+    """W034: a stored ``file`` identity that a consumer cannot safely join.
+
+    ``verify`` compiles ``reversed_dir / file``, ``rename`` rewrites it, and
+    BinSync reads it, so an absolute path or a ``..`` segment names a file the
+    metadata's author chose rather than one in this checkout.  Writers refuse
+    it now (:func:`rebrew.metadata.validate_identity_file`); this reports rows
+    that were written before the gate, or edited by hand.
+    """
+    from rebrew.metadata import validate_identity_file
+    from rebrew.utils import load_tomllib
+
+    path = (Path(cfg.metadata_dir) / "rebrew-functions.toml").resolve()
+    if not path.is_file():
+        return []
+    try:
+        doc = load_tomllib(path)
+    except (OSError, ValueError):
+        return []
+    if not isinstance(doc, dict):
+        return []
+    problems: list[str] = []
+    for key, entry in doc.items():
+        if not isinstance(entry, dict):
+            continue
+        value = str(entry.get("file") or "")
+        if not value:
+            continue
+        try:
+            validate_identity_file(value)
+        except ValueError as exc:
+            problems.append(f"{key}: {exc}")
+    if not problems:
+        return []
+    res = LintResult(path)
+    for problem in problems:
+        res.warning(1, "W034", problem)
+    return [res]
+
+
+def _check_W035_unknown_modules(cfg: ProjectConfig) -> list[LintResult]:
+    """W035: a store row whose module belongs to no target in this project.
+
+    ``status`` / ``todo`` / the dashboards filter rows by module, so a row left
+    behind by a renamed target is invisible everywhere while still sitting in
+    the store.  Known modules are the project marker, every target marker, and
+    the declared library modules.
+    """
+    from rebrew.metadata import load_metadata
+
+    known = {preset_module_key(str(getattr(cfg, "marker", "") or ""))}
+    known |= {preset_module_key(str(name)) for name in (getattr(cfg, "all_markers", None) or ())}
+    known |= {
+        preset_module_key(str(name)) for name in (getattr(cfg, "library_modules", None) or ())
+    }
+    known.discard("")
+    if not known:
+        return []
+    unknown = sorted(
+        {
+            str(module)
+            for (module, _va) in load_metadata(cfg.metadata_dir, deepcopy=False)
+            if preset_module_key(str(module)) not in known
+        }
+    )
+    if not unknown:
+        return []
+    res = LintResult(Path("rebrew-functions.toml"))
+    for module in unknown:
+        res.warning(
+            1,
+            "W035",
+            f"module {module!r} matches no target marker or library module"
+            " (rows for a renamed or removed target stay invisible to status/todo)",
+        )
+    return [res]
 
 
 #: Old-store artifacts the coverage document replaced.  A tree that still
@@ -2437,8 +2572,10 @@ def main(
     # artifact it describes and the per-file loop stays untouched.
     if cfg is not None:
         for artifact_result in (
-            *_check_W031_data_metadata(cfg),
+            *_check_W031_metadata_store(cfg),
             *_check_W032_coverage_store(cfg),
+            *_check_W034_identity_paths(cfg),
+            *_check_W035_unknown_modules(cfg),
             *_check_W033_agent_scaffold(cfg),
         ):
             all_results.append(artifact_result)

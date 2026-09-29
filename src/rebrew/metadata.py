@@ -106,7 +106,7 @@ import unicodedata
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
 
 import tomlkit
@@ -218,8 +218,11 @@ METADATA_FIELDS: frozenset[str] = frozenset(
 _LOWER_METADATA_FIELDS = frozenset(f.lower() for f in METADATA_FIELDS)
 
 __all__ = [
+    "FORMAT_KEY",
+    "FORMAT_VERSION",
     "GA_CEILING_PREFIX",
     "KNOWN_STATUSES",
+    "PROVENANCE_TAGS",
     "LIBRARY_METADATA_FILE",
     "LIBRARY_PRESET_ENTRY_POINT_GROUP",
     "LibraryOverride",
@@ -259,7 +262,9 @@ __all__ = [
     "set_fields",
     "set_fields_batch",
     "should_promote_status",
+    "stamp_format",
     "stamp_provenance",
+    "validate_identity_file",
     "update_field",
     "update_source_status",
     "update_statuses_batch",
@@ -379,6 +384,7 @@ def save_metadata(
         # load_metadata reads an unparseable store as empty, so a caller's
         # load-modify-save would otherwise replace every entry it never saw.
         load_toml_for_write_strict(path, "metadata")
+        stamp_format(doc)
         atomic_write_locked(path, tomlkit.dumps(doc))
         pop_metadata_doc_cache(_metadata_cache, path)
 
@@ -544,8 +550,77 @@ def _set_field(
         entry[key] = safe
         if updated_by:
             stamp_provenance(entry, updated_by)
+        stamp_format(doc)
         atomic_write_locked(path, tomlkit.dumps(doc))
         pop_metadata_doc_cache(_metadata_cache, path)
+
+
+#: Provenance tags the writers stamp into `UPDATED_BY`.  One name per tool that
+#: writes a canonical store: a free-form string would make "who changed this"
+#: answerable only by grepping the writers, and a typo indistinguishable from a
+#: new tool.  ``rebrew lint`` reports a tag outside this set (W031).
+PROVENANCE_TAGS: frozenset[str] = frozenset(
+    {
+        "binsync-import",
+        "blocker",
+        "cross-import",
+        "crt-match",
+        "data",
+        "diff",
+        "document-unmatched",
+        "fix-sizes",
+        "identify-library",
+        "intake",
+        "lint",
+        "match",
+        "near-diag",
+        "prove",
+        "rename",
+        "skeleton",
+        "test",
+        "verify",
+    }
+)
+
+#: Top-level key carrying the metadata store's format version, and its current
+#: value.  A writer stamps it when the file has none and never rewrites an
+#: existing value, including a foreign one: silently upgrading the stamp would
+#: hide the mismatch it exists to report.  Adding a field older readers ignore
+#: needs no bump; a change that would make an old file mean something else does.
+FORMAT_KEY = "format"
+FORMAT_VERSION = 1
+
+
+def stamp_format(doc: Any) -> None:
+    """Write the format version into *doc* when the file carries none.
+
+    Called before every dump in both stores, so an existing file gains the
+    stamp on its first write.  An existing value, including a foreign one, is
+    left alone.
+    """
+    doc.setdefault(FORMAT_KEY, FORMAT_VERSION)
+
+
+def validate_identity_file(value: str) -> str:
+    """Return *value* when it is a project-relative source path.
+
+    The stored ``file`` identity is joined onto a project root by several
+    consumers (``verify`` compiles it, ``rename`` rewrites it, BinSync reads
+    it), and an absolute path or ``..`` segment makes that join read whatever
+    the file's author chose (``docs/THREAT_MODEL.md`` records the exposure).
+    Rejecting it at the one write gate keeps a cloned project's metadata from
+    naming a path outside the clone.  An empty value stays empty: a row
+    without identity is legal, and ``record_migrated_markers`` skips it.
+    """
+    text = str(value).strip()
+    if not text:
+        return ""
+    normalised = text.replace("\\", "/")
+    if normalised.startswith("/") or (len(normalised) > 1 and normalised[1] == ":"):
+        raise ValueError(f"file {value!r} must be relative to the project, not absolute")
+    if ".." in PurePosixPath(normalised).parts:
+        raise ValueError(f"file {value!r} must not escape the project with '..'")
+    return text
 
 
 def stamp_provenance(entry: dict[str, Any], updated_by: str) -> None:
@@ -601,6 +676,7 @@ def set_fields(
         if changed:
             if updated_by:
                 stamp_provenance(entry, updated_by)
+            stamp_format(doc)
             atomic_write_locked(path, tomlkit.dumps(doc))
             pop_metadata_doc_cache(_metadata_cache, path)
 
@@ -647,6 +723,7 @@ def set_fields_batch(metadata_dir: Path | str | Any, updates: list[dict[str, Any
             if changed:
                 changed_entries += 1
         if changed_entries:
+            stamp_format(doc)
             atomic_write_locked(path, tomlkit.dumps(doc))
         pop_metadata_doc_cache(_metadata_cache, path)
     return changed_entries
@@ -705,12 +782,15 @@ def record_migrated_markers(metadata_dir: Path | str | Any, rows: list[dict[str,
                 if key not in MARKER_IDENTITY_FIELDS:
                     raise ValueError(f"unknown marker identity field {key!r}")
                 if value and not (key == "name" and entry.get("name")):
-                    updates[key] = toml_safe(str(value))
+                    stored = validate_identity_file(str(value)) if key == "file" else str(value)
+                    if stored:
+                        updates[key] = toml_safe(stored)
             for key, value in updates.items():
                 if entry.get(key) != value:
                     entry[key] = value
                     changed = True
         if changed:
+            stamp_format(doc)
             atomic_write_locked(path, tomlkit.dumps(doc))
         pop_metadata_doc_cache(_metadata_cache, path)
 
@@ -764,6 +844,7 @@ def remove_fields_batch(metadata_dir: Path | str | Any, updates: list[dict[str, 
             if changed:
                 changed_entries += 1
         if changed_entries:
+            stamp_format(doc)
             atomic_write_locked(path, tomlkit.dumps(doc))
         pop_metadata_doc_cache(_metadata_cache, path)
     return changed_entries
@@ -800,6 +881,7 @@ def delete_entries_batch(metadata_dir: Path | str | Any, targets: list[tuple[str
             key_index.pop((norm_mod, va_int), None)
             removed += 1
         if removed:
+            stamp_format(doc)
             atomic_write_locked(path, tomlkit.dumps(doc))
         pop_metadata_doc_cache(_metadata_cache, path)
     return removed
@@ -834,6 +916,7 @@ def _mutate_entry_doc(
             return False
         if not mutate(doc_dict, toml_key):
             return False
+        stamp_format(doc)
         atomic_write_locked(path, tomlkit.dumps(doc))
         pop_metadata_doc_cache(_metadata_cache, path)
         return True
@@ -1186,6 +1269,7 @@ def update_statuses_batch(metadata_dir: Path | str | Any, updates: list[dict[str
 
         # Single write for the whole batch
         if changed:
+            stamp_format(doc)
             atomic_write_locked(path, tomlkit.dumps(doc))
         pop_metadata_doc_cache(_metadata_cache, path)
     return changed

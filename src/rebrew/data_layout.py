@@ -36,8 +36,8 @@ from typing import Any
 from rebrew.binary_loader import load_binary
 from rebrew.data_metadata import iter_data_symbols
 from rebrew.sources import files_with_ext
+from rebrew.utils import atomic_write_text as atomic_write_text
 from rebrew.utils import (
-    atomic_write_text,
     join_source_lines,
     load_tomllib,
     parse_c_integer_literal,

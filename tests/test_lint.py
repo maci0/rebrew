@@ -2674,51 +2674,91 @@ class TestDataSectionNamesMemoConcurrent:
         assert lint._data_section_names_for(entries) == expected
 
 
-class TestW031DataMetadataHygiene:
-    """W031: the data store's hand-edit shapes, which the writers reject."""
+class TestW031MetadataStore:
+    """W031: the store shapes a reader silently ignores."""
 
     def _cfg(self, tmp_path: Path) -> SimpleNamespace:
         return SimpleNamespace(root=tmp_path, metadata_dir=tmp_path)
 
-    def _codes(self, cfg: SimpleNamespace) -> list[str]:
-        from rebrew.lint import _check_W031_data_metadata
+    def _warnings(self, cfg: SimpleNamespace) -> str:
+        from rebrew.lint import _check_W031_metadata_store
 
-        return [c for res in _check_W031_data_metadata(cfg) for _, c, _ in res.warnings]
+        return "\n".join(m for res in _check_W031_metadata_store(cfg) for _, _, m in res.warnings)
 
-    def _messages(self, cfg: SimpleNamespace) -> str:
-        from rebrew.lint import _check_W031_data_metadata
-
-        return "\n".join(m for res in _check_W031_data_metadata(cfg) for _, _, m in res.warnings)
-
-    def test_clean_store_is_silent(self, tmp_path: Path) -> None:
-        (tmp_path / "rebrew-data.toml").write_text(
-            '["SERVER.0x1000"]\nname = "g"\nstatus = "DRIFT"\n'
-            'updated_by = "verify"\nupdated_at = "2026-01-01T00:00:00+00:00"\n',
+    def test_clean_store_with_stamps_is_silent(self, tmp_path: Path) -> None:
+        (tmp_path / "rebrew-functions.toml").write_text(
+            'format = 1\n\n["SERVER.0x1000"]\nstatus = "EXACT"\n'
+            'updated_by = "test"\nupdated_at = "2026-01-01T00:00:00+00:00"\n',
             encoding="utf-8",
         )
-        assert self._codes(self._cfg(tmp_path)) == []
+        (tmp_path / "rebrew-data.toml").write_text(
+            'format = 1\n\n["SERVER.0x2000"]\nstatus = "DRIFT"\n'
+            'name = "g"\nupdated_by = "verify"\n'
+            'updated_at = "2026-01-01T00:00:00+00:00"\n',
+            encoding="utf-8",
+        )
+        assert self._warnings(self._cfg(tmp_path)) == ""
 
     def test_unknown_field_is_reported(self, tmp_path: Path) -> None:
         (tmp_path / "rebrew-data.toml").write_text(
-            '["SERVER.0x1000"]\nname = "g"\nbogus = 1\n', encoding="utf-8"
+            'format = 1\n\n["SERVER.0x1000"]\nname = "g"\nbogus = 1\n', encoding="utf-8"
         )
-        assert "unknown field" in self._messages(self._cfg(tmp_path))
+        assert "unknown field 'bogus'" in self._warnings(self._cfg(tmp_path))
+
+    def test_function_store_unknown_field_is_reported(self, tmp_path: Path) -> None:
+        (tmp_path / "rebrew-functions.toml").write_text(
+            'format = 1\n\n["SERVER.0x1000"]\nblocked = "typo"\n', encoding="utf-8"
+        )
+        assert "unknown field 'blocked'" in self._warnings(self._cfg(tmp_path))
+
+    def test_marker_identity_fields_are_known(self, tmp_path: Path) -> None:
+        (tmp_path / "rebrew-functions.toml").write_text(
+            'format = 1\n\n["SERVER.0x1000"]\nfile = "a.c"\nsymbol = "_f"\n'
+            'name = "f"\nmarker_type = "FUNCTION"\n',
+            encoding="utf-8",
+        )
+        assert self._warnings(self._cfg(tmp_path)) == ""
 
     def test_non_verdict_status_is_reported(self, tmp_path: Path) -> None:
         (tmp_path / "rebrew-data.toml").write_text(
-            '["SERVER.0x1000"]\nstatus = "EXACT"\n', encoding="utf-8"
+            'format = 1\n\n["SERVER.0x1000"]\nstatus = "EXACT"\n', encoding="utf-8"
         )
-        assert "not a data verdict" in self._messages(self._cfg(tmp_path))
+        assert "not one of DRIFT, UNCHECKED, VERIFIED" in self._warnings(self._cfg(tmp_path))
 
     def test_half_a_provenance_pair_is_reported(self, tmp_path: Path) -> None:
         (tmp_path / "rebrew-data.toml").write_text(
-            '["SERVER.0x1000"]\nstatus = "VERIFIED"\nupdated_by = "verify"\n',
+            'format = 1\n\n["SERVER.0x1000"]\nstatus = "VERIFIED"\nupdated_by = "verify"\n',
             encoding="utf-8",
         )
-        assert "half a provenance pair" in self._messages(self._cfg(tmp_path))
+        assert "half a provenance pair" in self._warnings(self._cfg(tmp_path))
+
+    def test_unknown_provenance_tag_is_reported(self, tmp_path: Path) -> None:
+        (tmp_path / "rebrew-functions.toml").write_text(
+            'format = 1\n\n["SERVER.0x1000"]\n'
+            'updated_by = "my-tool"\nupdated_at = "2026-01-01T00:00:00+00:00"\n',
+            encoding="utf-8",
+        )
+        assert "unknown provenance tag 'my-tool'" in self._warnings(self._cfg(tmp_path))
+
+    def test_missing_and_foreign_format_stamps_are_reported(self, tmp_path: Path) -> None:
+        (tmp_path / "rebrew-functions.toml").write_text(
+            '["SERVER.0x1000"]\nstatus = "STUB"\n', encoding="utf-8"
+        )
+        (tmp_path / "rebrew-data.toml").write_text(
+            'format = 7\n\n["SERVER.0x2000"]\nstatus = "DRIFT"\n', encoding="utf-8"
+        )
+        messages = self._warnings(self._cfg(tmp_path))
+        assert "no format stamp" in messages
+        assert "format = 7" in messages
+
+    def test_unknown_top_level_key_is_reported(self, tmp_path: Path) -> None:
+        (tmp_path / "rebrew-functions.toml").write_text(
+            'format = 1\nfmt = 1\n\n["SERVER.0x1000"]\nstatus = "STUB"\n', encoding="utf-8"
+        )
+        assert "top-level 'fmt'" in self._warnings(self._cfg(tmp_path))
 
     def test_missing_store_is_silent(self, tmp_path: Path) -> None:
-        assert self._codes(self._cfg(tmp_path)) == []
+        assert self._warnings(self._cfg(tmp_path)) == ""
 
 
 class TestW032CoverageStore:
@@ -2830,7 +2870,9 @@ class TestW031W032Cli:
         assert "W033" in result.output
         # Every store check is a warning, so it never fails the run.
         assert "0 errors" in result.output
-        assert "3 warnings" in result.output
+        # W031 reports the hand-edited status plus the missing format stamp,
+        # W032 the leftover SQLite store, W033 the absent scaffold.
+        assert "4 warnings" in result.output
 
     def test_json_lists_the_offending_artifacts(self, tmp_path: Path) -> None:
         import json
@@ -2922,3 +2964,67 @@ class TestW033AgentScaffold:
         ghost.parent.mkdir(parents=True)
         ghost.write_text("# retired\n", encoding="utf-8")
         assert "rebrew-retired/SKILL.md" in self._messages(self._cfg(tmp_path))
+
+
+class TestW034IdentityPaths:
+    """W034: a stored `file` a consumer must not join onto the project."""
+
+    def _cfg(self, tmp_path: Path) -> SimpleNamespace:
+        return SimpleNamespace(metadata_dir=tmp_path, root=tmp_path)
+
+    def _warnings(self, cfg: SimpleNamespace) -> str:
+        from rebrew.lint import _check_W034_identity_paths
+
+        return "\n".join(m for res in _check_W034_identity_paths(cfg) for _, _, m in res.warnings)
+
+    def test_relative_path_is_silent(self, tmp_path: Path) -> None:
+        (tmp_path / "rebrew-functions.toml").write_text(
+            'format = 1\n\n["SERVER.0x1000"]\nfile = "src/a.c"\n', encoding="utf-8"
+        )
+        assert self._warnings(self._cfg(tmp_path)) == ""
+
+    def test_absolute_path_is_reported(self, tmp_path: Path) -> None:
+        (tmp_path / "rebrew-functions.toml").write_text(
+            'format = 1\n\n["SERVER.0x1000"]\nfile = "/etc/passwd"\n', encoding="utf-8"
+        )
+        assert "must be relative to the project" in self._warnings(self._cfg(tmp_path))
+
+    def test_parent_escape_is_reported(self, tmp_path: Path) -> None:
+        (tmp_path / "rebrew-functions.toml").write_text(
+            'format = 1\n\n["SERVER.0x1000"]\nfile = "../../secret.c"\n', encoding="utf-8"
+        )
+        assert "must not escape the project" in self._warnings(self._cfg(tmp_path))
+
+
+class TestW035UnknownModules:
+    """W035: rows for a target this project no longer declares."""
+
+    def _cfg(self, tmp_path: Path, **overrides: object) -> SimpleNamespace:
+        base: dict[str, object] = {
+            "metadata_dir": tmp_path,
+            "root": tmp_path,
+            "marker": "SERVER",
+            "all_markers": ["SERVER"],
+            "library_modules": [],
+        }
+        base.update(overrides)
+        return SimpleNamespace(**base)
+
+    def _warnings(self, cfg: SimpleNamespace) -> str:
+        from rebrew.lint import _check_W035_unknown_modules
+
+        return "\n".join(m for res in _check_W035_unknown_modules(cfg) for _, _, m in res.warnings)
+
+    def test_declared_modules_are_silent(self, tmp_path: Path) -> None:
+        (tmp_path / "rebrew-functions.toml").write_text(
+            'format = 1\n\n["SERVER.0x1000"]\nstatus = "STUB"\n'
+            '\n["MSVCRT.0x2000"]\nstatus = "EXACT"\n',
+            encoding="utf-8",
+        )
+        assert self._warnings(self._cfg(tmp_path, library_modules=["MSVCRT"])) == ""
+
+    def test_an_unknown_module_is_reported(self, tmp_path: Path) -> None:
+        (tmp_path / "rebrew-functions.toml").write_text(
+            'format = 1\n\n["CLIENT.0x1000"]\nstatus = "STUB"\n', encoding="utf-8"
+        )
+        assert "matches no target marker" in self._warnings(self._cfg(tmp_path))

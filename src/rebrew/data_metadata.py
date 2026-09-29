@@ -62,6 +62,7 @@ from rebrew.metadata import (
     as_metadata_int,
     canonical_status,
     resolve_metadata_dir,
+    stamp_format,
     stamp_provenance,
 )
 from rebrew.metadata_doc import (
@@ -403,6 +404,7 @@ def set_data_field(
         entry[key] = safe
         if updated_by:
             stamp_provenance(entry, updated_by)
+        stamp_format(doc)
         atomic_write_locked(path, tomlkit.dumps(doc))
         _invalidate_data_cache(path)
 
@@ -472,6 +474,7 @@ def set_data_fields_batch(directory: Path | str | Any, updates: list[dict[str, A
                     stamp_provenance(entry, tag)
                 changed_entries += 1
         if changed_entries:
+            stamp_format(doc)
             atomic_write_locked(path, tomlkit.dumps(doc))
             _invalidate_data_cache(path)
     return changed_entries
@@ -507,6 +510,7 @@ def delete_data_entries_batch(directory: Path | str | Any, targets: list[tuple[s
             key_index.pop((norm_mod, va_int), None)
             removed += 1
         if removed:
+            stamp_format(doc)
             atomic_write_locked(path, tomlkit.dumps(doc))
             _invalidate_data_cache(path)
     return removed

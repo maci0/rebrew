@@ -283,6 +283,10 @@ def blocker_show(
     entry = get_entry(cfg.metadata_dir, va_int, module)
     blocker_val = entry.get("blocker", "")
     delta_val = entry.get("blocker_delta", None)
+    # Provenance is written by every gated writer; reporting it here is what
+    # makes the pair answer a question instead of sitting in the TOML.
+    updated_by = str(entry.get("updated_by") or "")
+    updated_at = str(entry.get("updated_at") or "")
 
     if json_output:
         json_print(
@@ -291,6 +295,8 @@ def blocker_show(
                 "va": f"0x{va_int:08x}",
                 "blocker": blocker_val,
                 "blocker_delta": delta_val,
+                "updated_by": updated_by,
+                "updated_at": updated_at,
             }
         )
         return
@@ -301,6 +307,9 @@ def blocker_show(
             console.print(f"  BLOCKER_DELTA: {delta_val}")
     else:
         console.print(f"[dim]No BLOCKER for {module} 0x{va_int:08x}[/dim]")
+    if updated_by or updated_at:
+        stamp = " ".join(part for part in (updated_by, updated_at) if part)
+        console.print(f"  [dim]last write: {stamp}[/dim]")
 
 
 def main_entry() -> None:

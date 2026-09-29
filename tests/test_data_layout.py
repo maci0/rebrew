@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -1302,7 +1303,7 @@ def test_fix_ownership_rolls_back_when_a_write_fails(
     real_write = dl.atomic_write_text
     seen: list[Path] = []
 
-    def flaky(path: Path, text: str, **kwargs: object) -> None:
+    def flaky(path: Path, text: str, **kwargs: Any) -> None:
         seen.append(path)
         # Let the first write through, then fail: the tree is mid-transaction.
         if len(seen) > 1:
