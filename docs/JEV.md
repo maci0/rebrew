@@ -186,7 +186,7 @@ guild-rebrew already has the enum:
 
 - `docs/msvc6-c-shapes.md` — 167 numbered source shapes.
 - `docs/msvc6-allocator.md` — live-range / GRA findings.
-- rebrew `agent-skills/rebrew-matching/references/codegen-hints.md` —
+- rebrew `src/rebrew/agent-skills/rebrew-matching/references/codegen-hints.md` —
   `/O1` vs `/O2`, `volatile`, `dllimport`, loop form.
 
 Do **not** dump 167 shapes or 128 `mut_*` operators into one Choice.
