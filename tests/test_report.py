@@ -83,6 +83,8 @@ class TestReportCli:
         assert "scope='col'" in index
         assert "Skip to content" in index
         assert "aria-label='Report pages'" in index
+        # The table's size, the way the strings and imports pages open.
+        assert "<p>2 reversed functions.</p>" in index
         assert "tabindex='-1'" in index  # skip-link focus target (WCAG 2.4.1)
         assert STATUS_HEX["STUB"] in index  # the mark the call graph fills with
         assert "#94a3b8" not in index
@@ -699,6 +701,48 @@ class TestReportPayloadShape:
         assert "func_899" in spilled
         assert adjacency is not None and "func_899" in adjacency
         assert len(html.encode()) < len(spilled.encode())
+
+    def test_graph_page_states_the_graph_size(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Both graph pages report nodes and edges; a spilled source is not a reason to drop them."""
+        from types import SimpleNamespace
+
+        import rebrew.report as report_mod
+
+        src = tmp_path / "src"
+        src.mkdir()
+        nodes = {
+            f"va:0x{i:08x}": {"symbol": f"func_{i}", "status": "STUB", "va": i} for i in range(3)
+        }
+        edges = [("va:0x00000000", "va:0x00000001")]
+        monkeypatch.setattr(report_mod, "build_graph", lambda path, cfg=None: (nodes, edges, []))
+        cfg = SimpleNamespace(target_name="T", reversed_dir=src)
+
+        inline, _, spilled = report_mod._render_graph(cfg)
+        assert spilled is None
+        assert "(3 nodes, 1 direct edges, 0 dispatch edges)" in inline
+
+        many = {
+            f"va:0x{i:08x}": {"symbol": f"func_{i}", "status": "STUB", "va": i} for i in range(900)
+        }
+        many_edges = [(f"va:0x{i:08x}", f"va:0x{i + 1:08x}") for i in range(len(many) - 1)]
+        monkeypatch.setattr(
+            report_mod, "build_graph", lambda path, cfg=None: (many, many_edges, [])
+        )
+        over, _, spilled = report_mod._render_graph(cfg)
+        assert spilled is not None
+        assert "(900 nodes, 899 direct edges, 0 dispatch edges)" in over
+
+    def test_table_intros_agree_with_their_counts(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A one-row table reads "1 imported API", not "1 imported APIs"."""
+        from rebrew.report import _count_phrase
+
+        assert _count_phrase(1, "imported API", "imported APIs") == "1 imported API"
+        assert _count_phrase(0, "imported API", "imported APIs") == "0 imported APIs"
+        assert _count_phrase(12, "imported API", "imported APIs") == "12 imported APIs"
 
 
 class TestSummaryCards:

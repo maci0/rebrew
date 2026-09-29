@@ -243,6 +243,11 @@ def _paged_href(stem: str, page: int) -> str:
     return f"{stem}.html" if page <= 1 else f"{stem}-p{page}.html"
 
 
+def _count_phrase(count: int, singular: str, plural: str) -> str:
+    """``"1 function"`` / ``"12 functions"`` for a one-line table intro."""
+    return f"{count} {singular if count == 1 else plural}"
+
+
 def _page_va_span(vas: list[int]) -> str:
     """``0xlo`` or ``0xlo–0xhi`` for the addresses on one report page."""
     if not vas:
@@ -670,6 +675,10 @@ def _render_index(
 
     total = len(functions)
     total_pages = max(1, (total + _TABLE_PAGE_SIZE - 1) // _TABLE_PAGE_SIZE)
+    # The strings and imports pages open with a count; the index carried none,
+    # so a single-page table gave a reader no idea how much of the target it
+    # was showing.  A multi-page table reads the total off its pager.
+    intro = f"<p>{_count_phrase(total, 'reversed function', 'reversed functions')}.</p>"
     pages: list[tuple[str, str]] = []
     for page_num in range(1, total_pages + 1):
         start = (page_num - 1) * _TABLE_PAGE_SIZE
@@ -694,7 +703,7 @@ def _render_index(
         if page_num == 1:
             body = (
                 f"<h2>Function index</h2>{card_html}{over_text_html}{ne_html}"
-                f"{pager}{table}{pager_end}"
+                f"{intro}{pager}{table}{pager_end}"
             )
             title = "Function index"
         else:
@@ -992,8 +1001,8 @@ def _render_imports(cfg: ProjectConfig) -> list[tuple[str, str]]:
         )
     elif stub_rows:
         extra_all = (
-            f"<p><a href='import-stubs.html'>Import stubs (jmp [IAT])</a> "
-            f"({len(stub_rows)} stubs) are listed on their own pages.</p>"
+            f"<p><a href='import-stubs.html'>Import stubs (jmp [IAT])</a> are listed on their "
+            f"own pages ({_count_phrase(len(stub_rows), 'stub', 'stubs')}).</p>"
         )
         stub_pages = _paginate_rows(
             stem="import-stubs",
@@ -1006,7 +1015,7 @@ def _render_imports(cfg: ProjectConfig) -> list[tuple[str, str]]:
             headers=["VA", "API"],
             first_heading="<h2>Import stubs (jmp [IAT])</h2>",
             first_intro=(
-                f"<p>{len(stub_rows)} jmp [IAT] stubs. "
+                f"<p>{_count_phrase(len(stub_rows), 'jmp [IAT] stub', 'jmp [IAT] stubs')}. "
                 "<a href='imports.html'>Back to imported APIs</a>.</p>"
             ),
             continued_heading="<h2>Import stubs (continued)</h2>",
@@ -1037,7 +1046,7 @@ def _render_imports(cfg: ProjectConfig) -> list[tuple[str, str]]:
         caption="Imported APIs",
         headers=["DLL", "Function", "IAT slot"],
         first_heading="<h2>Imports</h2>",
-        first_intro=f"<p>{len(import_rows)} imported APIs.</p>",
+        first_intro=(f"<p>{_count_phrase(len(import_rows), 'imported API', 'imported APIs')}.</p>"),
         continued_heading="<h2>Imports (continued)</h2>",
         extra_first=extra_first,
         extra_all=extra_all,
@@ -1070,7 +1079,8 @@ def _graph_body(mermaid: str, *, spilled: bool, nodes: int, edges: int, dispatch
     if not spilled:
         return (
             "<h2>Call graph</h2>"
-            "<p>Call graph over reversed functions. The mermaid source below renders in any "
+            f"<p>Call graph over reversed functions ({nodes} nodes, {edges} direct edges, "
+            f"{dispatch} dispatch edges). The mermaid source below renders in any "
             "mermaid-compatible viewer. A <a href='adjacency.txt'>plain-text adjacency list</a> "
             "(screen-reader accessible) is available as a separate download.</p>"
             "<h2 id='mermaid-heading'>Mermaid source</h2>"
