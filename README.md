@@ -43,9 +43,9 @@ Rebrew recompiles your C with the compiler that built the target and compares th
 | `rebrew status` | Per-target breakdown of EXACT / RELOC / NEAR_MATCHING / STUB counts |
 | `rebrew graph` | Call graph from `extern` declarations (mermaid, DOT, summary) |
 | `rebrew data` | Inventory `.data`/`.rdata`/`.bss` globals; detect dispatch tables and vtables |
-| `rebrew flirt` | Identify known library functions via FLIRT signatures: no IDA required |
+| `rebrew flirt` | Identify known library functions via FLIRT signatures, without IDA |
 | `rebrew crt-match` | Cross-reference functions against CRT/library source directories |
-| `rebrew similar` | Rank binary functions by structural similarity to a solved function: find which STUBs share its source family |
+| `rebrew similar` | Rank binary functions by structural similarity to a solved function, to find which STUBs share its source family |
 | `rebrew fingerprints` | File hashes, imphash, MSVC Rich-header hash, and per-section entropy for a binary |
 | `rebrew pe-info` | PE metadata dump: identity, sections with protection flags, DllCharacteristics security flags, Authenticode, debug/PDB, and Rich header |
 | `rebrew crypto-scan` | Detect crypto constant tables (AES/SHA/MD5), crypto imports, and crypto-named functions |
@@ -417,21 +417,21 @@ Only `EXACT` and `RELOC` count as matched; `PROVEN` functions stay on
 
 | Architecture | Binary Format | Compiler | Binary Loading | Object Parsing | GA Matching | Verification |
 |:------------|:-------------|:---------|:--------------:|:--------------:|:-----------:|:------------:|
-| x86 (16-bit) | NE (Windows 3.x) | Borland Delphi 1.0 / Turbo Pascal | yes | planned | planned | planned |
+| x86 (16-bit) | NE (Windows 3.x) | Borland Delphi 1.0 / Turbo Pascal | yes | no | no | no |
 | x86 (16-bit) | NE (Windows 3.x) | MSVC 16-bit (C 7.0 / VC 1.x) | yes | yes | yes | yes |
 | x86 (32-bit) | PE (`.exe`/`.dll`) | MSVC 5.0 / 6.0 | yes | yes | yes | yes |
 | x86 (32-bit) | PE | MSVC 7.x+ | yes | yes | yes | yes |
 | x86 (32-bit) | PE | MinGW GCC / Zig (`mingw-16.2.0` profile) | yes | yes | yes | yes |
-| x86 (32-bit) | PE | Watcom C | yes | yes (OMF→COFF via objconv) | yes | planned |
-| x86 (32-bit) | ELF (`.so`/exec) | GCC/Clang| yes | yes | planned | planned |
-| x86_64     | PE | MSVC     | yes | yes | planned | planned |
-| x86_64     | ELF | GCC/Clang| yes | yes | planned | planned |
-| x86_64     | Mach-O| Clang    | yes | yes | planned | planned |
-| ARM32      | ELF | GCC/Clang| yes | yes | planned | planned |
-| ARM64      | ELF | GCC/Clang| yes | yes | planned | planned |
-| ARM64      | Mach-O| Clang    | yes | yes | planned | planned |
+| x86 (32-bit) | PE | Watcom C | yes | yes (OMF→COFF via objconv) | yes | not yet |
+| x86 (32-bit) | ELF (`.so`/exec) | GCC/Clang| yes | yes | not yet | not yet |
+| x86_64     | PE | MSVC     | yes | yes | not yet | not yet |
+| x86_64     | ELF | GCC/Clang| yes | yes | not yet | not yet |
+| x86_64     | Mach-O| Clang    | yes | yes | not yet | not yet |
+| ARM32      | ELF | GCC/Clang| yes | yes | not yet | not yet |
+| ARM64      | ELF | GCC/Clang| yes | yes | not yet | not yet |
+| ARM64      | Mach-O| Clang    | yes | yes | not yet | not yet |
 
-**Legend:** "yes" is supported, "planned" is not yet implemented (a linked output with no per-function object, such as `delphi-1.0`, also has no byte-matching path)
+**Legend:** "yes" is supported, "not yet" is not implemented, and "no" marks a linked output with no per-function object (such as `delphi-1.0`), which has no byte-matching path (see [docs/TOOLCHAIN.md](https://github.com/maci0/rebrew/blob/main/docs/TOOLCHAIN.md))
 
 16-bit NE targets are parsed, enumerated, and analyzed natively (intake,
 analyze, asm, describe, data, report; see `docs/TOOLCHAIN.md`). Byte
