@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [2.17.0] - 2026-09-29
+
 ### Added
 - **Both metadata stores carry a `format` stamp, and the provenance tag
   vocabulary is closed.**  The top-level `format` (`rebrew.metadata.FORMAT_VERSION`)
