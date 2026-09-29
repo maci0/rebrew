@@ -125,6 +125,12 @@ def _reap_dead_thread_sandboxes_locked() -> list[Path]:
     Caller must hold :data:`_SANDBOX_LOCK`.  Removals happen under the lock;
     filesystem deletes run outside so a slow ``rmtree`` does not stall other
     workers' sandbox lookups.
+
+    The owner sweep covers tokens that never published a sandbox as well: a
+    worker whose :func:`writable_temp_dir` call raised still holds a token and
+    a ``Thread`` object, and the sandbox pass alone would never see it.  A new
+    pool per ``verify --watch`` pass retires those workers, so without this
+    one entry (and its thread object) accumulated per failed spawn.
     """
     doomed: list[Path] = []
     for key, path in list(_SANDBOX_BY_PREFIX.items()):
@@ -135,6 +141,9 @@ def _reap_dead_thread_sandboxes_locked() -> list[Path]:
         _SANDBOX_OWNER.pop(key[1], None)
         _untrack_sandbox(path)
         doomed.append(path)
+    for token, owner in list(_SANDBOX_OWNER.items()):
+        if not owner.is_alive():
+            del _SANDBOX_OWNER[token]
     return doomed
 
 

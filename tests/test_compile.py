@@ -1547,6 +1547,42 @@ class TestPrecompileBatchCleanup:
         assert busy.is_dir()
         assert not gone.exists()
 
+    def test_discard_requeues_a_per_compile_sandbox_that_stays_busy(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A per-compile sandbox whose removal keeps failing stays tracked."""
+        import rebrew.compile as compile_mod
+
+        busy = tmp_path / "rebrew_cmp_busy"
+        busy.mkdir()
+        monkeypatch.setattr(compile_mod, "_BATCH_OBJ_DIRS", [])
+        monkeypatch.setattr(compile_mod, "_BATCH_ATEXIT_REGISTERED", False)
+        registered: list[tuple] = []
+        monkeypatch.setattr(
+            compile_mod.atexit, "register", lambda fn, *a: registered.append((fn, a))
+        )
+
+        def _remove(path: Path, retries: int = 5, delay: float = 0.2) -> None:
+            raise OSError("Device or resource busy")
+
+        monkeypatch.setattr("rebrew.temp_dirs.remove_temp_dir", _remove)
+        compile_mod._discard_temp_dir(busy)
+        assert [busy] == compile_mod._BATCH_OBJ_DIRS
+        assert registered and registered[0][0] is compile_mod.cleanup_batch_obj_dirs
+
+    def test_discard_leaves_no_handle_when_the_remove_succeeds(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The common path removes the dir and tracks nothing."""
+        import rebrew.compile as compile_mod
+
+        sandbox = tmp_path / "rebrew_cmp_ok"
+        sandbox.mkdir()
+        monkeypatch.setattr(compile_mod, "_BATCH_OBJ_DIRS", [])
+        compile_mod._discard_temp_dir(sandbox)
+        assert not sandbox.exists()
+        assert compile_mod._BATCH_OBJ_DIRS == []
+
     def test_atexit_hook_armed_once_and_sweeps_dirs(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

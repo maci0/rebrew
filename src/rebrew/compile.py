@@ -1874,21 +1874,47 @@ def compile_batch_objs(
     return out, ""
 
 
-#: Lasting temp dirs holding batch-published ``.obj`` files (see
-#: :func:`precompile_batch`).  Cleared by :func:`cleanup_batch_obj_dirs`.
-#: Guarded: append (precompile) and pop (cleanup/atexit) share the list;
-#: two overlapping batch runs must not lose a dir handle.
+#: Lasting temp dirs this process still owes a removal: the batch-published
+#: ``.obj`` dirs (see :func:`precompile_batch`) plus any per-compile sandbox
+#: whose removal kept failing (see :func:`_discard_temp_dir`).  Cleared by
+#: :func:`cleanup_batch_obj_dirs`.
+#: Guarded: append (precompile, per-compile release) and pop (cleanup/atexit)
+#: share the list; two overlapping runs must not lose a dir handle.
 _BATCH_OBJ_DIRS: list[Path] = []
 _BATCH_ATEXIT_REGISTERED = False
 _BATCH_OBJ_DIRS_LOCK = threading.Lock()
 
 
-def cleanup_batch_obj_dirs() -> None:
-    """Remove lasting ``.obj`` dirs left by :func:`precompile_batch`.
+def _discard_temp_dir(path: Path) -> None:
+    """Remove a per-compile sandbox, keeping a retry handle if it stays busy.
 
-    Safe to call when none exist.  Verify invokes this after extracting
-    symbol bytes so long-lived processes do not accumulate one dir per
-    ``--full`` run; an atexit registration is the crash backstop.
+    ``remove_temp_dir`` retries to absorb a container that has not released
+    its mount; a dir still busy after that is left on disk.  Dropping the
+    path strands it: a long-lived process (a GA run, ``verify --watch``)
+    that keeps hitting an unmount race then accumulates one sandbox per
+    compile, and only the once-per-process stale sweep (24 h) reclaims it.
+    Re-queue instead, so the next :func:`cleanup_batch_obj_dirs` / atexit
+    pass tries again.
+    """
+    from rebrew.temp_dirs import remove_temp_dir
+
+    try:
+        remove_temp_dir(path)
+    except OSError:
+        with _BATCH_OBJ_DIRS_LOCK:
+            _BATCH_OBJ_DIRS.append(path)
+        _register_batch_obj_atexit()
+
+
+def cleanup_batch_obj_dirs() -> None:
+    """Remove the lasting temp dirs this process still holds.
+
+    That is the batch-published ``.obj`` dirs left by
+    :func:`precompile_batch` and any sandbox :func:`_discard_temp_dir`
+    could not remove.  Safe to call when none exist.  Verify invokes this
+    after extracting symbol bytes so long-lived processes do not accumulate
+    one dir per ``--full`` run; an atexit registration is the crash
+    backstop.
 
     A path is dropped from the tracking list only after a successful remove
     (or when it is already gone).  A busy mount that raises leaves the entry
@@ -1958,7 +1984,7 @@ def precompile_batch(
     if base_spec is not None and base_spec.effective_arg_style not in ("posix", "msvc"):
         return {}
 
-    from rebrew.temp_dirs import remove_temp_dir, writable_temp_dir
+    from rebrew.temp_dirs import writable_temp_dir
 
     out: dict[int, str] = {}
     lasting_root: Path | None = None
@@ -2249,8 +2275,7 @@ def precompile_batch(
             return group_out
         finally:
             if workdir is not None:
-                with contextlib.suppress(OSError):
-                    remove_temp_dir(workdir)
+                _discard_temp_dir(workdir)
 
     # Groups are independent workdirs — compile them in parallel (each is a
     # ~1s container spawn; serial was the whole --full budget on real
@@ -2503,12 +2528,9 @@ def compile_and_compare(
     finally:
         if workdir is not None:
             # Retry-removes absorb the docker mount-unmount race (a busy
-            # mountpoint leaves an empty dir behind); best-effort on
-            # persistent failures.
-            from rebrew.temp_dirs import remove_temp_dir
-
-            with contextlib.suppress(OSError):
-                remove_temp_dir(workdir)
+            # mountpoint leaves an empty dir behind); a dir that stays busy
+            # is re-queued rather than dropped.
+            _discard_temp_dir(workdir)
 
 
 # ---------------------------------------------------------------------------
@@ -2897,10 +2919,7 @@ def compile_and_compare_linked(
         return classify_compare_result(False, f"COMPILE_ERROR: {exc}", target_bytes, None, None)
     finally:
         if workdir is not None:
-            from rebrew.temp_dirs import remove_temp_dir
-
-            with contextlib.suppress(OSError):
-                remove_temp_dir(workdir)
+            _discard_temp_dir(workdir)
 
 
 __all__ = [

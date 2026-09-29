@@ -336,6 +336,22 @@
   view; a repeated one does not, so a re-sync cannot yank the page while it is
   being read. The empty-state search link is also named `Clear filters`, the
   label the Clear control below it already carries.
+- **A per-compile sandbox that would not delete is retried instead of
+  stranded.** `remove_temp_dir` retries to absorb a container that has not
+  released its mount, but a dir still busy after that had its path dropped by
+  the `contextlib.suppress(OSError)` in `compile_and_compare` and the linked
+  compare, leaving no record in the process. A long-lived run (a GA pass,
+  `verify --watch`) that kept hitting the unmount race accumulated one
+  multi-megabyte sandbox per compile, reclaimable only by the once-per-process
+  stale sweep 24 h later. A sandbox that survives its retries is now queued for
+  the next `cleanup_batch_obj_dirs` / atexit pass, the same handle the batch
+  `.obj` dirs already used.
+- **A DOSBox sandbox token whose worker never published a sandbox is now
+  reaped.** The token and its `Thread` object are registered before the dir is
+  created, so a worker whose `writable_temp_dir` call raised held both with no
+  sandbox for the reaper to key off; `verify --watch` builds a fresh pool per
+  pass, so those entries accumulated one per retired worker. The reaper now
+  sweeps owner tokens of dead threads alongside the sandbox map.
 - **The dashboard's human-readable contract named two assets where the server
   serves three, and a `/api/bootstrap` null case that cannot happen.** The
   prose in `docs/COVERAGE_DOCUMENT.md` credited the content-hash `ETag` to `/`

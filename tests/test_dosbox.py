@@ -149,6 +149,40 @@ class TestSandboxLifecycle:
         assert dosbox._SANDBOXES == []
         assert dosbox._SANDBOX_BY_PREFIX == {}
 
+    def test_dead_thread_token_without_a_sandbox_is_swept(self, monkeypatch) -> None:
+        """A worker that minted a token but published no sandbox is reaped too.
+
+        ``writable_temp_dir`` raising leaves the token and its ``Thread``
+        object in the owner map with no sandbox to key the reaper off, so
+        without the owner sweep they accumulate one per retired worker.
+        """
+        import threading
+
+        import rebrew.dosbox as dosbox
+
+        monkeypatch.setattr(dosbox, "_SANDBOX_ATEXIT_REGISTERED", True)
+        monkeypatch.setattr(dosbox, "_SANDBOXES", [])
+        monkeypatch.setattr(dosbox, "_SANDBOX_BY_PREFIX", {})
+        monkeypatch.setattr(dosbox, "_SANDBOX_OWNER", {})
+        tokens: list[int] = []
+
+        def _mint_only() -> None:
+            # The token is registered before writable_temp_dir is asked for a
+            # dir, so a worker that dies between the two leaves this entry.
+            tokens.append(dosbox._sandbox_token())
+
+        worker = threading.Thread(target=_mint_only)
+        worker.start()
+        worker.join(timeout=30)
+        assert tokens and tokens[0] in dosbox._SANDBOX_OWNER
+
+        live = make_sandbox_dir("rebrew-test-token-sweep-")
+        assert tokens[0] not in dosbox._SANDBOX_OWNER
+        from rebrew.dosbox import release_sandbox
+
+        release_sandbox(live)
+        assert dosbox._SANDBOXES == []
+
     def test_a_new_thread_never_inherits_a_dead_one_sandbox(self, monkeypatch) -> None:
         """The per-thread key is a minted token, not ``threading.get_ident()``.
 
