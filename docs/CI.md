@@ -30,11 +30,12 @@ and YAML hooks are enforced there; the SKILL.md command validator
 documents but the CLI no longer accepts fails the job), a package job
 that builds the sdist/wheel via `make build` (SOURCE_DATE_EPOCH, umask 022, C/UTC,
 `PYTHONHASHSEED=0`; `tools/normalize_sdist.py` rewrites sdist tar metadata and
-wheel entry modes), checks both artifacts and the SBOM hash the same when
+wheel entry modes), checks both artifacts, the SBOM and `dist/rebrew.buildinfo` hash the same when
 `make build-repro` reruns from a `git archive` copy extracted under umask 077 at
-another path under another TZ and locale (an EXIT trap removes that copy on
-every exit path, so a failed comparison does not leave a second source tree
-beside the workspace), emits a CycloneDX 1.5 SBOM
+another path under another TZ and locale (the manifest's `source-commit` and
+`source-dirty` lines excepted, since the copy has no `.git`; an EXIT trap
+removes that copy on every exit path, so a failed comparison does not leave a
+second source tree beside the workspace), emits a CycloneDX 1.5 SBOM
 (`dist/rebrew.cdx.json` from `uv.lock` via `tools/generate_sbom.py`, with the
 MIT license on the rebrew component, a `pkg:github/maci0/rebrew` purl at the
 `v` tag for `__version__`, project URLs as external references, each
@@ -225,7 +226,7 @@ id, with the `test` matrix expanded per entry, so the required contexts are
 | `lint` | ruff, ruff format, mypy, `uv audit` |
 | `test` | the full suite on 3.13 (under the coverage floor) and 3.14, fixture freshness, idempotency sweep, W3C validation of the HTML surfaces |
 | `pre-commit` | hook parity, including shellcheck and yamllint |
-| `package` | reproducible sdist/wheel, smoke install, sdist member diff, SBOM |
+| `package` | reproducible sdist/wheel/SBOM/buildinfo, smoke install, sdist member diff, SBOM |
 | `cli-contract` | the public `--help` surfaces |
 
 `tests/test_ci_pins.py` compares this table against the job ids `ci.yml`

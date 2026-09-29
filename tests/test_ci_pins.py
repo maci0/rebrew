@@ -1029,6 +1029,43 @@ class TestCiPins:
         assert "|| true" in branch
         assert "install diffoscope" in branch
 
+    def test_repro_compares_the_buildinfo_manifest(self) -> None:
+        """The provenance record ships, so the second build must reproduce it.
+
+        dist/rebrew.buildinfo is the one file in dist/ whose bytes are not the
+        source tree: `build` writes the toolchain versions, the environment
+        knobs, and the artifact digests into it.  Both archive hashes can be
+        equal while a `build` edit dropped a line from the manifest, and the
+        released record would then claim a pin the build no longer sets.
+        source-commit and source-dirty are excluded because the copy is a
+        `git archive` extraction with no .git of its own and records `n/a`.
+        """
+        text = MAKEFILE.read_text(encoding="utf-8")
+        recipe = re.search(
+            r"(?m)^build-repro:.*?^\t@set -eu; \\$(?P<body>.*?)(?=\n\n)",
+            text,
+            re.S,
+        )
+        assert recipe is not None, "build-repro target not found"
+        body = recipe.group("body")
+        for key in ("source-commit", "source-dirty"):
+            assert f"/^{key}=/d" in body, key
+        assert '"$$repro"/dist/rebrew.buildinfo' in body
+        # The verdict is the shell's own string comparison, so the gate still
+        # works on a host without cmp(1); the unified diff is a failure-path
+        # courtesy like diffoscope, and `diff` exits 1 on "differences found",
+        # so its status is discarded and its absence reported separately.
+        assert 'if [ "$$first" != "$$second" ]; then' in body
+        branch = body[body.index(".buildinfo is not reproducible") :]
+        branch = branch.split("exit 1")[0]
+        assert "command -v diff" in branch
+        assert "diff -u" in branch
+        assert "|| true" in branch
+        assert "install diffutils" in branch
+        # The scratch copies live inside the repro tree the EXIT trap removes.
+        assert '"$$repro/buildinfo.first"' in body
+        assert '"$$repro/buildinfo.second"' in body
+
     def test_repro_check_runs_from_the_makefile(self) -> None:
         """CI calls the target: an inline recipe is a gate no contributor can run.
 

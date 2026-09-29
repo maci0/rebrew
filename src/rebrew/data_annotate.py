@@ -491,9 +491,7 @@ def gen_globals_header(
             "written": written,
             "dry_run": dry_run,
             "globals": len(rows),
-            "sections": {
-                (sec or _UNKNOWN_SECTION_LABEL): len(by_section[sec]) for sec in ordered
-            },
+            "sections": {(sec or _UNKNOWN_SECTION_LABEL): len(by_section[sec]) for sec in ordered},
         }
 
     if dry_run or is_identical:

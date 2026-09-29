@@ -278,8 +278,10 @@ literals stops the gate instead of reading as a table with no routes.
    missing package-data fails here rather than on a user's install), and its
    byte-reproducibility check (`make build-repro`: rebuild `HEAD` from a
    `git archive` copy under `.scratch/` at another path, file mode, timezone
-   and locale, and compare the wheel, the sdist and the SBOM across the two
-   trees; commit first, it builds `HEAD` and
+   and locale, and compare the wheel, the sdist, the SBOM and
+   `dist/rebrew.buildinfo` across the two trees (the manifest's `source-commit`
+   and `source-dirty` lines excepted, since the copy has no `.git`); commit
+   first, it builds `HEAD` and
    refuses a tree with uncommitted changes, whose dist/ and `HEAD` copy would
    differ by construction).
    `make sbom` goes after `make build`:

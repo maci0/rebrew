@@ -668,11 +668,12 @@ build: warn-uv-version
 	} > "$$tmpinfo"; \
 	mv -f "$$tmpinfo" dist/rebrew.buildinfo
 
-# Prove the wheel, the sdist and the SBOM are byte-reproducible from a second
-# source tree: a `git archive HEAD` copy under .scratch/, extracted with umask
-# 077 (git stores only the executable bit, so every file mode differs) and built
-# under a different timezone and locale.  Both the path and the environment
-# knobs are what the archives must not encode.
+# Prove the wheel, the sdist, the SBOM and dist/rebrew.buildinfo are
+# byte-reproducible from a second source tree: a `git archive HEAD` copy under
+# .scratch/, extracted with umask 077 (git stores only the executable bit, so
+# every file mode differs) and built under a different timezone and locale.
+# Both the path and the environment knobs are what the shipped files must not
+# encode.
 #
 # The CycloneDX BOM is in the comparison because it ships: the package job
 # uploads it beside the wheel and sdist, so a consumer that re-runs `make sbom`
@@ -702,6 +703,20 @@ build: warn-uv-version
 # the hash diff then blames the build for a repository problem.  The scratch
 # archive is a sibling of the tree, never inside it, so the second build never
 # sees a file the first checkout does not have.
+#
+# dist/rebrew.buildinfo is in the comparison for the same reason, and it is the
+# one shipped file whose bytes are not the source tree: it carries the toolchain
+# versions, the environment knobs, and the artifact digests, all of them written
+# by the `build` recipe itself.  A `build` edit that dropped a line from it (the
+# TZ=UTC pin, the setuptools version, a digest) leaves both archive hashes equal
+# and shipped a provenance record that no other gate here would notice.  Two
+# lines are excluded from the diff: the copy is a `git archive` extraction with
+# no .git of its own, so it records `n/a` where the checkout records the commit
+# and the dirty flag, and every other line is expected to match exactly.  The
+# verdict is the shell's own string comparison, so a host without cmp(1) still
+# gets one.  The unified diff is a failure-path courtesy like diffoscope above:
+# `diff` exits 1 on "differences found", so its status is discarded and its
+# absence reported separately rather than turned into the verdict.
 #
 # A mismatch names the differing members: two hashes say that the artifact
 # drifted, not what in it, and the usual causes (a timestamp, an ordering, a
@@ -755,7 +770,22 @@ build-repro: dist/rebrew.buildinfo
 			exit 1; \
 		fi; \
 		echo ".$$ext reproducible: $$first"; \
-	done
+	done; \
+	filter_manifest() { sed -e '/^source-commit=/d' -e '/^source-dirty=/d' "$$1"; }; \
+	first=$$(filter_manifest dist/rebrew.buildinfo); \
+	second=$$(filter_manifest "$$repro"/dist/rebrew.buildinfo); \
+	if [ "$$first" != "$$second" ]; then \
+		echo "ERROR: dist/rebrew.buildinfo is not reproducible" >&2; \
+		filter_manifest dist/rebrew.buildinfo > "$$repro/buildinfo.first"; \
+		filter_manifest "$$repro"/dist/rebrew.buildinfo > "$$repro/buildinfo.second"; \
+		if command -v diff >/dev/null 2>&1; then \
+		  diff -u "$$repro/buildinfo.first" "$$repro/buildinfo.second" >&2 || true; \
+		else \
+		  echo "hint: install diffutils to name the differing line" >&2; \
+		fi; \
+		exit 1; \
+	fi; \
+	echo ".buildinfo reproducible"
 
 # Re-derive, from the files on disk, every fact `make build` recorded in
 # dist/rebrew.buildinfo.  `build` writes the manifest and the artifacts in one
