@@ -206,7 +206,7 @@ from rich.markup import escape
 
 from rebrew import theme
 from rebrew.annotation import FUNCTION_MARKERS
-from rebrew.cli import console, error_exit, json_print
+from rebrew.cli import RootOption, console, error_exit, json_print, require_root
 from rebrew.compression import precompress
 from rebrew.coverage_db import resolve_db_dir
 from rebrew.coverage_toml import (
@@ -3702,11 +3702,11 @@ app = typer.Typer(
 def main(
     host: str = typer.Option("127.0.0.1", "--host", help="Bind host"),
     port: int = typer.Option(8000, "--port", "-p", help="Bind port"),
-    root: Path | None = typer.Option(None, "--root", help="Project root directory"),
+    root: Path | None = RootOption,
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
     """Serve the coverage documents as a read-only web dashboard."""
-    root_dir = root.resolve() if root else Path.cwd().resolve()
+    root_dir = require_root(root, json_mode=json_output)
     db_dir = resolve_db_dir(root_dir, json_output=json_output)
 
     # Fail fast on a directory with nothing readable in it: the same rule

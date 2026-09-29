@@ -42,8 +42,10 @@ from rebrew.annotation import Annotation, parse_c_file_multi
 from rebrew.config import (
     DEFAULT_LOG_LEVEL,
     ConfigError,
+    ConfigNotFoundError,
     ConfigWarning,
     ProjectConfig,
+    find_root,
     load_config,
     parse_env_log_level,
 )
@@ -84,6 +86,14 @@ TargetOption: str | None = typer.Option(
     "--target",
     "-t",
     help="Target name from rebrew-project.toml (default: project default target).",
+)
+
+
+# Re-usable Typer option for --root
+RootOption: Path | None = typer.Option(
+    None,
+    "--root",
+    help="Project root directory (default: auto-detected from rebrew-project.toml).",
 )
 
 
@@ -216,6 +226,24 @@ def require_config(
     except (KeyError, ValueError) as exc:
         error_exit(f"Config error: {exc}", json_mode=json_mode, code=EXIT_ERROR)
     return cfg  # reached only when load_config() succeeds; branches above are NoReturn
+
+
+def require_root(root: Path | None = None, *, json_mode: bool = False) -> Path:
+    """Return the project root: *root* verbatim, else the enclosing project.
+
+    Every command that takes ``--root`` resolves it here, so one flag means one
+    thing across the umbrella.  The commands that used to default to the current
+    directory answered differently from the ones that went through
+    :func:`require_config`: ``rebrew verify`` found the project from a
+    subdirectory while ``rebrew build-db`` reported a missing
+    ``rebrew-project.toml`` there and created a stray ``db/`` beside it.
+    """
+    if root is not None:
+        return root.resolve()
+    try:
+        return find_root()
+    except ConfigNotFoundError as exc:
+        error_exit(str(exc), json_mode=json_mode, code=EXIT_ERROR)
 
 
 # ---------------------------------------------------------------------------
@@ -624,7 +652,7 @@ def parse_va(va_str: str, *, json_mode: bool = False) -> int:
     return va
 
 
-def _stdin_is_tty() -> bool:
+def stdin_is_tty() -> bool:
     try:
         return sys.stdin.isatty()
     except (AttributeError, ValueError, OSError):  # stdin closed or replaced
@@ -649,7 +677,7 @@ def confirm_abort(prompt: str, *, skip_flag: str = "--force") -> None:
     try:
         answer = typer.confirm(prompt, err=True)
     except (typer.Abort, ClickAbort, EOFError, OSError):
-        answer, eof = False, not _stdin_is_tty()
+        answer, eof = False, not stdin_is_tty()
     if answer:
         return
     hint = f" (stdin is not a terminal; pass {skip_flag})" if eof else ""
@@ -844,6 +872,7 @@ __all__ = [
     "EXIT_OK",
     "EXIT_SIGPIPE",
     "QUIET_HELP",
+    "RootOption",
     "TargetOption",
     "VERBOSE_HELP",
     "VERSION_HELP",
@@ -862,6 +891,7 @@ __all__ = [
     "require_config",
     "require_non_negative",
     "require_positive_size",
+    "require_root",
     "require_source_arg",
     "resolve_binary_arg",
     "resolve_source_arg",
@@ -870,6 +900,7 @@ __all__ = [
     "run_for_each_target",
     "run_standalone",
     "select_annotation",
+    "stdin_is_tty",
     "untrusted_ident",
     "untrusted_literal",
     "untrusted_text",

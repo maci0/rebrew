@@ -12,7 +12,7 @@ from pathlib import Path
 
 import typer
 
-from rebrew.cli import TargetOption
+from rebrew.cli import RootOption, TargetOption, require_root
 from rebrew.coverage_db import write_coverage
 
 app = typer.Typer(
@@ -37,11 +37,7 @@ app = typer.Typer(
 
 @app.callback(invoke_without_command=True)
 def main(
-    root: Path | None = typer.Option(
-        None,
-        "--root",
-        help="Project root directory",
-    ),
+    root: Path | None = RootOption,
     force: bool = typer.Option(
         False,
         "--force",
@@ -62,7 +58,7 @@ def main(
     Scans the tree in-process; ``--regen`` is accepted and does nothing,
     because there is no other mode left to select.
     """
-    root_dir = root.resolve() if root else Path.cwd().resolve()
+    root_dir = require_root(root, json_mode=json_output)
     write_coverage(root_dir, target=target, force=force, json_output=json_output, regen=regen)
 
 

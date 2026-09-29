@@ -601,7 +601,7 @@ graph TD
 
 | Flag | Description |
 |------|-------------|
-| `--root PATH` | Project root directory (auto-detected from rebrew-project.toml if omitted) |
+| `--root PATH` | Project root directory (default: auto-detected from rebrew-project.toml) |
 | `--jobs N` / `-j N` | Number of parallel compile jobs (default: from project.jobs or 4) |
 | `--compare` | Compare against last saved `.rebrew/verify_baseline.toml`, detect regressions/improvements; exit code 1 on regression |
 | `-s` / `--summary` | Show EXACT/RELOC/NEAR_MATCHING summary table with match percentages |
@@ -1140,7 +1140,7 @@ enforced rule).  `--min-lines` filters to files longer than N lines
 | `--fix-sizes` | Update `SIZE` entries in `rebrew-functions.toml` metadata to match canonical sizes: fixes both stale sizes (false `SIZE_MISMATCH`) and missing sizes (`MISSING_SIZE` stubs that `rebrew test` refuses) |
 | `--force` | Skip the `--fix-sizes` confirmation prompt |
 | `--target NAME` / `-t NAME` | Select a target from `rebrew-project.toml` |
-| `--root DIR` | Project root directory (auto-detected if omitted) |
+| `--root DIR` | Project root directory (default: auto-detected from rebrew-project.toml) |
 
 The `--summary` progress lines (byte-matched functions, per-status counts,
 library identified, and `Of .text` when the section size is known) are
@@ -1367,7 +1367,7 @@ audit log. Nothing in the source tree is modified: the search only reads.
 
 | Flag | Description |
 |------|-------------|
-| `--root DIR` | Project root directory (auto-detected if omitted) |
+| `--root DIR` | Project root directory (default: auto-detected from rebrew-project.toml) |
 | `--force` | No effect, accepted for symmetry: each document is rewritten whole, so there is no schema to migrate past |
 | `--regen` | No effect, accepted for compatibility: the catalog analysis always runs in-process, so there is no snapshot mode to select |
 | `--json` | Output results as JSON (`coverage_files`, `targets_processed`) |
@@ -2688,7 +2688,8 @@ address (calls, jmps, data references).
 Read-only stdlib `ThreadingHTTPServer` dashboard over the
 `db/coverage-<target>.toml` documents for triaging large binaries. GET/HEAD
 only; bind defaults to `127.0.0.1`.  `--root` points at the project root
-holding the documents (the working directory by default); a target is one
+holding the documents (auto-detected from `rebrew-project.toml` by default, as
+every other `--root` in the CLI is); a target is one
 readable document, so a missing or unparseable one is 404 `unknown_target`
 and the rest still serve.  `--json` prints `{"url", "coverage_dir"}` (the coverage
 directory) and exits without serving (script-friendly bind probe).  The full JSON contract, kept against

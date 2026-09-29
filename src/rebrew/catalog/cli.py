@@ -25,6 +25,7 @@ from rebrew.annotation import Annotation, parse_c_file_multi
 from rebrew.catalog.grid import covered_bytes
 from rebrew.catalog.pipeline import build_catalog_data
 from rebrew.cli import (
+    RootOption,
     TargetOption,
     confirm_abort,
     console,
@@ -296,11 +297,7 @@ def main(
         help="Update SIZE in rebrew-functions.toml metadata to match canonical sizes",
     ),
     force: bool = typer.Option(False, "--force", help="Skip the --fix-sizes confirmation prompt"),
-    root: Path | None = typer.Option(
-        None,
-        "--root",
-        help="Project root directory (auto-detected from rebrew-project.toml if omitted)",
-    ),
+    root: Path | None = RootOption,
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:

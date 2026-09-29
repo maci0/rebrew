@@ -20,7 +20,7 @@ import tomlkit
 import typer
 from rich.prompt import Confirm, Prompt
 
-from rebrew.cli import EXIT_MISMATCH, EXIT_OK, error_exit, json_print, option_default
+from rebrew.cli import EXIT_MISMATCH, EXIT_OK, error_exit, json_print, option_default, stdin_is_tty
 from rebrew.config import (
     DEFAULT_COMPILE_TIMEOUT,
     DEFAULT_PROJECT_JOBS,
@@ -1104,6 +1104,14 @@ def main(
             ctx, cwd, target_name, binary_name, compiler_profile, install_completions
         )
         wizard_ran = True
+    elif not json_output and not stdin_is_tty():
+        # The wizard is on by default, so a run whose stdin is a pipe or /dev/null
+        # skips the questions the help promised.  Name the reason and the way
+        # past it rather than leaving the reader to guess why nothing was asked.
+        console.print(
+            "[yellow]note:[/yellow] skipping the onboarding wizard: stdin is not a "
+            "terminal. Pass the answers as flags, or run rebrew init on a terminal."
+        )
 
     # The target name becomes src/<target>/, bin/<target>/ and a [targets.<name>]
     # key, so a separator or a dot segment would scaffold outside the project.

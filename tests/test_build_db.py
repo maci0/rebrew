@@ -540,6 +540,41 @@ binary = "test.exe"
 # ---------------------------------------------------------------------------
 
 
+class TestRootResolution:
+    """``--root`` is omitted the way ``rebrew verify`` omits it: walk up.
+
+    The command used to default to ``Path.cwd()``, so running it from a
+    subdirectory of a project reported a missing ``rebrew-project.toml`` there
+    and left a stray ``db/`` behind.  ``require_root`` makes every command
+    resolve the flag the same way.
+    """
+
+    def test_omitted_root_finds_the_project_from_a_subdirectory(
+        self, runner: CliRunner, project_root: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        nested = project_root / "src" / "main" / "deep"
+        nested.mkdir(parents=True)
+        monkeypatch.chdir(nested)
+
+        result = runner.invoke(app, [])
+
+        assert result.exit_code == 0, result.output
+        assert (project_root / "db" / "coverage-testbin.toml").is_file()
+        assert not (nested / "db").exists()
+
+    def test_outside_a_project_the_error_names_the_fix(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        outside = tmp_path / "not-a-project"
+        outside.mkdir()
+        monkeypatch.chdir(outside)
+
+        result = runner.invoke(app, [])
+
+        assert result.exit_code == 2, result.output
+        assert "rebrew-project.toml" in result.output
+
+
 class TestTargetSelection:
     @staticmethod
     def _two_targets(root_dir: Path, catalog: FakeCatalog) -> None:

@@ -19,7 +19,7 @@ from typing import Any
 import typer
 from rich.table import Table
 
-from rebrew.cli import TargetOption, console, json_print, require_config
+from rebrew.cli import RootOption, TargetOption, console, json_print, require_config
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
@@ -111,11 +111,7 @@ def _make_suggestions(
 
 @app.callback(invoke_without_command=True)
 def main(
-    root: Path | None = typer.Option(
-        None,
-        "--root",
-        help="Project root directory (auto-detected from rebrew-project.toml if omitted)",
-    ),
+    root: Path | None = RootOption,
     min_lines: int = typer.Option(
         200,
         "--min-lines",

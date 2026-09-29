@@ -138,6 +138,26 @@ class TestSharedOptionHelp:
                     bad.append((comp, cmd, name))
         assert not bad, f"--output must keep its -o short form: {bad}"
 
+    def test_root_help_is_uniform(self) -> None:
+        """``--root`` is the shared :data:`rebrew.cli.RootOption`, so one help string.
+
+        It used to be declared per command and drifted: ``verify``/``catalog``
+        documented the walk-up default they actually had, ``build-db`` and
+        ``dashboard`` said "Project root directory" and silently resolved the
+        current directory instead.  One constant keeps the help and the
+        behaviour tied to the same object.
+        """
+        from rebrew.cli import RootOption
+
+        bad = []
+        for comp, cmd, fn in _command_functions():
+            for name, opt in _options(fn).items():
+                if "--root" not in (opt.param_decls or []):
+                    continue
+                if (opt.help or "") != (RootOption.help or ""):
+                    bad.append((comp, cmd, name, opt.help))
+        assert not bad, f"--root must use the shared RootOption help: {bad}"
+
     def test_va_help_is_canonical(self) -> None:
         bad = []
         for comp, cmd, fn in _command_functions():

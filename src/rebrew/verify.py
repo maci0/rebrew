@@ -50,6 +50,7 @@ from rebrew.cli import (
     EXIT_ERROR,
     EXIT_MISMATCH,
     AllTargetsOption,
+    RootOption,
     TargetOption,
     all_targets_run,
     console,
@@ -631,11 +632,7 @@ def main(
     file: str | None = typer.Argument(
         None, help="Restrict to one source file (e.g. src/x/foo.c) for per-file CI gating"
     ),
-    root: Path | None = typer.Option(
-        None,
-        "--root",
-        help="Project root directory (auto-detected from rebrew-project.toml if omitted)",
-    ),
+    root: Path | None = RootOption,
     jobs: int | None = typer.Option(
         None,
         "--jobs",

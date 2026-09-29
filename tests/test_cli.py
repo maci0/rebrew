@@ -964,7 +964,7 @@ class TestConfirmAbort:
     def test_no_stdin_names_the_skip_flag(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from typer.testing import CliRunner
 
-        monkeypatch.setattr("rebrew.cli._stdin_is_tty", lambda: False)
+        monkeypatch.setattr("rebrew.cli.stdin_is_tty", lambda: False)
         result = CliRunner().invoke(self._app(), input="")
         assert result.exit_code == EXIT_ERROR
         assert "--force" in result.stderr
