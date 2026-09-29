@@ -628,7 +628,11 @@ class TestFunctionExtentFromDisasm:
 
         # plain function → ret
         ret_text = bytes.fromhex("8b 44 24 04 c3")
-        assert function_extent_from_disasm(tmp_path, 0x1000, with_kind=True) is None  # absent file
+        # A path that does not exist, so the load-time early return is the
+        # only thing that can produce the None. tmp_path itself is a
+        # directory, and the loader would reach its parse handler for that.
+        absent = tmp_path / "absent.exe"
+        assert function_extent_from_disasm(absent, 0x1000, with_kind=True) is None  # absent file
         exe = tmp_path / "y.exe"
         exe.write_bytes(b"MZ" + ret_text)
         # thunk → jmp

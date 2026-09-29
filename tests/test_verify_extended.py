@@ -55,6 +55,12 @@ def _cfg(tmp_path: Path, **overrides: object) -> SimpleNamespace:
         "base_cflags": "/O2",
         "compiler_includes": [],
         "compiler_libs": [],
+        # The catalog registry reads these off the config when it prepares
+        # entries; without them every run that reaches the compile stage dies
+        # on an AttributeError, which is indistinguishable from the gate
+        # firing when a test only asserts on the absence of a skip notice.
+        "dll_exports": {},
+        "iat_thunks": {},
     }
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
@@ -675,10 +681,11 @@ class TestVerifyCli:
         """A bits=16 object profile must NOT short-circuit a 16-bit NE target.
 
         The gate used to name only msvc-1.52, so msvc-1.0/1.5, Borland, and
-        Watcom never reached compile_and_compare.  The fake cfg
-        lacks the fields the deeper pipeline needs, so the run fails for an
-        unrelated reason — the point is the NE gate no longer fires (no
-        'skipped' JSON with the stale "future work" reason)."""
+        Watcom never reached compile_and_compare. The compile stage is
+        stubbed, so this asserts the gate let the entry through rather than
+        that the run got far enough to crash: a failure between the gate and
+        the compile would otherwise keep the test green.
+        """
         from rebrew.verify import app
 
         ne = tmp_path / "game.ne"
@@ -688,10 +695,20 @@ class TestVerifyCli:
         data[0x100:0x102] = b"NE"
         ne.write_bytes(bytes(data))
         cfg = _cfg(tmp_path, target_binary=ne, compiler_profile=profile)
+        (cfg.reversed_dir / "f.c").write_text(
+            "// FUNCTION: SERVER 0x1000\n// STATUS: STUB\n// SIZE: 8\nint my_func(void) { return 0; }\n",
+            encoding="utf-8",
+        )
         monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
+        reached: list[int] = []
+        monkeypatch.setattr(
+            "rebrew.verify.verify_entry",
+            lambda entry, config, *a, **kw: reached.append(entry.va) or _ok_result(),
+        )
         result = CliRunner().invoke(app, ["--json"])
-        assert "skipped" not in result.output
         assert "future work" not in result.output
+        assert "skipped" not in result.output
+        assert reached, result.output
 
     def test_ne_target_with_delphi_skips(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

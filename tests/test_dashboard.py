@@ -13,6 +13,7 @@ import gzip
 import hashlib
 import json
 import logging
+import math
 import os
 import re
 import shutil
@@ -2362,7 +2363,11 @@ class TestServerTiming:
 
         timing = self._headers(dashboard, "/api/targets")["Server-Timing"]
         assert timing.startswith("route;dur=")
-        assert float(timing.removeprefix("route;dur=")) >= 0.0
+        # A finite, non-negative duration. `>= 0.0` alone would pass on nan,
+        # and on a header the strip below never actually parsed.
+        duration = float(timing.removeprefix("route;dur="))
+        assert math.isfinite(duration)
+        assert duration >= 0.0
         # The shell and the content-hashed clients are on the congestion
         # window budget: no extra header bytes there.
         for path in ("/", _APP_JS_URL):

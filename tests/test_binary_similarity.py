@@ -90,7 +90,11 @@ class TestAggregateSimilarity:
         assert len(r["low"]) == 1
         # The diverged function is the lowest.
         assert r["low"][0]["score"] < 60.0
-        assert r["low"][0]["matches"]["va"]
+        # f2 is the A function nothing matched, and the row names the closest
+        # B function rather than leaving the match unlabelled.
+        assert r["low"][0]["va"] == "0x00001100"
+        assert r["low"][0]["name"] == "f2"
+        assert r["low"][0]["matches"] == {"va": "0x00002000", "size": 10, "name": "g1"}
 
     def test_undecodable_skipped(self) -> None:
         a = [

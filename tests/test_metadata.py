@@ -1439,15 +1439,18 @@ class TestUpdateFieldTomlSafe:
         update_field(tmp_path, 0x1000, "note", "a\x07b", module="SERVER")
         path = metadata_path(tmp_path)
         before = path.stat().st_mtime_ns
+        before_bytes = path.read_bytes()
         update_field(tmp_path, 0x1000, "note", "a\x07b", module="SERVER")
         assert path.stat().st_mtime_ns == before
+        assert path.read_bytes() == before_bytes
         # Control: the rewrite really lands, so the equality above is the
-        # short-circuit and not a write that silently did nothing. Compared on
-        # content, not mtime: a filesystem with coarse timestamps would move
-        # the stamp or not, independently of the behavior under test.
+        # short-circuit and not a write that silently did nothing. The control
+        # compares the bytes it changed, not the mtime: two writes microseconds
+        # apart land in the same tick on a filesystem with coarse timestamps,
+        # and the comparison would then fail on correct code.
         update_field(tmp_path, 0x1000, "note", "other", module="SERVER")
         assert get_entry(tmp_path, 0x1000, "SERVER")["note"] == "other"
-        assert path.stat().st_mtime_ns != before
+        assert path.read_bytes() != before_bytes
 
     def test_save_metadata_strips_control_chars(self, tmp_path: Path) -> None:
         """The bulk writer is the one path ``toml_safe`` was missing: a control

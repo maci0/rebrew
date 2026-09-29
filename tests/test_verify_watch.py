@@ -156,13 +156,13 @@ class TestVerifyWatchCli:
                 reversed_dir=Path("/tmp"), default_jobs=4, db_dir=Path("/tmp")
             ),
         )
-        monkeypatch.setattr(
-            "rebrew.sources.iter_sources", lambda _d, _c: [Path("/tmp/a.c"), Path("/tmp/b.c")]
-        )
+        discovered: list[Path] = [Path("/tmp/a.c"), Path("/tmp/b.c")]
+        monkeypatch.setattr("rebrew.sources.iter_sources", lambda _d, _c: list(discovered))
 
         def fake_watch(paths: list[Path], retest: object, **kwargs: object) -> None:
             seen["paths"] = paths
             seen["retest"] = retest
+            seen["kwargs"] = kwargs
 
         monkeypatch.setattr("rebrew.utils.watch_files", fake_watch)
         # Note: typer's callback wrapper misbinds partial keyword sets on direct
@@ -182,3 +182,9 @@ class TestVerifyWatchCli:
         )
         assert seen["paths"] == [Path("/tmp/a.c"), Path("/tmp/b.c")]
         assert callable(seen["retest"])
+        # The provider, not the list captured at startup: a file added after
+        # the watch began must still be covered.
+        kwargs = seen["kwargs"]
+        assert callable(kwargs["path_provider"])
+        discovered.append(Path("/tmp/c.c"))
+        assert kwargs["path_provider"]() == discovered

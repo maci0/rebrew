@@ -1617,14 +1617,20 @@ class TestEntryHeadersFp:
 
 class TestCompareLogicHashMembership:
     def test_covers_the_expected_modules(self) -> None:
-        """The hash must cover the modules whose logic changes verify results
-        — an omitted module means a logic fix won't invalidate stale caches."""
+        """The hash must cover the modules whose logic changes verify results:
+        an omitted module means a logic fix won't invalidate stale caches.
+
+        The test used to assert a count and a digest length over a set it
+        built itself, which holds for a hash of nothing at all. What the
+        cache identity actually depends on is the stat fingerprint of every
+        source file in the package, so that is what is checked here.
+        """
         import rebrew.annotation
         import rebrew.binary_loader
         import rebrew.coff_reloc
         import rebrew.compile
         import rebrew.matcher.parsers
-        from rebrew.verify_hash import _compare_logic_hash
+        from rebrew.verify_hash import _compare_logic_hash, _package_source_fingerprint
 
         names = {
             rebrew.annotation._kv_to_annotation.__code__.co_filename,
@@ -1638,6 +1644,9 @@ class TestCompareLogicHashMembership:
         # _extract_and_compare both live in compile.py), all under src/.
         assert len(names) == 5
         assert all("rebrew" in n for n in names)
+        covered = {path for path, _mtime, _size in _package_source_fingerprint()}
+        missing = {str(Path(n).resolve()) for n in names} - covered
+        assert not missing, sorted(missing)
         h = _compare_logic_hash()
         assert isinstance(h, str) and len(h) == 64
 

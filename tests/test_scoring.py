@@ -347,9 +347,17 @@ class TestScoreCandidate:
         assert score.total == pytest.approx(expected, abs=0.01)
 
     def test_negative_reloc_offsets_ignored(self) -> None:
-        code = b"\x55\x8b\xec\xe8\x01\x02\x03\x04\xc3"
-        score = score_candidate(code, code, reloc_offsets=[-1, 4])
-        assert score.reloc_score == 0.0
+        # The two sides differ at index 2, inside the span a negative offset
+        # would have kept ([-1, 0, 1, 2] for pointer_size 4), so an
+        # unfiltered offset list would mask the difference and score the
+        # candidate clean. The identical-bytes fast path must not short-circuit
+        # this either, or the mask is never built at all.
+        target = b"\x55\x8b\xec\xe8\x01\x02\x03\x04\xc3"
+        cand = b"\x55\x8b\xad\xe8\x01\x02\x03\x04\xc3"
+        score = score_candidate(target, cand, reloc_offsets=[-1])
+        empty = score_candidate(target, cand, reloc_offsets=[])
+        assert score == empty
+        assert score.byte_score > 0.0
 
     def test_negative_reloc_offset_does_not_mask_low_bytes(self) -> None:
         """A negative offset must not excuse real byte diffs: ro=-2 with
@@ -533,6 +541,12 @@ class TestStructuralSimilarity:
         assert reloaded.flag_sensitive == sim.flag_sensitive
         assert reloaded.structural_ratio == sim.structural_ratio
         assert reloaded.mnemonic_match_ratio == sim.mnemonic_match_ratio
+        # The ratios the record carries are the 4-decimal ones the flag is
+        # decided from. Round-tripping the dataclass alone proves nothing: a
+        # record built from the unrounded ratios reloads to itself either way.
+        assert sim.structural_ratio == round(sim.structural_ratio, 4)
+        assert sim.mnemonic_match_ratio == round(sim.mnemonic_match_ratio, 4)
+        assert reloaded.structural_ratio == round(reloaded.structural_ratio, 4)
 
     def test_flag_sensitive_moderate_structural(self) -> None:
         # 7 identical nops + 3 structurally different: inc eax (40) vs dec eax (48)

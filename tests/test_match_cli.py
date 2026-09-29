@@ -446,11 +446,14 @@ class TestMatchCliDryRun:
             default_jobs=2,
         )
         monkeypatch.setattr("rebrew.match.require_config", lambda **kw: cfg)
+
+        def _boom(*args: object, **kwargs: object) -> None:
+            raise AssertionError("run_single_ga ran for a single function under --dry-run")
+
+        monkeypatch.setattr("rebrew.match.run_single_ga", _boom)
         result = CliRunner().invoke(app, ["--dry-run", "f.c"])
         assert result.exit_code == 2
         assert "batch mode only" in result.output
-        # The GA must not run for a single function under --dry-run.
-        assert "run_single_ga" not in result.output
 
 
 class TestAllTargetsParallel:

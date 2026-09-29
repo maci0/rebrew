@@ -480,13 +480,20 @@ class TestLintResult:
         r = LintResult(filepath=Path("test.c"))
         r.error(1, "E001", "err")
         r.warning(2, "W001", "warn")
-        # Both display modes must run without raising; quiet must produce
-        # less (or equal) output than the default mode.
+        # Both display modes must render the file, and --quiet may only drop
+        # the warnings. A renderer that printed nothing would satisfy a bare
+        # no-crash check, and the check would still pass.
         r.display()
         full = capsys.readouterr()
         r.display(quiet=True)
         quiet = capsys.readouterr()
-        assert len(quiet.out) + len(quiet.err) <= len(full.out) + len(full.err)
+        combined = full.out + full.err
+        assert "test.c" in combined
+        assert "E001" in combined
+        assert "W001" in combined
+        kept = quiet.out + quiet.err
+        assert "E001" in kept
+        assert "W001" not in kept
 
 
 def _make_c_file(tmp_path: Path, name: str = "my_func.c", content: str | None = None) -> Path:

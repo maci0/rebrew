@@ -18,21 +18,34 @@ from rebrew.headless import (
 
 @pytest.fixture(autouse=True)
 def _isolate_owned_xvfb() -> Any:
-    """Give every test its own Xvfb ownership set.
+    """Give every test its own Xvfb ownership set, and leave the process as
+    it was found.
 
     The module keeps the servers this process spawned so a dead one is
     reaped and a live one is shut down at exit; a test that spawns a fake
-    must not leave it in that set for the next test to inherit.
+    must not leave it in that set for the next test to inherit. Adopting a
+    server also writes two process-wide env vars and a cookie file, so those
+    are drained too: monkeypatch never saw them, and a leaked
+    REBREW_XVFB_DISPLAY would make a later test's check_env_display read
+    another test's display.
     """
     from rebrew import headless
 
     saved = headless._owned_xvfb
     saved_flag = headless._xvfb_atexit_registered
+    env_keys = ("XAUTHORITY", headless.XVFB_DISPLAY_ENV)
+    saved_env = {key: os.environ.get(key) for key in env_keys}
     headless._owned_xvfb = []
     headless._xvfb_atexit_registered = False
     try:
         yield
     finally:
+        headless._release_owned_xvfb()
+        for key, value in saved_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
         headless._owned_xvfb = saved
         headless._xvfb_atexit_registered = saved_flag
 
@@ -186,6 +199,27 @@ class TestEnsureXvfb:
         monkeypatch.setenv("DISPLAY", "")
         # No live displays, so ensure_xvfb would spawn; with no Xvfb binary
         # available it must return None rather than the stale ":99".
+        monkeypatch.setattr(headless.shutil, "which", lambda name: None)
+        assert ensure_xvfb() is None
+
+    def test_env_display_without_a_cookie_is_not_reused(self, monkeypatch) -> None:
+        """A pinned display whose live Xvfb rebrew cannot authenticate to is
+        not adopted.
+
+        The other unauthenticated test clears REBREW_XVFB_DISPLAY first, so it
+        reaches the orphan scan instead of the pinned-display branch. Liveness
+        alone is not enough: dropping the ``_adopt`` call would hand every
+        compile to a world-reachable server.
+        """
+        from rebrew import headless
+
+        monkeypatch.setenv("REBREW_XVFB_DISPLAY", ":99")
+        monkeypatch.setenv("DISPLAY", "")
+        monkeypatch.delenv("XAUTHORITY", raising=False)
+        monkeypatch.setattr(headless, "_display_alive", lambda d: True)
+        monkeypatch.setattr(headless, "_running_xvfb_displays", lambda: {":99": 1234})
+        monkeypatch.setattr(headless, "_server_cookie", lambda pid: None)
+        # No Xvfb binary, so the fallback is a clean None rather than a spawn.
         monkeypatch.setattr(headless.shutil, "which", lambda name: None)
         assert ensure_xvfb() is None
 
@@ -355,6 +389,9 @@ class TestEnsureXvfb:
 
         class _DeadProc:
             def poll(self) -> int:
+                return 1
+
+            def wait(self, timeout: float | None = None) -> int:
                 return 1
 
             def terminate(self) -> None:
