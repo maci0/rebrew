@@ -38,21 +38,27 @@ Review the following:
    rg -o --no-filename '^[a-zA-Z0-9][a-zA-Z0-9_.-]*:' Makefile | tr -d ':' | sort -u
    ```
 
-   The first sweep reads prose as well as commands, and today seventeen of its
-   hits are English words rather than targets: `make all`, `make any`, `make
-   check`, `make clear`, `make consumers`, `make is`, `make it`, `make many`,
-   `make one`, `make rebrew`, `make target`, `make targets`, `make that`,
-   `make the`, `make these`, `make this`, `make worse`. Drop those before
-   judging the rest, and keep an English word the `Makefile` does define.
-   `_PROSE_AFTER_MAKE` in `tests/test_docs_hygiene.py` is the exemption list
-   the two gated tests apply, and it covers six of the seventeen, so it is not
-   a filter you can apply on their behalf.
+   The first sweep reads prose as well as commands, so subtract the second sweep
+   from it before reading anything into the difference: a `make` word the
+   `Makefile` defines is a target even when it reads as English, and `all` and
+   `check` both are. What is left mixes the prose words and the dead targets
+   together, so drop the ones that read as English before judging. Derive that
+   set from the two sweeps rather than from any list written down here, which
+   goes stale the first time the prose changes. `_PROSE_AFTER_MAKE` in
+   `tests/test_docs_hygiene.py` is the exemption list the two gated tests
+   apply, and neither sweep applies it, so apply it yourself.
 
    A target named only in a historical record (`docs/adr/`, `docs/prd/`) is reported
    without an edit: those records state what was true when they were written, and the
-   scope limits below forbid rewriting one. `AGENTS.md` names `setup`, `help`, `doctor`, `test`, `test-one`, `lint`, `format`, `mypy`, `gen-fixtures`, `gen-skills`, `coverage`, `pr-check`, `build`, `sdist-check`, `sbom`. Check the argument syntax the docs give against the recipe, for example `make test-one T=tests/test_annotation.py` and the `::TestClass` node id form, and `RESEMBL_REF` and `RESEMBL_SHA` as named in the `Makefile` and in `CONTRIBUTING.md`.
+   scope limits below forbid rewriting one. The rule files name a set of Make targets
+   that shifts as targets are added, so derive it by running the first command above
+   with `docs/` replaced by `AGENTS.md src/rebrew/AGENTS.md.template src/rebrew/*/AGENTS.md`
+   rather than from a list written here. Check the argument syntax the docs give against
+   the recipe, for example `make test-one T=tests/test_annotation.py` and the
+   `::TestClass` node id form, and `RESEMBL_REF` and `RESEMBL_SHA` as named in the
+   `Makefile` and in `CONTRIBUTING.md`.
 4. ADR status citations. The index row per record, the three `Status` terms, and every `(NNN-short-title.md)` link are gated by `tests/test_docs_hygiene.py`; do not re-report them. What the cross-reference test cannot see is the rest: a `- **Status**:` line may cite the superseding record in bare `ADR-NNN` form, with no markdown link around it, and the test reads only links. A Status line citing `ADR-NNN` outside a link is findable with `rg -nP '^- \*\*Status\*\*:.*(?<!\])ADR-\d{3}(?!\]\()' docs/adr/`, which exits 1 when every citation carries its link. Every number a Status line cites in either form must be a file that exists in `docs/adr/`. An ADR whose status is `Superseded by NNN` but whose Decision section still states the old rule in the present tense, without a pointer to the citing record, is a finding: a later agent reads the decision, not the status line. Report it rather than editing that section, because a reversal supersedes the record it reverses and never edits it; put the pointer on the Status line instead, which is the one place the convention leaves open.
-5. Environment and config keys. Every `REBREW_*` variable named in a doc or listed in `.env.example` is read somewhere under `src/rebrew`, or the doc says it is consumed elsewhere. Every `rebrew-project.toml` key a doc names is read by the loader, for example `[compiler] recompile_url`. A variable that only exists in `.env.example` is drift in the example. Collect both sides with:
+5. Environment and config keys. Every `REBREW_*` variable named in a doc or listed in `.env.example` is read somewhere under `src/rebrew`, or the doc says it is consumed elsewhere. Every `rebrew-project.toml` key a doc names is one the loader recognises, for example `[compiler] recompile_url`; check it against the key sets the loader itself validates against, `_KNOWN_TOP_KEYS`, `KNOWN_PROJECT_KEYS`, `KNOWN_TARGET_KEYS`, `_KNOWN_COMPILER_KEYS`, `_KNOWN_LINK_KEYS`, `_KNOWN_LLM_KEYS`, `_KNOWN_CACHE_KEYS`, and `_KNOWN_LINT_KEYS` in `src/rebrew/config.py` (`rg -n '_KNOWN[A-Z_]* = \{|^KNOWN_[A-Z_]* = '` lists them), since a key outside every one of them warns `unrecognized keys` on every invocation. A variable that only exists in `.env.example` is drift in the example. Collect both sides with:
 
    ```sh
    rg -o --no-filename '\bREBREW_[A-Z0-9_]+' docs/ README.md CONTRIBUTING.md AGENTS.md src/rebrew/AGENTS.md.template src/rebrew/*/AGENTS.md .env.example rebrew-project.toml.example | sort -u
