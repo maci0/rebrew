@@ -75,7 +75,12 @@ def test_parse_pe_mutated_fixture_is_self_consistent(blob: bytes) -> None:
     # section table that overruns the image is exactly the forged case the
     # truncation guard exists for.
     assert pe["header_size"] <= len(blob)
-    assert pe["e_lfanew"] == blob.find(b"PE\0\0", 0x40)
+    # The signature sits where ``e_lfanew`` points, which is the contract
+    # ``pe_lfanew`` enforces.  Not ``find``, the first ``PE\0\0`` anywhere: a
+    # mutation drops a decoy one before the real header all the time, and
+    # demanding the parser follow the decoy asserts the opposite of the guard
+    # that rejects such an image.
+    assert blob[pe["e_lfanew"] : pe["e_lfanew"] + 4] == b"PE\0\0"
 
     for section in sections:
         assert section.raw_ptr + section.raw_size >= section.raw_ptr

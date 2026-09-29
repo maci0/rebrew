@@ -9,6 +9,7 @@ Endpoints
 ---------
 ``GET /``                      → HTML shell (functions, sections, globals, history)
 ``GET /app.js``                → deferred dashboard client (preloaded + ``defer``)
+``GET /favicon.svg``           → the rebrew mark (served, not inlined; hashed URL)
 ``GET /api/bootstrap``         → targets + first target's summary/functions (one RTT)
 ``GET /api/health``            → liveness probe (one real read of the target list)
 ``GET /api/targets``           → list of targets (includes count/total)
@@ -3606,6 +3607,7 @@ app = typer.Typer(
         "[bold]Endpoints:[/bold]\n\n"
         "  / · · · · · · · · · · · · HTML shell (targets, summary, function search)\n\n"
         "  /app.js · · · · · · · · · Deferred dashboard client\n\n"
+        "  /favicon.svg · · · · · · The rebrew mark\n\n"
         "  /api/bootstrap · · · · · · Targets + first target summary/functions\n\n"
         "  /api/health · · · · · · · · Liveness: server up + coverage readable\n\n"
         "  /api/targets · · · · · · List targets\n\n"

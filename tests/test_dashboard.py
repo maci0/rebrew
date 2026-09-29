@@ -4900,6 +4900,29 @@ class TestHumanReadableContract:
         for path in dashboard_module._KNOWN_ROUTES:
             assert path in section, path
 
+    def test_help_names_every_served_path(self) -> None:
+        """A path the server serves is in ``rebrew dashboard --help``.
+
+        The epilog is a third copy of the endpoint list, checked by neither the
+        spec gate above nor the ``CLI.md`` gate beside it, so a route could be
+        added to ``_KNOWN_ROUTES`` and to the spec while the page a reader runs
+        ``--help`` on omits it.
+        """
+        rendered = CliRunner().invoke(dashboard_module.app, ["--help"]).output
+        for path in dashboard_module._KNOWN_ROUTES:
+            assert path in rendered, path
+
+    def test_module_docstring_names_every_served_path(self) -> None:
+        """A path the server serves is in the module's own endpoint list.
+
+        Same drift as the epilog, one page earlier: the docstring is what a
+        reader of ``dashboard.py`` reads to learn what the server answers.
+        """
+        docstring = dashboard_module.__doc__ or ""
+        endpoints = docstring[docstring.index("Endpoints\n---------") :]
+        for path in dashboard_module._KNOWN_ROUTES:
+            assert path in endpoints, path
+
     def test_human_summary_names_every_content_hashed_asset(self, dashboard: Dashboard) -> None:
         """The ETag sentence names every asset the server tags by content hash.
 
