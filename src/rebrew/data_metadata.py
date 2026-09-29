@@ -53,6 +53,7 @@ import logging
 import threading
 import unicodedata
 from collections.abc import Iterator
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -349,6 +350,7 @@ def set_data_field(
     module: str,
     *,
     updated_by: str = "",
+    now: datetime | None = None,
 ) -> None:
     """Set one field for *(module, va)* in the data metadata.
 
@@ -365,6 +367,9 @@ def set_data_field(
             ``rename``, ``lint``, ``binsync-import``, …).  When set, the same
             write records ``updated_by`` plus a UTC ``updated_at``; callers
             that pass "" leave the row's existing stamp alone.
+        now: Instant that ``updated_at`` records, for a run replaying its own
+            writes (see :func:`rebrew.metadata.stamp_provenance`).  Unset reads
+            the wall clock.
 
     """
     if not module:
@@ -403,13 +408,15 @@ def set_data_field(
 
         entry[key] = safe
         if updated_by:
-            stamp_provenance(entry, updated_by)
+            stamp_provenance(entry, updated_by, now=now)
         stamp_format(doc)
         atomic_write_locked(path, tomlkit.dumps(doc))
         _invalidate_data_cache(path)
 
 
-def set_data_fields_batch(directory: Path | str | Any, updates: list[dict[str, Any]]) -> int:
+def set_data_fields_batch(
+    directory: Path | str | Any, updates: list[dict[str, Any]], *, now: datetime | None = None
+) -> int:
     """Set fields for many ``(module, va)`` entries in one TOML read-modify-write.
 
     Sibling of :func:`rebrew.metadata.set_fields_batch` for the data store.
@@ -418,6 +425,9 @@ def set_data_fields_batch(directory: Path | str | Any, updates: list[dict[str, A
     ``updated_by`` / ``updated_at`` pair in the same write when the update
     changes something.  Same-value short-circuit is preserved per field.
     Returns the number of entries that changed at least one field.
+
+    *now* fixes the instant every row the batch stamps records, so a replay
+    lands the same bytes (see :func:`rebrew.metadata.stamp_provenance`).
 
     Raises :class:`ValueError` for an update missing ``module`` or ``va``, or
     naming a negative VA.  A malformed update used to be skipped, so the rest
@@ -471,7 +481,7 @@ def set_data_fields_batch(directory: Path | str | Any, updates: list[dict[str, A
             if changed:
                 tag = str(u.get("updated_by") or "")
                 if tag:
-                    stamp_provenance(entry, tag)
+                    stamp_provenance(entry, tag, now=now)
                 changed_entries += 1
         if changed_entries:
             stamp_format(doc)

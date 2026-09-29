@@ -521,6 +521,7 @@ def _set_field(
     module: str,
     *,
     updated_by: str = "",
+    now: datetime | None = None,
 ) -> None:
     """Set one field for *(module, va)* in the metadata.  **Private** — use
     :func:`update_field` or :func:`update_source_status` instead.
@@ -530,7 +531,8 @@ def _set_field(
 
     *updated_by* stamps the row's ``updated_by`` / ``updated_at`` pair in the
     same write, so a BLOCKER or NOTE edit names the tool that made it instead
-    of leaving the last STATUS writer's tag standing.
+    of leaving the last STATUS writer's tag standing.  *now* fixes that pair's
+    instant (see :func:`stamp_provenance`).
     """
     _require_module(module)
     dir_path = resolve_metadata_dir(directory)
@@ -549,7 +551,7 @@ def _set_field(
 
         entry[key] = safe
         if updated_by:
-            stamp_provenance(entry, updated_by)
+            stamp_provenance(entry, updated_by, now=now)
         stamp_format(doc)
         atomic_write_locked(path, tomlkit.dumps(doc))
         pop_metadata_doc_cache(_metadata_cache, path)
@@ -625,15 +627,21 @@ def validate_identity_file(value: str) -> str:
     return text
 
 
-def stamp_provenance(entry: dict[str, Any], updated_by: str) -> None:
+def stamp_provenance(
+    entry: dict[str, Any], updated_by: str, *, now: datetime | None = None
+) -> None:
     """Record *updated_by* plus a UTC ``updated_at`` on an open entry table.
 
     One helper for every writer that stamps provenance (:func:`_set_field`,
     :func:`update_statuses_batch`, the data store's own writers), so the tag
     vocabulary and the timestamp format cannot drift between them.
+
+    *now* fixes the instant the stamp records.  A replay that drives the same
+    writes from a seed passes the same instant, so the store lands the same
+    bytes; left unset it reads the wall clock.
     """
     entry["updated_by"] = updated_by
-    entry["updated_at"] = datetime.now(UTC).isoformat(timespec="seconds")
+    entry["updated_at"] = (now or datetime.now(UTC)).isoformat(timespec="seconds")
 
 
 def set_fields(
@@ -643,6 +651,7 @@ def set_fields(
     module: str,
     *,
     updated_by: str = "",
+    now: datetime | None = None,
 ) -> None:
     """Write several fields for *(module, va)* in a single read-modify-write.
 
@@ -651,7 +660,7 @@ def set_fields(
     :func:`update_source_status` for STATUS; use this when several non-STATUS
     fields must land in one atomic write (e.g. ``blocker`` + ``blocker_delta``).
     *updated_by* stamps the provenance pair in that same write, as in
-    :func:`update_field`.
+    :func:`update_field`; *now* fixes that pair's instant.
     """
     if not fields:
         return
@@ -677,7 +686,7 @@ def set_fields(
                 changed = True
         if changed:
             if updated_by:
-                stamp_provenance(entry, updated_by)
+                stamp_provenance(entry, updated_by, now=now)
             stamp_format(doc)
             atomic_write_locked(path, tomlkit.dumps(doc))
             pop_metadata_doc_cache(_metadata_cache, path)
@@ -980,6 +989,7 @@ def update_field(
     module: str,
     *,
     updated_by: str = "",
+    now: datetime | None = None,
 ) -> None:
     """Central gatekeeper for all metadata field writes.
 
@@ -1003,6 +1013,8 @@ def update_field(
             ``updated_at``, so a row's stamp names the last write of any kind
             rather than only the last status write.  Callers that pass "" keep
             the stored stamp.
+        now: Instant the ``updated_at`` stamp records, for a run replaying its
+            own writes (see :func:`stamp_provenance`).  Unset reads the wall clock.
 
     Raises:
         ValueError: If *key* is ``"status"`` — use :func:`update_source_status`.
@@ -1015,7 +1027,13 @@ def update_field(
             "Use update_source_status() for STATUS changes — it enforces promotion rules"
         )
     _set_field(
-        directory, va, key, _validate_field(key, value), module=module, updated_by=updated_by
+        directory,
+        va,
+        key,
+        _validate_field(key, value),
+        module=module,
+        updated_by=updated_by,
+        now=now,
     )
 
 
@@ -1131,6 +1149,7 @@ def update_source_status(
     clear_blockers: bool = True,
     force: bool = False,
     updated_by: str = "",
+    now: datetime | None = None,
 ) -> bool:
     """Write STATUS for (module, va) to the metadata; never touches the .c file.
 
@@ -1156,6 +1175,8 @@ def update_source_status(
         updated_by: Provenance tag for the write (``test``/``verify``/``prove``/
             ``lint``/``binsync-import``/``intake``/``match``).  Recorded as
             ``updated_by`` with a UTC ``updated_at`` timestamp.
+        now: Instant that timestamp records, for a run replaying its own
+            writes (see :func:`stamp_provenance`).  Unset reads the wall clock.
 
     Returns:
         ``True`` when the entry was written, ``False`` when the promotion
@@ -1184,12 +1205,15 @@ def update_source_status(
                     "updated_by": updated_by,
                 }
             ],
+            now=now,
         )
         > 0
     )
 
 
-def update_statuses_batch(metadata_dir: Path | str | Any, updates: list[dict[str, Any]]) -> int:
+def update_statuses_batch(
+    metadata_dir: Path | str | Any, updates: list[dict[str, Any]], *, now: datetime | None = None
+) -> int:
     """Apply many STATUS updates in ONE TOML read-modify-write.
 
     ``verify``'s STATUS sync and ``test --all`` previously called
@@ -1203,7 +1227,9 @@ def update_statuses_batch(metadata_dir: Path | str | Any, updates: list[dict[str
     and optional ``clear_blockers`` (default True), ``force`` (default
     False), ``updated_by`` (provenance tag; when set, also records
     ``updated_at``).  Returns the number of entries written, which counts a
-    same-status write that only stripped a stale blocker.
+    same-status write that only stripped a stale blocker.  *now* fixes that
+    one instant for every row the batch stamps, so a replay lands the same
+    bytes (see :func:`stamp_provenance`).
 
     Each changed status passes through :func:`should_promote_status` —
     the single canonical promotion policy (SKIP never silently unparked, a
@@ -1281,7 +1307,7 @@ def update_statuses_batch(metadata_dir: Path | str | Any, updates: list[dict[str
                     del entry["blocker_delta"]
             updated_by = str(u.get("updated_by") or "")
             if updated_by:
-                stamp_provenance(entry, updated_by)
+                stamp_provenance(entry, updated_by, now=now)
             changed += 1
 
         # Single write for the whole batch

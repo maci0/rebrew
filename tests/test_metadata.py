@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import tomllib
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -1387,6 +1388,47 @@ class TestProvenance:
         assert stored["blocker"] == "needs vtable"
         assert stored["updated_by"] == "blocker"
         assert stored["updated_at"]
+
+
+class TestProvenanceReplay:
+    """A replayed run replays its writes, so the stamp is an input, not output.
+
+    The wall clock is the one thing a driver cannot reproduce, so every writer
+    that stamps a row takes the instant as an argument; a run driven from a
+    seed passes the same one twice and the store lands the same bytes.
+    """
+
+    @staticmethod
+    def _replay(tmp_path: Path, now: datetime) -> bytes:
+        from rebrew.metadata import metadata_path
+
+        update_source_status(
+            tmp_path, "NEAR_MATCHING", "SERVER", 0x1000, updated_by="verify", now=now
+        )
+        update_field(
+            tmp_path, 0x1000, "blocker", "struct diff", "SERVER", updated_by="diff", now=now
+        )
+        update_statuses_batch(
+            tmp_path,
+            [{"module": "SERVER", "va": 0x2000, "new_status": "EXACT", "updated_by": "verify"}],
+            now=now,
+        )
+        return metadata_path(tmp_path).read_bytes()
+
+    def test_same_instant_replays_the_same_bytes(self, tmp_path: Path) -> None:
+        first = self._replay(tmp_path / "a", datetime(2024, 1, 1, tzinfo=UTC))
+        second = self._replay(tmp_path / "b", datetime(2024, 1, 1, tzinfo=UTC))
+        assert first == second
+
+    def test_the_instant_is_the_one_passed(self, tmp_path: Path) -> None:
+        from rebrew.metadata import get_entry
+
+        stamp = datetime(2024, 1, 1, 12, 0, tzinfo=UTC)
+        self._replay(tmp_path, stamp)
+        for va in (0x1000, 0x2000):
+            assert get_entry(tmp_path, va, "SERVER")["updated_at"] == stamp.isoformat(
+                timespec="seconds"
+            )
 
 
 class TestSetFieldsBatchTomlSafe:

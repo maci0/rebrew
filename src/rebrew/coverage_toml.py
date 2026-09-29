@@ -471,7 +471,11 @@ def _section_table(sec_name: str, sec: dict[str, Any]) -> list[str]:
 
 
 def _merge_history(
-    previous_functions: Any, previous_history: Any, fn_rows: Sequence[tuple[Any, ...]]
+    previous_functions: Any,
+    previous_history: Any,
+    fn_rows: Sequence[tuple[Any, ...]],
+    *,
+    now: datetime | None = None,
 ) -> list[dict[str, Any]]:
     """Carry previous history forward and append this build's status deltas.
 
@@ -480,6 +484,9 @@ def _merge_history(
     the previous file's ``functions`` array is that snapshot and its ``history``
     array is the table, so the same three steps give the same answer without a
     transaction.
+
+    *now* fixes the ``changed_at`` of the rows this build appends, so a replay
+    of the same scan writes the same history.
     """
     old_statuses: dict[Any, Any] = {}
     if isinstance(previous_functions, list):
@@ -494,7 +501,7 @@ def _merge_history(
         else []
     )
 
-    now_iso = datetime.now(UTC).isoformat()
+    now_iso = (now or datetime.now(UTC)).isoformat()
     for row in fn_rows:
         new_va, new_status, updated_by = row[1], row[6], row[24]
         old_status = old_statuses.get(new_va)
@@ -631,6 +638,7 @@ def render_coverage_toml(
     *,
     previous: dict[str, Any] | None = None,
     verify_rows: Sequence[tuple[Any, ...]] | None = None,
+    now: datetime | None = None,
 ) -> str:
     """Return the whole TOML document for one target, as a string.
 
@@ -648,6 +656,9 @@ def render_coverage_toml(
     ``[]`` writes none, and a list writes those rows.  Three states rather than
     a default because a cache that never mentioned the target is not evidence
     that the target's verdicts went away.
+
+    *now* fixes the instant the history rows this render appends record, so
+    two renders of the same scan differ only where the data differs.
 
     Nothing is written and nothing is read, so the same call is what the tests,
     the writer and an in-memory check all use.
@@ -687,7 +698,7 @@ def render_coverage_toml(
         )
     else:
         verify_list = [_rows_from(_VERIFY_RESULTS_COLUMNS, row) for row in verify_rows]
-    history = _merge_history(prev.get("functions"), prev.get("history"), fn_rows)
+    history = _merge_history(prev.get("functions"), prev.get("history"), fn_rows, now=now)
 
     lines: list[str] = [_HEADER]
     lines.append(f"version = {_TOML_VERSION}")
@@ -713,6 +724,7 @@ def write_coverage_toml(
     force: bool = False,
     regen: bool = False,
     json_output: bool = False,
+    now: datetime | None = None,
 ) -> list[Path]:
     """Write ``db/coverage-<target>.toml`` for each dataset; return the paths written.
 
@@ -728,6 +740,10 @@ def write_coverage_toml(
     replaced on every write, so there is nothing to force past.  So is *regen*:
     the catalog analysis always runs in this process.
 
+    *now* fixes every instant this build stamps: the history rows it appends
+    and the fallback date for a verify row whose cache mtime cannot be read.
+    A replay of the same scan then writes the same document.
+
     Returns the paths written, in dataset order.  Writes nothing else — the
     caller reports.
     """
@@ -739,6 +755,7 @@ def write_coverage_toml(
         json_output=json_output,
         regen=regen,
     )
+    stamp = (now or datetime.now(UTC)).isoformat()
     written: list[Path] = []
     for target_name, data in datasets:
         path = db_directory / f"coverage-{target_name}.toml"
@@ -764,11 +781,17 @@ def write_coverage_toml(
                 # Only the fallback stamp: a cache file whose mtime cannot be
                 # read still has to be dateable, and the moment of this build
                 # is the honest answer.
-                datetime.now(UTC).isoformat(),
+                stamp,
             )
             atomic_write_text(
                 path,
-                render_coverage_toml(target_name, data, previous=previous, verify_rows=verify_rows),
+                render_coverage_toml(
+                    target_name,
+                    data,
+                    previous=previous,
+                    verify_rows=verify_rows,
+                    now=now,
+                ),
             )
         written.append(path)
     return written

@@ -664,6 +664,28 @@ class TestDeterminism:
         text = render_coverage_toml(TARGET, data)
         assert "[[" not in text
 
+    def test_the_appended_row_replays_from_its_instant(self, data: dict[str, Any]) -> None:
+        """A replayed build stamps its delta from the instant it is given.
+
+        The wall clock is the one input a driver cannot reproduce, so the row a
+        build appends is the only part of the document that could differ
+        between two runs of the same scan.
+        """
+        previous = {
+            "version": _TOML_VERSION,
+            "functions": [{"va": 0x10001000, "status": "STUB"}],
+            "history": [],
+        }
+        stamp = datetime(2024, 1, 1, 12, 0, tzinfo=UTC)
+        first = tomllib.loads(
+            render_coverage_toml(TARGET, copy.deepcopy(data), previous=previous, now=stamp)
+        )
+        second = tomllib.loads(
+            render_coverage_toml(TARGET, copy.deepcopy(data), previous=previous, now=stamp)
+        )
+        assert first == second
+        assert first["history"][-1]["changed_at"] == stamp.isoformat()
+
 
 # ---------------------------------------------------------------------------
 # 7. Atomicity
