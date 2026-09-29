@@ -476,6 +476,12 @@ def load_binary(path: Path, fmt: str = "auto") -> BinaryInfo:
         FileNotFoundError: If the file does not exist.
         ValueError: If the format cannot be determined or parsing fails.
 
+    Note:
+        The returned ``BinaryInfo`` is shared: a cache hit (same resolved
+        path, format, mtime, size, and inode) hands back the identical
+        object, so a change one caller makes in place is visible to every
+        other holder.  A rebuilt binary re-parses on its own.
+
     """
     path = Path(path)
 

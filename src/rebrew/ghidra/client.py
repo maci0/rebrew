@@ -614,6 +614,11 @@ def fetch_all_symbols(
 
     Similar to ``fetch_all_functions`` but uses ``get-symbols``.
     Returns dicts with ``address`` and ``name`` keys.
+
+    A transport, HTTP, body-size, or protocol failure is logged at warning
+    level by :func:`_call_mcp_tool`, not raised: it ends the walk, so the
+    result is empty or holds only the pages read before it.
+    :func:`init_mcp_session` raises ``McpError`` on the same failures.
     """
     return _paginate_mcp_list(
         client,
@@ -639,6 +644,11 @@ def fetch_all_functions(
     ReVa's ``get-functions`` returns at most *maxCount* entries per call.
     This helper pages through the full list and normalises the field names
     to the format expected by the data-pull path (``va``, ``tool_name``, ``size``).
+
+    A transport, HTTP, body-size, or protocol failure is logged at warning
+    level by :func:`_call_mcp_tool`, not raised: it ends the walk, so the
+    result is empty or holds only the pages read before it.
+    :func:`init_mcp_session` raises ``McpError`` on the same failures.
     """
     page = _paginate_mcp_list(
         client,

@@ -83,7 +83,7 @@ class FunctionEntry:
         va = d.get("va")
         size = d.get("size")
         if va is None or size is None:
-            raise ValueError("FunctionEntry dictionary must contain 'va' and 'size' keys")
+            raise ValueError(f"FunctionEntry dict must contain 'va' and 'size': got {sorted(d)}")
         va = _parse_int(va)
         size = _parse_int(size)
         return cls(

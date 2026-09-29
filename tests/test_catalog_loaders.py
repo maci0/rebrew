@@ -40,14 +40,18 @@ class TestLoadFunctionStructure:
     def test_non_list_raises(self, tmp_path: Path) -> None:
         p = tmp_path / "function_structure.json"
         p.write_text(json.dumps({"va": 1}), encoding="utf-8")
-        with pytest.raises(ValueError, match="Expected a JSON array"):
+        with pytest.raises(ValueError, match="Expected a JSON array") as info:
             load_function_structure(p)
+        assert str(p) in str(info.value)
 
     def test_corrupt_json_raises(self, tmp_path: Path) -> None:
         p = tmp_path / "function_structure.json"
         p.write_text("{not json", encoding="utf-8")
-        with pytest.raises(ValueError, match="Corrupt structure JSON"):
+        with pytest.raises(ValueError, match="Corrupt structure JSON") as info:
             load_function_structure(p)
+        # The file name is fixed per target: only the full path says which
+        # target's copy is corrupt.
+        assert str(p) in str(info.value)
 
     def test_repeat_load_does_not_reread(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

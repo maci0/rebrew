@@ -57,7 +57,7 @@ def _structure_json(path: Path) -> list[Any]:
     data = json.loads(text)
     if not isinstance(data, list):
         raise ValueError(
-            f"Corrupt structure JSON at {path.name}: Expected a JSON array, got {type(data).__name__}"
+            f"Corrupt structure JSON at {path}: Expected a JSON array, got {type(data).__name__}"
         )
     cost = len(text)
     with _structure_json_cache_lock:
@@ -95,7 +95,7 @@ def load_function_structure(path: Path) -> list[FunctionEntry]:
             if isinstance(d, dict) and d.get("_generated_by") != "rebrew catalog"
         ]
     except json.JSONDecodeError as e:
-        raise ValueError(f"Corrupt structure JSON at {path.name}: {e}") from e
+        raise ValueError(f"Corrupt structure JSON at {path}: {e}") from e
 
 
 def _classify_ghidra_label(label: str) -> str:

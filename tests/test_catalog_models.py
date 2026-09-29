@@ -1,5 +1,7 @@
 """Tests for catalog/models.py — FunctionEntry / GhidraDataLabel parsing."""
 
+import re
+
 import pytest
 
 from rebrew.catalog.models import FunctionEntry, GhidraDataLabel, _parse_int
@@ -28,8 +30,10 @@ class TestFunctionEntryFromDict:
         assert e.name == "a"
 
     def test_missing_keys_raise(self) -> None:
-        with pytest.raises(ValueError, match="must contain 'va' and 'size'"):
-            FunctionEntry.from_dict({"va": 1})
+        with pytest.raises(
+            ValueError, match=re.escape("must contain 'va' and 'size': got ['name', 'va']")
+        ):
+            FunctionEntry.from_dict({"va": 1, "name": "f"})
 
     def test_name_fallbacks(self) -> None:
         e = FunctionEntry.from_dict({"va": 1, "size": 2, "ghidra_name": "g"})
