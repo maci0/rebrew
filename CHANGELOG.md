@@ -1,6 +1,12 @@
 ## [Unreleased]
 
 ### Added
+- **`rebrew.ghidra` exports the MCP transport it is built on.** The facade
+  carried the ReVa commands and left `McpHttpClient` and `McpResponse` to be
+  imported from `rebrew.ghidra.client`, the same two names a consumer
+  subclassing the transport had to know the private module layout for. They
+  are lazy exports of the facade now, beside the commands, and a star-import
+  or a generated-client surface check reads them from one place.
 - **`tools/sync_decomp_flags.py` can be pinned, checked, and made
   reproducible.** The sync cloned decomp.me's default branch with no way to ask
   for a specific ref, so a re-sync of a known-good commit was impossible and
@@ -327,6 +333,16 @@
   reachable there only through the module's own import); import it from
   `rebrew.cli`, where it has always been defined. A script testing doctor for
   the byte-mismatch code has to test for 2.
+- **Breaking:** `GET /api/health` withholds `coverage_dir` on a non-loopback
+  bind. The probe answered with the operator's absolute coverage-directory
+  path to any client that cleared the Host allow-list, and a `--host` that is
+  not `127.0.0.1` / `localhost` / `::1` is exactly the deployment where that
+  path should not travel. The field is now present only on a loopback bind
+  (`expose_paths` in `src/rebrew/dashboard.py`, decided by the `--host`
+  string), which is what `docs/dashboard-api.yaml` declares: the property
+  stays in `Health` and is not in `required`, so a generated client
+  null-checks it rather than failing its own validator. A poller reading the
+  path off a LAN-bound dashboard has to read the flag from the operator.
 
 ### Fixed
 - **The dashboard's error alert can now reach a reader at the foot of a long
@@ -927,6 +943,102 @@
   `rebrew.utils` helper now rather than a copy per module, and a
   non-finite or non-integral float still takes the default instead of
   inventing a delta.
+- **A rebuild that drops a row says which one.** `rebrew build-db` dropped a
+  verify-cache entry whose `va` would not parse and a `rebrew build-db`
+  rebuild discarded the history of a coverage document whose `version` is not
+  the one it writes, both without a word: the whole-wipe guard only covers an
+  entries table that yields nothing. Each skipped row and each replaced
+  document is now warned, so a coverage file that lost a verdict says so
+  instead of reading as a smaller project. The `rebrew data` section views
+  are the same case: a binary whose sections cannot be read fell back to empty
+  and the BSS report then told the user to annotate globals that were never
+  the problem, so the omitted views (global sections, the out-of-range VA
+  cross-check, the BSS layout) are named on the console with the cause. A
+  `rebrew-data.toml` that exists but cannot be read returned the same empty
+  mapping as a per-symbol miss, so every global reported empty type, size and
+  section with no reason; it is now warned once, naming the cause.
+- **`fix_ownership` is one transaction over the files it writes.** The two
+  passes (turn every moved definition into an `extern`, then write the new
+  definitions) ran as separate loops, so a failure between or inside them
+  (ENOSPC, a read-only file, Ctrl+C) left the project declaring globals it
+  defines nowhere. The pre-write bytes of every touched translation unit are
+  restored on any exit that is not the normal one. `--dry-run` still writes
+  nothing. The Xvfb pair is the same shape: the cookie and the child are
+  handed to the reaper before the socket is awaited, so an interrupt inside
+  the spawn window no longer leaves a cookie on disk and an unreaped child.
+  A staged dry-run copy of a source file that could not be written leaked to
+  the garbage collector, skipping the `finally` that releases it; the pool
+  behind `rebrew qual-sweep`, `rebrew climb` and the linked-exe GA compiler
+  is the shared `interruptible_pool`, so a Ctrl+C stops waiting on it.
+- **A byte count and a score are floored, not rounded up.** `match_percent`
+  x compared length rounded to the nearest byte, so 94.5% of 10 credited all
+  10 and a candidate below a byte-exact match could read as one; the count
+  now floors, and prefers the exact integer where the classifier already
+  computed one. `similarity_score` kept one decimal, so a 94.96 passed the
+  `--min-score` gate and cross-import's 95.0 default as `95.0`; it keeps six
+  and the display rounds it. The near-diag category percentages and a
+  coverage document's per-section `coverage_pct` floor the same way, so a
+  section one byte short of full reads `99.99` beside the `99.99`
+  `catalog.grid` reports rather than alone as `100.0`.
+- **A source file the analyzer could not read is named.** `rebrew context`
+  counted a file it failed to parse in `file_count` while contributing no
+  declarations, `rebrew describe` dropped a file whose parse failed so its
+  functions read as unannotated, and struct recovery treated an unreadable
+  source as carrying no definitions, which makes a duplicate type look
+  absent. Each names the path and the cause at WARNING, so a parse failure
+  is visible instead of indistinguishable from a file that carries nothing.
+- **`rebrew graph --format` is a usage error before the graph is built.** An
+  unknown format was only noticed once the scan had finished and the
+  renderer was dispatched, so a typo cost the whole build; it now exits 2
+  with the accepted values first, in the same order `rebrew diff` checks.
+- **A GA history timestamp carries its offset, not a shared abbreviation.**
+  The instant rendered `%Z`, so a Dublin run read in Kolkata printed `IST`
+  at `11:00` where the instant was `15:30`, with nothing in the line to
+  contradict it. It renders `%z`, which also parses back to the instant it
+  came from.
+- **Binary-derived text reaches the terminal and the generated C as data.**
+  Every string the report renders out of a target binary went to Rich markup
+  unescaped, so a section, symbol, status or source name carrying a tag
+  could rewrite a cell or drop a row; they pass through `untrusted_text`
+  (`src/rebrew/utils.py`) now. The same held for the paths three emitters
+  splice into code: `rebrew gen-stubs` pasted a declaration copied out of a
+  reviewed `.c` into the `link_stubs.c` the build compiles, `rebrew delphi16`
+  emitted a unit from the same text, and `rebrew verify-hash` pasted a
+  `file` from the metadata store, so each accepts word characters,
+  whitespace and declarator punctuation only, and a line carrying a `;`, `{`
+  or `#` is refused rather than sanitized. `verify-hash` resolves that path
+  through `contained_path`, so a `file` that leaves the project names no file
+  to read. Ghidra's `dataType` and array bounds reach generated headers the
+  same way and are held to a C type-specifier and a decimal/`0x` dimension
+  grammar; anything else gets an `extern void*` (or a byte array) plus the
+  reason, not a header that fails to compile. A DOSBox `autoexec` line
+  carrying CR or LF is refused (the conf is line-oriented and DOSBox mounts
+  the host root as `Z:`), a command name in a DOS-safe filename set is held
+  to the `COMMAND.COM` metacharacters, since `A&B.C` would run a second
+  command beside the compile, and a decomp.me ledger's `slug` and
+  `claim_token` are filtered by the same pattern the network path applies
+  before the claim URL is printed. Mermaid node labels are escaped for the
+  same reason, and a Ghidra error text is untrusted text.
+- **An ANALYSIS marker is not written outside the project, and a failed one
+  is counted.** The marker write joined the metadata `file` to
+  `reversed_dir` with no containment check, so an import could write outside
+  the project, and a write that raised `OSError` was logged and forgotten
+  while the comments entry stayed applied, so a re-import treated it as done
+  and never repaired the source. The path resolves through `contained_path`
+  and a refused one is reported as skipped; failures are collected and
+  surfaced.
+- **A non-ASCII name survives the boundaries it crosses.** Four: an inserted
+  annotation line was terminated with a hardcoded `\n`, so one LF line
+  propagated through a CRLF source on the next read and rewrite; a lone
+  surrogate in a name (what a cp1252 or Shift-JIS byte yields) was JSON-escaped
+  as `\udc80`, which TOML has no escape for, so the coverage document was
+  written and then rejected by every reader, losing the whole file rather
+  than the one bad name; and the dep graph's name lookup keyed raw labels, so
+  a symbol stored NFD and declared NFC in a library header resolved to two
+  nodes and `STRASSE` missed `straße`. The inserted line takes the file's
+  own terminator, the renderer runs the values through `toml_safe`, and every
+  lookup keys on `fold_ident` (NFC + casefold) with the leading-underscore
+  variants kept for the C extern spelling.
 
 ## [2.16.0] - 2026-09-28
 
