@@ -37,7 +37,11 @@ _DCC_CFG = "/m\n/cw\n/rC:\\DELPHI\\LIB\n/uC:\\DELPHI\\LIB\n/iC:\\DELPHI\\LIB\n"
 #: linked form resources and `{$I}` include files all live in that
 #: directory; staging only the .dpr made every multi-unit program fail with
 #: the compiler's "File not found".
-_UNIT_SUFFIXES = (".pas", ".dpr", ".dcu", ".dfm", ".res", ".inc")
+#:
+#: `.dpr` is deliberately absent: a program cannot `uses` another program, and
+#: staging a sibling .dpr made an unrelated one trip the 8.3 check (a directory
+#: holding two probe programs could not compile either of them).
+_UNIT_SUFFIXES = (".pas", ".dcu", ".dfm", ".res", ".inc")
 
 
 class Delphi16Error(RebrewError, RuntimeError):

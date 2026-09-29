@@ -222,6 +222,22 @@ class TestWholeProgramStaging:
         with pytest.raises(Delphi16Error, match="8.3-truncate"):
             compile_ne(src, workdir)
 
+    def test_ignores_sibling_programs(self, tmp_path: Path, monkeypatch) -> None:
+        from rebrew.delphi16 import compile_ne
+
+        self._stub_toolchain(tmp_path, monkeypatch)
+        workdir = self._no_op_dosbox(tmp_path, monkeypatch)
+        src = tmp_path / "hello.dpr"
+        src.write_text("program Hello;\nbegin end.\n", encoding="utf-8")
+        (tmp_path / "a_long_probe_program.dpr").write_text(
+            "program Probe;\nbegin end.\n", encoding="utf-8"
+        )
+
+        compile_ne(src, workdir)
+
+        assert not (workdir / "a_long_probe_program.dpr").exists()
+        assert (workdir / "hello.dpr").exists()
+
     def test_extra_args_reach_the_command_line(self, tmp_path: Path, monkeypatch) -> None:
         from rebrew.delphi16 import compile_ne
 
