@@ -50,17 +50,24 @@ deleted by `sweep_stale_temp_dirs` on the next compile
 adopts for host-wine helpers and re-exports to wine children, accepted as any
 file the analyst can read (`_local_cookie` in `src/rebrew/headless.py`), so the
 headless-display access decision is taken from the process environment. On a
-multi-user host the headless X display is one too: rebrew's `Xvfb` carries a
-per-run MIT-MAGICK cookie and an unauthenticated Xvfb already on the box is
-never adopted, so wine's windows are not readable by another local user
-(`src/rebrew/headless.py`).
+multi-user host the headless X display is one too: the `Xvfb` rebrew
+**starts** carries a per-run MIT-MAGICK cookie, so its windows are not
+readable by another local user (`src/rebrew/headless.py`). Adopting an
+Xvfb already on the box is weaker than that: `_adopt` uses the candidate
+server's own `-auth` cookie when it advertises one and the operator's
+`XAUTHORITY` otherwise, so a server started without `-auth` is adopted and
+its windows are readable by any local user. The display's pid is also
+resolved through the world-writable `/tmp/.X11-unix` directory.
 
 CI is a boundary of its own: `pull_request` (never `pull_request_target`),
-workflow `permissions: contents: read`, no `id-token`, `secrets.GITHUB_TOKEN`
-mapped only onto the resembl clone step, `persist-credentials: false`, and
-every third-party Action pinned by commit SHA. `.github/workflows/toolchain-sync.yml`
-runs nightly and reports toolchain pin drift without applying it. There is no
-publish step and no artifact signing in this repository.
+workflow `permissions: contents: read`, no `id-token`, `persist-credentials: false`,
+and every third-party Action pinned by commit SHA. `secrets.GITHUB_TOKEN` is
+never workflow-level `env`: in `ci.yml` it reaches only the resembl clone
+step through the composite action's `github-token` input, and in
+`.github/workflows/toolchain-sync.yml` it reaches the resembl clone step and
+the nightly `check-updates` run. That workflow runs nightly and reports
+toolchain pin drift without applying it. There is no publish step and no
+artifact signing in this repository.
 
 The packaged compile-cache backends refuse pickle deserialize
 (`NoPickleDisk` in `src/rebrew/compile_cache.py`); that does not attest

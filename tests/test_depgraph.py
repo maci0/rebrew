@@ -407,6 +407,29 @@ class TestRenderers:
         assert 'URL=\\"javascript' in result
         assert 'evil", shape' not in result
 
+    def test_hostile_status_cannot_close_a_label(self) -> None:
+        """STATUS is metadata too, so it gets the same gate as the symbol.
+
+        A hand-edited ``rebrew-functions.toml`` can carry any STATUS string,
+        and it lands in the label beside the symbol in both renderers.
+        """
+        nodes = {
+            "FuncA": {
+                "status": 'EXACT", URL="javascript:alert(1)',
+                "va": 1,
+                "file": "",
+                "symbol": "FuncA",
+            }
+        }
+        for result in (render_mermaid(nodes, []), render_dot(nodes, [])):
+            assert 'URL="javascript' not in result
+            assert "&quot;" in result or '\\"' in result
+
+    def test_carriage_return_is_folded_out_of_a_dot_label(self) -> None:
+        """A CR is a line break to some renderers; DOT folds both."""
+        nodes = {"FuncA": {"status": "EXACT", "va": 1, "file": "", "symbol": "a\rb"}}
+        assert "\r" not in render_dot(nodes, [])
+
     def test_graph_chrome_comes_from_the_token_set(self) -> None:
         """Node stroke, node label and the dispatch mark read rebrew.theme.
 

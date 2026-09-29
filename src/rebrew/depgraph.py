@@ -204,7 +204,12 @@ def _mermaid_label(label: str) -> str:
 
 def _dot_label(label: str) -> str:
     """Escape a double-quoted Graphviz DOT label."""
-    return label.replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ")
+    return (
+        label.replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("\r", " ")
+        .replace("\n", " ")
+    )
 
 
 def _extract_callees(c_path: Path, text: str | None = None) -> list[str]:
@@ -623,7 +628,7 @@ def render_dot(
         # Unknown statuses stay on the UNKNOWN mark, not a second gray.
         color = STATUS_HEX.get(status, STATUS_HEX["UNKNOWN"])
         shown = _dot_label(info.get("symbol", "") or name)
-        label = f"{shown}\\n[{status}]" if status not in ("UNKNOWN", "DISPATCH") else shown
+        label = f"{shown}\\n[{_dot_label(status)}]" if status not in ("UNKNOWN", "DISPATCH") else shown
         lines.append(
             f'    {nid} [label="{label}", fillcolor="{color}", color="{TOKENS["ink"]}", '
             f'fontcolor="{TOKENS["surface"]}"];'
