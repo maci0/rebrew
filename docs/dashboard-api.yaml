@@ -820,7 +820,17 @@ components:
         are there so a probe can watch the error rate while the
         server is up, rather than learning of a run that fails every query
         only when the process stops.
-      required: [status, targets, requests, server_errors, client_errors, not_modified, timeouts, slow_requests, slowest_ms, active_connections]
+      required:
+        - status
+        - targets
+        - requests
+        - server_errors
+        - client_errors
+        - not_modified
+        - timeouts
+        - slow_requests
+        - slowest_ms
+        - active_connections
       properties:
         status: { type: string, const: ok }
         coverage_dir:

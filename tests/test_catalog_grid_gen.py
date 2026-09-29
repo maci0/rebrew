@@ -652,7 +652,9 @@ class TestUnannotatedBoundaries:
             _ann(0x1000, "fn_a", "EXACT", 0x40),
             _ann(0x1060, "fn_b", "STUB", 0x20),
         ]
-        data = build_coverage_data(entries, [], text_size=size, bin_path=bin_path, registry=registry)
+        data = build_coverage_data(
+            entries, [], text_size=size, bin_path=bin_path, registry=registry
+        )
         fn = data["functions"]
         # fn_a must stay 0x40 — the 0x40-0x60 unannotated function is a boundary.
         assert fn["0x00001000"]["size"] == 0x40
