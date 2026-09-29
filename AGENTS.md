@@ -26,7 +26,7 @@ make test-one T=tests/test_annotation.py  # edit-test loop; T takes a node id (:
 make test                                 # full suite (needs nasm + node; vnu skips if absent)
 make lint / make format / make mypy
 make gen-fixtures                         # regenerate tests/fixtures/ after editing the generator
-make pr-check                             # before a PR: CI gates, pre-commit, reproducible build, dist provenance, SBOM
+make pr-check                             # before a PR: CI gates, pre-commit, build, sdist/wheel equality, wheel smoke, reproducible rebuild, dist provenance, SBOM
 make coverage                             # slipcover fail-under floor (COV_FLOOR); ratchet up, never down
 ```
 
