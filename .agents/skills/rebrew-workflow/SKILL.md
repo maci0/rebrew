@@ -205,7 +205,7 @@ Splitting/merging source files and reading the call graph:
 ## 6. Verify and Track Progress
 
 `rebrew doctor` for health, `rebrew verify --compare` as the CI regression gate
-against `.rebrew/verify_baseline.json`, `rebrew lint --json` (with `--fix` to
+against `.rebrew/verify_baseline.toml`, `rebrew lint --json` (with `--fix` to
 migrate leftover inline metadata). Full flag set, `orphans`/`types`/`text-audit`,
 `catalog` / `build-db` refresh, and decomp.me: `references/verify-and-progress.md`.
 `rebrew dashboard` serves the same coverage data read-only at

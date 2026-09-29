@@ -3028,3 +3028,31 @@ class TestW035UnknownModules:
             'format = 1\n\n["CLIENT.0x1000"]\nstatus = "STUB"\n', encoding="utf-8"
         )
         assert "matches no target marker" in self._warnings(self._cfg(tmp_path))
+
+
+class TestW032OldJsonStores:
+    """A store that moved from JSON to TOML is named, not silently ignored."""
+
+    def _messages(self, tmp_path: Path) -> str:
+        from rebrew.lint import _check_W032_coverage_store
+
+        cfg = SimpleNamespace(root=tmp_path, db_dir="db")
+        return "\n".join(m for res in _check_W032_coverage_store(cfg) for _, _, m in res.warnings)
+
+    def test_a_leftover_verify_cache_is_reported(self, tmp_path: Path) -> None:
+        db = tmp_path / "db"
+        db.mkdir()
+        (db / "verify_cache.json").write_text('{"version": 2}', encoding="utf-8")
+        assert "verify_cache.toml" in self._messages(tmp_path)
+
+    def test_a_leftover_compare_baseline_is_reported(self, tmp_path: Path) -> None:
+        db = tmp_path / "db"
+        db.mkdir()
+        (db / "verify_baseline.json").write_text('{"version": 2}', encoding="utf-8")
+        assert "verify_baseline.toml" in self._messages(tmp_path)
+
+    def test_the_toml_store_is_not_reported(self, tmp_path: Path) -> None:
+        db = tmp_path / "db"
+        db.mkdir()
+        (db / "verify_cache.toml").write_text("version = 2\n", encoding="utf-8")
+        assert self._messages(tmp_path) == ""

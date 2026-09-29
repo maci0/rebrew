@@ -11,11 +11,13 @@ from __future__ import annotations
 
 import importlib.util
 import logging
+import tomllib
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from cache_util import cache_text
 from typer.testing import Result
 
 from rebrew.prove import (
@@ -290,7 +292,6 @@ class TestProveCLIStatusGuard:
         NEAR_MATCHING (measured truth — the metadata STATUS lags) must pass
         prove's gate.  Regression: flag-swept functions stayed STUB in
         metadata while the cache said NEAR_MATCHING, so prove refused them."""
-        import json
 
         from rebrew.config import load_config
         from rebrew.verify_hash import compiler_config_hash, headers_hash
@@ -303,8 +304,8 @@ class TestProveCLIStatusGuard:
         va = 0x1000
         cache_dir = proj_dir / ".rebrew"
         cache_dir.mkdir(exist_ok=True)
-        (cache_dir / "verify_cache.json").write_text(
-            json.dumps(
+        (cache_dir / "verify_cache.toml").write_text(
+            cache_text(
                 {
                     "version": 2,
                     "compiler_hash": compiler_config_hash(cfg),
@@ -345,7 +346,7 @@ class TestProveCLIStatusGuard:
         proj_dir, src = self._make_project(tmp_path, "STUB")
         cache_dir = proj_dir / ".rebrew"
         cache_dir.mkdir(exist_ok=True)
-        (cache_dir / "verify_cache.json").write_text("{not json", encoding="utf-8")
+        (cache_dir / "verify_cache.toml").write_text("{not json", encoding="utf-8")
         with caplog.at_level(logging.WARNING):
             result = self._invoke(proj_dir, src, monkeypatch)
         assert result.exit_code != 0
@@ -1556,7 +1557,6 @@ class TestPromoteAlreadyMatched:
         )
 
     def test_updates_metadata_and_verify_cache(self, tmp_path: Path) -> None:
-        import json
 
         from rebrew.prove import _promote_already_matched
         from rebrew.verify_hash import compiler_config_hash, headers_hash
@@ -1566,10 +1566,10 @@ class TestPromoteAlreadyMatched:
         (tmp_path / "rebrew-functions.toml").write_text(
             f'["GAME.0x{va:08x}"]\nstatus = "NEAR_MATCHING"\nsize = 8\n', encoding="utf-8"
         )
-        cache_path = tmp_path / ".rebrew" / "verify_cache.json"
+        cache_path = tmp_path / ".rebrew" / "verify_cache.toml"
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         cache_path.write_text(
-            json.dumps(
+            cache_text(
                 {
                     "version": 2,
                     "compiler_hash": compiler_config_hash(cfg),
@@ -1600,7 +1600,7 @@ class TestPromoteAlreadyMatched:
         from rebrew.metadata import load_metadata
 
         assert load_metadata(tmp_path)[("GAME", va)]["status"] == "EXACT"
-        entry = json.loads(cache_path.read_text(encoding="utf-8"))["entries"][f"0x{va:08x}"]
+        entry = tomllib.loads(cache_path.read_text(encoding="utf-8"))["entries"][f"0x{va:08x}"]
         assert entry["status"] == "EXACT"
         assert entry["passed"] is True
         assert entry["match_percent"] == 100.0
@@ -1613,7 +1613,6 @@ class TestPromoteAlreadyMatched:
         promotion policy refuses, and the verify cache outranks the metadata
         STATUS.  Patching it anyway would pin a verdict the store never took.
         """
-        import json
         from types import SimpleNamespace
 
         from rebrew.prove import _promote_already_matched
@@ -1623,14 +1622,14 @@ class TestPromoteAlreadyMatched:
         (tmp_path / "rebrew-functions.toml").write_text(
             f'["GAME.0x{va:08x}"]\nstatus = "SKIP"\nsize = 8\n', encoding="utf-8"
         )
-        cache_path = tmp_path / ".rebrew" / "verify_cache.json"
+        cache_path = tmp_path / ".rebrew" / "verify_cache.toml"
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         original = {"version": 2, "entries": {}}
-        cache_path.write_text(json.dumps(original), encoding="utf-8")
+        cache_path.write_text(cache_text(original), encoding="utf-8")
 
         _promote_already_matched(cfg, SimpleNamespace(va=va, module="GAME"), "EXACT")
 
         from rebrew.metadata import load_metadata
 
         assert load_metadata(tmp_path)[("GAME", va)]["status"] == "SKIP"
-        assert json.loads(cache_path.read_text(encoding="utf-8")) == original
+        assert tomllib.loads(cache_path.read_text(encoding="utf-8")) == original

@@ -21,7 +21,7 @@ per-entry comparison.
   project root, then `reversed_dir`) and compares only that
   file's entries against the baseline. Entries for other files are neither
   verified nor reported — the gate answers "did *this file* regress".
-- The baseline stays whole-project (`verify_baseline.json` unchanged);
+- The baseline stays whole-project (`verify_baseline.toml` unchanged);
   comparison filters to the scoped entries. No per-file baseline files.
 - A scope-filtered run never advances the baseline. `--nolib`, `--dir`,
   `--origin` and the positional FILE all narrow the run, and a baseline

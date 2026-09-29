@@ -234,6 +234,8 @@ def _collect_setup_steps(
     Returns high-priority setup items that guide the user through initial
     project configuration. Scored 90-99 so they always appear first.
     """
+    from rebrew.verify_cache import cache_path_for
+
     items: list[TodoItem] = []
 
     def add(base_score: float, description: str, command: str) -> None:
@@ -260,7 +262,7 @@ def _collect_setup_steps(
     if not existing:
         add(99.0, f"Run todo to survey {len(ghidra_funcs)} functions", "rebrew todo --json")
         add(99.0, "Generate first skeleton files to start reversing", "rebrew skeleton --batch 5")
-    elif not (cfg.root / ".rebrew" / "verify_cache.json").exists():
+    elif not cache_path_for(cfg).exists():
         add(90.0, f"Run first verify on {len(existing)} functions", "rebrew verify")
 
     return items
@@ -1347,7 +1349,7 @@ _EPILOG = (
     "                         masked, not straight out of the toolchain\n\n"
     "  postlink-mangled · · · · Functions whose shipped bytes a postlink fixer\n"
     "                         rewrote (needs `raw_link` configured)\n\n"
-    "[dim]Reads from function_structure.json, source files, and .rebrew/verify_cache.json.[/dim]"
+    "[dim]Reads from function_structure.json, source files, and .rebrew/verify_cache.toml.[/dim]"
 )
 
 app = typer.Typer(

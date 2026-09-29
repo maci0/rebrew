@@ -519,9 +519,9 @@ def import_verify_rows(
     document.  *now_iso* is only the fallback stamp for when the cache file's
     mtime cannot be read.
     """
-    from rebrew.verify_cache import load_verify_cache_raw
+    from rebrew.verify_cache import CACHE_FILENAME, load_verify_cache_raw
 
-    cache_path = root_dir / ".rebrew" / "verify_cache.json"
+    cache_path = Path(root_dir) / ".rebrew" / CACHE_FILENAME
     raw = load_verify_cache_raw(SimpleNamespace(root=root_dir))
     # The cache stores verdicts measured against one compiler config and one
     # binary image; the same predicate verify/status use decides whether those

@@ -225,7 +225,7 @@ C tweaks (reorder expressions, swap loop counters) chase byte-identity.
 ### Effective Status (verify cache vs metadata)
 
 `rebrew status` reports each function's **effective** status, not just the
-metadata `STATUS` value.  The verify cache (`.rebrew/verify_cache.json`,
+metadata `STATUS` value.  The verify cache (`.rebrew/verify_cache.toml`,
 written by `rebrew verify`) overlays metadata because metadata statuses can be
 optimistic — a hand-set `STATUS: RELOC` may not survive a real compile.  The
 overlay rules, in order:

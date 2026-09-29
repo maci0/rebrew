@@ -53,7 +53,7 @@ rebrew decompme <file>.c                # uploads the function + context to deco
 third-party site. Run it only when the user asks for a decomp.me scratch, and
 `--dry-run` first if they have not said where the source may go.
 
-`rebrew verify --compare` uses `.rebrew/verify_baseline.json` (exit 1 on
+`rebrew verify --compare` uses `.rebrew/verify_baseline.toml` (exit 1 on
 regression). First run warns and skips the diff.
 
 `db/coverage-<target>.toml` is the progress document the dashboards and the

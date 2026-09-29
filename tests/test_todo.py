@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from cache_util import cache_text
 
 from rebrew.catalog import FunctionEntry
 from rebrew.todo import (
@@ -911,26 +912,24 @@ class TestLoadVerifyEntries:
 
         d = tmp_path / ".rebrew"
         d.mkdir()
-        (d / "verify_cache.json").write_text("{broken", encoding="utf-8")
+        (d / "verify_cache.toml").write_text("{broken", encoding="utf-8")
         assert load_verify_entries(self._cfg(tmp_path)) == {}
 
     def test_wrong_version(self, tmp_path: Path) -> None:
-        import json
 
         from rebrew.todo import load_verify_entries
 
         d = tmp_path / ".rebrew"
         d.mkdir()
-        (d / "verify_cache.json").write_text(
-            json.dumps({"version": 99, "entries": {}}), encoding="utf-8"
+        (d / "verify_cache.toml").write_text(
+            cache_text({"version": 99, "entries": {}}), encoding="utf-8"
         )
         assert load_verify_entries(self._cfg(tmp_path)) == {}
 
     def test_other_target_rejected(self, tmp_path: Path) -> None:
         """Another target's verify results must never drive todo's categories
-        (regression: shared .rebrew/verify_cache.json leaked cross-target
+        (regression: shared .rebrew/verify_cache.toml leaked cross-target
         entries — a SERVER run produced phantom fix-delta items for CLIENT)."""
-        import json
 
         from rebrew.todo import load_verify_entries
         from rebrew.verify_cache import VerifyCacheEntry
@@ -956,7 +955,7 @@ class TestLoadVerifyEntries:
                 ).to_dict(),
             },
         }
-        (d / "verify_cache.json").write_text(json.dumps(cache), encoding="utf-8")
+        (d / "verify_cache.toml").write_text(cache_text(cache), encoding="utf-8")
 
         # CLIENT config must see nothing; SERVER config must see the entry.
         cfg_server = SimpleNamespace(root=tmp_path, target_name="SERVER")
@@ -968,7 +967,6 @@ class TestLoadVerifyEntries:
         """A legacy cache with no `target` must not drive todo when the config
         names one: `status` rejects it, so the two tools disagreed about the
         same file (the old guard accepted any empty `target`)."""
-        import json
 
         from rebrew.todo import load_verify_entries
         from rebrew.verify_cache import VerifyCacheEntry
@@ -993,7 +991,7 @@ class TestLoadVerifyEntries:
                 ).to_dict(),
             },
         }
-        (d / "verify_cache.json").write_text(json.dumps(cache), encoding="utf-8")
+        (d / "verify_cache.toml").write_text(cache_text(cache), encoding="utf-8")
 
         assert load_verify_entries(SimpleNamespace(root=tmp_path, target_name="TEST")) == {}
         # A minimal config with no target still accepts a target-less cache.
@@ -1140,14 +1138,13 @@ class TestProverCandidatesWithAngr:
 
 class TestLoadVerifyEntriesValid:
     def test_valid_cache_returns_entries(self, tmp_path: Path) -> None:
-        import json
 
         from rebrew.todo import load_verify_entries
 
         d = tmp_path / ".rebrew"
         d.mkdir()
-        (d / "verify_cache.json").write_text(
-            json.dumps(
+        (d / "verify_cache.toml").write_text(
+            cache_text(
                 {
                     "version": 2,
                     "entries": {
@@ -1578,7 +1575,6 @@ class TestTodoCli:
         assert data["items"][0]["category"] == "start-data"
 
     def test_no_items_message(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        import json
 
         # A fully-set-up project with only finished functions → zero action items.
         from rebrew.config import FUNCTION_STRUCTURE_JSON
@@ -1587,8 +1583,8 @@ class TestTodoCli:
         (tmp_path / "src" / FUNCTION_STRUCTURE_JSON).write_text("[]", encoding="utf-8")
         cache_dir = tmp_path / ".rebrew"
         cache_dir.mkdir()
-        (cache_dir / "verify_cache.json").write_text(
-            json.dumps({"version": 2, "entries": {}}), encoding="utf-8"
+        (cache_dir / "verify_cache.toml").write_text(
+            cache_text({"version": 2, "entries": {}}), encoding="utf-8"
         )
         result = self._invoke(
             tmp_path,
@@ -1611,8 +1607,8 @@ class TestTodoCli:
 
         cache_dir = tmp_path / ".rebrew"
         cache_dir.mkdir()
-        (cache_dir / "verify_cache.json").write_text(
-            json.dumps(
+        (cache_dir / "verify_cache.toml").write_text(
+            cache_text(
                 {
                     "version": 2,
                     "target": "test",  # must match cfg.target_name (target guard)

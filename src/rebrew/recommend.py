@@ -1001,8 +1001,9 @@ def _collect_hygiene(
 
     with _lane("stale-cache"):
         from rebrew.sources import iter_sources
+        from rebrew.verify_cache import cache_path_for
 
-        cache_path = cfg.root / ".rebrew" / "verify_cache.json"
+        cache_path = cache_path_for(cfg)
         try:
             cache_mtime_ns = cache_path.stat().st_mtime_ns
         except OSError:

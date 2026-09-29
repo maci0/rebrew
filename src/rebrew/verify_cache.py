@@ -14,15 +14,17 @@ from __future__ import annotations
 import contextlib
 import copy
 import hashlib
-import json
 import logging
 import math
 import threading
+import tomllib
 from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from rebrew.utils import atomic_write_text, file_lock, read_json_text
+import tomlkit
+
+from rebrew.utils import atomic_write_text, file_lock, read_toml_text
 from rebrew.verify_hash import (
     compiler_config_hash,
     entry_fingerprint,
@@ -36,11 +38,80 @@ if TYPE_CHECKING:
     from rebrew.annotation import Annotation
     from rebrew.config import ProjectConfig
 
-#: Current cache schema version (flat rows).
+#: Current cache schema version (flat rows).  The container changed with the
+#: rest of the stores (JSON to TOML); the row schema did not, so the version
+#: stays: a document's *shape* is what it guards.
 CACHE_VERSION = 2
 
-#: Stat-keyed memo of the raw verify-cache JSON: status and todo both decode
-#: ``.rebrew/verify_cache.json`` every run — sometimes twice per command —
+#: The verify cache, beside the coverage documents.  One clear-text TOML file
+#: like every other rebrew store: `.rebrew/verify_cache.toml`.
+CACHE_FILENAME = "verify_cache.toml"
+
+
+def cache_path_for(cfg: Any) -> Path:
+    """Path of this project's verify cache."""
+    return Path(cfg.root) / ".rebrew" / CACHE_FILENAME
+
+
+#: Fields where ``None`` is a *reported value*, not an absent one.  The
+#: compile-context digest is the case: a patch that measured a bare source
+#: reports ``None`` and must overwrite the digest a previous run stored, while
+#: a patch that had no context to report omits the key and must leave the
+#: digest alone.  TOML has no null, so the empty string carries the reported
+#: bare value; :func:`toml_document` encodes it and :func:`_decode_nulls`
+#: decodes it back, so every reader keeps seeing ``None``.
+_NULLABLE_FIELDS: frozenset[str] = frozenset({"context_hash"})
+
+
+def toml_document(payload: Any) -> Any:
+    """Return *payload* as a TOML-safe document.
+
+    TOML has no null.  A field in :data:`_NULLABLE_FIELDS` whose value is
+    ``None`` becomes the empty string (it was *reported* as nothing), and every
+    other ``None`` is dropped — the dataclasses spell an absent value that way
+    (``percent``, ``delta``, ``files``), and readers already treat a missing
+    key as absent (``doc.get(key)``).
+    """
+    if isinstance(payload, dict):
+        document: dict[str, Any] = {}
+        for key, value in payload.items():
+            if value is None:
+                if key in _NULLABLE_FIELDS:
+                    document[key] = ""
+                continue
+            document[key] = toml_document(value)
+        return document
+    if isinstance(payload, list):
+        return [toml_document(item) for item in payload]
+    return payload
+
+
+def _decode_nulls(document: dict[str, Any]) -> dict[str, Any]:
+    """Map every empty :data:`_NULLABLE_FIELDS` string back to ``None``.
+
+    One decode point for the cache and the baseline, so the JSON-era ``null``
+    and the TOML-era empty string are the same value to every reader.
+    """
+    entries = document.get("entries")
+    tables: list[dict[str, Any]] = [document]
+    if isinstance(entries, dict):
+        # A malformed document may carry a list here; the readers treat that
+        # as "no entries", and this decode must not be the one to crash.
+        tables.extend(entry for entry in entries.values() if isinstance(entry, dict))
+    for table in tables:
+        for key in _NULLABLE_FIELDS:
+            if table.get(key) == "":
+                table[key] = None
+    for row in document.get("results", []) if isinstance(document.get("results"), list) else []:
+        if isinstance(row, dict):
+            for key in _NULLABLE_FIELDS:
+                if row.get(key) == "":
+                    row[key] = None
+    return document
+
+
+#: Stat-keyed memo of the raw verify-cache document: status and todo both
+#: decode ``.rebrew/verify_cache.toml`` every run — sometimes twice per command —
 #: and the decode is linear in cache size.  At most one entry per path: a
 #: rewrite changes mtime, size, or inode, and keeping the old key would
 #: retain the previous full JSON payload for the process lifetime.  Cap
@@ -85,14 +156,15 @@ def _drop_memo_for(path_key: str) -> None:
 
 
 def _read_cache_document(cache_path: Path) -> dict[str, Any]:
-    """Parse *cache_path* as a JSON object.
+    """Parse *cache_path* as a TOML document.
 
-    Raises ``OSError`` or ``ValueError``; the latter covers malformed JSON,
-    non-UTF-8 bytes (``UnicodeDecodeError``), and a non-object document.
+    Raises ``OSError`` or ``ValueError``; the latter covers malformed TOML and
+    non-UTF-8 bytes (``UnicodeDecodeError``).
     """
-    raw = json.loads(read_json_text(cache_path))
+    raw = tomllib.loads(read_toml_text(cache_path))
     if not isinstance(raw, dict):
-        raise ValueError(f"not a JSON object: {type(raw).__name__}")
+        raise ValueError(f"not a TOML table: {type(raw).__name__}")
+    _decode_nulls(raw)
     return raw
 
 
@@ -113,7 +185,7 @@ def _invalidate_verify_cache_memo(cache_path: Path) -> None:
 
 
 def load_verify_cache_raw(cfg: Any) -> dict[str, Any] | None:
-    """Load the shared ``.rebrew/verify_cache.json`` as a raw dict (memoized).
+    """Load the shared ``.rebrew/verify_cache.toml`` as a raw dict (memoized).
 
     Returns ``None`` when the file is missing or corrupt.  Target/version
     validation is the caller's responsibility — readers apply their own
@@ -121,7 +193,7 @@ def load_verify_cache_raw(cfg: Any) -> dict[str, Any] | None:
     size, inode), so repeated loads within one command are free and a
     same-size rename-over in one mtime tick is a miss.
     """
-    cache_path = Path(cfg.root) / ".rebrew" / "verify_cache.json"
+    cache_path = cache_path_for(cfg)
     try:
         st = cache_path.stat()
     except OSError:
@@ -188,7 +260,7 @@ def order_result_row(row: dict[str, Any]) -> dict[str, Any]:
     builds its row with whatever literal order the verify loop reads
     naturally, while a cache hit rebuilds it from the entry's field order; the
     two orders differ, so the same verdict serialized to
-    ``.rebrew/verify_baseline.json`` (and to ``verify --output``) changed bytes
+    ``.rebrew/verify_baseline.toml`` (and to ``verify --output``) changed bytes
     on the first cache-served run even though nothing about the result had.
     Ordering both paths here keeps a second run byte-identical to the first.
     """
@@ -442,7 +514,7 @@ def patch_verify_cache_entries(cfg: ProjectConfig, patches: list[dict[str, Any]]
     """
     if not patches:
         return
-    cache_path = cfg.root / ".rebrew" / "verify_cache.json"
+    cache_path = cache_path_for(cfg)
     if not cache_path.exists():
         # Absent — nothing to patch.  (Checked before locking because taking
         # the lock would create the ``.lock`` sidecar in a possibly
@@ -581,7 +653,7 @@ def patch_verify_cache_entries(cfg: ProjectConfig, patches: list[dict[str, Any]]
             entries[va_key] = entry
 
         try:
-            atomic_write_text(cache_path, json.dumps(raw, indent=2), encoding="utf-8")
+            atomic_write_text(cache_path, tomlkit.dumps(toml_document(raw)), encoding="utf-8")
             _invalidate_verify_cache_memo(cache_path)
         except (OSError, TypeError) as exc:
             logging.warning(
@@ -604,7 +676,7 @@ def load_verify_cache(cache_path: Path, cfg: ProjectConfig) -> VerifyCache | Non
     # JSON-decoding the whole document a second time was a full redundant pass
     # over every cached entry.  Any other path is read directly.
     root = getattr(cfg, "root", None)
-    if root is not None and cache_path == Path(root) / ".rebrew" / "verify_cache.json":
+    if root is not None and cache_path == Path(root) / ".rebrew" / CACHE_FILENAME:
         raw = load_verify_cache_raw(cfg)
         if raw is None:
             return None
@@ -722,8 +794,8 @@ def save_verify_cache(
     with _verify_cache_write_lock(cache_path):
         if preserve_keys and cache_path.exists():
             try:
-                previous = json.loads(read_json_text(cache_path))
-            except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
+                previous = _decode_nulls(tomllib.loads(read_toml_text(cache_path)))
+            except (OSError, tomllib.TOMLDecodeError, TypeError, ValueError) as exc:
                 logging.warning(
                     "Could not read verify cache %s to preserve %d excluded "
                     "entries — refusing to overwrite (would erase them): %s",
@@ -764,19 +836,21 @@ def save_verify_cache(
             binary_id=binary_id(cfg),
             entries={str(k): VerifyCacheEntry.from_dict(v) for k, v in cache_entries.items()},
         )
-        atomic_write_text(cache_path, json.dumps(cache_data.to_dict(), indent=2), encoding="utf-8")
+        atomic_write_text(
+            cache_path, tomlkit.dumps(toml_document(cache_data.to_dict())), encoding="utf-8"
+        )
         _invalidate_verify_cache_memo(cache_path)
 
 
 #: The --compare baseline: last good report, next to the cache (both local,
 #: gitignored run state).  Carries the same identity guards as the cache so
 #: a baseline from another target/compiler/binary never gates this project.
-BASELINE_FILENAME = "verify_baseline.json"
+BASELINE_FILENAME = "verify_baseline.toml"
 
 
 def baseline_path(cfg: ProjectConfig) -> Path:
     """Path of the --compare baseline file for this project."""
-    return cfg.root / ".rebrew" / BASELINE_FILENAME
+    return Path(cfg.root) / ".rebrew" / BASELINE_FILENAME
 
 
 def load_baseline(cfg: ProjectConfig) -> tuple[dict[str, Any] | None, str | None]:
@@ -789,11 +863,11 @@ def load_baseline(cfg: ProjectConfig) -> tuple[dict[str, Any] | None, str | None
     if not path.exists():
         return None, f"No previous verify baseline at {path}; skipping diff"
     try:
-        loaded = json.loads(read_json_text(path))
-    except (OSError, json.JSONDecodeError) as exc:
+        loaded = _decode_nulls(tomllib.loads(read_toml_text(path)))
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        # A TOML document is always a table, so a malformed file is the only
+        # way this fails; the caller gets a warning and no gate.
         return None, f"Could not read verify baseline at {path}: {exc}"
-    if not isinstance(loaded, dict):
-        return None, f"Verify baseline at {path} is invalid JSON object"
     if loaded.get("target") != cfg.target_name:
         return None, f"Verify baseline at {path} targets {loaded.get('target')!r}; skipping diff"
     if loaded.get("compiler_hash") != compiler_config_hash(cfg):
@@ -816,4 +890,4 @@ def save_baseline(cfg: ProjectConfig, report: dict[str, Any]) -> None:
     path = baseline_path(cfg)
     path.parent.mkdir(parents=True, exist_ok=True)
     with _verify_cache_write_lock(path):
-        atomic_write_text(path, json.dumps(baseline, indent=2), encoding="utf-8")
+        atomic_write_text(path, tomlkit.dumps(toml_document(baseline)), encoding="utf-8")

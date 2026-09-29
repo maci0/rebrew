@@ -1022,6 +1022,18 @@ _STALE_COVERAGE_ARTIFACTS: dict[str, str] = {
         "leftover SQLite coverage database — the store is now one clear-text "
         "db/coverage-<target>.toml per target; re-run rebrew build-db and delete this"
     ),
+    # The verify cache and its --compare baseline moved from JSON to TOML with
+    # the other stores.  A leftover JSON file is not read any more, so the
+    # verdicts it holds are invisible: name it rather than let the next verify
+    # silently start from a cold cache.
+    "verify_cache.json": (
+        "leftover JSON verify cache — the store is .rebrew/verify_cache.toml now "
+        "(same rows, TOML); re-run rebrew verify and delete this"
+    ),
+    "verify_baseline.json": (
+        "leftover JSON compare baseline — the --compare baseline is "
+        ".rebrew/verify_baseline.toml now; re-run rebrew verify --compare and delete this"
+    ),
 }
 
 

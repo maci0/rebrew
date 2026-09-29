@@ -2,12 +2,14 @@
 
 import json
 import sys
+import tomllib
 import warnings
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 import typer
+from cache_util import cache_text
 
 from rebrew.cli import (
     EXIT_ERROR,
@@ -252,7 +254,7 @@ class TestLoadVerifyCacheRaw:
 
         cache_dir = tmp_path / ".rebrew"
         cache_dir.mkdir()
-        (cache_dir / "verify_cache.json").write_text('{"version": 1}', encoding="utf-8")
+        (cache_dir / "verify_cache.toml").write_text("version = 1\n", encoding="utf-8")
         cfg = SimpleNamespace(root=tmp_path)
         first = vc_mod.load_verify_cache_raw(cfg)
         assert first == {"version": 1}
@@ -272,12 +274,12 @@ class TestLoadVerifyCacheRaw:
         monkeypatch.setattr(vc_mod, "_VERIFY_CACHE_MEMO", {})
         cache_dir = tmp_path / ".rebrew"
         cache_dir.mkdir()
-        path = cache_dir / "verify_cache.json"
-        path.write_text('{"version": 1}', encoding="utf-8")
+        path = cache_dir / "verify_cache.toml"
+        path.write_text("version = 1\n", encoding="utf-8")
         cfg = SimpleNamespace(root=tmp_path)
         assert vc_mod.load_verify_cache_raw(cfg) == {"version": 1}
         assert len(vc_mod._VERIFY_CACHE_MEMO) == 1
-        path.write_text('{"version": 2}', encoding="utf-8")
+        path.write_text("version = 2\n", encoding="utf-8")
         assert vc_mod.load_verify_cache_raw(cfg) == {"version": 2}
         assert len(vc_mod._VERIFY_CACHE_MEMO) == 1
         only_key = next(iter(vc_mod._VERIFY_CACHE_MEMO))
@@ -300,13 +302,13 @@ class TestLoadVerifyCacheRaw:
         monkeypatch.setattr(vc_mod, "_VERIFY_CACHE_MEMO", {})
         cache_dir = tmp_path / ".rebrew"
         cache_dir.mkdir()
-        path = cache_dir / "verify_cache.json"
-        path.write_text('{"version": 1}', encoding="utf-8")
+        path = cache_dir / "verify_cache.toml"
+        path.write_text("version = 1\n", encoding="utf-8")
         cfg = SimpleNamespace(root=tmp_path)
         assert vc_mod.load_verify_cache_raw(cfg) == {"version": 1}
         st = path.stat()
-        swapped = cache_dir / "verify_cache.json.new"
-        swapped.write_text('{"version": 9}', encoding="utf-8")
+        swapped = cache_dir / "verify_cache.toml.new"
+        swapped.write_text("version = 9\n", encoding="utf-8")
         assert swapped.stat().st_size == st.st_size
         os.utime(swapped, ns=(st.st_atime_ns, st.st_mtime_ns))
         os.replace(swapped, path)
@@ -325,13 +327,13 @@ class TestLoadVerifyCacheRaw:
         monkeypatch.setattr(vc_mod, "_VERIFY_CACHE_MEMO", {})
         real = tmp_path / "real"
         (real / ".rebrew").mkdir(parents=True)
-        path = real / ".rebrew" / "verify_cache.json"
-        path.write_text('{"version": 1}', encoding="utf-8")
+        path = real / ".rebrew" / "verify_cache.toml"
+        path.write_text("version = 1\n", encoding="utf-8")
         link = tmp_path / "link"
         link.symlink_to(real)
         cfg = SimpleNamespace(root=link)
         assert vc_mod.load_verify_cache_raw(cfg) == {"version": 1}
-        vc_mod._invalidate_verify_cache_memo(link / ".rebrew" / "verify_cache.json")
+        vc_mod._invalidate_verify_cache_memo(link / ".rebrew" / "verify_cache.toml")
         assert vc_mod._VERIFY_CACHE_MEMO == {}
 
     def test_verify_cache_memo_cleared_on_patch(
@@ -349,7 +351,7 @@ class TestLoadVerifyCacheRaw:
         monkeypatch.setattr(vc_mod, "_VERIFY_CACHE_MEMO", {})
         cache_dir = tmp_path / ".rebrew"
         cache_dir.mkdir()
-        path = cache_dir / "verify_cache.json"
+        path = cache_dir / "verify_cache.toml"
         raw = {
             "version": 2,
             "target": "GAME",
@@ -365,7 +367,7 @@ class TestLoadVerifyCacheRaw:
                 }
             },
         }
-        path.write_text(__import__("json").dumps(raw), encoding="utf-8")
+        path.write_text(cache_text(raw), encoding="utf-8")
         cfg = SimpleNamespace(root=tmp_path, target_name="GAME", reversed_dir=tmp_path)
         monkeypatch.setattr(vc_mod, "cache_identity_matches", lambda _raw, _cfg: True)
         assert vc_mod.load_verify_cache_raw(cfg)["entries"]["0x00001000"]["status"] == "STUB"
@@ -383,7 +385,6 @@ class TestLoadVerifyCacheRaw:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A verify row without a byte delta must not store 100 - percent."""
-        import json
         from types import SimpleNamespace
 
         import rebrew.verify_cache as vc_mod
@@ -392,15 +393,15 @@ class TestLoadVerifyCacheRaw:
         monkeypatch.setattr(vc_mod, "_VERIFY_CACHE_MEMO", {})
         cache_dir = tmp_path / ".rebrew"
         cache_dir.mkdir()
-        path = cache_dir / "verify_cache.json"
+        path = cache_dir / "verify_cache.toml"
         entry = {"status": "STUB", "va": "0x00001000", "match_percent": 0.0, "delta": 7}
-        path.write_text(json.dumps({"entries": {"0x00001000": entry}}), encoding="utf-8")
+        path.write_text(cache_text({"entries": {"0x00001000": entry}}), encoding="utf-8")
         cfg = SimpleNamespace(root=tmp_path, target_name="GAME", reversed_dir=tmp_path)
         monkeypatch.setattr(vc_mod, "cache_identity_matches", lambda _raw, _cfg: True)
         patch_cache_from_results(
             cfg, [{"va": "0x00001000", "status": "NEAR_MATCHING", "match_percent": 72.3}]
         )
-        patched = json.loads(path.read_text(encoding="utf-8"))["entries"]["0x00001000"]
+        patched = tomllib.loads(path.read_text(encoding="utf-8"))["entries"]["0x00001000"]
         assert patched["match_percent"] == 72.3
         assert patched["delta"] == 7
 
@@ -413,7 +414,6 @@ class TestLoadVerifyCacheRaw:
         and as the writer itself: a patch carrying neither byte counts nor a
         percent leaves the last real measurement alone.
         """
-        import json
         from types import SimpleNamespace
 
         import rebrew.verify_cache as vc_mod
@@ -422,13 +422,13 @@ class TestLoadVerifyCacheRaw:
         monkeypatch.setattr(vc_mod, "_VERIFY_CACHE_MEMO", {})
         cache_dir = tmp_path / ".rebrew"
         cache_dir.mkdir()
-        path = cache_dir / "verify_cache.json"
+        path = cache_dir / "verify_cache.toml"
         entry = {"status": "STUB", "va": "0x00001000", "match_percent": 64.5, "delta": 7}
-        path.write_text(json.dumps({"entries": {"0x00001000": entry}}), encoding="utf-8")
+        path.write_text(cache_text({"entries": {"0x00001000": entry}}), encoding="utf-8")
         cfg = SimpleNamespace(root=tmp_path, target_name="GAME", reversed_dir=tmp_path)
         monkeypatch.setattr(vc_mod, "cache_identity_matches", lambda _raw, _cfg: True)
         patch_cache_from_results(cfg, [{"va": "0x00001000", "status": "NEAR_MATCHING"}])
-        patched = json.loads(path.read_text(encoding="utf-8"))["entries"]["0x00001000"]
+        patched = tomllib.loads(path.read_text(encoding="utf-8"))["entries"]["0x00001000"]
         assert patched["status"] == "NEAR_MATCHING"
         assert patched["match_percent"] == 64.5
 

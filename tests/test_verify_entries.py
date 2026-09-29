@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from cache_util import cache_text as _cache_text
 
 import rebrew.verify as verify_mod
 import rebrew.verify_cache as verify_cache_mod
@@ -737,7 +738,6 @@ class TestBinaryIdCacheGuard:
         assert verify_hash_mod.compiler_config_hash(cfg) != first
 
     def test_binary_change_invalidates_cache(self, tmp_path: Path) -> None:
-        import json as _json
 
         bin_path = tmp_path / "x.dll"
         bin_path.write_bytes(b"MZ1")
@@ -751,7 +751,7 @@ class TestBinaryIdCacheGuard:
             compiler_includes=tmp_path / "inc",
             compiler_libs=tmp_path / "lib",
         )
-        cache_path = tmp_path / "verify_cache.json"
+        cache_path = tmp_path / "verify_cache.toml"
         cache = verify_cache_mod.VerifyCache(
             version=2,
             compiler_hash=verify_hash_mod.compiler_config_hash(cfg),
@@ -760,7 +760,7 @@ class TestBinaryIdCacheGuard:
             binary_id=verify_cache_mod.binary_id(cfg),
             entries={},
         )
-        cache_path.write_text(_json.dumps(cache.to_dict()))
+        cache_path.write_text(_cache_text(cache.to_dict()))
         assert verify_cache_mod.load_verify_cache(cache_path, cfg) is not None
 
         # Same target name, different binary bytes → cache must be rejected.
@@ -769,7 +769,7 @@ class TestBinaryIdCacheGuard:
 
         # Legacy caches (no binary_id) stay accepted.
         cache.binary_id = ""
-        cache_path.write_text(_json.dumps(cache.to_dict()))
+        cache_path.write_text(_cache_text(cache.to_dict()))
         assert verify_cache_mod.load_verify_cache(cache_path, cfg) is not None
 
 

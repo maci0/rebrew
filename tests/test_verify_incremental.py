@@ -1,21 +1,26 @@
 """Tests for incremental verification logic in rebrew.verify."""
 
 import hashlib
-import json
 import os
 import time
+import tomllib
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from cache_util import cache_text
 from typer.testing import CliRunner
 
 from rebrew.annotation import Annotation
 from rebrew.compile import CompareResult
 from rebrew.config import ProjectConfig
 from rebrew.verify import app
-from rebrew.verify_cache import binary_id, load_verify_cache, save_verify_cache
+from rebrew.verify_cache import (
+    binary_id,
+    load_verify_cache,
+    save_verify_cache,
+)
 from rebrew.verify_hash import (
     cflags_equivalent,
     compiler_config_hash,
@@ -46,7 +51,7 @@ def _make_cfg(tmp_path: Path) -> ProjectConfig:
 
 
 def _write_cache(cfg: ProjectConfig, **overrides: Any) -> Path:
-    cache_path = cfg.root / ".rebrew" / "verify_cache.json"
+    cache_path = cfg.root / ".rebrew" / "verify_cache.toml"
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     data: dict[str, Any] = {
         "version": 2,
@@ -56,7 +61,7 @@ def _write_cache(cfg: ProjectConfig, **overrides: Any) -> Path:
         "entries": {},
     }
     data.update(overrides)
-    cache_path.write_text(json.dumps(data), encoding="utf-8")
+    cache_path.write_text(cache_text(data), encoding="utf-8")
     return cache_path
 
 
@@ -418,7 +423,7 @@ class TestLoadVerifyCache:
 
     def test_reject_invalid_json(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path)
-        cache_path = tmp_path / ".rebrew" / "verify_cache.json"
+        cache_path = tmp_path / ".rebrew" / "verify_cache.toml"
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         cache_path.write_text("{", encoding="utf-8")
 
@@ -444,7 +449,7 @@ class TestLoadVerifyCache:
 
 
 class TestCacheIdentityAgreesAcrossReaders:
-    """Every reader of ``.rebrew/verify_cache.json`` asks the same question.
+    """Every reader of ``.rebrew/verify_cache.toml`` asks the same question.
 
     ``rebrew verify`` refuses a cache earned under a superseded compiler
     config and recompiles; a reader that re-derives a narrower identity
@@ -481,7 +486,7 @@ class TestCacheIdentityAgreesAcrossReaders:
 
         assert _load_cache_raw(cfg) is not None
         assert len(load_verify_entries(cfg)) == 1
-        assert load_verify_cache(cfg.root / ".rebrew" / "verify_cache.json", cfg) is not None
+        assert load_verify_cache(cfg.root / ".rebrew" / "verify_cache.toml", cfg) is not None
 
     def test_foreign_compiler_hash_rejected_by_every_reader(self, tmp_path: Path) -> None:
         from rebrew.residue import _nonmatching_from_cache
@@ -494,7 +499,7 @@ class TestCacheIdentityAgreesAcrossReaders:
         assert _load_cache_raw(cfg) is None
         assert load_verify_entries(cfg) == {}
         assert _nonmatching_from_cache(cfg, 0x400000, 0x1000) == []
-        assert load_verify_cache(cfg.root / ".rebrew" / "verify_cache.json", cfg) is None
+        assert load_verify_cache(cfg.root / ".rebrew" / "verify_cache.toml", cfg) is None
 
     def test_rebuilt_binary_rejected_by_every_reader(self, tmp_path: Path) -> None:
         from rebrew.status import _load_cache_raw
@@ -505,7 +510,7 @@ class TestCacheIdentityAgreesAcrossReaders:
 
         assert _load_cache_raw(cfg) is None
         assert load_verify_entries(cfg) == {}
-        assert load_verify_cache(cfg.root / ".rebrew" / "verify_cache.json", cfg) is None
+        assert load_verify_cache(cfg.root / ".rebrew" / "verify_cache.toml", cfg) is None
 
 
 class TestVerifyCacheMatchesCfg:
@@ -552,7 +557,7 @@ class TestVerifyCacheMatchesCfg:
         from rebrew.verify_cache import verify_cache_matches_cfg
 
         cfg = _make_cfg(tmp_path)
-        cache_path = tmp_path / ".rebrew" / "verify_cache.json"
+        cache_path = tmp_path / ".rebrew" / "verify_cache.toml"
         assert not verify_cache_matches_cfg(cache_path, cfg)
 
 
@@ -562,7 +567,7 @@ class TestPatchVerifyCacheEntries:
     the verify cache."""
 
     def _make_cache(self, tmp_path: Path, cfg: ProjectConfig, status: str) -> Path:
-        cache_path = tmp_path / ".rebrew" / "verify_cache.json"
+        cache_path = tmp_path / ".rebrew" / "verify_cache.toml"
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         data = {
             "version": 2,
@@ -587,7 +592,7 @@ class TestPatchVerifyCacheEntries:
                 }
             },
         }
-        cache_path.write_text(json.dumps(data), encoding="utf-8")
+        cache_path.write_text(cache_text(data), encoding="utf-8")
         return cache_path
 
     def test_patches_status(self, tmp_path: Path) -> None:
@@ -607,7 +612,7 @@ class TestPatchVerifyCacheEntries:
                 }
             ],
         )
-        raw = json.loads((tmp_path / ".rebrew" / "verify_cache.json").read_text())
+        raw = tomllib.loads((tmp_path / ".rebrew" / "verify_cache.toml").read_text())
         entry = raw["entries"]["0x00001000"]
         assert entry["status"] == "RELOC"
         assert entry["passed"] is True
@@ -626,14 +631,14 @@ class TestPatchVerifyCacheEntries:
 
         cfg = _make_cfg(tmp_path)
         cache_path = self._make_cache(tmp_path, cfg, status="NEAR_MATCHING")
-        data = json.loads(cache_path.read_text(encoding="utf-8"))
+        data = tomllib.loads(cache_path.read_text(encoding="utf-8"))
         data["entries"]["0x00001000"]["match_percent"] = 92.0
         data["entries"]["0x00001000"]["delta"] = 8
-        cache_path.write_text(json.dumps(data), encoding="utf-8")
+        cache_path.write_text(cache_text(data), encoding="utf-8")
 
         patch_verify_cache_entries(cfg, [{"va": 0x1000, "status": "PROVEN"}])
 
-        entry = json.loads(cache_path.read_text(encoding="utf-8"))["entries"]["0x00001000"]
+        entry = tomllib.loads(cache_path.read_text(encoding="utf-8"))["entries"]["0x00001000"]
         assert entry["status"] == "PROVEN"
         assert entry["match_percent"] == 92.0
         assert entry["delta"] == 8
@@ -663,10 +668,10 @@ class TestPatchVerifyCacheEntries:
 
         cfg = _make_cfg(tmp_path)
         cache_path = self._make_cache(tmp_path, cfg, status="NEAR_MATCHING")
-        data = json.loads(cache_path.read_text(encoding="utf-8"))
+        data = tomllib.loads(cache_path.read_text(encoding="utf-8"))
         data["entries"]["0x00001000"]["match_percent"] = 60.0
         data["entries"]["0x00001000"]["delta"] = 40
-        cache_path.write_text(json.dumps(data), encoding="utf-8")
+        cache_path.write_text(cache_text(data), encoding="utf-8")
 
         patch_verify_cache_entries(
             cfg,
@@ -680,7 +685,7 @@ class TestPatchVerifyCacheEntries:
                 }
             ],
         )
-        entry = json.loads(cache_path.read_text(encoding="utf-8"))["entries"]["0x00001000"]
+        entry = tomllib.loads(cache_path.read_text(encoding="utf-8"))["entries"]["0x00001000"]
         assert entry["status"] == "NEAR_MATCHING"
         assert entry["match_percent"] == 92.0
         assert entry["delta"] == 8
@@ -697,9 +702,9 @@ class TestPatchVerifyCacheEntries:
 
         cfg = _make_cfg(tmp_path)
         cache_path = self._make_cache(tmp_path, cfg, status="NEAR_MATCHING")
-        data = json.loads(cache_path.read_text(encoding="utf-8"))
+        data = tomllib.loads(cache_path.read_text(encoding="utf-8"))
         data["entries"]["0x00001000"]["context_hash"] = "stale-digest"
-        cache_path.write_text(json.dumps(data), encoding="utf-8")
+        cache_path.write_text(cache_text(data), encoding="utf-8")
 
         patch_verify_cache_entries(
             cfg,
@@ -714,8 +719,16 @@ class TestPatchVerifyCacheEntries:
                 }
             ],
         )
-        entry = json.loads(cache_path.read_text(encoding="utf-8"))["entries"]["0x00001000"]
-        assert entry["context_hash"] is None
+        # TOML has no null: the reported bare source is stored as the empty
+        # string and the store's reader maps it back to None, so the cache and
+        # a JSON-era `null` mean the same thing to every consumer.
+        on_disk = tomllib.loads(cache_path.read_text(encoding="utf-8"))["entries"]["0x00001000"]
+        assert on_disk["context_hash"] == ""
+        from rebrew.verify_cache import load_verify_cache_raw
+
+        raw = load_verify_cache_raw(cfg)
+        assert raw is not None
+        assert raw["entries"]["0x00001000"]["context_hash"] is None
 
     def test_patch_absent_context_hash_leaves_entry_alone(self, tmp_path: Path) -> None:
         """A patch with no context key is not allowed to clear a stored one.
@@ -727,9 +740,9 @@ class TestPatchVerifyCacheEntries:
 
         cfg = _make_cfg(tmp_path)
         cache_path = self._make_cache(tmp_path, cfg, status="NEAR_MATCHING")
-        data = json.loads(cache_path.read_text(encoding="utf-8"))
+        data = tomllib.loads(cache_path.read_text(encoding="utf-8"))
         data["entries"]["0x00001000"]["context_hash"] = "kept-digest"
-        cache_path.write_text(json.dumps(data), encoding="utf-8")
+        cache_path.write_text(cache_text(data), encoding="utf-8")
 
         patch_verify_cache_entries(
             cfg,
@@ -743,7 +756,7 @@ class TestPatchVerifyCacheEntries:
                 }
             ],
         )
-        entry = json.loads(cache_path.read_text(encoding="utf-8"))["entries"]["0x00001000"]
+        entry = tomllib.loads(cache_path.read_text(encoding="utf-8"))["entries"]["0x00001000"]
         assert entry["context_hash"] == "kept-digest"
 
     def test_patch_honors_explicit_match_percent(self, tmp_path: Path) -> None:
@@ -770,8 +783,8 @@ class TestPatchVerifyCacheEntries:
                 }
             ],
         )
-        entry = json.loads(
-            (tmp_path / ".rebrew" / "verify_cache.json").read_text(encoding="utf-8")
+        entry = tomllib.loads(
+            (tmp_path / ".rebrew" / "verify_cache.toml").read_text(encoding="utf-8")
         )["entries"]["0x00001000"]
         assert entry["match_percent"] == 50.0
         assert entry["delta"] == 8
@@ -783,13 +796,13 @@ class TestPatchVerifyCacheEntries:
 
         cfg = _make_cfg(tmp_path)
         self._make_cache(tmp_path, cfg, status="STUB")
-        cache_path = tmp_path / ".rebrew" / "verify_cache.json"
+        cache_path = tmp_path / ".rebrew" / "verify_cache.toml"
         for patch in (
             {"va": 0x1000, "status": "STUB", "match_percent": 59.96, "delta": 1},
             {"va": 0x1000, "status": "STUB", "match_count": 1499, "total": 2500},
         ):
             patch_verify_cache_entries(cfg, [patch])
-            entry = json.loads(cache_path.read_text(encoding="utf-8"))["entries"]["0x00001000"]
+            entry = tomllib.loads(cache_path.read_text(encoding="utf-8"))["entries"]["0x00001000"]
             assert entry["match_percent"] < NEAR_MATCH_THRESHOLD * 100
 
     def test_wrong_target_not_patched(self, tmp_path: Path) -> None:
@@ -820,7 +833,7 @@ class TestPatchVerifyCacheEntries:
                 }
             ],
         )
-        raw = json.loads((tmp_path / ".rebrew" / "verify_cache.json").read_text())
+        raw = tomllib.loads((tmp_path / ".rebrew" / "verify_cache.toml").read_text())
         assert raw["entries"]["0x00001000"]["status"] == "STUB"
 
     def test_no_patch_when_absent(self, tmp_path: Path) -> None:
@@ -840,7 +853,7 @@ class TestPatchVerifyCacheEntries:
                 }
             ],
         )
-        assert not (tmp_path / ".rebrew" / "verify_cache.json").exists()
+        assert not (tmp_path / ".rebrew" / "verify_cache.toml").exists()
 
     def test_patch_refreshes_freshness_guards(self, tmp_path: Path) -> None:
         """A patch refreshes mtime_ns + source_hash to the file on disk.
@@ -870,7 +883,7 @@ class TestPatchVerifyCacheEntries:
                 }
             ],
         )
-        entry = json.loads(cache_path.read_text(encoding="utf-8"))["entries"]["0x00001000"]
+        entry = tomllib.loads(cache_path.read_text(encoding="utf-8"))["entries"]["0x00001000"]
         assert entry["mtime_ns"] == src.stat().st_mtime_ns
         assert entry["source_hash"] == hashlib.sha256(src.read_bytes()).hexdigest()
 
@@ -880,7 +893,7 @@ class TestPatchVerifyCacheEntries:
         """The identity guard must evaluate the document read INSIDE the lock.
 
         A concurrent process (e.g. ``verify -t OTHER`` saving a full cache)
-        can swap verify_cache.json between a pre-lock identity check and the
+        can swap verify_cache.toml between a pre-lock identity check and the
         locked read-modify-write; the patch must then be rejected instead of
         writing this target's status into the other target's entry at the
         same VA (the pre-fix code checked identity before acquiring the
@@ -900,9 +913,9 @@ class TestPatchVerifyCacheEntries:
             with real_lock(path):
                 # Concurrent writer holds the same lock first: by the time
                 # the patcher reads the file, it belongs to another target.
-                data = json.loads(cache_path.read_text(encoding="utf-8"))
+                data = tomllib.loads(cache_path.read_text(encoding="utf-8"))
                 data["target"] = "OTHER"
-                cache_path.write_text(json.dumps(data), encoding="utf-8")
+                cache_path.write_text(cache_text(data), encoding="utf-8")
                 yield
 
         monkeypatch.setattr(verify_cache_mod, "_verify_cache_write_lock", swapping_lock)
@@ -918,7 +931,7 @@ class TestPatchVerifyCacheEntries:
                 }
             ],
         )
-        raw = json.loads(cache_path.read_text(encoding="utf-8"))
+        raw = tomllib.loads(cache_path.read_text(encoding="utf-8"))
         assert raw["target"] == "OTHER"  # the concurrent save is intact...
         assert raw["entries"]["0x00001000"]["status"] == "STUB"  # ...and unpatched
 
@@ -978,7 +991,7 @@ class TestPatchVerifyCacheEntries:
     def test_filtered_save_refuses_overwrite_when_prior_unreadable(self, tmp_path: Path) -> None:
         """A --nolib save must not wipe preserved VAs when the prior cache is corrupt."""
         cfg = _make_cfg(tmp_path)
-        cache_path = tmp_path / ".rebrew" / "verify_cache.json"
+        cache_path = tmp_path / ".rebrew" / "verify_cache.toml"
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         prior = '{"version":2,"entries":{"0x00001000":{"status":"EXACT"}},'
         cache_path.write_text(prior, encoding="utf-8")
@@ -998,9 +1011,9 @@ class TestPatchVerifyCacheEntries:
     def test_filtered_save_refuses_overwrite_when_entries_missing(self, tmp_path: Path) -> None:
         """Wrong-shape prior cache must not be replaced under preserve_keys."""
         cfg = _make_cfg(tmp_path)
-        cache_path = tmp_path / ".rebrew" / "verify_cache.json"
+        cache_path = tmp_path / ".rebrew" / "verify_cache.toml"
         cache_path.parent.mkdir(parents=True, exist_ok=True)
-        prior = json.dumps(
+        prior = cache_text(
             {
                 "version": 2,
                 "compiler_hash": compiler_config_hash(cfg),
@@ -1023,9 +1036,9 @@ class TestPatchVerifyCacheEntries:
     def test_filtered_save_keeps_no_rows_from_another_target(self, tmp_path: Path) -> None:
         """A root-scoped cache written for a sibling target keeps none of its rows."""
         cfg = _make_cfg(tmp_path)
-        cache_path = tmp_path / ".rebrew" / "verify_cache.json"
+        cache_path = tmp_path / ".rebrew" / "verify_cache.toml"
         cache_path.parent.mkdir(parents=True, exist_ok=True)
-        prior = json.dumps(
+        prior = cache_text(
             {
                 "version": 2,
                 "compiler_hash": compiler_config_hash(cfg),
@@ -1060,7 +1073,7 @@ class TestPatchVerifyCacheEntries:
             entries,
             preserve_keys={"0x00001000"},
         )
-        raw = json.loads(cache_path.read_text(encoding="utf-8"))
+        raw = tomllib.loads(cache_path.read_text(encoding="utf-8"))
         assert raw["target"] == "SERVER"
         # The other target's verdict must not be re-stamped as this target's.
         assert "0x00001000" not in raw["entries"]
@@ -1072,7 +1085,7 @@ class TestPatchVerifyCacheEntries:
         source_path.write_text("int func_a(void) { return 1; }\n", encoding="utf-8")
 
         entries, results = _row("func_a", 0x10001000)
-        cache_path = tmp_path / ".rebrew" / "verify_cache.json"
+        cache_path = tmp_path / ".rebrew" / "verify_cache.toml"
 
         save_verify_cache(cache_path, cfg, results, entries)
         loaded = load_verify_cache(cache_path, cfg)
@@ -1122,7 +1135,7 @@ class TestPatchVerifyCacheEntries:
                 symbol="",
             )
         ]
-        cache_path = tmp_path / ".rebrew" / "verify_cache.json"
+        cache_path = tmp_path / ".rebrew" / "verify_cache.toml"
 
         save_verify_cache(cache_path, cfg, results, entries)
         loaded = load_verify_cache(cache_path, cfg)
@@ -1174,7 +1187,7 @@ class TestIncrementalVerify:
         assert first.exit_code == 0, first.output
         assert len(calls) == 2
 
-        cache_path = cfg.root / ".rebrew" / "verify_cache.json"
+        cache_path = cfg.root / ".rebrew" / "verify_cache.toml"
         assert cache_path.exists()
 
         calls.clear()
@@ -1244,7 +1257,7 @@ class TestIncrementalVerify:
         The fresh path built its row in verify's own literal order while the
         cache hit rebuilt it from the entry field order, so the same verdict
         serialized to different bytes once the cache started serving it, and
-        ``.rebrew/verify_baseline.json`` churned on every re-run.
+        ``.rebrew/verify_baseline.toml`` churned on every re-run.
         """
         cfg = _make_cfg(tmp_path)
         (cfg.reversed_dir / "func_a.c").write_text(
@@ -1265,7 +1278,7 @@ class TestIncrementalVerify:
 
         _patch_verify(monkeypatch, cfg, entries)
 
-        baseline_path = cfg.root / ".rebrew" / "verify_baseline.json"
+        baseline_path = cfg.root / ".rebrew" / "verify_baseline.toml"
         first = runner.invoke(app, ["--json"])
         assert first.exit_code == 0, first.output
         fresh = baseline_path.read_text(encoding="utf-8")
@@ -1277,7 +1290,7 @@ class TestIncrementalVerify:
         # Compared as text, not as dicts: dict equality ignores key order, which
         # is the whole property under test here.
         def without_timestamp(doc: str) -> str:
-            return json.dumps({k: v for k, v in json.loads(doc).items() if k != "timestamp"})
+            return cache_text({k: v for k, v in tomllib.loads(doc).items() if k != "timestamp"})
 
         assert without_timestamp(fresh) == without_timestamp(cached)
 
@@ -1486,7 +1499,7 @@ class TestHeadersHashCacheInvalidation:
         ``headers_fp`` is the authoritative header invalidation, so a stale
         global hash must NOT reject the whole cache."""
         cfg = _make_cfg(tmp_path)
-        cache_path = tmp_path / ".rebrew" / "verify_cache.json"
+        cache_path = tmp_path / ".rebrew" / "verify_cache.toml"
         cache_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Write a cache with an intentionally wrong headers_hash
@@ -1497,7 +1510,7 @@ class TestHeadersHashCacheInvalidation:
             "target": cfg.target_name,
             "entries": {},
         }
-        cache_path.write_text(json.dumps(data), encoding="utf-8")
+        cache_path.write_text(cache_text(data), encoding="utf-8")
 
         loaded = load_verify_cache(cache_path, cfg)
         assert loaded is not None
@@ -1507,7 +1520,7 @@ class TestHeadersHashCacheInvalidation:
 
     def test_cache_hit_when_headers_hash_matches(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path)
-        cache_path = tmp_path / ".rebrew" / "verify_cache.json"
+        cache_path = tmp_path / ".rebrew" / "verify_cache.toml"
         cache_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Write a cache with the correct headers_hash (no headers present)
@@ -1518,7 +1531,7 @@ class TestHeadersHashCacheInvalidation:
             "target": cfg.target_name,
             "entries": {},
         }
-        cache_path.write_text(json.dumps(data), encoding="utf-8")
+        cache_path.write_text(cache_text(data), encoding="utf-8")
 
         loaded = load_verify_cache(cache_path, cfg)
         assert loaded is not None
@@ -1528,7 +1541,7 @@ class TestHeadersHashCacheInvalidation:
 
     def test_save_persists_headers_hash(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path)
-        cache_path = tmp_path / ".rebrew" / "verify_cache.json"
+        cache_path = tmp_path / ".rebrew" / "verify_cache.toml"
         (cfg.reversed_dir / "types.h").write_text("typedef int BOOL;\n", encoding="utf-8")
 
         source_path = cfg.reversed_dir / "func.c"
@@ -1536,7 +1549,7 @@ class TestHeadersHashCacheInvalidation:
         entries, results = _row("func", 0x10001000)
         save_verify_cache(cache_path, cfg, results, entries)
 
-        raw = json.loads(cache_path.read_text(encoding="utf-8"))
+        raw = tomllib.loads(cache_path.read_text(encoding="utf-8"))
         assert raw["headers_hash"] == headers_hash(cfg)
         assert raw["headers_hash"] != ""
 
@@ -1588,12 +1601,12 @@ class TestEntryHeadersFp:
         src = cfg.reversed_dir / "func.c"
         src.write_text('#include "types.h"\nint func(void){return 0;}\n', encoding="utf-8")
         (cfg.reversed_dir / "types.h").write_text("typedef int BOOL;\n", encoding="utf-8")
-        cache_path = tmp_path / ".rebrew" / "verify_cache.json"
+        cache_path = tmp_path / ".rebrew" / "verify_cache.toml"
 
         entries, results = _row("func", 0x10001000)
         save_verify_cache(cache_path, cfg, results, entries)
 
-        raw = json.loads(cache_path.read_text(encoding="utf-8"))
+        raw = tomllib.loads(cache_path.read_text(encoding="utf-8"))
         saved = raw["entries"]["0x10001000"]["headers_fp"]
         from rebrew.compile_overrides import resolve_compile_overrides
 

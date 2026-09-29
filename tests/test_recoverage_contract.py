@@ -191,13 +191,13 @@ class TestRecoverageContract:
         assert (item.decl, item.size, item.module) == ("int g_flag;", 4, "SERVER")
 
     def test_verify_results_carry_their_measurement_columns(self, tmp_path, monkeypatch) -> None:
-        """The dashboard's verify rows come from .rebrew/verify_cache.json."""
+        """The dashboard's verify rows come from .rebrew/verify_cache.toml."""
         import rebrew.verify_cache as vc
         from rebrew.annotation import Annotation
         from rebrew.config import load_config
 
         root = _build_fixture_project(tmp_path, monkeypatch)
-        cache_path = root / ".rebrew" / "verify_cache.json"
+        cache_path = root / ".rebrew" / "verify_cache.toml"
         cache_path.parent.mkdir(parents=True, exist_ok=True)
 
         # The project's OWN config, not a hand-rolled stand-in: build_db

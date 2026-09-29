@@ -79,6 +79,17 @@
   `docs/COVERAGE_DOCUMENT.md` and `docs/THREAT_MODEL.md` document the field.
 
 ### Changed
+- **The verify cache and the `--compare` baseline are TOML now.**  Every store
+  rebrew owns is clear text in one format: `.rebrew/verify_cache.toml` and
+  `.rebrew/verify_baseline.toml` replace the two JSON files, so `rebrew status`,
+  `todo`, `report`, `build-db` and the dashboards read the same rows with no
+  second serializer.  TOML has no null, so the one field where `None` is a
+  reported value rather than an absent one (`context_hash`, the digest a verdict
+  was earned under) is stored as the empty string and decoded back to `None` at
+  the single read point; every other `None` is simply omitted.  A leftover
+  `verify_cache.json` or `verify_baseline.json` is not read any more and
+  `rebrew lint` reports it as a stale artifact (W032).  `.rebrew/` is gitignored
+  now, which the docs already claimed.
 - **The SBOM's attribution set covers the grants its own detector could not
   see.** `_COPYLEFT_FAMILIES` matched copyleft families only, so `lmdb` 2.1.1
   (`OLDAP-2.8`, an attribution grant the `prove` extra pulls in through angr)

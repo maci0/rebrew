@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from cache_util import cache_text
 
 from rebrew.status import (
     StatusReport,
@@ -437,8 +438,8 @@ class TestCollectStatus:
             for va in existing
         }
         (tmp_path / ".rebrew").mkdir()
-        (tmp_path / ".rebrew" / "verify_cache.json").write_text(
-            json.dumps({"version": 2, "target": "test", "entries": rows}), encoding="utf-8"
+        (tmp_path / ".rebrew" / "verify_cache.toml").write_text(
+            cache_text({"version": 2, "target": "test", "entries": rows}), encoding="utf-8"
         )
         report = collect_status(cfg)  # type: ignore[arg-type]
         assert report.verify_info is not None
@@ -602,7 +603,7 @@ class TestCollectStatus:
                 },
             },
         }
-        (cache_dir / "verify_cache.json").write_text(json.dumps(cache_data), encoding="utf-8")
+        (cache_dir / "verify_cache.toml").write_text(cache_text(cache_data), encoding="utf-8")
 
         report = collect_status(cfg)  # type: ignore[arg-type]
         assert report.verify_info is not None
@@ -630,8 +631,8 @@ class TestCollectStatus:
         (src / "function_structure.json").write_text("[]", encoding="utf-8")
         cache_dir = tmp_path / ".rebrew"
         cache_dir.mkdir()
-        (cache_dir / "verify_cache.json").write_text(
-            json.dumps(
+        (cache_dir / "verify_cache.toml").write_text(
+            cache_text(
                 {
                     "version": 2,
                     "target": "test",
@@ -771,7 +772,7 @@ class TestCollectStatus:
                 },
             },
         }
-        (cache_dir / "verify_cache.json").write_text(json.dumps(cache_data), encoding="utf-8")
+        (cache_dir / "verify_cache.toml").write_text(cache_text(cache_data), encoding="utf-8")
 
         report = collect_status(cfg)  # type: ignore[arg-type]
         # Only func_a should count as RELOC; b and c overridden by verify
@@ -805,8 +806,8 @@ class TestCollectStatus:
         )
         cache_dir = tmp_path / ".rebrew"
         cache_dir.mkdir()
-        (cache_dir / "verify_cache.json").write_text(
-            json.dumps(
+        (cache_dir / "verify_cache.toml").write_text(
+            cache_text(
                 {
                     "version": 2,
                     "target": "test",
@@ -850,8 +851,8 @@ class TestCollectStatus:
         )
         cache_dir = tmp_path / ".rebrew"
         cache_dir.mkdir()
-        (cache_dir / "verify_cache.json").write_text(
-            json.dumps(
+        (cache_dir / "verify_cache.toml").write_text(
+            cache_text(
                 {
                     "version": 2,
                     "target": "test",
@@ -1052,11 +1053,16 @@ class TestVerifyCacheHelpers:
         )
 
     def _write_cache(self, tmp_path: Path, payload: object) -> None:
-        import json
+        """Write a cache document, or literal text for a malformed one.
 
+        A string is written verbatim: a TOML document always parses to a
+        table, so the reader's corrupt-input cases have to state the bytes
+        they want it to meet rather than go through the store's serializer.
+        """
         d = tmp_path / ".rebrew"
         d.mkdir(exist_ok=True)
-        (d / "verify_cache.json").write_text(json.dumps(payload), encoding="utf-8")
+        text = payload if isinstance(payload, str) else cache_text(payload)  # type: ignore[arg-type]
+        (d / "verify_cache.toml").write_text(text, encoding="utf-8")
 
     def test_verify_info_missing_file(self, tmp_path: Path) -> None:
         from rebrew.status import _load_verify_info
@@ -1287,30 +1293,28 @@ class TestStatusBranches:
 
         cache = tmp_path / ".rebrew"
         cache.mkdir()
-        (cache / "verify_cache.json").write_text("{broken", encoding="utf-8")
+        (cache / "verify_cache.toml").write_text("{broken", encoding="utf-8")
         cfg = SimpleNamespace(root=tmp_path)
         assert load_verify_statuses(cfg) == {}  # type: ignore[arg-type]
 
     def test_verify_statuses_non_dict_raw(self, tmp_path: Path) -> None:
-        import json
 
         from rebrew.status import load_verify_statuses
 
         cache = tmp_path / ".rebrew"
         cache.mkdir()
-        (cache / "verify_cache.json").write_text(json.dumps([1, 2]), encoding="utf-8")
+        (cache / "verify_cache.toml").write_text("[1, 2]\n", encoding="utf-8")
         cfg = SimpleNamespace(root=tmp_path)
         assert load_verify_statuses(cfg) == {}  # type: ignore[arg-type]
 
     def test_verify_statuses_non_dict_entry_skipped(self, tmp_path: Path) -> None:
-        import json
 
         from rebrew.status import load_verify_statuses
 
         cache = tmp_path / ".rebrew"
         cache.mkdir()
-        (cache / "verify_cache.json").write_text(
-            json.dumps(
+        (cache / "verify_cache.toml").write_text(
+            cache_text(
                 {
                     "version": 2,
                     "target": "T",
@@ -1756,7 +1760,7 @@ class TestEffectiveMatches:
             },
         }
         (tmp_path / ".rebrew").mkdir(exist_ok=True)
-        (tmp_path / ".rebrew" / "verify_cache.json").write_text(json.dumps(cache), encoding="utf-8")
+        (tmp_path / ".rebrew" / "verify_cache.toml").write_text(cache_text(cache), encoding="utf-8")
         report = collect_status(cfg)
         assert report.effective_matches == 1
         assert report.to_dict()["verify_cache"]["effective_matches"] == 1

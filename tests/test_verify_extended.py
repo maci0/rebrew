@@ -3,11 +3,13 @@
 import json
 import logging
 import threading
+import tomllib
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
+import tomlkit
 from typer.testing import CliRunner
 
 from rebrew.annotation import Annotation
@@ -775,7 +777,7 @@ class TestVerifyCli:
     def test_nolib_preserves_library_cache_entries(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """--nolib drops library rows from the run, but `verify_cache.json` is
+        """--nolib drops library rows from the run, but `verify_cache.toml` is
         rewritten from `results` alone — without carrying the excluded keys over
         one --nolib run erased the measured truth for every library function."""
         from rebrew.verify import app
@@ -1177,30 +1179,34 @@ class TestLoadBaseline:
         assert warning is None
 
     def test_wrong_target_rejected(self, tmp_path: Path) -> None:
-        import json
-
-        from rebrew.verify_cache import baseline_path, load_baseline
+        from rebrew.verify_cache import baseline_path, load_baseline, toml_document
 
         cfg = _cfg(tmp_path)
         path = baseline_path(cfg)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({"target": "OTHER", "results": []}), encoding="utf-8")
+        path.write_text(
+            tomlkit.dumps(toml_document({"target": "OTHER", "results": []})), encoding="utf-8"
+        )
         prev, warning = load_baseline(cfg)
         assert prev is None
         assert "OTHER" in (warning or "")
 
-    def test_non_dict_baseline_warning(self, tmp_path: Path) -> None:
-        import json
+    def test_malformed_baseline_warning(self, tmp_path: Path) -> None:
+        """A baseline that is not a TOML table is a warning, never a gate.
 
+        A TOML document always parses to a table, so the only way a baseline
+        reader fails on content is a parse error; the caller must see it and
+        keep going rather than treat it as "no regression".
+        """
         from rebrew.verify_cache import baseline_path, load_baseline
 
         cfg = _cfg(tmp_path)
         path = baseline_path(cfg)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps([1, 2, 3]), encoding="utf-8")
+        path.write_text("[1, 2, 3]\n", encoding="utf-8")
         prev, warning = load_baseline(cfg)
         assert prev is None
-        assert "invalid JSON object" in (warning or "")
+        assert "Could not read verify baseline" in (warning or "")
 
 
 class TestSaveVerifyCacheBranches:
@@ -1219,10 +1225,10 @@ class TestSaveVerifyCacheBranches:
         ]
         # Entry with empty filepath → no file info → result not cached.
         empty_fp = Annotation(va=0x1000, name="x", filepath="")
-        save_verify_cache(tmp_path / ".rebrew" / "verify_cache.json", cfg, results, [empty_fp])
-        cache_path = tmp_path / ".rebrew" / "verify_cache.json"
+        save_verify_cache(tmp_path / ".rebrew" / "verify_cache.toml", cfg, results, [empty_fp])
+        cache_path = tmp_path / ".rebrew" / "verify_cache.toml"
         assert cache_path.exists()
-        data = json.loads(cache_path.read_text(encoding="utf-8"))
+        data = tomllib.loads(cache_path.read_text(encoding="utf-8"))
         assert data["entries"] == {}
 
     def test_result_without_file_info_skipped(self, tmp_path: Path) -> None:
@@ -1239,8 +1245,10 @@ class TestSaveVerifyCacheBranches:
                 "delta": 0,
             }
         ]
-        save_verify_cache(tmp_path / ".rebrew" / "verify_cache.json", cfg, results, [_ann(0x1000)])
-        data = json.loads((tmp_path / ".rebrew" / "verify_cache.json").read_text(encoding="utf-8"))
+        save_verify_cache(tmp_path / ".rebrew" / "verify_cache.toml", cfg, results, [_ann(0x1000)])
+        data = tomllib.loads(
+            (tmp_path / ".rebrew" / "verify_cache.toml").read_text(encoding="utf-8")
+        )
         assert data["entries"] == {}
 
     def test_roundtrip_cache_entry(self, tmp_path: Path) -> None:
@@ -1259,8 +1267,10 @@ class TestSaveVerifyCacheBranches:
                 "match_percent": 100.0,
             }
         ]
-        save_verify_cache(tmp_path / ".rebrew" / "verify_cache.json", cfg, results, [_ann(0x1000)])
-        data = json.loads((tmp_path / ".rebrew" / "verify_cache.json").read_text(encoding="utf-8"))
+        save_verify_cache(tmp_path / ".rebrew" / "verify_cache.toml", cfg, results, [_ann(0x1000)])
+        data = tomllib.loads(
+            (tmp_path / ".rebrew" / "verify_cache.toml").read_text(encoding="utf-8")
+        )
         entry = data["entries"]["0x00001000"]
         assert entry["status"] == "EXACT"
         assert entry["source_hash"] != ""
@@ -1474,7 +1484,7 @@ class TestProvenIsNotAPass:
         entry = get_entry(tmp_path, 0x1000, "SERVER")
         assert entry.get("status") == byte_status
         assert entry.get("blocker") == "reg alloc"
-        loaded = load_verify_cache(cfg.root / ".rebrew" / "verify_cache.json", cfg)
+        loaded = load_verify_cache(cfg.root / ".rebrew" / "verify_cache.toml", cfg)
         assert loaded is not None
         assert loaded.entries["0x00001000"].status == byte_status
 
@@ -1878,7 +1888,7 @@ class TestCompareBaseline:
             "summary": {"total": 1, "passed": 1, "failed": 0},
         }
         save_baseline(cfg, baseline)
-        baseline_path = cfg.root / ".rebrew" / "verify_baseline.json"
+        baseline_path = cfg.root / ".rebrew" / "verify_baseline.toml"
         monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
         entry = _ann(0x1000)
         monkeypatch.setattr(
@@ -1905,10 +1915,10 @@ class TestCompareBaseline:
         # Gate fails (regression EXACT -> COMPILE_ERROR).
         assert result.exit_code == 1
         # The baseline on disk is untouched.
-        on_disk = json.loads(baseline_path.read_text(encoding="utf-8"))
+        on_disk = tomllib.loads(baseline_path.read_text(encoding="utf-8"))
         assert on_disk["results"] == []
         # And no verify cache was written by the failed run.
-        assert not (cfg.root / ".rebrew" / "verify_cache.json").exists()
+        assert not (cfg.root / ".rebrew" / "verify_cache.toml").exists()
 
     def test_passing_compare_run_advances_baseline(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1949,7 +1959,7 @@ class TestCompareBaseline:
 
         result = CliRunner().invoke(app, ["--compare", "--json"])
         assert result.exit_code == 0
-        on_disk = json.loads((cfg.root / ".rebrew" / "verify_baseline.json").read_text())
+        on_disk = tomllib.loads((cfg.root / ".rebrew" / "verify_baseline.toml").read_text())
         # Baseline advanced to the new report.
         assert on_disk["summary"]["total"] == 1
         assert on_disk["results"][0]["status"] == "EXACT"

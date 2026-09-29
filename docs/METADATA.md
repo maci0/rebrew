@@ -13,8 +13,8 @@ same tiers and the data/globals/layout pipeline.
 |---|---|---|
 | **Canonical (user-owned)** | `.c` marker lines, `rebrew-functions.toml`, `rebrew-data.toml`, `rebrew-libraries.toml`, `rebrew-project.toml` | The only stores you hand-edit or that hold non-derivable facts.  Everything below is regenerable from these (plus the binary). |
 | **Derived, VCS-intended** | `src/<target>/function_structure.json` (discovery inventory), `<target>.def`, `crt_region/*.c`, `src/link_stubs.c`, `src/<target>/bss_padding.c`, `src/<target>/rebrew_globals.h`, `layout/<target>/`, `[link]` config blocks, `flirt_sigs/*.pat`, `cmake/toolchain-*.cmake` | Build scaffolding generated from the binary / binary-derived facts (gen-layout, discover-functions, catalog, gen-link-stubs, `rebrew data --fix-bss` / `--gen-header`, flirt).  Committed to git so a rebuild never needs `original/` around; regenerable via the generating command.  Never hand-edit. |
-| **Derived, gitignored (build output)** | `db/coverage-<target>.toml`, `bin/<target>/*.bin`, `output/report/` | Rebuildable via `rebrew build-db` / `rebrew verify` / `rebrew extract` / `rebrew report`.  Treat as build output.  `rebrew verify` writes a report file only with an explicit `--output` path; the `--compare` baseline lives in `.rebrew/verify_baseline.json` (the old `db/verify_results.json` snapshot was unguarded and is no longer written — see `verify_cache.load_baseline`). |
-| **Cache (delete-safe)** | `.rebrew/verify_cache.json`, `.rebrew/compile_cache/`, `output/ga_runs/*/checkpoints/*.json`, `output/ga_runs/*/best.c`, `output/ga_runs/*/<symbol>.best.c`, in-memory mtime caches | Regenerated on demand.  Deleting costs a recompile/re-verify/resync at most.  The exception: `.rebrew/ga_runs.jsonl` is *history*, not cache — it accumulates GA outcomes (including winning fingerprints) re-running would not reproduce.  There is no per-run build diskcache — same-run compiles memoize in memory, cross-run persistence is the shared compile cache's job. |
+| **Derived, gitignored (build output)** | `db/coverage-<target>.toml`, `bin/<target>/*.bin`, `output/report/` | Rebuildable via `rebrew build-db` / `rebrew verify` / `rebrew extract` / `rebrew report`.  Treat as build output.  `rebrew verify` writes a report file only with an explicit `--output` path; the `--compare` baseline lives in `.rebrew/verify_baseline.toml` (the old `db/verify_results.json` snapshot was unguarded and is no longer written — see `verify_cache.load_baseline`). |
+| **Cache (delete-safe)** | `.rebrew/verify_cache.toml`, `.rebrew/compile_cache/`, `output/ga_runs/*/checkpoints/*.json`, `output/ga_runs/*/best.c`, `output/ga_runs/*/<symbol>.best.c`, in-memory mtime caches | Regenerated on demand.  Deleting costs a recompile/re-verify/resync at most.  The exception: `.rebrew/ga_runs.jsonl` is *history*, not cache — it accumulates GA outcomes (including winning fingerprints) re-running would not reproduce.  There is no per-run build diskcache — same-run compiles memoize in memory, cross-run persistence is the shared compile cache's job. |
 
 ## Who owns which fact
 
@@ -23,7 +23,7 @@ same tiers and the data/globals/layout pipeline.
 | Function **identity** (which VAs are functions) | merged registry (`catalog/registry.py`: discovery inventory + `function_structure.json` + exports, minus IAT slots) | the coverage document's `functions` array (the grid is built in-process by `catalog/grid.py` and has no file of its own) |
 | Function **size** | registry `canonical_size` (`+ size_reason`) — the compile contract is annotation/metadata `SIZE` | the coverage document's `functions[].size` |
 | Function **name** | annotation name (the `// FUNCTION: MODULE 0xVA` line) | the coverage document's `functions[].name`, plus `list_name`/`ghidra_name` preserving the other authorities |
-| Match **STATUS** | `rebrew-functions.toml` — written **only** via `metadata.update_source_status` / `update_statuses_batch` (promotion gate: SKIP stays parked) — triggered by `rebrew test` / `rebrew verify` / `rebrew prove` (also `match`, `lint`, `binsync-import`, `intake`). Every write tags `updated_by` (test/verify/prove/match/lint/binsync-import/intake) + UTC `updated_at` | the coverage document's `functions[].status` + `updated_by`/`updated_at` and its `history[]` change log; `.rebrew/verify_cache.json` measured-result overlay at report time |
+| Match **STATUS** | `rebrew-functions.toml` — written **only** via `metadata.update_source_status` / `update_statuses_batch` (promotion gate: SKIP stays parked) — triggered by `rebrew test` / `rebrew verify` / `rebrew prove` (also `match`, `lint`, `binsync-import`, `intake`). Every write tags `updated_by` (test/verify/prove/match/lint/binsync-import/intake) + UTC `updated_at` | the coverage document's `functions[].status` + `updated_by`/`updated_at` and its `history[]` change log; `.rebrew/verify_cache.toml` measured-result overlay at report time |
 | **BLOCKER / BLOCKER_DELTA** | `rebrew-functions.toml` — written **only** via `metadata.update_field` / `remove_field` through `rebrew blocker set/clear`, `rebrew diff --fix-blocker`, `rebrew near-diag --fix-blocker`, `rebrew document-unmatched` (never hand-edited) | the coverage document's `functions[].blocker`/`blockerDelta`; `rebrew status`/`todo` counts; `lint` W005 when `STUB` lacks one |
 | **cflags / toolchain** | `rebrew-functions.toml` (per-function) → `rebrew-libraries.toml` (per-library, walk-up) → project defaults, resolved by `resolve_compile_overrides` | the coverage document's `functions[].cflags` |
 | **Data symbols (globals)** | `rebrew-data.toml` (`name`/`type`/`size`/`section`/`note`, verify-written data STATUS `VERIFIED`/`DRIFT`/`UNCHECKED`, and the `updated_by`/`updated_at` write stamp) | the coverage document's `globals[]`; `src/<target>/rebrew_globals.h` (`rebrew data --gen-header` — extern declarations for the build); `rebrew status` data counts + `rebrew todo --category data-drift` |
@@ -110,7 +110,7 @@ supplies its own tag.
    file-borne and exempt (it must travel with the file; self-clears when the
    C body replaces it).  The `.c` marker line keeps only identity: `// FUNCTION: MODULE 0xVA`.
 2. **STATUS display precedence**: metadata `PROVEN`/`SKIP` (and `STUB` over
-   the cache's `SIZE_MISMATCH`/`MISSING_SIZE`/`STUB`) > `.rebrew/verify_cache.json`
+   the cache's `SIZE_MISMATCH`/`MISSING_SIZE`/`STUB`) > `.rebrew/verify_cache.toml`
    measured result (the cache holds byte verdicts only, never PROVEN)
    > grid/DB snapshot.
 3. **Per-function > per-library > project** for toolchain/cflags
@@ -162,6 +162,33 @@ postlink --layout <dir>` consumes it to normalize a built binary onto the
 reference **without the original DLL present**.  Regenerate the package
 whenever the reference binary changes — the layout files carry
 "do not hand-edit" headers.
+
+## Store formats
+
+A store **rebrew owns** is clear-text TOML, one format for all of them:
+`rebrew-project.toml`, `rebrew-functions.toml`, `rebrew-data.toml`,
+`rebrew-libraries.toml`, `db/coverage-<target>.toml`, `.rebrew/verify_cache.toml`
+and `.rebrew/verify_baseline.toml` (the last two replaced JSON files of the same
+name, and `rebrew lint` reports a leftover as a stale artifact, W032).  The
+verify cache's rows are the report's rows, so `status`, `todo`, `report`,
+`build-db` and the dashboards decode one document with `tomllib` and write it
+back with `tomlkit`.
+
+The stores that stay in another tool's format are that tool's contract, not
+rebrew's to rename:
+
+| File | Owner of the format |
+|---|---|
+| `compile_commands.json` | clang's compilation database |
+| `objdiff.json` | objdiff's project file |
+| `sigs/index.json` (FLIRT pack) | the signature pack that ships it |
+| `src/<target>/function_structure.json`, `ghidra_data_labels.json`, `ghidra_switchdata.json` | the Ghidra scripts that export and re-import them |
+| `.rebrew/ga_runs.jsonl` | rebrew's own append-only GA log: one line per event, so a TOML document would have to be rewritten per event.  It is derived state under the gitignored run directory, not a source of truth |
+| declib BinSync state files | declib |
+
+"One source of truth" is about rebrew-owned state: one store per fact, no cache
+that can disagree with it.  A format another program reads stays where it is
+until that program changes with it.
 
 ## Rules for new stores
 

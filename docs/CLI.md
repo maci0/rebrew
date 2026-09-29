@@ -577,7 +577,7 @@ graph TD
     Classify -->|EXACT / RELOC| Pass[pass · STATUS promoted]
     Classify -->|NEAR_MATCHING| NM[near-match · STATUS kept]
     Classify -->|MISMATCH / COMPILE_ERROR| Fail[fail · STATUS demoted]
-    Pass --> Report[aggregate report<br/>--json · --output file (baseline: .rebrew/verify_baseline.json)]
+    Pass --> Report[aggregate report<br/>--json · --output file (baseline: .rebrew/verify_baseline.toml)]
     NM --> Report
     Fail --> Report
     Report -->|--data| Data[byte-compare built<br/>.data/.rdata per symbol]
@@ -596,7 +596,7 @@ graph TD
 |------|-------------|
 | `--root PATH` | Project root directory (auto-detected from rebrew-project.toml if omitted) |
 | `--jobs N` / `-j N` | Number of parallel compile jobs (default: from project.jobs or 4) |
-| `--compare` | Compare against last saved `.rebrew/verify_baseline.json`, detect regressions/improvements; exit code 1 on regression |
+| `--compare` | Compare against last saved `.rebrew/verify_baseline.toml`, detect regressions/improvements; exit code 1 on regression |
 | `-s` / `--summary` | Show EXACT/RELOC/NEAR_MATCHING summary table with match percentages |
 | `--full` | Force full verification, ignoring cached results (also required after header/include changes) |
 | `--json` | Structured JSON report to stdout |

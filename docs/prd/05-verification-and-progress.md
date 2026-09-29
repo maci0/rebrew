@@ -36,7 +36,7 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
 - **AI agent** (`rebrew-workflow` skill) running `rebrew verify --json` to
   detect regressions before promoting STATUS.
 - **CI bot** running `rebrew verify --compare` against the local
-  `.rebrew/verify_baseline.json` baseline to fail on regressions.
+  `.rebrew/verify_baseline.toml` baseline to fail on regressions.
   (>2026-09: was `db/verify_results.json`; the baseline is now a local
   gitignored `.rebrew/` file.)
 - **Team lead** generating `rebrew graph --format mermaid` for design
@@ -81,7 +81,7 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
   COMPILE_ERROR.
 - Writes no default report file — `--output` is explicit export only
   (>2026-09: was `db/verify_results.json` by default; the `--compare`
-  baseline lives in `.rebrew/verify_baseline.json` and needs no flag).
+  baseline lives in `.rebrew/verify_baseline.toml` and needs no flag).
 - `--compare` diffs against the last saved report and flags regressions
   (STATUS downgrades, new compile errors).
 - `--full` ignores cache hits and re-verifies everything (edits to shared
@@ -169,7 +169,7 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
 ### Story 1 — Pre-merge regression check
 
 1. CI runs `rebrew verify --compare --json` against the local
-   `.rebrew/verify_baseline.json` baseline (>2026-09: was the committed
+   `.rebrew/verify_baseline.toml` baseline (>2026-09: was the committed
    `db/verify_results.json`; the baseline is now local gitignored run
    state).
 2. If any function regressed (EXACT → NEAR_MATCHING, etc.) the job fails.
@@ -299,7 +299,7 @@ rebrew round-trip [OPTIONS]
   entries whose sources reach it; `--full` remains available for a hard
   reset.)
 - `verify --compare` baseline lives in a single local gitignored file
-  (`.rebrew/verify_baseline.json`, with target/compiler/binary identity
+  (`.rebrew/verify_baseline.toml`, with target/compiler/binary identity
   guards — first run warns + skips); branching workflows may need
   per-branch artifacts (left to CI to manage).
 - `status` percentages are computed from `function_structure.json` if

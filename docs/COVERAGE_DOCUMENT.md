@@ -190,7 +190,7 @@ document never holds a function no reader can key.
 | `reg_delta` | integer or `""` | Register-encoding-only differing instructions; `""` when the cache has no value. |
 | `effective_match` | `0` / `1` or `""` | `1` when the whole byte delta is register allocation. |
 
-The rows come from `.rebrew/verify_cache.json`, imported by `rebrew build-db`;
+The rows come from `.rebrew/verify_cache.toml`, imported by `rebrew build-db`;
 `rebrew verify` writes no document.  A cache that says nothing about the target
 keeps the document's previous rows, and a row whose measurements did not move
 keeps its earlier `verified_at` — a rebuild re-measures the same verdicts, and

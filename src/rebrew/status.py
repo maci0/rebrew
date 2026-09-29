@@ -437,7 +437,9 @@ def _load_verify_info(
     already-validated document when the caller has one, so a run that also
     needs the effective statuses reads the cache once.
     """
-    cache_path = cfg.root / ".rebrew" / "verify_cache.json"
+    from rebrew.verify_cache import cache_path_for
+
+    cache_path = cache_path_for(cfg)
     if raw is None:
         raw = _load_cache_raw(cfg)
     if raw is None:

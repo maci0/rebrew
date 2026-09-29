@@ -99,6 +99,9 @@ Thumbs.db
 *.dbg
 *.bsc
 *.map
+# Local run state (verify cache, compare baseline, BinSync scratch).
+.rebrew/
+
 # Cross-process write locks (flock sidecars — must persist)
 rebrew-functions.toml.lock
 rebrew-data.toml.lock

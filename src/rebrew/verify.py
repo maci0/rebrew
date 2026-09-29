@@ -11,7 +11,7 @@ PROVEN function gets the byte verdict like any other: PROVEN is not a
 byte match and is not protected from demotion.
 
 With ``--compare`` it compares the current run against the last good
-baseline (``.rebrew/verify_baseline.json``) and exits with code 1 on any
+baseline (``.rebrew/verify_baseline.toml``) and exits with code 1 on any
 regression (suitable for CI / pre-commit hooks).
 """
 
@@ -75,6 +75,7 @@ from rebrew.utils import (
 )
 from rebrew.verify_cache import (
     VerifyCacheEntry,
+    cache_path_for,
     load_verify_cache,
     order_result_row,
     save_verify_cache,
@@ -1574,7 +1575,7 @@ def _save_report(
     # --no-promote still saves the cache/baseline/report; it only skips
     # rebrew-functions.toml (STATUS, SIZE, orphan prune).
     if not dry_run and not (diff_mode and gate_failed):
-        cache_path = cfg.root / ".rebrew" / "verify_cache.json"
+        cache_path = cache_path_for(cfg)
         try:
             save_verify_cache(
                 cache_path,
@@ -2169,7 +2170,7 @@ def prepare_entries(
     fail_details: list[tuple[Annotation, str]] = []
     results: list[dict[str, Any]] = []
 
-    cache_path = cfg.root / ".rebrew" / "verify_cache.json"
+    cache_path = cache_path_for(cfg)
     verify_cache_obj = None if full else load_verify_cache(cache_path, cfg)
     entries_cache: dict[str, VerifyCacheEntry] = (
         verify_cache_obj.entries if verify_cache_obj else {}

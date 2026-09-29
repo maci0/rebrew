@@ -785,7 +785,7 @@
         <mxCell id="b2" value="db/coverage-&lt;target&gt;.toml&lt;br&gt;rebrew build-db" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="260" y="756" width="180" height="86" as="geometry"/>
         </mxCell>
-        <mxCell id="b3" value=".rebrew/verify_baseline.json&lt;br&gt;incl. similarity col" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="b3" value=".rebrew/verify_baseline.toml&lt;br&gt;incl. similarity col" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="460" y="756" width="180" height="86" as="geometry"/>
         </mxCell>
         <mxCell id="b4" value="bin/ · output/report/&lt;br&gt;extract · report" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
@@ -799,7 +799,7 @@
         <mxCell id="c1" value=".rebrew/compile_cache/&lt;br&gt;SHA-256 keyed objects" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#475569;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="900" y="756" width="190" height="86" as="geometry"/>
         </mxCell>
-        <mxCell id="c2" value=".rebrew/verify_cache.json&lt;br&gt;measured overlay;&lt;br&gt;PROVEN never stored here" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#475569;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="c2" value=".rebrew/verify_cache.toml&lt;br&gt;measured overlay;&lt;br&gt;PROVEN never stored here" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#475569;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="1110" y="756" width="200" height="86" as="geometry"/>
         </mxCell>
         <mxCell id="c3" value=".rebrew/ghidra_sync_state.json&lt;br&gt;pushed-op hashes" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#475569;align=center;fontSize=11;" vertex="1" parent="1">

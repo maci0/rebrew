@@ -456,7 +456,7 @@ class TestHistory:
 
 
 def _write_cache(root: Path, target: str, entries: Any, *, mtime_ns: int | None = None) -> Path:
-    """Seed ``.rebrew/verify_cache.json`` — the verify_results import source.
+    """Seed ``.rebrew/verify_cache.toml`` — the verify_results import source.
 
     Same document shape ``tests/test_build_db.py`` seeds, because this file's
     rows have to be the rows that writer imports: one implementation, two
@@ -464,9 +464,11 @@ def _write_cache(root: Path, target: str, entries: Any, *, mtime_ns: int | None 
     """
     cache_dir = root / ".rebrew"
     cache_dir.mkdir(exist_ok=True)
-    path = cache_dir / "verify_cache.json"
+    from cache_util import cache_text
+
+    path = cache_dir / "verify_cache.toml"
     path.write_text(
-        json.dumps({"version": 2, "target": target, "entries": entries}), encoding="utf-8"
+        cache_text({"version": 2, "target": target, "entries": entries}), encoding="utf-8"
     )
     if mtime_ns is not None:
         os.utime(path, ns=(mtime_ns, mtime_ns))
@@ -563,7 +565,10 @@ class TestVerifyResults:
         path = write(data)[0]
         first = tomllib.loads(path.read_text(encoding="utf-8"))["verify_results"]
 
-        _write_cache(tmp_path, TARGET, {"0x10001000": {"va": None, "delta": 3}})
+        # TOML has no null: a missing va would fall back to the table key and
+        # read as usable, so the unusable row spells a va that cannot parse,
+        # which is the same rejected entry the JSON-era null produced.
+        _write_cache(tmp_path, TARGET, {"0x10001000": {"va": "not-a-va", "delta": 3}})
         second = tomllib.loads(write(data)[0].read_text(encoding="utf-8"))["verify_results"]
         assert second == first
 

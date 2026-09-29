@@ -55,7 +55,7 @@ Adopt an explicit **four-tier model** and document it as the contract
    `bin/<target>/*.bin`, `output/report/`.  (Amended: the grid JSON, the
    coverage database and the CSV are gone — see the amendment at the end.)  Rebuildable via one command;
    never hand-edited.  The `--compare` baseline lives in
-   `.rebrew/verify_baseline.json` (unguarded `db/verify_results.json`
+   `.rebrew/verify_baseline.toml` (unguarded `db/verify_results.json`
    snapshots are no longer written — see `verify_cache.load_baseline`).
 4. **Cache (delete-safe)** — verify cache, Ghidra sync-state, compile
    caches, GA run checkpoints (`out_dir/checkpoints`, `out_dir/best.c`),
@@ -126,7 +126,7 @@ Single-source rules enforced by code where cheap:
   (`layout/<target>/`) is a derived-but-VCS-intended tier of its own —
   committed so postlink never needs `original/` around, regenerable from
   the reference binary on change.
-- `verify_cache.json` stays a *measured-result mirror* (not folded into
+- `verify_cache.toml` stays a *measured-result mirror* (not folded into
   metadata) so `rebrew status`/`todo` serve without recompiling and
   demotions aren't masked; its overlay precedence is documented.
 
