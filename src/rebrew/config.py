@@ -1356,7 +1356,7 @@ def validate_target_name(name: str, label: str = "target name") -> str:
         raise ConfigError(f"{label} {name!r} is not a plain file name")
     if "/" in name or "\\" in name or "\x00" in name:
         raise ConfigError(f"{label} {name!r} must not contain a path separator")
-    if any(ord(ch) < 0x20 for ch in name):
+    if any(ord(ch) < 0x20 or 0x7F <= ord(ch) <= 0x9F for ch in name):
         raise ConfigError(f"{label} {name!r} must not contain control characters")
     return unicodedata.normalize("NFC", name)
 

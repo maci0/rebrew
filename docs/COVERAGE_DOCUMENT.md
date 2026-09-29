@@ -300,7 +300,7 @@ Nothing below is stored.  The writer writes facts, and
 | `Cell.size` | the cell's `end` and `start` | Byte length of the span. |
 | `Section.buckets` | the section's cells | Bytes covered, per state. |
 | `Section.covered_bytes` | `buckets` | Every byte not in a `none` cell. |
-| `Section.coverage_pct` | `covered_bytes` over the section's cell bytes | Rounded to 2 places; `0.0` for a section with no cells. |
+| `Section.coverage_pct` | `covered_bytes` over the section's cell bytes | Floored to 2 places, never rounded up; `0.0` for a section with no cells. |
 | `Section.cell_count` | the section's cells | Number of cells. |
 | `Section.bucket_counts` | the section's cells | Cell count per served bucket, `total_cells` and the `other` catch-all included. |
 | `CoverageSnapshot.function_stats` | the stored code rows (`FUNCTION` / `LIBRARY` / `STUB`) and the `.text` size | `total`, `covered_bytes`, `matched_bytes`, `total_bytes`, `by_status`, `by_module_counts`. |

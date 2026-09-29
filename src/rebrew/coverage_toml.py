@@ -652,9 +652,11 @@ def render_coverage_toml(
     Nothing is written and nothing is read, so the same call is what the tests,
     the writer and an in-memory check all use.
     """
-    if previous is not None and previous.get("version") != _TOML_VERSION:
-        # Same data loss as the unreadable-file case _read_previous logs, and
-        # the rebuild below replaces the file, so it has to be said out loud.
+    if previous and previous.get("version") != _TOML_VERSION:
+        # A document exists and the rebuild below replaces it, so the history
+        # it carried is lost: say it out loud. An empty *previous* is not this
+        # case: _read_previous returns {} for a file that was never there (no
+        # history to lose) and for one it could not read (already logged there).
         log.warning(
             "coverage_toml: prior document for %s carries version %r, not %r; "
             "the rebuild carries no history",

@@ -96,7 +96,12 @@ def list_cmd(
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
     """List every rebrew-libraries.toml under *root* (all library overrides)."""
-    base = Path(root).resolve()
+    # The default is the project root, not the CWD: `library list` run from a
+    # source subdirectory must still see every override in the project. An
+    # explicit ROOT outside any project (no marker anywhere above it) is taken
+    # verbatim, so a standalone tree can still be listed.
+    start = Path(root).resolve()
+    base = walk_up_to_root(start) or start
     found = []
     for p in sorted(base.rglob(LIBRARY_METADATA_FILE)):
         meta = parse_library_metadata(p)

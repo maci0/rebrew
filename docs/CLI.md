@@ -616,7 +616,7 @@ graph TD
 | `--origin TEXT` | Restrict to one module (e.g. GAME) |
 | `--no-promote` | Measure only: write NOTHING to rebrew-functions.toml (report + cache still save) |
 | `--target NAME` | Select a target from `rebrew-project.toml` |
-| `--all-targets` | Verify every configured target and report the aggregate; mutually exclusive with `--target` and with the options each target resolves on its own (`--dir`, `--origin`, `--built`, `--root`) |
+| `--all-targets` | Verify every configured target and report the aggregate; mutually exclusive with `--target` and with the run-wide options (`--watch`, `--output`, `--built`). A per-target filter (`--dir`, `--origin`) is applied to each target's own tree |
 
 The `--json` report carries `dry_run`, `size_divergences`, and `missing_sizes`
 (plus `sizes_fixed` when `--fix-sizes` ran); VAs fixed by `--fix-sizes` are
@@ -690,7 +690,7 @@ Output prefixes for unambiguous parsing:
 | `--sweep-toolchains CSV` | Sweep only these toolchains (profile names or version prefixes) |
 | `--sweep-exclude-toolchains CSV` | Skip these toolchains in the sweep |
 | `--flag-sweep-then-ga` | Flag-sweep each stub first, then run GA with the best flags |
-| `--size-mismatch` | Include SIZE_MISMATCH functions in batch mode |
+| `--size-mismatch` | Match SIZE_MISMATCH functions in batch mode; selects them instead of the default STUB set, and the other batch selectors (`--near-miss`, `--improve`, `--flag-sweep*`) are not combined with it |
 | `--skip-recent HOURS` | Skip functions matched in the last N hours |
 | `--seed-kuna` | Seed GA with kuna decompiler output (needs `kuna` on PATH; SLEIGH specs auto-resolved from the pypcode install, override with `KUNA_SPECS`) |
 | `--resume` | Resume from GA checkpoints |

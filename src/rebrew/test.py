@@ -1168,6 +1168,11 @@ def _run_test_impl(
             full_obj_size=new_size,
             full_obj_bytes=cmp.full_obj_bytes,
         )
+        # The rebuilt result drops the context digest the verdict was earned
+        # under; every reader downstream (the JSON payload, the verify-cache
+        # patch) takes it from here, so re-attach it like the multi-function
+        # path does after its own rebuild.
+        cmp.context_hash = compile_context.sha256 if compile_context is not None else None
         # The extraction at the STALE annotation size no longer reflects the
         # function — re-extract at the fixed size so JSON/display totals are
         # self-consistent (a too-big annotation would otherwise report

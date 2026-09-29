@@ -714,10 +714,12 @@ function setListPageMessage(opts) {
     hint.textContent = tail ? msg + ". " + tail : msg;
     hint.hidden = false;
     const next = Math.min(count + PAGE_STEP, total, PAGE_MAX);
-    more.hidden = capped;
-    // The label counts this click; the running total is in the hint.
-    const step = next - count;
-    $(moreBtnId).textContent = "Show " + step + " more " + (step === 1 ? nounOne : noun);
+    if (more) {
+      more.hidden = capped;
+      // The label counts this click; the running total is in the hint.
+      const step = next - count;
+      $(moreBtnId).textContent = "Show " + step + " more " + (step === 1 ? nounOne : noun);
+    }
   } else {
     $("results-status").textContent = count + " " + (count === 1 ? nounOne : noun) + " shown";
     hint.textContent = "Showing " + (count === 1 ? ("1 " + nounOne) : (count + " " + noun));
@@ -2686,11 +2688,16 @@ def _precompressed_static(
     gzip_blob: bytes | None,
     raw: bytes,
 ) -> tuple[bytes, _WireEncoding | None]:
-    """Serve an import-time precompressed blob for the negotiated encoding."""
+    """Serve an import-time precompressed blob for the negotiated encoding.
+
+    A blob that did not shrink is stored as the raw body, so the per-request
+    "did it shrink" rule applies here too: raw bytes must not be labelled
+    compressed.
+    """
     encoding = _negotiate_encoding(accept_encoding)
-    if encoding == "zstd" and zstd_blob is not None:
+    if encoding == "zstd" and zstd_blob is not None and zstd_blob != raw:
         return zstd_blob, "zstd"
-    if encoding == "gzip" and gzip_blob is not None:
+    if encoding == "gzip" and gzip_blob is not None and gzip_blob != raw:
         return gzip_blob, "gzip"
     return raw, None
 

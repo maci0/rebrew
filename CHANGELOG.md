@@ -362,6 +362,30 @@
   path off a LAN-bound dashboard has to read the flag from the operator.
 
 ### Fixed
+- **A size repair kept its compile context, a static that did not compress is
+  no longer labelled compressed, `library list` starts at the project root, a
+  DEL target name is rejected, a first `build-db` stops warning about lost
+  history, and a `GA_CEILING` blocker counts the generations that ran.**
+  `test`'s single-function `--fix-sizes` rebuilds the `CompareResult` and
+  dropped the digest the verdict was earned under, so `--context ctx.c
+  --fix-sizes` reported `context_hash: null` and patched the shared verify
+  cache with a `None` the "served only to a run pinned to the same context"
+  guard cannot use; the multi-function path already restored it. The
+  dashboard's `_precompressed_static` lacked the "did it shrink" check its
+  per-request sibling has, so a blob the accessors stored raw would go out
+  under `Content-Encoding`. `library list` took its ROOT verbatim, making the
+  documented "default: project root" the CWD: from a source subdirectory it
+  found nothing. `validate_target_name` stopped at `0x20`, letting DEL and
+  the C1 range past a check docs call a control character
+  (`validate_http_url` already rejected 127). `render_coverage_toml` warned
+  about lost history for a document that never existed, because
+  `_read_previous` returns `{}` for missing and unreadable alike. The
+  `GA_CEILING` text reported the requested `--generations` budget rather than
+  the generations executed, so a `--timeout-min` cutoff left a blocker
+  claiming a ceiling the search never reached, and `prove --all --ceiling`
+  and `todo` select on that text. `setListPageMessage` also dereferenced
+  `moreBtnId` unconditionally in the paged branch, which the unpaged sections
+  list does not pass.
 - **The dashboard's error alert can now reach a reader at the foot of a long
   table.** The alert renders above the view panels, so a failure raised by
   `Show more` on a 100-row function list landed off screen with nothing to tell

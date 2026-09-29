@@ -283,7 +283,7 @@ def run_single_ga(
                     ga,
                     best_src,
                     best_score,
-                    generations,
+                    ga.generation,
                 )
     finally:
         ga.close()
@@ -695,7 +695,7 @@ def _run_one_stub_ga(
                 ga,
                 best_src,
                 best_score,
-                generations,
+                ga.generation,
             )
             if ceiling:
                 output_summary += " [GA ceiling documented]"
@@ -812,13 +812,18 @@ def _maybe_document_ga_ceiling(
     ga: BinaryMatchingGA,
     best_src: str,
     best_score: float,
-    generations: int,
+    generations_run: int,
 ) -> str | None:
     """Write a ``GA_CEILING`` blocker when the champion is at a wall.
 
     Called after the GA exhausts its budget without a match.  Never clobbers
     an existing blocker; writes nothing when the champion is not cleanly
     register- or encoding-only.  Returns the blocker text written, or ``None``.
+
+    *generations_run* is what the search executed, not the requested budget:
+    a run cut short by ``--timeout-min`` would otherwise leave a blocker
+    claiming a ceiling it never reached, and ``rebrew prove --all --ceiling``
+    and ``todo`` both select on that text.
     """
     if not best_src:
         return None
@@ -834,7 +839,7 @@ def _maybe_document_ga_ceiling(
     text = (
         GA_CEILING_PREFIX
         + " "
-        + _CEILING_TEXTS[kind].format(generations=generations, score=best_score)
+        + _CEILING_TEXTS[kind].format(generations=generations_run, score=best_score)
     )
     update_field(meta_root, va_int, "blocker", text, module=module, updated_by="match")
     return text
