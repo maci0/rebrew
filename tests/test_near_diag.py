@@ -3,7 +3,7 @@
 from pathlib import Path
 from typing import Any
 
-import rebrew.near_diag as nd
+import rebrew.near_analysis as nd
 
 # Hand-crafted 32-bit x86 encodings.
 MOV_EAX_EBX = b"\x89\xd8"  # mov eax, ebx
@@ -346,7 +346,7 @@ class TestRelocVerdictHonesty:
     (invalid-reloc) bytes differ — the canonical status is then NEAR_MATCHING."""
 
     def _verdict(self, counts: dict[str, int], total: int) -> tuple[str, str]:
-        from rebrew.near_diag import _verdict
+        from rebrew.near_analysis import _verdict
 
         return _verdict(counts, total)
 
@@ -412,7 +412,7 @@ class TestSecondarySuggestionBoundary:
     """The >=25% threshold fires at exactly 25%."""
 
     def test_exactly_25_percent_fires(self) -> None:
-        from rebrew.near_diag import _verdict
+        from rebrew.near_analysis import _verdict
 
         # structural dominates (9/12), register is exactly 25% (3/12) →
         # the secondary hint fires.
@@ -422,7 +422,7 @@ class TestSecondarySuggestionBoundary:
         assert "register" in suggestion.lower()
 
     def test_below_25_percent_no_hint(self) -> None:
-        from rebrew.near_diag import _verdict
+        from rebrew.near_analysis import _verdict
 
         # register is 20% (2/10) → below the threshold, no hint.
         counts = {"match": 0, "register": 2, "equivalent": 0, "reloc": 0, "structural": 8}
@@ -434,7 +434,7 @@ class TestMutationSuggestions:
     """H6: every verdict category maps to GA mutation operators."""
 
     def test_every_category_has_suggestions_or_is_reloc(self) -> None:
-        from rebrew.near_diag import MUTATION_SUGGESTIONS
+        from rebrew.near_analysis import MUTATION_SUGGESTIONS
 
         for category in ("register", "equivalent", "structural"):
             assert MUTATION_SUGGESTIONS[category], f"{category} has no suggestions"
@@ -446,7 +446,7 @@ class TestMutationSuggestions:
     def test_operators_exist_in_mutator(self) -> None:
         """Every suggested operator must be a real registered mutation."""
         from rebrew.matcher.mutator import ALL_MUTATIONS
-        from rebrew.near_diag import MUTATION_SUGGESTIONS
+        from rebrew.near_analysis import MUTATION_SUGGESTIONS
 
         defined = {fn.__name__ for fn in ALL_MUTATIONS}
         for category, ops in MUTATION_SUGGESTIONS.items():
@@ -454,7 +454,7 @@ class TestMutationSuggestions:
                 assert op in defined, f"{op} (for {category}) not in ALL_MUTATIONS"
 
     def test_analyze_returns_mutations(self) -> None:
-        from rebrew.near_diag import analyze
+        from rebrew.near_analysis import analyze
 
         target = bytes.fromhex("55 8b ec 8b 45 08 5d c3")  # mov eax, [ebp+8]
         compiled = bytes.fromhex("55 8b ec 8b 45 0c 5d c3")  # mov eax, [ebp+0xc]
@@ -468,7 +468,7 @@ class TestMutationSuggestions:
         """A structural-dominant delta with a >=15% register component must
         suggest BOTH categories' operators — the register fix is otherwise
         invisible."""
-        from rebrew.near_diag import analyze, mutation_suggestions
+        from rebrew.near_analysis import analyze, mutation_suggestions
 
         target = MOV_EAX_1 * 3 + MOV_EAX_EBX * 2 + RET
         compiled = MOV_EAX_2 * 3 + MOV_EAX_ECX * 2 + RET
@@ -487,24 +487,24 @@ class TestMutationSuggestions:
 class TestFixBlocker:
     """near-diag --fix-blocker writes the verdict as BLOCKER metadata."""
 
-    def test_blocker_text_non_match(self) -> None:
-        from rebrew.near_diag import _blocker_text
+    def testblocker_text_non_match(self) -> None:
+        from rebrew.near_analysis import blocker_text
 
-        text = _blocker_text(
+        text = blocker_text(
             {"verdict": "REGISTER (90% of delta)", "suggestion": "Register allocation differs."}
         )
         assert text.startswith("NEAR_MATCHING — REGISTER")
         assert "Register allocation" in text
 
-    def test_blocker_text_short(self) -> None:
-        from rebrew.near_diag import _blocker_text
+    def testblocker_text_short(self) -> None:
+        from rebrew.near_analysis import blocker_text
 
-        assert len(_blocker_text({"verdict": "STRUCTURAL", "suggestion": "x" * 500})) <= 200
+        assert len(blocker_text({"verdict": "STRUCTURAL", "suggestion": "x" * 500})) <= 200
 
-    def test_blocker_text_includes_mutations(self) -> None:
-        from rebrew.near_diag import _blocker_text
+    def testblocker_text_includes_mutations(self) -> None:
+        from rebrew.near_analysis import blocker_text
 
-        text = _blocker_text(
+        text = blocker_text(
             {
                 "verdict": "REGISTER (75% of delta)",
                 "suggestion": "Register allocation differs.",
@@ -515,12 +515,12 @@ class TestFixBlocker:
         assert "Register allocation" in text
         assert len(text) <= 200
 
-    def test_blocker_text_mutations_outrank_suggestion_tail(self) -> None:
-        from rebrew.near_diag import _blocker_text
+    def testblocker_text_mutations_outrank_suggestion_tail(self) -> None:
+        from rebrew.near_analysis import blocker_text
 
         # A huge mutation list + long suggestion must keep the mutations and
         # the suggestion's first sentence (or drop the tail), never exceed 200.
-        text = _blocker_text(
+        text = blocker_text(
             {
                 "verdict": "STRUCTURAL (99% of delta)",
                 "suggestion": "Control flow / block layout differs. " + "x" * 400,

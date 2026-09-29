@@ -102,7 +102,10 @@ flowchart LR
 | `rebrew/toolchain_cli.py` | `rebrew toolchain` CLI (`list`/`status`/`detect`/`pull`/`build`/`vendor`/`smoke`/`update`/`check-updates`) |
 | `rebrew/round_trip.py` | Splice matched functions back into the target PE, verify byte equality |
 | `rebrew/similar.py` | Structural clone detection (mnemonic-histogram similarity) |
-| `rebrew/near_diag.py` | NEAR_MATCHING delta classification (register/encoding/equivalent/reloc/structural buckets) |
+| `rebrew/near_analysis.py` | NEAR_MATCHING delta classification (register/encoding/equivalent/reloc/structural buckets) and the verdict; the library half, with no Typer app, so the GA engine and `probe` import it |
+| `rebrew/near_diag.py` | The `rebrew near-diag` CLI over `near_analysis.py`: argument parsing, Rich output, BLOCKER metadata writes, `--catalog` |
+| `rebrew/stack_analysis.py` | Stack-frame derivation and diff (frame size, ebp-vs-esp, `ret N` popping, `[ebp±N]` slots) from disassembly on both sides; the library half |
+| `rebrew/stack_cmp.py` | The `rebrew stack-cmp` CLI over `stack_analysis.py` |
 | `rebrew/headless.py` | Persistent per-process Xvfb for headless wine compiles (no window, no DISPLAY needed) |
 | `rebrew/toolchain_detect.py` | Layered compiler-family detector: Detect It Easy (diec) → PDB → PE metadata (Rich header/linker version) → codegen heuristics; feeds init's CRT/opt seeding and doctor's alignment check. Its four tables (profile compat, Rich-build and linker-era profiles, plugin detectors) are one generation: read them through `detection_tables()` |
 | `rebrew/wibo.py` | Locate + SHA256-verify the wibo runner (`doctor --install-wibo`); a legacy host-runner fallback for toolchains registered without an `image`, not a shipped compile path (ADR 008) |

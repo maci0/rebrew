@@ -1782,7 +1782,7 @@ class TestGaCeiling:
                 "categories": {"register": {"bytes": 2}, "structural": {"bytes": 0}},
             }
 
-        monkeypatch.setattr("rebrew.near_diag.analyze", _fake_analyze)
+        monkeypatch.setattr("rebrew.near_analysis.analyze", _fake_analyze)
         assert _classify_ga_ceiling(_GA(), "int f(void){return 0;}", b"\x8b\xc3", 0x1000) == (
             "register"
         )
@@ -1804,7 +1804,7 @@ class TestGaCeiling:
                 return BuildResult(ok=True, obj_bytes=b"\x8b\xc1", reloc_offsets={})
 
         monkeypatch.setattr(
-            "rebrew.near_diag.analyze",
+            "rebrew.near_analysis.analyze",
             lambda *a, **k: {"verdict": "NEAR_MATCHING", "categories": categories},
         )
         return _classify_ga_ceiling(_GA(), "int f(void){return 0;}", b"\x8b\xc3", 0x1000)
@@ -1858,7 +1858,7 @@ class TestGaCeiling:
                 "categories": {"register": {"bytes": 2}, "structural": {"bytes": 0}},
             }
 
-        monkeypatch.setattr("rebrew.near_diag.analyze", _fake_analyze)
+        monkeypatch.setattr("rebrew.near_analysis.analyze", _fake_analyze)
         assert _classify_ga_ceiling(_GA(), "int f(void){return 0;}", b"\x8b\xc3", 0x1000) == (
             "register"
         )
@@ -1946,7 +1946,7 @@ class TestLiveMutationFocus:
             lambda *a, **k: self._fake_build(b"\x55\x8b\xec"),
         )
         monkeypatch.setattr(
-            "rebrew.near_diag.analyze",
+            "rebrew.near_analysis.analyze",
             lambda *a, **k: {"mutations": ["mut_reorder_register_vars", "mut_inject_dummy_var"]},
         )
         weights = live_mutation_weights(self._params(tmp_path))
@@ -1969,7 +1969,7 @@ class TestLiveMutationFocus:
             lambda *a, **k: self._fake_build(b"\x55\x8b\xec"),
         )
         monkeypatch.setattr(
-            "rebrew.near_diag.analyze",
+            "rebrew.near_analysis.analyze",
             lambda *a, **k: {"mutations": ["mut_inject_dummy_var"]},
         )
         assert live_mutation_weights(self._params(tmp_path)) == {"mut_inject_dummy_var": 6.0}
@@ -1981,7 +1981,7 @@ class TestLiveMutationFocus:
             "rebrew.matcher.compiler.build_candidate_obj_only",
             lambda *a, **k: self._fake_build(b"\x55\x8b\xec"),
         )
-        monkeypatch.setattr("rebrew.near_diag.analyze", lambda *a, **k: {"mutations": []})
+        monkeypatch.setattr("rebrew.near_analysis.analyze", lambda *a, **k: {"mutations": []})
         assert live_mutation_weights(self._params(tmp_path)) is None
 
     def test_compile_failure_returns_none(self, tmp_path: Path, monkeypatch: Any) -> None:

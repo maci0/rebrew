@@ -92,7 +92,7 @@ def main(
     from rebrew.coff_reloc import smart_reloc_compare
     from rebrew.compile_overrides import resolve_compile_overrides
     from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
-    from rebrew.near_diag import align_and_classify
+    from rebrew.near_analysis import align_and_classify
 
     load_binary(cfg.target_binary)
     ref_raw = extract_raw_bytes(cfg.target_binary, va_int, size_val)

@@ -7,7 +7,8 @@ import pytest
 from typer.testing import CliRunner
 
 from rebrew.cli import EXIT_ERROR, EXIT_MISMATCH
-from rebrew.stack_cmp import analyze_frame, app, compare_frames
+from rebrew.stack_analysis import analyze_frame, compare_frames
+from rebrew.stack_cmp import app
 
 # Hand-crafted 32-bit x86 encodings.
 # push ebp; mov ebp,esp; sub esp,0x28; mov [ebp-4],eax; mov eax,[ebp-4]; leave; ret

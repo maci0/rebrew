@@ -207,8 +207,12 @@ def bench_verify_cache() -> dict[str, float]:
 
 
 def bench_near_diag() -> dict[str, float]:
-    """near_diag.analyze() over 200 synthetic byte pairs."""
-    from rebrew.near_diag import analyze
+    """near_analysis.analyze() over 200 synthetic byte pairs.
+
+    The ``BASELINES`` key stays ``near_diag`` so recorded budgets keep matching
+    across the move of the analysis out of the command.
+    """
+    from rebrew.near_analysis import analyze
 
     mov_ebx = bytes.fromhex("89 d8 c3")
     mov_ecx = bytes.fromhex("89 c8 c3")

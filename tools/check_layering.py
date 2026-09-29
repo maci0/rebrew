@@ -42,8 +42,10 @@ makes a module a command and a second inventory cannot drift from
 ``pyproject.toml``.  This rule reads every import that runs, function bodies
 included, and skips ``if TYPE_CHECKING:`` blocks: ``errors`` re-exports the
 command modules' exception types for a type checker, which loads nothing.
-``DEFERRED_LIBRARY_COMMAND_EDGES`` names the two edges the tree still has, each with
-the split that would remove it; a third is a violation.
+``DEFERRED_LIBRARY_COMMAND_EDGES`` is the ratchet for this rule: it is empty
+because the analysis ``match_ga`` and ``match_run`` need now lives in
+``rebrew.near_analysis``, a library the command also imports.  Adding an entry
+back is a regression, not an exemption.
 
 Run from the repo root::
 
@@ -334,16 +336,11 @@ def _is_command_module(tree: ast.Module) -> bool:
 
 #: Library modules reaching a command for a name the command does not own, one
 #: edge each, named so the debt is visible rather than implied by a wildcard.
-#: ``match_ga`` and ``match_run`` need ``near_diag.analyze`` and
-#: ``near_diag.MUTATION_SUGGESTIONS``, which are library, but they live in the
-#: same file as the ``near-diag`` command.  The fix is to split that file; until
-#: then the edges are here, and deleting a line is the whole of the ratchet.
-DEFERRED_LIBRARY_COMMAND_EDGES: frozenset[tuple[str, str]] = frozenset(
-    {
-        ("rebrew.match_ga", "rebrew.near_diag"),
-        ("rebrew.match_run", "rebrew.near_diag"),
-    }
-)
+#: Empty: the last two edges, ``match_ga`` and ``match_run`` reaching into
+#: ``near_diag`` for ``analyze`` and ``MUTATION_SUGGESTIONS``, were removed by
+#: splitting the analysis into :mod:`rebrew.near_analysis`, which the GA now
+#: imports as a library.  A new edge here is a violation, not a new exemption.
+DEFERRED_LIBRARY_COMMAND_EDGES: frozenset[tuple[str, str]] = frozenset()
 
 
 def _library_imports_command(

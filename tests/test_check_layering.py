@@ -237,15 +237,15 @@ class TestLibraryDoesNotImportCommand:
         )
         assert cl.check_layering(str(pkg)) == []
 
-    def test_the_real_tree_has_only_the_two_named_edges(self) -> None:
-        tree = {name for name, _, _ in cl._walk_modules("src/rebrew")}
-        commands = set()
-        for module, path, _ in cl._walk_modules("src/rebrew"):
-            if cl._is_command_module(ast.parse(path.read_bytes())):
-                commands.add(module)
-        for module, target in cl.DEFERRED_LIBRARY_COMMAND_EDGES:
-            assert module in tree and target in commands
-            assert module not in commands, "a deferred edge's source gained a command"
+    def test_no_library_imports_a_command(self) -> None:
+        """The ratchet is empty, and stays empty.
+
+        The last two edges (``match_ga`` and ``match_run`` reaching into the
+        ``near-diag`` command for the analysis) were removed by moving that
+        analysis into ``rebrew.near_analysis``.  Re-adding a line here is a
+        regression, not a new exemption, so pin the empty set.
+        """
+        assert not cl.DEFERRED_LIBRARY_COMMAND_EDGES
 
 
 class TestPackageExternalsStayDocumented:

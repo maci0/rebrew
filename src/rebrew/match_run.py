@@ -774,7 +774,7 @@ def _classify_ga_ceiling(
         if not res.ok or not res.obj_bytes:
             return None
 
-        from rebrew.near_diag import analyze
+        from rebrew.near_analysis import analyze
 
         diag = analyze(
             target_bytes,

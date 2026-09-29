@@ -4,13 +4,13 @@ Rebrew reimplements reccmp's toolset natively (see [ECOSYSTEM.md](ECOSYSTEM.md))
 Beyond the tool equivalents, four adaptations from the reccmp source are
 **carried in the tree** (MIT License, © reccmp contributors; attribution
 kept beside each): three modules plus the jump-swap check inside
-`near_diag`. They close capability gaps where rebrew had no equivalent,
+`near_analysis`. They close capability gaps where rebrew had no equivalent,
 without adding a reccmp dependency.
 
 | Module | Adapted from | What it adds |
 |---|---|---|
 | `pinned_diff.py` | `compare/pinned_sequences.py` | difflib-compatible matcher seeded with known line pins |
-| `near_diag.py` (`jump_swap_ok`) | `compare/asm/fixes.py` | mirrored-jump check for a swapped `cmp` operand order |
+| `near_analysis.py` (`jump_swap_ok`) | `compare/asm/fixes.py` | mirrored-jump check for a swapped `cmp` operand order |
 | `vtordisp.py` | `analysis/vtordisp.py` | multiple-inheritance thunk (vtordisp) detection |
 | `float_const.py` | `analysis/float_const.py` | float-constant pool discovery from code references |
 
@@ -44,7 +44,7 @@ produced. The pin-partitioned opcodes then feed the same per-pair
 classifier as before (`match` / `register` / `encoding` / `equivalent` /
 `reloc` / `structural`).
 
-## near_diag jump_swap: instruction equivalences
+## near_analysis jump_swap: instruction equivalences
 
 `jump_swap_ok(a, b)` checks two `"mnemonic operands"` lines: both are
 conditional jumps compatible with a flipped `cmp` operand order

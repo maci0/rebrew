@@ -195,14 +195,14 @@ def mutation_focus_weights(
     or ``"auto"``, which derives the category from *blocker* — the function's
     BLOCKER metadata written by ``near-diag --fix-blocker`` (verdict text like
     ``NEAR_MATCHING — REGISTER (57% of delta) — try: ...``).  The category's
-    suggested operators (``rebrew.near_diag.MUTATION_SUGGESTIONS``) get
+    suggested operators (``rebrew.near_analysis.MUTATION_SUGGESTIONS``) get
     ``MUTATION_FOCUS_WEIGHT``; unlisted operators keep weight 1.0.
 
     Returns None when there is nothing to bias (no focus, ``reloc`` — whose
     delta is relocation-masked, or ``auto`` with no derivable verdict) — the
     GA then samples mutations uniformly.
     """
-    from rebrew.near_diag import MUTATION_SUGGESTIONS
+    from rebrew.near_analysis import MUTATION_SUGGESTIONS
 
     if focus == "auto":
         if not blocker:
@@ -230,7 +230,7 @@ def live_mutation_weights(params: BuildParams) -> dict[str, float] | None:
     if not params.seed_src:
         return None
     try:
-        from rebrew.near_diag import analyze
+        from rebrew.near_analysis import analyze
 
         res = compile_seam.build_candidate_obj_only(
             params.seed_src,
