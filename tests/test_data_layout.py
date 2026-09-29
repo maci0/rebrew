@@ -80,8 +80,8 @@ def test_unreadable_source_fails_ownership_scan(
 
     real = read_source_text
 
-    def _boom(path: Path) -> tuple[str, str]:
-        if path == b:
+    def _boom(path: Any, *args: Any, **kwargs: Any) -> tuple[str, str]:
+        if Path(path) == b:
             raise OSError(f"cannot read {path}")
         return real(path)
 

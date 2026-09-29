@@ -83,7 +83,12 @@ The `similarity` group (`rapidfuzz`, `resembl`) is the same class of gap:
 `matcher/scoring.py` imports both, and both ship type information, so without
 them mypy reports `import-not-found` there. `make mypy` checks for both
 before running and names the fix instead of printing the cascade; the same
-check runs in the pre-commit `mypy` hook. Every target that
+check runs in the pre-commit `mypy` hook. `make test` and `make coverage`
+run the same preflight for the same reason on the other gate: those tests
+skip without the groups, so a venv that never saw `make setup` would report
+a green suite that never exercised the code CI's test job runs. `make test-one`
+only warns, like its nasm and node checks, so an unrelated file stays
+runnable. Every target that
 shells out to `uv run` likewise fails with `ERROR: uv not on PATH` rather than
 a bare `uv: not found`.
 
@@ -120,7 +125,7 @@ make clean                    # remove build/dist artifacts and caches
 make test-one T=tests/test_annotation.py  # single file / nodeid (fast edit-test loop; defaults to test_annotation.py)
 make test-one T=tests/test_annotation.py FLAGS="-k stdcall"  # narrow further with any pytest flag
 make test-one T=tests/test_dashboard.py::TestSummaryRequests   # one class
-make test                     # full suite (a few minutes; needs nasm + node, warns without vnu)
+make test                     # full suite (a few minutes; needs nasm + node + the setup extras, warns without vnu)
 make coverage                 # full suite under slipcover; fails below COV_FLOOR (CI test job, 3.13)
 make lint                     # ruff check .
 make format                   # ruff format (writes)

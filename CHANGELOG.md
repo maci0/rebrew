@@ -80,6 +80,24 @@
   `rebrew.utils.SOURCE_BACKUP_DIRNAME`.
 
 ### Fixed
+- **`make test` and `make coverage` refuse a venv that skipped `make setup`.**
+  The prove and similarity tests skip without the `prove` extra and the
+  `similarity` group, and CI's test job syncs both, so a contributor whose
+  `.venv` came from a bare `uv sync` (or from `uv run`, which syncs the
+  default groups and never the optional extras) read a green suite that never
+  exercised the code CI runs. Both targets now run the `tools/require_extras.py`
+  preflight that `make mypy` already used, with the skip consequence named
+  instead of the type-check one; `make test-one` warns, like its nasm and node
+  checks, so an unrelated file stays runnable.
+- **Three files were committed unformatted.** `src/rebrew/compile_cache.py`,
+  `src/rebrew/probe.py` and `tests/test_dashboard.py` failed `make
+  format-check`, which the CI lint job runs, so a clean clone's first
+  `make pr-check` stopped at a gate the tree itself had not passed.
+- **Three test helpers in mypy-checked modules had no annotations.**
+  `tests/test_data_layout.py` (`monkeypatch`, the patched-reader stub) and
+  `tests/test_binsync_state.py` (`caplog`) tripped `disallow_untyped_defs`
+  under `--strict`; the CI lint job syncs the extras, so these three were
+  reported there and nowhere in the `ensure-extras` output.
 - **A `REBREW_LLM_ALLOW_PROJECT_ENDPOINT` opt-in that never lifted anything.**
   `docs/CONFIG.md` said a plain `http://` `[llm].endpoint` is refused under
   `REBREW_LLM_API_KEY` "unless it is loopback, or unless

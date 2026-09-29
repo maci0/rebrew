@@ -30,7 +30,7 @@ Docker build source lives in the sibling **rebrew-toolchains** checkout (`REBREW
 ```bash
 make doctor                               # report every missing prerequisite (uv, the pinned uv version, ../resembl, bash, nasm, node, shellcheck, yamllint, vnu, venv extras) and its fix
 make test-one T=tests/test_annotation.py  # edit-test loop; T takes a node id (::TestClass), FLAGS= takes any pytest flag
-make test                                 # full suite (needs nasm + node; vnu skips if absent)
+make test                                 # full suite (needs nasm + node + the setup extras; vnu skips if absent)
 make lint / make format / make mypy
 make gen-fixtures                         # regenerate tests/fixtures/ after editing the generator
 make pr-check                             # before a PR: CI gates, pre-commit, build, sdist/wheel equality, wheel smoke, reproducible rebuild, dist provenance, SBOM

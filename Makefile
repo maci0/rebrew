@@ -9,6 +9,7 @@
 	smoke-wheel \
 	require-dist \
 	ensure-extras \
+	ensure-test-extras warn-test-extras \
 	sdist-check \
 	build-repro \
 	verify-dist \
@@ -150,8 +151,8 @@ help:
 		'  make clone-resembl      # clone sibling resembl pin into ../resembl (required for uv sync)' \
 		'  make vnu                # install the pinned W3C validator and print the PATH line for it' \
 		'  make clean              # remove build/dist artifacts and caches' \
-		'  make test               # full pytest suite (needs nasm + node on PATH; warns without vnu)' \
-		'  make test-one T=<node>  # one file/nodeid, e.g. T=tests/test_foo.py::TestBar (nasm/node optional)' \
+		'  make test               # full pytest suite (needs nasm + node on PATH; setup extras; warns without vnu)' \
+		'  make test-one T=<node>  # one file/nodeid, e.g. T=tests/test_foo.py::TestBar (nasm/node/extras optional)' \
 		'  make coverage           # full suite under slipcover with the COV_FLOOR fail-under gate' \
 		'  make lint               # ruff check .' \
 		'  make format             # ruff format (writes)' \
@@ -405,14 +406,42 @@ add-dep: warn-uv-version
 # "command not found".
 ensure-extras: ensure-uv
 	@if [ -d .venv ]; then \
-	  uv run --frozen --no-sync python tools/require_extras.py $(RESEMBL_DIR); \
+	  uv run --frozen --no-sync python tools/require_extras.py --context=mypy $(RESEMBL_DIR); \
 	elif command -v python3 >/dev/null 2>&1; then \
-	  python3 tools/require_extras.py $(RESEMBL_DIR); \
+	  python3 tools/require_extras.py --context=mypy $(RESEMBL_DIR); \
 	else \
 	  echo "ERROR: no .venv and no python3 on PATH, so the 'prove' extra"; \
 	  echo "and the 'similarity' group cannot be checked."; \
 	  echo "Run 'make setup', or 'uv sync --locked --all-extras --group similarity', then re-run."; \
 	  exit 1; \
+	fi
+
+# Same probe, the whole-suite consequence instead of the type-check one: a venv
+# made by a bare `uv sync` (or by `uv run` itself, which syncs the default
+# groups and never the optional extras) has neither group, so the prove and
+# similarity tests skip and `make test` / `make coverage` report a green suite
+# that never exercised the code CI's test job runs.  CI syncs
+# --all-extras --group similarity, so refusing here is parity, not strictness.
+ensure-test-extras: ensure-uv
+	@if [ -d .venv ]; then \
+	  uv run --frozen --no-sync python tools/require_extras.py --context=test $(RESEMBL_DIR); \
+	elif command -v python3 >/dev/null 2>&1; then \
+	  python3 tools/require_extras.py --context=test $(RESEMBL_DIR); \
+	else \
+	  echo "ERROR: no .venv and no python3 on PATH, so the 'prove' extra"; \
+	  echo "and the 'similarity' group cannot be checked."; \
+	  echo "Run 'make setup', or 'uv sync --locked --all-extras --group similarity', then re-run."; \
+	  exit 1; \
+	fi
+
+# Soft counterpart for the single-file loop: a contributor iterating on an
+# unrelated file must stay able to run it, exactly as a missing nasm only warns
+# there.  The skip reason the affected tests print names the same fix.
+warn-test-extras: ensure-uv
+	@if [ -d .venv ]; then \
+	  uv run --frozen --no-sync python tools/require_extras.py --context=test --soft $(RESEMBL_DIR); \
+	elif command -v python3 >/dev/null 2>&1; then \
+	  python3 tools/require_extras.py --context=test --soft $(RESEMBL_DIR); \
 	fi
 
 # Whole-environment preflight.  Every other target checks one prerequisite and
@@ -489,19 +518,19 @@ doctor:
 # help/status text.  The pytest plugin ``pytest_ansi_env`` sets the same
 # trio for bare ``uv run pytest``; export here too so the recipe stays
 # self-documenting and covers any non-pytest child processes.
-test: ensure-nasm ensure-node warn-vnu ensure-uv
+test: ensure-nasm ensure-node warn-vnu ensure-test-extras
 	NO_COLOR=1 TERM=dumb _TYPER_FORCE_DISABLE_TERMINAL=1 \
 		uv run --frozen pytest tests/ -v --tb=short
 
 # Fast edit-test loop: one file or pytest node id.  Only warns about nasm and
 # node: their tests skip without those binaries, so unrelated files still run.
-test-one: warn-nasm warn-node ensure-uv
+test-one: warn-nasm warn-node warn-test-extras
 	NO_COLOR=1 TERM=dumb _TYPER_FORCE_DISABLE_TERMINAL=1 \
 		uv run --frozen pytest $(T) $(FLAGS) -v --tb=short
 
 # Coverage floor (AGENTS.md: ratchet up, never down).  slipcover ignores
 # [tool.slipcover] fail_under, so the floor is passed on the command line.
-coverage: ensure-nasm ensure-node warn-vnu ensure-uv
+coverage: ensure-nasm ensure-node warn-vnu ensure-test-extras
 	NO_COLOR=1 TERM=dumb _TYPER_FORCE_DISABLE_TERMINAL=1 \
 		uv run --frozen python -m slipcover --fail-under $(COV_FLOOR) -m pytest tests/ -q --tb=short
 
