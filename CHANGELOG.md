@@ -31,6 +31,15 @@
   `rebrew cfg effective` reports a malformed value (`env_errors`).
 
 ### Fixed
+- **The dashboard's summary cards were unlabeled on every view.** The card row
+  is function coverage, but it stays painted above the Globals, Sections, and
+  History tables with only a screen-reader heading to say so; on those tabs the
+  numbers read as a summary of the table below. The heading is now visible and
+  names the scope ("Function coverage"), matching the visible `h2` the report
+  site gives its own summary block. The unfiltered functions empty state also
+  read as two sentences ("No functions for this target yet. Match work, run
+  rebrew build-db, then choose Reload."); it now names the recording command
+  and stops.
 - **Failure paths that reported success with nothing checked.** A layout
   `layout.fingerprint` that exists but cannot be read passed the freshness gate
   as "unknown"; a `flags.make` whose objects have lost their `Custom` comments

@@ -751,7 +751,7 @@ class TestHandle:
         assert '<label for="module">Module</label>' in body
         assert '<label for="gq">Search name or address</label>' in body
         assert 'role="group" aria-label="Coverage filters"' in body
-        assert 'role="group" aria-label="Coverage metrics"' in body
+        assert 'role="group" aria-label="Function coverage metrics"' in body
         assert 'id="boot-status" role="status"' in body
         # Without JS the shell must not sit on "Loading coverage…" forever.
         assert "<noscript><style>#boot-status { display: none; }</style></noscript>" in body
@@ -826,6 +826,10 @@ class TestHandle:
         assert 'retry-summary").focus()' in body
         assert "No status changes recorded yet" in body
         assert "No section stats for this target" in body
+        # The unfiltered functions empty state names the command that fills it,
+        # in one sentence ("No functions for this target yet. Match work, run
+        # ..." read as two).
+        assert "No functions recorded for this target yet" in body
         # An empty result says whether the filters or the target emptied it.
         assert '(filtersActive() ? " match" : " yet")' in body
         assert "setGlobalsEmptyMessage" in body
@@ -883,7 +887,9 @@ class TestHandle:
                 rf'id="view-\w+"[^>]*>\s*<h2 class="visually-hidden">{view}</h2>', html
             )
             assert panel is not None, view
-        assert 'class="visually-hidden" id="summary-heading"' in html
+        # The card row survives a tab switch, so its heading names what the
+        # numbers count: functions, whichever view is open below them.
+        assert '<h2 id="summary-heading">Function coverage</h2>' in html
 
     def test_app_js_route(self, dashboard: Dashboard) -> None:
         status, content_type, body = dashboard.handle("GET", "/app.js", {})

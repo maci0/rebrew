@@ -531,7 +531,7 @@ function setFunctionsEmptyMessage() {
     }
     bindEmptyClear("empty-clear-fn", "q");
   } else {
-    el.innerHTML = "No functions for this target yet. Match work, run <code>rebrew build-db</code>, then choose Reload.";
+    el.innerHTML = "No functions recorded for this target yet. Run <code>rebrew build-db</code>, then choose Reload.";
   }
 }
 function bindEmptyClear(btnId, inputId) {
@@ -906,7 +906,7 @@ async function loadSummary() {
     $("summary").hidden = true;
     $("status").disabled = false;  // loadSummary disabled them
     $("module").disabled = false;
-    setLoadError("summary", "Coverage summary could not be loaded" + reason(error) + ". Use Retry summary to try again.");
+    setLoadError("summary", "Function coverage could not be loaded" + reason(error) + ". Use Retry summary to try again.");
   }
 }
 function scheduleSearch() {
@@ -1492,6 +1492,7 @@ _INDEX_HTML = """<!doctype html>
   h1 { font-size: var(--rb-size-title);
     margin: -1.5rem -1.5rem 1rem; padding: .75rem 1.5rem;
     background: var(--rb-ink); color: var(--rb-surface); }
+  h2 { font-size: var(--rb-size-heading); margin: 1.5rem 0 .5rem; }
   .cards { display: flex; gap: 1rem; flex-wrap: wrap; margin: 1rem 0;
     min-height: 4.3rem; }
   .card { border: 1px solid var(--rb-line); border-radius: var(--rb-radius);
@@ -1614,8 +1615,8 @@ __STATUS_FORCED__
 <button type="button" class="btn" id="clear-filters">Clear filters</button>
 </div>
 <section id="summary" aria-labelledby="summary-heading" aria-busy="false" hidden>
-<h2 class="visually-hidden" id="summary-heading">Coverage summary</h2>
-<div class="cards" id="cards" role="group" aria-label="Coverage metrics"></div>
+<h2 id="summary-heading">Function coverage</h2>
+<div class="cards" id="cards" role="group" aria-label="Function coverage metrics"></div>
 </section>
 <p class="visually-hidden" id="results-status" role="status" aria-live="polite"></p>
 <p id="dashboard-error" role="alert" hidden></p>
