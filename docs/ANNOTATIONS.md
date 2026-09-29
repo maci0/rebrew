@@ -555,7 +555,7 @@ graph TD
     style A fill:#f7f4ef,stroke:#2a201a,color:#2a201a
     style J fill:#1a6b3c,stroke:#2a201a,color:#fff
     style G fill:#3f3a33,stroke:#2a201a,color:#fff
-    style C fill:#a35a06,stroke:#2a201a,color:#fff
+    style C fill:#8f5105,stroke:#2a201a,color:#fff
 ```
 
 The node fills are the marks the report and the call graph paint

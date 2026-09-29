@@ -24,10 +24,13 @@ NONTEXT_FLOOR = 3.0
 #: backgrounds.
 _TEXT_ROLES = {
     "ink": ("surface", "sunken", "hover", "pressed"),
-    "muted": ("surface", "sunken"),
-    "faint": ("surface", "sunken"),
-    "accent": ("surface", "sunken"),
-    "accent-hi": ("surface", "sunken"),
+    # The card label, the hint lines and the pager links are all painted on
+    # the hover and pressed surfaces too: a status card repaints under the
+    # pointer, and its label rides along.
+    "muted": ("surface", "sunken", "hover", "pressed"),
+    "faint": ("surface", "sunken", "hover", "pressed"),
+    "accent": ("surface", "sunken", "hover", "pressed"),
+    "accent-hi": ("surface", "sunken", "hover", "pressed"),
     "surface": ("ink",),
     "nav": ("ink",),
     "note-ink": ("note-bg",),
@@ -204,10 +207,17 @@ def _delta_e(left: str, right: str) -> float:
 class TestStatusMarks:
     """The status vocabulary is painted as body text and as a graph fill."""
 
-    def test_marks_clear_the_text_floor_on_both_surfaces(self) -> None:
-        """A mark is body text in the report table and the dashboard cards."""
+    def test_marks_clear_the_text_floor_on_every_painted_surface(self) -> None:
+        """A mark is body text in the report table and the dashboard cards.
+
+        ``hover`` and ``pressed`` count: a report row and a dashboard status
+        card both repaint on them, and a card held down under a held key is
+        reachable by keyboard alone.  A mark held only against the two
+        resting surfaces lost the floor the moment the row was touched
+        (NEAR_MATCHING at 4.36:1 on ``pressed``, UNKNOWN at 4.28:1).
+        """
         for name, color in STATUS_HEX.items():
-            for role in ("surface", "sunken"):
+            for role in ("surface", "sunken", "hover", "pressed"):
                 ratio = _contrast(color, TOKENS[role])
                 assert ratio >= TEXT_FLOOR, (
                     f"{name} on {role} ({color} / {TOKENS[role]}) is {ratio:.2f}:1"

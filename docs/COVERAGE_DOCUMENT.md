@@ -259,15 +259,15 @@ apart.
 | `exact` | Byte-identical match | `exact` | EXACT `#1a6b3c` |
 | `verified` | Data verdict `VERIFIED` (`rebrew verify --data`) | `exact` | none (count only) |
 | `reloc` | Match after relocation normalization | `reloc` | RELOC `#0f6a5f` |
-| `near_matching` / `near_match` | Functionally matching, not byte-identical | `near_match` | NEAR_MATCHING `#a35a06` |
+| `near_matching` / `near_match` | Functionally matching, not byte-identical | `near_match` | NEAR_MATCHING `#8f5105` |
 | `proven` | PROVEN status (semantic equivalence, bytes differ) | `proven` | PROVEN `#146b7d` |
-| `size_mismatch` | SIZE_MISMATCH status | `size_mismatch` | SIZE_MISMATCH `#7c3a11` |
+| `size_mismatch` | SIZE_MISMATCH status | `size_mismatch` | SIZE_MISMATCH `#6f3210` |
 | `stub` | Stub implementation (placeholder) | `stub` | STUB `#3f3a33` |
 | `padding` | NOP/INT3 alignment padding | `padding` | none (count only) |
 | `data` | Non-code data in .text (residual switch tables, etc.) | `data` | none (count only) |
 | `thunk` | IAT thunk stub (not reversible) | `thunk` | none (count only) |
 | `skip` | Parked by annotation | `other` | SKIP `#585249` |
-| `unknown` | Unset or unrecognized (the coercion target) | `other` | UNKNOWN `#736d64` |
+| `unknown` | Unset or unrecognized (the coercion target) | `other` | UNKNOWN `#65524c` |
 | `compile_error` | The compile step failed | `other` | error `#a3221f` |
 | `extract_error` | No bytes could be extracted for the VA | `other` | error `#a3221f` |
 | `missing_size` | Target size unknown | `other` | error `#a3221f` |

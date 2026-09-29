@@ -55,8 +55,13 @@ STATUS_COLORS: dict[str, str] = {
 #   STUB/SKIP/UNKNOWN are a deliberate warm ladder (dark to light: a stub is
 #   written down, an unknown is not) rather than three unrelated greys.
 #
-# ``tests/test_theme`` holds every mark to 4.5:1 on both surfaces, and white on
-# the fill to 4.5:1 for the graph, so the retune costs no contrast.
+# ``tests/test_theme`` holds every mark to 4.5:1 on all four surfaces a mark
+# can be painted on (the two resting backgrounds plus the hover and pressed
+# ones a row or a status card takes under the pointer or a held key), and
+# white on the fill to 4.5:1 for the graph, so the retune costs no contrast.
+# The amber pair and the light grey are set for that widest surface: on
+# ``pressed`` NEAR_MATCHING measured 4.36:1 and UNKNOWN 4.28:1, so a card
+# held down lost the floor the same mark keeps at rest.
 #
 # Every match status has a mark: the report table, the dashboard cards and
 # the call-graph labels all emit ``status-<STATUS>`` for whatever STATUS a
@@ -68,8 +73,8 @@ STATUS_HEX: dict[str, str] = {
     "EXACT": "#1a6b3c",
     "RELOC": "#0f6a5f",
     "PROVEN": "#146b7d",
-    "NEAR_MATCHING": "#a35a06",
-    "SIZE_MISMATCH": "#7c3a11",
+    "NEAR_MATCHING": "#8f5105",
+    "SIZE_MISMATCH": "#6f3210",
     "STUB": "#3f3a33",
     "COMPILE_ERROR": "#a3221f",
     "EXTRACT_ERROR": "#a3221f",
@@ -78,7 +83,7 @@ STATUS_HEX: dict[str, str] = {
     "INVALID_VA": "#a3221f",
     "INTERNAL_ERROR": "#a3221f",
     "SKIP": "#585249",
-    "UNKNOWN": "#736d64",
+    "UNKNOWN": "#65524c",
     "DISPATCH": TOKENS["ink"],
 }
 
