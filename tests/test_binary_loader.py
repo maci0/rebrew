@@ -438,16 +438,15 @@ class TestLoadBinaryCache:
     def test_iat_slot_vas_returns_a_private_set(self, tmp_path: Path) -> None:
         """A caller's in-place edit must not rewrite the memo.
 
-        The hit path already returned a copy; the miss path returned the
-        stored object, so the first caller of a cold memo held the cache's own
-        set and every later lookup copied the mutation.
+        The result is the memo's own ``frozenset``, so a per-function call
+        site cannot edit it and the batch path pays no copy.
         """
         from rebrew.binary_loader import iat_slot_vas
 
         f = make_pe_stub(tmp_path / "test.exe")
         first = iat_slot_vas(f)
-        first.add(0xDEAD)
-        assert iat_slot_vas(f) == set()
+        assert isinstance(first, frozenset)
+        assert iat_slot_vas(f) == first
 
     def test_iat_cache_misses_same_size_rename_over(self, tmp_path: Path) -> None:
         """IAT slot memo must not keep slots from the pre-replace image."""

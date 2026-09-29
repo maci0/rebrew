@@ -191,9 +191,22 @@ def run_catalog(
         from rebrew.sources import iter_sources, target_marker
         from rebrew.utils import rel_display_path
 
+        # The scan above already parsed every source file; keep only the
+        # (file, VA) pairs that can actually change, so a file with nothing
+        # stale is skipped instead of being parsed a second time.
+        stale: set[str] = set()
+        for e in entries:
+            reg = registry.get(e["va"])
+            if reg is None:
+                continue
+            if reg["canonical_size"] > 0 and reg["canonical_size"] > e["size"]:
+                stale.add(e["filepath"])
+
         updated = 0
         skipped = 0
         for cfile in iter_sources(reversed_dir, cfg):
+            if rel_display_path(cfile, reversed_dir) not in stale:
+                continue
             parsed = parse_c_file_multi(
                 cfile,
                 target_name=target_marker(cfg),

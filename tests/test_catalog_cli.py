@@ -126,6 +126,11 @@ class TestCatalogCli:
             "// FUNCTION: T 0x1000\n// SIZE: 32\nint f_a(void) { return 0; }\n",
             encoding="utf-8",
         )
+        # --fix-sizes picks the files worth re-parsing out of the scan the
+        # pipeline already ran, so this case needs the real scan.
+        from rebrew.catalog.loaders import scan_reversed_dir
+
+        monkeypatch.setattr(catalog_pipeline, "scan_reversed_dir", scan_reversed_dir)
         monkeypatch.setattr(
             catalog_pipeline,
             "build_function_registry",
@@ -152,6 +157,49 @@ class TestCatalogCli:
 
         entry = load_metadata(cfg.metadata_dir).get(("T", 0x1000), {})
         assert entry.get("size") == 64
+
+    def test_fix_sizes_skips_files_with_nothing_stale(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A file whose SIZE already matches the registry is not re-parsed."""
+        cfg = _patch(monkeypatch, tmp_path)
+        cfg.source_ext = ".c"
+        cfg.marker = "T"
+        (cfg.reversed_dir / "func.c").write_text(
+            "// FUNCTION: T 0x1000\n// SIZE: 64\nint f_a(void) { return 0; }\n",
+            encoding="utf-8",
+        )
+        from rebrew.catalog.loaders import scan_reversed_dir
+
+        monkeypatch.setattr(catalog_pipeline, "scan_reversed_dir", scan_reversed_dir)
+        monkeypatch.setattr(
+            catalog_pipeline,
+            "build_function_registry",
+            lambda *a, **k: {
+                0x1000: {
+                    "detected_by": ["list"],
+                    "size_by_tool": {},
+                    "list_name": "f_a",
+                    "ghidra_name": "",
+                    "is_thunk": False,
+                    "is_export": False,
+                    "canonical_size": 64,
+                    "size_reason": "truncation",
+                }
+            },
+        )
+        parsed: list[Path] = []
+        real_parse = catalog_cli.parse_c_file_multi
+
+        def spy(path: Path, *a: object, **k: object) -> object:
+            parsed.append(path)
+            return real_parse(path, *a, **k)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(catalog_cli, "parse_c_file_multi", spy)
+        r = runner.invoke(catalog_cli.app, ["--fix-sizes"], input="y\n")
+        assert r.exit_code == 0
+        assert "Updated 0 SIZE annotations" in r.output
+        assert parsed == []
 
     def test_fix_sizes_json_requires_force(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

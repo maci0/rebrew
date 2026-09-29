@@ -2065,6 +2065,7 @@ def precompile_batch(
             # targets are unreadable inside, so the tree is copied.  A few
             # hundred small files — negligible next to a container spawn.)
             rev = Path(cfg.reversed_dir)
+            rev_resolved = rev.resolve()
             try:
                 for child in sorted(rev.rglob("*")):
                     if child.is_dir() or child.is_symlink():
@@ -2099,7 +2100,6 @@ def precompile_batch(
                 # relative #include chains were written against; a shared-tree
                 # source resolves outside it and has no place in that mirror,
                 # so it falls back to the per-function path.
-                rev_resolved = Path(cfg.reversed_dir).resolve()
                 if not source.is_relative_to(rev_resolved):
                     continue
                 rel = source.relative_to(rev_resolved)
@@ -2333,7 +2333,7 @@ def _extract_and_compare(
     *,
     name_to_va: dict[str, int] | None = None,
     section_va: int | None = None,
-    iat_region: set[int] | None = None,
+    iat_region: frozenset[int] | None = None,
 ) -> CompareResult:
     """Extract *symbol* from a compiled .obj and compare against *target_bytes*.
 

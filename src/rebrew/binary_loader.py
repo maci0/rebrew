@@ -437,7 +437,7 @@ _load_binary_lock = threading.Lock()
 # re-scanned, including a same-size rename-over in one mtime tick.
 # Same lock/bounded-dict discipline as ``_load_binary_cache``
 # so tests can clear it when they rewrite a fixture.
-_iat_slot_cache: dict[str, set[int]] = {}
+_iat_slot_cache: dict[str, frozenset[int]] = {}
 _IAT_SLOT_CACHE_MAX = 32
 _iat_slot_lock = threading.Lock()
 
@@ -943,18 +943,21 @@ def parse_exports(binary_path: Path) -> list[str]:
     return sorted(set(exports))
 
 
-def iat_slot_vas(binary_path: Path | str) -> set[int]:
-    """Absolute VAs of the PE import-address-table slots, or ``set()``.
+def iat_slot_vas(binary_path: Path | str) -> frozenset[int]:
+    """Absolute VAs of the PE import-address-table slots, or ``frozenset()``.
 
     MSVC PEs place the IAT at the START of ``.text`` (before the code), so
     linear-sweep discovery walks it as code and emits a fake function per
     slot (``sym.imp.`` entries from rizin, or generic ``fcn.`` names from
     other sweeps).  The registry must not treat those data slots as
     functions, and reloc masking must know their addresses.  Returns
-    ``set()`` on any failure (non-PE, unparsable, absent file).
+    ``frozenset()`` on any failure (non-PE, unparsable, absent file).
 
     Shared by ``rebrew.coff_reloc.build_iat_region`` (reloc masking) and the
     catalog registry (function filtering) — one LIEF scan, two consumers.
+
+    The memo hands back its stored ``frozenset`` unshared, so the per-call
+    cost of a hit is one dict lookup plus an LRU reorder.
 
     Memoized per ``(resolved path, mtime_ns, size)`` (bounded dict + lock,
     mirroring ``_load_binary_cache``): ``compile_and_compare`` calls this
@@ -964,7 +967,7 @@ def iat_slot_vas(binary_path: Path | str) -> set[int]:
     """
     path = Path(binary_path)
     if not path.exists():
-        return set()
+        return frozenset()
     try:
         st = path.stat()
         mtime_ns = st.st_mtime_ns
@@ -979,15 +982,15 @@ def iat_slot_vas(binary_path: Path | str) -> set[int]:
         cached = _iat_slot_cache.get(cache_key)
         if cached is not None:
             _iat_slot_cache[cache_key] = _iat_slot_cache.pop(cache_key)
-            return set(cached)
+            return cached
     try:
         import lief
 
         if not lief.is_pe(str(path)):
-            return set()
+            return frozenset()
         pe = lief.PE.parse(str(path))
         if pe is None:
-            return set()
+            return frozenset()
         image_base = int(getattr(pe, "imagebase", 0) or 0)
         out: set[int] = set()
         for entry in pe.imports:
@@ -996,19 +999,12 @@ def iat_slot_vas(binary_path: Path | str) -> set[int]:
                 if va:
                     # LIEF reports the IAT slot as an RVA; canonicalize.
                     out.add(va + image_base)
+        frozen = frozenset(out)
         with _iat_slot_lock:
-            existing = _iat_slot_cache.get(cache_key)
-            if existing is not None:
-                return set(existing)
-            if len(_iat_slot_cache) >= _IAT_SLOT_CACHE_MAX:
-                oldest_key = next(iter(_iat_slot_cache))
-                del _iat_slot_cache[oldest_key]
-            _iat_slot_cache[cache_key] = set(out)
-        # Copy on the miss path too: the hit path hands back a copy, so
-        # returning the stored object would let one caller's in-place edit
-        # (e.g. a caller adding its own thunks) rewrite the memo every later
-        # lookup then copies.
-        return set(out)
+            _iat_slot_cache[cache_key] = frozen
+            while len(_iat_slot_cache) > _IAT_SLOT_CACHE_MAX:
+                _iat_slot_cache.pop(next(iter(_iat_slot_cache)))
+        return frozen
     except Exception as exc:
         # A silent empty result here would silently disable IAT reloc
         # masking (DIR32 slots into the IAT then fail validation and
@@ -1018,7 +1014,7 @@ def iat_slot_vas(binary_path: Path | str) -> set[int]:
             path,
             exc,
         )
-        return set()
+        return frozenset()
 
 
 def detect_source_language(binary_path: Path) -> tuple[str, str]:

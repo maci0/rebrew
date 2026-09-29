@@ -184,7 +184,7 @@ def _binary_fingerprint(binary: str | Path) -> str:
     return f"{st.st_mtime_ns}:{st.st_size}:{st.st_ino}"
 
 
-def build_iat_region(cfg: ProjectConfig) -> set[int]:
+def build_iat_region(cfg: ProjectConfig) -> frozenset[int]:
     """Return the set of import-related slot VAs to mask in comparisons.
 
     Used by :func:`smart_reloc_compare` to mask DIR32 slots whose target
@@ -202,14 +202,14 @@ def build_iat_region(cfg: ProjectConfig) -> set[int]:
 
     The result depends only on the target binary's identity and the
     configured thunks, both fixed for a run; the batch paths call this once
-    per function, so the union is memoized and copied out.  Invalidation
-    keys on the binary's stat fingerprint, matching
-    :func:`rebrew.binary_loader.iat_slot_vas`, so an ``iat_thunks`` edit
-    still takes effect immediately.
+    per function, so the union is memoized and the stored ``frozenset`` is
+    handed back unshared.  Invalidation keys on the binary's stat
+    fingerprint, matching :func:`rebrew.binary_loader.iat_slot_vas`, so an
+    ``iat_thunks`` edit still takes effect immediately.
     """
     binary = getattr(cfg, "target_binary", None)
     if not binary:
-        return set()
+        return frozenset()
     thunks = tuple(
         (va & 0xFFFFFFFF)
         for va in (getattr(cfg, "iat_thunks", None) or [])
@@ -220,7 +220,7 @@ def build_iat_region(cfg: ProjectConfig) -> set[int]:
         cached = _iat_region_cache.get(key)
         if cached is not None:
             _iat_region_cache[key] = _iat_region_cache.pop(key)
-            return set(cached)
+            return cached
     region: set[int] = set()
     if Path(binary).exists():
         # Configured jmp-stub trampolines first (works even without LIEF).
@@ -230,11 +230,12 @@ def build_iat_region(cfg: ProjectConfig) -> set[int]:
         from rebrew.binary_loader import iat_slot_vas
 
         region |= iat_slot_vas(binary)
+    frozen = frozenset(region)
     with _iat_region_lock:
         if len(_iat_region_cache) >= _IAT_REGION_CACHE_MAX:
             _iat_region_cache.pop(next(iter(_iat_region_cache)), None)
-        _iat_region_cache[key] = frozenset(region)
-    return set(region)
+        _iat_region_cache[key] = frozen
+    return frozen
 
 
 def build_name_to_va(
@@ -422,7 +423,7 @@ def _validate_dir32(
     symbol: str,
     name_to_va: dict[str, int],
     catalog_va_set: set[int],
-    iat_region: set[int] | None = None,
+    iat_region: frozenset[int] | None = None,
     reloc_table: str = "coff-i386",
 ) -> bool:
     """Return True if the DIR32 slot is valid (or uncatalogued)."""
@@ -512,7 +513,7 @@ def smart_reloc_compare(
     name_to_va: dict[str, int] | None = None,
     *,
     section_va: int | None = None,
-    iat_region: set[int] | None = None,
+    iat_region: frozenset[int] | None = None,
     reloc_table: str = "coff-i386",
 ) -> tuple[bool, int, int, list[int], list[int]]:
     """Compare bytes with relocation masking and target validation.

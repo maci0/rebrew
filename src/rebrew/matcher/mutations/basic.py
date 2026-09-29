@@ -544,7 +544,7 @@ def mut_introduce_temp_for_call(s: str, rng: random.Random) -> str | None:
     # Inline replacement: tmp = call(); var = tmp;
     inline_repl = b"tmp = " + call + b";\n    " + var + b" = tmp;"
 
-    if re.search(rb"\btmp\b", b_source):
+    if _RE_HAS_TMP.search(b_source):
         # 'tmp' already declared somewhere — just use it, no hoisting needed
         res = replace_node(b_source, target_node, inline_repl)
         return decode_source(res) if res else None
@@ -1278,6 +1278,9 @@ _TYPE_KEYWORDS_RE = (
     r"unsigned|signed|const|volatile|register|UINT|ULONG|BYTE|WORD)"
 )
 _RE_VALIDATE_DOUBLE_TYPE = re.compile(r"\b(" + _TYPE_KEYWORDS_RE + r")\s+\1\b")
+_RE_HAS_TMP = re.compile(rb"\btmp\b")
+_RE_HAS_RETVAL = re.compile(rb"\bretval\b")
+_RE_END_LABEL_RETURN = re.compile(rb"\nend:\n\s*return\s+\w+;\n")
 
 
 def split_preamble_body(source: str) -> tuple[str, str]:
@@ -1698,7 +1701,7 @@ def mut_hoist_return(s: str, rng: random.Random) -> str | None:
     # "return", so ret_var was always "retval" — and it was never declared,
     # so every candidate failed to compile (dead mutator).
     ret_var = b"retval"
-    if re.search(rb"\bretval\b", b_source):
+    if _RE_HAS_RETVAL.search(b_source):
         return None
 
     insert_pos = _find_function_body_insert_pos(b_source, stmt.start_byte)
@@ -1746,7 +1749,7 @@ def mut_sink_return(s: str, rng: random.Random) -> str | None:
 
     # Remove end label if no more gotos
     if b"goto end;" not in result:
-        result = re.sub(rb"\nend:\n\s*return\s+\w+;\n", b"\n", result)
+        result = _RE_END_LABEL_RETURN.sub(b"\n", result)
 
     return decode_source(result)
 
