@@ -118,3 +118,80 @@ class TestCheckLayering:
         assert [(v.module, v.target) for v in violations] == [
             ("rebrew.commands.cli", "rebrew.dashboard")
         ]
+
+
+class TestPackageExternals:
+    """The allowlist gate: a subpackage may leave only through its AGENTS.md list."""
+
+    def _write(self, root: Path, rel: str, content: str) -> None:
+        path = root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+
+    def _workspace_pkg(self, tmp_path: Path) -> Path:
+        pkg = tmp_path / "src" / "rebrew"
+        self._write(pkg, "errors.py", "class RebrewError(Exception):\n    pass\n")
+        self._write(pkg, "utils.py", "console = None\n")
+        self._write(pkg, "workspace/__init__.py", "from .config import find_root\n")
+        return pkg
+
+    def test_declared_external_passes(self, tmp_path: Path) -> None:
+        pkg = self._workspace_pkg(tmp_path)
+        self._write(pkg, "workspace/config.py", "from rebrew.errors import RebrewError\n")
+        assert cl.check_layering(str(pkg)) == []
+
+    def test_undeclared_external_is_reported(self, tmp_path: Path) -> None:
+        pkg = self._workspace_pkg(tmp_path)
+        self._write(pkg, "workspace/config.py", "from rebrew.utils import console\n")
+        violations = cl.check_layering(str(pkg))
+        assert [(v.module, v.rule, v.target) for v in violations] == [
+            ("rebrew.workspace.config", "undeclared package external", "rebrew.utils")
+        ]
+
+    def test_lazy_import_is_checked_too(self, tmp_path: Path) -> None:
+        pkg = self._workspace_pkg(tmp_path)
+        self._write(
+            pkg,
+            "workspace/config.py",
+            "def find_root() -> None:\n    from rebrew.utils import console\n",
+        )
+        violations = cl.check_layering(str(pkg))
+        assert [(v.module, v.target) for v in violations] == [
+            ("rebrew.workspace.config", "rebrew.utils")
+        ]
+
+    def test_own_submodule_import_is_allowed(self, tmp_path: Path) -> None:
+        pkg = self._workspace_pkg(tmp_path)
+        self._write(pkg, "workspace/status.py", "KNOWN_STATUSES: frozenset[str] = frozenset()\n")
+        self._write(
+            pkg, "workspace/config.py", "from rebrew.workspace.status import KNOWN_STATUSES\n"
+        )
+        assert cl.check_layering(str(pkg)) == []
+
+    def test_real_tree_matches_the_allowlist(self) -> None:
+        assert cl.check_layering("src/rebrew") == []
+
+
+class TestPackageExternalsStayDocumented:
+    """The allowlist is transcribed from each package's AGENTS.md; keep them in step."""
+
+    @staticmethod
+    def _externals_paragraph(package: str) -> str:
+        agents = Path("src/rebrew") / package / "AGENTS.md"
+        text = agents.read_text(encoding="utf-8")
+        start = text.index("Externals (the only")
+        end = text.index("\n\n", start)
+        return text[start:end]
+
+    def test_every_allowed_name_is_documented(self) -> None:
+        undocumented: list[str] = []
+        for package, allowed in cl.PACKAGE_EXTERNALS.items():
+            paragraph = self._externals_paragraph(package)
+            undocumented += [
+                f"{package}:{name}" for name in sorted(allowed) if f"`{name}`" not in paragraph
+            ]
+        assert undocumented == []
+
+    def test_every_package_is_covered(self) -> None:
+        packages = {p.name for p in Path("src/rebrew").iterdir() if (p / "AGENTS.md").exists()}
+        assert packages == set(cl.PACKAGE_EXTERNALS)

@@ -109,8 +109,7 @@ def _data_meta(cfg: ProjectConfig | None, module: str, va: int) -> dict[str, Any
         if not _data_meta_unreadable:
             _data_meta_unreadable = True
             log.warning(
-                "rebrew-data.toml entry lookup failed (%s); global fields are "
-                "reported empty",
+                "rebrew-data.toml entry lookup failed (%s); global fields are reported empty",
                 exc,
             )
         return {}

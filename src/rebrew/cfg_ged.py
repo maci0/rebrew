@@ -291,9 +291,7 @@ def _cosine(a: Counter[str], b: Counter[str]) -> float:
     return _cosine_scaled(a, b, va, vb)
 
 
-def _cosine_scaled(
-    a: Counter[str], b: Counter[str], va: float, vb: float
-) -> float:
+def _cosine_scaled(a: Counter[str], b: Counter[str], va: float, vb: float) -> float:
     """``_cosine`` with the two vector norms already computed.
 
     The greedy match calls this once per block pair, and a signature's norm
