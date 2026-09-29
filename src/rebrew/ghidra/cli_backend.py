@@ -32,15 +32,31 @@ ERROR_PRINT_LIMIT = 30
 SUMMARY_REASON_CHARS = 200
 
 
+def _op_args(op: dict[str, Any]) -> dict[str, Any] | None:
+    """The op's ``args`` mapping, or ``None`` when it is not one.
+
+    An op reaches this transport as a plain decoded JSON dict, and a
+    library consumer may drive :func:`apply_commands_via_cli` with one it
+    built itself, so ``args`` can be absent or hold any JSON value.  A
+    non-mapping is an unusable op, which every caller here already reports
+    as an error; only the ``.get`` chain below has to stay total.
+    """
+    args = op.get("args")
+    return args if isinstance(args, dict) else None
+
+
 def _op_to_args(op: dict[str, Any]) -> list[str] | None:
     """Translate one sync op into ghidra-cli argv (without --program).
 
     The producers emit ``addressOrSymbol``/``labelName`` (and ``address`` for
     create-function); both spellings are accepted.  Returns ``None`` for
-    unknown tools (counted as errors by the caller).
+    unknown tools and for an op carrying no usable ``args`` mapping (both
+    counted as errors by the caller).
     """
     tool = op.get("tool")
-    args = op.get("args", {})
+    args = _op_args(op)
+    if args is None:
+        return None
 
     def _addr() -> str:
         return str(args.get("address") or args.get("addressOrSymbol") or args.get("location") or "")
@@ -117,8 +133,11 @@ def apply_commands_via_cli(
     for op in commands:
         argv = _op_to_args(op)
         if argv is None:
+            # Either a tool this transport does not speak, or an `args` that
+            # is not a mapping and yields no argv. One message covers both, so
+            # adding an op cannot leave the two cases reading as one.
             errors += 1
-            console.print(f"[yellow]warning:[/yellow] unknown sync op: {op.get('tool')!r}")
+            console.print(f"[yellow]warning:[/yellow] no argv for sync op: {op.get('tool')!r}")
             continue
         full = [ghidra_cli, *argv]
         if program:
@@ -137,7 +156,8 @@ def apply_commands_via_cli(
             )
         except (subprocess.TimeoutExpired, OSError) as exc:
             errors += 1
-            _report_failure(str(op.get("tool")), op.get("args", {}).get("address") or "?", exc)
+            op_args = _op_args(op) or {}
+            _report_failure(str(op.get("tool")), op_args.get("address") or "?", exc)
             continue
         if proc.returncode == 0:
             success += 1
@@ -157,7 +177,7 @@ def apply_commands_via_cli(
                 success += 1
                 continue
             errors += 1
-            op_args = op.get("args", {})
+            op_args = _op_args(op) or {}
             addr = (
                 op_args.get("address")
                 or op_args.get("addressOrSymbol")

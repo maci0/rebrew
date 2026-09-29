@@ -40,6 +40,16 @@
   read as two sentences ("No functions for this target yet. Match work, run
   rebrew build-db, then choose Reload."); it now names the recording command
   and stops.
+- **A `ghidra-cli` sync op with a non-mapping `args` raised out of the apply
+  loop.** `_op_to_args` read the slot with a bare
+  `op.get("args", {}).get(...)`, so an op decoded from JSON whose `args` was
+  `null`, a list, a string or a number raised `AttributeError` from
+  `apply_commands_via_cli`, aborting the whole batch instead of counting one
+  failed op and carrying on, and the two failure-report sites repeated the
+  same unguarded lookup. One `_op_args` accessor now types the slot, so an
+  op with no usable `args` mapping is rejected as an unusable op (the case a
+  public function taking consumer-built ops has to survive) and the warning
+  reads as "no argv" rather than claiming an unknown tool.
 - **Failure paths that reported success with nothing checked.** A layout
   `layout.fingerprint` that exists but cannot be read passed the freshness gate
   as "unknown"; a `flags.make` whose objects have lost their `Custom` comments
