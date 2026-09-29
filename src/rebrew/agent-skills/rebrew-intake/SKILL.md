@@ -6,7 +6,10 @@ description: >-
   build-db, triage, first skeletons). Triggers on 'intake', 'onboard',
   'onboard binary', 'new binary', 'new target', 'import binary',
   'binary recon', 'fingerprints', 'FLIRT scan', 'first triage',
-  'first catalog', 'first coverage document', 'detect-crt', 'gen-layout'. Prefer
+  'first catalog', 'first coverage document', 'detect-crt', 'gen-layout',
+  'rebrew pe-info', 'rebrew strings', 'crypto-scan', 'security-scan',
+  'Rich header', 'which compiler', 'packed', 'lzexe', '16-bit', 'MZ',
+  'NE binary', 'discover-functions', 'extract batch'. Prefer
   this over rebrew-init when the user hands you a binary to onboard; use
   rebrew-init only when teaching `rebrew init` / profile / target naming. Not
   for day-to-day flirt/todo/test, for `rebrew analyze` / `describe` / `xrefs`

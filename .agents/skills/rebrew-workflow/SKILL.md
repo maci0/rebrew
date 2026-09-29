@@ -11,7 +11,8 @@ description: >-
   'flirt', 'crt-match', 'lib-match', 'library code', 'one function per file',
   'multi-function file', 'annotation format', 'FUNCTION marker',
   'SOURCE: naked', 'migrate-markers', 'src/shared', 'shared marker',
-  'rebrew probe', 'rebrew similar', 'doctor fails', 'splice', 'dashboard'.
+  'rebrew probe', 'rebrew similar', 'recover-structs', 'document-unmatched',
+  'doctor fails', 'splice', 'dashboard'.
   Hand off near-miss GA/prove to rebrew-matching; new binaries to
   rebrew-intake; scaffold or profile choice to rebrew-init; globals/BSS to
   rebrew-data-analysis; Ghidra to rebrew-ghidra-sync.
