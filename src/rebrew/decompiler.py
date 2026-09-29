@@ -139,7 +139,6 @@ def _re_analysis_key(tool: str) -> str:
     return digest
 
 
-
 def _re_init_project(binary: Path, tool: str, root: Path) -> str | None:
     """Run full ``aaa`` analysis once and persist the project; return its dir."""
     digest = _re_analysis_key(tool)

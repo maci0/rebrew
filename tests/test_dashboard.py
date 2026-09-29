@@ -3565,9 +3565,7 @@ class TestLifecycleLines:
             with socket.socket() as probe:
                 probe.bind(("127.0.0.1", 0))
                 port = probe.getsockname()[1]
-            result = CliRunner().invoke(
-                app, [str(port) if a == "{port}" else a for a in args]
-            )
+            result = CliRunner().invoke(app, [str(port) if a == "{port}" else a for a in args])
             taken = "already in use" in str(result.output)
             if not taken or attempt == attempts - 1:
                 return result, port

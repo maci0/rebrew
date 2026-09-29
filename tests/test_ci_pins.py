@@ -1686,9 +1686,7 @@ class TestCiPins:
         assert "ensure-resembl|ensure-extras) bucket=setup" in recipe, (
             "doctor must bucket the two checks the bootstrap steps install"
         )
-        assert "if [ $$st -ne 0 ]; then" in recipe, (
-            "doctor must read each check's own exit status"
-        )
+        assert "if [ $$st -ne 0 ]; then" in recipe, "doctor must read each check's own exit status"
         assert "if [ $$rc -ne 0 ]; then" in recipe, (
             "a host-tool gap must decide the exit before the setup bucket does"
         )

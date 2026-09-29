@@ -92,9 +92,18 @@ class TestAnalyzeFrame:
         # Expected values are spelled out, not re-derived through analyze_frame:
         # a stubbed analyze_frame must not satisfy this test.
         table = [
-            (EBP_FRAME_0X28, {"frame_size": 0x2C, "frame_pointer": True, "ret_popping": 0, "slots": [-4]}),
-            (ESP_FRAME_0X20, {"frame_size": 0x24, "frame_pointer": False, "ret_popping": 0, "slots": []}),
-            (EBP_STDCALL_RET4, {"frame_size": 0x2C, "frame_pointer": True, "ret_popping": 4, "slots": [-8]}),
+            (
+                EBP_FRAME_0X28,
+                {"frame_size": 0x2C, "frame_pointer": True, "ret_popping": 0, "slots": [-4]},
+            ),
+            (
+                ESP_FRAME_0X20,
+                {"frame_size": 0x24, "frame_pointer": False, "ret_popping": 0, "slots": []},
+            ),
+            (
+                EBP_STDCALL_RET4,
+                {"frame_size": 0x2C, "frame_pointer": True, "ret_popping": 4, "slots": [-8]},
+            ),
             (NOFRAME, {"frame_size": 0, "frame_pointer": False, "ret_popping": 0, "slots": []}),
         ]
         inputs = [code for code, _ in table] * 50
