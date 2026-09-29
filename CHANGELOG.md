@@ -31,6 +31,13 @@
   `rebrew cfg effective` reports a malformed value (`env_errors`).
 
 ### Fixed
+- **`contained_path` raised `IndexError` on an empty root set.** The one
+  validator every metadata `file` join goes through returned `None` for an
+  empty, absolute, or escaping value, but indexed `roots[0]` before checking
+  the sequence was non-empty, so a `ProjectConfig` carrying no `reversed_dir`,
+  `shared_dir`, or `root` raised out of the validator rather than refusing the
+  path. Callers treat `None` as "refuse this entry", which is the correct
+  answer for a config that names no root at all.
 - **A negative row count silently produced a tail and exit 0.**
   `rebrew todo --count -5`, `similar --top -1`, `verify-placement --limit
   -3`, `text-audit --limit -1`, `analyze --top-strings -1`,

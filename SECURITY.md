@@ -158,8 +158,9 @@ plugin cache backends or remove the open upstream diskcache advisory.
   resolve-and-compare. What this does **not** claim: `rebrew
   binsync-overlay` does not use the validator at all
   (`src/rebrew/binsync/overlay.py` joins the field onto `reversed_dir` with
-  no containment check on its read at `:226` or on its `PROTOTYPE` and
-  `ANALYSIS` writes at `:378`, `:474`, `:595`), and because the outer bound
+  no containment check on its read at `:226`, its `PROTOTYPE` write
+  (`:483`, into the path joined at `:387`), or its `ANALYSIS` marker write
+  (`:609`)), and because the outer bound
   is the project `root`, a value naming `.git/hooks/`,
   `rebrew-project.toml`, or `.rebrew/` passes everywhere. It says nothing
   about a project running host commands, which

@@ -211,13 +211,15 @@ def contained_path(roots: Path | str | Sequence[Path | str], relative: str | Pat
     *roots* accepts one root or a sequence of them, tried in order: the value
     is joined onto the first (the display base, normally ``reversed_dir``) and
     accepted when the result lands inside any of them.  Returns the resolved
-    path, or ``None`` when *relative* is empty, absolute, or resolves outside
-    every root.
+    path, or ``None`` when *relative* is empty, absolute, resolves outside
+    every root, or *roots* names no root at all.
     """
     candidate = Path(relative)
     if not candidate.parts or candidate.is_absolute():
         return None
     base = (Path(roots),) if isinstance(roots, (str, Path)) else tuple(Path(r) for r in roots)
+    if not base:
+        return None
     try:
         resolved = (base[0].resolve() / candidate).resolve()
         return next((resolved for root in base if resolved.is_relative_to(root.resolve())), None)

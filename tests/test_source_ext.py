@@ -366,6 +366,12 @@ class TestContainedPath:
 
         assert contained_path(tmp_path, "") is None
 
+    def test_no_roots_refused(self, tmp_path: Path) -> None:
+        """A config with no reversed_dir, shared_dir, or root names no root at all."""
+        from rebrew.sources import contained_path
+
+        assert contained_path((), "pool/f.c") is None
+
     def test_symlink_out_of_root_refused(self, tmp_path: Path) -> None:
         from rebrew.sources import contained_path
 
