@@ -254,18 +254,21 @@ def sanitize_log_value(value: Any, *, max_len: int = 256, secrets: Sequence[str]
     escape sequences a control character starts.
 
     *secrets* are literal substrings to overwrite with :data:`_REDACTED` before
-    the text leaves the process.  httpx quotes the offending header verbatim
-    when a request header is illegal, so a ``REBREW_LLM_API_KEY`` carrying an
-    interior CR (a CRLF-terminated key file, a spliced paste) reaches the
-    transport, comes back inside the exception text, and would otherwise be
-    written to a log or console line that has weaker protection than the
-    environment variable it came from.
+    the text leaves the process.  Each is also overwritten in its ``repr``-escaped
+    form, because a message that quotes a value with ``!r`` has escaped the
+    control characters in it and the raw secret is then no longer a substring:
+    ``_reject_control_chars_in_key`` stops that reaching the transport at all,
+    and this covers any other quoting path.  A message carrying a bare secret
+    is redacted by the first pass either way.
     """
     text = str(value)
     text = _CTRL_CHAR_RE.sub(" ", text)
     for secret in secrets:
         if secret:
             text = text.replace(secret, _REDACTED)
+            escaped = repr(secret)[1:-1]
+            if escaped != secret:
+                text = text.replace(escaped, _REDACTED)
     if len(text) > max_len:
         text = text[:max_len] + "…"
     return text
@@ -470,6 +473,32 @@ def build_prompt(source: str, count: int = _DEFAULT_COUNT) -> str:
     )
 
 
+def _reject_control_chars_in_key(api_key: str) -> None:
+    """Refuse an API key carrying a C0/C1 control character.
+
+    h11 validates an outgoing header value at send time and, on failure, quotes
+    the offending value with ``!r``, so a key with an interior CR (a
+    CRLF-terminated key file, a spliced paste) is rejected as
+    ``Illegal header value b'Bearer ab\\rcd'``.  That message rides back inside
+    the transport exception, and the escaping means the raw key is no longer a
+    substring of it, so the literal-substring redaction in
+    :func:`sanitize_log_value` cannot catch it: the key would reach a WARNING
+    line that has weaker protection than the environment variable it came from.
+
+    Rejecting here is also the correct behaviour on its own terms.  A control
+    character in a credential is never legitimate, and stripping it would send
+    a *different* key than the operator exported, turning a paste accident into
+    a silent 401 against a real provider.
+    """
+    if _CTRL_CHAR_RE.search(api_key):
+        raise ValueError(
+            "LLM API key contains a control character: a credential with one in "
+            "it is malformed (check for a CRLF-terminated key file or a stray "
+            "escape in the pasted value), and sending it makes the transport "
+            "echo the key back inside its error message"
+        )
+
+
 def llm_config(cfg: Any) -> dict[str, str] | None:
     """Return ``{"endpoint": ..., "api_key": ...}`` or None when not configured.
 
@@ -479,8 +508,9 @@ def llm_config(cfg: Any) -> dict[str, str] | None:
     the run); otherwise the TOML value.  A non-empty endpoint that is not
     http(s) with a host and a valid port raises ``ValueError`` (same rule
     as ``compiler.recompile_url``), as does an unpinned or malformed model,
-    or an API key paired with a plain-``http`` endpoint on a non-loopback
-    host (the key would travel as a cleartext ``Authorization`` header).
+    a key carrying a control character, or an API key paired with a
+    plain-``http`` endpoint on a non-loopback host (the key would travel as
+    a cleartext ``Authorization`` header).
 
     An operator key from the environment is never sent to a project-supplied
     ``[llm].endpoint`` unless that endpoint is loopback (a local ollama / vllm)
@@ -507,6 +537,8 @@ def llm_config(cfg: Any) -> dict[str, str] | None:
     if not endpoint:
         return None
     endpoint = validate_http_url(endpoint, "LLM endpoint")
+    if api_key:
+        _reject_control_chars_in_key(api_key)
     if api_key and not is_key_safe_endpoint(endpoint):
         raise ValueError(
             "LLM endpoint must use https when an API key is set "

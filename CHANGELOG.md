@@ -352,6 +352,30 @@
   sandbox for the reaper to key off; `verify --watch` builds a fresh pool per
   pass, so those entries accumulated one per retired worker. The reaper now
   sweeps owner tokens of dead threads alongside the sandbox map.
+- **The decomp.me claim-token ledger was world-readable while it was being
+  written.** `record_upload` wrote the ledger through `atomic_write_text`, which
+  creates its temp file 0644 and `os.replace`s it, and only then chmod'ed the
+  result to 0600, so the token that owns the uploaded scratch was readable by
+  every local user for the duration of the write, and for good if the process
+  died between the two calls, since the failure of that `chmod` is swallowed by
+  the surrounding best-effort `except OSError`. `atomic_write_text` and
+  `atomic_write_bytes` take a `mode` that the temp file is *created* with, so
+  the secret is never on disk at a wider mode, and a ledger a previous run left
+  at 0644 is tightened on the next write even when this run's bytes are
+  unchanged.
+- **An LLM API key carrying a control character no longer reaches the
+  transport.** h11 validates an outgoing header value at send time and reports
+  a failure with the offending value quoted using `!r`, so a
+  `REBREW_LLM_API_KEY` with an interior CR (a CRLF-terminated key file, a
+  spliced paste) came back inside the exception text with its control character
+  escaped. The key was then no longer a substring of the message, so the
+  literal-substring redaction in `sanitize_log_value` could not match it, and
+  the key reached a WARNING line that has weaker protection than the
+  environment variable it came from. `llm_config` now refuses such a key (a
+  credential with a control character in it is malformed, and stripping it
+  would send a different key than the operator exported), and
+  `sanitize_log_value` also redacts the `repr`-escaped form as a second line of
+  defence.
 - **The dashboard's human-readable contract named two assets where the server
   serves three, and a `/api/bootstrap` null case that cannot happen.** The
   prose in `docs/COVERAGE_DOCUMENT.md` credited the content-hash `ETag` to `/`

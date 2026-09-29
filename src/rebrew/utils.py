@@ -102,6 +102,10 @@ _PE_NAME_MAX_CHARS = 255
 #: NAME_MAX once a suffix such as ``.best.c`` is appended.
 _FILENAME_COMPONENT_RE = re.compile(r"[^A-Za-z0-9._@-]+")
 _FILENAME_COMPONENT_MAX_CHARS = 200
+#: Mode :func:`atomic_write_text` creates its temp file with, and therefore
+#: installs at the target path.  Owner read/write only for a non-secret file
+#: rebrew owns; a writer holding a credential passes something tighter.
+_DEFAULT_FILE_MODE = 0o644
 
 #: Invisible reordering / hiding characters: the bidi embeddings, overrides and
 #: isolates, the left-to-right and right-to-left marks, the zero-width
@@ -797,11 +801,20 @@ def library_header_name(module: str) -> str:
     return f"library_{filename_component(module.lower())}.h"
 
 
+def _set_mode_quietly(filepath: Path, mode: int) -> None:
+    """chmod *filepath* to *mode*, reporting rather than swallowing a failure."""
+    try:
+        os.chmod(filepath, mode)
+    except OSError as exc:
+        logger.warning("could not set mode %s on %s: %s", oct(mode), filepath, exc)
+
+
 def atomic_write_text(
     filepath: Path,
     text: str,
     encoding: str = "utf-8",
     errors: str = "strict",
+    mode: int = _DEFAULT_FILE_MODE,
 ) -> None:
     """Write text to a file atomically to prevent corruption on crash.
 
@@ -826,8 +839,16 @@ def atomic_write_text(
     *errors* mirrors :meth:`pathlib.Path.write_text`: use
     ``\"surrogateescape\"`` when *text* came from :func:`read_compile_source`
     so lone surrogates from legacy bytes round-trip instead of raising.
+
+    *mode* is the permission the temp file is created with, and therefore the
+    mode ``os.replace`` installs.  Pass a restrictive one for a file holding a
+    secret (a decomp.me claim token ledger): creating the temp 0644 and
+    chmod-ing afterwards leaves the secret readable by every local user for the
+    duration of the write, and world-readable for good if the process dies
+    between the two calls.  Creating it restrictive also tightens a file a
+    previous run left at the default, since the replacement inode carries *mode*.
     """
-    atomic_write_bytes(filepath, text.encode(encoding, errors=errors))
+    atomic_write_bytes(filepath, text.encode(encoding, errors=errors), mode=mode)
     # Drop any stale path+mtime entries so a same-ns rewrite cannot serve
     # pre-write content to a later reader in this process.
     try:
@@ -840,7 +861,7 @@ def atomic_write_text(
                 _memo_drop(memo_key)
 
 
-def atomic_write_bytes(filepath: Path, data: bytes) -> None:
+def atomic_write_bytes(filepath: Path, data: bytes, mode: int = _DEFAULT_FILE_MODE) -> None:
     """Byte counterpart of :func:`atomic_write_text`.
 
     Writes to a sibling ``.<pid>.<tid>.<monotonic>.tmp`` then ``os.replace()``s, so a
@@ -852,18 +873,23 @@ def atomic_write_bytes(filepath: Path, data: bytes) -> None:
     no-op re-run (a second ``postlink`` of an already-converged binary, a
     report sidecar rebuild) does not bump mtime.  Same contract as
     :func:`atomic_write_text`, including the read-only-directory message.
+
+    *mode* is as in :func:`atomic_write_text`; on the short-circuit path the
+    existing file is chmod-ed to it, so a file a previous run left wider is
+    tightened even when this run's bytes are unchanged.
     """
     filepath.parent.mkdir(parents=True, exist_ok=True)
     if filepath.is_file():
         try:
             if filepath.read_bytes() == data:
+                _set_mode_quietly(filepath, mode)
                 return
         except OSError:
             pass
     with _atomic_replace(filepath) as tmp_path:
         # O_EXCL: a name planted in the target directory as a symlink must not
         # be followed, or the write lands on the link's target.
-        fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+        fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode)
         with os.fdopen(fd, "wb") as fh:
             fh.write(data)
             fh.flush()

@@ -492,6 +492,51 @@ class TestAtomicWriteParents:
         atomic_write_text(target, "hello")
         assert target.read_text(encoding="utf-8") == "hello"
 
+
+class TestAtomicWriteMode:
+    """*mode* is the mode the installed inode carries, not a chmod applied after.
+
+    A file holding a credential (the decomp.me claim-token ledger) is written
+    0600, so the secret is never readable by another local user for the window
+    between the write and a following chmod, nor for good if the process dies
+    in that window.
+    """
+
+    def test_default_mode_is_applied(self, tmp_path: Path) -> None:
+        from rebrew.utils import _DEFAULT_FILE_MODE, atomic_write_text
+
+        target = tmp_path / "plain.txt"
+        atomic_write_text(target, "hello")
+        assert target.stat().st_mode & 0o777 == _DEFAULT_FILE_MODE
+
+    def test_restrictive_mode_applies_on_first_write(self, tmp_path: Path) -> None:
+        from rebrew.utils import atomic_write_text
+
+        target = tmp_path / "secret.json"
+        atomic_write_text(target, '{"claim_token": "tok"}', mode=0o600)
+        assert target.stat().st_mode & 0o077 == 0
+
+    def test_restrictive_mode_replaces_a_wider_existing_file(self, tmp_path: Path) -> None:
+        """The temp inode carries *mode*, so rewriting tightens what is there."""
+        from rebrew.utils import atomic_write_text
+
+        target = tmp_path / "secret.json"
+        atomic_write_text(target, "old", mode=0o600)
+        target.chmod(0o644)
+        atomic_write_text(target, "new", mode=0o600)
+        assert target.stat().st_mode & 0o077 == 0
+        assert target.read_text(encoding="utf-8") == "new"
+
+    def test_restrictive_mode_applies_to_an_unchanged_file(self, tmp_path: Path) -> None:
+        """The byte-identical short-circuit skips the replace, so it chmods."""
+        from rebrew.utils import atomic_write_text
+
+        target = tmp_path / "secret.json"
+        atomic_write_text(target, "same", mode=0o600)
+        target.chmod(0o644)
+        atomic_write_text(target, "same", mode=0o600)
+        assert target.stat().st_mode & 0o077 == 0
+
     def test_star_prefixed_close_line_ends_block(self) -> None:
         """A ` * comment */` closing line must close the block (the orphaned
         `* `-line drop must not swallow it while in_block)."""

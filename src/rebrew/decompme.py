@@ -530,9 +530,12 @@ def record_upload(
 
     The ledger holds a decomp.me claim token, which is the credential that
     owns the uploaded scratch, so the file is written owner-only (0600) rather
-    than the 0644 :func:`atomic_write_text` default.  The chmod runs on every
-    write, not just the first, so a ledger created before this mode existed is
-    tightened on the next run.
+    than the 0644 :func:`atomic_write_text` default.  The mode is the one the
+    temp file is *created* with, so the token is never on disk readable by
+    another local user: creating it 0644 and chmod-ing afterwards would expose
+    it for the duration of the write, and for good if the process died between
+    the two calls.  Every write carries the mode, so a ledger created before
+    this mode existed is tightened on the next run.
 
     Best-effort: a ledger that cannot be written (read-only project, full
     disk) must not turn a successful upload into a command failure, so the
@@ -554,8 +557,9 @@ def record_upload(
                 ordered = sorted(fresh.items(), key=lambda kv: float(kv[1].get("at", 0) or 0))
                 fresh = dict(ordered[-_UPLOADS_MAX_ENTRIES:])
             path.parent.mkdir(parents=True, exist_ok=True)
-            atomic_write_text(path, json.dumps(fresh, indent=2, sort_keys=True) + "\n")
-            path.chmod(_UPLOADS_FILE_MODE)
+            atomic_write_text(
+                path, json.dumps(fresh, indent=2, sort_keys=True) + "\n", mode=_UPLOADS_FILE_MODE
+            )
     except OSError as exc:
         log.warning("decomp.me upload ledger not written (%s); the next run will upload again", exc)
 

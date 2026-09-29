@@ -120,6 +120,29 @@ class TestLlmConfig:
         with pytest.raises(ValueError, match="refusing to send REBREW_LLM_API_KEY"):
             llm_config(_cfg(endpoint="https://evil.example/v1", api_key="cfg-key"))
 
+    def test_key_with_a_control_character_is_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A malformed credential must fail before it reaches the transport.
+
+        h11 quotes an illegal header value with ``!r``, so a key carrying an
+        interior CR comes back inside the exception text with its control
+        character escaped: the key is no longer a substring of the message and
+        the log redaction cannot catch it.  Refusing it here means the only
+        thing that can echo it never runs.
+        """
+        monkeypatch.delenv("REBREW_LLM_ENDPOINT", raising=False)
+        monkeypatch.setenv("REBREW_LLM_ALLOW_PROJECT_ENDPOINT", "1")
+        with pytest.raises(ValueError, match="control character"):
+            llm_config(_cfg(endpoint="https://cfg.example/v1", api_key="sk-live\r\nX-Evil: 1"))
+
+    def test_control_char_key_from_the_environment_is_refused(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The check is on the resolved key, so the env source cannot slip past."""
+        monkeypatch.delenv("REBREW_LLM_ENDPOINT", raising=False)
+        monkeypatch.setenv("REBREW_LLM_API_KEY", "env-key\rmore")
+        with pytest.raises(ValueError, match="control character"):
+            llm_config(_cfg(endpoint="https://cfg.example/v1"))
+
     def test_env_key_allowed_to_env_endpoint(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Operator endpoint plus operator key needs no opt-in.
 
@@ -1488,6 +1511,20 @@ class TestSecretRedaction:
 
     def test_empty_secret_redacts_nothing(self) -> None:
         assert sanitize_log_value("Bearer ", secrets=("",)) == "Bearer "
+
+    def test_repr_escaped_secret_is_redacted(self) -> None:
+        """A message quoting a value with !r escaped it, so the raw secret is gone.
+
+        ``repr`` turns the interior CR into a backslash and an ``r``, so the
+        literal-substring pass cannot match.  Redacting the escaped form is the
+        second line of defence behind refusing such a key outright.
+        """
+        key = "sk-live-0123\rabc"
+        detail = sanitize_log_value(
+            "Illegal header value b'Bearer sk-live-0123\\rabc'", secrets=(key,)
+        )
+        assert "sk-live-0123" not in detail
+        assert "Illegal header value" in detail
 
 
 class TestSeedUsage:
