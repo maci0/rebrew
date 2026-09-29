@@ -430,19 +430,59 @@ class TestEhFrame:
         assert _parse_eh_frame(data, self.SECTION_VA, pointer_size=8, big_endian=False) == []
 
     def test_any_input_parses_without_raising(self) -> None:
+        """Fuzzed section bytes never raise, and the extents stay well-formed.
+
+        The loop bodies carry the invariants a crash-free parse must still
+        satisfy: a reported extent has a positive size and starts inside the
+        address space the record length can name, and a shorter section can
+        only ever report fewer extents than the full one (the parse walks
+        forward and stops at the first malformed record), so truncation can
+        never invent an extent the whole section did not have.
+        """
         from hypothesis import given, settings
         from hypothesis import strategies as st
 
         from rebrew.discover import _parse_eh_frame
 
         @settings(max_examples=400, deadline=None)
-        @given(st.binary(max_size=256), st.sampled_from([4, 8]), st.booleans())
-        def parse(data: bytes, pointer_size: int, big_endian: bool) -> None:
+        @given(
+            st.binary(max_size=256),
+            st.sampled_from([4, 8]),
+            st.booleans(),
+            st.integers(min_value=0, max_value=256),
+        )
+        def parse(data: bytes, pointer_size: int, big_endian: bool, cut: int) -> None:
             for prefix in (b"", _cie(0x1B), _cie(0x00)):
+                blob = prefix + data
                 result = _parse_eh_frame(
-                    prefix + data, 0x1000, pointer_size=pointer_size, big_endian=big_endian
+                    blob, 0x1000, pointer_size=pointer_size, big_endian=big_endian
                 )
                 assert all(size > 0 for _start, size in result)
+                assert all(start >= 0 for start, _size in result)
+                truncated = _parse_eh_frame(
+                    blob[: cut % (len(blob) + 1)],
+                    0x1000,
+                    pointer_size=pointer_size,
+                    big_endian=big_endian,
+                )
+                assert truncated == result[: len(truncated)]
+
+        parse()
+
+    def test_bytes_after_the_terminator_are_not_parsed(self) -> None:
+        """A zero-length record ends the section; trailing bytes are ignored."""
+        from hypothesis import given, settings
+        from hypothesis import strategies as st
+
+        from rebrew.discover import _parse_eh_frame
+
+        @settings(max_examples=200, deadline=None)
+        @given(st.binary(max_size=128), st.binary(max_size=128), st.sampled_from([4, 8]))
+        def parse(frame: bytes, tail: bytes, pointer_size: int) -> None:
+            body = frame + b"\x00\x00\x00\x00"
+            assert _parse_eh_frame(
+                body, 0x1000, pointer_size=pointer_size, big_endian=False
+            ) == _parse_eh_frame(body + tail, 0x1000, pointer_size=pointer_size, big_endian=False)
 
         parse()
 
