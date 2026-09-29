@@ -184,6 +184,28 @@ class TestClassifyAllIdempotent:
         digest_after_second = _tree_digest(tmp_path)
         assert digest_after_first == digest_after_second
 
+    def test_rerun_does_not_resurrect_a_matched_function_as_stub(self, tmp_path: Path) -> None:
+        """A source deleted after it was matched must not come back on a re-run."""
+        from rebrew.intake import classify_all
+        from rebrew.metadata import update_source_status
+
+        meta_base = tmp_path / "src"
+        src_dir = meta_base / "SERVER"
+        src_dir.mkdir(parents=True, exist_ok=True)
+        funcs = [(0x10001000, 32, "func_a")]
+        assert (
+            classify_all(tmp_path, src_dir, "SERVER", funcs, "msvc", "", metadata_dir=meta_base)
+            == 1
+        )
+        assert update_source_status(meta_base, "EXACT", "SERVER", 0x10001000, updated_by="test")
+        (src_dir / "fcn_10001000.c").unlink()
+
+        assert (
+            classify_all(tmp_path, src_dir, "SERVER", funcs, "msvc", "", metadata_dir=meta_base)
+            == 0
+        )
+        assert not (src_dir / "fcn_10001000.c").exists()
+
 
 class TestBlockerSetIdempotent:
     def test_blocker_set_twice_leaves_metadata_identical(

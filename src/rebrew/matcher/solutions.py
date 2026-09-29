@@ -4,11 +4,13 @@ Records GA solution fingerprints (cflags, size) when functions reach
 EXACT match. Seeds new GA runs from solved functions of the closest size
 (same target first, matching cflags as tie-break) to reduce convergence time.
 
-Storage: ``.rebrew/ga_runs.jsonl`` — one append-only log for every GA
-outcome.  A win record carries the full solution fingerprint (cflags, size,
-source, mutations); ``load_solutions`` derives the winning entry per
-``(target, symbol)`` (newest win) from the log.  Losses stay for
-``--skip-recent`` / ``--ga-history``.
+Storage: ``.rebrew/ga_runs.jsonl`` — one log line per GA
+outcome, appended on the fly.  A win record carries the full solution
+fingerprint (cflags, size, source, mutations); ``load_solutions`` derives
+the winning entry per ``(target, symbol)`` (newest win) from the log.
+Losses stay for ``--skip-recent`` / ``--ga-history``, capped at
+``_LOSS_RECORD_RETENTION`` so the log does not grow without bound; wins are
+never pruned.
 """
 
 from __future__ import annotations
@@ -460,6 +462,12 @@ _TAIL_READ_BYTES = 1024 * 1024
 #: that keeps one oversized line from putting the whole tail out of reach.
 _TAIL_ALIGN_BYTES = 64 * 1024
 
+#: Non-winning records the log keeps, and the log size that triggers a
+#: prune.  The floor sits well above the repeat-check window, so a prune
+#: never shrinks the log below what that window already read.
+_LOSS_RECORD_RETENTION = 20_000
+_PRUNE_MIN_BYTES = 4 * _TAIL_READ_BYTES
+
 
 def _recent_records(path: Path) -> list[dict[str, Any]]:
     """Return the well-formed records in the tail window of *path*, oldest first.
@@ -575,6 +583,7 @@ def record_ga_run(
         if _run_key(record) in {_run_key(r) for r in _recent_records(p)}:
             return p
         _append_durable(p, line)
+        _prune_loss_records(p)
     return p
 
 
@@ -607,6 +616,54 @@ def _append_durable(path: Path, line: str) -> None:
                 os.fsync(dir_fd)
         finally:
             os.close(dir_fd)
+
+
+def _prune_loss_records(path: Path) -> None:
+    """Drop all but the newest ``_LOSS_RECORD_RETENTION`` non-winning records.
+
+    Wins are never pruned: each carries a solution fingerprint
+    ``load_solutions`` reads back, and losing one would strand a solved
+    function.  Losses are the bulk of the log and no consumer needs the
+    whole of them (``--skip-recent`` and ``--ga-history`` read a recent
+    window), so an unpruned log grows forever.  A log under the size floor
+    is left alone, so the cost of the check is a ``stat`` on the hot append
+    path.  A line that does not parse is kept: pruning is housekeeping, not
+    a filter, and dropping a record nobody can read loses data silently.
+    """
+    try:
+        if path.stat().st_size <= _PRUNE_MIN_BYTES:
+            return
+    except OSError:
+        return
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines(keepends=True)
+    except OSError:
+        log.warning("Cannot read GA run log %s for pruning", path, exc_info=True)
+        return
+    keep: list[bool] = []
+    losses_kept = 0
+    for raw in reversed(lines):
+        stripped = raw.strip()
+        parsed: Any = None
+        if stripped:
+            with contextlib.suppress(json.JSONDecodeError):
+                parsed = json.loads(stripped)
+        is_win = isinstance(parsed, dict) and bool(parsed.get("matched"))
+        keep_now = is_win or losses_kept < _LOSS_RECORD_RETENTION
+        if not is_win and keep_now:
+            losses_kept += 1
+        keep.append(keep_now)
+    kept = [raw for raw, keep_now in zip(lines, reversed(keep), strict=True) if keep_now]
+    if len(kept) == len(lines):
+        return
+    tmp = path.with_name(path.name + ".prune")
+    try:
+        tmp.write_text("".join(kept), encoding="utf-8")
+        os.replace(tmp, path)
+    except OSError:
+        log.warning("Cannot prune GA run log %s", path, exc_info=True)
+        with contextlib.suppress(OSError):
+            tmp.unlink()
 
 
 def load_ga_runs(

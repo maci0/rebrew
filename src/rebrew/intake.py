@@ -224,9 +224,6 @@ def classify_all(
         out = src_dir / f"fcn_{va:08x}.c"
         if (va in existing_vas or out.exists()) and (marker, va) in existing:
             continue
-        if va not in existing_vas and not out.exists():
-            atomic_write_text(out, stub)
-            existing_vas.add(va)
         prev = existing.get((marker, va), {})
         prev_status = str(prev.get("status") or "STUB")
         # Onboarding is a one-shot document step — a RE-RUN (re-discovery
@@ -235,8 +232,16 @@ def classify_all(
         # write for any non-STUB entry (EXACT/RELOC/NEAR_MATCHING/...), and
         # never clobber a user-written blocker (only the auto-generated
         # reason is replaced on re-documentation).
+        #
+        # The guard also covers the file: a source the user deleted after
+        # matching it must not come back as a STUB whose marker disagrees
+        # with the store's EXACT row.  So the write happens only for a
+        # function the store still calls a stub, never to undo a delete.
         if prev_status != "STUB":
             continue
+        if va not in existing_vas and not out.exists():
+            atomic_write_text(out, stub)
+            existing_vas.add(va)
         prev_blocker = str(prev.get("blocker") or "")
         fields: dict[str, Any] = {}
         # A user-supplied blocker survives re-runs; only the auto reason

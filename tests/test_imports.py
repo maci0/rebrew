@@ -410,6 +410,22 @@ class TestImportsMark:
         added = mark_import_stubs(cfg, {0x401000: "MessageBoxA"}, dry_run=False)
         assert added == 0  # already annotated
 
+    def test_mark_ignores_a_va_mentioned_outside_a_marker(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A prose mention of a VA is not an annotation; the stub still gets marked."""
+        from rebrew.imports import mark_import_stubs
+
+        cfg = self._cfg(tmp_path)
+        cfg.reversed_dir.mkdir(parents=True)
+        out = cfg.reversed_dir / "library_imports.h"
+        out.write_text("// thunk at 0x00401000 per the disassembly\n", encoding="utf-8")
+
+        assert mark_import_stubs(cfg, {0x401000: "MessageBoxA"}, dry_run=False) == 1
+        text = out.read_text(encoding="utf-8")
+        assert "// LIBRARY: SERVER 0x00401000" in text
+        assert mark_import_stubs(cfg, {0x401000: "MessageBoxA"}, dry_run=False) == 0
+
 
 class TestImportsPayload:
     """``imports_payload()`` is the importable form of ``rebrew imports --json``."""

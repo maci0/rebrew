@@ -16,6 +16,7 @@ from typing import Any
 
 import typer
 
+from rebrew.annotation import NEW_FUNC_CAPTURE_RE
 from rebrew.cli import (
     EXIT_ERROR,
     TargetOption,
@@ -81,10 +82,18 @@ def mark_import_stubs(
     out_file = Path(cfg.reversed_dir) / "library_imports.h"
     existing, encoding = read_source_text(out_file) if out_file.exists() else ("", "utf-8")
 
-    existing_upper = existing.upper()
+    # Only a marker line counts as "already annotated".  A substring search
+    # over the whole file also fires on an unrelated comment or a value
+    # inside a different annotation, which suppresses that VA forever: the
+    # gap never heals on a re-run, because the mention is still there.
+    annotated = {
+        int(match.group("va"), 16)
+        for match in NEW_FUNC_CAPTURE_RE.finditer(existing)
+        if match.group("va")
+    }
     blocks: list[str] = []
     for va in sorted(stubs):
-        if f"0X{va:08X}" in existing_upper:
+        if va in annotated:
             continue
         # The stub name comes from the target's hint/name table, so it is
         # attacker-controlled whenever the binary is; a newline would end the

@@ -626,6 +626,49 @@ class TestGaRunHistory:
     def test_iter_ga_runs_missing_file_is_empty(self, project_root: Path) -> None:
         assert list(iter_ga_runs(project_root)) == []
 
+    def test_the_log_stays_bounded_and_keeps_every_win(
+        self, project_root: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Losses are the bulk of the log and no consumer needs all of them,
+        # so they are capped; a win carries a solution fingerprint
+        # load_solutions reads back, so it is never dropped.
+        from rebrew.matcher import solutions as solutions_mod
+
+        monkeypatch.setattr(solutions_mod, "_PRUNE_MIN_BYTES", 1)
+        monkeypatch.setattr(solutions_mod, "_LOSS_RECORD_RETENTION", 2)
+        record_ga_run(
+            project_root, target="SERVER", va=0x1000, symbol="_win", matched=True, rng_seed=1
+        )
+        for i in range(4):
+            record_ga_run(
+                project_root,
+                target="SERVER",
+                va=0x2000 + i,
+                symbol=f"_l{i}",
+                matched=False,
+                rng_seed=i,
+            )
+        records = list(iter_ga_runs(project_root))
+        assert [r["symbol"] for r in records if r["matched"]] == ["_win"]
+        assert [r["symbol"] for r in records if not r["matched"]] == ["_l2", "_l3"]
+
+        # A re-run of a retained run changes nothing: the repeat is dropped
+        # and the prune has nothing left to cut.  (A record the prune has
+        # already discarded is outside the repeat check's tail window, so
+        # only the retained ones can be replayed here.)
+        log_path = project_root / ".rebrew" / "ga_runs.jsonl"
+        before = log_path.read_bytes()
+        for i in (2, 3):
+            record_ga_run(
+                project_root,
+                target="SERVER",
+                va=0x2000 + i,
+                symbol=f"_l{i}",
+                matched=False,
+                rng_seed=i,
+            )
+        assert log_path.read_bytes() == before
+
 
 class TestLoadSolutionsFile:
     """load_solutions_file — explicit-path loading for cross-project seeding."""
