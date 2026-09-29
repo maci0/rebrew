@@ -30,7 +30,7 @@ from pathlib import Path
 
 import typer
 
-from rebrew.cli import TargetOption, console, error_exit, json_print
+from rebrew.cli import TargetOption, console, error_exit, json_print, untrusted_ident
 from rebrew.pe_headers import find_section
 from rebrew.utils import (
     atomic_write_text,
@@ -269,7 +269,19 @@ def main(
                 json_mode=json_output,
             )
     except BaseException:
-        atomic_write_text(stub, original_stub, encoding=stub_encoding)
+        # This runs against the user's real stub source, mutated in place each
+        # iteration.  The restore is what cannot succeed when the run above
+        # failed, so a restore that raises must not replace the failure already
+        # propagating: name the stranded file and the value it was left holding,
+        # then re-raise the original.
+        try:
+            atomic_write_text(stub, original_stub, encoding=stub_encoding)
+        except OSError as exc:
+            console.print(
+                f"[red]error:[/red] could not restore {untrusted_ident(stub)} to its "
+                f"pre-calibration text: {exc}. It holds the last calibrated tail; "
+                "restore it by hand before editing."
+            )
         raise
     finally:
         scratch.unlink(missing_ok=True)

@@ -17,7 +17,7 @@ from typing import Any
 
 import typer
 
-from rebrew.binary_loader import parse_exports
+from rebrew.binary_loader import ExportParseError, parse_exports
 from rebrew.cli import (
     EXIT_MISMATCH,
     TargetOption,
@@ -86,7 +86,12 @@ def main(
     if not cfg.target_binary.exists():
         error_exit(f"target binary missing: {cfg.target_binary}", json_mode=json_output)
 
-    result = compare_exports(cfg.target_binary, recomp_binary)
+    try:
+        result = compare_exports(cfg.target_binary, recomp_binary)
+    except ExportParseError as exc:
+        # An unparseable binary has no export set to compare, so reporting
+        # "match" (two empty sets) or a bare traceback would both misstate it.
+        error_exit(str(exc), json_mode=json_output)
     if json_output:
         json_print(result)
     else:

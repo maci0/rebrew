@@ -52,6 +52,7 @@ from typing import TYPE_CHECKING, Any
 # Same names ``__getattr__`` loads at runtime.  Present here so a type
 # checker sees ``from rebrew.errors import ConfigError`` as that class.
 if TYPE_CHECKING:
+    from rebrew.binary_loader import ExportParseError as ExportParseError
     from rebrew.coff_reloc import CatalogScanError as CatalogScanError
     from rebrew.coff_reloc import UnresolvedSymbolError as UnresolvedSymbolError
     from rebrew.compile import CompareResultError as CompareResultError
@@ -232,6 +233,7 @@ _LAZY_ERRORS: dict[str, tuple[str, str]] = {
     "DecompmeError": ("rebrew.decompme", "DecompmeError"),
     "Delphi16Error": ("rebrew.delphi16", "Delphi16Error"),
     "DosboxError": ("rebrew.dosbox", "DosboxError"),
+    "ExportParseError": ("rebrew.binary_loader", "ExportParseError"),
     "FingerprintError": ("rebrew.fingerprints", "FingerprintError"),
     "LibraryOverrideError": ("rebrew.metadata", "LibraryOverrideError"),
     "LibIndexUnavailable": ("rebrew.doctor", "LibIndexUnavailable"),
@@ -327,6 +329,7 @@ __all__ = [
     "DecompmeErrorKind",
     "Delphi16Error",
     "DosboxError",
+    "ExportParseError",
     "FingerprintError",
     "LibraryOverrideError",
     "LibIndexUnavailable",

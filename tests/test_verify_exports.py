@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 from typer.testing import CliRunner
 
-from rebrew.binary_loader import parse_exports
+from rebrew.binary_loader import ExportParseError, parse_exports
 from rebrew.cli import EXIT_ERROR, EXIT_MISMATCH
 from rebrew.verify_exports import app, compare_exports
 
@@ -28,14 +28,22 @@ class TestParseExports:
 
     def test_non_pe_returns_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr("lief.PE.parse", lambda p: None)
+        monkeypatch.setattr("lief.is_pe", lambda p: False)
         assert parse_exports(Path("x.dll")) == []
 
-    def test_parse_raises_returns_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_pe_rejected_by_backend_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("lief.PE.parse", lambda p: None)
+        monkeypatch.setattr("lief.is_pe", lambda p: True)
+        with pytest.raises(ExportParseError, match="cannot parse exports"):
+            parse_exports(Path("x.dll"))
+
+    def test_parse_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
         def _boom(p):
             raise ValueError("corrupt")
 
         monkeypatch.setattr("lief.PE.parse", _boom)
-        assert parse_exports(Path("x.dll")) == []
+        with pytest.raises(ExportParseError, match="cannot parse exports"):
+            parse_exports(Path("x.dll"))
 
     def test_unnamed_exports_skipped(self, monkeypatch: pytest.MonkeyPatch) -> None:
         pe = _FakePE(["named"])
@@ -132,6 +140,25 @@ class TestCli:
         result = CliRunner().invoke(app, [str(tmp_path / "nope.dll")])
         assert result.exit_code == EXIT_ERROR
         assert "not found" in result.output
+
+    def test_unparseable_binary_errors(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import rebrew.verify_exports as exports_mod
+
+        recomp = tmp_path / "recomp.dll"
+        recomp.write_bytes(b"MZfake")
+        cfg = SimpleNamespace(target_binary=tmp_path / "orig.dll")
+        cfg.target_binary.write_bytes(b"MZfake")
+        monkeypatch.setattr("rebrew.verify_exports.require_config", lambda **kw: cfg)
+
+        def _boom(o: Path, r: Path) -> dict:
+            raise ExportParseError(f"cannot parse exports of {o}: truncated")
+
+        monkeypatch.setattr(exports_mod, "compare_exports", _boom)
+        result = CliRunner().invoke(app, [str(recomp)])
+        assert result.exit_code == EXIT_ERROR
+        assert "cannot parse exports" in result.output
 
     def test_json_output(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         import json

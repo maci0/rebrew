@@ -1,6 +1,19 @@
 ## [Unreleased]
 
 ### Breaking
+- **Breaking:** the `STATUS_HEX` fills for `NEAR_MATCHING`, `SIZE_MISMATCH`
+  and `UNKNOWN` changed (`rebrew.status_style.STATUS_HEX`, re-exported as
+  `report.STATUS_HEX` and `depgraph.STATUS_HEX`). The originals sat below the
+  WCAG AA contrast floor against the `DOT`/`HTML` backgrounds they are painted
+  on, so `NEAR_MATCHING` and `SIZE_MISMATCH` read as the same brown as the
+  passes they are supposed to be distinguishable from, and `UNKNOWN` was
+  invisible as a node fill. A consumer that matched a status against a
+  literal colour needs the new values.
+- **Breaking:** `VerifyCacheEntry.to_dict` moved to
+  `VerifyCache.to_dict` (`rebrew.verify_cache`). The entry row is the report
+  row and is serialized through the cache document, so one converter on the
+  enclosing document replaced the per-entry copy; `VerifyCacheEntry` keeps
+  `from_dict`.
 - **Breaking:** `init_profiles.DEFAULT_REBREW_TOML` (re-exported as
   `init.DEFAULT_REBREW_TOML`) no longer contains the commented
   `[compiler.profiles.*]` example. A consumer that rendered the template and
@@ -98,6 +111,23 @@
   `tests/test_binsync_state.py` (`caplog`) tripped `disallow_untyped_defs`
   under `--strict`; the CI lint job syncs the extras, so these three were
   reported there and nowhere in the `ensure-extras` output.
+- **A corrupt PE reported its export table as empty.** `parse_exports` turned a
+  backend failure into `[]`, which is the same answer a DLL with no export
+  directory gives, so two unparseable binaries compared equal:
+  `rebrew verify-exports` printed "Export tables match" and exited 0, and the
+  whole-binary gate in `rebrew verify` passed. It raises
+  `ExportParseError` for a file the backend rejects, and a genuinely non-PE
+  file still returns an empty list.
+- **Degraded reads reported as complete results.** The HTML report rendered
+  every function `UNKNOWN` with no blocker when the metadata store failed to
+  load, `rebrew graph --cu-map` scored a merged TU that had silently lost an
+  unreadable member, and the coverage grid dropped the globals of a source it
+  could not scan. Each now names the file it could not read.
+- **A `calibrate-bss` restore failure replaced the error being propagated.**
+  The stub is the user's real source, mutated in place, and the `except` that
+  reverts it re-raised whatever that revert raised, so a timeout or a link
+  failure surfaced as the revert's `OSError`. The stranded file is named and
+  the original failure is re-raised.
 - **A `REBREW_LLM_ALLOW_PROJECT_ENDPOINT` opt-in that never lifted anything.**
   `docs/CONFIG.md` said a plain `http://` `[llm].endpoint` is refused under
   `REBREW_LLM_API_KEY` "unless it is loopback, or unless

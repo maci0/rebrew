@@ -150,6 +150,52 @@ class TestCalibrateLoop:
         assert result.exit_code != 0
         assert stub.read_bytes() == original
 
+    def test_failing_restore_reports_the_compile_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A restore that fails must not replace the failure being propagated.
+
+        The stub is the user's real source; an OSError from the restore would
+        otherwise surface as the exception and hide the compile failure that
+        actually stopped the run.
+        """
+        import subprocess
+
+        from rebrew import calibrate_bss as cb
+
+        stub = self._project(tmp_path)
+        real_write = cb.atomic_write_text
+        seen = {"calibrated": False}
+
+        def flaky_write(path: Path, text: str, **kwargs: Any) -> None:
+            if Path(path) == stub and text != "char g_bss_tail[0x10];\n":
+                seen["calibrated"] = True
+                real_write(path, text, **kwargs)
+                return
+            if seen["calibrated"]:
+                raise OSError("read-only file system")
+            real_write(path, text, **kwargs)
+
+        monkeypatch.setattr(
+            cb, "find_link_cmd", lambda root, json_mode=False: (tmp_path, "true {out}", tmp_path)
+        )
+        monkeypatch.setattr(cb, "read_data_vs", lambda path: 0x10)
+        monkeypatch.setattr(cb, "atomic_write_text", flaky_write)
+
+        def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[bytes]:
+            rc = 0 if cmd[0] == "true" else 1
+            return subprocess.CompletedProcess(cmd, rc, b"", b"boom")
+
+        monkeypatch.setattr(cb, "run_process_group", fake_run)
+
+        result = self._invoke(
+            tmp_path, monkeypatch, "--stub", str(stub), "--target-vs", "0x20", "--json"
+        )
+        assert result.exit_code != 0
+        # The compile failure is the reported error, not the restore OSError.
+        assert "stub compile failed" in result.output
+        assert "read-only file system" in result.output
+
     def test_max_iters_must_be_positive(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

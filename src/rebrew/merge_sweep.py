@@ -23,6 +23,7 @@ JSON audit log.
 from __future__ import annotations
 
 import json
+import logging
 import tempfile
 from collections.abc import Callable
 from itertools import pairwise
@@ -430,7 +431,12 @@ class _PartitionScorer:
                 seen_files.add(key)
                 try:
                     text = read_compile_source(path)
-                except OSError:
+                except OSError as exc:
+                    # The merged TU would silently lose this member's blocks,
+                    # and the partial merge is scored like any other candidate.
+                    logging.getLogger(__name__).warning(
+                        "merge-sweep: skipping unreadable source %s: %s", path, exc
+                    )
                     continue
                 preamble, file_blocks = split_annotation_sections(text)
                 preambles.append(preamble)
@@ -600,7 +606,13 @@ def _parse_annotations_fallback(cfg: ProjectConfig) -> dict[int, Any]:
     for src in iter_sources(cfg.reversed_dir, cfg):
         try:
             anns = parse_c_file_multi(src, target_name=marker)
-        except (OSError, ValueError):
+        except (OSError, ValueError) as exc:
+            # Every annotation in this file is then absent from the fallback
+            # map, so its functions enter no partition and the sweep reports
+            # a clean run over an incomplete set.
+            logging.getLogger(__name__).warning(
+                "merge-sweep: skipping unparseable source %s: %s", src, exc
+            )
             continue
         for ann in anns:
             if ann.va and ann.va not in out:

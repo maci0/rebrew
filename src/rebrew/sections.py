@@ -158,8 +158,12 @@ def get_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> dict[int, di
                         }
                     elif p.name not in globals_dict[va]["files"]:
                         globals_dict[va]["files"].append(p.name)
-        except (OSError, KeyError, ValueError):
-            logger.debug("global scan failed for %s", p, exc_info=True)
+        except (OSError, KeyError, ValueError) as exc:
+            # An unreadable source contributes no globals, so the coverage grid
+            # renders those VAs as absent with no way to tell them from
+            # "not yet discovered".  The binary and data-metadata loads in the
+            # catalog grid warn on the same degradation.
+            logger.warning("global scan failed for %s: %s", p, exc)
     return globals_dict
 
 

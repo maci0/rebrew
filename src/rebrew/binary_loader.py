@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, overload
 
 from rebrew.binary_model import MAX_BINARY_SIZE, BinaryInfo, SectionInfo
+from rebrew.errors import RebrewError
 from rebrew.utils import detect_source_encoding
 
 if TYPE_CHECKING:
@@ -933,19 +934,34 @@ def function_extent_from_disasm(
     return _walk(md, {"ret", "retf", "iret", "iretd", "int3"}, {"jmp"})
 
 
+class ExportParseError(RebrewError, RuntimeError):
+    """Raised when the format backend cannot parse a binary's export table."""
+
+
 def parse_exports(binary_path: Path) -> list[str]:
     """Return sorted, unique named exports of a PE binary.
 
-    Return an empty list for non-PE binaries, missing export tables, or parse failures.
+    Return an empty list for a non-PE file or a PE with no export directory.
+
+    A backend failure on a file that *is* a PE raises
+    :class:`ExportParseError`.  An empty list is the legitimate answer for an
+    export-less binary, so swallowing the failure here made a truncated or
+    corrupt image indistinguishable from one that exports nothing: two such
+    binaries compared equal, and ``binary_gate``'s ``except`` around this call
+    never saw the error it exists to record.
     """
     import lief
 
     try:
         pe = lief.PE.parse(str(binary_path))
     except Exception as exc:
-        log.debug("export parse failed for %s: %s", binary_path, exc)
-        return []
+        raise ExportParseError(f"cannot parse exports of {binary_path}: {exc}") from exc
     if pe is None:
+        if lief.is_pe(str(binary_path)):
+            raise ExportParseError(
+                f"cannot parse exports of {binary_path}: the PE header is present but "
+                "the format backend rejected the image (truncated or corrupt file?)"
+            )
         return []
     exports: list[str] = []
     for func in getattr(pe, "exported_functions", []):

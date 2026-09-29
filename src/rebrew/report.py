@@ -536,7 +536,16 @@ def _collect_functions(cfg: ProjectConfig) -> list[dict[str, Any]]:
     if isinstance(metadata_dir, Path):
         try:
             entries = load_metadata(metadata_dir, deepcopy=False)
-        except (OSError, ValueError, KeyError):
+        except (OSError, ValueError, KeyError) as exc:
+            # A migrated project keeps STATUS and BLOCKER only in this store, so
+            # a failed load renders every function as UNKNOWN with no blocker,
+            # and the finished HTML report reads as complete.  Say which store
+            # failed, matching the sibling loaders.
+            logging.getLogger(__name__).warning(
+                "metadata load failed for %s: %s; report shows no statuses or blockers",
+                metadata_dir,
+                exc,
+            )
             entries = {}
     sources = iter_sources(reversed_path, cfg)
     for src, annos in iter_annotations(
