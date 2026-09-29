@@ -1135,8 +1135,7 @@ def _get_capstone_x86() -> tuple[int, int, int, Any]:
 def capstone_to_nasm(mnemonic: str, op_str: str) -> str:
     """Convert capstone Intel syntax to NASM-compatible syntax."""
     line = f"{mnemonic} {op_str}".strip() if op_str else mnemonic
-    line = line.replace("ptr ", "")
-    return line
+    return line.replace("ptr ", "")
 
 
 def disassemble_to_nasm(

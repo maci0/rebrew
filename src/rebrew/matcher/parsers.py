@@ -337,14 +337,13 @@ def _list_coff_symbols(obj_path: str) -> list[str]:
     if coff is None:
         return []
 
-    symbols = [
+    return [
         str(sym.name)
         for sym in coff.symbols
         if sym.section is not None
         and not str(sym.name).startswith("$")
         and sym.storage_class == lief.COFF.Symbol.STORAGE_CLASS.EXTERNAL
     ]
-    return symbols
 
 
 # ---------------------------------------------------------------------------
@@ -412,7 +411,7 @@ def _list_elf_symbols(obj_path: str) -> list[str]:
     if elf is None:
         return []
 
-    symbols = [
+    return [
         str(sym.name)
         for sym in elf.symbols
         if sym.name
@@ -420,7 +419,6 @@ def _list_elf_symbols(obj_path: str) -> list[str]:
         and sym.binding == lief.ELF.Symbol.BINDING.GLOBAL
         and sym.type == lief.ELF.Symbol.TYPE.FUNC
     ]
-    return symbols
 
 
 # ---------------------------------------------------------------------------

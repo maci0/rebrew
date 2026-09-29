@@ -958,7 +958,7 @@ def build_plan(cfg_splat: SplatConfig, target: str | None = None) -> ImportPlan:
 
     binary_dest = f"original/{binary.name}"
     in_project = _inside_project(binary, cfg.root)
-    plan = ImportPlan(
+    return ImportPlan(
         splat=cfg_splat,
         target=target_name,
         marker=marker,
@@ -979,7 +979,6 @@ def build_plan(cfg_splat: SplatConfig, target: str | None = None) -> ImportPlan:
         symbols=symbols,
         existing_vas=existing,
     )
-    return plan
 
 
 def _display_dir(cfg: Any) -> str:
