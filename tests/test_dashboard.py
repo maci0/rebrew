@@ -3488,7 +3488,7 @@ class TestLifecycleLines:
         assert "INFO     Dashboard stopped." in rendered
         assert (
             "INFO     served 0 requests (0 revalidated), 0 server errors, "
-            "0 client errors, slowest 0.0ms" in rendered
+            "0 client errors, 0 timeouts, 0 slow, slowest 0.0ms" in rendered
         )
 
     def test_a_crashed_run_is_reported_on_the_server_stream(
@@ -3632,6 +3632,98 @@ class TestSlowRequestLine:
 
         assert caplog.records == []
 
+    def test_slow_requests_are_counted_not_just_the_worst(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The worst case alone cannot show a route that degraded everywhere.
+
+        One outlier pins ``slowest_ms`` for the whole run, and a route that
+        sits just under the threshold on every request never moves it, so the
+        probe needs the count to see either.
+        """
+        from rebrew.dashboard import _SLOW_REQUEST_MS, _Handler, served_totals
+
+        _Handler.reset_served_totals()
+        try:
+            for _ in range(3):
+                self._handler(_SLOW_REQUEST_MS / 1000.0 + 0.05).log_request(200, 1024)
+            self._handler(0.01).log_request(200, 1024)
+            totals = served_totals()
+            assert totals["requests"] == 4
+            assert totals["slow_requests"] == 3
+        finally:
+            _Handler.reset_served_totals()
+
+    def test_reset_zeroes_the_slow_count(self) -> None:
+        from rebrew.dashboard import _Handler, served_totals
+
+        _Handler._slow_requests = 4
+        _Handler.reset_served_totals()
+        assert served_totals()["slow_requests"] == 0
+
+
+class TestConnectionTimeoutLine:
+    """A dropped connection names its request and reaches the probe.
+
+    ``handle_one_request`` reports a read or write that ran past the idle
+    timeout through ``log_error``.  On the default path that prints an INFO
+    line with no request id, and the request never reaches ``log_request``, so
+    a client that stopped reading mid-response left no trace anywhere: no
+    pivotable id, and no total for the probe to read.
+    """
+
+    @staticmethod
+    def _handler() -> Any:
+        from rebrew.dashboard import _Handler
+
+        handler = _Handler.__new__(_Handler)
+        handler.client_address = ("127.0.0.1", 8000)
+        handler._request_id = "r77"
+        return handler
+
+    def test_timeout_is_a_warning_carrying_its_id(
+        self, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.dashboard import _Handler
+
+        monkeypatch.setattr(_Handler, "_timeouts", 0)
+        with caplog.at_level(logging.WARNING, logger="rebrew.dashboard"):
+            self._handler().log_error("Request timed out: %r", TimeoutError("timed out"))
+
+        assert len(caplog.records) == 1
+        assert caplog.records[0].levelno == logging.WARNING
+        message = caplog.records[0].getMessage()
+        assert message.startswith("r77 Request timed out:")
+        assert "timed out" in message
+
+    def test_timeout_is_counted_where_the_probe_reads_it(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """No status means no other total sees it, so it needs its own."""
+        from rebrew.dashboard import _Handler, served_totals
+
+        _Handler.reset_served_totals()
+        self._handler().log_error("Request timed out: %r", TimeoutError("timed out"))
+        assert served_totals()["timeouts"] == 1
+        assert served_totals()["requests"] == 0
+        assert served_totals()["client_errors"] == 0
+        _Handler.reset_served_totals()
+        assert served_totals()["timeouts"] == 0
+
+    def test_health_reports_the_timeout_total(self, dashboard: Dashboard) -> None:
+        from rebrew.dashboard import _Handler, served_totals
+
+        _Handler.reset_served_totals()
+        try:
+            _Handler._timeouts = 4
+            _Handler._slow_requests = 2
+            served = Dashboard(dashboard.db_dir, served=served_totals)
+            payload = json.loads(served.handle("GET", "/api/health", {})[2])
+            assert payload["timeouts"] == 4
+            assert payload["slow_requests"] == 2
+        finally:
+            _Handler.reset_served_totals()
+
 
 class TestRouteWarningCorrelation:
     """A route's own warning names the request whose response it explains.
@@ -3743,9 +3835,61 @@ class TestThreadFaults:
                 self._server().handle_error(None, ("127.0.0.1", 51235))  # type: ignore[arg-type]
 
         assert [r.getMessage() for r in caplog.records] == [
-            "r43 client disconnected serving GET /api/functions HTTP/1.1"
+            "r43 client disconnected serving GET /api/functions HTTP/1.1: BrokenPipeError"
         ]
         assert _Handler._server_errors == 0
+
+    def test_a_peer_that_aborts_is_also_a_disconnect(
+        self, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A client that closes rather than resets is the same event.
+
+        It raises ``ConnectionAbortedError``, which the reset/broken-pipe pair
+        did not match, so it was reported as an unhandled fault with a
+        traceback and counted against the 5xx total a probe reads.
+        """
+        from rebrew.dashboard import _Handler, _stamp_request
+
+        monkeypatch.setattr(_Handler, "_server_errors", 0)
+        _stamp_request("r45", "GET /api/summary HTTP/1.1")
+        with caplog.at_level(logging.INFO, logger="rebrew.dashboard"):
+            try:
+                raise ConnectionAbortedError(103, "Software caused connection abort")
+            except ConnectionAbortedError:
+                self._server().handle_error(None, ("127.0.0.1", 51237))  # type: ignore[arg-type]
+
+        assert [r.getMessage() for r in caplog.records] == [
+            "r45 client disconnected serving GET /api/summary HTTP/1.1: ConnectionAbortedError"
+        ]
+        assert _Handler._server_errors == 0
+
+    def test_a_stalled_write_is_a_timeout_not_a_server_error(
+        self, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The client stopped reading a body it asked for, so it is the slow one.
+
+        A write that ran past the per-handler timeout raised through here and
+        was logged as an unhandled fault with a traceback, counted as a 5xx.
+        """
+        from rebrew.dashboard import _Handler, _stamp_request, served_totals
+
+        _Handler.reset_served_totals()
+        _stamp_request("r46", "GET /api/globals HTTP/1.1")
+        try:
+            with caplog.at_level(logging.WARNING, logger="rebrew.dashboard"):
+                try:
+                    raise TimeoutError(110, "Connection timed out")
+                except TimeoutError:
+                    self._server().handle_error(  # type: ignore[arg-type]
+                        None, ("127.0.0.1", 51238)
+                    )
+            assert [r.getMessage() for r in caplog.records] == [
+                "r46 client stopped reading serving GET /api/globals HTTP/1.1: TimeoutError"
+            ]
+            assert served_totals()["timeouts"] == 1
+            assert served_totals()["server_errors"] == 0
+        finally:
+            _Handler.reset_served_totals()
 
     def test_request_line_is_stamped_for_the_next_request(
         self, caplog: pytest.LogCaptureFixture

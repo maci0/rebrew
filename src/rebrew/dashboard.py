@@ -80,12 +80,16 @@ no-cache`` so browsers can 304 without serving a stale body after ``build-db``;
 the shell links ``/app.js?v=<content hash>``, which is ``immutable``.
 ``/api/health`` is the exception: it reads the documents, so it answers
 ``no-store`` with no ``ETag`` at all (see ``_UNCACHEABLE_ROUTES``).  It
-also reports the running request, 5xx, 4xx, revalidation, and worst-latency
-totals plus the in-flight connection count, so a probe can watch the error
-rate (both ends of it) and the saturation behind it while the server is up.
+also reports the running request, 5xx, 4xx, revalidation, and timeout totals,
+the slow-request count, the worst latency, and the in-flight connection count,
+so a probe can watch the error rate (both ends of it) and the saturation
+behind it while the server is up.
 The server's own output is one stream: an access line per request (id, request
 line, status, size, handler milliseconds), a WARNING for a request past
-``_SLOW_REQUEST_MS`` or for a refused ``Host``, an ERROR with an escaped
+``_SLOW_REQUEST_MS``, for a refused ``Host``, or for a connection dropped
+after a read or write ran past the keep-alive timeout (each timeout also
+counts toward the ``timeouts`` total the probe and the shutdown line report),
+an ERROR with an escaped
 traceback for a failure, and
 every warning a route raises about its own data, each stamped with the id of
 the request in flight.  A route-level warning reports a response the access
@@ -2997,6 +3001,17 @@ class _Handler(BaseHTTPRequestHandler):
     #: rebuild is being picked up or whether clients are refetching a page that
     #: did not change.
     _not_modified: ClassVar[int] = 0
+    #: Connections dropped after a read or write ran past the idle timeout.
+    #: A request that timed out never reaches ``log_request`` (it has no
+    #: response to log), so without this total those requests are absent from
+    #: every number ``/api/health`` and the shutdown line report.
+    _timeouts: ClassVar[int] = 0
+    #: Requests past ``_SLOW_REQUEST_MS``.  ``_slowest_ms`` alone is a
+    #: worst-case value: one outlier sets it for the whole run, and a route
+    #: that degraded to sit just under the threshold on every request never
+    #: moves it.  Over ``requests`` this is the share of traffic that is slow,
+    #: which is the number that tells the two apart.
+    _slow_requests: ClassVar[int] = 0
     _slowest_ms: ClassVar[float] = 0.0
 
     @classmethod
@@ -3007,6 +3022,8 @@ class _Handler(BaseHTTPRequestHandler):
             cls._server_errors = 0
             cls._client_errors = 0
             cls._not_modified = 0
+            cls._timeouts = 0
+            cls._slow_requests = 0
             cls._slowest_ms = 0.0
 
     def _respond(self, method: str) -> None:
@@ -3296,6 +3313,30 @@ class _Handler(BaseHTTPRequestHandler):
         )
 
     @override
+    def log_error(self, format: str, *args: Any) -> None:  # (http.server API)
+        """One WARNING carrying the request id for a fault http.server reports.
+
+        ``handle_one_request`` catches a read or write that ran past
+        ``timeout`` and calls ``log_error`` before closing the connection.
+        Left on ``log_message`` it lands on the access stream as one more INFO
+        line with the peer address and no id, so the one fault a keep-alive
+        server hits routinely (a client that stopped reading mid-response, or
+        an idle socket the handler gave up on) is indistinguishable from a
+        served request and reaches no counter.  It counts toward ``timeouts``
+        rather than either error total: the request never got a response, so
+        it has no status to file it under, and the peer is the one that
+        stopped.
+        """
+        with self._stats_lock:
+            type(self)._timeouts += 1
+        log.warning(
+            "%s %s: %s",
+            self._request_id,
+            _escape_log_text(format),
+            _escape_log_text(" ".join(str(arg) for arg in args)),
+        )
+
+    @override
     def handle_one_request(self) -> None:  # (http.server API)
         # Access-log clock: stamped per request so log_request can report how
         # long the handler took.  A keep-alive connection runs many requests
@@ -3334,6 +3375,8 @@ class _Handler(BaseHTTPRequestHandler):
                 # own outcome rather than lost in the 200s they avoided.
                 type(self)._not_modified += 1
             type(self)._slowest_ms = max(type(self)._slowest_ms, elapsed_ms)
+            if elapsed_ms >= _SLOW_REQUEST_MS:
+                type(self)._slow_requests += 1
         if elapsed_ms >= _SLOW_REQUEST_MS:
             # An outlier, not a fault: the access line already reports the
             # status, and this reports the one number that says the route is
@@ -3399,7 +3442,12 @@ def served_totals() -> dict[str, Any]:
 
     ``client_errors`` and ``not_modified`` ride with the 5xx total so the probe
     carries the whole error rate (both ends of it) and the revalidation hit
-    rate, not just the one half an operator would page on.
+    rate, not just the one half an operator would page on.  ``timeouts`` rides
+    with them because a request that timed out never reaches ``log_request``
+    and so has no status in any other total.  ``slow_requests`` rides with them
+    because ``slowest_ms`` is a worst case: one outlier sets it for the whole
+    run, and a route that degrades to sit just under the threshold on every
+    request never moves it.
     """
     with _Handler._stats_lock:
         totals = {
@@ -3407,6 +3455,8 @@ def served_totals() -> dict[str, Any]:
             "server_errors": _Handler._server_errors,
             "client_errors": _Handler._client_errors,
             "not_modified": _Handler._not_modified,
+            "timeouts": _Handler._timeouts,
+            "slow_requests": _Handler._slow_requests,
             "slowest_ms": round(_Handler._slowest_ms, 1),
         }
     totals["active_connections"] = active_connections()
@@ -3421,9 +3471,13 @@ class _DashboardServer(ThreadingHTTPServer):
     no counter.  A client that closed the connection between our status line and
     its body (routine on a keep-alive server) therefore dumped a stack trace an
     operator could neither read as part of the request stream nor pivot back
-    to.  The override sends both cases through ``log`` with the stamped request
+    to.  The override sends every case through ``log`` with the stamped request
     id, and keeps a vanished client out of the server-error total that the
-    shutdown line reports.
+    shutdown line reports.  A peer that went away is one of three shapes, and
+    the level and the counter follow which: any ``ConnectionError`` (reset,
+    broken pipe, or abort) is an INFO with no count, a ``TimeoutError`` on a
+    write is a WARNING counted as a timeout, and anything else is the ERROR
+    with a traceback that counts as a server error.
     """
 
     #: Connections allowed to hold a handler thread at once; see
@@ -3495,11 +3549,31 @@ class _DashboardServer(ThreadingHTTPServer):
     ) -> None:
         exc = sys.exc_info()[1]
         request_id, line = _request_context()
-        if isinstance(exc, (BrokenPipeError, ConnectionResetError)):
-            # The peer hung up before the response was written.  Nothing the
-            # server can do about it, so it is not a fault: INFO, and no
-            # contribution to the error count.
-            log.info("%s client disconnected serving %s", request_id, line)
+        if isinstance(exc, ConnectionError):
+            # The peer hung up before the response was written (a reset, a
+            # broken pipe, or an abort from a client that closed the socket
+            # mid-write).  Nothing the server can do about it, so it is not a
+            # fault: INFO, and no contribution to the error count.  Narrowed
+            # from BrokenPipe/ConnectionReset alone, which left
+            # ConnectionAbortedError — the one a peer that closes rather than
+            # resets raises — reported as an unhandled fault with a traceback
+            # and counted against the 5xx total a probe reads.
+            log.info("%s client disconnected serving %s: %s", request_id, line, type(exc).__name__)
+            return
+        if isinstance(exc, TimeoutError):
+            # A write that ran past the per-handler timeout: the client
+            # stopped reading a body it had already asked for.  The peer is
+            # the slow one, and the request was served, so this joins the
+            # timeout total rather than the 5xx one.  Counted as neither, the
+            # only trace was a traceback naming a client that hung up.
+            with _Handler._stats_lock:
+                _Handler._timeouts += 1
+            log.warning(
+                "%s client stopped reading serving %s: %s",
+                request_id,
+                line,
+                type(exc).__name__,
+            )
             return
         with _Handler._stats_lock:
             _Handler._server_errors += 1
@@ -3635,6 +3709,8 @@ def main(
             f"({totals['not_modified']} revalidated), "
             f"{totals['server_errors']} server errors, "
             f"{totals['client_errors']} client errors, "
+            f"{totals['timeouts']} timeouts, "
+            f"{totals['slow_requests']} slow, "
             f"slowest {totals['slowest_ms']:.1f}ms[/dim]",
         )
         # Last: the totals line is the run's own output, so the log stream it

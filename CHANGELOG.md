@@ -24,7 +24,13 @@
   too: a run that turned every client away reported zero requests served.
   A request whose `Host` this server does not answer is a WARNING carrying the
   correlation id and the refused value, not one more INFO 403 buried in the
-  access stream. `docs/dashboard-api.yaml`, `docs/CLI.md`,
+  access stream. A connection dropped after a read or write ran past the
+  keep-alive idle timeout is now a WARNING carrying the correlation id plus a
+  `timeouts` total on the probe and at shutdown: a timed-out request never got
+  a response, so it reached no status counter and left the stream with one
+  unlabeled INFO line. A `slow_requests` total rides with the worst-case
+  `slowest_ms`, which one outlier pins for the whole run and a route degraded
+  to just under the threshold never moves. `docs/dashboard-api.yaml`, `docs/CLI.md`,
   `docs/COVERAGE_DOCUMENT.md` and `docs/THREAT_MODEL.md` document the fields.
 - **`REBREW_LLM_MAX_TOKENS` bounds what LLM seeding can spend, not just how
   often it calls.** `REBREW_LLM_MAX_REQUESTS` priced a run in calls, but one

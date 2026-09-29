@@ -820,7 +820,7 @@ components:
         are there so a probe can watch the error rate while the
         server is up, rather than learning of a run that fails every query
         only when the process stops.
-      required: [status, targets, requests, server_errors, client_errors, not_modified, slowest_ms, active_connections]
+      required: [status, targets, requests, server_errors, client_errors, not_modified, timeouts, slow_requests, slowest_ms, active_connections]
       properties:
         status: { type: string, const: ok }
         coverage_dir:
@@ -858,6 +858,25 @@ components:
             Requests answered 304 by the ETag revalidation short-circuit.
             Over `requests` this is the revalidation hit rate: how much of the
             traffic a `build-db` rebuild did not have to invalidate.
+        timeouts:
+          type: integer
+          minimum: 0
+          description: >-
+            Connections dropped since the server started after a read or write
+            ran past the keep-alive idle timeout.  A request that timed out
+            never got a response, so it has no status and reaches no other
+            total: a client that stopped reading mid-response is visible here
+            and nowhere else.
+        slow_requests:
+          type: integer
+          minimum: 0
+          description: >-
+            Requests whose handler took longer than the slow-request threshold
+            (500 ms).  Over `requests` this is the share of traffic that is
+            slow, which `slowest_ms` alone cannot show: that value is a worst
+            case, so one outlier sets it for the whole run while a route that
+            degrades to sit just under the threshold on every request never
+            moves it.
         slowest_ms:
           type: number
           minimum: 0

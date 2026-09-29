@@ -2676,7 +2676,7 @@ Endpoints: `/`, `/app.js`, `/favicon.svg`, `/api/bootstrap`, `/api/targets`,
 `/api/health` (liveness plus one real read of the target list, so a
 directory yielding no readable document answers 500 `database_error`; reports
 `coverage_dir`, the running `requests`, `server_errors`, `client_errors`,
-`not_modified`, and `slowest_ms`
+`not_modified`, `timeouts`, `slow_requests`, and `slowest_ms`
 totals, and the `active_connections` gauge (the count the in-flight cap
 refuses on), so a probe can watch the error rate (4xx and 5xx alike) and the
 saturation behind it while the server is up; served
