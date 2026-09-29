@@ -61,7 +61,12 @@ make test-one T=tests/test_annotation.py   # smoke the edit-test loop
 and its version, the sibling `../resembl` checkout, bash, nasm, node, shellcheck,
 yamllint, vnu, and
 the `prove` extra / `similarity` group in `.venv`), so a host missing several of
-them sees all of them at once instead of one failed target at a time.  The
+them sees all of them at once instead of one failed target at a time.  It
+separates the two that the next two bootstrap steps install (`../resembl` and
+the venv extras) from a host tool the bootstrap cannot install, so on a clean
+clone it exits 0 and prints `make clone-resembl` / `make setup` as the next
+step, and it exits non-zero only for a missing uv, bash, nasm or node.  Every
+line still prints its own fix.  The
 checks still guard their own targets: a missing nasm surfaces at `make test`
 whether or not `make doctor` was run.
 

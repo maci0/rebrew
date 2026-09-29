@@ -425,12 +425,22 @@ ensure-extras: ensure-uv
 # Read-only: it runs the preflight targets and nothing else, installs nothing,
 # and never edits .venv.  It runs the hard checks (uv, ../resembl, nasm, node,
 # the venv extras) and the warn-level ones (the uv version, shellcheck,
-# yamllint, vnu), so a
-# non-zero exit names a prerequisite the suite or the lint gate needs, and a
-# warning still prints for a host that only costs a CI-only gate.
+# yamllint, vnu), and it prints a warning for a host that only costs a CI-only
+# gate.
+#
+# Two buckets, because the bootstrap is documented as `doctor`, then
+# `clone-resembl`, then `setup`: on a clean clone the ../resembl and the venv
+# extras are missing by construction, and those are exactly the two things the
+# next two steps install.  Counting them as environment failures made step 0
+# exit non-zero on every clean clone and print "fix the CHECK lines above before
+# make setup" about the lines `make setup` is about to create, so a host with
+# every host tool present read the same as one missing nasm.  A failure in
+# either bucket still prints its own CHECK line and its own fix; only the
+# summary line and the exit code separate them, and the exit code stays 1 for a
+# host-tool gap the bootstrap steps cannot install.
 doctor:
 	@set -u; \
-	rc=0; \
+	rc=0; setup_rc=0; \
 	for check in ensure-uv warn-uv-version ensure-resembl ensure-bash ensure-nasm ensure-node warn-shellcheck warn-yamllint warn-vnu ensure-extras; do \
 	  case $$check in \
 	    ensure-uv) label='uv on PATH' ;; \
@@ -444,20 +454,35 @@ doctor:
 	    warn-vnu) label='vnu on PATH (W3C validation of the HTML surfaces)' ;; \
 	    ensure-extras) label="venv extras (angr/claripy, rapidfuzz/resembl)" ;; \
 	  esac; \
-	  out=$$($(MAKE) --no-print-directory $$check 2>&1) || rc=1; \
+	  case $$check in \
+	    ensure-resembl|ensure-extras) bucket=setup ;; \
+	    *) bucket=host ;; \
+	  esac; \
+	  out=$$($(MAKE) --no-print-directory $$check 2>&1); \
+	  st=$$?; \
 	  if [ -z "$$out" ]; then \
 	    printf 'ok    %s\n' "$$label"; \
 	  else \
 	    printf 'CHECK %s\n' "$$label"; \
 	    printf '%s\n' "$$out" | grep -v '^make\[[0-9]*\]: \*\*\*' | sed 's/^/      /'; \
 	  fi; \
+	  if [ $$st -ne 0 ]; then \
+	    if [ "$$bucket" = host ]; then rc=1; else setup_rc=1; fi; \
+	  fi; \
 	done; \
-	if [ $$rc -eq 0 ]; then \
-	  echo 'environment ready: run make setup, then make test-one T=tests/test_annotation.py'; \
-	else \
-	  echo 'environment incomplete: fix the CHECK lines above before make setup' >&2; \
+	if [ $$rc -ne 0 ]; then \
+	  echo 'environment incomplete: fix the host-tool CHECK lines above before make setup' >&2; \
+	  exit 1; \
 	fi; \
-	exit $$rc
+	if [ $$setup_rc -ne 0 ]; then \
+	  echo 'host tools ok: the sibling resembl checkout and the venv extras are what the'; \
+	  echo 'bootstrap steps install, so this host is ready for them:'; \
+	  echo "  make clone-resembl    # sibling resembl at $(RESEMBL_DIR)"; \
+	  echo '  make setup            # locked sync (extras + similarity) + pre-commit hooks'; \
+	  echo 'Then re-run make doctor, which then reports the host tools alone.'; \
+	else \
+	  echo 'environment ready: run make setup, then make test-one T=tests/test_annotation.py'; \
+	fi
 
 # Run tests.  Match CI: a TTY / FORCE_COLOR / GITHUB_ACTIONS makes Rich/typer
 # emit ANSI, which splits numbers and option names and breaks assertions on

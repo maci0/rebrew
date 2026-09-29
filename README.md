@@ -481,7 +481,9 @@ Run the following from the directory that will hold both checkouts:
 git clone https://github.com/maci0/rebrew.git
 cd rebrew/
 make doctor                # report every missing prerequisite (uv, ../resembl, bash, nasm,
-                           # node, shellcheck, venv extras) with the fix for each; read-only
+                           # node, shellcheck, yamllint, vnu, venv extras) with the fix for each;
+                           # read-only, and exits non-zero only for a host tool the two steps
+                           # below cannot install
 make clone-resembl         # clone sibling resembl pin (tag v3.1.1) into ../resembl
 make setup                 # uv sync --locked --all-extras --group similarity + pre-commit hooks
 make add-dep ADD_DEP_SPEC=<spec>  # add a dependency (wraps `uv add`; prints the license-table step)

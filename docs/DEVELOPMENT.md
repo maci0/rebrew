@@ -153,7 +153,10 @@ lists every contributor target.
 
 ```bash
 make doctor                             # report every missing prerequisite (uv, ../resembl, bash, nasm,
-                                        # node, shellcheck, yamllint, venv extras) with the fix for each; read-only
+                                        # node, shellcheck, yamllint, vnu, venv extras) with the fix for each;
+                                        # read-only; on a clean clone ../resembl and the venv extras are the
+                                        # next step (clone-resembl, setup), so the exit code is 1 only
+                                        # for a host tool the bootstrap cannot install
 make setup                              # --locked sync (extras + similarity) + pre-commit/pre-push hooks (push runs
                                         # make test, needs nasm; SKIP=pytest git push to skip)
 make test-one T=tests/test_annotation.py  # single file / pytest nodeid

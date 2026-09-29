@@ -1672,6 +1672,32 @@ class TestCiPins:
             "make doctor installs nothing; it runs the preflight targets only"
         )
 
+    def test_doctor_separates_bootstrap_gaps_from_host_gaps(self) -> None:
+        """A clean clone fails ../resembl and the venv extras by construction.
+
+        The documented bootstrap is doctor, then clone-resembl, then setup, so
+        on step 0 those two are the things the next two steps install. Counting
+        them as environment failures made `make doctor` exit non-zero on every
+        clean clone and print "fix the CHECK lines above before make setup"
+        about the lines `make setup` was about to create.
+        """
+        text = MAKEFILE.read_text(encoding="utf-8")
+        recipe = text.split("\ndoctor:\n", 1)[1].split("\n# ", 1)[0]
+        assert "ensure-resembl|ensure-extras) bucket=setup" in recipe, (
+            "doctor must bucket the two checks the bootstrap steps install"
+        )
+        assert "if [ $$st -ne 0 ]; then" in recipe, (
+            "doctor must read each check's own exit status"
+        )
+        assert "if [ $$rc -ne 0 ]; then" in recipe, (
+            "a host-tool gap must decide the exit before the setup bucket does"
+        )
+        assert "if [ $$setup_rc -ne 0 ]; then" in recipe, (
+            "a clean clone reports the bootstrap steps instead of failing"
+        )
+        # A host-tool gap still fails: only the setup bucket is allowed to pass.
+        assert "exit 1" in recipe and "environment incomplete" in recipe
+
     @pytest.mark.parametrize("target", sorted(_makefile_uv_targets()))
     def test_uv_targets_preflight_uv(self, target: str) -> None:
         """A missing uv must be a named error, not a bare ``uv: not found`` from the recipe."""
