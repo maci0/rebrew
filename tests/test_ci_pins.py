@@ -419,6 +419,15 @@ class TestCiPins:
             assert re.search(rf"(?m)^{name}=(\d+)$", apt).group(1) == value, name
         assert "GIT_TERMINAL_PROMPT=0" in text
         assert "basename is not 'resembl'" in text
+        # A host without git fails every attempt the same way, so the retry
+        # loop would exit naming a dead mirror for a missing binary. Checked
+        # before the loop, the way the apt helper names a missing apt-get.
+        assert "git not on PATH" in text
+        assert text.index("git not on PATH") < text.index("for ((attempt = 1;")
+        # The dest refusal is the stronger guard: a caller that would rm -rf
+        # something that is not a resembl checkout is refused whatever the
+        # host has installed, so it cannot be pre-empted by a missing binary.
+        assert text.index("refusing dest whose basename") < text.index("git not on PATH")
         # Token must live in a mode-0600 gitconfig, not on git argv (ps leak).
         assert "GIT_CONFIG_GLOBAL" in text
         assert "extraheader = AUTHORIZATION: basic" in text
@@ -1737,6 +1746,28 @@ class TestCiAptInstall:
         # Success is proven by the binary, not by apt's exit code alone.
         assert "is still not on PATH" in text
 
+    def test_helper_names_a_missing_privilege_or_package_manager(self) -> None:
+        """A host without apt-get (or sudo, when not root) fails every retry
+        identically, so the loop burns its backoff and exits naming a dead
+        mirror instead of the missing prerequisite. Same preflight shape as
+        the Makefile's ensure-uv / ensure-nasm, and checked before the first
+        `retry` call so the message is the one the reader gets.
+        """
+        text = self.HELPER.read_text(encoding="utf-8")
+        assert "apt-get not on PATH" in text
+        assert "not root and no sudo on PATH" in text
+        assert text.index("apt-get not on PATH") < text.index('retry "apt-get update"')
+        assert text.index("not root and no sudo on PATH") < text.index('retry "apt-get update"')
+
+    def test_helper_sudo_never_prompts(self) -> None:
+        """No TTY in CI: a sudo that wants a password blocks on the prompt
+        until the job timeout, which reads as an infra outage rather than a
+        misconfigured runner. -n fails it immediately instead.
+        """
+        text = self.HELPER.read_text(encoding="utf-8")
+        assert 'sudo -n "$@"' in text
+        assert re.search(r'(?m)^\s*sudo\s+"', text) is None
+
     def test_every_apt_step_uses_the_helper(self) -> None:
         """No workflow may inline `apt-get install`: the retrying helper is the
         one place the mirror-flake policy lives, and the drift result gate's
@@ -1828,8 +1859,12 @@ class TestCiAptInstall:
         fake.chmod(0o755)
         # The helper retries with a backoff sleep and elevates through sudo;
         # stub both so the test asserts the retry contract, not the wall clock.
+        # The sudo stub drops -n rather than exec'ing it, matching a real sudo.
         passthrough = bindir / "sudo"
-        passthrough.write_text('#!/bin/sh\nexec "$@"\n', encoding="utf-8")
+        passthrough.write_text(
+            '#!/bin/sh\nwhile [ $# -gt 0 ]; do [ "$1" = -n ] && shift || break; done\nexec "$@"\n',
+            encoding="utf-8",
+        )
         passthrough.chmod(0o755)
         nap = bindir / "sleep"
         nap.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")

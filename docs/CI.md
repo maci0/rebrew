@@ -138,7 +138,13 @@ yamllint for the pre-commit gate, jq for the nightly drift result gate): apt
 mirrors flake
 under load, so it retries update and
 install with a backoff, skips packages already on `PATH`, and fails the step
-naming the package after the last attempt.
+naming the package after the last attempt. A host that cannot install at all
+is named up front rather than retried: the helper requires `apt-get` (and
+`sudo`, when it is not already root) before the first attempt, and elevates
+with `sudo -n`, because there is no TTY in CI and a password prompt would
+block until the job timeout. `tools/ci_clone_resembl.sh` takes the same
+preflight for `git`, so a host missing the binary reports that instead of
+`git clone resembl failed after 3 attempts`.
 `node` is the one host binary the test job only asserts (`node --version`):
 the runner image ships it, `tests/dashboard_*.mjs` need it, and
 `test_dashboard.py` skips those scripts when it is missing, so a job that lost

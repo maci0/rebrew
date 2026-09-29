@@ -21,12 +21,34 @@ if [[ $# -eq 0 ]]; then
   exit 2
 fi
 
+# Name the missing prerequisite instead of retrying it.  A runner without
+# apt-get fails every `retry` call identically, so the loop burns its backoff
+# and exits with "apt-get update failed after 3 attempts", which reads as a
+# dead mirror rather than a host that cannot install at all.  Same preflight
+# shape as the Makefile's ensure-uv / ensure-nasm.
+if ! command -v apt-get >/dev/null 2>&1; then
+  echo "ERROR: apt-get not on PATH, so $* cannot be installed" >&2
+  echo "This helper is for Debian/Ubuntu runners (CI pins ubuntu-24.04)." >&2
+  exit 1
+fi
+
+# Likewise for the privilege escalation the non-root path needs: `sudo -n`
+# fails rather than prompting, but the message would be sudo's, not ours.
+if [[ "${EUID}" -ne 0 ]] && ! command -v sudo >/dev/null 2>&1; then
+  echo "ERROR: not root and no sudo on PATH, so apt-get cannot be run as root" >&2
+  echo "Run this as root, or on a runner whose user has passwordless sudo." >&2
+  exit 1
+fi
+
 # GitHub runners call this as a non-root user; a local container may not.
+# `sudo -n`: there is no TTY in CI, so a runner whose sudo wants a password
+# blocks on the prompt until the job timeout instead of reporting why.  -n
+# turns that into an immediate failure the retry loop cannot paper over.
 run_root() {
   if [[ "${EUID}" -eq 0 ]]; then
     "$@"
   else
-    sudo "$@"
+    sudo -n "$@"
   fi
 }
 

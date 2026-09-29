@@ -36,7 +36,8 @@ MAX_ATTEMPTS=3
 RETRY_BASE_DELAY_SECONDS=5
 
 # Refuse callers that would rm -rf something other than a resembl checkout
-# (e.g. dest=/ or dest=.).
+# (e.g. dest=/ or dest=.).  Before the git preflight below: a bad dest is
+# refused whatever the host has installed.
 if [[ "$(basename "${dest}")" != "resembl" ]]; then
   echo "refusing dest whose basename is not 'resembl': ${dest}" >&2
   exit 1
@@ -49,6 +50,16 @@ case "${dest}" in
   *)
     ;;
 esac
+
+# A host without git fails every attempt identically, so the loop burns its
+# backoff and exits with "git clone resembl failed after 3 attempts": a mirror
+# diagnosis for what is a missing binary.  Name it before the loop, the way
+# tools/ci_apt_install.sh names a missing apt-get.
+if ! command -v git >/dev/null 2>&1; then
+  echo "ERROR: git not on PATH, so ${RESEMBL_REF} cannot be cloned into ${dest}" >&2
+  echo "Run 'make setup' after installing git, or clone the sibling checkout by hand." >&2
+  exit 1
+fi
 
 # Never block the job on an interactive credential prompt (no TTY in CI).
 export GIT_TERMINAL_PROMPT=0

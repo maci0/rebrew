@@ -7,6 +7,15 @@
   directory it answers with its own smaller entry set, and is invisible
   otherwise. Warn-only, since a stray copy is not a defect by itself.
 
+### Fixed
+- **The CI host helpers named the wrong cause when a tool was missing.**
+  `tools/ci_apt_install.sh` retried `apt-get` on a host that has none and
+  `tools/ci_clone_resembl.sh` retried `git`, so a missing binary burned the
+  backoff and exited with a mirror-flake message pointing at the network.
+  Both check for the binary first and name it, and the apt helper escalates
+  with `sudo -n`: there is no TTY in CI, so a password prompt blocked the job
+  until its timeout instead of reporting that sudo wants one.
+
 ### Changed
 - **The contributor pin on the sibling resembl checkout is the rewritten
   `v3.1.1` commit.**  `RESEMBL_REF` / `RESEMBL_SHA` and the `uv-env` action
