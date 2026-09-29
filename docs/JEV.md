@@ -633,13 +633,13 @@ serialized link-test queue.
 #### Decompiler backend / seed policy
 
 `rebrew decompile` takes `--decompiler` (default `kuna`; also
-`r2ghidra`, `r2dec`, `ghidra`, `auto`). `rebrew match --seed-llm` is
+`auto`, `r2ghidra`, `r2dec`, `ghidra`, `m2c`). `rebrew match --seed-llm` is
 optional. Pick the expensive path only when the cheap one is
 hopeless.
 
 | Question | Options / type | Action |
 | -------- | -------------- | ------ |
-| `decomp_backend` | Choice: `kuna` / `r2ghidra` / `r2dec` / `ghidra` / `auto` | `rebrew decompile --decompiler …` |
+| `decomp_backend` | Choice: `auto` / `r2ghidra` / `r2dec` / `ghidra` / `kuna` / `m2c` | `rebrew decompile --decompiler …` |
 | `seed_policy` | Choice: `none` / `seed_solved` / `seed_llm` / `both` | flags on `rebrew match` |
 
 State = size, `near-diag`, whether a solved sibling exists,

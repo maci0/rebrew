@@ -52,7 +52,7 @@ from rebrew.config import (
     inventory_path_for,
     validate_http_url,
 )
-from rebrew.decompiler import fetch_decompilation
+from rebrew.decompiler import BACKEND_HELP_CHOICES, fetch_decompilation
 from rebrew.ghidra.client import DEFAULT_MCP_ENDPOINT
 from rebrew.limits import NO_MAX_SIZE
 from rebrew.naming import (
@@ -1480,7 +1480,7 @@ def main(
     decomp_backend: str = typer.Option(
         "auto",
         "--decomp-backend",
-        help="Decompiler backend: auto, r2ghidra, r2dec, ghidra, kuna, m2c",
+        help=f"Decompiler backend: {BACKEND_HELP_CHOICES}",
     ),
     xrefs: bool = typer.Option(
         False,

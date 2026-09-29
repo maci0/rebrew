@@ -16,6 +16,7 @@ import pytest
 from rebrew.config import ConfigWarning, ProjectConfig
 from rebrew.decompiler import (
     _BACKEND_MAP,
+    BACKEND_HELP_CHOICES,
     BACKENDS,
     _clean_output,
     _find_re_tool,
@@ -68,6 +69,33 @@ class TestBackendDispatch:
         # ghidra backend excluded from auto-probe (not yet implemented)
         assert "ghidra" not in BACKENDS
         assert "ghidra" in _BACKEND_MAP  # still registered for explicit use
+
+    def test_help_choices_name_every_selectable_backend(self) -> None:
+        """Every registered backend is spelled in the shared --decompiler help.
+
+        ``m2c`` shipped selectable on all four commands while three of the four
+        help strings omitted it, so the help is pinned to the map.
+        """
+        listed = {name.strip() for name in BACKEND_HELP_CHOICES.split(",")}
+        assert set(_BACKEND_MAP) <= listed
+        assert "auto" in listed
+
+    @pytest.mark.parametrize("command", ["decompile", "recover-structs", "skeleton"])
+    def test_command_help_spells_every_backend(self, command: str) -> None:
+        """The rendered ``--help`` of each command that takes a backend.
+
+        Drives the real entry point, so a command re-spelling the list by hand
+        (and drifting from the constant again) fails here.
+        """
+        from typer.testing import CliRunner
+
+        from rebrew.main import app
+
+        result = CliRunner().invoke(app, [command, "--help"])
+        assert result.exit_code == 0, result.output
+        rendered = " ".join(result.output.split())
+        for name in _BACKEND_MAP:
+            assert name in rendered, f"{command} --help omits backend {name}"
 
     @patch("rebrew.decompiler.shutil.which", return_value=None)
     def test_r2ghidra_no_tool(self, mock_which) -> None:

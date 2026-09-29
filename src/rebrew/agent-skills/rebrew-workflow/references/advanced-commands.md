@@ -31,7 +31,7 @@ Manual inspection and linkage tools outside the main reverse loop. Run
 | `rebrew refactor` | Analyse the source tree and suggest refactoring opportunities. |
 | `rebrew recommend` | Deterministic advice lanes (TU layout, hygiene, next action); `--apply` fixes safe lanes. |
 | `rebrew analyze` | One-shot intelligence dossier for a target binary (layout, strings, imports, coverage, FLIRT). |
-| `rebrew decompile` | Decompile a function VA (`--decompiler`: kuna, r2ghidra, r2dec, ghidra, auto; default kuna). |
+| `rebrew decompile` | Decompile a function VA (`--decompiler`: auto, r2ghidra, r2dec, ghidra, kuna, m2c; default kuna). |
 | `rebrew fix` | Make raw decompiler output compilable (DecBench-style fixup). |
 | `rebrew drift` | Localise where compiled bytes drift from reference, from branch targets. |
 | `rebrew switch` | Decode jump-table switch dispatches in a function (case → handler map). |

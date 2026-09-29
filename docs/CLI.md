@@ -2204,7 +2204,7 @@ shipping a fix that does not compile.
 
 ### `rebrew recover-structs`
 
-`rebrew recover-structs [--all | --functions VA,VA | --filter SUBSTR] [--decompiler kuna|r2ghidra|r2dec|ghidra|auto] [--limit N] [--apply FILE] [--json]`
+`rebrew recover-structs [--all | --functions VA,VA | --filter SUBSTR] [--decompiler auto|r2ghidra|r2dec|ghidra|kuna|m2c] [--limit N] [--apply FILE] [--json]`
 
 Recover struct definitions by decompiling functions and aggregating their
 member-access offsets per pointer base.  Parses `->field_N` /
@@ -2233,7 +2233,7 @@ or a Ghidra MCP endpoint.  For guild-rebrew-style projects this is the
 
 ### `rebrew decompile`
 
-`rebrew decompile 0xVA [--decompiler kuna|r2ghidra|r2dec|ghidra|auto] [--named] [--json]`
+`rebrew decompile 0xVA [--decompiler auto|r2ghidra|r2dec|ghidra|kuna|m2c] [--named] [--json]`
 
 Decompile one function and print the pseudo-C (raw `print()`, pipeable to a
 file).  Backend-pluggable, same backends as `recover-structs` (needs `kuna`

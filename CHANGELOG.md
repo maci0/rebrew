@@ -31,6 +31,18 @@
   `rebrew cfg effective` reports a malformed value (`env_errors`).
 
 ### Fixed
+- **`m2c` was missing from three of the four `--decompiler` help strings.**
+  `m2c` is a registered backend, so `rebrew decompile 0x… --decompiler m2c`
+  resolves; only `rebrew skeleton --decomp-backend` listed it, and the help is
+  the only place a reader learns the valid values. All four help strings now
+  read one `decompiler.BACKEND_HELP_CHOICES` constant, derived from the backend
+  map, so a new backend cannot ship registered but undocumented.
+- **`rebrew init --no-wizard` told a non-TTY caller how to re-enable the
+  wizard it had just turned off.** The "skipping the onboarding wizard" note
+  fires for every non-interactive run, including the one carrying
+  `--no-wizard`, so a script that opted out got "Pass the answers as flags, or
+  run rebrew init on a terminal". The note is now gated on the wizard being on
+  by default; the opt-out stays silent.
 - **The dashboard's summary cards were unlabeled on every view.** The card row
   is function coverage, but it stays painted above the Globals, Sections, and
   History tables with only a screen-reader heading to say so; on those tabs the

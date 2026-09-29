@@ -1083,6 +1083,12 @@ _BACKEND_MAP: dict[str, Callable[..., str | None]] = {
     "m2c": fetch_m2c,
 }
 
+#: Selectable backend names for the ``--decompiler`` / ``--decomp-backend``
+#: help strings, in the order the map declares them.  Derived from the map so a
+#: registered backend cannot go undocumented: ``m2c`` shipped selectable on
+#: every command while three of the four help strings omitted it.
+BACKEND_HELP_CHOICES = "auto, " + ", ".join(_BACKEND_MAP)
+
 #: setuptools entry-point group whose members register extra decompiler
 #: backends.  A member is a callable with the backend signature — ``fn(
 #: binary, va, root, **kwargs) -> str | None`` — keyed by its entry-point

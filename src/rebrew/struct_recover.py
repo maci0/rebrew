@@ -68,6 +68,7 @@ from rebrew.cli import (
     require_config,
     require_non_negative,
 )
+from rebrew.decompiler import BACKEND_HELP_CHOICES
 from rebrew.errors import RebrewError
 from rebrew.utils import atomic_write_text, fold_ident, parse_int_literal, read_source_text
 
@@ -732,7 +733,7 @@ def main(
     decompiler: str = typer.Option(
         "kuna",
         "--decompiler",
-        help="Decompiler backend: kuna, r2ghidra, r2dec, ghidra, auto",
+        help=f"Decompiler backend: {BACKEND_HELP_CHOICES}",
     ),
     limit: int = typer.Option(
         0, "--limit", help="Cap the number of functions decompiled (0 = unlimited)"

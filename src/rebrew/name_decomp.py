@@ -36,6 +36,7 @@ from typing import Any
 import typer
 
 from rebrew.cli import TargetOption, console, error_exit, json_print, parse_va, require_config
+from rebrew.decompiler import BACKEND_HELP_CHOICES
 from rebrew.struct_recover import (
     PSEUDO_TYPES,
     TYPE_WIDTHS,
@@ -451,7 +452,7 @@ def main(
     decompiler: str = typer.Option(
         "kuna",
         "--decompiler",
-        help="Decompiler backend: kuna, r2ghidra, r2dec, ghidra, auto",
+        help=f"Decompiler backend: {BACKEND_HELP_CHOICES}",
     ),
     named: bool = typer.Option(False, "--named", help="Apply known struct names to the output"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),

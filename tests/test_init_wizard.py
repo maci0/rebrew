@@ -52,12 +52,18 @@ class TestWizardGating:
     """Non-interactive invocations keep the old, prompt-free flow."""
 
     def test_default_cli_run_never_prompts(self, tmp_path: Path, monkeypatch) -> None:
-        """CliRunner provides no TTY, so the wizard gate stays off: no
-        input, no monkeypatched gate → completes with zero prompt output."""
+        """CliRunner provides no TTY, so the wizard gate stays off: the run
+        completes with zero prompts and names the reason on stderr.
+
+        ``_no_prompts`` is the assertion that matters — any Prompt/Confirm.ask
+        raises.  The stderr note is the deliberate counterpart: a run that asks
+        nothing says why, and how to get the questions back."""
         monkeypatch.chdir(tmp_path)
+        _no_prompts(monkeypatch)
         result = CliRunner().invoke(app, [])
         assert result.exit_code == 0, result.output + result.stderr
-        assert "onboarding wizard" not in result.stderr
+        assert "skipping the onboarding wizard" in result.stderr
+        assert "stdin is not a terminal" in result.stderr
         assert "Select the target binary" not in result.stderr
         assert (tmp_path / "rebrew-project.toml").is_file()
 
