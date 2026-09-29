@@ -62,6 +62,23 @@
   `docs/COVERAGE_DOCUMENT.md` and `docs/THREAT_MODEL.md` document the field.
 
 ### Changed
+- **The SBOM's attribution set covers the grants its own detector could not
+  see.** `_COPYLEFT_FAMILIES` matched copyleft families only, so `lmdb` 2.1.1
+  (`OLDAP-2.8`, an attribution grant the `prove` extra pulls in through angr)
+  was never required in the hand-maintained table and never reached NOTICE.
+  The table is now `_NOTICE_EXPRESSIONS` (the contract it has always
+  documented: NOTICE attribution, source availability, or a reciprocal clause
+  on derived work), `OLDAP` joins the family regex, and lmdb is attributed in
+  both the table and NOTICE. Two entries in `tools/licenses.py` recorded the
+  first line of a multi-line `License` header instead of a grant
+  (`python-discovery` read as `"Permission is hereby granted, free of
+  charge..."`, `pyxdia` as `"Copyright 2024 Matt Borgerson"`), so the released
+  CycloneDX document named a sentence and a copyright line where a scanner
+  expects a licence. `python-discovery` records its trove classifier
+  (`OSI Approved :: MIT License`) and `pyxdia` records `NOASSERTION`, which
+  states that no single-line grant is declared instead of guessing one from
+  the prose; both are explained in NOTICE. A gate fails a value that opens
+  with licence prose again.
 - **`rebrew cache stats --json` prints one key set, and a plugin cache
   backend no longer has to carry counters it cannot attribute.**
   The absent-cache branch wrote five keys while the present one wrote nine

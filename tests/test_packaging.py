@@ -577,7 +577,8 @@ class TestPackagingMetadata:
         assert "LICENSE" in proj.get("license-files", ["LICENSE"])
         assert "NOTICE" in proj["license-files"]
         notice = (ROOT / "NOTICE").read_text(encoding="utf-8")
-        # Wheel consumers need the optional copyleft grants traced to upstream.
+        # Wheel consumers need the non-permissive and attribution-bearing
+        # grants traced to upstream.
         for needle in (
             "resembl",
             "GPL-3.0-only",
@@ -586,8 +587,25 @@ class TestPackagingMetadata:
             "pyvex",
             "BSD-2-Clause AND GPL-2.0-or-later",
             "LibVEX",
+            "lmdb",
+            "OLDAP-2.8",
         ):
             assert needle in notice, needle
+
+    def test_attribution_family_covers_the_openldap_grant(self) -> None:
+        """``_NOTICE_FAMILIES`` must see the grants its own table attributes.
+
+        The regex is what decides which installed distributions the SBOM has to
+        name by hand, so a family it does not match is a grant the audit can
+        never surface.  ``lmdb`` (angr's key-value store, the ``prove`` extra)
+        declares ``OLDAP-2.8``: not reciprocal, but a redistribution has to
+        carry the upstream notice.  The list is a literal, so pin the one
+        member that no other entry in the tree exercises.
+        """
+        from tools.generate_sbom import _NOTICE_EXPRESSIONS, _NOTICE_FAMILIES
+
+        assert _NOTICE_FAMILIES.search("OLDAP-2.8")
+        assert _NOTICE_EXPRESSIONS["lmdb"] == "OLDAP-2.8"
 
     def test_classifiers_declare_typed_console_package(self) -> None:
         """Wheel METADATA must advertise PEP 561 + CLI audience honestly.
@@ -937,6 +955,23 @@ class TestCycloneDxSbom:
         for key, value in recorded.items():
             assert value.strip(), key
 
+    def test_license_table_records_a_grant_not_license_prose(self) -> None:
+        """A value cut out of a multi-line ``License`` header is not a grant.
+
+        ``tools/licenses.py`` records the string an artifact declares, and two
+        locked distributions (``python-discovery``, ``pyxdia``) put the whole
+        MIT text in that header.  Truncating it to the first line put
+        ``"Permission is hereby granted..."`` and ``"Copyright 2024 ..."`` in
+        the table, and the SBOM emitted them as license names a scanner cannot
+        act on.  Neither opener may reappear: the grant is the trove
+        classifier, the SPDX expression, or ``NOASSERTION``.
+        """
+        from tools.licenses import PATH_OR_GIT_LICENSES, REGISTRY_LICENSES
+
+        recorded = dict(REGISTRY_LICENSES) | PATH_OR_GIT_LICENSES
+        for key, value in recorded.items():
+            assert not value.startswith(("Permission is hereby", "Copyright")), key
+
     def test_generated_bom_passes_its_own_validator(self) -> None:
         """`make sbom` gates on this, so the real lock must clear it."""
         from tools.generate_sbom import _project_version, build_bom, validate_bom
@@ -1106,30 +1141,31 @@ class TestWheelSmokeScript:
             path = package / entry
             assert path.is_dir() if kind == "dir" else path.is_file(), path
 
-    def test_every_copyleft_dependency_is_named_in_the_sbom(self) -> None:
-        """A copyleft package absent from ``_COPYLEFT_EXPRESSIONS`` is unattributed.
+    def test_every_attributed_dependency_is_named_in_the_sbom(self) -> None:
+        """A non-plain-permissive package absent from ``_NOTICE_EXPRESSIONS`` is unattributed.
 
-        The SBOM names copyleft components by hand because ``uv.lock`` records
-        no license.  The three expressions above are asserted individually,
-        which cannot catch a *new* one: a lock bump that pulls in another
-        reciprocal-license package would ship a CycloneDX document that calls
-        the whole tree MIT-permissive, and NOTICE would stop being a complete
-        attribution.  Resolve the environment instead and require every
-        copyleft distribution found there to be declared.
+        The SBOM names attributed components by hand because ``uv.lock``
+        records no license.  The three expressions above are asserted
+        individually, which cannot catch a *new* one: a lock bump that pulls in
+        another reciprocal-license or attribution-bearing package would ship a
+        CycloneDX document that calls the whole tree MIT-permissive, and
+        NOTICE would stop being a complete attribution.  Resolve the
+        environment instead and require every distribution found there whose
+        grant falls in ``_NOTICE_FAMILIES`` to be declared.
         """
         from tools.generate_sbom import (
-            _COPYLEFT_EXPRESSIONS,
-            copyleft_names_in_environment,
+            _NOTICE_EXPRESSIONS,
+            notice_grant_names_in_environment,
         )
 
-        found = copyleft_names_in_environment()
+        found = notice_grant_names_in_environment()
         # resembl / pyvex / m2c live in non-default groups, so they are absent
         # from a plain `uv sync`. certifi and hypothesis are not, and without
         # them the loop below would never run and the gate would be vacuous.
         assert {"certifi", "hypothesis"} <= {n for n, _ in found}, found
-        undeclared = [(n, lic) for n, lic in found if n not in _COPYLEFT_EXPRESSIONS]
+        undeclared = [(n, lic) for n, lic in found if n not in _NOTICE_EXPRESSIONS]
         assert undeclared == [], (
-            "copyleft dependencies missing from _COPYLEFT_EXPRESSIONS (add the "
+            "dependencies missing from _NOTICE_EXPRESSIONS (add the "
             "SPDX expression and a NOTICE entry): " + repr(undeclared)
         )
 

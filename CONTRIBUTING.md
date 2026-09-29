@@ -58,8 +58,9 @@ checks still guard their own targets: a missing nasm surfaces at `make test`
 whether or not `make doctor` was run.
 
 `make setup` installs the `prove` extra and the `similarity` group. Those
-pull the copyleft components named in [`NOTICE`](NOTICE) (`pyvex`/LibVEX and
-GPL-3.0-only `resembl`). Rebrew's own source stays under [`LICENSE`](LICENSE).
+pull the attributed components named in [`NOTICE`](NOTICE) (`pyvex`/LibVEX,
+`OLDAP-2.8` lmdb, and GPL-3.0-only `resembl`). Rebrew's own source stays under
+[`LICENSE`](LICENSE).
 
 `make setup` is what puts the `prove` extra in `.venv`, and that is what
 `make mypy` type-checks against: a bare `uv sync` never installs optional
@@ -88,7 +89,7 @@ pinned artifact declares in its own METADATA (`License-Expression`, else
 `License`, else the first `Classifier: License ::`).  Record it verbatim; a
 trove classifier such as `OSI Approved :: BSD License` does not say which BSD,
 and rewriting one into an SPDX id upstream never wrote puts a license claim
-in a released artifact.  A copyleft or restrictive grant also gets a
+in a released artifact.  A copyleft or attribution-bearing grant also gets a
 `NOTICE` section.  `TestCycloneDxSbom::test_license_table_covers_the_lock_exactly`
 in `tests/test_packaging.py` fails the suite listing every distribution left
 `unrecorded`, and `make sbom` refuses to emit a component without one.

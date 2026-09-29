@@ -98,7 +98,9 @@ def _license_field(source_kind: str, name: str, version: str) -> dict[str, Any]:
     return {"license": {"name": declared}}
 
 
-# Copyleft dependencies pinned in uv.lock.  Expressions were read from the
+# Pinned distributions whose grant obliges a consumer to do more than rely on
+# the wheel's own MIT licence file: reciprocal clauses, source availability, or
+# a notice that has to survive redistribution.  Expressions were read from the
 # locked artifacts: m2c aa869da ``License-Expression: GPL-3.0-only``, pyvex
 # 9.3.4 ``License-Expression: BSD-2-Clause AND GPL-2.0-or-later``, and the
 # MPL-2.0 packages below.  resembl 3.1.0 declares
@@ -106,27 +108,33 @@ def _license_field(source_kind: str, name: str, version: str) -> dict[str, Any]:
 # expression.  certifi 2026.7.22 and hypothesis
 # 6.168.0 declare ``MPL-2.0`` and every resolve pulls them in; tqdm 4.70.1
 # declares ``License-Expression: MPL-2.0 AND MIT`` and arrives with the
-# ``binsync`` extra (declib's progress bars).  See NOTICE.
-# Permissive dependencies keep the license metadata inside their own wheels.
+# ``binsync`` extra (declib's progress bars).  lmdb 2.1.1 declares
+# ``OLDAP-2.8``, which is not reciprocal but does require a modified
+# distribution to mark the change and keep the upstream notice, so it is
+# listed here for the attribution rather than for a copyleft effect.  See
+# NOTICE.  Every other pinned grant is plain MIT/BSD/Apache and keeps its
+# licence metadata inside its own wheel.
 #
 # ``tests/test_packaging.py`` fails when the resolved environment holds a
-# copyleft distribution missing from this table, so a lock bump cannot drop
-# the attribution silently.  Only the names are load-bearing: the emitted
-# license always comes from ``tools/licenses.py``.
-_COPYLEFT_EXPRESSIONS = {
+# distribution in one of the families below that this table omits, so a lock
+# bump cannot drop the attribution silently.  Only the names are load-bearing:
+# the emitted license always comes from ``tools/licenses.py``.
+_NOTICE_EXPRESSIONS = {
     "resembl": "GPL-3.0-only",
     "m2c": "GPL-3.0-only",
     "pyvex": "BSD-2-Clause AND GPL-2.0-or-later",
     "certifi": "MPL-2.0",
     "hypothesis": "MPL-2.0",
     "tqdm": "MPL-2.0 AND MIT",
+    "lmdb": "OLDAP-2.8",
 }
 #: License families that oblige downstream consumers beyond the MIT grant the
 #: wheel ships under: NOTICE attribution, source availability, or a
 #: reciprocal-license clause on derived work.  Used only to decide which
 #: distributions the SBOM must name explicitly; the emitted expression always
-#: comes from ``_COPYLEFT_EXPRESSIONS``.
-_COPYLEFT_FAMILIES = re.compile(r"AGPL|GPL|LGPL|MPL|CDDL|CECILL|EUPL|OSL|SSPL")
+#: comes from ``_NOTICE_EXPRESSIONS``.  ``OLDAP`` (OpenLDAP Public License) is
+#: the attribution-only member; every other entry here is reciprocal.
+_NOTICE_FAMILIES = re.compile(r"AGPL|GPL|LGPL|MPL|CDDL|CECILL|EUPL|OSL|SSPL|OLDAP")
 
 
 def canonicalize(name: str) -> str:
@@ -134,10 +142,10 @@ def canonicalize(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name).lower()
 
 
-def copyleft_names_in_environment() -> list[tuple[str, str]]:
-    """Installed distributions whose own license metadata is copyleft.
+def notice_grant_names_in_environment() -> list[tuple[str, str]]:
+    """Installed distributions whose own license metadata is not plain permissive.
 
-    ``uv.lock`` carries no license field, so the SBOM's copyleft expressions
+    ``uv.lock`` carries no license field, so the SBOM's attributed expressions
     can only be audited against the resolved environment.  Returns
     ``(canonical name, declared license)`` pairs sorted by name; PEP 639
     ``License-Expression`` wins over the legacy free-text ``License`` header.
@@ -155,7 +163,7 @@ def copyleft_names_in_environment() -> list[tuple[str, str]]:
         meta = dist.metadata
         declared = (meta.get("License-Expression") or meta.get("License") or "").strip()
         # A multi-line License header is the full licence text, not a field.
-        if "\n" in declared or not _COPYLEFT_FAMILIES.search(declared):
+        if "\n" in declared or not _NOTICE_FAMILIES.search(declared):
             continue
         found[canonicalize(name)] = declared
     return sorted(found.items())

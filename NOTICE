@@ -36,6 +36,17 @@ or ``uv pip install "m2c @ git+https://github.com/matt-kempster/m2c.git@aa869da2
 rev. The pin lives in ``[dependency-groups]``, same as resembl, so Requires-Dist
 leaves it out.
 
+prove extra — lmdb (via angr)
+------------------------------
+
+lmdb 2.1.1 is angr's key-value store and is installed by the same ``prove``
+extra.  It declares ``License: OLDAP-2.8`` (OpenLDAP Public License 2.8), a
+BSD-shaped permissive grant rather than a reciprocal one: a redistributed
+copy carries its upstream notice, and a modified copy additionally marks the
+change.  Rebrew installs lmdb unmodified from its own wheel, which already
+carries ``LICENSE``, so the obligation is the attribution and the SBOM
+records the grant string under ``lmdb`` rather than leaving it blank.
+
 prove extra — pyvex (via angr)
 ------------------------------
 angr 9.3.4 is BSD-2-Clause. Its dependency pyvex 9.3.4 declares
@@ -53,6 +64,17 @@ declib 4.5.0 declares ``License-Expression: BSD-2-Clause``. It pulls
 metadata carries only the trove text ``OSI Approved :: BSD License``; the
 SBOM records that string verbatim rather than choosing a clause count the
 artifact does not state. ``rebrew[binsync]`` installs this tree.
+
+binsync extra — python-discovery and pyxdia
+-------------------------------------------
+
+Two distributions in this tree publish their licence as a multi-line free-text
+``License`` header instead of a PEP 639 expression, so no single-line grant is
+declared for a scanner to read.  ``python-discovery`` 1.6.0 additionally
+carries the trove classifier ``OSI Approved :: MIT License``, which is the
+string the SBOM records for it.  ``pyxdia`` 0.1.1 has neither, so its SBOM
+component reads ``NOASSERTION`` rather than a grant guessed from the text. Both
+are installed unmodified from their own wheels, which carry the licence file.
 
 binsync extra — tqdm
 --------------------

@@ -12,10 +12,12 @@ license for every component instead of leaving 109 of 112 blank, and
 ``tests/test_packaging.py`` fails when the lock and this table disagree, so a
 ``uv lock --upgrade`` cannot ship an unrecorded grant.
 
-``NOASSERTION`` marks a package whose metadata was not readable in-tree
-(``colorama`` is behind a ``sys_platform == 'win32'`` marker and this project
-is Linux-only, so it never installs).  It is the SPDX value for "not
-determined" and is a claim about this table, not about the package.
+``NOASSERTION`` marks a package whose metadata did not name a grant this table
+could record verbatim: ``colorama`` sits behind a ``sys_platform == 'win32'``
+marker and this project is Linux-only, so it never installs, and ``pyxdia``
+puts the whole MIT text in a multi-line ``License`` field and ships no trove
+classifier, leaving no single-line field to quote.  It is the SPDX value for
+"not determined" and is a claim about this table, not about the package.
 """
 
 from __future__ import annotations
@@ -107,11 +109,13 @@ REGISTRY_LICENSES: dict[str, str] = {
     "pypcode==4.0.0": "BSD-2-Clause AND Apache-2.0 AND Zlib",
     "pytest==9.1.1": "MIT",
     "python-dateutil==2.9.0.post0": "Dual License",
-    "python-discovery==1.6.0": "Permission is hereby granted, free of charge, to any person obtaining a",
+    # Multi-line License field (the full MIT text, which the docstring's
+    # fallback rule skips); the trove classifier is the declared grant.
+    "python-discovery==1.6.0": "OSI Approved :: MIT License",
     "python-flirt==0.10.0": "OSI Approved :: Apache Software License",
     "pyvex==9.3.4": "BSD-2-Clause AND GPL-2.0-or-later",
     "pyxbe==1.0.4": "MIT",
-    "pyxdia==0.1.1": "Copyright 2024 Matt Borgerson",
+    "pyxdia==0.1.1": "NOASSERTION",  # full MIT text in a multi-line License field, no classifier
     "pyyaml==6.0.3": "MIT",
     "rapidfuzz==3.14.6": "MIT",
     "rich==15.0.0": "MIT",
