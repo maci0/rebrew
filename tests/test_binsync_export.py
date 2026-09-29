@@ -220,8 +220,18 @@ class TestBinsyncExportComments:
         result, outdir = _invoke(tmp_path, monkeypatch)
         assert result.exit_code == 0
         doc = tomlkit.loads((outdir / "functions" / "10010000.toml").read_text())
+        # The marker is spelled `[rebrew:…]`; a rewrite under any other prefix
+        # or into a different field is the same regression, so scan the text.
+        exported = "\n".join(
+            p.read_text(encoding="utf-8")
+            for p in sorted(outdir.rglob("*.toml"))
+            if p.name != "manifest.toml"
+        )
+        assert "[rebrew" not in exported
+        assert "STATUS=" not in exported
+        assert "CFLAGS=" not in exported
         comments = doc.get("comments")
-        assert comments is None or not any("[rebrew] STATUS=" in str(v) for v in comments.values())
+        assert comments is None or not any("[rebrew" in str(v) for v in comments.values())
 
     def test_note_written_at_va_plus_one(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

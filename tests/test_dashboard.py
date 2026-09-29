@@ -3055,7 +3055,7 @@ class TestHostValidation:
         two streams an hour apart and a fall-back night repeats one.
         """
         import re
-        from datetime import UTC, datetime
+        from datetime import UTC, datetime, timedelta
         from io import StringIO
 
         from rich.console import Console
@@ -3102,11 +3102,12 @@ class TestHostValidation:
             assert f" {level}" in rendered
             hh, mm, ss = (int(part) for part in match.groups())
             # The line was written at most a second ago: the stamp is UTC, not
-            # the host's Europe/Warsaw wall clock.
-            delta = abs(
-                (
-                    now - datetime(now.year, now.month, now.day, hh, mm, ss, tzinfo=UTC)
-                ).total_seconds()
+            # the host's Europe/Warsaw wall clock.  A run straddling midnight
+            # UTC stamps the previous date, so a day either side counts.
+            stamped = datetime(now.year, now.month, now.day, hh, mm, ss, tzinfo=UTC)
+            delta = min(
+                abs((now - (stamped + timedelta(days=shift))).total_seconds())
+                for shift in (-1, 0, 1)
             )
             assert delta < 5, rendered
 
@@ -3539,6 +3540,29 @@ class TestParseRejectionLog:
 class TestLifecycleLines:
     """Bind, warning, and shutdown lines share the access log's stamp."""
 
+    @staticmethod
+    def _invoke_free_port(app: Any, args: list[str], attempts: int = 5) -> tuple[Any, int]:
+        """Run *app* on a kernel-assigned port, retrying a lost race.
+
+        A probe socket is closed before the app binds, so the port is free
+        only at that instant; another process (or a parallel worker) can take
+        it in the gap and the run then dies of EADDRINUSE, which reads as a
+        product fault rather than a scheduling accident.
+        """
+        for attempt in range(attempts):
+            import socket
+
+            with socket.socket() as probe:
+                probe.bind(("127.0.0.1", 0))
+                port = probe.getsockname()[1]
+            result = CliRunner().invoke(
+                app, [str(port) if a == "{port}" else a for a in args]
+            )
+            taken = "already in use" in str(result.output)
+            if not taken or attempt == attempts - 1:
+                return result, port
+        raise AssertionError("unreachable")
+
     def test_notice_carries_the_stamp_and_level(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from io import StringIO
 
@@ -3557,7 +3581,6 @@ class TestLifecycleLines:
     def test_server_side_rejection_warns_once_at_bind(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
-        import socket
         from io import StringIO
 
         from rich.console import Console
@@ -3574,11 +3597,8 @@ class TestLifecycleLines:
             raise KeyboardInterrupt
 
         monkeypatch.setattr("rebrew.dashboard._DashboardServer.serve_forever", _stop)
-        with socket.socket() as probe:
-            probe.bind(("127.0.0.1", 0))
-            port = probe.getsockname()[1]
-        result = CliRunner().invoke(
-            app, ["--root", str(tmp_path), "--host", "0.0.0.0", "--port", str(port)]
+        result, port = self._invoke_free_port(
+            app, ["--root", str(tmp_path), "--host", "0.0.0.0", "--port", "{port}"]
         )
         assert result.exit_code == 0, result.output
         rendered = output.getvalue()
@@ -3594,7 +3614,6 @@ class TestLifecycleLines:
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
         """A fault in the accept loop must not read as a clean shutdown."""
-        import socket
 
         from rebrew.dashboard import _attach_server_log_handler, app
 
@@ -3604,9 +3623,6 @@ class TestLifecycleLines:
             raise RuntimeError("accept loop died")
 
         monkeypatch.setattr("rebrew.dashboard._DashboardServer.serve_forever", _crash)
-        with socket.socket() as probe:
-            probe.bind(("127.0.0.1", 0))
-            port = probe.getsockname()[1]
 
         restore_log = _attach_server_log_handler()
         server_log = logging.getLogger("rebrew.dashboard")
@@ -3616,7 +3632,9 @@ class TestLifecycleLines:
         server_log.addHandler(caplog.handler)
         try:
             with caplog.at_level(logging.ERROR, logger="rebrew.dashboard"):
-                result = CliRunner().invoke(app, ["--root", str(tmp_path), "--port", str(port)])
+                result, _port = self._invoke_free_port(
+                    app, ["--root", str(tmp_path), "--port", "{port}"]
+                )
         finally:
             # The run attached its own handler and restored this one on the way
             # out; the disposer is what removes the one this test added.

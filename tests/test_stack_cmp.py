@@ -89,8 +89,16 @@ class TestAnalyzeFrame:
         # process-wide capstone handle would be shared (and raced) there.
         from concurrent.futures import ThreadPoolExecutor
 
-        inputs = [EBP_FRAME_0X28, ESP_FRAME_0X20, EBP_STDCALL_RET4, NOFRAME] * 50
-        expected = [analyze_frame(code, 0x1000, 4) for code in inputs]
+        # Expected values are spelled out, not re-derived through analyze_frame:
+        # a stubbed analyze_frame must not satisfy this test.
+        table = [
+            (EBP_FRAME_0X28, {"frame_size": 0x2C, "frame_pointer": True, "ret_popping": 0, "slots": [-4]}),
+            (ESP_FRAME_0X20, {"frame_size": 0x24, "frame_pointer": False, "ret_popping": 0, "slots": []}),
+            (EBP_STDCALL_RET4, {"frame_size": 0x2C, "frame_pointer": True, "ret_popping": 4, "slots": [-8]}),
+            (NOFRAME, {"frame_size": 0, "frame_pointer": False, "ret_popping": 0, "slots": []}),
+        ]
+        inputs = [code for code, _ in table] * 50
+        expected = [frame for _, frame in table] * 50
         with ThreadPoolExecutor(max_workers=8) as pool:
             got = list(pool.map(lambda code: analyze_frame(code, 0x1000, 4), inputs))
         assert got == expected

@@ -252,6 +252,20 @@ class TestParityWithBuildDb:
             assert row["functions"] == json.loads(want[6])
             assert row["label"] == (want[7] or "")
             assert row["parent_function"] == (want[8] or "")
+        # _reference_cell_rows runs the same normalizer the writer runs, so a
+        # regression there moves both sides at once.  One row is pinned to
+        # literals from SAMPLE_DATA to keep the comparison honest.
+        labelled = next(row for row in got if row["start"] == 4224)
+        assert labelled == {
+            "section": ".text",
+            "start": 4224,
+            "end": 4288,
+            "span": 1,
+            "state": "data",
+            "functions": ["0x10001000"],
+            "label": "s_g_counter",
+            "parent_function": "adler32",
+        }
 
     def test_every_known_state_round_trips(self, written: dict[str, Any]) -> None:
         states = {row["state"] for row in written["sections"][".text"]["cells"]}

@@ -1,5 +1,7 @@
 """Tests for matcher/ast_engine.py parsing."""
 
+from collections.abc import Iterator
+
 import pytest
 from tree_sitter import Node, Tree
 
@@ -99,6 +101,13 @@ class TestParseTreeMemo:
     working set that actually earns hits is the one unchanged body per running
     worker.
     """
+
+    @pytest.fixture(autouse=True)
+    def _reset_memo(self) -> Iterator[None]:
+        """The memo is process-global; a failed assert must not leak it."""
+        ast_engine.clear_parse_tree_memo()
+        yield
+        ast_engine.clear_parse_tree_memo()
 
     def test_repeated_parse_returns_the_same_tree(self) -> None:
         ast_engine.clear_parse_tree_memo()

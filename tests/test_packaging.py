@@ -418,7 +418,7 @@ class TestPackagingMetadata:
 
         dropped = sorted(set(tagged_scripts) - set(_project().get("scripts", {})))
         if not dropped:
-            return
+            pytest.skip(f"no console script removed since {last_tag}")
 
         text = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
         if __version__ != last_tag.lstrip("v"):
@@ -533,7 +533,7 @@ class TestPackagingMetadata:
         tagged = tomllib.loads(_at_ref(last_tag, "pyproject.toml"))["project"]
         dropped = sorted(set(tagged.get("optional-dependencies", {})) - set(_extras()))
         if not dropped:
-            return
+            pytest.skip(f"no install extra removed since {last_tag}")
 
         target_block = _notes_block(last_tag, f"install extras {', '.join(dropped)} were removed")
         undeclared = [name for name in dropped if name not in target_block]

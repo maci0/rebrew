@@ -11,6 +11,7 @@ table, the other half CONTRIBUTING holds unfrozen.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -590,9 +591,16 @@ class TestDashboardRoutes:
         assert dashboard_routes("_PATHS = ['/api/targets']\n") is None
 
     def test_the_shipped_table_reads(self) -> None:
-        routes = dashboard_routes((PKG / "dashboard.py").read_text(encoding="utf-8"))
+        source = (PKG / "dashboard.py").read_text(encoding="utf-8")
+        routes = dashboard_routes(source)
         assert routes is not None
-        assert "/api/bootstrap" in routes
+        # The removal gate above skips whenever nothing was dropped, so the
+        # table's own contents are checked here against what the handler
+        # actually dispatches: a route that vanishes from the literal table
+        # without leaving the dispatch is a silent drop.
+        dispatched = set(re.findall(r'path == "(/[^"]*)"', source))
+        assert dispatched, "no literal route dispatch found in dashboard.py"
+        assert dispatched <= routes, sorted(dispatched - routes)
 
     def test_removed_route_ships_as_breaking_and_by_path(self) -> None:
         old = routes_at_ref(_last_tag(), cwd=ROOT)

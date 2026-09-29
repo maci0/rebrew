@@ -262,6 +262,13 @@ class TestDescribeCli:
         assert data["status"] is None or isinstance(data["status"], str)
         assert data["size"] is None or isinstance(data["size"], int)
         assert data["cflags"] is None or isinstance(data["cflags"], str)
+        # The loops below only run on a populated list, so pin the fixture's
+        # cardinality first: an empty dossier would skip every shape check.
+        assert data["callers"] == [{"from_va": 0x401017, "name": "caller_fn"}]
+        assert {"to_va": 0x401034, "name": "helper_fn", "kind": "call"} in data["callees"]
+        assert {"va": 0x40101E, "text": "Hello World"} in data["strings"]
+        assert [i["name"] for i in data["imports"]] == ["HeapCreate"]
+        assert data["globals"] == []
         for entry in data["callers"]:
             assert set(entry.keys()) == {"from_va", "name"}
             assert isinstance(entry["from_va"], int)
