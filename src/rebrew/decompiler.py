@@ -1082,13 +1082,19 @@ def fetch_m2c(binary: Path, va: int, root: Path, **_kwargs: Any) -> str | None:
 
 # Backends share the (binary, va, root) core plus optional keyword args;
 # fetch_ghidra ignores root (the MCP server holds its own project).
-_BACKEND_MAP: dict[str, Callable[..., str | None]] = {
+#: The packaged backends every discovery pass starts from.  A refresh must
+#: seed from this, not from the published :data:`_BACKEND_MAP`: re-merging
+#: entry points into a map that already holds them raised a duplicate on
+#: every refresh, so a plugin backend kept its first-loaded callable and lost
+#: its ``__rebrew_auto_probe__`` slot in the republished probe order.
+PACKAGED_BACKEND_MAP: dict[str, Callable[..., str | None]] = {
     "r2ghidra": fetch_r2ghidra,
     "r2dec": fetch_r2dec,
     "ghidra": fetch_ghidra,
     "kuna": fetch_kuna,
     "m2c": fetch_m2c,
 }
+_BACKEND_MAP: dict[str, Callable[..., str | None]] = dict(PACKAGED_BACKEND_MAP)
 
 #: Selectable backend names for the ``--decompiler`` / ``--decomp-backend``
 #: help strings, in the order the map declares them.  Derived from the map so a
@@ -1121,7 +1127,7 @@ def _merge_entry_point_backends() -> tuple[dict[str, Callable[..., str | None]],
     auto-probing; without the marker it stays name-selectable only)."""
     from rebrew.registry import iter_optional_callables, merge_into
 
-    merged = dict(_BACKEND_MAP)
+    merged = dict(PACKAGED_BACKEND_MAP)
     auto_probe: list[str] = []
     for reg, backend_fn in iter_optional_callables(
         DECOMPILER_ENTRY_POINT_GROUP, logger, expected="backend"

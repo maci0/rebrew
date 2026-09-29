@@ -2094,9 +2094,7 @@ def lint_file(
     # upper of every marker in cfg.all_markers is per-annotation work below
     # otherwise, on a tree with thousands of annotated blocks.
     _own_marker = getattr(cfg, "marker", None) if cfg is not None else None
-    _known_markers = getattr(cfg, "all_markers", None) or (
-        {_own_marker} if _own_marker else set()
-    )
+    _known_markers = getattr(cfg, "all_markers", None) or ({_own_marker} if _own_marker else set())
     _known_folded = {preset_module_key(str(item)) for item in _known_markers if item}
 
     # Statuses claimed by this file's annotations (for W020 escalation: a

@@ -1819,6 +1819,30 @@ class TestDecompilerAutoProbe:
         assert "auto-dec" not in auto
         assert "auto-dec" in _map  # still selectable by name
 
+    def test_refresh_keeps_plugin_backend_and_its_probe_slot(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A second discovery pass must not treat the first pass's plugin as a duplicate.
+
+        Seeding the merge from the published map re-merged every entry-point
+        backend into itself, so ``refresh_backends()`` warned per backend, kept
+        the stale callable, and dropped the backend out of the republished
+        auto-probe order.
+        """
+        import rebrew.decompiler as dc
+        from rebrew.decompiler import _merge_entry_point_backends, refresh_backends
+
+        self._patch(monkeypatch, marked=True)
+        saved = (dc._BACKEND_MAP, dc._AUTO_PROBE_BACKENDS)
+        try:
+            _merge_entry_point_backends()
+            published = refresh_backends()
+            _map, auto = _merge_entry_point_backends()
+            assert "auto-dec" in auto
+            assert published["auto-dec"] is _map["auto-dec"]
+        finally:
+            dc._BACKEND_MAP, dc._AUTO_PROBE_BACKENDS = saved
+
 
 class TestEntryPointProvenance:
     """Entry-point toolchains record their provider module in the origin."""

@@ -493,9 +493,7 @@ def main(
     has_libs_dir = bool(libs_dir.parts) and libs_dir.is_dir()
     # The lib directory is invariant across imports; scan it once, not per DLL.
     by_name: dict[str, Path] = (
-        {fold_ident(p.name): p for p in libs_dir.iterdir() if p.is_file()}
-        if has_libs_dir
-        else {}
+        {fold_ident(p.name): p for p in libs_dir.iterdir() if p.is_file()} if has_libs_dir else {}
     )
     for dll in {i.dll for i in imports_raw}:
         # binary names imports "KERNEL32.dll"; the import libs on disk are

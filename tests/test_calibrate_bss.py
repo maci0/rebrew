@@ -162,9 +162,9 @@ class TestCalibrateLoop:
         import subprocess
 
         from rebrew import calibrate_bss as cb
+        from rebrew.utils import atomic_write_text as real_write
 
         stub = self._project(tmp_path)
-        real_write = cb.atomic_write_text
         seen = {"calibrated": False}
 
         def flaky_write(path: Path, text: str, **kwargs: Any) -> None:
