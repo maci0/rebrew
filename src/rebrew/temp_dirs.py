@@ -15,6 +15,7 @@ import os
 import re
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 from rebrew.utils import SOURCE_CHECKOUT
@@ -235,7 +236,13 @@ def writable_temp_dir(prefix: str, *, require_real_disk: bool = False) -> Path:
     raise OSError(f"no writable directory for temp dir {prefix!r}")
 
 
-def remove_temp_dir(path: Path, retries: int = 5, delay: float = 0.2) -> None:
+def remove_temp_dir(
+    path: Path,
+    retries: int = 5,
+    delay: float = 0.2,
+    *,
+    sleep: Callable[[float], None] | None = None,
+) -> None:
     """Remove a temp dir created by :func:`writable_temp_dir`.
 
     A container that has not released its mount yet makes the top-level
@@ -243,6 +250,11 @@ def remove_temp_dir(path: Path, retries: int = 5, delay: float = 0.2) -> None:
     are gone; the short retry absorbs the unmount race so sandboxes do not
     accumulate empty shells in their parent.  Raises :class:`OSError` when
     the dir is still busy after *retries*.
+
+    *sleep* is the retry gap's only time source, the same seam
+    :func:`rebrew.recompile_client.compile_source` takes: inject a stepper to
+    replay the unmount race from virtual time.  Left unset it reads
+    :func:`time.sleep` per attempt, so a patched clock is honoured.
     """
     import shutil
 
@@ -250,6 +262,7 @@ def remove_temp_dir(path: Path, retries: int = 5, delay: float = 0.2) -> None:
     # removed nor reported, silently stranding a temp dir.
     if retries < 1:
         raise ValueError(f"retries must be at least 1, got {retries}")
+    nap = sleep if sleep is not None else time.sleep
     for attempt in range(retries):
         try:
             shutil.rmtree(path)
@@ -259,4 +272,4 @@ def remove_temp_dir(path: Path, retries: int = 5, delay: float = 0.2) -> None:
         except OSError:
             if attempt == retries - 1:
                 raise
-            time.sleep(delay)
+            nap(delay)

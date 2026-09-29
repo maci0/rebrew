@@ -41,7 +41,7 @@ import json
 import logging
 import re
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, Literal, Protocol, runtime_checkable
 
@@ -357,6 +357,7 @@ def upload_scratch(
     *,
     client: HttpClient | None = None,
     retries: int = 0,
+    sleep: Callable[[float], None] | None = None,
 ) -> dict[str, Any]:
     """POST the scratch to decomp.me; returns the response dict.
 
@@ -383,6 +384,12 @@ def upload_scratch(
     A transport failure after the request was sent (read timeout, dropped
     connection) is not retried: the create may have committed, and a second
     POST would orphan a public scratch.
+
+    *sleep* is that backoff's only time source, the same seam
+    :func:`rebrew.recompile_client.compile_source` and
+    :func:`rebrew.headless._wait_for_socket` take: inject a stepper to replay
+    a retry sequence from virtual time instead of waiting it out.  Left unset
+    it reads :func:`time.sleep` per attempt, so a patched clock is honoured.
     """
     import httpx  # deferred: ~46 ms of startup for non-decomp.me commands
 
@@ -403,6 +410,7 @@ def upload_scratch(
     url = f"{api}/api/scratch"
     attempts = retries + 1
     last_exc: DecompmeError | None = None
+    nap = sleep if sleep is not None else time.sleep
     for attempt in range(attempts):
         try:
             return _post_scratch(post_fn, url, payload, kw)
@@ -410,7 +418,7 @@ def upload_scratch(
             last_exc = exc
             if not exc.retryable or attempt + 1 >= attempts:
                 raise
-            time.sleep(retry_backoff_delay(attempt))
+            nap(retry_backoff_delay(attempt))
     assert last_exc is not None  # attempts >= 1
     raise last_exc
 

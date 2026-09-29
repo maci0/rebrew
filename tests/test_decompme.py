@@ -10,6 +10,7 @@ import pytest
 from typer.testing import CliRunner
 
 import rebrew.decompme as decompme
+from rebrew.utils import retry_backoff_delay
 
 runner = CliRunner()
 
@@ -425,6 +426,27 @@ class TestUpload:
         result = decompme.upload_scratch({"data": {}, "files": {}}, retries=1)
         assert result == {"slug": "abc123", "claim_token": "tok"}
         assert len(attempts) == 2
+
+    def test_injected_sleep_carries_the_retry_backoff(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The backoff goes through the injected clock, so a replay needs no real wait."""
+        attempts: list[int] = []
+
+        def _fake_post(url, **kwargs):
+            attempts.append(1)
+            if len(attempts) < 3:
+                return SimpleNamespace(status_code=503, text="busy", close=lambda: None)
+            return SimpleNamespace(
+                status_code=201,
+                json=lambda: {"slug": "abc123", "claim_token": "tok"},
+                close=lambda: None,
+            )
+
+        monkeypatch.setattr("httpx.post", _fake_post)
+        naps: list[float] = []
+        decompme.upload_scratch({"data": {}, "files": {}}, retries=2, sleep=naps.append)
+        assert naps == [retry_backoff_delay(0), retry_backoff_delay(1)]
 
     def test_retries_a_transport_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import httpx

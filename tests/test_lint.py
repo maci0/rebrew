@@ -2829,8 +2829,8 @@ class TestW032CoverageStore:
         assert self._messages(tmp_path, monkeypatch) == ""
 
 
-class TestW036StrayMetadataStore:
-    """W036: a store copy no configured directory reads."""
+class TestW036StrayMetadataStoreSingleDir:
+    """W036 with one configured directory (no ``shared_dir``/``reversed_dir`` pair)."""
 
     def _messages(self, tmp_path: Path, metadata_dir: Path) -> str:
         from rebrew.lint import _check_W036_stray_metadata_store

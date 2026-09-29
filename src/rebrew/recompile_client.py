@@ -19,7 +19,7 @@ no CLI flag toggles it per run.
 from __future__ import annotations
 
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol, runtime_checkable
@@ -244,6 +244,7 @@ def compile_source(
     emit_assembly: bool = False,
     client: HttpClient | None = None,
     retries: int = 0,
+    sleep: Callable[[float], None] | None = None,
 ) -> RecompileResult:
     """Compile *source* via ``POST <base_url>/api/v1/compile``.
 
@@ -266,6 +267,12 @@ def compile_source(
     prior single-shot behaviour.  Between attempts, sleeps with exponential
     backoff (``0.25 * 2**attempt`` seconds, capped at 8s) so a recovering
     503 is not immediately re-hammered.
+
+    *sleep* is that backoff's only time source, the same seam
+    :func:`rebrew.decompme.upload_scratch` and
+    :func:`rebrew.headless._wait_for_socket` take: inject a stepper to replay
+    a retry sequence from virtual time instead of waiting it out.  Left unset
+    it reads :func:`time.sleep` per attempt, so a patched clock is honoured.
 
     Once the compile POST returns ``status == "ok"``, retries never re-POST:
     ``emit_assembly=True`` appends a ``train_data/train.jsonl`` row per
@@ -316,6 +323,7 @@ def compile_source(
 
     attempts = retries + 1
     last_exc: RecompileError | None = None
+    nap = sleep if sleep is not None else time.sleep
     # Body + artifact_url from a successful compile POST.  Set once; retries
     # only re-GET so emit_assembly cannot double-append train.jsonl.
     pending: tuple[dict[str, Any], str] | None = None
@@ -389,7 +397,7 @@ def compile_source(
             # Immediate re-POST of a 503/timeout hammers a recovering service;
             # exponential backoff (capped) gives it room without unbounded wait.
             delay = retry_backoff_delay(attempt)
-            time.sleep(delay)
+            nap(delay)
             continue
     assert last_exc is not None  # attempts >= 1
     raise last_exc

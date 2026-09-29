@@ -1003,6 +1003,33 @@ class TestRemoveTempDir:
         with pytest.raises(OSError, match="busy"):
             remove_temp_dir(d, retries=1)
 
+    def test_retry_gap_goes_through_the_injected_sleep(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The unmount race is replayed from virtual time, not from a real wait."""
+        import errno
+        import shutil
+
+        from rebrew.temp_dirs import remove_temp_dir
+
+        d = tmp_path / "sandbox"
+        d.mkdir()
+        rmtree = shutil.rmtree
+        calls = 0
+
+        def busy_once_then_free(path: Path) -> None:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise OSError(errno.EBUSY, "Device or resource busy")
+            rmtree(path)
+
+        monkeypatch.setattr(shutil, "rmtree", busy_once_then_free)
+        naps: list[float] = []
+        remove_temp_dir(d, retries=3, delay=0.2, sleep=naps.append)
+        assert calls == 2
+        assert naps == [0.2]
+
 
 class TestParseIntLiteral:
     def test_hex_prefix(self) -> None:

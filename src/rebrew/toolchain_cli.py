@@ -13,6 +13,7 @@ import logging
 import shutil
 import subprocess
 import time
+from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -454,6 +455,7 @@ def _download_pinned_url(
     timeout: float = 1800,
     attempts: int = _HTTP_ATTEMPTS,
     backoff: float = _HTTP_RETRY_BACKOFF_S,
+    sleep: Callable[[float], None] | None = None,
 ) -> None:
     """Download *url* to *dest*, following redirects only while hosts stay trusted.
 
@@ -467,6 +469,11 @@ def _download_pinned_url(
     reads as a complete download.  The retry budget is per redirect target:
     following a redirect does not spend an attempt, so a multi-hop chain
     still gets the full budget on the hop that actually transfers bytes.
+
+    *sleep* is the retry backoff's only time source, the same seam
+    :func:`rebrew.recompile_client.compile_source` takes: inject a stepper to
+    replay a flaky-transfer sequence from virtual time.  Left unset it reads
+    :func:`time.sleep` per attempt, so a patched clock is honoured.
     """
     from urllib.parse import urljoin
 
@@ -474,6 +481,7 @@ def _download_pinned_url(
 
     current = _trusted_toolchain_download_url(url)
     last: httpx.HTTPError | None = None
+    nap = sleep if sleep is not None else time.sleep
     for _hop in range(_DOWNLOAD_REDIRECT_LIMIT):
         redirected = False
         for attempt in range(max(1, attempts)):
@@ -498,7 +506,7 @@ def _download_pinned_url(
                 dest.unlink(missing_ok=True)
                 if attempt + 1 >= max(1, attempts):
                     break
-                time.sleep(backoff * 2**attempt)
+                nap(backoff * 2**attempt)
         if redirected:
             # A redirect consumed this hop without transferring bytes; the
             # next hop starts a fresh transport budget.  A chain longer
@@ -1458,7 +1466,9 @@ def _github_auth_headers() -> dict[str, str]:
     return base
 
 
-def _live_commit_sha(owner: str, repo: str, branch: str) -> str:
+def _live_commit_sha(
+    owner: str, repo: str, branch: str, *, sleep: Callable[[float], None] | None = None
+) -> str:
     """Current default-branch commit sha for a GitHub repo (GitHub API —
     cheap: no tarball download).
 
@@ -1467,9 +1477,15 @@ def _live_commit_sha(owner: str, repo: str, branch: str) -> str:
     from the API otherwise turns the nightly drift gate red without the pin
     having moved. A non-retryable status (404, 403) is raised on the first
     attempt, so a wrong repository still reports itself.
+
+    *sleep* is that backoff's only time source, the seam
+    :func:`_download_pinned_url` takes: inject a stepper to replay a
+    flaky-API sequence from virtual time.  Left unset it reads
+    :func:`time.sleep` per attempt, so a patched clock is honoured.
     """
     import httpx
 
+    nap = sleep if sleep is not None else time.sleep
     url = f"https://api.github.com/repos/{owner}/{repo}/commits/{branch}"
     # No automatic redirects: an off-host Location would still receive the
     # optional GH_TOKEN Authorization header before httpx's strip runs.
@@ -1495,7 +1511,7 @@ def _live_commit_sha(owner: str, repo: str, branch: str) -> str:
         except httpx.HTTPError:
             if attempt + 1 == _HTTP_ATTEMPTS:
                 raise
-        time.sleep(_HTTP_RETRY_BACKOFF_S * 2**attempt)
+        nap(_HTTP_RETRY_BACKOFF_S * 2**attempt)
     raise ToolchainError(f"unreachable: no attempt made for {url!r}")
 
 
