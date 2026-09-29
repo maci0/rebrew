@@ -1,5 +1,20 @@
 ## [Unreleased]
 
+### Added
+- **W036 reports a metadata store outside the directory the readers use.**
+  `rebrew-data.toml` / `rebrew-functions.toml` are resolved by directory, with
+  no walk-up and no fallback, so a second copy elsewhere in the tree is not a
+  backup: it answers for its own directory when a tool is pointed at it and is
+  invisible everywhere else.  A store outside `metadata_dir`, `reversed_dir`
+  and `shared_dir` is now a warning naming the directory that would read it.
+
+### Changed
+- **The contributor pin on the sibling resembl checkout is the rewritten
+  `v3.1.1` commit.**  `RESEMBL_REF` / `RESEMBL_SHA` and the `uv-env` action
+  default moved together, so `make setup` still accepts a `../resembl` at
+  v3.1.1 after the tag was re-cut.  The license is unchanged (`GPL-3.0-only`),
+  so `NOTICE` needs no edit.
+
 ## [2.17.2] - 2026-09-29
 
 ### Changed

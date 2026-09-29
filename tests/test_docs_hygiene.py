@@ -91,7 +91,7 @@ _NUMBER_WORDS = (
 
 def test_every_lint_code_documented() -> None:
     src = (ROOT / "src" / "rebrew" / "lint.py").read_text(encoding="utf-8")
-    codes = set(re.findall(r'result\.(?:warning|error)\(\s*[^,]+,\s*"([EW]\d{3})"', src))
+    codes = set(re.findall(r'\w+\.(?:warning|error)\(\s*[^,]+,\s*"([EW]\d{3})"', src))
     assert codes, "no lint codes found — the regex may be stale"
     doc = (ROOT / "docs" / "ANNOTATIONS.md").read_text(encoding="utf-8")
     missing = sorted(c for c in codes if c not in doc)

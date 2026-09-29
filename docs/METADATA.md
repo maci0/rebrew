@@ -76,6 +76,12 @@ supplies its own tag.
   absolute path or a `..` segment at the write, and W034 reports rows written
   before that gate.  W035 reports a row whose module matches no target marker or
   library module: invisible to `status`/`todo`, which filter by module.
+- **The store is found by directory, not by search.**  A reader is handed
+  `metadata_dir` (plus `reversed_dir` and `shared_dir`) and reads whatever is
+  there; no loader walks up looking for a better copy.  So a second
+  `rebrew-data.toml` elsewhere in the tree is not a backup, it is a file that
+  answers for its own directory when a tool is pointed at it and is invisible
+  everywhere else.  W036 reports one outside those three directories.
 - **Data store.** `set_data_field` / `set_data_fields_batch` stamp the same pair
   alongside whichever field they change, tagged by the writer that ran: `verify`
   from `verify --data` on a

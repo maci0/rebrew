@@ -3030,6 +3030,55 @@ class TestW035UnknownModules:
         assert "matches no target marker" in self._warnings(self._cfg(tmp_path))
 
 
+class TestW036StrayMetadataStore:
+    """W036: a store copy outside the directories the readers resolve."""
+
+    def _warnings(self, tmp_path: Path, **overrides: object) -> str:
+        from rebrew.lint import _check_W036_stray_metadata_store
+
+        cfg = SimpleNamespace(
+            root=tmp_path,
+            **{"metadata_dir": tmp_path, "reversed_dir": tmp_path, **overrides},
+        )
+        return "\n".join(
+            m for res in _check_W036_stray_metadata_store(cfg) for _, _, m in res.warnings
+        )
+
+    def test_the_configured_store_is_silent(self, tmp_path: Path) -> None:
+        (tmp_path / "rebrew-data.toml").write_text("format = 1\n", encoding="utf-8")
+        assert self._warnings(tmp_path) == ""
+
+    def test_a_copy_elsewhere_is_reported(self, tmp_path: Path) -> None:
+        stray = tmp_path / "src"
+        stray.mkdir()
+        (stray / "rebrew-data.toml").write_text("format = 1\n", encoding="utf-8")
+        (stray / "rebrew-functions.toml").write_text("format = 1\n", encoding="utf-8")
+        messages = self._warnings(tmp_path)
+        assert "outside the configured directory" in messages
+        assert messages.count("outside the configured directory") == 2
+
+    def test_the_alternate_store_dirs_are_silent(self, tmp_path: Path) -> None:
+        """`shared_dir` and `reversed_dir` hold stores the loaders also read."""
+        for name in ("reversed", "shared"):
+            (tmp_path / name).mkdir()
+            (tmp_path / name / "rebrew-data.toml").write_text("format = 1\n", encoding="utf-8")
+        cfg = SimpleNamespace(
+            root=tmp_path,
+            metadata_dir=tmp_path / "reversed",
+            reversed_dir=tmp_path / "reversed",
+            shared_dir=tmp_path / "shared",
+        )
+        from rebrew.lint import _check_W036_stray_metadata_store
+
+        assert _check_W036_stray_metadata_store(cfg) == []
+
+    def test_a_skipped_tree_is_not_walked(self, tmp_path: Path) -> None:
+        build = tmp_path / "build"
+        build.mkdir()
+        (build / "rebrew-data.toml").write_text("format = 1\n", encoding="utf-8")
+        assert self._warnings(tmp_path) == ""
+
+
 class TestW032OldJsonStores:
     """A store that moved from JSON to TOML is named, not silently ignored."""
 
