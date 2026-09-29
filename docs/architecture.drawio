@@ -591,7 +591,7 @@
         </mxCell>
 
         <!-- Coverage reverse -->
-        <mxCell id="cov-lane" value="1. Coverage dashboard (recovery) — file contract + regen subprocess" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=10;spacingTop=4;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#581c87;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+        <mxCell id="cov-lane" value="1. Coverage dashboard (recovery): file contract + regen subprocess" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=10;spacingTop=4;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#581c87;fontStyle=1;fontSize=12;" vertex="1" parent="1">
           <mxGeometry x="40" y="310" width="1680" height="150" as="geometry"/>
         </mxCell>
         <mxCell id="cov1" value="rebrew build-db" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
@@ -1020,7 +1020,7 @@
         <mxCell id="b3m" value="&lt;b&gt;Context pack&lt;/b&gt;&lt;br&gt;rebrew context  (types + prototypes)&lt;br&gt;rebrew_globals.h · recover-structs&lt;br&gt;catalog names / callers (describe, xrefs)&lt;br&gt;asm.py --hints  (SEH, switch, IAT)&lt;br&gt;&lt;br&gt;This is the RAG / agent prompt payload,&lt;br&gt;not token-level compile training.&lt;br&gt;Strip secrets: no LLM keys, no original PE." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="920" y="386" width="370" height="190" as="geometry"/>
         </mxCell>
-        <mxCell id="b4m" value="&lt;b&gt;External interchange&lt;/b&gt;&lt;br&gt;rebrew decompme  (upload scratch;&lt;br&gt;no automatic pull-back)&lt;br&gt;decomp.me /api/scratch scrape&lt;br&gt;(DECOMPME_COMPILERS.md)&lt;br&gt;—&lt;br&gt;report --decomp-dev  report.json&lt;br&gt;objdiff.json units&lt;br&gt;&lt;br&gt;Inbound community C must be re-verified&lt;br&gt;through the pinned image before it is truth." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="b4m" value="&lt;b&gt;External interchange&lt;/b&gt;&lt;br&gt;rebrew decompme  (upload scratch;&lt;br&gt;no automatic pull-back)&lt;br&gt;decomp.me /api/scratch scrape&lt;br&gt;(DECOMPME_COMPILERS.md)&lt;br&gt;&lt;br&gt;report --decomp-dev  report.json&lt;br&gt;objdiff.json units&lt;br&gt;&lt;br&gt;Inbound community C must be re-verified&lt;br&gt;through the pinned image before it is truth." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="1320" y="386" width="370" height="190" as="geometry"/>
         </mxCell>
 
@@ -1163,13 +1163,13 @@
         <mxCell id="modes" value="Correctness modes (do not mix numbers)" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=10;spacingTop=4;fillColor=#fef9c3;strokeColor=#ca8a04;fontColor=#713f12;fontStyle=1;fontSize=12;" vertex="1" parent="1">
           <mxGeometry x="40" y="92" width="1680" height="140" as="geometry"/>
         </mxCell>
-        <mxCell id="ma" value="&lt;b&gt;Mode A — papers / lab&lt;/b&gt;&lt;br&gt;GCC/Clang Linux x86_64 -O0..-O3&lt;br&gt;HumanEval-Decompile re-exec / BLEU&lt;br&gt;Decompile-Bench, ExeBench, SK²&lt;br&gt;Never train on HE / MBPP-C / GitHub2025" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="ma" value="&lt;b&gt;Mode A: papers / lab&lt;/b&gt;&lt;br&gt;GCC/Clang Linux x86_64 -O0..-O3&lt;br&gt;HumanEval-Decompile re-exec / BLEU&lt;br&gt;Decompile-Bench, ExeBench, SK²&lt;br&gt;Never train on HE / MBPP-C / GitHub2025" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="60" y="128" width="520" height="84" as="geometry"/>
         </mxCell>
-        <mxCell id="mb" value="&lt;b&gt;Mode B — readability / types&lt;/b&gt;&lt;br&gt;R2I, ident/struct heads, Ghidra pseudo&lt;br&gt;SK² struct and ident are two corpora&lt;br&gt;obfuscate between them" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="mb" value="&lt;b&gt;Mode B: readability / types&lt;/b&gt;&lt;br&gt;R2I, ident/struct heads, Ghidra pseudo&lt;br&gt;SK² struct and ident are two corpora&lt;br&gt;obfuscate between them" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="610" y="128" width="520" height="84" as="geometry"/>
         </mxCell>
-        <mxCell id="mc" value="&lt;b&gt;Mode C — matching campaigns&lt;/b&gt;&lt;br&gt;MSVC6 / IDO / MWCC / psyq / 65816&lt;br&gt;EXACT / RELOC via rebrew test&lt;br&gt;rebrew campaigns default eval, not train" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fde68a;strokeColor=#ca8a04;fontColor=#713f12;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="mc" value="&lt;b&gt;Mode C: matching campaigns&lt;/b&gt;&lt;br&gt;MSVC6 / IDO / MWCC / psyq / 65816&lt;br&gt;EXACT / RELOC via rebrew test&lt;br&gt;rebrew campaigns default eval, not train" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fde68a;strokeColor=#ca8a04;fontColor=#713f12;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="1160" y="128" width="540" height="84" as="geometry"/>
         </mxCell>
 
@@ -1214,7 +1214,7 @@
         <mxCell id="k4" value="&lt;b&gt;Sibling / desktop tools&lt;/b&gt;&lt;br&gt;ct-recomp  holiday matching&lt;br&gt;ghidra-cli  MCP structural ops&lt;br&gt;recompile  vintage recompile API&lt;br&gt;rebrew-go  experiment, not this package" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="980" y="528" width="280" height="140" as="geometry"/>
         </mxCell>
-        <mxCell id="k5" value="&lt;b&gt;Public dumps (steal recipe, recompile)&lt;/b&gt;&lt;br&gt;Decompile-Bench 2.2M Clang-19 — not vintage gold&lt;br&gt;ExeBench / AnghaBench / SK² mix — same&lt;br&gt;decompile-ghidra-100k MIT&lt;br&gt;Never train on HumanEval-Decompile" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="k5" value="&lt;b&gt;Public dumps (steal recipe, recompile)&lt;/b&gt;&lt;br&gt;Decompile-Bench 2.2M Clang-19, not vintage gold&lt;br&gt;ExeBench / AnghaBench / SK² mix, same&lt;br&gt;decompile-ghidra-100k MIT&lt;br&gt;Never train on HumanEval-Decompile" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="1290" y="528" width="400" height="140" as="geometry"/>
         </mxCell>
 
@@ -1240,7 +1240,7 @@
         <mxCell id="b6w" value="License per row.&lt;br&gt;HumanEval never in train.&lt;br&gt;Mode A number ≠ Mode C." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ef4444;fontColor=#7f1d1d;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="1460" y="754" width="230" height="70" as="geometry"/>
         </mxCell>
-        <mxCell id="bnote" value="Target row (factory export): id, split, task, language, compiler, opt, arch, os, function_id, binary_id, protocol_id, head, asm_surface, license, train|eval, input.assembly, output.source, compiler_image, cflags, pragma_id, abi, view_id, damage_id, parent/child hash, score_delta, engine=ga|permuter. Studio DatasetRow is missing protocol_id and license — do not ship a shard without those." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ef4444;fontColor=#7f1d1d;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="bnote" value="Target row (factory export): id, split, task, language, compiler, opt, arch, os, function_id, binary_id, protocol_id, head, asm_surface, license, train|eval, input.assembly, output.source, compiler_image, cflags, pragma_id, abi, view_id, damage_id, parent/child hash, score_delta, engine=ga|permuter. Studio DatasetRow is missing protocol_id and license; do not ship a shard without those." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ef4444;fontColor=#7f1d1d;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="60" y="838" width="1630" height="52" as="geometry"/>
         </mxCell>
 
@@ -1263,7 +1263,7 @@
         <mxCell id="u5" value="LLM → NEAR_MATCHING&lt;br&gt;then rebrew match / GA" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bbf7d0;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="1000" y="978" width="220" height="70" as="geometry"/>
         </mxCell>
-        <mxCell id="u6" value="Mode C rebrew test on the adapter&lt;br&gt;is still never run — that is the next gate" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fef9c3;strokeColor=#ca8a04;fontColor=#713f12;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="u6" value="Mode C rebrew test on the adapter&lt;br&gt;is still never run; that is the next gate" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fef9c3;strokeColor=#ca8a04;fontColor=#713f12;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="1250" y="978" width="440" height="70" as="geometry"/>
         </mxCell>
         <mxCell id="e-u1" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#16a34a;endArrow=block;" edge="1" parent="1" source="u1" target="u2"><mxGeometry relative="1" as="geometry"/></mxCell>
