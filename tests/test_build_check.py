@@ -333,3 +333,20 @@ def test_pin_generated_from_metadata_does_not_block_a_cflags_write() -> None:
     assert not _pin_overrides_metadata("/O2 /Gd /Ow", "/DREBREW_ALLOW_NAKED /O2 /Gd /Ow")
     assert not _pin_overrides_metadata("/O2 /Gd /Ow", "-DX=1 /O2 /Gd /Ow")
     assert _pin_overrides_metadata("/O2 /Gd /Ow", "/DREBREW_ALLOW_NAKED /O2 /Gd")
+
+
+def test_flags_make_without_custom_comments_is_not_configured(tmp_path):
+    """No recorded Custom comment means nothing was compared.
+
+    Reporting "ok" here is the silent pass this command exists to prevent: a
+    CMake format change or a hand-edited flags.make would make every object
+    unrecorded and the checker would compare nothing while claiming a clean tree.
+    """
+    build = _tree(tmp_path, BUILD_MAKE)
+    (build / "CMakeFiles" / "server_dll.dir" / "flags.make").write_text(
+        "# nothing recorded\n", encoding="utf-8"
+    )
+    result = check(build)
+    assert result["status"] == "not-configured"
+    assert result["checked"] == 0
+    assert "one.c.obj" in result["message"]

@@ -31,6 +31,39 @@
   `rebrew cfg effective` reports a malformed value (`env_errors`).
 
 ### Fixed
+- **Failure paths that reported success with nothing checked.** A layout
+  `layout.fingerprint` that exists but cannot be read passed the freshness gate
+  as "unknown"; a `flags.make` whose objects have lost their `Custom` comments
+  made `rebrew build-check` compare nothing and report `ok`; a
+  `rebrew-functions.toml` or `rebrew-data.toml` that will not parse made
+  `rebrew lint` report a clean run over a store it never read (W031/W034 now
+  name the file). Each one now fails with the operation, the path, and the
+  cause.
+- **Partial trees left behind by a failed step.** `rebrew toolchain vendor`
+  restructured the extracted tree (the VC98 wrap, the delphi `delphi-lib`
+  rename, the MSPDB60.DLL copy) outside the abort handler, so an `OSError` part
+  way through left children split across two layouts that the completeness
+  probe then reported as `Already present`; that restructure now aborts like
+  the extraction does. `rebrew toolchain update --apply` wiped the vendored
+  host tree with `ignore_errors=True`, so a child it could not delete survived
+  and the re-vendor reported a tree built on stale sources.
+- **Silent skips that lost sources from a decision.** An unreadable source
+  file dropped out of the data-ownership reference table, so its globals were
+  emitted into another unit while it kept the definitions; `reference_counts`,
+  `owner_of`, and `fix_ownership` now fail together and name the files. A
+  missing `.text` section (binary absent or unloadable) made
+  `rebrew catalog --export-ghidra-labels` overwrite an existing labels file
+  with `[]`; the file is kept and the reason logged. A BinSync state dir with no
+  `functions/` logged, a `GHIDRA` field with no local file counted as a skipped
+  row.
+- **Untraced degradation elsewhere.** A `diec` run that printed no JSON, a
+  project config that would not load (library bands silently kept in the
+  code-generator signals), a 16-bit probe that could not read the binary, an
+  unreadable import library, a nasm timeout or a missing assembler, a source
+  that fails to parse in the VA map, a stat failure on the library-override
+  memo key or on a metadata store, an unconvertible `blocker_delta`, a compile
+  cache that could not be opened, and an unreadable `.text` size (byte coverage
+  omitted with no word why) are each named where they happen.
 - **An ownership-migration rollback could stop halfway and be reported as
   clean.** `rebrew data --fix-ownership` rewrites many translation units, each
   `atomic_write_text` its own commit, and restores the pre-write bytes when

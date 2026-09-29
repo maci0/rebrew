@@ -169,6 +169,9 @@ def build_function_lookup(cfg: ProjectConfig) -> dict[int, tuple[str, str]]:
                     display = symbol or cfile.stem
                     lookup[entry.va] = (display, entry.status)
             except (OSError, KeyError, ValueError, TypeError):
+                # The file drops out of the VA map, so calls to it resolve to
+                # the raw Ghidra name with nothing saying the source failed.
+                logger.debug("VA map: skipping %s", cfile, exc_info=True)
                 continue
 
     return lookup
@@ -1388,7 +1391,13 @@ def _run_nasm(source: str, *, tmpdir: Path | None = None) -> bytes | None:
             if bin_path.exists():
                 return bin_path.read_bytes()
             return None
-        except (subprocess.TimeoutExpired, FileNotFoundError):
+        except subprocess.TimeoutExpired:
+            # None is also "nasm rejected this encoding", so a timeout would
+            # be reported as an encoding mismatch, not a tooling failure.
+            logger.warning("nasm timed out assembling %s", asm_path, exc_info=True)
+            return None
+        except FileNotFoundError:
+            logger.warning("nasm not found on PATH; cannot assemble %s", asm_path)
             return None
 
     if tmpdir is not None:

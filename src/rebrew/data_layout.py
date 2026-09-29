@@ -346,6 +346,34 @@ _WORD_RE = re.compile(r"\b\w+\b")
 _WORD_NAME_RE = re.compile(r"\w+\Z")
 
 
+def _read_sources_or_fail(files: list[Path]) -> list[tuple[Path, str]]:
+    """``(path, text)`` for every file, or ``OSError`` naming the unreadable ones.
+
+    A skipped TU looks unowned, so its globals get emitted into another unit
+    while the skipped file keeps the definitions: duplicate globals at link
+    time, from a run that reports edits and moved counts.  Every ownership
+    scan therefore fails on the whole set rather than dropping files.
+    """
+    texts: list[tuple[Path, str]] = []
+    unreadable: list[Path] = []
+    for f in files:
+        try:
+            text, _encoding = read_source_text(f)
+        except OSError:
+            unreadable.append(f)
+            continue
+        texts.append((f, text))
+    if unreadable:
+        raise OSError(
+            "cannot read "
+            f"{len(unreadable)} of {len(files)} source files, so global ownership "
+            "cannot be determined: "
+            + ", ".join(str(p) for p in unreadable[:_UNREADABLE_REPORT_LIMIT])
+            + ("..." if len(unreadable) > _UNREADABLE_REPORT_LIMIT else "")
+        )
+    return texts
+
+
 def reference_counts(files: list[Path]) -> list[tuple[Path, dict[str, int]]]:
     """Whole-word counts for each readable file, in *files* order.
 
@@ -354,11 +382,7 @@ def reference_counts(files: list[Path]) -> list[tuple[Path, dict[str, int]]]:
     names without compiling a pattern or scanning the TU again.
     """
     indexed: list[tuple[Path, dict[str, int]]] = []
-    for f in files:
-        try:
-            text, _encoding = read_source_text(f)
-        except OSError:
-            continue
+    for f, text in _read_sources_or_fail(files):
         counts: dict[str, int] = {}
         for match in _WORD_RE.finditer(text):
             word = match.group(0)
@@ -403,11 +427,7 @@ def owner_of(
     # One alternation instead of N separate compiles × findall passes.
     pat = re.compile(r"\b(?:" + "|".join(re.escape(n) for n in names) + r")\b")
     counts: dict[Path, int] = defaultdict(int)
-    for f in files:
-        try:
-            t, _ = read_source_text(f)
-        except OSError:
-            continue
+    for f, t in _read_sources_or_fail(files):
         n = len(pat.findall(t))
         if n:
             counts[f] = n
@@ -1195,29 +1215,13 @@ def fix_ownership(
     files = scan_files(src_dir, shared_dir)
 
     owner: dict[str, Path] = {}
-    unreadable: list[Path] = []
-    for f in files:
-        try:
-            text, _ = read_source_text(f)
-        except OSError:
-            unreadable.append(f)
-            continue
+    # The scan decides every later edit, so an unreadable TU fails here and
+    # writes nothing.
+    for f, text in _read_sources_or_fail(files):
         for ln in text.splitlines():
             m = _DEF_LINE_RE.match(ln.strip())
             if m and m.group(1) in toml and m.group(1) not in owner:
                 owner[m.group(1)] = f
-    if unreadable:
-        # A skipped TU looks unowned, so its globals get emitted into another
-        # unit while the skipped file keeps the definitions: duplicate globals
-        # at link time, from a run that reports edits and moved counts.  The
-        # scan decides every later edit, so failing here writes nothing.
-        raise OSError(
-            "cannot read "
-            f"{len(unreadable)} of {len(files)} source files under {src_dir},"
-            " so global ownership cannot be determined: "
-            + ", ".join(str(p) for p in unreadable[:_UNREADABLE_REPORT_LIMIT])
-            + ("..." if len(unreadable) > _UNREADABLE_REPORT_LIMIT else "")
-        )
     original_owner = dict(owner)
 
     tu_files: list[Path | None] = [_obj_to_source(obj, root, src_dir) for obj in link_objects(root)]

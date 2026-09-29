@@ -171,7 +171,11 @@ def load_metadata_doc(
     # under an older fingerprint, which the next stat replaces.
     try:
         st = path.stat()
-    except OSError:
+    except OSError as exc:
+        # A present-but-unreadable store is not an absent one: returning {}
+        # reports "no metadata at all", so every STATUS / size / blocker
+        # lookup reads as missing.
+        logger.warning("Cannot stat %s %s: %s", description, path, exc)
         pop_metadata_doc_cache(cache, path)
         return {}
     current_fp: MetadataDocFingerprint = (st.st_mtime_ns, st.st_size, st.st_ino)

@@ -15,6 +15,7 @@ The catalog writes no coverage document itself: ``rebrew build-db`` calls
 """
 
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -34,6 +35,8 @@ from rebrew.cli import (
 )
 from rebrew.config import ProjectConfig
 from rebrew.utils import floor_pct, untrusted_ident
+
+log = logging.getLogger(__name__)
 
 app = typer.Typer(
     help="Rebrew validation pipeline: parse annotations, generate catalog and coverage data.",
@@ -169,22 +172,38 @@ def run_catalog(
 
     if export_ghidra_labels:
         data = bundle["data"]
-        text_sec = data.get("sections", {}).get(".text", {})
-        sec_va = text_sec.get("va", 0)
-        labels = []
-        for cell in text_sec.get("cells", []):
-            if cell["state"] in ("data", "thunk"):
-                cell_va = sec_va + cell["start"]
-                labels.append(
-                    {
-                        "va": cell_va,
-                        "size": cell["end"] - cell["start"],
-                        "label": cell.get("label", f"switchdata_{cell_va:08x}"),
-                    }
-                )
         labels_path = reversed_dir / "ghidra_data_labels.json"
-        atomic_write_text(labels_path, json.dumps(labels, indent=2) + "\n", encoding="utf-8")
-        console.print(f"Wrote {untrusted_ident(labels_path)} ({len(labels)} labels)", style="dim")
+        text_sec = data.get("sections", {}).get(".text")
+        if not text_sec or not text_sec.get("va"):
+            # Sections are empty when the binary is missing or failed to load
+            # (grid.py logs that).  Overwriting here would replace every
+            # existing label with [], so an existing file is left alone.
+            if labels_path.exists():
+                log.warning(
+                    "no .text section data for %s; keeping the existing %s",
+                    bin_path,
+                    labels_path,
+                )
+                text_sec = None
+            else:
+                text_sec = {"va": 0, "cells": []}
+        if text_sec is not None:
+            sec_va = text_sec.get("va", 0)
+            labels = []
+            for cell in text_sec.get("cells", []):
+                if cell["state"] in ("data", "thunk"):
+                    cell_va = sec_va + cell["start"]
+                    labels.append(
+                        {
+                            "va": cell_va,
+                            "size": cell["end"] - cell["start"],
+                            "label": cell.get("label", f"switchdata_{cell_va:08x}"),
+                        }
+                    )
+            atomic_write_text(labels_path, json.dumps(labels, indent=2) + "\n", encoding="utf-8")
+            console.print(
+                f"Wrote {untrusted_ident(labels_path)} ({len(labels)} labels)", style="dim"
+            )
 
     if fix_sizes:
         from rebrew.annotation import update_size_annotation

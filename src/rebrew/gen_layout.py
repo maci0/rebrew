@@ -168,7 +168,10 @@ def _import_lib_symbols(lib_path: Path) -> set[str]:
     out: set[str] = set()
     try:
         d = lib_path.read_bytes()
-    except OSError:
+    except OSError as exc:
+        # An empty set means "this LIB exports nothing", which would seed an
+        # import-ordinal table with every import undecorated.
+        log.warning("cannot read import library %s: %s", lib_path, exc)
         return out
     if d[:8] != b"!<arch>\n":
         return out

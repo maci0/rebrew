@@ -265,7 +265,14 @@ def detect_cmd(
         from rebrew.config import load_config
 
         cfg = load_config(target=target)
-    except (FileNotFoundError, KeyError, ValueError):
+    except (FileNotFoundError, KeyError, ValueError) as exc:
+        # Without cfg the library bands are never excluded, so the family and
+        # era signals get measured over the project's own static libraries.
+        logging.getLogger(__name__).warning(
+            "project config not loaded (%s), library bands not excluded from the "
+            "code-generator signals",
+            exc,
+        )
         cfg = None
     exclude = external_ranges(cfg)
     try:
@@ -719,34 +726,46 @@ def vendor_cmd(
     # MSVC 6.0's classic master layout wraps the tree in VC98/ (the decomp.me
     # tarball is flat) — canonical config paths and every legacy
     # tools/MSVC600/VC98/... reference expect the wrapper.
-    if src.vc98_wrap and not (extract_dir / "VC98").exists():
-        vc98 = extract_dir / "VC98"
-        vc98.mkdir()
-        for child in list(extract_dir.iterdir()):
-            if child == vc98 or any(child.match(m) for m in _TRACKED_META_PATTERNS):
-                continue
-            child.rename(vc98 / child.name)
+    #
+    # The restructures below move children one at a time, so an OSError part
+    # way through leaves the tree split between two layouts.  The completeness
+    # probe only looks for the compiler, so the next run would report
+    # "Already present" over a tree the image cannot build.  Abort instead.
+    try:
+        if src.vc98_wrap and not (extract_dir / "VC98").exists():
+            vc98 = extract_dir / "VC98"
+            vc98.mkdir()
+            for child in list(extract_dir.iterdir()):
+                if child == vc98 or any(child.match(m) for m in _TRACKED_META_PATTERNS):
+                    continue
+                child.rename(vc98 / child.name)
 
-    # The delphi10 tarball keeps the RTL/VCL units in ``delphi-lib/`` while the
-    # image's recipe renames them to DELPHI/LIB — the path DCC.CFG's /u option
-    # and ``find_dcc``'s units_dir both use.  Do the same rename, so a vendored
-    # host tree and the image it was built from hold the same files.
-    if name == "delphi-1.0":
-        loose_lib = extract_dir / "delphi-lib"
-        units_lib = extract_dir / "DELPHI" / "LIB"
-        if loose_lib.is_dir() and not units_lib.exists():
-            units_lib.parent.mkdir(parents=True, exist_ok=True)
-            loose_lib.rename(units_lib)
+        # The delphi10 tarball keeps the RTL/VCL units in ``delphi-lib/`` while the
+        # image's recipe renames them to DELPHI/LIB — the path DCC.CFG's /u option
+        # and ``find_dcc``'s units_dir both use.  Do the same rename, so a vendored
+        # host tree and the image it was built from hold the same files.
+        if name == "delphi-1.0":
+            loose_lib = extract_dir / "delphi-lib"
+            units_lib = extract_dir / "DELPHI" / "LIB"
+            if loose_lib.is_dir() and not units_lib.exists():
+                units_lib.parent.mkdir(parents=True, exist_ok=True)
+                loose_lib.rename(units_lib)
 
-    # The archaic MSVC 6.0 SP5 repo stashes mspdb60.dll in the IDE dir
-    # (Common/MSDev98/Bin) while CL.EXE 12.00.8804 statically imports it and
-    # only searches its own directory — relocate the official file so host
-    # compiles work (the sp5 Dockerfile does the same relocation).
-    ide_dll = extract_dir / "Common" / "MSDev98" / "Bin" / "MSPDB60.DLL"
-    bin_dll = extract_dir / "VC98" / "Bin" / "MSPDB60.DLL"
-    if ide_dll.exists() and not bin_dll.exists():
-        bin_dll.write_bytes(ide_dll.read_bytes())
-        console.print("[dim]relocated MSPDB60.DLL -> VC98/Bin (CL requires it in-dir)[/dim]")
+        # The archaic MSVC 6.0 SP5 repo stashes mspdb60.dll in the IDE dir
+        # (Common/MSDev98/Bin) while CL.EXE 12.00.8804 statically imports it and
+        # only searches its own directory — relocate the official file so host
+        # compiles work (the sp5 Dockerfile does the same relocation).
+        ide_dll = extract_dir / "Common" / "MSDev98" / "Bin" / "MSPDB60.DLL"
+        bin_dll = extract_dir / "VC98" / "Bin" / "MSPDB60.DLL"
+        if ide_dll.exists() and not bin_dll.exists():
+            bin_dll.write_bytes(ide_dll.read_bytes())
+            console.print("[dim]relocated MSPDB60.DLL -> VC98/Bin (CL requires it in-dir)[/dim]")
+    except OSError as exc:
+        _abort_incomplete_vendor(
+            extract_dir,
+            f"vendor {name} restructure failed: {exc}",
+            json_mode=json_output,
+        )
 
     # Guard: a bad extraction must fail loudly (the images do the same).
     # Probe the ACTUAL extracted dir (src.host_dir) — the spec's host_path
@@ -1781,9 +1800,12 @@ def update_cmd(
                     if any(child.match(p) for p in _TRACKED_META_PATTERNS):
                         continue
                     if child.is_dir():
-                        shutil.rmtree(child, ignore_errors=True)
+                        # No ignore_errors: a child that survives the wipe would
+                        # make vendor_cmd re-populate on top of a stale tree,
+                        # and the next completeness probe would call it fresh.
+                        shutil.rmtree(child)
                     else:
-                        child.unlink(missing_ok=True)
+                        child.unlink()
             vendor_cmd(name, json_output=False)
             # 3. rebuild the docker image.
             build_cmd(name, json_output=False)

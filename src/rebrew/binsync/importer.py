@@ -760,6 +760,19 @@ def import_state(
                         fp = Path(cfg.reversed_dir) / local_filepath
                         if _inside_project(fp, cfg) and fp.exists():
                             _uak2(fp, va, "GHIDRA", bs_name, metadata_dir=cfg.metadata_dir)
+                        else:
+                            # Mirrors the prototype branch: a GHIDRA field that
+                            # was never written is a skipped row, not a
+                            # deliberate "keep local" decision.
+                            log.warning(
+                                "no local file for VA 0x%x, GHIDRA name not applied (%r)",
+                                va,
+                                local_filepath,
+                            )
+                            skipped += 1
+                    else:
+                        log.warning("VA 0x%x has no local file, GHIDRA name not applied", va)
+                        skipped += 1
                 except Exception:
                     log.warning("GHIDRA annotation apply failed for VA 0x%x", va, exc_info=True)
                     skipped += 1

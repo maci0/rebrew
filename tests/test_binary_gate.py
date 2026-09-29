@@ -192,3 +192,22 @@ class TestLayoutFreshness:
         res = check_layout_freshness(tmp_path, tmp_path / "ref.dll")
         assert res["match"] is False
         assert res["status"] == "stale"
+
+    def test_unreadable_fingerprint_is_not_fresh(self, tmp_path: Path, monkeypatch) -> None:
+        """A present-but-unreadable fingerprint must fail the gate, not pass it.
+
+        Reporting it as "unknown" (match) would let a layout package scaffolded
+        against a different reference binary ship as fresh.
+        """
+        from rebrew.binary_gate import check_layout_freshness
+
+        fp = tmp_path / "layout.fingerprint"
+        fp.write_text("abc123\n", encoding="utf-8")
+        monkeypatch.setattr(
+            "rebrew.binary_gate.Path.read_text",
+            lambda self, **kw: (_ for _ in ()).throw(PermissionError(self)),
+        )
+        res = check_layout_freshness(tmp_path, tmp_path / "ref.dll")
+        assert res["match"] is False
+        assert res["status"] == "unreadable"
+        assert "layout.fingerprint" in res["error"]

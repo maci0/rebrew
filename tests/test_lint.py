@@ -2706,6 +2706,16 @@ class TestW031MetadataStore:
         )
         assert self._warnings(self._cfg(tmp_path)) == ""
 
+    def test_unparsable_store_is_reported(self, tmp_path: Path) -> None:
+        """A store this check cannot read is a finding, not a clean run.
+
+        Returning early would report success over a file whose W031 findings
+        (format stamp, unknown fields, provenance pairs) were never seen.
+        """
+        (tmp_path / "rebrew-functions.toml").write_text("this is not = = toml\n", encoding="utf-8")
+        warnings = self._warnings(self._cfg(tmp_path))
+        assert "could not be parsed" in warnings
+
     def test_unknown_field_is_reported(self, tmp_path: Path) -> None:
         (tmp_path / "rebrew-data.toml").write_text(
             'format = 1\n\n["SERVER.0x1000"]\nname = "g"\nbogus = 1\n', encoding="utf-8"

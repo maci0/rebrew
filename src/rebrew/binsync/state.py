@@ -125,7 +125,16 @@ def load_binsync_state(
 
     funcs: dict[int, dict[str, Any]] = {}
     funcs_dir = state_dir / serial.FUNCTIONS_DIR
-    if funcs_dir.is_dir():
+    if not funcs_dir.is_dir():
+        # An empty map is also the "nothing to import" signal.  A partial or
+        # unreadable state dir must not look like that: globals.toml and
+        # comments.toml beside it carry entries that would never be applied.
+        log.warning(
+            "no %s directory under %s — BinSync import sees no functions",
+            serial.FUNCTIONS_DIR,
+            state_dir,
+        )
+    else:
         for toml_path in sorted(funcs_dir.glob("*.toml")):
             func = serial.load_artifact(toml_path, "function")
             if func is None:

@@ -877,8 +877,14 @@ def resolve_compiler_env(
     env = msvc_env_from_config(cfg)
 
     cc: CacheBackend | None = None
-    with contextlib.suppress(OSError):
+    try:
         cc = get_project_cache(cfg)
+    except OSError as exc:
+        # Compiling uncached is correct but looks like a cold cache, so a
+        # broken store stays invisible unless it is named.
+        logging.getLogger(__name__).warning(
+            "compile cache unavailable, compiling uncached: %s", exc
+        )
 
     return cl_cmd, inc_dir, env, cc
 
@@ -1629,7 +1635,10 @@ def compile_to_obj(
     if cc is None and use_cache:
         try:
             cc = get_project_cache(cfg)
-        except OSError:
+        except OSError as exc:
+            logging.getLogger(__name__).warning(
+                "compile cache unavailable, compiling uncached: %s", exc
+            )
             cc = None
 
     # The compile unit is the text the compiler actually reads: the source,

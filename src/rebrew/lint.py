@@ -873,9 +873,17 @@ def _check_W031_metadata_store(cfg: ProjectConfig) -> list[LintResult]:
             return
         try:
             doc = load_tomllib(path)
-        except (OSError, ValueError):
+        except (OSError, ValueError) as exc:
+            # Returning here would report a clean run over a store this check
+            # could not read, losing every W031 finding it holds.
+            res = LintResult(path)
+            res.warning(1, "W031", f"store could not be parsed, contents unchecked: {exc}")
+            results.append(res)
             return
         if not isinstance(doc, dict):
+            res = LintResult(path)
+            res.warning(1, "W031", "store is not a TOML table, contents unchecked")
+            results.append(res)
             return
         problems: list[str] = []
         stamp = doc.get(FORMAT_KEY)
@@ -954,10 +962,16 @@ def _check_W034_identity_paths(cfg: ProjectConfig) -> list[LintResult]:
         return []
     try:
         doc = load_tomllib(path)
-    except (OSError, ValueError):
-        return []
+    except (OSError, ValueError) as exc:
+        # An unreadable store hides every W034 finding in it, which reads as a
+        # clean run over identities this check never saw.
+        res = LintResult(path)
+        res.warning(1, "W034", f"store could not be parsed, identities unchecked: {exc}")
+        return [res]
     if not isinstance(doc, dict):
-        return []
+        res = LintResult(path)
+        res.warning(1, "W034", "store is not a TOML table, identities unchecked")
+        return [res]
     problems: list[str] = []
     for key, entry in doc.items():
         if not isinstance(entry, dict):

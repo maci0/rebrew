@@ -42,6 +42,7 @@ trusted to describe the source tree it was generated from.
 
 from __future__ import annotations
 
+import logging
 import re
 from collections.abc import Iterator
 from pathlib import Path
@@ -50,6 +51,8 @@ from typing import Any
 import typer
 
 from rebrew.cli import EXIT_ERROR, EXIT_MISMATCH, console, json_print
+
+log = logging.getLogger(__name__)
 
 #: Where CMake puts the generated build system, relative to the project root.
 DEFAULT_BUILD_DIR = Path("build")
@@ -139,7 +142,13 @@ def per_file_pin(source_path: Path, build_dir: Path = DEFAULT_BUILD_DIR) -> tupl
     cm = build_dir / "CMakeFiles"
     try:
         dirs = sorted(cm.iterdir())
-    except OSError:
+    except FileNotFoundError:
+        return None, ""
+    except OSError as exc:
+        # An unreadable build tree is not an absent one: returning "no pin"
+        # compiles the file with the metadata flags instead of the pinned
+        # ones, and the byte diff is then blamed on the source.
+        log.warning("cannot list %s, per-file pin unavailable: %s", cm, exc)
         return None, ""
     for td in dirs:
         if td.is_dir() and (td / "flags.make").is_file():
@@ -234,7 +243,8 @@ def check(build_dir: Path = DEFAULT_BUILD_DIR, project_root: Path | None = None)
     recorded = parse_recorded(flags_make.read_text(encoding="utf-8", errors="replace"))
     drift: list[dict[str, str]] = []
     checked = 0
-    for obj, line in parse_compile_lines(build_text):
+    compile_lines = parse_compile_lines(build_text)
+    for obj, line in compile_lines:
         # No Custom comment means no per-file flags: the object compiles with the
         # global C_FLAGS.  That is the normal case for most of a tree, and
         # comparing it would report every global flag as drift.
@@ -249,6 +259,21 @@ def check(build_dir: Path = DEFAULT_BUILD_DIR, project_root: Path | None = None)
                 continue
             if token not in known:
                 drift.append({"obj": obj, "flag": token})
+
+    if checked == 0 and compile_lines and not drift:
+        # Every object lost its Custom comment (a CMake format change, a
+        # hand-edited flags.make), so nothing was compared.  Reporting "ok"
+        # here is the silent pass this command exists to prevent.
+        first = ", ".join(sorted({o for o, _ in compile_lines})[:4])
+        return {
+            "status": "not-configured",
+            "checked": 0,
+            "drift": [],
+            "message": (
+                f"no object in build.make has a Custom flags comment in "
+                f"{flags_make} (first: {first}) -- re-run the configure step"
+            ),
+        }
 
     if drift:
         first = ", ".join(f"{d['obj'].rsplit('/', 1)[-1]}:{d['flag']}" for d in drift[:4])

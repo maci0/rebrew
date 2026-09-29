@@ -532,10 +532,17 @@ def _run_diec(path: Path, diec: Path | None = None) -> list[dict[str, object]] |
     raw = (r.stdout or "") + (r.stderr or "")
     start = raw.find("{")
     if start < 0:
+        # A diec that printed no JSON (abort banner, new output format) is not
+        # the same as one that recognised nothing; both mean the primary
+        # detector never contributed.
+        logger.warning(
+            "diec printed no JSON for %s: %s", path, raw.strip()[:200] or "(empty output)"
+        )
         return None
     try:
         data = json.loads(raw[start:])
-    except (json.JSONDecodeError, ValueError):
+    except (json.JSONDecodeError, ValueError) as exc:
+        logger.warning("diec output for %s is not JSON: %s", path, exc)
         return None
     return data.get("detects") or []
 
@@ -2161,7 +2168,10 @@ def _is_16bit_target(info: ToolchainInfo, binary: Path | None) -> bool:
         binary = Path(binary)
     try:
         data = binary.read_bytes()
-    except OSError:
+    except OSError as exc:
+        # Reporting an unreadable binary as "not 16-bit" recommends a 32-bit
+        # profile for a 16-bit target and init --guess-compiler writes it.
+        logger.warning("cannot read %s, 16-bit detection skipped: %s", binary, exc)
         return False
     if len(data) < 2 or data[:2] != b"MZ":
         return False

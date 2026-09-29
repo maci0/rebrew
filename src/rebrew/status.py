@@ -641,7 +641,10 @@ def _compute_text_size(cfg: ProjectConfig) -> int:
             root=getattr(cfg, "root", None),
             target=str(getattr(cfg, "target_name", "") or ""),
         )
-    except (ImportError, OSError, ValueError):
+    except (ImportError, OSError, ValueError) as exc:
+        # 0 hides the byte-coverage bar, which reads as "no coverage" rather
+        # than "the section headers could not be read".
+        log.warning(".text size unavailable, byte coverage omitted: %s", exc)
         return 0
 
 

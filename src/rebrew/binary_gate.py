@@ -162,15 +162,25 @@ def check_layout_freshness(pkg_dir: Path, binary_path: Path) -> dict[str, Any]:
     ``rebrew gen-layout``); absence means the package predates fingerprints
     and freshness is unknown (not a failure).  A mismatch means the reference
     binary changed since the scaffolding was generated — the layout package
-    must be regenerated.
+    must be regenerated.  A fingerprint that exists but cannot be read is a
+    failure: it would otherwise pass a package built against another binary.
     """
     fingerprint_file = pkg_dir / "layout.fingerprint"
     if not fingerprint_file.exists():
         return {"match": True, "status": "unknown", "expected": None, "actual": None}
     try:
         recorded = fingerprint_file.read_text(encoding="utf-8").strip().split()
-    except OSError:
-        return {"match": True, "status": "unknown", "expected": None, "actual": None}
+    except OSError as exc:
+        # Present but unreadable is not the same as absent: reporting it as
+        # "unknown" would pass the freshness gate for a package scaffolded
+        # against a different reference binary.
+        return {
+            "match": False,
+            "status": "unreadable",
+            "expected": None,
+            "actual": None,
+            "error": f"cannot read {fingerprint_file}: {exc}",
+        }
     if not recorded:
         return {"match": True, "status": "unknown", "expected": None, "actual": None}
     expected = recorded[0]

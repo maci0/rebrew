@@ -63,6 +63,33 @@ def test_owner_of(tmp_path: Path) -> None:
     assert owner_of(["g_x"], [a, b]) == a
 
 
+def test_unreadable_source_fails_ownership_scan(tmp_path: Path, monkeypatch) -> None:
+    """An unreadable TU must fail the scan, not drop out of the reference table.
+
+    A skipped file looks unowned, so its globals get emitted into another unit
+    while it keeps the definitions: duplicate globals at link time, from a run
+    that reports edits and moved counts.
+    """
+    a = tmp_path / "a.c"
+    b = tmp_path / "b.c"
+    a.write_text("int g_x;\n", encoding="utf-8")
+    b.write_text("int g_x;\n", encoding="utf-8")
+    from rebrew.utils import read_source_text
+
+    real = read_source_text
+
+    def _boom(path, *args, **kwargs):
+        if Path(path) == b:
+            raise OSError(f"cannot read {path}")
+        return real(path, *args, **kwargs)
+
+    monkeypatch.setattr("rebrew.data_layout.read_source_text", _boom)
+    with pytest.raises(OSError, match="b.c"):
+        reference_counts([a, b])
+    with pytest.raises(OSError, match="b.c"):
+        owner_of(["g_x"], [a, b])
+
+
 def test_owner_of_reference_counts_match_the_scan(tmp_path: Path) -> None:
     """The one-pass word index agrees with the per-call alternation scan."""
     a = tmp_path / "a.c"

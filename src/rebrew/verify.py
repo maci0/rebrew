@@ -1194,10 +1194,15 @@ def main(
                         console.print(f"  [yellow]{area}[/yellow]: {part}")
                 layout = whole_report["layout"]
                 if not layout["match"]:
-                    console.print(
-                        f"  [yellow]layout[/yellow]: {untrusted_ident(layout['status'])} — "
-                        "regenerate with rebrew gen-layout"
-                    )
+                    if layout["status"] == "unreadable":
+                        console.print(
+                            f"  [yellow]layout[/yellow]: {untrusted_ident(layout['error'])}"
+                        )
+                    else:
+                        console.print(
+                            f"  [yellow]layout[/yellow]: {untrusted_ident(layout['status'])} — "
+                            "regenerate with rebrew gen-layout"
+                        )
 
     batch = run_batch(
         cfg,

@@ -90,3 +90,17 @@ class TestResultFieldReaders:
         assert result_paths({"warnings": ["a.c"]}, "warnings") == ["a.c"]
         with pytest.raises(TypeError):
             result_paths({"warnings": "a.c"}, "warnings")
+
+
+class TestLoadBinsyncState:
+    def test_missing_functions_dir_is_reported(self, tmp_path: Path, caplog) -> None:
+        """A state dir with no functions/ reads as empty, which is also the
+        "nothing to import" signal; the globals beside it would then never be
+        applied with nothing saying why."""
+        from rebrew.binsync.state import load_binsync_state
+
+        (tmp_path / "globals.toml").write_text("", encoding="utf-8")
+        with caplog.at_level("WARNING"):
+            funcs, _globals = load_binsync_state(tmp_path)
+        assert funcs == {}
+        assert "no functions" in caplog.text

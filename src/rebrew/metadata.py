@@ -1404,7 +1404,17 @@ def apply_metadata_entry(ann: Annotation, entry: dict[str, Any]) -> None:
         raw = entry["blocker_delta"]
         try:
             ann.blocker_delta = as_metadata_int(raw)
-        except (ValueError, TypeError):
+        except (ValueError, TypeError) as exc:
+            # Dropping the delta unrecorded makes prove classify the function
+            # as undocumented, with nothing in the run saying a value was lost.
+            logger.warning(
+                "rebrew-functions.toml blocker_delta for %s[0x%x] is not an integer (%r: %s); "
+                "the annotation carries no delta",
+                getattr(ann, "module", None) or getattr(ann, "symbol", None) or "?",
+                getattr(ann, "va", 0) or 0,
+                raw,
+                exc,
+            )
             ann.blocker_delta = None
 
     if "note" in entry:
@@ -1810,7 +1820,11 @@ def library_override_fingerprint(
         return None
     try:
         st = found.stat()
-    except OSError:
+    except OSError as exc:
+        # The memo key must still name the file that applies: returning None
+        # reads as "no override file here", so a `rebrew library set` write
+        # stays invisible for the rest of the process.
+        logger.warning("cannot stat library override %s, key is stale: %s", found, exc)
         return None
     return (str(found), st.st_mtime_ns, st.st_size, st.st_ino)
 

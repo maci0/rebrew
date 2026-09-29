@@ -413,6 +413,18 @@ class TestRunCatalog:
         assert payload["warning"].startswith("target binary missing")
         assert not list((root / "db").glob("*")) if (root / "db").exists() else True
 
+    def test_missing_binary_keeps_existing_ghidra_labels(self, tmp_path: Path) -> None:
+        """Sections are empty without a binary, so an existing labels file is
+        kept: writing would replace every label with []."""
+        root = _write_project(tmp_path)
+        labels = root / "original" / "ghidra_data_labels.json"
+        labels.write_text('[{"va": 4096, "size": 4, "label": "g_x"}]\n', encoding="utf-8")
+        cfg = load_config(root=root)
+
+        run_catalog(cfg, export_ghidra_labels=True)
+
+        assert json.loads(labels.read_text(encoding="utf-8"))[0]["label"] == "g_x"
+
     def test_explicit_flag_skips_defaults(self, tmp_path: Path) -> None:
         """An explicit action flag selects only that action; the default set is
         not applied on top of it (single-sourced with the CLI's flag branch)."""
