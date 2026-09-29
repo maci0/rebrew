@@ -51,6 +51,7 @@ from rebrew.sources import iter_sources, target_marker
 from rebrew.utils import (
     console,
     parse_int_literal,
+    untrusted_ident,
     untrusted_literal,
     untrusted_text,
 )
@@ -854,6 +855,7 @@ __all__ = [
     "run_for_each_target",
     "run_standalone",
     "select_annotation",
+    "untrusted_ident",
     "untrusted_literal",
     "untrusted_text",
 ]

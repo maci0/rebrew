@@ -26,13 +26,20 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from rich.markup import escape
 from rich.table import Table
 
 from rebrew.analysis import Xref, iter_strings, string_refs
 from rebrew.binary_loader import load_binary
 from rebrew.binary_model import BinaryInfo
-from rebrew.cli import EXIT_ERROR, TargetOption, console, error_exit, json_print, resolve_binary_arg
+from rebrew.cli import (
+    EXIT_ERROR,
+    TargetOption,
+    console,
+    error_exit,
+    json_print,
+    resolve_binary_arg,
+    untrusted_ident,
+)
 
 # Data-ish sections scanned when --section is not given; mirrors the
 # analysis.py default so the "nothing to scan" note can be detected here.
@@ -103,10 +110,11 @@ def collect_strings(
             # Lead with the stable phrase so narrow consoles cannot wrap it apart
             # (CliRunner uses COLUMNS≈80).
             console.print(
-                f"[yellow]nothing to scan: no data sections (.rdata/.data/.rodata) in {binary}.[/]"
+                f"[yellow]nothing to scan: no data sections (.rdata/.data/.rodata) "
+                f"in {untrusted_ident(binary)}.[/]"
             )
         else:
-            console.print(f"[yellow]No strings found in {binary}.[/]")
+            console.print(f"[yellow]No strings found in {untrusted_ident(binary)}.[/]")
 
     return {
         "binary": str(binary),
@@ -185,7 +193,9 @@ def main(
     if payload["count"] == 0:
         return
 
-    table = Table(title=f"Strings in {binary.name}", show_header=True, header_style="bold")
+    table = Table(
+        title=f"Strings in {untrusted_ident(binary.name)}", show_header=True, header_style="bold"
+    )
     table.add_column("VA", justify="right", style="cyan")
     table.add_column("Section")
     table.add_column("Kind")
@@ -194,7 +204,13 @@ def main(
     if xref:
         table.add_column("Xrefs")
     for s in payload["strings"]:
-        row = [f"0x{s['va']:08x}", s["section"], s["kind"], str(s["size"]), escape(s["text"])]
+        row = [
+            f"0x{s['va']:08x}",
+            untrusted_ident(s["section"]),
+            s["kind"],
+            str(s["size"]),
+            untrusted_ident(s["text"]),
+        ]
         if xref:
             row.append(_format_xrefs(s["xrefs"]))
         table.add_row(*row)

@@ -18,7 +18,15 @@ from typing import Any
 import typer
 
 from rebrew.binary_loader import parse_exports
-from rebrew.cli import EXIT_MISMATCH, TargetOption, console, error_exit, json_print, require_config
+from rebrew.cli import (
+    EXIT_MISMATCH,
+    TargetOption,
+    console,
+    error_exit,
+    json_print,
+    require_config,
+    untrusted_ident,
+)
 
 #: Names printed per direction before the listing is cut; a fully renamed
 #: export table is thousands of lines, and the counts above already say how
@@ -83,15 +91,17 @@ def main(
         json_print(result)
     else:
         console.print(
-            f"[bold]Original:[/bold] {result['original']} ({result['original_count']} exports)"
+            f"[bold]Original:[/bold] {untrusted_ident(result['original'])} "
+            f"({result['original_count']} exports)"
         )
         console.print(
-            f"[bold]Recomp:[/bold]   {result['recompiled']} ({result['recompiled_count']} exports)"
+            f"[bold]Recomp:[/bold]   {untrusted_ident(result['recompiled'])} "
+            f"({result['recompiled_count']} exports)"
         )
         for name in result["missing"][:_PRINT_LIMIT]:
-            console.print(f"  [red]missing:[/red] {name}")
+            console.print(f"  [red]missing:[/red] {untrusted_ident(name)}")
         for name in result["added"][:_PRINT_LIMIT]:
-            console.print(f"  [yellow]added:[/yellow] {name}")
+            console.print(f"  [yellow]added:[/yellow] {untrusted_ident(name)}")
         if result["match"]:
             console.print("[green]Export tables match.[/green]")
         else:

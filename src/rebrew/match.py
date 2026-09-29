@@ -51,7 +51,7 @@ from rebrew.match_sweep import (
     run_single_toolchain_flag_sweep,
     run_single_toolchain_sweep,
 )
-from rebrew.utils import interruptible_pool, preset_module_key
+from rebrew.utils import interruptible_pool, preset_module_key, untrusted_ident
 
 log = logging.getLogger(__name__)
 
@@ -502,14 +502,15 @@ def main(
             try:
                 target_cfg = load_config(cfg.root, target=name) if len(names) > 1 else cfg
                 if not json_output:
-                    console.print(f"\n[bold cyan]=== Target {name} ===[/]")
+                    console.print(f"\n[bold cyan]=== Target {untrusted_ident(name)} ===[/]")
                 # Per-target detail stays on stderr (console); stdout gets one
                 # aggregate JSON document when --json is active.
                 return run_all_batch(cfg=target_cfg, jobs=per_target_jobs, json_output=False)
             except Exception as exc:
                 log.warning("Target %s failed — counted as failed", name, exc_info=True)
                 console.print(
-                    f"  [yellow]warning:[/yellow] target {name} failed: {type(exc).__name__}: {exc}"
+                    f"  [yellow]warning:[/yellow] target {untrusted_ident(name)} failed: "
+                    f"{type(exc).__name__}: {exc}"
                 )
                 return 0, 1
 

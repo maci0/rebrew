@@ -68,7 +68,7 @@ from rebrew.sources import (
     iter_sources,
     target_marker,
 )
-from rebrew.utils import safe_shlex_split
+from rebrew.utils import safe_shlex_split, untrusted_ident
 from rebrew.workspace.status import NEAR_MATCH_CANDIDATE_STATUSES
 
 log = logging.getLogger(__name__)
@@ -1428,10 +1428,12 @@ def main(
     # Run the prover
     if not json_output:
         console.print(
-            f"[bold]Proving equivalence:[/bold] {source_path.name} "
+            f"[bold]Proving equivalence:[/bold] {untrusted_ident(source_path.name)} "
             f"(0x{va:08x}, {len(target_bytes)}B vs {len(obj_bytes)}B)"
         )
-        console.print(f"  Prototype: {prototype or '(none — assuming void f(void))'}")
+        console.print(
+            f"  Prototype: {untrusted_ident(prototype or '(none — assuming void f(void))')}"
+        )
         console.print(f"  Timeout: {timeout}s, loop bound: {loop_bound}")
         if inputs.skip_regs:
             console.print(
@@ -1443,7 +1445,7 @@ def main(
         if start_offset or end_offset:
             console.print(f"  Slice: [{start_offset}:{end_offset}] ({end_offset - start_offset}B)")
         if arg_constraints:
-            console.print(f"  Constraints: {', '.join(arg_constraints.keys())}")
+            console.print(f"  Constraints: {untrusted_ident(', '.join(arg_constraints.keys()))}")
 
     proven, message = prove_equivalence(
         target_bytes,
@@ -1513,14 +1515,16 @@ def main(
     if json_output:
         json_print(result)
     elif proven:
-        console.print(f"[green bold]PROVEN:[/green bold] {message}")
+        console.print(f"[green bold]PROVEN:[/green bold] {untrusted_ident(message)}")
         if dry_run:
             console.print("[dim]--dry-run: STATUS not updated[/dim]")
         else:
-            console.print(f"[green]STATUS updated: {ann.status} → PROVEN[/green]")
+            console.print(f"[green]STATUS updated: {untrusted_ident(ann.status)} → PROVEN[/green]")
     else:
-        console.print(f"[yellow bold]NOT PROVEN:[/yellow bold] {message}")
-        console.print(f"[dim]STATUS unchanged — function remains {ann.status}[/dim]")
+        console.print(f"[yellow bold]NOT PROVEN:[/yellow bold] {untrusted_ident(message)}")
+        console.print(
+            f"[dim]STATUS unchanged — function remains {untrusted_ident(ann.status)}[/dim]"
+        )
 
     if not proven:
         if message.startswith("Slice [") and "out of range" in message:
@@ -2015,7 +2019,9 @@ def _run_all_batch(
     for i, (src, ann) in enumerate(candidates, 1):
         symbol = resolve_symbol(ann, src)
         if not json_output:
-            console.print(f"[bold][{i}/{len(candidates)}][/bold] {symbol} (0x{ann.va:08x})")
+            console.print(
+                f"[bold][{i}/{len(candidates)}][/bold] {untrusted_ident(symbol)} (0x{ann.va:08x})"
+            )
 
         try:
             proven, message = _prove_single(
@@ -2048,12 +2054,13 @@ def _run_all_batch(
             if not json_output:
                 action = "would set" if dry_run else "STATUS →"
                 console.print(
-                    f"  [green]bytes match[/green] — {action} [bold]{new_st}[/bold] (not PROVEN)"
+                    f"  [green]bytes match[/green] — {action} "
+                    f"[bold]{untrusted_ident(new_st)}[/bold] (not PROVEN)"
                 )
         else:
             failed_count += 1
             if not json_output:
-                console.print(f"  [yellow]NOT PROVEN:[/yellow] {message}")
+                console.print(f"  [yellow]NOT PROVEN:[/yellow] {untrusted_ident(message)}")
 
         results_list.append(
             {

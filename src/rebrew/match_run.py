@@ -56,6 +56,7 @@ from rebrew.utils import (
     floor_pct,
     interruptible_pool,
     read_compile_source,
+    untrusted_ident,
     untrusted_literal,
 )
 
@@ -226,7 +227,7 @@ def run_single_ga(
             loaded_seeds.append(kuna_snippet)
         if dry_run:
             console.print("\n[bold]Kuna seed (dry-run):[/bold]\n")
-            console.print(kuna_snippet)
+            console.print(untrusted_literal(kuna_snippet), markup=False, highlight=False)
             return
 
     ga = BinaryMatchingGA(
@@ -290,7 +291,8 @@ def run_single_ga(
 
     if collect_pairs and ga._pairs_count > 0:
         console.print(
-            f"[bold green]Collected {ga._pairs_count} source-binary pairs[/] → {collect_pairs}"
+            f"[bold green]Collected {ga._pairs_count} source-binary pairs[/] "
+            f"→ {untrusted_ident(collect_pairs)}"
         )
 
     if json_output:
@@ -926,7 +928,7 @@ def show_ga_history(cfg: ProjectConfig, json_output: bool, *, target: str = "") 
         return
     from rebrew.present import ratio_bar
 
-    console.print(f"[bold]GA run history[/bold] ({target or 'all targets'}):")
+    console.print(f"[bold]GA run history[/bold] ({untrusted_ident(target or 'all targets')}):")
     console.print(
         f"  Total runs: {total}   Matched: {matched} ({summary['matched_pct']:.1f}% of runs)"
     )
@@ -940,7 +942,8 @@ def show_ga_history(cfg: ProjectConfig, json_output: bool, *, target: str = "") 
         mark = "[green]MATCH[/green]" if rec.get("matched") else "[dim]no match[/dim]"
         score = f" score={rec['score']}" if rec.get("score") is not None else ""
         console.print(
-            f"  {mark}  {_display_instant(rec.get('ts', ''))}  {rec.get('symbol', '?')}{score}"
+            f"  {mark}  {_display_instant(rec.get('ts', ''))}  "
+            f"{untrusted_ident(rec.get('symbol', '?'))}{score}"
         )
 
 
@@ -1089,8 +1092,9 @@ def run_all(
             delta_str = f"  Δ{stub.delta}B" if stub.delta != NO_DELTA else ""
             display = rel_display_path(stub.filepath, reversed_dir)
             console.print(
-                f"  {i:3d}. [magenta]{display:45s}[/]  {stub.size:4d}B  "
-                f"[cyan]{stub.va}[/]  {stub.symbol:30s}  [dim]{stub.cflags}{delta_str}[/]"
+                f"  {i:3d}. [magenta]{untrusted_ident(display):45s}[/]  {stub.size:4d}B  "
+                f"[cyan]{stub.va}[/]  {untrusted_ident(stub.symbol):30s}  "
+                f"[dim]{untrusted_ident(stub.cflags)}{delta_str}[/]"
             )
         console.print()
 
@@ -1152,11 +1156,12 @@ def run_all(
         if not json_output:
             console.print(f"\n[bold]{'=' * 60}[/]")
             console.print(
-                f"\\[{i}/{len(stubs)}] [magenta]{display}[/] ({stub.size}B) symbol={stub.symbol}"
+                f"\\[{i}/{len(stubs)}] [magenta]{untrusted_ident(display)}[/] ({stub.size}B) "
+                f"symbol={untrusted_ident(stub.symbol)}"
             )
             console.print(f"[bold]{'=' * 60}[/]")
         else:
-            console.print(f"\\[{i}/{len(stubs)}] {display} ({stub.size}B)")
+            console.print(f"\\[{i}/{len(stubs)}] {untrusted_ident(display)} ({stub.size}B)")
 
     # Precompute cross-function seeding (read-only; main thread, so the
     # dim "Seeding from solved" lines stay deterministic).  Load the
@@ -1180,7 +1185,7 @@ def run_all(
                 if extra and not json_output:
                     console.print(
                         f"  [dim]Cross-project seeding:[/] {len(extra)} solutions "
-                        f"from {seed_solutions_path}"
+                        f"from {untrusted_ident(seed_solutions_path)}"
                     )
         except Exception:
             # Seeding is a batch-time enhancement, but a failed load silently
@@ -1217,7 +1222,8 @@ def run_all(
                         extra_ga_paths.append(str(sol_path))
                         if not json_output:
                             console.print(
-                                f"  [dim]Seeding from solved:[/] {sol.symbol} ({sol.size}B)"
+                                f"  [dim]Seeding from solved:[/] {untrusted_ident(sol.symbol)} "
+                                f"({sol.size}B)"
                             )
                     elif seed_cflags is None and sol.cflags:
                         # Cross-project: the source file lives in another
@@ -1226,8 +1232,9 @@ def run_all(
                         seed_cflags = sol.cflags
                         if not json_output:
                             console.print(
-                                f"  [dim]Seeding cflags from solved:[/] {sol.symbol} "
-                                f"({sol.size}B, {sol.cflags})"
+                                f"  [dim]Seeding cflags from solved:[/] "
+                                f"{untrusted_ident(sol.symbol)} "
+                                f"({sol.size}B, {untrusted_ident(sol.cflags)})"
                             )
                     # The winning run's mutation operators transfer too: bias
                     # this GA toward what solved the lookalike.  First usable
@@ -1285,7 +1292,8 @@ def run_all(
                     sweep_flags = best_flags
                     if not json_output:
                         console.print(
-                            f"  [dim]Flag sweep:[/] {stub.symbol} best flags {best_flags}"
+                            f"  [dim]Flag sweep:[/] {untrusted_ident(stub.symbol)} best "
+                            f"flags {untrusted_ident(best_flags)}"
                         )
             except Exception:  # sweep failure falls back to stub flags
                 # A sweep failure silently degrades the GA to the stub's own
@@ -1310,7 +1318,8 @@ def run_all(
             resume_from = read_ga_checkpoint(stub_out_dir, stub.symbol)
             if resume_from is not None and not json_output:
                 console.print(
-                    f"  [dim]Resuming {stub.symbol} from generation {resume_from.generation}[/dim]"
+                    f"  [dim]Resuming {untrusted_ident(stub.symbol)} from generation "
+                    f"{resume_from.generation}[/dim]"
                 )
         # The reloc-validation catalog is the same for every stub, and building
         # it re-walks and re-parses the whole reversed tree (tree-sitter per
@@ -1348,8 +1357,8 @@ def run_all(
         except Exception as exc:  # one bad stub must not abort the batch
             log.debug("GA run failed for %s", stub.symbol, exc_info=True)
             console.print(
-                f"  [yellow]warning:[/yellow] GA run failed for {stub.symbol}: "
-                f"{exc.__class__.__name__}: {exc}"
+                f"  [yellow]warning:[/yellow] GA run failed for {untrusted_ident(stub.symbol)}: "
+                f"{exc.__class__.__name__}: {untrusted_ident(exc)}"
             )
             return stub, False, f"error: {exc.__class__.__name__}: {exc}", None, []
         # The outcome is recorded by the caller, in stub order: appending
@@ -1417,7 +1426,7 @@ def run_all(
         else:
             failed_count += 1
             if not json_output:
-                console.print(f"  [red]No match.[/] {output_summary}")
+                console.print(f"  [red]No match.[/] {untrusted_ident(output_summary)}")
 
         ga_results.append(result_entry)
 
@@ -1492,12 +1501,13 @@ def _run_batch_flag_sweep(
         if not json_output:
             console.print(f"\n[bold]{'=' * 60}[/]")
             console.print(
-                f"\\[{i}/{len(stubs)}] [magenta]{display}[/] ({stub.size}B) symbol={stub.symbol}"
+                f"\\[{i}/{len(stubs)}] [magenta]{untrusted_ident(display)}[/] ({stub.size}B) "
+                f"symbol={untrusted_ident(stub.symbol)}"
             )
-            console.print(f"  Current flags: [dim]{stub.cflags}[/]")
+            console.print(f"  Current flags: [dim]{untrusted_ident(stub.cflags)}[/]")
             console.print(f"[bold]{'=' * 60}[/]")
         else:
-            console.print(f"\\[{i}/{len(stubs)}] {display} ({stub.size}B)")
+            console.print(f"\\[{i}/{len(stubs)}] {untrusted_ident(display)} ({stub.size}B)")
 
         # --timeout-min bounds the sweep itself, not just the GA that may follow
         # it: a thorough tier is 258k combos and ran unbounded before this.
@@ -1583,8 +1593,10 @@ def _run_batch_flag_sweep(
                     confirmed = cmp_res.matched
                     if not confirmed and not json_output:
                         console.print(
-                            f"  [yellow]sweep exact not confirmed:[/] {stub.symbol} "
-                            f"({cmp_res.status}: {cmp_res.message[:80]}) — not promoting"
+                            f"  [yellow]sweep exact not confirmed:[/] "
+                            f"{untrusted_ident(stub.symbol)} "
+                            f"({untrusted_ident(cmp_res.status)}: "
+                            f"{untrusted_ident(cmp_res.message[:80])}) — not promoting"
                         )
             except Exception as exc:  # validation is best-effort
                 log.warning(
@@ -1683,11 +1695,13 @@ def _run_batch_flag_sweep(
                 top_n = min(5, len(all_results))
                 for score, flags_str in all_results[:top_n]:
                     marker = " ← [bold green]EXACT[/]" if score < EXACT_SCORE_THRESHOLD else ""
-                    console.print(f"  {score:8.2f}: [dim]{flags_str}[/]{marker}")
+                    console.print(f"  {score:8.2f}: [dim]{untrusted_ident(flags_str)}[/]{marker}")
                 if is_exact:
-                    console.print(f"  [bold green]EXACT MATCH[/] with flags: {best_flags}")
+                    console.print(
+                        f"  [bold green]EXACT MATCH[/] with flags: {untrusted_ident(best_flags)}"
+                    )
                     if cflags_updated:
-                        console.print(f"  [bold]Updated CFLAGS → {best_flags}[/]")
+                        console.print(f"  [bold]Updated CFLAGS → {untrusted_ident(best_flags)}[/]")
                     elif confirmed:
                         console.print("  [dim](flags unchanged — already exact)[/dim]")
                     else:

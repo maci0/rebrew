@@ -32,7 +32,7 @@ from rebrew.data_scan import (
     scan_globals,
     verify_bss_layout,
 )
-from rebrew.utils import atomic_write_text
+from rebrew.utils import atomic_write_text, untrusted_ident
 
 app = typer.Typer(
     help="Global data scanner — inventory this target's .data/.rdata/.bss globals.",
@@ -204,7 +204,7 @@ def _generate_bss_fix(
         )
         for line in lines:
             if line.startswith("// DATA"):
-                console.print(f"  [dim]{line}[/]")
+                console.print(f"  [dim]{untrusted_ident(line)}[/]")
         return
 
     # File FIRST, then metadata: a crash in between must not leave
@@ -383,7 +383,9 @@ def main(
             json_print({"dry_run": dry_run, "set": rows})
         else:
             for row in rows:
-                console.print(f"set type {row['type']!r} for {row['va']} ({row['module']})")
+                console.print(
+                    f"set type {row['type']!r} for {row['va']} ({untrusted_ident(row['module'])})"
+                )
         return
 
     # --set-section: give a // GLOBAL: marker its SECTION metadata (lint W016)
@@ -398,7 +400,10 @@ def main(
             json_print({"dry_run": dry_run, "set": rows})
         else:
             for row in rows:
-                console.print(f"set section {row['section']!r} for {row['va']} ({row['module']})")
+                console.print(
+                    f"set section {row['section']!r} for {row['va']} "
+                    f"({untrusted_ident(row['module'])})"
+                )
         return
 
     # --gen-header: generate rebrew_globals.h from annotations (no Ghidra)
@@ -417,14 +422,15 @@ def main(
         out_name = Path(result["path"]).name
         if dry_run:
             console.print(
-                f"[cyan]dry-run:[/cyan] would write {result['path']} with {result['globals']} globals"
+                f"[cyan]dry-run:[/cyan] would write {untrusted_ident(result['path'])} "
+                f"with {result['globals']} globals"
             )
         elif not result["written"]:
             console.print(f"[dim]{out_name} unchanged[/dim] ({result['globals']} globals)")
         else:
             console.print(f"[green]Wrote {out_name}[/green] with {result['globals']} globals")
             for sec, count in result["sections"].items():
-                console.print(f"  {sec}: {count}")
+                console.print(f"  {untrusted_ident(sec)}: {count}")
         return
 
     # --layout-audit / --fill-data / --own / --fix-ownership / --converge:
@@ -457,7 +463,7 @@ def main(
                     flag = f"  <== {'/'.join(r['flags'])} VIOLATION" if r["flags"] else ""
                     sym_count = len(set(r["dsyms"]) | set(r["bsyms"]))
                     console.print(
-                        f"{r['obj']:58} {sym_count:4} "
+                        f"{untrusted_ident(r['obj']):58} {sym_count:4} "
                         f"{r['min_addr']:#10x} {r['max_addr']:#10x} "
                         f"{r['dsize']:#7x} {r['bsize']:#7x}{flag}"
                     )
@@ -465,16 +471,21 @@ def main(
                 console.print(f"violations: {report['violations']}")
                 for r in report["rows"]:
                     if r.get("error"):
-                        console.print(f"[red]objdump error on {r['obj']}: {r['error']}[/red]")
+                        console.print(
+                            f"[red]objdump error on {untrusted_ident(r['obj'])}: "
+                            f"{untrusted_ident(r['error'])}[/red]"
+                        )
                 if report["unowned"]:
                     console.print(
                         f"unowned toml symbols ({len(report['unowned'])}): "
-                        + ", ".join(s for s, _ in report["unowned"][:10])
+                        + ", ".join(untrusted_ident(s) for s, _ in report["unowned"][:10])
                     )
                 if report["duplicate_owned"]:
                     console.print(
                         f"duplicate-owned ({len(report['duplicate_owned'])}): "
-                        + ", ".join(s for s, _, _ in report["duplicate_owned"][:10])
+                        + ", ".join(
+                            untrusted_ident(s) for s, _, _ in report["duplicate_owned"][:10]
+                        )
                     )
             return
         if fill_data:
@@ -526,7 +537,7 @@ def main(
                 if own_result["skipped"]:
                     console.print(
                         f"  skipped ({len(own_result['skipped'])}): "
-                        + ", ".join(own_result["skipped"][:10])
+                        + ", ".join(untrusted_ident(s) for s in own_result["skipped"][:10])
                     )
             return
         if fix_ownership:
@@ -597,7 +608,7 @@ def main(
                     " the declaration)[/yellow]"
                 )
             for f, n in sorted(per_file.items()):
-                console.print(f"  {f}: {n}")
+                console.print(f"  {untrusted_ident(f)}: {n}")
         return
 
     scan = scan_globals(src_dir, cfg=cfg)
@@ -617,7 +628,8 @@ def main(
             # without this, and the BSS report then tells the user to go
             # annotate globals that were never the problem.
             console.print(
-                f"[yellow]warning:[/yellow] cannot read sections from {bin_path} ({exc}); "
+                f"[yellow]warning:[/yellow] cannot read sections from "
+                f"{untrusted_ident(bin_path)} ({untrusted_ident(exc)}); "
                 "global sections, the out-of-range VA check and the BSS layout "
                 "report are omitted"
             )
@@ -644,7 +656,7 @@ def main(
                 console.print(
                     f"[yellow]warning:[/yellow] {len(out_of_range)} annotated global(s) "
                     "fall outside every PE section range: "
-                    + ", ".join(f"{n}@0x{va:x}" for n, va in out_of_range[:8])
+                    + ", ".join(f"{untrusted_ident(n)}@0x{va:x}" for n, va in out_of_range[:8])
                 )
 
     data_anns = scan_data_annotations(src_dir, cfg=cfg)
@@ -752,9 +764,12 @@ def main(
         if scan.type_conflicts:
             console.print()
             for c in scan.type_conflicts:
-                console.print(f"  [bold red]⚠ {c['name']}[/]:")
+                console.print(f"  [bold red]⚠ {untrusted_ident(c['name'])}[/]:")
                 for t, files in c["types"].items():
-                    console.print(f"    {t:30s} ← {', '.join(files)}")
+                    console.print(
+                        f"    {untrusted_ident(t):30s} ← "
+                        f"{', '.join(untrusted_ident(f) for f in files)}"
+                    )
     else:
         render_globals(console, scan)
         if scan.type_conflicts:

@@ -40,7 +40,7 @@ from rebrew.cli import (
 )
 from rebrew.errors import RebrewError
 from rebrew.sources import iter_sources
-from rebrew.utils import rel_display_path, split_source_lines, untrusted_text
+from rebrew.utils import rel_display_path, split_source_lines, untrusted_ident, untrusted_text
 
 log = logging.getLogger(__name__)
 
@@ -549,7 +549,7 @@ def main(
             str(finding["rule"]),
             str(finding["cwe"]),
             untrusted_text(f"{file_display}:{finding['line']}"),
-            str(finding["function"]),
+            untrusted_ident(finding["function"]),
             untrusted_text(finding["snippet"]),
         )
     console.print(table)

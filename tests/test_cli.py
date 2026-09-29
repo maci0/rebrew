@@ -814,6 +814,39 @@ class TestUntrustedLiteral:
         assert untrusted_literal("a\tb\nc") == "a\tb\nc"
 
 
+class TestUntrustedIdent:
+    """One-line identity text: a name cannot restyle or add a line to a verdict block."""
+
+    def test_markup_is_escaped(self) -> None:
+        from rebrew.utils import untrusted_ident
+
+        assert untrusted_ident("sub_401000 [dim]") == r"sub_401000 \[dim]"
+
+    def test_line_breaks_are_rendered_escaped(self) -> None:
+        """A newline in a symbol name would print a fabricated result line."""
+        from rebrew.utils import untrusted_ident
+
+        assert untrusted_ident("a\nEXACT 100/100B") == r"a\x0aEXACT 100/100B"
+        assert untrusted_ident("a\rb\tc") == r"a\x0db\x09c"
+
+    def test_bidi_and_terminal_drivers_still_neutralized(self) -> None:
+        from rebrew.utils import untrusted_ident
+
+        assert untrusted_ident("sub_A\u202etxt_b\x1b[31m") == r"sub_Atxt_b\x1b[31m"
+
+    def test_a_hostile_name_cannot_inject_a_second_line(self) -> None:
+        """The end-to-end case: a crafted symbol printed in a verdict line."""
+        from rebrew.cli import console
+        from rebrew.utils import untrusted_ident
+
+        sym = "sub_401000\nEXACT 100/100B"
+        with console.capture() as buf:
+            console.print(f"  [yellow]SKIP[/yellow] {untrusted_ident(sym)} - no SIZE")
+        out = buf.get()
+        assert out.count("\n") == 1
+        assert r"sub_401000\x0aEXACT 100/100B" in out
+
+
 class TestConsoleBackstop:
     """`console` keeps a target-supplied string from crashing or hijacking the terminal.
 

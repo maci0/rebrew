@@ -35,6 +35,7 @@ from rebrew.cli import (
     json_print,
     require_config,
     require_source_arg,
+    untrusted_ident,
 )
 from rebrew.config import ProjectConfig
 from rebrew.sources import iter_sources
@@ -150,21 +151,25 @@ def diagnose_source(cfg: ProjectConfig, source: Path) -> dict[str, Any]:
 
 def _print_trace(entry: dict[str, Any]) -> None:
     """Human-readable rendering of one source file's resolution trace."""
-    console.print(f"[bold]{entry['source']}[/bold]")
+    console.print(f"[bold]{untrusted_ident(entry['source'])}[/bold]")
     for fn in entry["functions"]:
         if fn["va"] is not None:
-            console.print(f"  [cyan]0x{fn['va']:08x}[/cyan]  ({fn['module']})")
+            console.print(f"  [cyan]0x{fn['va']:08x}[/cyan]  ({untrusted_ident(fn['module'])})")
         for step in fn["steps"]:
             if step["source"] == "function":
                 tc = step["toolchain"] or "(inherit)"
                 cf = step["cflags"] or "(inherit)"
-                console.print(f"    function metadata:  toolchain={tc}  cflags={cf}")
+                console.print(
+                    f"    function metadata:  toolchain={untrusted_ident(tc)}  "
+                    f"cflags={untrusted_ident(cf)}"
+                )
             elif step["source"] == "library":
                 if step.get("path"):
                     presets = f"  presets={step['presets']}" if step.get("presets") else ""
                     console.print(
-                        f"    library {step['path']}:  toolchain={step['toolchain'] or '(inherit)'}"
-                        f"  cflags={step['cflags'] or '(inherit)'}{presets}"
+                        f"    library {untrusted_ident(step['path'])}:  "
+                        f"toolchain={untrusted_ident(step['toolchain'] or '(inherit)')}"
+                        f"  cflags={untrusted_ident(step['cflags'] or '(inherit)')}{presets}"
                     )
                 else:
                     console.print("    library:            (no rebrew-libraries.toml found)")
@@ -188,10 +193,11 @@ def _print_trace(entry: dict[str, Any]) -> None:
                 )
         eff = fn["effective"]
         console.print(
-            f"    [bold]effective:[/bold] toolchain={eff['toolchain']}  cflags={eff['cflags']}"
+            f"    [bold]effective:[/bold] toolchain={untrusted_ident(eff['toolchain'])}  "
+            f"cflags={untrusted_ident(eff['cflags'])}"
         )
         for warn in fn["warnings"]:
-            console.print(f"    [yellow]warning:[/yellow] {warn}")
+            console.print(f"    [yellow]warning:[/yellow] {untrusted_ident(warn)}")
         if not fn["warnings"]:
             console.print("    [green]declarations consistent[/green]")
 

@@ -33,7 +33,7 @@ from rebrew.cli import (
     run_standalone,
 )
 from rebrew.config import ProjectConfig
-from rebrew.utils import floor_pct
+from rebrew.utils import floor_pct, untrusted_ident
 
 app = typer.Typer(
     help="Rebrew validation pipeline: parse annotations, generate catalog and coverage data.",
@@ -122,7 +122,7 @@ def run_catalog(
             f"Byte-matched: {progress.matched_functions}/{progress.total_functions} functions"
         )
         for st in sorted(progress.status_counts):
-            console.print(f"  {st}: {progress.status_counts[st]}")
+            console.print(f"  {untrusted_ident(st)}: {progress.status_counts[st]}")
         console.print(f"Library identified: {progress.library_identified}")
         from rebrew.present import ratio_bar
 
@@ -184,7 +184,7 @@ def run_catalog(
                 )
         labels_path = reversed_dir / "ghidra_data_labels.json"
         atomic_write_text(labels_path, json.dumps(labels, indent=2) + "\n", encoding="utf-8")
-        console.print(f"Wrote {labels_path} ({len(labels)} labels)", style="dim")
+        console.print(f"Wrote {untrusted_ident(labels_path)} ({len(labels)} labels)", style="dim")
 
     if fix_sizes:
         from rebrew.annotation import update_size_annotation
@@ -232,15 +232,16 @@ def run_catalog(
                     diff = canonical - ann.size
                     display = rel_display_path(cfile, reversed_dir)
                     console.print(
-                        f"  {display}: SIZE {ann.size} → {canonical} (+{diff}B, {reason})"
+                        f"  {untrusted_ident(display)}: SIZE {ann.size} → {canonical} "
+                        f"(+{diff}B, {untrusted_ident(reason)})"
                     )
                     updated += 1
                 else:
                     # Say which file: a bare "N skipped" reads as "nothing to
                     # do" when a run actually left a stale SIZE behind.
                     console.print(
-                        f"  {rel_display_path(cfile, reversed_dir)}: SIZE not written "
-                        f"(no module key, or metadata already at {canonical})"
+                        f"  {untrusted_ident(rel_display_path(cfile, reversed_dir))}: "
+                        f"SIZE not written (no module key, or metadata already at {canonical})"
                     )
                     skipped += 1
         console.print(f"[green]Updated {updated} SIZE annotations[/] ({skipped} skipped)")
@@ -312,12 +313,15 @@ def main(
             )
         console.print(
             "To export Ghidra functions, run this in the MCP console:\n"
-            f"  get-functions programPath=/{cfg.target_binary.name} filterDefaultNames=false\n"
-            f"Then save the output as {cfg.reversed_dir.name}/function_structure.json with format:\n"
+            f"  get-functions programPath=/{untrusted_ident(cfg.target_binary.name)} "
+            "filterDefaultNames=false\n"
+            f"Then save the output as {untrusted_ident(cfg.reversed_dir.name)}"
+            "/function_structure.json with format:\n"
             '  [{"va": 0x10001000, "size": 302, "tool_name": "FUN_10001000"}, ...]\n'
             "\n"
             "To also export data labels (switch tables, etc.), search for non-function\n"
-            f"labels in Ghidra and save as {cfg.reversed_dir.name}/ghidra_data_labels.json:\n"
+            f"labels in Ghidra and save as {untrusted_ident(cfg.reversed_dir.name)}"
+            "/ghidra_data_labels.json:\n"
             '  [{"va": 0x10002E9C, "size": 20, "label": "switchdataD_10002e9c"}, ...]',
         )
         return

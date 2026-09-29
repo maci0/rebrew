@@ -19,7 +19,14 @@ from typing import Any
 
 import typer
 
-from rebrew.cli import EXIT_MISMATCH, TargetOption, console, error_exit, json_print
+from rebrew.cli import (
+    EXIT_MISMATCH,
+    TargetOption,
+    console,
+    error_exit,
+    json_print,
+    untrusted_ident,
+)
 from rebrew.config import load_config
 from rebrew.data_layout import built_data_va
 
@@ -141,12 +148,14 @@ def main(
             f"symbols: {len(here)}  toml-matched: {good + bad}  correct-VA: {good}  misplaced: {bad}"
         )
         for sym, exp, act in bads[:limit]:
-            console.print(f"  {sym:32} exp {exp:#010x}  our {act:#010x}  d {act - exp:+#x}")
+            console.print(
+                f"  {untrusted_ident(sym):32} exp {exp:#010x}  our {act:#010x}  d {act - exp:+#x}"
+            )
         if drifted:
             console.print("  [dim]placement drift by object (roadmap-style):[/dim]")
             for stats in drifted[:limit]:
                 console.print(
-                    f"    {Path(stats['object']).name:32} "
+                    f"    {untrusted_ident(Path(stats['object']).name):32} "
                     f"{stats['misplaced']}/{stats['symbols']} misplaced  "
                     f"mean delta {stats['mean_delta']:+#x}"
                 )

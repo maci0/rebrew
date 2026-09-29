@@ -38,6 +38,7 @@ from rebrew.cli import (
     json_print,
     parse_va,
     resolve_binary_arg,
+    untrusted_ident,
 )
 from rebrew.import_table import parse_import_table
 
@@ -272,7 +273,7 @@ def main(
             table.add_column("callee")
             table.add_column("count", justify="right")
             for row in payload["callees"]:
-                table.add_row(str(row["name"]), str(row["count"]))
+                table.add_row(untrusted_ident(row["name"]), str(row["count"]))
             console.print(table)
             console.print(f"total calls: {payload['total_calls']}")
         return
@@ -294,7 +295,7 @@ def main(
     console.print(f"[bold]{len(refs)}[/] references to [bold]0x{target_va:08X}[/]:")
     import_name = payload["import_name"]
     if import_name is not None:
-        console.print(f"[bold]target is import:[/bold] {import_name}")
+        console.print(f"[bold]target is import:[/bold] {untrusted_ident(import_name)}")
     counts = Counter(ref["kind"] for ref in refs)
     for ref_kind in sorted(counts):
         console.print(f"  [bold]{ref_kind}[/]: {counts[ref_kind]}")
@@ -303,7 +304,11 @@ def main(
     table.add_column("kind")
     table.add_column("instruction")
     for ref in refs:  # build_xrefs_payload keeps scan_references' (from_va, to_va) order
-        table.add_row(f"0x{ref['from_va']:08X}", ref["kind"], ref["instruction"] or "")
+        table.add_row(
+            f"0x{ref['from_va']:08X}",
+            ref["kind"],
+            untrusted_ident(ref["instruction"] or ""),
+        )
     console.print(table)
 
 

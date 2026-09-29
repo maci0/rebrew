@@ -11,7 +11,8 @@ it belongs to rather than starting a sixth.
   ``is_safe_c_ident``, ``c_comment_safe``, ``pe_name_token``, ``fold_ident``,
   ``ascii_slug``, ``preset_module_key``, ``toml_safe``,
   ``parse_int_literal``, ``parse_c_integer_literal``, ``source_newline``,
-  ``safe_shlex_split``, ``untrusted_literal`` / ``untrusted_text``
+  ``safe_shlex_split``, ``untrusted_literal`` / ``untrusted_text`` /
+  ``untrusted_ident``
 - **Source and config reading**: ``read_source_text`` / ``read_compile_source``
   (with the LRU memo and its ``clear_source_text_memo`` reset),
   ``split_source_lines`` / ``join_source_lines``,
@@ -159,6 +160,29 @@ def untrusted_literal(value: object) -> str:
     ``[bold]`` are the text under review and escaping them would misreport it.
     """
     return strip_bidi_format(str(value)).translate(_TERMINAL_CONTROL_CHARS)
+
+
+#: Line separators and tab, rendered as ``\xNN`` on top of
+#: :data:`_TERMINAL_CONTROL_CHARS`.  An identifier is one line, so a name
+#: carrying a newline would otherwise print a second line of its own into a
+#: verdict block, where it reads as another result row.
+_LINE_BREAK_CHARS = {
+    ord("\n"): r"\x0a",
+    ord("\r"): r"\x0d",
+    ord("\t"): r"\x09",
+}
+
+
+def untrusted_ident(value: object) -> str:
+    """*value* as one line of literal terminal text.
+
+    :func:`untrusted_text` for a symbol, module, section, file, or status
+    printed in a table cell or a one-line verdict: markup is escaped, invisible
+    and control characters are rendered as ``\\xNN``, and so is a line break,
+    because a name carrying one prints a fabricated extra line into the block
+    an analyst reads verdicts out of.
+    """
+    return rich_escape(untrusted_literal(value).translate(_LINE_BREAK_CHARS))
 
 
 def untrusted_text(value: object) -> str:

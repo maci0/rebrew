@@ -25,7 +25,7 @@ from typing import Any
 import typer
 from rich.table import Table
 
-from rebrew.cli import TargetOption, console, json_print
+from rebrew.cli import TargetOption, console, json_print, untrusted_ident
 from rebrew.config import load_config
 
 logger = logging.getLogger(__name__)
@@ -553,15 +553,15 @@ _DRILL_SECTIONS: tuple[tuple[str, str], ...] = (
 def _render_function_terminal(fn: dict[str, Any]) -> None:
     """Render the --function drill as rich terminal output."""
     console.print(
-        f"\n[bold]Function:[/bold] {fn['name']} ([cyan]0x{fn['va']:08x}[/cyan], "
-        f"{fn['size'] or '?'} bytes, {fn['status'] or 'no status'})"
+        f"\n[bold]Function:[/bold] {untrusted_ident(fn['name'])} ([cyan]0x{fn['va']:08x}[/cyan], "
+        f"{fn['size'] or '?'} bytes, {untrusted_ident(fn['status'] or 'no status')})"
     )
     if fn.get("cflags"):
-        console.print(f"  [dim]cflags: {fn['cflags']}[/dim]")
+        console.print(f"  [dim]cflags: {untrusted_ident(fn['cflags'])}[/dim]")
     if fn.get("blocker"):
-        console.print(f"  [yellow]blocker: {fn['blocker']}[/yellow]")
+        console.print(f"  [yellow]blocker: {untrusted_ident(fn['blocker'])}[/yellow]")
     if fn.get("note"):
-        console.print(f"  [dim]note: {fn['note']}[/dim]")
+        console.print(f"  [dim]note: {untrusted_ident(fn['note'])}[/dim]")
 
     for label, key in _DRILL_SECTIONS:
         rows = fn.get(key) or []
@@ -569,7 +569,7 @@ def _render_function_terminal(fn: dict[str, Any]) -> None:
         if not rows:
             console.print("  [dim]none[/dim]")
         for r in rows[:12]:
-            console.print(f"  {r}")
+            console.print(f"  {untrusted_ident(r)}")
         if len(rows) > 12:
             console.print(f"  [dim]... and {len(rows) - 12} more[/dim]")
 
@@ -787,7 +787,7 @@ def main(
         from rebrew.utils import atomic_write_text
 
         atomic_write_text(output, _render_markdown(dossier, fn_dossier))
-        console.print(f"[green]Wrote {output}[/green]")
+        console.print(f"[green]Wrote {untrusted_ident(output)}[/green]")
         if fn_dossier is not None:
             console.print(f"[green]Included function drill for 0x{fn_dossier['va']:08x}[/green]")
         return
@@ -795,7 +795,7 @@ def main(
     # --- Rich terminal rendering ---
     meta = dossier["meta"]
     console.print(
-        f"[bold]{dossier['binary']}[/bold] ([cyan]{meta['format']}[/cyan], "
+        f"[bold]{untrusted_ident(dossier['binary'])}[/bold] ([cyan]{meta['format']}[/cyan], "
         f"image base [cyan]0x{meta['image_base']:x}[/cyan])"
     )
 
@@ -807,7 +807,7 @@ def main(
     table.add_column("File offset", justify="right")
     for sec in meta["sections"]:
         table.add_row(
-            sec["name"],
+            untrusted_ident(sec["name"]),
             sec["va"],
             f"{sec['size']:,}",
             f"{sec['raw_size']:,}",
@@ -837,7 +837,7 @@ def main(
         + (f", {imports['iat_stubs']} IAT stubs" if imports["iat_stubs"] else "")
     )
     for d in imports["dlls"]:
-        console.print(f"  {d['dll']} ({d['count']})")
+        console.print(f"  {untrusted_ident(d['dll'])} ({d['count']})")
 
     refs = dossier["references"]
     if refs["total"]:
@@ -855,7 +855,7 @@ def main(
     if near_match:
         console.print(f"[bold]NEAR_MATCHING:[/bold] {len(near_match)} function(s)")
         for nm in near_match[:10]:
-            console.print(f"  [dim]{nm['va']}[/dim] {nm['blocker'][:70]}")
+            console.print(f"  [dim]{nm['va']}[/dim] {untrusted_ident(nm['blocker'][:70])}")
         if len(near_match) > 10:
             console.print(f"  [dim]... and {len(near_match) - 10} more[/dim]")
 
@@ -864,7 +864,8 @@ def main(
         console.print(f"[bold]Dispatch tables:[/bold] {len(dispatch)} detected")
         for t in dispatch[:10]:
             console.print(
-                f"  [dim]{t['va']}[/dim] ({t['section']}, {t['entries']} entries, {t['resolved']} resolved)"
+                f"  [dim]{t['va']}[/dim] ({untrusted_ident(t['section'])}, {t['entries']} entries, "
+                f"{t['resolved']} resolved)"
             )
 
     library = dossier.get("library") or []
@@ -872,8 +873,8 @@ def main(
         console.print(f"[bold]Library functions:[/bold] {len(library)} identified")
         for lib in library[:10]:
             console.print(
-                f"  [dim]{lib['va']}[/dim] {lib['name']} ({lib['module']}, "
-                f"{lib['kind']}, conf {lib['confidence']:.2f})"
+                f"  [dim]{lib['va']}[/dim] {untrusted_ident(lib['name'])} "
+                f"({untrusted_ident(lib['module'])}, {lib['kind']}, conf {lib['confidence']:.2f})"
             )
 
     flirt_result = dossier["flirt"]

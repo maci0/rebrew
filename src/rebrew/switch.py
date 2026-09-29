@@ -28,7 +28,7 @@ import typer
 from rich.table import Table
 
 from rebrew.cli import EXIT_OK, TargetOption, console, error_exit, json_print, require_config
-from rebrew.utils import parse_int_literal
+from rebrew.utils import parse_int_literal, untrusted_ident
 
 #: Maximum table entries to read (the bounds-check count normally bounds it;
 #: this is a safety cap against misreading a data region as a giant table).
@@ -386,7 +386,7 @@ def main(
                 table.add_row("...", "", f"{len(sw['cases']) - shown} more")
                 break
             name = _resolve_name(cfg, handler_va, func_lookup)
-            table.add_row(f"{index}", f"0x{handler_va:08x}", name)
+            table.add_row(f"{index}", f"0x{handler_va:08x}", untrusted_ident(name))
         console.print(table)
 
 
@@ -441,7 +441,7 @@ def _scan_all(cfg: Any, window: int, json_output: bool) -> None:
     console.print(f"[bold]{len(found)} function(s) with jump-table dispatches:[/]")
     for f in sorted(found, key=lambda x: -x["dispatches"]):
         console.print(
-            f"  [cyan]{f['va']}[/] {f['name']:<24s} "
+            f"  [cyan]{f['va']}[/] {untrusted_ident(f['name']):<24s} "
             f"{f['dispatches']} dispatch(es), {f['cases']} case(s) — "
             f"rebrew switch {f['va']}"
         )

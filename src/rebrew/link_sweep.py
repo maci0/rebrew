@@ -42,7 +42,7 @@ from rich.table import Table
 from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
 from rebrew.pe_headers import pe_layout
 from rebrew.pe_image import derive_link_options, parse_pe
-from rebrew.utils import run_process_group
+from rebrew.utils import run_process_group, untrusted_ident
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
@@ -283,7 +283,9 @@ def main(
         table.add_column("fields")
         for r in results:
             if r.get("link_failed"):
-                table.add_row(r["candidate"], "LINK FAILED", (r.get("stderr") or "")[:80])
+                table.add_row(
+                    r["candidate"], "LINK FAILED", untrusted_ident((r.get("stderr") or "")[:80])
+                )
                 continue
             names = ", ".join(r["diffs"]) if r["diffs"] else "(none)"
             table.add_row(r["candidate"], str(r["diff_count"]), names)

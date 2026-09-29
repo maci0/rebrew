@@ -27,6 +27,7 @@ from rebrew.instruction_clones import (
     function_unit,
     load_function_units,
 )
+from rebrew.utils import untrusted_ident
 
 #: Smallest duplicate group ``rebrew similar --cluster`` reports.
 MIN_CLUSTER_SIZE = 2
@@ -394,14 +395,16 @@ def main(
         console.print("[yellow]No similar functions found.[/yellow]")
         return
 
-    table = Table(title=f"Functions similar to {va}", show_header=True)
+    table = Table(title=f"Functions similar to {untrusted_ident(va)}", show_header=True)
     table.add_column("Rank", justify="right")
     table.add_column("VA")
     table.add_column("Score", justify="right")
     table.add_column("Size", justify="right")
     table.add_column("Name")
     for i, r in enumerate(results, 1):
-        table.add_row(str(i), r["va"], f"{r['score']:.1f}", str(r["size"]), r["name"])
+        table.add_row(
+            str(i), r["va"], f"{r['score']:.1f}", str(r["size"]), untrusted_ident(r["name"])
+        )
     console.print(table)
 
 
@@ -426,7 +429,7 @@ def _print_submatch(report: dict[str, Any]) -> None:
         preview = " ; ".join(run["instructions"][:3])
         if run["length"] > 3:
             preview += " ; ..."
-        table.add_row(run["left_va"], run["right_va"], str(run["length"]), preview)
+        table.add_row(run["left_va"], run["right_va"], str(run["length"]), untrusted_ident(preview))
     console.print(table)
 
 
@@ -454,8 +457,8 @@ def _print_clusters(report: dict[str, Any]) -> None:
             str(index),
             str(group["size"]),
             str(group["instructions"]),
-            group["signature"],
-            f"{first['va']} {first['name']}".strip(),
+            untrusted_ident(group["signature"]),
+            f"{first['va']} {untrusted_ident(first['name'])}".strip(),
         )
     console.print(table)
 

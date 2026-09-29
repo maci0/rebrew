@@ -82,6 +82,7 @@ from rebrew.utils import (
     read_source_text,
     rel_display_path,
     split_source_lines,
+    untrusted_ident,
 )
 from rebrew.workspace.status import EARNED_STATUSES, KNOWN_STATUSES, MATCHED_STATUSES
 
@@ -167,14 +168,14 @@ class LintResult:
 
     def _display_lines(self, quiet: bool = False) -> list[str]:
         """Formatted error/warning lines; callers batch them into one print."""
-        rel = self.filepath.name
+        rel = untrusted_ident(self.filepath.name)
         lines = [
-            f"  [bold]{rel}[/bold]:{line}: [red]{code}[/red]: {msg}"
+            f"  [bold]{rel}[/bold]:{line}: [red]{code}[/red]: {untrusted_ident(msg)}"
             for line, code, msg in self.errors
         ]
         if not quiet:
             lines += [
-                f"  [bold]{rel}[/bold]:{line}: [yellow]{code}[/yellow]: {msg}"
+                f"  [bold]{rel}[/bold]:{line}: [yellow]{code}[/yellow]: {untrusted_ident(msg)}"
                 for line, code, msg in self.warnings
             ]
         return lines
@@ -2334,7 +2335,7 @@ def _print_summary(results: list[LintResult]) -> None:
     table.add_column("Count", justify="right", width=8, no_wrap=True)
 
     for status, count in sorted(status_counts.items(), key=lambda x: -x[1]):
-        table.add_row("STATUS", status, str(count))
+        table.add_row("STATUS", untrusted_ident(status), str(count))
     for marker, count in sorted(marker_counts.items(), key=lambda x: -x[1]):
         table.add_row("MARKER", marker, str(count))
 
@@ -2445,7 +2446,8 @@ def main(
         no_config = True
     except (KeyError, ValueError) as exc:
         console.print(
-            f"[yellow]warning:[/yellow] config error ({exc}); config-aware rules disabled"
+            f"[yellow]warning:[/yellow] config error ({untrusted_ident(exc)}); "
+            "config-aware rules disabled"
         )
 
     reversed_dir = cfg.reversed_dir if cfg else None
@@ -2617,8 +2619,9 @@ def main(
                             # prints were 1600 console calls on a
                             # 400-file tree, ~27% of lint's runtime.
                             w029_inline.append(
-                                f"  [bold]{dest.filepath.name}[/bold]:{line}: "
-                                f"[yellow]W029[/yellow]: redundant cflags: {msg}"
+                                f"  [bold]{untrusted_ident(dest.filepath.name)}[/bold]:{line}: "
+                                f"[yellow]W029[/yellow]: redundant cflags: "
+                                f"{untrusted_ident(msg)}"
                             )
                 else:
                     unattributed.append(fn_hit)
@@ -2717,8 +2720,8 @@ def main(
             elif r._inline_strips and dry_run:
                 for _module, _va, key in r._inline_strips:
                     console.print(
-                        f"  [dim]Would strip[/dim] {r.filepath.name} "
-                        f"// {key}: (unknown annotation key)"
+                        f"  [dim]Would strip[/dim] {untrusted_ident(r.filepath.name)} "
+                        f"// {untrusted_ident(key)}: (unknown annotation key)"
                     )
                     strip_count += 1
             # Inline copies that duplicate the metadata store with an equal
@@ -2731,8 +2734,8 @@ def main(
             elif r._inline_dup_strips and dry_run:
                 for _module, _va, key in r._inline_dup_strips:
                     console.print(
-                        f"  [dim]Would strip[/dim] {r.filepath.name} "
-                        f"// {key}: (already in metadata)"
+                        f"  [dim]Would strip[/dim] {untrusted_ident(r.filepath.name)} "
+                        f"// {untrusted_ident(key)}: (already in metadata)"
                     )
                     strip_count += 1
         # Strips from the migration loop below (legacy keys, redundant inline
@@ -2753,8 +2756,8 @@ def main(
                 ):
                     if dry_run:
                         console.print(
-                            f"  [dim]Would strip[/dim] {r.filepath.name} "
-                            f"// {key}: (legacy key — never stored)"
+                            f"  [dim]Would strip[/dim] {untrusted_ident(r.filepath.name)} "
+                            f"// {untrusted_ident(key)}: (legacy key — never stored)"
                         )
                         inline_strip_count += 1
                     elif remove_inline_annotation_key(r.filepath, va, key):
@@ -2768,8 +2771,9 @@ def main(
                     if cflags_key(value.strip()) == cflags_key(inherited):
                         if dry_run:
                             console.print(
-                                f"  [dim]Would strip[/dim] {r.filepath.name} "
-                                f"// {key}: {value!r} (redundant — inherits {inherited!r})"
+                                f"  [dim]Would strip[/dim] {untrusted_ident(r.filepath.name)} "
+                                f"// {untrusted_ident(key)}: {value!r} "
+                                f"(redundant — inherits {inherited!r})"
                             )
                             inline_strip_count += 1
                         elif remove_inline_annotation_key(r.filepath, va, key):
@@ -2783,8 +2787,8 @@ def main(
                     or (key == "STATUS" and value.strip() not in DATA_STATUSES)
                 ):
                     console.print(
-                        f"  [yellow]Skipped[/yellow] {r.filepath.name} "
-                        f"// {key}: (not a data metadata field)"
+                        f"  [yellow]Skipped[/yellow] {untrusted_ident(r.filepath.name)} "
+                        f"// {untrusted_ident(key)}: (not a data metadata field)"
                     )
                     continue
                 if is_data_marker:
@@ -2797,8 +2801,8 @@ def main(
                     if dry_run:
                         store = "rebrew-data.toml" if is_data_marker else "rebrew-functions.toml"
                         console.print(
-                            f"  [dim]Would migrate[/dim] {r.filepath.name} "
-                            f"// {key}: {value!r} → {store}"
+                            f"  [dim]Would migrate[/dim] {untrusted_ident(r.filepath.name)} "
+                            f"// {untrusted_ident(key)}: {value!r} → {store}"
                         )
                     else:
                         # Coerce size/blocker_delta to int via the shared
@@ -2851,8 +2855,8 @@ def main(
                 if dry_run:
                     if present:
                         console.print(
-                            f"  [dim]Would strip[/dim] {r.filepath.name} "
-                            f"// {key}: (already in metadata)"
+                            f"  [dim]Would strip[/dim] {untrusted_ident(r.filepath.name)} "
+                            f"// {untrusted_ident(key)}: (already in metadata)"
                         )
                         inline_strip_count += 1
                     else:
@@ -2869,7 +2873,8 @@ def main(
                 for fn_hit in fn_redundant:
                     console.print(
                         f"  [dim]Would drop[/dim] redundant cflags "
-                        f"{fn_hit.module} 0x{fn_hit.va:x} (inherited {fn_hit.inherited!r})"
+                        f"{untrusted_ident(fn_hit.module)} 0x{fn_hit.va:x} "
+                        f"(inherited {fn_hit.inherited!r})"
                     )
                 w029_fn_count = len(fn_redundant)
             else:
@@ -2886,7 +2891,7 @@ def main(
                 for preset_hit in preset_redundant:
                     console.print(
                         f"  [dim]Would drop[/dim] redundant preset "
-                        f"cflags_presets.{preset_hit.module}"
+                        f"cflags_presets.{untrusted_ident(preset_hit.module)}"
                     )
             w029_preset_count = drop_redundant_presets(cfg, preset_redundant, dry_run=dry_run)
             if dry_run and w029_preset_count == 0:
@@ -2898,7 +2903,8 @@ def main(
                 for section_hit in section_hits:
                     console.print(
                         f"  [dim]Would set[/dim] section {section_hit.section!r} "
-                        f"for {section_hit.module} 0x{section_hit.va:x} (rebrew-data.toml)"
+                        f"for {untrusted_ident(section_hit.module)} "
+                        f"0x{section_hit.va:x} (rebrew-data.toml)"
                     )
                 section_count = len(section_hits)
             else:

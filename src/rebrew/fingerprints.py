@@ -33,7 +33,15 @@ from typing import Any, cast
 import typer
 from rich.table import Table
 
-from rebrew.cli import EXIT_ERROR, TargetOption, console, error_exit, json_print, resolve_binary_arg
+from rebrew.cli import (
+    EXIT_ERROR,
+    TargetOption,
+    console,
+    error_exit,
+    json_print,
+    resolve_binary_arg,
+    untrusted_ident,
+)
 from rebrew.errors import RebrewError
 
 log = logging.getLogger(__name__)
@@ -521,7 +529,9 @@ def main(
         json_print(bundle)
         return
 
-    table = Table(title=f"Fingerprint: {binary.name}", expand=False, pad_edge=False)
+    table = Table(
+        title=f"Fingerprint: {untrusted_ident(binary.name)}", expand=False, pad_edge=False
+    )
     table.add_column("Field", style="bold")
     table.add_column("Value", overflow="fold")
     for key, value in bundle.items():
@@ -548,7 +558,7 @@ def main(
             va = section["va"]
             va_text = f"0x{va:08x}" if isinstance(va, int) else str(va)
             section_table.add_row(
-                str(section["name"]),
+                untrusted_ident(section["name"]),
                 va_text,
                 str(section["vsize"]),
                 str(section["raw_size"]),

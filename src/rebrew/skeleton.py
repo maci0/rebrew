@@ -69,6 +69,7 @@ from rebrew.utils import (
     read_source_text,
     rel_display_path,
     source_newline,
+    untrusted_ident,
 )
 
 logger = logging.getLogger(__name__)
@@ -1079,7 +1080,7 @@ def _run_batch_mode(
         rel_path = rel_display_path(filepath, root)
 
         if filepath.exists() and not force:
-            console.print(f"[yellow]SKIP[/] {rel_path} (already exists)")
+            console.print(f"[yellow]SKIP[/] {untrusted_ident(rel_path)} (already exists)")
             continue
 
         d_code, d_backend, xref_context_val = _fetch_extras(
@@ -1101,7 +1102,7 @@ def _run_batch_mode(
             func_lookup=batch_func_lookup,
         )
         if dry_run:
-            console.print(f"[dim]Would create[/dim] {rel_path} ({size_val}B)")
+            console.print(f"[dim]Would create[/dim] {untrusted_ident(rel_path)} ({size_val}B)")
         else:
             atomic_write_text(filepath, content, encoding="utf-8")
             _write_skeleton_metadata(cfg, va_val, size_val, cfg.marker)
@@ -1111,8 +1112,8 @@ def _run_batch_mode(
         size_warning = _stale_size_note(cfg, va_val, size_val)
 
         if not dry_run:
-            console.print(f"[bold green]CREATED[/] {rel_path} ({size_val}B)")
-        console.print(f"  [dim]TEST:[/] {test_cmd}")
+            console.print(f"[bold green]CREATED[/] {untrusted_ident(rel_path)} ({size_val}B)")
+        console.print(f"  [dim]TEST:[/] {untrusted_ident(test_cmd)}")
         if size_warning:
             console.print(f"  [yellow]warning:[/yellow] {size_warning}")
         created.append(
@@ -1234,7 +1235,9 @@ def _run_append_mode(
     else:
         separator = eol * 2
     if dry_run:
-        console.print(f"[dim]Would append[/dim] to {rel_display_path(append_path, root)}")
+        console.print(
+            f"[dim]Would append[/dim] to {untrusted_ident(rel_display_path(append_path, root))}"
+        )
     else:
         atomic_write_text(append_path, existing_text + separator + block, encoding=encoding)
         _write_skeleton_metadata(cfg, va_int, size, module_val)
@@ -1242,13 +1245,13 @@ def _run_append_mode(
     rel_path_val = rel_display_path(append_path, root)
     symbol_val = "_" + sanitize_name(name if name else ghidra_name)
     if not dry_run:
-        console.print(f"[bold green]APPENDED[/] to {rel_path_val}:")
+        console.print(f"[bold green]APPENDED[/] to {untrusted_ident(rel_path_val)}:")
     console.print(f"  VA:     [cyan]0x{va_int:08x}[/]")
     console.print(f"  Size:   {size}B")
-    console.print(f"  Symbol: [magenta]{symbol_val}[/]")
+    console.print(f"  Symbol: [magenta]{untrusted_ident(symbol_val)}[/]")
     console.print()
     console.print("Test all functions in this file:")
-    console.print(f"  [dim]rebrew test {rel_path_val}[/]")
+    console.print(f"  [dim]rebrew test {untrusted_ident(rel_path_val)}[/]")
     if json_output:
         json_print(
             {
@@ -1292,7 +1295,7 @@ def _run_single_va_mode(
     # VA) silently overwrites a hand-edited skeleton.
     if filepath_val.exists() and not force:
         if dry_run:
-            console.print(f"[dim]Would skip[/dim] {rel_path_val} (already exists)")
+            console.print(f"[dim]Would skip[/dim] {untrusted_ident(rel_path_val)} (already exists)")
             return
         error_exit(
             f"{rel_path_val} already exists — re-run with --force to overwrite "
@@ -1325,7 +1328,7 @@ def _run_single_va_mode(
         decomp_body=decomp_body,
     )
     if dry_run:
-        console.print(f"[dim]Would create[/dim] {rel_path_val}")
+        console.print(f"[dim]Would create[/dim] {untrusted_ident(rel_path_val)}")
     else:
         atomic_write_text(filepath_val, content_val, encoding="utf-8")
         _write_skeleton_metadata(cfg, va_int, size, module_val)
@@ -1352,18 +1355,18 @@ def _run_single_va_mode(
     else:
         size_warning = _stale_size_note(cfg, va_int, size)
         if not dry_run:
-            console.print(f"[bold green]Created:[/] {rel_path_val}")
+            console.print(f"[bold green]Created:[/] {untrusted_ident(rel_path_val)}")
         console.print(f"  VA:     [cyan]0x{va_int:08x}[/]")
         console.print(f"  Size:   {size}B")
         if size_warning:
             console.print(f"  [yellow]warning:[/yellow] {size_warning}")
-        console.print(f"  Symbol: [magenta]{symbol_val}[/]")
+        console.print(f"  Symbol: [magenta]{untrusted_ident(symbol_val)}[/]")
         console.print()
         console.print("[bold]Test command:[/]")
-        console.print(f"  [dim]{test_cmd}[/]")
+        console.print(f"  [dim]{untrusted_ident(test_cmd)}[/]")
         console.print()
         console.print("[bold]Diff command:[/]")
-        console.print(f"  [dim]{diff_cmd}[/]")
+        console.print(f"  [dim]{untrusted_ident(diff_cmd)}[/]")
         console.print()
         console.print("[bold]Next steps:[/]")
         console.print(f"  1. Get Ghidra decompilation for [cyan]0x{va_int:08x}[/]")
@@ -1526,7 +1529,7 @@ def main(
                 }
             )
         else:
-            console.print(f"Already covered by: {covered_by}")
+            console.print(f"Already covered by: {untrusted_ident(covered_by)}")
             console.print("Use [cyan]--force[/] to overwrite.")
         raise typer.Exit(code=EXIT_OK)
 

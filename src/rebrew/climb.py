@@ -63,6 +63,7 @@ from rebrew.utils import (
     filename_component,
     read_source_text,
     source_backup,
+    untrusted_ident,
 )
 
 app = typer.Typer(
@@ -676,7 +677,7 @@ def main(
     try:
         with backup as backup_path:
             if backup_path is not None:
-                console.print(f"  [dim]pre-run copy: {backup_path}[/dim]")
+                console.print(f"  [dim]pre-run copy: {untrusted_ident(backup_path)}[/dim]")
             baseline, baseline_obj = scorer(
                 cfg, score_path, sym, target_bytes, cflags_str, name_to_va, va_int, toolchain_name
             )
@@ -685,7 +686,7 @@ def main(
                     "baseline does not compile -- fix the function first", json_mode=json_output
                 )
             size_budget = abs(baseline_obj - len(target_bytes))
-            console.print(f"baseline {sym}: {baseline:.0f} matched bytes")
+            console.print(f"baseline {untrusted_ident(sym)}: {baseline:.0f} matched bytes")
             lines, best, moves = _climb(lines, chunks, score_fn, passes, sym, on_move=report)
             applied = best > baseline and not dry_run
             if not dry_run:
@@ -715,7 +716,7 @@ def main(
         json_print(payload)
         return
     console.print(
-        f"{sym}: {baseline:.0f} -> [bold]{best:.0f}[/bold] matched bytes "
+        f"{untrusted_ident(sym)}: {baseline:.0f} -> [bold]{best:.0f}[/bold] matched bytes "
         f"({len(moves)} move(s){', dry run' if dry_run else ''})"
     )
     for move in moves:

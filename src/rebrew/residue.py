@@ -37,7 +37,7 @@ from rebrew.cli import (
 )
 from rebrew.errors import RebrewError
 from rebrew.pe_headers import pe_layout
-from rebrew.utils import atomic_write_text, read_json_text
+from rebrew.utils import atomic_write_text, read_json_text, untrusted_ident
 
 #: Width of the function-name column in the residue table.
 _NAME_COLUMN = 40
@@ -273,14 +273,16 @@ def main(
             error_exit(f"cannot load layout package {layout_dir}: {exc}", json_mode=json_output)
     else:
         console.print(
-            f"WARNING: no layout package at {layout_dir}; postlink fixers skipped "
+            f"WARNING: no layout package at {untrusted_ident(layout_dir)}; postlink fixers skipped "
             "(run 'rebrew gen-layout')"
         )
     info_b = load_binary(built_path)
     try:
         cover = map_coverage(bytes(info_b.data), meta, info_b) if meta else (1, 1, 1, 1)
     except KeyError as exc:
-        console.print(f"WARNING: layout-map coverage unavailable (missing section {exc})")
+        console.print(
+            f"WARNING: layout-map coverage unavailable (missing section {untrusted_ident(exc)})"
+        )
     else:
         note = layout_map_gate_note(cover)
         if note:
@@ -307,7 +309,7 @@ def main(
 
     if new_baseline:
         atomic_write_text(Path(new_baseline), json.dumps(summary, indent=2), encoding="utf-8")
-        console.print(f"baseline written ({new_baseline})")
+        console.print(f"baseline written ({untrusted_ident(new_baseline)})")
     if baseline:
         old = json.loads(read_json_text(Path(baseline)))
         old_map = {f["name"]: f["bytes"] for f in old.get("functions", [])}
@@ -338,21 +340,25 @@ def main(
     )
     for sec, s in summary["sections"].items():
         if s.get("status") == "missing-on-one-side":
-            console.print(f"{sec:9s} MISSING on one side")
+            console.print(f"{untrusted_ident(sec):9s} MISSING on one side")
         else:
             console.print(
-                f"{sec:9s} raw {s['ref_raw']:#7x}/{s['built_raw']:#7x}  differing {s['differing']:#7x}"
+                f"{untrusted_ident(sec):9s} raw {s['ref_raw']:#7x}/{s['built_raw']:#7x}  "
+                f"differing {s['differing']:#7x}"
             )
     console.print(f"\n{'function':40s} {'bytes':>6s} {'1st diff':>10s}")
     for f in summary["functions"]:
         if f["bytes"] > 8 or f["name"].startswith("<"):
-            console.print(f"{_name_column(f['name'])} {f['bytes']:6d} {f['first_diff_va']:>10s}")
+            console.print(
+                f"{_name_column(untrusted_ident(f['name']))} {f['bytes']:6d} {f['first_diff_va']:>10s}"
+            )
     if "delta_vs_baseline" in summary:
         d = summary["delta_vs_baseline"]
         console.print(f"\n.text {d['text_before']} -> {d['text_after']} ({d['text_delta']:+d})")
         for row in d["functions"]:
             console.print(
-                f"  {_name_column(row['name'])} {row['before']:6d} -> {row['after']:6d} ({row['delta']:+d})"
+                f"  {_name_column(untrusted_ident(row['name']))} {row['before']:6d} -> "
+                f"{row['after']:6d} ({row['delta']:+d})"
             )
 
 

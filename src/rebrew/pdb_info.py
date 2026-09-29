@@ -35,9 +35,8 @@ from pathlib import Path
 
 import tomlkit
 import typer
-from rich.markup import escape
 
-from rebrew.cli import console, error_exit, json_print
+from rebrew.cli import console, error_exit, json_print, untrusted_ident
 
 log = logging.getLogger(__name__)
 
@@ -267,19 +266,24 @@ def main(
     if json_output:
         json_print(payload)
     else:
-        console.print(f"[bold]PDB:[/bold] {info.pdb.name}")
+        console.print(f"[bold]PDB:[/bold] {untrusted_ident(info.pdb.name)}")
         console.print(f"  toolchain: {info.toolchain or 'unknown'}")
         if info.frontend:
-            console.print(f"  compiler: frontend {info.frontend} / backend {info.backend}")
+            console.print(
+                f"  compiler: frontend {untrusted_ident(info.frontend)} "
+                f"/ backend {untrusted_ident(info.backend)}"
+            )
         if info.flags:
-            console.print(f"  flags: [green]{' '.join(info.flags)}[/green] (candidate CFLAGS)")
+            console.print(
+                f"  flags: [green]{untrusted_ident(' '.join(info.flags))}[/green] (candidate CFLAGS)"
+            )
         console.print(f"  functions: {len(info.functions)}")
         for fn in info.functions[:10]:
-            console.print(f"    - {fn['name']}")
+            console.print(f"    - {untrusted_ident(fn['name'])}")
         if info.error:
             console.print(f"  [yellow]{info.error}[/yellow]")
         if "cflags_write" in payload:
-            console.print(f"  cflags write: {escape(str(payload['cflags_write']))}")
+            console.print(f"  cflags write: {untrusted_ident(payload['cflags_write'])}")
 
 
 def main_entry() -> None:

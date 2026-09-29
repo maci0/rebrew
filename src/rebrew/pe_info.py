@@ -55,6 +55,7 @@ from rebrew.pe_symbols import (
 from rebrew.pe_symbols import (
     as_list as _safe_list,
 )
+from rebrew.utils import untrusted_ident
 
 # ---------------------------------------------------------------------------
 # Named constants
@@ -962,7 +963,7 @@ def _hex(value: object) -> str:
 
 def _print_human(info: dict[str, object], binary: Path) -> None:
     """Render the payload as Rich tables on stderr."""
-    identity = Table(title=f"PE info: {binary.name}", expand=False, pad_edge=False)
+    identity = Table(title=f"PE info: {untrusted_ident(binary.name)}", expand=False, pad_edge=False)
     identity.add_column("Field", style="bold")
     identity.add_column("Value", overflow="fold")
     for key, value in info.items():
@@ -992,7 +993,7 @@ def _print_human(info: dict[str, object], binary: Path) -> None:
                 continue
             entropy = section.get("entropy")
             table.add_row(
-                str(section.get("name", "")),
+                untrusted_ident(section.get("name", "")),
                 _hex(section.get("virtual_address")),
                 str(section.get("virtual_size")),
                 str(section.get("raw_size")),
@@ -1052,10 +1053,10 @@ def _print_human(info: dict[str, object], binary: Path) -> None:
                 continue
             ordinal = entry.get("ordinal")
             table.add_row(
-                str(entry.get("name", "")) or "(ordinal only)",
+                untrusted_ident(entry.get("name", "")) or "(ordinal only)",
                 _hex(entry.get("va")) if entry.get("va") is not None else "-",
                 str(ordinal) if ordinal is not None else "-",
-                str(entry.get("forwarder", "")),
+                untrusted_ident(entry.get("forwarder", "")),
             )
         console.print(table)
 
@@ -1070,8 +1071,8 @@ def _print_human(info: dict[str, object], binary: Path) -> None:
             if not isinstance(entry, dict):
                 continue
             table.add_row(
-                str(entry.get("type", "")),
-                str(entry.get("pdb_path", "")),
+                untrusted_ident(entry.get("type", "")),
+                untrusted_ident(entry.get("pdb_path", "")),
                 str(entry.get("guid", "")),
                 str(entry.get("age", "")),
             )
@@ -1089,8 +1090,8 @@ def _print_human(info: dict[str, object], binary: Path) -> None:
                 continue
             ordinal = entry.get("ordinal")
             table.add_row(
-                str(entry.get("dll", "")),
-                str(entry.get("name") or "(ordinal only)"),
+                untrusted_ident(entry.get("dll", "")),
+                untrusted_ident(entry.get("name") or "(ordinal only)"),
                 str(ordinal) if ordinal is not None else "-",
                 _hex(entry.get("va")),
             )
@@ -1108,7 +1109,7 @@ def _print_human(info: dict[str, object], binary: Path) -> None:
         table.add_column("Field", style="bold")
         table.add_column("Value", overflow="fold")
         for key, value in version.items():
-            table.add_row(str(key), str(value))
+            table.add_row(untrusted_ident(key), untrusted_ident(value))
         console.print(table)
 
     rich = info.get("rich_header")

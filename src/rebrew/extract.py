@@ -29,6 +29,7 @@ from rebrew.cli import (
     json_print,
     parse_va,
     require_config,
+    untrusted_ident,
 )
 from rebrew.config import ProjectConfig, inventory_path_for
 
@@ -87,7 +88,7 @@ def cmd_list(candidates: list[tuple[int, int, str]]) -> None:
     table.add_column("Size", justify="right")
     table.add_column("Name", style="magenta")
     for i, (va, size, name) in enumerate(candidates):
-        table.add_row(str(i), f"0x{va:08X}", f"{size}B", name)
+        table.add_row(str(i), f"0x{va:08X}", f"{size}B", untrusted_ident(name))
     console.print(table)
 
 
@@ -133,11 +134,13 @@ def cmd_extract(
                 )
                 return
 
-            console.print(f"\n[bold]=== {name} @ 0x{va:08X}, {len(code)} bytes ===[/]")
+            console.print(
+                f"\n[bold]=== {untrusted_ident(name)} @ 0x{va:08X}, {len(code)} bytes ===[/]"
+            )
             console.print(f"Hex: {code.hex()}")
             console.print()
             console.print(asm_text, markup=False, highlight=False, soft_wrap=True)
-            console.print(f"Saved to {bin_path}")
+            console.print(f"Saved to {untrusted_ident(bin_path)}")
             return
     error_exit(
         f"VA 0x{target_va:08X} not found in candidate list",
@@ -195,7 +198,7 @@ def cmd_batch(
                 continue
             # A per-function failure must not abort the whole batch — the
             # remaining functions would be silently unprocessed.
-            console.print(f"[red bold]error:[/red bold] {e}")
+            console.print(f"[red bold]error:[/red bold] {untrusted_ident(e)}")
             continue
 
         bin_path = bin_dir / f"func_0x{va:08X}.bin"
@@ -214,7 +217,8 @@ def cmd_batch(
             continue
         else:
             console.print(
-                f"[cyan]dry-run:[/cyan] would write {bin_path.name} ({len(code)} bytes, {name})"
+                f"[cyan]dry-run:[/cyan] would write {untrusted_ident(bin_path.name)} "
+                f"({len(code)} bytes, {untrusted_ident(name)})"
             )
             continue
 
@@ -233,7 +237,7 @@ def cmd_batch(
             continue
 
         console.print(f"\n[bold]{'=' * 60}[/]")
-        console.print(f"[bold]=== {name} @ 0x{va:08X}, {len(code)} bytes ===[/]")
+        console.print(f"[bold]=== {untrusted_ident(name)} @ 0x{va:08X}, {len(code)} bytes ===[/]")
         console.print(f"[bold]{'=' * 60}[/]")
         console.print(f"Hex: {code.hex()}")
         console.print()

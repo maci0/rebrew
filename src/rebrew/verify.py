@@ -72,6 +72,7 @@ from rebrew.utils import (
     interruptible_pool,
     preset_module_key,
     read_json_text,
+    untrusted_ident,
 )
 from rebrew.verify_cache import (
     VerifyCacheEntry,
@@ -855,7 +856,7 @@ def main(
             if json_output:
                 json_print({"skipped": True, "reason": msg, "arch": "x86_16"})
             else:
-                console.print(f"[yellow]{msg}[/yellow]")
+                console.print(f"[yellow]{untrusted_ident(msg)}[/yellow]")
             # A skip that verifies zero functions must not read as success —
             # CI would green on skipped work.  EXIT_ERROR (2): the project
             # cannot verify this target as configured (usage/config error),
@@ -910,7 +911,7 @@ def main(
 
         previous_report, diff_warning = load_baseline(cfg)
         if diff_warning and not json_output:
-            console.print(f"[yellow]warning:[/yellow] {diff_warning}")
+            console.print(f"[yellow]warning:[/yellow] {untrusted_ident(diff_warning)}")
 
     orphans_pruned = 0
     if prune_orphans:
@@ -1012,7 +1013,8 @@ def main(
             _dsec = None
         if _dsec and not json_output:
             console.print(
-                f"[yellow]warning:[/yellow] {built_path.name}'s {_dsec} is byte-identical to the "
+                f"[yellow]warning:[/yellow] {untrusted_ident(built_path.name)}'s "
+                f"{untrusted_ident(_dsec)} is byte-identical to the "
                 f"reference. If the build postlinks by copying that section, these results are "
                 f"tautological — point --built at the raw link instead."
             )
@@ -1106,10 +1108,13 @@ def main(
                 )
             for m in data_report["mismatched"][:_DISPLAY_ROWS_MAX]:
                 console.print(
-                    f"  [red]FAIL[/red] {m['name']} ({m['va']}): first diff at +{m['first_diff']}"
+                    f"  [red]FAIL[/red] {untrusted_ident(m['name'])} ({m['va']}): "
+                    f"first diff at +{m['first_diff']}"
                 )
             for name in data_report["missing"][:_DISPLAY_ROWS_MAX]:
-                console.print(f"  [yellow]MISSING[/yellow] {name} (no built bytes)")
+                console.print(
+                    f"  [yellow]MISSING[/yellow] {untrusted_ident(name)} (no built bytes)"
+                )
 
     text_report: dict[str, Any] | None = None
     if text:
@@ -1143,13 +1148,13 @@ def main(
             for r in text_report["misplaced_list"]:
                 if r["status"] == "MISPLACED":
                     console.print(
-                        f"  [red]MISPLACED[/red] {r['symbol']:32} "
+                        f"  [red]MISPLACED[/red] {untrusted_ident(r['symbol']):32} "
                         f"exp {int(r['expected'], 16):#010x}  "
                         f"our {int(r['actual'], 16):#010x}  d {r['delta']:+#x}"
                     )
                 else:
                     console.print(
-                        f"  [yellow]MISSING[/yellow] {r['symbol']:32} "
+                        f"  [yellow]MISSING[/yellow] {untrusted_ident(r['symbol']):32} "
                         f"exp {r['expected']}  MISSING from build"
                     )
 
@@ -1180,7 +1185,7 @@ def main(
             else:
                 console.print("[red]whole-binary: drift[/red]")
                 for err in whole_report["errors"]:
-                    console.print(f"  [red]error[/red]: {err}")
+                    console.print(f"  [red]error[/red]: {untrusted_ident(err)}")
                 for area in ("sections", "exports", "imports", "rsrc", "headers"):
                     part = whole_report[area]
                     if not part["match"]:
@@ -1188,7 +1193,7 @@ def main(
                 layout = whole_report["layout"]
                 if not layout["match"]:
                     console.print(
-                        f"  [yellow]layout[/yellow]: {layout['status']} — "
+                        f"  [yellow]layout[/yellow]: {untrusted_ident(layout['status'])} — "
                         "regenerate with rebrew gen-layout"
                     )
 
@@ -1514,7 +1519,7 @@ def _save_report(
             for d in protected_fixes:
                 console.print(
                     f"  [dim]kept {d['va']} SIZE {d['annotation_size']} "
-                    f"(canonical {d['binary_size']}) {d['name']}[/dim]"
+                    f"(canonical {d['binary_size']}) {untrusted_ident(d['name'])}[/dim]"
                 )
         # --no-promote writes nothing to rebrew-functions.toml (SIZE included).
         preview_sizes = dry_run or no_promote
@@ -1524,7 +1529,7 @@ def _save_report(
                 action = "Would fix" if preview_sizes else "Fixed"
                 console.print(
                     f"  {action} {d['va']} SIZE {d['annotation_size']} -> "
-                    f"{d['binary_size']} ({d['name']})"
+                    f"{d['binary_size']} ({untrusted_ident(d['name'])})"
                 )
             if dry_run:
                 console.print(
@@ -1626,7 +1631,7 @@ def _save_report(
             log.warning("Could not write verify report to %s: %s", out_file, exc)
         else:
             if not json_output:
-                console.print(f"Report written to {out_file}")
+                console.print(f"Report written to {untrusted_ident(out_file)}")
 
     if json_output:
         if diff_mode:
@@ -2098,7 +2103,7 @@ def prepare_entries(
     reversed_dir = cfg.reversed_dir
     ghidra_json_path = inventory_path_for(reversed_dir, cfg)
 
-    console.print(f"Scanning {reversed_dir}...")
+    console.print(f"Scanning {untrusted_ident(reversed_dir)}...")
     entries = scan_reversed_dir(reversed_dir, cfg=cfg)
     # Build the reloc-validation catalog from this scan — avoids a second
     # full parse_c_file_multi walk inside run_verification.
@@ -2155,7 +2160,7 @@ def prepare_entries(
                 f"dropping {dropped_fp or '<unknown>'} from this run"
             )
             log.warning("prepare_entries: %s", msg)
-            console.print(f"[yellow]warning:[/yellow] {msg}")
+            console.print(f"[yellow]warning:[/yellow] {untrusted_ident(msg)}")
         if json_output:
             console.print(
                 "[yellow]warning:[/yellow] "
@@ -2445,7 +2450,8 @@ def run_verification(
                             if internal_errors <= 5:
                                 console.print(
                                     f"[yellow]warning:[/yellow] internal error verifying "
-                                    f"{getattr(entry, 'name', '?')}: {exc}"
+                                    f"{untrusted_ident(getattr(entry, 'name', '?'))}: "
+                                    f"{untrusted_ident(exc)}"
                                 )
                             result = _failed_result("INTERNAL_ERROR", f"INTERNAL_ERROR: {exc}")
                         # Refill the pool slot with the next entry (if any).
@@ -2557,7 +2563,8 @@ def _apply_or_preview_status(
             if not should_promote_status(getattr(entry, "status", ""), status):
                 continue
             console.print(
-                f"[dim]would update STATUS → {status} for 0x{entry.va:x} ({module})[/dim]"
+                f"[dim]would update STATUS → {untrusted_ident(status)} for "
+                f"0x{entry.va:x} ({untrusted_ident(module)})[/dim]"
             )
         return
     apply_status_updates(deferred_fixes, cfg)
@@ -2663,7 +2670,9 @@ def _print_results(
         for item in regressions:
             console.print(
                 "  "
-                f"{item['name']}  {item['previous_status']} -> {item['current_status']}  "
+                f"{untrusted_ident(item['name'])}  "
+                f"{untrusted_ident(item['previous_status'])} -> "
+                f"{untrusted_ident(item['current_status'])}  "
                 f"(delta: {item['delta']}B)"
             )
 
@@ -2671,24 +2680,30 @@ def _print_results(
         console.print(f"{len(improvements)} improvements:")
         for item in improvements:
             console.print(
-                f"  {item['name']}  {item['previous_status']} -> {item['current_status']}"
+                f"  {untrusted_ident(item['name'])}  "
+                f"{untrusted_ident(item['previous_status'])} -> "
+                f"{untrusted_ident(item['current_status'])}"
             )
 
         if new_items:
             console.print()
             console.print(f"{len(new_items)} new:")
             for item in new_items:
-                console.print(f"  {item['name']}  {item['status']}")
+                console.print(
+                    f"  {untrusted_ident(item['name'])}  {untrusted_ident(item['status'])}"
+                )
 
         if removed:
             console.print()
             console.print(f"{len(removed)} removed:")
             for item in removed:
-                console.print(f"  {item['name']}  {item['status']}")
+                console.print(
+                    f"  {untrusted_ident(item['name'])}  {untrusted_ident(item['status'])}"
+                )
 
         if diff_warning:
             console.print()
-            console.print(f"[yellow]warning:[/yellow] {diff_warning}")
+            console.print(f"[yellow]warning:[/yellow] {untrusted_ident(diff_warning)}")
 
         if regressions:
             console.print()
@@ -2715,13 +2730,21 @@ def _print_results(
             st = str(res_dict["status"]) if res_dict else "FAIL"
             fp = getattr(entry, "filepath", "")
             ln = getattr(entry, "line", 0)
-            fp_suffix = f" [dim]({fp}:{ln})[/]" if fp and ln else f" [dim]({fp})[/]" if fp else ""
+            fp_suffix = (
+                f" [dim]({untrusted_ident(fp)}:{ln})[/]"
+                if fp and ln
+                else f" [dim]({untrusted_ident(fp)})[/]"
+                if fp
+                else ""
+            )
             if st in ("STUB", "NEAR_MATCHING"):
                 match_pct = _row_match_pct(res_dict)
                 sim = res_dict.get("similarity") if res_dict else None
                 sim_str = f" / sim {sim:.1f}" if isinstance(sim, (int, float)) else ""
                 console.print(
-                    rf"  [red bold]\[{floor_pct(match_pct, 100):.1f}%{sim_str}][/] 0x{entry.va:08X} {entry.name}{fp_suffix}: {msg}"
+                    rf"  [red bold]\[{floor_pct(match_pct, 100):.1f}%{sim_str}][/] "
+                    rf"0x{entry.va:08X} {untrusted_ident(entry.name)}{fp_suffix}: "
+                    rf"{untrusted_ident(msg)}"
                 )
             elif st in (
                 "COMPILE_ERROR",
@@ -2731,11 +2754,13 @@ def _print_results(
                 "INVALID_VA",
             ):
                 console.print(
-                    rf"  [red bold]\[{st}][/] 0x{entry.va:08X} {entry.name}{fp_suffix}: {msg}"
+                    rf"  [red bold]\[{st}][/] 0x{entry.va:08X} "
+                    rf"{untrusted_ident(entry.name)}{fp_suffix}: {untrusted_ident(msg)}"
                 )
             else:
                 console.print(
-                    rf"  [red bold]\[FAIL][/] 0x{entry.va:08X} {entry.name}{fp_suffix}: {msg}"
+                    rf"  [red bold]\[FAIL][/] 0x{entry.va:08X} "
+                    rf"{untrusted_ident(entry.name)}{fp_suffix}: {untrusted_ident(msg)}"
                 )
 
     # Summary
@@ -2790,14 +2815,16 @@ def render_verify_summary(results: list[dict[str, Any]]) -> None:
     for r in results:
         st = r["status"]
         color = STATUS_COLORS.get(st, "red")
-        st_str = f"[{color}]{st}[/{color}]"
+        st_str = f"[{color}]{untrusted_ident(st)}[/{color}]"
 
         show_pct = st in ("STUB", "NEAR_MATCHING")
         pct = f"{floor_pct(_row_match_pct(r), 100):.1f}%" if show_pct else "-"
         dt = f"{r.get('delta', 0)}B" if show_pct else "-"
         sim = r.get("similarity")
         sim_str = f"{sim:.1f}%" if isinstance(sim, (int, float)) else "-"
-        table.add_row(r["va"], r["name"], f"{r['size']}B", st_str, pct, dt, sim_str)
+        table.add_row(
+            r["va"], untrusted_ident(r["name"]), f"{r['size']}B", st_str, pct, dt, sim_str
+        )
 
     console.print(table)
 
@@ -2820,7 +2847,7 @@ def render_verify_summary(results: list[dict[str, Any]]) -> None:
         if r["status"] not in ("STUB", "NEAR_MATCHING"):
             continue
         match_pct = _row_match_pct(r)
-        console.print(f"{r['name']}  {floor_pct(match_pct, 100):.1f}% match")
+        console.print(f"{untrusted_ident(r['name'])}  {floor_pct(match_pct, 100):.1f}% match")
         console.print(bar_plain(match_pct, 100))
 
 

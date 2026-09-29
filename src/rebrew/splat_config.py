@@ -95,7 +95,7 @@ from rebrew.cli import (
 )
 from rebrew.layout_meta import SectionMeta
 from rebrew.sources import iter_sources, target_marker
-from rebrew.utils import atomic_write_text, library_header_name, parse_int_literal
+from rebrew.utils import atomic_write_text, library_header_name, parse_int_literal, untrusted_ident
 from rebrew.workspace.config import config_path
 
 if TYPE_CHECKING:
@@ -2058,17 +2058,19 @@ def _plan_payload(plan: ImportPlan, result: dict[str, Any], *, written: bool) ->
 def _render(plan: ImportPlan, result: dict[str, Any], *, written: bool) -> None:
     """Human-readable plan (and, with ``--write``, what was written)."""
     header = "import-splat" if written else "dry run"
-    console.print(f"[bold]{header}:[/bold] {plan.splat.path} -> target {plan.target!r}")
     console.print(
-        f"  binary  {plan.binary}"
+        f"[bold]{header}:[/bold] {untrusted_ident(plan.splat.path)} -> target {plan.target!r}"
+    )
+    console.print(
+        f"  binary  {untrusted_ident(plan.binary)}"
         + (" (copied to the project)" if plan.copy_binary else " (already in the project)")
     )
     console.print(
-        f"  project format={plan.format} arch={plan.arch} profile={plan.profile} "
-        f"image_base=0x{plan.image_base:08X}"
+        f"  project format={plan.format} arch={plan.arch} "
+        f"profile={untrusted_ident(plan.profile)} image_base=0x{plan.image_base:08X}"
     )
     for note in plan.notes:
-        console.print(f"  [yellow]note:[/yellow] {note}")
+        console.print(f"  [yellow]note:[/yellow] {untrusted_ident(note)}")
 
     if plan.sections:
         table = Table(title="layout sections", header_style="bold")
@@ -2078,7 +2080,7 @@ def _render(plan: ImportPlan, result: dict[str, Any], *, written: bool) -> None:
             if not isinstance(section, SectionMeta):
                 continue
             table.add_row(
-                section.name,
+                untrusted_ident(section.name),
                 f"0x{section.va:X}",
                 f"0x{section.vs:X}",
                 f"0x{section.raw:X}",
@@ -2094,39 +2096,39 @@ def _render(plan: ImportPlan, result: dict[str, Any], *, written: bool) -> None:
             table.add_row(
                 ann.kind,
                 f"0x{ann.va:08X}",
-                ann.name,
+                untrusted_ident(ann.name),
                 f"0x{ann.size:X}" if ann.size else "-",
-                ann.display_path(plan.reversed_display),
-                ann.state,
+                untrusted_ident(ann.display_path(plan.reversed_display)),
+                untrusted_ident(ann.state),
             )
         console.print(table)
         if not written:
             console.print("[dim]annotation syntax:[/dim]")
             for ann in plan.annotations:
                 for line in ann.marker.splitlines():
-                    console.print(f"  [dim]{line}[/dim]")
+                    console.print(f"  [dim]{untrusted_ident(line)}[/dim]")
 
     for conflict in plan.conflicts:
-        console.print(f"[red]conflict:[/red] {conflict}")
+        console.print(f"[red]conflict:[/red] {untrusted_ident(conflict)}")
     if plan.unresolvable:
         console.print(
             "[red]these conflicts need the project fixed first; --force cannot resolve them[/red]"
         )
     for name, reason in plan.skipped:
-        console.print(f"[dim]skipped {name}: {reason}[/dim]")
+        console.print(f"[dim]skipped {untrusted_ident(name)}: {untrusted_ident(reason)}[/dim]")
 
     if plan.splat.ignored:
         ignored = Table(title="ignored config keys", header_style="bold dim", title_style="dim")
         ignored.add_column("key", style="dim")
         ignored.add_column("why rebrew does not read it", style="dim")
         for item in plan.splat.ignored:
-            ignored.add_row(item.key, item.reason)
+            ignored.add_row(untrusted_ident(item.key), untrusted_ident(item.reason))
         console.print(ignored)
 
     if written:
         console.print(f"[green]wrote {len(result['written'])} file(s)[/green]")
         for path in result["written"]:
-            console.print(f"  {path}")
+            console.print(f"  {untrusted_ident(path)}")
         if result["unchanged"]:
             console.print(f"  ({result['unchanged']} annotation(s) already present)")
     else:

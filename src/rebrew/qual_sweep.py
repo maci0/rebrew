@@ -47,6 +47,7 @@ from rebrew.utils import (
     interruptible_pool,
     read_source_text,
     source_backup,
+    untrusted_ident,
 )
 
 app = typer.Typer(
@@ -198,7 +199,7 @@ def main(
     if cur:
         units.append("".join(cur))
     decls = [k for k, u in enumerate(units) if _is_decl(u)]
-    console.print(f"{sym}: {len(units)} statements, {len(decls)} declarations")
+    console.print(f"{untrusted_ident(sym)}: {len(units)} statements, {len(decls)} declarations")
 
     if dry_run:
         candidates = [
@@ -217,7 +218,7 @@ def main(
             )
             return
         for k, lab, text in candidates:
-            console.print(f"  [{k:3d}] {lab}: {text[:70]}")
+            console.print(f"  [{k:3d}] {lab}: {untrusted_ident(text[:70])}")
         return
 
     # Resolved from the real source dir: candidates compile from a scratch
@@ -250,7 +251,7 @@ def main(
         _restore_source_on_error(path, original, encoding),
     ):
         if backup_path is not None:
-            console.print(f"  [dim]pre-run copy: {backup_path}[/dim]")
+            console.print(f"  [dim]pre-run copy: {untrusted_ident(backup_path)}[/dim]")
         else:
             console.print(
                 "  [yellow]pre-run copy could not be written;"
@@ -303,7 +304,8 @@ def main(
                         results.append(fut.result())
                     except Exception as exc:
                         console.print(
-                            f"  candidate {cand[0]} ({cand[1]}) failed, scoring it as no improvement: {exc}"
+                            f"  candidate {cand[0]} ({cand[1]}) failed, "
+                            f"scoring it as no improvement: {untrusted_ident(exc)}"
                         )
                         results.append((cand, (0.0, 0)))
 
@@ -336,7 +338,10 @@ def main(
     if json_output:
         json_print(payload)
         return
-    console.print(f"{sym}: final {base[0]} matched, object size {base[1]} ({len(moves)} move(s))")
+    console.print(
+        f"{untrusted_ident(sym)}: final {base[0]} matched, object size {base[1]} "
+        f"({len(moves)} move(s))"
+    )
 
 
 def main_entry() -> None:

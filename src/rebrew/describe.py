@@ -50,6 +50,7 @@ from rebrew.cli import (
     json_print,
     parse_va,
     require_config,
+    untrusted_ident,
 )
 from rebrew.config import ProjectConfig
 from rebrew.import_table import parse_import_table
@@ -451,32 +452,35 @@ def _print_terminal(dossier: dict[str, Any]) -> None:
     va = int(dossier["va"])
     identity = [
         f"  VA:     [cyan]0x{va:08x}[/]",
-        f"  Name:   [bold]{dossier['name']}[/]",
+        f"  Name:   [bold]{untrusted_ident(dossier['name'])}[/]",
     ]
     if dossier.get("status"):
-        identity.append(f"  Status: {dossier['status']}")
+        identity.append(f"  Status: {untrusted_ident(dossier['status'])}")
     if dossier.get("size") is not None:
         identity.append(f"  Size:   {dossier['size']} bytes")
     else:
         identity.append("  Size:   [dim]unknown[/]")
     if dossier.get("cflags"):
-        identity.append(f"  CFLAGS: {dossier['cflags']}")
+        identity.append(f"  CFLAGS: {untrusted_ident(dossier['cflags'])}")
     if dossier.get("blocker"):
-        identity.append(f"  BLOCKER: {dossier['blocker']}")
+        identity.append(f"  BLOCKER: {untrusted_ident(dossier['blocker'])}")
     if dossier.get("note"):
-        identity.append(f"  NOTE:   {dossier['note']}")
+        identity.append(f"  NOTE:   {untrusted_ident(dossier['note'])}")
     console.print(Panel("\n".join(identity), title="Function", border_style="cyan"))
     console.print()
 
-    callers = [(f"0x{c['from_va']:08x}", c["name"]) for c in dossier["callers"]]
+    callers = [(f"0x{c['from_va']:08x}", untrusted_ident(c["name"])) for c in dossier["callers"]]
     _print_section("Callers", ("from", "name"), callers)
-    callees = [(f"0x{c['to_va']:08x}", c["name"] or "-", c["kind"]) for c in dossier["callees"]]
+    callees = [
+        (f"0x{c['to_va']:08x}", untrusted_ident(c["name"] or "-"), c["kind"])
+        for c in dossier["callees"]
+    ]
     _print_section("Callees", ("target", "name", "kind"), callees)
-    strings = [(f"0x{s['va']:08x}", s["text"]) for s in dossier["strings"]]
+    strings = [(f"0x{s['va']:08x}", untrusted_ident(s["text"])) for s in dossier["strings"]]
     _print_section("Strings", ("va", "text"), strings)
     globals_rows = [(f"0x{g['va']:08x}", g["kind"]) for g in dossier["globals"]]
     _print_section("Globals", ("va", "kind"), globals_rows)
-    imports = [(f"0x{i['slot']:08x}", i["name"]) for i in dossier["imports"]]
+    imports = [(f"0x{i['slot']:08x}", untrusted_ident(i["name"])) for i in dossier["imports"]]
     _print_section("Imports", ("slot", "name"), imports)
 
 

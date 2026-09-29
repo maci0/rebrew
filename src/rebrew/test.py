@@ -78,7 +78,7 @@ from rebrew.sources import (
     target_marker,
 )
 from rebrew.status_style import DISPLAY_STATUSES, STATUS_COLORS
-from rebrew.utils import floor_pct
+from rebrew.utils import floor_pct, untrusted_ident
 
 # At this match ratio, NEAR_MATCHING output is shown in bold yellow instead of
 # plain yellow — visually distinguishing "almost there" from "far off".
@@ -834,11 +834,12 @@ def _print_compare_result(cmp: CompareResult, target_bytes: bytes) -> None:
             f"re-run with --fix-sizes to correct it"
         )
     console.print(
-        f"[{color}]{cmp.status}[/{color}]: {match_count}/{total} bytes{near_hint}{size_hint}"
+        f"[{color}]{untrusted_ident(cmp.status)}[/{color}]: "
+        f"{match_count}/{total} bytes{near_hint}{size_hint}"
     )
     if not obj_bytes:
         if cmp.message:
-            console.print(cmp.message)
+            console.print(untrusted_ident(cmp.message))
         return
     console.print(f"\nTarget ({len(target_bytes)}B): {target_bytes.hex()}")
     console.print(f"Output ({len(obj_bytes)}B): {obj_bytes.hex()}")
@@ -906,9 +907,9 @@ def _lint_preamble(
         eval_errs, eval_warns = anno.validate(min_va=min_valid_va_for(cfg))
         if not json_output:
             for e in eval_errs:
-                console.print(f"[bold red]LINT ERROR:[/bold red] {e}")
+                console.print(f"[bold red]LINT ERROR:[/bold red] {untrusted_ident(e)}")
             for w in eval_warns:
-                console.print(f"[bold yellow]LINT WARNING:[/bold yellow] {w}")
+                console.print(f"[bold yellow]LINT WARNING:[/bold yellow] {untrusted_ident(w)}")
     return lint_annos, name_to_va
 
 
@@ -1201,7 +1202,9 @@ def _run_test_impl(
     # Auto-promote: update STATUS in metadata from test result (skip with --no-promote)
     if no_promote:
         if status_skip_reason and not json_output:
-            console.print(f"[dim]STATUS update skipped ({status_skip_reason})[/dim]")
+            console.print(
+                f"[dim]STATUS update skipped ({untrusted_ident(status_skip_reason)})[/dim]"
+            )
     elif va_str:
         va_int_for_promote = parse_va(va_str, json_mode=json_output)
         # The metadata writes must target the FUNCTION ACTUALLY TESTED — with
@@ -1274,7 +1277,7 @@ def _run_test_impl(
                 )
                 # Say so: this is the value every other tool now resolves for the
                 # function, so a measurement run changes the build's flags.
-                console.print(f"[dim]CFLAGS persisted → {cflags_str}[/dim]")
+                console.print(f"[dim]CFLAGS persisted → {untrusted_ident(cflags_str)}[/dim]")
             except Exception as exc:  # metadata write is best-effort
                 logging.warning(
                     "Could not persist CFLAGS for 0x%x: %s (verify may recompile "
@@ -1299,7 +1302,7 @@ def _run_test_impl(
                     anno_module,
                     updated_by="test",
                 )
-                console.print(f"[dim]TOOLCHAIN persisted → {toolchain}[/dim]")
+                console.print(f"[dim]TOOLCHAIN persisted → {untrusted_ident(toolchain)}[/dim]")
             except Exception as exc:  # metadata write is best-effort
                 logging.warning(
                     "Could not persist TOOLCHAIN for 0x%x: %s (verify may recompile "
@@ -1317,7 +1320,7 @@ def _run_test_impl(
         new_status = cmp.status
         if not force_status and not should_promote_status(old_status, new_status):
             if is_status_parked(old_status) and not json_output:
-                console.print(f"[dim]STATUS → skipped ({old_status})[/dim]")
+                console.print(f"[dim]STATUS → skipped ({untrusted_ident(old_status)})[/dim]")
             # A refused promotion with the SAME status still carries fresh
             # metrics: status/todo rank ROI from the cache's match_percent and
             # byte delta, so a NEAR_MATCHING improved from 60% to 92% must land
@@ -1343,8 +1346,8 @@ def _run_test_impl(
             # itself already ran — it is read-only). Matches verify --dry-run.
             if not json_output:
                 console.print(
-                    f"[dim]would update STATUS → {new_status} for "
-                    f"0x{va_int_for_promote:x} ({anno_module})[/dim]"
+                    f"[dim]would update STATUS → {untrusted_ident(new_status)} for "
+                    f"0x{va_int_for_promote:x} ({untrusted_ident(anno_module)})[/dim]"
                 )
         else:
             clear = clears_blocker(new_status, Path(source))
@@ -1386,7 +1389,7 @@ def _run_test_impl(
                     context_hash=cmp.context_hash,
                 )
             if written and not json_output:
-                console.print(f"[dim]STATUS → {new_status}[/dim]")
+                console.print(f"[dim]STATUS → {untrusted_ident(new_status)}[/dim]")
     return result_dict
 
 
@@ -1553,7 +1556,7 @@ def _test_multi(
                         }
                     )
                 else:
-                    console.print(f"[yellow]SKIP[/yellow] {sym} — no SIZE")
+                    console.print(f"[yellow]SKIP[/yellow] {untrusted_ident(sym)} — no SIZE")
                 continue
 
             target_bytes = extract_raw_bytes(cfg.target_binary, ann.va, ann.size)
@@ -1594,7 +1597,9 @@ def _test_multi(
                             }
                         )
                     else:
-                        console.print(f"[red]EXTRACT_ERROR[/red] {sym} — not found in .obj")
+                        console.print(
+                            f"[red]EXTRACT_ERROR[/red] {untrusted_ident(sym)} — not found in .obj"
+                        )
                     continue
 
                 coff_relocs = full_relocs or reloc_dict
@@ -1639,7 +1644,9 @@ def _test_multi(
                         }
                     )
                 else:
-                    console.print(f"[red]EXTRACT_ERROR[/red] {sym} — {exc}")
+                    console.print(
+                        f"[red]EXTRACT_ERROR[/red] {untrusted_ident(sym)} — {untrusted_ident(exc)}"
+                    )
                 continue
             # --fix-sizes: when ALL common bytes match, the SIZE annotation is
             # stale, not the code — write the compiled size into metadata and
@@ -1762,17 +1769,23 @@ def _test_multi(
             elif matched:
                 if relocs:
                     console.print(
-                        f"[green]RELOC[/green] {sym} — {total}/{total}B ({len(relocs)} relocs)"
+                        f"[green]RELOC[/green] {untrusted_ident(sym)} — "
+                        f"{total}/{total}B ({len(relocs)} relocs)"
                     )
                 else:
-                    console.print(f"[bold green]EXACT[/bold green] {sym} — {total}/{total}B")
+                    console.print(
+                        f"[bold green]EXACT[/bold green] {untrusted_ident(sym)} — {total}/{total}B"
+                    )
             else:
                 color = STATUS_COLORS.get(new_status, "red")
                 if new_status == "NEAR_MATCHING" and total > 0:
                     ratio = match_count / total
                     if ratio >= _NEAR_MATCHING_BOLD_THRESHOLD:
                         color = "bold yellow"
-                console.print(f"[{color}]{new_status}[/{color}] {sym} — {match_count}/{total}B")
+                console.print(
+                    f"[{color}]{untrusted_ident(new_status)}[/{color}] "
+                    f"{untrusted_ident(sym)} — {match_count}/{total}B"
+                )
 
             # No STATUS recorded yet is "", not "STUB": should_promote_status
             # protects a *documented* STUB, and a function the user never
@@ -1785,7 +1798,9 @@ def _test_multi(
             if not no_promote:
                 if not should_promote_status(old_status, new_status):
                     if is_status_parked(old_status) and not json_output:
-                        console.print(f"[dim]  STATUS → skipped ({old_status})[/dim]")
+                        console.print(
+                            f"[dim]  STATUS → skipped ({untrusted_ident(old_status)})[/dim]"
+                        )
                     # A refused promotion with the SAME status still carries fresh
                     # metrics: status/todo rank ROI from the cache's match_percent
                     # and byte delta (same rule as the single-file path).
@@ -1805,8 +1820,8 @@ def _test_multi(
                     # --dry-run must not write: preview (compile already ran).
                     if not json_output:
                         console.print(
-                            f"[dim]  would update STATUS → {new_status} for "
-                            f"0x{ann.va:x} ({ann.module})[/dim]"
+                            f"[dim]  would update STATUS → {untrusted_ident(new_status)} for "
+                            f"0x{ann.va:x} ({untrusted_ident(ann.module)})[/dim]"
                         )
                 else:
                     ann_source = contained_path(source_roots(cfg), getattr(ann, "filepath", ""))
@@ -1851,7 +1866,7 @@ def _test_multi(
                             pending=cache_patches,
                         )
                     if written and not json_output:
-                        console.print(f"[dim]  STATUS → {new_status}[/dim]")
+                        console.print(f"[dim]  STATUS → {untrusted_ident(new_status)}[/dim]")
 
         if cache_patches:
             from rebrew.verify_cache import patch_verify_cache_entries
@@ -1939,7 +1954,10 @@ def emit_test_batch(
                 return
             console.print(f"[bold]Batch test candidates ({total} functions):[/bold]")
             for e in unique_entries:
-                console.print(f"  0x{e.va:08X} {e.name} ({getattr(e, 'filepath', '')})")
+                console.print(
+                    f"  0x{e.va:08X} {untrusted_ident(e.name)} "
+                    f"({untrusted_ident(getattr(e, 'filepath', ''))})"
+                )
         return
 
     if not json_output:
@@ -2038,7 +2056,7 @@ def print_test_summary(deferred: list[tuple[Annotation, str, int]], total_files:
     console.print()
     print_batch_status_rows(result_counts, len(transitions))
     for status in sorted(set(result_counts) - set(DISPLAY_STATUSES)):
-        console.print(f"  [dim]{status:12s}  {result_counts[status]:4d}[/dim]")
+        console.print(f"  [dim]{untrusted_ident(status):12s}  {result_counts[status]:4d}[/dim]")
     if transition_counts:
         console.print()
         console.print("  [bold]Status changes:[/bold]")
@@ -2046,8 +2064,10 @@ def print_test_summary(deferred: list[tuple[Annotation, str, int]], total_files:
             # An unclassified function (no STATUS yet) has no name to print.
             old_label = old or "NEW"
             console.print(
-                f"    [{STATUS_COLORS.get(old, 'dim')}]{old_label}[/{STATUS_COLORS.get(old, 'dim')}] → "
-                f"[{STATUS_COLORS.get(new, 'dim')}]{new}[/{STATUS_COLORS.get(new, 'dim')}]  ×{count}"
+                f"    [{STATUS_COLORS.get(old, 'dim')}]{untrusted_ident(old_label)}"
+                f"[/{STATUS_COLORS.get(old, 'dim')}] → "
+                f"[{STATUS_COLORS.get(new, 'dim')}]{untrusted_ident(new)}"
+                f"[/{STATUS_COLORS.get(new, 'dim')}]  ×{count}"
             )
     else:
         console.print()
@@ -2064,7 +2084,9 @@ def print_batch_status_rows(result_counts: dict[str, int], total: int) -> None:
         color = STATUS_COLORS.get(status, "white")
         pct = floor_pct(count, total)
         bar = bar_plain(count, total)
-        console.print(f"  [{color}]{status:12s}  {count:4d}  ({pct:5.1f}%)  {bar}[/{color}]")
+        console.print(
+            f"  [{color}]{untrusted_ident(status):12s}  {count:4d}  ({pct:5.1f}%)  {bar}[/{color}]"
+        )
 
 
 def main_entry() -> None:

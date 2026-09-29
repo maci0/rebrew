@@ -44,6 +44,7 @@ from rich.table import Table
 
 from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
 from rebrew.config import ProjectConfig, inventory_path_for
+from rebrew.utils import untrusted_ident
 from rebrew.workspace.status import EARNED_STATUSES
 
 log = logging.getLogger(__name__)
@@ -73,6 +74,11 @@ app = typer.Typer(
 #: --shared of identical bodies).  TU merge/split/move change build
 #: semantics and stay advisory.
 APPLYABLE = frozenset({"link-order", "orphans", "lint-fixable", "shared-twins"})
+
+#: ``--apply --dry-run`` prefixes this onto a recommendation's command.  It is
+#: rebrew's own markup, so the table escapes the command body behind it and
+#: leaves the tag styled.
+_DRY_RUN_TAG = "[dry-run] "
 
 
 # ---------------------------------------------------------------------------
@@ -1191,7 +1197,7 @@ def main(
     if apply and dry_run:
         for rec in recs:
             if rec.applyable:
-                rec.command = "[dry-run] " + rec.command
+                rec.command = _DRY_RUN_TAG + rec.command
 
     if json_output:
         json_print({"recommendations": [r.to_dict(names) for r in recs]})
@@ -1206,12 +1212,17 @@ def main(
     table.add_column("Conf", justify="right")
     table.add_column("Command", style="yellow")
     for rec in recs:
-        detail = "\n".join(rec.files) if rec.files else rec.kind
+        detail = "\n".join(untrusted_ident(f) for f in rec.files) if rec.files else rec.kind
         if rec.kind in ("merge", "move"):
             detail += "\n" + ", ".join(f"0x{va:08x}" for va in rec.functions)
         if rec.evidence:
-            detail += "\n[dim]" + "; ".join(rec.evidence) + "[/dim]"
-        table.add_row(rec.kind, detail, f"{rec.confidence:.2f}", rec.command or "—")
+            detail += "\n[dim]" + "; ".join(untrusted_ident(e) for e in rec.evidence) + "[/dim]"
+        command = rec.command or "—"
+        if command.startswith(_DRY_RUN_TAG):
+            command = _DRY_RUN_TAG + untrusted_ident(command[len(_DRY_RUN_TAG) :])
+        else:
+            command = untrusted_ident(command)
+        table.add_row(rec.kind, detail, f"{rec.confidence:.2f}", command)
     console.print(table)
 
 
@@ -1256,7 +1267,9 @@ def _apply_safe(cfg: ProjectConfig, recs: list[Recommendation], json_mode: bool)
     if json_mode:
         json_print({"applied": applied})
     else:
-        console.print(f"Applied {len(applied)} fix(es): " + ", ".join(applied))
+        console.print(
+            f"Applied {len(applied)} fix(es): " + ", ".join(untrusted_ident(a) for a in applied)
+        )
 
 
 def main_entry() -> None:

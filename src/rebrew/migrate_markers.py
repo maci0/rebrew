@@ -45,7 +45,7 @@ from rebrew.annotation import (
     NEW_KV_RE,
 )
 from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
-from rebrew.utils import atomic_write_text, read_source_text
+from rebrew.utils import atomic_write_text, read_source_text, untrusted_ident
 
 app = typer.Typer(
     help="Move inline markers into rebrew-functions.toml (ADR 023: pure-C sources).",
@@ -192,7 +192,7 @@ def main(
         except (OSError, ValueError) as exc:
             if json_output:
                 error_exit(f"{src}: {exc}", json_mode=True)
-            console.print(f"[yellow]skip {src}: {exc}[/yellow]")
+            console.print(f"[yellow]skip {untrusted_ident(src)}: {untrusted_ident(exc)}[/yellow]")
             continue
         if not row:
             continue
@@ -200,12 +200,14 @@ def main(
             skipped.append(row)
             if not json_output:
                 why = skip_why.get(str(row["skipped"]), str(row["skipped"]))
-                console.print(f"[yellow]skip {src}: {why}[/yellow]")
+                console.print(f"[yellow]skip {untrusted_ident(src)}: {why}[/yellow]")
             continue
         results.append(row)
         if not json_output:
             verb = "would migrate" if dry_run else "migrated"
-            console.print(f"  {verb} [bold]{src}[/bold] ({row['functions']} function(s))")
+            console.print(
+                f"  {verb} [bold]{untrusted_ident(src)}[/bold] ({row['functions']} function(s))"
+            )
     if json_output:
         json_print(
             {

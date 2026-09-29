@@ -50,7 +50,7 @@ from rebrew.cli import (
 from rebrew.match_semantics import is_effective_match
 from rebrew.pinned_diff import SequenceMatcherWithPins
 from rebrew.stack_cmp import analyze_frame, compare_frames
-from rebrew.utils import floor_pct
+from rebrew.utils import floor_pct, untrusted_ident
 from rebrew.workspace.status import NEAR_MATCH_CANDIDATE_STATUSES
 
 # Jump-equivalence checks — adapted from reccmp (isledecomp/reccmp, MIT
@@ -768,12 +768,13 @@ def _print_first_mismatch(
     if first["compiled"]:
         console.print(
             f"{indent}[dim]first mismatch:[/dim] {offset} [{cat}] "
-            f"target: {first['target']}  vs  compiled: {first['compiled']}"
+            f"target: {untrusted_ident(first['target'])}  "
+            f"vs  compiled: {untrusted_ident(first['compiled'])}"
         )
     else:
         console.print(
             f"{indent}[dim]first mismatch:[/dim] {offset} [{cat}] "
-            f"target has extra instruction: {first['target']}"
+            f"target has extra instruction: {untrusted_ident(first['target'])}"
         )
 
 
@@ -820,7 +821,7 @@ def _run_all_batch(cfg: Any, fix_blocker: bool, json_output: bool, dry_run: bool
         else:
             console.print("[dim]No NEAR_MATCHING/SIZE_MISMATCH functions found to diagnose.[/dim]")
             for skip in skipped_files:
-                console.print(f"[yellow]  skipped: {skip}[/yellow]")
+                console.print(f"[yellow]  skipped: {untrusted_ident(skip)}[/yellow]")
         return
 
     if not json_output:
@@ -835,7 +836,9 @@ def _run_all_batch(cfg: Any, fix_blocker: bool, json_output: bool, dry_run: bool
     for i, (src, ann) in enumerate(candidates, 1):
         symbol = ann.symbol or src.name
         if not json_output:
-            console.print(f"[bold][{i}/{len(candidates)}][/bold] {symbol} (0x{ann.va:08x})")
+            console.print(
+                f"[bold][{i}/{len(candidates)}][/bold] {untrusted_ident(symbol)} (0x{ann.va:08x})"
+            )
         entry: dict[str, Any] = {
             "source": str(src),
             "symbol": symbol,
@@ -859,7 +862,9 @@ def _run_all_batch(cfg: Any, fix_blocker: bool, json_output: bool, dry_run: bool
             continue
         classified += 1
         if not json_output:
-            console.print(f"  [bold]{result['verdict']}[/bold] — {result['suggestion'][:60]}")
+            console.print(
+                f"  [bold]{result['verdict']}[/bold] — {untrusted_ident(result['suggestion'][:60])}"
+            )
             _print_first_mismatch(console, result.get("first_mismatch"), indent="    ")
             if result.get("mutations"):
                 console.print(
@@ -894,7 +899,7 @@ def _run_all_batch(cfg: Any, fix_blocker: bool, json_output: bool, dry_run: bool
             f"[yellow]  {len(skipped_files)} source file(s) skipped (unparseable):[/yellow]"
         )
         for skip in skipped_files[:5]:
-            console.print(f"    {skip}")
+            console.print(f"    {untrusted_ident(skip)}")
     console.print("[bold]━━━ near-diag Summary ━━━[/bold]")
     console.print(f"  [bold]{classified}[/bold] classified")
     if failed:
@@ -1048,7 +1053,7 @@ def main(
             table.add_row(cat, str(data["bytes"]), f"{data['percent']:.1f}")
     console.print(table)
     console.print(f"[bold]{result['verdict']}[/bold]")
-    console.print(result["suggestion"])
+    console.print(untrusted_ident(result["suggestion"]))
     _print_first_mismatch(console, result.get("first_mismatch"))
     if result.get("mutations"):
         console.print("[dim]GA mutations to try:[/dim] " + ", ".join(result["mutations"]))
@@ -1057,7 +1062,7 @@ def main(
         # the write), so the wording must follow the mode — the batch path in
         # this module already prints "would write".
         verb = "would write BLOCKER metadata:" if dry_run else "Wrote BLOCKER metadata:"
-        console.print(f"[green]{verb}[/green] {_blocker_text(result)[:80]}...")
+        console.print(f"[green]{verb}[/green] {untrusted_ident(_blocker_text(result)[:80])}...")
 
 
 def main_entry() -> None:

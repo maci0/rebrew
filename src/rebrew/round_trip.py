@@ -65,7 +65,13 @@ from rebrew.sources import (
     target_marker,
 )
 from rebrew.status_style import STATUS_COLORS
-from rebrew.utils import atomic_write_bytes, floor_pct, merged_span_bytes, safe_shlex_split
+from rebrew.utils import (
+    atomic_write_bytes,
+    floor_pct,
+    merged_span_bytes,
+    safe_shlex_split,
+    untrusted_ident,
+)
 from rebrew.workspace.status import MATCHED_STATUSES
 
 _EPILOG = (
@@ -895,9 +901,9 @@ def _render_rich(report: dict[str, Any]) -> None:
     # --- Panel header ---
     header_parts: list[str] = []
     if binary_name:
-        header_parts.append(f"[bold]{binary_name}[/bold]")
+        header_parts.append(f"[bold]{untrusted_ident(binary_name)}[/bold]")
     if arch:
-        header_parts.append(f"[dim]{arch}[/dim]")
+        header_parts.append(f"[dim]{untrusted_ident(arch)}[/dim]")
     title = "[bold]Rebrew Round-Trip[/bold]"
     if header_parts:
         title += "  " + "  ".join(header_parts)
@@ -990,7 +996,7 @@ def _render_rich(report: dict[str, Any]) -> None:
     summary_items.append(sha_reasm_text)
 
     if out_path:
-        summary_items.append(Text.from_markup(f"  [dim]Output:[/dim] {out_path}"))
+        summary_items.append(Text.from_markup(f"  [dim]Output:[/dim] {untrusted_ident(out_path)}"))
 
     # --- Mismatch table ---
     table_items: list[Table] = []
@@ -1005,10 +1011,16 @@ def _render_rich(report: dict[str, Any]) -> None:
         for m in mismatches:
             st = m.get("status", "")
             color = STATUS_COLORS.get(st, "red")
-            st_str = f"[{color}]{st}[/{color}]" if st else "-"
+            st_str = f"[{color}]{untrusted_ident(st)}[/{color}]" if st else "-"
             reason = m.get("reason", "")
             detail = m.get("detail") or "-"
-            table.add_row(m.get("va", "-"), m.get("symbol", "-"), st_str, reason, detail)
+            table.add_row(
+                m.get("va", "-"),
+                untrusted_ident(m.get("symbol", "-")),
+                st_str,
+                untrusted_ident(reason),
+                untrusted_ident(detail),
+            )
         table_items.append(table)
 
     # --- Subtitle (verdict) ---

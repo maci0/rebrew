@@ -63,7 +63,7 @@ from rebrew.sources import (
     target_marker,
 )
 from rebrew.status_style import DISPLAY_STATUSES
-from rebrew.utils import atomic_write_text, parse_int_literal
+from rebrew.utils import atomic_write_text, parse_int_literal, untrusted_ident
 
 logger = logging.getLogger(__name__)
 
@@ -917,7 +917,8 @@ def _run_hex_mode(
         return
 
     console.print(
-        f"Dumping [cyan]0x{va_int:08x}[/] ({len(view.data)} bytes) from {view.bin_path.name}:"
+        f"Dumping [cyan]0x{va_int:08x}[/] ({len(view.data)} bytes) "
+        f"from {untrusted_ident(view.bin_path.name)}:"
     )
     if view.ne_seg is not None:
         console.print(f"  [dim]SEG{view.ne_seg}:0x{va_int & 0xFFFF:04x} ({view.ne_seg_name})[/dim]")
@@ -1486,7 +1487,10 @@ def batch_extract_nasm(
             if code is None:
                 raise ValueError("VA not in any section")
         except (OSError, KeyError, ValueError) as e:
-            console.print(f"  \\[{i}/{total}] {stem}: [yellow]SKIP[/] (extraction error: {e})")
+            console.print(
+                f"  \\[{i}/{total}] {untrusted_ident(stem)}: [yellow]SKIP[/] "
+                f"(extraction error: {e})"
+            )
             continue
 
         nasm_src, stats = disassemble_to_nasm(code, va, symbol)
@@ -1516,7 +1520,10 @@ def batch_extract_nasm(
             status = "OK"
             ok += 1
 
-        console.print(f"  \\[{i}/{total}] {stem:40s} {size:4d}B  {status_line}{status}")
+        console.print(
+            f"  \\[{i}/{total}] {untrusted_ident(stem):40s} {size:4d}B  "
+            f"{status_line}{untrusted_ident(status)}"
+        )
 
     console.print(f"\nDone: [green]{ok} ok[/], [red]{fail} failed[/], {total} total")
 
@@ -1781,7 +1788,7 @@ def main(
         if json_output:
             json_print(result)
         else:
-            console.print(f"[bold]Function:[/] {computed_label}")
+            console.print(f"[bold]Function:[/] {untrusted_ident(computed_label)}")
             console.print(f"  Base VA: [cyan]0x{run_stats['base_va']:08X}[/]")
             console.print(f"  Size: {run_stats['total_bytes']} bytes")
             console.print(f"  Instructions: {run_stats['total_instructions']}")
@@ -1799,7 +1806,7 @@ def main(
 
     if verify:
         _, msg = verify_roundtrip(nasm_src, code)
-        console.print(f"\nRound-trip verification: {msg}")
+        console.print(f"\nRound-trip verification: {untrusted_ident(msg)}")
 
 
 def main_entry() -> None:
