@@ -21,7 +21,7 @@ and YAML hooks are enforced there; the SKILL.md command validator
 documents but the CLI no longer accepts fails the job), a package job
 that builds the sdist/wheel via `make build` (SOURCE_DATE_EPOCH, umask 022, C/UTC,
 `PYTHONHASHSEED=0`; `tools/normalize_sdist.py` rewrites sdist tar metadata and
-wheel entry modes), checks both artifacts hash the same when
+wheel entry modes), checks both artifacts and the SBOM hash the same when
 `make build-repro` reruns from a `git archive` copy extracted under umask 077 at
 another path under another TZ and locale (an EXIT trap removes that copy on
 every exit path, so a failed comparison does not leave a second source tree

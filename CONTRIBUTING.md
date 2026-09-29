@@ -257,7 +257,8 @@ says nothing about where the import goes now.
    missing package-data fails here rather than on a user's install), and its
    byte-reproducibility check (`make build-repro`: rebuild `HEAD` from a
    `git archive` copy under `.scratch/` at another path, file mode, timezone
-   and locale, and compare the two hashes; commit first, it builds `HEAD` and
+   and locale, and compare the wheel, the sdist and the SBOM across the two
+   trees; commit first, it builds `HEAD` and
    refuses a tree with uncommitted changes, whose dist/ and `HEAD` copy would
    differ by construction).
    `make sbom` goes after `make build`:

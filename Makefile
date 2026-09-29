@@ -612,11 +612,21 @@ build: warn-uv-version
 	} > "$$tmpinfo"; \
 	mv -f "$$tmpinfo" dist/rebrew.buildinfo
 
-# Prove the wheel and the sdist are byte-reproducible from a second source
-# tree: a `git archive HEAD` copy under .scratch/, extracted with umask 077
-# (git stores only the executable bit, so every file mode differs) and built
+# Prove the wheel, the sdist and the SBOM are byte-reproducible from a second
+# source tree: a `git archive HEAD` copy under .scratch/, extracted with umask
+# 077 (git stores only the executable bit, so every file mode differs) and built
 # under a different timezone and locale.  Both the path and the environment
 # knobs are what the archives must not encode.
+#
+# The CycloneDX BOM is in the comparison because it ships: the package job
+# uploads it beside the wheel and sdist, so a consumer that re-runs `make sbom`
+# and diffs would otherwise be the first to find it had drifted.  It is derived
+# from uv.lock and tools/licenses.py rather than from the archive bytes, so it
+# needs no normalizer and no second knob set, but it did need the loop to name
+# it.  `make sbom` runs in both trees here: the phony target regenerates the
+# main tree's BOM (the `build` above already cleared dist/*.cdx.json, so this
+# leaves dist/ more complete than it found it, never less) and the later CI
+# step rewrites the same bytes.
 #
 # The copy comes from HEAD, so this describes the committed tree, not the
 # working one: run it after committing, as CI does on the pushed commit.
@@ -665,7 +675,8 @@ build-repro: dist/rebrew.buildinfo
 	tar -x -C "$$repro" -f "$$archive"; \
 	rm -f "$$archive"; \
 	SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) TZ=Asia/Tokyo LC_ALL=C.UTF-8 \
-		$(MAKE) -C "$$repro" build; \
+		$(MAKE) -C "$$repro" build sbom; \
+	$(MAKE) sbom; \
 	if command -v sha256sum >/dev/null 2>&1; then \
 	  sha() { sha256sum "$$1" | cut -d' ' -f1; }; \
 	elif command -v shasum >/dev/null 2>&1; then \
@@ -673,7 +684,7 @@ build-repro: dist/rebrew.buildinfo
 	else \
 	  echo "ERROR: no sha256sum or shasum on PATH (cannot compare the two builds)" >&2; exit 1; \
 	fi; \
-	for ext in whl tar.gz; do \
+	for ext in whl tar.gz cdx.json; do \
 		first=$$(sha dist/*.$$ext); \
 		second=$$(sha "$$repro"/dist/*.$$ext); \
 		if [ "$$first" != "$$second" ]; then \
@@ -838,13 +849,21 @@ sdist-check: ensure-uv dist/rebrew.buildinfo
 # `make clean` removes .venv-pkg.  `require-dist` rather than the buildinfo
 # file rule: the wheel this installs must be the one in dist/, not one this
 # run rebuilt (see require-dist).
+#
+# `uv venv --python $(PYTHON_PIN)`, not a bare `uv venv`: the bare form takes
+# whatever interpreter uv discovers first, so the artifact was smoke-installed
+# on a different patch than the one `make build` recorded as `python=` in
+# dist/rebrew.buildinfo, and a host with 3.14 ahead of the pin read the gate as
+# coverage it does not give.  Same .python-version pin `build` and
+# $(UV_RUN_TOOLS) already require, so this adds no prerequisite the build did
+# not have.
 smoke-wheel: require-dist ensure-uv
 	@set -eu; \
 	for f in dist/*.whl; do set -- "$$@" "$$f"; done; \
 	[ $$# -eq 1 ] && [ -f "$$1" ] || { echo "ERROR: expected exactly one wheel in dist/ (run 'make build')"; exit 1; }; \
 	wheel=$$1; \
 	rm -rf .venv-pkg; \
-	uv venv .venv-pkg; \
+	uv venv --python $(PYTHON_PIN) .venv-pkg; \
 	UV_PROJECT_ENVIRONMENT=.venv-pkg uv sync --frozen --no-dev --no-default-groups --no-install-project; \
 	uv pip install --python .venv-pkg --no-deps "$$wheel"; \
 	.venv-pkg/bin/python tools/smoke_wheel_install.py; \

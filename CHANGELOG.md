@@ -28,7 +28,6 @@
   `tests/test_check_layering.py` pass `--strict` and are now listed, so a
   typing regression in a shared helper fails the same gate as the library.
 
-### Fixed
 - **Four W036 lint tests never ran.** `tests/test_lint.py` held two classes
   named `TestW036StrayMetadataStore`, so the first was shadowed at collection:
   its cases (a store inside the configured directory, a stray one naming its
@@ -50,6 +49,17 @@
   Both check for the binary first and name it, and the apt helper escalates
   with `sudo -n`: there is no TTY in CI, so a password prompt blocked the job
   until its timeout instead of reporting that sudo wants one.
+- **`make build-repro` never checked the SBOM.**  The package job uploads
+  `dist/rebrew.cdx.json` beside the wheel and sdist, but the second-tree hash
+  comparison named only `.whl` and `.tar.gz`, so a BOM that drifted with the
+  checkout, the umask, the timezone or the locale shipped unverified.  Both
+  trees now generate it and the loop diffs `.cdx.json` like the archives.
+- **`make smoke-wheel` installed the wheel on an unpinned interpreter.**
+  A bare `uv venv .venv-pkg` takes whichever interpreter uv discovers first, so
+  the artifact was smoke-installed on a patch other than the one
+  `dist/rebrew.buildinfo` records as `python=`, and a host carrying 3.14 read
+  the gate as coverage it does not give.  The venv now takes the same
+  `.python-version` pin the build and the tools helpers use.
 
 ### Changed
 - **The release preflight checks the upload's provenance.**
