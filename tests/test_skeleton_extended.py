@@ -388,6 +388,50 @@ class TestSkeletonCliModes:
         assert "already in" in result.output
         assert target.read_text(encoding="utf-8").count("0x1000") == 1
 
+    def test_append_existing_va_force_is_not_a_duplicate(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """--force means "append despite the VA being present", so a retry of
+        the same invocation under --force must not leave a second copy of the
+        block: two definitions of one symbol, with the second shadowing the
+        first for the metadata parser."""
+        import json
+
+        from rebrew.skeleton import app
+
+        cfg = self._setup(tmp_path, monkeypatch)
+        target = cfg.reversed_dir / "multi.c"
+        target.write_text(
+            "// FUNCTION: SERVER 0x2000\nint other(void) { return 0; }\n", encoding="utf-8"
+        )
+        first = CliRunner().invoke(app, ["--append", "multi.c", "--force", "--json", "0x1000"])
+        assert first.exit_code == 0, first.output
+        assert json.loads(first.stdout)["action"] == "appended"
+        after_first = target.read_text(encoding="utf-8")
+
+        second = CliRunner().invoke(app, ["--append", "multi.c", "--force", "--json", "0x1000"])
+        assert second.exit_code == 0, second.output
+        assert json.loads(second.stdout)["action"] == "already_present"
+        assert target.read_text(encoding="utf-8") == after_first
+
+    def test_append_force_replaces_a_differing_block(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A pre-existing block for the VA that differs from the generated one
+        is still replaced: --force must not become a blanket no-op."""
+        from rebrew.skeleton import app
+
+        cfg = self._setup(tmp_path, monkeypatch)
+        target = cfg.reversed_dir / "multi.c"
+        target.write_text(
+            "// FUNCTION: SERVER 0x1000\nint hand_written(void) { return 0; }\n", encoding="utf-8"
+        )
+        result = CliRunner().invoke(app, ["--append", "multi.c", "--force", "--json", "0x1000"])
+        assert result.exit_code == 0, result.output
+        text = target.read_text(encoding="utf-8")
+        assert "hand_written" in text
+        assert "// FUNCTION: SERVER 0x00001000" in text
+
     def test_batch_existing_skips(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.skeleton import app
 

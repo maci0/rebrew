@@ -375,6 +375,12 @@ WRITE_COMMANDS = [
     # queue, so each run is meant to advance to the next N functions and
     # "unchanged after a re-run" is the wrong question to ask of it.
     "skeleton 0x00401010",
+    # ``--append`` splices a block into an existing source, and ``--force``
+    # waives the "this VA is already here" refusal, so it is the one skeleton
+    # form where a retry used to write a second copy of the same block.  The
+    # uncovered VA lands in the fixture's own ``fcn.c``, which the appended
+    # block then makes a duplicate of on every later run.
+    "skeleton --append fcn.c --force 0x00401010",
     # Renders db/coverage-<target>.toml by scanning the tree in-process.
     # `rebrew catalog` left this list when it stopped writing: it reports the
     # catalog and nothing else, so it is a read-only command now.

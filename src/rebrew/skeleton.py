@@ -1265,6 +1265,32 @@ def _run_append_mode(
         # An embedded decompilation body may already carry CRLF; normalise
         # every terminator instead of appending, so it gains no second \r.
         block = re.sub(r"\r\n|\r|\n", eol, block)
+    # A byte-identical copy of the block is already in the file: a retry of
+    # the same invocation, since the block is a pure function of its inputs.
+    # Appending it again would give the file two definitions of the same
+    # symbol, and the second copy's ``// KEY: value`` lines shadow the first
+    # for the metadata parser.  ``--force`` means "append despite the VA
+    # being present", not "append a duplicate", so an exact repeat is
+    # refused either way and only a block that actually differs (a new
+    # decompilation, a renamed function) is written.
+    if block.strip() and block.strip() in existing_text:
+        rel_path_val = rel_display_path(append_path, root)
+        console.print(
+            f"[bold]PRESENT[/] in {untrusted_ident(rel_path_val)} "
+            f"(VA [cyan]0x{va_int:08x}[/]); nothing was written"
+        )
+        if json_output:
+            json_print(
+                {
+                    "action": "already_present",
+                    "dry_run": False,
+                    "file": str(rel_path_val),
+                    "va": f"0x{va_int:08x}",
+                    "size": size,
+                    "symbol": "_" + sanitize_name(name if name else ghidra_name),
+                }
+            )
+        return
     if existing_text.endswith(eol * 2):
         separator = ""
     elif existing_text.endswith(eol):
