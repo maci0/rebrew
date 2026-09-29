@@ -431,6 +431,7 @@ def main(
     output: Path | None = typer.Option(
         None,
         "--output",
+        "-o",
         help="Write text-map files (sections.txt, gaps.txt, iat.txt, exports.txt) into DIR",
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),

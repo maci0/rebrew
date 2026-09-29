@@ -17,6 +17,18 @@
   otherwise. Warn-only, since a stray copy is not a defect by itself.
 
 ### Fixed
+- **A negative row count silently produced a tail and exit 0.**
+  `rebrew todo --count -5`, `similar --top -1`, `verify-placement --limit
+  -3`, `text-audit --limit -1`, `analyze --top-strings -1`,
+  `recover-structs --limit -1` and `binary-similarity --low -1` reached a
+  Python slice, where a negative bound keeps everything but the last N rows
+  and still exits 0: a script storing the report never learns it is one. They
+  now exit 2 through `rebrew.cli.require_non_negative`, which leaves 0 legal
+  (several of them spell it "no cap").
+- **`analyze --output` and `layout-map --output` had no short form.** The
+  other 24 `--output` options are `--output -o`, so a script written against
+  those two failed with "No such option". Both take `-o` now, and
+  `tests/test_cli_contract.py` fails on a new command that drops it.
 - **The FLIRT signature checkout was derived from the install location.**
   `rebrew flirt` resolved the sibling `rebrew-flirt-sigs` tree as
   `parents[2]` of its own module, which in a wheel install is the

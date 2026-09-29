@@ -27,7 +27,9 @@ from rebrew.cli import (
     console,
     error_exit,
     json_print,
+    option_default,
     require_config,
+    require_non_negative,
 )
 from rebrew.data_layout import built_text_va
 from rebrew.verify_hash import expected_text_functions as _expected_functions
@@ -155,6 +157,7 @@ def main(
     target: str | None = TargetOption,
 ) -> None:
     """Build-then-compare: .text function VAs of the current build vs the markers."""
+    limit = require_non_negative(option_default(limit, 15), "--limit", json_mode=json_output)
     cfg = require_config(target=target, json_mode=json_output)
     root = Path(cfg.root)
     if built is None:

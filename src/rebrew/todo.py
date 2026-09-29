@@ -36,6 +36,7 @@ from rebrew.cli import (
     json_print,
     option_default,
     require_config,
+    require_non_negative,
 )
 from rebrew.compile import NEAR_MATCH_THRESHOLD
 from rebrew.config import ProjectConfig, inventory_path_for
@@ -1379,6 +1380,9 @@ def main(
 ) -> None:
     """Show prioritized actions ranked by ROI."""
     category = option_default(category, None)
+    count = require_non_negative(
+        option_default(count, 20), "--count", json_mode=option_default(json_output, False)
+    )
     if category is not None and category not in _CATEGORY_COLORS:
         error_exit(
             f"Unknown category {category!r}; choose one of: {', '.join(_CATEGORY_COLORS)}",

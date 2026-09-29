@@ -515,7 +515,7 @@ Re-running with the same type is a no-op (exit 0, JSON `changed: false`).
 
 | Flag | Description |
 |------|-------------|
-| `-n N` / `--count N` | Number of items to show (default 20) |
+| `-n N` / `--count N` | Number of items to show (default 20); a negative value is a usage error (exit 2) |
 | `-c CAT` / `--category CAT` | Filter by category: `setup`, `compile-error`, `extract-error`, `fix-delta`, `improve-match`, `start-function`, `missing-annotation`, `identify-library`, `run-prover`, `documented`, `naked-reconstruction`, `data-drift`, `start-data`, `exact-only`, `postlink-mangled`; any other value fails |
 | `-s` / `--stats` | Show the coverage stats header |
 | `--json` | Output results as JSON |

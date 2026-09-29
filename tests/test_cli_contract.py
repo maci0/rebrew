@@ -26,6 +26,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+import pytest
 from typer.models import OptionInfo
 
 from rebrew.builtins import BUILTIN_COMPONENTS
@@ -125,6 +126,17 @@ class TestSharedOptionHelp:
             if names.index("json_output") > names.index(target_key):
                 bad.append((comp, cmd))
         assert not bad, f"--json must precede --target in the signature: {bad}"
+
+    def test_output_keeps_its_short_form(self) -> None:
+        """``--output`` is the one path-valued option every command spells ``-o``."""
+        bad = []
+        for comp, cmd, fn in _command_functions():
+            for name, opt in _options(fn).items():
+                if "--output" not in (opt.param_decls or []):
+                    continue
+                if "-o" not in (opt.param_decls or []):
+                    bad.append((comp, cmd, name))
+        assert not bad, f"--output must keep its -o short form: {bad}"
 
     def test_va_help_is_canonical(self) -> None:
         bad = []
@@ -451,6 +463,54 @@ class TestGroupWithoutSubcommand:
             if result.exit_code != 2 or result.stdout:
                 bad.append((comp.name, result.exit_code, result.stdout[:80]))
         assert not bad, f"bare group must exit 2 with empty stdout: {bad}"
+
+
+class TestRowCountOptions:
+    """A "how many rows" option rejects a negative value with exit 2.
+
+    These options end in a Python slice, where ``-5`` silently keeps every
+    row but the last five and still exits 0, so a script storing the report
+    never learns that it is a tail.  ``0`` stays legal: several commands
+    spell it "no cap".  The list is spelled out so a new such option is
+    added here rather than shipped unvalidated.
+    """
+
+    #: (component, callback parameter name, flag)
+    COUNT_OPTIONS = (
+        ("todo", "count", "--count"),
+        ("similar", "top", "--top"),
+        ("binary-similarity", "low", "--low"),
+        ("verify-placement", "limit", "--limit"),
+        ("text-audit", "limit", "--limit"),
+        ("analyze", "top_strings", "--top-strings"),
+        ("recover-structs", "limit", "--limit"),
+    )
+
+    def test_negative_row_count_exits_2(self) -> None:
+        import typer
+
+        from rebrew.cli import EXIT_ERROR, require_non_negative
+
+        with pytest.raises(typer.Exit) as exc_info:
+            require_non_negative(-1, "--count")
+        assert exc_info.value.exit_code == EXIT_ERROR
+        assert require_non_negative(0, "--count") == 0
+
+    def test_every_count_option_is_validated(self) -> None:
+        modules = {comp.name: comp.module for comp in BUILTIN_COMPONENTS}
+        bad = []
+        for comp, param, flag in self.COUNT_OPTIONS:
+            module = modules.get(comp)
+            assert module is not None, f"{comp} is not a registered component"
+            fn = importlib.import_module(module).main
+            info = _options(fn).get(param)
+            if info is None or flag not in info.param_decls:
+                bad.append((comp, param, flag))
+                continue
+            body = inspect.getsource(fn)
+            if "require_non_negative" not in body:
+                bad.append((comp, param, "not validated by require_non_negative"))
+        assert not bad, f"row-count option without a non-negative check: {bad}"
 
 
 class TestScriptDispatch:

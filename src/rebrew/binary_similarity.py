@@ -46,7 +46,9 @@ from rebrew.cli import (
     console,
     error_exit,
     json_print,
+    option_default,
     require_config,
+    require_non_negative,
 )
 from rebrew.config import inventory_path_for
 from rebrew.similar import disasm_signature
@@ -383,6 +385,7 @@ def main(
     target: str | None = TargetOption,
 ) -> None:
     """Report binary-level structural similarity against another binary."""
+    low = require_non_negative(option_default(low, 10), "--low", json_mode=json_output)
     if other_target and other_binary:
         error_exit(
             "--other-target cannot be combined with a positional binary",

@@ -720,13 +720,22 @@ def main(
         help="Drill into one function (hex VA): callers, callees, strings, imports.",
     ),
     output: Path | None = typer.Option(
-        None, "--output", help="Write a Markdown report to this path instead of the terminal."
+        None,
+        "--output",
+        "-o",
+        help="Write a Markdown report to this path instead of the terminal.",
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
     """One-shot intelligence dossier for a target binary."""
-    from rebrew.cli import error_exit
+    from rebrew.cli import error_exit, option_default, require_non_negative
+
+    top_strings = require_non_negative(
+        option_default(top_strings, 10),
+        "--top-strings",
+        json_mode=option_default(json_output, False),
+    )
 
     cfg: Any
     try:

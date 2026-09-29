@@ -794,6 +794,20 @@ def require_positive_size(size: int, *, json_mode: bool = False) -> int:
     return size
 
 
+def require_non_negative(value: int, flag: str, *, json_mode: bool = False) -> int:
+    """Return *value* when it is zero or positive, exiting when it is negative.
+
+    The "how many rows" options (``--count``, ``--limit``, ``--top``) reach
+    Python as plain ints and end in a slice, where a negative value silently
+    keeps everything *but* the last N rows and still exits 0.  A script that
+    trusts the exit code then stores a truncated report as if it were the
+    whole one.  ``0`` stays legal: several commands spell it "no cap".
+    """
+    if value < 0:
+        error_exit(f"{flag} must be zero or positive, got {value}", json_mode=json_mode)
+    return value
+
+
 def select_annotation(
     cfg: ProjectConfig, source_arg: str, va: str | None, *, json_mode: bool = False
 ) -> tuple[Path, Annotation, int | None]:
@@ -846,6 +860,7 @@ __all__ = [
     "option_default",
     "parse_va",
     "require_config",
+    "require_non_negative",
     "require_positive_size",
     "require_source_arg",
     "resolve_binary_arg",

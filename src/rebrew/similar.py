@@ -18,7 +18,16 @@ import typer
 from rich.table import Table
 
 from rebrew.analysis import DEFAULT_CS_ARCH, DEFAULT_CS_MODE
-from rebrew.cli import TargetOption, console, error_exit, json_print, parse_va, require_config
+from rebrew.cli import (
+    TargetOption,
+    console,
+    error_exit,
+    json_print,
+    option_default,
+    parse_va,
+    require_config,
+    require_non_negative,
+)
 from rebrew.config import ProjectConfig, inventory_path_for
 from rebrew.instruction_clones import (
     MIN_RUN_INSTRUCTIONS,
@@ -348,6 +357,7 @@ def main(
     target: str | None = TargetOption,
 ) -> None:
     """Find functions structurally similar to the one at VA."""
+    top = require_non_negative(option_default(top, 10), "--top", json_mode=json_output)
     cfg = require_config(target=target, json_mode=json_output)
     query_va = parse_va(va, json_mode=json_output) if va is not None else None
 

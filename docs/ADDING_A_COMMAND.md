@@ -20,6 +20,10 @@ Conventions (CLI review will flag drift):
   `--dry-run` → `"Preview changes without writing"`.
 - `console.print()` for humans; raw `print()` only for piped data.
 - `error_exit(msg, json_mode=json_output)` for failures.
+- A "how many rows" option (`--count`, `--limit`, `--top`) runs through
+  `require_non_negative(value, "--count", json_mode=json_output)`: a
+  negative bound reaches the slice and returns a tail under exit 0, and 0
+  stays legal because several commands spell it "no cap".
 - STATUS writes only through `rebrew.metadata` writers: never write
   `STATUS` in `.c` files, never hand-edit TOML.
 

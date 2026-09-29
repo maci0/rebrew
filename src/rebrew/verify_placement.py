@@ -25,6 +25,8 @@ from rebrew.cli import (
     console,
     error_exit,
     json_print,
+    option_default,
+    require_non_negative,
     untrusted_ident,
 )
 from rebrew.config import load_config
@@ -59,6 +61,7 @@ def main(
     target: str | None = TargetOption,
 ) -> None:
     """Build-then-compare: .data symbol VAs of the current build vs the metadata."""
+    limit = require_non_negative(option_default(limit, 15), "--limit", json_mode=json_output)
     root = Path.cwd()
     metadata = data_metadata if data_metadata.is_absolute() else root / data_metadata
     if not metadata.exists():

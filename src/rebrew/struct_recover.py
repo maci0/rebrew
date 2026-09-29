@@ -64,7 +64,9 @@ from rebrew.cli import (
     console,
     error_exit,
     json_print,
+    option_default,
     require_config,
+    require_non_negative,
 )
 from rebrew.errors import RebrewError
 from rebrew.utils import atomic_write_text, fold_ident, parse_int_literal, read_source_text
@@ -744,6 +746,7 @@ def main(
 ) -> None:
     """Recover struct definitions by decompiling functions and aggregating
     their member-access offsets per named pointer type."""
+    limit = require_non_negative(option_default(limit, 0), "--limit", json_mode=json_output)
     cfg = require_config(target=target, json_mode=json_output)
 
     try:
