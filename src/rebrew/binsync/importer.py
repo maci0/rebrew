@@ -51,7 +51,13 @@ from rebrew.cli import (
 )
 from rebrew.config import ProjectConfig, module_marker
 from rebrew.naming import avoid_windows_reserved
-from rebrew.utils import c_comment_safe, fold_ident, is_safe_c_ident, strip_body
+from rebrew.utils import (
+    c_comment_safe,
+    fold_ident,
+    is_safe_c_ident,
+    preset_module_key,
+    strip_body,
+)
 
 log = logging.getLogger(__name__)
 
@@ -416,6 +422,20 @@ def import_state(
     applied names/prototypes/globals to or created stubs for, so callers like
     ``rebrew sync --pull --create-functions`` can push them to Ghidra).
     """
+    # Canonical metadata spelling, so `--module server` filters and writes the
+    # same rows as `--module SERVER` instead of skipping every stored row and
+    # then appending a second `server.0x...` table beside `SERVER.0x...`.
+    wanted_module = preset_module_key(module) if module else None
+
+    def module_selected(local_module: str) -> bool:
+        """True when *local_module* passes the ``--module`` filter.
+
+        The filter and the stored row meet in :func:`preset_module_key`
+        (NFC, then upper), the spelling every metadata writer emits.  Plain
+        equality skipped every ``SERVER`` row for ``--module server``.
+        """
+        return wanted_module is None or preset_module_key(local_module) == wanted_module
+
     funcs_by_va, globals_by_va = load_binsync_state(state_dir)
     structs_by_name = load_binsync_structs(state_dir)
     enums_by_name = load_binsync_enums(state_dir)
@@ -465,7 +485,7 @@ def import_state(
 
         # Module filter: only import entries whose local module matches filter
         local = local_by_va.get(va)
-        if local is not None and module is not None and getattr(local, "module", "") != module:
+        if local is not None and not module_selected(getattr(local, "module", "")):
             skipped += 1
             continue
 
@@ -771,13 +791,18 @@ def import_state(
         if va in funcs_by_va:
             continue  # already handled as function
         local = local_by_va.get(va)
-        if local is not None and module is not None and getattr(local, "module", "") != module:
+        if local is not None and not module_selected(getattr(local, "module", "")):
             skipped += 1
             continue
         # For DATA/GLOBAL, update rebrew-data.toml
         if local is not None:
             local_name = getattr(local, "name", "") or getattr(local, "symbol", "") or ""
-            if local_name.strip() == bs_name.strip() and not _global_field_updates(local, bs_entry):
+            # fold_ident, like the function-name path above: a state written on
+            # Windows and a source checked out on macOS spell one DATA symbol
+            # two ways, and that is not a rename.
+            if fold_ident(local_name.strip()) == fold_ident(bs_name.strip()) and not (
+                _global_field_updates(local, bs_entry)
+            ):
                 continue
             if dry_run:
                 proposed.append(
@@ -814,7 +839,7 @@ def import_state(
                     {"va": f"0x{va:08x}", "field": "global_name", "local": "", "binsync": bs_name}
                 )
             if not dry_run:
-                mod = module or module_marker(cfg)
+                mod = wanted_module or module_marker(cfg)
                 if not mod:
                     log.warning("skipping global name for VA 0x%x: no module marker", va)
                     skipped += 1
@@ -852,7 +877,7 @@ def import_state(
         local = local_by_va.get(va)
         if local is None:
             continue
-        if module is not None and getattr(local, "module", "") != module:
+        if not module_selected(getattr(local, "module", "")):
             continue
         local_mod = _entry_module(cfg, local)
         if not local_mod:
@@ -966,7 +991,7 @@ def import_state(
         "touched_vas": sorted(set(touched_vas)),
         "proposed": proposed,
         "conflict_details": conflicts,
-        "module": module,
+        "module": wanted_module,
         "accept_binsync": accept_binsync,
         "accept_local": accept_local,
     }
@@ -999,7 +1024,9 @@ def _route_comments(
                 continue
             owner = candidate
         ann = local_by_va.get(owner)
-        if module is not None and getattr(ann, "module", "") != module:
+        if module is not None and preset_module_key(getattr(ann, "module", "")) != (
+            preset_module_key(module)
+        ):
             continue
         by_func.setdefault(owner, {})[f"0x{addr:08x}"] = {"comment": text, "func_addr": owner}
         size = int(getattr(ann, "size", 0) or 0)

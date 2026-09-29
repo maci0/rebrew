@@ -69,6 +69,7 @@ from rebrew.utils import (
     atomic_write_bytes,
     floor_pct,
     merged_span_bytes,
+    preset_module_key,
     safe_shlex_split,
     untrusted_ident,
 )
@@ -849,6 +850,11 @@ def _load_catalogs(cfg: ProjectConfig) -> tuple[dict[int, str], dict[str, int]]:
     from rebrew.data_metadata import load_data_metadata
 
     marker = target_marker(cfg)  # honors cfg.marker overrides
+    # An annotation's marker is compared in preset_module_key (NFC, then
+    # upper): a `.c` written with an NFD-accented marker spells the same module
+    # as the config's NFC one, and byte equality dropped its functions from
+    # the export and data maps.
+    wanted_marker = preset_module_key(marker) if marker else None
     funcs: dict[int, str] = dict(cfg.dll_exports)  # base layer: PE exports
     # Data names live in cfg.metadata_dir/rebrew-data.toml — not under each
     # annotated source's parent directory.  DATA/GLOBAL annotations are also
@@ -865,7 +871,7 @@ def _load_catalogs(cfg: ProjectConfig) -> tuple[dict[int, str], dict[str, int]]:
     ):
         for ann in anns:
             key = resolve_symbol(ann, _path)
-            if ann.module != marker or not key:
+            if wanted_marker is None or preset_module_key(ann.module) != wanted_marker or not key:
                 continue
             # DATA/GLOBAL annotations (e.g. an IAT import slot annotated as a
             # global named like its function) belong in the data map, never in

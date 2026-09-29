@@ -25,7 +25,7 @@ from rebrew.cli import (
     require_config,
     run_standalone,
 )
-from rebrew.utils import fold_ident, strip_body
+from rebrew.utils import fold_ident, preset_module_key, strip_body
 
 log = logging.getLogger(__name__)
 
@@ -63,6 +63,15 @@ def main(
 
     local_by_va, catalog_sizes = index_local_and_catalog(cfg)
 
+    # The filter meets the stored row in preset_module_key (NFC, then upper),
+    # the spelling every metadata writer emits, so `--module server` reports on
+    # the same rows as `--module SERVER` instead of skipping all of them.
+    wanted_module = preset_module_key(module) if module else None
+
+    def module_selected(local_module: str) -> bool:
+        """True when *local_module* passes the ``--module`` filter."""
+        return wanted_module is None or preset_module_key(local_module) == wanted_module
+
     divergences: list[dict[str, str]] = []
     new_in_binsync: list[dict[str, str]] = []
     skipped = 0
@@ -73,7 +82,7 @@ def main(
         bs_proto = bs_entry.get("prototype", "")
         local = local_by_va.get(va)
 
-        if local is not None and module is not None and getattr(local, "module", "") != module:
+        if local is not None and not module_selected(getattr(local, "module", "")):
             skipped += 1
             continue
 
@@ -153,7 +162,7 @@ def main(
         if va in funcs_by_va:
             continue
         local = local_by_va.get(va)
-        if local is not None and module is not None and getattr(local, "module", "") != module:
+        if local is not None and not module_selected(getattr(local, "module", "")):
             skipped += 1
             continue
         local_name = getattr(local, "name", "") or getattr(local, "symbol", "") or ""
@@ -167,7 +176,7 @@ def main(
                     "kind": "new_global_in_binsync",
                 }
             )
-        elif local_name != bs_name:
+        elif fold_ident(local_name.strip()) != fold_ident(bs_name.strip()):
             divergences.append(
                 {
                     "va": f"0x{va:08x}",
@@ -186,7 +195,7 @@ def main(
             "manifest": manifest,
         }
         if module is not None:
-            result["module"] = module
+            result["module"] = wanted_module
         if divergences:
             result["items"] = divergences
         if new_in_binsync:

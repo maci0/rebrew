@@ -75,7 +75,7 @@ from rebrew.cross_import import (
     target_bytes_by_va,
     unmatched_dest_bytes,
 )
-from rebrew.utils import fold_ident, strip_body
+from rebrew.utils import fold_ident, preset_module_key, strip_body
 
 log = logging.getLogger(__name__)
 
@@ -330,6 +330,15 @@ def overlay_state(
     from rebrew.annotation import update_annotation_key
     from rebrew.metadata import get_entry, update_field
 
+    # The filter meets the stored row in preset_module_key (NFC, then upper),
+    # the spelling every metadata writer emits, so `--module server` overlays
+    # the same rows as `--module SERVER` instead of skipping all of them.
+    wanted_module = preset_module_key(module) if module else None
+
+    def module_selected(local_module: str) -> bool:
+        """True when *local_module* passes the ``--module`` filter."""
+        return wanted_module is None or preset_module_key(local_module) == wanted_module
+
     src_sigs = _source_signatures(cfg_src, sorted(funcs_by_va))
     dest_sigs = _dest_signatures(cfg)
     matches = cross_match(dest_sigs, src_sigs, min_score=min_score, min_gap=min_gap)
@@ -372,7 +381,7 @@ def overlay_state(
             )
             continue
         local_module = getattr(local, "module", "") or ""
-        if module is not None and local_module != module:
+        if not module_selected(local_module):
             skipped += 1
             continue
         file_path = Path(cfg.reversed_dir) / filepath
@@ -652,7 +661,7 @@ def overlay_state(
                     mapping[src_va] = (dst_va, section)
             skipped += sum(len(group) for group in by_section.values()) - len(mapping)
 
-            mod = module or module_marker(cfg)
+            mod = wanted_module or module_marker(cfg)
             for src_va, (dst_va, section) in sorted(mapping.items()):
                 entry = globals_by_va.get(src_va, {})
                 bs_name = (entry.get("name") or "").strip()

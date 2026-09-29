@@ -2203,7 +2203,11 @@ def prepare_entries(
         # Same VA re-annotated under another module is a different function
         # for STATUS purposes — a stale verdict earned under the old module
         # must not be served (legacy rows without a module still hit).
-        if cached_entry.module and cached_entry.module != getattr(entry, "module", ""):
+        # preset_module_key, like every other module comparison in this file:
+        # byte equality made a spelling difference re-verify the whole target.
+        if cached_entry.module and preset_module_key(cached_entry.module) != preset_module_key(
+            getattr(entry, "module", "")
+        ):
             continue
 
         # One shared identity check (see verify_hash.entry_fingerprint):

@@ -244,6 +244,29 @@ class TestBinsyncImportConflicts:
         assert sorted(files) == ["NewFoo.c", "other.c"]
         assert "int bar(void)" in files["other.c"]  # OTHER module left alone
 
+    def test_module_filter_is_case_insensitive(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # `--module server` names the same module as the stored `SERVER` rows;
+        # byte equality skipped every row and then wrote a second table.
+        _make_project(
+            tmp_path,
+            {
+                "foo.c": "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\n// SIZE: 4\nint foo(void){return 1;}\n",
+                "other.c": "// FUNCTION: OTHER 0x10002000\n// STATUS: EXACT\n// SIZE: 4\nint bar(void){return 2;}\n",
+            },
+        )
+        state = _make_state(tmp_path, funcs={0x10001000: "_NewFoo", 0x10002000: "_NewBar"})
+        result = _invoke_import(
+            tmp_path, state, monkeypatch, "--module", "server", "--accept-binsync", "--json"
+        )
+        assert result.exit_code == 0
+        data = json.loads(result.stdout)
+        assert data["module"] == "SERVER"
+        assert data["applied_names"] == 1
+        files = _src_files(tmp_path)
+        assert sorted(files) == ["NewFoo.c", "other.c"]
+
     def test_missing_state_dir(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _make_project(
             tmp_path,

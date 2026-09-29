@@ -218,7 +218,7 @@ from rebrew.coverage_toml import (
 )
 from rebrew.metadata import canonical_status
 from rebrew.status_style import status_mark_groups
-from rebrew.utils import floor_pct, strip_bidi_format
+from rebrew.utils import floor_pct, preset_module_key, strip_bidi_format
 from rebrew.workspace import VA_MAX
 from rebrew.workspace.status import COVERAGE_DB_STATUSES
 
@@ -1883,7 +1883,12 @@ def _module_query(params: dict[str, list[str]]) -> str | None:
     """
     if "module" not in params:
         return None
-    return (_raw_param(params, "module") or "").strip()
+    values = params["module"]
+    module = (values[0] if values else "").strip()
+    # preset_module_key (NFC, then upper), the spelling the rows are stored
+    # in: a hand-typed `?module=server` selects the SERVER rows instead of
+    # silently returning none.  A blank stays blank, which is a stored value.
+    return preset_module_key(module)
 
 
 def _byte_count(value: Any) -> int:
@@ -2186,7 +2191,7 @@ class Dashboard:
                     continue
                 if wanted_status is not None and fn.status != wanted_status:
                     continue
-                if module is not None and fn.module != module:
+                if module is not None and preset_module_key(fn.module) != module:
                     continue
                 if q and not _name_match(q, fn.va, fn.name, fn.symbol):
                     continue
@@ -2264,7 +2269,7 @@ class Dashboard:
         rows: list[Global] = []
         if snapshot is not None:
             for item in snapshot.globals:
-                if module is not None and item.module != module:
+                if module is not None and preset_module_key(item.module) != module:
                     continue
                 if q and not _name_match(q, item.va, item.name):
                     continue

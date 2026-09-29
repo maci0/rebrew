@@ -1315,6 +1315,33 @@ class TestHandle:
         assert isinstance(globals_rows, list)
         assert [row[1] for row in globals_rows] == ["g_flag"]
 
+    def test_module_filter_is_case_insensitive(self, tmp_path: Path, catalog: FakeCatalog) -> None:
+        """``?module=game`` selects the rows stored under ``GAME``."""
+        data = _catalog_data()
+        data["functions"]["0x10002000"]["module"] = "GAME"
+        data["globals"]["0x50002000"] = {
+            "name": "g_game",
+            "decl": "int g_game;",
+            "size": 4,
+            "module": "GAME",
+        }
+        catalog.per_target["mod"] = data
+        _write_config(tmp_path, "mod")
+        build_db(tmp_path)
+        dash = Dashboard(tmp_path / "db")
+
+        status, _, body = dash.handle(
+            "GET", "/api/functions", {"target": ["mod"], "module": ["game"]}
+        )
+        assert status == 200
+        assert [row[1] for row in json.loads(body)["functions"]] == ["func_b"]
+
+        status, _, body = dash.handle(
+            "GET", "/api/globals", {"target": ["mod"], "module": ["game"]}
+        )
+        assert status == 200
+        assert [row[1] for row in json.loads(body)["globals"]] == ["g_game"]
+
     def test_va_zero_formatted_properly(self, tmp_path: Path) -> None:
         """VA 0 is a valid address and must format as 0x00000000, not ???."""
         db_dir = tmp_path / "db"
