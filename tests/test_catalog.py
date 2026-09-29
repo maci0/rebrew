@@ -7,9 +7,9 @@ import pytest
 
 from rebrew.annotation import Annotation
 from rebrew.catalog import (
+    build_coverage_data,
     build_function_registry,
     count_detection_sources,
-    generate_data_json,
     scan_reversed_dir,
 )
 from rebrew.config import ProjectConfig
@@ -126,7 +126,7 @@ class TestCountDetectionSources:
 
 
 # -------------------------------------------------------------------------
-# generate_data_json
+# build_coverage_data
 # -------------------------------------------------------------------------
 
 
@@ -170,7 +170,7 @@ class TestGenerateDataJson:
         ]
         funcs = [{"va": 0x10001000, "size": 64, "name": "_func_a"}]
         bin_path = self._laid_out(monkeypatch, tmp_path)
-        data = generate_data_json(entries, funcs, text_size=0x3000, bin_path=bin_path)
+        data = build_coverage_data(entries, funcs, text_size=0x3000, bin_path=bin_path)
         assert isinstance(data, dict)
         assert "sections" in data
         assert "summary" in data
@@ -179,7 +179,7 @@ class TestGenerateDataJson:
         assert data["summary"]["totalFunctions"] == 1
 
     def test_empty_data(self) -> None:
-        data = generate_data_json([], [], text_size=0)
+        data = build_coverage_data([], [], text_size=0)
         assert isinstance(data, dict)
         assert "sections" in data
         assert "summary" in data
@@ -205,7 +205,7 @@ class TestGenerateDataJson:
         ]
         funcs = [{"va": 0x10001000, "size": 64, "name": "_func_a"}]
         bin_path = self._laid_out(monkeypatch, tmp_path)
-        data = generate_data_json(entries, funcs, text_size=0x3000, bin_path=bin_path)
+        data = build_coverage_data(entries, funcs, text_size=0x3000, bin_path=bin_path)
 
         assert data["summary"]["nearMatchCount"] == 1
         assert data["summary"]["stubCount"] == 0
@@ -227,7 +227,7 @@ class TestGenerateDataJson:
         ]
         funcs = [{"va": 0x10001000, "size": 64, "name": "_func_a"}]
         bin_path = self._laid_out(monkeypatch, tmp_path)
-        data = generate_data_json(entries, funcs, text_size=0x3000, bin_path=bin_path)
+        data = build_coverage_data(entries, funcs, text_size=0x3000, bin_path=bin_path)
         s = data["summary"]
 
         # PROVEN is semantically equivalent but not byte-identical: its own
@@ -254,7 +254,7 @@ class TestGenerateDataJson:
             ),
         ]
         funcs = [{"va": 0x10001000, "size": 64, "name": "_func_a"}]
-        data = generate_data_json(entries, funcs, text_size=1000)
+        data = build_coverage_data(entries, funcs, text_size=1000)
         s = data["summary"]
         assert data["functions"] == {}
         assert s["totalFunctions"] == 0
@@ -321,7 +321,7 @@ class TestGenerateDataJson:
         monkeypatch.setattr("rebrew.binary_loader.load_binary", lambda p: info)
         monkeypatch.setattr("rebrew.catalog.grid.load_ghidra_data_labels", lambda src: {})
         monkeypatch.setattr("rebrew.catalog.grid.get_globals", lambda src, cfg=None: {})
-        data = generate_data_json(entries, funcs, text_size=0x3000, bin_path=bin_path)
+        data = build_coverage_data(entries, funcs, text_size=0x3000, bin_path=bin_path)
 
         s = data["summary"]
         assert s["totalFunctions"] == 3

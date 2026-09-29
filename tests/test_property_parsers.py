@@ -885,7 +885,7 @@ def test_count_statuses_invariants(statuses: dict[int, list[str]]) -> None:
         max_size=2,
     )
 )
-def test_generate_data_json_reorder_invariant(statuses: list[str]) -> None:
+def test_build_coverage_data_reorder_invariant(statuses: list[str]) -> None:
     """Shuffling the entries/funcs input order must not change the grid output.
 
     The fixture PE (tests/fixtures/mini_pe.exe) supplies the real .text bytes,
@@ -896,7 +896,7 @@ def test_generate_data_json_reorder_invariant(statuses: list[str]) -> None:
 
     from rebrew.annotation import Annotation
     from rebrew.binary_loader import load_binary
-    from rebrew.catalog.grid import generate_data_json
+    from rebrew.catalog.grid import build_coverage_data
 
     fixtures = Path(__file__).parent / "fixtures"
     info = load_binary(fixtures / "mini_pe.exe")
@@ -942,14 +942,14 @@ def test_generate_data_json_reorder_invariant(statuses: list[str]) -> None:
         "root_dir": None,
     }
 
-    base = generate_data_json(entries, funcs, **kwargs)
+    base = build_coverage_data(entries, funcs, **kwargs)
     for _ in range(3):
         rng = random.Random(_)
         shuffled_entries = list(entries)
         rng.shuffle(shuffled_entries)
         shuffled_funcs = list(funcs)
         rng.shuffle(shuffled_funcs)
-        assert generate_data_json(shuffled_entries, shuffled_funcs, **kwargs) == base
+        assert build_coverage_data(shuffled_entries, shuffled_funcs, **kwargs) == base
 
     # Every entry with a resolvable size inside .text is emitted.
     assert f"0x{vas[0]:08x}" in base["functions"]

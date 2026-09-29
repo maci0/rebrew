@@ -38,7 +38,7 @@ def _patch(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamespace:
     monkeypatch.setattr(catalog_pipeline, "get_text_section_size", lambda _p: 0x1000)
     monkeypatch.setattr(
         catalog_pipeline,
-        "generate_data_json",
+        "build_coverage_data",
         lambda *a, **k: {"sections": {".text": {"va": 0, "cells": []}}, "summary": {}},
     )
     # The summary's progress lines are `rebrew status`'s; stub its collector.
@@ -268,7 +268,7 @@ class TestCatalogCliSummary:
         cfg = _patch(monkeypatch, tmp_path)
         monkeypatch.setattr(
             catalog_pipeline,
-            "generate_data_json",
+            "build_coverage_data",
             lambda *a, **k: {
                 "sections": {
                     ".text": {

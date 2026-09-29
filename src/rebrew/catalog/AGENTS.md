@@ -9,7 +9,7 @@ Merges function sources (discovery inventory, Ghidra JSON, binary exports) into 
 | `models.py` | `FunctionEntry`, `GhidraDataLabel` |
 | `loaders.py` | Ghidra/discovery I/O, `scan_reversed_dir`, `parse_rizin_afl` |
 | `registry.py` | `build_function_registry` + canonical size resolution |
-| `grid.py` | `generate_data_json` (coverage grid) |
+| `grid.py` | `build_coverage_data` (coverage grid) |
 | `pipeline.py` | `build_catalog_data` (scan/registry/grid dict; no disk writes) |
 | `cli.py` | `run_catalog` + Typer entry |
 
@@ -17,7 +17,7 @@ Externals (the only packages this one may import): `annotation`, `cli`, `config`
 
 ## Data flow
 
-Reversed `.c` + `library_*.h` → `scan_reversed_dir` → annotations; discovery/Ghidra JSON → `load_function_structure`; binary → `load_binary`. Then `build_function_registry` (merge by VA, canonical size) → `generate_data_json` → the dict `rebrew build-db` renders into `db/coverage-{target}.toml`.
+Reversed `.c` + `library_*.h` → `scan_reversed_dir` → annotations; discovery/Ghidra JSON → `load_function_structure`; binary → `load_binary`. Then `build_function_registry` (merge by VA, canonical size) → `build_coverage_data` → the dict `rebrew build-db` renders into `db/coverage-{target}.toml`.
 
 ## Invariants
 
@@ -28,7 +28,7 @@ Reversed `.c` + `library_*.h` → `scan_reversed_dir` → annotations; discovery
 
 ## Gotchas
 
-- **Lazy binary parse**: `generate_data_json` parses once (`_bin_info`) per run; other tools call `load_binary()` themselves.
+- **Lazy binary parse**: `build_coverage_data` parses once (`_bin_info`) per run; other tools call `load_binary()` themselves.
 - **Multi-function files**: multiple `// FUNCTION:` blocks per `.c` are all listed.
 - **Library headers**: `parse_library_header` returns every `// LIBRARY: <module> <VA>` row (module is the marker text, not the filename) — do not add a filter there. `scan_reversed_dir` then keeps a row only when its module is empty or this target's marker (`preset_module_key(module_marker(cfg))`): a shared header has no path affinity, and another target's rows must not enter this registry. Inline KV is a legacy read; do not add volatile metadata to source files.
 - **Ghidra labels**: only `thunk_*` → "thunk"; everything else → "data". `GhidraDataLabel.from_dict` coerces a non-string `label`/`state` to its default, since export JSON is untrusted and `_classify_ghidra_label` calls `.lower()` on the label.

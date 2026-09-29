@@ -1,4 +1,4 @@
-"""Tests for catalog/grid.generate_data_json — absorption, gap classification, cells."""
+"""Tests for catalog/grid.build_coverage_data — absorption, gap classification, cells."""
 
 import struct
 from pathlib import Path
@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from rebrew.annotation import Annotation
-from rebrew.catalog.grid import generate_data_json
+from rebrew.catalog.grid import build_coverage_data
 from rebrew.utils import floor_pct
 
 TEXT_VA = 0x1000
@@ -93,7 +93,7 @@ def _patch_binary(
     sections_size: int = TEXT_SIZE,
     load_binary_raises: bool = False,
 ) -> SimpleNamespace:
-    """Monkeypatch binary/section/label loading so generate_data_json is hermetic.
+    """Monkeypatch binary/section/label loading so build_coverage_data is hermetic.
 
     The grid now derives sections from a single load_binary() result, so the
     fake BinaryInfo carries the full section set that sections_from_info() maps
@@ -174,7 +174,7 @@ class TestGenerateDataJsonGrid:
             labels=labels if labels is not None else _labels(),
             globals_dict=globals_dict or {0x5000: {"name": "g_x"}},
         )
-        return generate_data_json(
+        return build_coverage_data(
             self._entries(),
             [{"va": 0x1540, "size": 0x20}],
             text_size=TEXT_SIZE,
@@ -198,7 +198,7 @@ class TestGenerateDataJsonGrid:
             lambda src, cfg=None: (seen.append(cfg), {})[1],
         )
         sentinel = object()
-        generate_data_json(
+        build_coverage_data(
             self._entries(),
             [],
             text_size=TEXT_SIZE,
@@ -246,7 +246,7 @@ class TestGenerateDataJsonGrid:
         bin_path = tmp_path / "fake.dll"
         bin_path.write_bytes(bytes(blob))
         _patch_binary(monkeypatch, bytes(blob), labels={}, globals_dict={})
-        return generate_data_json(
+        return build_coverage_data(
             [_ann(0x1000, "fn_sw", status, 0x100)],
             [{"va": 0x1000, "size": 0x40, "name": "fcn.1000"}],
             text_size=TEXT_SIZE,
@@ -290,7 +290,7 @@ class TestGenerateDataJsonGrid:
 
         worker = threading.Thread(target=_build, daemon=True)
         worker.start()
-        assert done.wait(timeout=30), "generate_data_json did not terminate on a 0-size global"
+        assert done.wait(timeout=30), "build_coverage_data did not terminate on a 0-size global"
         cells = [c for sec in out[0]["sections"].values() for c in sec["cells"]]
         assert all(c["end"] > c["start"] for c in cells)  # no zero-length cells
 
@@ -330,7 +330,7 @@ class TestGenerateDataJsonGrid:
             },
         )
         with caplog.at_level(logging.WARNING, logger="rebrew.catalog.grid"):
-            generate_data_json(
+            build_coverage_data(
                 self._entries(),
                 [{"va": 0x1540, "size": 0x20}],
                 text_size=TEXT_SIZE,
@@ -449,7 +449,7 @@ class TestGenerateDataJsonGrid:
         bin_path.write_bytes(blob)
         _patch_binary(monkeypatch, blob)
         # root_dir does NOT contain bin_path → falls back to the bare name.
-        data = generate_data_json(
+        data = build_coverage_data(
             self._entries(),
             [],
             text_size=TEXT_SIZE,
@@ -466,7 +466,7 @@ class TestGenerateDataJsonGrid:
         bin_path = tmp_path / "fake.dll"
         bin_path.write_bytes(blob)
         _patch_binary(monkeypatch, blob, load_binary_raises=True)
-        data = generate_data_json([self._entries()[0]], [], text_size=TEXT_SIZE, bin_path=bin_path)
+        data = build_coverage_data([self._entries()[0]], [], text_size=TEXT_SIZE, bin_path=bin_path)
         text = data["sections"][".text"]
         assert text["size"] == TEXT_SIZE
         # No binary data → no hashes, no absorption.
@@ -481,7 +481,7 @@ class TestGenerateDataJsonGrid:
         bin_path.write_bytes(bytes(blob))
         _patch_binary(monkeypatch, bytes(blob), sections_size=size)
         entries = [_ann(TEXT_VA + 0xE0, "fn_tail", "EXACT", 0x20)]
-        data = generate_data_json(entries, [], text_size=size, bin_path=bin_path)
+        data = build_coverage_data(entries, [], text_size=size, bin_path=bin_path)
         fn = data["functions"][f"0x{TEXT_VA + 0xE0:08x}"]
         assert fn["size"] == 0x20
 
@@ -510,7 +510,7 @@ class TestGenerateDataJsonNoBinary:
             _ann(0x0, "fn_a", "EXACT", 0x40),
             _ann(0x40, "fn_b", "STUB", 0x20),
         ]
-        data = generate_data_json(entries, [], text_size=0x200)
+        data = build_coverage_data(entries, [], text_size=0x200)
         text = data["sections"][".text"]
         assert text["va"] == 0
         assert text["size"] == 0x200
@@ -544,7 +544,7 @@ class TestAbsorptionRegression:
             _ann(0x1000, "fn_a", "EXACT", 0x40),
             _ann(0x1060, "fn_b", "STUB", 0x20),
         ]
-        data = generate_data_json(entries, [], text_size=size, bin_path=bin_path)
+        data = build_coverage_data(entries, [], text_size=size, bin_path=bin_path)
         fn = data["functions"]
         assert fn["0x00001000"]["size"] == 0x60  # absorbed exactly the table
         assert fn["0x00001060"]["size"] == 0x20  # fn_b untouched
@@ -577,7 +577,7 @@ class TestSingleBinaryParse:
         monkeypatch.setattr("rebrew.catalog.grid.load_ghidra_data_labels", lambda src: {})
         monkeypatch.setattr("rebrew.catalog.grid.get_globals", lambda src, cfg=None: {})
         entries = [_ann(TEXT_VA, "fn_a", "EXACT", 0x20)]
-        data = generate_data_json(entries, [], text_size=size, bin_path=bin_path)
+        data = build_coverage_data(entries, [], text_size=size, bin_path=bin_path)
         assert calls["n"] == 1
         assert data["sections"][".text"]["size"] == size
 
@@ -590,7 +590,7 @@ class TestSingleBinaryParse:
         monkeypatch.setattr("rebrew.catalog.grid.load_ghidra_data_labels", lambda src: {})
         monkeypatch.setattr("rebrew.catalog.grid.get_globals", lambda src, cfg=None: {})
         entries = [_ann(TEXT_VA, "fn_a", "EXACT", 0x20)]
-        generate_data_json(entries, [], text_size=0x40, bin_path=tmp_path / "nope.dll")
+        build_coverage_data(entries, [], text_size=0x40, bin_path=tmp_path / "nope.dll")
         assert calls["n"] == 0
 
 
@@ -652,7 +652,7 @@ class TestUnannotatedBoundaries:
             _ann(0x1000, "fn_a", "EXACT", 0x40),
             _ann(0x1060, "fn_b", "STUB", 0x20),
         ]
-        data = generate_data_json(entries, [], text_size=size, bin_path=bin_path, registry=registry)
+        data = build_coverage_data(entries, [], text_size=size, bin_path=bin_path, registry=registry)
         fn = data["functions"]
         # fn_a must stay 0x40 — the 0x40-0x60 unannotated function is a boundary.
         assert fn["0x00001000"]["size"] == 0x40

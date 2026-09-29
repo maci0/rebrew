@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from rebrew.catalog.grid import generate_data_json
+from rebrew.catalog.grid import build_coverage_data
 from rebrew.catalog.loaders import cached_function_list, scan_reversed_dir
 from rebrew.catalog.registry import build_function_registry, count_detection_sources
 from rebrew.config import inventory_path_for
@@ -64,7 +64,7 @@ def build_catalog_data(cfg: Any, *, with_data: bool = True) -> dict[str, Any]:
         style="dim",
     )
     data = (
-        generate_data_json(
+        build_coverage_data(
             entries,
             funcs,
             text_size,

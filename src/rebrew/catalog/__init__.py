@@ -5,7 +5,7 @@ without loading the Typer command in ``rebrew.catalog.cli``.
 """
 
 from rebrew.catalog.grid import (
-    generate_data_json as generate_data_json,
+    build_coverage_data as build_coverage_data,
 )
 from rebrew.catalog.loaders import (
     cached_function_list as cached_function_list,
@@ -60,7 +60,7 @@ __all__ = [
     "cached_function_vas",
     "cached_sorted_function_vas",
     "count_detection_sources",
-    "generate_data_json",
+    "build_coverage_data",
     "is_jump_table",
     "load_function_structure",
     "load_ghidra_data_labels",
