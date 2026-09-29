@@ -1336,11 +1336,18 @@ def fix_ownership(
             if not dry_run:
                 atomic_write_text(tu, text, encoding=encoding)
     except BaseException:
+        # The original failure is still propagating, so every restore gets its
+        # own guard: a restore that raises must not skip the TUs after it
+        # (each ``atomic_write_text`` is its own commit, so a skipped one stays
+        # half-migrated) and must not replace the failure being cleaned up
+        # after.  ``BaseException`` rather than ``OSError``, because the
+        # exception that got us here is exactly the one most likely to land
+        # inside this loop again.
         unrestored: list[Path] = []
         for tu, (text, encoding) in original.items():
             try:
                 atomic_write_text(tu, text, encoding=encoding)
-            except OSError:
+            except BaseException:
                 # The original failure may itself be the unwritable-directory
                 # or out-of-space condition, so the restore is exactly what
                 # cannot succeed.  Say which TUs are left half-migrated

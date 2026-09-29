@@ -353,3 +353,39 @@ class TestContainingNameSmallestRange:
         ranges = [(0x1000, 0x1200, "outer"), (0x1040, 0x1080, "inner")]
         assert _containing_name(0x1050, {}, ranges) == "inner"
         assert _containing_name(0x1150, {}, ranges) == "outer"
+
+
+class TestMalformedInventoryEntry:
+    def test_malformed_inventory_entry_is_named(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A bad inventory entry truncates every dossier range, so it is warned.
+
+        ``cached_function_list`` already warns when the file cannot be read, so
+        an exception here means the inventory parsed but holds a malformed
+        entry.  Dropping the rest of it at DEBUG left ranges silently ending
+        at annotation boundaries with nothing to explain them.
+        """
+        import logging
+
+        import rebrew.describe as describe_mod
+        from rebrew.describe import _build_lookup
+
+        monkeypatch.setattr(describe_mod, "_collect_annotations", lambda cfg: [])
+        monkeypatch.setattr(
+            describe_mod,
+            "cached_function_list",
+            lambda cfg: [
+                {"va": 0x1000, "size": 0x20, "name": "good"},
+                {"va": "not-an-address", "size": 0x10, "name": "bad"},
+                {"va": 0x2000, "size": 0x20, "name": "never_reached"},
+            ],
+        )
+
+        with caplog.at_level(logging.WARNING, logger="rebrew.describe"):
+            names, _ranges = _build_lookup(None)[1:]
+
+        assert "malformed" in caplog.text
+        assert "never_reached" not in names
+        # The entry before the bad one is kept, not discarded with the rest.
+        assert names[0x1000] == "good"

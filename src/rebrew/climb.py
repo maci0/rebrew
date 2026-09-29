@@ -692,8 +692,20 @@ def main(
             if not dry_run:
                 atomic_write_text(path, "".join(lines) if applied else original, encoding=encoding)
     except BaseException:
+        # The restore is what cannot succeed when the run above failed, so a
+        # restore that raises must not replace the failure that is already
+        # propagating: the caller is left with the last scored candidate in the
+        # file, and ``source_backup`` has just logged the pre-run copy to put
+        # back by hand.  Report the stranded file, then re-raise the original.
         if not dry_run:
-            atomic_write_text(path, original, encoding=encoding)
+            try:
+                atomic_write_text(path, original, encoding=encoding)
+            except OSError as exc:
+                console.print(
+                    f"[red]error:[/red] could not restore {untrusted_ident(path)} to its "
+                    f"pre-climb text: {exc}. The pre-run copy logged above is the "
+                    f"recovery path; this file holds the last candidate scored."
+                )
         raise
     finally:
         if dry_dir is not None:

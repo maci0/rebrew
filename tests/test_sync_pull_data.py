@@ -501,3 +501,51 @@ class TestPullDataGlobalsHeader:
         # Under NFC normalization, é (\u00e9) becomes _ under [^A-Za-z0-9_] -> g_item__
         # Without normalization, NFD leaves 'e' and replaces \u0301 with _ -> g_item_e_
         assert "g_item__" in header
+
+
+class TestPullDataCountsDroppedSymbols:
+    def test_malformed_get_data_reply_is_counted_not_silently_dropped(
+        self, tmp_path: Any, monkeypatch: Any, capsys: Any
+    ) -> None:
+        """A symbol asked for and not written is a loss, and must be counted.
+
+        The ``get-data`` reply for the second symbol is missing, which is the
+        shape a dropped symbol takes.  Counting it as a failure is what puts it
+        in the closing tally; counted silently the run reported every label it
+        wrote and the generated header quietly omitted a global.
+        """
+        symbols = [
+            {"name": "g_playerCount", "address": "0x00403010", "isFunction": False},
+            {"name": "g_windowTitle", "address": "0x00403014", "isFunction": False},
+        ]
+        data_by_addr = {
+            "0x00403010": {"address": "0x00403010", "symbolName": "g_playerCount", "length": 4},
+            # "0x00403014" absent: the reply is not a symbol dict.
+        }
+        _runpull_data(monkeypatch, tmp_path, symbols, data_by_addr)
+
+        out = capsys.readouterr().err
+        assert "holds 1 of 2 data labels" in out, out
+        # The header is what the compiler reads, so the loss is in the file too.
+        header = (tmp_path / "rebrew_globals.h").read_text(encoding="utf-8")
+        assert "g_windowTitle" not in header
+
+    def test_unparseable_address_is_counted(
+        self, tmp_path: Any, monkeypatch: Any, capsys: Any
+    ) -> None:
+        """A reply whose address will not parse is the same loss, and is named."""
+        symbols = [
+            {"name": "g_playerCount", "address": "0x00403010", "isFunction": False},
+        ]
+        data_by_addr = {
+            "0x00403010": {
+                "address": "0xZZZZ",
+                "symbolName": "g_playerCount",
+                "length": 4,
+            }
+        }
+        _runpull_data(monkeypatch, tmp_path, symbols, data_by_addr)
+
+        out = capsys.readouterr().err
+        assert "unparseable address" in out, out
+        assert "all 1 symbol(s) failed to pull" in out, out

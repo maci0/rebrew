@@ -29,7 +29,7 @@ PKG = ROOT / "src" / "rebrew"
 
 _BREAKING_PREFIX = "- **Breaking:** "
 
-CHANGELOG_GROUPS = ("Added", "Changed", "Removed", "Fixed", "Performance")
+CHANGELOG_GROUPS = ("Breaking", "Added", "Changed", "Removed", "Fixed", "Performance")
 
 _GLUED_HEADING = re.compile(r"^### (" + "|".join(CHANGELOG_GROUPS) + r")- (.*)$")
 

@@ -15,7 +15,6 @@ Usage:
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 from typing import Any
 
@@ -53,14 +52,18 @@ def exported_symbol_vas(binary: Path) -> dict[str, int]:
 
     Tolerates non-PE files and missing export tables by returning an empty
     map — the caller reports every function MISSING instead of crashing.
+
+    A parse *failure* is not that: it means the binary was never read, so the
+    empty map would be a confident "every function is MISSING" verdict on a
+    build this tool cannot see (a truncated output, a LIEF version that
+    rejects the format).  It raises instead, and the caller exits on it.
     """
     import lief
 
     try:
         pe = lief.PE.parse(str(binary))
-    except Exception as exc:  # parse failures degrade to "no exports"
-        logging.getLogger(__name__).debug("export parse failed for %s: %s", binary, exc)
-        return {}
+    except Exception as exc:  # re-raised: the caller cannot audit what was never parsed
+        raise ValueError(f"could not parse the built binary {binary}: {exc}") from exc
     if pe is None:
         return {}
     try:
@@ -171,7 +174,7 @@ def main(
     try:
         actual = collect_actual_vas(root, dll)
     except (RuntimeError, OSError, ValueError) as exc:
-        error_exit(f"cannot inventory build objects: {exc}", json_mode=json_output)
+        error_exit(f"cannot read the build's .text layout: {exc}", json_mode=json_output)
 
     expected = _expected_functions(cfg)
     rows, n_ok, n_bad, n_missing = audit_text(expected, actual)

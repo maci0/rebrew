@@ -2595,6 +2595,39 @@ def _apply_or_preview_status(
     apply_status_updates(deferred_fixes, cfg)
 
 
+def _status_store_label(cfg: Any) -> str:
+    """Name the metadata store, the way the orphaned-branch warning above does."""
+    return getattr(cfg, "metadata_dir", "the metadata store")
+
+
+def _warn_unwritten_statuses(
+    updates: list[dict[str, Any]], exc: BaseException, store: str, *, exc_info: bool = False
+) -> None:
+    """Report a failed batch STATUS write with the count of verdicts it dropped.
+
+    The run still reports its compile-and-compare results, so the loss is only
+    visible here.  A bare "could not update" reads as housekeeping; the count
+    and the staleness note are what tell the operator that ``rebrew status``
+    will show the pre-run STATUS until something writes it back.
+    """
+    if not updates:
+        return
+    log.warning(
+        "Could not update STATUS metadata: %s. %d verified STATUS update(s) were not "
+        "written to %s; their stored status is now stale: %s",
+        exc,
+        len(updates),
+        store,
+        "; ".join(
+            f"0x{int(u['va']):x} ({u.get('module') or '?'}) -> {u['new_status']}"
+            for u in updates[:_ORPHAN_REPORT_LIMIT]
+        ),
+        exc_info=exc_info,
+    )
+    if len(updates) > _ORPHAN_REPORT_LIMIT:
+        log.warning("... and %d more unwritten STATUS updates", len(updates) - _ORPHAN_REPORT_LIMIT)
+
+
 def apply_status_updates(
     deferred_fixes: list[tuple[Annotation, str, int]],
     cfg: Any,
@@ -2662,12 +2695,15 @@ def apply_status_updates(
     except OSError as exc:
         # STATUS sync is best-effort — a read-only or unwritable metadata
         # file must not abort the whole verify run (and lose the report
-        # the user waited for).  Warn and keep the verification results.
-        log.warning("Could not update STATUS metadata: %s", exc)
+        # the user waited for).  Warn and keep the verification results,
+        # but say how many verdicts were dropped and that the store is now
+        # stale, the way the orphaned branch above does: without the count
+        # the run reads as a clean report that simply promoted nothing.
+        _warn_unwritten_statuses(updates, exc, _status_store_label(cfg))
     except Exception as exc:
         # Unexpected failures (parse bugs, lock races) must not wipe the
         # report either, but they are not routine I/O — keep the traceback.
-        log.warning("Could not update STATUS metadata: %s", exc, exc_info=True)
+        _warn_unwritten_statuses(updates, exc, _status_store_label(cfg), exc_info=True)
 
 
 def _print_results(

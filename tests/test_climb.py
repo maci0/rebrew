@@ -486,3 +486,60 @@ class TestRestoreOnSignal:
         assert result.exit_code == 0, result.output
         assert seen and all(seen), "a candidate was scored with no pre-run copy on disk"
         assert not list(backup_dir.glob("*.orig"))
+
+    def test_failing_restore_does_not_replace_the_climb_failure(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """A restore that raises must not become the error the user sees.
+
+        The restore is what cannot succeed when the sweep above already failed
+        (full disk, read-only tree), so letting its OSError escape replaced a
+        meaningful climb failure with a bare one and hid the fact that the file
+        now holds the last candidate scored.
+        """
+        from types import SimpleNamespace
+
+        from typer.testing import CliRunner
+
+        import rebrew.climb as climb_mod
+
+        source = tmp_path / "demo.c"
+        original_text = (
+            "// FUNCTION: SERVER 0x1000\n"
+            "int demo(int arg)\n{\n\tint a;\n\ta = arg;\n\treturn a;\n}\n"
+        )
+        source.write_text(original_text)
+        cfg = SimpleNamespace(
+            root=str(tmp_path), metadata_dir=str(tmp_path), target_binary=str(tmp_path / "t.bin")
+        )
+        ann = SimpleNamespace(symbol="demo", size=4, va=0x1000, module="SERVER", cflags=None)
+        real_write = climb_mod.atomic_write_text
+
+        def _write(path: Path, text: str, **kwargs: object) -> None:
+            # The error path restores the pre-climb text; every earlier write
+            # (the pre-run backup, a scored candidate) still goes through.
+            if text == original_text:
+                raise OSError("no space left on device")
+            real_write(path, text, **kwargs)
+
+        def _failing_climb(*_args: object, **_kwargs: object) -> tuple[None, float, None]:
+            raise RuntimeError("sweep gave up")
+
+        monkeypatch.setattr(climb_mod, "require_config", lambda **kw: cfg)
+        monkeypatch.setattr(climb_mod, "target_marker", lambda c: "SERVER")
+        monkeypatch.setattr(climb_mod, "parse_c_file_multi", lambda *a, **k: [ann])
+        monkeypatch.setattr(climb_mod, "extract_raw_bytes", lambda *a: b"\x90\x90\x90\x90")
+        monkeypatch.setattr(
+            climb_mod, "resolve_compile_overrides", lambda *a, **k: ("msvc-6.0", "")
+        )
+        monkeypatch.setattr(climb_mod, "build_name_to_va", lambda c: {})
+        monkeypatch.setattr(climb_mod, "_score", lambda *a, **k: (2.0, 4))
+        monkeypatch.setattr(climb_mod, "_climb", _failing_climb)
+        monkeypatch.setattr(climb_mod, "atomic_write_text", _write)
+
+        result = CliRunner().invoke(climb_mod.app, [str(source)])
+        # The climb's own failure surfaces, not the restore's OSError, and the
+        # stranded file is named.
+        assert isinstance(result.exception, RuntimeError), result.exception
+        assert "sweep gave up" in str(result.exception)
+        assert "could not restore" in result.output, result.output

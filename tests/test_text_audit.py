@@ -238,7 +238,39 @@ class TestTextAuditCli:
         _patch_layout(monkeypatch, fail=RuntimeError("objdump exploded"))
         result = CliRunner().invoke(app, [])
         assert result.exit_code == 2
-        assert "cannot inventory build objects" in result.output
+        assert "cannot read the build's .text layout" in result.output
+        assert "objdump exploded" in result.output
+
+
+class TestExportParseFailure:
+    def test_parse_failure_raises_instead_of_reporting_everything_missing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A binary LIEF cannot read is a tool failure, not an export-less one.
+
+        Returning ``{}`` here made the audit classify every function as
+        MISSING and exit 0, a confident wrong answer about the build.
+        """
+        import sys
+
+        import rebrew.text_audit as ta
+
+        class _Boom:
+            @staticmethod
+            def parse(_path: str) -> object:
+                raise RuntimeError("truncated image")
+
+        monkeypatch.setitem(sys.modules, "lief", _Boom)
+        binary = tmp_path / "game.dll"
+        binary.write_bytes(b"MZ")
+        with pytest.raises(ValueError, match="could not parse the built binary"):
+            ta.exported_symbol_vas(binary)
+
+    def test_unparseable_format_still_degrades_to_empty(self, tmp_path: Path) -> None:
+        """LIEF returning None (not a PE, no export table) keeps the empty map."""
+        from rebrew.text_audit import exported_symbol_vas
+
+        assert exported_symbol_vas(tmp_path / "absent.dll") == {}
 
 
 class TestExportFallback:

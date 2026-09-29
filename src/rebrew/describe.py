@@ -133,21 +133,31 @@ def _build_lookup(
             names[ann.va] = name
             if ann.size > 0:
                 ranges.append((ann.va, ann.va + ann.size, name))
-    try:
-        for f in cached_function_list(cfg):
+    inventory = cached_function_list(cfg)
+    for index, f in enumerate(inventory):
+        try:
             va = int(f["va"])
             size = int(f["size"])
             name = str(f["name"])
-            names.setdefault(va, name)
-            if size > 0:
-                ranges.append((va, va + size, name))
-    except (OSError, ValueError, KeyError):
-        # Without the function list, containing-function resolution degrades
-        # to annotation ranges only; log why so an empty dossier is explainable.
-        logging.debug(
-            "function list unavailable — dossier ranges limited to annotations",
-            exc_info=True,
-        )
+        except (TypeError, ValueError, KeyError):
+            # ``cached_function_list`` already warns when the file cannot be
+            # read, so reaching here means the inventory parsed but holds a
+            # malformed entry.  Without the function list, containing-function
+            # resolution degrades to annotation ranges only, and every range
+            # ending at an annotation boundary is user-visible: name the entry
+            # and say the rest of the inventory was skipped, rather than
+            # dropping them at a log level the default configuration hides.
+            logger.warning(
+                "describe: function inventory entry %d is malformed (%r); skipped the "
+                "remaining %d entries, so dossier ranges are limited to annotations",
+                index,
+                f,
+                len(inventory) - index,
+            )
+            break
+        names.setdefault(va, name)
+        if size > 0:
+            ranges.append((va, va + size, name))
     ranges.sort(key=lambda r: r[0])
     return annotations, names, ranges
 

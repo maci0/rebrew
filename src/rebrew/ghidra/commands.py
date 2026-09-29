@@ -466,12 +466,27 @@ def pull_data(
                 continue
 
             request_id += 1
+            # A symbol that was asked for and cannot be turned into a row is a
+            # loss from the generated header, so it counts against the same
+            # tally the HTTP failures use and says which symbol it was.  Counted
+            # silently it produced a run that dropped 50 globals and still
+            # reported every one it wrote.
             if not isinstance(data_info, dict):
+                failed += 1
+                console.print(
+                    f"[yellow]warning:[/yellow] get-data at {sym_addr} returned "
+                    f"{type(data_info).__name__}, not a symbol: dropped"
+                )
                 continue
 
             address = str(data_info.get("address") or sym_addr)
             va = parse_ghidra_va(address)
             if va is None:
+                failed += 1
+                console.print(
+                    f"[yellow]warning:[/yellow] get-data at {sym_addr} reported "
+                    f"unparseable address {address!r}: dropped"
+                )
                 continue
 
             symbol_name = _normalize_name(
@@ -520,7 +535,15 @@ def pull_data(
             )
 
     if not rows:
+        # A run that lost every symbol reports the same line as one that found
+        # none to begin with, which reads as "Ghidra has no data globals" and
+        # hides a total loss.  Name the tally.
         console.print("[yellow]No data declarations generated from Ghidra symbols.[/yellow]")
+        if failed:
+            console.print(
+                f"[yellow]warning:[/yellow] all {failed} symbol(s) failed to pull; "
+                f"no data labels were written"
+            )
         return
 
     rows.sort(key=lambda x: int(x["va"]))

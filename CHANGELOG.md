@@ -31,6 +31,45 @@
   `rebrew cfg effective` reports a malformed value (`env_errors`).
 
 ### Fixed
+- **An ownership-migration rollback could stop halfway and be reported as
+  clean.** `rebrew data --fix-ownership` rewrites many translation units, each
+  `atomic_write_text` its own commit, and restores the pre-write bytes when
+  anything fails between the passes. The restore loop caught only `OSError`,
+  so the exception most likely to land inside it (the one that aborted the
+  transaction, a `KeyboardInterrupt`) skipped every unit after it and replaced
+  the original failure with its own. The units left behind declare a global
+  as `extern` with the definition written nowhere, which surfaces as an
+  undefined symbol at link time rather than as the failed migration. Each
+  restore now has its own guard, matching `gen_stubs`.
+- **A failed source restore replaced the error `rebrew climb` was reporting.**
+  The sweep writes each scored candidate into the real `.c`, and an `OSError`
+  from the restore (full disk, read-only tree, the same condition that failed
+  the sweep) escaped the error handler and became the exit cause, leaving the
+  last candidate scored in the file. The restore is now guarded: the file left
+  stranded is named, and the sweep's own failure propagates.
+- **`rebrew text-audit` reported every function MISSING when it could not
+  parse the build.** The export-fallback path swallowed a LIEF parse failure
+  at DEBUG and returned an empty map, so a truncated or unparseable binary
+  produced a confident `missing: 412, found: 0` and exit 0. A file LIEF
+  declines (not a PE, no export table) still degrades to an empty map; a
+  parse *failure* now raises and exits 2, naming the binary and the cause.
+- **`rebrew sync --pull-data` under-counted the symbols it dropped.** A
+  `get-data` reply that was not a symbol, or whose address would not parse,
+  fell through without incrementing the failure tally, so a run that lost 50
+  globals still printed every label it wrote while the generated header
+  omitted them. Both now count and name the symbol, and a run that loses every
+  symbol says so instead of reporting that Ghidra has no data globals.
+- **A failed STATUS batch write said nothing about what it dropped.**
+  `rebrew verify` keeps its results when the metadata store is unwritable,
+  which is right, but the warning carried no count, so the run read as a clean
+  report that promoted nothing. It now names how many verified verdicts were
+  not written and that the store is stale, matching the orphaned-entry branch
+  beside it.
+- **`rebrew describe` truncated every dossier range without a word.** A
+  malformed entry in the function inventory broke the lookup loop, and the
+  rest of the inventory was dropped at DEBUG. `cached_function_list` already
+  warns when the file cannot be read, so this means the file parsed and an
+  entry is bad; the entry and the number skipped are now named at WARNING.
 - **`contained_path` raised `IndexError` on an empty root set.** The one
   validator every metadata `file` join goes through returned `None` for an
   empty, absolute, or escaping value, but indexed `roots[0]` before checking
