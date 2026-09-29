@@ -71,7 +71,7 @@ rebrew todo --category data-drift --json                # data symbols whose bui
 deliverable; add `--raw-link` when it is a raw link, or DRIFT stays unreported
 and `todo --category data-drift` stays empty.
 
-Use `--gen-header` when working offline or before any Ghidra sync — it emits typed
+Use `--gen-header` when working offline or before any Ghidra sync: it emits typed
 `extern` declarations grouped by PE section. `rebrew sync --pull-data` overwrites
 this header with Ghidra-sourced labels when available (same default path
 `{reversed_dir}/rebrew_globals.h`, but `--pull-data` never prompts).
@@ -84,7 +84,7 @@ source file and metadata.
 re-partitions definitions; `--fill-data` pads uncovered runs; `--own`
 materializes stub-file globals into owner TUs; `--converge`
 adjusts leading pads against the current `build/<target>` and does not invoke
-the build — rebuild, then re-run. Preview each with `--dry-run`.
+the build: rebuild, then re-run. Preview each with `--dry-run`.
 
 JSON response shapes and failure-mode table: `references/json-and-failures.md`.
 
@@ -105,7 +105,7 @@ Only the stable marker line stays in the `.c` file:
 const unsigned char g_sprite_lut[256] = { ... };
 ```
 
-**`rebrew-data.toml`** (auto-managed — never edit manually):
+**`rebrew-data.toml`** (auto-managed, never edit manually):
 ```toml
 ["SERVER.0x10025000"]
 name    = "g_sprite_lut"      # preferred label (BinSync/Ghidra import target)
@@ -116,7 +116,7 @@ note    = "lookup table for sprite indices"
 
 | Field | Purpose |
 |-------|---------|
-| `name` | Preferred variable label — overrides C stem; written by `rebrew sync --pull --state-dir <dir>` from Ghidra |
+| `name` | Preferred variable label; overrides C stem; written by `rebrew sync --pull --state-dir <dir>` from Ghidra |
 | `type` | Declared type `--gen-header` uses when the source has none; set with `rebrew data --set-type 0xVA=TYPE` |
 | `size` | Size in bytes |
 | `section` | PE section (`.data`, `.rdata`, `.bss`) |
@@ -134,11 +134,11 @@ When a function references a global address from disassembly:
 
 1. Declare the global in a source file or centralized header.
 2. Annotate with `// GLOBAL: MODULE 0x<VA>` for tracking (declaration must follow on the next line).
-3. Metadata (name, size, section, note) goes in `rebrew-data.toml` — same format as DATA.
+3. Metadata (name, size, section, note) goes in `rebrew-data.toml`, same format as DATA.
 
 `--gen-header` picks up both `// GLOBAL:` and `// DATA:` markers, merging in `name`/`type`/`size`/
 `section`/`note` from `rebrew-data.toml` (a source declaration's type wins over metadata `type`).
-`rebrew lint` flags `DATA`/`GLOBAL` markers missing `SECTION` metadata (W016), inline volatile keys, and the `rebrew-data.toml` shapes the writers reject (W031: an unknown field, a STATUS outside `VERIFIED`/`DRIFT`/`UNCHECKED`, half an `updated_by`/`updated_at` pair) — run it after adding markers and after any hand-check of the store. `W032` covers the coverage documents themselves (a `db/coverage-<target>.toml` the dashboards cannot serve, or a leftover `coverage.db` / grid JSON / CSV from the replaced stores).
+`rebrew lint` flags `DATA`/`GLOBAL` markers missing `SECTION` metadata (W016), inline volatile keys, and the `rebrew-data.toml` shapes the writers reject (W031: an unknown field, a STATUS outside `VERIFIED`/`DRIFT`/`UNCHECKED`, half an `updated_by`/`updated_at` pair); run it after adding markers and after any hand-check of the store. `W032` covers the coverage documents themselves (a `db/coverage-<target>.toml` the dashboards cannot serve, or a leftover `coverage.db` / grid JSON / CSV from the replaced stores).
 Set a missing section with `rebrew data --set-section 0xVA=.bss` (`.data`, `.rdata`, or `.bss`). Do not hand-edit the TOML.
 
 ## Debugging Relocation Mismatches
@@ -168,7 +168,7 @@ function pointers. Tables are not labelled vtable vs dispatch table; decide from
 the callers. Table fields are in `references/json-and-failures.md`.
 
 Names come from source annotations first, then the function list / Ghidra structure
-registry — so a low-coverage table usually means its targets lack reversed sources
+registry, so a low-coverage table usually means its targets lack reversed sources
 (pick them up in `rebrew-workflow`), not that the detection failed. Tune detection
 with `--min-table-len` (default 3) and `--max-pointer-stride` (default 4; raise it
 for sparse tables with mixed payload entries). Use this to identify virtual method

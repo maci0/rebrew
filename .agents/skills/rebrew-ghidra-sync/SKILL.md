@@ -1,7 +1,7 @@
 ---
 name: rebrew-ghidra-sync
 description: >-
-  Use when syncing rebrew C annotations with Ghidra — BinSync state-dir
+  Use when syncing rebrew C annotations with Ghidra: BinSync state-dir
   push/pull for names, comments, prototypes, structs, globals; ReVa MCP only
   for create-functions, bookmarks, and pull-data. Triggers on 'Ghidra',
   'ghidra sync', 'sync ghidra', 'sync with ghidra', 'export to ghidra',
@@ -43,12 +43,12 @@ state dir cannot express: function creation, bookmarks, and live data pulls.
 
 ## 1. Configuration & Health Check
 
-Run `rebrew doctor` first — it includes a "Ghidra sync" check. Fix anything it flags before syncing.
+Run `rebrew doctor` first: it includes a "Ghidra sync" check. Fix anything it flags before syncing.
 
 Config lives in `rebrew-project.toml` under `[targets.<name>]`:
 
-- `ghidra_program_path` — must match the program open in Ghidra for the MCP structural ops; a mismatch prints a yellow warning.
-- MCP endpoint — default `http://localhost:8080/mcp/message`, override per run with `--endpoint URL`.
+- `ghidra_program_path`: must match the program open in Ghidra for the MCP structural ops; a mismatch prints a yellow warning.
+- MCP endpoint: default `http://localhost:8080/mcp/message`, override per run with `--endpoint URL`.
 
 The BinSync state dir is a git-versioned directory (`functions/*.toml`,
 `global_vars.toml`, `structs/*.toml`) shared with collaborators and the
@@ -109,15 +109,15 @@ rebrew sync --pull-data                          # Ghidra data labels -> rebrew_
 
 ## 3. Where Results Land
 
-- `functions/*.toml`, `global_vars.toml`, `structs/*.toml` — the BinSync state dir (`--state-dir`)
-- `rebrew-functions.toml` — per-function STATUS/NOTE/GHIDRA metadata (`cfg.metadata_dir`; STATUS is verify-earned, 0444-locked)
-- `rebrew-data.toml` — DATA/GLOBAL `name`/`note` metadata (`cfg.metadata_dir`)
-- `rebrew_globals.h` — pulled data header (`cfg.reversed_dir`, from `--pull-data`)
-- `.c` files — renames (pull) and `// PROTOTYPE:` annotations
+- `functions/*.toml`, `global_vars.toml`, `structs/*.toml`: the BinSync state dir (`--state-dir`)
+- `rebrew-functions.toml`: per-function STATUS/NOTE/GHIDRA metadata (`cfg.metadata_dir`; STATUS is verify-earned, 0444-locked)
+- `rebrew-data.toml`: DATA/GLOBAL `name`/`note` metadata (`cfg.metadata_dir`)
+- `rebrew_globals.h`: pulled data header (`cfg.reversed_dir`, from `--pull-data`)
+- `.c` files: renames (pull) and `// PROTOTYPE:` annotations
 
 ## 4. What Gets Synced
 
-**Push -> state dir:** BinSync-native fields only — function name, addr, size,
+**Push -> state dir:** BinSync-native fields only: function name, addr, size,
 prototype, notes; globals (`global_vars.toml`); structs (`structs/*.toml`).
 STATUS/CFLAGS stay in `rebrew-functions.toml` (STATUS is verify-earned).
 
@@ -135,26 +135,26 @@ chained after `--pull`), status bookmarks (`--bookmarks`), data labels
 
 ## 5. Safety Guarantees
 
-- **STATUS is never synced** — `rebrew test` and `rebrew verify` earn it;
+- **STATUS is never synced**: `rebrew test` and `rebrew verify` earn it;
   a pull does not. The next test or verify replaces PROVEN with the byte result.
-- **Metadata write-lock** — the state TOMLs and rebrew's metadata are 0444;
+- **Metadata write-lock**: the state TOMLs and rebrew's metadata are 0444;
   direct edits fail with Permission denied, the CLI chmods/updates/re-locks.
-- **No accidental overwrites** — generic names are never pulled; meaningful
+- **No accidental overwrites**: generic names are never pulled; meaningful
   local vs BinSync name conflicts are reported and skipped until resolved.
-- **Dry-run support** — `--dry-run` previews push or pull before applying.
+- **Dry-run support**: `--dry-run` previews push or pull before applying.
 
 ### Common failure modes & fixes
 
-- **"No action specified"** — pass at least one of `--push`, `--pull`,
+- **"No action specified"**: pass at least one of `--push`, `--pull`,
   `--create-functions`, `--bookmarks`, `--pull-data`, `--summary`.
-- **"--push/--pull require --state-dir"** — field sync goes through the
+- **"--push/--pull require --state-dir"**: field sync goes through the
   BinSync state dir; pass `--state-dir <dir>`.
-- **MCP unreachable for a structural op** — verify Ghidra + ReVa are running
+- **MCP unreachable for a structural op**: verify Ghidra + ReVa are running
   and the endpoint is right; field sync (state dir) works without MCP.
-- **`--pull --create-functions` with Ghidra down** — the import succeeds; the
+- **`--pull --create-functions` with Ghidra down**: the import succeeds; the
   create step errors ("MCP unreachable").  Re-run `rebrew sync
   --create-functions` once Ghidra is up.
-- **New function in the state not in Ghidra** — either the BinSync Ghidra
+- **New function in the state not in Ghidra**: either the BinSync Ghidra
   plugin is watching the dir, or run `rebrew sync --pull --state-dir D
   --create-functions`.
 

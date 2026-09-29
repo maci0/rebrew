@@ -1,4 +1,4 @@
-# Flag sweep and batch GA — details
+# Flag sweep and batch GA: details
 
 Use when `rebrew diff --json` reports `flag_sensitive: true`, or for batch
 NEAR_MATCHING sweeps. Start with `quick`/`targeted`; escalate only if needed.
@@ -26,8 +26,8 @@ rebrew match src/<target>/<file>.c --flag-sweep-only --tier full          # ask 
 | `quick` | 192 | First pass on a new STUB |
 | `targeted` | 1,152 | Default; when `quick` is close |
 | `normal` | 5,376 | General-purpose |
-| `thorough` | 258,048 | After `normal` still near — **ask user** |
-| `full` | 6,193,152 | Last resort — **ask user** (engine auto-samples; no `--sample` flag) |
+| `thorough` | 258,048 | After `normal` still near: **ask user** |
+| `full` | 6,193,152 | Last resort: **ask user** (engine auto-samples; no `--sample` flag) |
 
 Axes are per-profile (MSVC `/` flags, Watcom `-os/-ot/…`, Borland `-O1/-O2`,
 16-bit MSVC). Docker-only images: `rebrew toolchain pull <profile>`. Try `/O2`

@@ -59,7 +59,7 @@ regression). First run warns and skips the diff.
 `db/coverage-bench.toml` is the progress document the dashboards and the
 sibling `recovery` UI read: functions with their `updated_by` / `updated_at`
 stamp, globals, `verify_results` rows and the `history` change log. It is
-gitignored build output — regenerate it with `rebrew build-db`, never edit it,
+gitignored build output: regenerate it with `rebrew build-db`, never edit it,
 and delete any older `db/coverage.db`, `db/data_bench.json` or `db/*.csv`
 (`rebrew lint` reports them, W032). The canonical provenance lives in the
 TOML stores: `UPDATED_BY` / `UPDATED_AT` are written by the tool that made the

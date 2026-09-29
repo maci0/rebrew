@@ -1,6 +1,6 @@
 # Toolchain family identification
 
-Decide the compiler family before FLIRT / catalog — it drives the whole pipeline.
+Decide the compiler family before FLIRT / catalog: it drives the whole pipeline.
 
 ## Quick signals
 
@@ -15,7 +15,7 @@ Decide the compiler family before FLIRT / catalog — it drives the whole pipeli
 ## MinGW
 
 `rebrew init --toolchain mingw-16.2.0` (see rebrew repo `docs/TOOLCHAIN.md`). Packaged rizin
-discoverers use `aa; aap` — `aaa` mis-merges on this toolchain. Byte-exact matching
+discoverers use `aa; aap`, because `aaa` mis-merges on this toolchain. Byte-exact matching
 needs the author's exact GCC version; old builds often match structurally only
 (document semantic decomp + blocker for the byte delta).
 
@@ -27,7 +27,7 @@ libcmt signatures). SP-level profiles matter (`msvc-6.0` vs `msvc-6.0-sp6` vs
 
 ## DOS MZ
 
-`file` shows "MS-DOS executable, MZ". **Check packing first** —
+`file` shows "MS-DOS executable, MZ". **Check packing first**:
 `rebrew toolchain detect <binary>` reports `packed: lzexe 0.91` or `packed: pklite`.
 For LZEXE run `rebrew unpack-lzexe <binary>` first; PKLITE has no built-in unpacker.
 Profiles: `borland-3.1` (Turbo C++ 3.1), `borland-2.0` (Turbo C 2.0, C89-strict

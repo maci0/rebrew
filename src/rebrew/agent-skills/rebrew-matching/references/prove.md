@@ -1,4 +1,4 @@
-# Prove (symbolic equivalence) — details
+# Prove (symbolic equivalence): details
 
 Use when STATUS is NEAR_MATCHING or SIZE_MISMATCH and structural diffs (register alloc, reorder,
 loop layout) block EXACT/RELOC. Classify first, then prove.
@@ -18,7 +18,7 @@ rebrew prove my_func --watch-va 0x10123456 --json
 ```
 
 **Register-gap functions are prime PROVEN candidates.** `REGISTER (N% of delta)`
-means bytes differ only by register allocation — prove EAX equivalence and promote
+means bytes differ only by register allocation: prove EAX equivalence and promote
 without fighting the bytes. `rebrew prove --all` first; "no terminal states" on a
 loop → retry with `--loop-bound 50 --timeout 120`.
 

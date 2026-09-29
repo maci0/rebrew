@@ -12,7 +12,7 @@ rebrew round-trip --filter <substr>     # only splice symbols containing this su
 rebrew round-trip --output <path>       # override output path
 ```
 
-- **Every EXACT/RELOC function needs SIZE in `rebrew-functions.toml`** — a legacy
+- **Every EXACT/RELOC function needs SIZE in `rebrew-functions.toml`**: a legacy
   inline-only `// SIZE:` makes round-trip report `oversize (size <= 0 in metadata)`.
   Run `rebrew lint --fix` first (dry-run with `--dry-run`).
 - **`catalog_resolution_drift` with CRT names** (e.g. `_fread`): the library header
@@ -27,6 +27,6 @@ rebrew round-trip --output <path>       # override output path
   with trailing hex (`_g_1003546c`), MSVC `$L<N>` / `$cleanup_loop$<N>` jump tables
   mapped from the compiled .obj, and string literals whose compiled copy is a strict
   prefix of the target's. Wrong fallback → `catalog_resolution_drift`, never silent corruption.
-- **PROVEN functions are skipped** (`skipped_proven`) — semantic, not byte, equivalence.
+- **PROVEN functions are skipped** (`skipped_proven`): semantic, not byte, equivalence.
 - Exit `0` = SHA-equal + no mismatches; exit `1` otherwise. Inspect JSON `reason_counts`
   and `byte_coverage`.

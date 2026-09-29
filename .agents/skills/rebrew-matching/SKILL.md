@@ -60,7 +60,7 @@ rebrew objdiff --output objdiff.json                # GUI diffing project (objdi
 ```
 
 `rebrew objdiff` synthesizes one target COFF object per annotated source file
-from the reference binary and writes an objdiff project config — open
+from the reference binary and writes an objdiff project config; open
 `objdiff.json` in the objdiff GUI for instruction-level diffing of every
 function at once (objdiff rebuilds base objects via `rebrew-objdiff-build`).
 
@@ -72,13 +72,13 @@ function at once (objdiff rebuilds base objects via `rebrew-objdiff-build`).
 ### Diff Markers
 
 - `==` identical bytes
-- `~~` relocation difference (acceptable — counts as RELOC)
+- `~~` relocation difference (acceptable, counts as RELOC)
 - `RR` register encoding difference (only with `-r` / `--register-aware`)
 - `**` structural difference (needs fixing)
-- `XX` invalid relocation difference (wrong target VA — counts as MISMATCH)
+- `XX` invalid relocation difference (wrong target VA, counts as MISMATCH)
 
 Relocations are resolved from the COFF object's symbols against the data catalog.
-If the diff shows only `~~` lines, the function is already RELOC — `rebrew test` will promote it.
+If the diff shows only `~~` lines, the function is already RELOC: `rebrew test` will promote it.
 
 Exit codes: `0` = no structural differences (EXACT/RELOC), `1` = structural `**` lines
 found (fix them), `2` = build error. With `--json`, read `summary.exact / summary.reloc /
@@ -101,8 +101,8 @@ rebrew blocker clear src/bench/<file>.c
 
 BLOCKER/BLOCKER_DELTA land in `rebrew-functions.toml` under `["<MODULE>.0x<VA>"]`.
 When no structural diffs remain, `--fix-blocker` clears them.
-`test`/`verify` keep that BLOCKER when the source still has `__asm`, `_asm`, or `__emit` (lint W020). This writer still clears a clean diff — do not use it to drop that note.
-**Never hand-edit `rebrew-functions.toml` for BLOCKER — use `rebrew blocker set/clear` or the `--fix-blocker` writers.**
+`test`/`verify` keep that BLOCKER when the source still has `__asm`, `_asm`, or `__emit` (lint W020). This writer still clears a clean diff; do not use it to drop that note.
+**Never hand-edit `rebrew-functions.toml` for BLOCKER: use `rebrew blocker set/clear` or the `--fix-blocker` writers.**
 
 ## 2. GA Engine (Single File)
 
@@ -150,7 +150,7 @@ With `--json`, the output includes a `structural_similarity` object:
 - `flag_sensitive`: `true` when flag sweeping may help
 
 Use this to quickly rule out flag-based solutions before spending time on sweeps:
-`flag_sensitive: false` means flag sweeping won't help — go straight to the GA or
+`flag_sensitive: false` means flag sweeping won't help: go straight to the GA or
 `rebrew prove`. A high `mnemonic_match_ratio` with low `structural_ratio` means the
 code is semantically close and C-level tweaks (or `rebrew near-diag`) may finish
 the job.
@@ -174,7 +174,7 @@ qualifier variants. Batch flag/GA details: `references/flag-sweep.md`.
 - Common CFLAGS: `/O2 /Gd` (GAME); a library subtree takes its flags from a
   preset (§8), not from per-function CFLAGS.
 - While iterating on a single function, `--watch` (on `diff`, `prove`, or `match`) re-runs on every
-  file save — faster than re-typing the command. It never exits on its own: start it only when the
+  file save, faster than re-typing the command. It never exits on its own: start it only when the
   user wants a live loop, and stop it when they are done. `match --watch` is single-function only
   (it cannot be combined with `--all`).
 - Do not start long GA (`-g` large / `--all`) without user confirmation.
@@ -188,7 +188,7 @@ rebrew near-diag src/bench/<file>.c --json
 rebrew prove src/bench/<file>.c --json
 ```
 
-`REGISTER (N% of delta)` verdicts are prime PROVEN candidates — prefer
+`REGISTER (N% of delta)` verdicts are prime PROVEN candidates: prefer
 `rebrew prove --all` before more GA. Full flags, EDX/`--watch-va` gotchas, and
 angr mechanics: `references/prove.md`. Needs the `[prove]` extra (angr); if
 `rebrew prove` import-fails, stop and ask the user to install it (see the reference).

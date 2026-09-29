@@ -23,7 +23,7 @@ is taken from; `declared_bytes` is the raw sum of the declared type sizes):
 ```
 
 Check `summary.conflicts > 0` to decide whether `--conflicts` needs attention.
-`globals` with `"annotated": false` are plain `extern` declarations with no VA —
+`globals` with `"annotated": false` are plain `extern` declarations with no VA;
 give them `// GLOBAL: MODULE 0xVA` markers so they resolve to a section.
 
 ## `--bss --json`
@@ -32,15 +32,15 @@ give them `// GLOBAL: MODULE 0xVA` markers so they resolve to a section.
  "gaps": [{"offset", "size", "between": [before, after]}], "coverage_pct",
  "summary": {"total_globals", "gaps", "total_gap_bytes"}}`.
 
-Each `gaps` entry is a likely undeclared `extern` — that is what `--fix-bss` fills.
+Each `gaps` entry is a likely undeclared `extern`, which is what `--fix-bss` fills.
 
 ## `--dispatch --json`
 
 A list of tables:
 `[{"va", "section", "num_entries", "resolved", "coverage", "entries": [{"target_va",
 "name", "status"}]}]`. `status` is `EXACT`/`RELOC`/`NEAR_MATCHING`/`STUB` or `""`
-(unknown). Low `coverage` means the table's targets have no reversed source yet —
-good next-matching candidates.
+(unknown). Low `coverage` means the table's targets have no reversed source yet,
+which makes them good next-matching candidates.
 
 ## Failure modes
 
@@ -49,6 +49,6 @@ good next-matching candidates.
 | `rebrew-project.toml not found` / config error | Running outside a project | `cd` into the project (config discovery walks up to `rebrew-project.toml`) |
 | `target binary not found` / `could not be parsed (needed for --dispatch)` | Binary missing or unparseable | Fix `target_binary` in `rebrew-project.toml`; only `--dispatch` hard-requires the binary (plain scans degrade gracefully) |
 | `already exists. Use --force to overwrite.` | `--gen-header` clobber guard | Pass `--force`, or `--gen-header-out` to a new path |
-| `No annotated BSS globals — nothing to verify` | No `// GLOBAL:`/`extern` with a `.bss` VA | Add annotations first, then re-run `--bss` |
+| `No annotated BSS globals: nothing to verify` | No `// GLOBAL:`/`extern` with a `.bss` VA | Add annotations first, then re-run `--bss` |
 | Gap size looks wrong | `size_hint` is estimated from the C type (int=4, char=1, …) | Verify the declared types of the globals on either side of the gap |
 | Small gaps not reported | Gaps < 4 bytes are alignment padding and intentionally ignored | Ignore; only ≥ 4-byte gaps are flagged |

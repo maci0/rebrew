@@ -1,7 +1,7 @@
 ---
 name: rebrew-init
 description: >-
-  Use when scaffolding with `rebrew init` — bare directory, target naming,
+  Use when scaffolding with `rebrew init`: bare directory, target naming,
   `--guess-compiler` vs `--toolchain`, doctor done-gate, then hand off to
   rebrew-intake. Triggers on 'new project', 'bootstrap', 'scaffold',
   'bare directory', 'create project', 'initialize project', 'init project',
@@ -75,7 +75,7 @@ rebrew doctor
 ```
 
 Run it right after `rebrew init`. Doctor must report healthy
-(warnings for unconfigured optionals — FLIRT, Ghidra, BinSync — are fine;
+(warnings for unconfigured optionals such as FLIRT, Ghidra, BinSync are fine;
 failures are not) before handing off. The commonest failure is the toolchain
 image missing: run `rebrew toolchain pull <profile>` (a docker image pull).
 `rebrew toolchain build <profile>` compiles the image from the sibling

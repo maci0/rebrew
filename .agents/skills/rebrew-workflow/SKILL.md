@@ -64,11 +64,11 @@ rebrew crt-match --all --json           # Find matching CRT source files for LIB
 rebrew similar 0x10001000 --json        # Find structurally similar functions (same source family)
 ```
 
-**Default to `rebrew todo --json`.** Each item has a ready `command` — run it.
+**Default to `rebrew todo --json`.** Each item has a ready `command`: run it.
 The categories above are interleaved by one continuous ROI score, not a fixed
 tier ladder; `documented` is audit-only and hidden from the default list.
 `extract-error` = symbol missing from `.obj`; fix the marker/definition before GA.
-`naked-reconstruction` (`// SOURCE: naked`) is byte-exact asm and stays listed until real C matches. `exact-only` (RELOC) and `postlink-mangled` are the work left to a build that is identical straight out of the toolchain: EXACT instead of masked, and raw-link bytes instead of postlink-rewritten ones. Any other `--category` value errors. BLOCKER text is the item's `blocker` field — there is no `blocked` category.
+`naked-reconstruction` (`// SOURCE: naked`) is byte-exact asm and stays listed until real C matches. `exact-only` (RELOC) and `postlink-mangled` are the work left to a build that is identical straight out of the toolchain: EXACT instead of masked, and raw-link bytes instead of postlink-rewritten ones. Any other `--category` value errors. BLOCKER text is the item's `blocker` field; there is no `blocked` category.
 `coverage` in JSON is the progress source of truth; `status --json` is cheap recon.
 
 > [!IMPORTANT]
@@ -102,7 +102,7 @@ rebrew skeleton 0x<VA> --force                     # overwrite if the file alrea
 
 The skeleton writes the `// FUNCTION:` marker + a stub body and records SIZE in
 `rebrew-functions.toml` automatically (SIZE is required for test/verify to extract target
-bytes). It prints the exact `rebrew test` command to run next — use it.
+bytes). It prints the exact `rebrew test` command to run next: use it.
 
 > [!CAUTION]
 > With `--decomp` / `--xrefs` the generated body is decompiler output read off
@@ -119,7 +119,7 @@ rebrew asm 0x<VA> --size 128 --json        # structured JSON output
 ```
 
 ### Multiple Target Synchronization
-Rebrew filters annotations by the active `--target`. Multiple `// FUNCTION: <MODULE>` marker lines in the same C file are supported — **no other metadata in the .c file**:
+Rebrew filters annotations by the active `--target`. Multiple `// FUNCTION: <MODULE>` marker lines in the same C file are supported, with **no other metadata in the .c file**:
 ```c
 // FUNCTION: LEGO1 0x1009a8c0
 
@@ -130,8 +130,8 @@ void my_func() {}
 ### Volatile Metadata
 
 > [!CAUTION]
-> **Volatile metadata lives only in `rebrew-functions.toml` at `cfg.metadata_dir`
-> — never inline in `.c`, never hand-edit the TOML.** Keys: STATUS, SIZE, CFLAGS,
+> **Volatile metadata lives only in `rebrew-functions.toml` at `cfg.metadata_dir`.
+> Never inline in `.c`, never hand-edit the TOML.** Keys: STATUS, SIZE, CFLAGS,
 > TOOLCHAIN, BLOCKER/BLOCKER_DELTA, NOTE, GHIDRA, ANALYSIS, SOURCE, SKIP, GLOBALS,
 > LOCALS, COMMENTS, PROVE_CONSTRAINTS, UPDATED_BY/UPDATED_AT (SECTION lives in
 > `rebrew-data.toml`). STATUS via `rebrew test`/`verify` only; use `rebrew blocker
@@ -159,7 +159,7 @@ rebrew probe src/bench/<file>.c --json    # read-only ruler: strict + generous +
 ```
 
 On a multi-function file, `--va` selects the annotation AT that VA (its symbol
-and fallback size come from it — same rule as diff/match/prove). Pass
+and fallback size come from it, the same rule as diff/match/prove). Pass
 `--symbol` too to override the symbol explicitly; with no `--va`/`--symbol`/
 `--size`, every annotated function in the file is tested.
 
@@ -176,7 +176,7 @@ clears BLOCKER unless the `.c` still has `__asm`, `_asm`, or `__emit` (kept;
 lint W020). NEAR_MATCHING (≥60%) updates; STUB (<60%) demotes; PROVEN is
 replaced by the byte result; SKIP stays parked (`--force-status` unparks).
 `rebrew verify` uses the same clear rule. `diff --fix-blocker` still clears a
-clean diff — do not use it to drop an asm BLOCKER. Exit: `0` EXACT/RELOC · `1`
+clean diff; do not use it to drop an asm BLOCKER. Exit: `0` EXACT/RELOC · `1`
 NEAR/STUB · `2` compile/extract error.
 
 For a byte diff of the current state:
@@ -210,7 +210,7 @@ migrate leftover inline metadata). Full flag set, `orphans`/`types`/`text-audit`
 `catalog` / `build-db` refresh, and decomp.me: `references/verify-and-progress.md`.
 `rebrew dashboard` serves the same coverage data read-only at
 http://127.0.0.1:8000 (`--port` rebinds); start it only when the user asks for
-the UI, and stop it when they are done — it blocks until then.
+the UI, and stop it when they are done: it blocks until then.
 
 ## 7. Final Validation: Round-Trip
 
@@ -226,7 +226,7 @@ PROVEN is skipped. Full fallback/drift rules: `references/round-trip.md`.
 
 ## Toolchains
 
-Shipped profiles (`msvc-*`, `mingw-*`, …) compile only through their docker image —
+Shipped profiles (`msvc-*`, `mingw-*`, …) compile only through their docker image:
 `rebrew toolchain list/status/pull/build`. No host wine/wibo fallback. See rebrew repo `docs/TOOLCHAIN.md`.
 
 ## Advanced commands

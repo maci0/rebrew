@@ -1,7 +1,7 @@
 ---
 name: rebrew-intake
 description: >-
-  Use when onboarding a binary into rebrew — one-shot `rebrew intake` (init +
+  Use when onboarding a binary into rebrew: one-shot `rebrew intake` (init +
   enumerate + STUB document) and first recon (doctor, FLIRT, catalog,
   build-db, triage, first skeletons). Triggers on 'intake', 'onboard',
   'onboard binary', 'new binary', 'new target', 'import binary',
@@ -58,14 +58,14 @@ rebrew init --target <name> --binary <filename> --guess-compiler
 rebrew toolchain pull <profile>           # docker image for the profile (required; no host wine/wibo)
 ```
 
-`rebrew intake` does **not** run FLIRT, catalog, or `build-db` — continue with
+`rebrew intake` does **not** run FLIRT, catalog, or `build-db`; continue with
 §1–§8 below after it (or after a manual `rebrew init`). Shipped toolchains are
 docker-only.
 
 ### Multi-target file layout
 
 Shared code across targets: add a second `// FUNCTION: BETA10 0x...` marker
-above the same body — do not duplicate `.c` files.
+above the same body; do not duplicate `.c` files.
 
 ### Linker-script scaffolding (optional, after the catalog)
 
@@ -148,7 +148,7 @@ rebrew data --dispatch --json           # detect dispatch tables / vtables
 
 - `status --json` → `{functions: {total, covered}, status: {EXACT, RELOC, PROVEN, NEAR_MATCHING, STUB}, coverage_pct, matched_pct, ...}`.
 - `todo --json` → ranked `items[]`; each item carries a ready-to-run `command` field
-  (e.g. `rebrew skeleton 0x...`, `rebrew diff 0x...`) — use those commands directly.
+  (e.g. `rebrew skeleton 0x...`, `rebrew diff 0x...`); use those commands directly.
   Filter with `-c <category>` (e.g. `fix-delta`, `start-function`).
 - `data --dispatch --json` → JSON array of dispatch tables `[{va, section, entries: [{target_va, name, status}]}]`
   (requires the target binary).
@@ -206,7 +206,7 @@ available under the project's `toolchain/` tree (e.g. MSVCRT at
 
 ### 9. Sync to Ghidra (Optional)
 
-Field sync needs only the shared BinSync state dir — no Ghidra, no MCP:
+Field sync needs only the shared BinSync state dir, no Ghidra or MCP:
 
 ```bash
 rebrew sync --push --state-dir <dir>      # export annotations to the BinSync state dir
@@ -218,7 +218,7 @@ rebrew sync --push --state-dir <dir>      # export annotations to the BinSync st
 Conflicts, the git-backed `rebrew binsync` group, and pull semantics are in
 `rebrew-ghidra-sync`.
 
-### 10. Coverage Dashboard (optional — ask first)
+### 10. Coverage Dashboard (optional, ask first)
 
 ```bash
 rebrew build-db                         # refresh db/coverage-<target>.toml after any changes
