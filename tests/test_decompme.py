@@ -97,6 +97,37 @@ class TestMappings:
         assert decompme.map_platform("elf") is None
 
 
+class TestResolveApi:
+    """Which decomp.me host an upload goes to.
+
+    The server issues the claim token, so the destination is worth pinning in
+    the environment rather than retyping per invocation; an empty variable must
+    read as unset instead of breaking every upload.
+    """
+
+    def test_env_wins_over_the_flag(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("REBREW_DECOMPME_API", "https://dmp.example.test")
+        assert decompme.resolve_api("https://decomp.me") == "https://dmp.example.test"
+
+    def test_flag_applies_when_the_env_is_unset_or_empty(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("REBREW_DECOMPME_API", raising=False)
+        assert decompme.resolve_api("https://flag.example.test") == "https://flag.example.test"
+        monkeypatch.setenv("REBREW_DECOMPME_API", "  ")
+        assert decompme.resolve_api("https://flag.example.test") == "https://flag.example.test"
+
+    def test_a_malformed_value_names_its_source(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("REBREW_DECOMPME_API", "decomp,me")
+        with pytest.raises(ValueError, match="REBREW_DECOMPME_API must be an http"):
+            decompme.resolve_api("https://decomp.me")
+        monkeypatch.delenv("REBREW_DECOMPME_API")
+        with pytest.raises(ValueError, match="--api must be an http"):
+            decompme.resolve_api("decomp,me")
+        with pytest.raises(ValueError, match="--api must be an http"):
+            decompme.resolve_api("")
+
+
 class TestBuildPayload:
     def test_payload_shape(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         cfg = _cfg(tmp_path)

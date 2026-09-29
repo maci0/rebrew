@@ -39,6 +39,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import re
 import time
 from collections.abc import Callable, Mapping
@@ -55,7 +56,7 @@ from rebrew.cli import (
     parse_va,
     require_config,
 )
-from rebrew.config import validate_http_url
+from rebrew.config import DECOMPME_API_ENV, validate_http_url
 from rebrew.errors import RebrewError
 from rebrew.utils import (
     RETRYABLE_HTTP_STATUS,
@@ -87,6 +88,26 @@ app = typer.Typer(
 )
 
 _DEFAULT_API = "https://decomp.me"
+
+
+def resolve_api(flag_value: str) -> str:
+    """The decomp.me base URL in force: the environment's, else *flag_value*.
+
+    ``REBREW_DECOMPME_API`` wins when it carries a value, so a private or
+    self-hosted instance is named once instead of on every invocation; a
+    set-but-empty variable reads as unset rather than as "no server", which
+    would fail the upload with a message about an empty URL.  The result is
+    validated here, the same rule ``--api`` alone got, so a typo names itself
+    before the first POST.
+    """
+    from_env = os.environ.get(DECOMPME_API_ENV, "").strip()
+    label = DECOMPME_API_ENV if from_env else "--api"
+    candidate = from_env or flag_value.strip()
+    api = validate_http_url(candidate, label)
+    if not api:
+        raise ValueError(f"{label} must be an http(s) URL with a host")
+    return api
+
 
 #: Server-issued ``slug`` / ``claim_token`` shape.  Both are spliced into the
 #: claim URL and printed through Rich, so anything else is refused.
@@ -742,7 +763,9 @@ def main(
         None, "--context", help="C context file (default: auto-generated via `rebrew context`)"
     ),
     no_context: bool = typer.Option(False, "--no-context", help="Send an empty context"),
-    api: str = typer.Option(_DEFAULT_API, "--api", help="decomp.me API base URL"),
+    api: str = typer.Option(
+        _DEFAULT_API, "--api", help="decomp.me API base URL (overridden by REBREW_DECOMPME_API)"
+    ),
     reupload: bool = typer.Option(
         False, "--reupload", help="Create a new scratch even if this payload was uploaded before"
     ),
@@ -753,11 +776,9 @@ def main(
     """Upload SOURCE's function to decomp.me as a collaborative scratch."""
     cfg = require_config(target=target, json_mode=json_output)
     try:
-        api = validate_http_url(api, "--api")
+        api = resolve_api(api)
     except ValueError as exc:
         error_exit(str(exc), json_mode=json_output)
-    if not api:
-        error_exit("--api must be an http(s) URL with a host", json_mode=json_output)
     source_path = Path(source).resolve()
     if not source_path.exists():
         error_exit(f"source file not found: {source}", json_mode=json_output)
@@ -921,6 +942,7 @@ __all__ = [
     "read_uploads",
     "record_upload",
     "recorded_upload",
+    "resolve_api",
     "scratch_digest",
     "scratch_url",
     "upload_scratch",

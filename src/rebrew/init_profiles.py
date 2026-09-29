@@ -53,8 +53,10 @@ marker = "{marker}"                  # annotation marker (e.g. // FUNCTION: SERV
 # GAME = "/O2 /Gd"
 
 # Per-target compiler override (optional — falls back to global [compiler]).
-# Windows/DOS toolchains run ONLY through their docker image; leave the
-# command/runner empty (the profile drives the image).  E.g.:
+# This is where a second toolchain goes: one [targets."…".compiler] table per
+# target, not a [compiler.profiles.*] table, which the loader rejects as an
+# unrecognized key.  Windows/DOS toolchains run ONLY through their docker
+# image; leave the command/runner empty (the profile drives the image).  E.g.:
 # [targets."{target_name}".compiler]
 # profile = "msvc-6.0-sp6"
 
@@ -87,11 +89,6 @@ GAME = "{cflags}"
 # Per-directory overrides — rebrew-libraries.toml at a library root can
 # declare toolchain + flags for a whole subtree; per-function TOOLCHAIN/CFLAGS
 # metadata wins.  See the rebrew repo's docs/TOOLCHAIN.md.
-# [compiler.profiles."clang-18.1.8"]
-# command = "clang"
-# includes = "/usr/include"
-# libs = "/usr/lib"
-# cflags = "-O2"
 
 # Compile-cache store. `backend` is any registered rebrew.cache_backends
 # member; an unknown name fails at load rather than at the first compile.

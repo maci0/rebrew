@@ -745,6 +745,61 @@ class TestInitTemplate:
         assert parsed["project"]["jobs"] == DEFAULT_PROJECT_JOBS
         assert parsed["compiler"]["timeout"] == DEFAULT_COMPILE_TIMEOUT
 
+    def test_every_key_the_loader_knows(self, tmp_path: Path) -> None:
+        """No key the template demonstrates, commented or not, is a dead one.
+
+        The template is the first rebrew-project.toml a user ever sees, and its
+        commented lines are the ones they uncomment, so a key it shows under a
+        table the loader does not read is a misconfiguration they copy
+        verbatim: every run then warns, and a rewriter drops the block.
+        `[compiler.profiles.*]` shipped exactly that, named in the template
+        and rejected by the loader.  Both halves are checked, because the
+        commented half is the one a copy-paste reaches.
+        """
+        import re
+        import warnings
+
+        from rebrew.config import ConfigWarning, load_config
+
+        rendered = DEFAULT_REBREW_TOML.format(
+            project_name="p",
+            target_name="t",
+            binary_name="t.dll",
+            marker="T",
+            compiler_profile="msvc-6.0",
+            compiler_command="",
+            compiler_includes="inc",
+            compiler_libs="lib",
+            cflags="/O2 /Gd",
+            base_cflags="/nologo /c /MT",
+            default_jobs=DEFAULT_PROJECT_JOBS,
+            compile_timeout=DEFAULT_COMPILE_TIMEOUT,
+        )
+        # The same substitutions init applies before writing the file, so the
+        # loader sees a document a user would actually get.
+        for placeholder, value in (
+            ("__COMPILER_RUNNER__", ""),
+            ("__TARGET_FORMAT__", "pe"),
+            ("__TARGET_ARCH__", "x86_32"),
+        ):
+            rendered = rendered.replace(placeholder, value)
+        # A commented table header or key assignment is TOML a user can turn
+        # on by deleting the '#'. Prose comments are left alone: the loader
+        # never sees them either way, and a prose line that happens to open
+        # with a bracket is not a table.
+        uncommented = "\n".join(
+            re.sub(r"^#\s*(\[[^\[\]]+\]\s*$|[\w.]+\s*=.*)$", r"\1", line)
+            for line in rendered.splitlines()
+        )
+        (tmp_path / "original").mkdir()
+        (tmp_path / "original" / "t.dll").write_bytes(b"MZ")
+        for text in (rendered, uncommented):
+            (tmp_path / "rebrew-project.toml").write_text(text, encoding="utf-8")
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always", ConfigWarning)
+                load_config(tmp_path)
+            assert [str(w.message) for w in caught if "unrecognized" in str(w.message)] == []
+
 
 class TestInitAgentSkills:
     def test_agents_md_has_skills_section(self) -> None:

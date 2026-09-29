@@ -2671,6 +2671,21 @@ class TestEnvKnobValidators:
         assert LLM_PROJECT_ENDPOINT_TRUST_ENV in errors
         assert "is not a boolean" in errors[LLM_PROJECT_ENDPOINT_TRUST_ENV]
 
+    def test_decompme_api_knob_is_reported(self) -> None:
+        """`REBREW_DECOMPME_API` is an http(s) URL, checked before an upload.
+
+        The server that answers issues the scratch claim token, so a typo in
+        the host has to name itself rather than become a connection error from
+        inside the POST.  A blank value is unset, not a bad URL.
+        """
+        from rebrew.config import DECOMPME_API_ENV, env_knob_errors
+
+        assert env_knob_errors({DECOMPME_API_ENV: ""}) == {}
+        assert env_knob_errors({DECOMPME_API_ENV: "https://dmp.example.test"}) == {}
+        errors = env_knob_errors({DECOMPME_API_ENV: "decomp,me"})
+        assert DECOMPME_API_ENV in errors
+        assert "http(s) URL" in errors[DECOMPME_API_ENV]
+
     def test_bad_knobs_are_named_not_raised(self, tmp_path: Path) -> None:
         from rebrew.config import env_knob_errors
 

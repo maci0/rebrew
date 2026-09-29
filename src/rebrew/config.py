@@ -161,6 +161,15 @@ LLM_PROJECT_ENDPOINT_TRUST_ENV = "REBREW_LLM_ALLOW_PROJECT_ENDPOINT"
 refusal is the default and this is the only way past it.  Parsed by
 :func:`parse_env_bool`, so ``0``/``false``/``no``/``off`` keep the refusal."""
 
+DECOMPME_API_ENV = "REBREW_DECOMPME_API"
+"""Env var naming the decomp.me instance to upload to.
+
+The scratch claim token the server issues is printed and kept in the upload
+ledger, so the host that receives it is worth pinning once in the environment
+instead of retyping ``--api`` per invocation.  A set-but-empty value is read as
+unset (the flag's own value then applies), so a leftover blank export does not
+break every upload."""
+
 XVFB_DISPLAY_ENV = "REBREW_XVFB_DISPLAY"
 """Env var recording the display rebrew's Xvfb lives on.  Written by
 :mod:`rebrew.headless`; an operator may pin it, and only a local ``:N`` /
@@ -1668,8 +1677,13 @@ def _env_knob_parsers() -> tuple[tuple[str, Callable[[str], None]], ...]:
     def _project_endpoint_trust(raw: str) -> None:
         parse_env_bool(LLM_PROJECT_ENDPOINT_TRUST_ENV, raw, default=False)
 
+    def _decompme_api(raw: str) -> None:
+        if raw.strip():
+            validate_http_url(raw, DECOMPME_API_ENV)
+
     return (
         ("REBREW_CONTAINER_RUNTIME", _container_runtime),
+        (DECOMPME_API_ENV, _decompme_api),
         (REBREW_FLIRT_SIGS_DIR_ENV, partial(check_env_dir, REBREW_FLIRT_SIGS_DIR_ENV)),
         (LLM_PROJECT_ENDPOINT_TRUST_ENV, _project_endpoint_trust),
         ("REBREW_LOG_LEVEL", _log_level),
@@ -2758,6 +2772,7 @@ __all__ = [
     "ConfigKeyError",
     "ConfigNotFoundError",
     "ConfigWarning",
+    "DECOMPME_API_ENV",
     "DEFAULT_COMPILE_TIMEOUT",
     "DEFAULT_LINT_MAX_LINE_LENGTH",
     "DEFAULT_PROJECT_JOBS",

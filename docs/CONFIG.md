@@ -522,6 +522,13 @@ rebrew receives.
 
 ### Other
 
+- `REBREW_DECOMPME_API`: base URL of the decomp.me instance `rebrew decompme`
+  uploads to (default: `https://decomp.me`, the `--api` flag's own default).
+  The server issues a scratch claim token, which is printed and kept in the
+  upload ledger, so the host that receives it belongs in the environment
+  rather than in a retyped flag. A set-but-empty value reads as unset; a
+  non-empty one must be an http(s) URL with a host, and
+  `rebrew cfg effective` reports a malformed value.
 - `REBREW_PROJECTS_ROOT`: root directory scanned by `tools/audit_projects.py`  (default: parent of this install).
 - `REBREW_LOG_LEVEL`: base log level for a run that passes no `-v` / `-q`:
   `debug`, `info`, `warning`, `error`, or `critical` (default: `warning`).  An

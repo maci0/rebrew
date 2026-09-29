@@ -1,5 +1,13 @@
 ## [Unreleased]
 
+### Breaking
+- **Breaking:** `init_profiles.DEFAULT_REBREW_TOML` (re-exported as
+  `init.DEFAULT_REBREW_TOML`) no longer contains the commented
+  `[compiler.profiles.*]` example. A consumer that rendered the template and
+  enabled that block by hand wrote a table the loader rejects as an
+  unrecognized key; the supported per-toolchain table is
+  `[targets.<name>.compiler]`, which the template documents instead.
+
 ### Added
 - **A dropped `rebrew dashboard` route is now gated.** CONTRIBUTING holds the
   `/api/*` JSON unfrozen but requires a `**Breaking:**` entry for a removed
@@ -15,6 +23,12 @@
   `rebrew-data.toml` or `rebrew-functions.toml` is not a backup: pointed at its
   directory it answers with its own smaller entry set, and is invisible
   otherwise. Warn-only, since a stray copy is not a defect by itself.
+- **`REBREW_DECOMPME_API` names the decomp.me instance to upload to.** The
+  server that answers issues the scratch claim token, which is printed and kept
+  in the upload ledger, so the destination belongs in the environment instead of
+  a `--api` flag retyped per invocation. It wins over the flag, a set-but-empty
+  value reads as unset, a non-empty one must be an http(s) URL with a host, and
+  `rebrew cfg effective` reports a malformed value (`env_errors`).
 
 ### Fixed
 - **A negative row count silently produced a tail and exit 0.**
@@ -29,6 +43,13 @@
   other 24 `--output` options are `--output -o`, so a script written against
   those two failed with "No such option". Both take `-o` now, and
   `tests/test_cli_contract.py` fails on a new command that drops it.
+- **The `rebrew init` template demonstrated a config key the loader rejects.**
+  The commented `[compiler.profiles.*]` block offered per-profile compiler
+  settings, a table `load_config` warns about as unrecognized on every run and a
+  config rewriter drops; the supported home is a per-target
+  `[targets.<name>.compiler]` table, which the template now says. A test loads
+  the rendered template, commented lines included, and fails on any key the
+  loader does not know.
 - **The FLIRT signature checkout was derived from the install location.**
   `rebrew flirt` resolved the sibling `rebrew-flirt-sigs` tree as
   `parents[2]` of its own module, which in a wheel install is the

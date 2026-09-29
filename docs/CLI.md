@@ -2589,7 +2589,10 @@ decomp.me compiler (`msvc-6.0` → `msvc6.0`, ...) and platform (`pe` → `win32
 for anything else (console targets, mingw-16.2.0).  Anonymous create (like
 objdiff's integration): the printed claim URL
 (`/scratch/<slug>/claim?token=...`) keeps the scratch.  `--dry-run` prints
-the payload without uploading.
+the payload without uploading.  `--api` names the instance to upload to
+(default `https://decomp.me`); `REBREW_DECOMPME_API` overrides it for the
+process, so a private or self-hosted server is named once in the environment
+rather than on every invocation.
 
 decomp.me has no idempotency key, so a re-run with an unchanged payload
 would leave a second identical scratch on the service.  The created slug
