@@ -144,10 +144,10 @@ def _status_forced_selectors() -> str:
 _CSS = """
 body { font-family: var(--rb-sans);
        margin: 0; background: var(--rb-sunken); color: var(--rb-ink); }
-.skip-link { position: absolute; left: -9999px; top: 0; z-index: 100;
+.skip-link { position: absolute; inset-inline-start: -9999px; top: 0; z-index: 100;
              padding: 0.5rem 1rem; background: var(--rb-surface); color: var(--rb-accent);
              text-decoration: underline; }
-.skip-link:focus { left: 1rem; top: 1rem; }
+.skip-link:focus { inset-inline-start: 1rem; top: 1rem; }
 header { background: var(--rb-ink); color: var(--rb-surface); padding: 0.75rem 1.5rem;
          display: flex; flex-wrap: wrap; align-items: baseline; gap: 1rem 2rem; }
 header h1 { font-size: var(--rb-size-title); margin: 0; }
@@ -173,11 +173,11 @@ h2 { font-size: var(--rb-size-heading); margin: 1.5rem 0 .5rem; }
 table { width: 100%; border-collapse: collapse; background: var(--rb-surface);
         border: 1px solid var(--rb-line); border-radius: var(--rb-radius);
         overflow: hidden; margin-bottom: 0; }
-th, td { text-align: left; padding: 0.5rem 0.75rem;
+th, td { text-align: start; padding: 0.5rem 0.75rem;
          border-bottom: 1px solid var(--rb-line); font-size: var(--rb-size-cell); }
 th { background: var(--rb-sunken); font-weight: 600; white-space: nowrap; }
 tbody tr:hover { background: var(--rb-hover); }
-caption { caption-side: top; text-align: left; padding: 0.5rem 0.75rem;
+caption { caption-side: top; text-align: start; padding: 0.5rem 0.75rem;
           font-size: var(--rb-size-cell); font-weight: 600; color: var(--rb-muted); }
 .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0;
                    margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0);
@@ -214,7 +214,7 @@ pre.mermaid { background: var(--rb-surface); border: 1px solid var(--rb-line);
         font-family: var(--rb-mono);
         font-size: var(--rb-size-code); line-height: 1.4; }
 @media (max-width: 40rem) {
-  header, main { padding-left: 1rem; padding-right: 1rem; }
+  header, main { padding-inline: 1rem; }
   /* The dashboard's narrow-viewport card rule, so both surfaces reflow alike;
      one card per row pushed the summary seven rows down before the table. */
   .card { min-width: 0; flex: 1 1 6rem; padding: .4rem .6rem; }
