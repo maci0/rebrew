@@ -539,7 +539,7 @@ def _set_field(
     with metadata_write_lock(dir_path, METADATA_FILENAME):
         doc = load_toml_for_write(path, "metadata")
         doc_dict = typing.cast(dict[str, Any], doc)
-        toml_key, entry = _ensure_entry_table(doc_dict, module, va)
+        _, entry = _ensure_entry_table(doc_dict, module, va)
 
         # Same-value short-circuit (mirrors set_fields / update_statuses_batch):
         # a retry that re-sets the stored value must not rewrite the TOML.
@@ -660,7 +660,7 @@ def set_fields(
     with metadata_write_lock(dir_path, METADATA_FILENAME):
         doc = load_toml_for_write(path, "metadata")
         doc_dict = typing.cast(dict[str, Any], doc)
-        toml_key, entry = _ensure_entry_table(doc_dict, module, va)
+        _, entry = _ensure_entry_table(doc_dict, module, va)
 
         changed = False
         for key, value in fields.items():
@@ -710,7 +710,7 @@ def set_fields_batch(metadata_dir: Path | str | Any, updates: list[dict[str, Any
             if va is None:
                 raise ValueError(f"field update for {module!r} missing 'va': {u!r}")
             va_int = int(va)
-            toml_key, entry = _ensure_entry_table(doc_dict, module, va_int, key_index)
+            _, entry = _ensure_entry_table(doc_dict, module, va_int, key_index)
             changed = False
             for key, value in (u.get("fields") or {}).items():
                 key = key.lower()
@@ -771,7 +771,7 @@ def record_migrated_markers(metadata_dir: Path | str | Any, rows: list[dict[str,
             module = str(row.get("module") or "")
             _require_module(module)
             va_int = int(row["va"])
-            toml_key, entry = _ensure_entry_table(doc_dict, module, va_int, key_index)
+            _, entry = _ensure_entry_table(doc_dict, module, va_int, key_index)
             updates: dict[str, Any] = {}
             for key, value in (row.get("fields") or {}).items():
                 key = key.lower()
@@ -1232,7 +1232,7 @@ def update_statuses_batch(metadata_dir: Path | str | Any, updates: list[dict[str
                     f"unknown STATUS {new_status!r} (expected one of {sorted(KNOWN_STATUSES)})"
                 )
             va_int = int(va)
-            toml_key, entry = _ensure_entry_table(doc_dict, module, va_int, key_index)
+            _, entry = _ensure_entry_table(doc_dict, module, va_int, key_index)
 
             clear_blockers = u.get("clear_blockers", True)
             force = u.get("force", False)

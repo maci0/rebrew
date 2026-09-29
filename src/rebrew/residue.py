@@ -131,7 +131,7 @@ def residue_report(
     # ``SizeOfRawData`` (a BSS-style .text) would otherwise compare the next
     # section's file bytes and inflate text_differing and text_percent.
     t_rva, t_vs, t_ptr, t_rs = sr[".text"]
-    p_rva, p_vs, p_ptr, p_rs = sp[".text"]
+    _p_rva, p_vs, p_ptr, p_rs = sp[".text"]
     n = max(
         0,
         min(t_vs, p_vs, t_rs, p_rs, len(reference) - t_ptr, len(built) - p_ptr),

@@ -147,7 +147,7 @@ def parse_pe(
             )
 
     # ---- imports (IAT order, per DLL descriptor) ----
-    imp_rva, imp_sz = struct.unpack_from("<II", data, opt + 104)
+    imp_rva, _imp_sz = struct.unpack_from("<II", data, opt + 104)
     imports: list[PeImport] = []
     io = rva_to_off(imp_rva)
     if io is not None:

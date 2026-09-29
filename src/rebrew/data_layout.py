@@ -1432,7 +1432,7 @@ def converge_layout(
     """
     # Same target the build output is read from, so the pads are sized against
     # THIS target's .data geometry.
-    data_base, raw_end, _section_end = layout_geometry(
+    data_base, _raw_end, _section_end = layout_geometry(
         root / "rebrew-project.toml", target=_converge_target(root, target)
     )
     orig = data_raw_from_binary(bin_path)

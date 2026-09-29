@@ -1024,7 +1024,7 @@ def mut_wrap_in_else(s: str, rng: random.Random) -> str | None:
     if not valid_ifs:
         return None
 
-    target_if, target_sibling = rng.choice(valid_ifs)
+    target_if, _target_sibling = rng.choice(valid_ifs)
 
     parent = target_if.parent
     if not parent or parent.type != "compound_statement":
@@ -1095,7 +1095,7 @@ def mut_switch_break_to_return(s: str, rng: random.Random) -> str | None:
     if not valid_targets:
         return None
 
-    switch, ret_text, breaks, ret_node = rng.choice(valid_targets)
+    switch, ret_text, breaks, _ret_node = rng.choice(valid_targets)
 
     out = b_source
     breaks.sort(key=lambda n: n.start_byte, reverse=True)

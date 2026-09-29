@@ -141,7 +141,7 @@ def protected_spans(source: str | bytes) -> list[tuple[int, int]]:
 
     :raises ImportError: tree-sitter is unavailable.
     """
-    tree, data = parse_c_source(source)
+    tree, _data = parse_c_source(source)
     spans: list[tuple[int, int]] = []
 
     def _walk(node: Any) -> None:

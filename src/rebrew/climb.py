@@ -413,7 +413,7 @@ def _score_aligned(
     )
     if candidate is None:
         return -1.0, 0
-    obj_bytes, result, obj_len = candidate
+    obj_bytes, _result, obj_len = candidate
     from rebrew.analysis import disasm_insns
 
     arch = getattr(cfg, "capstone_arch", "CS_ARCH_X86")

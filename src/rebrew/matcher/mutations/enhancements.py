@@ -683,7 +683,7 @@ def mut_hoist_repeated_deref(s: str, rng: random.Random) -> str | None:
         if addr_m is None:
             continue
         by_addr.setdefault(addr_m.group(0), []).append(m)
-    addr, ms = max(by_addr.items(), key=lambda kv: len(kv[1]))
+    _addr, ms = max(by_addr.items(), key=lambda kv: len(kv[1]))
     if len(ms) < 2:
         return None
     first_expr = ms[0].group(0)
