@@ -150,8 +150,14 @@ def _new_cookie() -> Path | None:
         fd, name = tempfile.mkstemp(prefix="rebrew-xvfb-", suffix=".cookie")
     except OSError:
         return None
-    with os.fdopen(fd, "w", encoding="ascii") as fh:
-        fh.write(secrets.token_hex(_XVFB_COOKIE_BYTES) + "\n")
+    try:
+        with os.fdopen(fd, "w", encoding="ascii") as fh:
+            fh.write(secrets.token_hex(_XVFB_COOKIE_BYTES) + "\n")
+    except BaseException:
+        # A short write leaves a cookie file that no display will ever read and
+        # that no caller holds a path to, so the unlink below never runs.
+        _drop_cookie(Path(name))
+        raise
     return Path(name)
 
 

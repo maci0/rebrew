@@ -249,7 +249,13 @@ def main(
         ) as backup_path,
         _restore_source_on_error(path, original, encoding),
     ):
-        console.print(f"  [dim]pre-run copy: {backup_path}[/dim]")
+        if backup_path is not None:
+            console.print(f"  [dim]pre-run copy: {backup_path}[/dim]")
+        else:
+            console.print(
+                "  [yellow]pre-run copy could not be written;"
+                " an uncatchable kill loses the pre-run source[/yellow]"
+            )
         for rnd in range(rounds):
             cands = [(k, lab, new) for k in decls for lab, new in variants(units[k])]
 

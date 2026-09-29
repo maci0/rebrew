@@ -618,6 +618,10 @@ _COMPARE_DROP_PCT = 5.0
 # report always carries every row.
 _DISPLAY_ROWS_MAX = 15
 
+# How many unwritten STATUS updates one warning names before it defers to a
+# count; a run with hundreds of orphans would drown the log.
+_ORPHAN_REPORT_LIMIT = 10
+
 
 @app.callback(invoke_without_command=True)
 def main(
@@ -2570,12 +2574,20 @@ def apply_status_updates(
     compile-and-compare truth.  Blockers are cleared only on a byte match.
     """
     updates: list[dict[str, Any]] = []
+    orphaned: list[str] = []
     for entry, status, _delta in deferred_fixes:
         fp = contained_path(source_roots(cfg), getattr(entry, "filepath", ""))
         if fp is None or not fp.exists():
+            # Dropping the verdict silently left the stored STATUS stale while
+            # the run reported the result as authoritative; name the losers.
+            orphaned.append(
+                f"0x{entry.va:x} ({getattr(entry, 'module', '') or '?'})"
+                f" -> {status}: source {getattr(entry, 'filepath', '')!r} not found"
+            )
             continue
         module: str = getattr(entry, "module", "") or ""
         if not module:
+            orphaned.append(f"0x{entry.va:x} -> {status}: annotation names no module")
             continue
         current_status = getattr(entry, "status", "")
         # Parked SKIP never moves; a STUB's placeholder always size-mismatches
@@ -2592,6 +2604,21 @@ def apply_status_updates(
                 "updated_by": "verify",
             }
         )
+
+    if orphaned:
+        log.warning(
+            "%d of %d verified STATUS updates were not written to %s; "
+            "their stored status is now stale: %s",
+            len(orphaned),
+            len(deferred_fixes),
+            getattr(cfg, "metadata_dir", "the metadata store"),
+            "; ".join(orphaned[:_ORPHAN_REPORT_LIMIT]),
+        )
+        if len(orphaned) > _ORPHAN_REPORT_LIMIT:
+            log.warning(
+                "... and %d more unwritten STATUS updates",
+                len(orphaned) - _ORPHAN_REPORT_LIMIT,
+            )
 
     try:
         # Batch all STATUS writes into one TOML read-modify-write

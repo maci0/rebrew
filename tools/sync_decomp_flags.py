@@ -33,6 +33,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 
+from rebrew.binsync.git import GIT_NETWORK_TIMEOUT
 from rebrew.flags import Checkbox, FlagSet
 
 REPO_URL = "https://github.com/decompme/decomp.me.git"
@@ -109,12 +110,14 @@ def clone_decomp_me(tmp_dir: str, ref: str | None = None) -> Path:
         [*command, REPO_URL, str(repo_dir)],
         capture_output=True,
         check=True,
+        timeout=GIT_NETWORK_TIMEOUT,
     )
     subprocess.run(
         ["git", "sparse-checkout", "set", "backend/coreapp"],
         cwd=str(repo_dir),
         capture_output=True,
         check=True,
+        timeout=GIT_NETWORK_TIMEOUT,
     )
     return repo_dir
 
@@ -133,6 +136,7 @@ def resolved_commit(repo_dir: Path) -> str:
         text=True,
         encoding="utf-8",
         errors="replace",
+        timeout=GIT_NETWORK_TIMEOUT,
     )
     return result.stdout.strip()
 

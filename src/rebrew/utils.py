@@ -1086,7 +1086,7 @@ def source_backup(
     backup_dir: Path,
     *,
     label: str = "",
-) -> Iterator[Path]:
+) -> Iterator[Path | None]:
     """Hold *text*, the content of *path* before an in-place rewrite, on disk for the span.
 
     A sweep scores candidates by compiling them out of the real ``.c``, so the
@@ -1106,9 +1106,10 @@ def source_backup(
     name, so two sweeps of one symbol cannot overwrite each other's copy and a
     run that was killed leaves its predecessor's alone.
 
-    A backup that cannot be written is logged and the body still runs: the
-    in-process restore covers the common case, and refusing to sweep would
-    trade a narrow window for no work at all.
+    Yields ``None`` when the backup cannot be written, so a caller that
+    announces a recovery copy names a file that exists.  The failure is logged
+    and the body still runs: the in-process restore covers the common case, and
+    refusing to sweep would trade a narrow window for no work at all.
     """
     backup_dir.mkdir(parents=True, exist_ok=True)
     stem = filename_component(label or path.stem)
@@ -1117,12 +1118,13 @@ def source_backup(
         atomic_write_text(backup_path, text, encoding=encoding)
     except OSError:
         logger.warning(
-            "could not back up %s to %s before rewriting it in place",
+            "could not back up %s to %s before rewriting it in place;"
+            " the in-process restore still runs, but an uncatchable kill loses it",
             path,
             backup_path,
             exc_info=True,
         )
-        yield backup_path
+        yield None
         return
     try:
         yield backup_path

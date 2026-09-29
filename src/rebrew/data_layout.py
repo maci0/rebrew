@@ -21,8 +21,8 @@ All addresses are full image VAs; the section geometry (``data_base``,
 
 from __future__ import annotations
 
-import contextlib
 import functools
+import logging
 import math
 import re
 import struct
@@ -85,6 +85,13 @@ def _def_patterns(name: str) -> tuple[re.Pattern[str], re.Pattern[str]]:
 
 #: Wall-clock cap for one objdump invocation.
 _OBJDUMP_TIMEOUT_S = 60
+
+#: How many offending paths a fix_ownership error or rollback-failure message
+#: names before it stops listing; a tree-wide permission problem would
+#: otherwise print one line per source file.
+_UNREADABLE_REPORT_LIMIT = 10
+
+_logger = logging.getLogger(__name__)
 
 #: Bounded ``(path, mtime_ns, size, ino, flag) -> stdout`` memo.  Every
 #: accessor over a linked object spawns objdump, and callers
@@ -1188,15 +1195,29 @@ def fix_ownership(
     files = scan_files(src_dir, shared_dir)
 
     owner: dict[str, Path] = {}
+    unreadable: list[Path] = []
     for f in files:
         try:
             text, _ = read_source_text(f)
         except OSError:
+            unreadable.append(f)
             continue
         for ln in text.splitlines():
             m = _DEF_LINE_RE.match(ln.strip())
             if m and m.group(1) in toml and m.group(1) not in owner:
                 owner[m.group(1)] = f
+    if unreadable:
+        # A skipped TU looks unowned, so its globals get emitted into another
+        # unit while the skipped file keeps the definitions: duplicate globals
+        # at link time, from a run that reports edits and moved counts.  The
+        # scan decides every later edit, so failing here writes nothing.
+        raise OSError(
+            "cannot read "
+            f"{len(unreadable)} of {len(files)} source files under {src_dir},"
+            " so global ownership cannot be determined: "
+            + ", ".join(str(p) for p in unreadable[:_UNREADABLE_REPORT_LIMIT])
+            + ("..." if len(unreadable) > _UNREADABLE_REPORT_LIMIT else "")
+        )
     original_owner = dict(owner)
 
     tu_files: list[Path | None] = [_obj_to_source(obj, root, src_dir) for obj in link_objects(root)]
@@ -1315,9 +1336,24 @@ def fix_ownership(
             if not dry_run:
                 atomic_write_text(tu, text, encoding=encoding)
     except BaseException:
+        unrestored: list[Path] = []
         for tu, (text, encoding) in original.items():
-            with contextlib.suppress(OSError):
+            try:
                 atomic_write_text(tu, text, encoding=encoding)
+            except OSError:
+                # The original failure may itself be the unwritable-directory
+                # or out-of-space condition, so the restore is exactly what
+                # cannot succeed.  Say which TUs are left half-migrated
+                # (extern with the definition written nowhere) instead of
+                # leaving it to be found at the next link.
+                unrestored.append(tu)
+        if unrestored:
+            _logger.exception(
+                "ownership rollback left %d of %d rewritten TUs modified: %s",
+                len(unrestored),
+                len(original),
+                ", ".join(str(p) for p in unrestored[:_UNREADABLE_REPORT_LIMIT]),
+            )
         raise
     return {"edits": n_edit, "moved": sum(len(v) for v in removals.values())}
 
