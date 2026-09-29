@@ -1441,6 +1441,28 @@ _BOOT_GUARD_JS = (
 #: so it survives a forced-colors palette (WCAG 1.4.1).  Notes on the shell's
 #: rules belong here, not in the ``<style>`` block, which ships on the cold
 #: flight.
+#:
+#: The ``[hidden]`` reset is load-bearing and needs ``!important`` to be.  The
+#: user-agent sheet's ``[hidden] { display: none }`` is a plain type selector, so
+#: any author ``display`` on the same element outranks it -- and ``.filters``,
+#: ``.filters > div`` and ``.views`` are flex containers, while every filter
+#: control plus the tab strip and the filter bar ship ``hidden``.  Without the
+#: reset Status, Module and both search boxes stayed painted and stayed in the
+#: tab order on the Sections, Globals and History views, where none of them
+#: applies (WCAG 2.4.3): a keyboard user tabbed through four dead controls per
+#: view, and ``#filter-q`` and ``#filter-gq`` sat side by side on Globals as two
+#: search boxes when only one of them works there.  The reset also carries the
+#: no-JS path, since the client is what reveals ``#views``/``#controls``/
+#: ``#summary``: a client that never runs leaves them hidden instead of painting
+#: an empty filter bar over the boot status.  It replaces the ``.view-panel
+#: [hidden]`` one-off, which guarded one element of the same kind.
+#:
+#: The reset has to fit the cold flight, so ``overflow-wrap: anywhere`` moved
+#: onto the shared ``th, td`` rule to pay for it: it is inert on ``th``, which is
+#: nowrap, so the ``td`` rule it replaced bought nothing.  The other reclaim
+#: tried here, folding the two ``.views button.active`` rules together, is not
+#: safe -- it demotes the selected card's status mark from 700 to 600, because
+#: the per-mark ``font-weight`` then outranks the inherited one.
 _INDEX_HTML = """<!doctype html>
 <html lang="en">
 <head>
@@ -1451,6 +1473,7 @@ _INDEX_HTML = """<!doctype html>
 <link rel="preload" href="__APP_JS_URL__" as="script">
 <link rel="icon" href="__FAVICON__" type="image/svg+xml" fetchpriority="low">
 <style>
+  [hidden] { display: none !important; }
   body { font-family: var(--rb-sans); margin: 1.5rem;
     background: var(--rb-sunken); color: var(--rb-ink); }
   .skip-link { position: absolute; left: -9999px; top: 0; z-index: 100;
@@ -1490,9 +1513,8 @@ __STATUS_CSS__
     overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
   table { border-collapse: collapse; width: 100%; margin-top: 1rem;
     font-size: var(--rb-size-cell); background: var(--rb-surface); }
-  th, td { border-bottom: 1px solid var(--rb-line); padding: .3rem .5rem; text-align: left; }
-  /* `anywhere` wraps a long name instead of pushing Status off the row. */
-  td { overflow-wrap: anywhere; }
+  th, td { border-bottom: 1px solid var(--rb-line); padding: .3rem .5rem; text-align: left;
+    overflow-wrap: anywhere; }
   th { background: var(--rb-sunken); white-space: nowrap; font-weight: 600; }
   tbody tr:hover { background: var(--rb-hover); }
   td.va, code { font-family: var(--rb-mono); }
@@ -1513,7 +1535,6 @@ __STATUS_CSS__
   button:disabled { opacity: .55; cursor: not-allowed; }
   .views { display: flex; flex-wrap: wrap; gap: .35rem; margin: .75rem 0 .25rem; }
   .views .btn { padding: .3rem .85rem; }
-  .view-panel[hidden] { display: none; }
   .link-button { background: none; border: none; padding: .3rem 0; color: var(--rb-accent);
     text-decoration: underline; font: inherit; cursor: pointer; }
   .link-button:hover { color: var(--rb-accent-hi); }

@@ -2248,16 +2248,43 @@ class TestEncodingNegotiation:
 
         Every ``th`` is ``white-space: nowrap`` and ``table`` is ``width:
         100%``, so the header row sets a minimum table width and the panel
-        scrolls.  ``td { overflow-wrap: anywhere }`` is what keeps a long
-        demangled name from stretching a row on a wide monitor, but it also
-        lets the VA column shrink below its own content, and "VA" is the
-        shortest header in the table, so that is where the squeeze lands:
-        ``0x00401000`` breaks across two lines and the row's key is no longer
-        scannable.
+        scrolls.  ``overflow-wrap: anywhere`` on the shared ``th, td`` rule is
+        what keeps a long demangled name from stretching a row on a wide
+        monitor, but it also lets the VA column shrink below its own content,
+        and "VA" is the shortest header in the table, so that is where the
+        squeeze lands: ``0x00401000`` breaks across two lines and the row's key
+        is no longer scannable.
         """
         from rebrew.dashboard import _INDEX_HTML
 
         assert "td.va { white-space: nowrap; }" in _INDEX_HTML
+        # It is inert on `th`, which is nowrap, so it shares the rule with `td`.
+        assert "th, td {" in _INDEX_HTML
+        assert "overflow-wrap: anywhere; }" in _INDEX_HTML
+
+    def test_hidden_wins_over_every_author_display_rule(self) -> None:
+        """``hidden`` must hide, on every element the client toggles it on.
+
+        The user-agent sheet's ``[hidden] { display: none }`` is a plain type
+        selector, so any author ``display`` on the same element outranks it.
+        ``.filters``, ``.filters > div`` and ``.views`` are flex containers and
+        every filter control, the tab strip, and the filter bar ship
+        ``hidden``: without a reset, Status, Module and both search boxes stayed
+        painted and stayed in the tab order on the Sections, Globals and History
+        views, where none of them applies (WCAG 2.4.3).  On Globals that put two
+        search boxes side by side when only one of them works there.
+
+        ``!important`` is load-bearing, not defensive: without it the reset is
+        (0,1,0) and loses to ``.filters > div`` at (0,1,1).  One reset also
+        replaces the per-element ``[hidden]`` rules, so a new author ``display``
+        stays covered by construction.
+        """
+        from rebrew.dashboard import _INDEX_HTML
+
+        assert "[hidden] { display: none !important; }" in _INDEX_HTML
+        # No per-element one-off: the reset is the only mechanism, so an author
+        # `display` added later cannot reopen the gap.
+        assert not re.search(r"\[hidden\]\s*\{\s*display:\s*none;\s*\}", _INDEX_HTML)
 
     def test_selected_card_and_tab_do_not_resize(self) -> None:
         """Selecting a card or a tab must not re-lay out the row around it.
