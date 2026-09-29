@@ -18,7 +18,7 @@ only for the copyleft entries below.
 similarity group — resembl
 --------------------------
 
-resembl 3.1.0 (sibling checkout ``../resembl``,
+resembl 3.1.1 (sibling checkout ``../resembl``,
 https://github.com/maci0/resembl) declares
 ``License-Expression: GPL-3.0-only``. ``make setup`` installs this group
 through the path dependency in ``[dependency-groups]`` /

@@ -26,7 +26,7 @@ from __future__ import annotations
 # and a commit-pinned git dependency are recorded by name.
 PATH_OR_GIT_LICENSES = {
     "m2c": "GPL-3.0-only",
-    # resembl 3.1.0 declares License-Expression: GPL-3.0-only (PEP 639).
+    # resembl 3.1.1 declares License-Expression: GPL-3.0-only (PEP 639).
     # There is no free-text License field on that artifact.
     "resembl": "GPL-3.0-only",
 }
