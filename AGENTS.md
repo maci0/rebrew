@@ -21,7 +21,7 @@ Docker build source lives in the sibling **rebrew-toolchains** checkout (`REBREW
 ## Build & Test Commands
 
 ```bash
-make doctor                               # report every missing prerequisite (uv, the pinned uv version, ../resembl, bash, nasm, node, shellcheck, yamllint, venv extras) and its fix
+make doctor                               # report every missing prerequisite (uv, the pinned uv version, ../resembl, bash, nasm, node, shellcheck, yamllint, vnu, venv extras) and its fix
 make test-one T=tests/test_annotation.py  # edit-test loop; T takes a node id (::TestClass), FLAGS= takes any pytest flag
 make test                                 # full suite (needs nasm + node; vnu skips if absent)
 make lint / make format / make mypy
@@ -48,7 +48,7 @@ src/rebrew/          # package; discover modules there; do not rely on an inline
 ├── catalog/         # function registry + coverage grid: src/rebrew/catalog/AGENTS.md
 ├── ghidra/          # BinSync-primary field sync + MCP structural ops: src/rebrew/ghidra/AGENTS.md
 ├── binsync/         # declib BinSync state I/O: src/rebrew/binsync/AGENTS.md
-├── workspace/       # workspace status DB and config cache: src/rebrew/workspace/AGENTS.md
+├── workspace/       # project root / coverage-dir resolution + shared STATUS & VA vocabulary: src/rebrew/workspace/AGENTS.md
 └── agent-skills/    # packaged skill source of truth (rebrew skills list/show)
 tests/               # pytest; typically test_<module>.py
 ```

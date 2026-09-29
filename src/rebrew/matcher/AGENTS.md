@@ -17,7 +17,7 @@ GA engine for binary-matching decompilation. Compiles C through the docker-backe
 
 Flag axes (`rebrew.flags` / `rebrew.flag_data`) live at the package root so compile-cache canonicalization and the GA sweep share one definition without the cache layer importing the matcher package.
 
-Externals (the only packages this one may import): `binary_loader`, `coff_reloc`, `compile`, `compile_cache`, `config`, `errors`, `flag_data`, `flags`, `omf16`, `registry`, `temp_dirs`, `toolchain`, `toolchain_spec`, `utils`. The GA drives the toolchain, so the compile and toolchain entries are the intended inward edge; the reverse is not, which is why the flag axes sit outside. `temp_dirs` is the compile sandbox placement policy (`compiler.py` stages there rather than in the system temp dir). Keep further prose on this line free of backticks: the gate reads every backticked name as allowed.
+Externals (the only packages this one may import): `binary_loader`, `coff_reloc`, `compile`, `compile_cache`, `config`, `errors`, `flag_data`, `flags`, `omf16`, `registry`, `temp_dirs`, `toolchain`, `toolchain_spec`, `utils`. The GA drives the toolchain, so the compile and toolchain entries are the intended inward edge; the reverse is not, which is why the flag axes sit outside. `temp_dirs` is the compile sandbox placement policy (`compiler.py` stages there rather than in the system temp dir). This line is documentation, not the gate: `tools/check_layering.py` enforces `PACKAGE_EXTERNALS`, its own transcribed frozenset, and `tests/test_check_layering.py` only checks the other direction (every allowed name appears backticked here). A new inward import needs an entry in that frozenset, and this line follows it.
 
 ## Data flow (GA path)
 
