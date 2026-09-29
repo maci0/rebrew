@@ -1097,6 +1097,48 @@ class TestCiPins:
         assert "source-commit=" in text
         assert "source-dirty=" in text
 
+    def test_build_pins_umask_for_the_files_it_writes_itself(self) -> None:
+        """Every shell ``build`` runs sets umask 022, not just the uv build lines.
+
+        ``umask 022 && uv build …`` only ever covered the command it was
+        attached to, so ``dist/`` and the ``{ … } > "$tmpinfo"`` block that
+        writes ``dist/rebrew.buildinfo`` kept whatever umask the caller had.
+        The manifest records ``umask=022`` three lines above its own ``echo``,
+        and it is the file a third party rebuilds from, so on a host running
+        umask 002 it shipped 0664 and contradicted the environment it claimed
+        to record.  A leading ``umask 022;`` on each recipe shell covers the
+        whole recipe, the archives included.
+        """
+        text = MAKEFILE.read_text(encoding="utf-8")
+        build = text.split("\nbuild: warn-uv-version\n", 1)[1].split("\n# Prove the wheel", 1)[0]
+        shells = re.findall(r"(?m)^\t@(?:umask 022; )?set -eu; \\$", build)
+        assert len(shells) == 2, build
+        assert not re.search(r"(?m)^\t@set -eu; \\$", build), (
+            "a build recipe shell starts without umask 022"
+        )
+        # The dist/ directory itself is created by a separate recipe line.
+        assert "\t@umask 022 && mkdir -p dist" in build
+        # A umask attached to one command does not reach the next; the two
+        # `uv build` lines now inherit it from the recipe shell.
+        assert "umask 022 && SOURCE_DATE_EPOCH" not in build
+
+    def test_sbom_written_with_a_pinned_umask(self) -> None:
+        """The BOM ships beside the wheel, so its mode is not the caller's.
+
+        ``generate_sbom.py`` writes through ``Path.write_text``, which applies
+        the caller's umask, and CI uploads ``dist/rebrew.cdx.json`` with the
+        wheel, the sdist and the buildinfo.  A 0664 inventory next to a 0644
+        wheel is the same provenance inconsistency the buildinfo had: the
+        artifact's bytes stop depending only on ``make build``.
+        """
+        text = MAKEFILE.read_text(encoding="utf-8")
+        sbom = text.split("\nsbom: warn-uv-version\n", 1)[1].split("\n\n", 1)[0]
+        assert "\t@umask 022 && mkdir -p dist" in sbom
+        assert (
+            "\tumask 022 && $(UV_RUN_TOOLS) python tools/generate_sbom.py -o dist/rebrew.cdx.json"
+            in sbom
+        )
+
     def test_buildinfo_records_the_artifacts_and_the_lock_it_ships_with(self) -> None:
         """The manifest must name the bytes beside it, not only the knobs.
 

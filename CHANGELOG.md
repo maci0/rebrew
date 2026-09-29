@@ -14,6 +14,14 @@
   directory, an ignored tree, a non-store TOML) were folded into the class
   that actually collected, and the duplicate helper went with them. `make
   lint` had been failing on the redefinition.
+- **`make build` and `make sbom` pinned the umask only for `uv build`.**
+  `umask 022 && uv build ...` covers the command it is attached to and nothing
+  else, so `dist/` and `dist/rebrew.buildinfo` kept the caller's umask: a host
+  running umask 002 shipped a 0664 manifest three lines below its own
+  `umask=022` line, and a 0664 SBOM beside a 0644 wheel.  The pin now opens
+  each recipe shell, so every file the build writes is 0644 on every host.
+  The archives themselves were already normalized to 0644 by
+  `tools/normalize_sdist.py`.
 - **The CI host helpers named the wrong cause when a tool was missing.**
   `tools/ci_apt_install.sh` retried `apt-get` on a host that has none and
   `tools/ci_clone_resembl.sh` retried `git`, so a missing binary burned the

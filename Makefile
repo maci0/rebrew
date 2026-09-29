@@ -502,9 +502,13 @@ clean:
 	rm -rf dist build rebrew.egg-info src/rebrew.egg-info .sdist-check .coverage htmlcov .coverage.* .pytest_cache .ruff_cache .mypy_cache .scratch/rebrew-idem .scratch/rebuild .venv-pkg .hypothesis
 	find src tests tools -type d -name __pycache__ -prune -exec rm -rf {} +
 
-# Build sdist + wheel under a pinned umask/locale/timezone. umask 022 fixes
-# modes of files the build creates; setuptools still copies checkout modes
-# for package files, so normalize_sdist.py rewrites both archives afterwards.
+# Build sdist + wheel under a pinned umask/locale/timezone. umask 022 is set
+# on the first statement of every recipe shell here, not just ahead of the two
+# `uv build` lines: a prefix only covers the command it is attached to, so
+# dist/ itself and the block that writes dist/rebrew.buildinfo kept the
+# caller's umask, and a builder under umask 002 shipped a 0664 manifest two
+# lines above its own umask=022. setuptools still copies checkout modes for
+# package files, so normalize_sdist.py rewrites both archives afterwards.
 # Drop prior package artifacts so a bumped version cannot leave multiple
 # wheels/sdists in dist/ (CI's package job expects exactly one of each), and
 # drop build/ + egg-info first: setuptools packs every file left in build/lib
@@ -544,22 +548,22 @@ clean:
 # than inside an `echo` argument, where a failing command substitution only
 # blanks the line and the manifest ships a hole.
 build: warn-uv-version
-	@mkdir -p dist
+	@umask 022 && mkdir -p dist
 	@rm -f dist/*.whl dist/*.tar.gz dist/*.buildinfo dist/*.cdx.json
 	@rm -rf build rebrew.egg-info src/rebrew.egg-info
-	@set -eu; \
+	@umask 022; set -eu; \
 	st=$$(sed -n 's/^requires = \["setuptools==\([0-9.][0-9.]*\)"\]/\1/p' pyproject.toml | head -n 1); \
 	if [ -z "$$st" ] || ! grep -q "^setuptools==$$st " build-constraints.txt; then \
 	  echo "ERROR: pyproject.toml [build-system] setuptools pin '$$st' missing or not in build-constraints.txt"; \
 	  exit 1; \
 	fi
-	umask 022 && SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) TZ=UTC LC_ALL=C PYTHONHASHSEED=0 \
+	SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) TZ=UTC LC_ALL=C PYTHONHASHSEED=0 \
 		uv build --sdist --out-dir dist --build-constraints build-constraints.txt --require-hashes
-	umask 022 && SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) TZ=UTC LC_ALL=C PYTHONHASHSEED=0 \
+	SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) TZ=UTC LC_ALL=C PYTHONHASHSEED=0 \
 		uv build --wheel --out-dir dist --build-constraints build-constraints.txt --require-hashes
 	SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) $(UV_RUN_TOOLS) python tools/normalize_sdist.py dist/*.tar.gz dist/*.whl
 	@rm -rf build rebrew.egg-info src/rebrew.egg-info
-	@set -eu; \
+	@umask 022; set -eu; \
 	st=$$(sed -n 's/^requires = \["setuptools==\([0-9.][0-9.]*\)"\]/\1/p' pyproject.toml | head -n 1); \
 	ver=$$(sed -n 's/^__version__ = "\([^"]*\)".*/\1/p' src/rebrew/__init__.py | head -n 1); \
 	[ -n "$$ver" ] || { echo "ERROR: no __version__ in src/rebrew/__init__.py"; exit 1; }; \
@@ -754,10 +758,12 @@ verify-dist: require-dist ensure-uv
 # CycloneDX 1.5 SBOM from the committed lock (no network).  Writes
 # dist/rebrew.cdx.json so package CI / release consumers share one inventory.
 # generate_sbom.py is stdlib-only: --no-project skips the project sync (and
-# its ../resembl path dep), --offline keeps the no-network promise.
+# its ../resembl path dep), --offline keeps the no-network promise.  The BOM
+# ships beside the wheel, so its mode is pinned with the rest of dist/ rather
+# than left to the caller's umask (Path.write_text applies it).
 sbom: warn-uv-version
-	@mkdir -p dist
-	$(UV_RUN_TOOLS) python tools/generate_sbom.py -o dist/rebrew.cdx.json
+	@umask 022 && mkdir -p dist
+	umask 022 && $(UV_RUN_TOOLS) python tools/generate_sbom.py -o dist/rebrew.cdx.json
 
 # Prove the sdist carries every runtime file the wheel ships.  The wheel is
 # smoke-installed; nothing else exercises the sdist, and its file list comes
