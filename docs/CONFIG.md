@@ -473,8 +473,10 @@ rebrew receives.
 - `REBREW_TOOLCHAIN_OVERLAY_DIR`: directory of extra toolchain TOML overlays
   (plugin-style profiles without editing host source).
 - `REBREW_FLIRT_SIGS_DIR`: path to the `rebrew-flirt-sigs` checkout.
-  Default: sibling of this install. When set, a path that is not a
-  directory fails `rebrew flirt` instead of scanning without library sigs.
+  Default: the sibling of the rebrew source checkout, which a wheel install
+  has none of, so a packaged rebrew needs this set. When set, a path that is
+  not a directory fails `rebrew flirt` instead of scanning without library
+  sigs.
 - `REBREW_SKILLS_DIR`: user/community Agent Skills directory (overrides
   packaged skills of the same name).
 - `REBREW_CONTAINER_RUNTIME`: container CLI (`docker` default; `podman` or

@@ -8,6 +8,15 @@
   otherwise. Warn-only, since a stray copy is not a defect by itself.
 
 ### Fixed
+- **The FLIRT signature checkout was derived from the install location.**
+  `rebrew flirt` resolved the sibling `rebrew-flirt-sigs` tree as
+  `parents[2]` of its own module, which in a wheel install is the
+  interpreter's `lib/python3.X` parent: a system directory that may hold an
+  unrelated directory of the same name, and that `rebrew flirt --init` named
+  in its "signature source not found" error. The path now comes from
+  `rebrew.utils.SOURCE_CHECKOUT` (None off a checkout), and a wheel install
+  with no checkout beside it reports that `REBREW_FLIRT_SIGS_DIR` is the way
+  to point at one.
 - **Two modules the strict mypy gate covers were not type-clean.**
   `tests/test_solutions.py` left the `monkeypatch` fixture parameters of both
   fsync-durability tests unannotated, and `tests/test_verify_watch.py` typed

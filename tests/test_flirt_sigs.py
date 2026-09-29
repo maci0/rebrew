@@ -6,8 +6,9 @@ from pathlib import Path
 
 import pytest
 
+from rebrew import flirt
 from rebrew.config import ConfigError
-from rebrew.flirt import _flirt_sigs_repo, _sig_files
+from rebrew.flirt import NO_SIGS_CHECKOUT, _flirt_sigs_repo, _sig_files
 
 
 def test_sig_files_dedup_project_wins(tmp_path: Path) -> None:
@@ -34,6 +35,27 @@ def test_flirt_sigs_repo_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
     assert _flirt_sigs_repo() == sigs
     monkeypatch.delenv("REBREW_FLIRT_SIGS_DIR")
     assert _flirt_sigs_repo().name == "rebrew-flirt-sigs"
+
+
+def test_flirt_sigs_repo_wheel_install(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A wheel install has no checkout beside it, and no sibling guess.
+
+    The path used to come from ``parents[2]`` of this module, which in a wheel
+    install is the interpreter's ``lib/python3.X``, so the sig dir pointed at
+    a system ``lib`` that may or may not hold an unrelated directory of the
+    same name.
+    """
+    monkeypatch.delenv("REBREW_FLIRT_SIGS_DIR", raising=False)
+    monkeypatch.setattr(flirt, "SOURCE_CHECKOUT", None)
+    assert _flirt_sigs_repo() == NO_SIGS_CHECKOUT
+    assert not _flirt_sigs_repo().is_absolute()
+
+
+def test_flirt_sigs_repo_checkout_sibling(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """From a source checkout the sigs come from the sibling directory."""
+    monkeypatch.delenv("REBREW_FLIRT_SIGS_DIR", raising=False)
+    monkeypatch.setattr(flirt, "SOURCE_CHECKOUT", tmp_path / "rebrew")
+    assert _flirt_sigs_repo() == tmp_path / "rebrew-flirt-sigs"
 
 
 def test_flirt_sigs_repo_env_typo_raises(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

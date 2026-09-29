@@ -20,7 +20,7 @@ import typer
 from rebrew.binary_loader import load_binary
 from rebrew.cli import TargetOption, console, error_exit, json_print, parse_va, require_config
 from rebrew.config import REBREW_FLIRT_SIGS_DIR_ENV, ConfigError, env_dir_path
-from rebrew.utils import atomic_write_bytes, read_json_text
+from rebrew.utils import SOURCE_CHECKOUT, atomic_write_bytes, read_json_text
 
 _MAX_FUNC_SCAN = 4096
 _MIN_MATCH_WINDOW = 32
@@ -28,24 +28,39 @@ _FUNC_ALIGNMENT = 16
 _MAX_AMBIGUOUS = 3
 _MAX_AMBIGUOUS_REPORT = 12  # cap on candidate names kept per ambiguous match
 
+#: Returned when rebrew runs from a wheel install, where no source checkout
+#: sits above the package.  A relative name that resolves inside the process
+#: cwd, never a guess derived from the module's own location: a wheel's
+#: ``parents[2]`` is the interpreter's ``lib/python3.X``, whose parent is a
+#: system ``lib`` that could hold an unrelated directory of the same name.
+NO_SIGS_CHECKOUT = Path("__no_rebrew_flirt_sigs_checkout__")
+
+FLIRT_SIGS_REPO_URL = "https://github.com/maci0/rebrew-flirt-sigs"
+
 
 def _flirt_sigs_repo() -> Path:
     """Root of the standalone rebrew-flirt-sigs checkout (standard library sigs).
 
-    Defaults to the sibling checkout (same workspace as this repo), like
-    rebrew-toolchains; overridable via REBREW_FLIRT_SIGS_DIR.  Project-specific
-    sigs stay in the project's own ``flirt_sigs/`` and are merged on top.
+    Defaults to the sibling checkout (same workspace as this repo), located
+    through :data:`rebrew.utils.SOURCE_CHECKOUT`; overridable via
+    REBREW_FLIRT_SIGS_DIR.  Project-specific sigs stay in the project's own
+    ``flirt_sigs/`` and are merged on top.
 
     Raises :class:`ConfigError` when the env override is not a directory, so a
     typo is reported instead of silently dropping every standard-library
     signature. The ``match`` command turns that into its own error exit.
+
+    A wheel install has no checkout beside it and returns
+    :data:`NO_SIGS_CHECKOUT`, which every caller probes with ``.is_dir()``.
     """
     env = os.environ.get(REBREW_FLIRT_SIGS_DIR_ENV, "").strip()
     if env:
         resolved = env_dir_path(REBREW_FLIRT_SIGS_DIR_ENV, env)
         assert resolved is not None  # a non-blank value never resolves to None
         return resolved
-    return Path(__file__).resolve().parents[2].parent / "rebrew-flirt-sigs"
+    if SOURCE_CHECKOUT is None:
+        return NO_SIGS_CHECKOUT
+    return SOURCE_CHECKOUT.parent / "rebrew-flirt-sigs"
 
 
 def _sig_files(dirs: list[Path]) -> list[Path]:
@@ -90,9 +105,16 @@ def _init_project_sigs(cfg: Any, json_output: bool, matched_only: bool = False) 
     except ConfigError as exc:
         error_exit(str(exc), json_mode=json_output)
     if not repo.is_dir():
+        if repo == NO_SIGS_CHECKOUT:
+            error_exit(
+                "no rebrew-flirt-sigs checkout: this rebrew is installed as a "
+                "package, so no source checkout sits beside it — clone "
+                f"{FLIRT_SIGS_REPO_URL} or set {REBREW_FLIRT_SIGS_DIR_ENV}",
+                json_mode=json_output,
+            )
         error_exit(
             f"signature source not found: {repo} — clone rebrew-flirt-sigs "
-            "next to this repo or set REBREW_FLIRT_SIGS_DIR",
+            f"next to this repo or set {REBREW_FLIRT_SIGS_DIR_ENV}",
             json_mode=json_output,
         )
     wanted: set[str] | None = None
