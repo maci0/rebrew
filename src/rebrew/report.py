@@ -766,7 +766,10 @@ def _render_index(
             )
             title = "Function index"
         else:
-            body = f"<h2>Function index (continued)</h2>{pager}{table}{pager_end}"
+            # Every page of the table prints the same coloured Status column,
+            # so every page carries the key that explains it.  A reader who
+            # opens index-pN.html from a link or the pager landed without one.
+            body = f"<h2>Function index (continued)</h2>{legend_html}{pager}{table}{pager_end}"
             title = f"Function index ({page_num}/{total_pages})"
         pages.append((_paged_href("index", page_num), _page(title, target, "index.html", body)))
     return pages
@@ -837,8 +840,13 @@ def _render_strings(cfg: ProjectConfig) -> list[tuple[str, str]]:
     total_pages = max(1, (total + _TABLE_PAGE_SIZE - 1) // _TABLE_PAGE_SIZE)
     pages: list[tuple[str, str]] = []
     intro = "<p>Strings extracted from the binary's data sections (min length 4).</p>"
+    # The Refs and Referenced-from columns read n/a on every page of the
+    # table, so the note that says why travels with the table, not with the
+    # first page of it: a reader who opens strings-pN.html from a link or the
+    # pager would otherwise meet the n/a with no explanation on the page.
+    refs_note = ""
     if refs is None:
-        intro += (
+        refs_note = (
             "<p class='note'>Code references to these strings could not be scanned; "
             "the Refs columns read n/a.</p>"
         )
@@ -866,10 +874,10 @@ def _render_strings(cfg: ProjectConfig) -> list[tuple[str, str]]:
             bottom=True,
         )
         if page_num == 1:
-            body = f"<h2>Strings</h2>{intro}{pager}{table}{pager_end}"
+            body = f"<h2>Strings</h2>{intro}{refs_note}{pager}{table}{pager_end}"
             title = "Strings"
         else:
-            body = f"<h2>Strings (continued)</h2>{pager}{table}{pager_end}"
+            body = f"<h2>Strings (continued)</h2>{refs_note}{pager}{table}{pager_end}"
             title = f"Strings ({page_num}/{total_pages})"
         pages.append((_paged_href("strings", page_num), _page(title, target, "strings.html", body)))
     return pages

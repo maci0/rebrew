@@ -320,6 +320,40 @@ class TestAdjacencyListLabels:
         assert "<td>n/a</td><td class='mono'>n/a</td>" in page
         assert "<td>0</td>" not in page
 
+    def test_failed_ref_scan_note_reaches_every_strings_page(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Every page prints n/a, so every page says why.
+
+        The note sat on page 1 only, so a reader who opened strings-pN.html
+        from a link or the pager met the n/a with nothing explaining it.
+        """
+        from types import SimpleNamespace
+
+        import rebrew.report as report_mod
+
+        (tmp_path / "game.exe").write_bytes(b"MZ")
+        monkeypatch.setattr(report_mod, "load_binary", lambda path: SimpleNamespace())
+        monkeypatch.setattr(
+            report_mod,
+            "iter_strings",
+            lambda info, min_len: [
+                SimpleNamespace(va=0x2000 + i, section=".rdata", kind="ascii", text=f"string{i}")
+                for i in range(report_mod._TABLE_PAGE_SIZE + 1)
+            ],
+        )
+
+        def _boom(info: object, strings: object) -> None:
+            raise ValueError("bad section")
+
+        monkeypatch.setattr(report_mod, "string_refs", _boom)
+        cfg = SimpleNamespace(target_name="T", target_binary=tmp_path / "game.exe")
+        pages = dict(report_mod._render_strings(cfg))
+        assert "strings-p2.html" in pages
+        for name in ("strings.html", "strings-p2.html"):
+            assert "could not be scanned" in pages[name], name
+            assert "n/a" in pages[name], name
+
     def test_prints_symbols_not_internal_keys(self) -> None:
         """Node keys are `va:0x…`/`sym:…` internal identifiers; the adjacency
         fallback must print the symbol (mermaid/dot already do)."""
@@ -525,6 +559,11 @@ class TestReportPayloadShape:
         assert index.count("class='pager pager-end'") == 1
         assert index.count("class='pager'") == 1
         assert "position: sticky" not in index
+        # Every page of the table prints the coloured Status column, so every
+        # page carries the key that explains it.
+        assert index.count("class='legend'") == 1
+        assert page2.count("class='legend'") == 1
+        assert "A placeholder: no source, or a rewrite is needed." in page2
 
     def test_pager_offers_first_and_last_on_middle_pages(self) -> None:
         from rebrew.report import _TABLE_PAGE_SIZE, _page_va_span, _pager_nav
