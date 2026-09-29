@@ -35,7 +35,7 @@ from typing import Any
 
 from typer.testing import CliRunner
 
-from rebrew.build_db import FUNCTION_DB_STATUSES, build_db
+from rebrew.coverage_db import FUNCTION_DB_STATUSES, build_db
 from rebrew.coverage_toml import load_coverage
 from rebrew.main import app
 

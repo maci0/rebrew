@@ -1,6 +1,6 @@
 """coverage_toml.py – clear-text TOML coverage output for a catalog snapshot.
 
-The normalizers live in :mod:`rebrew.build_db`, which computed every value in
+The normalizers live in :mod:`rebrew.coverage_db`, which computed every value in
 pure Python before the SQLite writer it also held bound it to a column.  This
 module imports those normalizers rather than restating them, so the document and
 the catalog snapshot cannot report different facts about the same
@@ -38,7 +38,8 @@ from types import MappingProxyType
 from typing import Any
 
 from rebrew.annotation import FUNCTION_MARKERS, VALID_MARKERS
-from rebrew.build_db import (
+from rebrew.cli import console
+from rebrew.coverage_db import (
     DEFAULT_GRID_GEOMETRY,
     FUNCTION_DB_STATUSES,
     GLOBAL_DB_STATUSES,
@@ -54,7 +55,6 @@ from rebrew.build_db import (
     positive_int_or,
     resolve_db_dir,
 )
-from rebrew.cli import console
 from rebrew.errors import RebrewError
 from rebrew.metadata import canonical_status
 from rebrew.utils import atomic_write_text, clip_span, file_lock, floor_pct, toml_safe
@@ -64,7 +64,7 @@ from rebrew.workspace.status import MATCHED_STATUSES
 log = logging.getLogger(__name__)
 
 #: What ``import *`` from this module means.  Everything else below is
-#: build_db's helper borrowed for reuse, not this module's to re-export.
+#: coverage_db's helper borrowed for reuse, not this module's to re-export.
 __all__ = [
     "Cell",
     "CoverageSnapshot",
@@ -184,7 +184,7 @@ _HISTORY_COLUMNS: tuple[str, ...] = (
 _JSON_COLUMNS: frozenset[str] = frozenset({"functions", "files", "detected_by", "size_by_tool"})
 
 #: ``build_db``'s ``verify_results`` columns, less ``target``, in the INSERT's
-#: order — which is also the order :func:`rebrew.build_db.import_verify_rows`
+#: order — which is also the order :func:`rebrew.coverage_db.import_verify_rows`
 #: returns its rows in, so the two are one list read from both ends.
 _VERIFY_RESULTS_COLUMNS: tuple[str, ...] = (
     "va",
@@ -650,7 +650,7 @@ def render_coverage_toml(
     no history — the replacement for ``build_db``'s version-check / unlink /
     ``--force`` dance, and the reason there is no sidecar here to reset.
 
-    *verify_rows* is :func:`rebrew.build_db.import_verify_rows`'s answer, and it
+    *verify_rows* is :func:`rebrew.coverage_db.import_verify_rows`'s answer, and it
     keeps that function's three states: ``None`` (the verify cache says nothing
     about this target) carries *previous*'s ``verify_results`` forward verbatim,
     ``[]`` writes none, and a list writes those rows.  Three states rather than
@@ -729,14 +729,14 @@ def write_coverage_toml(
     """Write ``db/coverage-<target>.toml`` for each dataset; return the paths written.
 
     The catalog inputs and every normalization come from
-    :func:`rebrew.build_db.load_coverage_datasets` and its helpers, so this
+    :func:`rebrew.coverage_db.load_coverage_datasets` and its helpers, so this
     writer and ``build_db`` answer the same questions the same way.  What it
     does not inherit is the SQLite-only ceremony: there is no schema version to
     check, no ``--force`` unlink of a previous file, and no sidecars to
     recover.
 
     *force* is accepted for signature symmetry with
-    :func:`rebrew.build_db.build_db` and has no effect: a stale file is fully
+    :func:`rebrew.coverage_db.build_db` and has no effect: a stale file is fully
     replaced on every write, so there is nothing to force past.  So is *regen*:
     the catalog analysis always runs in this process.
 
@@ -817,7 +817,7 @@ class CoverageTomlError(RebrewError):
 def _db_directory(root_dir: Path) -> Path:
     """The directory this reader globs, resolved without ever exiting.
 
-    ``build_db.resolve_db_dir`` is the writer's resolver and calls typer's
+    ``coverage_db.resolve_db_dir`` is the writer's resolver and calls typer's
     ``error_exit`` on a broken ``rebrew-project.toml``; that is right for a CLI
     and wrong here, because both dashboards call these readers inside a WSGI
     request and a ``SystemExit`` there takes the server down instead of

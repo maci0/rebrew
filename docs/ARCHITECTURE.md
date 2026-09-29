@@ -55,7 +55,7 @@ flowchart LR
     CMP --> DIFF["diff.py / match.py<br/>byte + structural scoring"]
 
     LOAD --> CATALOG["catalog/ (LIEF section/label data)"]
-    CATALOG --> DB["build_db.py → db/coverage-&lt;target&gt;.toml"]
+    CATALOG --> DB["coverage_db.py → db/coverage-&lt;target&gt;.toml"]
     DB --> DASH["dashboard.py<br/>read-only web UI"]
 
     LOAD --> IMPORTS["import_table.py<br/>PE/ELF/NE import table + stubs"]

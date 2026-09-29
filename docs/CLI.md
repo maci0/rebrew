@@ -136,7 +136,7 @@ exit is 120, and click's is 1; `run_cli` overrides both.
 | `rebrew binsync-init` | `binsync/init.py` | Create the git envelope upstream BinSync requires (root `binsync/__root__` commit with `.gitignore` + `binary_hash`, then a `binsync/<user>` branch; `--user`, `--dry-run`) |
 | `rebrew binsync-overlay` | `binsync/overlay.py` | Overlay a related target's BinSync names/prototypes/notes onto structurally-matched functions of this target (same code at different VAs; `--from`, `--fields name,prototype,note,global`, `--accept-binsync`/`--accept-local`) |
 | `rebrew binsync` | `binsync/cli.py` | Umbrella group: `push` (export + git commit, `--git-push`), `pull` (git `--ff-only` + import), `summary` (read-only preview), plus `init`/`diff`/`overlay` |
-| `rebrew build-db` | `build_db.py` | Write one clear-text `db/coverage-<target>.toml` per target by scanning the project ([format docs](COVERAGE_DOCUMENT.md)) |
+| `rebrew build-db` | `build_db.py` (over `coverage_db.py`) | Write one clear-text `db/coverage-<target>.toml` per target by scanning the project ([format docs](COVERAGE_DOCUMENT.md)) |
 | `rebrew status` | `status.py` | At-a-glance reversing progress overview (per-module coverage, status ladder counts) |
 | `rebrew similar` | `similar.py` | Find structurally similar functions in the target binary (clone detection) |
 | `rebrew binary-similarity` | `binary_similarity.py` | Whole-binary structural similarity vs another binary: per-function best matches aggregated into a byte-weighted score (versions/DLL+EXE) |

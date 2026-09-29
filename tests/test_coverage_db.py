@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 import typer
 
-from rebrew.build_db import (
+from rebrew.coverage_db import (
     _clamp_verify_similarity,
     clamp_nonneg_int,
     clamp_unit_interval,

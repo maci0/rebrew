@@ -23,7 +23,7 @@ from typing import Any, cast
 import pytest
 
 from rebrew import coverage_toml, utils
-from rebrew.build_db import (
+from rebrew.coverage_db import (
     _KNOWN_CELL_STATES,
     HISTORY_RETENTION,
     clamp_nonneg_int,

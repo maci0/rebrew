@@ -448,7 +448,7 @@ files = [
     "tests/test_asm.py",
     "tests/test_ast_engine.py",
     "tests/test_batch.py",
-    "tests/test_build_db_helpers.py",
+    "tests/test_coverage_db.py",
     "tests/test_binsync_export.py",
     "tests/test_binsync_state.py",
     "tests/test_cache_cli.py",

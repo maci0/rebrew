@@ -2,9 +2,8 @@
 
 ``detect_cycles.py`` answers "does the import graph fold back on itself?".
 It says nothing about direction, so a module can stay cycle-free and still
-reach the wrong way across the package.  Three rules are enforced here, all of
+reach the wrong way across the package.  Four rules are enforced here, all of
 which the tree satisfies today:
-
 **Leaf helpers stay leaves.**  ``rebrew.utils`` is the module every other
 module may import, and its docstring promises the freedom that buys: it holds
 no rebrew imports, so it can never sit between a caller and a dependency.  The
@@ -30,6 +29,21 @@ one reads *every* import, not just the module-scope ones: the catalog's
 ``binary_loader`` is a deliberate lazy import, and a lazy edge is still an
 edge.  A ``__getattr__`` loader that names its target as a string is not seen;
 the packages that have one list their own submodule in the entry below.
+
+**A library does not import a command.**  A module that builds a Typer app or
+defines ``main_entry`` is a command, and a module that does neither is a
+library.  A library reaching into a command inherits that command's console
+surface, so the logic the two share belongs in a module the command imports
+rather than the other way round: ``coverage_toml`` reads the normalizers from
+``coverage_db`` and never from ``build_db``, which is now only the command.  A
+command is detected from the tree (a ``main_entry`` or an ``app = typer.Typer``
+assignment) rather than from a list, so registering a console script is what
+makes a module a command and a second inventory cannot drift from
+``pyproject.toml``.  This rule reads every import that runs, function bodies
+included, and skips ``if TYPE_CHECKING:`` blocks: ``errors`` re-exports the
+command modules' exception types for a type checker, which loads nothing.
+``DEFERRED_LIBRARY_COMMAND_EDGES`` names the two edges the tree still has, each with
+the split that would remove it; a third is a violation.
 
 Run from the repo root::
 
@@ -269,6 +283,96 @@ def _package_externals(
     return violations
 
 
+def _all_runtime_imports(tree: ast.Module) -> Iterator[ast.Import | ast.ImportFrom]:
+    """Yield every import that runs, lazy ones inside function bodies included.
+
+    ``if TYPE_CHECKING:`` blocks are skipped for the reason
+    :func:`_module_scope_imports` gives: a type-only re-export never executes,
+    so it cannot make one module depend on another at run time.
+    """
+    stack: list[list[ast.stmt]] = [list(tree.body)]
+    while stack:
+        for node in stack.pop():
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                yield node
+            elif isinstance(node, (ast.If, ast.Try, ast.ClassDef, ast.FunctionDef, ast.With)):
+                if (
+                    isinstance(node, ast.If)
+                    and isinstance(node.test, ast.Name)
+                    and node.test.id == "TYPE_CHECKING"
+                ):
+                    continue
+                if isinstance(node, ast.FunctionDef) and node.name == "main_entry":
+                    continue
+                stack.append(list(node.body))
+                stack.append(list(getattr(node, "orelse", [])))
+                for handler in getattr(node, "handlers", []):
+                    stack.append(list(handler.body))
+                stack.append(list(getattr(node, "finalbody", [])))
+
+
+def _is_command_module(tree: ast.Module) -> bool:
+    """Whether *tree* builds a command: a ``main_entry`` or a ``typer.Typer`` app.
+
+    Derived from the tree rather than listed, so registering a console script
+    or a ``builtins`` plugin is what makes a module a command, not a second
+    inventory that can drift from ``pyproject.toml``.
+    """
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == "main_entry":
+            return True
+        if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call):
+            func = node.value.func
+            if getattr(func, "attr", getattr(func, "id", "")) != "Typer":
+                continue
+            if any(isinstance(t, ast.Name) and t.id == "app" for t in node.targets) or any(
+                isinstance(t, ast.Attribute) and t.attr == "app" for t in node.targets
+            ):
+                return True
+    return False
+
+
+#: Library modules reaching a command for a name the command does not own, one
+#: edge each, named so the debt is visible rather than implied by a wildcard.
+#: ``match_ga`` and ``match_run`` need ``near_diag.analyze`` and
+#: ``near_diag.MUTATION_SUGGESTIONS``, which are library, but they live in the
+#: same file as the ``near-diag`` command.  The fix is to split that file; until
+#: then the edges are here, and deleting a line is the whole of the ratchet.
+DEFERRED_LIBRARY_COMMAND_EDGES: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("rebrew.match_ga", "rebrew.near_diag"),
+        ("rebrew.match_run", "rebrew.near_diag"),
+    }
+)
+
+
+def _library_imports_command(
+    module: str, path: Path, is_package: bool, known: set[str], commands: set[str]
+) -> list[Violation]:
+    """Imports from a module with no command of its own into one that has one.
+
+    Every import counts, lazy ones included, for the reason
+    :func:`_package_externals` gives.  A library that reaches into a command
+    inherits that command's console-script surface, so the shared logic has to
+    live somewhere the command can import rather than the other way round; that
+    is why ``coverage_toml`` reads ``coverage_db`` and not ``build_db``.
+    """
+    if module in commands:
+        return []
+    tree = ast.parse(path.read_bytes(), filename=str(path))
+    violations: list[Violation] = []
+    for node in _all_runtime_imports(tree):
+        if not isinstance(node, (ast.Import, ast.ImportFrom)):
+            continue
+        for target in _rebrew_targets(module, is_package, node, known):
+            if target not in commands or target == module:
+                continue
+            if (module, target) in DEFERRED_LIBRARY_COMMAND_EDGES:
+                continue
+            violations.append(Violation(module, "library imports a command", target, node.lineno))
+    return violations
+
+
 def check_layering(root: str) -> list[Violation]:
     """Return every import-direction violation under *root*.
 
@@ -276,14 +380,24 @@ def check_layering(root: str) -> list[Violation]:
     """
     root = os.path.normpath(root)
     known = {name for name, _, _ in _walk_modules(root)}
-    violations: list[Violation] = []
-    for module, path, is_package in _walk_modules(root):
+    commands = set()
+    trees: dict[str, ast.Module] = {}
+    for module, path, _ in _walk_modules(root):
         try:
             tree = ast.parse(path.read_bytes(), filename=str(path))
         except SyntaxError:
             continue
+        trees[module] = tree
+        if _is_command_module(tree):
+            commands.add(module)
+
+    violations: list[Violation] = []
+    for module, path, is_package in _walk_modules(root):
+        parsed = trees.get(module)
+        if parsed is None:
+            continue
         is_leaf = module in LEAF_MODULES
-        for node in _module_scope_imports(tree):
+        for node in _module_scope_imports(parsed):
             for target in _rebrew_targets(module, is_package, node, known):
                 if target == module:
                     continue
@@ -294,6 +408,7 @@ def check_layering(root: str) -> list[Violation]:
                         Violation(module, "composition-layer import", target, node.lineno)
                     )
         violations.extend(_package_externals(module, path, is_package, known))
+        violations.extend(_library_imports_command(module, path, is_package, known, commands))
     return sorted(violations, key=lambda v: (v.module, v.line, v.target))
 
 

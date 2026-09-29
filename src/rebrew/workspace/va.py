@@ -20,7 +20,7 @@ def parse_va_candidates(raw: str) -> list[int]:
     are ``0x``-prefixed or contain ``a-f`` (bare hex valid).  All-digit strings
     are read DECIMAL first, with a bare-hex fallback for legacy callers.
     Candidates beyond the signed-64-bit range are dropped, matching what
-    :data:`rebrew.build_db._SQLITE_INT_MAX` accepts as a storable va.
+    :data:`rebrew.coverage_db._SQLITE_INT_MAX` accepts as a storable va.
     Negatives stay candidates so section-bounds classification can report
     "before section start".
     """

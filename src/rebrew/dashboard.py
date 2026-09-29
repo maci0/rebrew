@@ -206,9 +206,9 @@ from rich.markup import escape
 
 from rebrew import theme
 from rebrew.annotation import FUNCTION_MARKERS
-from rebrew.build_db import resolve_db_dir
 from rebrew.cli import console, error_exit, json_print
 from rebrew.compression import precompress
+from rebrew.coverage_db import resolve_db_dir
 from rebrew.coverage_toml import (
     CoverageSnapshot,
     CoverageTomlError,

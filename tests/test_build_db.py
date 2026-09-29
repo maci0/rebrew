@@ -26,7 +26,8 @@ from typing import Any
 import pytest
 from typer.testing import CliRunner
 
-from rebrew.build_db import _KNOWN_CELL_STATES, app
+from rebrew.build_db import app
+from rebrew.coverage_db import _KNOWN_CELL_STATES
 
 # ---------------------------------------------------------------------------
 # Fixtures

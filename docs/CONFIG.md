@@ -659,7 +659,7 @@ All tools read from `rebrew-project.toml`. Key tools and the config values they 
 | `doctor.py` | `target_binary`, `reversed_dir`, `bin_dir`, compiler paths, `arch`, `binary_format` |
 | `flirt.py` | `target_binary`, `root` |
 | `crt_match.py` | `crt_sources`, `reversed_dir`, `source_ext`, `root` |
-| `build_db.py` | `root`, `db_dir` |
+| `coverage_db.py` | `root`, `db_dir` |
 | `cache_cli.py` | `root` (cache directory location) |
 | `cfg.py` | `rebrew-project.toml` (tomlkit read/write) |
 | `split.py` | `marker`, `source_ext`, `reversed_dir` |

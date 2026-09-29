@@ -172,6 +172,82 @@ class TestPackageExternals:
         assert cl.check_layering("src/rebrew") == []
 
 
+class TestLibraryDoesNotImportCommand:
+    """A module with no Typer app of its own may not import one that has."""
+
+    _COMMAND = (
+        "import typer\napp = typer.Typer()\ndef main_entry() -> None:\n    pass\n"
+        "def resolve() -> int:\n    return 1\n"
+    )
+    _LIBRARY = "def resolve() -> int:\n    return 1\n"
+
+    @staticmethod
+    def _write(root: Path, rel: str, content: str) -> None:
+        path = root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+
+    def test_library_importing_a_command_is_reported(self, tmp_path: Path) -> None:
+        pkg = tmp_path / "src" / "rebrew"
+        self._write(pkg, "build_db.py", self._COMMAND)
+        self._write(pkg, "coverage_db.py", self._LIBRARY)
+        self._write(pkg, "coverage_toml.py", "from rebrew.build_db import resolve\n")
+        assert [(v.module, v.rule, v.target) for v in cl.check_layering(str(pkg))] == [
+            ("rebrew.coverage_toml", "library imports a command", "rebrew.build_db")
+        ]
+
+    def test_library_may_import_a_library(self, tmp_path: Path) -> None:
+        pkg = tmp_path / "src" / "rebrew"
+        self._write(pkg, "build_db.py", self._COMMAND)
+        self._write(pkg, "coverage_db.py", self._LIBRARY)
+        self._write(pkg, "coverage_toml.py", "from rebrew.coverage_db import resolve\n")
+        assert cl.check_layering(str(pkg)) == []
+
+    def test_a_command_may_import_another_command(self, tmp_path: Path) -> None:
+        pkg = tmp_path / "src" / "rebrew"
+        self._write(pkg, "build_db.py", self._COMMAND)
+        self._write(
+            pkg,
+            "rebrew_cli.py",
+            "import typer\napp = typer.Typer()\nfrom rebrew.build_db import resolve\n"
+            "def main_entry() -> None:\n    pass\n",
+        )
+        assert cl.check_layering(str(pkg)) == []
+
+    def test_lazy_library_import_of_a_command_is_reported(self, tmp_path: Path) -> None:
+        pkg = tmp_path / "src" / "rebrew"
+        self._write(pkg, "build_db.py", self._COMMAND)
+        self._write(
+            pkg,
+            "match_run.py",
+            "def run() -> int:\n    from rebrew.build_db import resolve\n    return resolve()\n",
+        )
+        assert [(v.rule, v.target) for v in cl.check_layering(str(pkg))] == [
+            ("library imports a command", "rebrew.build_db")
+        ]
+
+    def test_type_checking_re_export_of_a_command_is_allowed(self, tmp_path: Path) -> None:
+        pkg = tmp_path / "src" / "rebrew"
+        self._write(pkg, "build_db.py", self._COMMAND)
+        self._write(
+            pkg,
+            "errors.py",
+            "from typing import TYPE_CHECKING\n"
+            "if TYPE_CHECKING:\n    from rebrew.build_db import BuildDbError as BuildDbError\n",
+        )
+        assert cl.check_layering(str(pkg)) == []
+
+    def test_the_real_tree_has_only_the_two_named_edges(self) -> None:
+        tree = {name for name, _, _ in cl._walk_modules("src/rebrew")}
+        commands = set()
+        for module, path, _ in cl._walk_modules("src/rebrew"):
+            if cl._is_command_module(ast.parse(path.read_bytes())):
+                commands.add(module)
+        for module, target in cl.DEFERRED_LIBRARY_COMMAND_EDGES:
+            assert module in tree and target in commands
+            assert module not in commands, "a deferred edge's source gained a command"
+
+
 class TestPackageExternalsStayDocumented:
     """The allowlist is transcribed from each package's AGENTS.md; keep them in step."""
 

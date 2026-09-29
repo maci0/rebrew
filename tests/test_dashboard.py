@@ -28,7 +28,7 @@ import pytest
 from typer.testing import CliRunner
 
 from rebrew import dashboard as dashboard_module
-from rebrew.build_db import build_db
+from rebrew.coverage_db import build_db
 from rebrew.coverage_toml import CoverageSnapshot, CoverageTomlError
 from rebrew.dashboard import (
     _APP_JS,

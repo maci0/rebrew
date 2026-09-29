@@ -248,7 +248,7 @@ given it.
 
 The storable vocabulary is derived, not hand-listed: `KNOWN_STATUSES` lowercased,
 unioned with the gap/label states and the data-metadata verdicts
-(`_KNOWN_CELL_STATES` in `build_db.py`).  Adding an annotation `STATUS` therefore
+(`_KNOWN_CELL_STATES` in `coverage_db.py`).  Adding an annotation `STATUS` therefore
 widens the set without a format change.  The table below is the full set;
 `tests/test_build_db.py::TestCellStateVocabulary` fails if it and the code drift
 apart.
