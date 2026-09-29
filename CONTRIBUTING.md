@@ -210,7 +210,13 @@ says nothing about where the import goes now.
   line, because argv is world-readable through the process table:
   `export UV_PUBLISH_TOKEN=...` from the password manager, or configure
   trusted publishing on the project and pass
-  `--trusted-publishing always` with no token at all.  A version already on
+  `--trusted-publishing always` with no token at all.  The same command uploads
+  a PEP 740 attestation beside the files and prints its URL: that attestation
+  is the only record that the bytes on the index came from a trusted publisher
+  rather than from whoever answered the request.  There is no flag to ask for
+  it, and `UV_PUBLISH_NO_ATTESTATIONS` is the only way to turn it off, so
+  `make release-check` fails on a uv too old to attest and on a shell carrying
+  that variable.  A version already on
   PyPI is immutable: if a release is wrong, cut the next patch rather than
   re-uploading.
 - **Verify the artifact, not just the tree.**  Run `make smoke-wheel` against

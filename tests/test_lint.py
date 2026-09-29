@@ -3125,6 +3125,36 @@ class TestW036StrayMetadataStore:
         (build / "rebrew-data.toml").write_text("format = 1\n", encoding="utf-8")
         assert self._warnings(tmp_path) == ""
 
+    def test_a_store_in_the_configured_directory_is_silent(self, tmp_path: Path) -> None:
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "rebrew-data.toml").write_text("format = 1\n", encoding="utf-8")
+        (src / "rebrew-functions.toml").write_text("format = 1\n", encoding="utf-8")
+        assert self._warnings(tmp_path, metadata_dir=src, reversed_dir=src) == ""
+
+    def test_a_stray_store_names_its_directory(self, tmp_path: Path) -> None:
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "rebrew-data.toml").write_text("format = 1\n", encoding="utf-8")
+        (tmp_path / "rebrew-data.toml").write_text("format = 1\n", encoding="utf-8")
+        message = self._warnings(tmp_path, metadata_dir=src, reversed_dir=src)
+        assert "outside the configured directory" in message
+        assert str(tmp_path) in message
+
+    def test_a_store_under_an_ignored_directory_is_skipped(self, tmp_path: Path) -> None:
+        src = tmp_path / "src"
+        src.mkdir()
+        scratch = tmp_path / ".scratch"
+        scratch.mkdir()
+        (scratch / "rebrew-data.toml").write_text("format = 1\n", encoding="utf-8")
+        assert self._warnings(tmp_path, metadata_dir=src, reversed_dir=src) == ""
+
+    def test_other_toml_files_are_not_stores(self, tmp_path: Path) -> None:
+        src = tmp_path / "src"
+        src.mkdir()
+        (tmp_path / "rebrew-project.toml").write_text("[project]\n", encoding="utf-8")
+        assert self._warnings(tmp_path, metadata_dir=src, reversed_dir=src) == ""
+
 
 class TestW032OldJsonStores:
     """A store that moved from JSON to TOML is named, not silently ignored."""

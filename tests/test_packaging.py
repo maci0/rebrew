@@ -1458,6 +1458,11 @@ class TestReleaseCheck:
         monkeypatch.setattr(release_check, "CHANGELOG", tmp_path / "CHANGELOG.md")
         monkeypatch.setattr(release_check, "_package_version", lambda: version)
         monkeypatch.setattr(release_check, "_last_tag", lambda: "v1.2.2")
+        # The upload-toolchain check reads the ambient uv and environment, so a
+        # host with a different uv (or an exported off-switch) would fail these
+        # changelog cases for a reason that has nothing to do with them.
+        monkeypatch.delenv(release_check.NO_ATTESTATIONS_ENV, raising=False)
+        monkeypatch.setattr(release_check, "_uv_publish_help", lambda: "      --no-attestations\n")
         return release_check.main()
 
     def test_clean_release_passes(self, tmp_path: Path, monkeypatch: Any) -> None:
@@ -1534,3 +1539,43 @@ class TestReleaseCheck:
         """
         text = "## [1.2.2] - 2026-01-01\n\n### Changed\n- **Breaking:** gone.\n"
         assert release_check._bump_problems("1.2.2", "v1.2.2", text) == []
+
+
+class TestReleaseCheckAttestations:
+    """The upload's PEP 740 attestation is a property of the toolchain.
+
+    ``uv publish`` attests by default and exposes no flag to ask for it, so
+    nothing in the tree records whether the release that actually ships is
+    verifiable. A uv too old to attest, or a shell carrying the off-switch,
+    would publish once and say nothing.
+    """
+
+    def test_able_uv_passes(self, monkeypatch: Any) -> None:
+        monkeypatch.delenv(release_check.NO_ATTESTATIONS_ENV, raising=False)
+        monkeypatch.setattr(release_check, "_uv_publish_help", lambda: "      --no-attestations\n")
+        assert release_check._attestation_problems() == []
+
+    def test_uv_without_attestations_fails(self, monkeypatch: Any) -> None:
+        monkeypatch.delenv(release_check.NO_ATTESTATIONS_ENV, raising=False)
+        monkeypatch.setattr(release_check, "_uv_publish_help", lambda: "Usage: uv publish\n")
+        problems = release_check._attestation_problems()
+        assert len(problems) == 1
+        assert "PEP 740" in problems[0]
+
+    def test_missing_uv_fails(self, monkeypatch: Any) -> None:
+        monkeypatch.delenv(release_check.NO_ATTESTATIONS_ENV, raising=False)
+        monkeypatch.setattr(release_check, "_uv_publish_help", lambda: None)
+        assert release_check._attestation_problems()
+
+    def test_off_switch_in_the_environment_fails(self, monkeypatch: Any) -> None:
+        monkeypatch.setenv(release_check.NO_ATTESTATIONS_ENV, "1")
+        monkeypatch.setattr(release_check, "_uv_publish_help", lambda: "      --no-attestations\n")
+        problems = release_check._attestation_problems()
+        assert len(problems) == 1
+        assert release_check.NO_ATTESTATIONS_ENV in problems[0]
+
+    def test_real_uv_on_path_can_attest(self) -> None:
+        """The check is only useful if the pinned uv is what it holds itself to."""
+        if release_check._uv_publish_help() is None:
+            pytest.skip("uv is not on PATH")
+        assert release_check._attestation_problems() == []

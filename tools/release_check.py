@@ -5,9 +5,10 @@ that is bumped only on a release commit means wiring this into CI would fail
 every other push.  ``make release-check`` runs it before the tag is cut, so a
 release whose ``__version__`` is not past the last tag, whose working tree is
 dirty, whose changelog notes are split across ``[Unreleased]`` and
-``[<version>]``, or whose bump is a patch while the dated section carries a
-``**Breaking:**`` entry, fails with a named reason instead of shipping
-half-documented.
+``[<version>]``, whose bump is a patch while the dated section carries a
+``**Breaking:**`` entry, or whose upload toolchain would publish without a
+PEP 740 attestation, fails with a named reason instead of shipping
+half-documented or unverifiable files.
 
 The checks live here rather than in the Makefile recipe because the version
 comes out of the package: a shell recipe had to read it with ``python -c``,
@@ -23,6 +24,7 @@ Exits 0 when the tree is ready to tag, 1 with every problem it found otherwise.
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import sys
@@ -31,6 +33,10 @@ from pathlib import Path
 CHANGELOG = Path("CHANGELOG.md")
 
 _NO_TAG = "v0.0.0"
+
+# The only switch that turns PEP 740 attestations off in `uv publish`; there is
+# no `--attestations` flag to add, so the env var is the whole off-switch.
+NO_ATTESTATIONS_ENV = "UV_PUBLISH_NO_ATTESTATIONS"
 
 
 def _package_version() -> str:
@@ -158,6 +164,57 @@ def _bump_problems(version: str, last: str, text: str) -> list[str]:
     return problems
 
 
+def _uv_publish_help() -> str | None:
+    """Return ``uv publish --help`` output, or None when uv cannot answer.
+
+    Local help only: it touches no network and publishes nothing.  None
+    covers both an absent uv (the preflight already requires one) and a uv
+    that fails the call.
+    """
+    try:
+        result = subprocess.run(
+            ["uv", "publish", "--help"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+        )
+    except OSError:
+        return None
+    if result.returncode != 0:
+        return None
+    return result.stdout
+
+
+def _attestation_problems() -> list[str]:
+    """Return why the upload would carry no PEP 740 attestation.
+
+    ``uv publish`` uploads an attestation by default and prints its URL, so
+    whether the release ships verifiable files is a property of the uv that
+    runs the command rather than anything in the tree.  Nothing else records
+    it, and a release publishes exactly once, so a uv too old to attest (or a
+    shell with the off-switch exported) would upload files whose origin no
+    consumer can check, with nothing after the fact to say so.
+    """
+    problems: list[str] = []
+    if os.environ.get(NO_ATTESTATIONS_ENV):
+        problems.append(
+            f"{NO_ATTESTATIONS_ENV} is set, so uv publish would upload the files "
+            "without a PEP 740 attestation (unset it before releasing)"
+        )
+    help_text = _uv_publish_help()
+    if help_text is None:
+        problems.append("`uv publish --help` did not run, so the upload cannot be attested")
+    elif "attestation" not in help_text:
+        problems.append(
+            "the uv on PATH cannot upload PEP 740 attestations, so the release "
+            "would publish files nothing can trace to its build (use the pinned "
+            "uv from Makefile UV_VERSION)"
+        )
+    return problems
+
+
 def main() -> int:
     """Print every reason the tree is not ready to tag, or confirm it is."""
     version = _package_version()
@@ -179,6 +236,7 @@ def main() -> int:
 
     problems += _problems(version, _changelog())
     problems += _bump_problems(version, last, _changelog())
+    problems += _attestation_problems()
 
     if problems:
         for problem in problems:

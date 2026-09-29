@@ -8,6 +8,12 @@
   otherwise. Warn-only, since a stray copy is not a defect by itself.
 
 ### Fixed
+- **Four W036 lint tests never ran.** `tests/test_lint.py` held two classes
+  named `TestW036StrayMetadataStore`, so the first was shadowed at collection:
+  its cases (a store inside the configured directory, a stray one naming its
+  directory, an ignored tree, a non-store TOML) were folded into the class
+  that actually collected, and the duplicate helper went with them. `make
+  lint` had been failing on the redefinition.
 - **The CI host helpers named the wrong cause when a tool was missing.**
   `tools/ci_apt_install.sh` retried `apt-get` on a host that has none and
   `tools/ci_clone_resembl.sh` retried `git`, so a missing binary burned the
@@ -17,6 +23,12 @@
   until its timeout instead of reporting that sudo wants one.
 
 ### Changed
+- **The release preflight checks the upload's provenance.**
+  `uv publish` uploads a PEP 740 attestation by default and has no flag to ask
+  for one, so whether a release ships verifiable files depended entirely on
+  the uv that happened to be on PATH. `make release-check` now fails on a uv
+  too old to attest and on a shell with `UV_PUBLISH_NO_ATTESTATIONS` set, and
+  `CONTRIBUTING.md` names both next to the upload command.
 - **The contributor pin on the sibling resembl checkout is the rewritten
   `v3.1.1` commit.**  `RESEMBL_REF` / `RESEMBL_SHA` and the `uv-env` action
   default moved together, so `make setup` still accepts a `../resembl` at

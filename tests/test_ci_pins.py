@@ -22,7 +22,7 @@ from pathlib import Path
 
 import pytest
 
-from tools import require_extras
+from tools import release_check, require_extras
 
 ROOT = Path(__file__).resolve().parents[1]
 CI_YML = ROOT / ".github" / "workflows" / "ci.yml"
@@ -1367,6 +1367,14 @@ class TestCiPins:
             "dist/rebrew-*.tar.gz" in cmd and "dist/rebrew-*.whl" in cmd for cmd in commands
         ), f"the upload must name both distributions, not the dist/* default: {commands}"
         assert "UV_PUBLISH_TOKEN" in bullet
+        # The attestation rides on the same command and has no flag: it is
+        # uv's default, and `UV_PUBLISH_NO_ATTESTATIONS` is the only way off.
+        # A release uploads once, so the bullet that names the off-switch is
+        # what keeps the next maintainer from exporting it and shipping files
+        # whose origin nothing records.
+        assert "PEP 740 attestation" in bullet
+        assert release_check.NO_ATTESTATIONS_ENV in bullet
+
         # The upload carries the bytes CI verified. Publishing from a fresh
         # local `make build` ships a wheel no gate ran: not the reproducible
         # rebuild, not the sdist member diff, not the clean-venv smoke import.

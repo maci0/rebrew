@@ -66,8 +66,11 @@ never workflow-level `env`: in `ci.yml` it reaches only the resembl clone
 step through the composite action's `github-token` input, and in
 `.github/workflows/toolchain-sync.yml` it reaches the resembl clone step and
 the nightly `check-updates` run. That workflow runs nightly and reports
-toolchain pin drift without applying it. There is no publish step and no
-artifact signing in this repository.
+toolchain pin drift without applying it. There is no publish step in this
+repository: the PyPI upload is a manual `uv publish` from a `dist/` the package
+job verified, so a release is not attributable to a workflow run. That command
+does upload a PEP 740 attestation beside the files, which names the publisher
+who uploaded them, not this repository; nothing in CI signs artifacts.
 
 The packaged compile-cache backends refuse pickle deserialize
 (`NoPickleDisk` in `src/rebrew/compile_cache.py`); that does not attest
