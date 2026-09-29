@@ -104,7 +104,7 @@ shapes differ).  So our SP rows are the codegen equivalents of their
   stock 6.0 cannot (a unique era marker for SSE-capable 6.0).
 - **`msvc8.0p` = "8.0 (Patched)"**: a patched snapshot of VC 8.0
   (VS2005, cl 14.00.50727) from the `widberg/msvc8.0` preservation
-  repo: two different git commits: `msvc8.0` = `d6c4aa2`, `msvc8.0p`
+  repo, two different git commits: `msvc8.0` = `d6c4aa2`, `msvc8.0p`
   = `52c8293`.
 - Both are defined identically in `site/backend/coreapp/compilers.py`
   (`MSVCCompiler(id=…, cc=CL_WIN)`); the variant identity lives in the
@@ -167,7 +167,7 @@ compiler fleet): same scrape session, 2026-08-24.
 ## What "snippets" are
 
 decomp.me has no `/api/snippets` endpoint.  The snippet data lives in
-the **scratch** API (`/api/scratch`): one record per scratchpad: a
+the **scratch** API (`/api/scratch`): one record per scratchpad, holding a
 user's C/C++ `source_code`, the `compiler` id, `compiler_flags`,
 `platform`, a `target_assembly`, and a match `score`/`max_score`.
 Exactly the data a codegen corpus wants: real code × real compilers ×

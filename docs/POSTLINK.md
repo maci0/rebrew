@@ -149,9 +149,9 @@ Postlink fixes placement the linker stamps, but the link itself must already
 be close: objects in original order, functions at their reference VAs, TU
 splits matching the original build. Five commands close that loop:
 
-1. `rebrew layout-map`: measure the reference: section geometry, .text
+1. `rebrew layout-map`: measures the reference (section geometry, .text
    gap/alignment histograms, .reloc density, IAT slot order, exports,
-   toolchain guess. The diagnostic starting point when layout diverges.
+   toolchain guess). The diagnostic starting point when layout diverges.
 2. `rebrew link-order [--apply] [--check]`: enforce VA-ordered sources
    into `CMakeLists.txt` SOURCES (`--check` is the CI drift gate). MSVC6
    LINK emits objects in command-line order, so this fixes function order

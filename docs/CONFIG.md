@@ -2,7 +2,7 @@
 
 All tools read project settings from **`rebrew-project.toml`** via the config loader. This eliminates hardcoded paths and makes the toolchain portable to different targets.
 
-> **Core Principle: Idempotency.** Every rebrew tool can be run repeatedly with the same result. No destructive side effects: safe to retry, re-run, or chain in scripts and AI agent loops.
+> **Core Principle: Idempotency.** Every rebrew tool can be run repeatedly with the same result. No destructive side effects, so it is safe to retry, re-run, or chain in scripts and AI agent loops.
 
 ## `rebrew-project.toml` (Project Root)
 

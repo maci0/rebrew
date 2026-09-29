@@ -140,7 +140,7 @@ exit is 120, and click's is 1; `run_cli` overrides both.
 | `rebrew status` | `status.py` | At-a-glance reversing progress overview (per-module coverage, status ladder counts) |
 | `rebrew similar` | `similar.py` | Find structurally similar functions in the target binary (clone detection) |
 | `rebrew binary-similarity` | `binary_similarity.py` | Whole-binary structural similarity vs another binary: per-function best matches aggregated into a byte-weighted score (versions/DLL+EXE) |
-| `rebrew near-diag` | `near_diag.py` | Classify why a `NEAR_MATCHING` function does not byte-match: categories: register / encoding / equivalent / reloc / structural, plus the `EFFECTIVE` verdict, reccmp-adapted equivalences (mirrored conditional jumps) and unique-byte pinning of the alignment when the entire delta is register allocation (reccmp's 100% effective-match case); JSON carries a `frame` stack-comparison field; `--fix-blocker` auto-writes BLOCKER |
+| `rebrew near-diag` | `near_diag.py` | Classify why a `NEAR_MATCHING` function does not byte-match (register, encoding, equivalent, reloc or structural), plus the `EFFECTIVE` verdict, reccmp-adapted equivalences (mirrored conditional jumps) and unique-byte pinning of the alignment when the entire delta is register allocation (reccmp's 100% effective-match case); JSON carries a `frame` stack-comparison field; `--fix-blocker` auto-writes BLOCKER |
 | `rebrew gap-trace` | `gap_trace.py` | Trace length-gap drift between object and reference instruction streams: running our-minus-reference offset per equal block, exposing LENGTH hypotheses (short COMDAT, early jump table) that flat scores hide; window defaults to the real body (next VA); `--json` |
 | `rebrew drift` | `drift_cli.py` | Localise where compiled bytes drift from the reference, from branch targets; `--json` |
 | `rebrew climb` | `climb.py` | Deterministic single-statement hill-climb for one function (`--passes`, `--dry-run`, `--json`) |
@@ -1810,7 +1810,7 @@ A destination inventory entry can merge two functions (discovery joins them acro
 
 For the "keep the same `.c` for multiple target versions" workflow (binary versions, or a DLL+EXE pair sharing code), rebrew follows the isledecomp/LEGO Island model:
 
-- **`[project] shared_dir`** (default `src/shared`, empty string disables): a project-level source root scanned for **every** target. One shared file can carry one marker per target: the same function at a different VA in each version:
+- **`[project] shared_dir`** (default `src/shared`, empty string disables): a project-level source root scanned for **every** target. One shared file can carry one marker per target, the same function at a different VA in each version:
   ```c
   // FUNCTION: V1 0x401000
   // FUNCTION: V2 0x501000
@@ -2063,7 +2063,7 @@ allocation), `encoding` (same instruction and registers, different opcode),
 `lea` vs `mov`, a mirrored conditional jump after a flipped `cmp` operand
 order), `reloc` (relocation-masked site), or `structural` (different
 layout/block order). When the *entire* delta is register allocation the
-verdict is `EFFECTIVE`: reccmp's 100% effective-match case: the same
+verdict is `EFFECTIVE` (reccmp's 100% effective-match case): the same
 instructions with different registers, not byte-identical, so `rebrew prove`
 (PROVEN) or register-nudging C tweaks are the paths forward. The verdict
 suggests whether the delta is likely solvable via C-level changes, and lists
@@ -2175,7 +2175,7 @@ so rebrew can byte-match it: the DecBench fairness pass:
   specifiers, leading `*` casts. String, character and macro text is left
   byte-for-byte alone, so a literal that happens to spell a pseudo-type
   survives.
-- **inject**: from compiler errors: missing typedefs for undeclared type
+- **inject**: adds what compiler errors ask for, missing typedefs for undeclared type
   names and prototypes for implicitly-declared functions, never redefining
   what the source declared.
 

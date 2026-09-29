@@ -8,9 +8,9 @@ pinned docker image).
 
 - **`AGENTS.md`**: the authoritative guide to layout, conventions, build &
   test commands, code style, and architectural rules.
-- **`docs/DEVELOPMENT.md`**: hard-won practical knowledge: test conventions,
+- **`docs/DEVELOPMENT.md`**: hard-won practical knowledge (test conventions,
   Typer/CliRunner quirks, metadata/tomlkit gotchas, import patterns, and
-  toolchain-dependent test guidance.
+  toolchain-dependent test guidance).
 - **`docs/ARCHITECTURE.md`**: high-level data flow (diagram) and module map;
   read this first to see how the pieces fit together.
 - **`docs/CLI.md`**: the full CLI surface.

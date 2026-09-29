@@ -140,7 +140,7 @@ at 7/20/30 (chkstk, intra-module call, global disp16).  The 0x8C/0xB2
 records are structural (identical across objects); the e8/e9 scan is the
 reliable reloc source.
 
-## Update 2026-08-11 (2): /O-optimized dialect: record layout differs
+## Update 2026-08-11 (2): record layout differs in the /O-optimized dialect
 
 CL 1.52 compiled with **any /O flag** (the GA flag sweep's default, and
 the init profile's default `cflags: /O1`) emits a *different* dialect than

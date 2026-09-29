@@ -8,9 +8,9 @@ covers the external tools rebrew interoperates with, chiefly
 [reccmp](https://github.com/isledecomp/reccmp) and
 [BinSync](https://github.com/binsync/binsync).
 
-> **Scope**: this document covers the *between-repo* architecture: what
+> **Scope**: this document covers the *between-repo* architecture (what
 > each project is, what it depends on, and how data flows across the
-> boundary. For rebrew's internal module map and data flow, see
+> boundary). For rebrew's internal module map and data flow, see
 > [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Component map
@@ -392,12 +392,12 @@ binary being decompiled.
 
 ## Further reading
 
-- [ARCHITECTURE.md](ARCHITECTURE.md): rebrew internals: module map, compile
-  loop, metadata routing rules
-- [architecture.drawio](architecture.drawio): diagrams.net: ecosystem,
+- [ARCHITECTURE.md](ARCHITECTURE.md): rebrew internals (module map, compile
+  loop, metadata routing rules)
+- [architecture.drawio](architecture.drawio): the same map in diagrams.net (ecosystem,
   compile loop, toolchains, FLIRT/resembl/GA, reverse data flows,
   config/store tiers, data/globals/layout, LLM training export,
-  AI-decomp research landscape
+  AI-decomp research landscape)
 - [TOOLCHAIN.md](TOOLCHAIN.md): the toolchain zoo and image provenance
 - [COVERAGE_DOCUMENT.md](COVERAGE_DOCUMENT.md): the coverage document format shared with
   recovery

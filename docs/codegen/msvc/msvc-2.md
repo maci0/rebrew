@@ -33,7 +33,7 @@ no Rich header (early linkers write none).
 
 ## Integer division
 
-- **Real `div`/`idiv`**: no magic constants: `x/3u` →
+- **Real `div`/`idiv`**, no magic constants: `x/3u` →
   `mov ecx,3` (`b9 03 00 00 00`) · `mov eax,[esp+4]` · **`sub edx,edx`
   (`2b d2`)** · `div ecx` (`f7 f1`).  Signed: `cdq` (`99`) + `idiv ecx`.
 - **`sub edx,edx` to zero the dividend's high half is the VC 2.0/4.x
