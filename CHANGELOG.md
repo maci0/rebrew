@@ -90,6 +90,21 @@
   `verify_cache.json` or `verify_baseline.json` is not read any more and
   `rebrew lint` reports it as a stale artifact (W032).  `.rebrew/` is gitignored
   now, which the docs already claimed.
+  **Breaking:** `verify_cache.BASELINE_FILENAME` is
+  `"verify_baseline.toml"`, and `rebrew.verify_cache` no longer re-exports
+  `read_json_text`; import it from `rebrew.utils`.
+- **Breaking:** `generate_data_json` is renamed `build_coverage_data` in
+  `rebrew.catalog`, `rebrew.catalog.grid` and `rebrew.catalog.pipeline`; the
+  signature is unchanged.
+- **Breaking:** `rebrew.match_ga` and `rebrew.match_sweep` no longer re-export
+  `build_candidate` / `build_candidate_obj_only`; import them from
+  `rebrew.matcher.compiler`, the one compile seam both lanes now call through.
+- **Breaking:** the IAT mask is a `frozenset[int]`, built once and shared
+  instead of copied per function. `binary_loader.iat_slot_vas` and
+  `build_iat_region` (`rebrew.coff_reloc`, re-exported by `compile`, `prove`,
+  `test` and `match_sweep`) return `frozenset[int]`, and `smart_reloc_compare`'s
+  `iat_region` parameter is typed `frozenset[int] | None`. A caller that
+  mutated the returned set copies it first.
 - **The SBOM's attribution set covers the grants its own detector could not
   see.** `_COPYLEFT_FAMILIES` matched copyleft families only, so `lmdb` 2.1.1
   (`OLDAP-2.8`, an attribution grant the `prove` extra pulls in through angr)
