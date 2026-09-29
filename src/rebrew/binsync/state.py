@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 import re
 import warnings
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -21,7 +22,7 @@ import tomlkit
 
 from rebrew.catalog import build_function_registry, cached_function_list, scan_reversed_dir
 from rebrew.config import ProjectConfig, inventory_path_for
-from rebrew.utils import is_safe_c_ident
+from rebrew.utils import is_safe_c_ident, preset_module_key
 
 log = logging.getLogger(__name__)
 
@@ -399,6 +400,18 @@ def result_rows(result: dict[str, object], key: str) -> list[dict[str, Any]]:
 def result_paths(result: dict[str, object], key: str) -> list[str]:
     """Read a list-of-path-strings field out of an export/import result."""
     return [str(item) for item in _result_list(result, key)]
+
+
+def module_predicate(wanted: str | None) -> Callable[[str], bool]:
+    """Build the ``--module`` row filter for an already-canonical *wanted* name.
+
+    The filter and the stored row meet in
+    :func:`~rebrew.utils.preset_module_key` (NFC, then upper), the spelling every
+    metadata writer emits, so ``--module server`` selects the same rows as
+    ``--module SERVER`` instead of skipping all of them.  ``None`` (no
+    ``--module``) passes every row.
+    """
+    return lambda local_module: wanted is None or preset_module_key(local_module) == wanted
 
 
 def _result_list(result: dict[str, object], key: str) -> list[Any]:

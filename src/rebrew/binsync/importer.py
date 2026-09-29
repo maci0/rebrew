@@ -36,6 +36,7 @@ from rebrew.binsync.state import (
     load_binsync_state,
     load_binsync_structs,
     load_binsync_typedefs,
+    module_predicate,
     result_count,
     result_paths,
     result_rows,
@@ -422,19 +423,8 @@ def import_state(
     applied names/prototypes/globals to or created stubs for, so callers like
     ``rebrew sync --pull --create-functions`` can push them to Ghidra).
     """
-    # Canonical metadata spelling, so `--module server` filters and writes the
-    # same rows as `--module SERVER` instead of skipping every stored row and
-    # then appending a second `server.0x...` table beside `SERVER.0x...`.
     wanted_module = preset_module_key(module) if module else None
-
-    def module_selected(local_module: str) -> bool:
-        """True when *local_module* passes the ``--module`` filter.
-
-        The filter and the stored row meet in :func:`preset_module_key`
-        (NFC, then upper), the spelling every metadata writer emits.  Plain
-        equality skipped every ``SERVER`` row for ``--module server``.
-        """
-        return wanted_module is None or preset_module_key(local_module) == wanted_module
+    module_selected = module_predicate(wanted_module)
 
     funcs_by_va, globals_by_va = load_binsync_state(state_dir)
     structs_by_name = load_binsync_structs(state_dir)

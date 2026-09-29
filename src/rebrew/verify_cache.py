@@ -352,10 +352,6 @@ class VerifyCacheEntry:
         """Reconstruct a VerifyCacheEntry from a JSON dictionary (flat v2 form)."""
         return cls(**{f.name: d[f.name] for f in fields(cls) if f.name in d})
 
-    def to_dict(self) -> dict[str, Any]:
-        """Convert this VerifyCacheEntry to a JSON-serializable dictionary."""
-        return asdict(self)
-
     def result_row(self) -> dict[str, Any]:
         """The report row: verdict fields only, no cache-identity inputs."""
         return order_result_row(asdict(self))

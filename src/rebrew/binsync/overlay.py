@@ -55,6 +55,7 @@ from rebrew.binsync.state import (
     load_binsync_structs,
     load_binsync_typedefs,
     load_manifest,
+    module_predicate,
 )
 from rebrew.cli import (
     EXIT_MISMATCH,
@@ -330,14 +331,8 @@ def overlay_state(
     from rebrew.annotation import update_annotation_key
     from rebrew.metadata import get_entry, update_field
 
-    # The filter meets the stored row in preset_module_key (NFC, then upper),
-    # the spelling every metadata writer emits, so `--module server` overlays
-    # the same rows as `--module SERVER` instead of skipping all of them.
     wanted_module = preset_module_key(module) if module else None
-
-    def module_selected(local_module: str) -> bool:
-        """True when *local_module* passes the ``--module`` filter."""
-        return wanted_module is None or preset_module_key(local_module) == wanted_module
+    module_selected = module_predicate(wanted_module)
 
     src_sigs = _source_signatures(cfg_src, sorted(funcs_by_va))
     dest_sigs = _dest_signatures(cfg)

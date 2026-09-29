@@ -15,7 +15,12 @@ import typer
 from rich.table import Table
 
 from rebrew.binsync.importer import is_meaningful, normalize_prototype, resolve_state_dir
-from rebrew.binsync.state import index_local_and_catalog, load_binsync_state, load_manifest
+from rebrew.binsync.state import (
+    index_local_and_catalog,
+    load_binsync_state,
+    load_manifest,
+    module_predicate,
+)
 from rebrew.cli import (
     EXIT_MISMATCH,
     TargetOption,
@@ -63,14 +68,8 @@ def main(
 
     local_by_va, catalog_sizes = index_local_and_catalog(cfg)
 
-    # The filter meets the stored row in preset_module_key (NFC, then upper),
-    # the spelling every metadata writer emits, so `--module server` reports on
-    # the same rows as `--module SERVER` instead of skipping all of them.
     wanted_module = preset_module_key(module) if module else None
-
-    def module_selected(local_module: str) -> bool:
-        """True when *local_module* passes the ``--module`` filter."""
-        return wanted_module is None or preset_module_key(local_module) == wanted_module
+    module_selected = module_predicate(wanted_module)
 
     divergences: list[dict[str, str]] = []
     new_in_binsync: list[dict[str, str]] = []
