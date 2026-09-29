@@ -867,6 +867,23 @@ class TestCodeSimilarity:
         assert far < close - 30.0
         assert far < 90.0
 
+    def test_score_is_not_quantized_to_one_decimal(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The blended score is returned unrounded.
+
+        The value is persisted (verify cache ``code_similarity``, the coverage
+        document's ``similarity``), and a 1-decimal round lifted 94.96 to 95.0
+        before anything downstream ever saw the real number.  Display formats
+        the value (``Sim %`` is ``:.1f``).
+        """
+        import resembl.scoring
+
+        monkeypatch.setattr(resembl.scoring, "score_hybrid", lambda *a, **k: 94.962, raising=True)
+
+        from rebrew.matcher.scoring import code_similarity
+
+        s = code_similarity(TestCodeSimilarity.FUNC_A, TestCodeSimilarity.FUNC_UNRELATED)
+        assert s == 94.962
+
 
 # -------------------------------------------------------------------------
 # diff_functions: register-aware + reloc offsets (tooling sweep round)

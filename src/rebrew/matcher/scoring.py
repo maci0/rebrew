@@ -1209,4 +1209,8 @@ def code_similarity(
     mb = minhash_from_tokens(code_tokenize(text_b))
     jaccard = minhash_jaccard(minhash_pack(ma), minhash_pack(mb))
     ratio = float(fuzz.ratio(text_a, text_b))
-    return float(round(score_hybrid(float(jaccard), ratio, 0.4), 1))
+    # Unrounded: the score is persisted (verify cache ``code_similarity``, the
+    # coverage document's ``similarity``), and rounding here lifted 94.96 to
+    # 95.0 before anything downstream ever saw it.  Display formats it
+    # (``Sim %`` is ``:.1f``), the same discipline ``similarity_score`` keeps.
+    return float(score_hybrid(float(jaccard), ratio, 0.4))
