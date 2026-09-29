@@ -1078,6 +1078,8 @@ def main(
     install_wibo = option_default(install_wibo, False)
     install_completions = option_default(install_completions, False)
     target_name = option_default(target_name, "main")
+    refresh_agents = option_default(refresh_agents, False)
+    check = option_default(check, False)
 
     # Accept both "original/bench.exe" and "bench.exe" — the config already
     # prefixes binary = "original/<name>", so a user-supplied original/
@@ -1086,8 +1088,6 @@ def main(
     if binary_name.lower().startswith("original/"):
         binary_name = binary_name[len("original/") :]
 
-    refresh_agents = option_default(refresh_agents, False)
-    check = option_default(check, False)
     if refresh_agents or check:
         _refresh_agents(cwd, toml_path, json_output=json_output, check=check)
         return
