@@ -63,7 +63,9 @@ def test_owner_of(tmp_path: Path) -> None:
     assert owner_of(["g_x"], [a, b]) == a
 
 
-def test_unreadable_source_fails_ownership_scan(tmp_path: Path, monkeypatch) -> None:
+def test_unreadable_source_fails_ownership_scan(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """An unreadable TU must fail the scan, not drop out of the reference table.
 
     A skipped file looks unowned, so its globals get emitted into another unit
@@ -78,10 +80,10 @@ def test_unreadable_source_fails_ownership_scan(tmp_path: Path, monkeypatch) -> 
 
     real = read_source_text
 
-    def _boom(path, *args, **kwargs):
-        if Path(path) == b:
+    def _boom(path: Path) -> tuple[str, str]:
+        if path == b:
             raise OSError(f"cannot read {path}")
-        return real(path, *args, **kwargs)
+        return real(path)
 
     monkeypatch.setattr("rebrew.data_layout.read_source_text", _boom)
     with pytest.raises(OSError, match="b.c"):

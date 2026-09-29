@@ -93,7 +93,9 @@ class TestResultFieldReaders:
 
 
 class TestLoadBinsyncState:
-    def test_missing_functions_dir_is_reported(self, tmp_path: Path, caplog) -> None:
+    def test_missing_functions_dir_is_reported(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
         """A state dir with no functions/ reads as empty, which is also the
         "nothing to import" signal; the globals beside it would then never be
         applied with nothing saying why."""

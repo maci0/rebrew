@@ -150,6 +150,9 @@ if TYPE_CHECKING:
     from .solutions import (
         save_solutions as save_solutions,
     )
+    from .solutions import (
+        utc_now_iso as utc_now_iso,
+    )
 
 # (submodule, attribute) — resolved on first attribute access.
 _LAZY_EXPORTS: dict[str, tuple[str, str]] = {

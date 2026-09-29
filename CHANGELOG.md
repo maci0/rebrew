@@ -7,6 +7,36 @@
   enabled that block by hand wrote a table the loader rejects as an
   unrecognized key; the supported per-toolchain table is
   `[targets.<name>.compiler]`, which the template documents instead.
+- **Breaking:** `rebrew.build_db` is now the `rebrew.coverage_db` library; the
+  `rebrew build-db` command kept its name. `COVERAGE_DB_STATUSES`,
+  `DATA_STATUS_DRIFT`, `DATA_STATUS_UNCHECKED`, `DATA_STATUS_VERIFIED`,
+  `DEFAULT_GRID_GEOMETRY`, `HISTORY_RETENTION`, `KNOWN_STATUSES`, `build_db`,
+  `clamp_nonneg_int`, `clamp_unit_interval`, `console`, `db_dir`, `dedupe_by_va`,
+  `dedupe_cell_rows`, `error_exit`, `import_verify_rows`, `json_print`,
+  `load_config`, `load_coverage_datasets`, `normalize_cell_row`, `parse_int`,
+  `positive_int_or` and `resolve_db_dir` moved there, and
+  `coverage_toml.FUNCTION_DB_STATUSES` / `coverage_toml.GLOBAL_DB_STATUSES`
+  re-export from the new module.
+- **Breaking:** `rebrew.near_diag` split the same way: `ALLOWED_JUMP_SWAPS`,
+  `Insn`, `MUTATION_SUGGESTIONS`, `SequenceMatcherWithPins`, `align_and_classify`,
+  `analyze_frame`, `classify_pair`, `compare_frames`, `disasm_insns`, `floor_pct`,
+  `instruction_text`, `is_effective_match`, `jump_swap_ok`, `mutation_suggestions`,
+  `normalized_operands` and `resolve_capstone` are now in
+  `rebrew.near_analysis`, with the command left in `rebrew.near_diag`.
+- **Breaking:** `rebrew.stack_cmp` split the same way: `capstone_handle` and
+  `parse_int_literal` are now in `rebrew.stack_analysis`.
+- **Breaking:** `VerifyCacheEntry.to_dict` is gone from
+  `rebrew.verify_cache`. `VerifyCacheEntry.result_row` returns the report row
+  the way `rebrew verify --json` emits it, without the cache-identity fields;
+  `VerifyCacheEntry.from_dict` still round-trips the full entry.
+- **Breaking:** `analyze.main`, `build_db.main`, `catalog.cli.main`,
+  `dashboard.main`, `refactor.main` and `verify.main` take the shared
+  `RootOption` for `--root`, and `analyze.main` / `layout_map.main` gained the
+  `-o` alias for `--output`. `lib_match.stock_lib_cache` takes the resolved
+  `profile`.
+- **Breaking:** `STATUS_HEX` in `depgraph`, `report` and `status_style` re-tints
+  `NEAR_MATCHING`, `SIZE_MISMATCH` and `UNKNOWN`; the constant name and every
+  other key are unchanged.
 
 ### Added
 - **`rebrew-project.toml.example` is the complete config template.** One

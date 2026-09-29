@@ -2,6 +2,7 @@
 
 import json
 import sys
+from dataclasses import asdict
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -949,17 +950,19 @@ class TestLoadVerifyEntries:
             "headers_hash": "",
             "target": "SERVER",
             "entries": {
-                "0x00001000": VerifyCacheEntry(
-                    source_hash="",
-                    filepath="a.c",
-                    mtime_ns=0,
-                    status="EXACT",
-                    va=0x1000,
-                    size=10,
-                    name="a",
-                    message="",
-                    passed=True,
-                ).to_dict(),
+                "0x00001000": asdict(
+                    VerifyCacheEntry(
+                        source_hash="",
+                        filepath="a.c",
+                        mtime_ns=0,
+                        status="EXACT",
+                        va=0x1000,
+                        size=10,
+                        name="a",
+                        message="",
+                        passed=True,
+                    )
+                ),
             },
         }
         (d / "verify_cache.toml").write_text(cache_text(cache), encoding="utf-8")
@@ -985,17 +988,19 @@ class TestLoadVerifyEntries:
             "compiler_hash": "",
             "headers_hash": "",
             "entries": {
-                "0x00001000": VerifyCacheEntry(
-                    source_hash="",
-                    filepath="a.c",
-                    mtime_ns=0,
-                    status="EXACT",
-                    va=0x1000,
-                    size=10,
-                    name="a",
-                    message="",
-                    passed=True,
-                ).to_dict(),
+                "0x00001000": asdict(
+                    VerifyCacheEntry(
+                        source_hash="",
+                        filepath="a.c",
+                        mtime_ns=0,
+                        status="EXACT",
+                        va=0x1000,
+                        size=10,
+                        name="a",
+                        message="",
+                        passed=True,
+                    )
+                ),
             },
         }
         (d / "verify_cache.toml").write_text(cache_text(cache), encoding="utf-8")

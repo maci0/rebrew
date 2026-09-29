@@ -165,8 +165,7 @@ def main(
         + (f" (code {code_len})" if code_len != span else "")
     )
     console.print(
-        f"  aligned {aligned}/{total_cls} reference bytes "
-        f"({floor_pct(aligned, total_cls):.1f}%)"
+        f"  aligned {aligned}/{total_cls} reference bytes ({floor_pct(aligned, total_cls):.1f}%)"
     )
     console.print(f"  object: {obj_path}")
 

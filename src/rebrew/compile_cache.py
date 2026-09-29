@@ -907,9 +907,9 @@ def _store_include_closure_locked(
         _include_closure_memo_chars > _INCLUDE_CLOSURE_MEMO_MAX_BYTES
         and len(_INCLUDE_CLOSURE_MEMO) > 1
     ):
-        _include_closure_memo_chars -= _INCLUDE_CLOSURE_MEMO.pop(
-            next(iter(_INCLUDE_CLOSURE_MEMO))
-        )[4]
+        _include_closure_memo_chars -= _INCLUDE_CLOSURE_MEMO.pop(next(iter(_INCLUDE_CLOSURE_MEMO)))[
+            4
+        ]
     if not _INCLUDE_CLOSURE_MEMO:
         # A caller that emptied the map directly left the running total
         # stale; over-counting only evicts early, but rebase it anyway.

@@ -4977,9 +4977,7 @@ cells = []
         _, _, body = dashboard.handle("GET", "/api/targets", {})
         assert set(schemas["Targets"]["properties"]) == set(json.loads(body))
 
-    def test_documented_module_spelling_is_the_one_the_route_compares(
-        self, tmp_path: Path
-    ) -> None:
+    def test_documented_module_spelling_is_the_one_the_route_compares(self, tmp_path: Path) -> None:
         """The `module` filter folds to the stored spelling, and the spec says so.
 
         Both sides of the comparison go through ``preset_module_key`` (NFC, then
