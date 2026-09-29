@@ -1037,6 +1037,54 @@ _STALE_COVERAGE_ARTIFACTS: dict[str, str] = {
 }
 
 
+def _check_W036_stray_metadata_store(cfg: ProjectConfig) -> list[LintResult]:
+    """W036: a metadata store living outside the directory the readers use.
+
+    The stores are resolved by directory, not by search: a tool asked for a
+    module reads ``<metadata_dir>/rebrew-data.toml`` and gets **whatever is
+    there**, with no fallback to another copy.  So a second ``rebrew-data.toml``
+    somewhere else in the tree is not a backup -- it is a file that answers for
+    a directory if a tool is pointed at it, and is invisible otherwise.
+
+    Measured on guild-rebrew (round 162): a stray ``./rebrew-data.toml`` at the
+    project root held **1** entry while ``src/rebrew-data.toml`` held **1170**,
+    and `rebrew lint` reported 0 warnings.  Loaded against the root, the store
+    resolves and returns the 1 entry with no complaint.
+
+    Warn-only: a stray copy is not itself a defect, it is a thing that will be
+    read by accident.
+    """
+    store_names = {"rebrew-data.toml", "rebrew-functions.toml"}
+    dirs: set[Path] = set()
+    for attr in ("metadata_dir", "reversed_dir", "shared_dir"):
+        value = getattr(cfg, attr, None)
+        # these are already absolute Paths on a loaded config; a bare
+        # string is still accepted, because that is what the TOML holds.
+        if isinstance(value, Path):
+            dirs.add(value.resolve())
+        elif isinstance(value, str) and value:
+            dirs.add((cfg.root / value).resolve())
+    results: list[LintResult] = []
+    skip = {".git", "build", ".scratch", "node_modules", ".venv"}
+    for path in sorted(cfg.root.rglob("*.toml")):
+        if path.name not in store_names:
+            continue
+        if any(part in skip for part in path.parts):
+            continue
+        if path.parent.resolve() in dirs:
+            continue
+        res = LintResult(filepath=path)
+        res.warning(
+            1,
+            "W036",
+            "metadata store outside the configured directory; readers resolve "
+            "stores by directory, so this one answers for "
+            f"{path.parent} and is invisible otherwise",
+        )
+        results.append(res)
+    return results
+
+
 def _check_W032_coverage_store(cfg: ProjectConfig) -> list[LintResult]:
     """W032: the coverage store's own hygiene.
 
@@ -2596,6 +2644,7 @@ def main(
         for artifact_result in (
             *_check_W031_metadata_store(cfg),
             *_check_W032_coverage_store(cfg),
+            *_check_W036_stray_metadata_store(cfg),
             *_check_W034_identity_paths(cfg),
             *_check_W035_unknown_modules(cfg),
             *_check_W033_agent_scaffold(cfg),
