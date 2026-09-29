@@ -46,7 +46,14 @@ pypcode spec dir under `UV_TOOL_DIR` / `XDG_DATA_HOME` / `LOCALAPPDATA`) is the
 SLEIGH language definition the native `kuna` binary parses, `XDG_CACHE_HOME` is
 the sandbox base whose `rebrew`-prefixed directories older than a day are
 deleted by `sweep_stale_temp_dirs` on the next compile
-(`src/rebrew/temp_dirs.py`), and `XAUTHORITY` names the X cookie file rebrew
+(`src/rebrew/temp_dirs.py`). That sweep is not confined to the cache base: it
+also deletes, by the same age rule, directories under the project at
+`.rebrew/climb` and `.rebrew/qualsweep`, where the prefix it matches is
+declared by the caller and derived from the function's symbol name
+(`src/rebrew/climb.py` `:633`, `src/rebrew/qual_sweep.py` `:244`), so a
+symbol name in shipped metadata decides what a later run may remove from
+those two rebrew-owned scratch directories, and nothing else. And
+`XAUTHORITY` names the X cookie file rebrew
 adopts for host-wine helpers and re-exports to wine children, accepted as any
 file the analyst can read (`_local_cookie` in `src/rebrew/headless.py`), so the
 headless-display access decision is taken from the process environment. On a multi-user host the headless X display is a boundary, and on **both**
@@ -159,8 +166,8 @@ plugin cache backends or remove the open upstream diskcache advisory.
   binsync-overlay` does not use the validator at all
   (`src/rebrew/binsync/overlay.py` joins the field onto `reversed_dir` with
   no containment check on its read at `:226`, its `PROTOTYPE` write
-  (`:483`, into the path joined at `:387`), or its `ANALYSIS` marker write
-  (`:609`)), and because the outer bound
+  (`:479`, into the path joined at `:382`), or its `ANALYSIS` marker write
+  (`:604`)), and because the outer bound
   is the project `root`, a value naming `.git/hooks/`,
   `rebrew-project.toml`, or `.rebrew/` passes everywhere. It says nothing
   about a project running host commands, which
