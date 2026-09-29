@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -251,6 +252,42 @@ class TestCompileSource:
         )
         assert res.ok and res.obj_bytes == b"OBJ"
         assert naps == [0.25]
+
+    def test_a_retry_is_logged_with_attempt_delay_and_cause(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A failing remote backend must not back off in silence.
+
+        The line is what tells an operator which dependency faulted, how many
+        attempts are left, and how long the run is about to wait.
+        """
+        posts = [_Resp(503, text="busy"), _Resp(503, text="busy"), _Resp(503, text="busy")]
+
+        class _SeqClient(_FakeClient):
+            def post(self, url: str, json: Any = None) -> Any:
+                self.calls.append(("post", url))
+                return posts.pop(0)
+
+        client = _SeqClient(None)
+        monkeypatch.setattr(httpx, "Client", lambda **kwargs: client)
+        with (
+            caplog.at_level(logging.WARNING, logger="rebrew.recompile_client"),
+            pytest.raises(RecompileError),
+        ):
+            compile_source(
+                "http://svc/",
+                "msvc-6.0",
+                "int f(void){}",
+                ["/c"],
+                retries=2,
+                sleep=lambda _s: None,
+            )
+        lines = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(lines) == 2
+        assert "http://svc" in lines[0]
+        assert "attempt 1/3" in lines[0] and "attempt 2/3" in lines[1]
+        assert "http 503" in lines[0]
+        assert "retrying in 0.25s" in lines[0] and "retrying in 0.50s" in lines[1]
 
     def test_retries_artifact_get_without_repost(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """After a successful compile POST, retries must not re-POST.

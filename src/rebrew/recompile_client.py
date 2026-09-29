@@ -18,6 +18,7 @@ no CLI flag toggles it per run.
 
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Callable, Mapping
 from contextlib import nullcontext
@@ -26,7 +27,19 @@ from typing import Any, Literal, Protocol, runtime_checkable
 from urllib.parse import urljoin, urlparse
 
 from rebrew.errors import RebrewError
-from rebrew.utils import RETRYABLE_HTTP_STATUS, close_response, retry_backoff_delay
+from rebrew.utils import (
+    RETRYABLE_HTTP_STATUS,
+    close_response,
+    retry_backoff_delay,
+    untrusted_literal,
+)
+
+log = logging.getLogger(__name__)
+
+#: How much of a failed attempt's message reaches the log line.  The message
+#: carries a slice of the service's response body, and a warning is read on a
+#: terminal, not diffed.
+_RETRY_LOG_MESSAGE_CHARS = 300
 
 #: Request cap mirrored from the service (recompile ``_MAX_FLAGS``): longer
 #: flag lists 422 instead of compiling.
@@ -397,6 +410,20 @@ def compile_source(
             # Immediate re-POST of a 503/timeout hammers a recovering service;
             # exponential backoff (capped) gives it room without unbounded wait.
             delay = retry_backoff_delay(attempt)
+            # One line per retry, before the sleep: a remote backend that is
+            # failing and recovering otherwise spends the backoff in silence,
+            # so a `rebrew test` run against a flaky service looks hung with no
+            # record of which dependency is faulting or how long the wait is.
+            log.warning(
+                "recompile %s attempt %d/%d failed (%s%s), retrying in %.2fs: %s",
+                url,
+                attempt + 1,
+                attempts,
+                exc.kind,
+                "" if exc.status_code is None else f" {exc.status_code}",
+                delay,
+                untrusted_literal(exc)[:_RETRY_LOG_MESSAGE_CHARS],
+            )
             nap(delay)
             continue
     assert last_exc is not None  # attempts >= 1

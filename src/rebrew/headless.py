@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import atexit
 import contextlib
+import logging
 import os
 import re
 import secrets
@@ -42,6 +43,8 @@ from pathlib import Path
 
 from rebrew.config import XVFB_DISPLAY_ENV as _XVFB_DISPLAY_ENV
 from rebrew.config import check_env_display
+
+log = logging.getLogger(__name__)
 
 #: Screen geometry for the virtual display.  24-bit depth is required for
 #: some Wine versions (the xvfb-run 8-bit default breaks them).  Kept as
@@ -339,8 +342,10 @@ def ensure_xvfb() -> str | None:
     4. Spawn our own cookie-authenticated ``Xvfb`` on a free display and
        register an atexit shutdown; remember it in ``REBREW_XVFB_DISPLAY``.
 
-    Returns None when no Xvfb binary is available (caller falls back to
-    the ``xvfb-run`` wrapper or bare wine).
+    Returns None when no Xvfb binary is available, or when starting one
+    fails (caller falls back to the ``xvfb-run`` wrapper or bare wine).  A
+    start failure is logged: the fallback itself is silent, so without the
+    line a run whose headless setup never worked has no trace of it.
 
     Thread-safe: the whole resolution runs under one process-wide lock so
     concurrent compile workers cannot double-spawn a server on the same
@@ -385,11 +390,18 @@ def _ensure_xvfb_locked() -> str | None:
             return candidate
 
     if shutil.which("Xvfb") is None:
+        # Not a fault: a machine without Xvfb is configured to fall back, and
+        # every compile asks again, so this stays off the warning stream.
+        log.debug("headless: no Xvfb binary on PATH; wine will run without a virtual display")
         return None
 
     display = _pick_free_display()
     cookie = _new_cookie()
     if cookie is None:
+        log.warning(
+            "headless: could not create an Xvfb cookie file; "
+            "wine will run without a virtual display (temp dir unwritable?)"
+        )
         return None
     child_env = {**os.environ, "XAUTHORITY": str(cookie), _XVFB_AUTH_ENV: str(cookie)}
     try:
@@ -399,8 +411,13 @@ def _ensure_xvfb_locked() -> str | None:
             stderr=subprocess.DEVNULL,
             env=child_env,
         )
-    except OSError:
+    except OSError as exc:
         _drop_cookie(cookie)
+        log.warning(
+            "headless: could not start Xvfb on %s (%s); wine will run without a virtual display",
+            display,
+            exc.strerror or type(exc).__name__,
+        )
         return None
     except BaseException:
         # A Ctrl+C landing in the spawn window would otherwise leave the
@@ -418,8 +435,17 @@ def _ensure_xvfb_locked() -> str | None:
         # Same release path as the atexit hook: terminate AND wait, so a
         # server that died during startup is reaped instead of lingering
         # as a zombie for the rest of this process's lifetime.
+        exit_code = proc.poll()
         _shutdown_xvfb(proc)
         _drop_cookie(cookie)
+        # The fallback is silent from here on, so without this the only trace
+        # of a headless setup that never worked is a run whose wine compiles
+        # behave differently from the ones the operator configured.
+        log.warning(
+            "headless: Xvfb on %s never came up%s; wine will run without a virtual display",
+            display,
+            "" if exit_code is None else f" (exited {exit_code})",
+        )
         return None
     os.environ["XAUTHORITY"] = str(cookie)
     os.environ[XVFB_DISPLAY_ENV] = display

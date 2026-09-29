@@ -1,6 +1,7 @@
 """Tests for decompme.py — decomp.me scratch uploader."""
 
 import json
+import logging
 import os
 import struct
 from pathlib import Path
@@ -447,6 +448,33 @@ class TestUpload:
         naps: list[float] = []
         decompme.upload_scratch({"data": {}, "files": {}}, retries=2, sleep=naps.append)
         assert naps == [retry_backoff_delay(0), retry_backoff_delay(1)]
+
+    def test_a_retry_is_logged_with_attempt_delay_and_cause(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A failing remote backend must not back off in silence.
+
+        The line is what tells an operator which dependency faulted, how many
+        attempts are left, and how long the run is about to wait.
+        """
+        attempts: list[int] = []
+
+        def _fake_post(url, **kwargs):
+            attempts.append(1)
+            return SimpleNamespace(status_code=503, text="busy", close=lambda: None)
+
+        monkeypatch.setattr("httpx.post", _fake_post)
+        with (
+            caplog.at_level(logging.WARNING, logger="rebrew.decompme"),
+            pytest.raises(decompme.DecompmeError),
+        ):
+            decompme.upload_scratch({"data": {}, "files": {}}, retries=2, sleep=lambda _s: None)
+        lines = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(lines) == 2
+        assert "attempt 1/3" in lines[0] and "attempt 2/3" in lines[1]
+        assert "http 503" in lines[0]
+        assert f"retrying in {retry_backoff_delay(0):.2f}s" in lines[0]
+        assert f"retrying in {retry_backoff_delay(1):.2f}s" in lines[1]
 
     def test_retries_a_transport_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import httpx

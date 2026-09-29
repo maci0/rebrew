@@ -1,5 +1,6 @@
 """Tests for rebrew.headless — persistent Xvfb management for headless wine."""
 
+import logging
 import os
 import threading
 from pathlib import Path
@@ -313,6 +314,38 @@ class TestEnsureXvfb:
         monkeypatch.setattr(headless.subprocess, "Popen", _boom)
         assert ensure_xvfb() is None
 
+    def test_a_server_that_never_starts_is_logged(
+        self, monkeypatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The caller falls back to bare wine, so the loss is otherwise silent."""
+        from rebrew import headless
+
+        monkeypatch.delenv("REBREW_XVFB_DISPLAY", raising=False)
+        monkeypatch.delenv("DISPLAY", raising=False)
+        monkeypatch.setattr(headless, "_running_xvfb_displays", lambda: {})
+        monkeypatch.setattr(
+            headless.shutil, "which", lambda name: "/usr/bin/Xvfb" if name == "Xvfb" else None
+        )
+        monkeypatch.setattr(headless, "_wait_for_socket", lambda d, timeout=3.0, proc=None: False)
+
+        class _DeadProc:
+            def poll(self) -> int | None:
+                return 1
+
+            def terminate(self) -> None:
+                pass
+
+            def wait(self, timeout: float = 2) -> int:
+                return 1
+
+        monkeypatch.setattr(headless.subprocess, "Popen", lambda *a, **k: _DeadProc())
+        with caplog.at_level(logging.WARNING, logger="rebrew.headless"):
+            assert ensure_xvfb() is None
+        warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(warnings) == 1
+        assert "never came up" in warnings[0]
+        assert "exited 1" in warnings[0]
+
     def test_socket_timeout_terminates_proc(self, monkeypatch) -> None:
         """Xvfb spawned but never comes up → terminated AND reaped (no
         zombie), returns None."""
@@ -329,6 +362,9 @@ class TestEnsureXvfb:
         reaped: list[float | None] = []
 
         class _FakeProc:
+            def poll(self) -> int | None:
+                return None
+
             def terminate(self) -> None:
                 terminated.append(True)
 
