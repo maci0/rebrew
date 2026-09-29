@@ -94,10 +94,22 @@ def on_ram_filesystem(path: Path) -> bool:
 #: the cache dir with multi-GB stragglers.
 STALE_TEMP_DIR_AGE_S = 24 * 60 * 60
 
-#: Every :func:`writable_temp_dir` prefix starts with this, so a sweep of a
-#: shared base (``SOURCE_CHECKOUT/.cache``) touches rebrew scratch and nothing
-#: else that happens to live there.
-_TEMP_DIR_PREFIX = "rebrew"
+#: Every prefix a shipped sandbox is created under, so a sweep of a shared base
+#: (``SOURCE_CHECKOUT/.cache``) touches rebrew scratch and nothing else that
+#: happens to live there.  Declared rather than assumed: the DOSBox sandboxes
+#: keep short 8.3-safe prefixes (``msvc16-``) because the path is mounted as the
+#: DOSBox C: drive, so they cannot be renamed under a common prefix, and a
+#: sweep keyed on one prefix would never see the multi-GB dirs it exists to
+#: reclaim.  ``tests/test_temp_dir_prefixes.py`` pins every shipped caller to
+#: this set, so a new sandbox cannot join the sweep by accident.
+_TEMP_DIR_PREFIXES: tuple[str, ...] = (
+    "rebrew",
+    "matcher_",
+    "test_multi_",
+    "msvc16-",
+    "tc16-",
+    "delphi16-",
+)
 
 _TEMP_SWEEP_LOCK = threading.Lock()
 _temp_swept_bases: set[Path] = set()
@@ -135,7 +147,7 @@ def sweep_stale_temp_dirs(
     except OSError:
         return removed
     for entry in entries:
-        if not entry.name.startswith(_TEMP_DIR_PREFIX) or entry.is_symlink():
+        if not entry.name.startswith(_TEMP_DIR_PREFIXES) or entry.is_symlink():
             continue
         try:
             if not entry.is_dir() or now - entry.stat().st_mtime < age_s:

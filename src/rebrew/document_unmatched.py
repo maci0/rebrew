@@ -138,7 +138,14 @@ def main(
                     fields["size"] = size
                     if not dry_run:
                         sizes_written += 1
-                updates.append({"module": module, "va": va, "fields": fields})
+                updates.append(
+                    {
+                        "module": module,
+                        "va": va,
+                        "fields": fields,
+                        "updated_by": "document-unmatched",
+                    }
+                )
                 backfilled += 1
         if not dry_run:
             # One TOML rewrite for the whole backfill, not one per STUB.

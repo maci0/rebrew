@@ -558,18 +558,20 @@ def _set_field(
 #: Provenance tags the writers stamp into `UPDATED_BY`.  One name per tool that
 #: writes a canonical store: a free-form string would make "who changed this"
 #: answerable only by grepping the writers, and a typo indistinguishable from a
-#: new tool.  ``rebrew lint`` reports a tag outside this set (W031).
+#: new tool.  ``rebrew lint`` reports a tag outside this set (W031), and the
+#: writers reject one at the write, so a tool cannot stamp a store its own lint
+#: then reports against.  ``tests/test_provenance_tags.py`` pins the set
+#: against the writers that actually stamp a tag.
 PROVENANCE_TAGS: frozenset[str] = frozenset(
     {
         "binsync-import",
         "blocker",
         "cross-import",
-        "crt-match",
         "data",
         "diff",
         "document-unmatched",
         "fix-sizes",
-        "identify-library",
+        "import-splat",
         "intake",
         "lint",
         "match",
@@ -687,11 +689,17 @@ def set_fields_batch(metadata_dir: Path | str | Any, updates: list[dict[str, Any
     Avoids a full tomlkit parse + dumps + atomic write under the global
     lock per entry, while keeping per-field idempotency.
     Rejects ``status`` (use :func:`update_statuses_batch`, which enforces
-    promotion rules).  Returns the number of entries whose fields changed.
+    promotion rules).  An update's optional ``updated_by`` stamps the row's
+    provenance pair via :func:`stamp_provenance`, mirroring
+    :func:`rebrew.data_metadata.set_data_fields_batch`; it must be a member of
+    :data:`PROVENANCE_TAGS`, so a writer cannot invent a tag that ``rebrew lint``
+    would then report against.  Returns the number of entries whose fields
+    changed.
 
-    Raises :class:`ValueError` for an update missing ``module`` or ``va``.
-    A malformed update used to be skipped, so the rest of the batch landed
-    while the caller still believed every row had been written.
+    Raises :class:`ValueError` for an update missing ``module`` or ``va``, or
+    naming an unknown provenance tag.  A malformed update used to be skipped,
+    so the rest of the batch landed while the caller still believed every row
+    had been written.
     """
     if not updates:
         return 0
@@ -720,6 +728,15 @@ def set_fields_batch(metadata_dir: Path | str | Any, updates: list[dict[str, Any
                 if entry.get(key) != safe:
                     entry[key] = safe
                     changed = True
+            tag = str(u.get("updated_by") or "")
+            if tag:
+                if tag not in PROVENANCE_TAGS:
+                    raise ValueError(
+                        f"field update for {module!r} 0x{va_int:x} names unknown "
+                        f"provenance tag {tag!r}, not in {sorted(PROVENANCE_TAGS)}"
+                    )
+                stamp_provenance(entry, tag)
+                changed = True
             if changed:
                 changed_entries += 1
         if changed_entries:
