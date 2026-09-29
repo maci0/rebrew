@@ -395,6 +395,17 @@ def apply_coff_relocations(
     return bytes(buf)
 
 
+def _slot_in_prefix(offset: int, min_len: int) -> bool:
+    """True when *offset* addresses a whole 4-byte slot inside the compared prefix.
+
+    ``struct.unpack_from`` reads backwards from the end of the buffer for a
+    negative offset, so an out-of-range record would otherwise be validated
+    against the wrong window and reported as a reloc at a position the caller
+    never has.  ``apply_coff_relocations`` guards the same way.
+    """
+    return offset >= 0 and offset + 4 <= min_len
+
+
 def _resolve_exact_then_stripped(name_to_va: dict[str, int], sym_name: str) -> int | None:
     """Look up *sym_name* in a name→VA map, exact spelling first.
 
@@ -597,7 +608,7 @@ def smart_reloc_compare(
             table = _RELOC_TABLES.get(reloc_table, _RELOC_TABLES["coff-i386"])
             for rec in typed_relocs:
                 r = rec.offset
-                if r + 4 > min_len:
+                if not _slot_in_prefix(r, min_len):
                     continue
                 valid = True
                 if map_unusable:
@@ -637,7 +648,7 @@ def smart_reloc_compare(
         elif isinstance(coff_relocs, dict):
             # Dict branch: offset -> symbol_name with heuristic DIR32 validation.
             for r, raw_sym in coff_relocs.items():
-                if r + 4 > min_len:
+                if not _slot_in_prefix(r, min_len):
                     continue
                 valid = True
                 if map_unusable:
@@ -659,7 +670,9 @@ def smart_reloc_compare(
                     invalid_relocs.append(r)
         else:
             # List[int] branch: plain offset list (no symbol resolution)
-            valid_relocs.extend(r for r in coff_relocs if isinstance(r, int) and r + 4 <= min_len)
+            valid_relocs.extend(
+                r for r in coff_relocs if isinstance(r, int) and _slot_in_prefix(r, min_len)
+            )
     # Zero-reloc objects: candidate slots are 4-byte-ALIGNED zero dwords
     # in the object that differ from the target.  Skip the byte-by-byte
     # scan entirely when no zero dword exists — common for leaf functions.

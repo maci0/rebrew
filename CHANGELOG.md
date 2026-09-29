@@ -68,6 +68,14 @@
   `dist/rebrew.buildinfo` records as `python=`, and a host carrying 3.14 read
   the gate as coverage it does not give.  The venv now takes the same
   `.python-version` pin the build and the tools helpers use.
+- **`smart_reloc_compare` returned reloc offsets the caller never had.** All
+  three record shapes (typed, dict, plain offset) bounded an offset only from
+  above, so a negative one passed: `struct.unpack_from` then read the four
+  bytes before the buffer and reported the slot as valid or invalid at a
+  negative position, breaking the "every returned offset lies in the compared
+  prefix" contract the batch paths and the round-trip reports rely on.
+  `apply_coff_relocations` already skipped them; one `_slot_in_prefix` helper
+  now guards both.
 
 ### Changed
 - **Breaking:** `stock_lib_cache` takes a third argument. It was

@@ -12,7 +12,13 @@ hypothesis tests pin the algebraic invariants that must hold for ANY input:
   slots keeps the comparison a match
 - zero-span detection (obj has 00 00 00 00 where target differs) masks
   those spans, never counts them as mismatches
-- every returned reloc offset lies within the compared prefix
+- every returned reloc offset lies within the compared prefix, for the typed
+  (``CoffRelocRecord``) and dict (offset → symbol) input shapes as well as the
+  plain-offset one — their offsets are decoded from an object's relocation
+  table, so negative and past-the-end values have to be dropped, not read
+  backwards from the buffer tail
+- ``apply_coff_relocations`` preserves the blob length and writes only inside
+  the 4-byte windows of records that address a real slot
 """
 
 from __future__ import annotations
@@ -22,7 +28,22 @@ import random
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from rebrew.coff_reloc import smart_reloc_compare
+from rebrew.coff_reloc import (
+    CoffRelocRecord,
+    UnresolvedSymbolError,
+    apply_coff_relocations,
+    smart_reloc_compare,
+)
+
+# IMAGE_REL_I386_ABSOLUTE: a no-op relocation entry (alignment / terminator).
+_REL_ABSOLUTE = 0x0000
+# Relocation types the compare path decodes: ABSOLUTE, DIR32 (absolute) and
+# REL32 (pc-relative).  0x0007 is a real IMAGE_REL_I386_ type with no table
+# entry, so it exercises the "unsupported, mask only" branch.
+_RELOC_TYPES = (_REL_ABSOLUTE, 0x0006, 0x0007, 0x0014)
+# MSVC mangling shapes the symbol resolver has to tolerate: bare, one leading
+# underscore, the double-underscore __cdecl form, and the empty name.
+_SYMBOLS = ("foo", "_foo", "__foo", "foo_bar", "", "_")
 
 
 @st.composite
@@ -33,6 +54,47 @@ def bytes_pair(draw: st.DrawFn) -> tuple[bytes, bytes]:
         draw(st.binary(min_size=size, max_size=size)),
         draw(st.binary(min_size=size, max_size=size)),
     )
+
+
+# Offset shapes to draw: inside the window, past the end, and negative
+# (which struct.unpack_from would otherwise read backwards from the buffer
+# end).  Unaligned in-range values come out of the unconstrained draw.
+def _out_of_range_offset(draw: st.DrawFn, max_len: int) -> int:
+    return draw(
+        st.one_of(
+            st.integers(min_value=0, max_value=max_len + 8),
+            st.integers(min_value=-8, max_value=-1),
+        )
+    )
+
+
+@st.composite
+def blob_and_records(draw: st.DrawFn) -> tuple[bytes, bytes, list[CoffRelocRecord]]:
+    """Byte pair plus typed records whose offsets are often out of range."""
+    obj, target = draw(bytes_pair())
+    max_len = min(len(obj), len(target))
+    count = draw(st.integers(min_value=0, max_value=8))
+    records = [
+        CoffRelocRecord(
+            offset=_out_of_range_offset(draw, max_len),
+            type=draw(st.sampled_from(_RELOC_TYPES)),
+            symbol=draw(st.sampled_from(_SYMBOLS)),
+        )
+        for _ in range(count)
+    ]
+    return obj, target, records
+
+
+@st.composite
+def blob_and_dict(draw: st.DrawFn) -> tuple[bytes, bytes, dict[int, str]]:
+    """Byte pair plus an offset → symbol mapping, same offset shapes."""
+    obj, target = draw(bytes_pair())
+    max_len = min(len(obj), len(target))
+    count = draw(st.integers(min_value=0, max_value=8))
+    mapping = {
+        _out_of_range_offset(draw, max_len): draw(st.sampled_from(_SYMBOLS)) for _ in range(count)
+    }
+    return obj, target, mapping
 
 
 @st.composite
@@ -263,3 +325,135 @@ class TestStabilityUnderSeededRNG:
                 mutated2[i] ^= 0xFF
         b = smart_reloc_compare(bytes(mutated2), target, None)
         assert a == b
+
+
+class TestTypedRecordBounds:
+    """Typed and dict reloc inputs are read out of an object's relocation table.
+
+    Every field is influenced by the object file: the offset is a field decoded
+    from the record, the type selects the decoder, the symbol is a catalog
+    lookup.  An offset the caller never had must be dropped, not validated
+    against the buffer tail and reported back as a reloc position.
+    """
+
+    @given(blob_and_records(), st.integers(min_value=0, max_value=0x7FFFFFFF), st.booleans())
+    @settings(max_examples=300)
+    def test_typed_offsets_are_always_real_slots(
+        self, bundle: tuple[bytes, bytes, list[CoffRelocRecord]], section_va: int, with_map: bool
+    ) -> None:
+        obj, target, records = bundle
+        min_len = min(len(obj), len(target))
+        _, _, _, valid, invalid = smart_reloc_compare(
+            obj,
+            target,
+            records,
+            _catalog(with_map),
+            section_va=section_va if section_va else None,
+        )
+        for off in valid + invalid:
+            assert off >= 0
+            assert off + 4 <= min_len
+
+    @given(blob_and_dict(), st.booleans())
+    @settings(max_examples=300)
+    def test_dict_offsets_are_always_real_slots(
+        self, bundle: tuple[bytes, bytes, dict[int, str]], with_map: bool
+    ) -> None:
+        obj, target, mapping = bundle
+        min_len = min(len(obj), len(target))
+        _, _, _, valid, invalid = smart_reloc_compare(
+            obj, target, mapping, _catalog(with_map), section_va=0x1000
+        )
+        for off in valid + invalid:
+            assert off >= 0
+            assert off + 4 <= min_len
+
+    @given(
+        blob_and_records(),
+        blob_and_dict(),
+        st.integers(min_value=0, max_value=0x7FFFFFFF),
+        st.booleans(),
+    )
+    @settings(max_examples=200)
+    def test_record_inputs_keep_the_length_contract(
+        self,
+        typed: tuple[bytes, bytes, list[CoffRelocRecord]],
+        mapped: tuple[bytes, bytes, dict[int, str]],
+        section_va: int,
+        with_map: bool,
+    ) -> None:
+        """A record input never bends total / match-count / matched semantics."""
+        obj, target, records = typed
+        dict_obj, dict_target, mapping = mapped
+        for o, t, relocs in ((obj, target, records), (dict_obj, dict_target, mapping)):
+            matched, count, total, _, _ = smart_reloc_compare(
+                o,
+                t,
+                relocs,
+                _catalog(with_map),
+                section_va=section_va if section_va else None,
+            )
+            assert total == max(len(o), len(t))
+            assert 0 <= count <= min(len(o), len(t))
+            if matched:
+                assert len(o) == len(t)
+
+
+class TestApplyRelocationsBounds:
+    """``apply_coff_relocations`` writes into a compiled .text blob."""
+
+    @given(
+        st.binary(min_size=0, max_size=64),
+        st.integers(min_value=0, max_value=0x7FFFFFFF),
+        st.sampled_from(("coff-i386", "elf-mips", "elf-ppc")),
+    )
+    @settings(max_examples=200)
+    def test_only_in_bounds_slots_change(self, text: bytes, section_va: int, table: str) -> None:
+        """Length is preserved and no byte outside an in-bounds record moves."""
+        records = _FIXTURE_RECORDS[:]
+        try:
+            out = apply_coff_relocations(
+                text, records, _RESOLVER, section_va=section_va, reloc_table=table
+            )
+        except (UnresolvedSymbolError, NotImplementedError):
+            return
+        assert len(out) == len(text)
+        touched: set[int] = set()
+        for r in records:
+            if r.type == _REL_ABSOLUTE:
+                continue
+            if r.offset >= 0 and r.offset + 4 <= len(out):
+                touched.update(range(r.offset, r.offset + 4))
+        for i in range(len(text)):
+            if i not in touched:
+                assert out[i] == text[i]
+
+    @given(st.binary(min_size=0, max_size=64), st.integers(min_value=0, max_value=0x7FFFFFFF))
+    @settings(max_examples=100)
+    def test_absolute_records_are_a_noop(self, text: bytes, section_va: int) -> None:
+        """A reloc list of ABSOLUTE entries patches nothing."""
+        out = apply_coff_relocations(
+            text, [CoffRelocRecord(0, _REL_ABSOLUTE, "foo")], _RESOLVER, section_va=section_va
+        )
+        assert out == text
+
+
+# Offsets deliberately out of range in both directions, plus an in-range one,
+# so the patch path's bounds guard is exercised against the same shapes the
+# compare path sees.  The symbol is resolvable so only the type table can raise.
+_FIXTURE_RECORDS = [
+    CoffRelocRecord(-4, 0x0006, "foo"),
+    CoffRelocRecord(0, 0x0006, "foo"),
+    CoffRelocRecord(3, 0x0014, "_foo"),
+    CoffRelocRecord(4096, 0x0006, "foo"),
+    CoffRelocRecord(0, _REL_ABSOLUTE, "foo"),
+]
+
+
+def _RESOLVER(symbol: str) -> int | None:
+    """Resolve every named symbol; the empty name stays unresolved."""
+    return 0x1000 if symbol.lstrip("_") else None
+
+
+def _catalog(with_map: bool) -> dict[str, int] | None:
+    return {"foo": 0x1000, "_foo": 0x2000, "__foo": 0x3000} if with_map else None
