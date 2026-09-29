@@ -25,7 +25,10 @@ prefix, also matches that virtual address exactly. ``0x401000`` and
 ``00401000`` are the same address.
 
 A present empty ``module=`` on ``/api/functions`` and ``/api/globals`` matches
-rows whose module is blank. Omitting ``module`` does not filter. Summary
+rows whose module is blank. Omitting ``module`` does not filter.  The value and
+the stored module are both put through ``preset_module_key`` (NFC, then upper)
+before the equality, so a hand-typed ``?module=server`` selects the ``SERVER``
+rows instead of silently matching none. Summary
 ``by_module_counts`` keys are those stored strings (``""`` when unset).  A
 repeated parameter takes its first value, and an unrecognised one is ignored.
 Target-scoped endpoints return 400 when ``target`` is missing/empty and 404 when
@@ -1917,8 +1920,7 @@ def _module_query(params: dict[str, list[str]]) -> str | None:
     """
     if "module" not in params:
         return None
-    values = params["module"]
-    module = (values[0] if values else "").strip()
+    module = (_raw_param(params, "module") or "").strip()
     # preset_module_key (NFC, then upper), the spelling the rows are stored
     # in: a hand-typed `?module=server` selects the SERVER rows instead of
     # silently returning none.  A blank stays blank, which is a stored value.

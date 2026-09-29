@@ -261,8 +261,8 @@ Every offline `--json` command is deterministic across runs: enforced by
 `tools/check_idempotency.py` (18 commands, run twice, byte-compared) as a CI
 step; see `docs/CI.md`.
 
-The same tool runs each of its 22 mutating commands (`migrate-markers`,
-`document-unmatched`, `gen-link-stubs`, `skeleton`, `build-db`, `symbol-addrs`,
+The same tool runs each of its 23 mutating commands (`migrate-markers`,
+`document-unmatched`, `gen-link-stubs`, both `skeleton` forms, `build-db`, `symbol-addrs`,
 `cmake-toolchain`, `fix`, `context`, both `blocker set` forms, both
 `library set` forms, `report`, the three `data` forms: `--gen-header`,
 `--set-type`, `--set-section`, and the five `cfg` forms that write

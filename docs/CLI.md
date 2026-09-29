@@ -2714,7 +2714,9 @@ STATUS vocabulary → 400 (an empty page would read as "no functions in that
 status"). `function_stats` is derived from the stored function rows, so
 there is no corrupt-row case left: `/api/summary` either has a document (200)
 or does not (404). A present empty `module=` on `/api/functions` and
-`/api/globals` matches a blank module; omitting `module` does not filter.
+`/api/globals` matches a blank module; omitting `module` does not filter, and
+the value is compared in the spelling the rows are stored in (NFC, then upper,
+on both sides), so `?module=server` selects the `SERVER` rows.
 `q` matches a name or symbol substring on functions and a name substring
 on globals. Four or more hex digits, with an optional `0x` prefix, also
 match that virtual address (`0x401000` and `00401000` are the same address).
@@ -2745,7 +2747,7 @@ where the CLI reaches the same code without one). List endpoints
 also carry `paged`: `true` on `/api/functions`, `/api/globals`, and
 `/api/history` (where `limit` is the page size), `false` on `/api/sections`,
 `/api/targets`, and `/api/bootstrap` (where `limit` is the row count). Rows
-under `cols` are arrays, and every text column in them is a string: a NULL
+under `cols` are arrays, and every text column in them is a string: an absent
 status (a history row's `old_status`/`new_status` for a VA's first recorded
 transition) arrives as `""`, never `null`.
 A request that carries a body gets its response with `Connection: close`.

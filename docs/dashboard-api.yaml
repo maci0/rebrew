@@ -610,7 +610,7 @@ components:
       required: true
       description: |
         The target name, as listed by `/api/targets`.  Missing or blank is
-        400 `missing_target`; a name with no stats row is 404
+        400 `missing_target`; a name with no readable coverage document is 404
         `unknown_target`.  A repeated parameter takes its first value.
       schema: { type: string, minLength: 1 }
     Status:
@@ -634,12 +634,15 @@ components:
       in: query
       required: false
       description: |
-        A module name as stored.  Omitting it does not filter; a *present*
+        A module name.  Omitting it does not filter; a *present*
         empty value (`module=`) matches rows with a blank module.  The value
         is trimmed first, so a whitespace-only value is that same blank-module
-        filter.  It is compared for equality, so `%` and `_` in it are ordinary
-        characters and need no escaping.  A repeated parameter takes its
-        first value.
+        filter.  It then goes through the spelling the rows are stored in
+        (`preset_module_key`: NFC, then upper), on both sides of the
+        comparison, so a hand-typed `module=server` selects the `SERVER` rows
+        instead of silently matching none.  It is compared for equality, so `%`
+        and `_` in it are ordinary characters and need no escaping.  A repeated
+        parameter takes its first value.
       schema: { type: string }
     Query:
       name: q
@@ -663,6 +666,7 @@ components:
         optional minus sign, so `1_0`, `+5`, and a non-ASCII digit are
         non-numeric and fall back rather than naming a page the client did not
         ask for.  The applied value is read back from the envelope's `limit`.
+        A repeated parameter takes its first value.
       schema: { type: integer, minimum: 1, maximum: 5000, default: 100 }
     Offset:
       name: offset
@@ -673,7 +677,7 @@ components:
         0, on the same "ASCII digits under an optional minus sign" rule as
         `limit`; values past the address ceiling (`VA_MAX`) clamp to it, so an
         oversized skip is an empty page rather than a 500.  Read back from
-        `offset`.
+        `offset`.  A repeated parameter takes its first value.
       schema: { type: integer, minimum: 0, default: 0 }
     CacheBuster:
       name: v
@@ -682,7 +686,8 @@ components:
       description: |
         The script's content hash.  The shell links the scripts at
         `?v=<content hash>`, and that exact value is the one served
-        `immutable`; any other value revalidates.
+        `immutable`; any other value revalidates.  A repeated parameter takes
+        its first value.
       schema: { type: string }
 
   schemas:
@@ -1125,7 +1130,8 @@ components:
 
     UnknownTarget:
       description: |
-        No target by that name has stats (`unknown_target`).  A path the
+        No target by that name has a readable coverage document
+        (`unknown_target`).  A path the
         server does not serve answers this same status with `not_found`
         whatever the method, since there is no resource to list methods for.
       headers:

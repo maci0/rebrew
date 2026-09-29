@@ -460,7 +460,9 @@ human summary, and both are checked against the code by
 `q` matches name or symbol on functions and name on globals, and also matches
 exactly when it is a hex address of four or more digits (with or without
 `0x`). A present empty `module=` matches a blank module; omitting `module`
-does not filter. A repeated parameter takes its first value, and an
+does not filter. `module` is compared in the spelling the rows are stored in
+(NFC, then upper, on both sides), so `?module=server` selects the `SERVER` rows.
+A repeated parameter takes its first value, and an
 unrecognised one is ignored. A missing, malformed, or non-positive `limit`
 uses 100 and larger values clamp to 5000; a missing, malformed, or negative
 `offset` uses 0 and values past `VA_MAX` (rebrew's address ceiling) clamp to it,

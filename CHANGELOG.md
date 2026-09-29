@@ -43,6 +43,16 @@
   `--no-wizard`, so a script that opted out got "Pass the answers as flags, or
   run rebrew init on a terminal". The note is now gated on the wizard being on
   by default; the opt-out stays silent.
+- **The dashboard API promised an exact `module` match it does not make.**
+  `/api/functions` and `/api/globals` fold the filter and the stored module
+  through `preset_module_key` (NFC, then upper) on both sides, so
+  `?module=server` selects the `SERVER` rows; the OpenAPI parameter, the module
+  docstring, `CLI.md`, and `COVERAGE_DOCUMENT.md` all described a value "as
+  stored", which reads as case-sensitive and hands a client an empty page. They
+  now name the folding, `Limit`, `Offset`, and the cache buster state the
+  repeated-parameter rule their sibling parameters already did, and the two
+  sentences that still described the removed SQLite store as "a target with
+  stats" name the readable document instead.
 - **The dashboard's summary cards were unlabeled on every view.** The card row
   is function coverage, but it stays painted above the Globals, Sections, and
   History tables with only a screen-reader heading to say so; on those tabs the

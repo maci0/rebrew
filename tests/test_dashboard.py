@@ -4953,6 +4953,51 @@ cells = []
         _, _, body = dashboard.handle("GET", "/api/targets", {})
         assert set(schemas["Targets"]["properties"]) == set(json.loads(body))
 
+    def test_documented_module_spelling_is_the_one_the_route_compares(
+        self, tmp_path: Path
+    ) -> None:
+        """The `module` filter folds to the stored spelling, and the spec says so.
+
+        Both sides of the comparison go through ``preset_module_key`` (NFC, then
+        upper), so ``?module=server`` selects the ``SERVER`` rows.  A spec that
+        documented the value "as stored" would promise an exact match and hand
+        a client a hand-typed lower-case name that silently returns nothing,
+        which reads as "this target has no rows in that module".
+        """
+        db_dir = tmp_path / "db"
+        _write_document(
+            db_dir,
+            "t",
+            """
+[[functions]]
+va = 4096
+name = "f_one"
+symbol = "sym_one"
+status = "EXACT"
+markerType = "FUNCTION"
+size = 16
+module = "SERVER"
+
+[[globals]]
+va = 4096
+name = "g_one"
+decl = "int g_one"
+size = 4
+module = "SERVER"
+""",
+        )
+        served = Dashboard(db_dir)
+        for path in ("/api/functions", "/api/globals"):
+            for spelling in ("SERVER", "server", "Server"):
+                status, _, body = served.handle(
+                    "GET", path, {"target": ["t"], "module": [spelling]}
+                )
+                assert status == 200, (path, spelling)
+                assert json.loads(body)["total"] == 1, (path, spelling)
+
+        description = _spec()["components"]["parameters"]["Module"]["description"]
+        assert "preset_module_key" in description
+
     def test_every_ref_resolves(self) -> None:
         """A dangling `$ref` makes the spec unusable for a generated client.
 
