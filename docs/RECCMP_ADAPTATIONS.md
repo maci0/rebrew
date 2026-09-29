@@ -2,7 +2,7 @@
 
 Rebrew reimplements reccmp's toolset natively (see [ECOSYSTEM.md](ECOSYSTEM.md)).
 Beyond the tool equivalents, four adaptations from the reccmp source are
-**carried in the tree** (MIT License, © reccmp contributors — attribution
+**carried in the tree** (MIT License, © reccmp contributors; attribution
 kept beside each): three modules plus the jump-swap check inside
 `near_diag`. They close capability gaps where rebrew had no equivalent,
 without adding a reccmp dependency.
@@ -16,7 +16,7 @@ without adding a reccmp dependency.
 
 ---
 
-## pinned_diff — pinned sequence matching
+## pinned_diff: pinned sequence matching
 
 `SequenceMatcherWithPins(a, b, pinned_lines)` diffs two string sequences
 where some `(a_index, b_index)` associations are known. Each pin bounds an
@@ -39,12 +39,12 @@ for op in m.get_opcodes():  # DiffOpcode(tag, a_start, a_end, b_start, b_end, a,
 
 **near-diag integration.** `align_and_classify` computes `_auto_pins`:
 instructions whose raw encoding is byte-identical AND unique on both sides
-are pins — reliable landmarks register/encoding churn elsewhere cannot have
+are pins; reliable landmarks register/encoding churn elsewhere cannot have
 produced. The pin-partitioned opcodes then feed the same per-pair
 classifier as before (`match` / `register` / `encoding` / `equivalent` /
 `reloc` / `structural`).
 
-## near_diag jump_swap — instruction equivalences
+## near_diag jump_swap: instruction equivalences
 
 `jump_swap_ok(a, b)` checks two `"mnemonic operands"` lines: both are
 conditional jumps compatible with a flipped `cmp` operand order
@@ -54,11 +54,11 @@ conditional jumps compatible with a flipped `cmp` operand order
 index sets.
 
 **near-diag integration.** `classify_pair` treats a mirrored conditional
-jump pair with the same displacement as `equivalent` — the compiler
+jump pair with the same displacement as `equivalent`: the compiler
 flipped the `cmp` operand order, not the control flow. This must be checked
 before the same-mnemonic branch because `ja`/`jb` differ by mnemonic.
 
-## vtordisp — MI thunk detection
+## vtordisp: MI thunk detection
 
 MSVC multiple-inheritance thunks adjust `this` (`sub ecx, imm8`) and jump
 to the base implementation. Three shapes: `{disp, 0}` (8 bytes),
@@ -72,11 +72,11 @@ for t in find_vtordisps(code, base_addr):
     t.func_addr  # resolved jump target
 ```
 
-Byte-pattern scan (no disassembly) — thunks are 8-14 byte islands the
+Byte-pattern scan (no disassembly): thunks are 8-14 byte islands the
 linker may place between functions. Exposed in the `rebrew analyze` dossier
 as the `vtordisp` section (VA, target, disp, addend, size).
 
-## float_const — float constant pool
+## float_const: float constant pool
 
 x87 instructions with an absolute memory operand (`D8`-`DF` opcode space,
 `mod=00` forms) can reference constants instead of variables. Capstone
@@ -91,7 +91,7 @@ consts = find_float_consts(
     code_regions,  # [(va, bytes)] per executable section
     const_regions,  # [(start_va, end_va)] read-only spans
     read_at,  # (va, size) -> bytes over the image
-    reloc_sites=None,  # optional set of reloc VAs — filters immediates
+    reloc_sites=None,  # optional set of reloc VAs; filters immediates
 )
 # -> FloatConstant(address, size=4|8, value)
 ```

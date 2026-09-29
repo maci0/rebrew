@@ -17,7 +17,7 @@ function discovery, and the old behavior was to reject the format outright
 `load_binary` parses NE natively via `rebrew.ne_loader`:
 
 - MZ `e_lfanew` locates the NE header (must be **sought to**, not assumed
-  within the MZ stub — the MSVC 16-bit linker places it at 0x400, Borland
+  within the MZ stub; the MSVC 16-bit linker places it at 0x400, Borland
   at 0x40).
 - Segment table, resident-name table (exports), module reference +
   imported names tables (imports), and the entry table are parsed.
@@ -27,7 +27,7 @@ function discovery, and the old behavior was to reject the format outright
   without special-casing beyond the `x86_16` arch preset.
 - `is_ne(path)` gates the NE path ahead of LIEF; the signature is read at
   `e_lfanew` (a fixed 0x104-byte stub read missed MSVC binaries whose NE
-  header sits at 0x400 — see ADR-002 for the symptom).
+  header sits at 0x400; see ADR-002 for the symptom).
 
 ## Consequences
 
@@ -42,4 +42,4 @@ function discovery, and the old behavior was to reject the format outright
   per ADR-008), the built-in `omf16` parser decodes both OMF dialects
   (objconv crashes on them), and `test`/`verify`/`match --flag-sweep-only`
   run on NE targets (see TOOLCHAIN.md item 6).  Delphi's Borland ABI
-  remains unmatchable — those functions are documented as blockers.
+  remains unmatchable: those functions are documented as blockers.

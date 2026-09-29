@@ -1,4 +1,4 @@
-# PRD 01 — Project Onboarding
+# PRD 01: Project Onboarding
 
 - **Status**: Shipped
 - **Date**: 2026-05 (updated 2026-09)
@@ -18,9 +18,9 @@ users repeatedly fail during their first hour because:
 - They start with no `rebrew-project.toml` and have to author one by hand.
 - They have multiple binaries (DLL + EXE) and the relationship between "target",
   "binary", and "module" is unclear.
-- The period-correct toolchain is a docker image — every Windows/DOS compiler
+- The period-correct toolchain is a docker image: every Windows/DOS compiler
   executes docker-only (wine runs inside the image; there is no host wine/wibo
-  fallback) — and a missing image, a profile that contradicts the detected
+  fallback), and a missing image, a profile that contradicts the detected
   compiler family, or wrong flags surface deep inside a compile far from the
   cause.
 - TOML edits get clobbered (formatting, comments, indentation) when scripted.
@@ -71,7 +71,7 @@ commands that round-trip TOML.
   into `original/<filename>` themselves.
 - `rebrew init` does not download or build the toolchain. Every shipped
   compiler profile (`msvc-*`, `borland-*`, `watcom-*`, `delphi-1.0`, `ido-*`,
-  `gcc-*`, `clang-*`, `mingw-*`) runs docker-only — build or pull the image
+  `gcc-*`, `clang-*`, `mingw-*`) runs docker-only: build or pull the image
   with `rebrew toolchain build <name>` / `rebrew toolchain pull <name>`.
   Only a plugin/overlay toolchain registered without an `image` may exec a
   host PATH/vendored binary. The legacy `--install-wibo` host runner is
@@ -96,7 +96,7 @@ commands that round-trip TOML.
   context, copies the bundled `agent-skills/` into `.agents/skills/` (with
   `<target>` substituted), and copies `PRINCIPLES.md`.
 - Picks the compiler profile from `--toolchain` (default `msvc-6.0`). Accepted
-  profiles are the full toolchain list — MSVC 1.0–11.0 variants (`msvc-6.0`,
+  profiles are the full toolchain list: MSVC 1.0–11.0 variants (`msvc-6.0`,
   `msvc-7.0`, `msvc-6.0-sp6`, ...), Borland/Turbo C (`borland-5.5`, `borland-3.1`, `borland-2.0`),
   Open Watcom (`watcom-2.0-win32`, `watcom-2.0-win16`), `delphi-1.0`, `mingw-16.2.0`, `gcc-14.2.0`, `clang-18.1.8`
   (see `rebrew toolchain list`).
@@ -105,7 +105,7 @@ commands that round-trip TOML.
   fingerprint (MSVC profiles); warns on 16-bit/profile and compiler-family
   mismatches.
 - Docker-backed profiles (all shipped toolchains) are written with an empty
-  `command`/`runner` — the docker image drives compilation, so `--install-wibo`
+  `command`/`runner`: the docker image drives compilation, so `--install-wibo`
   is ignored for them (wine/DOSBox/native runtime runs inside the image).
 - `--guess-compiler` auto-selects the profile from the target binary; the
   `--wizard/--no-wizard` TTY wizard prompts for anything not passed on the CLI
@@ -166,14 +166,14 @@ commands that round-trip TOML.
   scopes it to that target's `[targets.<name>.compiler.cflags_presets]` (omitted
   → global `[compiler.cflags_presets]`).
 - `set-compiler TARGET PROFILE` sets the per-target compiler profile
-  (`targets.<name>.compiler` — the per-target override from the init template).
+  (`targets.<name>.compiler`; the per-target override from the init template).
 - `detect-crt [--write]` walks the project tree for MSVC CRT source mirror
   directories and registers them under the target's `crt_sources` when
   `--write` is passed.
 
 ## User Stories / Workflows
 
-### Story 1 — Fresh project, one binary
+### Story 1: Fresh project, one binary
 
 1. User creates an empty directory, drops `mygame.exe` into a sibling
    `original/` folder.
@@ -184,7 +184,7 @@ commands that round-trip TOML.
 4. User runs `rebrew doctor` and sees green checkmarks for compiler + binary.
 5. They run `rebrew extract list` to find their first function to reverse.
 
-### Story 2 — Adding a second target
+### Story 2: Adding a second target
 
 1. User has a project with a `main` target (game DLL) and wants to add the EXE.
 2. Runs `rebrew cfg add-target client --binary original/client.exe`.
@@ -192,14 +192,14 @@ commands that round-trip TOML.
    auto-detected as PE/x86_32.
 4. User runs `rebrew doctor --target client` to validate the toolchain.
 
-### Story 3 — Tuning per-module CFLAGS
+### Story 3: Tuning per-module CFLAGS
 
 1. User notices their MSVCRT-origin functions need `/O1 /Gd` instead of `/O2`.
 2. Runs `rebrew cfg set-cflags MSVCRT "/O1 /Gd" --target main`.
 3. Re-running `rebrew verify` picks up the new CFLAGS from the config; no
    `.c` file edits needed.
 
-### Story 4 — CI doctor gate
+### Story 4: CI doctor gate
 
 1. CI runs `rebrew doctor --target main --json` on each PR.
 2. If any check fails, the job fails with the JSON report attached as an artifact.
@@ -255,7 +255,7 @@ formatting.
 
 - New user can produce a passing `rebrew doctor` exit code in under 5 minutes
   from a fresh checkout, given a valid binary + toolchain.
-- Re-running `rebrew init` on an existing project is refused — it never destroys
+- Re-running `rebrew init` on an existing project is refused: it never destroys
   configuration.
 - `rebrew cfg` round-trip preserves comments and section ordering across a
   `raw` → external edit → `set` cycle.
@@ -278,6 +278,6 @@ formatting.
   if the binary is later replaced with a different arch, the stanza is stale
   (manual `cfg set targets.<name>.format/arch`, or `--force` for a binary that
   is not yet present).
-- FIXED: per-target compiler overrides are first-class now — `cfg set-compiler
+- FIXED: per-target compiler overrides are first-class now; `cfg set-compiler
   TARGET PROFILE` (or `cfg set targets.<name>.compiler.profile`) overrides the
   shared `[compiler]` section per target.

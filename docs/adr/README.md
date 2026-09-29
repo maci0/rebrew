@@ -12,14 +12,14 @@ itself, and the consequences (including trade-offs accepted).
   `- **Date**:` (`YYYY-MM`) lines, then three sections: **Context**,
   **Decision**, **Consequences**.
 - Status values: `Accepted` (in force), `Amended by NNN` (partially
-  superseded — read the citing ADR for the current shape), `Superseded by
+  superseded; read the citing ADR for the current shape), `Superseded by
   NNN`. A record whose decision is only partly implemented says so in its
   status line and names the open half. A decision still being made is an
   RFC, not a proposed ADR.
 - Write a new ADR when a change is architectural: a new format/profile/
   backend, a behavioral contract change, or a deliberate trade-off that
   future readers must not silently undo.  Small fixes and polish do not
-  need an ADR — the CHANGELOG covers those.
+  need an ADR: the CHANGELOG covers those.
 
 ## Records
 

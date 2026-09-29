@@ -3,7 +3,7 @@
 How rebrew docs stay accurate without rotting. Adapted from the DeepSeek
 Harness documentation standard (`docs/AGENTS.md` there); trimmed to what a
 single-maintainer Python repo can enforce. The executable part is
-`tests/test_docs_hygiene.py` — prose below it is guidance for reviewers.
+`tests/test_docs_hygiene.py`: prose below it is guidance for reviewers.
 
 ## One home per fact
 
@@ -50,7 +50,7 @@ Hunt these in any doc review:
   command snippet with `rebrew <cmd> --help` before committing.
 - **Name actors and facts.** "verify demotes the STATUS" beats "the status
   is demoted". Name the exact command, field, file, or behavior.
-- **One term per concept.** STATUS, BLOCKER, CFLAGS, VA — same word
+- **One term per concept.** STATUS, BLOCKER, CFLAGS, VA: same word
   everywhere. No synonym rotation.
 - **Code terms exact.** Command names, flags, field names, file paths are
   quoted verbatim; never paraphrase them.

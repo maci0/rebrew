@@ -59,8 +59,8 @@ VA (integer)  ←  canonical join key
   ├── name          "func_10001000"  (canonical display name)
   ├── ghidra_name   "FUN_10001000"   (Ghidra's name at export time)
   ├── list_name     "fcn.10001000"   (name from function list file)
-  ├── ida_name      "sub_10001000"   (IDA's name — future)
-  ├── binja_name    "sub_10001000"   (Binary Ninja's name — future)
+  ├── ida_name      "sub_10001000"   (IDA's name, future)
+  ├── binja_name    "sub_10001000"   (Binary Ninja's name, future)
   └── detected_by   ["ghidra", "list"] (which sources found this function)
 ```
 
@@ -68,7 +68,7 @@ This design allows:
 
 - **Lookup in any direction**: given `FUN_10001000` from a Ghidra script, find the matching function list or IDA name instantly via the shared VA.
 - **Name precedence**: user-assigned names from *any* tool override auto-generated names. The first non-generic name wins.
-- **Size arbitration**: when tools disagree on function size, `size_by_tool` records each tool's opinion and `canonical_size` resolves it (Ghidra wins on ties or when larger; a larger function-list size wins only when the extra bytes classify as jump table, padding, or out-of-line code — see `size_reason` in `catalog/registry.py`).
+- **Size arbitration**: when tools disagree on function size, `size_by_tool` records each tool's opinion and `canonical_size` resolves it (Ghidra wins on ties or when larger; a larger function-list size wins only when the extra bytes classify as jump table, padding, or out-of-line code; see `size_reason` in `catalog/registry.py`).
 
 ### Where This Lives
 
@@ -76,22 +76,22 @@ This design allows:
 |-------|------|------------|
 | Coverage document | `db/coverage-<target>.toml` | `ghidra_name`, `list_name`, `detected_by`, `size_by_tool` |
 | Coverage document | `db/coverage-<target>.toml` → `functions` array | Same columns, one file per target |
-| REST API | `GET /api/functions?target=` (`rebrew dashboard`) | Compact arrays under `cols`: `va`, `name`, `symbol`, `size`, `status`, `module`, `files`. Provenance columns (`ghidra_name`, `list_name`) stay in the document only — the dashboard omits them from the wire (same reason it omits `markerType`). `GET /api/globals` and `GET /api/history` use the same array+`cols` shape (`va`/`name`/`decl`/`size`/`module` and `va`/`name`/`old_status`/`new_status`/`changed_at`, with `name` joined from `functions` and `''` once the VA has no function row). There is no per-VA `/api/targets/<t>/functions/<va>` route on this server; the sibling `recovery` API is separate. |
+| REST API | `GET /api/functions?target=` (`rebrew dashboard`) | Compact arrays under `cols`: `va`, `name`, `symbol`, `size`, `status`, `module`, `files`. Provenance columns (`ghidra_name`, `list_name`) stay in the document only: the dashboard omits them from the wire (same reason it omits `markerType`). `GET /api/globals` and `GET /api/history` use the same array+`cols` shape (`va`/`name`/`decl`/`size`/`module` and `va`/`name`/`old_status`/`new_status`/`changed_at`, with `name` joined from `functions` and `''` once the VA has no function row). There is no per-VA `/api/targets/<t>/functions/<va>` route on this server; the sibling `recovery` API is separate. |
 
 ---
 
 ## Detecting Auto-Generated vs User-Assigned Names
 
 A name is **not meaningful** (auto-generated / placeholder) when
-`is_meaningful` in `binsync/importer.py` is false — shared by
+`is_meaningful` in `binsync/importer.py` is false: shared by
 `binsync/diff.py` and `binsync/overlay.py`. That helper rejects:
 
-1. `_GENERIC_NAME_RE` — `func_`/`FUN_` hex auto-names (optional leading `_`, optional stdcall `@N`):
+1. `_GENERIC_NAME_RE`: `func_`/`FUN_` hex auto-names (optional leading `_`, optional stdcall `@N`):
    ```regex
    ^_?(func_|FUN_)[0-9a-fA-F]+(@\d+)?$
    ```
-2. `_GHIDRA_GENERIC_RE` — Ghidra prefixes `FUN_`, `DAT_`, `switchdata`, `thunk_`
-3. `_PLACEHOLDER_GLOBAL_RE` — synthetic `g_<4–8 hex>` globals
+2. `_GHIDRA_GENERIC_RE`: Ghidra prefixes `FUN_`, `DAT_`, `switchdata`, `thunk_`
+3. `_PLACEHOLDER_GLOBAL_RE`: synthetic `g_<4–8 hex>` globals
 
 Everything else is treated as a **user-assigned** name and is preserved.
 
@@ -146,7 +146,7 @@ instead:
 + _GENERIC_NAME_RE = re.compile(r"^_?(func_|FUN_|sub_)[0-9a-fA-F]+(@\d+)?$")
 ```
 
-And teach `sanitize_name()` (`rebrew/naming.py`) to rewrite the new prefix —
+And teach `sanitize_name()` (`rebrew/naming.py`) to rewrite the new prefix:
 it currently handles only the Ghidra `FUN_` form:
 
 ```diff

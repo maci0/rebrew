@@ -39,7 +39,7 @@ differs from the target binary errors.
 
 ---
 
-## Umbrella — `rebrew binsync <push|pull|summary|init|diff|overlay>`
+## Umbrella: `rebrew binsync <push|pull|summary|init|diff|overlay>`
 
 `rebrew binsync` is a multi-command group that orchestrates the same
 functions as the flat commands and adds git automation:
@@ -69,7 +69,7 @@ scripting and back-compat; the umbrella is a thin layer over the same code.
 
 ---
 
-## Export — `rebrew binsync-export <outdir>`
+## Export: `rebrew binsync-export <outdir>`
 
 Writes a [BinSync](https://github.com/binsync/binsync) state directory from the
 project's annotations and metadata:
@@ -242,29 +242,29 @@ state directory the same way.
 
 ---
 
-## Import — `rebrew binsync-import <state-dir>`
+## Import: `rebrew binsync-import <state-dir>`
 
 Reads a BinSync state directory (own export or one produced by another tool)
 and applies changes back into rebrew metadata/source:
 
-- **Names** — declib `Function.name` → rebrew symbols
+- **Names**: declib `Function.name` → rebrew symbols
   (via `rebrew rename` cross-reference rewriting). Generic→meaningful is applied
   directly; meaningful↔meaningful raises a conflict.
-- **Prototypes** — declib `Function.header.type` → `// PROTOTYPE:` inline
+- **Prototypes**: declib `Function.header.type` → `// PROTOTYPE:` inline
   annotations in the local `.c` files (PROTOTYPE is a file-only key, not
   metadata).  Comparison is whitespace-normalized (formatting-only differences
   are not divergence); a differing local prototype raises a conflict like a
-  name — `--accept-binsync` overwrites.
-- **Globals** — declib `GlobalVariable` records → `rebrew-data.toml` names,
+  name: `--accept-binsync` overwrites.
+- **Globals**: declib `GlobalVariable` records → `rebrew-data.toml` names,
   plus differing `type`/`size` written back (section comes from the binary).
-- **Notes / comments** — declib `Comment` artifacts in `comments.toml`:
+- **Notes / comments**: declib `Comment` artifacts in `comments.toml`:
   `[rebrew:note]`/`[rebrew:ghidra]` prefixes become rebrew `note`/`ghidra`
   metadata; every other comment lands in the function's `comments` metadata
   keyed by hex address. A comment whose address falls inside the owning
   function's range also gets a human-editable source marker (see below).
-- **Locals** — declib `Function.stack_vars` → the function's `locals` metadata
+- **Locals**: declib `Function.stack_vars` → the function's `locals` metadata
   (`[<module>.<va>.locals]`, offset-keyed `{name, type, size}`).
-- **Structs / enums / typedefs** — declib `Struct`, `Enum`, and `Typedef`
+- **Structs / enums / typedefs**: declib `Struct`, `Enum`, and `Typedef`
   records unknown locally land in `binsync_types.h`; known names are never
   overwritten, and unparseable synthesized definitions import as comments, never
   as compile-breaking typedefs.
@@ -301,8 +301,8 @@ Conflict resolution mirrors `rebrew sync`:
 CONFLICT 0x10001000: local=_OldName vs binsync=_NewName
 ```
 
-- `--accept-binsync` — accept BinSync name (rewrites local files).
-- `--accept-local` — keep local, record BinSync name as `GHIDRA` provenance.
+- `--accept-binsync`: accept BinSync name (rewrites local files).
+- `--accept-local`: keep local, record BinSync name as `GHIDRA` provenance.
 
 `--module FILTER` restricts to one module; `--dry-run`/`--json` work as elsewhere.  For BinSync
 functions with no local annotation but present in the catalog, import proposes a new STUB
@@ -326,7 +326,7 @@ rebrew binsync-import ./binsync_state --dry-run --json | jq .
 
 ---
 
-## Overlay — `rebrew binsync-overlay <state-dir>`
+## Overlay: `rebrew binsync-overlay <state-dir>`
 
 Transfers BinSync names, prototypes, and notes from a **related target** onto
 structurally-matched functions of the target the command runs against. Two
@@ -379,19 +379,19 @@ rebrew binsync-overlay ./state --fields global
 
 ---
 
-## Diff — `rebrew binsync-diff <state-dir>`
+## Diff: `rebrew binsync-diff <state-dir>`
 
 Read-only divergence report between the local project (reversed annotations +
 catalog) and a BinSync state directory. Never writes; exits `1` when any
 divergence exists (CI-friendly). Same filtering semantics as
 `binsync-import --dry-run`.
 
-- **Names** — generic-vs-meaningful and meaningful↔meaningful conflicts
-- **Prototypes** — BinSync `[header].type` vs local prototype (whitespace-normalized)
-- **Globals** — `global_vars.toml` labels missing or renamed locally
-- **New in BinSync** — catalog-known functions present in BinSync but not yet
+- **Names**: generic-vs-meaningful and meaningful↔meaningful conflicts
+- **Prototypes**: BinSync `[header].type` vs local prototype (whitespace-normalized)
+- **Globals**: `global_vars.toml` labels missing or renamed locally
+- **New in BinSync**: catalog-known functions present in BinSync but not yet
   reversed locally (the same population import surfaces as `proposed_missing`)
-- **Freshness** — `manifest.toml` facts surfaced in `--json` (`exported_at`, `content_hash`)
+- **Freshness**: `manifest.toml` facts surfaced in `--json` (`exported_at`, `content_hash`)
 
 ```bash
 rebrew binsync-diff ./binsync_state            # divergences (exit 1 if any)
@@ -452,24 +452,24 @@ rebrew binsync-export ./binsync_state --json
 | LIBRARY | ✅ | ✅ (if annotated) | ✅ |
 | (no STATUS) | ✅ | ✅ (if annotated) | omitted |
 
-The metadata-comment column is notes and differing Ghidra names only —
+The metadata-comment column is notes and differing Ghidra names only:
 `STATUS`/`CFLAGS` are verify-earned and never leave the project.
 
 ---
 
 ## Limitations (remaining)
 
-- **Comments outside a function range** — a per-instruction comment whose
+- **Comments outside a function range**: a per-instruction comment whose
   address falls outside every known function's range has no source marker
   (rebrew has nowhere to anchor it); it stays in the metadata `comments` store
   and still round-trips through `comments.toml`.
-- **Marker placement** — the `// ANALYSIS @ 0xADDR: text` block is file-level
+- **Marker placement**: the `// ANALYSIS @ 0xADDR: text` block is file-level
   (one trailing block per `.c`), not mapped to a source line; rebrew has no
   line table, so the address is the only anchor.
 
 ---
 
-## `rebrew sync` — feature matrix and known issues
+## `rebrew sync`: feature matrix and known issues
 
 `rebrew sync` is BinSync-primary: field sync (names, prototypes, structs,
 globals) goes through the shared state dir above, and ReVa MCP remains only
@@ -500,14 +500,14 @@ graph TD
 | Import structs / notes / global types+sizes | File → Local | ✅ Done | `--pull` (structs → `binsync_types.h`, notes → metadata, global type/size → `rebrew-data.toml`) |
 | Create missing functions in Ghidra | Local → Ghidra | ✅ Done | `--pull --create-functions` (MCP create op over imported VAs) |
 | Status bookmarks | Local → Ghidra | ✅ Done | `--bookmarks` (category `rebrew`, status in the comment) |
-| Custom MCP endpoint URL | — | ✅ Done | `--endpoint URL` |
-| Summary / dry-run preview | — | ✅ Done | `--summary`, `--dry-run` |
+| Custom MCP endpoint URL | n/a | ✅ Done | `--endpoint URL` |
+| Summary / dry-run preview | n/a | ✅ Done | `--summary`, `--dry-run` |
 | Prototype conflict gating | File → Local | ✅ Done | differing local prototype reports a conflict; `--accept-binsync` overwrites |
-| Whitespace-normalized prototype compare | — | ✅ Done | formatting-only differences are not divergence |
+| Whitespace-normalized prototype compare | n/a | ✅ Done | formatting-only differences are not divergence |
 | Freshness manifest | File | ✅ Done | `manifest.toml` (`exported_at`, `content_hash`); surfaced by `binsync-diff --json` |
 | Conflict detection (names, prototypes) | Both | ✅ Done | Warns on conflict, `--accept-binsync`/`--accept-local` |
 | Pull data labels from Ghidra | Ghidra → Local | ✅ Done | `--pull-data` (generates `rebrew_globals.h`) |
-| Validate `programPath` against Ghidra project | — | ✅ Done | queries `get-current-program` via ReVa MCP and warns on mismatch |
+| Validate `programPath` against Ghidra project | n/a | ✅ Done | queries `get-current-program` via ReVa MCP and warns on mismatch |
 | Watch mode (live file-change sync) | Local → Ghidra | ✅ Done | `--watch` (push only) |
 | XREF context in skeleton generation | Ghidra → Local | ✅ Done | `skeleton --xrefs` |
 | Ghidra decompilation backend for skeleton | Ghidra → Local | ✅ Done | `skeleton --decomp --decomp-backend ghidra` |
@@ -515,7 +515,7 @@ graph TD
 
 ### Known issues
 
-- **Per-instruction comments outside a function range** — an in-range comment
+- **Per-instruction comments outside a function range**: an in-range comment
   round-trips through the `// ANALYSIS @ 0xADDR: text` source marker; one with
   no anchorable function stays in the metadata `comments` store (see
   [Limitations](#limitations-remaining)).
@@ -524,6 +524,6 @@ graph TD
 
 ## Related
 
-- [`rebrew catalog`](CLI.md#rebrew-catalog) — function registry and coverage grid
+- [`rebrew catalog`](CLI.md#rebrew-catalog): function registry and coverage grid
 - [BinSync GitHub](https://github.com/binsync/binsync)
 - [declib](https://github.com/binsync/declib)

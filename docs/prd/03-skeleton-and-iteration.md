@@ -1,4 +1,4 @@
-# PRD 03 — Skeleton & Iteration
+# PRD 03: Skeleton & Iteration
 
 - **Status**: Shipped
 - **Date**: 2026-05 (updated 2026-09)
@@ -61,7 +61,7 @@ you what to attack next.
 
 ## Non-Goals
 
-- `test` does not run the GA — that's PRD 04.
+- `test` does not run the GA: that's PRD 04.
 - `skeleton --decomp` does not promise a clean compile; the embedded
   decompilation is a hint, not a working candidate.
 - `lint` does not edit code structure; it only adjusts annotations and
@@ -176,36 +176,36 @@ you what to attack next.
 ### `rebrew todo`
 
 - Computes a continuous ROI score and emits a globally interleaved list:
-  - `setup` — fresh project steps.
-  - `compile-error` — failed verify.
-  - `extract-error` — symbol not found in `.obj`
+  - `setup`; fresh project steps.
+  - `compile-error`; failed verify.
+  - `extract-error`; symbol not found in `.obj`
     (marker/symbol/implementation issue).
-  - `fix-delta` — known small deltas (≤20 B) ripe for flag sweep / GA.
-  - `improve-match` — in-progress without small delta.
-  - `start-function` — uncovered, ranked by size + difficulty.
-  - `missing-annotation` — in Ghidra but no C body / SIZE annotation.
-  - `identify-library` — uncovered library code: a library-module name, or
+  - `fix-delta`; known small deltas (≤20 B) ripe for flag sweep / GA.
+  - `improve-match`; in-progress without small delta.
+  - `start-function`; uncovered, ranked by size + difficulty.
+  - `missing-annotation`; in Ghidra but no C body / SIZE annotation.
+  - `identify-library`; uncovered library code: a library-module name, or
     bytes that match a cached stock archive and still have no `// LIBRARY:`
     marker.
-  - `run-prover` — near-matches eligible for `rebrew prove`: delta ≤ 8 B
+  - `run-prover`; near-matches eligible for `rebrew prove`: delta ≤ 8 B
     and function ≤ 500 B.
-  - `exact-only` — a `RELOC` function, identical with relocations masked but
+  - `exact-only`; a `RELOC` function, identical with relocations masked but
     not on its own; scored 0, below every actionable item.
-  - `postlink-mangled` — a function whose bytes in `build/<target>` a
+  - `postlink-mangled`; a function whose bytes in `build/<target>` a
     postlink fixer rewrote, detected by diffing the span against a configured
     `raw_link`; scored 0, and absent without one.
-  - `documented` — IAT thunks / non-reproducible code (audit only, hidden
+  - `documented`; IAT thunks / non-reproducible code (audit only, hidden
     from the default list).
-  - `naked-reconstruction` — byte-exact via a generated naked skeleton
+  - `naked-reconstruction`; byte-exact via a generated naked skeleton
     (`// SOURCE: naked`); reproduced, not decompiled, so it stays queued
     until the real C body matches.
-  - `data-drift` / `start-data` — data symbols needing `rebrew verify --data`.
+  - `data-drift` / `start-data`; data symbols needing `rebrew verify --data`.
 - `--count N`, `--category C` filters.
 - `--stats` adds coverage stats header.
 
 ## User Stories / Workflows
 
-### Story 1 — From VA to first match
+### Story 1: From VA to first match
 
 1. `rebrew todo --json` returns a top action `start-function 0x10003da0`.
 2. `rebrew skeleton 0x10003da0 --decomp` writes
@@ -215,9 +215,9 @@ you what to attack next.
 5. `rebrew diff src/main/sub_10003da0.c --mismatches-only` shows three `**` lines all
    tagged "register allocation".
 6. User flips `/Os` to `/O1` in CFLAGS via `rebrew cfg set-cflags`, reruns
-   `rebrew test` — STATUS promotes to EXACT.
+   `rebrew test`: STATUS promotes to EXACT.
 
-### Story 2 — Cleaning up a multi-function file
+### Story 2: Cleaning up a multi-function file
 
 1. `rebrew split src/main/crt_env.c` splits all functions into individual
    `.c` files under `src/main/`.
@@ -226,7 +226,7 @@ you what to attack next.
 3. `rebrew lint --fix` migrates any leftover inline metadata to
    `rebrew-functions.toml`.
 
-### Story 3 — Quick action triage
+### Story 3: Quick action triage
 
 1. After a long break, the user runs `rebrew todo --stats` and sees
    12 compile errors, 8 fix-delta candidates, 200 start-function items.
@@ -234,7 +234,7 @@ you what to attack next.
    knock out the fix-delta queue with `rebrew test`/`rebrew diff` cycles,
    and only then attack new functions.
 
-### Story 4 — CI lint gate
+### Story 4: CI lint gate
 
 1. CI runs `rebrew lint --json --quiet`; non-zero exit fails the build
    and prints `E001`/`E002` errors with file+line info.
@@ -349,7 +349,7 @@ rebrew todo
   under 5 s.
 - STATUS in `rebrew-functions.toml` always reflects the latest test result;
   no out-of-band STATUS writes from the source file.
-- `rebrew lint --fix --dry-run` is safe to suggest to humans — never
+- `rebrew lint --fix --dry-run` is safe to suggest to humans: never
   surfaces a destructive change unless `--fix` is given without `--dry-run`.
 - `rebrew todo`'s ROI ranking is stable across small project changes (no
   thrashing).
@@ -366,7 +366,7 @@ rebrew todo
   warning.
 - `rebrew rename` does best-effort cross-reference updates by scanning the
   reversed directory; it deliberately does not rewrite macros or string
-  literals — `grep` for the old name afterwards if you suspect any.
+  literals: `grep` for the old name afterwards if you suspect any.
 - `rebrew split` and `rebrew merge` are textual operations driven by
   `// FUNCTION:` markers; arbitrary C constructs between functions (e.g.
   file-scope statics that span declarations) may need manual fix-up.

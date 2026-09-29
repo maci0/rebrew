@@ -1,4 +1,4 @@
-# Rebrew ideas — features the guild-rebrew effort needed but lacked
+# Rebrew ideas: features the guild-rebrew effort needed but lacked
 
 Sourced from the 100% byte-identical `server.dll` campaign (MSVC6, x86-32).
 Each entry: observed pain, proposed feature, evidence pointer in guild-rebrew.
@@ -47,7 +47,7 @@ Status `open` unless noted. Promote to ROADMAP when scoped.
   Evidence: codegen-walls §3.
 - [ ] **Epilogue-merge detector.**
   Pain: reference keeps N epilogues, `/O2` folds to one; 8 spellings tried,
-  all inert — recognised late as compiler wall. Feature: detect "N ref rets
+  all inert; recognised late as compiler wall. Feature: detect "N ref rets
   vs 1 obj ret with byte-identical bodies" in diff output, label as wall,
   stop the loop early. Evidence: codegen-walls §2, shapes §74.
 - [ ] **Strength-reduction use-site hint.**
@@ -69,7 +69,7 @@ Status `open` unless noted. Promote to ROADMAP when scoped.
   pre-link. Evidence: goal.md types section.
 - [ ] **String-to-owner attribution with push verification.**
   Pain: RevEng attribution wrong twice; manual `asm | grep push` confirmation
-  each time. Feature: `rebrew strings --verify-push` — attribute `"<name>():
+  each time. Feature: `rebrew strings --verify-push`; attribute `"<name>():
   ..."` strings, confirm each by disassembling the owner for the literal
   push, report unverified ones. Evidence: naming_conventions.md attested
   table method.
@@ -246,7 +246,7 @@ Status `open` unless noted. Promote to ROADMAP when scoped.
   codegen-LLM budget on library leftovers, stale blockers, and inverted
   briefs. Feature: a guild-rebrew script that sends `todo --json` +
   `near-diag --json` + blocker prose to TypeSafe Jev (Choice / Score /
-  Noul) and confidence-gates the next command — no C generation, no
+  Noul) and confidence-gates the next command; no C generation, no
   rebrew package change. Keep only if it beats `todo` on a labeled
   NEAR_MATCHING slice. Evidence: [JEV.md](JEV.md); workflow-traps §1
   (inverted `volatile` brief); shapes / allocator catalogs.
@@ -265,24 +265,24 @@ Status `open` unless noted. Promote to ROADMAP when scoped.
   sweeping per-file toolchain pins hit this and left a tree reporting 58% residue
   with a 290,816-byte deliverable against the correct 286,720 / 8628.
   Feature: `rebrew build-check` (and a `rebrew doctor` clause) comparing
-  `build.make`'s compile lines against CMake's own `flags.make` records —
+  `build.make`'s compile lines against CMake's own `flags.make` records;
   shipped as `src/rebrew/build_check.py`.
   Evidence: guild-rebrew `docs/workflow-traps.md` §20.
 
 - **Post-link failure messages should report the measurement, not one hypothesis.**
   Pain: `postlink._fix_imports` refused a build with "built .rdata prefix size
-  does not match the reference — check the debug directory: builds with /debug
+  does not match the reference; check the debug directory: builds with /debug
   carry an extra 0x1c-byte directory". The real discrepancy was +64 bytes with
   `DataDirectory[6] == 0` in both images. The message cost a wrong lead on a
   check every composition round hits.
   Feature: state *measured* vs *expected*, and give the test that separates the
   candidate causes (`== 0x1c` means /debug; anything else means the section
-  length itself). Applied — see the diff to `src/rebrew/postlink.py`.
+  length itself). Applied: see the diff to `src/rebrew/postlink.py`.
   Evidence: guild-rebrew `docs/workflow-traps.md` §21.
 
 - **`rebrew verify`'s denominator should not be the annotation count alone.**
   Pain: `function_structure.json` (the discoverer's partition) is coarser than the
-  annotations — 543 entries against 283 annotated functions — and its entry sizes
+  annotations (543 entries against 283 annotated functions) and its entry sizes
   are gaps to the *next inventory entry*. Reading a size divergence as "missing
   functions" produced a four-round false lead in guild-rebrew, including a
   proposed tool fix for a defect that does not exist.
@@ -297,7 +297,7 @@ Status `open` unless noted. Promote to ROADMAP when scoped.
   `rebrew-data.toml`. The raw link's `.data` divergence is postlink-supplied (AMBIGUOUS-by-design), so the
   statuses it wrote were wrong and persistent; recovery needed `git checkout` plus a deliverable re-run.
   Feature: detect a raw-link artifact (e.g. `.data` differing above a threshold it can already measure, or
-  an explicit `--raw-link` ack write-gate) and suppress both the status write-back and the DRIFT flips —
+  an explicit `--raw-link` ack write-gate) and suppress both the status write-back and the DRIFT flips:
   report `mismatched` only.
   Evidence: guild-rebrew `docs/measure-traps.md` §56, round 1102.
 
@@ -327,7 +327,7 @@ Status `open` unless noted. Promote to ROADMAP when scoped.
   Evidence: guild-rebrew `src/Develop/Units/vfs/vfs4.c` line 17 range marker.
 
 - **`rebrew data` needs a `--set-size` (data extent correction).**
-  Pain: a stale `size` on a data symbol cannot be corrected by any CLI — `--set-type` writes only
+  Pain: a stale `size` on a data symbol cannot be corrected by any CLI; `--set-type` writes only
   `type` (and preserves existing `size`), `annotation.py` only ever grows size, and `--fix-bss`
   writes sizes only for new gaps. When a range marker overstates an extent (`0x1002944c..0x100294a0`
   = 84 parsed onto a 4-byte `char s_rb[4]`), the extent gate fails and the only fix is calling

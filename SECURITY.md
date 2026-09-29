@@ -12,7 +12,7 @@ backports.
 
 Email the package author listed in [`pyproject.toml`](pyproject.toml):
 
-**Marcel W. Wysocki** — `maci.stgn@gmail.com`
+**Marcel W. Wysocki**: `maci.stgn@gmail.com`
 
 Please include enough detail to reproduce the issue (affected command or
 module path, rebrew version or commit, and whether a local project or

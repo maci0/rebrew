@@ -18,11 +18,11 @@ Profiled on 512-byte functions with 40 reloc offsets (5000 iterations):
 |---|---|---|
 | capstone disassembly | ≈ 40 % | C library; not vectorizable. The target side is pre-computed once per function (`precompute_target` → `_pre_norm_target`/`_pre_target_mnems`); per-candidate cost is dominated by the unavoidable candidate disassembly. |
 | `difflib.SequenceMatcher` | ≈ 27 % | Scoring weights are calibrated to it; swapping it changes behavior. |
-| numpy byte compare / prologue / reloc mask | ≈ 30 % | Already vectorized. A numpy fancy-indexing prototype for `_normalize_with_reloc_offsets` measured *slower* (0.7×) than the slice-assignment loop — do not "vectorize" it. |
+| numpy byte compare / prologue / reloc mask | ≈ 30 % | Already vectorized. A numpy fancy-indexing prototype for `_normalize_with_reloc_offsets` measured *slower* (0.7×) than the slice-assignment loop: do not "vectorize" it. |
 
 ### Fast paths (added, behavior-identical)
 
-Two shortcuts skip work without approximating — both produce exactly the
+Two shortcuts skip work without approximating, both produce exactly the
 scores the full computation would:
 
 1. **Identical bytes** (`target_bytes == candidate_bytes`): every metric is
@@ -31,7 +31,7 @@ scores the full computation would:
    where many members are byte-identical copies.
 2. **Mnemonic-equality** (`target_mnems == cand_mnems`): the GA's common case
    is candidates that differ from the target only in immediates/reloc slots
-   (`mov eax, 0x10` vs `mov eax, 0x20` — same mnemonics).  SequenceMatcher on
+   (`mov eax, 0x10` vs `mov eax, 0x20`; same mnemonics).  SequenceMatcher on
    equal lists emits exactly one `equal` opcode covering everything, so the
    shortcut skips difflib's O(n) setup.
 
@@ -39,7 +39,7 @@ scores the full computation would:
 30 % arbitrary mutations) on a 512-byte function with 40 relocs:
 
 - before: **0.669 s**
-- after: **0.380 s** — **1.76× faster** wall-clock on the scoring loop.
+- after: **0.380 s**; **1.76× faster** wall-clock on the scoring loop.
 
 The `_pre_*` contract is locked by `TestPrecomputedTarget` in
 `tests/test_scoring.py`; the fast paths are covered by
@@ -48,8 +48,8 @@ and a differing-mnemonics case that must still be penalized).
 
 ## What was measured and rejected
 
-- **Fancy-indexing reloc normalization** — 0.7× slower; kept the slice loop.
-- **Replacing `SequenceMatcher`** — changes calibrated scoring; rejected.
+- **Fancy-indexing reloc normalization**: 0.7× slower; kept the slice loop.
+- **Replacing `SequenceMatcher`**: changes calibrated scoring; rejected.
 
 ## GA bottleneck: compilation, not scoring
 
@@ -77,7 +77,7 @@ Cold-start `bootstrap()` therefore connected four times (targets, known-target
 check, summary, functions); `/api/functions` and `/api/summary` connected twice
 (`target_known` then the query). The reader now parses each coverage document
 once, caches the immutable snapshot against the document's stat, and every
-route answers from that one object — the connect counts are structurally zero
+route answers from that one object: the connect counts are structurally zero
 rather than reduced. Gates: `TestQueryLayer.test_one_response_reads_one_snapshot`,
 `test_revalidation_matches_the_get_it_stands_in_for`.
 
@@ -257,7 +257,7 @@ the icon and the pages precompressed.
 
 ## Idempotency
 
-Every offline `--json` command is deterministic across runs — enforced by
+Every offline `--json` command is deterministic across runs: enforced by
 `tools/check_idempotency.py` (18 commands, run twice, byte-compared) as a CI
 step; see `docs/CI.md`.
 

@@ -47,7 +47,7 @@ rebrew todo --stats              # coverage summary
 
 `rebrew todo` evaluates the entire project and surfaces the highest Return-on-Investment
 tasks: compile errors, symbol-extraction errors (EXTRACT_ERROR), near-misses of ≤20 bytes
-(`fix-delta`), and easy new starts.  Each item carries a ready-to-run `command` — follow it verbatim.
+(`fix-delta`), and easy new starts.  Each item carries a ready-to-run `command`: follow it verbatim.
 
 ### 2. Generate skeleton
 
@@ -74,7 +74,7 @@ With Ghidra + ReVa MCP:
 get-decompilation programPath="/target.dll" functionNameOrAddress="0x<VA>"
 ```
 
-Without Ghidra — use the built-in disassembler:
+Without Ghidra: use the built-in disassembler:
 ```bash
 rebrew asm 0x<VA> --size <SIZE>
 ```
@@ -109,11 +109,11 @@ rebrew test src/target_name/my_func.c
 For a detailed explanation of each match type, see [MATCH_TYPES.md](MATCH_TYPES.md).
 
 `--dry-run` (single-function) compiles and prints the would-be STATUS change
-without writing — useful to preview a promotion or a `--force-status` demotion
+without writing: useful to preview a promotion or a `--force-status` demotion
 before applying it. `test --all --dry-run` lists batch candidates without
 compiling.
 
-### 6. If MISMATCH — use diff mode
+### 6. If MISMATCH: use diff mode
 
 ```bash
 rebrew diff src/target_name/my_func.c
@@ -131,7 +131,7 @@ rebrew diff 0x10009310
 - `~~` relocation-only difference (acceptable)
 - `**` structural difference (needs fixing)
 
-### 7. If unsure about compiler flags — run the GA
+### 7. If unsure about compiler flags: run the GA
 
 ```bash
 # Side-by-side diff to understand what differs
@@ -143,7 +143,7 @@ rebrew match src/target_name/my_func.c --generations 100 --pop-size 64
 # Batch flag sweep on all NEAR_MATCHING functions, auto-update CFLAGS on improvement
 rebrew match --all --flag-sweep --fix-cflags
 
-# Near-miss batch — focus on NEAR_MATCHING functions with ≤5B delta
+# Near-miss batch: focus on NEAR_MATCHING functions with ≤5B delta
 rebrew match --all --near-miss --threshold 5
 ```
 
@@ -190,9 +190,9 @@ blocker_delta = 3
 > In particular, `BLOCKER`/`BLOCKER_DELTA` must be written via
 > `rebrew blocker set/clear` or the auto-writers
 > (`rebrew diff --fix-blocker`, `rebrew near-diag --fix-blocker`,
-> `rebrew document-unmatched`) — never by hand.
+> `rebrew document-unmatched`): never by hand.
 
-### 9. If still NEAR_MATCHING — prove semantic equivalence
+### 9. If still NEAR_MATCHING: prove semantic equivalence
 
 When the remaining diff is purely structural (register allocation, instruction
 reordering), use symbolic execution to verify equivalence:
@@ -209,7 +209,7 @@ register (`EAX`) for all possible inputs. If no input can distinguish the two
 implementations, STATUS is promoted to `PROVEN`.
 
 > [!NOTE]
-> `angr` is an optional dependency (~500 MB). Install with `make setup` —
+> `angr` is an optional dependency (~500 MB). Install with `make setup`:
 > the documented dev install (`uv sync --locked --all-extras --group similarity`)
 > includes the prove extra.
 > Functions with heavy floating-point math or complex loops may time out.
@@ -239,7 +239,7 @@ rebrew catalog --summary # view overall RE progress and stats
 
 **DATA/GLOBAL annotation convention:** each global is annotated exactly once
 (single `// DATA:` line above its declaration). Duplicating the annotation in
-multiple files — common when several TUs reference the same `extern` — fires
+multiple files (common when several TUs reference the same `extern`) fires
 lint **E013** (duplicate VA) and **W021** (duplicate name); the coverage grid
 dedupes by VA so it is not harmful, but it is noise. Keep the annotation in one
 file (the symbol's home, e.g. `globals.c`) and leave plain `extern` declarations
@@ -341,7 +341,7 @@ src/
     client_only_func.c
 ```
 
-**`src/shared/my_shared_func.c`** — single source of truth, no rebrew marker:
+**`src/shared/my_shared_func.c`**: single source of truth, no rebrew marker:
 
 ```c
 int __cdecl my_shared_func(int param)
@@ -352,7 +352,7 @@ int __cdecl my_shared_func(int param)
 }
 ```
 
-**`src/server.dll/my_shared_func.c`** — target wrapper:
+**`src/server.dll/my_shared_func.c`**: target wrapper:
 
 ```c
 // FUNCTION: SERVER 0x10001000
@@ -383,9 +383,9 @@ for the full format reference.
 
 Only the marker line is enforced as a linter error (E001): `FUNCTION`/`LIBRARY`/`STUB`
 with MODULE and VA. `STATUS` (and other volatile keys) are metadata-only in
-`rebrew-functions.toml` — not parsed inline. `SIZE`/`CFLAGS` are co-read (inline
+`rebrew-functions.toml`, not parsed inline. `SIZE`/`CFLAGS` are co-read (inline
 reccmp contract + TOML override). Conditional: SOURCE (for CRT/ZLIB), BLOCKER
-(for NEAR_MATCHING/STUB — stored in `rebrew-functions.toml`).
+(for NEAR_MATCHING/STUB; stored in `rebrew-functions.toml`).
 
 A file may contain **multiple marker blocks** for multi-function compilation. See
 [ANNOTATIONS.md](ANNOTATIONS.md#multi-function-files) for details.

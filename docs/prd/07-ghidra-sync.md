@@ -1,10 +1,10 @@
-# PRD 07 — Ghidra Sync
+# PRD 07: Ghidra Sync
 
 - **Status**: Shipped (BinSync-primary field sync + ReVa MCP structural ops)
 - **Date**: 2026-05 (updated 2026-09)
 - **Owner**: rebrew team
 
-> **Architecture note (2026-09):** `rebrew sync` is BinSync-primary — field sync
+> **Architecture note (2026-09):** `rebrew sync` is BinSync-primary; field sync
 > (names, comments, prototypes, structs, globals) flows through a shared state
 > dir (`--push`/`--pull --state-dir`, conflicts via `--accept-binsync` /
 > `--accept-local`); ReVa MCP is used for structural ops
@@ -61,12 +61,12 @@ BinSync state directory for field-level sync and the ReVa MCP server
 ## Non-Goals
 
 - Sync does not import Ghidra decompilation output (no auto-paste of
-  pseudocode into source — that's `rebrew skeleton --decomp`).
+  pseudocode into source; that's `rebrew skeleton --decomp`).
 - Sync does not depend on a specific Ghidra version beyond what ReVa (or the
   optional `ghidra-cli` bridge) supports; rebrew talks via ReVa MCP HTTP by
   default, or the `ghidra-cli` subprocess backend when `ghidra_backend = "cli"`
   is set in `rebrew-project.toml`.
-- Sync does not edit Ghidra's `.gpr` directly — all writes go through
+- Sync does not edit Ghidra's `.gpr` directly: all writes go through
   ReVa (or the `ghidra-cli` bridge).
 - Sync does not version-control the Ghidra project; users are expected to
   commit `.gpr` (or rely on Ghidra Server) on their own.
@@ -126,7 +126,7 @@ BinSync state directory for field-level sync and the ReVa MCP server
 
 ## User Stories / Workflows
 
-### Story 1 — Onboarding push
+### Story 1: Onboarding push
 
 1. After `rebrew catalog` + initial annotations, the user runs
    `rebrew sync --summary --state-dir ./state` and reviews the planned push.
@@ -138,7 +138,7 @@ BinSync state directory for field-level sync and the ReVa MCP server
 3. Ghidra (via BinSync + MCP) shows meaningful names; further analysis is much
    faster.
 
-### Story 2 — Pulling Ghidra renames
+### Story 2: Pulling Ghidra renames
 
 1. After a Ghidra analysis pass the user renamed 30 functions (state dir updated).
 2. `rebrew sync --pull --state-dir ./state --dry-run` lists the proposed renames.
@@ -147,7 +147,7 @@ BinSync state directory for field-level sync and the ReVa MCP server
    `--accept-local` instead, provenance notes record BinSync names where
    local names were kept.
 
-### Story 3 — Working offline
+### Story 3: Working offline
 
 1. The user travels with no Ghidra running. `rebrew sync --pull --state-dir
    ./state` imports names, comments, prototypes, structs and globals from the
@@ -156,7 +156,7 @@ BinSync state directory for field-level sync and the ReVa MCP server
    `MCP unreachable at <endpoint>` error when ReVa MCP is down; re-run once
    it is back.
 
-### Story 4 — BinSync exchange with a teammate
+### Story 4: BinSync exchange with a teammate
 
 1. A teammate uses BinSync. The lead runs
    `rebrew binsync-export ./binsync_state --dry-run` to preview, then

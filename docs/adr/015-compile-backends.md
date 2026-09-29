@@ -12,7 +12,7 @@ toolchain. A second backend exists over HTTP, served by the sibling
 `recompile` service with the same pinned images (`POST /api/v1/compile`
 plus artifact download). At acceptance, a branch
 (`fix/remote-compile-backend`) also made every toolchain image-backed and
-deleted the host/native, wibo and headless paths — but that migration could
+deleted the host/native, wibo and headless paths, but that migration could
 not land yet with the artifacts then at hand:
 
 - `rebrew-toolchains` had no build source for the replacement images
@@ -47,7 +47,7 @@ service as a second, opt-in backend.
 
 The image-backed migration for `gcc-14.2.0`, `mingw-16.2.0`,
 `clang-18.1.8`, and `watcom-2.0-win16` landed in
-[ADR-016](016-image-backed-native-profiles.md) — every shipped profile is
+[ADR-016](016-image-backed-native-profiles.md): every shipped profile is
 image-backed now.  An image-less native branch remains only for plugin
 toolchains registered without an `image`.
 
@@ -56,7 +56,7 @@ toolchains registered without an `image`.
 - A compile runs locally (docker images) or against a shared recompile
   service without a project-config change, and a backend switch cannot
   serve the other's cached object.
-- *(Historical — superseded by ADR-016:)* at acceptance, `gcc-14.2.0`,
+- *(Historical; superseded by ADR-016:)* at acceptance, `gcc-14.2.0`,
   `mingw-16.2.0`, `clang-18.1.8` and `watcom-2.0-win16` were still native
   specs and the Decision deferred their images.  That migration landed;
   whether it also retires `match --link/--lib/--no-compare-obj` remains a

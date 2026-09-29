@@ -5,7 +5,7 @@ exhaustively compiles a function across a grid of MSVC6 flag combinations and
 reports the best-matching variant.  To keep runtimes manageable the grid is
 tiered by coverage vs. speed.
 
-Tier definitions live in `src/rebrew/flag_data.py` — the
+Tier definitions live in `src/rebrew/flag_data.py`: the
 `MSVC_SWEEP_TIERS` dict maps a tier name to a list of flag-axis IDs from
 `MSVC6_FLAGS`.  Each axis is either a `FlagSet` (one value chosen from N
 options) or a `Checkbox` (on/off), so total combinations multiply.
@@ -22,7 +22,7 @@ options) or a `Checkbox` (on/off), so total combinations multiply.
 
 `thorough` and `full` are too large to materialize as a full set (~400 MB):
 `generate_flag_combinations` stride-samples the product stream down to a
-100,000-combination memory bound (51,610 and 95,280 respectively — the
+100,000-combination memory bound (51,610 and 95,280 respectively; the
 stride is bumped until it is coprime to every axis length so no flag value
 is silently dropped), so the columns above are the full product counts, not
 what actually compiles. Runtime figures are sized from the sampled count, not
@@ -79,7 +79,7 @@ debug checks on top of `normal`.
 | `msvc_runtime_debug_checks` | `/GZ` (checkbox) |
 
 ### `full`
-All 13 MSVC6 axes — includes C++ mode (`/TP`), RTTI (`/GR`), and
+All 13 MSVC6 axes: includes C++ mode (`/TP`), RTTI (`/GR`), and
 floating-point axes (`msvc_fpo`, `msvc_fp_consistency`) from `targeted`.
 With 6.2 M combinations the product stream is stride-sampled down to the
 100,000-combination memory bound, so a `full` run is a bounded sampled
@@ -104,7 +104,7 @@ pass, not an exhaustive one.
 ## CLI Usage
 
 ```bash
-# Default tier (targeted — 1,152 combinations)
+# Default tier (targeted, 1,152 combinations)
 rebrew match src/game_dll/my_func.c --flag-sweep-only
 
 # Explicit tier
@@ -125,7 +125,7 @@ and `rebrew-matching/SKILL.md` for the AI-agent workflow that wraps the GA engin
 The tier table above lists the MSVC6 axes (`MSVC6_FLAGS`), which is what the
 CLI sweep runs.  `MSVC_SWEEP_TIERS` is shared with the 7.x-and-later flag set
 (`COMMON_MSVC_FLAGS`), where `normal` and `thorough` also resolve `msvc_fp`
-(`/fp:*`) — an id that `MSVC6_FLAGS` does not carry, so it contributes nothing
+(`/fp:*`): an id that `MSVC6_FLAGS` does not carry, so it contributes nothing
 there.  The other grids in `flag_data.py` are reached only through the toolchain sweep
 (`--flag-sweep-only --flag-sweep-toolchains`), which enumerates the image-backed
 **MSVC** toolchains (`--sweep-toolchains`/`--sweep-exclude-toolchains` filter by profile
@@ -136,9 +136,9 @@ name or version prefix, e.g. `msvc-6.0,6.0,win16`).
 `rebrew match --flag-sweep-only --flag-sweep-toolchains --sweep-toolchains msvc-1.52`
 sweeps the 16-bit CL flags (`/Od /O1 /O2 /Ox` opt, `/AS /AM /AC /AL`
 **memory models**, `/G2 /G3` codegen, `/Aw /Au` far-data, `/Gs`/`/Za`
-toggles) — quick=25, targeted=75, normal=450, thorough=900 combinations.
+toggles): quick=25, targeted=75, normal=450, thorough=900 combinations.
 The memory-model axis is essential: 16-bit Windows games are typically
-built far-code (`/AM` medium: `retf` + `lcall`/`ljmp` patch slots) — see
+built far-code (`/AM` medium: `retf` + `lcall`/`ljmp` patch slots); see
 [OMF_NOTES.md](OMF_NOTES.md).  Compiled objects are 16-bit OMF, decoded by
 the built-in `omf16` parser (objconv crashes on them); 16-bit NE targets
 are scored the same way as PE ones.  Verified end-to-end against the

@@ -6,14 +6,14 @@ pinned docker image).
 
 ## Start here
 
-- **`AGENTS.md`** — the authoritative guide to layout, conventions, build &
+- **`AGENTS.md`**: the authoritative guide to layout, conventions, build &
   test commands, code style, and architectural rules.
-- **`docs/DEVELOPMENT.md`** — hard-won practical knowledge: test conventions,
+- **`docs/DEVELOPMENT.md`**: hard-won practical knowledge: test conventions,
   Typer/CliRunner quirks, metadata/tomlkit gotchas, import patterns, and
   toolchain-dependent test guidance.
-- **`docs/ARCHITECTURE.md`** — high-level data flow (diagram) and module map;
+- **`docs/ARCHITECTURE.md`**: high-level data flow (diagram) and module map;
   read this first to see how the pieces fit together.
-- **`docs/CLI.md`** — the full CLI surface.
+- **`docs/CLI.md`**: the full CLI surface.
 
 ## Bootstrap (clean clone)
 
@@ -30,12 +30,12 @@ but not in CI: the pre-commit shell hook exits 0 without the binary, so
 `make check` on a host without it can pass where CI's pre-commit job (which
 installs shellcheck) fails; `make check` warns when it is missing.  `uv sync` also
 needs the sibling
-[`resembl`](https://github.com/maci0/resembl) checkout at `../resembl` — the
+[`resembl`](https://github.com/maci0/resembl) checkout at `../resembl`: the
 path pin in `pyproject.toml` / `uv.lock` (tag `v3.1.0`, same as CI's
 `resembl-ref`).  Without it, sync fails with a cryptic “Distribution not found”
 path error; `make setup` fails closed if `uv` is missing, if `../resembl`'s
 `version` does not match `RESEMBL_REF`, or if that checkout's `HEAD` is not
-`RESEMBL_SHA` (the commit CI's `resembl-sha` pin requires — a moved tag keeps
+`RESEMBL_SHA` (the commit CI's `resembl-sha` pin requires; a moved tag keeps
 the version string and still fails here).  It warns (still continues) when `uv`
 is older than `UV_VERSION`, and when `../resembl` is not a git checkout so the
 commit cannot be checked.
@@ -144,7 +144,7 @@ Rebrew is 2.x.  From `1.0.0` the CLI command names and the config schema are
 frozen: removing or renaming a command/flag, or changing a config key's
 meaning, takes a major version bump and a `**Breaking:**` changelog entry.
 On-disk format bumps (`coverage-<target>.toml` `version`, compile-cache schema)
-and a raised minimum Python are also `**Breaking:**` — they may ship in a minor,
+and a raised minimum Python are also `**Breaking:**`; they may ship in a minor,
 because the migration is a wholesale document rewrite (`build-db` replaces each
 file whole) or a cold cache (as with schema `"7"` in 2.4.0 and the Python 3.13
 floor in 2.3.0).
@@ -227,7 +227,7 @@ says nothing about where the import goes now.
   `tools/release_check.py`): verifies
   `__version__` is bumped past the last tag, the tree is clean, the
   changelog has exactly one dated `[<version>]` section, that section has at
-  least one entry, and `[Unreleased]` is empty — a release whose notes are
+  least one entry, and `[Unreleased]` is empty; a release whose notes are
   split across the two headings, or across two headings for the same version,
   ships half of them undocumented, so neither can be tagged out of sync with
   the version or the notes.  It also fails a patch release whose section
@@ -241,8 +241,8 @@ says nothing about where the import goes now.
    `ci/`, `chore/`) and open the pull request against `main`; do not commit
    straight to `main`.  Every CI job runs on the pull request, so a green local
    `make pr-check` plus a green `pre-commit` job is what review expects.
-1. `make pr-check` (or `make all && make check && make build && make sdist-check && make smoke-wheel && make build-repro && make verify-dist && make sbom`)
-   — mirrors CI
+1. `make pr-check` (or `make all && make check && make build && make sdist-check && make smoke-wheel && make build-repro && make verify-dist && make sbom`):
+   mirrors CI
    lint+test+cli-contract gates, the pre-commit job, the package job's
    `make build` (sdist/wheel + `dist/rebrew.buildinfo`), its
    sdist-completeness check (a wheel built from the sdist must carry the same
@@ -261,7 +261,7 @@ says nothing about where the import goes now.
    input is newer than it, input list covering the `src/` directories so an
    added or deleted module rebuilds too).
 2. Keep changes minimal and scoped; match the surrounding style.
-3. Add tests for new behavior — the suite sits at ~86% line coverage
+3. Add tests for new behavior: the suite sits at ~86% line coverage
    (`make coverage`), and new pure logic is expected to keep it there.
 4. Record user-visible change under `## [Unreleased]` in `CHANGELOG.md` when
    the change affects installs, CLI, config, or on-disk formats (see Versioning

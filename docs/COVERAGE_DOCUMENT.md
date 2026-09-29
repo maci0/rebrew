@@ -42,8 +42,8 @@ next request, because the reader keys its snapshot cache on the documents' own
 stat.  A project that never ran `build-db` has no documents, and `rebrew dashboard`
 refuses to start on a directory that yields no readable document.
 
-`--force` is a no-op.  Every run replaces each document whole — a temporary
-sibling file moved over the old one — so there is no stale schema to migrate past
+`--force` is a no-op.  Every run replaces each document whole (a temporary
+sibling file moved over the old one) so there is no stale schema to migrate past
 and no partial state to recover.  The flag stays in the command line because
 scripts pass it.
 
@@ -53,7 +53,7 @@ scripts pass it.
 
 One document holds everything one target knows: its sections and their cells, its
 functions, its globals, its verify results and its status history.  The file is
-the target's only storage — no sidecar stands beside it and no cache has to be
+the target's only storage: no sidecar stands beside it and no cache has to be
 invalidated with it.  `rebrew build-db` is a thin front over
 `rebrew.coverage_toml.write_coverage_toml`, and the same module's reader is what
 the dashboards import.
@@ -193,7 +193,7 @@ document never holds a function no reader can key.
 The rows come from `.rebrew/verify_cache.toml`, imported by `rebrew build-db`;
 `rebrew verify` writes no document.  A cache that says nothing about the target
 keeps the document's previous rows, and a row whose measurements did not move
-keeps its earlier `verified_at` — a rebuild re-measures the same verdicts, and
+keeps its earlier `verified_at`: a rebuild re-measures the same verdicts, and
 the cache file's own mtime is not when a verdict was first measured.
 
 #### `history`
@@ -308,8 +308,8 @@ Nothing below is stored.  The writer writes facts, and
 
 A stored aggregate is a second place for two writers to disagree.  The number
 would have to be computed on the way in and trusted on the way out, and every
-change to the rule — what counts as covered, what counts as matched, how a
-function's size is clipped at the next function's start — would have to be
+change to the rule: what counts as covered, what counts as matched, how a
+function's size is clipped at the next function's start: would have to be
 applied to the stored copy as well or the file and the reader would report
 different coverage for the same rows.  Each number here is a pure function of
 rows already in the document, so one pass at load is the whole cost, and no file
@@ -351,7 +351,7 @@ a whole directory skips an unreadable document with a log line naming the file
 and the reason and serves the rest: two readable targets beside one broken file
 beat a 500.  A target with no readable document is a 404 `unknown_target` on the
 target-scoped routes, and `/api/health` answers 500 `database_error` only when
-the whole directory yields none — the case `rebrew dashboard` also refuses to
+the whole directory yields none: the case `rebrew dashboard` also refuses to
 start on.
 
 There is no migration, no version gate and no `--force` unlink.  Every run
@@ -415,10 +415,10 @@ warning naming the target and the count.
 > The dict's `summary` blob is the catalog's precomputed answer and is NOT stored
 > in the document.  Two coverage figures exist and measure different things:
 > - `summary.coveragePercent` (catalog/grid) = **cell-based** coverage:
->   `(func_cell_bytes + padding + data + thunk) / textSize` — every accounted
+>   `(func_cell_bytes + padding + data + thunk) / textSize`; every accounted
 >   byte, including padding and data.  A binary whose functions are all STUB
 >   placeholders still reports high coverage here.
-> - `function_stats` (the dashboard headline, derived at load) — `/api/summary`
+> - `function_stats` (the dashboard headline, derived at load): `/api/summary`
 >   computes `coverage_pct` from **matched bytes** `(EXACT + RELOC sizes) /
 >   textSize`, the genuine progress metric, and `identified_pct` from
 >   `covered_bytes` (every function incl. stubs), so "fully documented" stays
@@ -426,7 +426,7 @@ warning naming the target and the count.
 >   binary.
 
 > [!NOTE]
-> All PE sections the catalog finds become `[sections."<name>"]` tables — not
+> All PE sections the catalog finds become `[sections."<name>"]` tables, not
 > only the standard `.text`, `.rdata`, `.data` and `.bss`.  One exception is the
 > headline denominator: `function_stats.total_bytes` is the `.text` section's
 > size.
@@ -474,7 +474,7 @@ Clients read the applied values back from the envelope.
 > transition, a function with no module) is sent as `""`, so a client never
 > has to null-check one route and not the next.
 > List envelopes carry `count` (this page), `total`, the applied
-> `limit`/`offset`, and `paged` — `true` on
+> `limit`/`offset`, and `paged`; `true` on
 > `/api/functions`, `/api/globals`, `/api/history`; `false` on
 > `/api/sections`, `/api/targets`, and the top level of `/api/bootstrap`,
 > which have no page (so `limit` there is the row count, not a page size).
@@ -487,8 +487,8 @@ Clients read the applied values back from the envelope.
 > Every error body is
 > `{"error": "<message>", "code": "<machine-readable code>"}`; branch on
 > `code` (`missing_target`, `unknown_target`, `invalid_status`, `not_found`,
-> `method_not_allowed`, `host_not_allowed`, `database_error` — the whole
-> directory yielded no readable document, which only `/api/health` asks about —
+> `method_not_allowed`, `host_not_allowed`, `database_error` (the whole
+> directory yielded no readable document, which only `/api/health` asks about)
 > `internal_error`, `server_busy` (a connection refused
 > because the 64-connection cap was full, answered before routing with
 > `Retry-After: 1`), plus `bad_request` / `uri_too_long` /
@@ -498,8 +498,8 @@ Clients read the applied values back from the envelope.
 > its access and error log lines carry.
 > A successful 200 carries an `ETag`: the content hash for `/` and the two
 > hashed assets (`/app.js`, `/favicon.svg`),
-> and every document's mtime and size — hashed together, so one target's rebuild
-> invalidates the tag for all of them — plus a hash of the request's path and
+> and every document's mtime and size (hashed together, so one target's rebuild
+> invalidates the tag for all of them) plus a hash of the request's path and
 > query for the JSON routes, so one validator never stands for two different
 > routes, targets, or filters. `Cache-Control` is `private, no-cache`
 > (revalidate, never serve stale after `build-db`) except on `/api/health`

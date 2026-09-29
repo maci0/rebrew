@@ -1,4 +1,4 @@
-# PRD 05 — Verification & Progress
+# PRD 05: Verification & Progress
 
 - **Status**: Shipped
 - **Date**: 2026-05 (updated 2026-09)
@@ -56,7 +56,7 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
 
 ## Non-Goals
 
-- `verify` does not promote STATUS unconditionally — it writes through
+- `verify` does not promote STATUS unconditionally: it writes through
   `update_statuses_batch` (gated by `should_promote_status`), which records
   the earned byte verdict (STATUS is earned: byte comparison updates status;
   PROVEN is not protected per ADR-024; SKIP stays parked; STUB is protected
@@ -79,7 +79,7 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
   `--dir` / `--origin` compose with file scope.
 - Reports EXACT, RELOC, NEAR_MATCHING (with delta), STUB, or
   COMPILE_ERROR.
-- Writes no default report file — `--output` is explicit export only
+- Writes no default report file: `--output` is explicit export only
   (>2026-09: was `db/verify_results.json` by default; the `--compare`
   baseline lives in `.rebrew/verify_baseline.toml` and needs no flag).
 - `--compare` diffs against the last saved report and flags regressions
@@ -108,12 +108,12 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
 
 - Reads `rebrew-functions.toml` (STATUS lives in per-function metadata via
   `rebrew.metadata`), source markers, and function structure; no
-  compilation.  Inline `// STATUS:` comments in `.c` files are legacy —
+  compilation.  Inline `// STATUS:` comments in `.c` files are legacy:
   they are counted as a W019 warning and `rebrew lint` migrates them to
   metadata.
 - Prints:
   - Counts per STATUS (PROVEN, EXACT, RELOC, NEAR_MATCHING, STUB,
-    SKIP, … — per `metadata.KNOWN_STATUSES`; LIBRARY is a marker type,
+    SKIP, …; per `metadata.KNOWN_STATUSES`; LIBRARY is a marker type,
     not a status).
   - Coverage as % bytes / % functions.
   - Pointer to next action (`rebrew todo`).
@@ -140,9 +140,9 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
 
 ### `rebrew cache`
 
-- `cache stats` — show the compile cache's path, entry count, disk usage,
+- `cache stats`: show the compile cache's path, entry count, disk usage,
   size limit, and session hit/miss counts with hit rate.
-- `cache clear` — delete every cached `.obj` blob (`--force` skips the
+- `cache clear`: delete every cached `.obj` blob (`--force` skips the
   confirmation prompt).
 - Cache lives in `<project_root>/.rebrew/compile_cache/`.
 - Keyed by SHA-256 of (source + flags + compiler signature).
@@ -166,7 +166,7 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
 
 ## User Stories / Workflows
 
-### Story 1 — Pre-merge regression check
+### Story 1: Pre-merge regression check
 
 1. CI runs `rebrew verify --compare --json` against the local
    `.rebrew/verify_baseline.toml` baseline (>2026-09: was the committed
@@ -176,14 +176,14 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
 3. The author runs the same command locally to inspect the regression and
    pinpoint the offending file.
 
-### Story 2 — Fast incremental check after one edit
+### Story 2: Fast incremental check after one edit
 
 1. User edits one `.c` file, runs `rebrew verify`.
 2. Cache hits skip the compile invocation entirely for unchanged files;
    only the edited file (and dependents) are recompiled.
 3. Total wall-clock drops from minutes to seconds.
 
-### Story 3 — Visualising progress
+### Story 3: Visualising progress
 
 1. User runs `rebrew graph --format mermaid --output docs/graph.md`.
 2. The Mermaid diagram colors nodes by STATUS from `status_style.STATUS_HEX`
@@ -192,14 +192,14 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
    missing pieces visually obvious.
 3. They focus on a specific subtree: `rebrew graph --focus _Init --depth 2`.
 
-### Story 4 — Cleaning a stale cache
+### Story 4: Cleaning a stale cache
 
 1. After rebuilding a toolchain image (`rebrew toolchain build`), the
    user runs `rebrew verify` and observes spurious COMPILE_ERROR rows.
 2. `rebrew cache clear` deletes the cached `.obj` files.
 3. `rebrew verify --full` rebuilds everything from scratch.
 
-### Story 5 — End-to-end reassembly check before shipping
+### Story 5: End-to-end reassembly check before shipping
 
 1. CI bot runs `rebrew round-trip --json` after `rebrew verify` passes.
 2. The round-trip splices every matched function back into the PE binary
@@ -300,7 +300,7 @@ rebrew round-trip [OPTIONS]
   reset.)
 - `verify --compare` baseline lives in a single local gitignored file
   (`.rebrew/verify_baseline.toml`, with target/compiler/binary identity
-  guards — first run warns + skips); branching workflows may need
+  guards; first run warns + skips); branching workflows may need
   per-branch artifacts (left to CI to manage).
 - `status` percentages are computed from `function_structure.json` if
   available, else from the function list. With neither, the denominator is
@@ -308,7 +308,7 @@ rebrew round-trip [OPTIONS]
 - `graph` direct call edges rely on identifier matching; macros and inline
   assembly are not resolved. (Partially fixed: function-pointer targets are
   now recoverable via `--include-dispatch` dispatch-table scanning of the
-  binary, and `--from-binary` adds xref-derived edges — both opt-in.)
+  binary, and `--from-binary` adds xref-derived edges, both opt-in.)
 - `cache stats` does not break down hit rate (only count + size); logging
   hit/miss telemetry across the session was not exposed. (FIXED: `cache
   stats` now reports session hits/misses and hit rate.)

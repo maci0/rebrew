@@ -1,4 +1,4 @@
-# Getting started — reversing your first binary with rebrew
+# Getting started: reversing your first binary with rebrew
 
 This guide is for humans. It assumes you can read C and have poked at a
 disassembler before, but have never used rebrew. In ~15 minutes you will go
@@ -9,7 +9,7 @@ loop you will repeat for every other function in the binary.
 the *same compiler that built the original binary* (running inside a docker
 image) and diffs your bytes against the target, byte for byte. A function is
 done when your compiled output is identical to the original. Everything else
-— the GA engine, flag sweeps, FLIRT scans, Ghidra sync — exists to close the
+(the GA engine, flag sweeps, FLIRT scans, Ghidra sync) exists to close the
 gap between "close" and "identical".
 
 ## The mental model (read this first)
@@ -17,7 +17,7 @@ gap between "close" and "identical".
 Three ideas carry the whole tool:
 
 1. **Status is earned, never claimed.** Every function has a STATUS
-   (`STUB` → `NEAR_MATCHING` → `EXACT`/`RELOC`). You never set it by hand —
+   (`STUB` → `NEAR_MATCHING` → `EXACT`/`RELOC`). You never set it by hand:
    `rebrew test` / `rebrew verify` compute it from a real byte comparison
    and write it for you. If you hand-edit a STATUS, the next verify demotes
    it back (a `verify --dry-run` shows the `would update STATUS → ...` line).
@@ -28,7 +28,7 @@ Three ideas carry the whole tool:
    20+ compiler versions in docker images, and why `rebrew match
    --flag-sweep` exists: half of matching is finding the flags.
 3. **Work smallest-first.** `rebrew todo` ranks functions by return on
-   investment — tiny leaf functions first. A 20-byte function you match in
+   investment: tiny leaf functions first. A 20-byte function you match in
    ten minutes teaches you the compiler's habits; those habits compound
    across the whole binary.
 
@@ -36,7 +36,7 @@ Three ideas carry the whole tool:
 
 | You need | Why | Get it with |
 |----------|-----|-------------|
-| Linux x86_64 | all compiler images target it | — |
+| Linux x86_64 | all compiler images target it | n/a |
 | Python 3.13+ and `uv` | runs rebrew | [uv installer](https://docs.astral.sh/uv/getting-started/installation/); `uv python install 3.13` |
 | docker | **every** compiler runs inside an image (wine/DOSBox live there; there is no host-wine path) | your distro's `docker` |
 | rizin | the main function discoverer (capstone sweep / eh_frame / pdata are fallbacks) | `apt install rizin` |
@@ -55,7 +55,7 @@ with that install hint. Drop the extra if you never want symbolic proof.
 ## The 15-minute walkthrough
 
 We will use a tiny demo binary. Substitute your own game `.exe`/`.dll`
-whenever you are ready — the steps are identical.
+whenever you are ready: the steps are identical.
 
 ### 1. Put the binary somewhere *outside* your project dir
 
@@ -87,8 +87,8 @@ Intake complete: game (msvc-8.0)
   first run? see the rebrew repo's docs/ONBOARDING.md for the walkthrough
 ```
 
-Two things to notice: the **detected profile** (`msvc-8.0`) — that is the
-compiler you must match against — and the **function count**. Every one of
+Two things to notice: the **detected profile** (`msvc-8.0`), that is the
+compiler you must match against, and the **function count**. Every one of
 those 259 is now a STUB waiting for you.
 
 ### 3. Check the project's health
@@ -107,7 +107,7 @@ rebrew toolchain build msvc-8.0   # or build it from the rebrew-toolchains check
 
 (`build` needs the sibling **rebrew-toolchains** checkout, or
 `REBREW_TOOLCHAINS_DIR` pointing at it; `pull` is the download. Either way it
-takes a few minutes once, then never again.) Re-run `rebrew doctor` until the board is green — a red
+takes a few minutes once, then never again.) Re-run `rebrew doctor` until the board is green: a red
 `Toolchain alignment` means the detected compiler and the configured
 profile disagree, and everything downstream will silently compare against
 the wrong codegen.
@@ -120,7 +120,7 @@ rebrew todo          # what to do next, ranked by ROI
 ```
 
 `todo` is your work queue for the entire project. Start at the top: the
-smallest, easiest functions. Do not start with the largest blob it lists —
+smallest, easiest functions. Do not start with the largest blob it lists:
 start with the smallest leaf.
 
 ### 5. Rule out library code first
@@ -148,8 +148,8 @@ rebrew skeleton 0x00401000          # generate a stub with the right prototype
 ```
 
 Open the generated `src/<target>/fcn_00401000.c`. It has a `// FUNCTION:`
-marker (the VA — do not touch it), a best-guess signature, and an empty
-body. Now write the obvious implementation — the disassembly is a click
+marker (the VA; do not touch it), a best-guess signature, and an empty
+body. Now write the obvious implementation: the disassembly is a click
 away:
 
 ```bash
@@ -164,18 +164,18 @@ rebrew test src/<target>/fcn_00401000.c
 
 You will get one of three answers:
 
-- **EXACT** — bytes identical. Done. Move to the next function. (This
+- **EXACT**: bytes identical. Done. Move to the next function. (This
   happens more often than you expect on small functions.)
-- **NEAR_MATCHING (85%)** — close. Ask why:
+- **NEAR_MATCHING (85%)**: close. Ask why:
   ```bash
   rebrew diff src/<target>/fcn_00401000.c        # side-by-side disassembly
   rebrew near-diag src/<target>/fcn_00401000.c   # classifies the delta
   ```
-  `near-diag` tells you the *kind* of gap — register allocation, an
-  equivalent instruction the compiler prefers, a flag variant — and
+  `near-diag` tells you the *kind* of gap (register allocation, an
+  equivalent instruction the compiler prefers, a flag variant) and
   suggests GA mutations. Fix the C, `rebrew test` again. This edit→test
   cycle is the core loop; each round takes seconds.
-- **STUB / low %** — the control flow diverges. Read the disassembly more
+- **STUB / low %**: the control flow diverges. Read the disassembly more
   carefully; the skeleton's guess at the structure was wrong.
 
 When the gap is a flag, not your code:
@@ -198,7 +198,7 @@ rebrew verify --compare  # CI mode: fail on regressions vs last report
 ```
 
 `verify --full` forces everything, ignoring the cache (it has no warm path).
-Plain `verify` is incremental — only changed functions recompile.
+Plain `verify` is incremental: only changed functions recompile.
 
 ## The core loop (your daily driver)
 
@@ -218,11 +218,11 @@ rebrew todo → rebrew skeleton → edit C → rebrew test → rebrew diff → �
 | You see | It means | You do |
 |---------|----------|--------|
 | `STUB` | skeleton, never implemented | write the function |
-| `NEAR_MATCHING (85%)` | close — registers, scheduling, or flags | `diff`, `near-diag`, tweak, re-`test` |
+| `NEAR_MATCHING (85%)` | close: registers, scheduling, or flags | `diff`, `near-diag`, tweak, re-`test` |
 | `STUB` (under 60%) | structure diverges | re-read the disassembly |
 | `EXACT` | byte-identical | next function |
 | `RELOC` | identical except linker-filled addresses | next function (as done as EXACT) |
-| `SIZE_MISMATCH` | compiles but wrong length | extra/missing code — compare sizes first |
+| `SIZE_MISMATCH` | compiles but wrong length | extra/missing code: compare sizes first |
 | `COMPILE_ERROR` | doesn't compile | read the compiler output, fix C |
 | `PROVEN` | semantically equal, bytes differ (angr/Z3) | accept via `rebrew prove`, move on |
 
@@ -242,11 +242,11 @@ rebrew todo → rebrew skeleton → edit C → rebrew test → rebrew diff → �
 
 ## What's next
 
-- [ONBOARDING.md](ONBOARDING.md) — the same path with every error message
+- [ONBOARDING.md](ONBOARDING.md): the same path with every error message
   catalogued (when something breaks, look here first)
-- [WORKFLOW.md](WORKFLOW.md) — the full reversing loop in depth
-- [CLI.md](CLI.md) — every command with flags
-- [TOOLCHAIN.md](TOOLCHAIN.md) — compilers, images, per-library overrides
-- [MATCH_TYPES.md](MATCH_TYPES.md) — what each STATUS really proves
-- `.agents/skills/` in your project — the same loop as step-by-step
+- [WORKFLOW.md](WORKFLOW.md): the full reversing loop in depth
+- [CLI.md](CLI.md): every command with flags
+- [TOOLCHAIN.md](TOOLCHAIN.md): compilers, images, per-library overrides
+- [MATCH_TYPES.md](MATCH_TYPES.md): what each STATUS really proves
+- `.agents/skills/` in your project: the same loop as step-by-step
   instructions, if you drive rebrew through an AI agent

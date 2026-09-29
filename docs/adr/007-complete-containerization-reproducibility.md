@@ -1,11 +1,11 @@
 # ADR-007: Complete containerization + unified byte-reproducibility gate
 
 - **Status**: Amended by [ADR-011](011-external-toolchains-checkout.md)
-  (the build source this ADR described as in-repo — Dockerfiles, media
-  tarballs, vendored trees — moved to the sibling rebrew-toolchains
+  (the build source this ADR described as in-repo (Dockerfiles, media
+  tarballs, vendored trees) moved to the sibling rebrew-toolchains
   checkout; the pinned-source and smoke-gate invariants below are
   unchanged), [ADR-016](016-image-backed-native-profiles.md)
-  (the deliberate `mingw-16.2.0` PATH/no-image exception below is gone —
+  (the deliberate `mingw-16.2.0` PATH/no-image exception below is gone;
   every shipped profile is image-backed). Amends
   [ADR-006](006-toolchain-standardization.md).
 - **Date**: 2026-08
@@ -15,7 +15,7 @@
 ADR-006 standardized docker-first toolchain invocation, but left gaps that
 made the zoo not fully reproducible:
 
-- **msvc-4.2 / msvc-5.0 / msvc-4.0 were host-only** — the OmniBlade decomp.me
+- **msvc-4.2 / msvc-5.0 / msvc-4.0 were host-only**: the OmniBlade decomp.me
   mirror has no 4.0/4.2/5.0 tarballs, so they had no images and no smoke
   gate.  Their vendored trees existed but had **no pinned source**:
   `rebrew toolchain vendor` answered "no pinned source" on a fresh clone,
@@ -37,7 +37,7 @@ invariants:
    tarball, or a media tarball committed in the rebrew-toolchains
    checkout).  The docker image downloads the SAME pinned source
    (checksum verified inside the Dockerfile) and `rebrew toolchain vendor`
-   assembles the host tree from it — so images and host trees are
+   assembles the host tree from it, so images and host trees are
    byte-identical **by construction**, not by accident.  msvc-4.2/msvc-5.0 pin
    the archaic-msvc codeload snapshots (verified byte-identical to the
    pre-existing committed trees); msvc-4.0 pins itsmattkc/MSVC400.
@@ -46,11 +46,11 @@ invariants:
    pattern as msvc-6.0: sha256-verified download, `cl` wrapper from
    `wrapper-common.sh`, OCI labels).  *(At acceptance the only registry
    toolchain without an image was `mingw-16.2.0`, deliberately a PATH
-   tool.  ADR-016 closed that exception — every shipped profile is
+   tool.  ADR-016 closed that exception: every shipped profile is
    image-backed now.)*
 3. **A smoke-gate slot.**  The gate now runs image-backed toolchains via
    docker AND host-only vendored trees via the uniform host runner (the
-   runner wine-prefixes wine-runtime binaries — previously a latent bug:
+   runner wine-prefixes wine-runtime binaries; previously a latent bug:
    it exec'd Windows PEs directly).  COFF goldens are path-independent,
    so image and host runs hash identically; `toolchain smoke
    --print-goldens` regenerates the masked hashes when a pinned source
@@ -60,7 +60,7 @@ invariants:
 
 Enforcement: a test asserts every image-backed spec's Dockerfile is
 git-tracked in the rebrew-toolchains checkout (`git ls-files` against the
-external repo) — an untracked Dockerfile is now a gate failure, closing
+external repo); an untracked Dockerfile is now a gate failure, closing
 the borland-3.1/borland-2.0 class of regression (the guard moved with the build source
 per ADR-011 and is no longer xfail).
 
@@ -70,7 +70,7 @@ per ADR-011 and is no longer xfail).
   checksum-verified sources; the smoke gate proves byte reproducibility
   for every registry toolchain (image and host paths alike). *(Written
   when the registry held eleven toolchains; the MSVC matrix has since
-  expanded to the full 1.0–11.0 set — all entries remain smoke-gated via
+  expanded to the full 1.0–11.0 set; all entries remain smoke-gated via
   `_SMOKE_GOLDEN`.  After ADR-016 the default smoke path is the image;
   host-path smoke remains only for image-less plugin specs.)*
 - The msvc line (4.0/4.2/5.0/6.0-sp3/sp6/7.0) is now a first-class,
@@ -78,9 +78,9 @@ per ADR-011 and is no longer xfail).
   `match --flag-sweep-toolchains` covering the full range.
 - The git-tracked Dockerfile guard is a hard, non-xfail test; the
   previously-uncommitted borland-3.1/borland-2.0 Dockerfiles and wrapper scripts are now
-  committed in the rebrew-toolchains checkout (ADR-011) — the 16-bit media
+  committed in the rebrew-toolchains checkout (ADR-011): the 16-bit media
   tarballs stay untracked by design, user-supplied next to their Dockerfile.
 - Cost: larger image set to maintain (three new `rebrew/msvc` images),
-  and the gate depends on codeload tarball stability — a repo rewrite
+  and the gate depends on codeload tarball stability; a repo rewrite
   changes the pinned sha256 and must be re-pinned deliberately (the
   `--print-goldens` path exists for exactly that).

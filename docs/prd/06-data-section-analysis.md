@@ -1,4 +1,4 @@
-# PRD 06 — Data Section Analysis
+# PRD 06: Data Section Analysis
 
 - **Status**: Shipped
 - **Date**: 2026-05 (updated 2026-09)
@@ -16,7 +16,7 @@ problem becomes a relocation problem:
 
 - The same VA may be annotated with different types in different `.c`
   files; the linker doesn't catch it but it breaks reasoning.
-- BSS layout is implicit — missing an extern declaration shifts every
+- BSS layout is implicit: missing an extern declaration shifts every
   subsequent global, cascading mismatches across the project.
 - Vtables and dispatch tables in `.rdata` look like noise in a hex dump
   until you know they're tables of function pointers.
@@ -133,7 +133,7 @@ order across all translation units at once.
 - `--annotate` inserts `// GLOBAL:` markers from `rebrew-data.toml` into
   the sources, above each symbol's first declaration (`--dry-run`
   previews; already-marked symbols are skipped).
-- `--layout-audit` reports per-TU `.data`/`.bss` span/order feasibility —
+- `--layout-audit` reports per-TU `.data`/`.bss` span/order feasibility:
   what blocks placement convergence (ORDER/SPAN violations, unowned and
   duplicate-owned symbols).
 - `--fill-data` emits `_dpad_<addr>[N]` pads for uncovered `.data` byte
@@ -152,7 +152,7 @@ order across all translation units at once.
 
 ## User Stories / Workflows
 
-### Story 1 — Chasing a `~~` diff to a missing extern
+### Story 1: Chasing a `~~` diff to a missing extern
 
 1. `rebrew diff foo.c -m` shows two `~~` lines on a memory load.
 2. `rebrew data --conflicts --json` reports that `_g_state` is `int` in
@@ -160,7 +160,7 @@ order across all translation units at once.
 3. User fixes the type, reruns `rebrew test`, and the diff promotes to
    EXACT.
 
-### Story 2 — Filling a BSS gap
+### Story 2: Filling a BSS gap
 
 1. `rebrew data --bss --json` reports a 24-byte gap between `_buffer`
    (0x10100000) and `_counter` (0x10100020).
@@ -168,7 +168,7 @@ order across all translation units at once.
    placeholder and updates metadata.
 3. Subsequent verify runs see no further BSS-induced relocation noise.
 
-### Story 3 — Generating a global header offline
+### Story 3: Generating a global header offline
 
 1. The user is working without Ghidra. They run
    `rebrew data --gen-header`.
@@ -176,7 +176,7 @@ order across all translation units at once.
    declarations by section.
 3. They `#include "rebrew_globals.h"` in functions that needed them.
 
-### Story 4 — Finding a vtable
+### Story 4: Finding a vtable
 
 1. A function calls indirectly through a memory location near
    `0x10300100` in `.rdata`.

@@ -1,4 +1,4 @@
-# Jev (TypeSafe System One) — research notes
+# Jev (TypeSafe System One): research notes
 
 Research captured **2026-09-18** from TypeSafe's public docs and the
 guild-rebrew campaign. Complements [PRINCIPLES.md](PRINCIPLES.md) §9–10
@@ -42,7 +42,7 @@ Public claims (early access, [announce](https://typesafe.ai/blog/introducing-sys
 - Input `$0.042 / MTok` (`$42 / BTok`); output tokens free.
 - Current model `jev-1.13.0`. Alias `jev-latest` points at it
   ([models](https://docs.typesafe.ai/models.md)). Pin the versioned id
-  once thresholds are tuned — the alias moves.
+  once thresholds are tuned: the alias moves.
 - HTTP: `POST https://api.typesafe.ai/v1/systemone`. Rate limits
   (2026-09, can change): 250k tokens/s, 1200 req/min; `429` +
   `retry-after`.
@@ -56,7 +56,7 @@ Public claims (early access, [announce](https://typesafe.ai/blog/introducing-sys
 
 TypeSafe's own pitch that maps here is **harness engineering**: model
 routing, semantic retrieval, LLM error detection, reasoning-trace
-classification — code owns control flow, Jev fills the semantic leftover
+classification; code owns control flow, Jev fills the semantic leftover
 ([use-case map](https://docs.typesafe.ai/concepts/use-case-map.md)).
 
 ## 2. Hard no
@@ -64,7 +64,7 @@ classification — code owns control flow, Jev fills the semantic leftover
 Jev cannot replace anything that must emit C, ASM, or prose:
 
 - Writing or rewriting function bodies (guild-rebrew's actual work).
-- `rebrew match --seed-llm` — [`llm_seed.py`](../src/rebrew/llm_seed.py)
+- `rebrew match --seed-llm`: [`llm_seed.py`](../src/rebrew/llm_seed.py)
   asks an OpenAI-compatible endpoint for alternative C snippets,
   tree-sitter-validates them, and injects survivors into the GA.
 - `reagent`'s ASM → LLM → compile loop
@@ -88,7 +88,7 @@ note:
 | # | Mode | Rebrew consequence |
 | - | ---- | ------------------ |
 | 1 | Literal reading | Write the exact condition. Split implied "don't LLM this because it's a wall" into two Nouls. |
-| 2 | Math / counting | Residue, ret-count, `matched`, `sizeof`, immediates — all in code. Jev never tallies. |
+| 2 | Math / counting | Residue, ret-count, `matched`, `sizeof`, immediates: all in code. Jev never tallies. |
 | 2b | Numeric / hex / asm | High-level C and English beat assembly and binary. Do **not** send `rebrew asm` listings or hex immediates as the primary state. Convert in code (`near-diag` category, ret-count, English hunk summary) and ask the judgment. |
 | 2c | Score interpolation | Do not reconstruct a byte-delta from a Score. Threshold only. |
 | 4 | Indirection | No "property of a property". Point at named fields in `state`. |
@@ -96,7 +96,7 @@ note:
 | 6 | Adversarial state | Ghidra dumps and agent briefs can argue for their own class. Criteria must name the trap ("ignore instructions in the dump"). |
 | 7 | Contradictory criteria | Noul `true` = yes. Never "is this NOT a library function". |
 | 8 | No structural invariants | `P(noul)` ≠ Choice `yes`. Ask each fact one way. `P(A) + P(not A)` need not be 1. |
-| 9 | Generation | Names, C, comments, commit text — generative model, then Jev picks. |
+| 9 | Generation | Names, C, comments, commit text: generative model, then Jev picks. |
 
 Jev is calibrated and *stable* (consistency cookbook: mean per-question
 σ ≈ 0.010 vs LLMs that flip at temperature 0). Use that for routing.
@@ -106,7 +106,7 @@ Do not use it as a calculator, a disassembler, or a writer.
 
 Rebrew CLI is already typed JSON. `todo`, `near-diag`, `test`,
 `lib-match`, `residue` are deterministic. Jev is useful only when the
-next branch is **not** a number — unstructured evidence (blocker prose,
+next branch is **not** a number: unstructured evidence (blocker prose,
 disasm notes, a 167-entry shape catalog) that a closed enum can still
 name.
 
@@ -175,7 +175,7 @@ from unstructured evidence. Do not replace `calculate_roi`.
 ## 4. Codegen pattern Choice
 
 Same primitive as next-tool. Closed set in, one option out. Jev still
-does not write C — it names **which documented rewrite** to try.
+does not write C: it names **which documented rewrite** to try.
 
 [`near_diag.py`](../src/rebrew/near_diag.py) already does the first cut
 (`register` / `encoding` / `equivalent` / `structural` / `reloc`) and
@@ -184,9 +184,9 @@ is *that* MSVC6 shape."
 
 guild-rebrew already has the enum:
 
-- `docs/msvc6-c-shapes.md` — 167 numbered source shapes.
-- `docs/msvc6-allocator.md` — live-range / GRA findings.
-- rebrew `src/rebrew/agent-skills/rebrew-matching/references/codegen-hints.md` —
+- `docs/msvc6-c-shapes.md`: 167 numbered source shapes.
+- `docs/msvc6-allocator.md`: live-range / GRA findings.
+- rebrew `src/rebrew/agent-skills/rebrew-matching/references/codegen-hints.md`:
   `/O1` vs `/O2`, `volatile`, `dllimport`, loop form.
 
 Do **not** dump 167 shapes or 128 `mut_*` operators into one Choice.
@@ -202,22 +202,22 @@ The distribution goes flat and confidence dies. Hierarchical:
 
 State = English `diff --json` hunk summaries (mnemonics as words, not
 hex) + current `.c` outline + the *short* shape blurbs for those
-candidates. **Not** a raw `rebrew asm` listing — jaggedness 2b: Jev
+candidates. **Not** a raw `rebrew asm` listing: jaggedness 2b: Jev
 is weak on assembly and binary; convert in code first. Not the whole
 catalog. Then **code** applies the rewrite or biases GA.
 
 Jev is worth it when `near-diag` says `structural` / `equivalent` *and*
 a human or agent would otherwise reread 167 shapes. For
 `register` / `encoding` / `reloc`, the existing verdict + mutation table
-is enough — skip Jev.
+is enough: skip Jev.
 
 Good at:
 
 - "This `mov`/`lea` split is shape §2, not a new algorithm."
-- "Do not add `volatile` — shapes say the opposite" (the inverted-brief
+- "Do not add `volatile`: shapes say the opposite" (the inverted-brief
   trap in `workflow-traps.md` §1).
 - "This is `/O1` memory-inc, not a C rewrite."
-- "This is a GRA ceiling — stop, document the blocker."
+- "This is a GRA ceiling: stop, document the blocker."
 - Picking among mutation *families*, not individual operators.
 
 Bad at:
@@ -234,8 +234,8 @@ in a cookbook, what rebrew already owns, whether Jev earns a call.
 
 Rule of thumb: Jev only where the next branch is a **closed set over
 unstructured evidence**. Bytes, VAs, catalogs, FLIRT, `near-diag`
-categories — those stay deterministic. Codegen and fresh identifiers
-stay an LLM (Jev only *picks* among that LLM's candidates —
+categories: those stay deterministic. Codegen and fresh identifiers
+stay an LLM (Jev only *picks* among that LLM's candidates;
 [§5.10](#510-naming-and-folders-llm-proposes-jev-picks)). Jev is the
 cheap semantic leftover between them. Extra contracts:
 [§5.11](#511-more-contracts). Shared envelope: [§5.12](#512-shared-envelope).
@@ -257,8 +257,8 @@ cookbooks + 4 patterns + smart-home demo + agent skill):
 | [LLM guardrails](https://docs.typesafe.ai/cookbooks/llm_guardrails.md) | Noul hazards + harm Score | C89 / no-asm / no-`src/`-scratch / no-library |
 | [Citation check](https://docs.typesafe.ai/cookbooks/citation_check.md) | Choice: quote supports claim? | agent brief vs shapes / allocator (inverted-`volatile` trap) |
 | [Entity alignment](https://docs.typesafe.ai/cookbooks/entity_alignment.md) | Score merge / leave / curator | `cross-import`, same-function-two-targets, Ghidra↔local names |
-| [Pre-parsed extraction](https://docs.typesafe.ai/cookbooks/pre_parsed_value_extraction_cookbook.md) | regex candidates → Choice pick | strings / immediates / helper names — never invent a VA |
-| [Date / structure recovery](https://docs.typesafe.ai/cookbooks/autoformat.md) | Noul stitch + Choice classify | Ghidra dump → C block kind (decl / stmt / label) — rendering stays in code |
+| [Pre-parsed extraction](https://docs.typesafe.ai/cookbooks/pre_parsed_value_extraction_cookbook.md) | regex candidates → Choice pick | strings / immediates / helper names: never invent a VA |
+| [Date / structure recovery](https://docs.typesafe.ai/cookbooks/autoformat.md) | Noul stitch + Choice classify | Ghidra dump → C block kind (decl / stmt / label): rendering stays in code |
 | [Autoresearch features](https://docs.typesafe.ai/cookbooks/autoresearch_feature_discovery.md) | LLM proposes questions, Jev answers, CatBoost trains | labeled NEAR_MATCHING → learn which questions predict a STATUS lift |
 | [Parallel questions](https://docs.typesafe.ai/cookbooks/parallel_questions.md) / [fan-out](https://docs.typesafe.ai/patterns/fan-out.md) | N questions, one call | always: next-tool + family + Nouls together |
 | [Composite scoring](https://docs.typesafe.ai/patterns/composite-scoring.md) | several Scores, weights in code | agent-solvability ≠ ROI; do not replace `calculate_roi` |
@@ -287,8 +287,8 @@ deterministic (`--guess-compiler`, FLIRT, CRT).
 - **Do not** throw the PE at Jev, or a raw listing of it. Family and
   exact SP are `rebrew toolchain detect --json` (diec → PDB → Rich header
   → heuristics). Jev is a leftover Choice over
-  `suggested_profiles` when that JSON already disagrees with itself
-  — [§5.14](#514-disassembly-as-state).
+  `suggested_profiles` when that JSON already disagrees with itself:
+  [§5.14](#514-disassembly-as-state).
 
 ### 5.2 Pick work
 
@@ -299,8 +299,8 @@ Jev on the side, not instead:
 - **Skill suggestion** (Hermes cookbook: wrong loads 16.8% → 7.3%,
   needless 9.8% → 4.0%). Rank the five packaged skills against the
   user/agent turn; second call rereads the top three with full
-  `SKILL.md`. Either call may return "none". Rebrew's roster is tiny
-  — this is cheap and stops `rebrew-matching` from eating an intake
+  `SKILL.md`. Either call may return "none". Rebrew's roster is tiny:
+  this is cheap and stops `rebrew-matching` from eating an intake
   turn.
 - **Intent routing / function calling.** Utterance + `todo` head →
   Choice of the next CLI (`todo` / `skeleton` / `test` / `diff` /
@@ -345,10 +345,10 @@ the source of truth. Do not re-predict `matched` from prose.
 Jev after those JSON blobs, only when the byte class is ambiguous
 (`structural` / `equivalent`):
 
-- **Next-tool Choice** — [§3.1](#31-next-tool-choice). Same shape as
+- **Next-tool Choice**: [§3.1](#31-next-tool-choice). Same shape as
   the smart-home demo: speculative questions for GA / prove /
   flag-sweep / lib-match in one call; code ignores the irrelevant.
-- **Pattern family Choice** — [§4](#4-codegen-pattern-choice).
+- **Pattern family Choice**: [§4](#4-codegen-pattern-choice).
   Hierarchical: family → numbered shape. Semantic-find's "Choice
   over line ids" is literally "which `msvc6-c-shapes.md` heading
   explains this delta", with an `exists` Noul for "none of these /
@@ -393,7 +393,7 @@ Leftovers:
   (Choice over `rebrew data --dispatch` candidates).
 - **Entity alignment** for Ghidra name vs local name vs
   `cross-import` from `server.dll` onto `Europa1400Gold_TL.exe`:
-  merge / leave / curator. Merge is the expensive mistake — three
+  merge / leave / curator. Merge is the expensive mistake: three
   Score levels, no fitted threshold, companion Nouls naming the
   disagreeing field.
 - **Type-conflict triage** (`rebrew lint` W016 etc.): Choice of
@@ -437,11 +437,11 @@ than 13 calls, answers unchanged.
 - Any stage whose output is C, ASM, a fresh identifier, a comment,
   a commit, or a VA / offset / CFLAGS literal. A small LLM may
   *propose* identifiers; Jev only *picks* among a closed candidate
-  list — [§5.10](#510-naming-and-folders-llm-proposes-jev-picks).
+  list: [§5.10](#510-naming-and-folders-llm-proposes-jev-picks).
 - Any stage whose output is already a number from the compiler
   (`test`, `residue`, `near-diag` category, FLIRT hit, ROI).
 - Autoresearch-style "let an LLM invent new questions, train
-  CatBoost on Jev answers" — interesting once there is a labeled
+  CatBoost on Jev answers": interesting once there is a labeled
   NEAR_MATCHING slice, not before. YAGNI until §6 has data.
 
 ### 5.10 Naming and folders (LLM proposes, Jev picks)
@@ -469,7 +469,7 @@ only). Do not invent folders; stop at "this cluster is one TU".
    the prefix table, `rebrew similar` siblings. Regex over those
    spans (pre-parsed extraction). The small LLM may *add* 3–5
    `prefix_VerbNoun` guesses constrained to attested prefixes and
-   the German/English lexicon in that doc — it does not get a blank
+   the German/English lexicon in that doc: it does not get a blank
    page.
 2. **Jev Choice** over that shortlist, plus `none` / `human`.
    Companion Nouls: does the prefix match the CU's attested module?
@@ -495,11 +495,11 @@ attested nouns beat English guesses (`nSpieler` over
 
 Two layers. Do not mix them.
 
-**Layer A — which functions share a `.c` (deterministic).**
+**Layer A, which functions share a `.c` (deterministic).**
 `rebrew graph --cu-map` + `rebrew merge-sweep`. Jev does not
 split or merge TUs; a wrong merge moves every later symbol.
 
-**Layer B — what to call that TU / which attested directory it
+**Layer B: what to call that TU / which attested directory it
 lives in (semantic).** Hierarchical classification's codebase
 tree is this: beam of Choice down
 `D:\Develop\` → `DieGildeAddOn` vs `Units` → `game` vs `command`
@@ -582,7 +582,7 @@ GA generations or a volatile sweep.
 | Question | Options / type | Action |
 | -------- | -------------- | ------ |
 | `wall` | Choice: `gra` / `epilogue_merge` / `volatile_site` / `add_vs_lea` / `flag_inert` / `none` | not `none` → `blocker set` with that wall, skip GA |
-| `epilogue_fold` | Noul: N ref rets vs 1 obj ret, bodies identical | shapes §74 / walls §2 — stop |
+| `epilogue_fold` | Noul: N ref rets vs 1 obj ret, bodies identical | shapes §74 / walls §2: stop |
 
 State = `near-diag` category + ret-count from `asm --json` +
 blocker text. Deterministic ret-count first; Jev only when the
@@ -860,8 +860,8 @@ Use that for:
 - **Prefix table** as option values `{prefix, file, domain, verbs[]}`
   so "is this `gm_` or `sim_`" sees the attested file, not just
   the letters.
-- **CU tree** as nested criteria (`DieGildeAddOn.game.spiel.c`)
-  — hierarchical classification without a second hop
+- **CU tree** as nested criteria (`DieGildeAddOn.game.spiel.c`):
+  hierarchical classification without a second hop
   (jaggedness 4: reduce hops).
 - **Shape family** as `{family, example_hunk, do, dont}` so
   literal-reading (jaggedness 1) gets the boundary in
@@ -924,7 +924,7 @@ bytes.
 - Four Relumea LLM personas in parallel. Route with Jev, run at
   most one LLM.
 - A whole-binary (or whole-function) disassembly dump as Jev
-  state — [§5.14](#514-disassembly-as-state).
+  state: [§5.14](#514-disassembly-as-state).
 
 #### 5.14 Disassembly as state
 
@@ -935,7 +935,7 @@ same as "Jev is good at it."
 TypeSafe jaggedness 2b, quoted in spirit: questions about
 high-level languages outperform questions about low-level
 assembly or binary-encoded instructions. Hex immediates and
-opcode bytes are the color-as-`#rrggbb` case — convert in code,
+opcode bytes are the color-as-`#rrggbb` case: convert in code,
 ask the judgment.
 
 What "simple" has to mean, or it is a no:
@@ -945,7 +945,7 @@ What "simple" has to mean, or it is a no:
 | PE / ELF bytes | no | not text; and the useful bits are headers `detect` already parsed |
 | `objdump -d` of the binary | no | fat state (jaggedness 5) + counting idioms (jaggedness 2) + asm (2b) |
 | Full `rebrew asm <VA>` listing | no | same; `near-diag` already classified the bytes |
-| 8–20 **English idiom lines** code already counted | leftover only | "142 `rep movs/stos`; 94 `push ebp; mov ebp,esp`; 16 `mov edi,edi` 2-byte nops; both `/O1` push-`[mem]` and `/O2` load-first wrappers" — that is `toolchain detect` evidence, not a listing |
+| 8–20 **English idiom lines** code already counted | leftover only | "142 `rep movs/stos`; 94 `push ebp; mov ebp,esp`; 16 `mov edi,edi` 2-byte nops; both `/O1` push-`[mem]` and `/O2` load-first wrappers": that is `toolchain detect` evidence, not a listing |
 | One **English behavior card** for one function ("else stores 0 into slot[9]") | yes | §5.13 verdict; a small LLM wrote the card from C/`asm` |
 
 guild-rebrew already measured the detector limit
@@ -986,7 +986,7 @@ facts; Jev returns a typed two-way `Choice` (`inline` / `do_not_inline`)
 through a FIFO channel, and the trace (state, probabilities, decision,
 hashes) lands in `result.json`. The released `jevopt-embench` run
 (`jev-1.13.0`, all 19 Embench 1.0 programs, `.text` bytes, no LTO) beats
-Clang `-Oz` on 7/19 programs — including statemate at −58.20% — ties on
+Clang `-Oz` on 7/19 programs, including statemate at −58.20%: ties on
 2/19, loses on 10/19, geometric mean **+7.87%**. The author's own
 conclusion matches §4 here: keep the prompt small and fixed, withhold
 the compiler's suggested answer to avoid bias, and treat per-program
@@ -997,7 +997,7 @@ binaries). Jev outputs are stochastic run to run; the released
 The reverse is what rebrew can offer Jev: an objective, deterministic
 reward signal Jev normally lacks. Every Jev codegen-family Choice in
 [§4](#4-codegen-pattern-choice) bottoms out in `rebrew test` byte
-comparison — `EXACT` / `NEAR_MATCHING` plus delta — instead of a second
+comparison (`EXACT` / `NEAR_MATCHING` plus delta) instead of a second
 model's opinion. Candidate C rewrite → compile → measured delta scores
 the Choice that proposed it. That closes the loop jevopt leaves open
 (stochastic answers, no ground truth beyond `.text` size) and obeys
@@ -1012,7 +1012,7 @@ Two concrete assets transfer directly:
 - [corpus.json](codegen/corpus.json) (17938 per-function byte records
   across toolchains/flags) as a labeled eval set: ask a Jev Choice over
   a short option list given counted idiom buckets, score against the
-  recorded bytes. Same A/B bar as §5.14 — if the Choice does not beat
+  recorded bytes. Same A/B bar as §5.14, if the Choice does not beat
   `detect --json` + Rich-header pin on a labeled slice, delete it.
 
 ## 6. Lazy experiment (guild-rebrew only)

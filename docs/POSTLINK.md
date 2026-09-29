@@ -1,8 +1,8 @@
 # Post-Link Layout Normalization (`rebrew postlink`)
 
 `rebrew postlink` converges a *built* binary's layout onto a *reference*
-binary, byte-for-byte, after linking.  It exists because linkers — MSVC6's
-`LINK.EXE` in particular — are **not source-order-preserving assemblers for
+binary, byte-for-byte, after linking.  It exists because linkers (MSVC6's
+`LINK.EXE` in particular) are **not source-order-preserving assemblers for
 every section**: several parts of the output layout are determined by the
 linker's internal hash-driven processing, so a recompilation whose *content*
 is correct can still differ from the original build in *placement*.  These
@@ -25,16 +25,16 @@ The fixers never need the original DLL (or any binary snapshot): they
 reconstruct the reference from a **text-only layout package** written by
 `rebrew gen-layout` into `layout/<target>/` and committed to git:
 
-- `rebrew-layout.toml` — structured metadata (image base, sections with raw
+- `rebrew-layout.toml`: structured metadata (image base, sections with raw
   pointers, exports, imports with their reference IAT-slot VAs, export
   directory stamp);
 - `header.hex`, `iat.hex`, `prefix.hex`, `bookkeeping.hex`, `data.hex`,
-  `reloc.hex` — hex dumps of exactly the linker-stamped regions the fixers
+  `reloc.hex`: hex dumps of exactly the linker-stamped regions the fixers
   copy or check (the `prefix` is checked for drift, never copied);
-- `operands.txt`, `calls.txt` — sparse `.text` maps (offset → reference
+- `operands.txt`, `calls.txt`: sparse `.text` maps (offset → reference
   value) covering every position the operand rewrites can touch.
 
-Everything is plain text — zero binary bytes at rest — so a public checkout
+Everything is plain text (zero binary bytes at rest) so a public checkout
 reproduces the byte-identical DLL without the original binary.  A reference
 DLL may still be passed directly; it is reduced to the same metadata in
 memory.  Regenerate the package whenever the original changes
@@ -44,16 +44,16 @@ memory.  Regenerate the package whenever the original changes
 
 ## The three fixers
 
-### 1. `imports` — import-layer placement
+### 1. `imports`: import-layer placement
 
 The MSVC6 linker assigns IAT slots and places the import descriptors, OFT
 arrays, hint/name records and DLL-name strings in a hash-driven order that
 rarely matches the original build's.  For an **identical import set** every
-byte of that region is derived from the set — only its order is
-linker-determined — so the fixer:
+byte of that region is derived from the set (only its order is
+linker-determined) so the fixer:
 
 1. verifies the import set matches the reference (DLLs + entries, sorted so
-   the comparison is order-insensitive — converging the IAT slot order is
+   the comparison is order-insensitive; converging the IAT slot order is
    exactly this fixer's job), refusing otherwise;
 2. rewrites `.text` operands that reference moved IAT slots (`call dword ptr
    [__imp_X]` addresses) to the reference's slot addresses;
@@ -66,14 +66,14 @@ This is the correct way to handle the "IAT order looks random" symptom; do
 **not** fight it with `/OPT:REF` (which discards `/include`-only imports) or
 by reordering objects.
 
-### 2. `data` — data operands, `.data`, `.reloc`
+### 2. `data`: data operands, `.data`, `.reloc`
 
 The linker's `.data` COMDAT order is also hash-driven (not source-orderable),
 and the built `.text`'s absolute data operands point at *our* global
 addresses while the reference's point at *its* layout.  The fixer:
 
 1. rewrites `.text` absolute data operands to the reference's values,
-   scanning **every byte offset** (x86 operands are misaligned — a
+   scanning **every byte offset** (x86 operands are misaligned; a
    4-byte-aligned scan misses most of them) and covering the **full `.data`
    VirtualSize**, not just the raw size;
 2. rewrites `E8`/`E9` relative call/jump targets, but only where the
@@ -86,18 +86,18 @@ addresses while the reference's point at *its* layout.  The fixer:
    `.reloc` at the reference's file offset.
 
 The `.data` copy is only valid because the content is genuinely
-reconstructible — the same caveat as the project's `_emit`-dump pattern.  For
+reconstructible: the same caveat as the project's `_emit`-dump pattern.  For
 a strict decomp it should sit behind an explicit verification-build flag.
 
-### 3. `pe-metadata` — toolchain-stamped headers
+### 3. `pe-metadata`: toolchain-stamped headers
 
 The MSVC6 link step stamps the DOS stub (Rich header, `e_lfanew`),
 `TimeDateStamp`, an empty CheckSum, a too-small `.data` VirtualSize (BSS
 placeholders are emitted as `char[1]`), a `.reloc` VA that predates the BSS
 growth, and `SizeOfImage`.  Once the section layout has converged (same
 names + RVAs), every one of those fields is derivable from the reference, so
-the fixer copies the reference's full header block — COFF `Characteristics`,
-optional header, and section table — verbatim.  The CheckSum is **copied**,
+the fixer copies the reference's full header block (COFF `Characteristics`,
+optional header, and section table) verbatim.  The CheckSum is **copied**,
 never recomputed: it covers the whole image, and a built `.text` that still
 differs would never produce the reference's value.
 
@@ -112,13 +112,13 @@ reusable across any decompilation that hits the same wall:
   identical inputs, check for COMDAT/hash ordering (import records, `.data`)
   *before* assuming a source problem.  The signature is a region whose
   content is identical to the reference's but whose order differs.
-- **`.data` raw vs VirtualSize.**  BSS globals live beyond the raw size — the
+- **`.data` raw vs VirtualSize.**  BSS globals live beyond the raw size: the
   operand-rewrite ranges must cover the full VirtualSize, or references into
   the BSS tail are silently missed.
 - **Every-offset operand scan.**  Scan the `.text` at every byte offset, not
   4-aligned positions; x86 instruction operands are misaligned.
 - **Context-matched rel32 rewrite.**  Only rewrite `E8`/`E9` operands when the
-  preceding opcode and surrounding bytes match the reference — otherwise real
+  preceding opcode and surrounding bytes match the reference, otherwise real
   code differences would be papered over.
 - **The debug-directory trap.**  A `/debug` link emits an extra 0x1c-byte
   debug directory at the start of `.rdata` that shifts *everything* after it.
@@ -130,7 +130,7 @@ reusable across any decompilation that hits the same wall:
 ## Integration
 
 `rebrew postlink` is designed to run as a post-link step, e.g. a CMake
-`POST_BUILD` command — against the committed text layout package, so the
+`POST_BUILD` command: against the committed text layout package, so the
 build needs neither the original DLL nor any binary blob:
 
 ```cmake
@@ -149,23 +149,23 @@ Postlink fixes placement the linker stamps, but the link itself must already
 be close: objects in original order, functions at their reference VAs, TU
 splits matching the original build. Five commands close that loop:
 
-1. `rebrew layout-map` — measure the reference: section geometry, .text
+1. `rebrew layout-map`: measure the reference: section geometry, .text
    gap/alignment histograms, .reloc density, IAT slot order, exports,
    toolchain guess. The diagnostic starting point when layout diverges.
-2. `rebrew link-order [--apply] [--check]` — enforce VA-ordered sources
+2. `rebrew link-order [--apply] [--check]`: enforce VA-ordered sources
    into `CMakeLists.txt` SOURCES (`--check` is the CI drift gate). MSVC6
    LINK emits objects in command-line order, so this fixes function order
    for non-`/Gy` links.
-3. `rebrew text-audit` — verify built .text function VAs against the
+3. `rebrew text-audit`: verify built .text function VAs against the
    markers. This is the position-alignment gate postlink assumes; run it
    before postlink, or use `rebrew verify --text` to fold it into verify.
-4. `rebrew merge-sweep` — deterministic TU-partition search over
+4. `rebrew merge-sweep`: deterministic TU-partition search over
    `cu-map` clusters (merge adjacent clusters sharing call/string
    evidence, split at large non-padding gaps; accept on matched bytes).
    The move when per-file flags cannot close a gap because the original
    was an amalgamated TU (MSVC6 has no `/GL`, so cross-TU inlining in the
    original means merged source).
-5. `rebrew verify --text` — the gate form of (3): exit 1 on any misplaced
+5. `rebrew verify --text`: the gate form of (3): exit 1 on any misplaced
    function, with a `text` block in the `--json` report.
 
 Pipeline order: layout-map (measure) → link-order (order) → text-audit
@@ -173,5 +173,5 @@ Pipeline order: layout-map (measure) → link-order (order) → text-audit
 
 ## See also
 
-- `rebrew postlink --help` — CLI reference
-- `docs/TOOLCHAIN.md` — the MSVC6 compile/link backend
+- `rebrew postlink --help`: CLI reference
+- `docs/TOOLCHAIN.md`: the MSVC6 compile/link backend

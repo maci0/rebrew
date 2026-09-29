@@ -20,14 +20,14 @@ image-backed:
 - `rebrew-toolchains` had no build source for the replacement images and
   `sources.json` pinned no compiler media for them;
 - the only MinGW image carried GCC 14 while the native `mingw-16.2.0` resolved
-  GCC 16.2.0 on the host — silently a different code generator;
+  GCC 16.2.0 on the host: silently a different code generator;
 - byte-exact matching requires the author's exact compiler, so a profile's
   version must be pinned, not whatever the host happens to have;
 - `watcom-2.0-win16` needed 16-bit media that is user-supplied and absent.
 
 Those blockers are gone.  Pinned sources exist for all four families: GNU GCC
 release tarballs, LLVM's official prebuilt x86_64 Linux releases, the
-`niXman/mingw-builds-binaries` release assets, and the Open Watcom snapshot —
+`niXman/mingw-builds-binaries` release assets, and the Open Watcom snapshot,
 whose `binl/wcc` is the 16-bit compiler (`wcc386` is the 32-bit one), so no
 separate media is needed.
 
@@ -79,5 +79,5 @@ Every shipped compiler profile is image-backed:
 - The image-less native branch in `toolchain.py`/`compile.py` stays for a
   plugin toolchain registered without an `image`; no shipped profile uses it.
 - `watcom-2.0-win16`'s smoke golden changed with the snapshot (Open Watcom
-  `2026-09-01` codegen); the 32-bit `watcom-2.0-win32` golden is untouched —
+  `2026-09-01` codegen); the 32-bit `watcom-2.0-win32` golden is untouched:
   the re-pin changed only which URL the same snapshot comes from.

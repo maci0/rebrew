@@ -1,4 +1,4 @@
-# PRD 02 — Function Catalog
+# PRD 02: Function Catalog
 
 - **Status**: Shipped
 - **Date**: 2026-05 (updated 2026-09)
@@ -6,7 +6,7 @@
 
 **Feature name:** Function Catalog & Triage
 **One-line value:** Build a complete, queryable inventory of every function in
-the target binary — covered, uncovered, library, stub — so the user always
+the target binary (covered, uncovered, library, stub) so the user always
 knows what's left to reverse and where the easy wins are.
 
 ## Problem It Solves
@@ -26,9 +26,9 @@ The Function Catalog feature unifies these by collecting **all** known
 function metadata from Ghidra exports, the discovery inventory, FLIRT
 signatures, CRT source mirrors, and the user's own `// FUNCTION:` /
 `// LIBRARY:` / `// STUB:` annotations, then reports the merged view in
-process — `rebrew build-db` is what writes it, as
+process: `rebrew build-db` is what writes it, as
 `db/coverage-<target>.toml`.
-(>2026-09: CATALOG.md generation and `functions.txt` were removed — the same
+(>2026-09: CATALOG.md generation and `functions.txt` were removed; the same
 information lives in `rebrew-functions.toml`, served by `status`/`todo`/dashboard.)
 
 ## Users
@@ -105,11 +105,11 @@ information lives in `rebrew-functions.toml`, served by `status`/`todo`/dashboar
 
 Three subcommands:
 
-- `extract list` — enumerate un-reversed candidates from the function list.
-- `extract show VA [--size N]` — disassemble a single function (hex by
+- `extract list`: enumerate un-reversed candidates from the function list.
+- `extract show VA [--size N]`: disassemble a single function (hex by
   default); `--size N` overrides the catalog-recorded size, also for VAs
   absent from the candidate list (e.g. already reversed).
-- `extract batch [N] [--start M]` — extract + disassemble the N smallest
+- `extract batch [N] [--start M]`: extract + disassemble the N smallest
   un-reversed functions (N defaults to 20), optionally offset into the
   sorted list.
 
@@ -175,7 +175,7 @@ Output `.bin` files land in the configured `bin_dir`.
 
 ## User Stories / Workflows
 
-### Story 1 — First intake of a new binary
+### Story 1: First intake of a new binary
 
 1. After `rebrew init` + `rebrew doctor`, the user runs
    `rebrew flirt --json` and discovers 412 MSVCRT/MFC/DirectX functions.
@@ -186,7 +186,7 @@ Output `.bin` files land in the configured `bin_dir`.
 4. `rebrew build-db` produces `db/coverage-<target>.toml`, consumed by the
    recovery dashboard.
 
-### Story 2 — Mapping library functions to upstream source
+### Story 2: Mapping library functions to upstream source
 
 1. User has dozens of `// LIBRARY: MSVCRT 0x...` annotations with empty
    bodies.
@@ -196,7 +196,7 @@ Output `.bin` files land in the configured `bin_dir`.
 4. The user then runs `rebrew test` on the candidates and many promote to
    EXACT/RELOC because the CRT source already compiles to identical bytes.
 
-### Story 3 — Resolving a Ghidra/annotation size disagreement
+### Story 3: Resolving a Ghidra/annotation size disagreement
 
 1. `rebrew catalog --summary` counts `_my_func` in `Size disagree: N`, so the
    user knows some function has annotation size 42 where Ghidra reports 47
@@ -206,7 +206,7 @@ Output `.bin` files land in the configured `bin_dir`.
    `rebrew-functions.toml`.
 3. Next `rebrew verify` no longer fails the size check.
 
-### Story 4 — Dashboard refresh
+### Story 4: Dashboard refresh
 
 1. CI runs `rebrew build-db --json` on every push to main.
 2. `db/coverage-<target>.toml` is uploaded as an artifact and consumed by recovery.
@@ -287,7 +287,7 @@ rebrew build-db
   Ghidra export). The former `functions.txt` format is gone.
 - `--export-ghidra` writes no cache: it prints interactive Ghidra MCP export
   instructions for `function_structure.json` / `ghidra_data_labels.json` and
-  exits (refuses `--json`). `rebrew catalog` writes no inventory file at all —
+  exits (refuses `--json`). `rebrew catalog` writes no inventory file at all:
   only `rebrew build-db` writes a file; no command in rebrew produces a
   stamped `function_structure.json` today, so the ingester's `_generated_by`
   filter only skips one written elsewhere. Fetch live data via

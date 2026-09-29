@@ -1,7 +1,7 @@
 # Adding a command
 
 Checklist for adding a `rebrew <name>` command. Every item is enforced
-somewhere — the gate is named so a red CI run tells you which step you
+somewhere: the gate is named so a red CI run tells you which step you
 skipped.
 
 ## 1. Module
@@ -14,13 +14,13 @@ module docstring, `console = Console(stderr=True)`, `app = typer.Typer(...)`,
 
 Conventions (CLI review will flag drift):
 
-- `TargetOption` + `require_config()` — never build config manually.
+- `TargetOption` + `require_config()`: never build config manually.
 - Param order: `--json` before `--target`, both last.
 - Exact help strings: `--json` → `"Output results as JSON"`,
   `--dry-run` → `"Preview changes without writing"`.
 - `console.print()` for humans; raw `print()` only for piped data.
 - `error_exit(msg, json_mode=json_output)` for failures.
-- STATUS writes only through `rebrew.metadata` writers — never write
+- STATUS writes only through `rebrew.metadata` writers: never write
   `STATUS` in `.c` files, never hand-edit TOML.
 
 ## 2. Registration
@@ -41,7 +41,7 @@ Conventions (CLI review will flag drift):
 Third-party commands skip both: they register through the
 `rebrew.commands` entry-point group and are discovered at startup
 (`plugin.entry_point_components`). A name colliding with a built-in is
-ignored with a warning — built-ins win.
+ignored with a warning: built-ins win.
 
 ## 3. Docs
 
@@ -58,7 +58,7 @@ ignored with a warning — built-ins win.
   otherwise).
 
 The `residue` command (v2.5.0) is the cautionary tale: full Typer app,
-tests, changelog entry — but never registered, so `rebrew residue --help`
+tests, changelog entry, but never registered, so `rebrew residue --help`
 failed until the registration was added after release.
 
 ## 4. Tests

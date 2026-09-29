@@ -8,7 +8,7 @@
 Every `compile_to_obj` pays a full `docker run` (measured 2.0s for one
 mingw file, of which the compile itself is ms). A 20-function verify pays
 ~40s of container startups; batching all 20 into one invocation measured
-2.95s — a 13× win. The per-function model made sense when compiles were
+2.95s: a 13× win. The per-function model made sense when compiles were
 rare (single `rebrew test`); `rebrew verify` on real projects compiles
 hundreds.
 
@@ -23,7 +23,7 @@ hundreds.
   individually.
   GCC: `gcc -O2 -c a.c b.c ...` in one workdir (objects land in the
   workdir root); MSVC: `cl /c a.c b.c ...` (same). Per-file `/Fo`/`-o` is
-  dropped — outputs are renamed from defaults after the run.
+  dropped: outputs are renamed from defaults after the run.
 - Cache hits are filtered BEFORE grouping (their files never enter a
   batch); cache writes happen per file after collection, under the same
   key a single-file compile uses, and only for members whose own include
@@ -41,7 +41,7 @@ hundreds.
 
 - `rebrew verify` wall time becomes ~compiles/groups + cache hits instead
   of ~compiles. Mixed-cflags projects degrade gracefully (one invocation
-  per distinct flag set — usually 1-3).
+  per distinct flag set; usually 1-3).
 - `rebrew test --all` is batched too: it routes through
   `test.emit_test_batch` → `verify.run_batch` → `run_verification`, so the
   speedup covers both commands.  The `compile_to_obj` loop that was described
@@ -49,7 +49,7 @@ hundreds.
   (`test._test_multi`).
 - Docker is still one-shot per group (no daemon); the recompile service
   remains the persistent alternative.
-- MSVC `/Fo` per-file naming is lost inside a batch — outputs are matched
+- MSVC `/Fo` per-file naming is lost inside a batch: outputs are matched
   by stem (`foo.c` → `foo.obj`) in the workdir root. Sources whose stem
   (case-insensitive) appears more than once in a group stay out of the
   batch and compile individually.

@@ -1,8 +1,8 @@
 # ADR-008: Docker-only toolchain execution (no host wine/dosbox)
 
 - **Status**: Amended by [ADR-016](016-image-backed-native-profiles.md)
-  (the remaining native-Linux exceptions named below — `mingw-16.2.0`,
-  `watcom-2.0-win16` — are image-backed now; every shipped profile runs
+  (the remaining native-Linux exceptions named below (`mingw-16.2.0`,
+  `watcom-2.0-win16`) are image-backed now; every shipped profile runs
   through its docker image). Amends [ADR-006](006-toolchain-standardization.md).
 - **Date**: 2026-08
 
@@ -11,19 +11,19 @@
 The toolchain abstraction (ADR-006) standardized invocation as
 `docker run <image> <compiler> <args>` with a **host-path fallback**: when
 docker or the image was unavailable, rebrew exec'd the vendored binary
-directly — `wine CL.EXE` for MSVC, `wibo` as a lighter alternative, the
+directly; `wine CL.EXE` for MSVC, `wibo` as a lighter alternative, the
 DOSBox sandbox for the 16-bit compilers, plus host-side Xvfb/xvfb-run
 headless glue.  The fallback kept several legacy code paths alive:
 
 - `compile_to_obj` had a separate direct-wine branch (`resolve_cl_command`
   + `msvc_env_from_config` + `maybe_headless_wine`) for the default MSVC
-  profiles, distinct from the toolchain-runner branch — two ways to reach
+  profiles, distinct from the toolchain-runner branch: two ways to reach
   the same compiler, with per-function toolchain overrides patching the
   wine env (`vendored_msvc_env`) so Wine loaded the right C1.DLL/C2.DLL.
 - The GA/flag-sweep path duplicated that glue (`matcher/compiler.py` raw
   subprocess + `vendored_compiler_command`).
 - Every environment quirk leaked host-side: wine prefixes, Xvfb, wibo
-  downloads, DOSBox configs, uppercase FAT files — none of which matter
+  downloads, DOSBox configs, uppercase FAT files; none of which matter
   once the runtime lives in the image.
 
 Now that the complete MSVC 1.0–10.0 matrix ships as sha256-pinned images
@@ -39,7 +39,7 @@ Execution is **docker-only for every Windows/DOS toolchain**:
 - `run_toolchain` invokes the image and nothing else for wine/dosbox
   runtime specs; a missing image is a hard `ToolchainError` telling the
   user to `rebrew toolchain build <name>`.  *(Native-Linux exceptions
-  named at acceptance — `mingw-16.2.0`, `watcom-2.0-win16` — became
+  named at acceptance (`mingw-16.2.0`, `watcom-2.0-win16`) became
   image-backed in ADR-016; only a plugin toolchain registered without an
   `image` still execs a vendored/PATH binary.)*
 - `compile_to_obj` routes every registered profile through the runner;
@@ -73,7 +73,7 @@ Positive:
 Negative / accepted:
 
 - Compilation requires docker and the image; a fresh clone must
-  `rebrew toolchain build <name>` (or pull) before the first compile —
+  `rebrew toolchain build <name>` (or pull) before the first compile:
   `doctor` reports this with the exact command.
 - Docker adds per-invocation overhead vs a warm host wine; amortized by
   the compile cache (cache hits skip the subprocess entirely).

@@ -19,7 +19,7 @@ dedicated skill.
   Covers `rebrew init` flag selection (including `--guess-compiler` and
   when to override it), target naming, `.agents/skills/` rendering check,
   `doctor` as the done-gate, and handoff to `rebrew-intake`.
-- The skill is prose + commands only (like the other five) — no code.
+- The skill is prose + commands only (like the other five): no code.
   Validated by `tools/validate_skill_commands.py` like the rest.
 
 ## Consequences

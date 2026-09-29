@@ -6,7 +6,7 @@
 ## Context
 
 `rebrew verify` scopes by module (`--origin`) and subdirectory (`--dir`),
-but not by file — and `--compare` baselines the whole run. CI on a large
+but not by file, and `--compare` baselines the whole run. CI on a large
 project cannot gate one file ("this PR touches `foo.c`, verify just it
 against its last-known report") without verifying everything and eyeballing
 the diff. The batch pipeline (`run_batch` → report → baseline → gate)
@@ -20,7 +20,7 @@ per-entry comparison.
   (exact resolved-path match; a relative path is tried against the
   project root, then `reversed_dir`) and compares only that
   file's entries against the baseline. Entries for other files are neither
-  verified nor reported — the gate answers "did *this file* regress".
+  verified nor reported: the gate answers "did *this file* regress".
 - The baseline stays whole-project (`verify_baseline.toml` unchanged);
   comparison filters to the scoped entries. No per-file baseline files.
 - A scope-filtered run never advances the baseline. `--nolib`, `--dir`,
@@ -38,4 +38,4 @@ per-entry comparison.
 - `--origin`/`--dir` keep working; file scope composes (file must be under
   the dir when both given, else empty set → explicit error, not silent pass).
 - An empty scope (path matches no annotations) errors instead of reporting
-  "0/0 passed" — a silent green gate is worse than a loud one.
+  "0/0 passed": a silent green gate is worse than a loud one.

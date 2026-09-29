@@ -1,4 +1,4 @@
-# ADR-002: NE function enumeration — Borland markers vs MSVC-style segments
+# ADR-002: NE function enumeration: Borland markers vs MSVC-style segments
 
 - **Status**: Accepted
 - **Date**: 2026-08
@@ -25,7 +25,7 @@ a misaligned sweep that chopped the segment entry function and produced
   2-byte marker + name string skipped.  `probe_is_code` takes the segment
   index to make this check.
 - For markerless (MSVC-style) segments, force a candidate at the segment
-  start — the first bytes of a code segment are always a real function
+  start: the first bytes of a code segment are always a real function
   (entry point / LibMain / WinMain-adjacent startup), even without a
   recognizable prolog.
 - Borland segments must NOT get the forced-start candidate: their content
@@ -36,7 +36,7 @@ a misaligned sweep that chopped the segment entry function and produced
 ## Consequences
 
 - ski16.exe: 137 correct functions (entry function recovered at 0x10000)
-  vs 233 garbage; holiday.exe: unchanged at 1783 — both conventions
+  vs 233 garbage; holiday.exe: unchanged at 1783, both conventions
   enumerated correctly from one sweep.
 - The sweep remains heuristic (prolog-anchored); non-prolog functions in
   the middle of a segment are still missed, same as before.

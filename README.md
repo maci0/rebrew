@@ -6,7 +6,7 @@
 
 **Compiler-in-the-loop decompilation workbench for binary-matching game reversing.**
 
-Rebrew is a reusable Python tooling package for reconstructing exact C source code from compiled binaries. It provides a genetic algorithm engine, source metadata pipeline, verification framework, and CLI tools.
+Rebrew recompiles your C with the compiler that built the target and compares the bytes against the target, function by function; a function is done when they are identical. One Python CLI carries the compile-compare loop, a genetic-algorithm matcher, the function metadata store, and the verifier.
 
 ## Features
 
@@ -15,10 +15,10 @@ Rebrew is a reusable Python tooling package for reconstructing exact C source co
 | Tool | What it does |
 |------|-------------|
 | `rebrew test` | Compile your C and diff it byte-by-byte against the original binary |
-| `rebrew match` | GA engine — single file or batch (`--all`); brute-force compiler flags and mutate source to find exact byte matches |
-| `rebrew climb` | Deterministic hill-climb over adjacent statements in one function body — the complement to `match` when the residual is statement order |
+| `rebrew match` | GA engine: single file or batch (`--all`); brute-force compiler flags and mutate source to find exact byte matches |
+| `rebrew climb` | Deterministic hill-climb over adjacent statements in one function body: the complement to `match` when the residual is statement order |
 | `rebrew verify` | Bulk compile + report match status; auto-updates metadata unless `--no-promote`; `--compare` for CI regression checks; `--watch` re-verifies on every change |
-| `rebrew prove` | Symbolic equivalence via angr + Z3 — mathematically prove NEAR_MATCHING functions are equivalent |
+| `rebrew prove` | Symbolic equivalence via angr + Z3: mathematically prove NEAR_MATCHING functions are equivalent |
 | `rebrew near-diag` | Classify *why* a NEAR_MATCHING function misses: register allocation, equivalent instruction selection, relocation masking, or structural layout |
 | `rebrew probe` | Measure one function against the reference without writing metadata |
 | `rebrew qual-sweep` | Sweep declaration qualifiers over one function, keeping winners |
@@ -43,9 +43,9 @@ Rebrew is a reusable Python tooling package for reconstructing exact C source co
 | `rebrew status` | Per-target breakdown of EXACT / RELOC / NEAR_MATCHING / STUB counts |
 | `rebrew graph` | Call graph from `extern` declarations (mermaid, DOT, summary) |
 | `rebrew data` | Inventory `.data`/`.rdata`/`.bss` globals; detect dispatch tables and vtables |
-| `rebrew flirt` | Identify known library functions via FLIRT signatures — no IDA required |
+| `rebrew flirt` | Identify known library functions via FLIRT signatures: no IDA required |
 | `rebrew crt-match` | Cross-reference functions against CRT/library source directories |
-| `rebrew similar` | Rank binary functions by structural similarity to a solved function — find which STUBs share its source family |
+| `rebrew similar` | Rank binary functions by structural similarity to a solved function: find which STUBs share its source family |
 | `rebrew fingerprints` | File hashes, imphash, MSVC Rich-header hash, and per-section entropy for a binary |
 | `rebrew pe-info` | PE metadata dump: identity, sections with protection flags, DllCharacteristics security flags, Authenticode, debug/PDB, and Rich header |
 | `rebrew crypto-scan` | Detect crypto constant tables (AES/SHA/MD5), crypto imports, and crypto-named functions |
@@ -75,7 +75,7 @@ Rebrew is a reusable Python tooling package for reconstructing exact C source co
 | Tool | What it does |
 |------|-------------|
 | `rebrew intake` | One-shot binary onboarding: init + toolchain detect + functions + document-unmatched in a single command |
-| `rebrew analyze` | One-shot intelligence dossier for a binary — layout, toolchain, strings, imports, dispatch tables, FLIRT matches. Works standalone outside a project |
+| `rebrew analyze` | One-shot intelligence dossier for a binary: layout, toolchain, strings, imports, dispatch tables, FLIRT matches. Works standalone outside a project |
 | `rebrew discover-functions` | Function enumeration (rizin aaa/aap + capstone sweep + `.eh_frame` / `.pdata` unwind tables) with validated boundaries and sizes |
 | `rebrew document-unmatched` | Write STUB skeletons + blockers for every function in the list that isn't documented yet (re-discovery workflow; idempotent) |
 | `rebrew identify-library` | Identify library functions (FLIRT + imports + CRT) into `library_*.h`; `--build-sigs` generates the sigs from the toolchain `.lib` files first |
@@ -83,12 +83,12 @@ Rebrew is a reusable Python tooling package for reconstructing exact C source co
 
 ### Design
 
-- **Config-driven** — all tools read from `rebrew-project.toml`, zero manual path arguments
-- **Multi-target** — PE, ELF, Mach-O, and 16-bit Windows NE across x86-16, x86, x64, ARM32/64 with `--target` selection
-- **Idempotent** — every tool is safe to re-run
-- **Composable** — small single-purpose tools designed for scripting and AI agent chaining
-- **Compile cache** — disk-backed SHA-256 cache avoids redundant recompilations
-- **Agent-friendly** — bundled `agent-skills/` copied to projects on `rebrew init`
+- **Config-driven**: all tools read from `rebrew-project.toml`, zero manual path arguments
+- **Multi-target**: PE, ELF, Mach-O, and 16-bit Windows NE across x86-16, x86, x64, ARM32/64 with `--target` selection
+- **Idempotent**: every tool is safe to re-run
+- **Composable**: small single-purpose tools designed for scripting and AI agent chaining
+- **Compile cache**: disk-backed SHA-256 cache avoids redundant recompilations
+- **Agent-friendly**: bundled `agent-skills/` copied to projects on `rebrew init`
 
 ### Agent Skills
 
@@ -107,7 +107,7 @@ Six bundled skills for AI coding agent integration:
 
 > **Host requirements:** Linux x86_64 with Docker. Every Windows/DOS compiler
 > profile executes inside its toolchain image (wine/DOSBox live in the image;
-> there is no host wine path) — build or pull it with
+> there is no host wine path): build or pull it with
 > `rebrew toolchain build <name>` (see [docs/TOOLCHAIN.md](https://github.com/maci0/rebrew/blob/main/docs/TOOLCHAIN.md)).
 > Shipped compiler images are `*-linux-x64` / `*-win32` / `*-win16`, plus the
 > IDO `rebrew/ido:<version>-linux` images; CI runs on
@@ -156,7 +156,7 @@ for path in iter_sources(cfg):  # a bare path works too: iter_sources("src/game"
 try:
     get_toolchain(cfg.compiler_profile)  # e.g. "msvc-6.0"
 except ToolchainError as exc:
-    # Branch on exc.kind / exc.name / exc.retryable — not message substrings.
+    # Branch on exc.kind / exc.name / exc.retryable, not message substrings.
     raise
 
 # The legal profile names are the registry, not a hardcoded list. TOOLCHAINS
@@ -170,7 +170,7 @@ for name, spec in sorted(TOOLCHAINS.items()):
 # `list_toolchains()` is the other view of the same table, one dict per
 # profile, with `origin` and the docker-present flag on each row. Reach for it
 # when you want those alongside the spec. `rebrew toolchain list --json`
-# prints `{"toolchains": list_toolchains(), "docker_available": <bool>}` —
+# prints `{"toolchains": list_toolchains(), "docker_available": <bool>}`:
 # the rows verbatim, wrapped in the envelope, so a consumer reads
 # `payload["toolchains"]` rather than parsing the table out of a list.
 
@@ -395,11 +395,11 @@ byte result with a `metadata:` warning.
 
 | Status | Meaning | How it is earned |
 |---|---|---|
-| `EXACT` | Compiled bytes identical to the target | `rebrew verify` — every non-relocation byte matches |
-| `RELOC` | Identical except relocation slots | `rebrew verify` — all non-reloc bytes match and the reloc slots (linker-filled symbol addresses) validate against the catalog |
+| `EXACT` | Compiled bytes identical to the target | `rebrew verify`: every non-relocation byte matches |
+| `RELOC` | Identical except relocation slots | `rebrew verify`: all non-reloc bytes match and the reloc slots (linker-filled symbol addresses) validate against the catalog |
 | `PROVEN` | Semantically equivalent despite structurally different bytes | `rebrew prove` (symbolic equivalence via angr/Z3). Not a byte match and not protected: the next `rebrew test` / `rebrew verify` records the byte result (`NEAR_MATCHING`, `EXACT`, …) over it |
-| `NEAR_MATCHING` | Close but not byte-identical — at least 60 % of bytes match | `rebrew verify` — typically register allocation, instruction scheduling, or a flag variant; try `rebrew match --flag-sweep` |
-| `STUB` | Below the 60 % near-match threshold — the skeleton was never implemented, or control flow diverges | `rebrew verify`, or manual classification for known-unimplemented code |
+| `NEAR_MATCHING` | Close but not byte-identical: at least 60 % of bytes match | `rebrew verify`: typically register allocation, instruction scheduling, or a flag variant; try `rebrew match --flag-sweep` |
+| `STUB` | Below the 60 % near-match threshold: the skeleton was never implemented, or control flow diverges | `rebrew verify`, or manual classification for known-unimplemented code |
 | `SKIP` | Intentionally not worked on (data, out of scope) | manual classification |
 | `SIZE_MISMATCH` | Compiles, but the object length differs from the target | `rebrew verify` |
 | `COMPILE_ERROR` | The C does not compile under the function's toolchain and flags | `rebrew verify` |
@@ -434,7 +434,7 @@ Only `EXACT` and `RELOC` count as matched; `PROVEN` functions stay on
 **Legend:** ✅ Supported  ⬜ Planned / Not yet implemented (a linked output with no per-function object, such as `delphi-1.0`, also has no byte-matching path)
 
 16-bit NE targets are parsed, enumerated, and analyzed natively (intake,
-analyze, asm, describe, data, report — see `docs/TOOLCHAIN.md`). Byte
+analyze, asm, describe, data, report; see `docs/TOOLCHAIN.md`). Byte
 matching and `rebrew verify` run when the project profile is registered
 with `bits = 16` and emits a per-function object (`msvc-1.0`, `msvc-1.5`,
 `msvc-1.52`, `borland-2.0`, `borland-3.1`, `watcom-2.0-win16`, or a plugin
@@ -443,14 +443,14 @@ verify skips it. Any other profile short-circuits with a notice naming the
 object profiles and exits 2.
 
 **Toolchain detection:** `rebrew intake`/`analyze` auto-detect the compiler
-family and version — DIE (`diec`) signatures first, then PDB records, then
+family and version; DIE (`diec`) signatures first, then PDB records, then
 PE metadata (Rich header, linker version), then structural heuristics
 (strings, imports, codegen style, section layout).
 16-bit NE family comes from the Borland segment-marker convention
 (`delphi` vs MSVC-style markerless segments).  When diec misses a compiler
 record, the Microsoft Linker version still pins the MSVC era.
 
-**Compiler profiles:** `msvc-6.0` is the default — every profile (all `msvc*`
+**Compiler profiles:** `msvc-6.0` is the default; every profile (all `msvc*`
 from 1.0 through 11.0, `borland-5.5`, `borland-3.1`/`borland-2.0`, `watcom-2.0-win32`/`watcom-2.0-win16`,
 `delphi-1.0`, `gcc-14.2.0`/`gcc-12.3.0`, `clang-18.1.8`/`clang-16.0.4`, `mingw-16.2.0`/`mingw-14.2.0`,
 `ido-5.3`/`ido-7.1`) compiles
@@ -537,7 +537,7 @@ Projects rebrew integrates with or draws from:
 
 | Project | What it is |
 |---------|-----------|
-| [recompile.online](https://github.com/maci0/recompile) | Compiler-as-a-service API over the rebrew toolchain zoo — submit C + a toolchain id, get the compiled artifact (separate workspace: `../recompile`) |
+| [recompile.online](https://github.com/maci0/recompile) | Compiler-as-a-service API over the rebrew toolchain zoo: submit C + a toolchain id, get the compiled artifact (separate workspace: `../recompile`) |
 | [recoverage](https://github.com/maci0/recoverage) | Coverage dashboard over `rebrew build-db` output |
 
 ## License

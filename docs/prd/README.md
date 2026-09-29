@@ -29,7 +29,7 @@ Each PRD carries its own `- **Status**:` line; PRD 09 is the only one not
 `Shipped` (the umbrella and declib I/O ship, divergent git merge remains).
 
 For source-side gaps discovered while validating these PRDs see
-[`00-source-gap-report.md`](00-source-gap-report.md) — last audited
+[`00-source-gap-report.md`](00-source-gap-report.md): last audited
 2026-08-22, re-audited 2026-09: 33 recorded gaps, all closed (30 fixed in
 place, 3 resolved by the BinSync-primary rework).
 

@@ -48,7 +48,7 @@ Add `rebrew lib-match`, a command that:
   (`build/compile_commands.json`, `--compile-commands`) rather than a glob,
   which would also pick up stale objects,
 - indexes every code symbol in them, **including COFF storage-class-3
-  (static) symbols** — MSVC marks CRT helpers such as `_initterm` and
+  (static) symbols**: MSVC marks CRT helpers such as `_initterm` and
   `_parse_cmdline` static, so an external-symbol-only index reports them
   absent from the library, which is the wrong answer to "should I reverse
   this?",
@@ -60,7 +60,7 @@ Add `rebrew lib-match`, a command that:
   trivially "match" anything,
 - supports `--va` for a single-function verdict (for use before starting
   work). With no recorded SIZE, a library body that matches a prefix of the
-  read window still counts — the window can run into the next function.
+  read window still counts: the window can run into the next function.
   `--allow FILE` names VAs known to be library code but kept for link
   reasons, and `--json` emits structured matches. Exit status 0 = clean,
   1 = a reversed function matches a library, 2 = config/library error, so

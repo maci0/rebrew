@@ -1,4 +1,4 @@
-# Onboarding — your first rebrew project
+# Onboarding: your first rebrew project
 
 This is the first-run walkthrough: from a binary to a documented, verified
 decomp project.  It takes ~5 minutes and covers every step the tools
@@ -11,17 +11,17 @@ see [TOOLCHAIN.md](TOOLCHAIN.md).
 | Tool | Needed for | Install |
 |------|-----------|---------|
 | Python 3.13+ + `uv` | running rebrew | [uv installer](https://docs.astral.sh/uv/getting-started/installation/) / your distro; `uv python install 3.13` |
-| rebrew itself | everything | `uv tool install 'rebrew[prove] @ git+https://github.com/maci0/rebrew.git'` (in a rebrew checkout, `make setup` instead — see CONTRIBUTING.md) |
-| **docker** | every compiler (MSVC, Borland, Watcom, Turbo C, Delphi, GCC, Clang, MinGW) — execution is docker-only; the image wraps wine/DOSBox or holds the native compiler | your distro's `docker` |
+| rebrew itself | everything | `uv tool install 'rebrew[prove] @ git+https://github.com/maci0/rebrew.git'` (in a rebrew checkout, `make setup` instead; see CONTRIBUTING.md) |
+| **docker** | every compiler (MSVC, Borland, Watcom, Turbo C, Delphi, GCC, Clang, MinGW): execution is docker-only; the image wraps wine/DOSBox or holds the native compiler | your distro's `docker` |
 | **rizin** (the `rizin` executable) | packaged function discoverer (`rebrew.discoverers`; alternatives plug in without host edits) | `apt install rizin` / [rizin.re](https://rizin.re) |
 | `diec` (optional) | stronger compiler detection in `rebrew doctor`/`intake` | `diec` on `PATH`, or unpack [Detect It Easy](https://github.com/horsicq/DIE-engine/releases) into `tools/diec/` (gitignored, not shipped) |
 
-Every compiler — including GCC, Clang and MinGW — needs docker: the image
+Every compiler (including GCC, Clang and MinGW) needs docker: the image
 holds it (see `rebrew toolchain list`).
 
 > **Runtime: wine is the default.**  Every docker image runs the compiler
 > under **wine** (`REBREW_RUNNER` defaults to `wine` inside the image).
-> `wibo` — the minimal decompals PE loader — is faster but **fails on some
+> `wibo` (the minimal decompals PE loader) is faster but **fails on some
 > tools**, so rebrew keeps wine as the default and never steers you toward
 > wibo (a wibo binary in `tools/` is informational only; `--install-wibo`
 > leaves docker-backed projects' runner config untouched).
@@ -36,27 +36,27 @@ rebrew init --target SERVER --binary server.dll
 
 Creates `rebrew-project.toml`, `original/`, `src/SERVER/`, metadata files,
 and prints the next steps.  If you have the binary handy, skip straight to
-`rebrew intake` — it runs `init` for you.
+`rebrew intake`: it runs `init` for you.
 
 #### Interactive wizard
 
 Bare `rebrew init` on a TTY runs an **onboarding wizard** (`--wizard` is the
 default; `--no-wizard` or `--json` opts out).  It only asks about parameters
-you did NOT pass on the command line — a fully flagged run
+you did NOT pass on the command line: a fully flagged run
 (`--target/--binary/--toolchain/--install-completions` all given) prompts
 nothing.
 
-1. **Binary** — scans `original/` first, then the current directory, for
+1. **Binary**: scans `original/` first, then the current directory, for
    `*.exe`/`*.dll`/`*.sys`/`*.bin`/`*.com` and offers a numbered pick list
    (`m` lets you type a path/name manually).
-2. **Detection → compiler profile** — the chosen binary is fingerprinted
+2. **Detection → compiler profile**: the chosen binary is fingerprinted
    (format/arch + toolchain family) and the suggested profile becomes the
    default answer, visibly flagged (`detection suggests …`).  An unknown
    answer gets one reprompt, then falls back to the current value.
-3. **Target name** — defaults to the binary stem (`mini_pe.exe` → `mini_pe`).
-4. **Shell completions** — optional `completions/` scripts.
-5. **Summary + confirm** — nothing is written before you answer "yes".
-6. **Toolchain image** — after the project is written, the docker image
+3. **Target name**: defaults to the binary stem (`mini_pe.exe` → `mini_pe`).
+4. **Shell completions**: optional `completions/` scripts.
+5. **Summary + confirm**: nothing is written before you answer "yes".
+6. **Toolchain image**: after the project is written, the docker image
    state for the chosen profile is reported; a missing image prints the
    exact `rebrew toolchain build <profile>` command and offers to run it.
 
@@ -72,7 +72,7 @@ rebrew intake original/server.dll --toolchain msvc-6.0   # or pin it explicitly
 `intake` does the whole first pass automatically:
 
 1. **detects the compiler profile** (diec → PDB → PE metadata → heuristics)
-2. runs `rebrew init` (skipped if the project already exists — re-running
+2. runs `rebrew init` (skipped if the project already exists; re-running
    intake is a safe re-discovery)
 3. copies the binary to `original/`
 4. **enumerates functions** via discoverer plugins → `src/SERVER/function_structure.json`
@@ -101,12 +101,12 @@ rebrew doctor --json     # machine-readable
 compiler), include/lib paths, function list, sources, metadata, and more.
 Every `fail` line names its fix.  The common ones after a fresh intake:
 
-- **`Compiler`/`Toolchain`/`Runner` fail** — the docker image isn't built:
+- **`Compiler`/`Toolchain`/`Runner` fail**: the docker image isn't built:
   `rebrew toolchain build <profile>` (execution is docker-only).
-- **`Toolchain alignment` fail** — the detected compiler family doesn't match
+- **`Toolchain alignment` fail**: the detected compiler family doesn't match
   the configured profile: switch the profile (e.g. `rebrew cfg set
   compiler.profile msvc-6.0`) or document it as a blocker.
-- **`Include path`/`Lib path`** — for docker-backed profiles these are
+- **`Include path`/`Lib path`**: for docker-backed profiles these are
   provided *by the image* (it is built from the pinned source in the sibling
   `rebrew-toolchains` checkout), so a dangling host path is informational,
   not a failure.  Every shipped profile is docker-backed; only a plugin
@@ -127,10 +127,10 @@ rebrew test src/SERVER/fcn_00401000.c   # compile, byte-compare, auto-update STA
 rebrew diff src/SERVER/fcn_00401000.c   # see WHY bytes differ (register/reloc/structural)
 rebrew near-diag src/SERVER/fcn_00401000.c  # classify the delta + GA mutation hints
 rebrew verify            # bulk: compile every annotated function, compare, promote STATUS
-rebrew match src/SERVER/fcn_00401000.c    # GA engine — search for the byte-perfect C
+rebrew match src/SERVER/fcn_00401000.c    # GA engine: search for the byte-perfect C
 ```
 
-Before reversing, rule out library code — statically linked CRT sits in
+Before reversing, rule out library code: statically linked CRT sits in
 `.text` looking exactly like target code:
 
 ```bash
@@ -159,13 +159,13 @@ graph TD
 
 | Error | Cause | Fix |
 |-------|-------|-----|
-| `binary not found: …` | typo'd path | pass the real path — `rebrew intake` copies it to `original/` |
+| `binary not found: …` | typo'd path | pass the real path: `rebrew intake` copies it to `original/` |
 | `no functions discovered` | no discoverer found functions (rizin missing, timed out, or couldn't analyze the binary) | `apt install rizin` or register another `rebrew.discoverers` plugin; re-run `rebrew intake` (the scaffold is kept) |
 | `docker image rebrew/… not built` | image missing | `rebrew toolchain build <profile>` (or `rebrew toolchain pull <profile>`) |
 | `Toolchain alignment` fail | detected family ≠ configured profile | `rebrew cfg set compiler.profile <detected>` |
 | `Cannot extract DLL bytes` (verify) | binary changed since the annotation | re-run `rebrew intake` for re-discovery, or fix the marker VA (the error names the VA when it is missing from the current function list) |
 | `Failed to load: …` (doctor) | `format` doesn't match the binary | set `format = "pe"/"elf"/"macho"/"ne"` in `rebrew-project.toml` |
-| `A rebrew-project.toml already exists` | `init` in an existing project | use `rebrew intake` instead — it re-runs init only when needed |
+| `A rebrew-project.toml already exists` | `init` in an existing project | use `rebrew intake` instead: it re-runs init only when needed |
 
 ## 16-bit DOS targets
 
@@ -179,7 +179,7 @@ skipped.  `rebrew doctor` explains exactly which profile to configure.
 ## Manual discovery (without `intake`)
 
 When onboarding by hand (or feeding a third-party tool's output), write
-`src/<target>/function_structure.json` directly — `[{va, size, name}]` with
+`src/<target>/function_structure.json` directly: `[{va, size, name}]` with
 integer VAs:
 
 ```bash
@@ -198,8 +198,8 @@ Then continue at step 3 (`rebrew doctor`).
 
 ## Next
 
-- [CLI.md](CLI.md) — every command
-- [TOOLCHAIN.md](TOOLCHAIN.md) — compilers, images, per-library overrides
-- [ANNOTATIONS.md](ANNOTATIONS.md) — the `// FUNCTION:` annotation format
-- [CONFIG.md](CONFIG.md) — `rebrew-project.toml` reference
-- [ARCHITECTURE.md](ARCHITECTURE.md) — how the pieces fit together
+- [CLI.md](CLI.md): every command
+- [TOOLCHAIN.md](TOOLCHAIN.md): compilers, images, per-library overrides
+- [ANNOTATIONS.md](ANNOTATIONS.md): the `// FUNCTION:` annotation format
+- [CONFIG.md](CONFIG.md): `rebrew-project.toml` reference
+- [ARCHITECTURE.md](ARCHITECTURE.md): how the pieces fit together

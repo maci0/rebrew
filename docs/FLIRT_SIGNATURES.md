@@ -1,13 +1,13 @@
 # FLIRT Signatures Guide
 
 How to obtain, create, and use [IDA FLIRT](https://hex-rays.com/products/ida/tech/flirt/)
-signatures with rebrew — **no IDA Pro required**.
+signatures with rebrew: **no IDA Pro required**.
 
 ## Background
 
 FLIRT (Fast Library Identification and Recognition Technology) signatures identify
 known library functions inside a binary by matching byte patterns. When you match
-a function to a FLIRT signature you get a **free win** — the function can be
+a function to a FLIRT signature you get a **free win**: the function can be
 attributed to a specific library (CRT, zlib, Lua, etc.) without manual RE.
 
 Rebrew uses the [`python-flirt`](https://pypi.org/project/python-flirt/) library
@@ -35,7 +35,7 @@ and libraries:
 | **push0ebp/sig-database** | [github.com/push0ebp/sig-database](https://github.com/push0ebp/sig-database) | Broad MSVC coverage (VC12+) |
 | **Mandiant/siglib** | [github.com/mandiant/siglib](https://github.com/mandiant/siglib) | FLARE team sigs, strong on malware-adjacent CRTs |
 
-**Quick start — clone and copy:**
+**Quick start: clone and copy:**
 
 ```bash
 # Example: grab Maktm's FLIRTDB
@@ -155,7 +155,7 @@ toolchain. The FLAIR tools are distributed with IDA Pro and SDK.
    leading bytes), it creates an `.exc` (exclusion) file. Edit this file
    to resolve ambiguities, then re-run `sigmake`:
    ```bash
-   # Edit my_library.exc — uncomment the function you want to keep
+   # Edit my_library.exc: uncomment the function you want to keep
    # for each collision group, then:
    sigmake my_library.pat my_library.sig
    ```
@@ -198,7 +198,7 @@ The file must end with a line containing only `---`.
 > reflected polynomial `0x8408` (i.e. reflected CRC-CCITT `0x1021`),
 > init `0xFFFF`, per-byte reflected bit loop, final bitwise invert, then
 > byte-swapped into the field. It is *not* plain CRC-16/ARC or a standard
-> CRC-CCITT — a signature whose CRC uses any other variant will parse fine
+> CRC-CCITT: a signature whose CRC uses any other variant will parse fine
 > but silently never match (a past rebrew bug used non-reflected `0x8005`).
 > `rebrew.gen_flirt_pat._crc16_flirt` is the canonical implementation, and
 > `tests/test_property_parsers.py` pins the parse→compile→match round-trip
@@ -206,7 +206,7 @@ The file must end with a line containing only `---`.
 
 > [!IMPORTANT]
 > Relocatable bytes are masked (`..`) for the **full fixup width** of the
-> relocation (4 bytes for `DIR32`/`REL32` on x86) — not just the first byte.
+> relocation (4 bytes for `DIR32`/`REL32` on x86), not just the first byte.
 > The width comes from the relocation *type*: LIEF reports `size == 0` for
 > MSVC6 objects, so type-derived width is what `parse_coff_obj` uses.
 >

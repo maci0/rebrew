@@ -72,7 +72,7 @@ flowchart LR
 | `rebrew/intake.py` | One-shot binary onboarding: init + toolchain detect (diec → PDB → PE metadata → heuristics) + plugin function discovery + STUB/blocker documentation |
 | `rebrew/main.py` | Umbrella CLI. Provides `app` (and the re-exported `console`), then `activate()`s packaged `CliComponent`s plus `rebrew.commands` / `rebrew.multicommands` plugins |
 | `rebrew/cli.py` | Shared options/helpers: `TargetOption`, `require_config`, `error_exit`, `json_print`, exit codes |
-| `rebrew/errors.py` | `RebrewError`, the base every public exception type inherits alongside its original `RuntimeError`/`ValueError`/`FileNotFoundError` base — one `except` clause for library consumers. Re-exports every public error class by lazy attribute, so `from rebrew.errors import DosboxError` works without knowing the defining submodule. Imports no other `rebrew` module at module scope (leaf module; stdlib only). `to_dict()` serializes `_STRUCTURED_FIELDS` (`kind`, `name`, `status_code`, `group`; a subclass extends the tuple for anything more it carries), coercing `Path` to `str` so the result survives `json.dumps`, and `from_dict()` rebuilds the named class, so a persisted failure still branches on the same data |
+| `rebrew/errors.py` | `RebrewError`, the base every public exception type inherits alongside its original `RuntimeError`/`ValueError`/`FileNotFoundError` base: one `except` clause for library consumers. Re-exports every public error class by lazy attribute, so `from rebrew.errors import DosboxError` works without knowing the defining submodule. Imports no other `rebrew` module at module scope (leaf module; stdlib only). `to_dict()` serializes `_STRUCTURED_FIELDS` (`kind`, `name`, `status_code`, `group`; a subclass extends the tuple for anything more it carries), coercing `Path` to `str` so the result survives `json.dumps`, and `from_dict()` rebuilds the named class, so a persisted failure still branches on the same data |
 | `rebrew/sources.py` | Source-tree discovery: `source_exts`, `source_glob`, `target_marker`, `scan_files`, `iter_sources`, `iter_library_headers` (pure pathlib/config logic, importable by library modules; a command that needs several views of one tree scans it once via `scan_files` and passes `scanned=`). `source_roots` + `contained_path` own the metadata `file` field: every join of an annotation's `file` onto a source tree resolves through `contained_path(roots, value)`, which returns `None` for a value that is empty, absolute, or escapes every root |
 | `rebrew/limits.py` | `NO_MAX_SIZE` / `NO_DELTA`, the "bound not measured" sentinels behind `--max-size` and `--max-delta`. A leaf so `match_run` can recognise an unset bound without importing the `skeleton` or `match_batch` command modules |
 | `rebrew/config.py` | `ProjectConfig` dataclass + `rebrew-project.toml` loader (multi-target) |
@@ -95,8 +95,8 @@ flowchart LR
 | `rebrew/crt_match.py` | CRT source cross-reference matcher (index, match, ASM detection) |
 | `rebrew/flirt.py` | FLIRT signature scanning |
 | `rebrew/prove.py` | Symbolic equivalence prover via angr (optional dep) |
-| `rebrew/delphi16.py` | Delphi 1.0 (16-bit) compile support — headless DOSBox sandbox + NE parse (ADR-001 foundation) |
-| `rebrew/msvc16.py` | MSVC 1.0 / 1.5 / 1.52 (16-bit) compile support — DOSBox + 16-bit OMF objects |
+| `rebrew/delphi16.py` | Delphi 1.0 (16-bit) compile support: headless DOSBox sandbox + NE parse (ADR-001 foundation) |
+| `rebrew/msvc16.py` | MSVC 1.0 / 1.5 / 1.52 (16-bit) compile support: DOSBox + 16-bit OMF objects |
 | `rebrew/dosbox.py` | Shared headless DOSBox runner (mount sandbox as C:, FAT-uppercase reads) |
 | `rebrew/toolchain.py` | Toolchain abstraction: spec registry + docker-only runner for every shipped profile (plugin toolchains without `image` may run as a host binary), plus the project-side MSVC layout table (`resolve_msvc_toolchain` / `toolchain_link_candidates`) init and config resolve against |
 | `rebrew/toolchain_cli.py` | `rebrew toolchain` CLI (`list`/`status`/`detect`/`pull`/`build`/`vendor`/`smoke`/`update`/`check-updates`) |
@@ -104,13 +104,13 @@ flowchart LR
 | `rebrew/similar.py` | Structural clone detection (mnemonic-histogram similarity) |
 | `rebrew/near_diag.py` | NEAR_MATCHING delta classification (register/encoding/equivalent/reloc/structural buckets) |
 | `rebrew/headless.py` | Persistent per-process Xvfb for headless wine compiles (no window, no DISPLAY needed) |
-| `rebrew/toolchain_detect.py` | Layered compiler-family detector: Detect It Easy (diec) → PDB → PE metadata (Rich header/linker version) → codegen heuristics; feeds init's CRT/opt seeding and doctor's alignment check. Its four tables (profile compat, Rich-build and linker-era profiles, plugin detectors) are one generation — read them through `detection_tables()` |
+| `rebrew/toolchain_detect.py` | Layered compiler-family detector: Detect It Easy (diec) → PDB → PE metadata (Rich header/linker version) → codegen heuristics; feeds init's CRT/opt seeding and doctor's alignment check. Its four tables (profile compat, Rich-build and linker-era profiles, plugin detectors) are one generation: read them through `detection_tables()` |
 | `rebrew/wibo.py` | Locate + SHA256-verify the wibo runner (`doctor --install-wibo`); a legacy host-runner fallback for toolchains registered without an `image`, not a shipped compile path (ADR 008) |
 | `rebrew/binsync/` (`export.py` / `importer.py` / `diff.py` / `git.py` / `init.py` / `overlay.py`, plus `serial.py`, `cli.py`, `state.py`) | BinSync state export/import/diff/init/overlay, the `rebrew binsync` umbrella (git automation), and the shared state readers; artifact TOML serialized with declib (the `binsync` extra) |
 | `rebrew/crypto_scan.py` | Cryptography detection: data-section constant tables (AES S-boxes, SHA-256 K/H, SHA-1, MD5 T) plus imported-API and project-name matching |
 | `rebrew/fingerprints.py` | Content fingerprint bundle for a binary: streamed MD5/SHA1/SHA256/SHA512/SHA3 digests and CRC32, Mandiant imphash, PE export hash, MSVC Rich-header hash, per-section entropy, optional TLSH/ssdeep |
 | `rebrew/climb.py` | Deterministic single-statement hill-climb over one function body (adjacent-statement swaps scored through the compile→compare path); complements the GA when the residual is statement order |
-| `rebrew/blocker.py` | Programmatic BLOCKER writer — `rebrew blocker set/clear/show` (by file/VA/symbol; every write locked + atomic) |
+| `rebrew/blocker.py` | Programmatic BLOCKER writer: `rebrew blocker set/clear/show` (by file/VA/symbol; every write locked + atomic) |
 | `rebrew/document_unmatched.py` | STUB skeleton + BLOCKER writer for unmatched functions (standalone intake document step) |
 | `rebrew/discover.py` | Function enumeration via `rebrew.discoverers` plugins (packaged: rizin aaa/aap, capstone sweep, `.eh_frame` and `.pdata` unwind tables, NE loader, MZ sweep) with size cross-checks |
 | `rebrew/pdb_info.py` | PDB metadata extraction (S_COMPILE3 compiler version + flags) |
@@ -145,7 +145,7 @@ cross-project duplicate detection, a fragment query against a snippet library,
 or near-duplicate clustering belongs on `resembl`, which rebrew already reuses
 for the whole-function score; growing an index or a MinHash inside rebrew
 would be a second answer to that question. See
-[ECOSYSTEM.md](ECOSYSTEM.md#resembl--assembly-similarity-search).
+[ECOSYSTEM.md](ECOSYSTEM.md#resembl-assembly-similarity-search).
 
 ## The compile → compare → STATUS/BLOCKER loop
 
@@ -154,7 +154,7 @@ would be a second answer to that question. See
    block to read: `_annotations_from_metadata` synthesizes the same
    Annotations from the TOML entries whose `file` field matches. Inline
    keys still read on an unmigrated file: co-read `SIZE`/`CFLAGS` (reccmp contract),
-   `TOOLCHAIN`/`SOURCE` (until migrated — metadata wins on merge),
+   `TOOLCHAIN`/`SOURCE` (until migrated; metadata wins on merge),
    `// SOURCE: naked` (file-borne), and structural `STRUCT`/`CALLERS`
    (`SECTION` on DATA/GLOBAL is data-metadata-owned). Inline `STATUS`
    etc. are NOT parsed (`_kv_to_annotation` hardcodes `STUB`).
@@ -162,19 +162,19 @@ would be a second answer to that question. See
    wins for owned fields: STATUS, TOOLCHAIN, BLOCKER, NOTE, GHIDRA, …;
    SIZE/CFLAGS are co-read with metadata as override).
 3. `compile_and_compare()` compiles the source in the pinned toolchain
-   image (`toolchain.py` — docker-only for every shipped profile, including
+   image (`toolchain.py`; docker-only for every shipped profile, including
    gcc/clang/mingw; images built from the `rebrew-toolchains` checkout) and
    byte-compares against the target bytes → `CompareResult`.
-4. `update_source_status()` writes STATUS to the metadata file only — the
+4. `update_source_status()` writes STATUS to the metadata file only: the
    `.c` marker lines are never rewritten. `update_field` / `remove_field`
    (via `rebrew blocker set/clear`, `rebrew diff --fix-blocker`, etc.) do the
-   same for BLOCKER/BLOCKER_DELTA — never hand-edit `rebrew-functions.toml`.
+   same for BLOCKER/BLOCKER_DELTA: never hand-edit `rebrew-functions.toml`.
 
 ## Metadata routing rules (file-only vs metadata-only)
 
 - **metadata-owned**: STATUS, TOOLCHAIN, BLOCKER, BLOCKER_DELTA,
   NOTE, GHIDRA, ANALYSIS, SKIP, GLOBALS, LOCALS, COMMENTS, SOURCE,
-  PROVE_CONSTRAINTS — live in `rebrew-functions.toml`; inline use fires lint
+  PROVE_CONSTRAINTS; live in `rebrew-functions.toml`; inline use fires lint
   W019. UPDATED_BY/UPDATED_AT (write provenance) are stamped on every metadata
   write, and an inline occurrence fires W019 like any other metadata key (W019's
   `--fix` strips them rather than migrating a stamp). SIZE is co-read
@@ -182,11 +182,11 @@ would be a second answer to that question. See
   CFLAGS gets the same disagreement-only check when the metadata has a value,
   and otherwise the deprecation W019; `// SOURCE: naked` is file-borne and
   exempt.
-- **file-only**: MARKER, VA, MODULE, SYMBOL — in the `.c` block, or in the
+- **file-only**: MARKER, VA, MODULE, SYMBOL; in the `.c` block, or in the
   TOML entry's `file`/`marker_type`/`symbol`/`name` on a migrated file (ADR 023).
-- **legacy**: ORIGIN (derived from module) — inline → W019, never stored in function metadata.
+- **legacy**: ORIGIN (derived from module); inline → W019, never stored in function metadata.
 - **data-owned**: SECTION (owned by `rebrew-data.toml` for DATA/GLOBAL
-  entries) — deliberately absent from function `METADATA_FIELDS`.
+  entries); deliberately absent from function `METADATA_FIELDS`.
 - `metadata.METADATA_FIELDS` is the single routing table. `annotation.METADATA_KEYS`
   is the W019 key set: `METADATA_FIELDS` plus the legacy ORIGIN and the
   data-owned SECTION (the `SIZE`/`CFLAGS`/`SOURCE:naked` exemptions live in
@@ -198,7 +198,7 @@ would be a second answer to that question. See
 
 - Config-driven: every tool reads `rebrew-project.toml` via `require_config`.
 - Idempotent: every tool is safe to re-run.
-- One canonical name per function — no aliases/shims/legacy wrappers.
+- One canonical name per function: no aliases/shims/legacy wrappers.
 - STATUS promotion only via `update_source_status` (never inline in `.c`); BLOCKER only via `update_field`/`remove_field` through `rebrew blocker set/clear` or the auto-writers (`diff --fix-blocker`, `near-diag --fix-blocker`, `document-unmatched`).
 - Source discovery via `iter_sources`; batch annotations via `iter_annotations`.
 - Registries republish as a whole: one `refresh_*` call is one generation, and a

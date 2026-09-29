@@ -6,7 +6,7 @@
 ## Context
 
 `rebrew intake` re-runs on an existing project (re-discovery) when the
-function list changes — a rizin update, an NE enumeration fix, a discovery
+function list changes: a rizin update, an NE enumeration fix, a discovery
 backend swap.  Before this change, stubs from the previous discovery were
 left behind: a broken first enumeration produced 233 `fcn_0000XXXX.c`
 stubs, the fixed re-run produced 137 `fcn_0001XXXX.c` stubs, and both
@@ -23,7 +23,7 @@ On re-discovery, intake prunes stale stubs after documenting the new list:
   or user-written source survives untouched.
 - The metadata entry for a pruned VA is deleted together with the file
   (new `delete_metadata_entry` in `rebrew.metadata`), so a progressed
-  function — whose source was renamed/edited and therefore not pruned —
+  function (whose source was renamed/edited and therefore not pruned)
   never loses metadata.
 - Pruning runs only when the project already existed (a fresh onboarding
   has nothing stale) and reports the count as an intake note.

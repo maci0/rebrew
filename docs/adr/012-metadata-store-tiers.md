@@ -16,8 +16,8 @@ coverage DB, a verify cache, compile caches, and GA solutions/history
 files.  New contributors (and the agent docs) repeatedly asked "why are
 there so many places, and which one is the truth?"
 
-An audit (2026-08) found the architecture was *mostly* sound — STATUS has a
-single gate, function-list parsing is centralized — but the tier structure
+An audit (2026-08) found the architecture was *mostly* sound (STATUS has a
+single gate, function-list parsing is centralized) but the tier structure
 was undocumented, and the code carried real drift that made the boundaries
 harder to see:
 
@@ -40,10 +40,10 @@ harder to see:
 Adopt an explicit **four-tier model** and document it as the contract
 (current store map: [METADATA.md](../METADATA.md)):
 
-1. **Canonical (user-owned)** — `.c` marker lines (identity), the three
+1. **Canonical (user-owned)**: `.c` marker lines (identity), the three
    TOML stores (overrides), `rebrew-project.toml` (config).  The only
    stores that hold non-derivable facts.
-2. **Derived, VCS-intended** — `src/<target>/function_structure.json`
+2. **Derived, VCS-intended**: `src/<target>/function_structure.json`
    (discovery inventory; replaces the removed `functions.txt` /
    `CATALOG.md`), the layout package (`layout/<target>/`:
    `rebrew-layout.toml` + `*.hex`), `<target>.def`, `crt_region/*.c`,
@@ -51,19 +51,19 @@ Adopt an explicit **four-tier model** and document it as the contract
    from the binary but committed so a rebuild never needs `original/`
    around; regenerable via the generating command (gen-layout,
    discover-functions, gen-link-stubs).
-3. **Derived, gitignored (build output)** — grid JSON, coverage.db, CSV,
+3. **Derived, gitignored (build output)**: grid JSON, coverage.db, CSV,
    `bin/<target>/*.bin`, `output/report/`.  (Amended: the grid JSON, the
-   coverage database and the CSV are gone — see the amendment at the end.)  Rebuildable via one command;
+   coverage database and the CSV are gone; see the amendment at the end.)  Rebuildable via one command;
    never hand-edited.  The `--compare` baseline lives in
    `.rebrew/verify_baseline.toml` (unguarded `db/verify_results.json`
-   snapshots are no longer written — see `verify_cache.load_baseline`).
-4. **Cache (delete-safe)** — verify cache, Ghidra sync-state, compile
+   snapshots are no longer written; see `verify_cache.load_baseline`).
+4. **Cache (delete-safe)**: verify cache, Ghidra sync-state, compile
    caches, GA run checkpoints (`out_dir/checkpoints`, `out_dir/best.c`),
    in-memory mtime caches.  There is no per-run GA build cache:
    same-run compiles memoize in memory, cross-run persistence is the shared
    compile cache's job.  Except
    `.rebrew/ga_runs.jsonl` (live GA history / win fingerprints; see
-   `matcher/solutions.py` — `load_solutions` derives winners from the log;
+   `matcher/solutions.py`; `load_solutions` derives winners from the log;
    the old `.rebrew/solutions.json` store is gone).
 
 Single-source rules enforced by code where cheap:
@@ -110,7 +110,7 @@ Single-source rules enforced by code where cheap:
 - Behavioral strictness: empty-module metadata writes now raise instead of
   silently writing an unreadable key; inline `// STATUS:`/`// NOTE:` (and
   other volatile keys) are no longer produced by import paths and are no
-  longer parsed from existing `.c` files — `lint --fix` / W019 migrate
+  longer parsed from existing `.c` files; `lint --fix` / W019 migrate
   them into `rebrew-functions.toml`.
 - The docs and ADR must be kept current when the store map changes (the
   ADR convention already requires this); [METADATA.md](../METADATA.md) is
@@ -123,7 +123,7 @@ Single-source rules enforced by code where cheap:
   (functions vs data symbols) and a real query consumer (dashboard,
   recovery) justify the split.  Simplification came from shared
   mechanics and documented tiers, not fewer files.  The layout package
-  (`layout/<target>/`) is a derived-but-VCS-intended tier of its own —
+  (`layout/<target>/`) is a derived-but-VCS-intended tier of its own:
   committed so postlink never needs `original/` around, regenerable from
   the reference binary on change.
 - `verify_cache.toml` stays a *measured-result mirror* (not folded into
@@ -132,7 +132,7 @@ Single-source rules enforced by code where cheap:
 
 *(Amended: the `coverage.db` tier named above is gone.  Tier 3's coverage entry
 is one clear-text document per target, `db/coverage-<target>.toml`, written
-wholesale by `rebrew build-db` and read directly by the dashboards — no schema
+wholesale by `rebrew build-db` and read directly by the dashboards: no schema
 migration, no `--force` unlink, and no derived cache table between the catalog
 and a reader.  The document still stamps `version`; a previous document carrying
 any other value contributes nothing, so the stamp bounds what an older document

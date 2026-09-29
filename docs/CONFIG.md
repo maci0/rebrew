@@ -2,7 +2,7 @@
 
 All tools read project settings from **`rebrew-project.toml`** via the config loader. This eliminates hardcoded paths and makes the toolchain portable to different targets.
 
-> **Core Principle: Idempotency** — Every rebrew tool can be run repeatedly with the same result. No destructive side effects — safe to retry, re-run, or chain in scripts and AI agent loops.
+> **Core Principle: Idempotency.** Every rebrew tool can be run repeatedly with the same result. No destructive side effects: safe to retry, re-run, or chain in scripts and AI agent loops.
 
 ## `rebrew-project.toml` (Project Root)
 
@@ -26,7 +26,7 @@ bin_dir = "bin/target_name"
 # source_ext = ".c"                      # Source file extension (default: ".c")
 # ghidra_program_path = ""               # Ghidra program path for ReVa MCP sync
 # origins = ["GAME", "ZLIB"]             # Recorded by `rebrew cfg add-target`; informational
-# only — module filters come from the annotations themselves
+# only; module filters come from the annotations themselves
 # library_modules = ["MSVCRT", "ZLIB"]   # Modules that should use LIBRARY markers
 # raw_link = "bin/target_name/target_name_pre.dll"  # Image as the linker emitted
 # it, before any `rebrew postlink` fixer rewrote it. Optional; when it is set,
@@ -43,7 +43,7 @@ bin_dir = "bin/target_name"
 
 [compiler]
 profile = "msvc-6.0"                        # Compiler profile (see `rebrew toolchain list`)
-command = ""                             # Empty for docker-backed profiles — the image IS the
+command = ""                             # Empty for docker-backed profiles: the image IS the
                                          # compiler; only native profiles set a real command
 includes = "toolchain/msvc/6.0-win32/source/VC98/Include"
 libs = "toolchain/msvc/6.0-win32/source/VC98/Lib"
@@ -59,7 +59,7 @@ libs = "toolchain/msvc/6.0-win32/source/VC98/Lib"
 | `marker` | `[targets.<name>].marker` | Module identifier for source markers (default: target name uppercased, characters other than letters, digits, and `_` stripped) |
 | `target_binary` | `[targets.<name>].binary` | Resolved path to the target executable/DLL |
 | `default_jobs` | `[project].jobs` | Default parallelism for batch commands (default `4`) |
-| `db_dir` | `[project].db_dir` | Where `rebrew build-db` writes `coverage-<target>.toml` (verify reports are no longer written here by default — the `--compare` baseline lives in `.rebrew/`) |
+| `db_dir` | `[project].db_dir` | Where `rebrew build-db` writes `coverage-<target>.toml` (verify reports are no longer written here by default; the `--compare` baseline lives in `.rebrew/`) |
 | `output_dir` | `[project].output_dir` | Default output directory for generated artifacts |
 | `image_base` | Auto-detected from PE | `0x10000000` for example DLL |
 | `text_va` | Auto-detected from PE | `.text` section virtual address |
@@ -69,7 +69,7 @@ libs = "toolchain/msvc/6.0-win32/source/VC98/Lib"
 | `metadata_dir` | Derived: the parent of `reversed_dir` when it holds `rebrew-functions.toml`, otherwise the outermost store found walking up through `reversed_dir` and its ancestors to the project root, falling back to `reversed_dir`'s parent when no store exists yet | Canonical home of `rebrew-functions.toml` / `rebrew-data.toml`; the loaders do no walk-up, so callers must pass it explicitly |
 | `capstone_arch` / `capstone_mode` | Derived from `arch` and the target image header | Capstone disassembly constants. MIPS, PPC, and SH2 set `CS_MODE_BIG_ENDIAN` unless the image header is little-endian; ARM sets it only when the image is big-endian |
 | `padding_bytes` | Derived from `arch` | `(0xCC, 0x90)` for x86_32/x86_64 (see Architecture Presets) |
-| `external_libs` | `[targets.<name>].external_libs` | External `.lib` code — `module = "link-spec"` table (e.g. `LIBCMT = "LIBCMT.lib"`, `D3DX8 = "references/dxsdk8/lib/d3dx8.lib"`, `MSVCRT = ""` for identified-only).  The one flag for "not our work": rows attributed to these modules leave the progress accounting, `rebrew lib-match` ingests the archives by default, and `rebrew cmake-sources` emits the non-empty specs as `REBREW_EXTERNAL_LIBS` for `target_link_libraries` — config order is link order (static archives last) |
+| `external_libs` | `[targets.<name>].external_libs` | External `.lib` code: `module = "link-spec"` table (e.g. `LIBCMT = "LIBCMT.lib"`, `D3DX8 = "references/dxsdk8/lib/d3dx8.lib"`, `MSVCRT = ""` for identified-only).  The one flag for "not our work": rows attributed to these modules leave the progress accounting, `rebrew lib-match` ingests the archives by default, and `rebrew cmake-sources` emits the non-empty specs as `REBREW_EXTERNAL_LIBS` for `target_link_libraries`; config order is link order (static archives last) |
 | `crt_sources` | `[targets.<name>].crt_sources` | Maps origin names to reference source directories for CRT cross-matching |
 | `external_ranges` | `[targets.<name>].external_ranges` | Inclusive address bands (`["0x5e0000-0x64ffff"]`) the binary fills from a statically linked library rather than project sources; tools that enumerate work left skip them |
 | `defines` | `[targets.<name>].defines` | Per-target compile-time defines (`["CLIENT"]`, `["CLIENT=1"]`) for shared multi-version sources (ADR-010). Each entry is `NAME` or `NAME=value` with no whitespace; anything else fails at load instead of compiling the wrong `#ifdef` side. `NAME=value` is emitted as `/DNAME=value` (or `-DNAME=value`) |
@@ -100,7 +100,7 @@ libs = "toolchain/msvc/6.0-win32/source/VC98/Lib"
 | `ppc64` | `CS_ARCH_PPC, CS_MODE_64 \| CS_MODE_BIG_ENDIAN` | 8 | `0x60, 0x00, 0x00, 0x00` (`nop`) |
 | `sh2` | `CS_ARCH_SH, CS_MODE_SH2 \| CS_MODE_BIG_ENDIAN` | 4 | `0x00` |
 
-`x86_16` targets are 16-bit binaries — Windows 3.x NE executables (Borland Delphi 1.0 /
+`x86_16` targets are 16-bit binaries: Windows 3.x NE executables (Borland Delphi 1.0 /
 MSVC 16-bit) or plain DOS MZ; `rebrew intake` sets `format = "ne"` (or `"mz"`) +
 `arch = "x86_16"` automatically.  See `docs/TOOLCHAIN.md` for the NE support matrix.
 
@@ -117,7 +117,7 @@ The `marker` field identifies which target a source file's markers belong to. It
 // FUNCTION: SERVER 0x10008880    ← "SERVER" is the marker
 ```
 
-When a project has multiple targets (e.g. `server.dll` and `client.exe`), the same `.c` file may contain markers for both targets. Tools use `marker` to filter markers to the active target — only markers matching `cfg.marker` are processed.
+When a project has multiple targets (e.g. `server.dll` and `client.exe`), the same `.c` file may contain markers for both targets. Tools use `marker` to filter markers to the active target: only markers matching `cfg.marker` are processed.
 
 By default, `marker` is the target key uppercased with every character outside `[A-Za-z0-9_]` stripped, so `[targets.server_dll]` gets marker `SERVER_DLL` and `[targets."server.dll"]` gets `SERVERDLL`. Override it when the marker prefix differs from the target key:
 
@@ -142,7 +142,7 @@ void __cdecl MyFunc(void) { ... }
 ```
 
 The shared `rebrew-functions.toml` holds the metadata (STATUS, SIZE, CFLAGS, …)
-under module-prefixed keys (`SERVER.0x…`, `CLIENT.0x…`) for the corresponding VA —
+under module-prefixed keys (`SERVER.0x…`, `CLIENT.0x…`) for the corresponding VA:
 one TOML per metadata root, not one per target.
 
 Running `rebrew test --target server_dll` processes only the `SERVER` marker block. Running `rebrew test --target client_exe` processes only the `CLIENT` block.
@@ -151,7 +151,7 @@ Running `rebrew test --target server_dll` processes only the `SERVER` marker blo
 |-----|------|---------|-------------|
 | `marker` | `string` | target key uppercased, characters other than letters, digits, and `_` stripped (e.g. `server.dll` → `SERVERDLL`) | Module identifier used in `// FUNCTION:`, `// LIBRARY:`, `// STUB:` markers. Blank (or whitespace-only) uses that default. A value with whitespace, or one containing `.0x`, fails at load: the first never matches a marker line, and the second breaks `MODULE.0xVA` metadata keys |
 
-The lint tool (`rebrew lint`) validates that each marker's module matches the configured marker (error E012) — except stacked blocks naming another known project target, which is the `src/shared` pattern (ADR-010), not a mismatch. Each stacked block answers to its own target's CFLAGS defaults (W018).
+The lint tool (`rebrew lint`) validates that each marker's module matches the configured marker (error E012), except stacked blocks naming another known project target, which is the `src/shared` pattern (ADR-010), not a mismatch. Each stacked block answers to its own target's CFLAGS defaults (W018).
 
 `src/shared` files are scanned for every target; `rebrew doctor` warns on multi-target projects when the shared dir is missing or `shared_dir` is disabled. `rebrew cross-import --shared` stacks the destination marker onto the shared file in place (verified before STATUS promotion) instead of copying per-target duplicates.
 
@@ -179,14 +179,14 @@ Sweep tiers: `quick` (~192), `targeted` (~1.2K), `normal` (~5.4K), `thorough` (~
 
 Compiler settings are resolved in layers. Each layer overrides the previous:
 
-1. **Built-in defaults** — `command = "wine CL.EXE"` when the key is absent (inert for docker-backed profiles, where the image is the compiler; `rebrew init` writes an empty `command`), `/nologo /c /MT` base flags, 60s timeout
-2. **`[compiler]`** — Global settings shared across all targets
-3. **`[targets.<name>.compiler]`** — Per-target overrides (partial — only keys present override)
-4. **Nearest `rebrew-libraries.toml`** — Per-library toolchain/flags overrides (walk-up from the source dir; presets fill missing fields)
-5. **`rebrew-functions.toml` metadata** — Per-function TOOLCHAIN/CFLAGS override in the function's entry (highest priority)
+1. **Built-in defaults**: `command = "wine CL.EXE"` when the key is absent (inert for docker-backed profiles, where the image is the compiler; `rebrew init` writes an empty `command`), `/nologo /c /MT` base flags, 60s timeout
+2. **`[compiler]`**: Global settings shared across all targets
+3. **`[targets.<name>.compiler]`**: Per-target overrides (partial; only keys present override)
+4. **Nearest `rebrew-libraries.toml`**: Per-library toolchain/flags overrides (walk-up from the source dir; presets fill missing fields)
+5. **`rebrew-functions.toml` metadata**: Per-function TOOLCHAIN/CFLAGS override in the function's entry (highest priority)
 
 ```toml
-# Global defaults — all targets inherit these
+# Global defaults: all targets inherit these
 [compiler]
 profile = "msvc-6.0"                 # selects the docker image (rebrew/msvc:6.0-win32)
 command = ""                      # empty for docker-backed profiles; the image IS the compiler
@@ -196,7 +196,7 @@ cflags = "/O2 /Gd"
 base_cflags = "/nologo /c /MT"
 timeout = 60
 
-# Per-target override — only the profile differs, everything else inherited
+# Per-target override: only the profile differs, everything else inherited
 [targets."client.exe".compiler]
 profile = "msvc-7.0"
 ```
@@ -206,12 +206,12 @@ profile = "msvc-7.0"
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `profile` | `string` | `"msvc-6.0"` | Selects the toolchain's docker image and the flag-sweep axes for `rebrew match`. Must name a registered toolchain (`rebrew toolchain list`); an unknown or retired name raises a `ConfigError` (repair with `rebrew cfg set-compiler`) |
-| `command` | `string` | `"wine CL.EXE"` | Host compiler invocation (resolved relative to project root). **Empty for docker-backed profiles** — the image IS the compiler (that is what `rebrew init` writes for every shipped profile); only a plugin toolchain registered without an image sets a real command. The `wine CL.EXE` fallback default is inert under docker-only execution |
-| `includes` | `string` | `"toolchain/msvc/6.0-win32/source/VC98/Include"` | Path to compiler include directory. For `msvc-6.0`/`msvc-7.0` the default resolves the best layout actually present (full master, then the vendored compile-only mirrors `toolchain/msvc/6.0-sp6-win32`/`toolchain/msvc/6.0-sp3-win32`/`toolchain/msvc/7.0-win32`) — see `rebrew init` output and docs/TOOLCHAIN.md. Empty is valid ("no extra dir"; e.g. `mingw-16.2.0` ships its own headers) |
-| `libs` | `string` | `"toolchain/msvc/6.0-win32/source/VC98/Lib"` | Path to compiler lib directory (empty is valid — the compile-only mirrors ship no `Lib/`) |
+| `command` | `string` | `"wine CL.EXE"` | Host compiler invocation (resolved relative to project root). **Empty for docker-backed profiles**: the image IS the compiler (that is what `rebrew init` writes for every shipped profile); only a plugin toolchain registered without an image sets a real command. The `wine CL.EXE` fallback default is inert under docker-only execution |
+| `includes` | `string` | `"toolchain/msvc/6.0-win32/source/VC98/Include"` | Path to compiler include directory. For `msvc-6.0`/`msvc-7.0` the default resolves the best layout actually present (full master, then the vendored compile-only mirrors `toolchain/msvc/6.0-sp6-win32`/`toolchain/msvc/6.0-sp3-win32`/`toolchain/msvc/7.0-win32`): see `rebrew init` output and docs/TOOLCHAIN.md. Empty is valid ("no extra dir"; e.g. `mingw-16.2.0` ships its own headers) |
+| `libs` | `string` | `"toolchain/msvc/6.0-win32/source/VC98/Lib"` | Path to compiler lib directory (empty is valid; the compile-only mirrors ship no `Lib/`) |
 | `cflags` | `string` | `""` | Default compiler flags |
 | `base_cflags` | `string` | `"/nologo /c /MT"` | Always-on flags prepended to every compile. Posix-style profiles (`gcc-14.2.0`, `gcc-12.3.0`, `mingw-16.2.0`, `mingw-14.2.0`, `clang-18.1.8`, `clang-16.0.4`, `ido-5.3`, `ido-7.1`, `watcom-2.0-win32`, `watcom-2.0-win16`, `borland-5.5`, `borland-3.1`, `borland-2.0`) omit the MSVC glue and the loader default is `""` for them. `rebrew init` writes `base_cflags = "-c"` for the Borland and 16-bit Watcom profiles, which need it spelled out; that spelling is the project file's own value, not the loader's |
-| `runner` | `string` | `""` | Win32 PE runner (`wine`, `wibo`, or empty). Auto-detected from `command` if not set explicitly. Under docker-only execution the runner is empty for image-backed profiles; `rebrew init --install-wibo` writes `tools/wibo` only for native (non-image) profiles — it is ignored for docker-backed ones. A relative runner path resolves against the project root and needs a `command` without the runner prefix |
+| `runner` | `string` | `""` | Win32 PE runner (`wine`, `wibo`, or empty). Auto-detected from `command` if not set explicitly. Under docker-only execution the runner is empty for image-backed profiles; `rebrew init --install-wibo` writes `tools/wibo` only for native (non-image) profiles: it is ignored for docker-backed ones. A relative runner path resolves against the project root and needs a `command` without the runner prefix |
 | `recompile_url` | `string` | `""` | Base URL of the recompile compile service (e.g. `http://localhost:8000`). When set (or `REBREW_RECOMPILE_URL`), every compile routes through `POST /api/v1/compile` instead of local docker images: the same pinned images, plus the opt-in training tap |
 | `recompile_emit_assembly` | `bool` | `false` | Pass `emit_assembly=true` on remote compiles (the training-data tap). Off by default; when on, every remote compile sends it (`match --collect-pairs` is unrelated). A non-boolean value here is refused by `rebrew cfg set` and warned about by the loader, which would otherwise keep the default and leave the tap silently off |
 | `recompile_retries` | `integer` | `2` | Re-attempts of a retryable remote-compile failure (transport blips, `408/425/429/500/502/503/504`), with the backoff in `rebrew.utils.retry_backoff_delay`. `0` disables retries; a compile the service ran and rejected is never re-POSTed |
@@ -240,7 +240,7 @@ ZLIB = "/O3"
 Per-target presets (`rebrew cfg set-cflags MODULE FLAGS --target <name>`, stored
 under the target's `[compiler]` sub-table) override global presets for the same
 origin key. A legacy top-level `[targets.<name>.cflags_presets]` table is still
-honoured but warns at load — move it to `[targets.<name>.compiler.cflags_presets]`.
+honoured but warns at load: move it to `[targets.<name>.compiler.cflags_presets]`.
 Every preset collection must be a TOML table with string values; malformed tables
 or entries fail at load with the offending field path. An empty table adds no
 overrides, and an empty string remains a valid preset value.
@@ -287,7 +287,7 @@ timestamp = 0x3a1b2c3d       # seconds since epoch
 `stack_reserve`, `stack_commit`, `timestamp`, and `file_align` are unsigned
 32-bit PE fields (`0` through `0xFFFFFFFF`, decimal or `0x` strings). A bool
 is ignored (TOML `true` must not become `1`). A value outside that range
-fails at load — the header patch would otherwise keep only the low 32 bits.
+fails at load: the header patch would otherwise keep only the low 32 bits.
 When both stack sizes are set, `stack_commit` must not exceed `stack_reserve`
 (the Windows loader rejects that image).
 
@@ -298,7 +298,7 @@ The compile-cache **store** is a pluggable component: `[cache] backend` in
 opens.  The default is the packaged `diskcache` backend (SQLite +
 filesystem at `{project_root}/.rebrew/compile_cache/`); a plugin registers a
 new backend through the `rebrew.cache_backends` entry-point group (a factory
-`(cache_dir: Path, size_limit: int) -> CacheBackend` — the directory doubles
+`(cache_dir: Path, size_limit: int) -> CacheBackend`; the directory doubles
 as the per-project namespace even for remote/shared stores).  `stats()` is the
 only reporting surface `rebrew cache stats` reads: `entries`, `volume_mib` and
 `size_limit_mib` are required, and the per-process `session_hits` /
@@ -319,7 +319,7 @@ rather than silently sharing the first one.
 
 The **keying** is deliberately NOT pluggable: what makes a cache hit valid
 (source/flags/toolchain/include digests) is shared semantics every backend
-must respect — a backend stores and retrieves bytes; it never reinterprets
+must respect; a backend stores and retrieves bytes; it never reinterprets
 the keys.  `rebrew cache stats` / `clear` operate on the configured backend.
 An unknown `backend` name is a `ValueError` at config load (and again where
 the cache is opened, for programmatic callers that skip the loader).
@@ -364,7 +364,7 @@ and with both unset the default does.
 ## Environment Variables
 
 Project settings live in ``rebrew-project.toml``. Environment variables are
-namespaced ``REBREW_*`` and act as per-run overrides or secret carriers —
+namespaced ``REBREW_*`` and act as per-run overrides or secret carriers:
 they do **not** all share one global precedence over the TOML.
 
 Only the process environment is read: rebrew never loads a ``.env`` file.
@@ -375,9 +375,9 @@ the shell (or let direnv load a private, gitignored ``.env``).
 
 | Setting | Winner |
 |---------|--------|
-| `[compiler] recompile_url` / `REBREW_RECOMPILE_URL` | env **when the variable is present** (even if empty — empty forces local docker for the run); else TOML |
+| `[compiler] recompile_url` / `REBREW_RECOMPILE_URL` | env **when the variable is present** (even if empty; empty forces local docker for the run); else TOML |
 | `[llm] endpoint` / `REBREW_LLM_ENDPOINT` | TOML, then env |
-| `[llm] api_key` / `REBREW_LLM_API_KEY` | env **when present** (even if empty — clears a committed TOML key for the run); else TOML — prefer the env var; do not commit keys |
+| `[llm] api_key` / `REBREW_LLM_API_KEY` | env **when present** (even if empty; clears a committed TOML key for the run); else TOML: prefer the env var; do not commit keys |
 | `[llm] model` / `REBREW_LLM_MODEL` | TOML, then env (default `gpt-4o-mini-2024-07-18`; `latest`/`auto`/`default` and malformed ids raise an error). A response reporting a different `model` than the pin warns, since a substituted model changes both cost and the seeds the GA receives |
 | `[llm] max_requests` / `REBREW_LLM_MAX_REQUESTS` | env **when present** (empty keeps the default); else TOML, else default |
 | `[llm] max_tokens` / `REBREW_LLM_MAX_TOKENS` | env **when present**; else TOML, else default |
@@ -392,14 +392,14 @@ by the CLI layer and win for that invocation.
 
 ### Runtime / secrets
 
-- `REBREW_LLM_ENDPOINT` / `REBREW_LLM_API_KEY` / `REBREW_LLM_MODEL` — LLM
+- `REBREW_LLM_ENDPOINT` / `REBREW_LLM_API_KEY` / `REBREW_LLM_MODEL`: LLM
   seeding endpoint, key, and model pin (`rebrew match --seed-llm`). Required
   for LLM seeding when `[llm]` is unset. The key is sent only as a `Bearer`
   header to the configured endpoint, never logged, and is redacted from any
   error text a failed request logs. Prefer these env vars over
   `[llm] api_key` in TOML. Endpoint must be an `http(s)` URL with a host;
   with a key set it must be `https` unless the host is loopback.
-- `REBREW_LLM_ALLOW_PROJECT_ENDPOINT` — set to `1` to let an `[llm] endpoint`
+- `REBREW_LLM_ALLOW_PROJECT_ENDPOINT`: set to `1` to let an `[llm] endpoint`
   written in `rebrew-project.toml` receive `REBREW_LLM_API_KEY`. The project
   file outranks the environment for the endpoint, so without this a checked-out
   project could aim the analyst's key at its own host. Loopback endpoints
@@ -407,7 +407,7 @@ by the CLI layer and win for that invocation.
   TOML is not affected. Unset or `0` keeps the refusal. Booleans are parsed
   strictly (`1`/`true`/`yes`/`on`, `0`/`false`/`no`/`off`); any other value is
   a `ConfigError`, so a mistyped opt-in never reads as consent.
-- `REBREW_LLM_MAX_REQUESTS` — process-wide ceiling on LLM HTTP calls
+- `REBREW_LLM_MAX_REQUESTS`: process-wide ceiling on LLM HTTP calls
   (default `32`, or `[llm] max_requests` when the variable is unset). Stops
   `--watch` / batch seeding from burning a paid
   endpoint. `0` disables further calls for the process. A set-but-non-integer
@@ -423,7 +423,7 @@ by the CLI layer and win for that invocation.
   counts, latency, and what the spend bought (`N seed(s) kept`, plus
   candidates the C gate rejected), so a run that bills without seeding is
   visible as such.
-- `REBREW_LLM_MAX_TOKENS` — process-wide ceiling on the tokens those calls
+- `REBREW_LLM_MAX_TOKENS`: process-wide ceiling on the tokens those calls
   bill (default `500000`, or `[llm] max_tokens` when the variable is unset). A
   call count does not price a run: one request
   bills a prompt plus a capped completion, so raising
@@ -436,7 +436,7 @@ by the CLI layer and win for that invocation.
   set-but-non-integer or negative value is a `ValueError`; above
   `100000000` the value clamps with a warning. The resolved ceiling is
   reported as `llm_max_tokens` by `rebrew cfg effective`.
-- `REBREW_LLM_TIMEOUT` — per-request HTTP budget for one LLM seeding call,
+- `REBREW_LLM_TIMEOUT`: per-request HTTP budget for one LLM seeding call,
   in seconds (default `90`, or `[llm] timeout` when the variable is unset). A
   timed-out request is still billed and its
   seeds are lost, so raise it for a local model that needs minutes for a
@@ -445,13 +445,13 @@ by the CLI layer and win for that invocation.
   against a wall-clock deadline. Below `5` is a `ConfigError`; above `1800`
   clamps to `1800` with a warning. The resolved budget is reported as
   `llm_timeout` by `rebrew cfg effective`.
-- `REBREW_RECOMPILE_URL` — base URL of the recompile compile service
+- `REBREW_RECOMPILE_URL`: base URL of the recompile compile service
   (e.g. `http://localhost:8000`). Same effect as `[compiler] recompile_url`;
   when the variable is present it wins (empty forces local docker for the
   run). When set to a non-empty URL, every compile routes through the
   service instead of local docker images. Must be an `http(s)` URL with a
   host (invalid values fail at load / resolve time).
-- `GH_TOKEN` / `GITHUB_TOKEN` — optional GitHub API token, `GH_TOKEN` first.
+- `GH_TOKEN` / `GITHUB_TOKEN`: optional GitHub API token, `GH_TOKEN` first.
   Sent as `Authorization: Bearer` on the toolchain pin-check and update
   requests only (`rebrew toolchain check-updates` / `update`); unset, those
   requests are anonymous and the API's unauthenticated rate limit applies.
@@ -468,74 +468,74 @@ it is used. A shell does not expand the tilde inside a quoted assignment
 which is where these are usually written, so the literal string is what
 rebrew receives.
 
-- `REBREW_TOOLCHAINS_DIR` — path to the sibling `rebrew-toolchains` checkout
+- `REBREW_TOOLCHAINS_DIR`: path to the sibling `rebrew-toolchains` checkout
   (Dockerfiles / wrappers). Default: sibling of this install.
-- `REBREW_TOOLCHAIN_OVERLAY_DIR` — directory of extra toolchain TOML overlays
+- `REBREW_TOOLCHAIN_OVERLAY_DIR`: directory of extra toolchain TOML overlays
   (plugin-style profiles without editing host source).
-- `REBREW_FLIRT_SIGS_DIR` — path to the `rebrew-flirt-sigs` checkout.
+- `REBREW_FLIRT_SIGS_DIR`: path to the `rebrew-flirt-sigs` checkout.
   Default: sibling of this install. When set, a path that is not a
   directory fails `rebrew flirt` instead of scanning without library sigs.
-- `REBREW_SKILLS_DIR` — user/community Agent Skills directory (overrides
+- `REBREW_SKILLS_DIR`: user/community Agent Skills directory (overrides
   packaged skills of the same name).
-- `REBREW_CONTAINER_RUNTIME` — container CLI (`docker` default; `podman` or
+- `REBREW_CONTAINER_RUNTIME`: container CLI (`docker` default; `podman` or
   `nerdctl` also accepted). A bare name outside that set raises, so a typo
   fails at load rather than at exec; set a path to the binary to use another
   runtime.
 
 ### Host-wine / cmake (dormant under docker-only profiles)
 
-- `REBREW_WINE_HEADLESS` — set to `0` (or `false`/`no`/`off`) to disable
+- `REBREW_WINE_HEADLESS`: set to `0` (or `false`/`no`/`off`) to disable
   headless wine (run bare wine, e.g. if you genuinely want the window).
   Any other non-empty value except `1`/`true`/`yes`/`on` is a
   `ValueError`.  Default: wine compiles
   against a persistent `Xvfb` virtual display whenever the `Xvfb` binary
   is on PATH.
-- `REBREW_XVFB_DISPLAY` — display (e.g. `:99`) of the virtual X server
+- `REBREW_XVFB_DISPLAY`: display (e.g. `:99`) of the virtual X server
   headless wine uses.  Set by rebrew itself on first use; override to pin
   a specific display, which must be a local `:N` (or `:N.S`) one that hosts
-  a live Xvfb this process holds the MIT-MAGICK cookie for — an
+  a live Xvfb this process holds the MIT-MAGICK cookie for. An
   unauthenticated server is never reused, and a value the resolver cannot
   match is reported by `rebrew cfg effective`.
   The Xvfb rebrew starts carries a fresh cookie file exported as
   `XAUTHORITY`, which travels to the wine children with the display.
-- `REBREW_XVFB_AUTH` — path of the MIT-MAGICK cookie file the Xvfb started by
+- `REBREW_XVFB_AUTH`: path of the MIT-MAGICK cookie file the Xvfb started by
   rebrew was launched with.  Set by rebrew alongside
   `REBREW_XVFB_DISPLAY` so a later process can authenticate to an orphaned
   server instead of trusting any Xvfb it finds on that display.  An
   unreadable or missing value is ignored (the server is not reused); do not
   set it yourself.
-- `REBREW_WINEPREFIX` — Wine prefix for cmake toolchain bridge scripts.
+- `REBREW_WINEPREFIX`: Wine prefix for cmake toolchain bridge scripts.
   Must be an absolute path (`~` expands); a relative value is an error.
   Default: `$XDG_CACHE_HOME/rebrew-<toolchain>-wineprefix`.
-- `REBREW_TOOLCHAIN` — cmake bridge pin for the active profile name.  A value
+- `REBREW_TOOLCHAIN`: cmake bridge pin for the active profile name.  A value
   no toolchain registers is an error, reported by `rebrew cfg effective`
   before the bridge runs.  Unset or blank keeps `[compiler] profile`.
-- `REBREW_COMPILER_RUNNER` — host PE runner path/name the matcher prepends to
+- `REBREW_COMPILER_RUNNER`: host PE runner path/name the matcher prepends to
   the compile argv.  Written by `msvc_env` from `[compiler] runner`; an ambient
   value is dropped on every compile path, because a shell export would run a
   different program than the project configures.  Pin the runner in
   `rebrew-project.toml` (`[compiler] runner = "wibo"`), not in the environment.
-- `REBREW_RUNNER` — PE runner **inside** docker toolchain images
+- `REBREW_RUNNER`: PE runner **inside** docker toolchain images
   (`wine` default, `wibo` opt-in).  Not read by the host Python process.
 
 ### Other
 
-- `REBREW_PROJECTS_ROOT` — root directory scanned by `tools/audit_projects.py`  (default: parent of this install).
-- `REBREW_LOG_LEVEL` — base log level for a run that passes no `-v` / `-q`:
+- `REBREW_PROJECTS_ROOT`: root directory scanned by `tools/audit_projects.py`  (default: parent of this install).
+- `REBREW_LOG_LEVEL`: base log level for a run that passes no `-v` / `-q`:
   `debug`, `info`, `warning`, `error`, or `critical` (default: `warning`).  An
   explicit `-v` / `-q` outranks it.  An unknown name warns and keeps the
   default, so a typo is reported by `cfg effective` rather than aborting the
   run that would have named it.
-- `_REBREW_COMPLETE` — click's shell-completion mode marker, set by the completion scripts `rebrew init --install-completions` writes. Rebrew never reads it itself, and there is no `rebrew completion` command.
-- `GH_TOKEN` / `GITHUB_TOKEN` — optional GitHub auth for `rebrew toolchain`
+- `_REBREW_COMPLETE`: click's shell-completion mode marker, set by the completion scripts `rebrew init --install-completions` writes. Rebrew never reads it itself, and there is no `rebrew completion` command.
+- `GH_TOKEN` / `GITHUB_TOKEN`: optional GitHub auth for `rebrew toolchain`
   downloads that need a token (not a rebrew-prefixed name; standard gh env).
-- `KUNA_SPECS` — SLEIGH spec directory the host `kuna` binary reads for
+- `KUNA_SPECS`: SLEIGH spec directory the host `kuna` binary reads for
   `rebrew match --seed-kuna` (unset: the first dir holding `x86.sla` under
   `UV_TOOL_DIR`, `XDG_DATA_HOME`, or the probed platform defaults).  A value
   that is not a directory warns and falls back to discovery, so an export
   left behind by a moved checkout cannot silently strand kuna on its
   rarely-present `/specs/` default.
-- `UV_TOOL_DIR` / `XDG_DATA_HOME` — roots searched for that spec tree, ahead
+- `UV_TOOL_DIR` / `XDG_DATA_HOME`: roots searched for that spec tree, ahead
   of the probed defaults.
 
 ## Lint style (`[project.lint]`)
@@ -569,7 +569,7 @@ The config loader fail-fasts on missing/invalid structure:
 - Explicitly empty required path fields (`reversed_dir`, `bin_dir`,
   `db_dir`, `output_dir`) or an empty `compiler.command` on a native (non-image)
   profile (these otherwise resolve to the project root or fail only when a compiler
-  subprocess is launched). `includes`/`libs` may be empty — that means "no extra
+  subprocess is launched). `includes`/`libs` may be empty: that means "no extra
   dir" (e.g. `mingw-16.2.0` ships its own headers).
 - Empty or unregistered `[cache].backend` (must name a `rebrew.cache_backends` member), or a
   negative `[cache].size_limit_mib`.
@@ -589,14 +589,14 @@ It emits warnings (and applies safe defaults) if:
   per-target compiler, `[llm]`, `[cache]`, `[link]`, or `[project.lint]` tables (likely typos).
 - `[llm].api_key` is set in the TOML (prefer `REBREW_LLM_API_KEY`) or is set
   without an endpoint.
-- A legacy `[targets.<name>.cflags_presets]` table is present (wrong place —
+- A legacy `[targets.<name>.cflags_presets]` table is present (wrong place;
   still honoured; move to `[targets.<name>.compiler.cflags_presets]`).
 - `[project.lint]` enum fields are not in their known set (falls back to `none`).
 - String/bool fields have non-string/non-bool types (e.g. `recompile_emit_assembly = "false"`
   would otherwise become `True` via Python `bool()`). A bool in a `[link]`
-  integer field (`stack_reserve = true`) is ignored the same way — `True` is
+  integer field (`stack_reserve = true`) is ignored the same way: `True` is
   an `int` in Python and would otherwise become `1`.
-- The target binary is missing — `image_base`/`text_va` auto-detection is skipped
+- The target binary is missing: `image_base`/`text_va` auto-detection is skipped
   (warning emitted at load time).
 
 `[compiler] recompile_url`, `[llm] endpoint`, and the matching
@@ -636,9 +636,9 @@ All tools read from `rebrew-project.toml`. Key tools and the config values they 
 | `skeleton.py` | `reversed_dir` |
 | `extract.py` | `reversed_dir`, `target_binary` |
 | `asm.py` | `target_binary`, `capstone_arch`, `capstone_mode` |
-| `annotation.py` | Canonical source marker parser — used by verify, extract, sync, match |
-| `binary_loader.py` | LIEF-based binary loading — used by extract, flirt |
-| `matcher/scoring.py` | none directly — takes `cs_arch` / `cs_mode` ints from the caller (`match`/`diff` pass `cfg.capstone_arch` / `capstone_mode`) |
+| `annotation.py` | Canonical source marker parser: used by verify, extract, sync, match |
+| `binary_loader.py` | LIEF-based binary loading: used by extract, flirt |
+| `matcher/scoring.py` | none directly: takes `cs_arch` / `cs_mode` ints from the caller (`match`/`diff` pass `cfg.capstone_arch` / `capstone_mode`) |
 | `matcher/compiler.py` | `compiler_profile` (drives flag axes) |
 | `matcher/parsers.py` | `padding_bytes` |
 | `catalog/` | `text_va`, `db_dir`, `reversed_dir`, `target_binary`, `metadata_dir`, `shared_dir`, `iat_thunks`, `dll_exports` (`image_base` comes from `binary_loader.BinaryInfo`) |
@@ -660,18 +660,18 @@ All tools read from `rebrew-project.toml`. Key tools and the config values they 
 ## Config Editor (`rebrew cfg`)
 
 Programmatically read and write `rebrew-project.toml` using `tomlkit` for format-preserving
-edits (comments and ordering are retained). All mutating commands are idempotent —
+edits (comments and ordering are retained). All mutating commands are idempotent:
 running the same command twice produces the same result with no errors.
 
 Dotted key paths use greedy longest-match resolution so TOML keys that contain dots
-(like target names `server.dll`) are handled correctly — e.g. `targets.server.dll.arch`
+(like target names `server.dll`) are handled correctly: e.g. `targets.server.dll.arch`
 resolves through the `server.dll` key.
 
 | Subcommand | Description | Example |
 |------------|-------------|---------|
 | `list-targets` | List all defined targets | `rebrew cfg list-targets` |
 | `show [KEY]` | Print config or a dot-separated key | `rebrew cfg show compiler.cflags` |
-| `set KEY VALUE` | Set a scalar config key (refuses non-empty secret keys such as `llm.api_key` — use `REBREW_LLM_API_KEY`; URL, boolean, format, arch, and `[llm]` budget fields are parsed by the same validator the loader uses, so a mistyped value fails here) | `rebrew cfg set compiler.cflags "/O1"` |
+| `set KEY VALUE` | Set a scalar config key (refuses non-empty secret keys such as `llm.api_key`; use `REBREW_LLM_API_KEY`; URL, boolean, format, arch, and `[llm]` budget fields are parsed by the same validator the loader uses, so a mistyped value fails here) | `rebrew cfg set compiler.cflags "/O1"` |
 | `raw` | Dump entire config as JSON (default) or TOML (`--format toml`) | `rebrew cfg raw` |
 | `effective` | Print the values in force after env and default resolution (secrets redacted, env vars named only) | `rebrew cfg effective --json` |
 | `path` | Print absolute path to `rebrew-project.toml` | `rebrew cfg path` |
@@ -748,9 +748,9 @@ not be the one command that cannot show it.
 ## Compiler profiles from `rebrew init`
 
 `rebrew init --toolchain <profile>` supports the full toolchain matrix (run
-`rebrew toolchain list` for the exact names): every MSVC variant — 4.0/4.2/5.0
+`rebrew toolchain list` for the exact names): every MSVC variant; 4.0/4.2/5.0
 (and sp1–sp3), 6.0 (and sp1–sp6), 7.0–11.0 (rtm/sp variants), 2.0/4.1, and the
-16-bit 1.0 (`msvc-1.0`)/1.5 (`msvc-1.5`)/1.52 (`msvc-1.52`) — plus borland-5.5,
+16-bit 1.0 (`msvc-1.0`)/1.5 (`msvc-1.5`)/1.52 (`msvc-1.52`), plus borland-5.5,
 borland-3.1/borland-2.0, watcom-2.0-win32/watcom-2.0-win16, delphi-1.0,
 gcc-14.2.0/gcc-12.3.0/mingw-16.2.0/mingw-14.2.0,
 clang-18.1.8/clang-16.0.4, and ido-5.3/ido-7.1.  Every profile gets an empty `command`/`runner` in the

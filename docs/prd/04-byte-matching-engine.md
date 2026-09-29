@@ -1,4 +1,4 @@
-# PRD 04 — Byte-Matching Engine
+# PRD 04: Byte-Matching Engine
 
 - **Status**: Shipped
 - **Date**: 2026-05 (updated 2026-09)
@@ -15,7 +15,7 @@ After a human writes a candidate function, the last 5%–20% of "byte
 identical" work is dominated by:
 
 - Trying compiler flag permutations (`/O1` vs `/O2`, `/Gd` vs `/Gz`,
-  `/Ob1` vs `/Ob2`, structure alignment, FPO, …) — easily 50+ flags with
+  `/Ob1` vs `/Ob2`, structure alignment, FPO, …): easily 50+ flags with
   combinatorial blow-up.
 - Mutating expression style (e.g. `a = a + 1` vs `++a`, `if/else` vs
   ternary, local var orderings, loop forms) until the compiler emits the
@@ -115,7 +115,7 @@ prover that promotes NEAR_MATCHING → PROVEN.
 - Extracts target bytes from the DLL and compiles the C source.
 - Refuses promotion when post-compile bytes already match (that is RELOC).
 - Loads both blobs into angr; uses claripy/Z3 to prove EAX equivalence
-  (`--check-edx` also compares EDX — auto-enabled for 64-bit return types).
+  (`--check-edx` also compares EDX; auto-enabled for 64-bit return types).
 - `--timeout N` (default 60 s) and `--loop-bound N` (default 10) govern
   the search.
 - `--start-offset` / `--end-offset` prove a sub-range of the function.
@@ -131,7 +131,7 @@ prover that promotes NEAR_MATCHING → PROVEN.
 
 ## User Stories / Workflows
 
-### Story 1 — Closing a 4-byte near-miss
+### Story 1: Closing a 4-byte near-miss
 
 1. `rebrew test foo.c` says NEAR_MATCHING delta=4.
 2. `rebrew diff foo.c --mismatches-only --register-aware` reports two `**`
@@ -142,7 +142,7 @@ prover that promotes NEAR_MATCHING → PROVEN.
 4. `rebrew cfg set-cflags GAME "/O1 /Gd" --target main` (or a per-function CFLAGS
    write) saves the win.
 
-### Story 2 — GA on a STUB
+### Story 2: GA on a STUB
 
 1. `rebrew todo --category improve-match` highlights `bar.c` (STUB, body
    approximated from r2dec).
@@ -150,7 +150,7 @@ prover that promotes NEAR_MATCHING → PROVEN.
    final candidate hits RELOC.
 3. `rebrew test bar.c` promotes STATUS in `rebrew-functions.toml`.
 
-### Story 3 — Batch flag sweep
+### Story 3: Batch flag sweep
 
 1. `rebrew match --all --flag-sweep --fix-cflags --dry-run` lists 38
    NEAR_MATCHING functions.
@@ -158,7 +158,7 @@ prover that promotes NEAR_MATCHING → PROVEN.
    `--jobs 8` and writes per-function CFLAGS into `rebrew-functions.toml`.
 3. `rebrew verify` afterwards shows 22 new EXACT/RELOC promotions.
 
-### Story 4 — Proving the remainder
+### Story 4: Proving the remainder
 
 1. Some functions persistently fail the byte test due to register
    churn; the user runs `rebrew prove --all --json`.

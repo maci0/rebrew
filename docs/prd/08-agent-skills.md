@@ -1,4 +1,4 @@
-# PRD 08 — Agent Skills
+# PRD 08: Agent Skills
 
 - **Status**: Shipped
 - **Date**: 2026-05 (updated 2026-09)
@@ -168,19 +168,19 @@ Excludes: source editing, picking functions, data analysis without Ghidra.
 
 ## User Stories / Workflows
 
-### Story 1 — Agent routes correctly by keyword
+### Story 1: Agent routes correctly by keyword
 
 1. User: "the FLIRT scan flagged a bunch of MSVCRT funcs, what now?"
 2. Agent loads `rebrew-intake` (keyword "FLIRT scan") and follows the
    intake procedure that includes the CRT match step.
 
-### Story 2 — Agent escalates to matching
+### Story 2: Agent escalates to matching
 
 1. User: "this function is NEAR_MATCHING with delta 6, can you finish it?"
 2. Agent loads `rebrew-matching`, runs `rebrew diff`, classifies the
    blocker, then runs `rebrew match --flag-sweep-only`.
 
-### Story 3 — Agent stays in scope
+### Story 3: Agent stays in scope
 
 1. User in the middle of editing a function asks "what about the
    relocation on `_g_state`?"
@@ -188,7 +188,7 @@ Excludes: source editing, picking functions, data analysis without Ghidra.
    `rebrew-data-analysis` rather than answering inline with stale
    knowledge.
 
-### Story 4 — Multi-skill sequence
+### Story 4: Multi-skill sequence
 
 1. Empty directory → `rebrew-init` scaffolds, then hands off.
 2. Fresh project → `rebrew-intake` runs.
@@ -266,19 +266,19 @@ rebrew skills show <name> --json  # name/description/path + raw content
   `rebrew <subcommand>` line in the SKILL.md bash blocks, inline code spans,
   and `references/*.md`, then verifies each `--flag` against live `--help`.
   It runs in the suite and in `make check` / the CI pre-commit job.
-  (Partly resolved — only `--version` and
+  (Partly resolved; only `--version` and
   `--help` are skipped, so those two can still drift; so can frontmatter
   descriptions / trigger keywords, which are not validated against the CLI
   surface at all.)
 - The `rebrew-ghidra-sync` skill and all CLI tools share a single canonical
-  default endpoint of `http://localhost:8080/mcp/message`. (Resolved — was
+  default endpoint of `http://localhost:8080/mcp/message`. (Resolved; was
   a dual-default between 8089 and 8080; see gap report for history.)
 - `rebrew-init` ships bare-directory scaffolding for `rebrew init`
   (ADR-020). `rebrew intake` invokes the same init app in-process when no
   project exists, so a bare directory is covered by either skill; `rebrew-init`
   is the one that teaches `rebrew init` itself.
 - `rebrew skills list` / `rebrew skills show` provide built-in discovery
-  (`--json` for machine-readable output). (Resolved — was missing; agents no
+  (`--json` for machine-readable output). (Resolved; was missing; agents no
   longer need to scan the directory.)
 - Skills assume the agent has shell access to run rebrew CLI; pure
   text-only agents can read the skills but cannot execute commands.

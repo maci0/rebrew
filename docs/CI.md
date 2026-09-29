@@ -6,14 +6,14 @@ Suggested gates for reverse-engineering workspaces that use rebrew.
 
 GitHub Actions (`.github/workflows/ci.yml`) runs lint, the full unit test suite
 across the supported Python versions (3.13–3.14; the 3.13 entry runs it as
-`make coverage`, failing below `COV_FLOOR`) — plus, on that same 3.13 entry,
+`make coverage`, failing below `COV_FLOOR`), plus, on that same 3.13 entry,
 a fixture-freshness
 check (`tools/gen_fixtures.py --check`) and an idempotency sweep
 (`tools/check_idempotency.py --fixture-dir`, which runs the offline `--json`
 CLI surface twice for output determinism and each mutating command twice
 against its own scratch project, requiring the first run to actually change
 it), both version-independent, so the 3.14 entry
-skips them — a pre-commit hook-parity job (`make check` with
+skips them: a pre-commit hook-parity job (`make check` with
 the two ruff hooks and the mypy hook skipped, since the lint job runs them; it installs
 shellcheck and yamllint first through `tools/ci_apt_install.sh`, so the shell
 and YAML hooks are enforced there; the SKILL.md command validator
@@ -30,7 +30,7 @@ beside the workspace), emits a CycloneDX 1.5 SBOM
 MIT license on the rebrew component, a `pkg:github/maci0/rebrew` purl at the
 `v` tag for `__version__`, project URLs as external references, each
 locked distribution's own declared license from `tools/licenses.py`, and the
-attributed expressions listed in `NOTICE` — certifi and hypothesis (MPL-2.0,
+attributed expressions listed in `NOTICE`; certifi and hypothesis (MPL-2.0,
 in every resolve) plus the optional resembl, m2c, pyvex, tqdm (`MPL-2.0 AND MIT`, pulled in by the binsync extra), and lmdb (`OLDAP-2.8`, an attribution grant rather than a reciprocal one, pulled in by the prove extra); every
 component also carries a CycloneDX `scope`, `required` for the closure of
 `[project].dependencies` and `optional` for the distributions only a dev
@@ -52,7 +52,7 @@ actually in `dist/` through `make verify-dist` (a stale or hand-edited manifest
 keeps every key and still describes the wrong artifact, and the check lives
 here so a contributor gets the same verdict from `make pr-check` before
 pushing), and installs the
-wheel into a clean venv for a smoke import through `make smoke-wheel` — the
+wheel into a clean venv for a smoke import through `make smoke-wheel`: the
 Makefile owns that recipe, the same way it owns the build, so the CI and
 contributor paths cannot drift. Runtime deps come from
 `uv sync --frozen --no-dev --no-default-groups --no-install-project`, then the
@@ -120,9 +120,9 @@ network flake; each attempt clones into a sibling staging directory that
 replaces `../resembl` by rename only after the SHA check, so a retargeted tag
 or an exhausted retry leaves an existing checkout in place; the job passes
 `secrets.GITHUB_TOKEN` as the action's
-`github-token` input, which reaches only the clone step — header auth in a
+`github-token` input, which reaches only the clone step; header auth in a
 gitconfig created under umask 077, with the token unset before `git` runs,
-and hooks / fsmonitor / LFS smudge disabled before the SHA check — so
+and hooks / fsmonitor / LFS smudge disabled before the SHA check, so
 lint/test steps never see the token):
 `pyproject.toml`'s `[tool.uv.sources]` resolves
 the `similarity` group's `resembl` from `../resembl`, so a default

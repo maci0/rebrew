@@ -16,12 +16,12 @@ row's `functions.status` as the schema default `UNKNOWN`.
 UNDOCUMENTED  →  STUB  →  NEAR_MATCHING  →  RELOC  →  EXACT
    (UNKNOWN)                 ↓
                           PROVEN (from NEAR_MATCHING via rebrew prove)
-                          SKIP   (parallel track — intentionally unmatchable)
+                          SKIP   (parallel track, intentionally unmatchable)
 ```
 
 | Status | Byte match | Set by | Counts in coverage |
 |--------|-----------|--------|-------------------|
-| *(undocumented)* | — | Automatic (no `.c` file); the coverage document records `UNKNOWN` | ❌ No |
+| *(undocumented)* | n/a | Automatic (no `.c` file); the coverage document records `UNKNOWN` | ❌ No |
 | `STUB` | <60% | `rebrew test` (demotion) | ❌ No |
 | `NEAR_MATCHING` | ≥60% | `rebrew test` | ⚠️ Partial |
 | `RELOC` | 100% (masked) | `rebrew test` | ✅ Yes |
@@ -29,8 +29,8 @@ UNDOCUMENTED  →  STUB  →  NEAR_MATCHING  →  RELOC  →  EXACT
 | `PROVEN` | Semantic (bytes differ) | `rebrew prove` | ❌ No (shown separately) |
 | `SKIP` | N/A | Manual (metadata) | ✅ Yes (excluded) |
 
-`rebrew test` / `rebrew verify` also persist machine verdicts — `SIZE_MISMATCH`,
-`COMPILE_ERROR`, `EXTRACT_ERROR`, `MISSING_SIZE`, `MISSING_FILE`, `INVALID_VA` —
+`rebrew test` / `rebrew verify` also persist machine verdicts (`SIZE_MISMATCH`,
+`COMPILE_ERROR`, `EXTRACT_ERROR`, `MISSING_SIZE`, `MISSING_FILE`, `INVALID_VA`)
 for outcomes that are not match statuses; they never count as matched.
 
 ---
@@ -53,7 +53,7 @@ rebrew skeleton 0x10008880  # generate .c skeleton → transitions to STUB
 
 ## STUB
 
-A `.c` file exists but the implementation is a placeholder — either empty, contains
+A `.c` file exists but the implementation is a placeholder, either empty, contains
 `TODO`, or compiles to something radically different from the target (< 60% byte match).
 A size mismatch is its own verdict (`SIZE_MISMATCH`), not STUB.
 
@@ -75,7 +75,7 @@ wrong calling convention, completely wrong algorithm structure.
 ## NEAR_MATCHING
 
 The compiled output is ≥ 60% byte-similar to the target but has structural differences
-that persist after relocation masking — different register allocation, different loop
+that persist after relocation masking: different register allocation, different loop
 structure, different branch ordering.
 
 `rebrew near-diag --fix-blocker` auto-classifies the difference type and writes it to the metadata:
@@ -101,7 +101,7 @@ Strong candidates for `rebrew prove` when the delta is very small.
 
 Identical after masking relocatable bytes (`call rel32`, `jmp rel32`, `mov eax,[abs32]`,
 etc.). The function's logic, register allocation, and control flow are all correct.
-Only call targets and global addresses differ, which is expected — the linker patches
+Only call targets and global addresses differ, which is expected: the linker patches
 these at link time.
 
 ```
@@ -145,7 +145,7 @@ size = 31
 
 ## PROVEN
 
-Semantically equivalent — mathematically verified by `rebrew prove` via angr
+Semantically equivalent: mathematically verified by `rebrew prove` via angr
 symbolic execution + Z3 constraint solving. The compiled bytes differ structurally
 (different register allocation, instruction reordering, loop unrolling), but for **all
 possible inputs**, the return value and observable side-effects are identical.
@@ -176,9 +176,9 @@ unmatchable or irrelevant to the decompilation effort:
 
 | Reason | Examples |
 |--------|---------|
-| IAT thunks | `jmp [__imp_GetProcAddress]` — compiler-generated, no source |
-| SEH helpers | `__except_handler3`, `__local_unwind2` — MSVC runtime internals |
-| ASM builtins | `_memcpy_rep`, `_strlen_sse2` — hand-written assembly |
+| IAT thunks | `jmp [__imp_GetProcAddress]`: compiler-generated, no source |
+| SEH helpers | `__except_handler3`, `__local_unwind2`: MSVC runtime internals |
+| ASM builtins | `_memcpy_rep`, `_strlen_sse2`: hand-written assembly |
 | Import stubs | Trampolines to DLL imports with no game logic |
 | Padding / alignment | Dead bytes between functions, never executed |
 | Linker-generated | `__security_cookie_check`, `__SEH_prolog` |
@@ -186,10 +186,10 @@ unmatchable or irrelevant to the decompilation effort:
 ```toml
 ["SERVER.0x10001234"]
 status = "SKIP"
-skip = "IAT thunk — jmp [__imp_CreateFileA]"
+skip = "IAT thunk: jmp [__imp_CreateFileA]"
 ```
 
-SKIP functions are excluded from the "unmatched" count in coverage metrics — they
+SKIP functions are excluded from the "unmatched" count in coverage metrics: they
 are treated as intentionally resolved, not as open work items.
 
 ```bash
@@ -244,14 +244,14 @@ out bytes that are expected to differ between compilations:
 | `mov [abs32], reg` | `89 0D/15/1D/25/2D/35/3D` | bytes 2-5 | Global variable stores |
 | `call/jmp dword ptr [abs32]` | `FF 15/25` | bytes 2-5 | Indirect call/jump through an IAT slot |
 
-After masking, if the bytes are identical, the code is structurally the same — only the
+After masking, if the bytes are identical, the code is structurally the same: only the
 linker-dependent addresses differ. This is the RELOC match.
 
 ---
 
 ## Observed NEAR_MATCHING Patterns
 
-Patterns and insights from hands-on RE work — not actionable tool ideas, but reference
+Patterns and insights from hands-on RE work, not actionable tool ideas, but reference
 knowledge about what actually blocks byte-level matching in practice.
 
 ### Close NEAR_MATCHING analysis (0-3B delta)
@@ -259,12 +259,12 @@ knowledge about what actually blocks byte-level matching in practice.
 GA mutations (100 gen, pop 64) consistently fail to improve close NEAR_MATCHING functions. All blockers are compiler-internal decisions that C source mutations cannot influence.
 
 Common uncontrollable blocker categories:
-1. **Register allocation** — ebx vs edi, eax vs ecx swaps (most common)
-2. **Loop rotation** — compiler peels first iteration or uses jge+jmp vs jl
-3. **Instruction folding** — lea+mov to single mov with SIB, saves 2B
-4. **Zero-extend patterns** — xor+mov dl vs bare mov dl for byte params
-5. **Stack frame choice** — push ecx vs sub esp,8 for locals
-6. **Comparison direction swap** — cmp eax,ecx/jae vs cmp ecx,eax/jbe
+1. **Register allocation**: ebx vs edi, eax vs ecx swaps (most common)
+2. **Loop rotation**: compiler peels first iteration or uses jge+jmp vs jl
+3. **Instruction folding**: lea+mov to single mov with SIB, saves 2B
+4. **Zero-extend patterns**: xor+mov dl vs bare mov dl for byte params
+5. **Stack frame choice**: push ecx vs sub esp,8 for locals
+6. **Comparison direction swap**: cmp eax,ecx/jae vs cmp ecx,eax/jbe
 
 ### Register allocation as systemic ceiling
 
@@ -284,7 +284,7 @@ These form a "dependency ceiling" that limits what can be matched regardless of 
 
 - Remaining GAME STUBs range from 355B to 6000B+. Even small ones (under 400B) face register pressure challenges with `/O2 /Gd`.
 - MSVCRT STUBs range from 11B to 1825B. Many small ones (85-200B) may be achievable using reference CRT source.
-- Verifying string literals via hex dump is critical — Ghidra often gets string references wrong.
-- Dead assignments in STUBs are common — Ghidra generates reads for values the target code never uses.
-- Entity records are 65 bytes — MSVC6 decomposes `*65` as `shl eax, 6; add eax, base; add eax, index`.
-- CRT `_mbctype` access: `_mbctype[(unsigned char)c + 1] & 4` compiles to `test byte ptr [reg + 0x11766321], 4` — the +1 offset is baked into the immediate address.
+- Verifying string literals via hex dump is critical: Ghidra often gets string references wrong.
+- Dead assignments in STUBs are common: Ghidra generates reads for values the target code never uses.
+- Entity records are 65 bytes: MSVC6 decomposes `*65` as `shl eax, 6; add eax, base; add eax, index`.
+- CRT `_mbctype` access: `_mbctype[(unsigned char)c + 1] & 4` compiles to `test byte ptr [reg + 0x11766321], 4`; the +1 offset is baked into the immediate address.

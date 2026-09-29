@@ -1,8 +1,8 @@
-# Codegen Patterns — per-compiler-version reference
+# Codegen Patterns: per-compiler-version reference
 
 One file per compiler major version, documenting **minute byte-level codegen
 details**: prologues, register conventions, integer division, FPU, loops,
-string ops, padding, stack probes — how adjacent major versions differ, and
+string ops, padding, stack probes; how adjacent major versions differ, and
 which fingerprints are (verified) 100% unique to a version.
 
 This folder supersedes the former single-doc `docs/CODEGEN_REFERENCE.md`
@@ -74,11 +74,11 @@ The dimensions a codegen fingerprint lives on:
 ## Uniqueness table
 
 Markers claimed as **100% unique to a version** (within the toolchain set on
-this site — "unique among the compilers rebrew/decomp.me can build", not
+this site; "unique among the compilers rebrew/decomp.me can build", not
 "unique in all of computing").  Verified = reproduced from real toolchain
 output (probe #2 adds the 64-bit/FP/rotate/divisor set; probe #3 adds a
 13-divisor table, fixed-size memcpy/memset, long double, 64-bit arithmetic
-and switch shapes — see the methodology); the byte patterns must not appear
+and switch shapes; see the methodology); the byte patterns must not appear
 in any other file's *normal patterns* section (grep-checked).  Unproven
 claims are explicitly downgraded in the per-version files.
 
@@ -122,19 +122,19 @@ claims are explicitly downgraded in the per-version files.
 | **volatile reads** | `mov eax,[0]` | identical in ALL versions (verified negative) | ✓ probe8 (`vread`) |
 | **combined divmod** (`x/N + x%N` → one `div`) | `99 … f7 f9 … 03 c2` | **MSVC 7.0+** (2.0–6.0 do TWO divisions) | ✓ probe9 (`dm3`/`udm3`) |
 | **stack-probe threshold** | `b8 <size> e8` | **uniform 4096 bytes across ALL versions** (`/Gs` default; verified negative) | ✓ probe9 (`sp1024…8192`) |
-| **64-bit compares: direct-memory form** | `3b 44 24 10 … 3b 4c 24 0c` | **MSVC 7.0+** (5.0/6.0 load operands into registers first — 35B; 4.1 uses `39 44`-forms) | ✓ probe10 (`i64lt/eq/ne/ge`) |
+| **64-bit compares: direct-memory form** | `3b 44 24 10 … 3b 4c 24 0c` | **MSVC 7.0+** (5.0/6.0 load operands into registers first; 35B; 4.1 uses `39 44`-forms) | ✓ probe10 (`i64lt/eq/ne/ge`) |
 | **static-helper inlining at /O2** | (no `call` in the caller) | **MSVC 7.0+** (2.0–6.0 keep the call at /O2 and /O1; 7.0+ inline to 11–12B) | ✓ probe12 (`f1`/`f2`/`fl`) |
-| **16-bit switch via `xchg bx,ax`** | `03 c0 93` (`add ax,ax; xchg bx,ax`) | **MSVC 1.5x (16-bit)** (TC 2.0/3.1 and Watcom 16-bit scale via `shl bx,1` — `d1 e3`) | ✓ probe12 (`sw8`) |
+| **16-bit switch via `xchg bx,ax`** | `03 c0 93` (`add ax,ax; xchg bx,ax`) | **MSVC 1.5x (16-bit)** (TC 2.0/3.1 and Watcom 16-bit scale via `shl bx,1`; `d1 e3`) | ✓ probe12 (`sw8`) |
 | **strlen intrinsic: `repne scasb`** | `f2 ae` (ECX=−1 init) | **MSVC 2.0–6.0 /O2** (7.0+ inline a manual scan loop `8d 50 01 8a 08 84 c9 75 f9 2b c2`; bcc32/Watcom/GCC libcall strlen) | ✓ probe13 (`str_len_lib`) |
 | **memcmp 8B intrinsic: `repe cmpsb`** | `f3 a6` | **MSVC 2.0–7.1 /O2** (8.0+ use a dword-compare loop; bcc32/Watcom/GCC libcall memcmp) | ✓ probe13 (`mem_cmp8_lib`) |
-| **`and eax,0xff` zero-extension** | `25 ff 00 00 00` / `81 e1 ff 00 00 00` | **MSVC 5.0/6.0 /O2** (2.0/4.x: `xor eax,eax; mov al` — shared with bcc32; 7.0+: `movzx` — shared with GCC/Watcom) | ✓ probe13 (`uc_add`) |
+| **`and eax,0xff` zero-extension** | `25 ff 00 00 00` / `81 e1 ff 00 00 00` | **MSVC 5.0/6.0 /O2** (2.0/4.x: `xor eax,eax; mov al`; shared with bcc32; 7.0+: `movzx`; shared with GCC/Watcom) | ✓ probe13 (`uc_add`) |
 | **default-unsigned `char`** | `char < 0` → `31 c0 c3` (folded to 0) | **Open Watcom** (wcc386 + wcc16; MSVC/GCC/bcc32/TC use signed char) | ✓ probe13 (`c_cmp`) |
 | **8-byte struct return via `movsd` pair** | `a5 a5` | **Open Watcom** (MSVC 5.0+ return in EAX:EDX; bcc32 and MSVC 2.0/4.x round-trip the stack) | ✓ probe13 (`s8_make`) |
 | **64-byte memcpy = `rep movsd`** | `b9 10 00 00 00 f3 a5` | **MSVC, ALL versions** (GCC register-blocks the copy; bcc32/Watcom libcall; Zig LLVM uses `movups`-pair SSE copies) | ✓ probe14 (`cpy64_lib`) |
-| **memory-form `inc dword ptr [g]`** | `ff 05` | **bcc32 at -O2** (MSVC/GCC/Watcom/Zig round-trip through EAX: `a1 … 40 … a3` in the same probe functions; context-dependent — VC5/6 also emit `ff 05` for memory counters in other shapes) | ✓ probe14 (`g_inc`) |
-| **64-bit shift helper tail-call** | `b9 <n> 00 00 00 e9` (`mov ecx,N; jmp __allshl/__allshr`) | **MSVC 5.0/6.0** (7.0+ inline `shld`/`shrd` — shared with GCC/bcc32/Zig; Watcom `__I8LS` uses an EBX count) | ✓ probe14 (`i64_shl`/`i64_shr`) |
+| **memory-form `inc dword ptr [g]`** | `ff 05` | **bcc32 at -O2** (MSVC/GCC/Watcom/Zig round-trip through EAX: `a1 … 40 … a3` in the same probe functions; context-dependent; VC5/6 also emit `ff 05` for memory counters in other shapes) | ✓ probe14 (`g_inc`) |
+| **64-bit shift helper tail-call** | `b9 <n> 00 00 00 e9` (`mov ecx,N; jmp __allshl/__allshr`) | **MSVC 5.0/6.0** (7.0+ inline `shld`/`shrd`; shared with GCC/bcc32/Zig; Watcom `__I8LS` uses an EBX count) | ✓ probe14 (`i64_shl`/`i64_shr`) |
 | **zero-compare: `cmp [mem],1; sbb; neg`** | `83 7c 24 04 01 1b c0 f7 d8` | **MSVC 2.0/4.x + 1.52 (16-bit)** (5.0–7.1: load+`test`; 8.0+: memory compare against the zero register) | ✓ probe14 (`zc_reg`) |
-| **`/GS` cookie-mix prologue** | `a1 <cookie> 33 c4 89 44 24 40` (`mov eax,[cookie]; xor eax,esp; store`) | **MSVC 8.0+** — the only probed toolchain with stack cookies (GCC/Zig/bcc32/Watcom emit none) | ✓ probe15 (`pro_gs`) |
+| **`/GS` cookie-mix prologue** | `a1 <cookie> 33 c4 89 44 24 40` (`mov eax,[cookie]; xor eax,esp; store`) | **MSVC 8.0+**: the only probed toolchain with stack cookies (GCC/Zig/bcc32/Watcom emit none) | ✓ probe15 (`pro_gs`) |
 | **SSE2 `ucomisd` FP compare** | `66 0f 2f` + `0f 97 c0` | MSVC 11.0 | ✓ probe5 (`fcmp1-4`) |
 | **`__fastcall` register fusion `lea eax,[ecx+edx]`** | `8d 04 11` | **MSVC 7.0+** (2.0–6.0: `mov eax,[esp+4]` first) | ✓ probe5 (`fc1`) |
 | **`fdivr` for `a/5.0`** | `dc 35`-reverse (`fdivr m64`) | MinGW GCC | ✓ probe5 (`fdiv5`) |
@@ -167,9 +167,9 @@ claims are explicitly downgraded in the per-version files.
 | **Delphi stack-check far call in prologue** | `b8 <size>; 9a` (`lcall`) | Delphi 1.0 (DCC) | ✓ probe3 (dpr) |
 | **`leave; ret N` callee-cleanup epilogue** | `c9 c2 N N` | Delphi 1.0 (DCC) | ✓ probe3 (dpr) |
 
-**Service-pack verdicts** (probe5+7+8+9+10 sweeps — the SP1 images probed
+**Service-pack verdicts** (probe5+7+8+9+10 sweeps; the SP1 images probed
 for the first time): **VC 7.0 SP1 is the only SP with verified codegen
-differences — now SEVENTEEN probe functions.**  (a) 4 structural: the
+differences; now SEVENTEEN probe functions.**  (a) 4 structural: the
 `==`/`!=` FP family (`fcmp2`/`fc5`/`fc8`/`fc9`) switch from the
 two-load `fucompp` (`da e9`) to `fcomp [mem]` (`dc 5c 24 0c`, 2 bytes
 shorter).  (b) 2 marshalling: `fl`/`cl` (floor/ceil) pass the FP
@@ -181,14 +181,14 @@ compares, the 64-bit compares and everything else are unchanged.  The
 fucompp style is shared by 7.0 RTM, 7.1 (RTM+SP1) and 10.0 (RTM+SP1);
 the fcomp style by 2.0–6.0, 8.0 and 9.0.  VC 7.1 SP1, 8.0 SP1, 10.0
 SP1: codegen-identical to their RTMs (probes 1–10).  VC 9.0 SP1:
-identical to RTM at `/Od`; the `/O1`/`/O2` comparison is **blocked** —
+identical to RTM at `/Od`; the `/O1`/`/O2` comparison is **blocked**;
 the compiler needs `sched.dll` (C1350) which no image ships (verified
-absent from 9.0 RTM, 9.0 SP1, 10.0, 10.0 SP1, 11.0 — the DLL was never
+absent from 9.0 RTM, 9.0 SP1, 10.0, 10.0 SP1, 11.0; the DLL was never
 vendored).  VC 6.0 SP1–SP6: codegen-identical to RTM at both `/O1` and
 `/O2` (probes 1–10).  VC 5.0 SP1–SP3 ship the same CL.EXE (no distinct
 builds to compare).
 
-**Corpus validation** (probe10 round) — every byte-level marker in this
+**Corpus validation** (probe10 round): every byte-level marker in this
 table was scanned against the corpus binaries' `.text`
 (win2k-*/bind = VC 5.0, rt63/rt7/skifree32/tcmd = VC 6.0,
 cpubench/test_sse2 = MinGW GCC 16).  Strongly confirmed (corpus hits in
@@ -197,68 +197,68 @@ fsqrt, `dc 0d` reciprocal-fmul, `d9 e8` fld1, `c1 e8 01` 3-byte shift,
 `2b d2` div-zero, `0f 1f`/`0f a5 c2`/`83 e4 f8`/`0f 4f`/`0f 4c`/`d9 ee`/
 `0f 57 c0`/`f3 0f 7e`/`66 0f d6` in the MinGW binaries.  Markers whose
 raw bytes are **context-dependent** (they appear in binaries of versions
-outside the claim because the instruction is common — the marker is the
+outside the claim because the instruction is common; the marker is the
 *sequence*, not the bytes): `ff 74 24 10` (push [esp+0x10]), `ff 25`/
-`ff 20` (jmp [mem] — IAT jumps), `6a ff`/`6a fe` (push ±1 — SEH frame
+`ff 20` (jmp [mem]; IAT jumps), `6a ff`/`6a fe` (push ±1; SEH frame
 vs plain constants), `51 52` (push ecx;push edx), `c2 04 00`/`c2 08 00`
-(ret N — stdcall cleanup), `8d 04 11` (lea [ecx+edx]), `6b c0 64`
+(ret N; stdcall cleanup), `8d 04 11` (lea [ecx+edx]), `6b c0 64`
 (imul eax,100).  Two claims get **downgrade notes** from corpus hits in
 VC 6.0 binaries: the `cdq`-abs idiom (`99 33 c2 2b c2`, skifree32=1)
-and `imul eax,100` (`6b c0 64`, tcmd=1) — both exist in pre-10.0 code
+and `imul eax,100` (`6b c0 64`, tcmd=1), both exist in pre-10.0 code
 in *some* context, so the marker is the probe *function's* form, not
 the raw idiom.
 
 **Proven *non*-markers** (verified negative results, incl. the probe11
-flag matrix): **VC 6.0 never emits `cmov` — even under `/G6`** (PPro
+flag matrix): **VC 6.0 never emits `cmov`; even under `/G6`** (PPro
 target; `imax/imin/clamp/iabs` stay branches; `/G5` vs `/G6` differ
-only in instruction scheduling — 7 functions, register-order and
+only in instruction scheduling; 7 functions, register-order and
 epilogue `pop` placement); VC 7.0 `/G5`≡`/G6` and 7.1 `/G5`≡`/G7`
 (identical); `/fp:fast` ≡ default on the probe2 FP set (no contraction
 opportunities); the `/arch:SSE2` FP-comparison form (`comisd`) and the
 SSE `movq`/`pxor` copy forms are produced by VC 8.0–10.0 under
-`/arch:SSE2` — so the VC 11.0-default markers carry the flag caveat
+`/arch:SSE2`, so the VC 11.0-default markers carry the flag caveat
 (see the table). the VC 6.0 SP levels
-(SP1–SP6) are codegen-identical for every probe3 function — only the
+(SP1–SP6) are codegen-identical for every probe3 function: only the
 Rich-header C1 build separates them; VC 4.0/4.1/4.2 are codegen-identical
 to each other and to VC 2.0; **MSVC 1.0/1.5/1.52 are codegen-identical
 for probe4** (probed for the first time); 64-bit mul/div/shift are a
-helper call in **every** MSVC version — never inlined (and the helper
+helper call in **every** MSVC version: never inlined (and the helper
 *name* is the toolchain marker: `__allmul`/`__alldiv`/`__allshl` MSVC,
 `__llmul`/`__lldiv`/`__llshl` Borland, `__I8M`/`__I8D`/`__I8LS` Watcom,
 `__divdi3`/`__udivdi3` GCC, inline for GCC mul/shift); no MSVC version
 emits `cmov` before VC 11.0 (GCC does at default flags); `memcpy` of
 2–16 B inlines as mov pairs and 32–64 B as `rep movsd` in MSVC 2.0–10.0;
 **VC 11.0 does NOT return 16-byte structs in XMM0** (builds them in the
-hidden return buffer — probe4 `s16b`); **no toolchain emits `fldpi`/
+hidden return buffer; probe4 `s16b`); **no toolchain emits `fldpi`/
 `fldl2e`** for FP constants (all load from `.rdata`); **`bsf`/`bsr` are
 never synthesized** from bit-scan loops; the `imul eax,7` for x*7 is
-shared by VC 7.0/7.1 and Watcom (not unique — downgraded); the `lea
+shared by VC 7.0/7.1 and Watcom (not unique; downgraded); the `lea
 eax,[eax+eax*2]` for x*3 at /O1 is shared with GCC (not unique);
 `__ftol` is shared by MSVC and Borland; Watcom `-otexan` ≡ `-oneatx`
 (identical probe3 output); Watcom's 16-bit `wcc` and Turbo C 2.0
 cannot compile `#`-preprocessed sources in the current toolchain images
-(TC 2.0's wrapper never finds `CPP.EXE` — see
+(TC 2.0's wrapper never finds `CPP.EXE`; see
 [turbo-c.md](borland/turbo-c.md)).
 
 Explicitly **not** unique (verified or observed): `mov edi,edi` (`8b ff`)
-appears as padding in linked VC6+ binaries and as operand noise elsewhere —
+appears as padding in linked VC6+ binaries and as operand noise elsewhere,
 not a version marker; `8d 74 26 00` is used by both MSVC6 and GCC as a
 3-byte nop; division magic constants are shared between MSVC 5.0+ and GCC
 (the surrounding sequence discriminates); `fwait` appears in 16-bit MSVC,
 Borland AND Delphi FPU code; the FP-constant *opcode* mix (`fadd` vs `fsub`)
 is unique to VC 5.0 but `dc 25` alone is not (plain `fsub m64` appears in
 any compiler's subtraction).  The `rol` opcode (`d3 c0`) is shared by
-the MSVC 8.0+ rotate idiom and Delphi 1.0's set-membership bit — the
+the MSVC 8.0+ rotate idiom and Delphi 1.0's set-membership bit: the
 *context* discriminates (32-bit `rol eax,cl` as a shift-pair
 replacement vs 16-bit `rol ax,cl` in `x in s`), so neither is a
 standalone raw-byte marker.
 
-## Machine-readable corpus — `corpus.json`
+## Machine-readable corpus: `corpus.json`
 
 [`corpus.json`](corpus.json) is the machine-readable codegen corpus:
 **17938 records**, one per (toolchain, version, SP, flags, probe,
 function) with `{toolchain, version, sp, flags, probe, function,
-size, bytes}` — generated from every probe 1-30 object + the commercial Watcom 10.x line (all 13 MSVC
+size, bytes}`; generated from every probe 1-30 object + the commercial Watcom 10.x line (all 13 MSVC
 versions 1.0-11.0 at /O2 and /O1 + all SP images, bcc32, Watcom
 32/16, TC 2.0/3.1, MinGW GCC, Zig, the 16-bit MSVC set).  Query
 examples:
@@ -277,7 +277,7 @@ d = json.load(open("docs/codegen/corpus.json"))
 
 The generator (`gen_codegen_corpus.py`), schema validator
 (`validate_corpus.py`), mechanical sweep (`sweep_corpus.py`) and the
-**query CLI** (`corpus_query.py` — `info` / `matrix <func>` /
+**query CLI** (`corpus_query.py`; `info` / `matrix <func>` /
 `unique <ver>` / `diff <v1> <v2>` / `look <hex>`) live in the
 gitignored `.cache/fp_probe/` harness.  `matrix`/`diff`/`unique` read
 the precomputed **`corpus-matrix.json`** index (576 functions × their
@@ -290,13 +290,13 @@ listing (e.g. the bcc32 C++ object).  Sweep results: the
 per-toolchain uniqueness confirmed every hand-documented marker and
 surfaced no new cross-toolchain-unique ones; the **SP equivalence is
 machine-verified over 2697 SP rows (matching each SP against its RTM
-twin by toolchain/version/flags/probe/function)** — the known VC 7.0
+twin by toolchain/version/flags/probe/function)**; the known VC 7.0
 SP1 delta set (18 functions incl. probe14's `_s64_ret`) now extends
 with probe22's `_arr_counter`/`_struct_counter` (7.0 SP1 emits
-`rep stosd` where RTM unrolls the 36B memset — the only probe22 SP
+`rep stosd` where RTM unrolls the 36B memset: the only probe22 SP
 delta; 6.0 SP1–SP6, 7.1 SP1, 8.0 SP1, 10.0 SP1 are byte-identical on
 all 26 probe22 functions).  The corpus also surfaced that the
-VC 9.0 SP1 "workaround" objects are IA64-typed (see msvc-9.md) —
+VC 9.0 SP1 "workaround" objects are IA64-typed (see msvc-9.md):
 the 9.0 SP1 comparison remains blocked.
 
 ## Verification methodology
@@ -308,7 +308,7 @@ returns, tail calls, sqrt/fdiv, bit idioms, __fastcall, 16-bit long
 arithmetic, SEH, FP loops, bitfields, divmod, stack probes, 64-bit
 compares, floor/ceil/fmod, strchr/memchr) plus three Pascal probes
 through Delphi 1.0's `DCC.EXE`, and flag-matrix passes (/G5-/G7,
-/arch:SSE2/IA32, /fp:fast) — compiled through every toolchain and
+/arch:SSE2/IA32, /fp:fast); compiled through every toolchain and
 disassembling the objects.  Turbo C 2.0 is compiled from a
 pre-resolved `#`-free variant (its image's wrapper cannot run the
 preprocessor):
@@ -331,7 +331,7 @@ corpus binaries in `../*-rebrew` (win2k-* = VC 5.0, rt63/rt7/skifree32/tcmd
 `tools/objconv/objconv -fasm` (COFF32 + OMF) and capstone through
 `rebrew.matcher.parsers.parse_obj_symbol_bytes`.
 
-**Legend** — a pattern is `✓ verified` when reproduced from the outputs
+**Legend**: a pattern is `✓ verified` when reproduced from the outputs
 above; `observed` when seen in a corpus binary but not reproduced from a
 controlled compile; `not proven unique` when it also appears (or could
 appear) in another compiler's output.  Per-version files cite which source

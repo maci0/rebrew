@@ -16,20 +16,20 @@ read the tree directly.
 
 That dual layer has real costs:
 
-- **Every `.c` file is parsed twice over** — `annotation.py` /
+- **Every `.c` file is parsed twice over**: `annotation.py` /
   `asm.py` maintain the marker block parser, the lint (W019) reconciles
   inline values against TOML overrides, and `--fix-sizes` rewrites C
   source to keep the two copies in step.
 - **SIZE/CFLAGS live in two places** (inline contract + TOML override),
   so disagreement is a whole warning class and a sync tool.
-- **The marker set is frozen at reccmp's grammar** — rebrew-specific
+- **The marker set is frozen at reccmp's grammar**: rebrew-specific
   markers (`VTABLE`, `STRING`) had to be rejected.
 - **Exports shape the registry**: `data.json`, the reccmp CSV, and
   `objdiff.json` read the same registry but the inline marker is the
   de-facto input contract.
 
 Community interop (LEGO-style projects, recomp builds reading the tree
-directly) is the one thing the inline contract buys — and it can be had as
+directly) is the one thing the inline contract buys, and it can be had as
 an *output* instead of an input constraint.
 
 ## Decision
@@ -54,20 +54,20 @@ identity and state. A migrated `.c` file is pure C.**
 - **The marker set is unshackled.** `VTABLE` and `STRING` are now legal
   markers (`VALID_MARKERS`, parser regexes, lint E001/E015 exemptions on
   par with `GLOBAL`/`DATA`).
-- **Interop as output.** *(Superseded — see the amendment at the end: the
+- **Interop as output.** *(Superseded; see the amendment at the end: the
   reccmp CSV, `data.json` and `objdiff.json` emitters are deleted, and a
   community recomp build reads the reccmp-compatible source tree.)*
 - **Interop as output (original decision, kept for the record).** The reccmp CSV, `data.json`, and
   `objdiff.json` stay thin emitters over `build_function_registry`. A
   community recomp build that needs inline markers reads the reccmp CSV
   (`rebrew catalog --csv`) rather than reading the source tree as the
-  contract. *(Superseded — see the amendment at the end: these emitters are
+  contract. *(Superseded; see the amendment at the end: these emitters are
   deleted, so the command and file named here do not exist.)*
 
 ## Consequences
 
 - New projects may keep writing inline markers (skeletons, etc.) until
-  migrated — the mixed tree is the steady state, not a bug.
+  migrated: the mixed tree is the steady state, not a bug.
 - Tools that scan `.c` files for their own `// GLOBAL:` / `// DATA:`
   patterns (e.g. `rebrew data` global discovery) do not yet read migrated
   data entries from the TOML; migrating data-marker files is deferred
@@ -76,7 +76,7 @@ identity and state. A migrated `.c` file is pure C.**
   or bare filename; a moved metadata root keeps working through the
   trailing-suffix rule.
 - Community round-trips (reccmp-based dashboards, PRs with markers)
-  re-enter through the source tree or a re-annotated copy — inbound
+  re-enter through the source tree or a re-annotated copy: inbound
   sources always re-verify through the pinned image anyway.  (The CSV
   half of this is amended above: there is no CSV export.)
 

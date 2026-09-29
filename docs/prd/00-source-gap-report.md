@@ -4,7 +4,7 @@
 - **Date**: 2026-05-20 (audited 2026-08-22, re-audited 2026-09)
 - **Owner**: rebrew team
 
-> **Correction (2026-09):** `rebrew sync` is BinSync-primary — field sync via
+> **Correction (2026-09):** `rebrew sync` is BinSync-primary; field sync via
 > `--push`/`--pull --state-dir` (`--accept-binsync` / `--accept-local`); the
 > removed `--pull-signatures` / `--pull-structs` / `--pull-comments` /
 > `--accept-ghidra` flags referenced below are superseded (see
@@ -21,9 +21,9 @@ the items below are work items for the code/docs side.
 
 Severities:
 
-- **blocker** — actively misleads users or causes wrong behaviour.
-- **enhancement** — feature gap or rough edge; PRD already flags as a goal.
-- **nit** — cosmetic / documentation only; safe to ignore short-term.
+- **blocker**: actively misleads users or causes wrong behaviour.
+- **enhancement**: feature gap or rough edge; PRD already flags as a goal.
+- **nit**: cosmetic / documentation only; safe to ignore short-term.
 
 Shipped: The round-trip command implementation shipped on the branch in May
 2026. PRD 05 now covers round-trip user surface,
@@ -31,7 +31,7 @@ workflows, and limitations.
 
 > **Refresh (audited 2026-08-22, re-audited 2026-09):** every entry below was
 > re-verified against the current source and live `--help`. 30 of the 33
-> distinct gaps are FIXED in place — each carries an evidence line and its
+> distinct gaps are FIXED in place: each carries an evidence line and its
 > Severity is marked `(fixed)`. The other three (the `--pull-structs`
 > per-module `types.h` split, sync's partial offline fallback, and
 > `sync --refresh-cache`) were resolved by redesign: those flags are gone
@@ -44,7 +44,7 @@ workflows, and limitations.
 
 ---
 
-## Feature: 01 — Project Onboarding
+## Feature: 01: Project Onboarding
 
 ### Gap: PRD claims `cfg add-target` auto-detects format/arch from binary, but the binary may not exist at add time
 
@@ -54,7 +54,7 @@ workflows, and limitations.
 - **Evidence:** `src/rebrew/cfg.py:162` `_detect_format_and_arch`, `src/rebrew/cfg.py:302` `add_target`.
 - **Severity:** enhancement (fixed)
 - **Fixed:** `add_target` now refuses a missing binary without `--force` (and warns
-  with it) — `src/rebrew/cfg.py:426` guard; the silent wrong-but-quiet stanza is gone.
+  with it); `src/rebrew/cfg.py:426` guard; the silent wrong-but-quiet stanza is gone.
 - **Suggested fix (high level):** Warn loudly (or refuse without `--force`) when the
   binary file doesn't exist at the configured `original/` path, so users don't end up
   with a silently mis-formatted target stanza.
@@ -65,7 +65,7 @@ workflows, and limitations.
   doesn't make clear whether running it on a working project replaces the binary.
 - **Evidence:** `uv run rebrew doctor --help` (see /tmp/rebrew_help.txt), `src/rebrew/wibo.py`.
 - **Severity:** nit (fixed)
-- **Fixed:** `--install-wibo` help now states "no-op if already installed" — idempotent
+- **Fixed:** `--install-wibo` help now states "no-op if already installed"; idempotent
   semantics documented (`src/rebrew/doctor.py:986`).
 - **Suggested fix:** Help text could clarify that `--install-wibo` only acts if
   `tools/wibo` is missing or executable bit unset (idempotent).
@@ -87,7 +87,7 @@ workflows, and limitations.
 
 ---
 
-## Feature: 02 — Function Catalog
+## Feature: 02: Function Catalog
 
 ### Gap: `rebrew extract show` lacks a `--size` override, despite skeletons / asm needing one
 
@@ -98,7 +98,7 @@ workflows, and limitations.
   `src/rebrew/extract.py:335` `show_candidate`.
 - **Severity:** enhancement (fixed)
 - **Fixed:** `show_candidate` now accepts `--size N` ("Override catalog-recorded size
-  for this extraction") — `src/rebrew/extract.py:377`.
+  for this extraction"); `src/rebrew/extract.py:377`.
 - **Suggested fix:** Add `--size N` to `extract show` so it can extract a single
   function with a known size override.
 
@@ -138,16 +138,16 @@ workflows, and limitations.
   users where it lands. Code writes next to data JSON (`db/`).
 - **Evidence:** `src/rebrew/catalog/cli.py` `--csv` handling.
 - **Severity:** nit (fixed)
-- **Fixed:** `--csv` help now states the destination — "(written to
+- **Fixed:** `--csv` help now states the destination; "(written to
   db/<target>_functions.csv)" (`src/rebrew/catalog/cli.py:85`).
 - **Suggested fix:** Help line should mention the output path.
-- **Later:** moot — `--csv`, the grid JSON and `catalog/export.py` are deleted;
+- **Later:** moot; `--csv`, the grid JSON and `catalog/export.py` are deleted;
   `rebrew build-db` writes `db/coverage-<target>.toml` and `rebrew catalog`
   writes no artifact.
 
 ---
 
-## Feature: 03 — Skeleton & Iteration
+## Feature: 03: Skeleton & Iteration
 
 ### Gap: `rebrew skeleton --endpoint` default disagrees with the Ghidra-sync skill default
 
@@ -156,7 +156,7 @@ workflows, and limitations.
   ReVa endpoint.
 - **Evidence:** `src/rebrew/skeleton.py:723` (8080), `src/rebrew/agent-skills/rebrew-ghidra-sync/SKILL.md:23` (8089).
 - **Severity:** blocker (fixed)
-- **Fixed:** code and skill now agree — `skeleton.py:1297` defaults
+- **Fixed:** code and skill now agree; `skeleton.py:1297` defaults
   `--endpoint` to `http://localhost:8080/mcp/message`, and the ghidra-sync
   skill documents the same (SKILL.md:40).
 - **Suggested fix:** Pick one canonical default (the codebase uses 8080/mcp/message),
@@ -183,7 +183,7 @@ workflows, and limitations.
   describes `--fix` and `--dry-run` separately but doesn't show their combination.
 - **Evidence:** `uv run rebrew lint --help`.
 - **Severity:** nit (fixed)
-- **Fixed:** epilog example added — "rebrew lint --fix --dry-run · Preview
+- **Fixed:** epilog example added; "rebrew lint --fix --dry-run · Preview
   inline-metadata migrations before commit" (`src/rebrew/lint.py:1185`).
 - **Suggested fix:** Add an example showing `--fix --dry-run` as the safe preview
   combination.
@@ -194,7 +194,7 @@ workflows, and limitations.
 - **Evidence:** `uv run rebrew rename --help` epilog only mentions FUNCTION markers,
   definitions, externs.
 - **Severity:** nit (fixed)
-- **Fixed:** epilog note added — "macros and string literals are NOT rewritten —
+- **Fixed:** epilog note added ("macros and string literals are NOT rewritten)
   `grep` for the old name afterwards if you suspect any" (`src/rebrew/rename.py:80`).
 - **Suggested fix:** Add a one-line note that macro/string references are not
   rewritten, and recommend a follow-up `grep` for safety.
@@ -214,7 +214,7 @@ workflows, and limitations.
 
 ---
 
-## Feature: 04 — Byte-Matching Engine
+## Feature: 04: Byte-Matching Engine
 
 ### Gap: `rebrew prove` only verifies EAX equivalence
 
@@ -225,7 +225,7 @@ workflows, and limitations.
 - **Severity:** enhancement (fixed)
 - **Fixed:** `--check-edx` (forced on when the return type is 64-bit) and
   `--watch-va` (compare 4 bytes of memory at a VA, repeatable) extend the proof
-  goal beyond EAX — `src/rebrew/prove.py:1096`/`1099`; `_compare_state_pairs`
+  goal beyond EAX; `src/rebrew/prove.py:1096`/`1099`; `_compare_state_pairs`
   checks EAX+EDX+watched memory (`prove.py:582`).
 - **Suggested fix:** Extend proof goals to cover EDX:EAX pairs and selected memory
   locations referenced by the function, behind a flag.
@@ -236,7 +236,7 @@ workflows, and limitations.
   precedence isn't documented; current behaviour is `--no-seeds` wins.
 - **Evidence:** `src/rebrew/match.py` (typer option declarations).
 - **Severity:** nit (fixed)
-- **Fixed:** precedence documented on both flags — `--seed-file`: "Ignored if
+- **Fixed:** precedence documented on both flags; `--seed-file`: "Ignored if
   `--no-seeds` is also passed"; `--no-seeds`: "(takes precedence over
   `--seed-file`)" (`src/rebrew/match.py:1263`/`1269`).
 - **Suggested fix:** Either error when both are supplied, or document that
@@ -256,7 +256,7 @@ workflows, and limitations.
 
 ---
 
-## Feature: 05 — Verification & Progress
+## Feature: 05: Verification & Progress
 
 ### Gap: `rebrew verify` does not detect shared-header changes
 
@@ -312,7 +312,7 @@ workflows, and limitations.
 
 ---
 
-## Feature: 06 — Data Section Analysis
+## Feature: 06: Data Section Analysis
 
 ### Gap: `rebrew data --fix-bss` writes to `rebrew-data.toml`, but the SKILL.md still mentions `rebrew-functions.toml`
 
@@ -324,7 +324,7 @@ workflows, and limitations.
   references `rebrew-data.toml` correctly, but PRD 03 / 05 broadly say "metadata in
   rebrew-functions.toml" without distinguishing.
 - **Severity:** nit (fixed)
-- **Fixed:** both skills now make the split explicit — data metadata lives in
+- **Fixed:** both skills now make the split explicit; data metadata lives in
   `rebrew-data.toml` at `cfg.metadata_dir` (`rebrew-data-analysis/SKILL.md:103`,
   `rebrew-workflow/SKILL.md:197`); `rebrew data --fix-bss` writes SIZE/SECTION/NOTE
   there (`src/rebrew/data.py:772`).
@@ -339,7 +339,7 @@ workflows, and limitations.
 - **Evidence:** `src/rebrew/data.py:337` `find_dispatch_tables` constants.
 - **Severity:** enhancement (fixed)
 - **Fixed:** `--min-table-len N` and `--max-pointer-stride N` surfaced (both require
-  `--dispatch`) — `src/rebrew/data.py` epilog/examples.
+  `--dispatch`); `src/rebrew/data.py` epilog/examples.
 - **Suggested fix:** Surface `--min-table-len` / `--max-pointer-stride` options.
 
 ### Gap: `rebrew data --gen-header` overwrites `rebrew_globals.h` without backup
@@ -355,7 +355,7 @@ workflows, and limitations.
 
 ---
 
-## Feature: 07 — Ghidra Sync
+## Feature: 07: Ghidra Sync
 
 ### Gap: Default MCP endpoint differs between `rebrew sync`/`rebrew skeleton --endpoint` and the skill
 
@@ -425,7 +425,7 @@ workflows, and limitations.
 
 ---
 
-## Feature: 08 — Agent Skills
+## Feature: 08: Agent Skills
 
 ### Gap: No `rebrew skills list` discovery command
 
@@ -530,17 +530,17 @@ workflows, and limitations.
 
 Distinct gaps (deduplicated across PRDs), as of the 2026-08 refresh:
 
-- blockers: 3 — all FIXED (0 open)
-- enhancements: 16 — 13 FIXED, 3 resolved by redesign (0 open)
-- nits: 14 — all FIXED (0 open)
+- blockers: 3; all FIXED (0 open)
+- enhancements: 16; 13 FIXED, 3 resolved by redesign (0 open)
+- nits: 14; all FIXED (0 open)
 
 (The "MCP endpoint disagreement" gap is cited in PRDs 03, 07, and 08 but is
-counted once. Total Severity lines in this file: 35 — the 3 blockers appear as
+counted once. Total Severity lines in this file: 35; the 3 blockers appear as
 5 lines because the endpoint blocker is duplicated in Features 07 and 08. The
 enhancement count is 16, not the 17 stated at generation time; the 2026-09
 re-audit confirmed 33 distinct gaps closed with 0 open.)
 
-Top blockers — all FIXED as of 2026-08-22:
+Top blockers: all FIXED as of 2026-08-22:
 
 1. **Verify cache key omits headers.** FIXED: the verify cache now keys on a
    per-entry reached-header fingerprint (`src/rebrew/verify_hash.py:50`

@@ -1,16 +1,16 @@
-# MSVC 9.0 — codegen patterns
+# MSVC 9.0: codegen patterns
 
 MSVC 9.0 (VS 2008, CL 15.00.21022; SP1 = 15.00.30729).  First version to
 **unroll small loops** in the probe; /GS unchanged.
 
-**Profiles:** `msvc-9.0`, `msvc-9.0-sp1` — Rich builds 21022, 30729; linker
+**Profiles:** `msvc-9.0`, `msvc-9.0-sp1`; Rich builds 21022, 30729; linker
 9.0.
 
 ## Prologue & frame pointer
 
 - `/O2`: no frame pointer for simple functions; **`bsum` (unrolled)
   pushes `ebp` as an extra register** (`55` in `push ebp; push esi;
-  push edi` — ebp is used as a free temp while the frame stays
+  push edi`; ebp is used as a free temp while the frame stays
   esp-based).  /O1 keeps `55 8b ec` frames for some functions.
 
 ## /GS security cookie
@@ -22,12 +22,12 @@ MSVC 9.0 (VS 2008, CL 15.00.21022; SP1 = 15.00.30729).  First version to
 ## Loops
 
 - **Loop unrolling**: `bsum` (unsigned char sum over `len`) becomes a
-  peeled 2-iteration loop — `cmp edi,2; jl <epilogue>; dec edi; …`
+  peeled 2-iteration loop; `cmp edi,2; jl <epilogue>; dec edi; …`
   (74B vs 33B in VC 6.0).  `bigstack`'s 6000-iteration loop stays
   rolled but gains the `lea ebx,[ebx]` alignment nop at the head.
 - Loop-align nops: `lea ebx,[ebx]` (`8d 9b 00 00 00 00`) in
   `bigstack`; census also shows 2× `8d 64 24 00` (`lea esp,[esp]`) in
-  the same object — both forms coexist.
+  the same object, both forms coexist.
 
 ## Register conventions
 
@@ -37,15 +37,15 @@ MSVC 9.0 (VS 2008, CL 15.00.21022; SP1 = 15.00.30729).  First version to
 ## Integer division / String ops / Padding / Switch
 
 - Magic + post-shift division, `rep stosd`/`rep movsd` inlining,
-  dense jump tables — all as in [msvc-8.md](msvc-8.md).
+  dense jump tables: all as in [msvc-8.md](msvc-8.md).
 
 ## FPU / SSE
 
-- Pure x87 — unchanged from [msvc-8.md](msvc-8.md).
+- Pure x87: unchanged from [msvc-8.md](msvc-8.md).
 
 ## Stack probes
 
-- `mov eax,<size>; call __chkstk` — unchanged, see
+- `mov eax,<size>; call __chkstk`: unchanged, see
   [msvc-6.md](msvc-6.md).
 
 ## Optimization fingerprints
@@ -64,10 +64,10 @@ MSVC 9.0 (VS 2008, CL 15.00.21022; SP1 = 15.00.30729).  First version to
 - **Service pack:** 9.0 SP1 is codegen-identical to 9.0 RTM at `/Od`
   (probe5).  The `/O1`/`/O2` comparison is **blocked**: the SP1
   compiler needs `sched.dll` (C1350 "error loading dll"), and the DLL
-  was never vendored into any image — verified absent from the 9.0
+  was never vendored into any image; verified absent from the 9.0
   RTM, 9.0 SP1, 10.0, 10.0 SP1 and 11.0 images (a packaging defect,
   not a compiler behavior).  A workaround by staging `sched.dll` from
-  another image is not possible — no image has it.
+  another image is not possible: no image has it.
 
 ## Version deltas
 
@@ -75,35 +75,35 @@ MSVC 9.0 (VS 2008, CL 15.00.21022; SP1 = 15.00.30729).  First version to
   `bigstack` (already observed in 8.0).
 - To VC 10.0: nothing verified in codegen (identical census).
 
-## Probe12: static-helper inlining — verified positive
+## Probe12: static-helper inlining: verified positive
 
 Small static helpers inline at /O2 and /O1 (11–12B callers), matching
 the VC 7.0+ era marker.  Verified in probe12 (`f1`/`f2`/`fl`).
 
-## Probe13: string intrinsics + promotion — verified
+## Probe13: string intrinsics + promotion: verified
 
 - **strlen manual scan loop** at /O2 (`8d 50 01 8a 08 40 84 c9 75 f9
   2b c2`), the 7.0+ form.
 - **memcmp(8B) dword-compare loop** with `83 e8 04`/`83 c1 04`/
-  `83 c2 04` decrement+advance at /O2 — the 9.0/10.0 pair (8.0 uses
+  `83 c2 04` decrement+advance at /O2: the 9.0/10.0 pair (8.0 uses
   an ESI counter, 11.0 a 2-dword + byte-tail form).
 - **signed-char compare against the zero register in memory**
-  (`33 c0 38 44 24 04 0f 9c c0`) — 8.0+ form.
+  (`33 c0 38 44 24 04 0f 9c c0`): 8.0+ form.
 
-## Probe15: function boundaries + the 9.0 SP1 unblock — verified
+## Probe15: function boundaries + the 9.0 SP1 unblock: verified
 
-- **`/GS` cookie prologue** — `sub esp,0x44; mov eax,[__security_cookie];
-  xor eax,esp; mov [esp+0x40],eax` (`a1 <abs> 33 c4 89 44 24 40`) —
+- **`/GS` cookie prologue**: `sub esp,0x44; mov eax,[__security_cookie];
+  xor eax,esp; mov [esp+0x40],eax` (`a1 <abs> 33 c4 89 44 24 40`):
   the 8.0+ cookie-mix form, MSVC-unique among the probed toolchains
   (GCC/Zig/bcc32/Watcom emit no cookies).
-- **signed setcc** — `a < b` = `cmp ecx,[esp+8]` against MEMORY
+- **signed setcc**: `a < b` = `cmp ecx,[esp+8]` against MEMORY
   (`8b 4c 24 04 33 c0 3b 4c 24 08 0f 9c c0`), the 8.0+ form
   (5.0–7.1 load both operands; 2.0/4.x use branch + `mov eax,1`).
-- **VC 9.0 SP1 — the blocker STANDS (workaround retracted)** — a
+- **VC 9.0 SP1: the blocker STANDS (workaround retracted)**: a
   staged `sched.dll` from the XP SP1 SDK cross-tools
   (win2k-revival/downloads, x86) makes the SP1 cl.exe RUN, but the
   objects it emits are **IA64 machine-type** (COFF machine 0x200,
-  IA64 instruction bundles — verified in the section bytes) — the
+  IA64 instruction bundles; verified in the section bytes): the
   DLL is the wrong build and the "compile" never produced x86 code.
   The corpus generator surfaced this: the SP1 objects parse to zero
   x86 symbols, so the earlier "byte-identical to RTM on 54 probe
@@ -113,22 +113,22 @@ the VC 7.0+ era marker.  Verified in probe12 (`f1`/`f2`/`fl`).
   the RTM-vs-SP1 relationship for 9.0 is NOT part of the verified SP
   record.
 
-## Probe16: 64-bit division — verified
+## Probe16: 64-bit division: verified
 
-- **64-bit division = register-load + 4-push helper call** — the
+- **64-bit division = register-load + 4-push helper call**: the
   5.0–10.0 form; /O1 uses the compact 4× memory-push in every
-  version.  (The 9.0 SP1 comparison remains blocked — see the
+  version.  (The 9.0 SP1 comparison remains blocked; see the
   Probe15 note above.)
 
 ## Probe17: conventions + allocator behaviors
 
-- **Probe17 allocator/conventions**: `-1` register form; **address-taken params force FOUR callee-saves (ebx/ebp/esi/edi)** — the most aggressive of any version.  See RULES.md B7.
+- **Probe17 allocator/conventions**: `-1` register form; **address-taken params force FOUR callee-saves (ebx/ebp/esi/edi)**; the most aggressive of any version.  See RULES.md B7.
 
-- **Decomp idioms** — the probe19-28 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe28` records).
+- **Decomp idioms**: the probe19-28 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe28` records).
 
 ## Probe22: guild-rule verification (round 19)
 
-- **Probe22 (9.0)**: C24 `sete`+`neg` with memory compare; signed/unsigned `-1` compares verified; 36B memset unrolled stores + GS cookie from 10.0.  (9.0 SP1 remains blocked — sched.dll.)  See RULES.md C24/C25/E14/J4.
+- **Probe22 (9.0)**: C24 `sete`+`neg` with memory compare; signed/unsigned `-1` compares verified; 36B memset unrolled stores + GS cookie from 10.0.  (9.0 SP1 remains blocked; sched.dll.)  See RULES.md C24/C25/E14/J4.
 
 
 ## Probe23: Findings 23-36 shapes (round 20)
@@ -158,7 +158,7 @@ the VC 7.0+ era marker.  Verified in probe12 (`f1`/`f2`/`fl`).
 
 ## Probe28: decompedia/CODEGEN_PATTERNS claims (round 25)
 
-- **Probe28 (9.0)**: **short return becomes `mov eax,N` (no truncation — the 9.0+ width marker)**; memory compares; SP1 remains blocked.  See RULES.md C34/J4.
+- **Probe28 (9.0)**: **short return becomes `mov eax,N` (no truncation; the 9.0+ width marker)**; memory compares; SP1 remains blocked.  See RULES.md C34/J4.
 
 
 ## Verification
@@ -172,11 +172,11 @@ smoke `msvc-9.0/t.obj`.  `/GS` + unrolling reproduced at /O2.
   partial 7.0-8.0 form; `fp_f2d` (double→float) gains the
   `fld; fstp dword; fld dword` roundtrip (10.0-family).  Shares the
   8.0 %10 magic, fldz jne fpcmp and memory-add fastcall.  (9.0 sp1
-  remains unbuildable — the image lacks `sched.dll`, C1350; recorded
+  remains unbuildable; the image lacks `sched.dll`, C1350; recorded
   skip, corpus never had 9.0-sp1 rows.)  See RULES.md.
 ## Probe30: round-30 era markers (9.0)
 
 - **9.0 shares the 8.0 lines** (% magic, movzx bitfield, memory-add
-  64-bit, sub-chain switch, `a*5` still __allmul — the inline shld
-  comes at 10.0, H6).  (9.0 sp1 remains unbuildable — sched.dll,
+  64-bit, sub-chain switch, `a*5` still __allmul; the inline shld
+  comes at 10.0, H6).  (9.0 sp1 remains unbuildable; sched.dll,
   recorded skip.)  See RULES.md.
