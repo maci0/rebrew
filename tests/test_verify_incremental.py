@@ -181,32 +181,23 @@ class TestCompilerConfigHash:
 
         assert compiler_config_hash(cfg_a) != compiler_config_hash(cfg_b)
 
-    def test_includes_compare_logic_hash(self, tmp_path: Path) -> None:
+    def test_includes_compare_logic_hash(self, tmp_path: Path, monkeypatch: Any) -> None:
         """The hash must embed a content hash of the comparison/extraction
         modules, not just the (static during development) package version —
         a code fix that changes results must invalidate cached results."""
-        from rebrew.verify_hash import _compare_logic_hash
+        import rebrew.verify_hash as verify_hash
 
         cfg = _make_cfg(tmp_path)
         # Deterministic + includes the logic modules (stable across calls).
-        h1 = _compare_logic_hash()
-        h2 = _compare_logic_hash()
+        h1 = verify_hash._compare_logic_hash()
+        h2 = verify_hash._compare_logic_hash()
         assert h1 == h2
         assert len(h1) == 64
-        # The compiler hash embeds it.
-        assert (
-            compiler_config_hash(cfg)
-            != hashlib.sha256(
-                "|".join(
-                    [
-                        cfg.compiler_command,
-                        cfg.base_cflags,
-                        str(cfg.compiler_includes),
-                        str(cfg.compiler_libs),
-                    ]
-                ).encode()
-            ).hexdigest()
-        )
+        # The compiler hash embeds it: only the logic hash differs between the
+        # two calls, so the digests can differ only if it is hashed in.
+        before = compiler_config_hash(cfg)
+        monkeypatch.setattr(verify_hash, "_compare_logic_hash", lambda: "0" * 64)
+        assert compiler_config_hash(cfg) != before
 
 
 class TestResolvedOverridesMemo:

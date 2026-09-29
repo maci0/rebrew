@@ -954,11 +954,18 @@ class TestRunAllBatch:
 
         stubs = [self._stub(f"f{i}.c", f"0x1000{i:04x}") for i in range(1, 4)]
         monkeypatch.setattr("rebrew.match_run.find_all_stubs", lambda *a, **k: stubs)
+        finished = [threading.Event() for _ in stubs]
 
         def _fake_ga(stub, cfg, gens, pop, jobs, timeout, seeds, solutions_out=None, **_kw):
-            # Reverse-duration so completion order is the opposite of stub
-            # order; the flushed file must not follow it.
-            time.sleep(0.05 * (3 - int(stub.symbol[1])))
+            # Block so completion order is the opposite of stub order; the
+            # flushed file must not follow it.  Events, not a sleep gap: a
+            # tied gap leaves the property untested rather than failing.
+            i = int(stub.symbol[1])
+            if i < 3:
+                assert finished[i].wait(timeout=10), (
+                    f"stub {i} ran before stub {i + 1} finished: the stubs were not run in parallel"
+                )
+            finished[i - 1].set()
             if solutions_out is not None:
                 from rebrew.matcher import SolutionEntry
 

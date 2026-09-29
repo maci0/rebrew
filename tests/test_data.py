@@ -631,6 +631,10 @@ class TestFindDispatchTables:
         assert len(default_result) == len(none_stride_result)
         for dt, nt in zip(default_result, none_stride_result, strict=True):
             assert dt.num_entries == nt.num_entries
+            # Same entry count and run length is not "identical results": a
+            # scan that found different tables still satisfies the above.
+            assert dt.va == nt.va
+            assert dt.entries == nt.entries
 
     def test_larger_max_stride_merges_split_tables(self) -> None:
         """With a larger stride, a gap between two pointer runs can be bridged.
@@ -651,9 +655,10 @@ class TestFindDispatchTables:
 
         # Larger stride: the non-pointer slot is skipped over
         wide_tables = find_dispatch_tables(binary, sections, {}, max_stride=8)
-        # The first run of 3 is still detected; stride=8 means the gap slot is
-        # consumed in one step, landing back on valid pointers
-        assert len(wide_tables) >= 1
+        # stride=8 consumes the gap slot in one step, so the two runs come
+        # back as a single 6-entry table rather than a first-run-only result.
+        assert len(wide_tables) == 1, wide_tables
+        assert wide_tables[0].num_entries == 6
 
 
 class TestEstimateTypeSize:

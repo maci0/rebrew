@@ -139,7 +139,8 @@ def test_object_without_custom_comment_is_not_drift(tmp_path):
     have no per-file entry.
     """
     result = check(_tree(tmp_path, BUILD_MAKE))
-    assert all("three.c.obj" not in d["obj"] for d in result["drift"]), (
+    assert result["status"] == "ok", result
+    assert [d for d in result["drift"] if "three.c.obj" in d["obj"]] == [], (
         "an object with no recorded flags must not be reported"
     )
 

@@ -459,10 +459,9 @@ class TestMutationSuggestions:
         target = bytes.fromhex("55 8b ec 8b 45 08 5d c3")  # mov eax, [ebp+8]
         compiled = bytes.fromhex("55 8b ec 8b 45 0c 5d c3")  # mov eax, [ebp+0xc]
         result = analyze(target, compiled, {}, 0x401000)
-        assert "mutations" in result
-        # register-dominant verdict → register operators suggested.
-        if result["verdict"].startswith("REGISTER"):
-            assert result["mutations"]
+        # A pair with a real delta must come back with operators to try, not
+        # an empty list whatever category it is filed under.
+        assert result["mutations"], result["verdict"]
 
     def test_secondary_category_adds_operators(self) -> None:
         """A structural-dominant delta with a >=15% register component must

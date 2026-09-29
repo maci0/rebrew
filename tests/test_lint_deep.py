@@ -14,14 +14,16 @@ def _write(tmp_path: Path, name: str, content: str) -> Path:
 
 class TestLintFileEdgeCases:
     def test_unreadable_file(self, tmp_path: Path) -> None:
+        """An unreadable file reports E000, not the E001 a plain missing
+        annotation header would give. A directory named `unreadable.c` raises
+        the read error on every runner; chmod 0 does not, because root
+        bypasses the permission bits."""
         f = tmp_path / "unreadable.c"
-        f.write_text("data", encoding="utf-8")
-        f.chmod(0)
-        try:
-            result = lint_file(f)
-        finally:
-            f.chmod(0o644)
+        f.mkdir()
+        result = lint_file(f)
         assert not result.passed
+        assert [code for _line, code, _msg in result.errors] == ["E000"], result.errors
+        assert "Cannot read file" in result.errors[0][2]
 
     def test_old_format_header(self, tmp_path: Path) -> None:
         f = _write(

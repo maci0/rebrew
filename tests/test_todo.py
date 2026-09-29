@@ -103,6 +103,12 @@ class TestScoring:
         score = calculate_roi(150, None, None)
         assert score == 70.0
 
+    def test_out_of_range_match_pct_clamps_to_the_boundaries(self) -> None:
+        """A corrupt cache row above 100 would drive the base score below
+        zero and rank the function as easier than a fresh 0% one."""
+        assert calculate_roi(200, 150.0, None) == calculate_roi(200, 100.0, None)
+        assert calculate_roi(200, -20.0, None) == calculate_roi(200, 0.0, None)
+
 
 # ---------------------------------------------------------------------------
 # Collector tests
@@ -1657,6 +1663,24 @@ class TestProverCandidateFiltering:
         verify = {"0x00001000": SN(status="NEAR_MATCHING", match_percent=65.0, delta=17)}
         items = _collect_prover_candidates(existing, {0x1000: 50}, verify)
         assert items == []
+
+    def test_out_of_range_match_percent_clamps_to_zero(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A cached percent above 100 makes the estimated difference
+        negative, so without the clamp the size gate never fires and a badly
+        mismatched function is queued for the prover."""
+        from types import SimpleNamespace as SN
+
+        from rebrew.todo import _collect_prover_candidates
+
+        monkeypatch.setitem(sys.modules, "angr", SN())  # fake: treat as available
+        existing = self._existing("600")
+        verify = {"0x00001000": SN(status="NEAR_MATCHING", match_percent=150.0, delta=17)}
+        assert _collect_prover_candidates(existing, {0x1000: 600}, verify) == []
+        # The same row clamped to 100% is an exact match, still not provable.
+        verify["0x00001000"] = SN(status="NEAR_MATCHING", match_percent=100.0, delta=17)
+        assert _collect_prover_candidates(existing, {0x1000: 600}, verify) == []
 
     def test_metadata_size_preferred_over_ghidra(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from types import SimpleNamespace as SN

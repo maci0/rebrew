@@ -484,7 +484,8 @@ class TestRenameCli:
         assert result.exit_code == 0
         data = json.loads(result.stdout)
         assert data["dry_run"] is True
-        assert data["files_updated"] >= 0
+        # The count is what the run would rewrite, not what it did.
+        assert data["files_updated"] == 1
         # Dry run must not have rewritten the file.
         assert "new_fn" not in f.read_text(encoding="utf-8")
 

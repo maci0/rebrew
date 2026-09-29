@@ -110,12 +110,17 @@ class TestCompilerDefaults:
         for key in ("command", "includes", "libs", "cflags"):
             assert key in data, f"{profile} missing '{key}'"
 
-    @pytest.mark.parametrize("profile", ["msvc-6.0", "msvc-7.0", "clang-18.1.8", "gcc-14.2.0"])
-    def test_format_and_arch(self, profile: str) -> None:
-        """Every profile has format and arch."""
-        data = COMPILER_DEFAULTS[profile]
-        assert "format" in data
-        assert "arch" in data
+    def test_every_profile_has_a_usable_format_and_arch(self) -> None:
+        """A present-but-empty `format` is what makes a generated project
+        file unbuildable, so the value itself is asserted, over every shipped
+        profile rather than a sample of four."""
+        for name, data in COMPILER_DEFAULTS.items():
+            assert data["format"] in ("pe", "elf", "ne", "mz", "omf"), (
+                f"{name} format {data['format']!r}"
+            )
+            assert data["arch"].startswith("x86_") or data["arch"].startswith("mips"), (
+                f"{name} arch {data['arch']!r}"
+            )
 
     def test_msvc_6_0_uses_wine(self) -> None:
         assert "wine" in COMPILER_DEFAULTS["msvc-6.0"]["command"].lower()

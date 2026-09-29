@@ -102,17 +102,26 @@ def test_too_long_is_strictly_above_500_lines(tmp_path: Path) -> None:
 
 def test_unreadable_file_is_reported_not_raised(tmp_path: Path) -> None:
     """A file that cannot be read yields an error entry; a missing one does
-    not abort the whole scan."""
+    not abort the whole scan.
+
+    The read failure comes from a directory named `mod.py`, not from chmod
+    0o000: root bypasses the permission bits, so the chmod version asserted
+    nothing on the usual CI container.
+    """
+    path = tmp_path / "mod.py"
+    path.mkdir()
+    info = _analyse_file(path, tmp_path)
+    assert "cannot read" in info["error"]
+    assert "too_long" not in info
+
+
+def test_a_readable_file_reports_no_error(tmp_path: Path) -> None:
+    """The other side of the boundary: an error key appears only when the
+    read actually failed."""
     path = _write(tmp_path, "x = 1\n")
-    path.chmod(0o000)
-    try:
-        info = _analyse_file(path, tmp_path)
-    finally:
-        path.chmod(0o644)
-    if info.get("error") is not None:  # root bypasses the permission bits
-        assert "cannot read" in info["error"]
-    else:  # ran as root: the file read fine, and every field is present
-        assert info["file"] == "mod.py"
+    info = _analyse_file(path, tmp_path)
+    assert "error" not in info
+    assert info["file"] == "mod.py"
 
 
 # --- file collection --------------------------------------------------------

@@ -10,14 +10,13 @@ which resolves flags from ``rebrew-functions.toml``.  guild-rebrew's
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
 
 from rebrew.cli import EXIT_ERROR
-from rebrew.cmake_flags import _defines, app, collect
+from rebrew.cmake_flags import HEADER, _defines, app, collect
 from rebrew.config import ProjectConfig, load_config
 from rebrew.lint_cflags import codegen_cflags_key
 
@@ -121,23 +120,25 @@ def test_data_marker_does_not_count_as_a_function(tmp_path: Path) -> None:
     assert list(files.values()) == ["/O2 /Gd /Oy-"]
 
 
-def test_written_include_is_valid_cmake(tmp_path: Path) -> None:
-    """The emitted include must be something CMake can swallow."""
-    cfg = _project(
+def test_written_include_is_valid_cmake(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The emitted include must be something CMake can swallow.
+
+    Driven through the command, so the assertion reads the file the writer
+    actually produced; a hand-built copy of the f-string would agree with
+    itself no matter what the writer emitted.
+    """
+    _project(
         tmp_path,
         '["SERVER.0x10001000"]\ncflags = "/O2 /Gd /Ow"\n',
         {"a b.c": "// FUNCTION: SERVER 0x10001000\nint a(void) { return 0; }\n"},
     )
-    files, _p, _n = collect(cfg, "SERVER")
-    rel = next(iter(files)).relative_to(cfg.root).as_posix()
-    line = (
-        f'set_source_files_properties("${{CMAKE_CURRENT_SOURCE_DIR}}/{rel}"\n'
-        f'    PROPERTIES COMPILE_FLAGS "{files[next(iter(files))]}")\n'
-    )
-    assert re.fullmatch(
-        r'set_source_files_properties\("\$\{CMAKE_CURRENT_SOURCE_DIR\}/[^"]+"\n'
-        r'\s+PROPERTIES COMPILE_FLAGS "[^"]+"\)\n',
-        line,
+    monkeypatch.chdir(tmp_path)
+    out = tmp_path / "flags.cmake"
+    result = CliRunner().invoke(app, ["-o", str(out)])
+    assert result.exit_code == 0, result.output
+    assert out.read_text(encoding="utf-8") == HEADER + (
+        'set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/src/server_dll/a b.c"\n'
+        '    PROPERTIES COMPILE_FLAGS "/O2 /Gd /Ow")\n'
     )
 
 

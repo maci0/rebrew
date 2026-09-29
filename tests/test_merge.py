@@ -392,7 +392,11 @@ class TestMergeInputScanning:
         )
         assert result.exit_code == 0
         text = out.read_text(encoding="utf-8")
-        assert "fn_a" in text and "fn_b" in text
+        # Each source contributes its SYMBOL header and its definition, so a
+        # skipped input would show up as a doubled name, not just a present
+        # one.
+        assert text.count("fn_a") == 2
+        assert text.count("fn_b") == 2
 
     def test_wrong_extension_skipped(self, tmp_path: Path, monkeypatch: Any) -> None:
         _write(tmp_path / "a.txt", _single(0x1000, "_fn_a"))
@@ -407,7 +411,10 @@ class TestMergeInputScanning:
         )
         assert result.exit_code == 0
         text = out.read_text(encoding="utf-8")
-        assert "fn_a" in text and "fn_b" in text
+        # a.txt and a.c both define fn_a; only the .c one is read, so the
+        # name appears once. Merging both would double it.
+        assert text.count("fn_a") == 2
+        assert text.count("fn_b") == 2
 
     def test_duplicate_input_deduplicated(self, tmp_path: Path, monkeypatch: Any) -> None:
         _write(tmp_path / "a.c", _single(0x1000, "_fn_a"))

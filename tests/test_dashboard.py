@@ -3115,20 +3115,26 @@ class TestHostValidation:
 
         stamp = re.compile(r"(\d{2}):(\d{2}):(\d{2}) UTC")
         now = datetime.now(UTC)
+        instants = []
         for rendered, level in ((access_out.getvalue(), "INFO"), (error_out.getvalue(), "ERROR")):
             match = stamp.search(rendered)
             assert match is not None, rendered
             assert f" {level}" in rendered
             hh, mm, ss = (int(part) for part in match.groups())
-            # The line was written at most a second ago: the stamp is UTC, not
-            # the host's Europe/Warsaw wall clock.  A run straddling midnight
-            # UTC stamps the previous date, so a day either side counts.
-            stamped = datetime(now.year, now.month, now.day, hh, mm, ss, tzinfo=UTC)
-            delta = min(
-                abs((now - (stamped + timedelta(days=shift))).total_seconds())
+            instants.append(datetime(now.year, now.month, now.day, hh, mm, ss, tzinfo=UTC))
+        # Both streams are stamped in UTC, not in the host's Europe/Warsaw
+        # wall clock, and they were written seconds apart.  Comparing them to
+        # each other holds on any runner; comparing either to a clock read
+        # afterwards would fail on a loaded one.  A run straddling midnight
+        # UTC stamps the previous date, so a day either side counts.
+        access_at, error_at = instants
+        assert (
+            min(
+                abs((error_at - access_at + timedelta(days=shift)).total_seconds())
                 for shift in (-1, 0, 1)
             )
-            assert delta < 5, rendered
+            < 5
+        )
 
     def test_log_handler_dispose_restores_the_logger(self) -> None:
         """The attach is an effect: its inverse restores level, propagation,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -197,7 +198,6 @@ class TestLibraryCli:
         (lib / LIBRARY_METADATA_FILE).write_text('toolchain = "msvc-6.0"\n', encoding="utf-8")
         res = self._invoke("list", str(proj), "--json")
         assert res.exit_code == 0, res.output
-        import json
 
         payload = json.loads(res.output)
         assert len(payload["libraries"]) == 1
@@ -211,7 +211,10 @@ class TestLibraryCli:
         assert (lib / LIBRARY_METADATA_FILE).exists()
         shown = self._invoke("show", str(lib), "--json")
         assert shown.exit_code == 0
-        assert '"toolchain": "msvc-6.0"' in shown.output
+        payload = json.loads(shown.output)
+        assert payload["found"] is True
+        assert payload["toolchain"] == "msvc-6.0"
+        assert payload["cflags"] == "/O2 /Gd"
         removed = self._invoke("rm", str(lib))
         assert removed.exit_code == 0
         assert not (lib / LIBRARY_METADATA_FILE).exists()
@@ -222,7 +225,7 @@ class TestLibraryCli:
         (tmp_path / LIBRARY_METADATA_FILE).write_text('toolchain = "msvc-6.0"\n', encoding="utf-8")
         shown = self._invoke("show", str(lib), "--json")
         assert shown.exit_code == 0, shown.output
-        assert '"found": false' in shown.output
+        assert json.loads(shown.output)["found"] is False
 
     def test_set_library_with_preset_rejected(self, tmp_path: Path) -> None:
         lib = tmp_path / "lib"

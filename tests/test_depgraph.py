@@ -581,9 +581,14 @@ class TestRenderers:
         assert "Edges:" in result
         assert "RELOC" in result
         assert "STUB" in result
-        # Verify actual counts (3 nodes, 2 edges in sample)
-        assert "3" in result
-        assert "2" in result
+        # Verify actual counts (3 nodes, 2 edges in sample). The status
+        # buckets also print 1s and 2s, so a bare digit check would pass on
+        # any summary at all: pin the counts to their labelled lines.
+        assert "Nodes: 3 (" in result
+        assert "Edges: 2" in result
+        assert "  RELOC: 1" in result
+        assert "  STUB: 1" in result
+        assert "  UNKNOWN: 1" in result
 
     def test_summary_with_dispatch(self) -> None:
         """Summary reports dispatch node and edge counts when present."""

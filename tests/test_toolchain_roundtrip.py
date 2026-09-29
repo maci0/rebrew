@@ -13,6 +13,8 @@ locally (run `rebrew toolchain build <name>` first).
 
 from __future__ import annotations
 
+import os
+import uuid
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -75,11 +77,11 @@ def _compile_extract_compare(tmp_path: Path, toolchain: str, cflags: list[str]) 
     src.write_text(SNIPPET, encoding="utf-8")
     cfg = _cfg(tmp_path, toolchain)
     # The compile workdir must be docker-visible (mounted at /work), so it
-    # lives under the repo's .cache/ instead of pytest's tmp dir.
-    workdir = _REPO / ".cache" / "rt" / toolchain
+    # lives under the repo's .cache/ instead of pytest's tmp dir.  The name
+    # carries the pid and a fresh suffix: a shared per-toolchain directory
+    # would have two concurrent runs deleting each other's staged sources.
+    workdir = _REPO / ".cache" / "rt" / f"{toolchain}-{os.getpid()}-{uuid.uuid4().hex[:8]}"
     workdir.mkdir(parents=True, exist_ok=True)
-    for stale in workdir.iterdir():
-        stale.unlink(missing_ok=True)
 
     obj_path, err = compile_to_obj(cfg, src, cflags, workdir, use_cache=False)
     assert obj_path is not None, f"compile failed: {err}"
