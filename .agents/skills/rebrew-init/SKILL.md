@@ -18,7 +18,7 @@ graph TD
     Init{rebrew init<br/>--target + --guess-compiler} -->|done| Doctor{Doctor passes?<br/>rebrew doctor}
     Doctor -->|fail| Fix[Repair from doctor report<br/>rebrew toolchain pull &lt;profile&gt;]
     Fix --> Doctor
-    Doctor -->|pass| Skills[Check skill rendering<br/>.agents/skills/]
+    Doctor -->|pass| Skills[Check scaffold drift<br/>rebrew init --check]
     Skills --> Handoff[Hand off to rebrew-intake]
 ```
 
@@ -82,11 +82,13 @@ image missing: run `rebrew toolchain pull <profile>` (a docker image pull).
 rebrew-toolchains checkout, which is a long job and fails without that
 checkout, so ask the user before starting one.
 
-## Skill rendering check
+## Scaffold drift check
 
-`rebrew init` renders the packaged skills (plus any `REBREW_SKILLS_DIR`
-overlay) into `.agents/skills/`, substituting the target name. Confirm
-`.agents/skills/` holds every skill `rebrew skills list` reports.
+`rebrew init` renders AGENTS.md, PRINCIPLES.md, and the packaged skills (plus
+any `REBREW_SKILLS_DIR` overlay) into `.agents/skills/`, substituting the
+target name. Run `rebrew init --check` to report drift in any of them; it exits
+1 when a rendered file differs from the packaged source, so it is the check to
+run rather than comparing the tree by hand.
 
 ## Handoff
 

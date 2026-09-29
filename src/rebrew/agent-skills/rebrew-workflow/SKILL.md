@@ -7,14 +7,13 @@ description: >-
   graph), and the recon lane (`rebrew analyze`, `describe`, `diagnose`,
   `recommend`, `refactor`, `xrefs`). Triggers on 'reverse',
   'match function', 'implement function', 'decompile',
-  'skeleton', 'test function', 'verify', 'lint', 'todo', 'diff', 'asm',
-  'status', 'coverage', 'progress', 'blocker', 'flirt', 'crt-match',
-  'lib-match', 'library code', 'split file', 'merge files',
-  'one function per file', 'multi-function file', 'rename function',
-  'call graph', 'rebrew probe', 'rebrew similar', 'SOURCE: naked',
-  'doctor fails', 'round-trip', 'splice', 'rebuild the catalog',
-  'dashboard'. Hand off near-miss GA/prove to rebrew-matching; new binaries
-  to rebrew-intake; scaffold or profile choice to rebrew-init; globals/BSS to
+  'test function', 'todo', 'asm', 'status', 'coverage', 'progress', 'blocker',
+  'flirt', 'crt-match', 'lib-match', 'library code', 'one function per file',
+  'multi-function file', 'annotation format', 'FUNCTION marker',
+  'SOURCE: naked', 'migrate-markers', 'src/shared', 'shared marker',
+  'rebrew probe', 'rebrew similar', 'doctor fails', 'splice', 'dashboard'.
+  Hand off near-miss GA/prove to rebrew-matching; new binaries to
+  rebrew-intake; scaffold or profile choice to rebrew-init; globals/BSS to
   rebrew-data-analysis; Ghidra to rebrew-ghidra-sync.
 license: MIT
 ---
@@ -66,10 +65,14 @@ rebrew similar 0x10001000 --json        # Find structurally similar functions (s
 
 **Default to `rebrew todo --json`.** Each item has a ready `command`: run it.
 The categories above are interleaved by one continuous ROI score, not a fixed
-tier ladder; `documented` is audit-only and hidden from the default list.
-`extract-error` = symbol missing from `.obj`; fix the marker/definition before GA.
-`naked-reconstruction` (`// SOURCE: naked`) is byte-exact asm and stays listed until real C matches. `exact-only` (RELOC) and `postlink-mangled` are the work left to a build that is identical straight out of the toolchain: EXACT instead of masked, and raw-link bytes instead of postlink-rewritten ones. Any other `--category` value errors. BLOCKER text is the item's `blocker` field; there is no `blocked` category.
-`coverage` in JSON is the progress source of truth; `status --json` is cheap recon.
+tier ladder. `coverage` in JSON is the progress source of truth; `status --json`
+is cheap recon.
+
+- `documented`: audit-only, hidden from the default list.
+- `extract-error`: symbol missing from `.obj`; fix the marker/definition before GA.
+- `naked-reconstruction` (`// SOURCE: naked`): byte-exact asm, stays listed until real C matches.
+- `exact-only` (RELOC) and `postlink-mangled`: the work a build that comes straight out of the toolchain clears (EXACT instead of masked, raw-link bytes instead of postlink-rewritten ones).
+- Any other `--category` value errors. BLOCKER text is the item's `blocker` field; there is no `blocked` category.
 
 > [!IMPORTANT]
 > **Before starting a function, check it is not library code.** CRT/zlib in
@@ -159,9 +162,11 @@ and fallback size come from it, the same rule as diff/match/prove). Pass
 `--symbol` too to override the symbol explicitly; with no `--va`/`--symbol`/
 `--size`, every annotated function in the file is tested.
 
-**`--dry-run` never writes.** `test` single-file: compile + preview STATUS;
-`--all --dry-run`: list only. `match --dry-run` is batch-only (`--all`).
-`prove`/`verify --dry-run` preview STATUS/cache writes.
+**`--dry-run` previews without applying changes.** `test` single-file: compile
++ preview STATUS; `test --all --dry-run`: list only; `prove` / `verify`:
+preview STATUS and cache writes. **`match --dry-run` needs `--all`**: the
+single-function path honors it only together with `--seed-llm` / `--seed-kuna`,
+and otherwise runs the whole GA.
 
 `--watch` (`test`, `verify`, `diff`, `prove`, `match`, `sync`) re-runs on every
 save and never exits on its own. Start it only when the user wants to iterate
