@@ -1,5 +1,22 @@
 ## [Unreleased]
 
+### Changed
+- **The contributor pin on the sibling resembl checkout is `v3.1.1`.**
+  `RESEMBL_REF` / `RESEMBL_SHA`, the `uv-env` action defaults, `uv.lock` and
+  the bootstrap docs moved together, so `make setup` and `uv sync --locked`
+  accept a `../resembl` at the current release.
+- **The packaged agent skills carry no em dashes**, in `SKILL.md` or the
+  references; a project's rendered copy picks the rewording up on its next
+  `rebrew init`.
+- **`docs/mascot.png` has a transparent background**, so the README mascot no
+  longer sits in a white tile on a dark page.
+
+### Fixed
+- **A corrupt `function_structure.json` names its full path, and a
+  `FunctionEntry` row without `va` or `size` lists the keys it has.**  The
+  structure error printed only the file name, which every target's copy
+  shares; the entry error gave no hint what the row held.
+
 ## [2.17.0] - 2026-09-29
 
 ### Added
