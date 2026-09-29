@@ -8,8 +8,20 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from rebrew.metadata_model import MetadataEntry, MetadataValidationError
+from rebrew.metadata import METADATA_FIELDS
+from rebrew.metadata_model import FIELD_TO_ATTR, MetadataEntry, MetadataValidationError
 from rebrew.workspace.status import KNOWN_STATUSES
+
+
+def test_field_to_attr_covers_exactly_the_routing_table() -> None:
+    """A field routed into the store must have an apply-side attribute.
+
+    ``METADATA_FIELDS`` and ``FIELD_TO_ATTR`` are maintained by hand on either
+    side of the merge. A field added to one and not the other is written to
+    ``rebrew-functions.toml`` and then never overlays an Annotation, which is
+    silent: the value persists and nothing reads it.
+    """
+    assert set(FIELD_TO_ATTR) == {f.lower() for f in METADATA_FIELDS}
 
 
 def _entry(tmp_path: Path) -> MetadataEntry:

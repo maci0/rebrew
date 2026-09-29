@@ -455,6 +455,11 @@ _VOLATILE_RECORD_FIELDS = frozenset({"ts", "solved_at"})
 #: was meant to avoid.
 _TAIL_READ_BYTES = 1024 * 1024
 
+#: How far before the window the tail read reaches to cover the record the
+#: window opens inside.  A record is a few hundred bytes; this is the slack
+#: that keeps one oversized line from putting the whole tail out of reach.
+_TAIL_ALIGN_BYTES = 64 * 1024
+
 
 def _recent_records(path: Path) -> list[dict[str, Any]]:
     """Return the well-formed records in the tail window of *path*, oldest first.
@@ -465,12 +470,23 @@ def _recent_records(path: Path) -> list[dict[str, Any]]:
     try:
         with path.open("rb") as fh:
             fh.seek(0, os.SEEK_END)
-            fh.seek(max(0, fh.tell() - _TAIL_READ_BYTES))
+            size = fh.tell()
+            start = max(0, size - _TAIL_READ_BYTES)
+            # Reach back far enough to cover the record the window opens
+            # inside; its head is before `start`, so the window alone yields a
+            # truncated line that json cannot read and the repeat check misses.
+            aligned = max(0, start - _TAIL_ALIGN_BYTES)
+            fh.seek(aligned)
             tail = fh.read().decode("utf-8", errors="replace")
     except OSError:
         return []
+    lines = tail.splitlines()
+    if aligned:
+        # The reach-back does not know where a record starts either, so the
+        # first line is partial whenever the read clipped. Drop it alone.
+        lines = lines[1:]
     records: list[dict[str, Any]] = []
-    for line in tail.splitlines():
+    for line in lines:
         line = line.strip()
         if not line:
             continue

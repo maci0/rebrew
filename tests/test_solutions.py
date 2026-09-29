@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from rebrew.matcher import solutions as solutions_module
 from rebrew.matcher.solutions import (
     SolutionEntry,
     _normalize_cflags,
@@ -564,6 +565,26 @@ class TestGaRunHistory:
         run_batch()
         assert after_first == ["_f0", "_f1", "_f2", "_f3", "_f4"]
         assert [r["symbol"] for r in iter_ga_runs(project_root)] == after_first
+
+    def test_the_tail_window_keeps_the_record_it_cuts_into(self, project_root: Path) -> None:
+        # The dedupe reads a 1 MiB tail, so on a log this size the window
+        # starts mid-line.  Only the fragment of that first line is dropped;
+        # the record it was cut out of still has to be seen, or that one run
+        # duplicates on every replay.
+        p = project_root / ".rebrew" / "ga_runs.jsonl"
+        pad = (
+            json.dumps({"ts": "", "target": "S", "va": "0x2000", "symbol": "_pad"}) + "\n"
+        ).encode()
+        victim = (
+            json.dumps({"ts": "", "target": "S", "va": "0x1000", "symbol": "_victim"}) + "\n"
+        ).encode()
+        # Size the tail so the window's first byte lands one byte into the
+        # victim line: size - TAIL == offset(victim) + 1.
+        trailing = solutions_module._TAIL_READ_BYTES - len(victim) + 1
+        p.write_bytes(pad * 1000 + victim + b"\n" * trailing)
+        assert p.stat().st_size - solutions_module._TAIL_READ_BYTES == len(pad) * 1000 + 1
+        records = solutions_module._recent_records(p)
+        assert records[-1]["symbol"] == "_victim"
 
     def test_target_filter(self, project_root: Path) -> None:
         record_ga_run(project_root, target="SERVER", va=0x1000, symbol="_a", matched=True)
