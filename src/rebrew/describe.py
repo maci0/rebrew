@@ -102,7 +102,11 @@ def _collect_annotations(cfg: ProjectConfig) -> list[Annotation]:
                     metadata_dir=cfg.metadata_dir,
                 )
             )
-        except (OSError, KeyError, ValueError, TypeError):
+        except (OSError, KeyError, ValueError, TypeError) as exc:
+            # Dropping the file makes its functions read as unannotated, which
+            # is indistinguishable from a file that genuinely carries no
+            # annotations. Name it so a parse failure is visible.
+            logger.warning("describe: skipping %s: %s", cfile, exc)
             continue
     return annos
 

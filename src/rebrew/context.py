@@ -19,6 +19,7 @@ decompiler's context pane.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -34,6 +35,8 @@ from rebrew.struct_parser import (
     extract_type_definitions,
 )
 from rebrew.utils import atomic_write_text
+
+logger = logging.getLogger(__name__)
 
 #: Header the ``rebrew context`` document starts with.
 _CONTEXT_HEADER = (
@@ -97,7 +100,11 @@ def collect_context(cfg: Any, include_headers: bool = True) -> tuple[list[str], 
                 + [f"{sig};" for _name, sig in extract_function_signatures(path)]
                 + [f"{sig};" for sig in extract_function_prototypes(path)]
             )
-        except (OSError, ValueError, UnicodeDecodeError):
+        except (OSError, ValueError, UnicodeDecodeError) as exc:
+            # The file still counts in the returned file_count and contributes
+            # no declarations, so a silent skip reports a context built from N
+            # files that is missing one the caller has no way to notice.
+            logger.warning("context: skipping %s: %s", path, exc)
             continue
         for block in candidates:
             block = block.strip()

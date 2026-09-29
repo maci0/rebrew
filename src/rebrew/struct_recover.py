@@ -50,6 +50,7 @@ Usage::
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -67,6 +68,8 @@ from rebrew.cli import (
 )
 from rebrew.errors import RebrewError
 from rebrew.utils import atomic_write_text, fold_ident, parse_int_literal, read_source_text
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Evidence parsing
@@ -450,7 +453,10 @@ def existing_structs(sources: list[Path]) -> dict[str, str]:
                 m = re.search(r"typedef struct\s+\w+\s*\{.*?\}\s*(\w+)\s*;", definition, re.S)
                 if m:
                     out[m.group(1)] = definition
-        except OSError:
+        except OSError as exc:
+            # This map is the "already defined" set recovery checks against, so
+            # an unreadable source makes a duplicate type look absent.
+            logger.warning("struct-recover: cannot read %s: %s", src, exc)
             continue
     return out
 
