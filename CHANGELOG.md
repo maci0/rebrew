@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [2.17.2] - 2026-09-29
+
 ### Changed
 - **`docs/mascot.png` has a white outline around the art**, so the steam and
   the `A0 0D` glyphs, drawn dark for a white page, stay readable on a dark
