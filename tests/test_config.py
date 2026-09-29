@@ -1,5 +1,6 @@
 """Tests for the config loader and multi-target support."""
 
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,7 @@ from rebrew.config import (
     DEFAULT_LLM_TIMEOUT,
     MAX_LLM_MAX_REQUESTS,
     MAX_LLM_MAX_TOKENS,
+    MAX_RECOMPILE_RETRIES,
     ConfigError,
     ConfigKeyError,
     ConfigNotFoundError,
@@ -1183,6 +1185,47 @@ binary = "test.exe"
         ):
             cfg = load_config(root)
         assert cfg.recompile_retries == 2  # DEFAULT_RECOMPILE_RETRIES
+
+    def test_recompile_retries_clamps_above_ceiling(self, tmp_path: Path) -> None:
+        """A mistyped retry count must clamp, not multiply into a multi-hour build.
+
+        The value is a wall-clock budget (retries x capped backoff), so an
+        unclamped 20000 would retry one transient 503 for about 44 hours.
+        """
+        toml = """\
+[project]
+default_target = "main"
+
+[compiler]
+recompile_retries = 20000
+
+[targets.main]
+binary = "test.exe"
+"""
+        root = _make_project(tmp_path, toml)
+        with pytest.warns(
+            UserWarning, match=r"Expected at most 20 for compiler\.recompile_retries"
+        ):
+            cfg = load_config(root)
+        assert cfg.recompile_retries == MAX_RECOMPILE_RETRIES
+
+    def test_recompile_retries_accepts_the_ceiling(self, tmp_path: Path) -> None:
+        """The ceiling itself is a legal value and must not warn."""
+        toml = """\
+[project]
+default_target = "main"
+
+[compiler]
+recompile_retries = 20
+
+[targets.main]
+binary = "test.exe"
+"""
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always", ConfigWarning)
+            cfg = load_config(_make_project(tmp_path, toml))
+        assert cfg.recompile_retries == MAX_RECOMPILE_RETRIES
+        assert not [w for w in caught if "at most" in str(w.message)]
 
     def test_dead_config_keys_warn(self, tmp_path: Path) -> None:
         """Reserved/no-op keys ([compiler.profiles]) must warn at load — a user

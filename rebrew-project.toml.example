@@ -177,6 +177,8 @@ timeout = 60
 # recompile_emit_assembly = false
 
 # Re-attempts of a retryable remote-compile failure (blips, 5xx/429/408/425).
+# 0 disables retries; values above 20 clamp with a warning, since the count
+# multiplies into wall-clock time.
 # Default: 2
 # recompile_retries = 2
 

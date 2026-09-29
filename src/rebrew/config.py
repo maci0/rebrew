@@ -200,6 +200,13 @@ DEFAULT_PROJECT_JOBS = 4
 #: for ``ProjectConfig.recompile_retries``, its ``[compiler]`` fallback, and
 #: the ``getattr`` fallback in ``rebrew.compile``.
 DEFAULT_RECOMPILE_RETRIES = 2
+#: Highest ``[compiler] recompile_retries`` honored before clamping, on the
+#: same terms as :data:`MAX_LLM_MAX_REQUESTS`.  Each re-attempt waits
+#: ``retry_backoff_delay`` (capped at ``RETRY_BACKOFF_CAP``), so a value left
+#: unclamped is a wall-clock budget nobody sized: a mistyped 20000 turns one
+#: transient 503 into a compile that retries for about 44 hours before
+#: reporting the error it could have reported in seconds.
+MAX_RECOMPILE_RETRIES = 20
 
 #: Maximum C source line length for lint W027 (0 disables the check).  Single
 #: source for ``ProjectConfig.lint_max_line_length``, the
@@ -864,6 +871,11 @@ class ProjectConfig:
             raise ConfigError(f"project.jobs ({self.default_jobs}) must be >= 1")
         if self.compile_timeout is not None and self.compile_timeout < 1:
             raise ConfigError(f"compiler.timeout ({self.compile_timeout}) must be >= 1")
+        if not 0 <= self.recompile_retries <= MAX_RECOMPILE_RETRIES:
+            raise ConfigError(
+                f"compiler.recompile_retries ({self.recompile_retries}) must be "
+                f"0..{MAX_RECOMPILE_RETRIES}"
+            )
         if self.lint_max_line_length is not None and self.lint_max_line_length < 0:
             raise ConfigError(f"lint_max_line_length ({self.lint_max_line_length}) must be >= 0")
         if (
@@ -1193,6 +1205,27 @@ def _non_negative_int(value: Any, default: int, field_name: str) -> int:
             f"Expected non-negative integer for {field_name}, got {value!r}; using default {default}"
         )
         return default
+    return parsed
+
+
+def _non_negative_int_bounded(value: Any, default: int, field_name: str, *, maximum: int) -> int:
+    """Parse a non-negative integer capped at *maximum*, warning when it clamps.
+
+    The ceiling matters because the parsed value is a wall-clock budget, not a
+    threshold the consumer merely compares: ``rebrew.compile`` turns
+    ``recompile_retries`` into ``retries + 1`` attempts that each wait
+    ``retry_backoff_delay``, so the count multiplies directly into minutes a
+    build spends retrying one transient error. Same clamp-with-a-warning
+    treatment :func:`llm_max_requests` gives its own ceiling, so an operator
+    sees the value they wrote and what it resolved to rather than watching a
+    compile appear to hang.
+    """
+    parsed = _non_negative_int(value, default, field_name)
+    if parsed > maximum:
+        _config_warn(
+            f"Expected at most {maximum} for {field_name}, got {value!r}; clamping to {maximum}"
+        )
+        return maximum
     return parsed
 
 
@@ -2499,10 +2532,11 @@ def load_config(
         recompile_emit_assembly=_as_bool(
             compiler.get("recompile_emit_assembly"), False, "compiler.recompile_emit_assembly"
         ),
-        recompile_retries=_non_negative_int(
+        recompile_retries=_non_negative_int_bounded(
             compiler.get("recompile_retries", DEFAULT_RECOMPILE_RETRIES),
             DEFAULT_RECOMPILE_RETRIES,
             "compiler.recompile_retries",
+            maximum=MAX_RECOMPILE_RETRIES,
         ),
         # project-specific
         iat_thunks=_parse_int_list(tgt.get("iat_thunks", []), "iat_thunks"),
