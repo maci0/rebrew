@@ -18,6 +18,7 @@ from rebrew.utils import (
     RETRY_LOG_MESSAGE_CHARS,
     atomic_write_bytes,
     atomic_write_text,
+    binary_fingerprint,
     clear_source_text_memo,
     clip_span,
     container_runtime,
@@ -1777,3 +1778,25 @@ class TestRetryLogDetail:
         # terminal and reorder whatever it printed next to it.
         line = retry_log_detail(RuntimeError(f"before\x1b[31m{RLO}after"))
         assert line == "before\\x1b[31mafter"
+
+
+class TestBinaryFingerprint:
+    """The change detector the analysis caches and the IAT-region cache key on."""
+
+    def test_tracks_mtime_size_and_inode(self, tmp_path: Path) -> None:
+        binary = tmp_path / "app.exe"
+        binary.write_bytes(b"MZ")
+        fp = binary_fingerprint(binary)
+        assert fp == binary_fingerprint(str(binary))
+        st = binary.stat()
+        assert fp == f"{st.st_mtime_ns}:{st.st_size}:{st.st_ino}"
+
+    def test_changes_when_the_file_is_rewritten(self, tmp_path: Path) -> None:
+        binary = tmp_path / "app.exe"
+        binary.write_bytes(b"MZ")
+        before = binary_fingerprint(binary)
+        os.utime(binary, ns=(0, 0))
+        assert binary_fingerprint(binary) != before
+
+    def test_missing_file_is_empty(self, tmp_path: Path) -> None:
+        assert binary_fingerprint(tmp_path / "absent.exe") == ""

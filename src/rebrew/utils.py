@@ -575,6 +575,20 @@ def join_source_lines(original: str, lines: list[str]) -> str:
     return text + "\n" if original.endswith("\n") else text
 
 
+def binary_fingerprint(binary: str | Path) -> str:
+    """``mtime_ns:size:ino`` for *binary*, or ``""`` when unreadable.
+
+    The one cheap change detector the analysis caches key on: a recompile
+    that rewrites the file changes mtime or inode even when the bytes are
+    identical, and a copy of the same bytes gets its own inode.
+    """
+    try:
+        st = Path(binary).stat()
+    except OSError:
+        return ""
+    return f"{st.st_mtime_ns}:{st.st_size}:{st.st_ino}"
+
+
 def read_compile_source(filepath: Path) -> str:
     """Read *filepath* for a compile/GA round-trip (lossless byte identity).
 

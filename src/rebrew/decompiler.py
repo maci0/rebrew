@@ -40,7 +40,7 @@ from typing import Any
 
 from rebrew.config import expand_env_path, warn_env_dir
 from rebrew.registry import RegistryError
-from rebrew.utils import console, run_process_group, untrusted_literal
+from rebrew.utils import binary_fingerprint, console, run_process_group, untrusted_literal
 
 # ANSI escape code stripper
 _ANSI_RE = re.compile(r"\x1B\[[0-9;]*[a-zA-Z]")
@@ -139,14 +139,6 @@ def _re_analysis_key(tool: str) -> str:
     return digest
 
 
-def _binary_fingerprint(binary: Path) -> str:
-    """Fingerprint for *binary* (mtime_ns:size:ino), or empty when unreadable."""
-    try:
-        st = binary.stat()
-        return f"{st.st_mtime_ns}:{st.st_size}:{st.st_ino}"
-    except OSError:
-        return ""
-
 
 def _re_init_project(binary: Path, tool: str, root: Path) -> str | None:
     """Run full ``aaa`` analysis once and persist the project; return its dir."""
@@ -202,7 +194,7 @@ def _re_init_project(binary: Path, tool: str, root: Path) -> str | None:
         shutil.rmtree(proj_dir, ignore_errors=True)
         return None
     try:
-        bin_fp = _binary_fingerprint(binary)
+        bin_fp = binary_fingerprint(binary)
         Path(proj_dir, "rebrew_tool.sha256").write_text(
             f"{tool}\n{digest}\n{bin_fp}\n", encoding="utf-8"
         )
@@ -296,7 +288,7 @@ def _re_cached_project(binary: Path, tool: str, root: Path) -> str | None:
     """
     key = _re_project_key(binary, tool)
     tool_digest = _re_analysis_key(tool)
-    bin_fp = _binary_fingerprint(binary)
+    bin_fp = binary_fingerprint(binary)
     while True:
         stale: str | None = None
         with _RE_PROJECT_DIRS_LOCK:

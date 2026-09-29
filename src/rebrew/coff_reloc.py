@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from rebrew.errors import RebrewError
 from rebrew.sources import iter_sources
-from rebrew.utils import preset_module_key
+from rebrew.utils import binary_fingerprint, preset_module_key
 
 if TYPE_CHECKING:
     from rebrew.config import ProjectConfig
@@ -175,15 +175,6 @@ _IAT_REGION_CACHE_MAX = 16
 _iat_region_lock = threading.Lock()
 
 
-def _binary_fingerprint(binary: str | Path) -> str:
-    """``mtime_ns:size:ino`` for *binary*, or ``""`` when unreadable."""
-    try:
-        st = Path(binary).stat()
-    except OSError:
-        return ""
-    return f"{st.st_mtime_ns}:{st.st_size}:{st.st_ino}"
-
-
 def build_iat_region(cfg: ProjectConfig) -> frozenset[int]:
     """Return the set of import-related slot VAs to mask in comparisons.
 
@@ -215,7 +206,7 @@ def build_iat_region(cfg: ProjectConfig) -> frozenset[int]:
         for va in (getattr(cfg, "iat_thunks", None) or [])
         if isinstance(va, int) and va
     )
-    key = (str(binary), thunks, _binary_fingerprint(binary))
+    key = (str(binary), thunks, binary_fingerprint(binary))
     with _iat_region_lock:
         cached = _iat_region_cache.get(key)
         if cached is not None:
