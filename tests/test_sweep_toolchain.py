@@ -118,7 +118,7 @@ def test_toolchain_sweep_orders_best_first(monkeypatch, capsys) -> None:
         calls[cl_cmd] = good if "good" in cl_cmd else bad
         return _FakeRes(calls[cl_cmd])
 
-    monkeypatch.setattr("rebrew.match_sweep.build_candidate_obj_only", _fake_build)
+    monkeypatch.setattr("rebrew.matcher.compiler.build_candidate_obj_only", _fake_build)
     monkeypatch.setattr(
         "rebrew.match_sweep.score_candidate",
         lambda t, obj, rel, **kw: SimpleNamespace(total=0.0 if obj == good else 50.0),

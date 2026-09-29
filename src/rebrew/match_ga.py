@@ -23,7 +23,7 @@ import capstone
 
 from rebrew.compile_cache import CacheBackend, source_digest
 from rebrew.config import ProjectConfig
-from rebrew.matcher.compiler import build_candidate, build_candidate_obj_only
+from rebrew.matcher import compiler as compile_seam
 from rebrew.matcher.core import EXACT_SCORE_THRESHOLD, BuildResult, GACheckpoint
 from rebrew.matcher.mutator import (
     compute_population_diversity,
@@ -232,7 +232,7 @@ def live_mutation_weights(params: BuildParams) -> dict[str, float] | None:
     try:
         from rebrew.near_diag import analyze
 
-        res = build_candidate_obj_only(
+        res = compile_seam.build_candidate_obj_only(
             params.seed_src,
             params.cl,
             params.inc,
@@ -685,7 +685,7 @@ class BinaryMatchingGA:
                 return cast(BuildResult, cached)
 
         if self.compare_obj:
-            res = build_candidate_obj_only(
+            res = compile_seam.build_candidate_obj_only(
                 src,
                 self.cl_cmd,
                 self.inc_dir,
@@ -714,7 +714,7 @@ class BinaryMatchingGA:
                         f"linked-exe GA ({self.profile}) needs host wine — execution is "
                         "docker-only; use object comparison (default) instead"
                     )
-            res = build_candidate(
+            res = compile_seam.build_candidate(
                 src,
                 self.cl_cmd,
                 self.inc_dir,

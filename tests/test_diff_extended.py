@@ -51,7 +51,7 @@ def _patch_matcher(
     def _build(*_a: object, **_k: object) -> object:
         return SimpleNamespace(ok=True, obj_bytes=obj, reloc_offsets=[], error_msg="")
 
-    monkeypatch.setattr(matcher, "build_candidate_obj_only", _build)
+    monkeypatch.setattr(matcher.compiler, "build_candidate_obj_only", _build)
     monkeypatch.setattr(
         matcher,
         "diff_functions",
@@ -123,7 +123,7 @@ class TestRunDiff:
             return _summary()
 
         monkeypatch.setattr(
-            matcher,
+            matcher.compiler,
             "build_candidate_obj_only",
             lambda *a, **kw: SimpleNamespace(
                 ok=True, obj_bytes=b"\x00" * 100, reloc_offsets=[], error_msg=""

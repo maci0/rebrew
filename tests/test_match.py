@@ -1883,7 +1883,7 @@ class TestGaCeiling:
             built.append(src)
             return BuildResult(ok=True, obj_bytes=b"\x90", reloc_offsets={})
 
-        monkeypatch.setattr("rebrew.match_ga.build_candidate_obj_only", _fake_build)
+        monkeypatch.setattr("rebrew.matcher.compiler.build_candidate_obj_only", _fake_build)
         res = engine._compile_source("int f(void){return 0;}", use_memo=False)
         assert res.obj_bytes == b"\x90"
         assert built == ["int f(void){return 0;}"]
@@ -1926,7 +1926,7 @@ class TestLiveMutationFocus:
         from rebrew.match import live_mutation_weights
 
         monkeypatch.setattr(
-            "rebrew.match_ga.build_candidate_obj_only",
+            "rebrew.matcher.compiler.build_candidate_obj_only",
             lambda *a, **k: self._fake_build(b"\x55\x8b\xec"),
         )
         monkeypatch.setattr(
@@ -1944,13 +1944,12 @@ class TestLiveMutationFocus:
         as `BinaryMatchingGA._compile_source`, so one substituted compile
         covers every compile `rebrew match` makes and a simulated GA never
         reaches for a real compiler."""
-        import rebrew.match_ga as ga_mod
         from rebrew.match import live_mutation_weights
+        from rebrew.matcher import compiler as compile_seam
 
-        assert ga_mod.build_candidate_obj_only is not None
+        assert compile_seam.build_candidate_obj_only is not None
         monkeypatch.setattr(
-            ga_mod,
-            "build_candidate_obj_only",
+            "rebrew.matcher.compiler.build_candidate_obj_only",
             lambda *a, **k: self._fake_build(b"\x55\x8b\xec"),
         )
         monkeypatch.setattr(
@@ -1963,7 +1962,7 @@ class TestLiveMutationFocus:
         from rebrew.match import live_mutation_weights
 
         monkeypatch.setattr(
-            "rebrew.match_ga.build_candidate_obj_only",
+            "rebrew.matcher.compiler.build_candidate_obj_only",
             lambda *a, **k: self._fake_build(b"\x55\x8b\xec"),
         )
         monkeypatch.setattr("rebrew.near_diag.analyze", lambda *a, **k: {"mutations": []})
@@ -1973,7 +1972,7 @@ class TestLiveMutationFocus:
         from rebrew.match import live_mutation_weights
 
         monkeypatch.setattr(
-            "rebrew.match_ga.build_candidate_obj_only",
+            "rebrew.matcher.compiler.build_candidate_obj_only",
             lambda *a, **k: self._fake_build(None, ok=False),
         )
         assert live_mutation_weights(self._params(tmp_path)) is None
@@ -2124,7 +2123,8 @@ class TestFlagSweepDeadline:
 
         monkeypatch.setattr(sweep_mod, "flag_sweep", _record)
         monkeypatch.setattr(
-            sweep_mod, "build_candidate_obj_only", lambda *a, **k: SimpleNamespace(ok=False)
+            "rebrew.matcher.compiler.build_candidate_obj_only",
+            lambda *a, **k: SimpleNamespace(ok=False),
         )
 
         clock: list[float] = [100.0]

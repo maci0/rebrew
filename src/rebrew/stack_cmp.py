@@ -251,9 +251,9 @@ def run_stack_cmp(
         json_output,
     )
 
-    from rebrew.matcher import build_candidate_obj_only
+    from rebrew.matcher import compiler as compile_seam
 
-    res = build_candidate_obj_only(
+    res = compile_seam.build_candidate_obj_only(
         params.seed_src,
         params.cl,
         params.inc,

@@ -31,8 +31,8 @@ from rebrew.config import ProjectConfig
 from rebrew.match_batch import (
     StubInfo,
 )
+from rebrew.matcher import compiler as compile_seam
 from rebrew.matcher import (
-    build_candidate_obj_only,
     flag_sweep,
     score_candidate,
     structural_similarity,
@@ -390,7 +390,7 @@ def run_single_flag_sweep(
         error_exit(str(exc), json_mode=json_output)
 
     sim_res = None
-    res = build_candidate_obj_only(
+    res = compile_seam.build_candidate_obj_only(
         p.seed_src,
         p.cl,
         p.inc,
@@ -643,7 +643,7 @@ def run_single_toolchain_sweep(
     pre_norm_target, pre_target_mnems = precompute_target(p.target_bytes, cs_mode=cs_mode)
     results: list[tuple[float, bool, int, int, str]] = []
     for profile, cl_cmd, inc_dir in toolchains:
-        res = build_candidate_obj_only(
+        res = compile_seam.build_candidate_obj_only(
             p.seed_src,
             cl_cmd,
             inc_dir,

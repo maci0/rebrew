@@ -263,13 +263,13 @@ def run_diff(
     dry_run: bool = False,
 ) -> None:
     """Compile seed and show byte diff vs target. Shared with match.py."""
+    from rebrew.matcher import compiler as compile_seam
     from rebrew.matcher import (
-        build_candidate_obj_only,
         diff_functions,
         structural_similarity,
     )
 
-    res = build_candidate_obj_only(
+    res = compile_seam.build_candidate_obj_only(
         p.seed_src,
         p.cl,
         p.inc,

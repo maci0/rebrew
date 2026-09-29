@@ -1242,7 +1242,7 @@ class TestFlagSweepIncludeDirs:
 
         monkeypatch.setattr("rebrew.match_sweep.flag_sweep", _fake_flag_sweep)
         monkeypatch.setattr(
-            "rebrew.match_sweep.build_candidate_obj_only",
+            "rebrew.matcher.compiler.build_candidate_obj_only",
             lambda *a, **k: SimpleNamespace(ok=True, obj_bytes=b"\xc3", reloc_offsets=None),
         )
         p = SimpleNamespace(
@@ -1282,7 +1282,7 @@ class TestFlagSweepIncludeDirs:
 
         monkeypatch.setattr("rebrew.match_sweep.flag_sweep", _fake_flag_sweep)
         monkeypatch.setattr(
-            "rebrew.match_sweep.build_candidate_obj_only",
+            "rebrew.matcher.compiler.build_candidate_obj_only",
             lambda *a, **k: SimpleNamespace(ok=True, obj_bytes=b"\xc3", reloc_offsets=None),
         )
         p = SimpleNamespace(
@@ -1320,7 +1320,7 @@ class TestFlagSweepIncludeDirs:
 
         monkeypatch.setattr("rebrew.match_sweep.flag_sweep", _fake_flag_sweep)
         monkeypatch.setattr(
-            "rebrew.match_sweep.build_candidate_obj_only",
+            "rebrew.matcher.compiler.build_candidate_obj_only",
             lambda *a, **k: SimpleNamespace(ok=True, obj_bytes=b"\xc3", reloc_offsets=None),
         )
         p = SimpleNamespace(
@@ -1925,7 +1925,7 @@ class TestFlagSweepJsonShape:
             lambda *a, **k: [(0.05, "/O2"), (5000.0, "/O1")],
         )
         monkeypatch.setattr(
-            "rebrew.match_sweep.build_candidate_obj_only",
+            "rebrew.matcher.compiler.build_candidate_obj_only",
             lambda *a, **k: SimpleNamespace(ok=True, obj_bytes=b"\xc3", reloc_offsets=None),
         )
         p = SimpleNamespace(
@@ -2033,7 +2033,7 @@ class TestGABuildCacheKey:
             seen.append(cflags)
             return BuildResult(ok=False, error_msg="fake")
 
-        monkeypatch.setattr("rebrew.match_ga.build_candidate_obj_only", _fake_build)
+        monkeypatch.setattr("rebrew.matcher.compiler.build_candidate_obj_only", _fake_build)
 
         def _ga(cflags: str) -> BinaryMatchingGA:
             return BinaryMatchingGA(
@@ -2072,7 +2072,7 @@ class TestGABuildCacheKey:
             calls.append(symbol)
             return _fail_result()
 
-        monkeypatch.setattr("rebrew.match_ga.build_candidate_obj_only", _fake_build)
+        monkeypatch.setattr("rebrew.matcher.compiler.build_candidate_obj_only", _fake_build)
 
         def _ga(symbol: str) -> BinaryMatchingGA:
             return BinaryMatchingGA(
@@ -2115,7 +2115,7 @@ class TestGABuildCacheKey:
             num_jobs=1,
         )
         monkeypatch.setattr(
-            "rebrew.match_ga.build_candidate_obj_only",
+            "rebrew.matcher.compiler.build_candidate_obj_only",
             lambda *a, **k: BuildResult(ok=True, obj_bytes=b"\xc3"),
         )
         src = "int f(void) { return 0; }"
@@ -2142,7 +2142,7 @@ class TestGABuildCacheKey:
             calls.append(src)
             return BuildResult(ok=True, obj_bytes=b"\xc3")
 
-        monkeypatch.setattr("rebrew.match_ga.build_candidate_obj_only", _fake_build)
+        monkeypatch.setattr("rebrew.matcher.compiler.build_candidate_obj_only", _fake_build)
         src = "int f(void) { return 0; }"
 
         def _ga() -> BinaryMatchingGA:
@@ -2179,7 +2179,7 @@ class TestGABuildCacheKey:
             calls.append(src)
             return _fail_result()
 
-        monkeypatch.setattr("rebrew.match_ga.build_candidate_obj_only", _fake_build)
+        monkeypatch.setattr("rebrew.matcher.compiler.build_candidate_obj_only", _fake_build)
 
         ga = BinaryMatchingGA(
             seed_source="int f(void) { return 0; }",
@@ -2221,7 +2221,7 @@ class TestGABuildCacheKey:
         def _fake_build(src: str, *a: Any, **k: Any) -> Any:
             return _fail_result()
 
-        monkeypatch.setattr("rebrew.match_ga.build_candidate_obj_only", _fake_build)
+        monkeypatch.setattr("rebrew.matcher.compiler.build_candidate_obj_only", _fake_build)
         ga = BinaryMatchingGA(
             seed_source="int f(void) { return 0; }",
             target_bytes=b"\xc3",
@@ -2925,3 +2925,76 @@ class TestPairKeysMemo:
             self._corpus(path, f"f{i}")
             self._engine(path)._load_pair_keys()
         assert len(match_ga._PAIR_KEYS_MEMO) <= match_ga._PAIR_KEYS_MEMO_MAX
+
+
+class TestSingleCompileSeam:
+    """One compile edge, one binding: ``rebrew.matcher.compiler``.
+
+    Compiling is the only nondeterministic edge a replayed seed crosses, so a
+    simulator substitutes it in one place.  A module that binds the function
+    into its own namespace captures the object at import time, and the
+    substitution never reaches it: the simulated run shells out to a real
+    docker compiler on that path while the rest of it is faked.
+    """
+
+    def test_ga_and_flag_sweep_share_one_seam(self, tmp_path: Path, monkeypatch: Any) -> None:
+        from rebrew.match_ga import BinaryMatchingGA
+        from rebrew.matcher import BuildResult
+        from rebrew.matcher.compiler import flag_sweep
+
+        built: list[str] = []
+
+        def _fake_build(src: str, cl: str, inc: str, cflags: str, *a: Any, **k: Any) -> Any:
+            built.append(src)
+            return BuildResult(ok=True, obj_bytes=b"\x90", reloc_offsets={})
+
+        monkeypatch.setattr("rebrew.matcher.compiler.build_candidate_obj_only", _fake_build)
+        ga = BinaryMatchingGA(
+            seed_source="int f(void) { return 0; }",
+            target_bytes=b"\xc3",
+            cl_cmd="cl",
+            inc_dir="",
+            cflags="/O2",
+            symbol="_f",
+            out_dir=tmp_path,
+            num_generations=1,
+            pop_size=2,
+            num_jobs=1,
+        )
+        ga._compile_source("int f(void) { return 0; }", use_memo=False)
+        ga.close()
+        assert len(built) == 1, "the GA must compile through the substituted seam"
+        flag_sweep(
+            "int f(void) { return 0; }",
+            b"\xc3",
+            "cl",
+            "",
+            "/O2",
+            "_f",
+            n_jobs=1,
+            tier="quick",
+        )
+        assert len(built) > 1, "one substitution must serve the flag sweep too"
+
+    def test_no_module_rebinds_the_compile_seam(self) -> None:
+        """Only ``matcher.compiler`` defines the edge; no other module imports
+        the names by value (``from ... import build_candidate``), which would
+        freeze a second, unsubstitutable binding."""
+        import ast
+
+        root = Path(__file__).resolve().parent.parent / "src" / "rebrew"
+        owner = "rebrew.matcher.compiler"
+        offenders: list[str] = []
+        for path in sorted(root.rglob("*.py")):
+            rel = path.relative_to(root).with_suffix("")
+            module = "rebrew." + ".".join(rel.parts)
+            if module == owner or module.startswith("rebrew.matcher."):
+                continue
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ImportFrom) and any(
+                    alias.name in {"build_candidate", "build_candidate_obj_only"}
+                    for alias in node.names
+                ):
+                    offenders.append(f"{module}:{node.lineno}")
+        assert offenders == [], f"second compile bindings: {offenders}"

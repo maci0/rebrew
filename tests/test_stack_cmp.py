@@ -160,7 +160,9 @@ class TestRunStackCmp:
         monkeypatch.setattr(rebrew.match_sweep, "resolve_build_params", lambda *a, **k: params)
 
         res_cls = type("_Res", (), {"ok": True, "obj_bytes": obj_bytes, "error_msg": ""})
-        monkeypatch.setattr(rebrew.matcher, "build_candidate_obj_only", lambda *a, **k: res_cls())
+        monkeypatch.setattr(
+            "rebrew.matcher.compiler.build_candidate_obj_only", lambda *a, **k: res_cls()
+        )
         return src
 
     def test_frames_match_exit_zero(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -191,12 +193,14 @@ class TestRunStackCmp:
     def test_build_failure_exits_error(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import rebrew.matcher
+        import rebrew.matcher.compiler
 
         src = self._patch(monkeypatch, tmp_path, b"")
 
         bad_cls = type("_Bad", (), {"ok": False, "obj_bytes": None, "error_msg": "cl.exe failed"})
-        monkeypatch.setattr(rebrew.matcher, "build_candidate_obj_only", lambda *a, **k: bad_cls())
+        monkeypatch.setattr(
+            rebrew.matcher.compiler, "build_candidate_obj_only", lambda *a, **k: bad_cls()
+        )
         result = CliRunner().invoke(app, [str(src)])
         assert result.exit_code == EXIT_ERROR
 
