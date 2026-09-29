@@ -465,6 +465,8 @@ unrecognised one is ignored. A missing, malformed, or non-positive `limit`
 uses 100 and larger values clamp to 5000; a missing, malformed, or negative
 `offset` uses 0 and values past `VA_MAX` (rebrew's address ceiling) clamp to it,
 so `limit=0`, `limit=-1`, and `limit=abc` never silently return an empty page.
+Malformed is anything but ASCII digits under an optional minus sign, so
+`limit=1_0` falls back too rather than answering a page of ten.
 Clients read the applied values back from the envelope.
 
 > [!NOTE]

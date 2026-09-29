@@ -1701,6 +1701,27 @@ class TestIntParam:
         assert _int_param({"limit": ["50"]}, "limit", _DEFAULT_LIMIT) == 50
         assert _int_param({"limit": [str(_MAX_LIMIT + 1)]}, "limit", _DEFAULT_LIMIT) == _MAX_LIMIT
 
+    def test_only_ascii_digits_name_a_page_size(self) -> None:
+        """A value ``int`` reads as a number is not a number on the wire.
+
+        ``int("1_0")`` is 10 and ``int("٣")`` is 3, so a client that sent
+        something else was answered with a page size it never asked for and an
+        envelope whose ``limit`` silently disagreed with its request.  The
+        documented fallback is the honest answer for a value outside the
+        parameter's own schema.
+        """
+        from rebrew.dashboard import _DEFAULT_LIMIT, _MAX_LIMIT, _int_param
+
+        for raw in ("1_0", "10_00", "+5", "٥", "1e3", "0x10", "5 5", " 5 x", "3.0"):
+            assert _int_param({"limit": [raw]}, "limit", _DEFAULT_LIMIT) == _DEFAULT_LIMIT, raw
+        # A value past every ceiling still clamps to the page-size cap rather
+        # than falling back: it is a number, just a large one.
+        assert _int_param({"limit": ["9" * 40]}, "limit", _DEFAULT_LIMIT) == _MAX_LIMIT
+        # Surrounding whitespace is the one thing still read, as everywhere else
+        # in the query: a URL that lost a space to an encoding bug is the same
+        # number the client meant.
+        assert _int_param({"limit": [" 5 "]}, "limit", _DEFAULT_LIMIT) == 5
+
 
 class TestOffsetParam:
     """offset query parsing: zero valid, not clamped to page-size max."""
@@ -1717,6 +1738,23 @@ class TestOffsetParam:
         # Page-size cap must not apply: otherwise rows past _MAX_LIMIT are unreachable.
         past_cap = _MAX_LIMIT + 1
         assert _offset_param({"offset": [str(past_cap)]}, "offset") == past_cap
+
+    def test_only_ascii_digits_name_a_skip(self) -> None:
+        """The same rule ``limit`` follows, for the same reason.
+
+        ``offset=1_0`` skipping ten rows and ``offset=1_000_000`` skipping a
+        million are the two failure directions: a skip the client did not ask
+        for, and one past ``VA_MAX`` that parses at all.
+        """
+        from rebrew.dashboard import _offset_param
+        from rebrew.workspace.va import VA_MAX
+
+        for raw in ("1_0", "1_000_000", "+5", "٥", "1e3", "0x10"):
+            assert _offset_param({"offset": [raw]}, "offset") == 0, raw
+        assert _offset_param({"offset": [" 5 "]}, "offset") == 5
+        # A plain run of digits is a number however long: past the ceiling it
+        # clamps, which is an empty page rather than a 500.
+        assert _offset_param({"offset": ["9" * 40]}, "offset") == VA_MAX
 
 
 class TestLiteralSearch:
@@ -4448,6 +4486,48 @@ class TestOpenApiSpec:
         declared = _spec()["components"]["schemas"]["ErrorCode"]["enum"]
         for code in declared:
             assert code in from_http or f'"{code}"' in source, code
+
+    def test_history_timestamp_column_declares_only_what_the_server_serves(
+        self, tmp_path: Path
+    ) -> None:
+        """``changed_at`` is a plain string column, like every other text one.
+
+        The writer always records an RFC 3339 instant, and the writer's own
+        test pins the shape of what it writes.  A hand-edited document can
+        record none, and the row is then served as ``""`` rather than a
+        fabricated time, so the schema declares neither ``format: date-time``
+        nor a minimum length: a constraint the server can break is one a
+        generated client's own validator rejects the response on.
+        """
+        db_dir = tmp_path / "db"
+        _write_document(
+            db_dir,
+            "t",
+            """
+[[functions]]
+va = 4096
+name = "f_one"
+symbol = "sym_one"
+status = "EXACT"
+markerType = "FUNCTION"
+size = 16
+module = "MOD"
+
+[[history]]
+va = 4096
+old_status = "WIP"
+new_status = "EXACT"
+""",
+        )
+        row = Dashboard(db_dir).history("t")["history"][0]
+        assert row[4] == ""
+
+        column = _spec()["components"]["schemas"]["History"]["allOf"][1]["properties"]["history"][
+            "items"
+        ]["prefixItems"][4]
+        assert column["type"] == "string"
+        assert "format" not in column
+        assert "minLength" not in column
 
     def test_documented_envelope_fields_match_the_query_layer(self, dashboard: Dashboard) -> None:
         """The fields a schema declares are the fields the server populates."""

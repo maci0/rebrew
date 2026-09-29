@@ -70,7 +70,9 @@ which have no page (``offset`` is 0 and ``limit`` is the row count there).
 A client that pages on ``limit`` steps by ``count``, not by ``limit``.
 A missing, malformed, or non-positive ``limit`` uses 100 and larger values clamp
 to 5000; a missing, malformed, or negative ``offset`` uses 0 and values past
-rebrew's ``VA_MAX`` clamp to it.  Clients read the applied values back.
+rebrew's ``VA_MAX`` clamp to it.  Malformed is anything but ASCII digits under
+an optional minus sign, so ``limit=1_0`` falls back rather than answering a page
+of ten the client never asked for.  Clients read the applied values back.
 Successful 200 responses negotiate ``zstd`` then ``gzip`` (``Accept-Encoding``
 quality weights; explicit ``coding;q=0`` beats ``*``), carry an ``ETag`` (HTML
 or ``/app.js`` content hash, or a hash of every coverage document's stat plus
@@ -181,6 +183,7 @@ import hashlib
 import itertools
 import json
 import logging
+import re
 import socket
 import sys
 import threading
@@ -1782,23 +1785,55 @@ def _favicon_gzip() -> bytes:
     return precompress(_FAVICON_SVG_BYTES, "gzip") or _FAVICON_SVG_BYTES
 
 
+#: Digits past this are past every ceiling a paging parameter clamps to
+#: (``VA_MAX`` is twenty), so the answer is the ceiling without parsing, which
+#: also keeps ``int`` from refusing a long enough string outright.
+_PAGING_DIGIT_LIMIT = 64
+#: The only spelling a paging parameter accepts: ASCII digits, optionally under
+#: a minus sign.  ``int`` reads more than that — an underscore group (``1_0`` is
+#: 10), a ``+`` a client never sent, and any Unicode decimal digit — so a value
+#: that is not a number at all would be answered with a real page size instead of
+#: the documented fallback, which reads as the server ignoring the parameter.
+_PAGING_INT_RE = re.compile(r"-?[0-9]+")
+
+
+def _raw_param(params: dict[str, list[str]], name: str) -> str | None:
+    """The first value of *name*, or ``None`` when the parameter is absent.
+
+    The first value, because a repeated parameter is documented to take its
+    first: which one is a choice, and every parameter that reads the query has
+    to make the same one.
+    """
+    values = params.get(name)
+    return values[0] if values else None
+
+
+def _paging_int(raw: str, ceiling: int) -> int | None:
+    """*raw* as an integer no larger than *ceiling*, or ``None`` when it is not one.
+
+    ``None`` is the "fall back" answer every caller gives its default, so the
+    one place that decides what a number is decides it for every paging
+    parameter.
+    """
+    text = raw.strip()
+    if _PAGING_INT_RE.fullmatch(text) is None:
+        return None
+    if len(text.removeprefix("-")) > _PAGING_DIGIT_LIMIT:
+        return ceiling
+    return min(int(text), ceiling)
+
+
 def _int_param(params: dict[str, list[str]], name: str, default: int) -> int:
     """Parse a positive int page-size query param, clamped to ``[1, _MAX_LIMIT]``.
 
     Missing, empty, non-numeric, or non-positive values fall back to *default*
-    so ``limit=0`` / ``limit=-1`` never silently return an empty page.
+    so ``limit=0`` / ``limit=-1`` never silently return an empty page, and
+    ``limit=1_0`` never silently becomes a page of ten.
     """
-    values = params.get(name)
-    raw = values[0] if values else None
-    if raw is None or raw == "":
+    value = _paging_int(_raw_param(params, name) or "", _MAX_LIMIT)
+    if value is None or value <= 0:
         return default
-    try:
-        value = int(raw)
-    except (ValueError, TypeError):
-        return default
-    if value <= 0:
-        return default
-    return min(value, _MAX_LIMIT)
+    return value
 
 
 def _offset_param(params: dict[str, list[str]], name: str, default: int = 0) -> int:
@@ -1810,23 +1845,15 @@ def _offset_param(params: dict[str, list[str]], name: str, default: int = 0) -> 
     unreachable via ``limit``+``offset`` pagination.  They are clamped to
     ``VA_MAX`` so an oversized skip is an empty page, not a 500.
     """
-    values = params.get(name)
-    raw = values[0] if values else None
-    if raw is None or raw == "":
+    value = _paging_int(_raw_param(params, name) or "", VA_MAX)
+    if value is None or value < 0:
         return default
-    try:
-        value = int(raw)
-    except (ValueError, TypeError):
-        return default
-    if value < 0:
-        return default
-    return min(value, VA_MAX)
+    return value
 
 
 def _opt_query(params: dict[str, list[str]], name: str) -> str | None:
     """Return a stripped optional query value, or None when missing/blank."""
-    values = params.get(name)
-    raw = values[0] if values else None
+    raw = _raw_param(params, name)
     if raw is None:
         return None
     stripped = raw.strip()
@@ -1856,8 +1883,7 @@ def _module_query(params: dict[str, list[str]]) -> str | None:
     """
     if "module" not in params:
         return None
-    values = params["module"]
-    return (values[0] if values else "").strip()
+    return (_raw_param(params, "module") or "").strip()
 
 
 def _byte_count(value: Any) -> int:

@@ -659,8 +659,10 @@ components:
       required: false
       description: |
         Page size.  Missing, empty, non-numeric, or non-positive falls back
-        to 100; larger values clamp to 5000.  The applied value is read back
-        from the envelope's `limit`.
+        to 100; larger values clamp to 5000.  A number is ASCII digits under an
+        optional minus sign, so `1_0`, `+5`, and a non-ASCII digit are
+        non-numeric and fall back rather than naming a page the client did not
+        ask for.  The applied value is read back from the envelope's `limit`.
       schema: { type: integer, minimum: 1, maximum: 5000, default: 100 }
     Offset:
       name: offset
@@ -668,7 +670,8 @@ components:
       required: false
       description: |
         Rows to skip.  Missing, empty, non-numeric, or negative falls back to
-        0; values past the address ceiling (`VA_MAX`) clamp to it, so an
+        0, on the same "ASCII digits under an optional minus sign" rule as
+        `limit`; values past the address ceiling (`VA_MAX`) clamp to it, so an
         oversized skip is an empty page rather than a 500.  Read back from
         `offset`.
       schema: { type: integer, minimum: 0, default: 0 }
@@ -1039,12 +1042,15 @@ components:
                   - { type: string, description: Previous status, or "" for a VA's first transition. }
                   - { type: string }
                   - type: string
-                    format: date-time
-                    minLength: 1
                     description: |
-                      UTC instant of the change, as an RFC 3339 timestamp.  The
-                      column is NOT NULL and may not be empty, so a client
-                      never has to null-check this column.
+                      UTC instant of the change, as an RFC 3339 timestamp with
+                      an offset (`2026-09-30T09:41:02.123456+00:00`).  The
+                      writer always records one, so a client parses this
+                      column directly; a hand-edited document that records
+                      none reads as `""`, like every other absent text column.
+                      `format: date-time` and a minimum length are
+                      deliberately not declared, so a generated validator does
+                      not reject the row it has to render.
                 minItems: 5
                 maxItems: 5
 
