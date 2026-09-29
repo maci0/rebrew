@@ -29,6 +29,15 @@ if TYPE_CHECKING:
         DEFAULT_MCP_ENDPOINT as DEFAULT_MCP_ENDPOINT,
     )
     from .client import (
+        MAX_MCP_PAGES as MAX_MCP_PAGES,
+    )
+    from .client import (
+        MAX_MCP_RESPONSE_BYTES as MAX_MCP_RESPONSE_BYTES,
+    )
+    from .client import (
+        MCP_HEADERS as MCP_HEADERS,
+    )
+    from .client import (
         MCP_REQUEST_TIMEOUT_S as MCP_REQUEST_TIMEOUT_S,
     )
     from .client import (
@@ -56,10 +65,22 @@ if TYPE_CHECKING:
         end_mcp_session as end_mcp_session,
     )
     from .client import (
+        fetch_all_functions as fetch_all_functions,
+    )
+    from .client import (
+        fetch_all_symbols as fetch_all_symbols,
+    )
+    from .client import (
+        fetch_mcp_tool as fetch_mcp_tool,
+    )
+    from .client import (
         fetch_mcp_tool_raw as fetch_mcp_tool_raw,
     )
     from .client import (
         init_mcp_session as init_mcp_session,
+    )
+    from .client import (
+        is_idempotent_success as is_idempotent_success,
     )
     from .commands import (
         build_bookmark_commands as build_bookmark_commands,
@@ -73,6 +94,9 @@ if TYPE_CHECKING:
 
 _LAZY_EXPORTS: dict[str, str] = {
     "DEFAULT_MCP_ENDPOINT": ".client",
+    "MAX_MCP_PAGES": ".client",
+    "MAX_MCP_RESPONSE_BYTES": ".client",
+    "MCP_HEADERS": ".client",
     "MCP_REQUEST_TIMEOUT_S": ".client",
     "McpApplyAborted": ".client",
     "McpApplyResult": ".client",
@@ -82,8 +106,12 @@ _LAZY_EXPORTS: dict[str, str] = {
     "McpResponse": ".client",
     "apply_commands_via_mcp": ".client",
     "end_mcp_session": ".client",
+    "fetch_all_functions": ".client",
+    "fetch_all_symbols": ".client",
+    "fetch_mcp_tool": ".client",
     "fetch_mcp_tool_raw": ".client",
     "init_mcp_session": ".client",
+    "is_idempotent_success": ".client",
     "build_bookmark_commands": ".commands",
     "build_new_function_commands": ".commands",
     "resolve_program_path": ".commands",
@@ -92,6 +120,9 @@ _LAZY_EXPORTS: dict[str, str] = {
 
 __all__ = [
     "DEFAULT_MCP_ENDPOINT",
+    "MAX_MCP_PAGES",
+    "MAX_MCP_RESPONSE_BYTES",
+    "MCP_HEADERS",
     "MCP_REQUEST_TIMEOUT_S",
     "McpApplyAborted",
     "McpApplyResult",
@@ -103,8 +134,12 @@ __all__ = [
     "build_bookmark_commands",
     "build_new_function_commands",
     "end_mcp_session",
+    "fetch_all_functions",
+    "fetch_all_symbols",
+    "fetch_mcp_tool",
     "fetch_mcp_tool_raw",
     "init_mcp_session",
+    "is_idempotent_success",
     "resolve_ghidra_cli",
     "resolve_program_path",
 ]

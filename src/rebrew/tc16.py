@@ -49,6 +49,8 @@ class Tc16Error(RebrewError, RuntimeError):
 
 @dataclass
 class Tc16Result:
+    """A compiled Turbo C object and the compile log that produced it."""
+
     obj_path: Path
     log: str
 

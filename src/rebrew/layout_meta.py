@@ -90,6 +90,8 @@ _MAX_EXPORT_ENTRIES = 65536
 
 @dataclasses.dataclass
 class SectionMeta:
+    """One PE section header, in the field names the export format uses."""
+
     name: str
     va: int
     vs: int
@@ -110,6 +112,8 @@ class SectionMeta:
 
 @dataclasses.dataclass
 class ImportMeta:
+    """One import slot: by name, or by ordinal when *name* is ``None``."""
+
     dll: str
     name: str | None  # None = ordinal-only
     ordinal: int | None

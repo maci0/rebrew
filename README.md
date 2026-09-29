@@ -167,9 +167,12 @@ from rebrew.toolchain import TOOLCHAINS, get_toolchain
 for name, spec in sorted(TOOLCHAINS.items()):
     print(name, spec.family, spec.bits, spec.obj_ext, spec.image)
 
-# `list_toolchains()` is the other view of the same table: `rebrew toolchain
-# list --json` prints it verbatim, as a list of dicts. Reach for it when you
-# want the origin and the docker-present flag alongside each row.
+# `list_toolchains()` is the other view of the same table, one dict per
+# profile, with `origin` and the docker-present flag on each row. Reach for it
+# when you want those alongside the spec. `rebrew toolchain list --json`
+# prints `{"toolchains": list_toolchains(), "docker_available": <bool>}` —
+# the rows verbatim, wrapped in the envelope, so a consumer reads
+# `payload["toolchains"]` rather than parsing the table out of a list.
 
 # Byte-level matching uses the same entry as the CLI:
 #   from rebrew.compile import CompareResult, CompareStatus, compile_and_compare

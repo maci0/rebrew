@@ -828,6 +828,48 @@ class TestDocumentedLibrarySurface:
         assert missing == [], "documented modules do not exist: " + ", ".join(missing)
 
 
+class TestDocumentedToolchainRegistryViews:
+    """The README's two toolchain-registry views must stay distinct and true.
+
+    ``TOOLCHAINS`` (name -> spec) and ``list_toolchains()`` (a row per
+    profile, carrying ``origin`` and the docker flag) are what the library
+    section tells a consumer to enumerate, and it states the shape
+    ``rebrew toolchain list --json`` prints: the rows verbatim inside a
+    ``{"toolchains": ..., "docker_available": ...}`` envelope.  A consumer
+    reading ``payload["toolchains"]`` breaks if the envelope is dropped, and
+    one reading ``payload`` as the list breaks if it is ever flattened.
+    """
+
+    def test_readme_names_the_two_views_and_the_json_envelope(self) -> None:
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        assert "from rebrew.toolchain import TOOLCHAINS, get_toolchain" in readme
+        assert "list_toolchains()" in readme
+        assert '{"toolchains": list_toolchains(), "docker_available": <bool>}' in readme
+
+    def test_toolchain_list_json_wraps_the_rows(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """`--json` is the envelope, not the bare row list the README used to claim."""
+        from typer.testing import CliRunner
+
+        import rebrew.toolchain as toolchain_mod
+        import rebrew.toolchain_cli as cli_mod
+
+        monkeypatch.setattr(toolchain_mod, "docker_available", lambda: False)
+        monkeypatch.setattr(cli_mod, "docker_available", lambda: False)
+
+        result = CliRunner().invoke(cli_mod.app, ["list", "--json"])
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.output)
+        assert set(payload) == {"toolchains", "docker_available"}
+        assert payload["docker_available"] is False
+        assert payload["toolchains"] == toolchain_mod.list_toolchains()
+
+    def test_the_two_views_cover_the_same_profiles(self) -> None:
+        """A profile is either reachable by name from TOOLCHAINS or in a row."""
+        from rebrew.toolchain import TOOLCHAINS, list_toolchains
+
+        assert [row["name"] for row in list_toolchains()] == list(TOOLCHAINS)
+
+
 class TestPublicFailuresAreRecoverable:
     """Every public failure a consumer can hit is a ``RebrewError``.
 
@@ -960,6 +1002,23 @@ class TestGhidraLazyExportsStayTyped:
         import rebrew.ghidra as ghidra_mod
 
         assert ghidra_mod.__all__ == sorted(ghidra_mod._LAZY_EXPORTS)
+
+    def test_facade_carries_the_whole_client_surface(self) -> None:
+        """Every public name on the MCP client is reachable from the package.
+
+        The ghidra AGENTS.md sends a consumer to ``rebrew.ghidra`` and never
+        to ``rebrew.ghidra.client``.  A public client name the facade omits is
+        a name a consumer cannot reach by the documented route, and
+        ``rebrew/__init__.py`` advertises the package for the structural ReVa
+        ops, so the subset that shipped first was not a smaller contract.
+        """
+        import rebrew.ghidra as ghidra_mod
+        import rebrew.ghidra.client as client_mod
+
+        missing = [name for name in client_mod.__all__ if not hasattr(ghidra_mod, name)]
+        assert missing == [], (
+            "public MCP client names unreachable from rebrew.ghidra: " + ", ".join(missing)
+        )
 
     def test_lazy_export_resolves_to_the_defining_submodule(self) -> None:
         import rebrew.ghidra as ghidra_mod

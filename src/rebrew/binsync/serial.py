@@ -105,6 +105,7 @@ def add_stack_variable(
     size: int | None,
     addr: int,
 ) -> None:
+    """Attach a stack variable to a function artifact built by :func:`new_function`."""
     artifacts = _declib()
     func.stack_vars[offset] = artifacts.StackVariable(
         stack_offset=offset, name=name, type_=type_, size=size, addr=addr
@@ -125,21 +126,25 @@ def new_struct(
 
 
 def new_enum(name: str, members: dict[str, int]) -> Any:
+    """Build an Enum from ``{member_name: value}``."""
     artifacts = _declib()
     return artifacts.Enum(name=name, members=dict(members))
 
 
 def new_typedef(name: str, type_: str | None) -> Any:
+    """Build a Typedef aliasing *type_* under *name* (``None`` when unknown)."""
     artifacts = _declib()
     return artifacts.Typedef(name=name, type_=type_)
 
 
 def new_global_variable(addr: int, name: str, type_: str | None, size: int | None) -> Any:
+    """Build a GlobalVariable at *addr*; *size* is ``None`` when not recovered."""
     artifacts = _declib()
     return artifacts.GlobalVariable(addr=addr, name=name, type_=type_, size=size)
 
 
 def new_comment(addr: int, func_addr: int, comment: str) -> Any:
+    """Build a Comment hanging off *func_addr* at *addr*."""
     artifacts = _declib()
     return artifacts.Comment(addr=addr, func_addr=func_addr, comment=comment)
 

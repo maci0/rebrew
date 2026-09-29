@@ -160,6 +160,7 @@ def _apply_global_type_size(
 
 
 def strip_cdecl_prefix(name: str) -> str:
+    """Drop the MSVC ``_`` decoration BinSync records (``_Foo`` -> ``Foo``)."""
     return name[1:] if name.startswith("_") else name
 
 

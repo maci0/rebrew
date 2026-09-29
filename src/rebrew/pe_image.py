@@ -45,6 +45,8 @@ class _Section:
 
 @dataclass
 class PeImport:
+    """One PE import: the DLL plus a name, or an ordinal when unnamed."""
+
     dll: str
     name: str | None  # None = ordinal-only
     ordinal: int | None
