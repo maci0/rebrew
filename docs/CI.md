@@ -176,9 +176,9 @@ is not the same everywhere:
 
 | Job | Sync | Why |
 |-----|------|-----|
-| `lint`, `test`, `pre-commit` | `uv sync --locked --all-extras --group similarity` | the contributor env: extras on, so mypy sees the `prove` stubs and the `resembl` path dep resolves; `--locked` fails a `pyproject.toml` edit that never reached `uv.lock` |
+| `lint`, `test` | `uv sync --locked --all-extras --group similarity` | the contributor env: extras on, so mypy sees the `prove` stubs and the `resembl` path dep resolves; `--locked` fails a `pyproject.toml` edit that never reached `uv.lock` |
 | `package` | `UV_PROJECT_ENVIRONMENT=.venv-pkg uv sync --frozen --no-dev --no-default-groups --no-install-project`, then `uv pip install --python .venv-pkg --no-deps dist/*.whl` | runtime deps from the lock, then the built wheel layered on top; nothing from `src/`; `--frozen` rather than `--locked` because re-resolving reads `[tool.uv.sources]` and this job has no `../resembl` |
-| `cli-contract`, `toolchain-sync` | `uv sync --locked` | default groups only: the CLI surface being grepped and the toolchain drift check need no extra |
+| `cli-contract`, `toolchain-sync`, `pre-commit` | `uv sync --locked` | default groups only: the CLI surface being grepped, the toolchain drift check, and the pre-commit hooks need no extra. The hooks the `pre-commit` job runs are file hygiene, the two SKILL.md validators, the AST import checks, and shellcheck/yamllint; the only one that reaches an extra is the mypy hook, which it skips because the `lint` job runs `make mypy` |
 
 The workflow sets `_TYPER_FORCE_DISABLE_TERMINAL`, typer's switch for the
 forced-ANSI mode it enables whenever `GITHUB_ACTIONS` is set. Without it the

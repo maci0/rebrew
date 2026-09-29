@@ -1884,6 +1884,43 @@ class TestCiPins:
         for target in ("make lint", "make format-check", "make mypy"):
             assert target in lint_job, target
 
+    def test_pre_commit_job_installs_only_what_its_hooks_need(self) -> None:
+        """The extras exist for the mypy hook, and this job skips mypy.
+
+        ``uv sync --locked --all-extras --group similarity`` installs the
+        ``prove`` extra (angr, claripy, pyvex, the largest tree in the lock)
+        and the ``resembl`` path dependency, which the pre-commit job then
+        never uses: its ``SKIP`` list removes the mypy hook, the only hook
+        that type-checks against the extras, and the rest are file hygiene,
+        the two SKILL.md validators, the AST import checks (stdlib ``ast``,
+        no rebrew import), and shellcheck/yamllint. On a cold cache that is
+        minutes of install time for a gate that never runs.
+
+        A hook that later does need an extra has to come back here rather than
+        failing the job, so the install step and the skipped-hook list are
+        checked against each other.
+        """
+        import yaml
+
+        ci = CI_YML.read_text(encoding="utf-8")
+        job = ci.split("\n  pre-commit:\n", 1)[1].split("\n  # Package build:", 1)[0]
+        installs = re.findall(r"(?m)^\s*run: (uv sync .*)$", job)
+        assert installs == ["uv sync --locked"], installs
+
+        # The sibling checkout is still cloned: [tool.uv.sources] resolves
+        # resembl for any uv command, and the action's own default does it.
+        assert "clone-resembl" not in job
+
+        # Nothing this job runs may reach an extra. `agentskills` comes from
+        # skills-ref (a dev-group pin), and the AST tools import nothing from
+        # rebrew, so a hook added to the skip list is the only way the install
+        # shape has to change.
+        config = yaml.safe_load((ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8"))
+        skipped = {"ruff-check", "ruff-format", "mypy"}
+        ran = [h for r in config["repos"] for h in r["hooks"] if h["id"] not in skipped]
+        assert "angr" not in str(ran) and "claripy" not in str(ran)
+        assert re.search(r"(?m)^\s*SKIP: ruff-check,ruff-format,mypy$", job)
+
     @pytest.mark.parametrize(
         "path",
         [

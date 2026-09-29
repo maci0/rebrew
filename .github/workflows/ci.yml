@@ -183,7 +183,16 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Install dependencies
-        run: uv sync --locked --all-extras --group similarity
+        # Default groups only, not the contributor env. The hooks this job
+        # runs are file hygiene, the SKILL.md validators, the two AST import
+        # checks (stdlib `ast`, no rebrew import), and shellcheck/yamllint;
+        # none reaches an extra. The extras exist for the mypy hook, which
+        # `SKIP` below removes because the lint job runs `make mypy`, so
+        # `uv sync --all-extras` installed the `prove` extra (angr, claripy,
+        # pyvex: the largest tree in the lock) plus the resembl path dep for a
+        # gate this job never invokes. --locked still fails a pyproject.toml
+        # edit that never reached uv.lock, which is the point of the flag here.
+        run: uv sync --locked
       - name: Cache pre-commit hook environments
         # Remote hook repos (pre-commit-hooks) are cloned and installed on
         # first use; the key changes whenever a `rev:` pin does.
