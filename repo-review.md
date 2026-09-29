@@ -4,7 +4,7 @@ Your goal is to check that the claims those files make about the code match the 
 
 First decide if this review applies. It applies when the repository carries rule or contributor files that assert checkable facts about the code, that is at least one of `AGENTS.md`, `CLAUDE.md`, `src/rebrew/AGENTS.md.template`, any `src/rebrew/*/AGENTS.md`, `CONTRIBUTING.md`, `README.md`, `docs/`, `docs/adr/`, `.env.example`, or `rebrew-project.toml.example`. If none of those exist, print the skip result and stop without changes. The two example files are in scope because items 5 and 8 make claims about them: a variable listed only in `.env.example`, or a retired toolchain name still offered in the example, is drift the example carries on its own.
 
-Already gated, so do not re-report: `tests/test_docs_hygiene.py` asserts that every lint code in `src/rebrew/lint.py` appears in `docs/ANNOTATIONS.md`, that every `BUILTIN_COMPONENTS` name has a section in `docs/CLI.md` and is covered by `src/rebrew/agent-skills/`, that every `references/*.md` backtick inside a skill resolves, that every `[project.scripts]` entry imports and its module wires a callback, that every ADR carries a dated header, a `Status` from the three terms, and the Context/Decision/Consequences sections, that the ADR index lists every record on disk and no record that is absent, that every `(NNN-short-title.md)` link in an ADR or the index resolves, and that every PRD is listed with `Status`, `Date`, and `Owner`, that every `make <target>` a rule file or a contributor doc (`README.md`, `CONTRIBUTING.md`, `docs/ADDING_A_COMMAND.md`, `docs/CI.md`, `docs/DEVELOPMENT.md`) names is a Makefile target, that every repo-relative path a rule file cites under `docs/`, `tests/`, `tools/`, or `src/` with a `.md`, `.py`, `.toml`, `.json`, or `.cmake` suffix exists, and that every `rebrew <command>` (and subcommand) a rule file names is registered, and that the two sweep sizes `docs/PERFORMANCE.md` quotes (the read-only and mutating command counts, and the names of the mutating commands) match `tools/check_idempotency.py`, and that the `format: <doc>.md` label in `docs/architecture.drawio` names a doc that exists. A rule file is the root `AGENTS.md`, `src/rebrew/AGENTS.md.template`, or any `src/rebrew/*/AGENTS.md`. `tests/test_skills_sync.py` gates the rendered copy of the skills. Findings below are the claims those tests do not check. A suppression here is only as good as the test behind it: confirm the test still exists with `rg -n 'def test_' tests/test_docs_hygiene.py`, and when a named test has been renamed or dropped, treat its class as ungated and report it.
+Already gated, so do not re-report: `tests/test_docs_hygiene.py` asserts that every lint code in `src/rebrew/lint.py` appears in `docs/ANNOTATIONS.md`, that every `BUILTIN_COMPONENTS` name has a section in `docs/CLI.md` and is covered by `src/rebrew/agent-skills/`, that every `references/*.md` backtick inside a skill resolves, that every `[project.scripts]` entry imports and its module wires a callback, that every ADR carries a dated header, a `Status` from the three terms, and the Context/Decision/Consequences sections, that the ADR index lists every record on disk and no record that is absent, that every `(NNN-short-title.md)` link in an ADR or the index resolves, and that every PRD is listed with `Status`, `Date`, and `Owner`, that every `make <target>` a rule file or a contributor doc (`README.md`, `CONTRIBUTING.md`, `docs/ADDING_A_COMMAND.md`, `docs/CI.md`, `docs/DEVELOPMENT.md`) names is a Makefile target, that every repo-relative path a rule file cites under `docs/`, `tests/`, `tools/`, or `src/` with a `.md`, `.py`, `.toml`, `.json`, or `.cmake` suffix exists, and that every `rebrew <command>` (and subcommand) a rule file names is registered, and that the two sweep sizes `docs/PERFORMANCE.md` quotes (the read-only and mutating command counts, and the names of the mutating commands) match `tools/check_idempotency.py`, and that the `format: <doc>.md` label in `docs/architecture.drawio` names a doc that exists (`test_architecture_diagram_format_pointer_resolves`). A rule file is the root `AGENTS.md`, `src/rebrew/AGENTS.md.template`, or any `src/rebrew/*/AGENTS.md`. `tests/test_skills_sync.py` gates the rendered copy of the skills. Findings below are the claims those tests do not check. A suppression here is only as good as the test behind it: confirm the test still exists with `rg -n 'def test_' tests/test_docs_hygiene.py`, and when a named test has been renamed or dropped, treat its class as ungated and report it.
 
 Review the following:
 
@@ -17,12 +17,6 @@ Review the following:
    That list is a superset, not a manifest: pass only the paths that exist, since one
    absent path (`CLAUDE.md` is one in this repository) makes `rg` print an error and exit
    nonzero even though the remaining files are still searched.
-
-   One doc-level path claim is gated outside the rule files and outside that
-   backtick sweep: the `format: <doc>.md` label in `docs/architecture.drawio`,
-   which `test_architecture_diagram_format_pointer_resolves` covers. The other
-   doc names the diagram carries point into a sibling wiki no file here owns,
-   so do not chase those.
 
    `src/rebrew/AGENTS.md.template` is in that list on purpose: it is a rule file
    the path test reads, it is the copy `rebrew init` renders into a user
@@ -43,6 +37,16 @@ Review the following:
    rg -o --no-filename '\bmake ([a-z][a-z0-9-]+)' docs/ | sort -u
    rg -o --no-filename '^[a-zA-Z0-9][a-zA-Z0-9_.-]*:' Makefile | tr -d ':' | sort -u
    ```
+
+   The first sweep reads prose as well as commands, and today seventeen of its
+   hits are English words rather than targets: `make all`, `make any`, `make
+   check`, `make clear`, `make consumers`, `make is`, `make it`, `make many`,
+   `make one`, `make rebrew`, `make target`, `make targets`, `make that`,
+   `make the`, `make these`, `make this`, `make worse`. Drop those before
+   judging the rest, and keep an English word the `Makefile` does define.
+   `_PROSE_AFTER_MAKE` in `tests/test_docs_hygiene.py` is the exemption list
+   the two gated tests apply, and it covers six of the seventeen, so it is not
+   a filter you can apply on their behalf.
 
    A target named only in a historical record (`docs/adr/`, `docs/prd/`) is reported
    without an edit: those records state what was true when they were written, and the
