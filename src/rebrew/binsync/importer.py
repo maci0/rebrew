@@ -63,6 +63,12 @@ _UNSAFE_PROTOTYPE_RE = re.compile(r"[{};#\x00-\x08\x0a-\x1f\x7f]|/\*|\*/|//")
 #: A block comment, replaced by a space before the preprocessor-line test.
 _C_COMMENT_RE = re.compile(r"/\*.*?\*/", re.DOTALL)
 
+#: A field ``type`` value a synthesized struct member may carry.  BinSync
+#: state is collaborator-written, and the value is interpolated straight
+#: into the header body, so a member declared ``int; int evil(`` would
+#: otherwise compile as the next build's code.
+_C_TYPE_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_ ]*\*?\Z")
+
 app = typer.Typer(
     help="Import a BinSync state directory into rebrew metadata.",
     rich_markup_mode="rich",
@@ -187,10 +193,17 @@ def _inside_project(fp: Path, cfg: Any) -> bool:
 
 
 def is_safe_prototype(proto: str) -> bool:
-    """Whether a BinSync *proto* (trailing ``;`` allowed) is a bare declarator."""
+    """Whether a BinSync *proto* (trailing ``;`` allowed) is a bare declarator.
+
+    ASCII only: a declarator naming a non-ASCII identifier (``int café(void)``)
+    is refused for the same reason a body is, because it reaches a ``.c`` file
+    that the next build compiles.
+    """
     text = proto.strip()
     if text.endswith(";"):
         text = text[:-1]
+    if not text.isascii():
+        return False
     return not _UNSAFE_PROTOTYPE_RE.search(text)
 
 
@@ -1068,13 +1081,27 @@ def _definition_kind(entry: dict[str, object]) -> str:
 
 
 def _definition_text(name: str, entry: dict[str, object]) -> str:
-    """Raw definition text, synthesizing one from fields when absent."""
+    """Raw definition text, synthesizing one from fields when absent.
+
+    Synthesized member and field names must be C identifiers.  A BinSync
+    key is collaborator-written text and may spell one ``café`` or ``日本``,
+    which MSVC rejects in the header every later build reads, so an
+    unusable name yields no text and nothing lands.
+    """
+    if not is_safe_c_ident(name):
+        return ""
     definition = str(entry.get("definition") or "").strip()
     if definition:
         return definition
     members = entry.get("members")
     if isinstance(members, dict) and members:
-        lines = [f"\t{member} = {value}," for member, value in members.items()]
+        lines = [
+            f"\t{member} = {value},"
+            for member, value in members.items()
+            if is_safe_c_ident(str(member))
+        ]
+        if not lines:
+            return ""
         return "typedef enum {\n" + "\n".join(lines) + f"\n}} {name};"
     fields = entry.get("fields")
     if isinstance(fields, dict) and fields:
@@ -1082,7 +1109,11 @@ def _definition_text(name: str, entry: dict[str, object]) -> str:
             f"\t{f.get('type', 'int')!s} {fname};"
             for fname, f in fields.items()
             if isinstance(f, dict)
+            and is_safe_c_ident(str(fname))
+            and _C_TYPE_RE.match(str(f.get("type", "int")))
         ]
+        if not lines:
+            return ""
         return f"typedef struct {name}_s {{\n" + "\n".join(lines) + f"\n}} {name};"
     return ""
 
@@ -1105,6 +1136,12 @@ def _definition_is_valid(definition: str, name: str, entry: dict[str, object]) -
 
     # Shared state must not smuggle preprocessor lines into binsync_types.h.
     if _has_preprocessor_line(definition):
+        return False
+
+    # A C declaration is ASCII and its tag is an identifier.  A definition
+    # spelling a member ``café`` parses as a struct yet fails every later
+    # compile, so it takes the UNPARSED-comment path with the rest.
+    if not is_safe_c_ident(name) or not definition.isascii():
         return False
 
     if name in parse_structs(definition):
@@ -1183,7 +1220,7 @@ def import_type_definitions(
 
     if written == 0:
         return 0
-    atomic_write_text(header, "".join(blocks), encoding=header_encoding)
+    atomic_write_text(header, "".join(blocks), encoding=header_encoding, lenient=True)
     return written
 
 

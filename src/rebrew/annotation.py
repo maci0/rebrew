@@ -1839,7 +1839,7 @@ def update_annotation_key(
         modified = True
 
     if modified:
-        atomic_write_text(filepath, "".join(lines), encoding=encoding)
+        atomic_write_text(filepath, "".join(lines), encoding=encoding, lenient=True)
         return True
 
     return False

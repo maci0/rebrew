@@ -21,6 +21,7 @@ from rebrew.utils import (
     clip_span,
     container_runtime,
     detect_source_encoding,
+    encode_source_text,
     filename_component,
     floor_pct,
     is_safe_c_ident,
@@ -1678,3 +1679,22 @@ class TestSweepStaleTempDirs:
         assert not peer.is_alive()
         # The peer found the base claimed and never walked it again.
         assert walks == [base]
+
+
+def test_encode_source_text_keeps_legacy_bytes() -> None:
+    """A lone surrogate from a legacy byte round-trips to that byte."""
+    assert encode_source_text("Caf\udce9", "shift_jis") == b"Caf\xe9"
+
+
+def test_encode_source_text_substitutes_unencodable() -> None:
+    """A code point the target encoding lacks becomes ``?``, not an exception."""
+    assert encode_source_text("a�b", "shift_jis") == b"a?b"
+
+
+def test_atomic_write_text_lenient_legacy_round_trip(tmp_path: Path) -> None:
+    """A lenient write into a legacy source keeps its bytes and still lands."""
+    f = tmp_path / "legacy.c"
+    f.write_bytes(b"int caf\xe9_x;\n")
+    text, encoding = read_source_text(f)
+    atomic_write_text(f, text + "// שלום\n", encoding=encoding, lenient=True)
+    assert f.read_bytes() == b"int caf\xe9_x;\n// ????\n"

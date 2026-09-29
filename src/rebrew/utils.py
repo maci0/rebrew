@@ -815,6 +815,7 @@ def atomic_write_text(
     encoding: str = "utf-8",
     errors: str = "strict",
     mode: int = _DEFAULT_FILE_MODE,
+    lenient: bool = False,
 ) -> None:
     """Write text to a file atomically to prevent corruption on crash.
 
@@ -839,6 +840,8 @@ def atomic_write_text(
     *errors* mirrors :meth:`pathlib.Path.write_text`: use
     ``\"surrogateescape\"`` when *text* came from :func:`read_compile_source`
     so lone surrogates from legacy bytes round-trip instead of raising.
+    *lenient* encodes through :func:`encode_source_text` instead, for a
+    write-back into a file whose own bytes *text* may not cover.
 
     *mode* is the permission the temp file is created with, and therefore the
     mode ``os.replace`` installs.  Pass a restrictive one for a file holding a
@@ -848,7 +851,8 @@ def atomic_write_text(
     between the two calls.  Creating it restrictive also tightens a file a
     previous run left at the default, since the replacement inode carries *mode*.
     """
-    atomic_write_bytes(filepath, text.encode(encoding, errors=errors), mode=mode)
+    data = encode_source_text(text, encoding) if lenient else text.encode(encoding, errors=errors)
+    atomic_write_bytes(filepath, data, mode=mode)
     # Drop any stale path+mtime entries so a same-ns rewrite cannot serve
     # pre-write content to a later reader in this process.
     try:
@@ -859,6 +863,24 @@ def atomic_write_text(
         with _SOURCE_TEXT_MEMO_LOCK:
             for memo_key in tuple(_SOURCE_TEXT_MEMO_BY_PATH.get(resolved, ())):
                 _memo_drop(memo_key)
+
+
+def encode_source_text(text: str, encoding: str) -> bytes:
+    """Encode *text* for *encoding* so a legacy source survives the write-back.
+
+    ``surrogateescape`` first, which round-trips the lone surrogates
+    :func:`read_compile_source` produces for bytes the file never held as
+    UTF-8.  A code point the target encoding has no byte for still raises
+    there: U+FFFD from :func:`read_source_text`'s lossy decode, a Hebrew
+    letter in a Shift-JIS source, or a compiler diagnostic that quoted one.
+    Those fall back to ``?`` per character, because the write is an edit
+    placement into a file that already holds those bytes, and losing one
+    character beats losing the edit.
+    """
+    try:
+        return text.encode(encoding, errors="surrogateescape")
+    except UnicodeEncodeError:
+        return text.encode(encoding, errors="replace")
 
 
 def atomic_write_bytes(filepath: Path, data: bytes, mode: int = _DEFAULT_FILE_MODE) -> None:

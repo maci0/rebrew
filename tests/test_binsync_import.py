@@ -1168,3 +1168,57 @@ class TestSharedHeaderTypeDedup:
         hdr.write_text("typedef int H;\n", encoding="utf-8")
         cfg = SimpleNamespace(reversed_dir=rev, shared_dir=shared, source_ext=".c")
         assert hdr in _definition_files(cfg)
+
+
+class TestNonAsciiDefinitionRejected:
+    """A BinSync key that is not a C identifier never reaches the header.
+
+    The definition lands in binsync_types.h, which every later build
+    compiles, so an accented or CJK member name would break the whole
+    project rather than the one type.
+    """
+
+    def test_non_ascii_type_name_yields_no_text(self) -> None:
+        from rebrew.binsync.importer import _definition_text
+
+        assert _definition_text("café", {"fields": {"x": {"type": "int"}}}) == ""
+        assert _definition_text("日本", {"members": {"a": 0}}) == ""
+
+    def test_non_ascii_member_dropped(self) -> None:
+        from rebrew.binsync.importer import _definition_text
+
+        text = _definition_text("E_Mode", {"members": {"日本": 0, "ok": 1}})
+        assert text == "typedef enum {\n\tok = 1,\n} E_Mode;"
+
+    def test_field_type_must_be_a_c_type(self) -> None:
+        from rebrew.binsync.importer import _definition_text
+
+        entry = {"fields": {"f": {"type": "int; evil("}, "g": {"type": "unsigned char"}}}
+        assert _definition_text("S", entry) == "typedef struct S_s {\n\tunsigned char g;\n} S;"
+
+    def test_non_ascii_definition_imports_as_comment(self, tmp_path: Path) -> None:
+        from types import SimpleNamespace
+
+        from rebrew.binsync.importer import import_type_definitions
+
+        rev = tmp_path / "src" / "V1"
+        rev.mkdir(parents=True)
+        cfg = SimpleNamespace(
+            reversed_dir=rev, shared_dir=tmp_path / "none", metadata_dir=tmp_path, source_ext=".c"
+        )
+        applied = import_type_definitions(
+            cfg,
+            {"S": {"definition": "typedef struct {\n\tint x;\n} café;"}},
+            dry_run=False,
+            proposed=[],
+        )
+        assert applied == 1
+        header = (rev / "binsync_types.h").read_text(encoding="utf-8")
+        assert "UNPARSED" in header
+        assert "} café;" not in header
+
+    def test_non_ascii_prototype_refused(self) -> None:
+        from rebrew.binsync.importer import is_safe_prototype
+
+        assert not is_safe_prototype("int café(void)")
+        assert is_safe_prototype("int f(void)")

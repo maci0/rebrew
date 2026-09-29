@@ -252,7 +252,7 @@ def main(
             payload["compile_error"] = compile_error.splitlines()[0]
         if not dry_run and not result.error:
             dest = out or source_file.with_suffix(source_file.suffix + ".fixed.c")
-            atomic_write_text(dest, result.source, encoding=encoding)
+            atomic_write_text(dest, result.source, encoding=encoding, lenient=True)
             payload["wrote"] = str(dest)
         json_print(payload)
         if compile_error or result.error:
@@ -284,7 +284,7 @@ def main(
             raise typer.Exit(code=EXIT_ERROR)
         return
     dest = out or source_file.with_suffix(source_file.suffix + ".fixed.c")
-    atomic_write_text(dest, result.source, encoding=encoding)
+    atomic_write_text(dest, result.source, encoding=encoding, lenient=True)
     console.print(
         f"\n[green]Wrote {dest}[/green] ({len(result.changes)} fix(es), "
         f"{len(result.injected)} injection(s))"
