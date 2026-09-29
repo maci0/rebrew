@@ -535,14 +535,29 @@ def read_uploads(root: Path) -> dict[str, dict[str, str]]:
     return entries
 
 
-def recorded_upload(root: Path, digest: str, api: str) -> dict[str, str] | None:
+def recorded_upload(
+    root: Path, digest: str, api: str, *, now: float | None = None
+) -> dict[str, str] | None:
     """The ledger entry for *digest* on *api*, or None when there is none.
 
     An entry recorded against a different service is not a match: the same
     payload uploaded elsewhere produced a different scratch.
+
+    An entry past :data:`_UPLOADS_RETENTION_SECONDS` is not a match either.
+    The claim token owns a scratch decomp.me reclaims long before the ledger
+    prunes, and the prune runs only when a new upload is recorded, so a
+    project that stops uploading reuses a dead scratch indefinitely.  The
+    expiry is applied here, on the read that decides reuse.
+
+    *now* is the same instant ``record_upload`` would prune against, so a
+    caller (and a test) decides the same reuse the wall clock would.
     """
     entry = read_uploads(root).get(digest)
     if entry is None or entry.get("api") != api:
+        return None
+    if now is None:
+        now = time.time()
+    if not _is_recent(entry, now):
         return None
     return entry
 

@@ -47,7 +47,7 @@ from rebrew.match_sweep import (
     run_flag_sweep,
     select_annotation,
 )
-from rebrew.matcher import GACheckpoint, SolutionEntry, load_ga_runs
+from rebrew.matcher import GACheckpoint, SolutionEntry, iter_ga_runs, load_ga_runs
 from rebrew.matcher.core import EXACT_SCORE_THRESHOLD
 from rebrew.metadata_doc import metadata_write_lock
 from rebrew.utils import (
@@ -67,6 +67,19 @@ log = logging.getLogger(__name__)
 _BATCH_CATALOG_LOCK = threading.Lock()
 
 
+def _utc_now_iso() -> str:
+    """The current UTC instant, as the ``ts`` every other writer emits.
+
+    One rule for one field: the run log is read back by ``--skip-recent`` and
+    ``--ga-history``, which both parse it as an aware instant, so the writer
+    has to produce one (an offset and a fixed ``+00:00`` suffix, not ``Z``,
+    which :func:`datetime.fromisoformat` rejects on Python 3.10).
+    """
+    from datetime import UTC, datetime
+
+    return datetime.now(UTC).isoformat()
+
+
 class _GaRunRecord(NamedTuple):
     """One ``ga_runs.jsonl`` line, built by a batch worker and appended by the
     driver.
@@ -83,6 +96,10 @@ class _GaRunRecord(NamedTuple):
     score: float
     generations: int
     rng_seed: int | None
+    #: UTC instant the run finished, carried from the worker so the log dates
+    #: the run, not the moment the batch ended.  ``--skip-recent`` reads it as
+    #: the last time this stub was attempted.
+    ts: str
 
 
 def run_single_ga(
@@ -907,21 +924,39 @@ def show_ga_history(cfg: ProjectConfig, json_output: bool, *, target: str = "") 
     effectiveness triage: how many attempts, how many converged, score trends.
     """
 
-    records = load_ga_runs(cfg.root, target=target, limit=100000)
-    total = len(records)
-    matched = sum(1 for r in records if r.get("matched"))
-    scored = [
-        r["score"]
-        for r in records
-        if isinstance(r.get("score"), (int, float)) and math.isfinite(r["score"])
-    ]
+    # The aggregates read the whole log: `load_ga_runs` is a newest-N window,
+    # so a run count taken from it silently changes meaning once the log grows
+    # past that N, and the match percentage is a fraction of a window rather
+    # than of every run.  Only the printed tail is a window, and it says so.
+    total = 0
+    matched = 0
+    score_sum = 0.0
+    scored_count = 0
+    best_score: float | None = None
+    try:
+        for rec in iter_ga_runs(cfg.root, target=target):
+            total += 1
+            if rec.get("matched"):
+                matched += 1
+            score = rec.get("score")
+            if (
+                isinstance(score, (int, float))
+                and not isinstance(score, bool)
+                and math.isfinite(score)
+            ):
+                score_sum += float(score)
+                scored_count += 1
+                best_score = score if best_score is None else min(best_score, float(score))
+    except OSError:
+        log.warning("GA run history truncated: log unreadable", exc_info=True)
+    records = load_ga_runs(cfg.root, target=target, limit=10)
     summary: dict[str, Any] = {
         "total": total,
         "matched": matched,
         "matched_pct": floor_pct(matched, total),
-        "avg_score": round(sum(scored) / len(scored), 2) if scored else None,
-        "best_score": round(min(scored), 2) if scored else None,
-        "recent": records[:10],
+        "avg_score": round(score_sum / scored_count, 2) if scored_count else None,
+        "best_score": round(best_score, 2) if best_score is not None else None,
+        "recent": records,
     }
     if json_output:
         json_print(summary)
@@ -934,11 +969,11 @@ def show_ga_history(cfg: ProjectConfig, json_output: bool, *, target: str = "") 
     )
     if total:
         console.print(ratio_bar(matched, total))
-    if scored:
+    if scored_count:
         console.print(
             f"  Score (0 = exact): avg {summary['avg_score']:.2f}, best {summary['best_score']:.2f}"
         )
-    for rec in records[:10]:
+    for rec in records:
         mark = "[green]MATCH[/green]" if rec.get("matched") else "[dim]no match[/dim]"
         score = f" score={rec['score']}" if rec.get("score") is not None else ""
         console.print(
@@ -972,14 +1007,21 @@ def _filter_recently_run(
     if end.tzinfo is None:
         end = end.replace(tzinfo=UTC)
     cutoff = end - timedelta(hours=hours)
-    records = load_ga_runs(cfg.root, target=getattr(cfg, "target_name", ""), limit=100000)
     recent_vas: set[str] = set()
-    for rec in records:
-        dt = _as_utc_instant(rec.get("ts", ""))
-        if dt is None:
-            continue
-        if dt >= cutoff:
-            recent_vas.add(str(rec.get("va")))
+    # The whole log, not a newest-N window: the window's oldest record is the
+    # one that decides the answer, and a bounded read drops it first, so a
+    # --skip-recent window wider than the windowed read re-runs stubs the log
+    # already says were attempted.  Streaming keeps the memory flat.
+    try:
+        for rec in iter_ga_runs(cfg.root, target=getattr(cfg, "target_name", "")):
+            dt = _as_utc_instant(rec.get("ts", ""))
+            if dt is None:
+                continue
+            if dt >= cutoff:
+                recent_vas.add(str(rec.get("va")))
+    except OSError:
+        log.warning("GA run log unreadable; --skip-recent keeps every stub", exc_info=True)
+        return stubs
     if not recent_vas:
         return stubs
     kept = [s for s in stubs if s.va not in recent_vas]
@@ -1364,6 +1406,9 @@ def run_all(
         # The outcome is recorded by the caller, in stub order: appending
         # from the worker would put thread completion order into the log, so
         # the same --seed replays to a different ga_runs.jsonl.
+        # The stamp is taken here, where the run just finished.  A batch
+        # appends after the last stub returns, so a stamp taken there would
+        # date a 30-hour batch's 500 records to one hour-30 instant.
         record = _GaRunRecord(
             target=getattr(cfg, "target_name", ""),
             va=stub.va,
@@ -1372,6 +1417,7 @@ def run_all(
             score=best_score,
             generations=generations_run,
             rng_seed=used_seed,
+            ts=_utc_now_iso(),
         )
         return stub, matched, output_summary, record, stub_solutions
 

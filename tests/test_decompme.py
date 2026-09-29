@@ -834,6 +834,25 @@ class TestUploadLedger:
         entry = decompme.read_uploads(tmp_path)[digest]
         assert entry["at"] == "1700000000.0"
 
+    def test_expired_entry_is_not_reused_without_a_new_upload(self, tmp_path: Path) -> None:
+        """The claim token owns a scratch decomp.me reclaims; age it out on read.
+
+        The prune only runs inside ``record_upload``, so a project that stops
+        uploading reused a dead scratch forever.
+        """
+        digest = decompme.scratch_digest(self._payload(), "https://decomp.me")
+        recorded = 1_700_000_000.0
+        decompme.record_upload(tmp_path, digest, "abc", "tok", "https://decomp.me", now=recorded)
+        aged = recorded + decompme._UPLOADS_RETENTION_SECONDS + 1
+        assert decompme.recorded_upload(tmp_path, digest, "https://decomp.me", now=aged) is None
+        # The entry itself is still on disk: expiry is a reuse decision, the
+        # prune owns removal.
+        assert digest in decompme.read_uploads(tmp_path)
+        assert (
+            decompme.recorded_upload(tmp_path, digest, "https://decomp.me", now=recorded)
+            is not None
+        )
+
     def test_expired_entries_are_pruned(self, tmp_path: Path) -> None:
         digest = decompme.scratch_digest(self._payload(), "https://decomp.me")
         decompme.record_upload(tmp_path, digest, "abc", "tok", "https://decomp.me")

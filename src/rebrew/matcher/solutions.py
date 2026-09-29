@@ -535,6 +535,7 @@ def record_ga_run(
     source_sha: str = "",
     mutations: list[str] | None = None,
     solved_at: str = "",
+    ts: str = "",
 ) -> Path:
     """Append one GA outcome to ``.rebrew/ga_runs.jsonl`` (append-only).
 
@@ -550,9 +551,16 @@ def record_ga_run(
 
     The record is on disk before this returns (see :func:`_append_durable`):
     the log is the only copy of a run that cost hours to produce.
+
+    *ts* / *solved_at* are the UTC instant the run itself finished, supplied
+    by a batch worker that still holds it.  Stamping them here instead would
+    date every record in a batch to the moment the batch ended, so a 30-hour
+    ``match --all`` files 500 runs under one hour-30 timestamp and
+    ``--skip-recent`` then re-runs the ones that finished 30 hours ago.
     """
+    finished = ts or datetime.now(UTC).isoformat()
     record: dict[str, Any] = {
-        "ts": datetime.now(UTC).isoformat(),
+        "ts": finished,
         "target": target,
         "va": str(va),
         "symbol": symbol,
@@ -576,7 +584,7 @@ def record_ga_run(
             record["source_sha"] = source_sha
         if mutations:
             record["mutations"] = list(mutations)
-        record["solved_at"] = solved_at or datetime.now(UTC).isoformat()
+        record["solved_at"] = solved_at or finished
     p = _ensure_runs_dir(project_root)
     line = json.dumps(record) + "\n"
     with _ga_runs_append_lock(p):

@@ -765,10 +765,21 @@ class TestRunAllBatch:
             return True, "MATCHED", 0.0, 3, 1234
 
         def _fake_record(
-            root, *, target, va, symbol, matched, score=None, generations=0, rng_seed=None
+            root,
+            *,
+            target,
+            va,
+            symbol,
+            matched,
+            score=None,
+            generations=0,
+            rng_seed=None,
+            ts="",
         ):
             calls.append((str(root), target, va, symbol, matched, score, generations, rng_seed))
+            stamps.append(ts)
 
+        stamps: list[str] = []
         monkeypatch.setattr("rebrew.match_run._run_one_stub_ga", _fake_ga)
         monkeypatch.setattr("rebrew.matcher.record_ga_run", _fake_record)
         matched, failed = self._run(self._cfg(tmp_path), json_output=True)
@@ -777,6 +788,11 @@ class TestRunAllBatch:
         # reports avg/best score null for every batch run; the seed makes the
         # stub replayable with --seed.
         assert calls == [(str(tmp_path), "T", "0x10001000", "a.c", True, 0.0, 3, 1234)]
+        # The run's own instant, not the batch's: a stamp taken at append time
+        # dates every record in a multi-hour batch to one moment.
+        from datetime import datetime
+
+        assert datetime.fromisoformat(stamps[0]).tzinfo is not None
 
     def test_failed_stub_does_not_abort_batch(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

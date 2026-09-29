@@ -1618,7 +1618,10 @@ def check_binsync_state(cfg: ProjectConfig) -> CheckResult:
         proc = run_git(state_path, "log", "-1", "--format=%ct", timeout=10)
         if proc.returncode == 0 and proc.stdout.strip():
             last = datetime.fromtimestamp(int(proc.stdout.strip()), tz=UTC)
-    except (ValueError, OverflowError):
+    # OSError, not ValueError: a %ct outside the platform's range raises
+    # [Errno 75] on Windows and musl.  A commit stamped years ahead (a
+    # clock-skewed CI commit, GIT_COMMITTER_DATE set forward) reaches that.
+    except (OSError, ValueError, OverflowError):
         last = None
     if last is not None:
         # Absolute elapsed time between UTC instants: DST on the host cannot

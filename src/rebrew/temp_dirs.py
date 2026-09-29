@@ -87,11 +87,13 @@ def on_ram_filesystem(path: Path) -> bool:
     return best is not None and best[1] in _RAM_FS_TYPES
 
 
-#: A sandbox left in the shared base is presumed abandoned once nothing has
-#: touched it for this long.  Long enough that a live rebrew process (whose
-#: compiles are bounded by ``--timeout-min``) never has its own sandbox swept
-#: from under it, short enough that a host that hard-kills runs does not fill
-#: the cache dir with multi-GB stragglers.
+#: A sandbox left in the shared base is presumed abandoned once nothing under
+#: it has been touched for this long.  Long enough that a live rebrew process
+#: (whose compiles are bounded by ``--timeout-min``) never has its own sandbox
+#: swept from under it, short enough that a host that hard-kills runs does not
+#: fill the cache dir with multi-GB stragglers.  Measured over the subtree
+#: (:func:`_newest_mtime`), because a run's writes land in the directories it
+#: created at setup, not in the sandbox root.
 STALE_TEMP_DIR_AGE_S = 24 * 60 * 60
 
 #: Every prefix a shipped sandbox is created under, so a sweep of a shared base
@@ -115,6 +117,31 @@ _TEMP_SWEEP_LOCK = threading.Lock()
 _temp_swept_bases: set[Path] = set()
 
 
+def _newest_mtime(root: Path) -> float | None:
+    """The newest mtime anywhere under *root*, or ``None`` when it cannot be read.
+
+    A directory's mtime records the last change to its own entry list, not to
+    anything written inside it.  A sandbox that creates ``workdir/rel`` once
+    and then only writes files below it therefore keeps a creation-time root
+    mtime for the whole run, so liveness is measured over the whole subtree.
+    An unreadable subtree contributes nothing, which can only understate the
+    age: a sandbox whose files cannot be stat'ed is one nobody can read either.
+    """
+    try:
+        newest: float | None = root.stat().st_mtime
+    except OSError:
+        return None
+    for parent, _dirs, files in os.walk(root):
+        for name in files:
+            try:
+                mtime = (Path(parent) / name).stat().st_mtime
+            except OSError:
+                continue
+            if newest is None or mtime > newest:
+                newest = mtime
+    return newest
+
+
 def sweep_stale_temp_dirs(
     base: Path, age_s: float = STALE_TEMP_DIR_AGE_S, *, now: float | None = None
 ) -> list[Path]:
@@ -127,10 +154,15 @@ def sweep_stale_temp_dirs(
     behind, and nothing in the codebase ever looks at the parent again, so the
     base grows by one full sandbox per lost run.
 
-    A dir counts as abandoned when its mtime is older than *age_s*.  Writes into
-    a live sandbox (staged headers, ``.obj`` output, the link log) move that
-    mtime, and a sandbox whose writes have stopped for a whole day belongs to no
-    run still doing work.
+    A dir counts as abandoned when nothing under it has been touched for
+    *age_s*.  The sandbox root's own mtime is not that value: a directory's
+    mtime moves only when its *immediate* entries change, so a run whose work
+    is confined to the subdirectories it created at setup (staged headers,
+    ``rel/`` sources, the container workdir) leaves the root stamped at
+    creation time for the whole batch.  Reading the root alone therefore
+    sweeps a live batch out from under itself once it crosses *age_s*; the
+    newest mtime anywhere in the subtree is the one that says whether anything
+    is still happening.
 
     *now* overrides the age reference, so a replay or a test decides the same
     sweep from a fixed instant instead of from when the process happened to run.
@@ -150,9 +182,12 @@ def sweep_stale_temp_dirs(
         if not entry.name.startswith(_TEMP_DIR_PREFIXES) or entry.is_symlink():
             continue
         try:
-            if not entry.is_dir() or now - entry.stat().st_mtime < age_s:
+            if not entry.is_dir():
                 continue
+            touched = _newest_mtime(entry)
         except OSError:
+            continue
+        if touched is None or now - touched < age_s:
             continue
         try:
             shutil.rmtree(entry)

@@ -1581,7 +1581,19 @@ class TestSweepStaleTempDirs:
     """A hard-killed run strands its sandbox; the next run must reclaim it."""
 
     def _age(self, d: Path, seconds: float) -> None:
+        """Backdate everything under *d*: an abandoned sandbox is idle throughout.
+
+        Files before directories, deepest first, so a directory's own utime is
+        not reset by a later write into it.
+        """
         stale = time.time() - seconds
+        for parent, dirs, files in os.walk(d):
+            base = Path(parent)
+            for name in files:
+                os.utime(base / name, (stale, stale))
+            for name in sorted(dirs, reverse=True):
+                os.utime(base / name, (stale, stale))
+            os.utime(base, (stale, stale))
         os.utime(d, (stale, stale))
 
     def test_removes_abandoned_sandbox(self, tmp_path: Path) -> None:
@@ -1592,6 +1604,24 @@ class TestSweepStaleTempDirs:
         self._age(lost, temp_dirs.STALE_TEMP_DIR_AGE_S + 60)
         assert temp_dirs.sweep_stale_temp_dirs(tmp_path) == [lost]
         assert not lost.exists()
+
+    def test_keeps_a_sandbox_whose_root_mtime_is_stale_but_work_is_live(
+        self, tmp_path: Path
+    ) -> None:
+        """A run writes into the dirs it created at setup; the root mtime never moves.
+
+        The sandbox root keeps its creation-time mtime for the whole batch, so
+        the sweep must read the subtree or it deletes a live run's workdir.
+        """
+        live = tmp_path / "rebrew_batch_live"
+        workdir = live / "work" / "rel"
+        workdir.mkdir(parents=True)
+        (workdir / "main.c").write_text("int main(void){return 0;}\n", encoding="utf-8")
+        self._age(live, temp_dirs.STALE_TEMP_DIR_AGE_S + 60)
+        # The file was written after the aging pass, as a live run would.
+        (workdir / "main.c").touch()
+        assert temp_dirs.sweep_stale_temp_dirs(tmp_path) == []
+        assert (workdir / "main.c").exists()
 
     def test_keeps_fresh_and_foreign_entries(self, tmp_path: Path) -> None:
 
