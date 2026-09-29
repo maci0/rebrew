@@ -631,8 +631,14 @@ def main(
         merged_text, extern_report = consolidate_declarations(merged_text)
         for dropped in extern_report.dropped:
             console.print(f"[yellow]merge: dropped unparseable extern {dropped!r}[/yellow]")
+        # resolved is scanned once per conflict name below; index it instead.
+        resolved_by_name: dict[str, str] = {}
+        for decl in extern_report.resolved:
+            decl_name = _extract_extern_name(decl)
+            if decl_name is not None:
+                resolved_by_name.setdefault(decl_name, decl)
         for name, variants in extern_report.conflicts.items():
-            kept = next((d for d in extern_report.resolved if _extract_extern_name(d) == name), "")
+            kept = resolved_by_name.get(name, "")
             console.print(
                 f"[yellow]merge: conflicting externs for {name}: "
                 f"kept {kept!r} over {[v for v in variants if v != kept]!r}[/yellow]"

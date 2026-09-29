@@ -491,6 +491,12 @@ def main(
     # directory, which would import lib symbols out of whatever .lib happens to
     # sit next to the project.
     has_libs_dir = bool(libs_dir.parts) and libs_dir.is_dir()
+    # The lib directory is invariant across imports; scan it once, not per DLL.
+    by_name: dict[str, Path] = (
+        {fold_ident(p.name): p for p in libs_dir.iterdir() if p.is_file()}
+        if has_libs_dir
+        else {}
+    )
     for dll in {i.dll for i in imports_raw}:
         # binary names imports "KERNEL32.dll"; the import libs on disk are
         # "KERNEL32.LIB" (case and extension differ, and Linux is
@@ -502,7 +508,6 @@ def main(
             # lib shipped as NFD "Café.lib" would otherwise never match the
             # cp1252-decoded NFC name the import table carries, and the
             # fallback silently drops every stdcall decoration.
-            by_name = {fold_ident(p.name): p for p in libs_dir.iterdir() if p.is_file()}
             lib = by_name.get(fold_ident(f"{stem}.lib")) or by_name.get(fold_ident(dll))
         if lib is not None:
             lib_symbols |= _import_lib_symbols(lib)

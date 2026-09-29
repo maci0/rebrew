@@ -2072,7 +2072,13 @@ def lint_file(
     # Load per-directory metadata (keys: (module, va_int) -> {toml_field: value}).
     # Accept pre-loaded dicts from callers that process many files in the same directory
     # (avoids repeated I/O for the common batch-lint case).
-    _metadata_dir = cfg.metadata_dir if cfg else filepath.parent
+    # metadata_dir walks the tree upward per access, so resolve it only when a
+    # preload does not already answer for this directory.
+    _metadata_dir = (
+        None
+        if preloaded_metadata is not None and preloaded_data_metadata is not None
+        else (cfg.metadata_dir if cfg else filepath.parent)
+    )
     _metadata_entries = (
         preloaded_metadata
         if preloaded_metadata is not None
@@ -2083,6 +2089,15 @@ def lint_file(
         if preloaded_data_metadata is not None
         else load_data_metadata(_metadata_dir)
     )
+
+    # Marker keys this project recognises, folded once per file: the NFC +
+    # upper of every marker in cfg.all_markers is per-annotation work below
+    # otherwise, on a tree with thousands of annotated blocks.
+    _own_marker = getattr(cfg, "marker", None) if cfg is not None else None
+    _known_markers = getattr(cfg, "all_markers", None) or (
+        {_own_marker} if _own_marker else set()
+    )
+    _known_folded = {preset_module_key(str(item)) for item in _known_markers if item}
 
     # Statuses claimed by this file's annotations (for W020 escalation: a
     # non-STUB claim on an asm-dump body is a metadata error).
@@ -2218,17 +2233,14 @@ def lint_file(
                 # A stacked shared-source block for ANOTHER target answers to
                 # its own target's defaults, not this one's — flagging it for
                 # missing CFLAGS here is misattribution (ADR-010).
-                _own_marker = getattr(cfg, "marker", None) if cfg is not None else None
-                _known_markers = getattr(cfg, "all_markers", None) or (
-                    {_own_marker} if _own_marker else set()
-                )
-                _known_folded = {preset_module_key(str(item)) for item in _known_markers if item}
+                _own_key = preset_module_key(_own_marker) if _own_marker else ""
+                _mod_key = preset_module_key(mod) if mod else ""
                 if not (
                     cfg is not None
                     and _own_marker
                     and mod
-                    and preset_module_key(mod) != preset_module_key(str(_own_marker))
-                    and preset_module_key(mod) in _known_folded
+                    and _mod_key != _own_key
+                    and _mod_key in _known_folded
                 ):
                     _check_W018_cflags(result, found_keys, cfg)
             # For DATA/GLOBAL: overlay data metadata fields (size, section, note).
