@@ -76,7 +76,15 @@ Review the following:
    reproduces every pass. The same reading settles a name attributed to the sibling
    `rebrew-toolchains` checkout or to a container, which this sweep cannot see.
 6. CLI conventions stated as rules. `AGENTS.md` pins the exact help string for `--json` to `Output results as JSON` and for `--dry-run` to `Preview changes without writing`, pins `--json` before `--target` as the last two options, and pins `Console(stderr=True)` with raw `print()` only for piped data. These are code facts written into a rule file, so the rule file is what goes stale. Collect candidates with `rg -n 'Output results as JSON|Preview changes without writing|Console\(stderr=True\)' src/rebrew` and check them against the component modules; where the code changed deliberately, edit the rule and cite the evidence (a CHANGELOG entry or an ADR that covers the change) in the finding.
-7. Exit-code contract. `AGENTS.md` states that `run_standalone` and `run_cli` carry the `141`/`130`/`2` exit contract and that a `main_entry` body must never be a bare `app()`, which loses it. Check those names in `src/rebrew/cli.py` and in the components that define `main_entry`.
+7. Exit-code contract. `AGENTS.md` states that `run_standalone` and `run_cli` carry the `141`/`130`/`2` exit contract and that a `main_entry` body must never be a bare `app()`, which loses it. Check those names in `src/rebrew/cli.py` and in the components that define `main_entry`, collected with:
+
+   ```sh
+   rg -n 'def run_standalone|def run_cli|EXIT_SIGPIPE|EXIT_INTERRUPTED' src/rebrew/cli.py
+   rg -l 'run_cli\(app\)|run_standalone\(main\)' src/rebrew
+   ```
+
+   A `main_entry` whose body is a bare `app()` call is the finding; a body that
+   wraps `main` or `app` in either helper is the contract holding.
 8. Renamed things that kept their old name in prose. `docs/adr/017-standardized-toolchain-names.md` retires the old profile names, and `AGENTS.md` says the old names are gone rather than aliased. Take the retired names from the ADR 017 entry in `CHANGELOG.md`, which carries the full old-to-new mapping (`msvc600sp6` to `msvc-6.0-sp6`, `gcc-pe` to `mingw-16.2.0`, and the rest), and not from ADR 017 alone, which names only the examples its Context quotes, so a name dropped from the prose of that ADR escapes a search built from it. Search for each old name literally across `AGENTS.md`, `src/rebrew/AGENTS.md.template`, `CONTRIBUTING.md`, `README.md`, and `docs/`, the template included because nothing here runs its command table, then confirm no alias for any of them remains in the name tables under `src/rebrew/toolchain_detect.py` and `src/rebrew/toolchain.py`, in `rebrew-project.toml.example`, or in `tests/fixtures/`. A name ADR 017 retired but the code still accepts is a code fix, and a code fix here needs the CHANGELOG entry you cite in the finding.
 9. Unverifiable numbers. `docs/PERFORMANCE.md` carries the measured figures; `README.md` states none, and a number quoted anywhere else under `docs/` is in scope the same way. The two sweep sizes and the mutating command names in `PERFORMANCE.md` are gated (see the paragraph above); what is left is the provenance of the figures themselves. Collect candidates with:
 
@@ -84,7 +92,7 @@ Review the following:
    rg -n '\d+(\.\d+)?\s*(%|ms|s|KB|MB|fps|ops/s)\b' docs/ README.md
    ```
 
-   A figure with no command, machine, or commit beside it cannot be re-checked next month: give it that provenance, or take it out. Do not assert the number is wrong; the finding records it as `unverifiable`.
+   A figure with no command, machine, or commit beside it cannot be re-checked next month: give it that provenance, or take it out. Do not assert the number is wrong; the finding records it as `unverifiable`. The sweep also catches percentages that are thresholds rather than measurements (`README.md` states the `60 %` near-match cutoff twice), and those are not findings: only a figure describing a machine, a run, or a rate is in scope.
 
 Instructions:
 - Fix order: dead paths and symbols (items 1, 2) > Make targets and ADR citations (items 3, 4) > env and config keys (item 5) > conventions and contract (items 6, 7) > stale names and unverifiable numbers (items 8, 9).
