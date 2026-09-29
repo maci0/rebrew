@@ -120,6 +120,34 @@ jobs:
         # green job that never exercised the dashboard JS.  The image ships
         # node; assert it rather than apt-install a version CI never pins.
         run: node --version
+      - name: Cache vnu
+        # The archive is ~66 MB and the helper is idempotent, so a warm cache
+        # turns the install step into a no-op.  Keyed on the helper rather
+        # than the workflow: the pin lives in the script, and a key that
+        # missed it would serve a validator the step never checked.
+        if: matrix.python-version == '3.13.15'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/rebrew/vnu
+          key: vnu-${{ runner.os }}-${{ hashFiles('tools/ci_install_vnu.sh') }}
+      - name: Install vnu (W3C validation of the HTML surfaces)
+        # tests/html_validate.py skips when `vnu` is absent, and the runner
+        # image does not ship it, so without this step the dashboard shell and
+        # the generated report pages were never parsed by a validator: the
+        # job went green without opening the HTML the project rules require
+        # to pass W3C Nu.  The helper pins the archive by sha256 (the release
+        # asset lives under a moving `latest` tag) and bundles its own JRE,
+        # so this needs no java install.  The digest is a pin, not a cache
+        # key: a republished asset fails the job rather than changing what
+        # the gate validates, and the message names both fields to bump.
+        # One matrix entry is enough, both like the gates below: the two
+        # tests read the checked-in tree and their result cannot differ
+        # between 3.13 and 3.14.
+        if: matrix.python-version == '3.13.15'
+        run: |
+          set -euo pipefail
+          echo "$(bash tools/ci_install_vnu.sh)" >> "$GITHUB_PATH"
+          vnu --version
       - name: Run tests
         if: matrix.python-version != '3.13.15'
         run: make test

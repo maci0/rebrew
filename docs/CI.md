@@ -13,7 +13,13 @@ check (`tools/gen_fixtures.py --check`) and an idempotency sweep
 CLI surface twice for output determinism and each mutating command twice
 against its own scratch project, requiring the first run to actually change
 it), both version-independent, so the 3.14 entry
-skips them: a pre-commit hook-parity job (`make check` with
+skips them; the 3.13 entry also installs the W3C validator through
+`tools/ci_install_vnu.sh`, because `tests/html_validate.py` skips when
+`vnu` is off PATH and the two HTML surfaces (the dashboard shell and
+every generated report page) would otherwise never be parsed by a
+validator in CI. The archive is pinned by sha256 (the release asset sits
+under a moving `latest` tag) and bundles its own JRE, so the step needs
+no `java` install. A pre-commit hook-parity job (`make check` with
 the two ruff hooks and the mypy hook skipped, since the lint job runs them; it installs
 shellcheck and yamllint first through `tools/ci_apt_install.sh`, so the shell
 and YAML hooks are enforced there; the SKILL.md command validator
@@ -214,7 +220,7 @@ id, with the `test` matrix expanded per entry, so the required contexts are
 | Job | Gate |
 |-----|------|
 | `lint` | ruff, ruff format, mypy, `uv audit` |
-| `test` | the full suite on 3.13 (under the coverage floor) and 3.14, fixture freshness, idempotency sweep |
+| `test` | the full suite on 3.13 (under the coverage floor) and 3.14, fixture freshness, idempotency sweep, W3C validation of the HTML surfaces |
 | `pre-commit` | hook parity, including shellcheck and yamllint |
 | `package` | reproducible sdist/wheel, smoke install, sdist member diff, SBOM |
 | `cli-contract` | the public `--help` surfaces |

@@ -483,6 +483,100 @@ class TestCiPins:
         assert "cancel-in-progress: ${{ github.event_name == 'pull_request' }}" in head
         assert "cancel-in-progress: true" not in head
 
+    def test_html_surfaces_are_validated_in_ci(self) -> None:
+        """The W3C gate must run in the test job, not skip there.
+
+        ``tests/html_validate.py`` skips when ``vnu`` is off PATH, and the
+        runner image does not ship it, so without an install step the
+        dashboard shell and every generated report page were never parsed by
+        a validator: the job reported green without opening the HTML the
+        project rules require to pass W3C Nu.  A skip is the right behavior
+        for a contributor without the tool, so the gate is enforced by
+        installing it, not by turning the skip into a failure.
+        """
+        ci = CI_YML.read_text(encoding="utf-8")
+        assert "bash tools/ci_install_vnu.sh" in ci
+        assert '>> "$GITHUB_PATH"' in ci
+        # One matrix entry, like the coverage floor and the fixture sweep:
+        # the two tests read the checked-in tree, so 3.14 cannot disagree.
+        step = ci.split("- name: Install vnu", 1)[1].split("- name:", 1)[0]
+        assert "if: matrix.python-version == '3.13.15'" in step
+        # The cache must restore before the install that reads it, and its
+        # key has to cover the pin, which lives in the helper rather than
+        # the workflow: a key missing it serves a validator never checked.
+        assert ci.index("- name: Cache vnu") < ci.index("- name: Install vnu")
+        cache = ci.split("- name: Cache vnu", 1)[1].split("- name:", 1)[0]
+        assert "hashFiles('tools/ci_install_vnu.sh')" in cache
+        # Only the helper may fetch it, so the URL is not restated in a
+        # workflow that would drift from the pin beside it.
+        assert "vnu.linux.zip" not in ci
+
+    def test_vnu_install_helper_pins_and_verifies(self) -> None:
+        """The validator archive is verified before it can run the gate.
+
+        The release asset sits under a moving ``latest`` tag, so the pin is
+        the archive's sha256: a republished or tampered archive fails the
+        job instead of changing what the HTML is validated against.  The
+        reported version is a second check on the same bytes, so a digest
+        match with an unexpected version still fails.
+        """
+        helper = ROOT / "tools" / "ci_install_vnu.sh"
+        assert helper.is_file()
+        text = helper.read_text(encoding="utf-8")
+        digest = re.search(r'(?m)^VNU_SHA256="([0-9a-f]{64})"$', text)
+        assert digest is not None, "VNU_SHA256 must be a 64-hex-char pin"
+        version = re.search(r'(?m)^VNU_VERSION="(\d+\.\d+\.\d+)"$', text)
+        assert version is not None
+        assert "releases/download/latest/vnu.linux.zip" in text
+        assert f'VNU_SHA256="{digest.group(1)}"' in text
+        # Retry policy named, not a bare literal: the apt and clone helpers
+        # state the same two values and their docstrings point at each other.
+        apt = (ROOT / "tools" / "ci_apt_install.sh").read_text(encoding="utf-8")
+        for name in ("MAX_ATTEMPTS", "RETRY_BASE_DELAY_SECONDS"):
+            value = re.search(rf"(?m)^{name}=(\d+)$", text).group(1)
+            assert re.search(rf"(?m)^{name}=(\d+)$", apt).group(1) == value, name
+        # A missing curl/unzip fails every attempt identically, so the loop
+        # would name a dead mirror for a host that cannot fetch at all.
+        assert "not on PATH, so vnu cannot be installed" in text
+        assert text.index("not on PATH, so vnu cannot be installed") < text.index("curl -sSfL")
+        # The digest is checked before the archive is unpacked, and the
+        # version after, so a mismatch never leaves a usable install behind.
+        assert text.index('got="$(sha256_of') < text.index("unzip -q -o")
+        assert 'have="$("${bin_dir}/vnu" --version' in text
+        # Idempotent: a warm cache must not re-download, which is what makes
+        # the actions/cache step in ci.yml worth having.
+        assert "Already installed and matching the pin" in text
+        assert 'rm -rf -- "${dest}"\n    mv -- "${staging}" "${dest}"' in text
+        # Prints the bin dir for the caller's PATH; the workflow depends on it.
+        assert 'echo "${bin_dir}"' in text
+
+    def test_vnu_install_replaces_an_unpinned_tree(self, tmp_path: Path) -> None:
+        """A cached install of another version is replaced, not trusted.
+
+        The actions/cache key covers the helper, so a pin bump misses the
+        cache.  A cache hit restored from a key that predates the pin check
+        would still land here, and a ``vnu --version`` that disagrees with
+        the pin must not be the one that validates the HTML.
+        """
+        dest = tmp_path / "vnu"
+        launcher = dest / "vnu-runtime-image" / "bin"
+        launcher.mkdir(parents=True)
+        fake = launcher / "vnu"
+        fake.write_text('#!/usr/bin/env bash\necho "20.6.30 (old)"\n', encoding="utf-8")
+        fake.chmod(0o755)
+        env = {**os.environ, "REBREW_VNU_DIR": str(dest)}
+        helper = str(ROOT / "tools" / "ci_install_vnu.sh")
+        if shutil.which("curl") is None or shutil.which("unzip") is None:
+            pytest.skip("curl and unzip are required to install the validator")
+        # Network-dependent: a wrong-version install is replaced by a real
+        # download.  Assert only that the stale tree is not accepted, which
+        # holds whether the reinstall succeeds or the download fails.
+        result = subprocess.run([helper], env=env, capture_output=True, text=True, check=False)
+        if result.returncode == 0:
+            assert result.stdout.strip() == str(launcher)
+        else:
+            assert "replacing vnu 20.6.30" in result.stderr
+
     def test_clone_refuses_non_resembl_dest(self, tmp_path: Path) -> None:
         """``rm -rf`` must not run against a path that is not a resembl checkout."""
         victim = tmp_path / "other"
