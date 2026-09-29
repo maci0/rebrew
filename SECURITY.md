@@ -49,15 +49,18 @@ deleted by `sweep_stale_temp_dirs` on the next compile
 (`src/rebrew/temp_dirs.py`), and `XAUTHORITY` names the X cookie file rebrew
 adopts for host-wine helpers and re-exports to wine children, accepted as any
 file the analyst can read (`_local_cookie` in `src/rebrew/headless.py`), so the
-headless-display access decision is taken from the process environment. On a
-multi-user host the headless X display is one too: the `Xvfb` rebrew
-**starts** carries a per-run MIT-MAGICK cookie, so its windows are not
-readable by another local user (`src/rebrew/headless.py`). Adopting an
-Xvfb already on the box is weaker than that: `_adopt` uses the candidate
-server's own `-auth` cookie when it advertises one and the operator's
-`XAUTHORITY` otherwise, so a server started without `-auth` is adopted and
-its windows are readable by any local user. The display's pid is also
-resolved through the world-writable `/tmp/.X11-unix` directory.
+headless-display access decision is taken from the process environment. On a multi-user host the headless X display is a boundary, and on **both**
+of its paths the access control is not in force. The `Xvfb` rebrew starts is
+handed an `-auth` file whose contents are a bare hex token, not an xauth
+record (`address display protocol name data`), so no cookie can be read out
+of it (`_new_cookie` in `src/rebrew/headless.py`); the same applies to
+adopting an Xvfb already on the box, where `_adopt` falls back to the
+operator's `XAUTHORITY` when the candidate server advertises no `-auth`
+cookie of its own. Nothing in the module opens an X connection to verify.
+Treat the display wine draws on as unauthenticated, and note that
+`XAUTHORITY` is written into `os.environ`, so every later child process
+inherits it. The display's pid is resolved through `/proc/*/cmdline` on
+the process name `Xvfb`, which is world-readable.
 
 CI is a boundary of its own: `pull_request` (never `pull_request_target`),
 workflow `permissions: contents: read`, no `id-token`, `persist-credentials: false`,
@@ -138,24 +141,28 @@ plugin cache backends or remove the open upstream diskcache advisory.
 - No claim that a cloned project's metadata can make rebrew read or
   write outside the project, and no claim that a command other than the
   validator enforces it. The `file` identity field is a path, and one
-  validator owns it: `contained_path` (`src/rebrew/sources.py`) resolves the
+  validator owns it on the compile/verify/rename/cross-import path:
+  `contained_path` (`src/rebrew/sources.py`) resolves the
   value under `source_roots` (`reversed_dir`, then `shared_dir`, with the
   project `root` as the outer bound, since a shared-tree source is recorded
   `../`-prefixed relative to `reversed_dir`) and refuses an empty, absolute,
-  or escaping value. Every read and write join calls it, including
-  `rebrew verify` (`verify.py` `verify_entry`, where a refused entry is
-  recorded `MISSING_FILE`), that module's cache-validity read and deferred
-  STATUS pass, the batch compile (`compile.py` `precompile_batch`), the
-  blocker clear in `rebrew test`, the `rebrew-objdiff-build` shim
-  (`objdiff_project.py`), `rebrew merge-sweep`, and every read and write in
-  `rebrew cross-import` (`cross_import.py` `import_function`,
-  `import_shared_function`, `promote_to_shared`); `rebrew rename`
-  (`rename.py`, `rename_ops.py`) and the verify cache's patch refresh
-  (`verify_cache.py`) keep their own resolve-and-compare. What this does
-  **not** claim: it is a shared function, not a type, so a new join that
-  skips it is unchecked, and `merge_sweep` keeps a second rule for an older
-  absolute value that tests containment against the project `root` only.
-  It says nothing about a project running host commands, which
+  or escaping value. `rebrew verify` (`verify.py` `verify_entry`, where a
+  refused entry is recorded `MISSING_FILE`), that module's cache-validity
+  read and deferred STATUS pass, the batch compile (`compile.py`
+  `precompile_batch`), the blocker clear in `rebrew test`, the
+  `rebrew-objdiff-build` shim (`objdiff_project.py`), `rebrew merge-sweep`,
+  and every read and write in `rebrew cross-import` (`cross_import.py`
+  `import_function`, `import_shared_function`, `promote_to_shared`) all
+  resolve through it; `rebrew rename` (`rename.py`, `rename_ops.py`) and
+  the verify cache's patch refresh (`verify_cache.py`) keep their own
+  resolve-and-compare. What this does **not** claim: `rebrew
+  binsync-overlay` does not use the validator at all
+  (`src/rebrew/binsync/overlay.py` joins the field onto `reversed_dir` with
+  no containment check on its read at `:226` or on its `PROTOTYPE` and
+  `ANALYSIS` writes at `:378`, `:474`, `:595`), and because the outer bound
+  is the project `root`, a value naming `.git/hooks/`,
+  `rebrew-project.toml`, or `.rebrew/` passes everywhere. It says nothing
+  about a project running host commands, which
   [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) §4 covers separately.
 - No claim that `REBREW_CONTAINER_RUNTIME` is restricted to a container
   runtime rebrew trusts. `container_runtime` (`src/rebrew/utils.py`) rejects
@@ -192,7 +199,8 @@ plugin cache backends or remove the open upstream diskcache advisory.
   Changing the endpoint or toolchain starts from a cache miss, and
   `rebrew cache clear` drops the entries a same-endpoint change leaves in
   place.
-- No claim that a decomp.me upload is revocable. `POST /api/scratch` has no
+- No claim that a decomp.me upload is revocable, or that it leaves the host
+  over TLS. `POST /api/scratch` has no
   idempotency key and mints a public scratch, whose slug and `claim_token`
   exist only in the reply. A read timeout or dropped connection can therefore
   hide a create the service already committed, leaving the uploaded function
@@ -201,4 +209,17 @@ plugin cache backends or remove the open upstream diskcache advisory.
   post-send transport failure (`_never_delivered` in
   `src/rebrew/decompme.py`), so a single run does not mint a second orphan,
   but a hand-run retry still does, and the existing orphan is not discoverable
-  from the CLI.
+  from the CLI. `validate_http_url` admits plain `http` to any host, so a
+  non-TLS `--api` sends the function source, its object, and the returned
+  `claim_token` in cleartext.
+- No claim that a decomp.me or other outbound URL is pinned in transport.
+  No HTTP call in the package passes `trust_env`, so `HTTPS_PROXY`,
+  `SSL_CERT_FILE`, and `REQUESTS_CA_BUNDLE` apply to the wibo asset and
+  metadata fetches, the toolchain media download, and the `GH_TOKEN`-bearing
+  GitHub commit lookup, none of which is size-capped.
+- No claim that `rebrew import-splat` constrains the files a foreign config
+  names to the foreign project. `splat_config._rel` (`splat_config.py:516-521`)
+  resolves every `splat.yaml` path against the operator's base with no
+  containment check, so an absolute, `../..`, or backslash-separated entry
+  makes the command read a host file and `shutil.copy2` it into the project.
+  `--write` is still the only opt-in.
