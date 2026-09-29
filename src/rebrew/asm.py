@@ -1612,12 +1612,18 @@ def main(
     target: str | None = TargetOption,
 ) -> None:
     """Disassemble a function from the target binary."""
-    cfg = require_config(target=target, json_mode=json_output)
+    # Flag values are checked before the project is loaded, so a typo in
+    # --format or --size names the flag instead of whatever the config
+    # happens to be missing.
     if fmt not in ("hex", "nasm", "cfg"):
         # Bad argument value — usage error (2), not "needs code work" (1).
         error_exit(
             "--format must be 'hex', 'nasm' or 'cfg'", json_mode=json_output, code=EXIT_ERROR
         )
+    if size is not None and size <= 0:
+        error_exit("--size must be a positive integer", json_mode=json_output)
+
+    cfg = require_config(target=target, json_mode=json_output)
 
     # --- NASM batch modes ---
     if fmt == "nasm" and (extract_all or batch_stubs):
@@ -1643,8 +1649,6 @@ def main(
         error_exit("Specify VA as a positional argument or --bin FILE", json_mode=json_output)
 
     va_int = parse_va(va_str, json_mode=json_output) if va_str else None
-    if size is not None and size <= 0:
-        error_exit("--size must be a positive integer", json_mode=json_output)
 
     # --- CFG format ---
     if fmt == "cfg":

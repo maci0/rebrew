@@ -3,6 +3,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from rebrew.asm import build_function_lookup
 from rebrew.config import ProjectConfig
 
@@ -171,3 +173,54 @@ class TestBuildFunctionLookup:
         assert 0x10001000 in result
         assert 0x10002000 in result
         assert 0x10003000 in result
+
+
+# ---------------------------------------------------------------------------
+# Flag validation
+# ---------------------------------------------------------------------------
+
+
+class TestFlagValidation:
+    """Flag values are checked before the project is loaded.
+
+    In a directory with no rebrew-project.toml, ``require_config`` would
+    exit 2 with a config error, so a passing test here proves the flag check
+    runs first.
+    """
+
+    def test_bad_format_names_the_flag(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.asm import app
+
+        monkeypatch.chdir(tmp_path)
+        result = CliRunner().invoke(app, ["--format", "bogus", "0x1000"])
+        assert result.exit_code == 2
+        assert "--format" in result.output
+
+    def test_bad_size_names_the_flag(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.asm import app
+
+        monkeypatch.chdir(tmp_path)
+        result = CliRunner().invoke(app, ["--size", "0", "0x1000"])
+        assert result.exit_code == 2
+        assert "--size" in result.output
+
+    def test_bad_format_json_envelope(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.asm import app
+
+        monkeypatch.chdir(tmp_path)
+        result = CliRunner().invoke(app, ["--format", "bogus", "--json", "0x1000"])
+        assert result.exit_code == 2
+        assert json.loads(result.output) == {
+            "error": "--format must be 'hex', 'nasm' or 'cfg'",
+            "code": 2,
+        }
