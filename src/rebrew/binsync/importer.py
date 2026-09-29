@@ -1205,7 +1205,11 @@ def import_type_definitions(
         if not definition:
             continue
         if not _definition_is_valid(definition, name, new[name]):
-            inert = c_comment_safe(definition)
+            # ASCII escapes, not the raw text: the header is written in the
+            # project's source encoding, where the lenient write turns a code
+            # point it lacks into `?`, and a collaborator-written identifier
+            # must not reach the header verbatim even as a comment.
+            inert = c_comment_safe(definition).encode("ascii", "backslashreplace").decode("ascii")
             definition = f"/* UNPARSED from BinSync (no known layout):\n{inert}\n*/"
         # The BinSync key is not a safe dedup token: an UNPARSED comment and a
         # definition whose declared name differs from the key never contain it,
