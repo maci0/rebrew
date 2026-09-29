@@ -31,7 +31,7 @@ but not in CI: the pre-commit shell hook exits 0 without the binary, so
 installs shellcheck) fails; `make check` warns when it is missing.  `uv sync` also
 needs the sibling
 [`resembl`](https://github.com/maci0/resembl) checkout at `../resembl`: the
-path pin in `pyproject.toml` / `uv.lock` (tag `v3.1.0`, same as CI's
+path pin in `pyproject.toml` / `uv.lock` (tag `v3.1.1`, same as CI's
 `resembl-ref`).  Without it, sync fails with a cryptic “Distribution not found”
 path error; `make setup` fails closed if `uv` is missing, if `../resembl`'s
 `version` does not match `RESEMBL_REF`, or if that checkout's `HEAD` is not
@@ -45,7 +45,7 @@ commit cannot be checked.
 git clone https://github.com/maci0/rebrew.git
 cd rebrew
 make doctor                   # report every missing prerequisite, with the fix for each
-make clone-resembl            # clones sibling resembl pin (tag v3.1.0) into ../resembl
+make clone-resembl            # clones sibling resembl pin (tag v3.1.1) into ../resembl
 make setup                    # uv sync --locked --all-extras --group similarity + pre-commit/pre-push hooks
 make test-one T=tests/test_annotation.py   # smoke the edit-test loop
 ```

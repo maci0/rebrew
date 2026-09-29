@@ -146,7 +146,7 @@ published globals around every test in that module.
 System deps for a green local suite: **nasm** on `PATH` (asm round-trip tests;
 CI installs it) and **node** on `PATH` (the `tests/dashboard_*.mjs` interaction
 tests, which `tests/test_dashboard.py` skips without it).  Bootstrap also needs
-sibling `../resembl` at tag `v3.1.0`
+sibling `../resembl` at tag `v3.1.1`
 whose `HEAD` is the `RESEMBL_SHA` commit (CI `resembl-sha`): `make setup`
 checks both and prints the clone or checkout line when either is wrong.  `make help`
 lists every contributor target.
