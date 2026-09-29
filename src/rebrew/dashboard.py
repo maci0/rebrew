@@ -529,18 +529,20 @@ function setFunctionsEmptyMessage() {
     } else {
       el.innerHTML = "No functions match these filters. <button type='button' id='empty-clear-fn' class='link-button'>Clear filters</button>, or broaden Status and Module.";
     }
-    const btn = $("empty-clear-fn");
-    if (btn) btn.onclick = () => $("clear-filters").click();
+    bindEmptyClear("empty-clear-fn", "q");
   } else {
     el.innerHTML = "No functions for this target yet. Match work, run <code>rebrew build-db</code>, then choose Reload.";
   }
+}
+function bindEmptyClear(btnId, inputId) {
+  const btn = $(btnId);
+  if (btn) btn.onclick = () => { $(inputId).focus(); $("clear-filters").click(); };
 }
 function setGlobalsEmptyMessage() {
   const el = $("globals-empty");
   if ($("gq").value.trim()) {
     el.innerHTML = "No globals match this search. <button type='button' id='empty-clear-gq' class='link-button'>Clear search</button> or try another name.";
-    const btn = $("empty-clear-gq");
-    if (btn) btn.onclick = () => $("clear-filters").click();
+    bindEmptyClear("empty-clear-gq", "gq");
   } else {
     el.innerHTML = "No globals recorded for this target. Annotate globals, run <code>rebrew build-db</code>, then choose Reload.";
   }

@@ -673,6 +673,9 @@ class TestFocusManagement:
     def test_back_leaves_focus_on_the_content_it_rebuilt(self) -> None:
         _run_script("dashboard_back_focus.mjs")
 
+    def test_empty_state_clear_keeps_focus_on_the_search_box(self) -> None:
+        _run_script("dashboard_empty_clear.mjs")
+
 
 class TestTablistKeyboard:
     def test_arrows_home_and_end_move_focus_and_switch_view(self) -> None:
