@@ -2,6 +2,11 @@
 
 All tools read project settings from **`rebrew-project.toml`** via the config loader. This eliminates hardcoded paths and makes the toolchain portable to different targets.
 
+[`rebrew-project.toml.example`](../rebrew-project.toml.example) is the complete
+template: every key the loader knows, most of them commented out. Copy it to
+`rebrew-project.toml` and edit, rather than starting from the excerpts below.
+A key it does not know only warns at load, so a typo there is silent.
+
 > **Core Principle: Idempotency.** Every rebrew tool can be run repeatedly with the same result. No destructive side effects, so it is safe to retry, re-run, or chain in scripts and AI agent loops.
 
 ## `rebrew-project.toml` (Project Root)

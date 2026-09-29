@@ -9,6 +9,13 @@
   `[targets.<name>.compiler]`, which the template documents instead.
 
 ### Added
+- **`rebrew-project.toml.example` is the complete config template.** One
+  commented copy of every key the loader knows, so a new option is documented
+  in one place instead of only in `docs/CONFIG.md` prose. The loader only warns
+  on a key it does not know, so a typo in a hand-written file was silent;
+  `tests/test_project_toml_example.py` now fails the build when a key drifts in
+  either direction between the template and the loader's schema. `docs/CONFIG.md`
+  links it from the top.
 - **A dropped `rebrew dashboard` route is now gated.** CONTRIBUTING holds the
   `/api/*` JSON unfrozen but requires a `**Breaking:**` entry for a removed
   path, and only the Python import surface was read, so a route the shell's
@@ -29,8 +36,30 @@
   a `--api` flag retyped per invocation. It wins over the flag, a set-but-empty
   value reads as unset, a non-empty one must be an http(s) URL with a host, and
   `rebrew cfg effective` reports a malformed value (`env_errors`).
+- **A source rewrite that cannot be undone leaves a copy on disk.**
+  `rebrew climb`, `rebrew qual-sweep`, `rebrew migrate-markers` and
+  `rebrew skeleton --force` write the pre-run bytes to
+  `.rebrew/source-backups/` before the first destructive write, and print each
+  path as it is written. A `SIGKILL`, an OOM kill, a power cut or a stopped
+  container runs neither the `finally` nor the signal handler, so the in-process
+  restore cannot cover it and the file is left holding whichever candidate was
+  scored last. The in-flight copies are deleted when the run finishes, so one
+  left in that directory means the run did not; the `migrate-markers` copies are
+  kept, because its strip is one-shot and nothing puts a removed line back. The
+  helper behind them is `rebrew.utils.source_backup`, with the directory name in
+  `rebrew.utils.SOURCE_BACKUP_DIRNAME`.
 
 ### Fixed
+- **A `REBREW_LLM_ALLOW_PROJECT_ENDPOINT` opt-in that never lifted anything.**
+  `docs/CONFIG.md` said a plain `http://` `[llm].endpoint` is refused under
+  `REBREW_LLM_API_KEY` "unless it is loopback, or unless
+  `REBREW_LLM_ALLOW_PROJECT_ENDPOINT=1` opts a project-file endpoint in", and the
+  code has never honored the second half: the variable picks which host may
+  receive the env key, the https-or-loopback check is separate, and an operator
+  who set it for a plain-http endpoint was refused with a message naming the
+  knob that could not help. The config reference now says which is which, and
+  the refusal message says it outright when the endpoint came from a project
+  file.
 - **`m2c` was missing from three of the four `--decompiler` help strings.**
   `m2c` is a registered backend, so `rebrew decompile 0x… --decompiler m2c`
   resolves; only `rebrew skeleton --decomp-backend` listed it, and the help is
@@ -285,6 +314,63 @@
   existing file), so a later profile read another toolchain's `LIBCMT.LIB`.  A
   caller passing two arguments now raises `TypeError`; pass the profile whose
   image the archive comes from.
+- **`compiler.recompile_retries` is capped at 20.** It was read as any
+  non-negative integer, and `rebrew.compile` turns the count into `retries + 1`
+  attempts that each wait the capped backoff, so a mistyped 20000 retried one
+  transient 503 for about 44 hours before reporting the error it could have
+  reported in seconds. A value above `rebrew.config.MAX_RECOMPILE_RETRIES` now
+  clamps to 20 with a warning naming what it resolved to; a `ProjectConfig`
+  carrying more raises `ConfigError`. The default is still 2.
+- **`KUNA_SPECS` is now reported by `rebrew cfg effective`.** A checked-out
+  tree names any host, and kuna resolves its specs from this variable, so rebrew
+  only injected a discovered spec directory while it was unset. A value that is
+  not a directory therefore hands kuna its rarely present `/specs/` default and
+  every `--seed-kuna` seed comes back empty; the run warns about that once, and
+  the same value now shows up under `env_errors` instead of reading as unset.
+  It is the one documented directory knob outside the `REBREW_` namespace, and
+  the variable name is `rebrew.config.KUNA_SPECS_ENV`.
+- **Breaking:** the `rebrew near-diag` analysis moved out of `rebrew.near_diag`
+  into `rebrew.near_analysis`, and `rebrew.near_diag` is now only the command
+  front. Import `ALLOWED_JUMP_SWAPS`, `Insn`, `MUTATION_SUGGESTIONS`,
+  `SequenceMatcherWithPins`, `align_and_classify`, `classify_pair`,
+  `disasm_insns`, `floor_pct`, `instruction_text`, `is_effective_match`,
+  `jump_swap_ok`, `mutation_suggestions`, `normalized_operands` and
+  `resolve_capstone` from `rebrew.near_analysis`; a
+  `from rebrew.near_diag import ...` of one of them is an `ImportError` now.
+  `analyze_frame` and `compare_frames` were in that list and belong to
+  `rebrew.stack_analysis`, which already owned the implementations. The split
+  is a layering fix: `rebrew.matcher`'s GA engine and `rebrew.probe` call the
+  analysis, and neither can import a module that builds a console script.
+- **Breaking:** the frame diffing behind `rebrew stack-cmp` moved out of
+  `rebrew.stack_cmp` into `rebrew.stack_analysis`, alongside the rest of the
+  frame analysis. Import `capstone_handle` and `parse_int_literal` from
+  `rebrew.stack_analysis`; `rebrew.stack_cmp` keeps the command surface. The
+  same layering fix as the `near_diag` split above, for the same reason.
+- **`--root` reads one shared option constant.** `build_db.main`,
+  `catalog.cli.main`, `dashboard.main`, `refactor.main` and `verify.main` take
+  `RootOption` from `rebrew.cli` instead of declaring their own
+  `typer.Option(None, "--root")`, so the five help strings cannot drift apart
+  again. The flag, its default, and the resolution are unchanged, so this is a
+  rendered-signature change only; the public surface gate reads a Typer
+  callback's option list as part of the signature, which is why the five names
+  count as changed.
+- **`rebrew climb` and `rebrew qual-sweep` score the real `.c`, not a copy.**
+  Both used to compile each candidate out of a scratch copy beside the project's
+  scratch state and write the real file once, only when the climb won. They now
+  write every candidate into the source they are climbing and put the pre-run
+  bytes back on the normal, exception, and `SIGTERM` / `SIGINT` / `SIGHUP`
+  paths, so a signal no longer loses the run's outcome. `--dry-run` still scores
+  a scratch copy and writes nothing. The kill that runs no Python at all is what
+  the `.rebrew/source-backups/` copy above covers. A watcher on the source file
+  (an editor, a file watcher, a formatter on save) now sees every candidate pass
+  through it, where it saw the file change once at the end.
+- **`rebrew migrate-markers` and `rebrew skeleton --force` keep the file they
+  replaced.** Each replaced file is copied under `.rebrew/source-backups/` and
+  its path is printed, and `skeleton --json` carries it as `replaced_backup` in
+  the row. `skeleton --append --force` run twice for one VA is a no-op the
+  second time, reporting `already_present` in JSON, where it used to append a
+  second definition of the same symbol whose `// KEY: value` lines shadowed the
+  first for the metadata parser.
 - **The release preflight checks the upload's provenance.**
   `uv publish` uploads a PEP 740 attestation by default and has no flag to ask
   for one, so whether a release ships verifiable files depended entirely on
