@@ -21,6 +21,7 @@ import functools
 import json
 import logging
 import math
+import threading
 from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -2018,6 +2019,9 @@ def _library_header_rows(cfg: Any) -> dict[int, dict[str, str]]:
     inside one mtime tick (an editor's atomic save, a ``cp -p`` restore, a
     coarse-timestamp filesystem), which mtime alone cannot see; same triple
     every other per-file memo in the tree carries.
+
+    The parse runs outside the lock and the publish inside it, so two
+    workers racing on the same key both parse but only one entry survives.
     """
     from rebrew.annotation import parse_library_header
     from rebrew.sources import iter_library_headers
@@ -2025,7 +2029,8 @@ def _library_header_rows(cfg: Any) -> dict[int, dict[str, str]]:
     marker = preset_module_key(module_marker(cfg))
     headers = list(iter_library_headers(cfg.reversed_dir, cfg))
     key = (marker, tuple((str(h), *_stat_identity(h)) for h in headers))
-    cached = _LIBRARY_HEADER_CACHE.get(key)
+    with _LIBRARY_HEADER_CACHE_LOCK:
+        cached = _LIBRARY_HEADER_CACHE.get(key)
     if cached is not None:
         _LIBRARY_HEADER_CACHE.move_to_end(key)
         return cached
@@ -2037,15 +2042,18 @@ def _library_header_rows(cfg: Any) -> dict[int, dict[str, str]]:
     # Bounded LRU, not clear-on-miss: ``verify --all-targets`` walks one
     # target per iteration in this process, and a single slot re-parsed the
     # whole ``library_*.h`` tree on every target's turn.
-    _LIBRARY_HEADER_CACHE[key] = rows
-    _LIBRARY_HEADER_CACHE.move_to_end(key)
-    while len(_LIBRARY_HEADER_CACHE) > _LIBRARY_HEADER_CACHE_MAX:
-        del _LIBRARY_HEADER_CACHE[next(iter(_LIBRARY_HEADER_CACHE))]
+    with _LIBRARY_HEADER_CACHE_LOCK:
+        _LIBRARY_HEADER_CACHE[key] = rows
+        _LIBRARY_HEADER_CACHE.move_to_end(key)
+        while len(_LIBRARY_HEADER_CACHE) > _LIBRARY_HEADER_CACHE_MAX:
+            del _LIBRARY_HEADER_CACHE[next(iter(_LIBRARY_HEADER_CACHE))]
     return rows
 
 
 _LIBRARY_HEADER_CACHE: OrderedDict[Any, dict[int, dict[str, str]]] = OrderedDict()
 _LIBRARY_HEADER_CACHE_MAX = 8
+# Guarded: verify -j N resolves library VAs from worker threads.
+_LIBRARY_HEADER_CACHE_LOCK = threading.Lock()
 
 
 def _stat_identity(path: Path) -> tuple[int, int, int]:

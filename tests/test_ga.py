@@ -2926,6 +2926,51 @@ class TestPairKeysMemo:
             self._engine(path)._load_pair_keys()
         assert len(match_ga._PAIR_KEYS_MEMO) <= match_ga._PAIR_KEYS_MEMO_MAX
 
+    def test_refresh_does_not_publish_a_stale_key_set(self, tmp_path: Path) -> None:
+        """A run must not pin its own key set to a fingerprint a sibling grew.
+
+        Two stubs share one corpus under ``match --all-targets -j N``.  When
+        the second stub's append lands between the first's ``stat()`` and its
+        memo publish, the fingerprint describes a file holding both stubs'
+        keys while the published set holds one, so the next stub skips the
+        re-parse, believes the second key is absent, and re-appends it.
+        """
+        from rebrew import match_ga
+
+        path = tmp_path / "pairs.jsonl"
+        self._corpus(path, "mine")
+        match_ga._PAIR_KEYS_MEMO.clear()
+        mine_key = next(iter(match_ga._scan_pair_keys(path)))
+
+        # A sibling stub appends its own record before this run republishes.
+        with open(path, "a", encoding="utf-8") as handle:
+            handle.write(self._record("sibling"))
+        sibling_key = next(iter(match_ga._scan_pair_keys(path) - {mine_key}))
+
+        # The engine holds only the keys its own run wrote, as after a run.
+        mine = self._engine(path)
+        mine._pair_keys = {mine_key}
+        mine._pair_keys_dirty = False
+        mine._refresh_pair_keys_memo()
+
+        # The next stub must still see the sibling's key in the corpus.
+        assert sibling_key in self._engine(path)._load_pair_keys()
+
+    def _record(self, key: str) -> str:
+        return (
+            json.dumps(
+                {
+                    "source": "int f(void){return 0;}",
+                    "compiled_bytes": "90",
+                    "target_bytes": "90",
+                    "score": 1.0,
+                    "cflags": "/O2",
+                    "symbol": key,
+                }
+            )
+            + "\n"
+        )
+
 
 class TestSingleCompileSeam:
     """One compile edge, one binding: ``rebrew.matcher.compiler``.

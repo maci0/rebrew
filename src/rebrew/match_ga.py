@@ -890,25 +890,34 @@ class BinaryMatchingGA:
         corpus re-parse for the next stub, and it is revalidated against
         the file's mtime/size, so one refresh per run carries the same
         information.
+
+        The stat, the re-scan and the publish sit inside
+        ``_COLLECT_PAIRS_LOCK``, the same section that appends, so the
+        fingerprint and the key set describe one generation of the file.
+        The set is also unioned with what is on disk: a sibling stub's
+        append never reaches this run's ``_pair_keys``, and publishing this
+        run's set alone would claim the corpus is missing those keys, so the
+        next stub would re-append them as duplicates.
         """
         path = self.collect_pairs_path
-        keys = self._pair_keys
-        self._pair_keys_dirty = False
-        if path is None or keys is None:
-            return
-        try:
-            st = path.stat()
-        except OSError:
-            return
-        _memo_pair_keys(
-            str(path),
-            (
-                st.st_mtime_ns,
-                st.st_size,
-                st.st_ino,
-                frozenset(keys),
-            ),
-        )
+        with _COLLECT_PAIRS_LOCK:
+            keys = self._pair_keys
+            self._pair_keys_dirty = False
+            if path is None or keys is None:
+                return
+            try:
+                st = path.stat()
+            except OSError:
+                return
+            _memo_pair_keys(
+                str(path),
+                (
+                    st.st_mtime_ns,
+                    st.st_size,
+                    st.st_ino,
+                    frozenset(keys | _scan_pair_keys(path)),
+                ),
+            )
 
     def run(
         self,

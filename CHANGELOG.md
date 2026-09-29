@@ -27,7 +27,6 @@
   `tests/cache_util.py`, `tests/thread_util.py`, `tests/html_validate.py` and
   `tests/test_check_layering.py` pass `--strict` and are now listed, so a
   typing regression in a shared helper fails the same gate as the library.
-
 - **Four W036 lint tests never ran.** `tests/test_lint.py` held two classes
   named `TestW036StrayMetadataStore`, so the first was shadowed at collection:
   its cases (a store inside the configured directory, a stray one naming its

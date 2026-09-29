@@ -193,7 +193,12 @@ class CompileCache:
         # target's eviction lands inside another's lookup.  Serialize store use
         # against close so the handle is never used after it is torn down.
         # Held only around a single SQLite call, never across a compile, so it
-        # cannot order against any other lock.
+        # cannot order against any other lock.  ``get_compile_cache`` is the
+        # one caller that nests: it takes ``_caches_lock`` and then this one,
+        # for ``is_open`` and the evicting ``close``.  Nothing reachable from
+        # inside a store operation calls back into ``get_compile_cache``, so
+        # the pair is acyclic; keep it that way, since the two are not
+        # reentrant and an inversion would deadlock.
         self._store_lock = threading.Lock()
         # None when the store could not be opened (corrupt SQLite file,
         # unwritable directory): the cache runs disabled instead of raising,
