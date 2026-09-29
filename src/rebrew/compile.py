@@ -1672,7 +1672,10 @@ def compile_to_obj(
         cached_obj = cc.get(cache_key)
         if cached_obj is not None:
             obj_file = workdir / obj_name
-            obj_file.write_bytes(cached_obj)
+            try:
+                obj_file.write_bytes(cached_obj)
+            except OSError as e:
+                return None, f"Failed to write cached object to workdir: {e}"
             return str(obj_file), ""
 
     # The compiler is the only consumer of the workdir source copy, so it
@@ -2712,6 +2715,20 @@ def _section_for_va(info: BinaryInfo, va: int) -> SectionInfo | None:
     return None
 
 
+def _docker_run_name(cmd: list[str]) -> str | None:
+    """The ``--name`` value of a docker ``run`` argv, or None when unnamed.
+
+    The timeout and interrupt paths below can only kill a container that
+    docker named, so they need the name out of the argv the builder composed
+    rather than a second copy of the format string.
+    """
+    try:
+        idx = cmd.index("--name")
+    except ValueError:
+        return None
+    return cmd[idx + 1] if idx + 1 < len(cmd) else None
+
+
 def _link_obj_docker(
     cfg: ProjectConfig,
     spec: ToolchainSpec,
@@ -2746,21 +2763,23 @@ def _link_obj_docker(
             timeout=timeout,
         )
     except subprocess.TimeoutExpired:
-        if "--name" in cmd:
+        container_name = _docker_run_name(cmd)
+        if container_name is not None:
             from rebrew.toolchain import kill_container
 
             # kill_container never raises: a failed kill is logged, so a
             # timeout is still reported as the timeout.
-            kill_container(cmd[cmd.index("--name") + 1])
+            kill_container(container_name)
         return False, f"LINK.EXE timed out after {timeout}s"
     except OSError as exc:
         return False, str(exc)
     except BaseException:
         # Ctrl+C kills only the docker CLI; the container would keep running.
-        if "--name" in cmd:
+        container_name = _docker_run_name(cmd)
+        if container_name is not None:
             from rebrew.toolchain import kill_container
 
-            kill_container(cmd[cmd.index("--name") + 1])
+            kill_container(container_name)
         raise
     if r.returncode != 0 or not Path(dll_path).exists():
         err = (r.stdout + "\n" + r.stderr).strip()

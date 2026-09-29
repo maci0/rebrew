@@ -78,7 +78,10 @@ _XVFB_INIT_LOCK = threading.Lock()
 #: Socket dir X servers bind (patchable in tests).
 _XVFB_SOCKET_DIR = Path("/tmp/.X11-unix")
 
-_XVFB_PROC_RE = re.compile(r"Xvfb[^\n]*:(\d+)")
+#: The display is Xvfb's first argv token, so match it on the token boundary.
+#: A greedy ``[^\n]*:(\d+)`` would key the map on the LAST ``:N`` in the
+#: cmdline, and any later argument carrying one mis-keys the display.
+_XVFB_PROC_RE = re.compile(r"Xvfb\s+(:\d+)(?:\s|$)")
 
 #: Every Xvfb this process spawned, as ``(process, cookie file)``, oldest
 #: first.  A server that died under us (OOM kill, host reboot) is reaped and
@@ -190,9 +193,20 @@ def xvfb_cookie_for(display: str) -> str:
         return os.environ.get("XAUTHORITY", "")
 
 
+def _server_display(display: str) -> str:
+    """The ``:N`` server part of *display*, dropping any ``.S`` screen suffix.
+
+    ``:99.0`` and ``:99`` name one X server, but only ``:N`` is a key the
+    ``/proc`` scan produces and only ``:N`` has a socket under
+    :data:`_XVFB_SOCKET_DIR`.  The suffix is the client's screen selection,
+    so it stays in the value handed back to the caller.
+    """
+    return display.partition(".")[0]
+
+
 def _display_alive(display: str) -> bool:
-    """True when the X server for *display* (e.g. ``:99``) has a socket."""
-    return (_XVFB_SOCKET_DIR / f"X{display.removeprefix(':')}").exists()
+    """True when the X server for *display* (e.g. ``:99``, ``:99.0``) has a socket."""
+    return (_XVFB_SOCKET_DIR / f"X{_server_display(display).removeprefix(':')}").exists()
 
 
 def _running_xvfb_displays() -> dict[str, int]:
@@ -214,7 +228,7 @@ def _running_xvfb_displays() -> dict[str, int]:
                 continue
             m = _XVFB_PROC_RE.search(cmdline)
             if m is not None:
-                out[f":{m.group(1)}"] = int(entry.name)
+                out[m.group(1)] = int(entry.name)
     except OSError:
         pass
     return out
@@ -347,16 +361,18 @@ def _ensure_xvfb_locked() -> str | None:
     # sending every compile into a dead display.  Liveness is not enough to
     # adopt it: :func:`_adopt` also requires the cookie that authenticates to
     # the server, so an unauthenticated Xvfb is never reused.
+    env_server = _server_display(env_display)
     if (
-        env_display
-        and env_display in displays
-        and _display_alive(env_display)
-        and _adopt(env_display, displays[env_display])
+        env_server
+        and env_server in displays
+        and _display_alive(env_server)
+        and _adopt(env_display, displays[env_server])
     ):
         return env_display
 
     current = os.environ.get("DISPLAY", "")
-    if current and current in displays and _adopt(current, displays[current]):
+    current_server = _server_display(current)
+    if current_server and current_server in displays and _adopt(current, displays[current_server]):
         return current
     for candidate in sorted(displays, key=lambda d: int(d[1:])):
         if _adopt(candidate, displays[candidate]):

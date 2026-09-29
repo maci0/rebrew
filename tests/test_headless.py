@@ -11,6 +11,7 @@ from rebrew.config import ConfigError
 from rebrew.headless import (
     _display_alive,
     _pick_free_display,
+    _server_display,
     ensure_xvfb,
 )
 
@@ -51,6 +52,57 @@ class TestDisplayAlive:
         monkeypatch.setattr(headless, "_XVFB_SOCKET_DIR", tmp_path)
         assert _display_alive(":77")
         assert _display_alive("77")
+
+    def test_screen_suffix_probes_the_server_socket(self, tmp_path: Path, monkeypatch) -> None:
+        """:99.0 names the :99 server, so the socket probe is X99, not X99.0."""
+        from rebrew import headless
+
+        (tmp_path / "X99").touch()
+        monkeypatch.setattr(headless, "_XVFB_SOCKET_DIR", tmp_path)
+        assert _display_alive(":99.0")
+
+
+class TestServerDisplay:
+    def test_drops_the_screen_suffix(self) -> None:
+        assert _server_display(":99.0") == ":99"
+        assert _server_display(":99") == ":99"
+
+    def test_env_display_with_screen_is_adopted(self, monkeypatch) -> None:
+        """A :N.S pin names the same server the /proc scan keys as :N."""
+        from rebrew import headless
+
+        adopted: list[str] = []
+
+        monkeypatch.setenv(headless.XVFB_DISPLAY_ENV, ":99.0")
+        monkeypatch.setattr(headless, "_running_xvfb_displays", lambda: {":99": 4242})
+        monkeypatch.setattr(headless, "_display_alive", lambda d: True)
+        monkeypatch.setattr(headless, "_adopt", lambda d, pid: adopted.append(d) or True)
+        monkeypatch.setattr(headless.shutil, "which", lambda name: None)
+
+        assert ensure_xvfb() == ":99.0"
+        assert adopted == [":99.0"]
+
+
+class TestProcDisplayParse:
+    def test_display_is_the_first_argv_token(self) -> None:
+        from rebrew import headless
+
+        m = headless._XVFB_PROC_RE.search("/usr/bin/Xvfb :99 -screen 0 1280x1024x24")
+        assert m is not None
+        assert m.group(1) == ":99"
+
+    def test_later_colon_digits_do_not_win(self) -> None:
+        """A trailing arg carrying :N must not re-key the display."""
+        from rebrew import headless
+
+        m = headless._XVFB_PROC_RE.search("/usr/bin/Xvfb :99 -auth /tmp/cookie-42")
+        assert m is not None
+        assert m.group(1) == ":99"
+
+    def test_no_display_argument(self) -> None:
+        from rebrew import headless
+
+        assert headless._XVFB_PROC_RE.search("/usr/bin/Xvfb") is None
 
 
 class TestPickFreeDisplay:

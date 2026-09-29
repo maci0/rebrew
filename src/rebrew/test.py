@@ -1281,17 +1281,20 @@ def _run_test_impl(
         # function's best compiler may differ from the project default (the
         # target is a mix of MSVC 4.2/5.0/6.0 output), and verify must
         # recompile with the toolchain that produced the match.
-        if toolchain_name and not no_promote and not dry_run:
+        # Guarded on the CLI argument, not the resolved name: a CMake-pinned
+        # file folds `cm_pin_tc` into `toolchain_name` above, and persisting
+        # the build's own pin is the same lie the --cflags guard refuses.
+        if toolchain and not no_promote and not dry_run:
             try:
                 update_field(
                     cfg.metadata_dir,
                     va_int_for_promote,
                     "toolchain",
-                    toolchain_name,
+                    toolchain,
                     anno_module,
                     updated_by="test",
                 )
-                console.print(f"[dim]TOOLCHAIN persisted → {toolchain_name}[/dim]")
+                console.print(f"[dim]TOOLCHAIN persisted → {toolchain}[/dim]")
             except Exception as exc:  # metadata write is best-effort
                 logging.warning(
                     "Could not persist TOOLCHAIN for 0x%x: %s (verify may recompile "
@@ -1649,10 +1652,18 @@ def _test_multi(
             ):
                 new_size = len(obj_bytes)
                 if not dry_run and not no_promote:
-                    set_fields_batch(
-                        cfg.metadata_dir,
-                        [{"module": ann.module, "va": ann.va, "fields": {"size": new_size}}],
-                    )
+                    try:
+                        set_fields_batch(
+                            cfg.metadata_dir,
+                            [{"module": ann.module, "va": ann.va, "fields": {"size": new_size}}],
+                        )
+                    except Exception as exc:  # metadata write is best-effort
+                        logging.warning(
+                            "Could not persist fixed SIZE 0x%x: %s (the .c still claims "
+                            "the stale size)",
+                            ann.va,
+                            exc,
+                        )
                 elif not json_output:
                     console.print(
                         f"[dim]  would fix SIZE {ann.size} → {new_size} for "

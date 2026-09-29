@@ -259,6 +259,7 @@ __all__ = [
     "set_fields",
     "set_fields_batch",
     "should_promote_status",
+    "stamp_provenance",
     "update_field",
     "update_source_status",
     "update_statuses_batch",
@@ -542,12 +543,12 @@ def _set_field(
 
         entry[key] = safe
         if updated_by:
-            _stamp_provenance(entry, updated_by)
+            stamp_provenance(entry, updated_by)
         atomic_write_locked(path, tomlkit.dumps(doc))
         pop_metadata_doc_cache(_metadata_cache, path)
 
 
-def _stamp_provenance(entry: dict[str, Any], updated_by: str) -> None:
+def stamp_provenance(entry: dict[str, Any], updated_by: str) -> None:
     """Record *updated_by* plus a UTC ``updated_at`` on an open entry table.
 
     One helper for every writer that stamps provenance (:func:`_set_field`,
@@ -599,7 +600,7 @@ def set_fields(
                 changed = True
         if changed:
             if updated_by:
-                _stamp_provenance(entry, updated_by)
+                stamp_provenance(entry, updated_by)
             atomic_write_locked(path, tomlkit.dumps(doc))
             pop_metadata_doc_cache(_metadata_cache, path)
 
@@ -685,8 +686,7 @@ def record_migrated_markers(metadata_dir: Path | str | Any, rows: list[dict[str,
     dir_path = resolve_metadata_dir(metadata_dir)
     path = (dir_path / METADATA_FILENAME).resolve()
     with metadata_write_lock(dir_path, METADATA_FILENAME):
-        load_toml_for_write_strict(path, "metadata")
-        doc = load_toml_for_write(path, "metadata")
+        doc = load_toml_for_write_strict(path, "metadata")
         doc_dict = typing.cast(dict[str, Any], doc)
         key_index = build_metadata_key_index(doc_dict)
         changed = False
@@ -1138,13 +1138,7 @@ def update_statuses_batch(metadata_dir: Path | str | Any, updates: list[dict[str
                 raise ValueError(f"STATUS update for {module!r} missing 'va': {u!r}")
             if u.get("new_status") is None:
                 raise ValueError(f"STATUS update for {module!r} missing 'new_status': {u!r}")
-            try:
-                new_status = canonical_status(str(u["new_status"]))
-            except (TypeError, ValueError, AttributeError) as exc:
-                raise ValueError(
-                    f"STATUS update for {module!r} has an invalid 'new_status' "
-                    f"{u['new_status']!r}: {exc}"
-                ) from exc
+            new_status = canonical_status(str(u["new_status"]))
             if not new_status:
                 raise ValueError(f"STATUS update for {module!r} resolved to an empty STATUS: {u!r}")
             # Same gate as MetadataEntry.apply: refuse to persist a STATUS the
@@ -1187,7 +1181,7 @@ def update_statuses_batch(metadata_dir: Path | str | Any, updates: list[dict[str
                     del entry["blocker_delta"]
             updated_by = str(u.get("updated_by") or "")
             if updated_by:
-                _stamp_provenance(entry, updated_by)
+                stamp_provenance(entry, updated_by)
             changed += 1
 
         # Single write for the whole batch

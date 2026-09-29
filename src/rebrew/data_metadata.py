@@ -53,13 +53,17 @@ import logging
 import threading
 import unicodedata
 from collections.abc import Iterator
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import tomlkit
 
-from rebrew.metadata import as_metadata_int, canonical_status, resolve_metadata_dir
+from rebrew.metadata import (
+    as_metadata_int,
+    canonical_status,
+    resolve_metadata_dir,
+    stamp_provenance,
+)
 from rebrew.metadata_doc import (
     MetadataDocCache,
     build_metadata_key_index,
@@ -398,8 +402,7 @@ def set_data_field(
 
         entry[key] = safe
         if updated_by:
-            entry["updated_by"] = updated_by
-            entry["updated_at"] = datetime.now(UTC).isoformat(timespec="seconds")
+            stamp_provenance(entry, updated_by)
         atomic_write_locked(path, tomlkit.dumps(doc))
         _invalidate_data_cache(path)
 
@@ -466,8 +469,7 @@ def set_data_fields_batch(directory: Path | str | Any, updates: list[dict[str, A
             if changed:
                 tag = str(u.get("updated_by") or "")
                 if tag:
-                    entry["updated_by"] = tag
-                    entry["updated_at"] = datetime.now(UTC).isoformat(timespec="seconds")
+                    stamp_provenance(entry, tag)
                 changed_entries += 1
         if changed_entries:
             atomic_write_locked(path, tomlkit.dumps(doc))

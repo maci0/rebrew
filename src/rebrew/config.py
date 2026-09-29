@@ -744,8 +744,16 @@ class ProjectConfig:
         while True:
             if (candidate / METADATA_FILENAME).exists():
                 outermost = candidate
-            if candidate in (self.root, candidate.parent):
+            if candidate == candidate.parent:
                 break
+            if self.root is not None:
+                if candidate == self.root:
+                    break
+                if self.root not in candidate.parents:
+                    # reversed_dir is not below root, so no ancestor of
+                    # candidate is in scope; climbing further would adopt an
+                    # unrelated store from outside the project.
+                    break
             candidate = candidate.parent
         return outermost if outermost is not None else parent
 
@@ -2250,9 +2258,7 @@ def load_config(
 
     if not targets_dict:
         raise ConfigKeyError("rebrew-project.toml has no [targets] section")
-    all_target_names = [k for k in targets_dict if isinstance(k, str)]
-    if not all_target_names:
-        raise ConfigKeyError("rebrew-project.toml [targets] section has no valid target names")
+    all_target_names = list(targets_dict)
     for tgt_key in all_target_names:
         validate_target_name(tgt_key, f"rebrew-project.toml [targets] key {tgt_key!r}")
 

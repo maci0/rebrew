@@ -288,6 +288,28 @@ reversed_dir = "src/sub"
         assert load_config(root).metadata_dir == root.resolve()
         assert load_config(root, target="nested").metadata_dir == root.resolve()
 
+    def test_metadata_dir_does_not_walk_out_of_root(self, tmp_path: Path) -> None:
+        """A reversed_dir outside the project must not adopt an ancestor store."""
+        root = tmp_path / "proj"
+        root.mkdir()
+        outside = tmp_path / "outside" / "src"
+        outside.mkdir(parents=True)
+        toml = f"""\
+[project]
+default_target = "game"
+
+[targets.game]
+binary = "game.exe"
+format = "pe"
+arch = "x86_32"
+reversed_dir = "{outside.as_posix()}"
+"""
+        (root / "rebrew-project.toml").write_text(toml, encoding="utf-8")
+        # A store one level above the project root: the ancestor walk used to
+        # climb here, because nothing bounded it to root, and adopt it.
+        (tmp_path / "rebrew-functions.toml").write_text("", encoding="utf-8")
+        assert load_config(root).metadata_dir == (tmp_path / "outside").resolve()
+
     def test_all_targets_listed(self, tmp_path: Path) -> None:
         root = _make_project(tmp_path, self.MULTI_TOML)
         cfg = load_config(root)

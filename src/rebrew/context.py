@@ -89,6 +89,11 @@ def collect_context(cfg: Any, include_headers: bool = True) -> tuple[list[str], 
     if include_headers:
         files += list(iter_library_headers(cfg.reversed_dir, cfg))
     files += list(iter_sources(cfg.reversed_dir, cfg))
+    # Each view is sorted on its own, so the concatenation is not sorted across
+    # the seam, and the two overlap whenever source_ext takes ".h": a header
+    # would be parsed twice and counted twice.  One dedupe-and-sort keeps the
+    # documented order and makes file_count the number of distinct files.
+    files = sorted(set(files))
     seen: set[str] = set()
     blocks: list[str] = []
     for path in files:

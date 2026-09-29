@@ -687,7 +687,7 @@ def render_coverage_toml(
         verify_list = [_rows_from(_VERIFY_RESULTS_COLUMNS, row) for row in verify_rows]
     history = _merge_history(prev.get("functions"), prev.get("history"), fn_rows)
 
-    lines: list[str] = [_HEADER.replace("{target}", target_name)]
+    lines: list[str] = [_HEADER]
     lines.append(f"version = {_TOML_VERSION}")
     lines.append(_kv("target", target_name))
     # Bulk arrays first: a bare key after a table header belongs to THAT table.
