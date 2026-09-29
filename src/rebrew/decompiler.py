@@ -38,7 +38,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from rebrew.config import expand_env_path, warn_env_dir
+from rebrew.config import KUNA_SPECS_ENV, expand_env_path, warn_env_dir
 from rebrew.registry import RegistryError
 from rebrew.utils import binary_fingerprint, console, run_process_group, untrusted_literal
 
@@ -645,17 +645,19 @@ def _kuna_specs_override() -> str | None:
     against its rarely-present ``/specs/`` default and every seed came back
     empty with nothing naming the mistyped path.  Warn once and fall through
     to discovery, the same treatment every other directory-valued env knob
-    gets in :func:`rebrew.config.env_dir_path`.
+    gets in :func:`rebrew.config.env_dir_path`, which also raises the error
+    ``rebrew cfg effective`` reports for a set-but-unusable ``KUNA_SPECS``.
     """
-    explicit = expand_env_path(os.environ.get("KUNA_SPECS", ""))
-    if explicit is None:
+    raw = os.environ.get(KUNA_SPECS_ENV, "")
+    path = expand_env_path(raw)
+    if path is None:
         return None
-    if not explicit.is_dir():
-        if str(explicit) not in _WARNED_KUNA_SPECS:
-            _WARNED_KUNA_SPECS.add(str(explicit))
-            warn_env_dir("KUNA_SPECS", os.environ.get("KUNA_SPECS", ""))
+    if not path.is_dir():
+        if str(path) not in _WARNED_KUNA_SPECS:
+            _WARNED_KUNA_SPECS.add(str(path))
+            warn_env_dir(KUNA_SPECS_ENV, raw)
         return None
-    return str(explicit)
+    return str(path)
 
 
 def fetch_kuna(binary: Path, va: int, root: Path, **_kwargs: Any) -> str | None:
@@ -679,7 +681,7 @@ def fetch_kuna(binary: Path, va: int, root: Path, **_kwargs: Any) -> str | None:
         return None
     # An explicit KUNA_SPECS is inherited as is; otherwise the discovered dir is injected.
     spec_dir = None if _kuna_specs_override() is not None else kuna_spec_dir()
-    env = None if spec_dir is None else {**os.environ, "KUNA_SPECS": spec_dir}
+    env = None if spec_dir is None else {**os.environ, KUNA_SPECS_ENV: spec_dir}
     try:
         result = run_process_group(
             [kuna, "decompile", str(binary), f"0x{va:x}", "--addr"],

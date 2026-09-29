@@ -343,7 +343,7 @@ timeout = 90                              # per-request HTTP budget, seconds (5.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `endpoint` | `string` | `""` | Base URL of the chat-completions endpoint; must be `http(s)` with a host. Under `REBREW_LLM_API_KEY` a plain `http://` endpoint is refused unless it is loopback, or unless `REBREW_LLM_ALLOW_PROJECT_ENDPOINT=1` opts a project-file endpoint in. `REBREW_LLM_ENDPOINT` loses to this field |
+| `endpoint` | `string` | `""` | Base URL of the chat-completions endpoint; must be `http(s)` with a host. With an API key set, a plain `http://` endpoint is refused unless the host is loopback; `REBREW_LLM_ALLOW_PROJECT_ENDPOINT=1` does not lift that, it only decides whether a project-file endpoint may receive the env key. `REBREW_LLM_ENDPOINT` loses to this field |
 | `api_key` | `string` | `""` | Bearer token. `REBREW_LLM_API_KEY` wins whenever it is present, empty included (which clears a committed key for the run). `rebrew cfg set` refuses a non-empty value here: argv is world-readable |
 | `model` | `string` | `"gpt-4o-mini-2024-07-18"` | Pinned model id. `latest` / `auto` / `default` and malformed ids raise, so a seed run is reproducible; `REBREW_LLM_MODEL` loses to this field |
 | `max_requests` | `integer` | `32` | Process-wide ceiling on LLM calls (`REBREW_LLM_MAX_REQUESTS`); `0` disables LLM calls, values above 10000 clamp with a warning |
@@ -406,7 +406,9 @@ by the CLI layer and win for that invocation.
   (local ollama / vllm) need no opt-in, and a key that came from the project
   TOML is not affected. Unset or `0` keeps the refusal. Booleans are parsed
   strictly (`1`/`true`/`yes`/`on`, `0`/`false`/`no`/`off`); any other value is
-  a `ConfigError`, so a mistyped opt-in never reads as consent.
+  a `ConfigError`, so a mistyped opt-in never reads as consent. It chooses the
+  host, not the transport: a plain `http://` project endpoint still fails the
+  https-or-loopback check with a key set, opt-in or not.
 - `REBREW_LLM_MAX_REQUESTS`: process-wide ceiling on LLM HTTP calls
   (default `32`, or `[llm] max_requests` when the variable is unset). Stops
   `--watch` / batch seeding from burning a paid
@@ -543,7 +545,8 @@ rebrew receives.
   `UV_TOOL_DIR`, `XDG_DATA_HOME`, or the probed platform defaults).  A value
   that is not a directory warns and falls back to discovery, so an export
   left behind by a moved checkout cannot silently strand kuna on its
-  rarely-present `/specs/` default.
+  rarely-present `/specs/` default.  A set-but-unusable value is also reported
+  by `cfg effective` under `env_errors`, like every other path knob.
 - `UV_TOOL_DIR` / `XDG_DATA_HOME`: roots searched for that spec tree, ahead
   of the probed defaults.
 
@@ -729,6 +732,7 @@ under is visible in the same dump.
 
 `env_errors` covers the knobs no command reads until the moment of use
 (`REBREW_CONTAINER_RUNTIME`, `REBREW_FLIRT_SIGS_DIR`,
+`KUNA_SPECS`,
 `REBREW_LLM_ALLOW_PROJECT_ENDPOINT`, `REBREW_LOG_LEVEL`, `REBREW_PROJECTS_ROOT`,
 `REBREW_SKILLS_DIR`, `REBREW_TOOLCHAIN`, `REBREW_TOOLCHAIN_OVERLAY_DIR`,
 `REBREW_TOOLCHAINS_DIR`,

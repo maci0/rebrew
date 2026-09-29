@@ -170,6 +170,16 @@ instead of retyping ``--api`` per invocation.  A set-but-empty value is read as
 unset (the flag's own value then applies), so a leftover blank export does not
 break every upload."""
 
+KUNA_SPECS_ENV = "KUNA_SPECS"
+"""Env var naming the SLEIGH spec directory the host ``kuna`` binary reads.
+
+The one documented directory knob outside the ``REBREW_`` namespace: kuna
+resolves specs from it, and rebrew only injects a discovered spec dir when it
+is unset.  A value that is not a directory therefore hands kuna its rarely
+present ``/specs/`` default and every ``--seed-kuna`` seed comes back empty,
+so it is checked like every other path knob.  Read by
+:mod:`rebrew.decompiler`, and reported by ``rebrew cfg effective``."""
+
 XVFB_DISPLAY_ENV = "REBREW_XVFB_DISPLAY"
 """Env var recording the display rebrew's Xvfb lives on.  Written by
 :mod:`rebrew.headless`; an operator may pin it, and only a local ``:N`` /
@@ -904,8 +914,7 @@ class ProjectConfig:
             validate_llm_model(self.llm_model)
         if self.llm_api_key and self.llm_endpoint and not is_key_safe_endpoint(self.llm_endpoint):
             raise ConfigError(
-                "LLM endpoint must use https when an API key is set "
-                "(plain http is allowed only for loopback hosts)"
+                insecure_endpoint_message(from_project=self.llm_endpoint_from_project)
             )
 
 
@@ -1454,6 +1463,28 @@ def is_key_safe_endpoint(endpoint: str) -> bool:
         return False
 
 
+def insecure_endpoint_message(*, from_project: bool) -> str:
+    """The one message for an endpoint that may not carry a bearer key.
+
+    ``REBREW_LLM_ALLOW_PROJECT_ENDPOINT`` decides *which host* a project
+    ``[llm].endpoint`` may send the env key to, not whether the transport is
+    safe, and the two rules are checked apart: an operator who sets the opt-in
+    for a plain-http endpoint still fails this check.  Naming the knob in the
+    case it does not help is what told them nothing, so the project-endpoint
+    case says so explicitly.
+    """
+    message = (
+        "LLM endpoint must use https when an API key is set "
+        "(plain http is allowed only for loopback hosts)"
+    )
+    if from_project:
+        message += (
+            f"; {LLM_PROJECT_ENDPOINT_TRUST_ENV} picks the host, not the transport, "
+            "so it does not lift this: use an https or loopback endpoint"
+        )
+    return message
+
+
 def validate_llm_model(model: str) -> str:
     """Validate a configured LLM model id, rejecting unpinned aliases and invalid chars."""
     if model.lower() in _UNPINNED_MODELS:
@@ -1685,6 +1716,7 @@ def _env_knob_parsers() -> tuple[tuple[str, Callable[[str], None]], ...]:
         ("REBREW_CONTAINER_RUNTIME", _container_runtime),
         (DECOMPME_API_ENV, _decompme_api),
         (REBREW_FLIRT_SIGS_DIR_ENV, partial(check_env_dir, REBREW_FLIRT_SIGS_DIR_ENV)),
+        (KUNA_SPECS_ENV, partial(check_env_dir, KUNA_SPECS_ENV)),
         (LLM_PROJECT_ENDPOINT_TRUST_ENV, _project_endpoint_trust),
         ("REBREW_LOG_LEVEL", _log_level),
         (REBREW_PROJECTS_ROOT_ENV, partial(check_env_dir, REBREW_PROJECTS_ROOT_ENV)),
@@ -2708,10 +2740,7 @@ def load_config(
                 "set endpoint (or REBREW_LLM_ENDPOINT) or LLM seeding stays disabled"
             )
         elif not is_key_safe_endpoint(cfg.llm_endpoint):
-            raise ConfigError(
-                "LLM endpoint must use https when an API key is set "
-                "(plain http is allowed only for loopback hosts)"
-            )
+            raise ConfigError(insecure_endpoint_message(from_project=cfg.llm_endpoint_from_project))
 
     # Parsed here, not only validated: these three are the LLM budget, and
     # `rebrew cfg effective` has to report what is in force. A bad value still
@@ -2767,6 +2796,7 @@ __all__ = [
     "KNOWN_FORMATS",
     "KNOWN_PROJECT_KEYS",
     "KNOWN_TARGET_KEYS",
+    "KUNA_SPECS_ENV",
     "LLM_PROJECT_ENDPOINT_TRUST_ENV",
     "ConfigError",
     "ConfigKeyError",
@@ -2801,6 +2831,7 @@ __all__ = [
     "expand_env_path",
     "find_root",
     "inventory_path_for",
+    "insecure_endpoint_message",
     "is_key_safe_endpoint",
     "llm_max_requests",
     "llm_max_tokens",

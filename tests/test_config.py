@@ -2267,6 +2267,27 @@ profile = "msvc-6.0"
         with pytest.raises(ConfigError, match="LLM endpoint must use https when an API key is set"):
             load_config(root)
 
+    def test_llm_insecure_project_endpoint_error_names_the_dead_end(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The https-or-loopback rule is separate from the project-endpoint opt-in.
+
+        `REBREW_LLM_ALLOW_PROJECT_ENDPOINT=1` chooses which host a project
+        `[llm].endpoint` may send the env key to; it does not make a plain-http
+        transport safe, so the load still raises. The message has to say so,
+        or the operator sets the opt-in and gets the same error with no hint.
+        """
+        toml = self.BASE_TOML + '\n[llm]\nendpoint = "http://gpu-box.internal:8000/v1"\n'
+        root = _make_project(tmp_path, toml)
+        monkeypatch.setenv("REBREW_LLM_API_KEY", "secret")
+        monkeypatch.setenv("REBREW_LLM_ALLOW_PROJECT_ENDPOINT", "1")
+        with pytest.raises(ConfigError) as excinfo:
+            load_config(root)
+        message = str(excinfo.value)
+        assert "must use https" in message
+        assert "REBREW_LLM_ALLOW_PROJECT_ENDPOINT" in message
+        assert "not the transport" in message
+
     def test_llm_max_requests_invalid_env_raises(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -2685,6 +2706,22 @@ class TestEnvKnobValidators:
         errors = env_knob_errors({DECOMPME_API_ENV: "decomp,me"})
         assert DECOMPME_API_ENV in errors
         assert "http(s) URL" in errors[DECOMPME_API_ENV]
+
+    def test_kuna_specs_knob_is_reported(self, tmp_path: Path) -> None:
+        """`KUNA_SPECS` is checked like every other directory knob.
+
+        kuna falls back to a rarely-present `/specs/` when the path is
+        unusable, so a mistyped one emptied every `--seed-kuna` seed with
+        nothing naming the typo, and `cfg effective` listed the variable as
+        present with no error beside it.
+        """
+        from rebrew.config import KUNA_SPECS_ENV, env_knob_errors
+
+        assert env_knob_errors({KUNA_SPECS_ENV: ""}) == {}
+        assert env_knob_errors({KUNA_SPECS_ENV: str(tmp_path)}) == {}
+        errors = env_knob_errors({KUNA_SPECS_ENV: str(tmp_path / "absent")})
+        assert KUNA_SPECS_ENV in errors
+        assert "is not a directory" in errors[KUNA_SPECS_ENV]
 
     def test_bad_knobs_are_named_not_raised(self, tmp_path: Path) -> None:
         from rebrew.config import env_knob_errors

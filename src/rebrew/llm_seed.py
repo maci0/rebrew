@@ -94,6 +94,7 @@ from urllib.parse import urlparse
 
 from rebrew.config import (
     LLM_PROJECT_ENDPOINT_TRUST_ENV,
+    insecure_endpoint_message,
     is_key_safe_endpoint,
     llm_max_requests,
     llm_max_tokens,
@@ -557,10 +558,7 @@ def llm_config(cfg: Any) -> dict[str, str] | None:
     if api_key:
         _reject_control_chars_in_key(api_key)
     if api_key and not is_key_safe_endpoint(endpoint):
-        raise ValueError(
-            "LLM endpoint must use https when an API key is set "
-            "(plain http is allowed only for loopback hosts)"
-        )
+        raise ValueError(insecure_endpoint_message(from_project=from_project))
     if api_key and key_from_env and from_project and not _project_endpoint_allowed(endpoint):
         raise ValueError(
             "refusing to send REBREW_LLM_API_KEY to [llm].endpoint from "
