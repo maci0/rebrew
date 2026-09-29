@@ -1591,7 +1591,10 @@ def _run_batch_flag_sweep(
 
         # --timeout-min bounds the sweep itself, not just the GA that may follow
         # it: a thorough tier is 258k combos and ran unbounded before this.
-        sweep_deadline = (clock or time.monotonic)() + timeout_min * 60 if timeout_min else None
+        # `> 0` is the convention run_single_flag_sweep and the GA path above
+        # use: a negative budget would otherwise land the deadline in the past
+        # and report a near-empty sweep as "no flag combination matched".
+        sweep_deadline = (clock or time.monotonic)() + timeout_min * 60 if timeout_min > 0 else None
         # `deadline` and `clock` are passed only when set, so a
         # monkeypatched/legacy run_flag_sweep without the parameters still
         # works.

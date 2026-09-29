@@ -1448,6 +1448,76 @@ class TestSweepThenGa:
         assert seen.get("override") == expected_override
         assert seen.get("sweep_clock") is fake_clock
 
+    @pytest.mark.parametrize("timeout_min", [0, -5])
+    def test_non_positive_timeout_min_leaves_the_sweep_unbounded(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, timeout_min: int
+    ) -> None:
+        """A non-positive budget must not become a deadline already in the past.
+
+        ``run_single_flag_sweep`` and the GA path both read ``> 0`` as
+        "unbounded".  Truthiness instead turned ``--timeout-min -1`` into a
+        deadline one minute behind, and the sweep then reported a near-empty
+        run as "no flag combination matched".
+        """
+        from rebrew.match import run_all
+        from rebrew.match_batch import StubInfo
+
+        stubs = [
+            StubInfo(
+                filepath=tmp_path / "s.c",
+                va="0x10001000",
+                size=64,
+                symbol="_s",
+                cflags="/O2 /Gd",
+                status="STUB",
+                module="SERVER",
+            )
+        ]
+        monkeypatch.setattr("rebrew.match_run.find_all_stubs", lambda *a, **k: stubs)
+
+        seen: dict[str, Any] = {}
+
+        def _fake_sweep(stub, cfg, tier="targeted", jobs=4, deadline=None, *, clock=None):
+            seen["deadline"] = deadline
+            return (float("inf"), "", [])
+
+        monkeypatch.setattr("rebrew.match_run.run_flag_sweep", _fake_sweep)
+        monkeypatch.setattr(
+            "rebrew.match_run._run_one_stub_ga", lambda *a, **k: (False, "no match", 5.0, 3, None)
+        )
+        cfg = SimpleNamespace(
+            reversed_dir=tmp_path,
+            metadata_dir=tmp_path,
+            marker="SERVER",
+            source_ext=".c",
+            ignored_symbols=[],
+            target_name="SERVER",
+            root=tmp_path,
+            target_binary=tmp_path / "x.dll",
+        )
+        run_all(
+            cfg,
+            jobs=1,
+            generations=1,
+            pop_size=1,
+            timeout_min=timeout_min,
+            dry_run=False,
+            min_size=0,
+            max_size=9999,
+            filter_str="",
+            near_miss=False,
+            improve=False,
+            threshold=10,
+            flag_sweep=False,
+            fix_cflags=False,
+            max_stubs=0,
+            seed_from_solved=False,
+            json_output=True,
+            tier="targeted",
+            flag_sweep_then_ga=True,
+        )
+        assert seen.get("deadline") is None, timeout_min
+
 
 class TestSkipRecent:
     """--skip-recent: stubs with a recent ga_runs record are skipped."""

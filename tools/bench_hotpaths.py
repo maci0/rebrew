@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import random
 import tempfile
 import time
@@ -529,10 +530,13 @@ def main() -> int:
         fn = _BENCHES[name]
         row = fn()
         rate = row["ops"] / row["seconds"] if row["seconds"] else float("inf")
-        results[name] = {**row, "ops_per_sec": round(rate, 1)}
+        # JSON has no Infinity: json.dumps writes the bare token and json.loads
+        # rejects it, so an unmeasured bench reports null rather than poisoning
+        # the machine-readable output.
+        results[name] = {**row, "ops_per_sec": round(rate, 1) if math.isfinite(rate) else None}
         if args.compare:
             base = BASELINES.get(name)
-            if base and base > 0:
+            if base and base > 0 and row["seconds"] > 0:
                 speedup = base / row["seconds"]
                 marker = "OK " if speedup >= 1.3 else "   "
                 print(
@@ -540,7 +544,8 @@ def main() -> int:
                     f"{marker}{speedup:.2f}x vs baseline"
                 )
             else:
-                print(f"{name:20} {row['seconds']:.3f}s  ({rate:,.0f} ops/s)  (no baseline)")
+                note = "(no baseline)" if row["seconds"] > 0 else "(unmeasured)"
+                print(f"{name:20} {row['seconds']:.3f}s  ({rate:,.0f} ops/s)  {note}")
         else:
             print(f"{name:20} {row['seconds']:.3f}s  ({rate:,.0f} ops/s)")
 

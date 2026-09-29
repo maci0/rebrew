@@ -1530,6 +1530,66 @@ class TestTodoCli:
         assert cov["pct_matched"] == 66.6  # 2/3 matched (rounded down), not 2/1 = 200%
         assert cov["pct_matched"] <= 100.0
 
+    def test_documented_rows_are_not_counted_twice(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """DOCUMENTED is a subset of STUB, so the buckets must stay disjoint.
+
+        The header prints six counts side by side.  A STUB the verify cache
+        has since demoted to NEAR_MATCHING used to be counted under both
+        NEAR_MATCHING and DOCUMENTED, so the row total read above the number
+        of covered functions.
+        """
+        import json
+
+        import rebrew.status
+
+        monkeypatch.setattr(
+            rebrew.status, "load_verify_statuses", lambda _cfg: {0x2000: "NEAR_MATCHING"}
+        )
+        result = self._invoke(
+            tmp_path,
+            monkeypatch,
+            ghidra_funcs=[
+                FunctionEntry(va=0x1000, size=100, name="thunk"),
+                FunctionEntry(va=0x2000, size=100, name="mixed"),
+                FunctionEntry(va=0x3000, size=100, name="plain_stub"),
+            ],
+            existing={
+                0x1000: {
+                    "status": "STUB",
+                    "symbol": "thunk",
+                    "size": "100",
+                    "blocker": "IAT import thunk - not a decomp target",
+                },
+                # Documented in the annotation, but verify measured it, so it
+                # lands in NEAR_MATCHING and must not also land in DOCUMENTED.
+                0x2000: {
+                    "status": "STUB",
+                    "symbol": "mixed",
+                    "size": "100",
+                    "blocker": "not reproducible",
+                },
+                0x3000: {"status": "STUB", "symbol": "plain_stub", "size": "100"},
+            },
+            covered_vas={0x1000: "thunk.c", 0x2000: "mixed.c", 0x3000: "plain_stub.c"},
+            args=["--json"],
+        )
+        assert result.exit_code == 0
+        cov = json.loads(result.output)["coverage"]
+        assert cov["documented"] == 1
+        assert cov["matching"] == 1
+        assert cov["stub"] == 1
+        assert (
+            cov["exact"]
+            + cov["reloc"]
+            + cov["proven"]
+            + cov["matching"]
+            + cov["stub"]
+            + cov["documented"]
+            == cov["covered"]
+        )
+
     def test_category_filter(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         import json
 

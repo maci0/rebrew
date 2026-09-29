@@ -773,7 +773,12 @@ def save_verify_cache(
 
         # The stored row IS the report row (verdict fields) plus the
         # cache-identity inputs alongside — one shape, no nesting.
-        fp_entry = fp_by_va[str(va_key)]
+        # filepath_info is keyed by path and fp_by_va by VA, so a row whose own
+        # annotation has no fingerprint (fp is None above) can still find a
+        # sibling's entry under a shared filepath.  Uncacheable, not fatal.
+        fp_entry = fp_by_va.get(str(va_key))
+        if fp_entry is None:
+            continue
         res_dict = {k: result.get(k) for k in RESULT_FIELDS}
         res_dict["va"] = va_key
 

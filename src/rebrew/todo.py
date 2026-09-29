@@ -617,6 +617,12 @@ def _collect_prover_candidates(
             size = int(info.get("size") or 0) or size_by_va.get(va) or 0
         except (TypeError, ValueError):
             size = size_by_va.get(va) or 0
+        # A negative SIZE is truthy, so it survives the `or` chain above and
+        # then fails `size == 0` below, which also makes est_diff negative and
+        # disarms the too-far-apart gate.  Clamp to 0 so a nonsense extent is
+        # treated as the unknown it is, the way status.py / coverage_toml.py
+        # treat it.
+        size = max(size, 0)
         if size > _PROVE_MAX_FUNC_BYTES or size == 0:
             continue
 
@@ -1454,9 +1460,21 @@ def main(
         if va_int in library_vas:
             continue
         ann_status = info.get("status", "STUB")
-        if ann_status == "STUB" and any(m in info.get("blocker", "") for m in _NON_TARGET_MARKERS):
-            documented += 1
         s = effective_status(ann_status, verify_statuses.get(va_int))
+        # DOCUMENTED is a subset of STUB, not a bucket beside it: the header
+        # prints the six counts as disjoint, so a STUB the verify cache has
+        # since demoted to NEAR_MATCHING used to be counted under both
+        # NEAR_MATCHING and DOCUMENTED and the row total came out above
+        # `covered`.  A documented row is tallied once, here, and skipped in
+        # the status buckets (same split `rebrew status` renders as its
+        # "(no source)" remainder).
+        if (
+            s == "STUB"
+            and ann_status == "STUB"
+            and any(m in info.get("blocker", "") for m in _NON_TARGET_MARKERS)
+        ):
+            documented += 1
+            continue
         status_counts[s] = status_counts.get(s, 0) + 1
     function_vas = {va for va in existing if va not in library_vas}
     ghidra_vas = {f.va for f in ghidra_funcs}

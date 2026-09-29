@@ -280,6 +280,40 @@ class TestForwarderExports:
         assert exports == [{"name": "aaa", "ordinal": 1, "va": 0x400000 + 0x1000}]
 
 
+class TestGapLengthFormatting:
+    def test_overlap_length_keeps_its_sign_outside_the_hex_digits(self, tmp_path: Path) -> None:
+        """An overlap gap's length is negative; ``0x`` + a signed hex is ``0x-20``.
+
+        The text map is what the byte-identity build is measured against, so a
+        nonsense byte length there reads as a corrupt file rather than as the
+        overlap the manifest already labels.
+        """
+        from rebrew.layout_map import _GAP_CLASSES, write_text_map
+
+        manifest = {
+            "target": "game.exe",
+            "sections": [],
+            "gaps": {
+                "histogram": dict.fromkeys(_GAP_CLASSES, 0),
+                "rows": [
+                    {
+                        "start": 0x10001040,
+                        "end": 0x10001020,
+                        "length": -0x20,
+                        "class": "overlap",
+                    }
+                ],
+            },
+            "iat": [],
+            "exports": [],
+        }
+        manifest["gaps"]["histogram"]["overlap"] = 1
+        write_text_map(manifest, tmp_path)
+        body = (tmp_path / "gaps.txt").read_text(encoding="utf-8")
+        assert "0x10001040 0x10001020 -0x20 overlap" in body
+        assert "0x-" not in body
+
+
 class TestPeHeaderTimestamp:
     def test_signed_high_bit_stamp_reported_unsigned(self) -> None:
         """PE TimeDateStamp is a DWORD; layout_map must mask like pe_info."""

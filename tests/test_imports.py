@@ -176,6 +176,36 @@ class TestFindImportStubs:
         stubs = find_import_stubs(path)
         assert stubs == {IMAGE_BASE + TEXT_VA: parse_import_table(path)[iat_va]}
 
+    def test_detects_pe32_stub_with_high_image_base(self, tmp_path: Path) -> None:
+        """A PE32 stub above 0x80000000 names its slot with a negative operand.
+
+        The ``FF 25`` operand is unpacked signed, so an absolute slot VA with
+        the top bit set used to look up a negative key and the stub vanished
+        from the table with no error.
+        """
+        high_base = 0x80000000
+        stub_len = 6
+        tail = b"\x55\x8b\xec\x5d\xc3"
+        imports = [("KERNEL32.dll", ["MessageBoxA"])]
+        probe_path = tmp_path / "probe_hi.exe"
+        probe_path.write_bytes(
+            make_pe(
+                b"\x90" * stub_len + tail,
+                image_base=high_base,
+                text_va=TEXT_VA,
+                imports=imports,
+            )
+        )
+        iat_va = min(parse_import_table(probe_path))
+        assert iat_va > 0x7FFFFFFF, "fixture must exercise the signed-operand path"
+        stub = b"\xff\x25" + struct.pack("<I", iat_va)
+        path = tmp_path / "game_hi.exe"
+        path.write_bytes(
+            make_pe(stub + tail, image_base=high_base, text_va=TEXT_VA, imports=imports)
+        )
+        stubs = find_import_stubs(path)
+        assert stubs == {high_base + TEXT_VA: parse_import_table(path)[iat_va]}
+
 
 class TestImportsCli:
     def test_terminal_output(self, pe_path: Path) -> None:

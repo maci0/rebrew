@@ -297,8 +297,16 @@ def find_import_stubs(binary_path: Path) -> dict[int, str]:
     for i in range(len(blob) - 5):
         if blob[i] != 0xFF or blob[i + 1] != 0x25:
             continue
+        # ``<i`` reads the operand signed (a RIP-relative disp32 is signed).
+        # A PE32 operand is the slot's absolute VA, so an image based at or
+        # above 0x80000000 decodes negative and misses the table; mask it back
+        # to 32 bits rather than look up a negative key.
         operand = struct.unpack("<i", blob[i + 2 : i + 6])[0]
-        target = (stub_va + i + 6 + operand) & 0xFFFFFFFFFFFFFFFF if rip_relative else operand
+        target = (
+            (stub_va + i + 6 + operand) & 0xFFFFFFFFFFFFFFFF
+            if rip_relative
+            else operand & 0xFFFFFFFF
+        )
         name = table.get(target)
         if name is not None:
             stubs[stub_va + i] = name

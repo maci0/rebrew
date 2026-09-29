@@ -2893,7 +2893,11 @@ def render_verify_summary(results: list[dict[str, Any]]) -> None:
 
         show_pct = st in ("STUB", "NEAR_MATCHING")
         pct = f"{floor_pct(_row_match_pct(r), 100):.1f}%" if show_pct else "-"
-        dt = f"{r.get('delta', 0)}B" if show_pct else "-"
+        # ``delta`` is ``int | None`` on a cache-served row and the key is
+        # always present, so ``.get(..., 0)`` never substitutes: an absent delta
+        # printed as ``NoneB``.  Treat it as the unmeasured value it is.
+        delta = r.get("delta")
+        dt = f"{delta}B" if isinstance(delta, (int, float)) and not isinstance(delta, bool) else "-"
         sim = r.get("similarity")
         sim_str = f"{sim:.1f}%" if isinstance(sim, (int, float)) else "-"
         table.add_row(

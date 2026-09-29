@@ -159,6 +159,16 @@ def _alignment_histogram(vas: list[int]) -> dict[int, int]:
     return hist
 
 
+def _fmt_gap_length(length: int) -> str:
+    """Render a gap length as hex, keeping an overlap's sign outside the digits.
+
+    ``f"{-32:x}"`` is ``"-20"``, which the ``0x`` prefix turns into the
+    unreadable ``0x-20``; an overlap row is a real negative extent and has to
+    say so.
+    """
+    return f"-0x{-length:x}" if length < 0 else f"0x{length:x}"
+
+
 def _gap_rows(
     info: BinaryInfo, funcs: list[tuple[int, int]]
 ) -> tuple[dict[str, int], list[dict[str, Any]]]:
@@ -350,7 +360,7 @@ def write_text_map(manifest: Manifest, out_dir: Path) -> list[str]:
         + " ".join(f"{cls}={gaps['histogram'][cls]}" for cls in _GAP_CLASSES)
         + "\n"
         + "".join(
-            f"0x{g['start']:x} 0x{g['end']:x} 0x{g['length']:x} {g['class']}\n"
+            f"0x{g['start']:x} 0x{g['end']:x} {_fmt_gap_length(g['length'])} {g['class']}\n"
             for g in gaps["rows"]
         ),
     )
