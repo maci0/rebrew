@@ -136,8 +136,9 @@ plugin cache backends or remove the open upstream diskcache advisory.
   `build/CMakeFiles/*/link.txt` and its `--compile-cmd` on the host,
   `rebrew link-sweep` executes that same `link.txt` command on the host,
   `rebrew gen-stubs --build-cmd` executes an operator-supplied build command on the host,
-  and analysis helpers run host rizin/r2, kuna, objconv, llvm-pdbutil, diec,
-  objdump, and nasm against target binaries. Linked-exe GA
+  `rebrew build-check --objects` runs host `make -q -f <build.make>` in the
+  build directory, and analysis helpers run host rizin/r2, kuna, objconv,
+  llvm-pdbutil, diec, objdump, and nasm against target binaries. Linked-exe GA
   (`match_ga.py` `_compile_source` / `matcher/compiler.py` `build_candidate`)
   runs that host compiler only when the profile has no docker image; a
   profile whose spec has an image raises instead of starting host wine.
@@ -145,6 +146,15 @@ plugin cache backends or remove the open upstream diskcache advisory.
   same image-less path (`check_compiler`); a docker-backed profile returns
   before the smoke. Treat a project tree from an untrusted source as able
   to run code on the host through the paths that do execute.
+  `make -q` suppresses makefile recipes, not `$(shell …)` / `$(info …)`
+  expansion while the file is read, so the `build.make` CMake generates for a
+  cloned project is host-executable too.
+- No claim that reading a project's build files stays inside the project
+  directory. The cmake bridge resolves and reads every `@rsp` response file
+  in its argv on the host, with no containment check on the resolved path,
+  and stages the rewritten copy in a temporary directory inside the
+  read-write project root (`src/rebrew/cmake_tc.py` `_rewrite_response_files`,
+  called from `_docker_run`).
 - No claim that a cloned project's metadata can make rebrew read or
   write outside the project, and no claim that a command other than the
   validator enforces it. The `file` identity field is a path, and one

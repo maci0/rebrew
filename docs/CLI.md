@@ -888,7 +888,7 @@ manifest including per-gap rows.
 
 ### `rebrew build-check`
 
-`rebrew build-check [--build-dir build] [--json]`
+`rebrew build-check [--build-dir build] [--objects] [--json]`
 
 Verify that `build/` still says what CMake wrote. `build/` is gitignored in every
 rebrew project, so a hand-edited `build.make` is invisible to `git status`, to
@@ -903,6 +903,13 @@ per-file flags there as `# Custom flags: <obj>_FLAGS = ...` and
 `build.make`'s compile line must appear in the corresponding comment; one that
 does not was added by hand. Objects with no `Custom` comment have no per-file
 flags (they compile with the global `C_FLAGS`) and are not drift.
+
+`--objects` additionally asks Make whether the objects themselves are current,
+header dependencies included; `make -q` answers without running a recipe, but it
+still *reads* `build.make`, and `$(shell …)` / `$(info …)` expand during that read.
+Make runs on the host here, not in a container, so the makefile CMake generated
+for this project reaches the host shell (see [`THREAT_MODEL.md`](THREAT_MODEL.md)
+risk item 2).
 
 Exits 1 on drift, 2 when `build/` is missing or incomplete, and prints the
 restore command.
