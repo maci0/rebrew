@@ -102,7 +102,7 @@ _DISP_ABS_MIN = 0x10000  # |disp32| on a memory operand
 # ``Score.total``; the weights live in core.py beside that property.
 
 
-def _normalize_with_reloc_offsets(
+def normalize_with_reloc_offsets(
     code: bytes, reloc_offsets: dict[int, str] | list[int] | None, pointer_size: int = 4
 ) -> bytes:
     """Zero relocation slots described by explicit relocation offsets.
@@ -806,8 +806,8 @@ def diff_functions(
     ]
 
     if reloc_offsets is not None:
-        norm_target = _normalize_with_reloc_offsets(target_bytes, reloc_offsets, pointer_size)
-        norm_cand = _normalize_with_reloc_offsets(candidate_bytes, reloc_offsets, pointer_size)
+        norm_target = normalize_with_reloc_offsets(target_bytes, reloc_offsets, pointer_size)
+        norm_cand = normalize_with_reloc_offsets(candidate_bytes, reloc_offsets, pointer_size)
     else:
         norm_target_buf = bytearray(target_bytes)
         norm_cand_buf = bytearray(candidate_bytes)

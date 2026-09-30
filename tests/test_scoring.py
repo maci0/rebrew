@@ -223,15 +223,15 @@ class TestNormalizeReloc:
         """Negative offsets are nonsensical for zeroing — they must leave the
         bytes untouched (the old max(0, ro) clamp zeroed [0, pointer_size),
         disagreeing with _build_invalid_reloc_mask which skips them)."""
-        from rebrew.matcher.scoring import _normalize_with_reloc_offsets
+        from rebrew.matcher.scoring import normalize_with_reloc_offsets
 
         code = b"\x55\x8b\xec\x5d\xc3"
-        assert _normalize_with_reloc_offsets(code, [-5]) == code
-        assert _normalize_with_reloc_offsets(code, [-1]) == code
-        assert _normalize_with_reloc_offsets(code, {-3: "neg"}) == code
+        assert normalize_with_reloc_offsets(code, [-5]) == code
+        assert normalize_with_reloc_offsets(code, [-1]) == code
+        assert normalize_with_reloc_offsets(code, {-3: "neg"}) == code
         # Non-negative offsets still zero their span.
-        assert _normalize_with_reloc_offsets(code, [0]) == b"\x00\x00\x00\x00\xc3"
-        assert _normalize_with_reloc_offsets(code, [100]) == code
+        assert normalize_with_reloc_offsets(code, [0]) == b"\x00\x00\x00\x00\xc3"
+        assert normalize_with_reloc_offsets(code, [100]) == code
 
 
 # -------------------------------------------------------------------------

@@ -22,6 +22,14 @@
   `rebrew.test` because its annotation paths now read the compiled source it
   already holds rather than resolving the file again.
 
+### Added
+- `rebrew.relocations.relocation_spans` reports typed PE and linked ELF x86 fixups
+  as absolute addresses and byte widths for private digest clients. Unsupported
+  formats or relocation kinds refuse the map; numeric constants are never
+  guessed to be pointers.
+- `matcher.scoring.normalize_with_reloc_offsets` is public so digest clients
+  share the scorer's explicit relocation masking without importing a private name.
+
 ### Fixed
 - `build-check --objects` bounds its `make -q` freshness probe with a timeout
   and kills make's process group, so a wedged mount or a hung sub-make can no
