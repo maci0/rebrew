@@ -1,6 +1,12 @@
 ## [Unreleased]
 
 ### Fixed
+- The dashboard's documented cold-flight figures match the wire again. The
+  module docstring and `docs/PERFORMANCE.md` recorded 12682/13299 entry bytes
+  and 567/599 B of served headers; the shell and client now measure 12695
+  zstd / 13319 gzip and 560/592 B, so the binding gzip path had 1 byte of
+  slack against the 13320 B budget, not the 21 the prose claimed. A test pins
+  both totals, so the record cannot drift again.
 - Library body matching reports all candidate symbols when relocation masking makes wrappers identical, so `lib-match` and `todo` no longer assign an arbitrary function name. The `match_bytes` and `match_leading_body` APIs now return candidate lists (empty for no match).
 - CMake LIB wrappers preserve `/DEF`, `/LIST`, `/LIBPATH`, and `/OUT` option prefixes when translating their path operands.
 - COFF library inspection resolves long function names stored as suffixes of other string-table entries, including LIB compatibility-format import members.

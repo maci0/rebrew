@@ -119,11 +119,13 @@ wire size stays inside the RFC 6928 initial congestion window minus a
 per-response header reserve, so a cold connection paints without an extra
 round trip; a test pins that budget, and a change that does not fit pays for
 itself in the client's own comment prose rather than in the budget.  As
-measured: 12682 B zstd and 13299 B gzip against a 13320 B budget, so gzip has
-21 B of room and zstd 638 B — a client-side edit budgets against gzip, and gzip
+measured: 12695 B zstd and 13319 B gzip against a 13320 B budget, so gzip has
+1 B of room and zstd 625 B — a client-side edit budgets against gzip, and gzip
 is the binding encoding.  The
 reserve is what makes gzip the tight one, not the encoder: the two responses
-send 567 and 599 B of headers as served, against the 640 B each is given.
+send 560 and 592 B of headers as served, against the 640 B each is given; with
+those real headers the gzip entry flight totals 14471 B of the 14600 B window,
+129 B under it.
 The preloaded ``/api/bootstrap`` is a third cold-flight response (774 B gzip
 plus 562 B of headers) and is deliberately outside that reserve, so the whole
 three-response flight is budgeted against the entry assets alone: they carry
@@ -406,7 +408,10 @@ _INITCWND_BYTES = 10 * 1460
 #: carries ~530 B as served, dominated by the shared security-header set; 640 B
 #: per response leaves room for a longer CSP or Cache-Control value.  Two
 #: static entry responses take part: the shell and ``/app.js``; the boot guard
-#: is inline in the shell, so it costs none of its own.
+#: is inline in the shell, so it costs none of its own.  The reserve is a
+#: proxy for the served headers (measured 560 + 592 = 1152 B); the binding
+#: check is ``test_cold_flight_fits_the_window_against_measured_headers``,
+#: which measures the real header block against the full window.
 _ENTRY_HEADER_RESERVE_BYTES = 2 * 640
 _ENTRY_WIRE_BUDGET_BYTES = _INITCWND_BYTES - _ENTRY_HEADER_RESERVE_BYTES
 _WireEncoding = Literal["zstd", "gzip"]

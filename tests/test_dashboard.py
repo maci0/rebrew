@@ -2246,6 +2246,50 @@ class TestEncodingNegotiation:
             f"({entry_body} + {boot_body} body, {entry_head} + {boot_head} headers)"
         )
 
+    @pytest.mark.parametrize(
+        ("accept", "expected_body"),
+        [("zstd", 12695), ("gzip", 13319)],
+    )
+    def test_the_documented_entry_flight_matches_the_wire(
+        self, accept: str, expected_body: int
+    ) -> None:
+        """The module docstring and ``docs/PERFORMANCE.md`` quote these totals.
+
+        Both record a specific entry-flight figure and the slack each encoding
+        has against ``_ENTRY_WIRE_BUDGET_BYTES``; nothing else checks them, so
+        an edit to the shell or the client could quietly restate the numbers
+        while the prose kept claiming the old ones.  This fails when the wire
+        moves, and the failure names the value to put in both places.
+        """
+        import rebrew.dashboard as dashboard_module
+        from rebrew.dashboard import (
+            _ENTRY_PATHS,
+            _ENTRY_WIRE_BUDGET_BYTES,
+            _precompressed_static,
+        )
+
+        wire = 0
+        for path in _ENTRY_PATHS:
+            is_index = path == "/"
+            raw = dashboard_module._INDEX_HTML_BYTES if is_index else dashboard_module._APP_JS_BYTES
+            zstd_blob = (
+                dashboard_module._index_html_zstd() if is_index else dashboard_module._app_js_zstd()
+            )
+            gzip_blob = (
+                dashboard_module._index_html_gzip() if is_index else dashboard_module._app_js_gzip()
+            )
+            body, encoding = _precompressed_static(
+                accept, zstd_blob=zstd_blob, gzip_blob=gzip_blob, raw=raw
+            )
+            assert encoding == accept
+            wire += len(body)
+        assert wire == expected_body, (
+            f"entry assets now {wire} B {accept}, not the documented {expected_body} B; "
+            f"slack against the {_ENTRY_WIRE_BUDGET_BYTES} B budget is "
+            f"{_ENTRY_WIRE_BUDGET_BYTES - wire} B. Update the dashboard module docstring "
+            "and docs/PERFORMANCE.md to match."
+        )
+
     def test_entry_assets_carry_no_vendor_or_superseded_css(self) -> None:
         """The entry budget forbids decorative CSS and superseded prefixes.
 
