@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [2.18.0] - 2026-09-30
+
 ### Breaking
 - **Breaking:** the `STATUS_HEX` fills for `NEAR_MATCHING`, `SIZE_MISMATCH`
   and `UNKNOWN` changed (`rebrew.status_style.STATUS_HEX`, re-exported as
