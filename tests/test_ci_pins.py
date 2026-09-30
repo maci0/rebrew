@@ -1573,20 +1573,20 @@ class TestCiPins:
         assert "warn-nasm" in _makefile_prereqs("test-one")
         assert "ensure-nasm" in _makefile_prereqs("test")
 
-    def test_dashboard_js_tests_preflight_node(self) -> None:
-        """The dashboard interaction tests need node; CI runs them, a bare host skips them.
+    def test_dashboard_js_tests_preflight_bun(self) -> None:
+        """The dashboard interaction tests need bun; CI runs them, a bare host skips them.
 
         ``tests/test_dashboard.py`` shells out to ``tests/dashboard_*.mjs`` and
-        skips the whole class when ``node`` is absent, so a contributor without
+        skips the whole class when ``bun`` is absent, so a contributor without
         it reads a green ``make test`` as full coverage of the dashboard JS
-        while the ubuntu-24.04 runner executes those same scripts.  Same posture
+        while CI executes those same scripts.  Same posture
         as nasm: hard for the suite, soft for a single file.
         """
         text = MAKEFILE.read_text(encoding="utf-8")
-        assert "ensure-node" in _makefile_prereqs("test")
-        assert "ensure-node" in _makefile_prereqs("coverage")
-        assert "warn-node" in _makefile_prereqs("test-one")
-        assert "command -v node" in text
+        assert "ensure-bun" in _makefile_prereqs("test")
+        assert "ensure-bun" in _makefile_prereqs("coverage")
+        assert "warn-bun" in _makefile_prereqs("test-one")
+        assert "command -v bun" in text
         wrapper = (ROOT / "tests" / "test_dashboard.py").read_text(encoding="utf-8")
         # A script named in _run_script calls is driven by the suite; the rest
         # of the dashboard_*.mjs set are shared helper modules it imports.
@@ -1595,7 +1595,7 @@ class TestCiPins:
         assert called, "no _run_script callers found; the wrapper was restructured"
         assert called <= scripts, f"called but absent: {sorted(called - scripts)}"
         # Every script that is not a helper module must have a caller, or the
-        # node it needs runs nowhere and a skip here hides that.
+        # bun it needs runs nowhere and a skip here hides that.
         imported = {
             m.group(1)
             for p in (ROOT / "tests").glob("dashboard_*.mjs")
@@ -1603,15 +1603,14 @@ class TestCiPins:
         }
         orphans = scripts - called - imported
         assert not orphans, f"dashboard scripts with no pytest caller: {sorted(orphans)}"
-        # CI's runner image ships node, so the job asserts it instead of
-        # apt-installing an unpinned version; without the assert a runner that
-        # lost node reports green having skipped every one of those scripts.
+        # The test job installs bun; without that step it would report green
+        # having skipped every one of those scripts.
         test_job = next(
             block
             for block in re.split(r"\n(?=  [a-z][a-z-]*:\n)", CI_YML.read_text(encoding="utf-8"))
             if block.splitlines()[0].strip().rstrip(":") == "test"
         )
-        assert "node --version" in test_job
+        assert "oven-sh/setup-bun@" in test_job
 
     def test_vnu_is_preflighted_and_installable_locally(self) -> None:
         """The W3C skip must be visible on the dev path, and its fix runnable.
@@ -1629,7 +1628,7 @@ class TestCiPins:
         assert "command -v vnu" in text
         assert "warn-vnu" in _makefile_prereqs("test")
         assert "warn-vnu" in _makefile_prereqs("coverage")
-        # Single-file loop stays soft, like nasm and node: the HTML tests skip
+        # Single-file loop stays soft, like nasm and bun: the HTML tests skip
         # on their own, so unrelated work does not need the jar.
         assert "warn-vnu" not in _makefile_prereqs("test-one")
         # The warning has to end in something runnable, and the pins live in

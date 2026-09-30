@@ -55,13 +55,13 @@ class _NullWFile:
 
 def _run_script(script: str, **env: str) -> None:
     """Run a tests/dashboard_*.mjs interaction script against the dashboard JS."""
-    node = shutil.which("node")
-    if node is None:
-        pytest.skip("Node.js is required for dashboard interaction tests")
+    bun = shutil.which("bun")
+    if bun is None:
+        pytest.skip("bun is required for dashboard interaction tests")
     environ = os.environ.copy()
     environ.update(env)
     result = subprocess.run(
-        [node, str(Path(__file__).with_name(script))],
+        [bun, str(Path(__file__).with_name(script))],
         input=_APP_JS,
         capture_output=True,
         text=True,

@@ -466,12 +466,12 @@ codegen differences.  Profile selection happens automatically on
 ## Development
 
 Clean clone needs **uv**, **Python 3.13+** (`.python-version`), **nasm** and
-**node** on `PATH`, a sibling [`resembl`](https://github.com/maci0/resembl) checkout at
+**bun** on `PATH`, a sibling [`resembl`](https://github.com/maci0/resembl) checkout at
 `../resembl` (tag `v3.1.1`, matching CI `RESEMBL_REF` / `uv.lock`; `make setup`
 also requires `HEAD` to be the `RESEMBL_SHA` commit CI's `resembl-sha` pins), and
-**bash** for the `make clone-resembl` step below.  **node** drives the
+**bash** for the `make clone-resembl` step below.  **bun** drives the
 `tests/dashboard_*.mjs` interaction tests, which skip without it, so `make test`
-fails on a missing node while `make test-one` only warns.  **shellcheck** is optional
+fails on a missing bun while `make test-one` only warns.  **shellcheck** is optional
 locally but not in CI: the pre-commit shell hook skips itself without it, so
 `make check` warns rather than fails, and CI's pre-commit job installs it.  See
 [`CONTRIBUTING.md`](https://github.com/maci0/rebrew/blob/main/CONTRIBUTING.md); `make help` lists targets.
@@ -481,14 +481,14 @@ Run the following from the directory that will hold both checkouts:
 git clone https://github.com/maci0/rebrew.git
 cd rebrew/
 make doctor                # report every missing prerequisite (uv, ../resembl, bash, nasm,
-                           # node, shellcheck, yamllint, vnu, venv extras) with the fix for each;
+                           # bun, shellcheck, yamllint, vnu, venv extras) with the fix for each;
                            # read-only, and exits non-zero only for a host tool the two steps
                            # below cannot install
 make clone-resembl         # clone sibling resembl pin (tag v3.1.1) into ../resembl
 make setup                 # uv sync --locked --all-extras --group similarity + pre-commit hooks
 make add-dep ADD_DEP_SPEC=<spec>  # add a dependency (wraps `uv add`; prints the license-table step)
 make test-one T=tests/test_annotation.py   # single-file edit-test loop
-make test                  # full suite (needs nasm + node)
+make test                  # full suite (needs nasm + bun)
 make lint                  # ruff check (same as CI)
 make format                # ruff format (writes)
 make all                   # local gates: format-check, lint, mypy, audit, coverage, gen-fixtures-check, cycles-check, layering-check, idempotency-check, cli-contract

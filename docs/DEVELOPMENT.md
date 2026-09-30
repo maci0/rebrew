@@ -144,7 +144,7 @@ published globals around every test in that module.
 ## Validation commands
 
 System deps for a green local suite: **nasm** on `PATH` (asm round-trip tests;
-CI installs it) and **node** on `PATH` (the `tests/dashboard_*.mjs` interaction
+CI installs it) and **bun** on `PATH` (the `tests/dashboard_*.mjs` interaction
 tests, which `tests/test_dashboard.py` skips without it).  Bootstrap also needs
 sibling `../resembl` at tag `v3.1.1`
 whose `HEAD` is the `RESEMBL_SHA` commit (CI `resembl-sha`): `make setup`
@@ -153,7 +153,7 @@ lists every contributor target.
 
 ```bash
 make doctor                             # report every missing prerequisite (uv, ../resembl, bash, nasm,
-                                        # node, shellcheck, yamllint, vnu, venv extras) with the fix for each;
+                                        # bun, shellcheck, yamllint, vnu, venv extras) with the fix for each;
                                         # read-only; on a clean clone ../resembl and the venv extras are the
                                         # next step (clone-resembl, setup), so the exit code is 1 only
                                         # for a host tool the bootstrap cannot install

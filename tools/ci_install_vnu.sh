@@ -17,7 +17,7 @@
 # rather than a digest mismatch with nothing to compare it against.
 #
 # The archive bundles its own JRE, so the job needs no `java` install
-# (same reasoning as the nasm/node assertions in ci.yml).
+# (same reasoning as the nasm assertion in ci.yml).
 #
 # Usage: bin_dir="$(bash tools/ci_install_vnu.sh [dest])"
 # Prints the directory holding the `vnu` launcher for the caller to put

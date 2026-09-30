@@ -1,7 +1,7 @@
 .PHONY: help doctor setup clean test test-one lint format format-check check build sbom all pr-check \
 	gen-fixtures gen-fixtures-check gen-skills gen-skills-check gen-flags gen-flags-check \
 	cycles-check idempotency-check mypy audit \
-	cli-contract release-check coverage ensure-uv ensure-resembl ensure-nasm warn-nasm ensure-node warn-node warn-shellcheck \
+	cli-contract release-check coverage ensure-uv ensure-resembl ensure-nasm warn-nasm ensure-bun warn-bun warn-shellcheck \
 	warn-yamllint \
 	warn-vnu \
 	vnu \
@@ -145,14 +145,14 @@ UV_RUN_TOOLS := uv run --no-project --offline --python $(PYTHON_PIN)
 
 help:
 	@printf '%s\n' \
-		'  make doctor             # report every missing prerequisite (uv, resembl, nasm, node, shellcheck, yamllint, vnu, extras)' \
+		'  make doctor             # report every missing prerequisite (uv, resembl, nasm, bun, shellcheck, yamllint, vnu, extras)' \
 		'  make setup              # uv sync (locked + extras + similarity) + pre-commit/pre-push hooks' \
 		'  make add-dep ADD_DEP_SPEC=<spec>  # uv add <spec> (pyproject.toml + uv.lock), then the license-table step' \
 		'  make clone-resembl      # clone sibling resembl pin into ../resembl (required for uv sync)' \
 		'  make vnu                # install the pinned W3C validator and print the PATH line for it' \
 		'  make clean              # remove build/dist artifacts and caches' \
-		'  make test               # full pytest suite (needs nasm + node on PATH; setup extras; warns without vnu)' \
-		'  make test-one T=<node>  # one file/nodeid, e.g. T=tests/test_foo.py::TestBar (nasm/node/extras optional)' \
+		'  make test               # full pytest suite (needs nasm + bun on PATH; setup extras; warns without vnu)' \
+		'  make test-one T=<node>  # one file/nodeid, e.g. T=tests/test_foo.py::TestBar (nasm/bun/extras optional)' \
 		'  make coverage           # full suite under slipcover with the COV_FLOOR fail-under gate' \
 		'  make lint               # ruff check .' \
 		'  make format             # ruff format (writes)' \
@@ -182,7 +182,7 @@ help:
 		'' \
 		'Bootstrap (clean clone):' \
 		'  0. make doctor          # reports which of the steps below this host is missing' \
-		'  1. Install uv $(UV_VERSION)+ (CI pin), Python 3.13+ (.python-version), nasm + node on PATH' \
+		'  1. Install uv $(UV_VERSION)+ (CI pin), Python 3.13+ (.python-version), nasm + bun on PATH' \
 		'     (shellcheck + yamllint too: the pre-commit shell and YAML hooks skip' \
 		'     themselves without them, CI runs both; vnu for the W3C HTML gate,' \
 		'     which skips without it, so run make vnu and eval the line it prints;' \
@@ -271,24 +271,24 @@ warn-nasm:
 	fi
 
 # tests/dashboard_*.mjs drive the dashboard's JS through a stub DOM; the
-# pytest wrapper skips them when `node` is absent, so a host without it reads
-# a green `make test` as full coverage of a file CI does run (the ubuntu-24.04
-# runner image ships node).  Same shape as the nasm preflight above: hard for
+# pytest wrapper skips them when `bun` is absent, so a host without it reads
+# a green `make test` as full coverage of a file CI does run (CI installs
+# the pinned bun).  Same shape as the nasm preflight above: hard for
 # the whole suite, soft for a single file.
-ensure-node:
+ensure-bun:
 	@set -eu; \
-	if ! command -v node >/dev/null 2>&1; then \
-	  echo "ERROR: node not on PATH (required by the dashboard interaction tests, same as CI)."; \
-	  echo "Install it, then re-run: e.g. apt install nodejs / pacman -S node / dnf install nodejs"; \
+	if ! command -v bun >/dev/null 2>&1; then \
+	  echo "ERROR: bun not on PATH (required by the dashboard interaction tests, same as CI)."; \
+	  echo "Install it, then re-run: e.g. pacman -S bun, or curl -fsSL https://bun.sh/install | bash"; \
 	  echo "Or iterate without it: make test-one T=tests/test_foo.py (dashboard_*.mjs tests skip)."; \
 	  exit 1; \
 	fi
 
-warn-node:
+warn-bun:
 	@set -eu; \
-	if ! command -v node >/dev/null 2>&1; then \
-	  echo "WARNING: node not on PATH (required by the dashboard interaction tests, same as CI; they skip in make test-one)."; \
-	  echo "Install it before running the full suite: e.g. apt install nodejs / pacman -S node / dnf install nodejs"; \
+	if ! command -v bun >/dev/null 2>&1; then \
+	  echo "WARNING: bun not on PATH (required by the dashboard interaction tests, same as CI; they skip in make test-one)."; \
+	  echo "Install it before running the full suite: e.g. pacman -S bun, or curl -fsSL https://bun.sh/install | bash"; \
 	fi
 
 # The shellcheck hook exits 0 when the binary is absent, so a contributor
@@ -447,12 +447,12 @@ warn-test-extras: ensure-uv
 # Whole-environment preflight.  Every other target checks one prerequisite and
 # names it when it is missing, so a host without nasm, without shellcheck, or
 # with a bare `uv sync` venv finds out one failed command at a time: `make
-# setup` (uv, ../resembl), `make test` (nasm, node), `make check` (shellcheck),
+# setup` (uv, ../resembl), `make test` (nasm, bun), `make check` (shellcheck),
 # `make mypy` (extras).  This runs each of those checks in one pass and prints
 # what it said, so the fix text stays written once, next to the check.
 #
 # Read-only: it runs the preflight targets and nothing else, installs nothing,
-# and never edits .venv.  It runs the hard checks (uv, ../resembl, nasm, node,
+# and never edits .venv.  It runs the hard checks (uv, ../resembl, nasm, bun,
 # the venv extras) and the warn-level ones (the uv version, shellcheck,
 # yamllint, vnu), and it prints a warning for a host that only costs a CI-only
 # gate.
@@ -470,14 +470,14 @@ warn-test-extras: ensure-uv
 doctor:
 	@set -u; \
 	rc=0; setup_rc=0; uv_rc=0; \
-	for check in ensure-uv warn-uv-version ensure-resembl ensure-bash ensure-nasm ensure-node warn-shellcheck warn-yamllint warn-vnu ensure-extras; do \
+	for check in ensure-uv warn-uv-version ensure-resembl ensure-bash ensure-nasm ensure-bun warn-shellcheck warn-yamllint warn-vnu ensure-extras; do \
 	  case $$check in \
 	    ensure-uv) label='uv on PATH' ;; \
 	    warn-uv-version) label="uv >= $(UV_VERSION) (CI pin)" ;; \
 	    ensure-resembl) label="sibling resembl at $(RESEMBL_DIR)" ;; \
 	    ensure-bash) label='bash on PATH (make clone-resembl)' ;; \
 	    ensure-nasm) label='nasm on PATH (make test; optional for test-one)' ;; \
-	    ensure-node) label='node on PATH (dashboard interaction tests; optional for test-one)' ;; \
+	    ensure-bun) label='bun on PATH (dashboard interaction tests; optional for test-one)' ;; \
 	    warn-shellcheck) label='shellcheck on PATH (pre-commit shell hook)' ;; \
 	    warn-yamllint) label='yamllint on PATH (pre-commit YAML hook)' ;; \
 	    warn-vnu) label='vnu on PATH (W3C validation of the HTML surfaces)' ;; \
@@ -533,19 +533,19 @@ doctor:
 # help/status text.  The pytest plugin ``pytest_ansi_env`` sets the same
 # trio for bare ``uv run pytest``; export here too so the recipe stays
 # self-documenting and covers any non-pytest child processes.
-test: ensure-nasm ensure-node warn-vnu ensure-uv ensure-test-extras
+test: ensure-nasm ensure-bun warn-vnu ensure-uv ensure-test-extras
 	NO_COLOR=1 TERM=dumb _TYPER_FORCE_DISABLE_TERMINAL=1 \
 		uv run --frozen pytest tests/ -v --tb=short
 
 # Fast edit-test loop: one file or pytest node id.  Only warns about nasm and
-# node: their tests skip without those binaries, so unrelated files still run.
-test-one: warn-nasm warn-node ensure-uv warn-test-extras
+# bun: their tests skip without those binaries, so unrelated files still run.
+test-one: warn-nasm warn-bun ensure-uv warn-test-extras
 	NO_COLOR=1 TERM=dumb _TYPER_FORCE_DISABLE_TERMINAL=1 \
 		uv run --frozen pytest $(T) $(FLAGS) -v --tb=short
 
 # Coverage floor (AGENTS.md: ratchet up, never down).  slipcover ignores
 # [tool.slipcover] fail_under, so the floor is passed on the command line.
-coverage: ensure-nasm ensure-node warn-vnu ensure-uv ensure-test-extras
+coverage: ensure-nasm ensure-bun warn-vnu ensure-uv ensure-test-extras
 	NO_COLOR=1 TERM=dumb _TYPER_FORCE_DISABLE_TERMINAL=1 \
 		uv run --frozen python -m slipcover --fail-under $(COV_FLOOR) -m pytest tests/ -q --tb=short
 

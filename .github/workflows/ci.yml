@@ -114,12 +114,13 @@ jobs:
           set -euo pipefail
           bash tools/ci_apt_install.sh nasm
           nasm -v
-      - name: Assert node (dashboard interaction tests)
-        # tests/dashboard_*.mjs run through `node`, and test_dashboard.py skips
-        # them when it is absent, so a runner image without it would report a
-        # green job that never exercised the dashboard JS.  The image ships
-        # node; assert it rather than apt-install a version CI never pins.
-        run: node --version
+      - name: Set up bun (dashboard interaction tests)
+        # tests/dashboard_*.mjs run through `bun`, and test_dashboard.py skips
+        # them when it is absent, so a job without it would report green
+        # having never exercised the dashboard JS.
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
       - name: Cache vnu
         # The archive is ~66 MB and the helper is idempotent, so a warm cache
         # turns the install step into a no-op.  Keyed on the helper rather

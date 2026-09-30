@@ -1128,7 +1128,7 @@ def _get_capstone_x86() -> tuple[int, int, int, Any]:
     try:
         from capstone import CS_ARCH_X86, CS_MODE_32, CS_OPT_SYNTAX_INTEL, Cs
     except ImportError as e:
-        raise RuntimeError("capstone required. Install: pip install capstone") from e
+        raise RuntimeError("capstone required. Install: uv pip install capstone") from e
     return CS_ARCH_X86, CS_MODE_32, CS_OPT_SYNTAX_INTEL, Cs
 
 

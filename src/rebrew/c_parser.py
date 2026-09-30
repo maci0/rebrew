@@ -84,7 +84,7 @@ def _get_parser() -> tuple[Any, Any]:
                 except ImportError as exc:
                     raise ImportError(
                         "tree-sitter and tree-sitter-c are required.  "
-                        "Install with: pip install tree-sitter tree-sitter-c"
+                        "Install with: uv pip install tree-sitter tree-sitter-c"
                     ) from exc
                 _language = Language(tree_sitter_c.language())
 

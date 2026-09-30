@@ -19,10 +19,10 @@ pinned docker image).
 
 Needs **uv** (CI pins `uv-version` in `.github/actions/uv-env/action.yml`,
 currently `0.12.14`), **Python 3.13+** (see `.python-version`), **nasm** on `PATH`
-(CI installs nasm for asm round-trip tests), and **node** on `PATH` (the
+(CI installs nasm for asm round-trip tests), and **bun** on `PATH` (the
 `tests/dashboard_*.mjs` interaction tests skip without it, so a host with no
-node sees a green `make test` that never ran the dashboard JS the CI runner
-does; `make test` fails on a missing node, `make test-one` only warns).
+bun sees a green `make test` that never ran the dashboard JS the CI job
+does; `make test` fails on a missing bun, `make test-one` only warns).
 `make clone-resembl` also needs
 **bash**: it runs `tools/ci_clone_resembl.sh`, and the target says so instead of
 printing `bash: not found`.  **shellcheck** is optional locally
@@ -58,14 +58,14 @@ make test-one T=tests/test_annotation.py   # smoke the edit-test loop
 ```
 
 `make doctor` is read-only and runs every preflight the other targets use (uv
-and its version, the sibling `../resembl` checkout, bash, nasm, node, shellcheck,
+and its version, the sibling `../resembl` checkout, bash, nasm, bun, shellcheck,
 yamllint, vnu, and
 the `prove` extra / `similarity` group in `.venv`), so a host missing several of
 them sees all of them at once instead of one failed target at a time.  It
 separates the two that the next two bootstrap steps install (`../resembl` and
 the venv extras) from a host tool the bootstrap cannot install, so on a clean
 clone it exits 0 and prints `make clone-resembl` / `make setup` as the next
-step, and it exits non-zero only for a missing uv, bash, nasm or node.  Every
+step, and it exits non-zero only for a missing uv, bash, nasm or bun.  Every
 line still prints its own fix.  The
 checks still guard their own targets: a missing nasm surfaces at `make test`
 whether or not `make doctor` was run.
@@ -88,7 +88,7 @@ and `make coverage` run the same preflight for the same reason on the other
 gate: those tests skip without the groups, so a venv that never saw `make
 setup` would report a green suite that never exercised the code CI's test job
 runs. `make test-one`
-only warns, like its nasm and node checks, so an unrelated file stays
+only warns, like its nasm and bun checks, so an unrelated file stays
 runnable. Every target that
 shells out to `uv run` likewise fails with `ERROR: uv not on PATH` rather than
 a bare `uv: not found`.
@@ -117,7 +117,7 @@ in `tests/test_packaging.py` fails the suite listing every distribution left
 
 ```bash
 make help                     # list contributor make targets
-make doctor                   # report every missing prerequisite (uv, ../resembl, bash, nasm, node, shellcheck, yamllint, vnu, venv extras)
+make doctor                   # report every missing prerequisite (uv, ../resembl, bash, nasm, bun, shellcheck, yamllint, vnu, venv extras)
 make clone-resembl            # clone sibling resembl pin into ../resembl (required for uv sync)
 make vnu                      # install the pinned W3C HTML validator and print the PATH line for it
 make setup                    # locked sync (extras + similarity) + pre-commit install (checks uv + ../resembl first)
@@ -126,7 +126,7 @@ make clean                    # remove build/dist artifacts and caches
 make test-one T=tests/test_annotation.py  # single file / nodeid (fast edit-test loop; defaults to test_annotation.py)
 make test-one T=tests/test_annotation.py FLAGS="-k stdcall"  # narrow further with any pytest flag
 make test-one T=tests/test_dashboard.py::TestSummaryRequests   # one class
-make test                     # full suite (a few minutes; needs nasm + node + the setup extras, warns without vnu)
+make test                     # full suite (a few minutes; needs nasm + bun + the setup extras, warns without vnu)
 make coverage                 # full suite under slipcover; fails below COV_FLOOR (CI test job, 3.13)
 make lint                     # ruff check .
 make format                   # ruff format (writes)
