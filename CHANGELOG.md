@@ -1,5 +1,13 @@
 ## [Unreleased]
 
+### Added
+- `rebrew.relocations.relocation_spans` reports typed PE and linked ELF x86 fixups
+  as absolute addresses and byte widths for private digest clients. Unsupported
+  formats or relocation kinds refuse the map; numeric constants are never
+  guessed to be pointers.
+- `matcher.scoring.normalize_with_reloc_offsets` is public so digest clients
+  share the scorer's explicit relocation masking without importing a private name.
+
 ## [2.18.0] - 2026-09-30
 
 ### Breaking
