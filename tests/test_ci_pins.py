@@ -1701,6 +1701,10 @@ class TestCiPins:
         for soft in [name for name in used if name.startswith("warn-")]:
             if soft.replace("warn-", "ensure-", 1) in checked:
                 used.discard(soft)
+        # Context-specific variants of ensure-extras share the underlying probe:
+        for extra in ("ensure-test-extras", "warn-test-extras"):
+            if "ensure-extras" in checked:
+                used.discard(extra)
         assert used, "no preflight targets found; the regex may be stale"
         assert used <= checked, f"make doctor skips: {sorted(used - checked)}"
         # Read-only: the report runs the checks, it must not install anything.

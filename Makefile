@@ -518,19 +518,19 @@ doctor:
 # help/status text.  The pytest plugin ``pytest_ansi_env`` sets the same
 # trio for bare ``uv run pytest``; export here too so the recipe stays
 # self-documenting and covers any non-pytest child processes.
-test: ensure-nasm ensure-node warn-vnu ensure-test-extras
+test: ensure-nasm ensure-node warn-vnu ensure-uv ensure-test-extras
 	NO_COLOR=1 TERM=dumb _TYPER_FORCE_DISABLE_TERMINAL=1 \
 		uv run --frozen pytest tests/ -v --tb=short
 
 # Fast edit-test loop: one file or pytest node id.  Only warns about nasm and
 # node: their tests skip without those binaries, so unrelated files still run.
-test-one: warn-nasm warn-node warn-test-extras
+test-one: warn-nasm warn-node ensure-uv warn-test-extras
 	NO_COLOR=1 TERM=dumb _TYPER_FORCE_DISABLE_TERMINAL=1 \
 		uv run --frozen pytest $(T) $(FLAGS) -v --tb=short
 
 # Coverage floor (AGENTS.md: ratchet up, never down).  slipcover ignores
 # [tool.slipcover] fail_under, so the floor is passed on the command line.
-coverage: ensure-nasm ensure-node warn-vnu ensure-test-extras
+coverage: ensure-nasm ensure-node warn-vnu ensure-uv ensure-test-extras
 	NO_COLOR=1 TERM=dumb _TYPER_FORCE_DISABLE_TERMINAL=1 \
 		uv run --frozen python -m slipcover --fail-under $(COV_FLOOR) -m pytest tests/ -q --tb=short
 

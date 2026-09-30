@@ -368,7 +368,7 @@ _RESOLVED_SOURCE_PATHS_MAX = _SOURCE_TEXT_MEMO_MAX
 
 def _resolved_source_path(filepath: Path) -> Path:
     """Return *filepath* resolved, memoized per input path spelling."""
-    key = str(filepath)
+    key = str(filepath) if filepath.is_absolute() else f"{Path.cwd()}\0{filepath}"
     with _SOURCE_TEXT_MEMO_LOCK:
         hit = _RESOLVED_SOURCE_PATHS.get(key)
         if hit is not None:
