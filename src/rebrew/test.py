@@ -73,8 +73,6 @@ from rebrew.metadata import (
 )
 from rebrew.present import bar_plain
 from rebrew.sources import (
-    contained_path,
-    source_roots,
     target_marker,
 )
 from rebrew.status_style import DISPLAY_STATUSES, STATUS_COLORS
@@ -964,9 +962,14 @@ def _run_test_impl(
         sel_ann = _select_annotation_for_va(lint_annos, va, json_output)
         if sel_ann is None:
             sel_ann = lint_annos[0] if lint_annos else None
+    elif symbol and len(lint_annos) > 1:
+        sel_ann = next((a for a in lint_annos if a.symbol == symbol), None)
+        if sel_ann is None:
+            error_exit(
+                f"No annotation for symbol {symbol!r}; use --va to select its address",
+                json_mode=json_output,
+            )
     else:
-        # No --va: first try the parsed annotation object (derives from
-        # the C function definition).
         sel_ann = lint_annos[0] if lint_annos else None
     if not symbol and sel_ann and sel_ann.symbol:
         symbol = sel_ann.symbol
@@ -987,7 +990,7 @@ def _run_test_impl(
     if (
         size_val is None
         and "SIZE" in meta
-        and (va is None or sel_ann is None or not lint_annos or sel_ann is lint_annos[0])
+        and (sel_ann is None or not lint_annos or sel_ann is lint_annos[0])
     ):
         try:
             size_val = int(meta["SIZE"])
@@ -1824,8 +1827,7 @@ def _test_multi(
                             f"0x{ann.va:x} ({untrusted_ident(ann.module)})[/dim]"
                         )
                 else:
-                    ann_source = contained_path(source_roots(cfg), getattr(ann, "filepath", ""))
-                    clear = clears_blocker(new_status, ann_source) if ann_source else False
+                    clear = clears_blocker(new_status, Path(source))
                     written = update_source_status(
                         cfg.metadata_dir,
                         new_status,

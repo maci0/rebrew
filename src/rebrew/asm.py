@@ -684,7 +684,7 @@ def _hex_view(
     if truncated:
         console.print(
             f"[yellow]warning:[/yellow] requested {size} bytes, got {len(data)} "
-            "(reached end of image)"
+            "(reached end of available file-backed bytes)"
         )
 
     try:

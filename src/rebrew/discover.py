@@ -538,8 +538,22 @@ def _is_padding(info: Any, va: int, end: int) -> bool:
 
     try:
         raw = extract_bytes(info, va, end - va)
-    except Exception:
-        logger.debug("extract_bytes failed at 0x%x", va, exc_info=True)
+    except Exception as exc:
+        # Same hazard as `_starts_function` (round 219): "could not read" and
+        # "not padding" are different facts and this returns False for both, so a
+        # systematic read failure is indistinguishable from "no padding found".
+        # Reported once per run rather than at DEBUG.
+        global _prologue_read_failed
+        if not _prologue_read_failed:
+            _prologue_read_failed = True
+            logger.warning(
+                "could not read %d bytes at 0x%x for a padding test (%s); "
+                "failures here are treated as 'not padding', so a systematic "
+                "read problem looks like a missing boundary",
+                end - va,
+                va,
+                exc,
+            )
         return False
     i = 0
     while i < len(raw):
@@ -554,6 +568,99 @@ def _is_padding(info: Any, va: int, end: int) -> bool:
                 continue
         return False
     return True
+
+
+#: Set once, the first time a prologue test cannot read the binary at all.  Round
+#: 193 shipped a version of this function that called a method the loader does not
+#: have; the `except` turned every call into `False`, the fix compiled, ran, and
+#: changed nothing, and nothing said so.  A read failure is not "not a prologue",
+#: so it is reported once per run rather than logged at DEBUG and forgotten.
+_prologue_read_failed = False
+
+
+def _starts_function(info: Any, va: int) -> bool:
+    """Whether *va* opens a stack-frame prologue after optional nop padding.
+
+    The second way a function ends, alongside trailing padding: the next
+    function begins.  A compiler prologue is `push ebp; mov ebp, esp`,
+    `sub esp, imm`, or the SEH form `push -1; push <handler>`, and MSVC pads
+    the join with `nop` (or `int3`, which it uses between functions in a
+    code segment).  Deliberately narrow: a false positive truncates a real
+    function, so anything that is not one of those exact shapes returns False
+    and the caller keeps the conservative gap.
+    """
+    from rebrew.analysis import extract_bytes
+
+    try:
+        window = extract_bytes(info, va, 16)
+    except Exception as exc:
+        global _prologue_read_failed
+        if not _prologue_read_failed:
+            _prologue_read_failed = True
+            logger.warning(
+                "could not read 16 bytes at 0x%x for a prologue test (%s); "
+                "every such failure is treated as 'not a prologue', so a "
+                "systematic read problem looks exactly like 'no boundaries "
+                "found' -- which is how round 193 shipped a fix that did nothing",
+                va,
+                exc,
+            )
+        return False
+    if not window:
+        return False
+    i = 0
+    while i < len(window) and window[i] in (0x90, 0xCC):
+        i += 1
+    body = window[i:]
+    # One source of truth for what opens a function; `verify._looks_like_inventory_merge`
+    # mirrors this list, so the two agree about the same bytes.
+    if body.startswith(
+        (
+            b"\x55\x8b\xec",  # push ebp; mov ebp, esp
+            b"\x81\xec",  # sub esp, imm32
+            b"\x83\xec",  # sub esp, imm8
+            b"\x6a\xff\x68",  # push -1; push <seh handler>
+            b"\x64\xa1\x00\x00\x00\x00",  # mov eax, fs:[0]
+            # `mov eax, [<absolute global>]` -- the `a1` form.  MSVC 6 opens a
+            # function with it whenever the body's first use is a global, and it
+            # is how guild-rebrew's cm_ExModifyStat boundary looks: `90 a1 6c0b03
+            # 10 53 56 8b 74 24 0c`.  Narrow on purpose -- it is only consulted
+            # directly after a `ret`, where the alternative reading is "the
+            # function simply ended and the next one is elsewhere".
+            b"\xa1",
+            # `mov eax, dword ptr [esp+4]` -- MSVC loads the first stack
+            # argument there, and a function whose first act is to read its
+            # parameter opens with it: cm_ExSetAttribute, cm_ExCreateCitizen,
+            # cm_ChkSetGebBesitzer and cm_DispatchProduction all do.  Like `a1` it
+            # is only consulted right after a `ret`, which is what keeps a
+            # mid-function instance harmless.
+            b"\x8b\x44\x24\x04",
+            b"\x8b\x4c\x24\x04",
+        )
+    ):
+        return True
+    # `mov eax, imm32` -- a function that is nothing but `return <constant>`
+    # compiles to exactly that and a `ret`: guild-rebrew's cm_MarkAndReturn
+    # boundary is `b8 01 00 00 00 c3` at 0x1000d340, four bytes into the
+    # inventory entry the annotation ends at.  Narrower than `b8` alone: the
+    # immediate must be followed by a `ret`, which a mid-function `mov eax,
+    # <something>` almost never is.
+    if len(body) >= 6 and body[0] == 0xB8 and body[5] == 0xC3:
+        return True
+    # `push <reg>` then the SAME register loaded from `[esp+disp]` -- MSVC's
+    # opening for a function that saves a callee-saved register and then takes
+    # its first argument, e.g. cm_ExSetAttribute's `57 8b7c2408` (push edi; mov
+    # edi, [esp+8]).  Generated rather than listed because the register varies;
+    # the SIB byte 0x24 is what makes it `[esp+disp]`.
+    return (
+        len(body) >= 4
+        and 0x50 <= body[0] <= 0x57  # push eax..edi
+        and body[1] == 0x8B  # mov r32, r/m32
+        and body[3] == 0x24  # SIB: [esp+disp8]
+        and (body[2] & 0xC0) == 0x40  # mod=01 -> [esp+disp8]
+        and (body[2] & 0x07) == 0x04  # rm=100 -> SIB follows
+        and ((body[2] >> 3) & 7) == (body[0] - 0x50)  # same register
+    )
 
 
 def _validate_and_refine(
@@ -580,16 +687,27 @@ def _validate_and_refine(
         nxt = funcs[i + 1][0] if i + 1 < len(funcs) else None
         gap = (nxt - va) if nxt else None
 
-        # Find the first ret within the gap.
+        # Find the function's end within the gap.  The FIRST ret is not it when
+        # the function returns early and keeps going -- so the sweep records the
+        # first ret and, past it, the first ret that a real prologue follows.
+        # Only the second ends a function; treating the first as the end truncates
+        # every function with an early return, and treating the gap as the end
+        # swallows the next function (round 193).  `_looks_like_inventory_merge`
+        # in verify.py scans the same way, so the two agree on what a merge is.
         ret_end = None
+        boundary_end = None
         last_mnemonic = ""
         decoded_end = va
         try:
             for insn in iter_instructions(info, va, gap or 0x400):
                 last_mnemonic = insn.mnemonic
                 decoded_end = insn.va + insn.size
-                if insn.mnemonic.startswith("ret"):
+                if not insn.mnemonic.startswith("ret"):
+                    continue
+                if ret_end is None:
                     ret_end = insn.va + insn.size - va
+                if _starts_function(info, insn.va + insn.size):
+                    boundary_end = insn.va + insn.size - va
                     break
         except Exception:
             # Disassembly failure at this candidate: ret_end stays None, so the
@@ -626,10 +744,33 @@ def _validate_and_refine(
             del funcs[i + 1]
             continue
 
+        # A `ret` immediately followed by a real prologue ends the function just
+        # as surely as trailing padding does -- and it means the discoverers
+        # MISSED the function that starts there.  Recovered here, before the
+        # size is decided, so the new candidate takes part in the normal
+        # gap/size logic and the next iteration sizes it too.
+        if boundary_end is not None and boundary_end > 0:
+            nxt_va = va + boundary_end
+            if not any(f[0] == nxt_va for f in funcs):
+                funcs.insert(i + 1, (nxt_va, 0, f"fcn.{nxt_va:x}"))
+                logger.info(
+                    "discoverer missed a function at 0x%x (inside 0x%x); recovered "
+                    "from the ret-then-prologue boundary",
+                    nxt_va,
+                    va,
+                )
+
         if ret_end is not None and gap is not None:
             tail = gap - ret_end
+            # `ret_end` is the function's size only when what follows is padding.
+            # Without this, a candidate whose successor is far away keeps the
+            # whole gap as its size and swallows every function in between --
+            # guild-rebrew's inventory held 0x1000d8a0 at 2208 bytes where the
+            # binary has a function ending at +142 and another at +144.
             size = (
-                ret_end
+                boundary_end
+                if boundary_end is not None and boundary_end < gap
+                else ret_end
                 if tail > 0 and nxt is not None and _is_padding(info, va + ret_end, nxt)
                 else gap
             )
@@ -859,6 +1000,7 @@ def discover_functions(binary: Path, *, min_size: int = 8) -> Discovery:
 
     funcs = [(va, unwind.get(va, size), name) for va, size, name in funcs]
     funcs = [f for f in funcs if f[1] >= min_size]
+
     d.functions = funcs
     return d
 

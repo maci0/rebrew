@@ -220,6 +220,28 @@ class TestRenameEdgeCases:
 
 
 class TestRenameCli:
+    def test_json_preserves_stdcall_suffix(self, tmp_path: Path, monkeypatch: Any) -> None:
+        import json
+
+        source = tmp_path / "src" / "SERVER" / "old_fn.c"
+        source.parent.mkdir(parents=True)
+        source.write_text(
+            "// FUNCTION: SERVER 0x1000\nint __stdcall old_fn(int a, int b, int c) { return 1; }\n"
+        )
+        result = self._invoke(
+            tmp_path,
+            monkeypatch,
+            "--dry-run",
+            "--json",
+            "old_fn",
+            "new_fn",
+            entries=[
+                SimpleNamespace(name="old_fn", symbol="_old_fn@12", filepath="old_fn.c", va=0x1000)
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.stdout)["new_symbol"] == "_new_fn@12"
+
     def _invoke(
         self, tmp_path: Path, monkeypatch: Any, *args: str, entries: list[Any] | None = None
     ) -> Any:

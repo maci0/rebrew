@@ -356,18 +356,6 @@ class TestSectionSymbolBytesBounds:
         assert sizes == {0x2010: 4, 0x1000: 4}
 
 
-def test_uncovered_zero_fill_compares_as_zeros() -> None:
-    from rebrew.data_verify import fill_uncovered_zero_fill
-
-    ref_bytes = {0x10: b"\x00\x00\x00\x00"}
-    ref_sizes = {0x10: 4}
-    built_bytes: dict[int, bytes] = {}
-    built_sizes: dict[int, int] = {}
-    fill_uncovered_zero_fill(ref_bytes, ref_sizes, built_bytes, built_sizes, {0x10})
-    assert built_bytes[0x10] == b"\x00\x00\x00\x00"
-    assert ref_sizes[0x10] == 4
-
-
 def test_size_falls_back_to_declared_type(tmp_path: Path, monkeypatch) -> None:
     """`size` is optional metadata; the declared type must size the symbol.
 
@@ -403,37 +391,36 @@ def test_size_falls_back_to_declared_type(tmp_path: Path, monkeypatch) -> None:
 
 
 class TestUncoveredZeroFill:
-    """Reference zero-fill the built image stops short of compares as the
-    zeros the reference loader actually holds; a span the built image does
-    cover keeps the bytes that image holds."""
+    def test_unmapped_reference_storage_is_missing(self, tmp_path: Path, monkeypatch) -> None:
+        from types import SimpleNamespace
 
-    def test_covered_span_keeps_the_built_bytes(self) -> None:
-        from rebrew.data_verify import fill_uncovered_zero_fill
+        from rebrew.data_verify import section_symbol_bytes, verify_data_bytes
 
-        ref_bytes = {0x1100: b"\x00\x00\x00\x00", 0x1200: b"\x00\x00\x00\x00"}
-        ref_sizes = {0x1100: 4, 0x1200: 4}
-        built_bytes = {0x1100: b"\x11\x22\x33\x44"}
-        built_sizes = {0x1100: 4}
+        meta = tmp_path / "rebrew-data.toml"
+        _write(
+            meta,
+            '["SERVER.0x1040"]\nname = "inside"\nsize = 4\nsection = ".data"\n'
+            '["SERVER.0x1100"]\nname = "outside"\nsize = 4\nsection = ".data"\n',
+        )
 
-        fill_uncovered_zero_fill(ref_bytes, ref_sizes, built_bytes, built_sizes, {0x1100, 0x1200})
+        def image(path: Path):
+            sec = SimpleNamespace(
+                name=".data",
+                va=0x1000,
+                size=0x200 if path.name == "ref.dll" else 0x100,
+                raw_size=0x20,
+                file_offset=0,
+            )
+            return SimpleNamespace(sections={".data": sec}, data=bytes(0x20))
 
-        # 0x1100 is covered, so the built image's own bytes stand and a drift
-        # there is still reported.  0x1200 is past the image, so the two sides
-        # agree on zeros instead of the symbol reading as missing.
-        assert built_bytes == {0x1100: b"\x11\x22\x33\x44", 0x1200: b"\x00\x00\x00\x00"}
-        assert built_sizes == {0x1100: 4, 0x1200: 4}
-        assert ref_bytes == {0x1100: b"\x00\x00\x00\x00", 0x1200: b"\x00\x00\x00\x00"}
-        assert ref_sizes == {0x1100: 4, 0x1200: 4}
-
-    def test_covered_span_with_shorter_size_keeps_the_built_bytes(self) -> None:
-        from rebrew.data_verify import fill_uncovered_zero_fill
-
-        ref_bytes = {0x1100: b"\x00\x00\x00\x00"}
-        ref_sizes = {0x1100: 4}
-        built_bytes = {0x1100: b"\x11\x22"}
-        built_sizes = {0x1100: 2}
-
-        fill_uncovered_zero_fill(ref_bytes, ref_sizes, built_bytes, built_sizes, {0x1100})
-
-        assert built_bytes == {0x1100: b"\x11\x22"}
-        assert built_sizes == {0x1100: 2}
+        monkeypatch.setattr("rebrew.binary_loader.load_binary", image)
+        ref, ref_sizes = section_symbol_bytes(metadata_path=meta, binary_path=tmp_path / "ref.dll")
+        built, built_sizes = section_symbol_bytes(
+            metadata_path=meta, binary_path=tmp_path / "built.dll"
+        )
+        assert 0x1100 not in built
+        report = verify_data_bytes(
+            metadata_path=meta, expected=ref, actual=built, sizes={**built_sizes, **ref_sizes}
+        )
+        assert report["matched"] == 1
+        assert report["missing"] == ["outside"]

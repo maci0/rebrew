@@ -154,6 +154,7 @@ def resolve_build_params(
     annos = parse_c_file_multi(
         seed_c_path, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir
     )
+    annos = [a for a in annos if a.is_function]
     # Prefer the VA-matched annotation when a VA is given (diff/match/prove
     # invoked as `rebrew diff 0x<va>` on a multi-function file must target
     # THAT function — the old first-annotation fallback silently diffed a

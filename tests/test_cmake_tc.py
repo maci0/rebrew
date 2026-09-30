@@ -105,6 +105,13 @@ class TestRewriteArgsLink:
 
 
 class TestRewriteArgsLib:
+    @pytest.mark.parametrize("flag", ["/OUT:", "/DEF:", "/LIST:", "/LIBPATH:"])
+    def test_path_options(self, flag: str) -> None:
+        assert _rewrite_args("lib", [flag + "build/input.def"]) == [flag + "build/input.def"]
+        assert _rewrite_args("lib", [flag.lower() + "/tmp/input.def"]) == [
+            flag + r"Z:\tmp\input.def"
+        ]
+
     def test_out_and_members(self) -> None:
         out = _rewrite_args("lib", ["/OUT:/home/x.lib", "/home/maci/a.obj"])
         assert "/OUT:" + r"Z:\home\x.lib" in out
@@ -378,3 +385,26 @@ def test_docker_run_rejects_relative_wineprefix(
     assert calls == []
     assert not (tmp_path / "prefix").exists()
     assert "must be an absolute path" in capsys.readouterr().err
+
+
+def test_response_paths_are_rewritten_without_changing_original(tmp_path: Path) -> None:
+    from rebrew.cmake_tc import _rewrite_response_files
+
+    response = tmp_path / "input.rsp"
+    original = '"/home/build dir/a.obj" /home/build/b.lib /MACHINE:I386\n'
+    response.write_text(original)
+    output = tmp_path / "copies"
+    output.mkdir()
+    args = _rewrite_response_files("link", ["@" + str(response)], output)
+    assert args[0].startswith("@Z:")
+    rewritten = next(output.glob("*.rsp")).read_text()
+    assert '"Z:\\home\\build dir\\a.obj"' in rewritten
+    assert "Z:\\home\\build\\b.lib" in rewritten
+    assert "/MACHINE:I386" in rewritten
+    assert response.read_text() == original
+
+
+def test_absolute_link_order_file() -> None:
+    assert _rewrite_args("link", ["/ORDER:@/home/build/order.txt"]) == [
+        r"/ORDER:@Z:\home\build\order.txt"
+    ]

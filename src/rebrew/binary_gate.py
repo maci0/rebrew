@@ -11,6 +11,32 @@ from pathlib import Path
 from typing import Any
 
 
+def pe_relocation_snapshot(data: bytes) -> tuple[list[str], dict[str, int]]:
+    """Read PE fixups and separate their block bytes from reserved section space."""
+    import lief
+
+    pe = lief.PE.parse(data)
+    if pe is None:
+        raise ValueError("cannot parse PE base relocations")
+    entries = sorted(
+        f"0x{block.virtual_address + entry.position:08x}:{int(entry.type)}"
+        for block in pe.relocations
+        for entry in block.entries
+        if int(entry.type) != 0
+    )
+    directory = pe.data_directory(lief.PE.DataDirectory.TYPES.BASE_RELOCATION_TABLE)
+    block_bytes = sum(block.block_size for block in pe.relocations)
+    # A PE without a base relocation directory yields no DataDirectory at all.
+    section = directory.section if directory is not None and directory.has_section else None
+    section_bytes = section.virtual_size if section is not None else 0
+    return entries, {
+        "block_bytes": block_bytes,
+        "directory_bytes": directory.size if directory is not None else 0,
+        "section_bytes": section_bytes,
+        "reserved_bytes": max(0, section_bytes - block_bytes),
+    }
+
+
 def compare_sections(expected: dict[str, int], actual: dict[str, int]) -> dict[str, Any]:
     """Compare ``{section: size}`` maps; report per-section drifts."""
     diffs: list[dict[str, Any]] = []
@@ -45,8 +71,9 @@ def snapshot_binary(binary_path: Path) -> dict[str, Any]:
     """Snapshot gate-relevant facts of one binary: sections, exports, imports, resources.
 
     Returns ``sections`` (``{name: virtual size}``), ``exports`` (sorted
-    names), ``imports`` (sorted ``dll!name``), ``rsrc`` (raw ``.rsrc`` bytes
-    or None), and ``headers`` (image base, entry point, section count).
+    names), ``imports`` (sorted ``dll!name``), ``file`` (all raw bytes), ``rsrc`` (raw ``.rsrc`` bytes
+    or None), ``relocations`` (PE RVA/type keys excluding ABSOLUTE padding),
+    and ``headers`` (image base).
     Never raises: an unreadable binary or a failed import/export parse sets
     ``error`` (None on success), which :func:`compare_snapshots` reports as
     drift so two unparseable binaries cannot pass the gate.
@@ -60,6 +87,9 @@ def snapshot_binary(binary_path: Path) -> dict[str, Any]:
         "rsrc": None,
         "headers": {},
         "error": None,
+        "file": b"",
+        "relocations": [],
+        "relocation_layout": {},
     }
     try:
         info = load_binary(binary_path)
@@ -85,9 +115,14 @@ def snapshot_binary(binary_path: Path) -> dict[str, Any]:
         imports = sorted(
             {f"{r.get('dll', '')}!{r.get('name', '')}" for r in parse_imports(binary_path)}
         )
+        relocations, relocation_layout = (
+            pe_relocation_snapshot(bytes(info.data)) if info.format == "pe" else ([], {})
+        )
     except Exception as exc:
         exports, imports = [], []
-        error = f"import/export parse failed for {binary_path}: {exc}"
+        relocations = []
+        relocation_layout = {}
+        error = f"import/export/relocation parse failed for {binary_path}: {exc}"
     return {
         "sections": sections,
         "exports": exports,
@@ -95,6 +130,9 @@ def snapshot_binary(binary_path: Path) -> dict[str, Any]:
         "rsrc": rsrc,
         "headers": {"image_base": info.image_base},
         "error": error,
+        "file": bytes(info.data),
+        "relocations": relocations,
+        "relocation_layout": relocation_layout,
     }
 
 
@@ -103,6 +141,9 @@ def compare_snapshots(expected: dict[str, Any], actual: dict[str, Any]) -> dict[
     sections = compare_sections(expected["sections"], actual["sections"])
     exports = compare_name_sets(expected["exports"], actual["exports"])
     imports = compare_name_sets(expected["imports"], actual["imports"])
+    relocations = compare_name_sets(expected["relocations"], actual["relocations"])
+    relocations["expected_layout"] = expected["relocation_layout"]
+    relocations["actual_layout"] = actual["relocation_layout"]
     if expected["rsrc"] is None and actual["rsrc"] is None:
         rsrc: dict[str, Any] = {"match": True, "first_diff": None}
     elif expected["rsrc"] is None or actual["rsrc"] is None:
@@ -110,15 +151,18 @@ def compare_snapshots(expected: dict[str, Any], actual: dict[str, Any]) -> dict[
     else:
         rsrc = compare_bytes(expected["rsrc"], actual["rsrc"])
     headers_match = expected["headers"] == actual["headers"]
+    file = compare_bytes(expected["file"], actual["file"])
     match = sections["match"] and exports["match"] and imports["match"] and rsrc["match"]
     errors = [e for e in (expected.get("error"), actual.get("error")) if e]
-    match = bool(match and headers_match and not errors)
+    match = bool(match and headers_match and file["match"] and relocations["match"] and not errors)
     return {
         "match": match,
         "errors": errors,
+        "file": file,
         "sections": sections,
         "exports": exports,
         "imports": imports,
+        "relocations": relocations,
         "rsrc": rsrc,
         "headers": {
             "match": headers_match,

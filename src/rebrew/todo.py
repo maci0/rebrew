@@ -810,11 +810,11 @@ def _collect_new_functions(
 
     _lib_probe_warned = False
 
-    def _library_match(probe: int, probe_size: int) -> tuple[str, str] | None:
-        """``(symbol, object)`` when *probe* is linked library code, else None."""
+    def _library_match(probe: int, probe_size: int) -> list[tuple[str, str]]:
+        """Candidate symbols when *probe* is linked library code."""
         nonlocal _lib_probe_warned
         if _lib_index is None:
-            return None
+            return []
         from rebrew.binary_loader import extract_raw_bytes
         from rebrew.lib_match import match_bytes
 
@@ -829,7 +829,7 @@ def _collect_new_functions(
                     f"[yellow]WARNING: cannot read {cfg.target_binary} at 0x{probe:08x} "
                     f"({exc}); library functions may not be filtered[/yellow]"
                 )
-            return None
+            return []
         return match_bytes(_lib_index, data)
 
     # Load binary for unmatchable detection
@@ -848,19 +848,22 @@ def _collect_new_functions(
         if va in pseudo_vas:
             continue
         lib = _library_match(va, size)
-        if lib is not None:
+        if lib:
             # Not new work, but not done either: no library_*.h attributes it
             # yet, so `rebrew status` still counts it as unstarted.
-            sym, obj = lib
+            symbols = sorted({sym for sym, _ in lib})
+            objects = ", ".join(sorted({obj for _, obj in lib}))
             items.append(
                 TodoItem(
                     category=CAT_IDENTIFY_LIBRARY,
                     roi_score=max(10.0, calculate_roi(size, 0.0, None) - 10.0),
                     va=va,
-                    name=sym,
+                    name=symbols[0] if len(symbols) == 1 else name,
                     size=size,
                     filename="",
-                    description=f"linked library code ({obj}): add a // LIBRARY: marker, "
+                    description=f"linked library code ({objects}); candidates: "
+                    + ", ".join(symbols)
+                    + ": add a // LIBRARY: marker, "
                     "do not reverse",
                     command=f"rebrew lib-match --stock-lib LIBCMT.LIB --va 0x{va:08x}",
                 )

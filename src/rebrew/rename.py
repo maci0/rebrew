@@ -283,11 +283,12 @@ def main(
         error_exit(_rename_failure(exc), json_mode=json_output)
 
     if json_output:
+        decoration = _AT_DECORATION_RE.search(old_sym)
         json_print(
             {
                 "old_name": actual_old_name,
                 "new_name": target_func,
-                "new_symbol": f"_{new_name}",
+                "new_symbol": f"_{new_name}{decoration.group(0) if decoration else ''}",
                 "va": f"0x{va:08x}",
                 "files_updated": updated,
                 "dry_run": dry_run,

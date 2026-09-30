@@ -81,6 +81,9 @@ class TestCompareSnapshots:
             "rsrc": b"r",
             "headers": {"image_base": 0x400000},
             "error": None,
+            "file": b"binary",
+            "relocation_layout": {},
+            "relocations": [],
         }
         base.update(over)
         return base
@@ -98,12 +101,68 @@ class TestCompareSnapshots:
         assert res["match"] is False
         assert res["exports"]["missing"] == ["a"]
 
+    @pytest.mark.parametrize("actual", [b"bXnary", b"binary-tail", b"binar"])
+    def test_file_drift_with_identical_structure(self, actual: bytes) -> None:
+        from rebrew.binary_gate import compare_snapshots
+
+        res = compare_snapshots(self._snap(), self._snap(file=actual))
+        assert res["match"] is False
+        assert res["file"]["match"] is False
+        assert res["sections"]["match"] is True
+
     def test_rsrc_absent_both_sides(self) -> None:
         from rebrew.binary_gate import compare_snapshots
 
         res = compare_snapshots(self._snap(rsrc=None), self._snap(rsrc=None))
         assert res["rsrc"]["match"] is True
         assert res["match"] is True
+
+    def test_relocations_report_missing_and_extra(self) -> None:
+        from rebrew.binary_gate import compare_snapshots
+
+        res = compare_snapshots(
+            self._snap(relocations=["0x00001004:3"]),
+            self._snap(relocations=["0x00001008:3"]),
+        )
+        assert res["match"] is False
+        assert res["relocations"]["missing"] == ["0x00001004:3"]
+        assert res["relocations"]["added"] == ["0x00001008:3"]
+
+    def test_absolute_padding_is_not_a_fixup(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from rebrew.binary_gate import pe_relocation_snapshot
+
+        pe = SimpleNamespace(
+            relocations=[
+                SimpleNamespace(
+                    virtual_address=0x2000,
+                    block_size=12,
+                    entries=[
+                        SimpleNamespace(position=0, type=0),
+                        SimpleNamespace(position=4, type=3),
+                    ],
+                )
+            ],
+            data_directory=lambda kind: SimpleNamespace(
+                size=12, has_section=True, section=SimpleNamespace(virtual_size=2032)
+            ),
+        )
+        monkeypatch.setattr("lief.PE.parse", lambda data: pe)
+        assert pe_relocation_snapshot(b"pe") == (
+            ["0x00002004:3"],
+            {
+                "block_bytes": 12,
+                "directory_bytes": 12,
+                "section_bytes": 2032,
+                "reserved_bytes": 2020,
+            },
+        )
+
+    def test_relocation_parse_failure_is_reported(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from rebrew.binary_gate import pe_relocation_snapshot
+
+        monkeypatch.setattr("lief.PE.parse", lambda data: None)
+        with pytest.raises(ValueError, match="base relocations"):
+            pe_relocation_snapshot(b"invalid")
 
     def test_snapshot_exports_without_export_cli(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.binary_gate import snapshot_binary
@@ -115,9 +174,12 @@ class TestCompareSnapshots:
             },
             data=b"xxrsrc",
             image_base=0x400000,
+            format="pe",
         )
         pe = SimpleNamespace(
-            exported_functions=[SimpleNamespace(name=name) for name in ["b", "a", "b", ""]]
+            exported_functions=[SimpleNamespace(name=name) for name in ["b", "a", "b", ""]],
+            relocations=[],
+            data_directory=lambda kind: SimpleNamespace(size=0, has_section=False),
         )
         monkeypatch.setattr("rebrew.binary_loader.load_binary", lambda path: info)
         monkeypatch.setattr("lief.PE.parse", lambda path: pe)
@@ -133,6 +195,14 @@ class TestCompareSnapshots:
             "rsrc": b"rsr",
             "headers": {"image_base": 0x400000},
             "error": None,
+            "file": b"xxrsrc",
+            "relocation_layout": {
+                "block_bytes": 0,
+                "directory_bytes": 0,
+                "section_bytes": 0,
+                "reserved_bytes": 0,
+            },
+            "relocations": [],
         }
 
     def test_snapshot_missing_file(self, tmp_path: Path) -> None:

@@ -1,5 +1,36 @@
 ## [Unreleased]
 
+### Fixed
+- Library body matching reports all candidate symbols when relocation masking makes wrappers identical, so `lib-match` and `todo` no longer assign an arbitrary function name. The `match_bytes` and `match_leading_body` APIs now return candidate lists (empty for no match).
+- CMake LIB wrappers preserve `/DEF`, `/LIST`, `/LIBPATH`, and `/OUT` option prefixes when translating their path operands.
+- COFF library inspection resolves long function names stored as suffixes of other string-table entries, including LIB compatibility-format import members.
+- CMake toolchain wrappers translate paths inside response files using temporary copies, so absolute POSIX object paths reach Wine correctly.
+- Diff/match build resolution skips data annotations when selecting code, allowing a file to declare globals before its function.
+- `test --symbol` selects that function’s annotation in multi-function files, so comparison and metadata writes use its VA instead of the first function’s.
+- Raw-byte extraction preserves requested NOP/INT3 tails for scoring and disassembly; `asm` no longer misreports trimmed bytes as the end of the image.
+- Data metadata mutations reject combined setter modes before writing, rather than silently ignoring later options.
+- Function rename JSON retains the original stdcall stack-byte suffix.
+- `gen-layout --data-gap` describes its copied reference scaffolding accurately:
+  it does not detect missing native data or emit pointer relocations.
+- `data --set-name 0xVA=NAME` gives unnamed annotated globals an identity
+  through the locked metadata writer so data verification includes them.
+- Multi-function tests read the actual compiled source when deciding whether
+  to clear blockers, including nested files whose annotations use basenames.
+- Data verification reports reference BSS outside the built image as missing;
+  it no longer fabricates zero bytes beyond the built virtual extent.
+- `data --set-size 0xVA=BYTES` corrects global byte spans through the locked
+  metadata writer and clears verification verdicts for the previous spans.
+- Status labels distinguish `.text` coverage and stored tracked-data verdicts
+  from the separately measured raw-link whole-file identity.
+- Whole-binary relocation diagnostics distinguish fixup block size, directory
+  size, and section reservation. Missing fixup counts cannot explain reserved
+  zero space left by discarded linker inputs.
+- `verify --whole-binary` reports missing and extra PE base fixups by RVA
+  and type, excluding type-zero ABSOLUTE alignment entries from the diagnostic.
+- `verify --whole-binary` now requires raw file bytes to match, including code,
+  data, headers, padding and trailing bytes; structural parity alone cannot pass.
+  JSON and human reports include the first differing file offset.
+
 ## [2.18.0] - 2026-09-30
 
 ### Breaking

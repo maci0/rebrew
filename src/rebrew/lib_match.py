@@ -106,10 +106,15 @@ def index_library(path: Path) -> Index:
     return index
 
 
-def match_bytes(index: Index, data: bytes) -> tuple[str, str] | None:
-    """Return ``(symbol, object)`` when *data* is a library body, else None."""
+def match_bytes(index: Index, data: bytes) -> list[tuple[str, str]]:
+    """Return candidate ``(symbol, object)`` pairs matching fixed bytes.
+
+    Relocation masking can make different functions identical, such as
+    fread/fwrite wrappers. A match proves library origin, not a unique name.
+    """
+    matches: list[tuple[str, str]] = []
     if len(data) < MIN_BYTES:
-        return None
+        return matches
     for sym, entries in index.items():
         for obj_name, body, relocs in entries:
             if len(body) < len(data):
@@ -121,29 +126,48 @@ def match_bytes(index: Index, data: bytes) -> tuple[str, str] | None:
             if len(fixed) < MIN_FIXED_FRACTION * len(data):
                 continue  # a mostly-relocation table trivially matches anything
             if all(data[i] == body[i] for i in fixed):
-                return sym, obj_name
-    return None
+                candidate = (sym, obj_name)
+                if candidate not in matches:
+                    matches.append(candidate)
+    return matches
 
 
-def match_leading_body(index: Index, data: bytes) -> tuple[str, str] | None:
-    """Return ``(symbol, object)`` when a whole library body starts *data*.
+def match_leading_body(index: Index, data: bytes) -> list[tuple[str, str]]:
+    """Return candidates whose whole library bodies start *data*.
 
     For ``--va`` without a known size: the read window can run past a short
     function into the next one, so the library body must match a prefix of
-    *data* instead of covering all of it.  The longest matching body wins.
+    *data* instead of covering all of it. Keep all longest matching bodies.
     """
-    best: tuple[int, str, str] | None = None
+    best_size = 0
+    matches: list[tuple[str, str]] = []
     for sym, entries in index.items():
         for obj_name, body, relocs in entries:
             n = len(body)
-            if n < MIN_BYTES or n > len(data) or (best is not None and n <= best[0]):
+            if n < MIN_BYTES or n > len(data) or n < best_size:
                 continue
             fixed = [i for i in range(n) if i not in relocs]
             if len(fixed) < MIN_FIXED_FRACTION * n:
                 continue
             if all(data[i] == body[i] for i in fixed):
-                best = (n, sym, obj_name)
-    return None if best is None else (best[1], best[2])
+                if n > best_size:
+                    best_size = n
+                    matches.clear()
+                candidate = (sym, obj_name)
+                if candidate not in matches:
+                    matches.append(candidate)
+    return matches
+
+
+def _match_details(matches: list[tuple[str, str]]) -> dict[str, Any]:
+    """Report identities only when the byte comparison resolves them."""
+    symbols = {sym for sym, _ in matches}
+    objects = {obj for _, obj in matches}
+    return {
+        "symbol": next(iter(symbols)) if len(symbols) == 1 else None,
+        "object": next(iter(objects)) if len(objects) == 1 else None,
+        "candidates": [{"symbol": sym, "object": obj} for sym, obj in matches],
+    }
 
 
 def _merge_libraries(libs: list[Path]) -> Index:
@@ -176,10 +200,10 @@ def load_allowlist(path: Path | None, *, json_mode: bool = False) -> set[int]:
     return out
 
 
-def _findings(cfg: Any, index: Index, allow: set[int]) -> list[dict[str, str]]:
+def _findings(cfg: Any, index: Index, allow: set[int]) -> list[dict[str, Any]]:
     from rebrew.catalog.loaders import scan_reversed_dir
 
-    found: list[dict[str, str]] = []
+    found: list[dict[str, Any]] = []
     for entry in scan_reversed_dir(cfg.reversed_dir, cfg=cfg):
         module = getattr(entry, "module", "") or ""
         va = int(getattr(entry, "va", 0) or 0)
@@ -203,7 +227,7 @@ def _findings(cfg: Any, index: Index, allow: set[int]) -> list[dict[str, str]]:
             )
             continue
         hit = match_bytes(index, data)
-        if hit is None and (entry.size or 0) > PREFIX_BYTES:
+        if not hit and (entry.size or 0) > PREFIX_BYTES:
             # A wrong SIZE in the metadata overruns the function and hides a
             # real match; retry on a fixed prefix.
             try:
@@ -212,16 +236,14 @@ def _findings(cfg: Any, index: Index, allow: set[int]) -> list[dict[str, str]]:
                 logging.getLogger(__name__).warning(
                     "prefix retry failed for %s at 0x%08x: %s", module, va, exc
                 )
-                hit = None
-        if hit is not None:
-            sym, obj_name = hit
+                hit = []
+        if hit:
             found.append(
                 {
                     "va": f"0x{va:08x}",
                     "module": module,
                     "file": entry.filepath,
-                    "symbol": sym,
-                    "object": obj_name,
+                    **_match_details(hit),
                 }
             )
     return found
@@ -571,20 +593,22 @@ def main(
         size = (get_entry(cfg.metadata_dir, va_int, module) or {}).get("size") or 0
         data = extract_raw_bytes(cfg.target_binary, va_int, size or PREFIX_BYTES)
         hit = match_bytes(index, data)
-        if hit is None and (size or 0) > PREFIX_BYTES:
+        if not hit and (size or 0) > PREFIX_BYTES:
             hit = match_bytes(index, extract_raw_bytes(cfg.target_binary, va_int, PREFIX_BYTES))
-        if hit is None and not size:
+        if not hit and not size:
             hit = match_leading_body(index, data)
-        if hit is not None:
-            sym, obj_name = hit
+        if hit:
             if json_output:
-                json_print(
-                    {"va": f"0x{va_int:08x}", "library": True, "symbol": sym, "object": obj_name}
-                )
+                json_print({"va": f"0x{va_int:08x}", "library": True, **_match_details(hit)})
             else:
                 console.print(
-                    f"[yellow]0x{va_int:08x} is library code:[/yellow] {sym} in {obj_name}"
+                    f"[yellow]0x{va_int:08x} is library code:[/yellow] "
+                    + "; ".join(f"{sym} in {obj}" for sym, obj in hit)
                 )
+                if len({sym for sym, _ in hit}) > 1:
+                    console.print(
+                        "Masked bytes do not resolve a unique symbol; these are candidates."
+                    )
                 console.print("Do not reverse it; the linker supplies these bytes.")
             raise typer.Exit(code=EXIT_MISMATCH)
         if json_output:
@@ -604,7 +628,12 @@ def main(
         console.print("Reversed functions whose bytes come from a linked library:\n")
         for f in found:
             console.print(f"  [yellow]{f['va']}[/yellow]  {f['file']}")
-            console.print(f"              {f['symbol']} in {f['object']}")
+            console.print(
+                "              "
+                + "; ".join(f"{c['symbol']} in {c['object']}" for c in f["candidates"])
+            )
+            if f["symbol"] is None:
+                console.print("              Masked bytes do not resolve a unique symbol.")
         console.print(
             f"\n{len(found)} function(s). These do not need reversing: the linker supplies "
             "them. Delete the source, or add the VA to the --allow file with a reason "

@@ -1583,6 +1583,37 @@ class TestResolveBuildParamsVATargeting:
         )
         assert params.symbol == "_exit_handler"
 
+    def test_global_before_function_is_not_selected(self, tmp_path: Path, monkeypatch: Any) -> None:
+        from rebrew.match import resolve_build_params
+
+        src_dir = tmp_path / "src" / "T"
+        src_dir.mkdir(parents=True)
+        source = src_dir / "mixed.c"
+        source.write_text(
+            "// GLOBAL: T 0x10002000\nint counter;\n"
+            "// FUNCTION: T 0x10001000\n// SIZE: 8\nvoid run(void) {}\n"
+        )
+        monkeypatch.setattr("rebrew.match_sweep.extract_raw_bytes", lambda *a, **k: b"\x90" * 8)
+        monkeypatch.setattr(
+            "rebrew.match_sweep.resolve_compiler_env",
+            lambda cfg: ("wine CL.EXE", "inc", {}, None),
+        )
+        params = resolve_build_params(
+            self._cfg(tmp_path, src_dir),
+            str(source),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            False,
+            False,
+        )
+        assert params.symbol == "_run"
+        assert params.va_int == 0x10001000
+        assert params.target_size == 8
+
     def test_selected_function_cflags_not_first_block(
         self, tmp_path: Path, monkeypatch: Any
     ) -> None:

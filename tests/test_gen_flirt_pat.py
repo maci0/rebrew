@@ -1,5 +1,6 @@
 """Tests for rebrew.gen_flirt_pat — archive parsing and PAT line generation."""
 
+import struct
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -870,3 +871,16 @@ class TestParseElfObjReal:
         _name, code, relocs = results[0]
         assert {4, 5, 6, 7} <= relocs
         assert 0 not in relocs
+
+
+def test_coff_shared_string_suffix_name() -> None:
+    from rebrew.gen_flirt_pat import parse_coff_obj
+
+    blob = bytearray(make_coff_obj(b"\xff\x25\0\0\0\0", relocs=[(2, 6, "__imp__socket@12")]))
+    offset, count = struct.unpack_from("<II", blob, 8)
+    table = offset + count * 18
+    suffix = bytes(blob[table:]).index(b"_socket@12")
+    struct.pack_into("<II", blob, offset, 0, suffix)
+    rows = list(parse_coff_obj(bytes(blob)))
+    assert rows[0][0] == "_socket@12"
+    assert rows[0][2] == {2, 3, 4, 5}

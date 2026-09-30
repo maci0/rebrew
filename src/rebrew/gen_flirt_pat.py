@@ -78,6 +78,29 @@ def parse_archive(lib_path: str) -> Iterator[tuple[str, bytes]]:
         yield name, member_data
 
 
+def _coff_symbol_names(data: bytes) -> list[str]:
+    """Resolve standard COFF names, including suffixes shared in the string table."""
+    if len(data) < 20:
+        return []
+    offset, count = struct.unpack_from("<II", data, 8)
+    end = offset + count * 18
+    if offset < 20 or end + 4 > len(data):
+        return []
+    length = struct.unpack_from("<I", data, end)[0]
+    strings = data[end : end + length]
+    names = []
+    index = 0
+    while index < count:
+        entry = offset + index * 18
+        raw = data[entry : entry + 8]
+        if raw[:4] == b"\0" * 4:
+            start = struct.unpack_from("<I", raw, 4)[0]
+            raw = strings[start:] if 4 <= start < len(strings) else b""
+        names.append(raw.split(b"\0", 1)[0].decode("utf-8", errors="replace"))
+        index += 1 + data[entry + 17]
+    return names
+
+
 def parse_coff_obj(obj_data: bytes) -> Iterator[tuple[str, bytes, set[int]]]:
     """Parse a COFF .obj and yield (symbol_name, code_bytes, reloc_offsets).
 
@@ -101,10 +124,15 @@ def parse_coff_obj(obj_data: bytes) -> Iterator[tuple[str, bytes, set[int]]]:
     if coff is None:
         return
 
+    symbols = list(coff.symbols)
+    raw_names = _coff_symbol_names(obj_data)
+    names = [
+        str(sym.name) or (raw_names[i] if len(raw_names) == len(symbols) else "")
+        for i, sym in enumerate(symbols)
+    ]
     # Pre-build per-section sorted symbol offsets to avoid O(n^2) scans
     section_sym_offsets: dict[str, list[int]] = {}
-    for sym in coff.symbols:
-        sym_name = str(sym.name)
+    for sym, sym_name in zip(symbols, names, strict=True):
         if sym.section is not None and not sym_name.startswith("$"):
             section_sym_offsets.setdefault(str(sym.section.name), []).append(sym.value)
     for offsets in section_sym_offsets.values():
@@ -119,13 +147,13 @@ def parse_coff_obj(obj_data: bytes) -> Iterator[tuple[str, bytes, set[int]]]:
         lief.COFF.Symbol.STORAGE_CLASS.STATIC,
     )
 
-    for sym in coff.symbols:
+    for sym, sym_name in zip(symbols, names, strict=True):
         # Function symbols (external or file-static) in code sections
         if sym.storage_class not in _FUNC_CLASSES or sym.section is None:
             continue
         # STATIC is also the class used for section symbols (".text"), which
         # alias the first real function; skip them so names stay meaningful.
-        if str(sym.name).startswith("."):
+        if sym_name.startswith("."):
             continue
 
         section = sym.section
@@ -159,7 +187,7 @@ def parse_coff_obj(obj_data: bytes) -> Iterator[tuple[str, bytes, set[int]]]:
                     reloc_offsets.add(func_rel + k)
 
         if len(code) >= 4:
-            yield str(sym.name), code, reloc_offsets
+            yield sym_name, code, reloc_offsets
 
 
 #: No relocation fixes up more than 8 bytes (the widest is a 64-bit address).

@@ -956,7 +956,6 @@ def main(
     data_report: dict[str, Any] | None = None
     if data:
         from rebrew.data_verify import (
-            fill_uncovered_zero_fill,
             section_symbol_bytes,
             verify_data_bytes,
         )
@@ -970,17 +969,14 @@ def main(
         metadata_path = cfg.metadata_dir / "rebrew-data.toml"
         if not metadata_path.exists():
             error_exit(f"data metadata not found: {metadata_path}", json_mode=json_output)
-        ref_zero_fill: set[int] = set()
         ref_bytes, ref_sizes = section_symbol_bytes(
             metadata_path=metadata_path,
             binary_path=cfg.target_binary,
             cfg=cfg,
-            zero_fill=ref_zero_fill,
         )
         built_bytes, built_sizes = section_symbol_bytes(
             metadata_path=metadata_path, binary_path=built_path, cfg=cfg
         )
-        fill_uncovered_zero_fill(ref_bytes, ref_sizes, built_bytes, built_sizes, ref_zero_fill)
         data_report = verify_data_bytes(
             metadata_path=metadata_path,
             expected=ref_bytes,
@@ -1185,10 +1181,32 @@ def main(
                 console.print("[red]whole-binary: drift[/red]")
                 for err in whole_report["errors"]:
                     console.print(f"  [red]error[/red]: {untrusted_ident(err)}")
-                for area in ("sections", "exports", "imports", "rsrc", "headers"):
+                for area in (
+                    "file",
+                    "sections",
+                    "exports",
+                    "imports",
+                    "relocations",
+                    "rsrc",
+                    "headers",
+                ):
                     part = whole_report[area]
                     if not part["match"]:
-                        console.print(f"  [yellow]{area}[/yellow]: {part}")
+                        if area == "relocations":
+                            console.print(
+                                f"  [yellow]relocations[/yellow]: "
+                                f"{len(part['missing'])} missing, {len(part['added'])} extra"
+                            )
+                            for side in ("expected", "actual"):
+                                layout = part[f"{side}_layout"]
+                                if layout:
+                                    console.print(
+                                        f"    {side}: {layout['block_bytes']} block bytes, "
+                                        f"{layout['section_bytes']} section bytes, "
+                                        f"{layout['directory_bytes']} directory bytes"
+                                    )
+                        else:
+                            console.print(f"  [yellow]{area}[/yellow]: {part}")
                 layout = whole_report["layout"]
                 if not layout["match"]:
                     if layout["status"] == "unreadable":
@@ -1656,6 +1674,40 @@ def _save_report(
         _raise_if_regression(gate_failed)
         return
 
+    merge_count = 0
+    under = [
+        d
+        for d in size_divergences
+        if d.get("annotation_size")
+        and d.get("binary_size")
+        and d["annotation_size"] < d["binary_size"]
+    ]
+    if under:
+        try:
+            _bin = Path(cfg.target_binary).read_bytes()
+        except OSError:
+            _bin = b""
+        if _bin:
+            _base, _secs = _pe_sections_for_merge_check(_bin)
+            if _secs:
+                for d in under:
+                    try:
+                        _va = int(str(d["va"]), 16)
+                    except (ValueError, TypeError):
+                        continue
+                    for _sva, _soff, _sraw in _secs:
+                        if _sva <= _va < _sva + _sraw:
+                            if _looks_like_inventory_merge(
+                                _bin,
+                                _va,
+                                _base,
+                                _soff + (_va - _sva),
+                                d["annotation_size"],
+                                d["binary_size"],
+                            ):
+                                merge_count += 1
+                            break
+
     _print_results(
         results,
         batch.fail_details,
@@ -1668,6 +1720,8 @@ def _save_report(
         failed,
         library_passed=library_passed,
         library_total=library_total,
+        size_divergences=size_divergences,
+        merge_count=merge_count,
     )
 
     _raise_if_regression(gate_failed)
@@ -2719,6 +2773,103 @@ def apply_status_updates(
         _warn_unwritten_statuses(updates, exc, _status_store_label(cfg), exc_info=True)
 
 
+def _pe_sections_for_merge_check(data: bytes) -> tuple[int, list[tuple[int, int, int]]]:
+    """``(image_base, [(section_va, raw_offset, raw_size), ...])`` for a PE image.
+
+    Local and minimal on purpose: this runs once per verify and pulling in the
+    full section reader would make a two-cause warning depend on the layout
+    machinery it is meant to be independent of.
+    """
+    import struct as _struct
+
+    if len(data) < 0x40:
+        return 0, []
+    try:
+        pe = _struct.unpack_from("<I", data, 0x3C)[0]
+        nsec = _struct.unpack_from("<H", data, pe + 6)[0]
+        optsz = _struct.unpack_from("<H", data, pe + 20)[0]
+        opt = pe + 24
+        base = _struct.unpack_from("<I", data, opt + 28)[0]
+    except _struct.error:
+        return 0, []
+    out: list[tuple[int, int, int]] = []
+    off = opt + optsz
+    for i in range(nsec):
+        s = off + i * 40
+        try:
+            # +12 is VirtualAddress, +16 SizeOfRawData, +20 PointerToRawData
+            va, raw_size, raw_off = _struct.unpack_from("<III", data, s + 12)
+        except _struct.error:
+            break
+        out.append((base + va, raw_off, raw_size))
+    return base, out
+
+
+def _looks_like_inventory_merge(
+    binary: bytes, va: int, image_base: int, start_off: int, ann_size: int, span: int
+) -> bool:
+    """Whether ``[va+ann_size, va+span)`` opens with a new function.
+
+    An under-count has two causes and they need opposite responses: a TRUNCATED
+    annotation is work to reverse, while an INVENTORY MERGE is a discovery defect
+    and reversing it is wasted.  The distinguisher is cheap -- a function ends in
+    a `ret` and the next one opens with a stack-frame prologue -- so it needs no
+    disassembler, only the bytes.
+
+    Round 190 measured `cm_ExTransferCurrencyNoKill` at 144 annotated against a
+    2,208-byte inventory entry and found `c3 90 90` then `81 ec 28 02 00 00` at
+    +144: the annotation was right and the inventory was two functions.
+    """
+    # The annotation is rounded up to the next 16-byte function boundary, so the
+    # function's own `ret` can sit up to that much BEFORE the annotation's size --
+    # cm_ExTransferCurrencyNoKill's ret is at +141 against an annotated 144.  Start
+    # the scan below the annotation size or every merge is missed.
+    lo, hi = start_off + max(0, ann_size - 16), start_off + span
+    # ONE source of truth for what opens a function.  This detector used to carry
+    # its own four shapes while `discover._starts_function` grew to eight across
+    # rounds 196-197 and 245 -- so the two disagreed about the same bytes, and this
+    # one missed cm_DispatchProduction's neighbour (`8b 44 24 04`, a first-argument
+    # load) until round 247.  `openers` is kept as a fallback only for callers
+    # without a loader handle.
+    openers = (
+        b"\x55\x8b\xec",  # push ebp; mov ebp, esp
+        b"\x81\xec",  # sub esp, imm32
+        b"\x83\xec",  # sub esp, imm8
+        b"\x6a\xff\x68",  # push -1; push <seh>
+        b"\xa1",  # mov eax, [<global>]
+        b"\x8b\x44\x24\x04",  # mov eax, [esp+4]
+        b"\x8b\x4c\x24\x04",  # mov ecx, [esp+4]
+    )
+    for i in range(lo, min(hi, len(binary)) - 8):
+        if binary[i] != 0xC3:  # ret
+            continue
+        for j in range(i + 1, min(i + 13, len(binary) - 4)):
+            if binary[j] == 0x90:  # skip the alignment nops
+                continue
+            if any(binary.startswith(op, j) for op in openers) or (
+                binary.startswith(b"\xb8", j) and j + 5 < len(binary) and binary[j + 5] == 0xC3
+            ):
+                return True
+            break
+    # And the simplest case of all, which the loop above cannot reach: the
+    # annotation's OWN END opens a function.  A `switch` puts its jump table after
+    # the code's `ret`, so at cm_DispatchProduction the `ret` is at +113 while the
+    # annotation ends at +144 (116 bytes of code, a 28-byte table of .text
+    # addresses) -- 31 bytes earlier than the 16-byte back-scan looks, and the
+    # next function starts exactly at +144 (`8b 44 24 04`, round 246).  Testing
+    # the boundary directly costs one comparison and needs no window at all.
+    end = start_off + ann_size
+    if end + 4 <= len(binary):
+        j = end
+        while j < len(binary) and binary[j] in (0x90, 0xCC):
+            j += 1
+        if any(binary.startswith(op, j) for op in openers) or (
+            binary.startswith(b"\xb8", j) and j + 5 < len(binary) and binary[j + 5] == 0xC3
+        ):
+            return True
+    return False
+
+
 def _print_results(
     results: list[dict[str, Any]],
     fail_details: list[tuple[Annotation, str]],
@@ -2731,8 +2882,20 @@ def _print_results(
     failed: int,
     library_passed: int = 0,
     library_total: int = 0,
+    size_divergences: list[dict[str, Any]] | None = None,
+    merge_count: int = 0,
 ) -> None:
-    """Print diff report, summary table, and failure details."""
+    """Print diff report, summary table, and failure details.
+
+    ``size_divergences`` is reported here because an annotation SHORTER than
+    the binary's function is the one size problem that cannot show up as a
+    failure: the compiler emits the annotation's bytes, the comparison sees
+    exactly those bytes match, and the verdict is EXACT or RELOC on a prefix.
+    The divergence reached only the JSON and `rebrew status`, so a run could
+    print "262/262 passed" while a function was thousands of bytes truncated
+    -- guild-rebrew had cm_ExTransferCurrencyNoKill annotated at 144 bytes
+    against a 2,208-byte binary, and nothing on screen said so.
+    """
     if diff_mode and diff_result is not None:
         regressions = diff_result["regressions"]
         improvements = diff_result["improvements"]
@@ -2851,6 +3014,47 @@ def _print_results(
     if library_total:
         result_text.append(f"; library-attributed: {library_passed}/{library_total} passed")
     console.print(result_text)
+    under = [
+        d
+        for d in (size_divergences or [])
+        if d.get("annotation_size")
+        and d.get("binary_size")
+        and d["annotation_size"] < d["binary_size"]
+    ]
+    if under:
+        short = sum(d["binary_size"] - d["annotation_size"] for d in under)
+        worst = max(under, key=lambda d: d["binary_size"] - d["annotation_size"])
+        console.print(
+            f"[yellow]warning: {len(under)} function(s) are SHORTER than the "
+            f"binary's function ({short} bytes missing in total)[/yellow]"
+        )
+        console.print(
+            f"[dim]  worst: {untrusted_ident(worst.get('name') or '')} at "
+            f"{untrusted_ident(str(worst.get('va')))} -- annotated "
+            f"{worst['annotation_size']} bytes against {worst['binary_size']} "
+            f"in the binary[/dim]"
+        )
+        console.print(
+            "[dim]  these pass as EXACT/RELOC on a prefix: the annotation's own "
+            "bytes match, and anything past them is not compared. Not a failure "
+            "-- a measure of what is not yet reversed. `rebrew verify --json` "
+            "lists them under size_divergences.[/dim]"
+        )
+        if merge_count:
+            console.print(
+                f"[dim]  {merge_count} of them open with a new function before the "
+                "inventory's size -- a `ret` then a prologue. Those are INVENTORY "
+                "MERGES, not truncated annotations: the annotation is right and the "
+                "discovery entry spans several functions. Reversing them is wasted "
+                "work; the inventory is what to fix.[/dim]"
+            )
+        else:
+            console.print(
+                "[dim]  careful: an under-count has TWO causes and this cannot tell "
+                "them apart. Either the annotation is truncated, or the inventory "
+                "entry spans several functions and is not one function at all."
+                "[/dim]"
+            )
     if any(r["status"] == "MISSING_SIZE" for r in results):
         n = sum(1 for r in results if r["status"] == "MISSING_SIZE")
         console.print(

@@ -25,8 +25,10 @@ that points ``CMAKE_C_COMPILER/LINKER/AR`` at these scripts.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
+import tempfile
 import tomllib
 import uuid
 from pathlib import Path
@@ -223,6 +225,9 @@ def _rewrite_args(mode: str, args: list[str]) -> list[str]:
                 continue
             out.append(_to_w(arg) if _is_host_path(arg) else arg)
         elif mode == "link":
+            if arg.upper().startswith("/ORDER:@"):
+                out.append("/ORDER:@" + _to_w(arg[len("/ORDER:@") :]))
+                continue
             for flag, name in (
                 ("/OUT:", "OUT"),
                 ("/DEF:", "DEF"),
@@ -241,13 +246,13 @@ def _rewrite_args(mode: str, args: list[str]) -> list[str]:
                 else:
                     out.append(arg)
         else:  # lib
-            if arg.upper().startswith("/OUT:/"):
-                out.append("/OUT:" + _to_w(arg[len("/OUT:") :]))
-                continue
-            if _is_host_path(arg) or arg.startswith(("/*.obj", "/*.lib")):
-                out.append(_to_w(arg))
-                continue
-            out.append(arg)
+            for flag in ("/OUT:", "/DEF:", "/LIST:", "/LIBPATH:"):
+                if arg.upper().startswith(flag):
+                    out.append(flag + _to_w(arg[len(flag) :]))
+                    break
+            else:
+                host_path = _is_host_path(arg) or arg.startswith(("/*.obj", "/*.lib"))
+                out.append(_to_w(arg) if host_path else arg)
     return out
 
 
@@ -326,6 +331,36 @@ def _ensure_wineprefix(prefix: Path, spec: ToolchainSpec) -> None:
         (prefix / ".update-timestamp").write_text("", encoding="utf-8")
 
 
+def _rewrite_response_files(mode: str, args: list[str], directory: Path) -> list[str]:
+    """Copy response files with POSIX paths translated for Wine; keep originals."""
+    active: set[Path] = set()
+
+    def copy_arg(arg: str) -> str:
+        if not arg.startswith("@"):
+            return arg
+        source = Path(arg[1:].strip('"')).resolve()
+        if source in active:
+            raise ValueError(f"Recursive response file: {source}")
+        active.add(source)
+        content = source.read_text()
+
+        # Rewrite whole quoted/unquoted tokens, retaining response-file quoting.
+        def rewrite(match: re.Match[str]) -> str:
+            token = match.group(0)
+            quoted = token.startswith('"')
+            value = token[1:-1] if quoted else token
+            value = copy_arg(value) if value.startswith("@") else _rewrite_args(mode, [value])[0]
+            return '"' + value + '"' if quoted else value
+
+        content = re.sub(r'"[^"\r\n]*"|[^\s"]+', rewrite, content)
+        active.remove(source)
+        dest = directory / (uuid.uuid4().hex + ".rsp")
+        dest.write_text(content)
+        return "@" + _to_w(str(dest))
+
+    return [copy_arg(arg) for arg in args]
+
+
 def _docker_run(spec: ToolchainSpec, mode: str, args: list[str]) -> int:
     root = walk_up_to_root(Path.cwd())
     if root is None:
@@ -369,19 +404,20 @@ def _docker_run(spec: ToolchainSpec, mode: str, args: list[str]) -> int:
         _WINE,
         spec.image,
         str(tool_root / _TOOL_EXES[mode]),
-        *_rewrite_args(mode, args),
     ]
 
     try:
-        with file_lock(prefix / ".run.lock"):
-            r = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=3600,
-            )
+        with tempfile.TemporaryDirectory(prefix="rebrew-rsp-", dir=root) as rsp_dir:
+            cmd.extend(_rewrite_args(mode, _rewrite_response_files(mode, args, Path(rsp_dir))))
+            with file_lock(prefix / ".run.lock"):
+                r = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    timeout=3600,
+                )
     except subprocess.TimeoutExpired:
         # Killing the CLI leaves the wine container running under dockerd —
         # kill it by name so a hung compile does not outlive the timeout.

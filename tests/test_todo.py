@@ -637,8 +637,9 @@ class TestCollectors:
             for i in _collect_library_candidates([normal], existing, cfg)
         )
 
+    @pytest.mark.parametrize("ambiguous", [False, True])
     def test_unattributed_library_code_is_an_identify_action(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ambiguous: bool
     ) -> None:
         """Linked library code no header attributes yet is not skipped silently
         (status counts it as unstarted): it becomes an identify-library action."""
@@ -646,9 +647,10 @@ class TestCollectors:
         cached.write_bytes(b"")
         monkeypatch.setattr("rebrew.lib_match.stock_lib_cache", lambda root, name, profile: cached)
         monkeypatch.setattr("rebrew.lib_match.index_library", lambda path: {})
-        monkeypatch.setattr(
-            "rebrew.lib_match.match_bytes", lambda index, data: ("_strncnt", "strncnt.obj")
-        )
+        candidates = [("_strncnt", "strncnt.obj")]
+        if ambiguous:
+            candidates.append(("_another", "another.obj"))
+        monkeypatch.setattr("rebrew.lib_match.match_bytes", lambda index, data: candidates)
         monkeypatch.setattr(
             "rebrew.binary_loader.extract_raw_bytes", lambda path, va, size: b"\x90" * size
         )
@@ -656,7 +658,9 @@ class TestCollectors:
         items = _collect_new_functions(
             [FunctionEntry(va=0x1002350A, size=43, name="fcn")], {}, {}, cfg
         )
-        assert [(i.category, i.name) for i in items] == [(CAT_IDENTIFY_LIBRARY, "_strncnt")]
+        expected_name = "fcn" if ambiguous else "_strncnt"
+        assert [(i.category, i.name) for i in items] == [(CAT_IDENTIFY_LIBRARY, expected_name)]
+        assert "_strncnt" in items[0].description
         assert "lib-match" in items[0].command
 
     def test_new_functions_basic(self, tmp_path: Path) -> None:

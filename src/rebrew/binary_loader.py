@@ -756,10 +756,10 @@ def extract_raw_bytes(binary_path: Path, va: int, size: int) -> bytes:
 
     Supports VAs in any section by using section-aware extraction.
     Falls back to a simple file-offset calculation if the VA is not in
-    any known section. The fallback path does not trim trailing padding.
+    any known section. Neither extraction path trims trailing bytes.
     """
     info = load_binary(binary_path)
-    data = extract_bytes_at_va(info, va, size)
+    data = extract_bytes_at_va(info, va, size, trim_padding=False)
     if data is not None:
         return data
     # Fallback to simple file-offset calculation.  A VA below the .text base

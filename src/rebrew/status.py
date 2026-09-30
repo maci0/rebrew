@@ -1084,9 +1084,8 @@ def _breakdown_table() -> Table:
 def _data_block(report: StatusReport) -> list[Any]:
     """Data verdicts for this target, in the same columns as functions.
 
-    When the binary has file-backed ``.data`` / ``.rdata``, a bar above the
-    table shows the share of those bytes covered by VERIFIED symbols. It is
-    labeled ``of data``, so it does not read as a second ``.text`` figure.
+    The bar uses tracked file-backed symbols and their stored VERIFIED
+    verdicts, rather than a comparison of the currently scored built image.
     """
     total = report.data_total
     if total == 0:
@@ -1094,7 +1093,9 @@ def _data_block(report: StatusReport) -> list[Any]:
     block: list[Any] = []
     if report.data_total_bytes > 0:
         headline = Text()
-        headline.append(f"{report.data_byte_pct}% of data", style="bold green")
+        headline.append(
+            f"{report.data_byte_pct}% of tracked data (stored verdicts)", style="bold green"
+        )
         headline.append(
             f"    {report.data_verified_bytes:,}B / {report.data_total_bytes:,}B",
             style="dim",
@@ -1184,7 +1185,7 @@ def _headline(report: StatusReport) -> tuple[Text, Text | None]:
     if report.total_text_bytes > 0:
         text = Text()
         accounted = report.accounted_text_bytes
-        text.append(f"{report.byte_coverage_pct}% of .text", style="bold green")
+        text.append(f"{report.byte_coverage_pct}% of .text covered", style="bold green")
         text.append(
             f"    {accounted:,}B / {report.total_text_bytes:,}B",
             style="dim",

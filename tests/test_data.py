@@ -931,3 +931,22 @@ class TestFindDispatchTablesSparse:
         tables = find_dispatch_tables(bytes(data), sections, {}, max_stride=8, min_entries=3)
         assert len(tables) == 2
         assert [t.num_entries for t in tables] == [3, 3]
+
+
+def test_data_rejects_combined_metadata_mutations(monkeypatch):
+    import json
+
+    from typer.testing import CliRunner
+
+    from rebrew.data import app
+
+    def unexpected_config(**kwargs):
+        raise AssertionError("Conflicting mutations must fail before reading or writing metadata")
+
+    monkeypatch.setattr("rebrew.data.require_config", unexpected_config)
+    result = CliRunner().invoke(
+        app,
+        ["--json", "--set-type", "0x10001000=char[260]", "--set-size", "0x10001000=260"],
+    )
+    assert result.exit_code != 0
+    assert "Use only one" in json.loads(result.stdout)["error"]

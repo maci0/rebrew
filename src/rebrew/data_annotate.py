@@ -164,7 +164,7 @@ def _set_global_field(
     field: str,
     allowed: tuple[str, ...] | None = None,
     dry_run: bool = False,
-) -> list[dict[str, str]]:
+) -> list[dict[str, Any]]:
     """Write one metadata field per ``0xVA=VALUE`` spec and return the rows.
 
     *option* and *placeholder* only shape the two ValueError messages, so
@@ -177,18 +177,26 @@ def _set_global_field(
     module = target_marker(cfg) or ""
     if not module:
         raise ValueError("no target marker configured to address the data metadata")
-    rows: list[dict[str, str]] = []
+    rows: list[dict[str, Any]] = []
     updates: list[dict[str, Any]] = []
     for spec in specs:
         va_s, sep, value = spec.partition("=")
         value = value.strip()
         if not sep:
             raise ValueError(f"{option} wants 0xVA={placeholder}, got {spec!r}")
+        if field == "name" and not is_safe_c_ident(value):
+            raise ValueError(f"{option} wants a C identifier, got {value!r}")
         if allowed is not None and value not in allowed:
             raise ValueError(f"{option} wants one of {', '.join(allowed)}, got {value!r}")
         va = int(va_s, 16)
-        rows.append({"va": f"0x{va:x}", field: value, "module": module})
-        updates.append({"module": module, "va": va, "fields": {field: value}, "updated_by": "data"})
+        fields: dict[str, Any] = {field: value}
+        if field == "size":
+            size = int(value, 0)
+            if size <= 0:
+                raise ValueError(f"{option} wants a positive byte count, got {value!r}")
+            fields = {"size": size, "status": "UNCHECKED"}
+        rows.append({"va": f"0x{va:x}", field: fields[field], "module": module})
+        updates.append({"module": module, "va": va, "fields": fields, "updated_by": "data"})
     if not dry_run:
         set_data_fields_batch(cfg.metadata_dir, updates)
     return rows
@@ -205,6 +213,24 @@ def set_data_types(
     """
     return _set_global_field(
         cfg, specs, option="--set-type", placeholder="TYPE", field="type", dry_run=dry_run
+    )
+
+
+def set_data_names(
+    cfg: ProjectConfig, specs: list[str], *, dry_run: bool = False
+) -> list[dict[str, Any]]:
+    """Name annotated globals so data verification can attribute their spans."""
+    return _set_global_field(
+        cfg, specs, option="--set-name", placeholder="NAME", field="name", dry_run=dry_run
+    )
+
+
+def set_data_sizes(
+    cfg: ProjectConfig, specs: list[str], *, dry_run: bool = False
+) -> list[dict[str, Any]]:
+    """Correct positive byte sizes and invalidate verdicts for the old spans."""
+    return _set_global_field(
+        cfg, specs, option="--set-size", placeholder="BYTES", field="size", dry_run=dry_run
     )
 
 

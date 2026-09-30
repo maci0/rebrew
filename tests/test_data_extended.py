@@ -11,7 +11,9 @@ from rebrew.data import _generate_bss_fix
 from rebrew.data_annotate import (
     _emit_extern_decl,
     gen_globals_header,
+    set_data_names,
     set_data_sections,
+    set_data_sizes,
     set_data_types,
 )
 from rebrew.data_render import (
@@ -189,6 +191,55 @@ class TestSetDataType:
         set_data_types(cfg, ["0x1000="])
         text = self._meta(cfg).read_text(encoding="utf-8")
         assert 'type = "int"' not in text
+
+
+class TestSetDataName:
+    def test_names_an_existing_unnamed_span(self, tmp_path: Path) -> None:
+        import tomllib
+
+        cfg = _cfg(tmp_path)
+        meta = cfg.metadata_dir / "rebrew-data.toml"
+        meta.write_text('["SERVER.0x1000"]\nsize = 16\nsection = ".data"\n')
+        before = meta.read_bytes()
+        rows = set_data_names(cfg, ["0x1000=records"], dry_run=True)
+        assert rows == [{"va": "0x1000", "name": "records", "module": "SERVER"}]
+        assert meta.read_bytes() == before
+        set_data_names(cfg, ["0x1000=records"])
+        fields = tomllib.loads(meta.read_text())["SERVER.0x1000"]
+        assert fields["name"] == "records"
+        assert fields["size"] == 16
+
+    @pytest.mark.parametrize("name", ["", "a; int b", "9records", "../records"])
+    def test_rejects_bad_names_without_writing(self, tmp_path: Path, name: str) -> None:
+        cfg = _cfg(tmp_path)
+        with pytest.raises(ValueError, match="C identifier"):
+            set_data_names(cfg, [f"0x1000={name}"])
+        assert not (cfg.metadata_dir / "rebrew-data.toml").exists()
+
+
+class TestSetDataSize:
+    def test_corrects_span_and_invalidates_old_verdict(self, tmp_path: Path) -> None:
+        import tomllib
+
+        cfg = _cfg(tmp_path)
+        meta = cfg.metadata_dir / "rebrew-data.toml"
+        meta.write_text('["SERVER.0x1000"]\nname = "slots"\nsize = 2\nstatus = "VERIFIED"\n')
+        before = meta.read_bytes()
+        rows = set_data_sizes(cfg, ["0x1000=0x65400"], dry_run=True)
+        assert rows == [{"va": "0x1000", "size": 0x65400, "module": "SERVER"}]
+        assert meta.read_bytes() == before
+        set_data_sizes(cfg, ["0x1000=414720"])
+        fields = tomllib.loads(meta.read_text())["SERVER.0x1000"]
+        assert fields["size"] == 0x65400
+        assert fields["status"] == "UNCHECKED"
+        assert fields["name"] == "slots"
+
+    @pytest.mark.parametrize("spec", ["0x1000", "0x1000=", "0x1000=-1", "0x1000=0"])
+    def test_rejects_bad_sizes_without_partial_writes(self, tmp_path: Path, spec: str) -> None:
+        cfg = _cfg(tmp_path)
+        with pytest.raises(ValueError):
+            set_data_sizes(cfg, ["0x2000=4", spec])
+        assert not (cfg.metadata_dir / "rebrew-data.toml").exists()
 
 
 class TestGenGlobalsHeader:

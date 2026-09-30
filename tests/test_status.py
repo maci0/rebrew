@@ -1510,7 +1510,7 @@ class TestRenderTerminal:
         }
         _render_terminal(report)
         out = buf.getvalue()
-        assert "50.0% of data" in out
+        assert "50.0% of tracked data (stored verdicts)" in out
         assert "100B / 200B" in out
         assert "2/4 verified" in out
         assert "VERIFIED" in out

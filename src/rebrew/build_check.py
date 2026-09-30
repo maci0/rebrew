@@ -44,6 +44,8 @@ from __future__ import annotations
 
 import logging
 import re
+import shutil
+import subprocess
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -203,7 +205,12 @@ def parse_sources(build_text: str) -> list[str]:
     return out
 
 
-def check(build_dir: Path = DEFAULT_BUILD_DIR, project_root: Path | None = None) -> dict[str, Any]:
+def check(
+    build_dir: Path = DEFAULT_BUILD_DIR,
+    project_root: Path | None = None,
+    *,
+    objects: bool = False,
+) -> dict[str, Any]:
     """Return ``{"status", "checked", "drift", "message"}``.
 
     ``status`` is one of ``ok``, ``drift`` or ``not-configured``.  The last is a
@@ -292,6 +299,40 @@ def check(build_dir: Path = DEFAULT_BUILD_DIR, project_root: Path | None = None)
             "drift": drift,
             "message": (f"{len(drift)} unrecorded flag token(s) in build.make (first: {first})"),
         }
+    if objects and compile_lines:
+        if shutil.which("make") is None:
+            return {
+                "status": "not-configured",
+                "checked": checked,
+                "drift": [],
+                "message": "object freshness requires Make on PATH",
+            }
+        # Make owns the dependency graph, including headers; source-only mtime
+        # checks miss stale objects after a shared header changes. -q builds nothing.
+        result = subprocess.run(
+            [
+                "make",
+                "-q",
+                "-f",
+                str(build_make.resolve()),
+                *dict.fromkeys(obj for obj, _ in compile_lines),
+            ],
+            cwd=build_dir,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode:
+            return {
+                "status": "drift" if result.returncode == 1 else "not-configured",
+                "checked": checked,
+                "drift": [{"obj": str(build_dir), "flag": "STALE OBJECTS"}]
+                if result.returncode == 1
+                else [],
+                "message": "native objects need rebuilding (including header dependencies)"
+                if result.returncode == 1
+                else f"object freshness check failed: {result.stderr.strip()}",
+            }
     return {
         "status": "ok",
         "checked": checked,
@@ -327,6 +368,11 @@ def main(
         DEFAULT_BUILD_DIR, "--build-dir", help="CMake build directory to inspect."
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    objects: bool = typer.Option(
+        False,
+        "--objects",
+        help="Also ask Make whether native objects and header dependencies are current.",
+    ),
 ) -> None:
     """Verify build/ still matches what CMake generated.
 
@@ -336,13 +382,19 @@ def main(
     ``--build-dir`` must not read as clean, or the command reproduces the very
     silent-pass failure it exists to catch.
     """
-    result = check(build_dir)
+    result = check(build_dir, objects=objects)
     if json_output:
         json_print(result)
     else:
         style = {"ok": "green", "drift": "red", "not-configured": "yellow"}[result["status"]]
         console.print(f"[{style}]build-check:[/] {result['message']}")
-        if result["status"] == "drift":
+        if (
+            result["status"] == "drift"
+            and objects
+            and any(row["flag"] == "STALE OBJECTS" for row in result["drift"])
+        ):
+            console.print("  Rebuild the native object targets before comparing the linked image.")
+        elif result["status"] == "drift":
             console.print(
                 "  build.make has been hand-edited.  Restore with:\n"
                 "    rm -rf build && cmake -B build -S . "

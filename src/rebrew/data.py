@@ -297,6 +297,17 @@ def main(
         "--set-type",
         help="Set a global's declared type in rebrew-data.toml: 0xVA=TYPE (repeatable)",
     ),
+    set_name: list[str] = typer.Option(
+        [],
+        "--set-name",
+        help="Set a global's C identifier in rebrew-data.toml: 0xVA=NAME (repeatable)",
+    ),
+    set_size: list[str] = typer.Option(
+        [],
+        "--set-size",
+        help="Set a global's positive byte size: 0xVA=BYTES (decimal or hex, repeatable); "
+        "clears its stored verification verdict",
+    ),
     set_section: list[str] = typer.Option(
         [],
         "--set-section",
@@ -366,6 +377,11 @@ def main(
     target: str | None = TargetOption,
 ) -> None:
     """Scan reversed source files for global data declarations."""
+    if sum(bool(value) for value in (set_type, set_name, set_size, set_section)) > 1:
+        error_exit(
+            "Use only one of --set-type, --set-name, --set-size, or --set-section per call.",
+            json_mode=json_output,
+        )
     cfg = require_config(target=target, json_mode=json_output)
 
     src_dir = cfg.reversed_dir
@@ -385,6 +401,38 @@ def main(
             for row in rows:
                 console.print(
                     f"set type {row['type']!r} for {row['va']} ({untrusted_ident(row['module'])})"
+                )
+        return
+
+    if set_name:
+        from rebrew.data_annotate import set_data_names
+
+        try:
+            rows = set_data_names(cfg, set_name, dry_run=dry_run)
+        except ValueError as exc:
+            error_exit(str(exc), json_mode=json_output)
+        if json_output:
+            json_print({"dry_run": dry_run, "set": rows})
+        else:
+            for row in rows:
+                console.print(
+                    f"set name {row['name']!r} for {row['va']} ({untrusted_ident(row['module'])})"
+                )
+        return
+
+    if set_size:
+        from rebrew.data_annotate import set_data_sizes
+
+        try:
+            rows = set_data_sizes(cfg, set_size, dry_run=dry_run)
+        except ValueError as exc:
+            error_exit(str(exc), json_mode=json_output)
+        if json_output:
+            json_print({"dry_run": dry_run, "set": rows})
+        else:
+            for row in rows:
+                console.print(
+                    f"set size {row['size']} for {row['va']} ({untrusted_ident(row['module'])})"
                 )
         return
 

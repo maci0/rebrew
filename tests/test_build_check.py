@@ -9,11 +9,38 @@ must fire on one a human edited.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
 
 from rebrew.build_check import check, parse_compile_lines, parse_recorded
+
+
+def test_objects_detect_header_changes_without_building(tmp_path):
+    """A header alone can invalidate an object; the check must leave it untouched."""
+    build = _tree(tmp_path, BUILD_MAKE)
+    flags = build / "flags.make"
+    flags.write_text("")
+    os.utime(flags, (100, 100))
+    bm = build / "CMakeFiles/server_dll.dir/build.make"
+    objects = [obj for obj, _ in parse_compile_lines(BUILD_MAKE)]
+    header = tmp_path / "shared.h"
+    header.write_text("/* header */\n")
+    os.utime(header, (100, 100))
+    rules = []
+    for obj in objects:
+        path = build / obj
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"native object")
+        os.utime(path, (200, 200))
+        rules.append(f"{obj}: {header}\n\t@touch {obj}\n")
+    bm.write_text(BUILD_MAKE + "\n" + "\n".join(rules))
+    assert check(build, objects=True)["status"] == "ok"
+    os.utime(header, (300, 300))
+    assert check(build, objects=True)["status"] == "drift"
+    assert all((build / obj).stat().st_mtime == 200 for obj in objects)
+
 
 FLAGS_MAKE = """\
 # Custom flags: CMakeFiles/server_dll.dir/src/a/one.c.obj_FLAGS = /O2 /Gd

@@ -199,6 +199,19 @@ class TestExtractBytesAtVa:
         assert len(result) == 8
         assert result == b"\x55\x8b\xec\xc3" + b"\xcc" * 4  # padding preserved
 
+    @pytest.mark.parametrize("tail", [b"\x90" * 4, b"\xcc" * 4])
+    def test_raw_read_preserves_requested_tail(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tail: bytes
+    ) -> None:
+        from rebrew import binary_loader
+
+        binary = tmp_path / "test.bin"
+        code = b"\x55\x8b\xec\xc3" + tail
+        binary.write_bytes(b"\x00" * 0x400 + code)
+        info = _pe_info(binary)
+        monkeypatch.setattr(binary_loader, "load_binary", lambda path: info)
+        assert binary_loader.extract_raw_bytes(binary, 0x10001000, len(code)) == code
+
     def test_va_not_in_section(self, tmp_path: Path) -> None:
         f = tmp_path / "test.bin"
         f.write_bytes(b"\x00" * 100)

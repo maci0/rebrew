@@ -124,6 +124,31 @@ class TestLibMatch:
         assert res.exit_code == 1, res.output
         assert json.loads(res.output)["symbol"] == "_small"
 
+    @pytest.mark.parametrize("single_va", [False, True])
+    def test_masked_wrappers_report_all_candidate_names(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, single_va: bool
+    ) -> None:
+        """Identical wrappers prove library origin without identifying a callee."""
+        from rebrew.lib_match import app
+
+        pe, lib, va = _write_project(tmp_path)
+        members = [
+            (name + ".obj", make_coff_obj(CODE, func_symbol=name, relocs=[(8, 0x14, callee)]))
+            for name, callee in (("_fread", "__fread_lk"), ("_fwrite", "__fwrite_lk"))
+        ]
+        lib.write_bytes(make_lib_archive(members))
+        _mock_cfg(tmp_path, pe, monkeypatch)
+        args = ["--lib", str(lib), "--json"]
+        if single_va:
+            args.extend(["--va", f"0x{va:x}"])
+        result = CliRunner().invoke(app, args)
+        assert result.exit_code == 1, result.output
+        report = json.loads(result.stdout)
+        finding = report if single_va else report["findings"][0]
+        assert finding["symbol"] is None
+        assert finding["object"] == lib.name
+        assert {candidate["symbol"] for candidate in finding["candidates"]} == {"_fread", "_fwrite"}
+
     def test_json_output(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         import json
 
@@ -221,6 +246,17 @@ class TestLoadAllowlist:
 
 
 class TestMatchBytesRelocGuard:
+    def test_leading_body_keeps_longest_ties(self) -> None:
+        from rebrew.lib_match import match_leading_body
+
+        index = {
+            "short": [("s.obj", CODE[:8], set())],
+            "read": [("r.obj", CODE[:12], set())],
+            "write": [("w.obj", CODE[:12], set()), ("w.obj", CODE[:12], set())],
+            "different": [("d.obj", b"\xff" * 20, set())],
+        }
+        assert match_leading_body(index, CODE) == [("read", "r.obj"), ("write", "w.obj")]
+
     def test_relocs_beyond_window_do_not_reject_a_match(self) -> None:
         """Reloc offsets past the compared window must not tighten the
         mostly-relocation guard: only masks inside [0, len(data)) matter."""
@@ -233,7 +269,7 @@ class TestMatchBytesRelocGuard:
         index = {"sym": [("obj", body, relocs)]}
         # In-range fixed bytes = 16 - 8 = 8 == 0.5 * 16, so the match stands;
         # the old `len(data) - len(relocs)` guard computed 7 and skipped it.
-        assert match_bytes(index, data) == ("sym", "obj")
+        assert match_bytes(index, data) == [("sym", "obj")]
 
 
 class TestIndexObjects:

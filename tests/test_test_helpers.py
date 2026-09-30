@@ -307,8 +307,9 @@ class TestSizePersistence:
         meta = (tmp_path / "src" / "rebrew-functions.toml").read_text()
         assert "size = 4" in meta
 
+    @pytest.mark.parametrize("selector", [["--va", "0x2000"], []])
     def test_va_promotes_under_selected_module_not_first(
-        self, tmp_path: Path, monkeypatch: Any
+        self, tmp_path: Path, monkeypatch: Any, selector: list[str]
     ) -> None:
         """`rebrew test multi.c --va 0x2000` on a multi-module file must write
         SIZE/CFLAGS/STATUS under the SECOND function's module, not the first's
@@ -322,20 +323,22 @@ class TestSizePersistence:
         from rebrew.compile import CompareResult
         from rebrew.main import app as umbrella
 
+        module = "CLIENT" if selector else "SERVER"
+        marker = "" if selector else "SERVER"
         fixture = Path(__file__).parent / "fixtures" / "mini_pe.exe"
         (tmp_path / "original").mkdir()
         shutil.copy(fixture, tmp_path / "original" / "x.exe")
         monkeypatch.chdir(tmp_path)
         (tmp_path / "rebrew-project.toml").write_text(
             '[project]\ndefault_target = "x"\n'
-            '[targets.x]\nbinary = "original/x.exe"\nmarker = ""\n'
+            f'[targets.x]\nbinary = "original/x.exe"\nmarker = "{marker}"\n'
             '[compiler]\nprofile = "msvc-6.0"\n'
         )
         src_dir = tmp_path / "src" / "x"
         src_dir.mkdir(parents=True)
         (src_dir / "multi.c").write_text(
             "// FUNCTION: SERVER 0x1000\nint f1(void) { return 1; }\n\n"
-            "// FUNCTION: CLIENT 0x2000\nint f2(void) { return 2; }\n"
+            f"// FUNCTION: {module} 0x2000\nint f2(void) {{ return 2; }}\n"
         )
 
         monkeypatch.setattr(
@@ -351,15 +354,16 @@ class TestSizePersistence:
         )
         result = CliRunner().invoke(
             umbrella,
-            ["test", "src/x/multi.c", "--va", "0x2000", "--size", "8", "--symbol", "_f2"],
+            ["test", "src/x/multi.c", *selector, "--size", "8", "--symbol", "_f2"],
         )
         assert result.exit_code == 0, result.output
         meta = (tmp_path / "src" / "rebrew-functions.toml").read_text()
         # The CLIENT entry got the SIZE + EXACT status; no phantom SERVER.0x2000.
-        assert "CLIENT.0x00002000" in meta
+        assert f"{module}.0x00002000" in meta
         assert "size = 8" in meta
         assert 'status = "EXACT"' in meta
-        assert "SERVER.0x00002000" not in meta
+        if selector:
+            assert "SERVER.0x00002000" not in meta
         # The first function's entry is untouched (no status written for it).
         assert "SERVER.0x00001000" not in meta
 
@@ -1549,3 +1553,45 @@ class TestMissingSourceArgument:
         payload = json.loads(result.stdout)
         assert payload["code"] == 2
         assert "Source file not found" in payload["error"]
+
+
+class TestMultiBlockerSource:
+    def test_reads_actual_nested_source_when_annotation_has_only_basename(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        from types import SimpleNamespace as NS
+
+        import rebrew.test as testmod
+        from rebrew.annotation import Annotation
+
+        source = tmp_path / "nested" / "f.c"
+        source.parent.mkdir()
+        source.write_text("void f(void) {}")
+        cfg = NS(
+            target_binary=tmp_path / "x.bin",
+            metadata_dir=tmp_path,
+            reversed_dir=tmp_path,
+            marker="X",
+            default_jobs=1,
+            compile_timeout=60,
+        )
+        ann = Annotation(
+            marker_type="FUNCTION",
+            module="X",
+            va=0x1000,
+            size=1,
+            symbol="_f",
+            status="NEAR_MATCHING",
+            filepath="f.c",
+        )
+        monkeypatch.setattr(testmod, "compile_to_obj", lambda *a, **k: ("f.obj", ""))
+        monkeypatch.setattr(testmod, "parse_obj_symbol_and_relocs", lambda *a, **k: (b"x", {}, []))
+        monkeypatch.setattr(testmod, "extract_raw_bytes", lambda *a, **k: b"x")
+        monkeypatch.setattr(testmod, "smart_reloc_compare", lambda *a, **k: (True, 1, 1, [], []))
+        monkeypatch.setattr(testmod, "_patch_verify_cache", lambda *a, **k: None)
+        writes: list[dict[str, Any]] = []
+        monkeypatch.setattr(
+            testmod, "update_source_status", lambda *a, **k: writes.append(k) or True
+        )
+        testmod._test_multi(cfg, str(source), [ann], None)
+        assert writes[0]["clear_blockers"] is True

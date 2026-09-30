@@ -1816,11 +1816,11 @@ def _library_site_counts(cfg: Any, info: Any) -> tuple[int, int] | None:
                 matched[start] = False
             else:
                 hit = match_bytes(index, data)
-                if hit is None and size > PREFIX_BYTES:
+                if not hit and size > PREFIX_BYTES:
                     hit = match_bytes(index, extract_raw_bytes(binary, start, PREFIX_BYTES))
-                if hit is None:
+                if not hit:
                     hit = match_leading_body(index, data)
-                matched[start] = hit is not None
+                matched[start] = bool(hit)
         return matched[start]
 
     lib_o2 = sum(1 for va in info.o2_wrapper_sites if in_library(va))
