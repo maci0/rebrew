@@ -103,6 +103,13 @@
 - `data --conflicts` reports "No type conflicts found" instead of "No globals
   found" when the scan holds globals and none of them conflict; the plain scan
   empty state names the annotation step that produces them.
+- LLM seeding enforces the budget pinned in `rebrew-project.toml`. `[llm]
+  max_requests`, `max_tokens` and `timeout` were parsed, validated and
+  reported by `rebrew cfg effective`, but the budget helpers re-read the
+  environment at the call site, so a project that pinned a ceiling to cap its
+  spend ran on the defaults and billed past the limit it had configured. The
+  resolved value now wins, with the `REBREW_LLM_*` override still taking
+  precedence exactly as `load_config` resolved it.
 - The dashboard's documented cold-flight figures match the wire again. The
   module docstring and `docs/PERFORMANCE.md` recorded 12682/13299 entry bytes
   and 567/599 B of served headers; the shell and client now measure 12695

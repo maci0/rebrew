@@ -31,14 +31,16 @@ truncation, ``max_tokens``, ``n=1``, an HTTP body ceiling before JSON parse,
 a cap on how many fenced blocks one response may put through the C gate plus a
 stop at the requested seed count (so a response stuffed with fenced blocks
 cannot buy one tree-sitter parse each), and a process-wide request budget
-(``REBREW_LLM_MAX_REQUESTS``, default 32;
+(``[llm] max_requests``, default 32, overridden per run by
+``REBREW_LLM_MAX_REQUESTS``;
 ``0`` disables further calls; a set-but-invalid value raises ``ValueError``)
 so ``--seed-llm --watch`` cannot bill unboundedly.  A call count does not
 bound spend on its own, since one request bills a prompt plus a capped
 completion, so a second process-wide ceiling on the tokens themselves
-(``REBREW_LLM_MAX_TOKENS``) prices each request before it is sent and refuses
-the one that no longer fits; a request the provider billed without reporting
-``usage`` is charged its ceiling rather than nothing.  A prompt this process
+(``[llm] max_tokens`` / ``REBREW_LLM_MAX_TOKENS``) prices each request before
+it is sent and refuses the one that no longer fits; a request the provider
+billed without reporting ``usage`` is charged its ceiling rather than nothing.
+A prompt this process
 already sent is answered from an in-process cache instead of the endpoint, so
 a watch rerun that leaves the function under match byte-identical costs
 nothing (only non-empty results are cached: an empty answer is a refusal, a
@@ -222,6 +224,16 @@ _ALLOWED_TOP_LEVEL = frozenset({"function_definition", "comment"})
 
 _request_count = 0
 _request_lock = threading.Lock()
+#: Budget ceilings ``load_config`` resolved for this project (env overrides over
+#: the ``[llm]`` TOML fields), published by :func:`_publish_budget` once the
+#: config is known and read by :func:`_max_requests` / :func:`_max_tokens` /
+#: :func:`_request_timeout`.  ``None`` means no config has been published yet,
+#: so the helpers fall back to parsing the environment themselves.  Published
+#: before the first request goes out, so every worker thread of a parallel
+#: batch reads the same ceiling.
+_resolved_max_requests: int | None = None
+_resolved_max_tokens: int | None = None
+_resolved_timeout: float | None = None
 # Tokens this process has billed.  The call ceiling above bounds how often the
 # endpoint is asked, not what the answers cost: one request bills a prompt plus
 # a capped completion, and raising REBREW_LLM_MAX_REQUESTS multiplies both.  A
@@ -572,6 +584,15 @@ def llm_config(cfg: Any) -> dict[str, str] | None:
     # while resolving config so a bad REBREW_LLM_MAX_REQUESTS,
     # REBREW_LLM_MAX_TOKENS, REBREW_LLM_TIMEOUT, or model fails before the
     # first HTTP call.
+    #
+    # Publish first: the three helpers below then enforce the value
+    # load_config already resolved (the env override over the [llm] TOML
+    # field) instead of re-reading os.environ, which is what let a project
+    # that pinned [llm] max_requests / max_tokens / timeout run on the
+    # defaults while `rebrew cfg effective` reported the pinned numbers.  With
+    # no config loaded the calls still fall through to the env parse, so a
+    # hand-built cfg missing the fields is validated the same way as before.
+    _publish_budget(cfg)
     _max_requests()
     _max_tokens()
     _request_timeout()
@@ -600,13 +621,44 @@ def _is_loopback_host(endpoint: str) -> bool:
         return False
 
 
+def _publish_budget(cfg: Any) -> None:
+    """Record the ceilings ``load_config`` already resolved, for the helpers below.
+
+    ``ProjectConfig`` folds the ``REBREW_LLM_*`` env overrides over the ``[llm]``
+    TOML fields (env wins when present), validating and clamping each into
+    ``cfg.llm_max_requests`` / ``cfg.llm_max_tokens`` / ``cfg.llm_timeout``.  Reading
+    ``os.environ`` again at the call site ignored the project file, so a project
+    that pinned ``[llm] max_requests = 5`` still spent the default 32 and
+    ``rebrew cfg effective`` reported a ceiling the process did not enforce.
+    Publishing the resolved ints here means the same value the loader computed
+    and the docs describe is the one the budget checks and the HTTP timeout use.
+    ``cfg`` values are already ints (the loader parsed them), so no re-parse and
+    no second clamp runs; a hand-built ``SimpleNamespace`` cfg with the field
+    absent falls back to the env parse below.
+    """
+    global _resolved_max_requests, _resolved_max_tokens, _resolved_timeout
+    reqs = getattr(cfg, "llm_max_requests", None)
+    tokens = getattr(cfg, "llm_max_tokens", None)
+    tmo = getattr(cfg, "llm_timeout", None)
+    if isinstance(reqs, int):
+        _resolved_max_requests = reqs
+    if isinstance(tokens, int):
+        _resolved_max_tokens = tokens
+    if isinstance(tmo, int):
+        _resolved_timeout = float(tmo)
+
+
 def _max_requests() -> int:
-    """Process-wide LLM call ceiling (env override, clamped at 10_000)."""
+    """Process-wide LLM call ceiling (resolved config, else env, clamped at 10_000)."""
+    if _resolved_max_requests is not None:
+        return _resolved_max_requests
     return llm_max_requests(os.environ.get("REBREW_LLM_MAX_REQUESTS", ""))
 
 
 def _max_tokens() -> int:
-    """Process-wide LLM token ceiling (env override, ``0`` lifts it)."""
+    """Process-wide LLM token ceiling (resolved config, else env; ``0`` lifts it)."""
+    if _resolved_max_tokens is not None:
+        return _resolved_max_tokens
     return llm_max_tokens(os.environ.get("REBREW_LLM_MAX_TOKENS", ""))
 
 
@@ -698,12 +750,16 @@ def _charge_tokens(tokens: int, *, billed_ceiling: int = 0) -> None:
 
 
 def _request_timeout() -> float:
-    """Per-request HTTP budget in seconds (env override, see ``llm_timeout``).
+    """Per-request HTTP budget in seconds (resolved config, else env).
 
     A timed-out request is billed and its seeds are lost, so the ceiling is
     a cost control as much as a reliability one: it must be raisable for a
-    local model that needs minutes for a capped completion.
+    local model that needs minutes for a capped completion.  Read through the
+    same resolved value ``load_config`` computed (see :func:`_publish_budget`),
+    so a project that pinned ``[llm] timeout`` is honoured.
     """
+    if _resolved_timeout is not None:
+        return _resolved_timeout
     return float(llm_timeout(os.environ.get("REBREW_LLM_TIMEOUT", "")))
 
 
@@ -1586,8 +1642,8 @@ def request_seeds(
     if not _reserve_token_budget(billed_ceiling):
         logging.warning(
             "LLM seeding token budget exhausted (%s token(s) billed this process, "
-            "one more request can cost %s; set REBREW_LLM_MAX_TOKENS to raise) — "
-            "GA continues without seeds",
+            "one more request can cost %s; raise [llm] max_tokens or "
+            "REBREW_LLM_MAX_TOKENS) — GA continues without seeds",
             spent_tokens(),
             billed_ceiling,
         )
@@ -1598,7 +1654,8 @@ def request_seeds(
         _release_token_budget(billed_ceiling)
         logging.warning(
             "LLM seeding request budget exhausted (%s calls this process; "
-            "set REBREW_LLM_MAX_REQUESTS to raise) — GA continues without seeds",
+            "raise [llm] max_requests or REBREW_LLM_MAX_REQUESTS) — "
+            "GA continues without seeds",
             _max_requests(),
         )
         return []

@@ -38,6 +38,8 @@ from rebrew.llm_seed import (
     SeedUsage,
     _load_response_json,
     _log_usage,
+    _max_requests,
+    _max_tokens,
     _parse_response,
     _request_timeout,
     _request_token_ceiling,
@@ -62,6 +64,13 @@ def _reset_llm_request_budget(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("rebrew.llm_seed._request_count", 0)
     monkeypatch.setattr("rebrew.llm_seed._spent_tokens", 0)
     monkeypatch.setattr("rebrew.llm_seed._reserved_tokens", 0)
+    # The resolved ceilings llm_config publishes are process-wide too: without
+    # this a test that loaded a config would leave its [llm] budget in force for
+    # every later test, and a test asserting the env-only fallback would read
+    # the previous test's pinned value instead.
+    monkeypatch.setattr("rebrew.llm_seed._resolved_max_requests", None)
+    monkeypatch.setattr("rebrew.llm_seed._resolved_max_tokens", None)
+    monkeypatch.setattr("rebrew.llm_seed._resolved_timeout", None)
     rebrew.llm_seed._seed_cache.clear()
     rebrew.llm_seed.reset_last_seed_usage()
     monkeypatch.delenv("REBREW_LLM_MAX_REQUESTS", raising=False)
@@ -671,6 +680,9 @@ class _FakeClient:
         self.headers = headers or {}
         self.last_payload: dict | None = None
         self.last_timeout: float | None = None
+        #: How many requests the client was handed, so a test can assert a
+        #: budget ceiling actually stopped the run rather than a returned number.
+        self.request_count = 0
 
     @contextmanager
     def stream(
@@ -683,6 +695,7 @@ class _FakeClient:
     ) -> Iterator[_FakeResponse]:
         self.last_payload = json
         self.last_timeout = timeout
+        self.request_count += 1
         yield _FakeResponse(self.payload, body=self.body, headers=self.headers)
 
 
@@ -2017,6 +2030,74 @@ class TestRequestTimeout:
     def test_above_the_maximum_clamps(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("REBREW_LLM_TIMEOUT", "99999")
         assert _request_timeout() == float(MAX_LLM_TIMEOUT)
+
+
+class TestProjectFileBudgetIsEnforced:
+    """A ceiling pinned in ``rebrew-project.toml`` must bound the process.
+
+    ``load_config`` folds the ``REBREW_LLM_*`` overrides over the ``[llm]`` TOML
+    fields and ``rebrew cfg effective`` reports the result, so a project that
+    pinned ``max_requests = 5`` to cap its spend read as configured.  The budget
+    helpers re-read ``os.environ`` instead, so that run still spent the default
+    32 requests and ignored the pinned token ceiling and HTTP timeout entirely:
+    the one knob that is money spent for nothing.  ``llm_config`` publishes the
+    resolved ceilings, and these pin that the helpers enforce them.
+    """
+
+    def _cfg_with_budget(self) -> SimpleNamespace:
+        """A cfg carrying the fields load_config resolves from a project file."""
+        return SimpleNamespace(
+            llm_endpoint="http://localhost:11434/v1",
+            llm_endpoint_from_project=True,
+            llm_api_key="",
+            llm_model="",
+            llm_max_requests=5,
+            llm_max_tokens=1_000_000,
+            llm_timeout=300,
+        )
+
+    def test_toml_budget_reaches_the_runtime(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        cfg = self._cfg_with_budget()
+        cfg.llm_max_tokens = 1000
+        llm_config(cfg)
+        assert _max_requests() == 5
+        assert _max_tokens() == 1000
+        assert _request_timeout() == 300.0
+
+    def test_env_override_still_wins(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The loader already resolved the override; the helpers must not undo it."""
+        cfg = self._cfg_with_budget()
+        cfg.llm_max_requests = 9
+        cfg.llm_max_tokens = 70000
+        cfg.llm_timeout = 600
+        llm_config(cfg)
+        assert _max_requests() == 9
+        assert _max_tokens() == 70000
+        assert _request_timeout() == 600.0
+
+    def test_pinned_ceiling_stops_the_run_early(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The ceiling has to gate real requests, not just report a number.
+
+        An identical prompt would be answered from the in-process seed cache, so
+        each call asks for a different source; the client records every request
+        it is handed, and the pinned ceiling of 5 must stop the 6th.  The token
+        ceiling is left generous so the *call* ceiling is the gate under test.
+        """
+        client = _FakeClient(
+            {"choices": [{"message": {"content": "```c\nint f(void){return 0;}\n```"}}]}
+        )
+        sources = [f"int f{i}(void){{return {i};}}" for i in range(7)]
+        for source in sources:
+            request_seeds(self._cfg_with_budget(), source, client=client)
+        # The client was handed exactly the pinned number of requests.
+        assert client.request_count == 5, "the pinned [llm] max_requests of 5 did not bound the run"
+
+    def test_without_a_config_the_env_fallback_still_applies(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A cfg without the budget fields (and no llm_config call) keeps the old path."""
+        monkeypatch.setenv("REBREW_LLM_MAX_REQUESTS", "4")
+        assert _max_requests() == 4
 
 
 class TestResolveModel:
