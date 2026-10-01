@@ -36,6 +36,9 @@
   share the scorer's explicit relocation masking without importing a private name.
 
 ### Fixed
+- The validator installer creates its cache parent before downloading, so a
+  fresh CI runner can validate HTML. Its version and archive digest now pin
+  the official 26.9.30 release.
 - Pre-push tests clear Git's repository-local environment before creating fixture repositories, preserving the checkout and its Git settings.
 - The lockfile uses virtualenv 21.14.2 and records its declared MIT grant in the dependency inventory.
 - Function metadata and lint W031 share field validation. Compound typed
