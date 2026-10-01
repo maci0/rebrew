@@ -9,6 +9,9 @@ target's FUNCTION/LIBRARY/STUB block, plus unannotated helpers.
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -131,3 +134,29 @@ def test_json_reports_excluded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     payload = json.loads(out.stdout)
     assert payload["files"] == []
     assert payload["excluded"] == ["src/shared/only_client.c"]
+
+
+def test_config_change_regenerates_library_order(tmp_path: Path) -> None:
+    """An ordinary build re-reads configuration instead of retaining stale libs."""
+    cmake = shutil.which("cmake")
+    if cmake is None:
+        pytest.skip("CMake is required for the regeneration check")
+    _project(tmp_path, {})
+    config = tmp_path / "rebrew-project.toml"
+    libraries = '[targets.server_dll.external_libs]\nKERNEL32 = "KERNEL32.lib"\n'
+    config.write_text(TOML + libraries)
+    (tmp_path / "CMakeLists.txt").write_text(
+        "cmake_minimum_required(VERSION 3.15)\nproject(regenerate NONE)\n"
+        f'execute_process(COMMAND "{Path(sys.executable).as_posix()}" -m rebrew.cmake_sources '
+        '-o "${CMAKE_BINARY_DIR}/sources.cmake" '
+        'WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" RESULT_VARIABLE rc)\n'
+        'if(NOT rc EQUAL 0)\nmessage(FATAL_ERROR "cmake-sources failed")\nendif()\n'
+        'include("${CMAKE_BINARY_DIR}/sources.cmake")\n'
+        'file(WRITE "${CMAKE_BINARY_DIR}/libs.txt" "${REBREW_EXTERNAL_LIBS}")\n'
+    )
+    build = tmp_path / "build"
+    subprocess.run([cmake, "-S", str(tmp_path), "-B", str(build)], check=True, capture_output=True)
+    assert (build / "libs.txt").read_text() == "KERNEL32.lib"
+    config.write_text(TOML + libraries.replace("KERNEL32", "USER32"))
+    subprocess.run([cmake, "--build", str(build)], check=True, capture_output=True)
+    assert (build / "libs.txt").read_text() == "USER32.lib"

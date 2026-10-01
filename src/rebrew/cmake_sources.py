@@ -137,7 +137,11 @@ def main(
         s = (spec or "").strip()
         if s and s not in external:
             external.append(s)
-    lines = [HEADER]
+    lines = [
+        HEADER,
+        "set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS\n"
+        '  "${CMAKE_CURRENT_SOURCE_DIR}/rebrew-project.toml")\n\n',
+    ]
     lines.append(f"set({var}\n")
     for rel in rels:
         lines.append(f'  "${{CMAKE_CURRENT_SOURCE_DIR}}/{rel}"\n')
