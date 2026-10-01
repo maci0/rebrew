@@ -53,8 +53,15 @@ from typing import Any
 import typer
 
 from rebrew.cli import EXIT_ERROR, EXIT_MISMATCH, console, json_print
+from rebrew.utils import run_process_group
 
 log = logging.getLogger(__name__)
+
+#: Wall-clock bound on the ``make -q`` object-freshness probe.  A query only
+#: stats prerequisites, so this is generous for a normal tree; it exists so a
+#: wedged mount or a makefile that recurses cannot hang the command with no
+#: output and no exit.
+MAKE_QUERY_TIMEOUT_S = 300.0
 
 #: Where CMake puts the generated build system, relative to the project root.
 DEFAULT_BUILD_DIR = Path("build")
@@ -310,22 +317,43 @@ def check(
         # Make owns the dependency graph, including headers; source-only mtime
         # checks miss stale objects after a shared header changes. -q builds nothing.
         # make echoes build.make paths in the host encoding; decode losslessly so a
-        # non-UTF-8 byte under LC_ALL=C cannot raise UnicodeDecodeError.
-        result = subprocess.run(
-            [
-                "make",
-                "-q",
-                "-f",
-                str(build_make.resolve()),
-                *dict.fromkeys(obj for obj, _ in compile_lines),
-            ],
-            cwd=build_dir,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="surrogateescape",
-            check=False,
-        )
+        # non-UTF-8 byte under LC_ALL=C cannot raise UnicodeDecodeError.  Bounded
+        # and group-killed: make -q can recurse into a hung sub-make or stall on a
+        # wedged mount, and a probe that did not finish must not read as clean.
+        try:
+            result = run_process_group(
+                [
+                    "make",
+                    "-q",
+                    "-f",
+                    str(build_make.resolve()),
+                    *dict.fromkeys(obj for obj, _ in compile_lines),
+                ],
+                cwd=build_dir,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="surrogateescape",
+                timeout=MAKE_QUERY_TIMEOUT_S,
+            )
+        except subprocess.TimeoutExpired:
+            return {
+                "status": "not-configured",
+                "checked": checked,
+                "drift": [],
+                "message": (
+                    f"object freshness check timed out after {MAKE_QUERY_TIMEOUT_S:g}s "
+                    f"(make -q over {len(compile_lines)} target(s) in {build_make})"
+                ),
+            }
+        except OSError as exc:
+            # make left PATH or lost its exec bit after the which() above.
+            return {
+                "status": "not-configured",
+                "checked": checked,
+                "drift": [],
+                "message": f"could not run make for the object freshness check: {exc}",
+            }
         if result.returncode:
             return {
                 "status": "drift" if result.returncode == 1 else "not-configured",

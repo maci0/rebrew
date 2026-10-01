@@ -23,6 +23,10 @@
   already holds rather than resolving the file again.
 
 ### Fixed
+- `build-check --objects` bounds its `make -q` freshness probe with a timeout
+  and kills make's process group, so a wedged mount or a hung sub-make can no
+  longer block the command. A probe that times out, or a make that cannot be
+  spawned, reports `not-configured` with the cause instead of hanging.
 - Output file names derived from a symbol or module named after a DOS device
   (`CON`, `NUL`, `COM1`, `LPT1`, any case, any suffix) get a leading
   underscore, so a write on Windows lands in a file instead of the device.

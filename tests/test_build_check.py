@@ -10,10 +10,12 @@ must fire on one a human edited.
 from __future__ import annotations
 
 import os
+import subprocess
 from pathlib import Path
 
 import pytest
 
+from rebrew import build_check
 from rebrew.build_check import check, parse_compile_lines, parse_recorded
 
 
@@ -390,3 +392,35 @@ def test_flags_make_without_custom_comments_is_not_configured(tmp_path):
     assert result["status"] == "not-configured"
     assert result["checked"] == 0
     assert "one.c.obj" in result["message"]
+
+
+def test_object_freshness_timeout_is_not_reported_as_ok(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A ``make -q`` that never returns lands in not-configured (exit 2), not ok."""
+    build = _tree(tmp_path, BUILD_MAKE)
+
+    def _hang(*args: object, **kwargs: object) -> None:
+        raise subprocess.TimeoutExpired(cmd=["make", "-q"], timeout=1.0)
+
+    monkeypatch.setattr(build_check, "run_process_group", _hang)
+    result = check(build, objects=True)
+    assert result["status"] == "not-configured"
+    assert result["drift"] == []
+    assert "timed out" in result["message"]
+
+
+def test_object_freshness_make_missing_is_not_reported_as_ok(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A make that cannot be spawned is the same non-pass, not a clean tree."""
+
+    def _missing(*args: object, **kwargs: object) -> None:
+        raise OSError(2, "No such file or directory")
+
+    build = _tree(tmp_path, BUILD_MAKE)
+    monkeypatch.setattr(build_check, "run_process_group", _missing)
+    result = check(build, objects=True)
+    assert result["status"] == "not-configured"
+    assert "could not run make" in result["message"]
+    assert "No such file" in result["message"]
