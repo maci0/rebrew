@@ -62,7 +62,7 @@ class VerifyInfo:
     passed: int = 0
     failed: int = 0
     total: int = 0
-    stale: bool = False  # sources changed since the cache was written
+    stale: bool = False  # sources newer than the cache, or its mtime unreadable
     #: Passes on VAs status counts as library code (not progress).
     library_passed: int = 0
     #: Last-verify rows on library-attributed VAs, passed or not.
@@ -504,20 +504,19 @@ def _load_verify_info(
     # emits: a trailing " UTC" would make the field unreadable by
     # ``datetime.fromisoformat``, and minute truncation reports the same
     # instant for two consecutive runs.
+    cache_mtime_ns: int | None
     try:
-        mtime = cache_path.stat().st_mtime
-        timestamp = datetime.fromtimestamp(mtime, tz=UTC).isoformat(timespec="seconds")
+        st = cache_path.stat()
+        timestamp = datetime.fromtimestamp(st.st_mtime, tz=UTC).isoformat(timespec="seconds")
+        cache_mtime_ns = st.st_mtime_ns
     except OSError:
         timestamp = ""
-
+        cache_mtime_ns = None
     # Freshness: a source newer than the cache means the summary is stale.
-    # stat inside the loop races vs a write that races vs another writer —
-    # read once, compare against that snapshot.
-    stale = False
-    try:
-        cache_mtime_ns = cache_path.stat().st_mtime_ns
-    except OSError:
-        cache_mtime_ns = 0
+    # stat inside the loop races vs a write that races vs another writer:
+    # read once, compare against that snapshot.  An unreadable cache mtime
+    # leaves freshness unknown, which reports stale rather than current.
+    stale = cache_mtime_ns is None
     if cache_mtime_ns:
         for src in iter_sources(cfg.reversed_dir, cfg):
             try:

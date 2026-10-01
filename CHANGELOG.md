@@ -27,6 +27,9 @@
   and kills make's process group, so a wedged mount or a hung sub-make can no
   longer block the command. A probe that times out, or a make that cannot be
   spawned, reports `not-configured` with the cause instead of hanging.
+- `status` reports the verify summary as stale when the cache parsed but its
+  mtime cannot be read. The zero-mtime fallback skipped the freshness check
+  and showed the summary as current.
 - Output file names derived from a symbol or module named after a DOS device
   (`CON`, `NUL`, `COM1`, `LPT1`, any case, any suffix) get a leading
   underscore, so a write on Windows lands in a file instead of the device.

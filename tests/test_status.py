@@ -1112,6 +1112,39 @@ class TestVerifyCacheHelpers:
         # parseable by datetime.fromisoformat for JSON consumers.
         assert datetime.fromisoformat(info.timestamp).utcoffset() == timedelta(0)
 
+    def test_verify_info_unstattable_cache_is_reported_stale(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A cache that parsed but cannot be stat-ed reads as stale, not current."""
+        from rebrew.status import _load_verify_info
+
+        self._write_cache(
+            tmp_path,
+            {
+                "version": 2,
+                "target": "T",
+                "entries": {"0x1": {"status": "EXACT", "passed": True}},
+            },
+        )
+        real_stat = Path.stat
+        # The loader's own read stats the file first, so fail only the SECOND
+        # stat: the mtime probe under test, reached after the document parsed.
+        state = {"seen": False}
+
+        def _stat(self: Path, *args: Any, **kwargs: Any) -> Any:
+            if self.name == "verify_cache.toml":
+                if state["seen"]:
+                    raise PermissionError(13, "Permission denied", str(self))
+                state["seen"] = True
+            return real_stat(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "stat", _stat)
+        info = _load_verify_info(self._cfg(tmp_path))
+        assert info is not None
+        assert info.passed == 1
+        assert info.timestamp == ""
+        assert info.stale is True
+
     def test_verify_statuses_hex_and_decimal(self, tmp_path: Path) -> None:
         from rebrew.status import load_verify_statuses
 
