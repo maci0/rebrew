@@ -523,8 +523,10 @@ class TestMetadataFileContainment:
         from rebrew.binsync.overlay import _dest_annotation
         from rebrew.config import load_config
 
-        _make_project(tmp_path)
-        cfg = load_config(tmp_path / "rebrew-project.toml", "B")
+        project = tmp_path / "project"
+        project.mkdir()
+        _make_project(project)
+        cfg = load_config(project, "B")
         outside = tmp_path / "outside.c"
         outside.write_text(
             f"// FUNCTION: B 0x{B_F1:08x}\nint victim(void) {{ return 1; }}\n", encoding="utf-8"
@@ -541,9 +543,9 @@ class TestMetadataFileContainment:
         annotation_mod.parse_c_file_multi = _record  # type: ignore[assignment]
         try:
             for relative in (
-                "../outside.c",
+                "../../../outside.c",
                 str(outside),
-                "../../etc/passwd",
+                "../../../etc/passwd",
                 "",
             ):
                 assert _dest_annotation(cfg, B_F1, relative) is None
@@ -558,7 +560,7 @@ class TestMetadataFileContainment:
 
         _make_project(tmp_path)
         _write_dest(tmp_path)
-        cfg = load_config(tmp_path / "rebrew-project.toml", "B")
+        cfg = load_config(tmp_path, "B")
         ann = _dest_annotation(cfg, B_F1, "f1.c")
         assert ann is not None
-        assert ann.symbol == "func_401040"
+        assert ann.symbol == "_func_401040"
