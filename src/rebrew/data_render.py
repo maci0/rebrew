@@ -144,7 +144,15 @@ def render_globals(console: Console, scan: ScanResult, conflicts_only: bool = Fa
         entries = [e for e in entries if e.name in conflict_names]
 
     if not entries:
-        console.print("[dim]No globals found.[/]")
+        if conflicts_only:
+            # The globals exist; none of them conflict. "No globals found."
+            # here would blame an empty scan for a clean result.
+            console.print("[dim]No type conflicts found.[/]")
+        else:
+            console.print(
+                "[dim]No globals found. Annotate sources with GLOBAL:/DATA: markers, "
+                "then re-run.[/]"
+            )
         return
 
     tbl = Table(show_header=True, header_style="bold", border_style="dim")

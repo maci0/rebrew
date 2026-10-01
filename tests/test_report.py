@@ -354,6 +354,37 @@ class TestAdjacencyListLabels:
             assert "could not be scanned" in pages[name], name
             assert "n/a" in pages[name], name
 
+    def test_strings_page_states_its_row_count(self, monkeypatch, tmp_path) -> None:
+        """A single-page strings table renders no pager, so the count has to
+        ride in the intro the way the index and imports pages carry theirs."""
+        from types import SimpleNamespace
+
+        import rebrew.report as report_mod
+
+        (tmp_path / "game.exe").write_bytes(b"MZ")
+        monkeypatch.setattr(report_mod, "load_binary", lambda path: SimpleNamespace())
+        monkeypatch.setattr(report_mod, "string_refs", lambda info, s: {})
+        monkeypatch.setattr(
+            report_mod,
+            "iter_strings",
+            lambda info, min_len: [
+                SimpleNamespace(va=0x2000 + i, section=".rdata", kind="ascii", text=f"s{i}")
+                for i in range(3)
+            ],
+        )
+        cfg = SimpleNamespace(target_name="T", target_binary=tmp_path / "game.exe")
+        pages = dict(report_mod._render_strings(cfg))
+        assert "3 strings extracted" in pages["strings.html"]
+
+        monkeypatch.setattr(
+            report_mod,
+            "iter_strings",
+            lambda info, min_len: [
+                SimpleNamespace(va=0x2000, section=".rdata", kind="ascii", text="only")
+            ],
+        )
+        assert "1 string extracted" in dict(report_mod._render_strings(cfg))["strings.html"]
+
     def test_prints_symbols_not_internal_keys(self) -> None:
         """Node keys are `va:0x…`/`sym:…` internal identifiers; the adjacency
         fallback must print the symbol (mermaid/dot already do)."""

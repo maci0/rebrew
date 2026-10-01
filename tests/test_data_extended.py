@@ -448,6 +448,18 @@ class TestRenderers:
         render_globals(_console(buf), scan)  # type: ignore[arg-type]
         assert "No globals found" in buf.getvalue()
 
+    def test_render_globals_conflicts_only_empty_says_no_conflicts(self) -> None:
+        # --conflicts over a scan that holds globals but none that conflict:
+        # claiming "No globals found" blames an empty scan for a clean result.
+        from io import StringIO
+
+        buf = StringIO()
+        scan = scan_globals(Path("/nonexistent"))
+        render_globals(_console(buf), scan, conflicts_only=True)  # type: ignore[arg-type]
+        out = buf.getvalue()
+        assert "No type conflicts found" in out
+        assert "No globals found" not in out
+
     def testrender_summary_empty(self) -> None:
         from io import StringIO
 

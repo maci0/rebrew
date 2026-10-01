@@ -1,6 +1,12 @@
 ## [Unreleased]
 
 ### Fixed
+- `report`'s strings page states how many strings it is showing, the way the
+  index, imports and import-stub pages already do. A single-page strings table
+  renders no pager, so the count had nowhere else to appear.
+- `data --conflicts` reports "No type conflicts found" instead of "No globals
+  found" when the scan holds globals and none of them conflict; the plain scan
+  empty state names the annotation step that produces them.
 - The dashboard's documented cold-flight figures match the wire again. The
   module docstring and `docs/PERFORMANCE.md` recorded 12682/13299 entry bytes
   and 567/599 B of served headers; the shell and client now measure 12695

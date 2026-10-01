@@ -848,7 +848,14 @@ def _render_strings(cfg: ProjectConfig) -> list[tuple[str, str]]:
     total = len(strings)
     total_pages = max(1, (total + _TABLE_PAGE_SIZE - 1) // _TABLE_PAGE_SIZE)
     pages: list[tuple[str, str]] = []
-    intro = "<p>Strings extracted from the binary's data sections (min length 4).</p>"
+    # The count travels with the table the way the index and imports pages
+    # carry theirs: a single-page table renders no pager, so without it the
+    # reader has no idea how many strings the page is holding.
+    intro = (
+        "<p>"
+        f"{_count_phrase(total, 'string', 'strings')} extracted from the binary's "
+        "data sections (min length 4).</p>"
+    )
     # The Refs and Referenced-from columns read n/a on every page of the
     # table, so the note that says why travels with the table, not with the
     # first page of it: a reader who opens strings-pN.html from a link or the
