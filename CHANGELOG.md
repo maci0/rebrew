@@ -30,6 +30,10 @@
   is keyed and checked under the NFC target name, so it is served instead of
   missed. Shared import no longer stacks a second marker block when the
   source spells the module NFD.
+- `rebrew-cmake-*` copies response files byte for byte and `build-check
+  --objects` decodes `make -q` output losslessly, so a non-UTF-8 path under
+  `LC_ALL=C` no longer raises `UnicodeDecodeError` or reaches the compiler
+  mojibaked.
 - `status` reconciles whole-file bytes by reference section and `.text` bytes
   by verdict, library attribution, and padding. Function extents stay within
   `.text`, and zero operands inside unknown code no longer count as padding.

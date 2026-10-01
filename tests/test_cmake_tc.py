@@ -408,3 +408,16 @@ def test_absolute_link_order_file() -> None:
     assert _rewrite_args("link", ["/ORDER:@/home/build/order.txt"]) == [
         r"/ORDER:@Z:\home\build\order.txt"
     ]
+
+
+def test_response_file_bytes_survive_the_rewrite(tmp_path: Path) -> None:
+    """A non-UTF-8 path byte is copied through, not decoded with the locale."""
+    from rebrew.cmake_tc import _rewrite_response_files
+
+    response = tmp_path / "input.rsp"
+    response.write_bytes(b'"/home/caf\xe9 dir/a.obj" /MACHINE:I386\n')
+    output = tmp_path / "copies"
+    output.mkdir()
+    _rewrite_response_files("link", ["@" + str(response)], output)
+    rewritten = next(output.glob("*.rsp")).read_bytes()
+    assert b'"Z:\\home\\caf\xe9 dir\\a.obj"' in rewritten

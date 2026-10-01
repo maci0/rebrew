@@ -309,6 +309,8 @@ def check(
             }
         # Make owns the dependency graph, including headers; source-only mtime
         # checks miss stale objects after a shared header changes. -q builds nothing.
+        # make echoes build.make paths in the host encoding; decode losslessly so a
+        # non-UTF-8 byte under LC_ALL=C cannot raise UnicodeDecodeError.
         result = subprocess.run(
             [
                 "make",
@@ -320,6 +322,8 @@ def check(
             cwd=build_dir,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="surrogateescape",
             check=False,
         )
         if result.returncode:

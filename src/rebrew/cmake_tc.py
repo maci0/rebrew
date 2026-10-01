@@ -39,7 +39,13 @@ from rebrew.cli import console, error_exit, json_print
 from rebrew.config import ConfigError, check_env_wineprefix
 from rebrew.temp_dirs import xdg_cache_home
 from rebrew.toolchain import ToolchainSpec, bind_mount, kill_container
-from rebrew.utils import atomic_write_text, container_runtime, file_lock, load_tomllib
+from rebrew.utils import (
+    atomic_write_text,
+    container_runtime,
+    file_lock,
+    load_tomllib,
+    read_compile_source,
+)
 from rebrew.workspace import walk_up_to_root
 
 _EPILOG = (
@@ -342,7 +348,10 @@ def _rewrite_response_files(mode: str, args: list[str], directory: Path) -> list
         if source in active:
             raise ValueError(f"Recursive response file: {source}")
         active.add(source)
-        content = source.read_text()
+        # CMake writes response files in the host encoding; the locale default
+        # raises or mojibakes a non-ASCII path.  surrogateescape on both sides
+        # copies every byte through unchanged.
+        content = read_compile_source(source)
 
         # Rewrite whole quoted/unquoted tokens, retaining response-file quoting.
         def rewrite(match: re.Match[str]) -> str:
@@ -355,7 +364,7 @@ def _rewrite_response_files(mode: str, args: list[str], directory: Path) -> list
         content = re.sub(r'"[^"\r\n]*"|[^\s"]+', rewrite, content)
         active.remove(source)
         dest = directory / (uuid.uuid4().hex + ".rsp")
-        dest.write_text(content)
+        dest.write_text(content, encoding="utf-8", errors="surrogateescape")
         return "@" + _to_w(str(dest))
 
     return [copy_arg(arg) for arg in args]
