@@ -16,6 +16,8 @@ import threading
 from dataclasses import dataclass
 from typing import Any
 
+from rebrew.utils import parse_c_integer_literal
+
 logger = logging.getLogger(__name__)
 
 # MSVC calling conventions and declspecs that tree-sitter's standard C grammar
@@ -125,6 +127,68 @@ def parse_c_source(source: str | bytes) -> Any:
 def node_text(node: Any, source_bytes: bytes) -> str:
     """Return the source text for a tree-sitter node."""
     return source_bytes[node.start_byte : node.end_byte].decode("utf-8", errors="surrogateescape")
+
+
+def array_type_shape(
+    type_str: str, *, int_bits: int = 32
+) -> tuple[str, tuple[int | str | None, ...]]:
+    """Normalize a type's array bounds without changing its source spelling.
+
+    Unknown expressions stay strings; only an omitted bound becomes None.
+    Folding stays within nonnegative signed-int values to avoid assuming C
+    overflow, unsigned conversions or target-specific long widths.
+    """
+    normalized = " ".join(type_str.split()).replace(" *", "*")
+    base, bracket, suffix = normalized.partition("[")
+    if not bracket:
+        return normalized, ()
+    tree, source = parse_c_source(f"int __rebrew_array[{suffix};")
+    if tree.root_node.has_error or len(tree.root_node.named_children) != 1:
+        return normalized, ()
+    declarator = tree.root_node.named_children[0].child_by_field_name("declarator")
+    limit = (1 << (int_bits - 1)) - 1
+
+    def fold(node: Any, depth: int = 0) -> int | None:
+        if node is None or depth > 32:
+            return None
+        value = None
+        if node.type == "number_literal":
+            try:
+                value = parse_c_integer_literal(node_text(node, source))
+            except ValueError:
+                return None
+        elif node.type == "parenthesized_expression":
+            return fold(node.named_children[0], depth + 1)
+        elif node.type == "binary_expression":
+            left = fold(node.child_by_field_name("left"), depth + 1)
+            right = fold(node.child_by_field_name("right"), depth + 1)
+            if left is None or right is None:
+                return None
+            operator = node.child_by_field_name("operator")
+            if operator is not None:
+                match node_text(operator, source):
+                    case "+":
+                        value = left + right
+                    case "-":
+                        value = left - right
+                    case "*":
+                        value = left * right
+                    case _:
+                        return None
+        # ponytail: other operators/macros stay symbolic; fold them when needed.
+        return value if value is not None and 0 <= value <= limit else None
+
+    dimensions: list[int | str | None] = []
+    while declarator is not None and declarator.type == "array_declarator":
+        size = declarator.child_by_field_name("size")
+        value = fold(size)
+        dimensions.insert(
+            0, value if value is not None or size is None else node_text(size, source)
+        )
+        declarator = declarator.child_by_field_name("declarator")
+    if declarator is None or declarator.type != "identifier":
+        return normalized, ()
+    return base.strip(), tuple(dimensions)
 
 
 def protected_spans(source: str | bytes) -> list[tuple[int, int]]:

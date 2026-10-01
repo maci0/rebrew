@@ -13,6 +13,7 @@ import struct
 import warnings
 from collections import defaultdict
 from dataclasses import dataclass, field
+from itertools import combinations
 from pathlib import Path
 from typing import Any
 
@@ -298,7 +299,7 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
     disagree, with no ``.c`` declaration, still conflict, and so do two
     ``.c`` markers that spell the same global differently.
     """
-    from rebrew.c_parser import find_extern_variables
+    from rebrew.c_parser import array_type_shape, find_extern_variables
     from rebrew.sources import iter_sources_and_headers
     from rebrew.utils import rel_display_path
 
@@ -528,16 +529,8 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
         else:
             result.globals[name] = entry
 
-    # Detect type conflicts: same name, different type strings.
-    #
-    # Compare on a whitespace-normalised key, so `char *` and `char*` are one
-    # type rather than a reported conflict.  Spelling a pointer either way is a
-    # style difference that no compiler can see, and mixing real conflicts with
-    # cosmetic ones is what makes a report like this get ignored.  The original
-    # spellings are still what the conflict carries, since the point is to show
-    # where each came from.
-    def _norm(type_str: str) -> str:
-        return " ".join(type_str.split()).replace(" *", "*")
+    # Compare type shapes; preserve the source spellings in each report.
+    int_bits = 16 if arch_pointer_size(getattr(cfg, "arch", "x86_32")) == 2 else 32
 
     def _header_only(files: list[str]) -> bool:
         return all(path in header_files for path in files)
@@ -561,7 +554,18 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
                 for entry in entries_by_name.get(name, ()):
                     if entry.type_str not in c_types:
                         entry.type_str = next(iter(c_types))
-        if len({_norm(t) for t in compared}) > 1:
+        shapes = (
+            [array_type_shape(t, int_bits=int_bits) for t in compared] if len(compared) > 1 else []
+        )
+        if any(
+            left_base != right_base
+            or len(left_dims) != len(right_dims)
+            or any(
+                a != b and (i != 0 or (a is not None and b is not None))
+                for i, (a, b) in enumerate(zip(left_dims, right_dims, strict=True))
+            )
+            for (left_base, left_dims), (right_base, right_dims) in combinations(shapes, 2)
+        ):
             conflict = {
                 "name": name,
                 "types": dict(compared),

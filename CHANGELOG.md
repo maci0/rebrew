@@ -31,6 +31,9 @@
   `/include` alone fixes the native linker's IAT slot placement.
 - Generated CMake source includes track `rebrew-project.toml`, so changing
   library order or source configuration regenerates the build automatically.
+- Global type conflicts compare equivalent constant array bounds and accept
+  incomplete outer arrays while preserving conflicts between different bounds,
+  element types and qualifiers.
 - `rebrew sync`'s MCP pull closes every walk with one record naming the tool,
   the program, the pages and items it read, how long it took, and whether it
   ran to the end. A pull stopped by an item cap, the page cap, or a server

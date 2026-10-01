@@ -4,6 +4,8 @@ import struct
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from rebrew.data import _generate_bss_fix
 from rebrew.data_scan import (
     BssGap,
@@ -253,6 +255,37 @@ class TestScanGlobals:
         _write_c(tmp_path, "b.c", content_b)
         result = scan_globals(tmp_path)
         assert len(result.type_conflicts) == 0
+
+    @pytest.mark.parametrize(
+        ("declarations", "conflicts"),
+        [
+            (("char g[0x3f0]", "char g[1008]"), False),
+            (("unsigned char g[0x300 * 0x21c]", "unsigned char g[414720]"), False),
+            (("unsigned char g[9 * 0x264264]", "unsigned char g[22566276]"), False),
+            (("char g[8192]", "char g[]"), False),
+            (("char g[010U]", "char g[(2 + 2) * 2]"), False),
+            (("char g[][0x20]", "char g[4][32]"), False),
+            (("char *g[2]", "char *g[1 + 1]"), False),
+            (("char g[4]", "char g[5]"), True),
+            (("char g[]", "char g[4]", "char g[5]"), True),
+            (("char g[][4]", "char g[4][5]"), True),
+            (("char g[4]", "const char g[4]"), True),
+            (("char g[4]", "int g[4]"), True),
+            (("char g[COUNT]", "char g[4]"), True),
+            (("char g[0xffffffffU + 2]", "char g[1]"), True),
+        ],
+    )
+    def test_array_type_compatibility(
+        self, tmp_path: Path, declarations: tuple[str, ...], conflicts: bool
+    ) -> None:
+        """Equivalent bounds/incomplete arrays do not hide genuine disagreements."""
+        for i, declaration in enumerate(declarations):
+            _write_c(tmp_path, f"{i}.c", f"extern {declaration};\n")
+        result = scan_globals(tmp_path)
+        assert bool(result.type_conflicts) is conflicts
+        assert result.globals["g"].conflict is conflicts
+        if conflicts:
+            assert len(result.type_conflicts[0]["types"]) == len(declarations)
 
     def test_multiple_files_same_global(self, tmp_path: Path) -> None:
         """Same global declared in multiple files should appear once with all files listed."""
