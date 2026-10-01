@@ -2543,7 +2543,9 @@ def main(
                         key=lambda t: t[0],
                     )
                     _starts = [r[0] for r in _ranges]
-                except Exception:
+                except Exception as exc:
+                    # W016 stays warn-only; record why every VA resolves to no section.
+                    log.debug("W016 section lookup disabled: %s cannot be read: %s", _bin_path, exc)
                     _ranges = []
                     _starts = []
             idx = bisect.bisect_right(_starts, va) - 1
