@@ -301,8 +301,8 @@ skills.
 | `--ldflags FLAGS` | Linker flags (for non-obj comparison) |
 | `--flag-sweep-only` | Exhaustive flag-combination sweep; skip GA (**MSVC-only**; posix profiles like mingw-16.2.0 refuse with a clear error) |
 | `--flag-sweep-toolchains` | Try each vendored MSVC toolchain (every image-backed `cl` profile, msvc-2.0 through msvc-11.0); combine with `--flag-sweep-only` to flag-sweep with each toolchain ("which MSVC version + flags built this function?"; the combined mode reports the best flags per toolchain).  The configured profile is added as a baseline and is subject to the sweep/exclude filters |
-| `--sweep-toolchains CSV` / `--toolchain CSV` | Sweep only these toolchains (comma-separated profile names or version prefixes) |
-| `--sweep-exclude-toolchains CSV` | Skip these toolchains in the sweep (comma-separated profile names or version prefixes) |
+| `--sweep-toolchains CSV` / `--toolchain CSV` | Compile with each of these toolchains and report the best (comma-separated profile names or version prefixes); implies `--flag-sweep-toolchains` |
+| `--sweep-exclude-toolchains CSV` | Compile with each toolchain except these and report the best; implies `--flag-sweep-toolchains` |
 | `--seed-llm` | Ask a configured LLM endpoint for alternative C implementations and inject them into the GA's initial population (see `[llm]` config / `REBREW_LLM_ENDPOINT`). Single-function only: `--all` / `--all-targets` reject it rather than dropping it. `--seed-llm --dry-run` prints the exact `messages` array without calling the endpoint. The run summary reports the cost and what it bought (`N seed(s) kept`, plus candidates the C gate rejected) |
 | `--seed-kuna` | Seed the GA's initial population with Kuna's decompilation of the target function (requires the `kuna` binary on PATH), compilability-fixed (`rebrew fix`) before injection |
 | `--watch` | Watch the seed source and re-run the GA on every change |
@@ -696,8 +696,8 @@ Output prefixes for unambiguous parsing:
 | `--flag-sweep-only` | Flag sweep only, no GA |
 | `--fix-cflags` | Write winning sweep flags to metadata |
 | `--flag-sweep-toolchains` | Try each vendored MSVC toolchain instead of GA (combine with `--flag-sweep-only`) |
-| `--sweep-toolchains CSV` | Sweep only these toolchains (profile names or version prefixes) |
-| `--sweep-exclude-toolchains CSV` | Skip these toolchains in the sweep |
+| `--sweep-toolchains CSV` | Compile with each of these toolchains and report the best; implies `--flag-sweep-toolchains` |
+| `--sweep-exclude-toolchains CSV` | Compile with each toolchain except these and report the best; implies `--flag-sweep-toolchains` |
 | `--flag-sweep-then-ga` | Flag-sweep each stub first, then run GA with the best flags |
 | `--size-mismatch` | Match SIZE_MISMATCH functions in batch mode; selects them instead of the default STUB set, and the other batch selectors (`--near-miss`, `--improve`, `--flag-sweep*`) are not combined with it |
 | `--skip-recent HOURS` | Skip functions matched in the last N hours |

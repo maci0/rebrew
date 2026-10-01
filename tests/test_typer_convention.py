@@ -100,3 +100,63 @@ class TestConventionEnforced:
         assert captured["sweep_toolchains"] == ""
         assert captured["sweep_exclude_toolchains"] == ""
         assert captured["watch"] is False
+
+
+class TestSweepFilterSelectsTheSweep:
+    """``--sweep-toolchains`` / ``--sweep-exclude-toolchains`` are opt-ins.
+
+    Both only reached ``run_single_toolchain_sweep`` alongside the unrelated
+    ``--flag-sweep-toolchains``, so naming a toolchain on its own parsed and
+    ran the plain GA — ``rebrew match f.c --toolchain msvc-6.0`` silently
+    matched nothing and ignored the profile it was given.
+    """
+
+    @staticmethod
+    def _dispatch(monkeypatch, argv: list[str]) -> tuple[list[str], list[str]]:
+        from types import SimpleNamespace
+
+        from rebrew import match
+
+        calls: list[str] = []
+        filters: list[str] = []
+
+        def _sweep(params, json_output, only="", exclude=""):  # type: ignore[no-untyped-def]
+            calls.append("sweep")
+            filters.append(f"{only}|{exclude}")
+
+        def _ga(*a, **k):  # type: ignore[no-untyped-def]
+            calls.append("ga")
+
+        monkeypatch.setattr(match, "run_single_toolchain_sweep", _sweep)
+        monkeypatch.setattr(match, "run_single_ga", _ga)
+        monkeypatch.setattr(
+            match,
+            "resolve_build_params",
+            lambda *a, **k: SimpleNamespace(cfg=SimpleNamespace(reversed_dir=Path("/tmp"))),
+        )
+        monkeypatch.setattr(match, "require_config", lambda **kw: SimpleNamespace())
+
+        from typer.testing import CliRunner
+
+        result = CliRunner().invoke(match.app, [*argv, "/tmp/f.c"])
+        assert result.exit_code == 0, result.output
+        return calls, filters
+
+    def test_sweep_toolchains_alone_runs_the_sweep(self, monkeypatch) -> None:
+        calls, filters = self._dispatch(monkeypatch, ["--sweep-toolchains", "msvc-6.0"])
+        assert calls == ["sweep"], f"--sweep-toolchains did not select the sweep: {calls}"
+        assert filters == ["msvc-6.0|"]
+
+    def test_toolchain_alias_alone_runs_the_sweep(self, monkeypatch) -> None:
+        calls, filters = self._dispatch(monkeypatch, ["--toolchain", "msvc-6.0"])
+        assert calls == ["sweep"], f"--toolchain alias did not select the sweep: {calls}"
+        assert filters == ["msvc-6.0|"]
+
+    def test_sweep_exclude_alone_runs_the_sweep(self, monkeypatch) -> None:
+        calls, filters = self._dispatch(monkeypatch, ["--sweep-exclude-toolchains", "2.0,4.0"])
+        assert calls == ["sweep"], f"--sweep-exclude-toolchains did not select the sweep: {calls}"
+        assert filters == ["|2.0,4.0"]
+
+    def test_no_filter_still_runs_the_ga(self, monkeypatch) -> None:
+        calls, _ = self._dispatch(monkeypatch, [])
+        assert calls == ["ga"], f"an unfiltered run changed dispatch: {calls}"

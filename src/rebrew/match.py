@@ -213,13 +213,13 @@ def main(
         "",
         "--sweep-toolchains",
         "--toolchain",
-        help="Sweep only these toolchains (comma-separated profile names or version prefixes, e.g. msvc-6.0,6.0,win16; a Y2K binary likely rules out 2.0/4.x — exclude them with --sweep-exclude-toolchains 2.0,4.0)",
+        help="Compile with each of these toolchains and report the best (implies --flag-sweep-toolchains); comma-separated profile names or version prefixes, e.g. msvc-6.0,6.0,win16 (a Y2K binary likely rules out 2.0/4.x — exclude them with --sweep-exclude-toolchains 2.0,4.0)",
         rich_help_panel="Single-Function",
     ),
     sweep_exclude_toolchains: str = typer.Option(
         "",
         "--sweep-exclude-toolchains",
-        help="Skip these toolchains in the sweep (comma-separated profile names or version prefixes, e.g. 2.0,4.0,win16)",
+        help="Compile with each toolchain except these and report the best (implies --flag-sweep-toolchains); comma-separated profile names or version prefixes, e.g. 2.0,4.0,win16",
         rich_help_panel="Single-Function",
     ),
     flag_sweep_then_ga: bool = typer.Option(
@@ -706,7 +706,14 @@ def main(
         run_single_flag_sweep(params, tier, jobs, json_output, timeout_min=timeout_min)
         return
 
-    if flag_sweep_toolchains:
+    # `--sweep-toolchains` / `--sweep-exclude-toolchains` name the profiles to
+    # sweep and to skip, so naming one IS the opt-in: each selects the sweep
+    # exactly as `--flag-sweep-toolchains` does, just filtered.  Both were
+    # checked only alongside that unrelated flag, so
+    # `rebrew match f.c --toolchain msvc-6.0` parsed, filtered nothing and ran
+    # the plain GA — a silently ignored filter, on the long spelling every
+    # other command uses to pin a compiler.
+    if flag_sweep_toolchains or sweep_toolchains or sweep_exclude_toolchains:
         run_single_toolchain_sweep(params, json_output, sweep_toolchains, sweep_exclude_toolchains)
         return
 

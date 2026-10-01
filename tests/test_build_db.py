@@ -574,6 +574,39 @@ class TestRootResolution:
         assert result.exit_code == 2, result.output
         assert "rebrew-project.toml" in result.output
 
+    def test_a_missing_root_names_the_flag(self, runner: CliRunner, tmp_path: Path) -> None:
+        """``--root /nowhere`` names ``--root``, not the errno mkdir raised.
+
+        The writer creates ``<root>/db`` with ``parents=True``, so a root that
+        does not exist surfaced ``[Errno 13] Permission denied`` from the
+        attempt to create the missing parent — an errno pointing inside rebrew's
+        own output layout, with no mention of the flag that caused it.
+        """
+        result = runner.invoke(app, ["--root", str(tmp_path / "nowhere")])
+
+        assert result.exit_code == 2, result.output
+        assert "--root does not exist" in result.output
+        assert "Errno" not in result.output
+
+    def test_a_file_root_names_the_flag(self, runner: CliRunner, tmp_path: Path) -> None:
+        """``--root <a file>`` says so instead of appending ``/db`` to the file."""
+        as_file = tmp_path / "rebrew-project.toml"
+        as_file.write_text("[project]\n", encoding="utf-8")
+
+        result = runner.invoke(app, ["--root", str(as_file)])
+
+        assert result.exit_code == 2, result.output
+        assert "must be a directory" in result.output
+        assert "Errno" not in result.output
+
+    def test_root_errors_keep_the_json_envelope(self, runner: CliRunner, tmp_path: Path) -> None:
+        import json
+
+        result = runner.invoke(app, ["--root", str(tmp_path / "nowhere"), "--json"])
+
+        assert result.exit_code == 2, result.output
+        assert json.loads(result.stdout)["code"] == 2
+
 
 class TestTargetSelection:
     @staticmethod

@@ -47,6 +47,17 @@
   summary and no description. It now states that a target is one readable
   document and that `limit`/`offset` are not accepted, matching
   `/api/sections`.
+- `match --sweep-toolchains` / `--sweep-exclude-toolchains` (and the
+  `--toolchain` alias) select the toolchain sweep on their own. Both only
+  reached it alongside the unrelated `--flag-sweep-toolchains`, so naming a
+  toolchain parsed and then ran the plain GA — a silently ignored filter, on
+  the long spelling `test` and `diff` use to pin a compiler. Their help now
+  says so.
+- `--root` names a missing path and a non-directory instead of letting the
+  command fail inside its own output layout. `build-db --root <a file>`
+  reported `[Errno 20] Not a directory: .../rebrew-project.toml/db` and
+  `--root <a missing path>` reported `[Errno 13] Permission denied`; both are
+  usage errors now, and every `--root` command answers the same way.
 - `report`'s strings page states how many strings it is showing, the way the
   index, imports and import-stub pages already do. A single-page strings table
   renders no pager, so the count had nowhere else to appear.

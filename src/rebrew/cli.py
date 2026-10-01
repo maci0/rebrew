@@ -237,9 +237,29 @@ def require_root(root: Path | None = None, *, json_mode: bool = False) -> Path:
     :func:`require_config`: ``rebrew verify`` found the project from a
     subdirectory while ``rebrew build-db`` reported a missing
     ``rebrew-project.toml`` there and created a stray ``db/`` beside it.
+
+    An explicit *root* is checked for being an existing directory before any
+    work starts.  :func:`require_config` already reports a file or a missing
+    directory as ``Config not found: <root>/rebrew-project.toml``, but the
+    commands that walk or create under the tree themselves (``build-db``)
+    reached that work first and surfaced ``[Errno 20] Not a directory:
+    .../rebrew-project.toml/db`` or, for a missing root, ``[Errno 13] Permission
+    denied`` — an errno naming a path deep inside rebrew's own output layout
+    rather than the flag that caused it.  A root that exists but cannot be
+    written to is left to the writer that hits it: that is a filesystem
+    condition, not a bad argument.
     """
     if root is not None:
-        return root.resolve()
+        resolved = root.resolve()
+        if not resolved.exists():
+            error_exit(f"--root does not exist: {resolved}", json_mode=json_mode, code=EXIT_ERROR)
+        if not resolved.is_dir():
+            error_exit(
+                f"--root must be a directory, not a file: {resolved}",
+                json_mode=json_mode,
+                code=EXIT_ERROR,
+            )
+        return resolved
     try:
         return find_root()
     except ConfigNotFoundError as exc:
