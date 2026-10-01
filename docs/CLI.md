@@ -1706,12 +1706,15 @@ over all functions) instead.  JSON still carries both fields, plus
 `%` column is the share of data symbols.  A separate PROVEN line records
 semantic equivalence while the bytes still differ.  The rest of `.text` is
 accounted for on the next line and in JSON: `unmatched_bytes` (functions not
-byte-matched), `padding_bytes` (alignment fill between functions) and
+byte-matched), `padding_bytes` (runs of `CC`, `90` or `00` at the edges of a gap
+between functions; a zero byte inside unknown code is not fill) and
 `unattributed_bytes` (bytes no known function covers, such as import
-thunks).  The four add up to `total_text_bytes`.  A compiled function counts
+thunks).  The four add up to `total_text_bytes`.  `status_bytes` gives the
+function bytes per effective status plus `LIBRARY` and `NO_SOURCE`, and
+`accounted_text_bytes` is matched plus padding.  A compiled function counts
 its annotated SIZE, the extent verify compares; a library row, which nothing
 compiles, counts its discovered extent.  Each span stops at the next function
-start.  Switch arms inside a function are not starts.  When a verify cache
+start and is clipped to `.text`.  Switch arms inside a function are not starts.  When a verify cache
 exists, reported statuses are the **effective** status (verify result
 overrides metadata; see `docs/ANNOTATIONS.md` "Effective Status").
 `verify_cache: {overrides, missing_size, effective_matches}` in JSON surfaces
@@ -1725,7 +1728,12 @@ the file bytes. The BSS tail itself stays a symbol count. Under the bar:
 `verified/total`, a verdict table, and the same counts per section (`.data`,
 `.rdata`, `.bss`, then any other).  That is this target's module and library modules, not other
 targets in the same `rebrew-data.toml`.  JSON is
-`data: {verified, drift, unchecked, total, sections}`.  The `.text` figure
+`data: {verified, drift, unchecked, total, sections}`, plus `bytes`
+(disjoint `drift`, `unchecked`, `verified`, `untracked` byte counts; where
+overlapping symbols disagree, drift beats unchecked beats verified) and
+`conflicting_verified_bytes` (VERIFIED bytes lost to such an overlap).  The
+whole-file block (`file` in JSON) adds `unmatched_bytes` and `sections`, the
+same-offset byte compare per reference section plus `headers / other`.  The `.text` figure
 stays the only progress
 percentage.  `last_verify.library_passed` counts the last verify's
 passes on functions status treats as library code (verify compiles them;

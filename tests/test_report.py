@@ -836,23 +836,19 @@ class TestSummaryCards:
         assert "<dt class='label'>Total functions</dt><dd class='value'>" in page
         assert "<div class='value'>" not in page
 
-    def test_byte_coverage_over_text_size_reads_as_capped(
+    def test_byte_coverage_clips_annotation_to_text_size(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Annotated sizes past .text give "100%+", not a percentage above 100.
-
-        The stub PE carries a 32-byte .text and the two fixtures annotate 300
-        bytes, so the raw ratio is 312.5%, which reads as a broken number.
-        """
-        _write_project(tmp_path, pe_bytes=make_pe(b"\x90" * 32))
+        """An oversized annotation covers only the bytes inside .text."""
+        _write_project(tmp_path, pe_bytes=make_pe(b"\x90" * 32, image_base=0x10000000))
         monkeypatch.chdir(tmp_path)
         site = tmp_path / "site"
         result = runner.invoke(app, ["--output", str(site)])
         assert result.exit_code == 0, result.output
         page = (site / "index.html").read_text(encoding="utf-8")
-        assert "<dd class='value'>100%+</dd>" in page
+        assert "<dd class='value'>100.0%</dd>" in page
         assert "312.5%" not in page
-        assert "more than the 32-byte .text section" in page
+        assert "100%+" not in page
 
     def test_byte_coverage_within_text_size_is_a_plain_percentage(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -873,24 +869,19 @@ class TestSummaryCards:
         assert "byte coverage is shown as 100%+" not in page
         assert "<dd class='value'>1.2%</dd>" in page  # func_a's 100 of 8192, floored
 
-    def test_alignment_fill_past_text_size_reads_as_capped(
+    def test_alignment_fill_excludes_annotations_outside_text(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Fill counted beside the matched bytes still caps at "100%+".
-
-        The annotated spans sit outside this image's .text, so their bytes are
-        never subtracted from the 0x90 fill: 100 + 4096 over a 4096-byte .text
-        is 102.4%, which reads as a broken number.
-        """
+        """Out-of-section annotations add no bytes beside the alignment fill."""
         _write_project(tmp_path, pe_bytes=make_pe(b"\x90" * 4096))
         monkeypatch.chdir(tmp_path)
         site = tmp_path / "site"
         result = runner.invoke(app, ["--output", str(site)])
         assert result.exit_code == 0, result.output
         page = (site / "index.html").read_text(encoding="utf-8")
-        assert "<dd class='value'>100%+</dd>" in page
+        assert "<dd class='value'>100.0%</dd>" in page
         assert "102.4%" not in page
-        assert "more than the 4096-byte .text section" in page
+        assert "100%+" not in page
 
 
 class TestStatusLegend:

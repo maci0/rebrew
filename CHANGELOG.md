@@ -23,6 +23,13 @@
   already holds rather than resolving the file again.
 
 ### Fixed
+- `status` reconciles whole-file bytes by reference section and `.text` bytes
+  by verdict, library attribution, and padding. Function extents stay within
+  `.text`, and zero operands inside unknown code no longer count as padding.
+  Initialized data separates verified, drift, unchecked, and untracked bytes
+  without double-counting overlapping symbols; conflicting verdicts remain
+  unverified. Section symbol counts stay visible, and wide terminals get a
+  compact panel. JSON includes the same byte breakdowns.
 - Instruction diffs align relocation-only inline pointer tables with the
   reference, preventing unresolved object pointers from creating false
   structural mismatches and missing instruction tails. GA and flag-sweep

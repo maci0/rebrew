@@ -1510,16 +1510,20 @@ class TestRenderTerminal:
         }
         _render_terminal(report)
         out = buf.getvalue()
-        assert "50.0% of tracked data (stored verdicts)" in out
+        assert "50.0% of initialized data verified (stored verdicts)" in out
         assert "100B / 200B" in out
         assert "2/4 verified" in out
         assert "VERIFIED" in out
         assert "UNCHECKED" in out
         assert "DRIFT" not in out
-        data_row = next(line for line in out.splitlines() if ".data" in line)
-        rdata_row = next(line for line in out.splitlines() if ".rdata" in line)
-        assert "2/3" in data_row
-        assert "0/1" in rdata_row
+        data_row = next(
+            line for line in out.splitlines() if ".data" in line and "excludes" not in line
+        )
+        rdata_row = next(
+            line for line in out.splitlines() if ".rdata" in line and "excludes" not in line
+        )
+        assert data_row.replace("│", "").split() == [".data", "2", "0", "1", "3"]
+        assert rdata_row.replace("│", "").split() == [".rdata", "0", "0", "1", "1"]
         # .data before .rdata, the section order, not alphabetical.
         assert out.index(".data") < out.index(".rdata")
         assert "50.0% of .text" in out
@@ -1869,6 +1873,147 @@ class TestEffectiveStatus:
 
     def test_cached_verdict_overrides_metadata(self) -> None:
         assert effective_status("NEAR_MATCHING", "EXACT") == "EXACT"
+
+
+class TestAccounting:
+    def test_zero_operands_inside_unknown_code_are_not_padding(self) -> None:
+        from rebrew.status import classify_text_gaps
+
+        gap = b"\xcc\xff\x25\x00\x10\x00\x40\x90"
+        assert classify_text_gaps(gap, 0x1000, []) == (2, 6)
+
+    def test_text_bytes_reconcile_and_clip_to_section(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from bin_util import make_pe
+
+        from rebrew.catalog.models import FunctionEntry
+
+        cfg = _make_cfg(tmp_path)
+        cfg.target_binary.write_bytes(make_pe(b"\x55" * 24 + b"\xcc" * 8))
+        existing = {
+            0x400FF8: {"status": "EXACT", "size": "16"},  # half outside .text
+            0x401008: {"status": "RELOC", "size": "8", "source": "naked"},
+            0x401010: {"size": "4", "marker_type": "LIBRARY"},
+            0x401020: {"status": "EXACT", "size": "100"},  # entirely outside
+        }
+        monkeypatch.setattr(
+            "rebrew.naming.load_data",
+            lambda *_a, **_kw: ([FunctionEntry(va=0x401014, size=4)], existing, {}),
+        )
+        report = collect_status(cfg)
+        assert report.total_text_bytes == 32
+        assert report.status_bytes == {"EXACT": 8, "RELOC": 8, "LIBRARY": 4, "NO_SOURCE": 4}
+        assert report.naked_bytes == 8
+        assert report.matched_bytes == 20
+        assert report.unmatched_bytes == 4
+        assert report.padding_bytes == 8
+        assert report.unattributed_bytes == 0
+        assert sum(report.status_bytes.values()) + report.padding_bytes == report.total_text_bytes
+        assert report.to_dict()["accounted_text_bytes"] == 28
+
+    def test_data_bytes_reconcile_with_conflicts_copied_ranges_and_bss(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.data_metadata import set_data_field
+
+        cfg = _make_cfg(tmp_path)
+        # The second VERIFIED row aliases the first; other verdicts overlap it.
+        for va, size, status in (
+            (100, 20, "VERIFIED"),
+            (104, 12, "VERIFIED"),
+            (108, 8, "DRIFT"),
+            (112, 16, "UNCHECKED"),
+            (130, 4, "DRIFT"),
+            (200, 16, "VERIFIED"),
+        ):
+            for key, value in {"name": f"g_{va}", "size": size, "status": status}.items():
+                set_data_field(tmp_path, va, key, value, "TEST")
+        monkeypatch.setattr("rebrew.status._initialized_data_ranges", lambda _cfg: [(100, 132)])
+        monkeypatch.setattr("rebrew.status.postlink_copied_ranges", lambda _cfg: [(130, 134)])
+        report = collect_status(cfg)
+        assert report.data_total == 5  # copied import row excluded, BSS counted
+        assert report.data_verified == 3
+        assert report.data_bytes == {"drift": 8, "unchecked": 12, "verified": 8, "untracked": 4}
+        assert sum(report.data_bytes.values()) == report.data_total_bytes == 32
+        assert report.data_verified_bytes == 8
+        assert report.data_conflicting_verified_bytes == 12
+        assert report.to_dict()["data"]["bytes"] == report.data_bytes
+
+    def test_overlapping_data_ranges_do_not_inflate_denominator(self) -> None:
+        from rebrew.status import data_byte_coverage
+
+        assert data_byte_coverage([(0, 100)], [(0, 60), (40, 100)]) == (100, 100)
+
+    @pytest.mark.parametrize("tail", ["shorter", "longer", "same"])
+    def test_file_regions_reconcile_even_with_a_different_length(
+        self, tmp_path: Path, tail: str
+    ) -> None:
+        from bin_util import append_pe_section, make_pe
+
+        reference = append_pe_section(make_pe(b"\x55\xc3"), ".data", b"ABCDEFGH")
+        cfg = _make_cfg(tmp_path, target_name="test.exe")
+        cfg.target_binary.write_bytes(reference)
+        built = bytearray(reference)
+        built[0x200] ^= 1
+        if tail == "shorter":
+            del built[-400:]
+        elif tail == "longer":
+            built.extend(b"extra")
+        build_dir = tmp_path / "build"
+        build_dir.mkdir()
+        (build_dir / "test.exe").write_bytes(built)
+        report = collect_status(cfg)
+        assert set(report.file_sections) == {".text", ".data", "headers / other"}
+        assert report.data_total == 0
+        assert report.data_bytes["untracked"] == report.data_total_bytes == 8
+        assert report.file_sections[".text"]["total_bytes"] == 512  # raw section padding included
+        assert (
+            sum(s["matched_bytes"] for s in report.file_sections.values())
+            == report.file_matched_bytes
+        )
+        assert (
+            sum(s["total_bytes"] for s in report.file_sections.values()) == report.file_total_bytes
+        )
+        assert (
+            report.to_dict()["file"]["unmatched_bytes"]
+            == 1 + {"shorter": 400, "longer": 5, "same": 0}[tail]
+        )
+
+    @pytest.mark.parametrize("width", [120, 400])
+    def test_section_counts_stay_visible_and_panel_stays_compact(
+        self, monkeypatch: pytest.MonkeyPatch, width: int
+    ) -> None:
+        from io import StringIO
+
+        from rich.console import Console
+
+        from rebrew.status import _render_terminal
+
+        buf = StringIO()
+        monkeypatch.setattr(
+            "rebrew.status.console", Console(file=buf, width=width, highlight=False)
+        )
+        report = StatusReport(
+            total_text_bytes=100,
+            status_bytes={"EXACT": 20, "LIBRARY": 80},
+            status_counts={"EXACT": 1},
+            total_functions=1,
+            covered_functions=1,
+            library_identified=1,
+            data_verified=212,
+            data_drift=184,
+            data_sections={".data": {"verified": 212, "drift": 184, "unchecked": 0}},
+        )
+        _render_terminal(report)
+        out = buf.getvalue()
+        assert "…" not in out
+        assert "Stored EXACT/RELOC + identified libraries + padding" in out
+        assert any(
+            line.replace("│", "").split() == [".data", "212", "184", "0", "396"]
+            for line in out.splitlines()
+        )
+        assert max(map(len, out.splitlines())) < 120
 
 
 class TestFileSimilarity:

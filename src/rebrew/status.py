@@ -40,7 +40,7 @@ from rebrew.present import filled_cells as _filled
 from rebrew.present import ratio_bar as _bar
 from rebrew.sources import iter_sources
 from rebrew.status_style import DISPLAY_STATUSES, STATUS_COLORS
-from rebrew.utils import clip_span, floor_pct
+from rebrew.utils import clip_span, floor_pct, merged_span_bytes
 from rebrew.workspace.status import MATCHED_STATUSES, STUB_PLACEHOLDER_STATUSES
 
 log = logging.getLogger(__name__)
@@ -87,6 +87,8 @@ class StatusReport:
 
     # Byte-level coverage
     matched_bytes: int = 0
+    #: Function extents per verdict, including LIBRARY and NO_SOURCE.
+    status_bytes: dict[str, int] = field(default_factory=dict)
     total_text_bytes: int = 0
     #: Bytes of functions not byte-matched (annotated or not yet started).
     unmatched_bytes: int = 0
@@ -143,12 +145,16 @@ class StatusReport:
     # a symbol count and is not part of this ratio.
     data_verified_bytes: int = 0
     data_total_bytes: int = 0
+    #: Disjoint file-backed byte counts; uncertain verdicts win overlaps.
+    data_bytes: dict[str, int] = field(default_factory=dict)
+    data_conflicting_verified_bytes: int = 0
 
     # Whole-file compare of the image the linker wrote. Span is the longer
     # length, so a shorter file's tail counts as unmatched.
     file_matched_bytes: int = 0
     file_total_bytes: int = 0
     file_built: str = ""
+    file_sections: dict[str, dict[str, int]] = field(default_factory=dict)
     #: Configured `[targets.<name>].raw_link` that names no file. Empty when
     #: unset, or when the file is there. Reported rather than scored as
     #: zero: a mistyped path would otherwise look like a project that has
@@ -214,7 +220,7 @@ class StatusReport:
 
     @property
     def data_byte_pct(self) -> float:
-        """Share of file-backed ``.data`` and ``.rdata`` covered by VERIFIED symbols."""
+        """Share of initialized data verified without conflicting verdicts."""
         if self.data_total_bytes == 0:
             return 0.0
         return floor_pct(self.data_verified_bytes, self.data_total_bytes)
@@ -260,6 +266,8 @@ class StatusReport:
             d["data"]["verified_bytes"] = self.data_verified_bytes
             d["data"]["total_bytes"] = self.data_total_bytes
             d["data"]["byte_pct"] = self.data_byte_pct
+            d["data"]["bytes"] = self.data_bytes
+            d["data"]["conflicting_verified_bytes"] = self.data_conflicting_verified_bytes
         if self.total_text_bytes > 0:
             d["matched_bytes"] = self.matched_bytes
             d["total_text_bytes"] = self.total_text_bytes
@@ -267,6 +275,8 @@ class StatusReport:
             d["unmatched_bytes"] = self.unmatched_bytes
             d["padding_bytes"] = self.padding_bytes
             d["unattributed_bytes"] = self.unattributed_bytes
+            d["status_bytes"] = self.status_bytes
+            d["accounted_text_bytes"] = self.accounted_text_bytes
         if self.verify_info is not None:
             d["last_verify"] = {
                 "timestamp": self.verify_info.timestamp,
@@ -291,6 +301,8 @@ class StatusReport:
                 "total_bytes": self.file_total_bytes,
                 "similarity_pct": self.file_similarity_pct,
                 "built": self.file_built,
+                "unmatched_bytes": self.file_total_bytes - self.file_matched_bytes,
+                "sections": self.file_sections,
             }
         if self.file_missing_raw_link:
             d["missing_raw_link"] = self.file_missing_raw_link
@@ -392,10 +404,29 @@ def _attach_file_similarity(report: StatusReport, cfg: ProjectConfig) -> None:
     ref = Path(getattr(cfg, "target_binary", "") or "")
     if not ref.is_file():
         return
-    matched, total = compare_file_bytes(ref.read_bytes(), built.read_bytes())
+    reference, produced = ref.read_bytes(), built.read_bytes()
+    matched, total = compare_file_bytes(reference, produced)
     report.file_matched_bytes = matched
     report.file_total_bytes = total
     report.file_built = _display_built(cfg.root, built)
+    loaded = _target_binary(cfg)
+    if loaded is not None:
+        cursor = 0
+        for sec in sorted(loaded[1].sections.values(), key=lambda s: s.file_offset):
+            lo, hi = (
+                max(cursor, sec.file_offset),
+                min(len(reference), sec.file_offset + sec.raw_size),
+            )
+            if hi <= lo:
+                continue
+            same, span = compare_file_bytes(reference[lo:hi], produced[lo:hi])
+            report.file_sections[sec.name] = {"matched_bytes": same, "total_bytes": span}
+            cursor = hi
+        report.file_sections["headers / other"] = {
+            "matched_bytes": matched
+            - sum(s["matched_bytes"] for s in report.file_sections.values()),
+            "total_bytes": total - sum(s["total_bytes"] for s in report.file_sections.values()),
+        }
 
 
 def _entry_va(entry_data: dict[str, Any]) -> int | None:
@@ -572,25 +603,25 @@ def effective_status(ann_status: str, cached: str | None) -> str:
 
 
 #: Fill bytes the linker and compiler place between functions.
-_PADDING_BYTES = frozenset((0xCC, 0x90, 0x00))
-_FILL_COUNTS = tuple(bytes((byte,)) for byte in sorted(_PADDING_BYTES))
+_PADDING_BYTES = b"\xcc\x90\x00"
 
 
 def _count_gap(chunk: bytes, padding: int, unattributed: int) -> tuple[int, int]:
     """Fold one uncovered *chunk* into the running gap totals.
 
-    ``bytes.count`` scans in C; three passes over gap bytes beat one Python
-    iteration per byte of a whole ``.text`` section.
+    Recognize fill at the edges; zero operands inside unknown code are not
+    alignment. ``bytes.strip`` scans in C.
     """
-    fill = sum(chunk.count(needle) for needle in _FILL_COUNTS)
+    # ponytail: edge-fill heuristic; decode gaps if precise attribution is needed.
+    fill = len(chunk) - len(chunk.strip(_PADDING_BYTES))
     return padding + fill, unattributed + (len(chunk) - fill)
 
 
 def classify_text_gaps(text: bytes, text_va: int, spans: list[tuple[int, int]]) -> tuple[int, int]:
     """``(padding, unattributed)``: bytes of *text* in none of *spans*.
 
-    *spans* are ``(va, size)`` function extents.  A gap byte that is
-    alignment fill counts as padding; anything else is code or data no known
+    *spans* are ``(va, size)`` function extents. Edge runs of alignment fill
+    count as padding; anything else is code or data no known
     function covers (a thunk, a switch table, an undiscovered function).
 
     Only the complement of the spans is classified: the covered ranges are
@@ -728,12 +759,14 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     # Single pass: status breakdown + byte-level coverage.
     status_counts: dict[str, int] = {}
     size_by_va: dict[int, int] = {f.va: f.size for f in ghidra_funcs}
+    loaded = _target_binary(cfg)
+    text_section = loaded[1].sections.get(".text") if loaded is not None else None
     # Pseudo-functions (switch arms inside an annotated function) are not
     # starts: cutting at one gave the arm the rest of its matched parent.
     starts = sorted((size_by_va.keys() | existing.keys()) - pseudo_vas)
 
-    def _span(va: int, info: dict[str, str]) -> int:
-        """Bytes of *va*, cut at the next function start.
+    def _span(va: int, info: dict[str, str]) -> tuple[int, int]:
+        """Start and size of *va*, clipped to .text and the next function.
 
         A compiled function's annotated SIZE is what verify compared, so it
         wins; the inventory extent can include padding or a split body.  A
@@ -748,7 +781,12 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
         size = (inventory or annotated) if va in library_vas else (annotated or inventory)
         # A negative SIZE is truthy, so it would win the selection above and
         # then move matched_bytes the wrong way.
-        return clip_span(starts, va, max(size, 0))
+        size = clip_span(starts, va, max(size, 0))
+        if text_section is not None:
+            lo = max(va, text_section.va)
+            hi = min(va + size, text_section.va + text_section.size)
+            va, size = lo, max(0, hi - lo)
+        return va, size
 
     matched_bytes = 0
     unmatched_bytes = 0
@@ -769,9 +807,10 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
         # STATUS is ignored: the attribution is the identification.
         if va in library_vas:
             library_identified += 1
-            size = _span(va, info)
+            span_va, size = _span(va, info)
             matched_bytes += size
-            spans.append((va, size))
+            report.status_bytes["LIBRARY"] = report.status_bytes.get("LIBRARY", 0) + size
+            spans.append((span_va, size))
             # Bucketed as LIBRARY: a status left over from before the row was
             # identified as library code would read as reversing progress.
             module = info.get("module") or "?"
@@ -794,8 +833,9 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
         if verify_details.get(va, ("", False))[1] and effective not in MATCHED_STATUSES:
             effective_matches += 1
         status_counts[effective] = status_counts.get(effective, 0) + 1
-        size = _span(va, info)
-        spans.append((va, size))
+        span_va, size = _span(va, info)
+        report.status_bytes[effective] = report.status_bytes.get(effective, 0) + size
+        spans.append((span_va, size))
         if effective in MATCHED_STATUSES:
             if naked:
                 naked_matched += 1
@@ -811,16 +851,23 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     report.matched_bytes = matched_bytes
     report.naked_matched = naked_matched
     report.naked_bytes = naked_bytes
-    report.total_text_bytes = _compute_text_size(cfg)
+    report.total_text_bytes = (
+        text_section.size if text_section is not None else _compute_text_size(cfg)
+    )
     # Functions nobody has started (not pseudo-functions, not library code).
     for va in ghidra_vas - existing.keys() - library_vas - pseudo_vas:
-        size = clip_span(starts, va, max(size_by_va.get(va, 0), 0))
+        span_va, size = _span(va, {})
         unmatched_bytes += size
-        spans.append((va, size))
+        report.status_bytes["NO_SOURCE"] = report.status_bytes.get("NO_SOURCE", 0) + size
+        spans.append((span_va, size))
     report.unmatched_bytes = unmatched_bytes
     gaps = _text_gaps(cfg, spans)
     if gaps is not None:
-        report.padding_bytes, report.unattributed_bytes = gaps
+        report.padding_bytes = gaps[0]
+        # Any virtual tail with no file bytes remains unaccounted for.
+        report.unattributed_bytes = (
+            report.total_text_bytes - matched_bytes - unmatched_bytes - report.padding_bytes
+        )
     report.verify_overrides = verify_overrides
     report.verify_missing_size = verify_missing_size
     report.effective_matches = effective_matches
@@ -831,7 +878,7 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     from rebrew.data_layout import estimate_type_size
     from rebrew.data_metadata import load_data_metadata, module_visible_to_target
 
-    verified_spans: list[tuple[int, int]] = []
+    data_spans: dict[str, list[tuple[int, int]]] = {"verified": [], "drift": [], "unchecked": []}
     copied = postlink_copied_ranges(cfg)
     for (module, va), fields in load_data_metadata(cfg.metadata_dir).items():
         if not module_visible_to_target(module, cfg):
@@ -861,11 +908,22 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
             section, {"verified": 0, "drift": 0, "unchecked": 0}
         )
         counts[bucket] += 1
-        if bucket == "verified" and size > 0:
-            verified_spans.append((va, va + size))
-    report.data_verified_bytes, report.data_total_bytes = data_byte_coverage(
-        verified_spans, _initialized_data_ranges(cfg)
-    )
+        if size > 0:
+            data_spans[bucket].append((va, va + size))
+    ranges = _initialized_data_ranges(cfg)
+    # Count each byte once. DRIFT beats UNCHECKED beats VERIFIED when
+    # overlapping symbols disagree, so uncertainty cannot inflate progress.
+    cumulative: list[tuple[int, int]] = []
+    previous = 0
+    for bucket in ("drift", "unchecked", "verified"):
+        cumulative.extend(data_spans[bucket])
+        covered, report.data_total_bytes = data_byte_coverage(cumulative, ranges)
+        report.data_bytes[bucket] = covered - previous
+        previous = covered
+    report.data_bytes["untracked"] = report.data_total_bytes - previous
+    report.data_verified_bytes = report.data_bytes["verified"]
+    verified, _ = data_byte_coverage(data_spans["verified"], ranges)
+    report.data_conflicting_verified_bytes = verified - report.data_verified_bytes
 
     # Verify info
     report.verify_info = _load_verify_info(cfg, library_vas, cache_raw)
@@ -897,38 +955,22 @@ def _ordered_data_sections(sections: dict[str, dict[str, int]]) -> list[str]:
     return head + tail
 
 
-def _covered_bytes(spans: list[tuple[int, int]]) -> int:
-    """Bytes covered by half-open spans. Overlap counts once."""
-    ordered = sorted((lo, hi) for lo, hi in spans if hi > lo)
-    if not ordered:
-        return 0
-    total = 0
-    start, end = ordered[0]
-    for lo, hi in ordered[1:]:
-        if lo <= end:
-            end = max(end, hi)
-        else:
-            total += end - start
-            start, end = lo, hi
-    return total + end - start
-
-
 def data_byte_coverage(
     spans: list[tuple[int, int]], ranges: list[tuple[int, int]]
 ) -> tuple[int, int]:
-    """Verified bytes inside *ranges*, and the size of those ranges.
+    """Covered bytes inside *ranges*, and the size of their union.
 
-    *spans* are half-open extents of VERIFIED symbols. A symbol that runs
+    *spans* are half-open symbol extents. A symbol that runs
     past the file-backed range is clipped. Overlap counts once.
     """
-    total = sum(max(0, hi - lo) for lo, hi in ranges)
+    total = merged_span_bytes(ranges)
     clipped: list[tuple[int, int]] = []
     for lo, hi in spans:
         for rlo, rhi in ranges:
             start, end = max(lo, rlo), min(hi, rhi)
             if end > start:
                 clipped.append((start, end))
-    return _covered_bytes(clipped), total
+    return merged_span_bytes(clipped), total
 
 
 def _pe_data_directory(path: Path, name: str, image_base: int) -> tuple[int, int]:
@@ -1064,8 +1106,8 @@ def _ticks(part: float, whole: float) -> str:
     return "█" * _filled(part, whole, _TICK_WIDTH)
 
 
-def _breakdown_table() -> Table:
-    """Count table. Fixed columns, so the function and data tables align."""
+def _breakdown_table(*, byte_counts: bool = False) -> Table:
+    """Count table with optional function byte totals."""
     table = Table(
         show_header=True,
         header_style="bold",
@@ -1076,6 +1118,8 @@ def _breakdown_table() -> Table:
     )
     table.add_column(width=16, no_wrap=True)
     table.add_column("Count", justify="right", width=12, no_wrap=True)
+    if byte_counts:
+        table.add_column(".text bytes", justify="right", width=12, no_wrap=True)
     table.add_column("%", justify="right", width=7, no_wrap=True)
     table.add_column("", width=_TICK_WIDTH, no_wrap=True)
     return table
@@ -1084,17 +1128,18 @@ def _breakdown_table() -> Table:
 def _data_block(report: StatusReport) -> list[Any]:
     """Data verdicts for this target, in the same columns as functions.
 
-    The bar uses tracked file-backed symbols and their stored VERIFIED
+    The bar uses all initialized data bytes and the symbols' stored VERIFIED
     verdicts, rather than a comparison of the currently scored built image.
     """
     total = report.data_total
-    if total == 0:
+    if total == 0 and report.data_total_bytes == 0:
         return []
     block: list[Any] = []
     if report.data_total_bytes > 0:
         headline = Text()
         headline.append(
-            f"{report.data_byte_pct}% of tracked data (stored verdicts)", style="bold green"
+            f"{report.data_byte_pct}% of initialized data verified (stored verdicts)",
+            style="bold green",
         )
         headline.append(
             f"    {report.data_verified_bytes:,}B / {report.data_total_bytes:,}B",
@@ -1102,6 +1147,25 @@ def _data_block(report: StatusReport) -> list[Any]:
         )
         block.append(headline)
         block.append(_bar(report.data_verified_bytes, report.data_total_bytes, _BAR_WIDTH))
+        if report.data_bytes:
+            block.append(
+                Text(
+                    "    ".join(
+                        f"{bucket} {report.data_bytes[bucket]:,}B"
+                        for bucket in ("drift", "unchecked", "untracked")
+                    ),
+                    style="dim",
+                )
+            )
+        block.append(Text(".data + .rdata; excludes BSS and copied imports", style="dim"))
+        if report.data_conflicting_verified_bytes:
+            block.append(
+                Text(
+                    f"{report.data_conflicting_verified_bytes:,}B have conflicting stored verdicts"
+                    " (counted as unverified)",
+                    style="yellow",
+                )
+            )
     header = Text()
     header.append("Data", style="bold")
     header.append(f"  {report.data_verified}/{total} verified")
@@ -1124,20 +1188,24 @@ def _data_block(report: StatusReport) -> list[Any]:
             f"[{color}]{floor_pct(count, total)}%[/{color}]",
             f"[{color}]{_ticks(count, total)}[/{color}]",
         )
+    sections = Table(box=None, pad_edge=False, padding=(0, 2))
+    sections.add_column("Section", no_wrap=True)
+    for label in ("Verified", "Drift", "Unchecked", "Total"):
+        sections.add_column(label, justify="right", no_wrap=True)
     for name in _ordered_data_sections(report.data_sections):
         counts = report.data_sections[name]
         section_total = counts["verified"] + counts["drift"] + counts["unchecked"]
-        count_cell = f"{counts['verified']}/{section_total}"
-        if counts["drift"]:
-            count_cell += f", {counts['drift']} drift"
-        table.add_row(
-            f"[dim]{name}[/dim]",
-            f"[dim]{count_cell}[/dim]",
-            "",
-            f"[dim]{_ticks(counts['verified'], section_total)}[/dim]",
+        sections.add_row(
+            name,
+            str(counts["verified"]),
+            str(counts["drift"]),
+            str(counts["unchecked"]),
+            str(section_total),
         )
     block.append(header)
     block.append(table)
+    if sections.row_count:
+        block.extend([Text(""), sections])
     return block
 
 
@@ -1166,14 +1234,34 @@ def _file_rows(report: StatusReport) -> list[Any]:
     if report.file_total_bytes <= 0:
         return []
     text = Text()
-    text.append(f"{report.file_similarity_pct}% of file", style="bold green")
+    text.append(
+        f"{report.file_similarity_pct}% of file identical at same offsets", style="bold green"
+    )
     text.append(
         f"    {report.file_matched_bytes:,}B / {report.file_total_bytes:,}B",
         style="dim",
     )
     if report.file_built:
         text.append(f"    {report.file_built}", style="dim")
-    return [text, _bar(report.file_matched_bytes, report.file_total_bytes, _BAR_WIDTH)]
+    rows: list[Any] = [text, _bar(report.file_matched_bytes, report.file_total_bytes, _BAR_WIDTH)]
+    rows.append(
+        Text(
+            f"different / missing {report.file_total_bytes - report.file_matched_bytes:,}B",
+            style="dim",
+        )
+    )
+    if report.file_sections:
+        table = Table(box=None, pad_edge=False, padding=(0, 2))
+        table.add_column("File region", no_wrap=True)
+        for label in ("Same bytes", "Different / missing", "Total bytes"):
+            table.add_column(label, justify="right", no_wrap=True)
+        for name, counts in report.file_sections.items():
+            same, total = counts["matched_bytes"], counts["total_bytes"]
+            table.add_row(name, f"{same:,}", f"{total - same:,}", f"{total:,}")
+        rows.extend(
+            [table, Text("Reference file regions include section alignment", style="dim"), Text("")]
+        )
+    return rows
 
 
 def _headline(report: StatusReport) -> tuple[Text, Text | None]:
@@ -1208,7 +1296,8 @@ def _render_terminal(report: StatusReport) -> None:
     headline, bar = _headline(report)
 
     # --- Status table ---
-    status_table = _breakdown_table()
+    show_bytes = bool(report.status_bytes)
+    status_table = _breakdown_table(byte_counts=show_bytes)
     status_table.columns[0].header = "Status"
 
     for status in _STATUS_ORDER:
@@ -1220,6 +1309,7 @@ def _render_terminal(report: StatusReport) -> None:
         status_table.add_row(
             f"[{color}]{status}[/{color}]",
             f"[{color}]{count}[/{color}]",
+            *([f"{report.status_bytes.get(status, 0):,}"] if show_bytes else []),
             f"[{color}]{pct}%[/{color}]",
             f"[{color}]{_ticks(count, report.total_functions)}[/{color}]",
         )
@@ -1235,6 +1325,7 @@ def _render_terminal(report: StatusReport) -> None:
         status_table.add_row(
             f"[{color}]{status}[/{color}]",
             f"[{color}]{count}[/{color}]",
+            *([f"{report.status_bytes.get(status, 0):,}"] if show_bytes else []),
             f"[{color}]{pct}%[/{color}]",
             f"[{color}]{_ticks(count, report.total_functions)}[/{color}]",
         )
@@ -1245,9 +1336,23 @@ def _render_terminal(report: StatusReport) -> None:
         status_table.add_row(
             "[dim](no source)[/dim]",
             f"[dim]{no_source}[/dim]",
+            *([f"{report.status_bytes.get('NO_SOURCE', 0):,}"] if show_bytes else []),
             f"[dim]{floor_pct(no_source, report.total_functions)}%[/dim]",
             f"[dim]{_ticks(no_source, report.total_functions)}[/dim]",
         )
+
+    if show_bytes and report.library_identified:
+        status_table.add_row(
+            "[dim]LIBRARY[/dim]",
+            "",
+            f"{report.status_bytes.get('LIBRARY', 0):,}",
+            "",
+            "",
+        )
+    if show_bytes and report.padding_bytes is not None:
+        status_table.add_row("[dim]padding[/dim]", "", f"{report.padding_bytes:,}", "", "")
+    if show_bytes and report.unattributed_bytes is not None:
+        status_table.add_row("[dim]no function[/dim]", "", f"{report.unattributed_bytes:,}", "", "")
 
     # --- Summary lines ---
     summary_lines: list[str] = []
@@ -1283,7 +1388,7 @@ def _render_terminal(report: StatusReport) -> None:
         )
 
     # Source file count, and library rows that are not reversing progress.
-    sources = f"[dim]{report.source_files} source files[/dim]"
+    sources = f"[dim]{report.source_files} source files scanned[/dim]"
     if report.library_identified:
         sources += (
             f"    [green]{report.library_identified} library[/green]"
@@ -1348,6 +1453,8 @@ def _render_terminal(report: StatusReport) -> None:
     panel_rows.append(headline)
     if bar is not None:
         panel_rows.append(bar)
+    if show_bytes:
+        panel_rows.append(Text("Stored EXACT/RELOC + identified libraries + padding", style="dim"))
     if report.total_functions > 0:
         counts = Text()
         if report.total_text_bytes > 0:
@@ -1372,6 +1479,7 @@ def _render_terminal(report: StatusReport) -> None:
         panel_content,
         title=_panel_title(report),
         border_style="blue",
+        expand=False,
     )
     console.print(panel)
 
