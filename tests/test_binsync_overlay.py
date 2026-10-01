@@ -508,3 +508,57 @@ class TestLocalsCommentsOverlay:
         assert entry.get("comments") == {
             f"0x{B_F1 + 4:08x}": {"comment": "loop", "func_addr": B_F1}
         }
+
+
+class TestMetadataFileContainment:
+    """The annotation ``file`` field is a path, so every join is validated.
+
+    ``sources.contained_path`` is the one validator; the overlay must not
+    reintroduce a bare ``reversed_dir / filepath`` join, which would let a
+    metadata value (BinSync state, hand-edited TOML, anything upstream of
+    ``filepath``) name a read or a write outside the project's source roots.
+    """
+
+    def test_dest_annotation_refuses_path_outside_roots(self, tmp_path: Path) -> None:
+        from rebrew.binsync.overlay import _dest_annotation
+        from rebrew.config import load_config
+
+        _make_project(tmp_path)
+        cfg = load_config(tmp_path / "rebrew-project.toml", "B")
+        outside = tmp_path / "outside.c"
+        outside.write_text(
+            f"// FUNCTION: B 0x{B_F1:08x}\nint victim(void) {{ return 1; }}\n", encoding="utf-8"
+        )
+        monkeyed: list[Any] = []
+
+        def _record(path: Path, **kwargs: Any) -> list[Any]:
+            monkeyed.append(path)
+            return []
+
+        import rebrew.annotation as annotation_mod
+
+        original = annotation_mod.parse_c_file_multi
+        annotation_mod.parse_c_file_multi = _record  # type: ignore[assignment]
+        try:
+            for relative in (
+                "../outside.c",
+                str(outside),
+                "../../etc/passwd",
+                "",
+            ):
+                assert _dest_annotation(cfg, B_F1, relative) is None
+        finally:
+            annotation_mod.parse_c_file_multi = original  # type: ignore[assignment]
+        # No escaping value reached the parser, so no read outside the roots.
+        assert monkeyed == []
+
+    def test_dest_annotation_reads_a_source_inside_roots(self, tmp_path: Path) -> None:
+        from rebrew.binsync.overlay import _dest_annotation
+        from rebrew.config import load_config
+
+        _make_project(tmp_path)
+        _write_dest(tmp_path)
+        cfg = load_config(tmp_path / "rebrew-project.toml", "B")
+        ann = _dest_annotation(cfg, B_F1, "f1.c")
+        assert ann is not None
+        assert ann.symbol == "func_401040"

@@ -76,6 +76,7 @@ from rebrew.cross_import import (
     target_bytes_by_va,
     unmatched_dest_bytes,
 )
+from rebrew.sources import contained_path, source_roots
 from rebrew.utils import fold_ident, preset_module_key, strip_body
 
 log = logging.getLogger(__name__)
@@ -222,9 +223,13 @@ def _dest_annotation(cfg: ProjectConfig, va: int, filepath: str) -> Any:
         return None
     from rebrew.annotation import parse_c_file_multi
 
+    source = contained_path(source_roots(cfg), filepath)
+    if source is None:
+        log.warning("ignoring annotation file outside the source roots: %r", filepath)
+        return None
     try:
         annotations = parse_c_file_multi(
-            Path(cfg.reversed_dir) / filepath,
+            source,
             target_name=cfg.target_name,
             base_dir=cfg.reversed_dir,
             metadata_dir=cfg.metadata_dir,
@@ -379,7 +384,14 @@ def overlay_state(
         if not module_selected(local_module):
             skipped += 1
             continue
-        file_path = Path(cfg.reversed_dir) / filepath
+        # The metadata ``file`` field is a path; resolve it through the one
+        # validator so a value from a BinSync state or a hand-edited TOML
+        # cannot name a write target outside the project's source roots.
+        file_path = contained_path(source_roots(cfg), filepath)
+        if file_path is None:
+            skipped += 1
+            log.warning("refusing file outside the source roots: %r", filepath)
+            continue
         applied: list[str] = []
 
         if "name" in fields:
@@ -600,12 +612,16 @@ def overlay_state(
                     if markers and filepath:
                         from rebrew.binsync.state import write_analysis_markers
 
-                        try:
-                            write_analysis_markers(Path(cfg.reversed_dir) / filepath, markers)
-                        except OSError:
-                            log.warning(
-                                "ANALYSIS marker write failed for %s", filepath, exc_info=True
-                            )
+                        marker_path = contained_path(source_roots(cfg), filepath)
+                        if marker_path is None:
+                            log.warning("refusing file outside the source roots: %r", filepath)
+                        else:
+                            try:
+                                write_analysis_markers(marker_path, markers)
+                            except OSError:
+                                log.warning(
+                                    "ANALYSIS marker write failed for %s", filepath, exc_info=True
+                                )
 
         rows.append(
             {
