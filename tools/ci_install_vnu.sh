@@ -25,8 +25,8 @@
 # what was expected.
 set -euo pipefail
 
-VNU_VERSION="26.9.27"
-VNU_SHA256="e9dcc2d00c432b6f8cab72431656c49c1e9e7d57c31ced097e329b916de799f5"
+VNU_VERSION="26.9.30"
+VNU_SHA256="b8356d98f515a12ffa34407a418115458ea6b15d8203035c43df71711c3ce4e1"
 VNU_URL="https://github.com/validator/validator/releases/download/latest/vnu.linux.zip"
 
 MAX_ATTEMPTS=3
@@ -72,6 +72,7 @@ sha256_of() {
 # never a half-extracted tree that a later job would treat as installed.
 staging="${dest}.incoming.$$"
 archive="${staging}.zip"
+mkdir -p -- "$(dirname -- "${dest}")"
 cleanup() {
   rm -f -- "${archive}"
   rm -rf -- "${staging}"

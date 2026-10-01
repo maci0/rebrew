@@ -108,7 +108,11 @@ repos:
       # asm round-trip tests skip and pass a push CI would reject.
       - id: pytest
         name: pytest (full suite, make test)
-        entry: make --no-print-directory test
+        # Git exports repository-local variables into hooks. Fixture Git
+        # commands must operate on their own repositories, not this checkout.
+        entry: >-
+          bash -c 'while IFS= read -r name; do unset "$name"; done
+          < <(git rev-parse --local-env-vars); exec make --no-print-directory test'
         language: system
         pass_filenames: false
         always_run: true

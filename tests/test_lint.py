@@ -2684,6 +2684,27 @@ class TestDataSectionNamesMemoConcurrent:
 class TestW031MetadataStore:
     """W031: the store shapes a reader silently ignores."""
 
+    def test_function_fields_share_the_writer_validation(self, tmp_path: Path) -> None:
+        (tmp_path / "rebrew-functions.toml").write_text(
+            'format=1\n["SERVER.0x1000"]\nsize=-1\nstatus="FINISHED"\n'
+            "cflags=false\nskip=[]\nfile=7\n",
+            encoding="utf-8",
+        )
+        warnings = self._warnings(self._cfg(tmp_path))
+        for problem in (
+            "size must be non-negative",
+            "unknown STATUS",
+            "cflags must be",
+            "skip must be",
+            "file must be a string",
+        ):
+            assert problem in warnings
+
+    @pytest.mark.parametrize("filename", ["rebrew-functions.toml", "rebrew-data.toml"])
+    def test_uppercase_field_is_reported(self, tmp_path: Path, filename: str) -> None:
+        (tmp_path / filename).write_text('format=1\n["SERVER.0x1000"]\nSIZE=4\n', encoding="utf-8")
+        assert "field 'SIZE' must use lower-case spelling" in self._warnings(self._cfg(tmp_path))
+
     @pytest.mark.parametrize("filename", ["rebrew-data.toml", "rebrew-functions.toml"])
     def test_duplicate_identity_is_reported(self, tmp_path: Path, filename: str) -> None:
         (tmp_path / filename).write_text(

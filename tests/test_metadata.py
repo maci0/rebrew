@@ -1467,6 +1467,27 @@ class TestUpdateFieldTomlSafe:
     """The single-field writers sanitize too, so the ``rebrew blocker`` /
     ``rebrew note`` path cannot poison the file for every other entry."""
 
+    def test_nested_values_and_keys_still_round_trip(self, tmp_path: Path) -> None:
+        from rebrew.metadata import update_field
+
+        payload = {"slot\x1b": {"name": "a\x1bb", "notes": ["x\udcffy", ("a\x07b",)]}}
+        update_field(tmp_path, 0x1000, "locals", payload, "SERVER")
+        assert get_entry(tmp_path, 0x1000, "SERVER")["locals"] == {
+            "slot": {"name": "ab", "notes": ["x�y", ["ab"]]}
+        }
+        before = metadata_path(tmp_path).stat().st_mtime_ns
+        update_field(tmp_path, 0x1000, "locals", payload, "SERVER")
+        assert metadata_path(tmp_path).stat().st_mtime_ns == before
+
+    def test_sanitized_key_collision_leaves_store_untouched(self, tmp_path: Path) -> None:
+        from rebrew.metadata import update_field
+
+        update_field(tmp_path, 0x1000, "note", "keep", "SERVER")
+        before = metadata_path(tmp_path).read_bytes()
+        with pytest.raises(ValueError, match="TOML keys collide"):
+            update_field(tmp_path, 0x1000, "locals", {"slot": 1, "slot\x1b": 2}, "SERVER")
+        assert metadata_path(tmp_path).read_bytes() == before
+
     def test_update_field_strips_control_chars_and_still_parses(self, tmp_path: Path) -> None:
         from rebrew.metadata import update_field
 

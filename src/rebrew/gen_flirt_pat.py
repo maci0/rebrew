@@ -204,6 +204,45 @@ def parse_coff_obj(obj_data: bytes) -> Iterator[tuple[str, bytes, set[int]]]:
             yield sym_name, code, reloc_offsets
 
 
+def parse_coff_aliases(obj_data: bytes) -> Iterator[tuple[str, str]]:
+    """Yield weak SEARCH_ALIAS names and their targets, including MSVC tcmap objects."""
+    import lief
+
+    if len(obj_data) < 20:
+        return
+    # Stock MSVC tcmap members have machine=0 and one empty .text section.
+    # LIEF rejects that machine: normalize only the in-memory parser input.
+    # The library on disk and the linker's inputs remain untouched.
+    parse_data = b"\x4c\x01" + obj_data[2:] if obj_data[:4] == b"\0\0\x01\0" else obj_data
+    coff = lief.COFF.parse(list(parse_data))
+    if coff is None:
+        return
+    symbols = list(coff.symbols)
+    raw_names = _coff_symbol_names(obj_data)
+    names = [
+        str(sym.name) or (raw_names[i] if len(raw_names) == len(symbols) else "")
+        for i, sym in enumerate(symbols)
+    ]
+    # Weak auxiliary records use raw symbol indices, which count other AUX records.
+    by_index: dict[int, str] = {}
+    index = 0
+    for sym, name in zip(symbols, names, strict=True):
+        by_index[index] = name
+        index += 1 + len(list(sym.auxiliary_symbols))
+    for sym, name in zip(symbols, names, strict=True):
+        if sym.storage_class != lief.COFF.Symbol.STORAGE_CLASS.WEAK_EXTERNAL:
+            continue
+        for aux in sym.auxiliary_symbols:
+            if (
+                isinstance(aux, lief.COFF.AuxiliaryWeakExternal)
+                and aux.characteristics
+                == lief.COFF.AuxiliaryWeakExternal.CHARACTERISTICS.SEARCH_ALIAS
+                and name
+                and (target := by_index.get(aux.sym_idx))
+            ):
+                yield name, target
+
+
 #: No relocation fixes up more than 8 bytes (the widest is a 64-bit address).
 _MAX_RELOC_SPAN = 8
 

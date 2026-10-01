@@ -61,7 +61,7 @@ def verify_data_bytes(
         if not fields.get("name") or not module_visible_to_target(module, cfg):
             continue
         name = str(fields["name"])
-        size = data_symbol_size(fields)
+        size = data_symbol_size(fields, arch=getattr(cfg, "arch", "x86_32"))
         if "size" not in fields and "type" not in fields:
             size = sizes.get(va, 0)
         row = {
@@ -161,7 +161,9 @@ def section_symbol_bytes(
             continue
         if not module_visible_to_target(module, cfg):
             continue
-        size = data_symbol_size(val)
+        size = data_symbol_size(
+            val, arch=getattr(info, "arch", "") or getattr(cfg, "arch", "x86_32")
+        )
         if size <= sizes.get(va, 0):
             continue
         sec = info.sections.get(declared)
