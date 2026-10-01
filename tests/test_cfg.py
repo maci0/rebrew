@@ -1968,3 +1968,108 @@ class TestCLIEffective:
         assert payload["config"]["llm_endpoint"] == "https://toml.example/v1"
         assert payload["config"]["llm_api_key"] == "***"
         assert payload["env_overrides"] == []
+
+
+# ---------------------------------------------------------------------------
+# Concurrent writers
+# ---------------------------------------------------------------------------
+
+
+class TestConfigWriteLock:
+    """Every rebrew-project.toml writer holds one read-modify-write lock.
+
+    Each of these subcommands parses the whole document, edits its own keys,
+    and serializes its own parse, so two of them interleaving each publish the
+    other's parse plus their own edit and one side's change vanishes with no
+    error.  ``rebrew.config.project_toml_lock`` exists for exactly that, and
+    ``rebrew intake``, ``lint --fix`` and ``doctor --fix`` already take it.
+    """
+
+    def test_a_second_writer_does_not_drop_the_first_edit(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """Two concurrent cfg writes to disjoint keys: both edits must land.
+
+        The first writer parks inside the lock just after its read; the second
+        must wait for it rather than parse a document the first is about to
+        replace.  Without the lock the second's replace publishes its own
+        parse, which has no PNG module, and the first writer's edit is gone
+        with no error and no trace.
+        """
+        import threading
+
+        from rebrew import cfg as cfg_mod
+
+        _make_project(tmp_path, SAMPLE_TOML)
+        monkeypatch.chdir(tmp_path)
+
+        first_inside = threading.Event()
+        release_first = threading.Event()
+        errors: list[BaseException] = []
+
+        real_load = cfg_mod.load_toml
+
+        def _slow_load(root=None, *, json_mode: bool = False):
+            # Only the add-module writer stalls, and only the first time.
+            if threading.current_thread().name == "first" and not first_inside.is_set():
+                doc, path = real_load(root, json_mode=json_mode)
+                first_inside.set()
+                release_first.wait(5)
+                return doc, path
+            return real_load(root, json_mode=json_mode)
+
+        monkeypatch.setattr(cfg_mod, "load_toml", _slow_load)
+
+        def _first() -> None:
+            # The public entry point, so the lock is taken here.
+            cfg_mod.add_module("PNG", target="server.dll", dry_run=False, json_output=False)
+
+        def _second() -> None:
+            cfg_mod.set_value("compiler.cflags", "/O2 /Gd /MT", dry_run=False, json_output=False)
+
+        def _run(fn, name: str) -> None:
+            def _wrapper() -> None:
+                try:
+                    fn()
+                except BaseException as exc:
+                    errors.append(exc)
+
+            t = threading.Thread(target=_wrapper, name=name)
+            t.start()
+            return t
+
+        t1 = _run(_first, "first")
+        assert first_inside.wait(5), "first writer never reached the load"
+        t2 = _run(_second, "second")
+        # With the lock the second writer blocks here; without it it finishes
+        # and its replace clobbers the first writer's parse.
+        t2.join(0.5)
+        second_blocked = t2.is_alive()
+        release_first.set()
+        t1.join(5)
+        t2.join(5)
+
+        assert not errors, errors
+        doc = tomlkit.parse((tmp_path / "rebrew-project.toml").read_text(encoding="utf-8"))
+        assert doc["compiler"]["cflags"] == "/O2 /Gd /MT"
+        assert "PNG" in list(doc["targets"]["server.dll"]["origins"])
+        assert second_blocked, "the second writer never waited for the lock"
+
+    def test_the_writers_take_the_shared_project_lock(self) -> None:
+        """Static check: each cfg writer's body is inside project_toml_lock."""
+        import inspect
+
+        from rebrew import cfg as cfg_mod
+
+        for name in (
+            "add_target",
+            "remove_target",
+            "set_value",
+            "add_module",
+            "remove_module",
+            "set_cflags",
+            "set_compiler",
+            "detect_crt",
+        ):
+            source = inspect.getsource(getattr(cfg_mod, name))
+            assert "project_toml_lock" in source, f"{name} writes without the lock"

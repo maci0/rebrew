@@ -48,6 +48,7 @@ from rebrew.config import (
     KNOWN_TARGET_KEYS,
     ConfigError,
     env_knob_errors,
+    project_toml_lock,
     validate_http_url,
     validate_target_name,
 )
@@ -228,7 +229,17 @@ def _find_root(*, json_mode: bool = False) -> Path:
 def load_toml(
     root: Path | None = None, *, json_mode: bool = False
 ) -> tuple[tomlkit.TOMLDocument, Path]:
-    """Load rebrew-project.toml as a tomlkit document, preserving formatting."""
+    """Load rebrew-project.toml as a tomlkit document, preserving formatting.
+
+    A caller that goes on to :func:`save_toml` must do both inside one
+    :func:`rebrew.config.project_toml_lock` block.  Each of these commands
+    parses the whole document, edits its own keys, and serializes its own
+    parse, so two of them interleaving (a ``cfg add-module`` in one terminal,
+    a splat import's ``arch`` patch in another) each publish the other's parse
+    plus their own edit and one side's change vanishes with no error — the
+    exact hazard ``project_toml_lock`` exists for, and the reason
+    ``rebrew intake``, ``lint --fix`` and ``doctor --fix`` all take it.
+    """
     if root is None:
         root = _find_root(json_mode=json_mode)
     toml_path = root / "rebrew-project.toml"
@@ -257,6 +268,11 @@ def save_toml(
     With *dry_run*, prints what would change without touching the disk.
     Write failures honor *json_mode* so ``--json`` callers still get a
     ``{"error","code"}`` envelope on stdout instead of a bare stderr line.
+
+    Takes no lock itself: it must be called under the same
+    :func:`rebrew.config.project_toml_lock` block as the
+    :func:`load_toml` whose document it is serializing, so the read, the edit,
+    and this write are one critical section.
     """
     if dry_run:
         console.print(f"[cyan]dry-run:[/cyan] would update {path}")
@@ -618,6 +634,43 @@ def add_target(
     written and a warning is emitted).
     """
     root = _find_root(json_mode=json_output)
+    # The lock spans the read, the edit, and the write, as config.py's
+    # project_toml_lock requires: this command parses the whole document,
+    # reads the first target's stanzas to inherit defaults, adds its own, and
+    # serializes its own parse.  A concurrent `cfg add-module`, a splat
+    # import's arch patch or a `doctor --fix` would have its edit dropped by
+    # the replace with no error and no trace.
+    with project_toml_lock(root):
+        _add_target_locked(
+            root,
+            name,
+            binary,
+            arch=arch,
+            fmt=fmt,
+            origins=origins,
+            source_ext=source_ext,
+            copy_binary=copy_binary,
+            force=force,
+            dry_run=dry_run,
+            json_output=json_output,
+        )
+
+
+def _add_target_locked(
+    root: Path,
+    name: str,
+    binary: str,
+    *,
+    arch: str | None,
+    fmt: str | None,
+    origins: str | None,
+    source_ext: str | None,
+    copy_binary: bool,
+    force: bool,
+    dry_run: bool,
+    json_output: bool,
+) -> None:
+    """``add-target``'s body; the caller holds ``project_toml_lock``."""
     doc, toml_path = load_toml(root, json_mode=json_output)
 
     # The name becomes src/<name>/ and bin/<name>/ and a durable TOML key.
@@ -785,24 +838,34 @@ def remove_target(
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
     """Remove a target section from rebrew-project.toml (idempotent)."""
-    doc, toml_path = load_toml(json_mode=json_output)
+    with project_toml_lock(_find_root(json_mode=json_output)):
+        _remove_target_locked(name, force=force, dry_run=dry_run, json_mode=json_output)
+
+
+def _remove_target_locked(name: str, *, force: bool, dry_run: bool, json_mode: bool) -> None:
+    """``remove-target``'s body; the caller holds ``project_toml_lock``.
+
+    Read, edit, and write stay in one critical section: a concurrent writer of
+    another target's stanza must not have its edit dropped by the replace here.
+    """
+    doc, toml_path = load_toml(json_mode=json_mode)
     targets = doc.get("targets", {})
     if name not in targets:
-        if json_output:
+        if json_mode:
             json_print({"removed": False, "target": name, "already_removed": True})
         else:
             console.print(f"[yellow]Target '{name}' not found (already removed).[/yellow]")
         return
 
     if dry_run:
-        if json_output:
+        if json_mode:
             json_print({"removed": False, "target": name, "dry_run": True})
         else:
             console.print(f'[cyan]dry-run:[/cyan] would remove [targets."{name}"]')
         return
     if not force:
         # Interactive confirm breaks scripted --json; require --force instead.
-        if json_output:
+        if json_mode:
             error_exit(
                 f"refusing to remove target '{name}' without --force under --json "
                 "(no interactive confirm)",
@@ -810,8 +873,8 @@ def remove_target(
             )
         confirm_abort(f"Remove target '{name}' from rebrew-project.toml?")
     del targets[name]
-    save_toml(doc, toml_path, json_mode=json_output)
-    if json_output:
+    save_toml(doc, toml_path, json_mode=json_mode)
+    if json_mode:
         json_print({"removed": True, "target": name})
         return
     console.print(f'[green]Removed [targets."{name}"] from rebrew-project.toml[/green]')
@@ -828,7 +891,18 @@ def set_value(
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
     """Set a scalar config key."""
-    doc, toml_path = load_toml(json_mode=json_output)
+    with project_toml_lock(_find_root(json_mode=json_output)):
+        _set_value_locked(key, value, dry_run=dry_run, json_mode=json_output)
+
+
+def _set_value_locked(key: str, value: str, *, dry_run: bool, json_mode: bool) -> None:
+    """``set``'s body; the caller holds ``project_toml_lock``.
+
+    The routing and validation below read the document to decide *where* the
+    value lands, so the whole of it stays inside the critical section with the
+    write — otherwise a concurrent writer's edit is dropped by the replace.
+    """
+    doc, toml_path = load_toml(json_mode=json_mode)
 
     # Route bare target-scoped keys to the default target so `cfg set binary
     # foo.exe` writes [targets.<default>] instead of a top-level key that the
@@ -836,14 +910,14 @@ def set_value(
     # project-scoped keys route to [project] the same way, since the reader
     # rejects a top-level `jobs = 8` as an unrecognized key.
     if "." not in key and "targets" in doc and key in _TARGET_SCOPED_KEYS:
-        target = _resolve_target(doc, None, json_mode=json_output)
+        target = _resolve_target(doc, None, json_mode=json_mode)
         routed = f"targets.{target}.{key}"
-        if not json_output:
+        if not json_mode:
             console.print(f"[dim]note: {key} is target-scoped → setting {routed}[/dim]")
         key = routed
     elif "." not in key and key in _PROJECT_SCOPED_KEYS:
         routed = f"project.{key}"
-        if not json_output:
+        if not json_mode:
             console.print(f"[dim]note: {key} is project-scoped → setting {routed}[/dim]")
         key = routed
 
@@ -856,7 +930,7 @@ def set_value(
             "set REBREW_LLM_API_KEY in the environment, or clear with "
             f"`rebrew cfg set {key} ''`",
             code=EXIT_ERROR,
-            json_mode=json_output,
+            json_mode=json_mode,
         )
 
     # Resolve dotted key path (creates intermediate tables as needed)
@@ -882,7 +956,7 @@ def set_value(
         try:
             parsed_value = validate_http_url(str(parsed_value), url_label)
         except ValueError as exc:
-            error_exit(str(exc), code=EXIT_ERROR, json_mode=json_output)
+            error_exit(str(exc), code=EXIT_ERROR, json_mode=json_mode)
 
     leaf = key.rsplit(".", 1)[-1]
     parts = key.split(".")
@@ -892,7 +966,7 @@ def set_value(
 
             validate_llm_model(str(parsed_value))
         except ValueError as exc:
-            error_exit(str(exc), code=EXIT_ERROR, json_mode=json_output)
+            error_exit(str(exc), code=EXIT_ERROR, json_mode=json_mode)
 
     llm_budget_parser = _llm_budget_parser(leaf, parts)
     if llm_budget_parser is not None and parsed_value != "":
@@ -900,7 +974,7 @@ def set_value(
             llm_budget_parser(str(parsed_value))
         except ValueError as exc:
             # The parser names its env var; the value was typed as a key.
-            error_exit(f"{key} = {value!r}: {exc}", code=EXIT_ERROR, json_mode=json_output)
+            error_exit(f"{key} = {value!r}: {exc}", code=EXIT_ERROR, json_mode=json_mode)
 
     if (leaf == "format" or key == "format") and parsed_value:
         from rebrew.config import KNOWN_FORMATS
@@ -909,21 +983,21 @@ def set_value(
             error_exit(
                 f"unknown format {parsed_value!r} (known: {', '.join(sorted(KNOWN_FORMATS))})",
                 code=EXIT_ERROR,
-                json_mode=json_output,
+                json_mode=json_mode,
             )
 
     if (leaf == "arch" or key == "arch") and parsed_value and parsed_value not in ARCH_PRESETS:
         error_exit(
             f"unknown arch {parsed_value!r} (known: {', '.join(sorted(ARCH_PRESETS))})",
             code=EXIT_ERROR,
-            json_mode=json_output,
+            json_mode=json_mode,
         )
 
     if leaf in _BOOL_CONFIG_KEYS and not isinstance(parsed_value, bool):
         error_exit(
             f"{key} = {value!r} is not a boolean; use 'true' or 'false'",
             code=EXIT_ERROR,
-            json_mode=json_output,
+            json_mode=json_mode,
         )
 
     if (
@@ -934,7 +1008,7 @@ def set_value(
         error_exit(
             f"unknown ghidra_backend {parsed_value!r} (known: reva, cli)",
             code=EXIT_ERROR,
-            json_mode=json_output,
+            json_mode=json_mode,
         )
 
     if (leaf == "backend" and "cache" in parts) and parsed_value:
@@ -946,19 +1020,19 @@ def set_value(
                 f"cache.backend = {parsed_value!r} is not a registered backend "
                 f"(known: {', '.join(known_backends)})",
                 code=EXIT_ERROR,
-                json_mode=json_output,
+                json_mode=json_mode,
             )
 
     shown = _display_config_value(key, parsed_value)
     if dry_run:
-        if json_output:
+        if json_mode:
             json_print({"key": key, "value": parsed_value, "dry_run": True})
         else:
             console.print(f"[cyan]dry-run:[/cyan] would set {key} = {shown!r}")
         return
     parent[final_key] = parsed_value
     save_toml(doc, toml_path)
-    if json_output:
+    if json_mode:
         json_print({"key": key, "value": parsed_value, "path": str(toml_path)})
         return
     console.print(f"[green]Set {key} = {shown!r}[/green]")
@@ -972,8 +1046,19 @@ def add_module(
     target: str | None = TargetOption,
 ) -> None:
     """Add a module to a target's origins list."""
-    doc, toml_path = load_toml(json_mode=json_output)
-    target = _resolve_target(doc, target, json_mode=json_output)
+    with project_toml_lock(_find_root(json_mode=json_output)):
+        _add_module_locked(module, target=target, dry_run=dry_run, json_mode=json_output)
+
+
+def _add_module_locked(module: str, *, target: str | None, dry_run: bool, json_mode: bool) -> None:
+    """``add-module``'s body; the caller holds ``project_toml_lock``.
+
+    The append reads the target's current ``origins`` list, so a concurrent
+    append to the same list (or any other edit of this document) is lost
+    without the lock.
+    """
+    doc, toml_path = load_toml(json_mode=json_mode)
+    target = _resolve_target(doc, target, json_mode=json_mode)
     targets_table: Any = doc["targets"]
     tgt: Any = targets_table[target]
 
@@ -984,7 +1069,7 @@ def add_module(
 
     module_upper = preset_module_key(module)
     if any(preset_module_key(str(item)) == module_upper for item in origins):
-        if json_output:
+        if json_mode:
             json_print(
                 {
                     "added": False,
@@ -1000,7 +1085,7 @@ def add_module(
 
     new_origins = list(origins) + [module_upper]
     if dry_run:
-        if json_output:
+        if json_mode:
             json_print(
                 {
                     "added": False,
@@ -1020,8 +1105,8 @@ def add_module(
     # tomlkit copies plain lists on assignment — re-assign so the mutation
     # is visible to the document that save_toml serializes.
     tgt["origins"] = origins
-    save_toml(doc, toml_path, json_mode=json_output)
-    if json_output:
+    save_toml(doc, toml_path, json_mode=json_mode)
+    if json_mode:
         json_print(
             {
                 "added": True,
@@ -1045,15 +1130,29 @@ def remove_module(
     target: str | None = TargetOption,
 ) -> None:
     """Remove a module from a target's origins list (idempotent)."""
-    doc, toml_path = load_toml(json_mode=json_output)
-    target = _resolve_target(doc, target, json_mode=json_output)
+    with project_toml_lock(_find_root(json_mode=json_output)):
+        _remove_module_locked(
+            module, target=target, force=force, dry_run=dry_run, json_mode=json_output
+        )
+
+
+def _remove_module_locked(
+    module: str, *, target: str | None, force: bool, dry_run: bool, json_mode: bool
+) -> None:
+    """``remove-module``'s body; the caller holds ``project_toml_lock``.
+
+    Reads the target's current ``origins`` to decide presence, then rewrites
+    the list: a concurrent append would be dropped by the write without it.
+    """
+    doc, toml_path = load_toml(json_mode=json_mode)
+    target = _resolve_target(doc, target, json_mode=json_mode)
     targets_table: Any = doc["targets"]
     tgt: Any = targets_table[target]
 
     module_upper = preset_module_key(module)
     origins = tgt.get("origins")
     if origins is None or not any(preset_module_key(str(item)) == module_upper for item in origins):
-        if json_output:
+        if json_mode:
             json_print(
                 {
                     "removed": False,
@@ -1070,7 +1169,7 @@ def remove_module(
 
     remaining = [o for o in origins if preset_module_key(str(o)) != module_upper]
     if dry_run:
-        if json_output:
+        if json_mode:
             json_print(
                 {
                     "removed": False,
@@ -1088,7 +1187,7 @@ def remove_module(
         return
     if not force:
         # Interactive confirm breaks scripted --json; require --force instead.
-        if json_output:
+        if json_mode:
             error_exit(
                 f"refusing to remove module '{module_upper}' without --force under --json "
                 "(no interactive confirm)",
@@ -1097,8 +1196,8 @@ def remove_module(
         confirm_abort(f"Remove module '{module_upper}' from target '{target}'?")
     for item in [o for o in list(origins) if preset_module_key(str(o)) == module_upper]:
         origins.remove(item)
-    save_toml(doc, toml_path, json_mode=json_output)
-    if json_output:
+    save_toml(doc, toml_path, json_mode=json_mode)
+    if json_mode:
         json_print(
             {
                 "removed": True,
@@ -1127,14 +1226,26 @@ def set_cflags(
     ),
 ) -> None:
     """Set cflags preset for a module."""
-    doc, toml_path = load_toml(json_mode=json_output)
+    with project_toml_lock(_find_root(json_mode=json_output)):
+        _set_cflags_locked(module, flags, target=target, dry_run=dry_run, json_mode=json_output)
+
+
+def _set_cflags_locked(
+    module: str, flags: str, *, target: str | None, dry_run: bool, json_mode: bool
+) -> None:
+    """``set-cflags``'s body; the caller holds ``project_toml_lock``.
+
+    Which table the preset lands in (target-scoped or global) is decided by
+    reading the document, so the decision and the write must be one section.
+    """
+    doc, toml_path = load_toml(json_mode=json_mode)
     preset_key = preset_module_key(module)
 
     if target is not None:
         # Per-target cflags_presets — written under the target's COMPILER
         # sub-table, which is where _merge_cflags_presets reads them from
         # (writing [targets.X.cflags_presets] was a silent no-op).
-        target = _resolve_target(doc, target, json_mode=json_output)
+        target = _resolve_target(doc, target, json_mode=json_mode)
         targets_table: Any = doc["targets"]
         tgt: Any = targets_table[target]
         compiler_tbl = tgt.get("compiler")
@@ -1161,7 +1272,7 @@ def set_cflags(
         scope = "compiler"
 
     if dry_run:
-        if json_output:
+        if json_mode:
             json_print({"scope": scope, "module": preset_key, "cflags": flags, "dry_run": True})
         else:
             console.print(
@@ -1169,7 +1280,7 @@ def set_cflags(
             )
         return
     save_toml(doc, toml_path)
-    if json_output:
+    if json_mode:
         json_print({"scope": scope, "module": preset_key, "cflags": flags, "path": str(toml_path)})
         return
     console.print(f'[green]Set {scope}.cflags_presets.{preset_key} = "{flags}"[/green]')
@@ -1204,8 +1315,19 @@ def set_compiler(
             json_mode=json_output,
         )
 
-    doc, toml_path = load_toml(json_mode=json_output)
-    target_name = _resolve_target(doc, target, json_mode=json_output)
+    # The lock covers the load and the write, not the profile lookup above:
+    # resolving the target name reads the document, and a concurrent edit of
+    # another target's compiler stanza would be dropped by the replace below.
+    with project_toml_lock(_find_root(json_mode=json_output)):
+        _set_compiler_locked(target, profile, defaults, dry_run=dry_run, json_mode=json_output)
+
+
+def _set_compiler_locked(
+    target: str, profile: str, defaults: dict[str, Any], *, dry_run: bool, json_mode: bool
+) -> None:
+    """``set-compiler``'s body; the caller holds ``project_toml_lock``."""
+    doc, toml_path = load_toml(json_mode=json_mode)
+    target_name = _resolve_target(doc, target, json_mode=json_mode)
 
     preset = defaults[profile]
 
@@ -1238,7 +1360,7 @@ def set_compiler(
     compiler_tbl["libs"] = preset["libs"]
 
     if dry_run:
-        if json_output:
+        if json_mode:
             json_print({"target": target_name, "profile": profile, "dry_run": True, **preset})
         else:
             console.print(
@@ -1246,7 +1368,7 @@ def set_compiler(
             )
         return
     save_toml(doc, toml_path)
-    if json_output:
+    if json_mode:
         json_print(
             {
                 "target": target_name,
@@ -1293,25 +1415,26 @@ def detect_crt(
             json_print(result)
             return
         if write:
-            doc, toml_path = load_toml(root, json_mode=True)
-            target_name = _resolve_target(doc, target, json_mode=True)
-            targets_table: Any = doc["targets"]
-            tgt: Any = targets_table[target_name]
-            crt_sources = tgt.get("crt_sources")
-            if crt_sources is None:
-                crt_sources = tomlkit.table()
-                tgt["crt_sources"] = crt_sources
-            written = 0
-            for origin, rel_path in sorted(detected.items()):
-                if origin not in crt_sources:
-                    if not dry_run:
-                        crt_sources[origin] = rel_path
-                    written += 1
-            if written and not dry_run:
-                save_toml(doc, toml_path, json_mode=True)
-            result["target"] = target_name
-            result["written"] = written
-            result["dry_run"] = dry_run
+            with project_toml_lock(root):
+                doc, toml_path = load_toml(root, json_mode=True)
+                target_name = _resolve_target(doc, target, json_mode=True)
+                targets_table: Any = doc["targets"]
+                tgt: Any = targets_table[target_name]
+                crt_sources = tgt.get("crt_sources")
+                if crt_sources is None:
+                    crt_sources = tomlkit.table()
+                    tgt["crt_sources"] = crt_sources
+                written = 0
+                for origin, rel_path in sorted(detected.items()):
+                    if origin not in crt_sources:
+                        if not dry_run:
+                            crt_sources[origin] = rel_path
+                        written += 1
+                if written and not dry_run:
+                    save_toml(doc, toml_path, json_mode=True)
+                result["target"] = target_name
+                result["written"] = written
+                result["dry_run"] = dry_run
         json_print(result)
         return
 
@@ -1326,29 +1449,35 @@ def detect_crt(
         console.print("[cyan]dry-run:[/cyan] would write detected crt_sources entries")
         return
     if write:
-        doc, toml_path = load_toml(root)
-        target_name = _resolve_target(doc, target)
-        cfg_targets_table: Any = doc["targets"]
-        cfg_tgt: Any = cfg_targets_table[target_name]
+        # The load reads the target's existing crt_sources, so the read and
+        # the write must be one section; a concurrent writer of another key
+        # would have its edit dropped by the replace.
+        with project_toml_lock(root):
+            doc, toml_path = load_toml(root)
+            target_name = _resolve_target(doc, target)
+            cfg_targets_table: Any = doc["targets"]
+            cfg_tgt: Any = cfg_targets_table[target_name]
 
-        crt_sources = cfg_tgt.get("crt_sources")
-        if crt_sources is None:
-            crt_sources = tomlkit.table()
-            cfg_tgt["crt_sources"] = crt_sources
+            crt_sources = cfg_tgt.get("crt_sources")
+            if crt_sources is None:
+                crt_sources = tomlkit.table()
+                cfg_tgt["crt_sources"] = crt_sources
 
-        written = 0
-        for origin, rel_path in sorted(detected.items()):
-            if origin not in crt_sources:
-                crt_sources[origin] = rel_path
-                written += 1
+            written = 0
+            for origin, rel_path in sorted(detected.items()):
+                if origin not in crt_sources:
+                    crt_sources[origin] = rel_path
+                    written += 1
 
-        if written:
-            save_toml(doc, toml_path)
-            console.print(
-                f'[green]Wrote {written} crt_sources entries to [targets."{target_name}"].[/green]'
-            )
-        else:
-            console.print("[yellow]All detected paths already configured (no changes).[/yellow]")
+            if written:
+                save_toml(doc, toml_path)
+                console.print(
+                    f'[green]Wrote {written} crt_sources entries to [targets."{target_name}"].[/green]'
+                )
+            else:
+                console.print(
+                    "[yellow]All detected paths already configured (no changes).[/yellow]"
+                )
 
 
 # ---------------------------------------------------------------------------

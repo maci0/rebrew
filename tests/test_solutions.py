@@ -703,6 +703,42 @@ class TestGaRunHistory:
             )
         assert log_path.read_bytes() == before
 
+    def test_the_prune_publishes_durably(self, project_root: Path, monkeypatch) -> None:
+        """The prune's rewrite is fsynced before it replaces the log.
+
+        The rewrite republishes the whole log, wins included, and the log is
+        the only copy of a GA outcome — hours of compile-and-compare.  A bare
+        ``write_text`` + ``os.replace`` leaves the new inode's blocks in page
+        cache only, so a power cut can publish the file and drop its contents.
+        The shared atomic replace fsyncs the temp file and the parent
+        directory; this pins that the prune goes through it.
+        """
+        from rebrew.matcher import solutions as solutions_mod
+
+        monkeypatch.setattr(solutions_mod, "_PRUNE_MIN_BYTES", 1)
+        monkeypatch.setattr(solutions_mod, "_LOSS_RECORD_RETENTION", 1)
+        record_ga_run(project_root, target="SERVER", va=0x1000, symbol="_win", matched=True)
+        for i in range(3):
+            record_ga_run(
+                project_root, target="SERVER", va=0x2000 + i, symbol=f"_l{i}", matched=False
+            )
+
+        seen: list[Path] = []
+        real_atomic_replace = solutions_mod.atomic_write_bytes
+
+        def _spy(path: Path, data: bytes) -> None:
+            seen.append(Path(path))
+            # The prune's whole point is a rewrite, so this must actually run.
+            assert data
+            real_atomic_replace(path, data)
+
+        monkeypatch.setattr(solutions_mod, "atomic_write_bytes", _spy)
+        record_ga_run(project_root, target="SERVER", va=0x9000, symbol="_later", matched=False)
+
+        assert seen, "prune rewrote the log without the durable atomic replace"
+        # The win survives the rewrite the prune just did.
+        assert [r["symbol"] for r in iter_ga_runs(project_root) if r["matched"]] == ["_win"]
+
 
 class TestLoadSolutionsFile:
     """load_solutions_file — explicit-path loading for cross-project seeding."""

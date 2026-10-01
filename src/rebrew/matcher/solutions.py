@@ -31,7 +31,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from rebrew.utils import file_lock
+from rebrew.utils import atomic_write_bytes, file_lock
 
 log = logging.getLogger(__name__)
 
@@ -677,14 +677,19 @@ def _prune_loss_records(path: Path) -> None:
     kept = [raw for raw, keep_now in zip(lines, reversed(keep), strict=True) if keep_now]
     if len(kept) == len(lines):
         return
-    tmp = path.with_name(path.name + ".prune")
+    # Publish through the shared atomic replace, not a hand-rolled
+    # ``write_text`` + ``os.replace``: this rewrite republishes the whole log,
+    # wins included, and a bare replace leaves the new inode's blocks in page
+    # cache only.  A power cut can then leave the file published and empty,
+    # dropping every win in it — the one store with no other copy.  The shared
+    # helper fsyncs the temp file and the parent directory before and after the
+    # replace, and removes its temp on failure, so the log survives a crash
+    # mid-prune.  ``errors="replace"`` is preserved from the read above: a line
+    # that did not decode stays decodable on the way back out.
     try:
-        tmp.write_text("".join(kept), encoding="utf-8")
-        os.replace(tmp, path)
+        atomic_write_bytes(path, "".join(kept).encode("utf-8"))
     except OSError:
         log.warning("Cannot prune GA run log %s", path, exc_info=True)
-        with contextlib.suppress(OSError):
-            tmp.unlink()
 
 
 def load_ga_runs(
