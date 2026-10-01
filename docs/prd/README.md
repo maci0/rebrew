@@ -1,7 +1,9 @@
 # Rebrew Product Requirements Documents
 
-This directory contains feature-level PRDs that describe what Rebrew does
-today (not aspirational design docs). Each PRD captures:
+This directory records feature requirements and their implementation status.
+PRDs may preserve historical examples or unshipped requirements; their status
+lines define that scope. Use [CLI.md](../CLI.md) and the current topical guides
+for executable commands and runtime contracts. Each PRD captures:
 
 - The product problem the feature solves
 - Target users
@@ -35,18 +37,7 @@ place, 3 resolved by the BinSync-primary rework).
 
 ## Coverage
 
-The nine PRDs above cover the core reversing loop, not the whole CLI:
-`rebrew --help` lists 101 top-level commands, and 66 of them are named in no
-PRD in this directory (`toolchain`, `library`, `dashboard`, `diagnose`, the
-`*-scan` family, and others). Re-measured 2026-09-29:
-
-```bash
-rebrew --help | grep -oP '^│ \K[a-z][a-z0-9-]*(?= )' | sort -u > cmds.txt
-while read -r c; do grep -qrE "rebrew $c( |\$)" . || echo "$c"; done < cmds.txt | wc -l
-```
-
-(A command is counted as covered when a `rebrew <command>` mention appears in
-any file of this directory, so a PRD that cites it only as a subcommand does
-not count.)
+The nine feature PRDs cover the core reversing loop, not the entire CLI.
 A command absent from this directory is uncovered, not unplanned.
-`docs/CLI.md` is the exhaustive command reference.
+[CLI.md](../CLI.md) is the exhaustive command reference; `rebrew --help`
+shows the installed surface, including plugins.

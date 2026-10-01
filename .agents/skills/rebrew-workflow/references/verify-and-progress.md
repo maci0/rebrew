@@ -21,7 +21,7 @@ rebrew orphans --prune --dry-run        # preview prune (EXACT/RELOC/PROVEN held
 rebrew verify --prune-orphans --dry-run # preview the same prune inside a verify pass
 rebrew verify --prune-orphans           # deletes orphan blocks; --dry-run / --no-promote only counts
 rebrew orphans drop 0x<VA> --dry-run    # preview one VA's block (functions + data)
-rebrew orphans drop 0x<VA>              # delete it; no undo, confirm with the user first
+rebrew orphans drop 0x<VA>              # delete only when this removal is explicitly authorized; no undo
 rebrew types                            # struct layouts vs decompiler evidence
 rebrew types apply-type <file> --param N --type T
 rebrew verify --data --built build/bench
@@ -36,8 +36,10 @@ EXACT/RELOC clears BLOCKER unless the source still has `__asm`, `_asm`, or `__em
 (kept; lint W020). Exit 1 if any function fails. `passed` counts EXACT/RELOC only.
 `rebrew lint` exit 1 on errors. Link-only files use `// SUPPORT: <MODULE> <reason>`.
 
-`verify --data` suppresses DRIFT status write-backs unless `--raw-link` says the
-built binary is a raw link; without it `rebrew todo --category data-drift` stays empty.
+`verify --data` reports comparisons but suppresses all stored data verdict and
+evidence writes unless `--raw-link` acknowledges the built image, or configured
+`raw_link` selects it. Existing stored verdicts remain unchanged without that
+acknowledgment. Compare the raw link to avoid counting postlink-copied bytes.
 
 ## Coverage / interchange
 
@@ -63,5 +65,7 @@ stamp, globals, `verify_results` rows and the `history` change log. It is
 gitignored build output: regenerate it with `rebrew build-db`, never edit it,
 and delete any older `db/coverage.db`, `db/data_bench.json` or `db/*.csv`
 (`rebrew lint` reports them, W032). The canonical provenance lives in the
-TOML stores: `UPDATED_BY` / `UPDATED_AT` are written by the tool that made the
-change, in `rebrew-functions.toml` and `rebrew-data.toml` alike.
+TOML stores: `UPDATED_BY` / `UPDATED_AT` describe ordinary changes, `ORIGINS`
+records accepted external fields, and `VERIFICATION` records comparison inputs
+and measurement time. The coverage document does not mirror those nested
+provenance tables. Deleting derived coverage/cache files does not delete them.

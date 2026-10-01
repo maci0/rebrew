@@ -504,10 +504,10 @@ class TestBinsyncExportModuleFilter:
 
 
 class TestBinsyncStructFields:
-    def test_parse_struct_fields(self) -> None:
-        from rebrew.binsync.export import _parse_struct_fields
+    def testparse_struct_fields(self) -> None:
+        from rebrew.binsync.state import parse_struct_fields
 
-        fields = _parse_struct_fields("typedef struct { int x; int y; char name[32]; } Foo;")
+        fields = parse_struct_fields("typedef struct { int x; int y; char name[32]; } Foo;")
         names = [f["name"] for f in fields]
         assert "x" in names and "y" in names and "name" in names
 
@@ -857,7 +857,7 @@ class TestManifest:
 class TestScanAnalysisComments:
     def test_cp1252_analysis_comment_preserves_non_ascii(self, tmp_path: Path) -> None:
         """UTF-8-replace would turn Café into CafU+FFFD; detected CP1252 keeps é."""
-        from rebrew.binsync.export import _scan_analysis_comments
+        from rebrew.binsync.state import scan_analysis_comments
 
         src = tmp_path / "src"
         src.mkdir()
@@ -868,7 +868,7 @@ class TestScanAnalysisComments:
         )
         cfg = SimpleNamespace(reversed_dir=src, shared_dir=None, source_ext=".c")
         entries = [SimpleNamespace(va=0x10001000, size=0x20)]
-        out = _scan_analysis_comments(cast(Any, cfg), cast(list[object], entries))
+        out = scan_analysis_comments(cast(Any, cfg), cast(list[object], entries))
         assert 0x1006 in out
         _owner, comment = out[0x1006]
         assert comment == "Café note"
@@ -917,7 +917,7 @@ class TestBinaryHashAndSharedTypes:
     def test_failing_header_does_not_drop_later_structs(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import rebrew.binsync.export as export_mod
+        import rebrew.binsync.state as state_mod
 
         _make_project(tmp_path, {"foo.c": self._FOO})
         src = tmp_path / "src"
@@ -925,14 +925,14 @@ class TestBinaryHashAndSharedTypes:
         (src / "point.h").write_text(
             "typedef struct {\n    int x;\n    int y;\n} Point;\n", encoding="utf-8"
         )
-        real_parse = export_mod._parse_struct_fields
+        real_parse = state_mod.parse_struct_fields
 
         def _parse(text: str) -> list[dict[str, Any]]:
             if "Bad" in text:
                 raise ValueError("boom")
             return real_parse(text)
 
-        monkeypatch.setattr(export_mod, "_parse_struct_fields", _parse)
+        monkeypatch.setattr("rebrew.binsync.state.parse_struct_fields", _parse)
         result, outdir = _invoke(tmp_path, monkeypatch)
         assert result.exit_code == 0, result.output
         assert (outdir / "structs" / "Point.toml").exists()

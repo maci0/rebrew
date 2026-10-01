@@ -47,7 +47,9 @@ which makes them good next-matching candidates.
 `verify --data --json` includes a `data.results` row for every visible named
 symbol: `{module, va, name, size, status}` plus `first_diff` on a content
 mismatch. Identity is `(module, va)`; aliases keep separate verdicts and
-symbols from another target are excluded. Incomplete reference bytes remain
+symbols from another target are excluded. The result row also carries
+`input_hash` and `definition_hash`; only an acknowledged raw-link comparison
+writes them into canonical verification evidence. Incomplete reference bytes remain
 `UNCHECKED`; missing or truncated built bytes are `DRIFT`.
 
 | Symptom | Cause | Fix |

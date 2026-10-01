@@ -2801,3 +2801,25 @@ class TestBooleanVocabulary:
         assert parse_env_bool("REBREW_X", "", default=True) is parse_bool(
             "REBREW_X", "", default=True
         )
+
+
+class TestSourceDateEpoch:
+    def test_unset_and_boundaries(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from rebrew.config import source_date_epoch
+
+        monkeypatch.delenv("SOURCE_DATE_EPOCH", raising=False)
+        assert source_date_epoch() is None
+        for value in ("0", "1071482016", "9223372036854775807"):
+            monkeypatch.setenv("SOURCE_DATE_EPOCH", value)
+            assert source_date_epoch() == value
+
+    @pytest.mark.parametrize(
+        "value", ["", "-1", "+1", " 1", "1\n", "１", "9223372036854775808", "9" * 100]
+    )
+    def test_invalid_epoch_is_reported(self, monkeypatch: pytest.MonkeyPatch, value: str) -> None:
+        from rebrew.config import ConfigError, env_knob_errors, source_date_epoch
+
+        monkeypatch.setenv("SOURCE_DATE_EPOCH", value)
+        with pytest.raises(ConfigError, match="SOURCE_DATE_EPOCH"):
+            source_date_epoch()
+        assert "SOURCE_DATE_EPOCH" in env_knob_errors({"SOURCE_DATE_EPOCH": value})

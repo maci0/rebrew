@@ -7,7 +7,7 @@ skipped.
 ## 1. Module
 
 Create `src/rebrew/<name>.py` following the CLI tool pattern (AGENTS.md):
-module docstring, `console = Console(stderr=True)`, `app = typer.Typer(...)`,
+module docstring, shared `console` from `rebrew.utils`, `app = typer.Typer(...)`,
 `@app.callback(invoke_without_command=True)` on `main()`, `main_entry()`
 (body: `run_standalone(main)` from `rebrew.cli`),
 `if __name__ == "__main__"` guard.
@@ -34,13 +34,10 @@ Conventions (CLI review will flag drift):
   Default `needs` are `cli` and `console`; `apply()` mounts only while
   those services are provided. Unmount is a tracked inverse (ADR 014).
   This is what makes `rebrew <name>` exist; no gate adds it for you.
-- `pyproject.toml` `[project.scripts]`: add
-  `rebrew-<name> = "rebrew.<module>:main_entry"` only when the command
-  should also run standalone. `rebrew <name>` works from the umbrella
-  either way, and many packaged commands ship without a script (bridge
-  binaries like `rebrew-cmake-cl` are scripts but not commands). When an
-  entry exists, `tests/test_docs_hygiene.py` pins it to a live attribute
-  on a `@app.callback`/`@app.command` module.
+- Leave `pyproject.toml` `[project.scripts]` alone. People use one executable,
+  `rebrew`; only four machine-facing CMake/objdiff hooks have separate names
+  ([ADR 026](adr/026-unified-cli-entry-point.md)). `main_entry()` supports
+  direct module execution for development, not another installed executable.
 
 Third-party commands skip both: they register through the
 `rebrew.commands` entry-point group and are discovered at startup
@@ -51,7 +48,7 @@ ignored with a warning: built-ins win.
 
 - `docs/CLI.md`: one table row + one `### rebrew <name>` detail section
   with the full invocation line and an options table.
-- `README.md` tool table: one row if user-facing.
+- Keep the README quick start short; put the command reference in `docs/CLI.md`.
 - Agent skill: name the command in a `SKILL.md` or `references/*.md`
   under `src/rebrew/agent-skills/`, or add the carve-out to
   `_SKILL_OUT_OF_SCOPE` in `tests/test_docs_hygiene.py` with a reason.

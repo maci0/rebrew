@@ -105,7 +105,7 @@ def get_ts_parser() -> tuple[Any, Any] | None:
         return None
 
 
-def parse_c_source(source: str | bytes) -> Any:
+def parse_c_source(source: str | bytes) -> tuple[Any, bytes]:
     """Parse C source and return (tree, source_bytes) as a tuple."""
     parser, _ = _get_parser()
     if isinstance(source, str):
@@ -707,3 +707,64 @@ def type_from_declaration(decl: str, var_name: str) -> str | None:
         if prefix:
             return prefix
     return None
+
+
+def _mask_cc(source: str) -> str:
+    """Hide compiler extensions while retaining AST byte offsets in the original text."""
+    return _DECLSPEC_PATTERN.sub(
+        lambda m: " " * len(m.group()), _CC_PATTERN.sub(lambda m: " " * len(m.group()), source)
+    )
+
+
+def prototype_name_span(prototype: str) -> tuple[str, int, int] | None:
+    """Return the function identifier and its byte span in a C declarator."""
+    tree, source = parse_c_source(_mask_cc(prototype.rstrip(";") + ";"))
+    for declaration in tree.root_node.children:
+        declarator = declaration.child_by_field_name("declarator")
+        if declarator is None:
+            continue
+        name = find_function_name_in_node(declarator, source)
+        if not name:
+            continue
+        pending = [declarator]
+        while pending:
+            node = pending.pop()
+            if node.type == "identifier" and node_text(node, source) == name:
+                return name, int(node.start_byte), int(node.end_byte)
+            pending.extend(reversed(node.children))
+    return None
+
+
+def replace_function_prototype(source: str, name: str, prototype: str) -> str:
+    """Replace one definition's signature through the AST, preserving its body and name.
+
+    Raises ValueError when the signature or the selected definition cannot be
+    found. Names sync separately, so the received declarator's identifier is
+    replaced by the existing function name before application.
+    """
+    span = prototype_name_span(prototype)
+    if span is None:
+        raise ValueError("prototype has no function declarator")
+    _remote_name, start, end = span
+    encoded = prototype.rstrip().rstrip(";").encode("utf-8", errors="surrogateescape")
+    signature = encoded[:start] + name.encode("ascii") + encoded[end:]
+    tree, parsed = parse_c_source(_mask_cc(source))
+    raw = source.encode("utf-8", errors="surrogateescape")
+    pending = [tree.root_node]
+    while pending:
+        node = pending.pop()
+        if node.type == "function_definition":
+            declarator = node.child_by_field_name("declarator")
+            body = node.child_by_field_name("body")
+            if (
+                declarator is not None
+                and body is not None
+                and find_function_name_in_node(declarator, parsed) == name
+            ):
+                updated = (
+                    raw[: node.start_byte] + signature.rstrip() + b" " + raw[body.start_byte :]
+                )
+                return updated.decode("utf-8", errors="surrogateescape")
+        elif node.type != "ERROR":
+            pending.extend(reversed(node.children))
+    raise ValueError(f"no function definition for {name!r}")

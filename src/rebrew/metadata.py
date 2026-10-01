@@ -189,36 +189,8 @@ _CANONICAL_ORDER = [
 ]
 
 # Fields that live in the metadata — routing table used by update/delete helpers.
-METADATA_FIELDS: frozenset[str] = frozenset(
-    {
-        "STATUS",
-        "SIZE",
-        "CFLAGS",
-        "TOOLCHAIN",
-        "BLOCKER",
-        "BLOCKER_DELTA",
-        "NOTE",
-        "GHIDRA",
-        "ANALYSIS",
-        "SKIP",
-        "GLOBALS",
-        # LOCALS is the stack-variable map (rebrew-functions.toml [<mod>.<va>.locals]);
-        # COMMENTS is the per-instruction comment map.  Both are declib-backed.
-        "LOCALS",
-        "COMMENTS",
-        # ORIGIN is derivable from the FUNCTION: marker module field.
-        "SOURCE",
-        "PROVE_CONSTRAINTS",
-        # Provenance of the last STATUS write (writer + timestamp).
-        "UPDATED_BY",
-        "UPDATED_AT",
-        # NOTE: SECTION is intentionally absent — it is owned by data_metadata.py
-        # for DATA/GLOBAL annotations and must not be written to rebrew-functions.toml.
-    }
-)
+METADATA_FIELDS: frozenset[str]
 
-#: Case-folded field names, so a per-function writer does not rebuild the set.
-_LOWER_METADATA_FIELDS = frozenset(f.lower() for f in METADATA_FIELDS)
 
 __all__ = [
     "FORMAT_KEY",
@@ -233,6 +205,10 @@ __all__ = [
     "MARKER_IDENTITY_FIELDS",
     "MATCHED_STATUSES",
     "METADATA_FIELDS",
+    "METADATA_FIELD_TYPES",
+    "SYNC_FIELD_RULES",
+    "validate_provenance_table",
+    "record_verification",
     "METADATA_FILENAME",
     "all_library_presets",
     "apply_library_presets",
@@ -267,6 +243,7 @@ __all__ = [
     "should_promote_status",
     "stamp_format",
     "stamp_provenance",
+    "validate_metadata_field",
     "validate_identity_file",
     "update_field",
     "update_source_status",
@@ -298,10 +275,10 @@ def is_table_field(key: str) -> bool:
 
     Inline ``// KEY: value`` comments carry scalars only, so a caller migrating
     an inline key must not hand a string to a table field — ``update_field``
-    rejects it (``_validate_field``), which surfaced as a traceback out of
+    rejects it (``validate_metadata_field``), which surfaced as a traceback out of
     ``rebrew lint --fix``.
     """
-    return _FIELD_TYPES.get(key.lower()) is dict
+    return METADATA_FIELD_TYPES.get(key.lower()) is dict
 
 
 def metadata_path(directory: Path | str | Any) -> Path:
@@ -459,7 +436,7 @@ def _require_module(module: str) -> None:
         raise ValueError("metadata writes require a non-empty module")
 
 
-_FIELD_TYPES: dict[str, type | tuple[type, ...]] = {
+METADATA_FIELD_TYPES: dict[str, type | tuple[type, ...]] = {
     "size": int,
     "blocker_delta": (int, str),
     "cflags": str,
@@ -477,6 +454,8 @@ _FIELD_TYPES: dict[str, type | tuple[type, ...]] = {
     "prove_constraints": dict,
     "updated_by": str,
     "updated_at": str,
+    "origins": dict,
+    "verification": dict,
 }
 """Lower-case TOML key → accepted value type(s) for :func:`update_field`.
 
@@ -486,7 +465,78 @@ the truthy spellings the readers understand.
 """
 
 
-def _validate_field(key: str, value: Any) -> Any:
+METADATA_FIELDS = frozenset(key.upper() for key in METADATA_FIELD_TYPES)
+_LOWER_METADATA_FIELDS = frozenset(METADATA_FIELD_TYPES)
+
+#: Native integration fields: (local attribute, direction). STATUS is absent.
+SYNC_FIELD_RULES: dict[str, dict[str, tuple[str, str]]] = {
+    "function": {
+        "name": ("symbol", "both"),
+        "prototype": ("prototype", "both"),
+        "size": ("size", "push"),
+        "note": ("note", "both"),
+        "ghidra": ("ghidra", "both"),
+        "stack_vars": ("locals", "both"),
+        "comments": ("comments", "both"),
+    },
+    "struct": {"definition": ("definition", "both")},
+    "enum": {"definition": ("definition", "both")},
+    "typedef": {"definition": ("definition", "both")},
+    "global": {
+        "name": ("name", "both"),
+        "type": ("type", "both"),
+        "size": ("size", "both"),
+    },
+}
+
+
+def validate_provenance_table(key: str, value: Any) -> Any:
+    """Validate durable evidence or per-field external origins at the write boundary."""
+    if not isinstance(value, dict):
+        raise ValueError(f"{key} must be a table")
+    if key == "origins":
+        for field, origin in value.items():
+            if not isinstance(field, str) or field not in {
+                name for rules in SYNC_FIELD_RULES.values() for name in rules
+            }:
+                raise ValueError(f"unknown origin field {field!r}")
+            if not isinstance(origin, dict) or any(
+                not isinstance(k, str) or not isinstance(v, str) for k, v in origin.items()
+            ):
+                raise ValueError(f"origin for {field!r} must contain string facts")
+    elif key == "verification":
+        required = {"status", "writer", "input_hash"}
+        if not required <= value.keys() or any(not isinstance(v, str) for v in value.values()):
+            raise ValueError("verification requires string status, writer and input_hash")
+        if len(value["input_hash"]) != 64 or any(
+            c not in "0123456789abcdef" for c in value["input_hash"]
+        ):
+            raise ValueError("verification input_hash must be a SHA256 digest")
+        if value["writer"] not in {"test", "verify"}:
+            raise ValueError("verification evidence is produced only by test/verify")
+    return value
+
+
+def record_verification(
+    entry: dict[str, Any], evidence: dict[str, Any], *, now: datetime | None = None
+) -> bool:
+    """Store changed measurement evidence without changing the ordinary edit stamp.
+
+    An identical verdict and input digest preserves measured_at, avoiding churn
+    on repeated checks. Input changes remain distinguishable even at the same status.
+    """
+    evidence = dict(validate_provenance_table("verification", evidence))
+    old = entry.get("verification") or {}
+    comparable = {k: v for k, v in old.items() if k != "measured_at"}
+    evidence.pop("measured_at", None)
+    if comparable == evidence:
+        return False
+    evidence["measured_at"] = (now or datetime.now(UTC)).isoformat(timespec="seconds")
+    entry["verification"] = evidence
+    return True
+
+
+def validate_metadata_field(key: str, value: Any) -> Any:
     """Validate *value* for lower-case TOML *key*; return the value to store.
 
     Raises :class:`ValueError` on an unknown key or a wrongly-typed value.
@@ -521,7 +571,9 @@ def _validate_field(key: str, value: Any) -> Any:
         with contextlib.suppress(ValueError):
             return int(value.strip(), 0)
         return value
-    want = _FIELD_TYPES.get(key)
+    if key in {"origins", "verification"}:
+        return validate_provenance_table(key, value)
+    want = METADATA_FIELD_TYPES.get(key)
     if want is not None and not isinstance(value, want):
         raise ValueError(f"{key} must be {want}, got {type(value).__name__}")
     return value
@@ -720,7 +772,7 @@ def set_fields(
                 raise ValueError(
                     "Use update_source_status() for STATUS changes — it enforces promotion rules"
                 )
-            safe = toml_safe(_validate_field(key, value))
+            safe = toml_safe(validate_metadata_field(key, value))
             if entry.get(key) != safe:
                 entry[key] = safe
                 changed = True
@@ -791,7 +843,7 @@ def set_fields_batch(
                 key = key.lower()
                 if key == "status":
                     raise ValueError("Use update_statuses_batch() for STATUS changes")
-                safe = toml_safe(_validate_field(key, value))
+                safe = toml_safe(validate_metadata_field(key, value))
                 if entry.get(key) != safe:
                     entry[key] = safe
                     changed = True
@@ -855,7 +907,7 @@ def record_migrated_markers(metadata_dir: Path | str | Any, rows: list[dict[str,
                 key = key.lower()
                 if key == "status":
                     raise ValueError("Use update_statuses_batch() for STATUS changes")
-                updates[key] = toml_safe(_validate_field(key, value))
+                updates[key] = toml_safe(validate_metadata_field(key, value))
             for key, value in (row.get("identity") or {}).items():
                 if key not in MARKER_IDENTITY_FIELDS:
                     raise ValueError(f"unknown marker identity field {key!r}")
@@ -1082,7 +1134,7 @@ def update_field(
         directory,
         va,
         key,
-        _validate_field(key, value),
+        validate_metadata_field(key, value),
         module=module,
         updated_by=updated_by,
         now=now,
@@ -1202,6 +1254,7 @@ def update_source_status(
     force: bool = False,
     updated_by: str = "",
     now: datetime | None = None,
+    verification: dict[str, Any] | None = None,
 ) -> bool:
     """Write STATUS for (module, va) to the metadata; never touches the .c file.
 
@@ -1227,6 +1280,7 @@ def update_source_status(
         updated_by: Provenance tag for the write (``test``/``verify``/``prove``/
             ``lint``/``binsync-import``/``intake``/``match``).  Recorded as
             ``updated_by`` with a UTC ``updated_at`` timestamp.
+        verification: Comparison evidence retained independently of ordinary edits.
         now: Instant that timestamp records, for a run replaying its own
             writes (see :func:`stamp_provenance`).  Unset reads the wall clock.
 
@@ -1255,6 +1309,7 @@ def update_source_status(
                     "clear_blockers": clear_blockers,
                     "force": force,
                     "updated_by": updated_by,
+                    "verification": verification,
                 }
             ],
             now=now,
@@ -1278,8 +1333,10 @@ def update_statuses_batch(
     *updates*: list of dicts with keys ``module``, ``va``, ``new_status``
     and optional ``clear_blockers`` (default True), ``force`` (default
     False), ``updated_by`` (provenance tag; when set, also records
-    ``updated_at``).  Returns the number of entries written, which counts a
-    same-status write that only stripped a stale blocker.  *now* fixes that
+    ``updated_at``), and ``fields`` (non-STATUS fields applied in the same
+    atomic write, even if STATUS stays parked). Returns the number of entries
+    written, including a same-status write that stripped a stale blocker or
+    changed associated fields. *now* fixes that
     one instant for every row the batch stamps, so a replay lands the same
     bytes (see :func:`stamp_provenance`).
 
@@ -1332,33 +1389,45 @@ def update_statuses_batch(
             clear_blockers = u.get("clear_blockers", True)
             force = u.get("force", False)
 
-            # Idempotency guard — avoid a write when nothing changed
             current_status = canonical_status(str(entry.get("status", "")))
             current_blocker = entry.get("blocker", "")
             current_blocker_delta = entry.get("blocker_delta")
-            if current_status == new_status and (
-                not clear_blockers or (not current_blocker and current_blocker_delta is None)
-            ):
-                continue
-
-            # Canonical promotion policy — only consulted for actual status
-            # changes; same-status writes proceed so clear_blockers can
-            # strip a stale blocker from an already-classified entry.
-            if (
+            status_change = (
                 current_status != new_status
-                and not force
-                and not should_promote_status(current_status, new_status)
-            ):
+                or (clear_blockers and (bool(current_blocker) or current_blocker_delta is not None))
+            ) and (
+                current_status == new_status
+                or force
+                or should_promote_status(current_status, new_status)
+            )
+            row_changed = bool(status_change)
+            if status_change:
+                entry["status"] = new_status
+                if clear_blockers:
+                    entry.pop("blocker", None)
+                    entry.pop("blocker_delta", None)
+            for key, value in (u.get("fields") or {}).items():
+                key = key.lower()
+                if key == "status":
+                    raise ValueError("Use new_status for STATUS changes")
+                safe = toml_safe(validate_metadata_field(key, value))
+                if entry.get(key) != safe:
+                    entry[key] = safe
+                    row_changed = True
+            evidence_changed = False
+            evidence = u.get("verification")
+            if evidence is not None and (current_status == new_status or status_change):
+                if str(u.get("updated_by") or "") not in {"test", "verify"}:
+                    raise ValueError("verification evidence requires a test/verify writer")
+                if evidence.get("writer") != str(u.get("updated_by") or ""):
+                    raise ValueError("verification writer must match the comparison producer")
+                if evidence.get("status") != new_status:
+                    raise ValueError("verification evidence must describe the compared status")
+                evidence_changed = record_verification(entry, evidence, now=now)
+            if not row_changed and not evidence_changed:
                 continue
-
-            entry["status"] = new_status
-            if clear_blockers:
-                with contextlib.suppress(KeyError):
-                    del entry["blocker"]
-                with contextlib.suppress(KeyError):
-                    del entry["blocker_delta"]
             updated_by = str(u.get("updated_by") or "")
-            if updated_by:
+            if updated_by and row_changed:
                 stamp_provenance(entry, updated_by, now=now)
             changed += 1
 
@@ -1412,6 +1481,11 @@ def apply_metadata_entry(ann: Annotation, entry: dict[str, Any]) -> None:
     the metadata once per file and apply it per function instead of
     re-loading the TOML for every annotation — the per-function hot path.
     """
+    for field in ("origins", "verification"):
+        value = entry.get(field)
+        if isinstance(value, dict):
+            setattr(ann, field, dict(value))
+
     if "size" in entry:
         try:
             ann.size = as_metadata_int(entry["size"])
@@ -1466,7 +1540,7 @@ def apply_metadata_entry(ann: Annotation, entry: dict[str, Any]) -> None:
     if "analysis" in entry and not ann.note:
         ann.note = str(entry["analysis"])
 
-    # _FIELD_TYPES admits str | int | bool; str() keeps the value comparable
+    # METADATA_FIELD_TYPES admits str | int | bool; str() keeps the value comparable
     # to the raw entry, and the SKIP check reads the falsy spellings itself.
     if "skip" in entry:
         ann.skip = str(entry["skip"])

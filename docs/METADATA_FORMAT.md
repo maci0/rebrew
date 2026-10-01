@@ -3,9 +3,9 @@
 > **Scope:** This document covers the **TOML metadata files** (`rebrew-functions.toml`,
 > `rebrew-data.toml`) that store volatile per-function fields (STATUS, SIZE, CFLAGS,
 > TOOLCHAIN, BLOCKER, BLOCKER_DELTA, NOTE, GHIDRA, ANALYSIS, SKIP, GLOBALS, LOCALS,
-> COMMENTS, SOURCE, PROVE_CONSTRAINTS, plus the write provenance UPDATED_BY / UPDATED_AT)
+> COMMENTS, SOURCE, PROVE_CONSTRAINTS, ORIGINS, VERIFICATION, and ordinary edit stamps UPDATED_BY / UPDATED_AT)
 > and data section metadata (NAME, TYPE, SIZE,
-> SECTION, NOTE, STATUS).
+> SECTION, NOTE, STATUS, ORIGINS, VERIFICATION).
 > For the source-file marker format (`// FUNCTION: MODULE 0xVA`) and `library_*.h`
 > headers see [ANNOTATIONS.md](ANNOTATIONS.md).
 > For the **full store map** (canonical vs derived vs cache, who owns which
@@ -16,8 +16,10 @@
 
 ## Layer 1: Inline reccmp Markers (in `.c` files)
 
-Only **one kind** of marker line remains inside source files: the
-reccmp-compatible marker line:
+Unmigrated function source carries a reccmp-compatible identity marker.
+`rebrew migrate-markers` moves function identity and inline fields into TOML
+and leaves pure C. Do not restore markers in migrated files. Data markers
+remain source-owned. An unmigrated function example:
 
 ```c
 // FUNCTION: SERVER 0x10008880
@@ -59,14 +61,14 @@ are never stored: `--fix` strips them instead of migrating.
 
 `STATUS`, `TOOLCHAIN`, `SKIP`, `GLOBALS`, `BLOCKER`, `BLOCKER_DELTA`, `NOTE`,
 `GHIDRA`, `ANALYSIS`, `SOURCE` (except `naked`), `PROVE_CONSTRAINTS`, `LOCALS`,
-`COMMENTS`
+`COMMENTS`, `ORIGINS`, `VERIFICATION`
 (`ORIGIN`, `UPDATED_BY` and `UPDATED_AT` also warn but are stripped, never
 stored; a stamp is written by the tools, so migrating an inline copy would
 overwrite the real one; `SECTION` on
 FUNCTION/LIBRARY/STUB markers is stripped; DATA/GLOBAL SECTION lives in
 `rebrew-data.toml`.  `SIZE`, `CFLAGS` and `SOURCE: naked` follow the
 co-read / file-borne rules above.  `LOCALS`, `COMMENTS` and
-`PROVE_CONSTRAINTS` are tables, so `--fix` warns but cannot migrate an inline
+`PROVE_CONSTRAINTS`, `ORIGINS`, and `VERIFICATION` are tables, so `--fix` warns but cannot migrate an inline
 scalar.)
 
 ## Layer 2: Metadata TOML Files
@@ -80,6 +82,11 @@ Keyed by `MODULE.0xVA`:
 Addresses use ASCII hexadecimal digits without spaces or underscores; `0X`
 is also accepted. Module names may contain dots and are normalized to Unicode
 NFC so cached and raw readers resolve the same identity.
+
+Multiple key spellings for the same `(module, VA)` are reported by lint W031.
+Readers merge their fields, with later values winning, and count the identity
+once. Granular writers refuse ambiguous stores before changing them, since
+updating or deleting one spelling can leave another overriding that change.
 
 ```toml
 ["SERVER.0x10008880"]
@@ -113,8 +120,23 @@ shapes that matter for a hand-written script or a review:
 | `NOTE`, `GHIDRA`, `ANALYSIS` | string | `update_field` (`rebrew blocker`/lint migrations, BinSync pull) |
 | `SKIP` | boolean | a manual park through `update_field`; the promotion gate then keeps the row parked (no status write silently unparks it) |
 | `GLOBALS`, `LOCALS`, `COMMENTS`, `PROVE_CONSTRAINTS` | `GLOBALS` a list of strings, the other three tables | `GLOBALS` from `rebrew sync --pull`, the rest from analysis and prove writers; an inline scalar for the three table fields warns (W019) but cannot migrate, while an inline `GLOBALS` migrates as a list |
-| `SOURCE` | `naked` (the only stored value) | stays in the `.c` as `// SOURCE: naked`: file-borne, W019-exempt, and self-clearing when the real C body replaces it; a non-naked value is migration debt that `lint --fix` moves into the TOML |
+| `SOURCE` | string | stays in the `.c` as `// SOURCE: naked`: file-borne, W019-exempt, and self-clearing when the real C body replaces it; a non-naked value is migration debt that `lint --fix` moves into the TOML |
+| `ORIGINS` | table keyed by native integration field | successful BinSync pulls; retains tool/user/snapshot and the accepted value digest |
+| `VERIFICATION` | table with status, writer, input_hash and measured_at | comparison writers; retained independently of ordinary edits |
 | `UPDATED_BY`, `UPDATED_AT` | string / ISO-8601 UTC | every gated writer, as a pair: STATUS through `update_source_status` / `update_statuses_batch`, every other field through `update_field` / `set_fields` (and `MetadataEntry.apply`) |
+
+Function writers and lint W031 share `validate_metadata_field`; W031 also
+reports unknown verdicts, incorrectly typed marker identities, and field
+names whose case would make readers ignore them. `MetadataEntry.apply`
+validates the complete edit and writes STATUS and associated fields in one
+atomic replacement. An invalid value or serialization failure leaves the
+previous verdict and blockers intact. STATUS parking rules still apply.
+`status` marks the last verification stale when function metadata changes
+after it, including compile input edits that leave the source untouched.
+
+Nested locals, comments, and constraint tables are sanitized before TOML
+serialization, including strings inside arrays and table keys. Sanitization
+that would merge distinct keys is rejected rather than discarding a value.
 
 **Provenance names the last write of any kind.** `UPDATED_BY` is one of
 `test`, `verify`, `prove`, `match`, `diff`, `near-diag`, `blocker`, `skeleton`,
@@ -154,6 +176,13 @@ The writers and lint W031 share this validation. A changed `name`, `type`,
 verification measures the new definition. Notes and unchanged values preserve
 the verdict. A batch may record a definition and its new measured verdict in
 the same atomic write.
+
+Without an explicit `size`, verification and accounting infer only supported
+fixed-size types and complete constant arrays under the x86_32 size model.
+Unknown typedefs/structs, unresolved or omitted bounds, complex declarators,
+and other architectures require an explicit size. They remain `UNCHECKED`
+instead of earning `VERIFIED` from a guessed matching prefix. Standard
+spellings such as `short int` retain their correct widths.
 
 Data verification reports and writes verdicts by `(module, VA)`, even when
 symbols share names or addresses. Each symbol is checked over its own extent;

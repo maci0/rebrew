@@ -5,8 +5,9 @@ NEAR_MATCHING sweeps. Start with `quick`/`targeted`; escalate only if needed.
 
 ## Safety
 
-Do **not** run `--tier thorough`, `--tier full`, or multi-hour `--all` GA/sweep
-batches unless the user explicitly asks. Prefer `--dry-run` / `--ga-history`
+Use `--tier thorough`, `--tier full`, or multi-hour `--all` GA/sweep batches
+only within an explicitly authorized time/scope. Do not request it again
+when the session already provides that authorization. Prefer `--dry-run` / `--ga-history`
 first. `thorough`/`full` product counts are huge; the engine stride-samples to a
 ~100k combo bound (see rebrew repo `docs/FLAG_SWEEP_TIERS.md`).
 
@@ -17,8 +18,8 @@ rebrew match src/bench/<file>.c --flag-sweep-only                      # targete
 rebrew match src/bench/<file>.c --flag-sweep-only --tier quick         # first pass
 rebrew match src/bench/<file>.c --flag-sweep-only --tier targeted
 rebrew match src/bench/<file>.c --flag-sweep-only --tier normal
-rebrew match src/bench/<file>.c --flag-sweep-only --tier thorough      # ask user first
-rebrew match src/bench/<file>.c --flag-sweep-only --tier full          # ask user first
+rebrew match src/bench/<file>.c --flag-sweep-only --tier thorough      # requires authorized long-run scope
+rebrew match src/bench/<file>.c --flag-sweep-only --tier full          # requires authorized long-run scope
 ```
 
 | Tier | Combinations (product) | When to use |
@@ -26,8 +27,8 @@ rebrew match src/bench/<file>.c --flag-sweep-only --tier full          # ask use
 | `quick` | 192 | First pass on a new STUB |
 | `targeted` | 1,152 | Default; when `quick` is close |
 | `normal` | 5,376 | General-purpose |
-| `thorough` | 258,048 | After `normal` still near: **ask user** |
-| `full` | 6,193,152 | Last resort: **ask user** (engine auto-samples; no `--sample` flag) |
+| `thorough` | 258,048 | After `normal` still near: Authorized long run |
+| `full` | 6,193,152 | Last resort: Authorized long run (engine auto-samples; no `--sample` flag) |
 
 Axes are per-profile (MSVC `/` flags, Watcom `-os/-ot/…`, Borland `-O1/-O2`,
 16-bit MSVC). Docker-only images: `rebrew toolchain pull <profile>`. Try `/O2`

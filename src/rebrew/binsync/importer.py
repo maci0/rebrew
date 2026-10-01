@@ -30,16 +30,28 @@ from typing import Any
 import typer
 
 from rebrew.binsync.state import (
+    acknowledge_sync,
     index_local_and_catalog,
     load_binsync_comments,
     load_binsync_enums,
     load_binsync_state,
     load_binsync_structs,
     load_binsync_typedefs,
+    load_sync_baseline,
+    local_sync_records,
     module_predicate,
+    normalize_prototype,
+    prepare_sync_import,
+    record_sync_origins,
+    remote_sync_records,
     result_count,
     result_paths,
     result_rows,
+    sync_action,
+    sync_health,
+    sync_health_messages,
+    sync_origin,
+    sync_value_hash,
 )
 from rebrew.cli import (
     EXIT_MISMATCH,
@@ -163,13 +175,35 @@ def _global_field_updates(local: Any, bs_entry: dict[str, str]) -> list[tuple[st
 
 
 def _apply_global_type_size(
-    metadata_dir: Path, va: int, module: str, local: Any, bs_entry: dict[str, str]
+    metadata_dir: Path,
+    va: int,
+    module: str,
+    local: Any,
+    bs_entry: dict[str, str],
+    *,
+    origin: dict[str, str] | None = None,
 ) -> None:
     """Write BinSync global type/size/section into rebrew-data.toml when they differ."""
-    from rebrew.data_metadata import set_data_field
+    from rebrew.data_metadata import set_data_fields_batch
 
-    for field, value in _global_field_updates(local, bs_entry):
-        set_data_field(metadata_dir, va, field, value, module, updated_by="binsync-import")
+    fields: dict[str, Any] = dict(_global_field_updates(local, bs_entry))
+    fields["name"] = bs_entry["name"]
+    if origin:
+        from rebrew.data_metadata import get_data_entry
+
+        entry = get_data_entry(metadata_dir, va, module)
+        origins = dict(entry.get("origins") or {})
+        for field, value in fields.items():
+            if entry.get(field) != value:
+                origins[field] = {
+                    **origin,
+                    "value_hash": sync_value_hash(field, value, kind="global"),
+                }
+        fields["origins"] = origins
+    set_data_fields_batch(
+        metadata_dir,
+        [{"module": module, "va": va, "fields": fields, "updated_by": "binsync-import"}],
+    )
 
 
 def strip_cdecl_prefix(name: str) -> str:
@@ -212,14 +246,6 @@ def is_safe_prototype(proto: str) -> bool:
     if not text.isascii():
         return False
     return not _UNSAFE_PROTOTYPE_RE.search(text)
-
-
-def normalize_prototype(proto: str) -> str:
-    """Canonicalize a prototype for comparison: collapse whitespace, drop trailing semicolon."""
-    text = " ".join(proto.strip().split())
-    if text.endswith(";"):
-        text = text[:-1].strip()
-    return re.sub(r"\s*([(),;*])\s*", r"\1", text)
 
 
 def normalize_stack_vars(stack_vars: Any) -> dict[str, dict[str, Any]]:
@@ -275,6 +301,23 @@ def apply_binsync_func_name(cfg: Any, local: Any, bs_name: str, local_filepath: 
     except RenameError:
         log.exception("binsync rename of %s left stale call sites", local_filepath)
         return False
+    return True
+
+
+def apply_binsync_prototype(cfg: Any, local: Any, prototype: str, filepath: str) -> bool:
+    """Apply a received prototype to the C definition, the canonical signature source."""
+    from rebrew.c_parser import replace_function_prototype
+    from rebrew.utils import atomic_write_text, read_source_text
+
+    path = Path(cfg.reversed_dir) / filepath
+    if not _inside_project(path, cfg) or not is_safe_prototype(prototype):
+        return False
+    text, encoding = read_source_text(path)
+    name = str(getattr(local, "name", "") or strip_cdecl_prefix(getattr(local, "symbol", "")))
+    updated = replace_function_prototype(text, name, prototype)
+    if updated == text:
+        return False
+    atomic_write_text(path, updated, encoding=encoding)
     return True
 
 
@@ -443,13 +486,28 @@ def import_state(
         error_exit(f"No BinSync data found in {state_dir}", json_mode=json_output)
 
     local_by_va, catalog_sizes = index_local_and_catalog(cfg)
+    before_sync = local_sync_records(cfg, list(local_by_va.values()))
+    incoming_sync = remote_sync_records(cfg, state_dir, funcs_by_va, globals_by_va, before_sync)
+    health = sync_health(cfg, state_dir, before_sync, incoming_sync)
+    funcs_by_va, globals_by_va, remote_changes, sync_conflicts = prepare_sync_import(
+        cfg,
+        state_dir,
+        before_sync,
+        incoming_sync,
+        funcs_by_va,
+        globals_by_va,
+        accept_binsync=accept_binsync,
+        accept_local=accept_local,
+    )
+    function_fields: dict[tuple[str, int], dict[str, Any]] = {}
+    origin = sync_origin(state_dir)
 
     # Also collect scan for module routing of globals that have no direct annotation
     # (DATA entries are in local_by_va; unannotated externs are not — but those
     # can't be imported meaningfully anyway)
 
     proposed: list[dict[str, str]] = []  # for dry-run / json
-    conflicts: list[dict[str, str]] = []
+    conflicts: list[dict[str, str]] = list(sync_conflicts)
     applied_names = 0
     applied_protos = 0
     applied_globals = 0
@@ -516,10 +574,9 @@ def import_state(
                         # keys and go to rebrew-functions.toml (inline forms are
                         # deprecated: lint W019 flags them; SIZE is co-read).
                         _awt(out_path, stub, encoding="utf-8")
-                        # Volatile fields go through the canonical batch writers
-                        # after the loop.  SIZE/NOTE are written before STATUS so
-                        # a failure of the status batch leaves the entry without
-                        # a status and the next import finishes it.
+                        # Volatile fields and STATUS land together through the
+                        # canonical batch writer after the loop; a failed write
+                        # leaves the new source available for the next import.
                         _queue_stub_metadata(
                             stub_statuses,
                             stub_field_updates,
@@ -592,7 +649,7 @@ def import_state(
         # --accept-binsync overwrites, --accept-local keeps local, otherwise
         # reported and skipped.  Empty local applies cleanly either way.
         if bs_proto and normalize_prototype(bs_proto) != normalize_prototype(local_proto):
-            if local_proto and not accept_binsync:
+            if local_proto and not accept_binsync and (va, "prototype") not in remote_changes:
                 conflicts.append(
                     {
                         "va": f"0x{va:08x}",
@@ -631,8 +688,6 @@ def import_state(
                 console.print(f"  Updating prototype 0x{va:08x}")
             if not dry_run:
                 try:
-                    from rebrew.annotation import update_annotation_key as _uak
-
                     if not local_filepath:
                         skipped += 1
                     else:
@@ -640,7 +695,9 @@ def import_state(
                         if not _inside_project(fp, cfg) or not fp.exists():
                             skipped += 1
                         else:
-                            _uak(fp, va, "PROTOTYPE", bs_proto, metadata_dir=cfg.metadata_dir)
+                            if not apply_binsync_prototype(cfg, local, bs_proto, local_filepath):
+                                skipped += 1
+                                continue
                             applied_protos += 1
                             touched_vas.append(va)
                 except Exception:
@@ -651,7 +708,7 @@ def import_state(
 
         # Note import from [comments] (independent of name/prototype)
         bs_note = bs_entry.get("note", "")
-        if bs_note:
+        if bs_note or ("note" in bs_entry and (va, "note") in remote_changes):
             from rebrew.metadata import get_entry
 
             local_mod = _entry_module(cfg, local)
@@ -673,16 +730,7 @@ def import_state(
                         applied_notes += 1
                     else:
                         try:
-                            from rebrew.metadata import update_field
-
-                            update_field(
-                                cfg.metadata_dir,
-                                va,
-                                "note",
-                                bs_note,
-                                local_mod,
-                                updated_by="binsync-import",
-                            )
+                            function_fields.setdefault((local_mod, va), {})["note"] = bs_note
                             applied_notes += 1
                             touched_vas.append(va)
                         except Exception:
@@ -701,7 +749,7 @@ def import_state(
             continue
 
         # If local is generic and BinSync is meaningful → safe to apply
-        if not is_meaningful(local_name):
+        if not is_meaningful(local_name) or (va, "name") in remote_changes:
             if dry_run:
                 proposed.append(
                     {"va": f"0x{va:08x}", "field": "name", "local": local_name, "binsync": bs_name}
@@ -744,12 +792,28 @@ def import_state(
         if accept_local:
             if not dry_run:
                 try:
-                    from rebrew.annotation import update_annotation_key as _uak2
-
                     if local_filepath:
                         fp = Path(cfg.reversed_dir) / local_filepath
                         if _inside_project(fp, cfg) and fp.exists():
-                            _uak2(fp, va, "GHIDRA", bs_name, metadata_dir=cfg.metadata_dir)
+                            from rebrew.metadata import get_entry, set_fields
+
+                            origins = dict(
+                                get_entry(cfg.metadata_dir, va, _entry_module(cfg, local)).get(
+                                    "origins"
+                                )
+                                or {}
+                            )
+                            origins["ghidra"] = {
+                                **origin,
+                                "value_hash": sync_value_hash("ghidra", bs_name),
+                            }
+                            set_fields(
+                                cfg.metadata_dir,
+                                va,
+                                {"ghidra": bs_name, "origins": origins},
+                                module=_entry_module(cfg, local),
+                                updated_by="binsync-import",
+                            )
                         else:
                             # Mirrors the prototype branch: a GHIDRA field that
                             # was never written is a skipped row, not a
@@ -783,7 +847,8 @@ def import_state(
     if stub_statuses:
         from rebrew.metadata import set_fields_batch, update_statuses_batch
 
-        set_fields_batch(cfg.metadata_dir, stub_field_updates)
+        for update, fields in zip(stub_statuses, stub_field_updates, strict=True):
+            update["fields"] = fields["fields"]
         update_statuses_batch(cfg.metadata_dir, stub_statuses)
 
     # --- Global names ---
@@ -823,10 +888,9 @@ def import_state(
                     skipped += 1
                 else:
                     try:
-                        from rebrew.data_metadata import set_data_field as _sdf
-
-                        _sdf(cfg.metadata_dir, va, "name", bs_name, mod)
-                        _apply_global_type_size(cfg.metadata_dir, va, mod, local, bs_entry)
+                        _apply_global_type_size(
+                            cfg.metadata_dir, va, mod, local, bs_entry, origin=origin
+                        )
                         applied_globals += 1
                         touched_vas.append(va)
                     except Exception:
@@ -848,9 +912,9 @@ def import_state(
                     skipped += 1
                 else:
                     try:
-                        from rebrew.data_metadata import set_data_field as _sdf2
-
-                        _sdf2(cfg.metadata_dir, va, "name", bs_name, mod)
+                        _apply_global_type_size(
+                            cfg.metadata_dir, va, mod, None, bs_entry, origin=origin
+                        )
                         applied_globals += 1
                         touched_vas.append(va)
                     except Exception:
@@ -859,22 +923,64 @@ def import_state(
             else:
                 applied_globals += 1
 
+    # Type definitions use the same baseline and conflict decisions as symbols.
+    type_updates: dict[str, set[str]] = {"struct": set(), "enum": set(), "typedef": set()}
+    baseline = load_sync_baseline(cfg, state_dir)
+    for kind, definitions in (
+        ("struct", structs_by_name),
+        ("enum", enums_by_name),
+        ("typedef", typedefs_by_name),
+    ):
+        for name in list(definitions):
+            key = f"{kind}.{name}"
+            action = sync_action(
+                "definition",
+                before_sync.get(key, {}).get("definition"),
+                incoming_sync.get(key, {}).get("definition"),
+                baseline.get(key, {}),
+            )
+            if action in {"same", "push"} or (action == "conflict" and accept_local):
+                definitions.pop(name)
+            elif action == "conflict" and not accept_binsync:
+                conflicts.append(
+                    {
+                        "field": "definition",
+                        "type": name,
+                        "local": str(before_sync[key]),
+                        "binsync": str(incoming_sync[key]),
+                    }
+                )
+                definitions.pop(name)
+            elif action == "pull" or (key in before_sync and accept_binsync):
+                type_updates[kind].add(name)
+
     # --- Structs / enums / typedefs: unknown definitions into a local header ---
     if structs_by_name:
         applied_structs = import_type_definitions(
-            cfg, structs_by_name, dry_run=dry_run, proposed=proposed
+            cfg,
+            structs_by_name,
+            dry_run=dry_run,
+            proposed=proposed,
+            update_names=type_updates["struct"],
         )
     if enums_by_name:
         applied_enums = import_type_definitions(
-            cfg, enums_by_name, dry_run=dry_run, proposed=proposed
+            cfg,
+            enums_by_name,
+            dry_run=dry_run,
+            proposed=proposed,
+            update_names=type_updates["enum"],
         )
     if typedefs_by_name:
         applied_typedefs = import_type_definitions(
-            cfg, typedefs_by_name, dry_run=dry_run, proposed=proposed
+            cfg,
+            typedefs_by_name,
+            dry_run=dry_run,
+            proposed=proposed,
+            update_names=type_updates["typedef"],
         )
 
     # --- LOCALS / COMMENTS: declib stack vars + per-instruction comments ---
-    from rebrew.metadata import update_field
 
     for va, bs_entry in sorted(funcs_by_va.items()):
         local = local_by_va.get(va)
@@ -902,14 +1008,7 @@ def import_state(
                 applied_locals += 1
             else:
                 try:
-                    update_field(
-                        cfg.metadata_dir,
-                        va,
-                        "locals",
-                        normalized,
-                        local_mod,
-                        updated_by="binsync-import",
-                    )
+                    function_fields.setdefault((local_mod, va), {})["locals"] = normalized
                     applied_locals += 1
                     touched_vas.append(va)
                 except Exception:
@@ -918,6 +1017,22 @@ def import_state(
 
     # Per-instruction comments: the metadata COMMENTS store is lossless, and a
     # comment inside its owning function's range also gets a source marker.
+    for va, entry in funcs_by_va.items():
+        original = incoming_sync.get(
+            next(
+                (
+                    k
+                    for k in incoming_sync
+                    if k.startswith("function.") and k.endswith(f".0x{va:x}")
+                ),
+                "",
+            ),
+            {},
+        )
+        if "comments" in original and "comments" not in entry:
+            comments_by_addr = {
+                a: c for a, c in comments_by_addr.items() if c.get("func_addr") != va
+            }
     comments_by_func, source_markers = _route_comments(comments_by_addr, local_by_va, module)
     for owner_va in sorted(comments_by_func):
         func_comments = comments_by_func[owner_va]
@@ -938,14 +1053,7 @@ def import_state(
             applied_comments += len(func_comments)
         else:
             try:
-                update_field(
-                    cfg.metadata_dir,
-                    owner_va,
-                    "comments",
-                    func_comments,
-                    owner_mod,
-                    updated_by="binsync-import",
-                )
+                function_fields.setdefault((owner_mod, owner_va), {})["comments"] = func_comments
                 applied_comments += len(func_comments)
                 touched_vas.append(owner_va)
             except Exception:
@@ -976,6 +1084,34 @@ def import_state(
                     marker_writes_failed.append(filepath)
                     log.warning("ANALYSIS marker write failed for %s", filepath, exc_info=True)
 
+    if not dry_run:
+        from rebrew.metadata import set_fields_batch
+
+        set_fields_batch(
+            cfg.metadata_dir,
+            [
+                {"module": mod, "va": va, "fields": fields, "updated_by": "binsync-import"}
+                for (mod, va), fields in function_fields.items()
+            ],
+        )
+        after_sync = local_sync_records(cfg)
+        if wanted_module is not None:
+            after_sync = {
+                k: v
+                for k, v in after_sync.items()
+                if k.split(".", 1)[0] not in {"function", "global"}
+                or k.split(".", 1)[1].rsplit(".", 1)[0] == wanted_module
+            }
+        record_sync_origins(cfg, state_dir, before_sync, after_sync, incoming_sync)
+        if marker_writes_failed:
+            # A source-marker failure is not an acknowledged comment sync.
+            for key in incoming_sync:
+                incoming_sync[key].pop("comments", None)
+        acknowledge_sync(cfg, state_dir, after_sync, incoming_sync)
+        health = sync_health(
+            cfg, state_dir, after_sync, remote_sync_records(cfg, state_dir, local=after_sync)
+        )
+
     return {
         "state_dir": str(state_dir),
         "dry_run": dry_run,
@@ -997,6 +1133,7 @@ def import_state(
         "module": wanted_module,
         "accept_binsync": accept_binsync,
         "accept_local": accept_local,
+        "health": health,
     }
 
 
@@ -1191,6 +1328,7 @@ def import_type_definitions(
     *,
     dry_run: bool,
     proposed: list[dict[str, str]],
+    update_names: set[str] | None = None,
 ) -> int:
     """Write unknown BinSync type definitions into ``binsync_types.h``.
 
@@ -1201,16 +1339,58 @@ def import_type_definitions(
     applied count (dry-run counts without writing).
     """
     local_names = _local_type_names(cfg)
+    rewritten = 0
+    if update_names:
+        from rebrew.struct_parser import replace_type_definition
+        from rebrew.utils import atomic_write_text, read_source_text
+
+        edits: dict[Path, tuple[str, str]] = {}
+        for name in sorted(update_names):
+            definition = _definition_text(name, definitions[name])
+            if not _definition_is_valid(definition, name, definitions[name]):
+                log.warning("refusing invalid replacement type %s", name)
+                continue
+            candidates: list[tuple[Path, str, str]] = []
+            for path in _definition_files(cfg):
+                try:
+                    text, encoding = edits.get(path) or read_source_text(path)
+                    replacement = replace_type_definition(text, name, definition)
+                except ValueError:
+                    continue
+                if replacement != text:
+                    candidates.append((path, replacement, encoding))
+            if len(candidates) != 1:
+                log.warning(
+                    "cannot replace type %s unambiguously (%d definitions)", name, len(candidates)
+                )
+                continue
+            path, replacement, encoding = candidates[0]
+            if dry_run:
+                proposed.append(
+                    {
+                        "field": "type_definition",
+                        "type": name,
+                        "local": "existing",
+                        "binsync": name,
+                        "action": "update",
+                    }
+                )
+            else:
+                edits[path] = (replacement, encoding)
+            rewritten += 1
+        if not dry_run:
+            for path, (text, encoding) in edits.items():
+                atomic_write_text(path, text, encoding=encoding)
     new = {name: entry for name, entry in definitions.items() if name not in local_names}
     if not new:
-        return 0
+        return rewritten
     if dry_run:
         for name in sorted(new):
             kind = _definition_kind(new[name])
             proposed.append(
                 {kind: name, "field": f"{kind}_definition", "local": "", "binsync": name}
             )
-        return len(new)
+        return rewritten + len(new)
     from rebrew.utils import atomic_write_text, read_source_text
 
     reversed_dir = Path(cfg.reversed_dir)
@@ -1253,9 +1433,9 @@ def import_type_definitions(
         written += 1
 
     if written == 0:
-        return 0
+        return rewritten
     atomic_write_text(header, "".join(blocks), encoding=header_encoding, lenient=True)
-    return written
+    return rewritten + written
 
 
 def print_import_result(result: dict[str, object], *, json_output: bool, dry_run: bool) -> None:
@@ -1286,6 +1466,7 @@ def print_import_result(result: dict[str, object], *, json_output: bool, dry_run
         applied_typedefs,
         applied_locals,
         applied_comments,
+        applied_notes,
     )
     if json_output:
         payload: dict[str, object] = {
@@ -1300,6 +1481,7 @@ def print_import_result(result: dict[str, object], *, json_output: bool, dry_run
             "applied_locals": applied_locals,
             "applied_comments": applied_comments,
             "applied_notes": applied_notes,
+            "health": result.get("health", {}),
             "conflicts": conflicts,
             "skipped": result_count(result, "skipped"),
         }
@@ -1316,6 +1498,10 @@ def print_import_result(result: dict[str, object], *, json_output: bool, dry_run
             raise typer.Exit(code=EXIT_MISMATCH)
         return
 
+    health = result.get("health", {})
+    if isinstance(health, dict):
+        for message in sync_health_messages(health):
+            console.print(message, markup=False)
     if dry_run:
         if proposed or conflict_details:
             console.print(
@@ -1341,7 +1527,7 @@ def print_import_result(result: dict[str, object], *, json_output: bool, dry_run
             f"[green]Imported[/green] {applied_names} name(s), {applied_protos} prototype(s), "
             f"{applied_globals} global(s), {applied_structs} struct(s), "
             f"{applied_enums} enum(s), {applied_typedefs} typedef(s), "
-            f"{applied_locals} locals, {applied_comments} comment(s) "
+            f"{applied_locals} locals, {applied_comments} comment(s), {applied_notes} note(s) "
             f"from [cyan]{state_dir}[/cyan]"
         )
     if marker_writes_failed:
@@ -1362,7 +1548,10 @@ def print_import_result(result: dict[str, object], *, json_output: bool, dry_run
             )
             raise typer.Exit(code=EXIT_MISMATCH)
     if not any(applied_counts) and not conflicts:
-        console.print("[green]Already in sync — nothing to import.[/green]")
+        if isinstance(health, dict) and any(health.get("pending", {}).values()):
+            console.print("No changes imported; pending sync decisions remain.")
+        else:
+            console.print("[green]Already in sync — nothing to import.[/green]")
 
 
 def main_entry() -> None:

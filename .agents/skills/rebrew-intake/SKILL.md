@@ -1,16 +1,9 @@
 ---
 name: rebrew-intake
 description: >-
-  Use when onboarding a binary into rebrew: one-shot `rebrew intake` (init +
-  enumerate + STUB document) and first recon (doctor, FLIRT, catalog,
-  build-db, triage, first skeletons). Triggers on 'intake', 'onboard',
-  'onboard binary', 'new binary', 'new target', 'import binary',
-  'binary recon', 'fingerprints', 'FLIRT scan', 'first triage',
-  'first catalog', 'first coverage document', 'detect-crt', 'gen-layout',
-  'rebrew pe-info', 'rebrew strings', 'crypto-scan', 'security-scan',
-  'Rich header', 'which compiler', 'packed', 'lzexe', '16-bit', 'MZ',
-  'NE binary', 'discover-functions', 'extract batch'. Prefer this over
-  rebrew-init when the user hands you a binary to onboard.
+  Onboard a new binary into Rebrew with intake, compiler identification, discovery,
+  library detection, and initial catalog/coverage triage. Use rebrew-init for
+  scaffolding alone and rebrew-workflow for later reversing.
 license: MIT
 ---
 
@@ -101,8 +94,8 @@ rebrew cfg list-targets                 # confirm target is configured
 
 Exit 2 on any `fail`. `--json` → `checks[].fix` repair commands. Missing image →
 `rebrew toolchain pull <profile>`; `build` compiles it from the sibling
-rebrew-toolchains checkout (long, and it fails without that checkout), so ask
-first. Config fail → `rebrew init` or `rebrew intake`.
+rebrew-toolchains checkout. Prefer a pull for setup; build when image-building
+is part of the authorized task. Otherwise clarify before a long build. Config fail → `rebrew init` or `rebrew intake`.
 Missing binary → place at configured path. Missing FLIRT →:
 
 ```bash
@@ -125,7 +118,7 @@ rebrew crt-match --all --fix-source --json # auto-annotate SOURCE references for
 
 Needs `cfg detect-crt` first or `crt-match --all` finds nothing. FLIRT JSON:
 `matches[].names`; ambiguous hits in `ambiguous_matches`. Use
-`crt-match --all --fix-source` for `// SOURCE:` on confirmed library hits.
+`crt-match --all --fix-source` to record SOURCE metadata on confirmed library hits.
 
 ### 3. Build Function Catalog + Coverage Document
 

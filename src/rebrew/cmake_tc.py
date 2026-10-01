@@ -36,7 +36,7 @@ from pathlib import Path
 import typer
 
 from rebrew.cli import console, error_exit, json_print
-from rebrew.config import ConfigError, check_env_wineprefix
+from rebrew.config import ConfigError, check_env_wineprefix, source_date_epoch
 from rebrew.temp_dirs import xdg_cache_home
 from rebrew.toolchain import ToolchainSpec, bind_mount, kill_container
 from rebrew.utils import (
@@ -386,6 +386,7 @@ def _docker_run(spec: ToolchainSpec, mode: str, args: list[str]) -> int:
     assert spec.image is not None  # _resolve_spec validated it
     inc = "Z:" + str(tool_root.parent / "Include").replace("/", "\\")
     lib = "Z:" + str(tool_root.parent / "Lib").replace("/", "\\")
+    epoch = source_date_epoch()
 
     cmd = [
         container_runtime(),
@@ -411,10 +412,14 @@ def _docker_run(spec: ToolchainSpec, mode: str, args: list[str]) -> int:
         "-w",
         str(Path.cwd()),
         "--entrypoint",
-        _WINE,
+        "/usr/local/bin/rebrew-clock" if epoch is not None else _WINE,
         spec.image,
-        str(tool_root / _TOOL_EXES[mode]),
     ]
+    if epoch is not None:
+        position = cmd.index("--entrypoint")
+        cmd[position:position] = ["-e", f"SOURCE_DATE_EPOCH={epoch}"]
+        cmd.append(_WINE)
+    cmd.append(str(tool_root / _TOOL_EXES[mode]))
 
     try:
         with tempfile.TemporaryDirectory(prefix="rebrew-rsp-", dir=root) as rsp_dir:

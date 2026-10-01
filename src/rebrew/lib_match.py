@@ -18,7 +18,7 @@ Whatever is identical outside those slots is library code. That is what a
 linked-in object looks like, so the check has no false negatives from naming
 or signature coverage.
 
-Two details matter, both learned the hard way:
+Details that matter, learned from real linked CRT code:
 
 - MSVC marks CRT helpers such as ``_initterm`` and ``_parse_cmdline`` static
   (COFF storage class 3). They never appear in the archive symbol index, so an
@@ -28,6 +28,9 @@ Two details matter, both learned the hard way:
 - A body that is mostly relocation slots (a pointer table such as
   ``__sys_errlist``) "matches" anything once its slots are masked. Candidates
   must be at least half fixed bytes.
+- Zero-code weak aliases in MSVC's machine-neutral tcmap members forward to
+  ordinary CRT bodies. Their names remain candidates; the body cannot choose
+  between an alias and its target.
 
 Usage::
 
@@ -65,7 +68,7 @@ from rebrew.cli import (
     require_config,
 )
 from rebrew.config import module_marker
-from rebrew.gen_flirt_pat import parse_archive, parse_coff_obj
+from rebrew.gen_flirt_pat import parse_archive, parse_coff_aliases, parse_coff_obj
 from rebrew.utils import container_runtime, read_json_text
 from rebrew.workspace.config import config_path
 
@@ -96,11 +99,29 @@ app = typer.Typer(
 def index_library(path: Path) -> Index:
     """Index every code symbol in *path* by name -> [(object, body, relocs)]."""
     index: Index = {}
+    aliases: list[tuple[str, str, str]] = []
     try:
         members = parse_archive(str(path))
         for member_name, obj in members:
+            owner = f"{path.name}:{member_name}"
             for sym, code, relocs in parse_coff_obj(obj):
-                index.setdefault(sym, []).append((f"{path.name}:{member_name}", code, relocs))
+                index.setdefault(sym, []).append((owner, code, relocs))
+            aliases.extend((alias, target, owner) for alias, target in parse_coff_aliases(obj))
+        # Resolve after reading all bodies; aliases can precede their targets or
+        # form chains. Missing targets and cycles without a body cannot match.
+        while aliases:
+            pending = []
+            for alias, target, owner in aliases:
+                if target not in index:
+                    pending.append((alias, target, owner))
+                    continue
+                index.setdefault(alias, []).extend(
+                    (f"{owner} -> {body_owner}", code, relocs)
+                    for body_owner, code, relocs in list(index[target])
+                )
+            if len(pending) == len(aliases):
+                break
+            aliases = pending
     except Exception as exc:  # bad archive / unparsable member
         error_exit(f"cannot index {path}: {exc}", code=EXIT_ERROR)
     return index

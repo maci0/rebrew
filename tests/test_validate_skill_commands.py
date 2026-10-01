@@ -15,6 +15,19 @@ def _md(content: str, tmp_path: Path) -> Path:
 
 
 class TestExtractCommands:
+    def test_doc_synopses_and_quoted_diagrams(self, tmp_path: Path) -> None:
+        md = _md(
+            "`rebrew binsync {push,pull}`\n`rebrew types [--json]`\n"
+            '`rebrew = "rebrew.main:main"`\n`rebrew …`\n'
+            '```mermaid\nN["rebrew toolchain build"]\n```\n',
+            tmp_path,
+        )
+        assert vsc._extract_commands(md) == [
+            ("binsync", []),
+            ("types", ["--json"]),
+            ("toolchain build", []),
+        ]
+
     def test_single_command_with_flags(self, tmp_path: Path) -> None:
         md = _md(
             "```bash\nrebrew test src/f.c --va 0x1000 --symbol _f\nrebrew diff src/f.c --mm\n```\n",
@@ -126,3 +139,17 @@ class TestProbeFailureMessage:
         # every one of them look like a stale skill.
         assert vsc._HELP_TIMEOUT_SECONDS >= 120
         assert vsc._HELP_WORKERS >= 1
+
+
+class TestDocumentationValidation:
+    def test_docs_flag_checks_guide_flags(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        skills = tmp_path / "skills"
+        skills.mkdir()
+        guide = _md("```bash\nrebrew status --missing-flag\n```\n", tmp_path)
+        monkeypatch.setattr(vsc, "_REPO_ROOT", tmp_path)
+        monkeypatch.setattr(vsc, "_SKILLS_DIR", skills)
+        monkeypatch.setattr(vsc, "_current_docs", lambda: [guide])
+        monkeypatch.setattr(vsc, "_run_help", lambda sub: (True, "--json --target"))
+        assert not vsc.validate(quiet=True, docs=True)

@@ -16,6 +16,7 @@ Usage:
 
 import contextlib
 import hashlib
+import json
 import logging
 import math
 from collections.abc import Callable
@@ -1077,6 +1078,18 @@ def _run_test_impl(
             json_mode=json_output,
         )
 
+    from rebrew.verify_hash import comparison_inputs, comparison_inputs_current
+
+    measured_inputs = comparison_inputs(
+        cfg,
+        Path(source),
+        target_bytes,
+        toolchain=toolchain_name,
+        cflags=cflags_str,
+        module=_mod,
+        va=section_va or 0,
+        context_hash=compile_context.sha256 if compile_context is not None else "",
+    )
     # Shared compile→extract→compare path (same as rebrew verify), or the
     # --linked oracle: compile in a padded shell, LINK a real DLL at the
     # target base, compare linker-resolved bytes without reloc masking.
@@ -1108,6 +1121,8 @@ def _run_test_impl(
     # Prefer full_obj_size for total (SIZE_MISMATCH truncates obj_bytes) but
     # take match_count from CompareResult when present (avoids float round-trip).
     _obj_len, total, match_count = _resolve_total_and_match_count(cmp, target_bytes)
+    if not comparison_inputs_current(cfg, Path(source), measured_inputs):
+        measured_inputs = None
 
     if cmp.status == "COMPILE_ERROR":
         error_exit(f"COMPILE ERROR:\n{cmp.message}", json_mode=json_output, code=EXIT_ERROR)
@@ -1182,6 +1197,13 @@ def _run_test_impl(
         # self-consistent (a too-big annotation would otherwise report
         # total=old-size against the new size metadata).
         target_bytes = extract_raw_bytes(cfg.target_binary, section_va, new_size)
+        if measured_inputs:
+            measured_inputs["reference_hash"] = hashlib.sha256(target_bytes).hexdigest()
+            measured_inputs["reference_size"] = str(len(target_bytes))
+            measured_inputs.pop("input_hash", None)
+            measured_inputs["input_hash"] = hashlib.sha256(
+                json.dumps(measured_inputs, sort_keys=True, ensure_ascii=True).encode()
+            ).hexdigest()
 
     result_dict = build_result_dict_from_compare(
         source,
@@ -1330,6 +1352,16 @@ def _run_test_impl(
             # even though there is no status transition to hang the patch on
             # (the batch path patches every result for this reason).
             if not dry_run and new_status == old_status and compile_context is None:
+                if measured_inputs:
+                    update_source_status(
+                        cfg.metadata_dir,
+                        new_status,
+                        anno_module,
+                        va_int_for_promote,
+                        clear_blockers=False,
+                        updated_by="test",
+                        verification={**measured_inputs, "status": new_status, "writer": "test"},
+                    )
                 # A context-scoped run writes nothing to the shared verify
                 # cache: the entry cannot record the digest it was earned
                 # under, so a later context-free run would read a verdict it
@@ -1362,6 +1394,9 @@ def _run_test_impl(
                 clear_blockers=clear,
                 force=force_status,
                 updated_by="test",
+                verification={**measured_inputs, "status": new_status, "writer": "test"}
+                if measured_inputs
+                else None,
             )
             if not written:
                 # The two holders of a verdict move together: the cached
@@ -1489,6 +1524,9 @@ def _test_multi(
     try:
         objs: dict[tuple[str | None, str], Any] = {}
         cache_patches: list[dict[str, object]] = []
+        from rebrew.verify_hash import comparison_inputs, comparison_inputs_current
+
+        group_inputs: dict[tuple[str | None, str], dict[str, str] | None] = {}
         for group_idx, (tc_name, cf) in enumerate(_effective_overrides(a) for a in annotations):
             # One compile per distinct (toolchain, cflags): every annotation
             # resolves the same override for most of a file, and a compile is a
@@ -1514,6 +1552,16 @@ def _test_multi(
                     group_key.encode("utf-8", errors="surrogateescape")
                 ).hexdigest()[:8]
                 obj_name = f"{Path(source).stem}_{group_digest}.obj"
+            group_inputs[(tc_name, cf)] = comparison_inputs(
+                cfg,
+                Path(source),
+                b"",
+                toolchain=tc_name,
+                cflags=cf,
+                module="",
+                va=0,
+                context_hash=context.sha256 if context is not None else "",
+            )
             obj_path, err = compile_to_obj(
                 cfg,
                 source,
@@ -1796,6 +1844,26 @@ def _test_multi(
             # (the single-function path at _promote_status does not) made the
             # batch path drop the verdict into no metadata write at all.
             old_status = ann.status or ""
+            measured_inputs = group_inputs.get(_effective_overrides(ann))
+            if measured_inputs and not comparison_inputs_current(
+                cfg, Path(source), measured_inputs
+            ):
+                measured_inputs = None
+            if measured_inputs:
+                measured_inputs = dict(measured_inputs)
+                measured_reference = (
+                    extract_raw_bytes(cfg.target_binary, ann.va, ann.size)
+                    if fixed_size
+                    else target_bytes
+                )
+                measured_inputs["reference_hash"] = hashlib.sha256(measured_reference).hexdigest()
+                measured_inputs["reference_size"] = str(len(measured_reference))
+                measured_inputs["module"] = ann.module
+                measured_inputs["va"] = f"0x{ann.va:x}"
+                measured_inputs.pop("input_hash", None)
+                measured_inputs["input_hash"] = hashlib.sha256(
+                    json.dumps(measured_inputs, sort_keys=True, ensure_ascii=True).encode()
+                ).hexdigest()
 
             # Auto-promote: update STATUS in metadata (mirrors single-function path)
             if not no_promote:
@@ -1808,6 +1876,20 @@ def _test_multi(
                     # metrics: status/todo rank ROI from the cache's match_percent
                     # and byte delta (same rule as the single-file path).
                     if not dry_run and new_status == old_status and context is None:
+                        if measured_inputs:
+                            update_source_status(
+                                cfg.metadata_dir,
+                                new_status,
+                                ann.module,
+                                ann.va,
+                                clear_blockers=False,
+                                updated_by="test",
+                                verification={
+                                    **measured_inputs,
+                                    "status": new_status,
+                                    "writer": "test",
+                                },
+                            )
                         _patch_verify_cache(
                             cfg,
                             ann.va,
@@ -1835,6 +1917,9 @@ def _test_multi(
                         ann.va,
                         clear_blockers=clear,
                         updated_by="test",
+                        verification={**measured_inputs, "status": new_status, "writer": "test"}
+                        if measured_inputs
+                        else None,
                     )
                     if not written:
                         # Same refusal rule as the single-file path: a cache

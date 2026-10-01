@@ -12,7 +12,7 @@ Every declared console script is then run as the installer wrote it, because
 that shim is the artifact a user invokes and nothing else in the gates
 exercises it: ``[project.scripts]`` names a module and an attribute, the
 static check imports the module in the *dev* tree, and ``rebrew --help`` covers
-one entry point of the seventy-odd.  A target whose import chain reaches
+the user CLI but not the four external build hooks. A target whose import chain reaches
 something the wheel does not carry installs cleanly and fails on first use.
 
 Run with the *installed* interpreter, not the project's, so the import

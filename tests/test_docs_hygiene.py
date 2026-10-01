@@ -222,47 +222,38 @@ def test_skill_local_reference_paths_exist() -> None:
     )
 
 
-def test_every_script_main_has_callback_decorator() -> None:
-    """Every [project.scripts] main_entry must sit on a @app.callback main.
+def test_every_component_main_has_callback_decorator() -> None:
+    """Command modules keep runnable Typer apps for direct module execution."""
+    from rebrew.main import cli_components
 
-    A plain ``def main`` in a command module yields "RuntimeError: Could
-    not get a command for this Typer instance" when invoked as a
-    standalone script (discover.py and pdb_info.py regressed exactly this
-    way). The umbrella command registration masks the gap; the standalone
-    entry points expose it.
-    """
-    toml = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
-    mods = re.findall(r'^rebrew-[\w-]+ = "rebrew\.([\w.]+):main_entry"$', toml, re.M)
-    assert mods, "no [project.scripts] entries found"
-    for mod in mods:
-        mod_file = mod.replace(".", "/")
+    for component in cli_components()[0]:
+        if component.origin != "builtin":
+            continue
+        mod_file = component.module.removeprefix("rebrew.").replace(".", "/")
         src = (ROOT / "src" / "rebrew" / f"{mod_file}.py").read_text(encoding="utf-8")
         # Single-command modules need @app.callback on main(); multi-command
         # apps register @app.command subcommands and run app() directly.
         assert "@app.callback" in src or "@app.command" in src, (
-            f"{mod_file}.py wires no callback and no subcommands — the standalone "
-            f"rebrew-{mod.split('.')[-1]} script fails at runtime"
+            f"{mod_file}.py wires no callback and no subcommands — "
+            "direct module execution fails at runtime"
         )
 
 
 def test_every_project_script_resolves() -> None:
     """Every ``[project.scripts]`` entry resolves to a live module attribute.
 
-    The scripts are the standalone entry points (``rebrew-<cmd>``); a
-    deleted module, a renamed entry point, or a stale ``main_entry`` would
-    make the script fail at runtime while the umbrella still works — the
-    same drift class the callback-decorator test catches, at the attribute
-    level.
+    This checks the unified CLI and four external build hooks; a missing
+    module or attribute would leave an installed executable that cannot run.
     """
     import importlib
 
     toml = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
-    entries = re.findall(r'^rebrew-[\w-]+ = "rebrew\.([\w.]+):([\w]+)"$', toml, re.M)
+    entries = re.findall(r'^(rebrew(?:-[\w-]+)?) = "rebrew\.([\w.]+):([\w]+)"$', toml, re.M)
     assert entries, "no [project.scripts] entries found"
-    for mod_path, attr in entries:
+    for script, mod_path, attr in entries:
         mod = importlib.import_module(f"rebrew.{mod_path}")
         assert hasattr(mod, attr), (
-            f"rebrew-{mod_path} script points at rebrew.{mod_path}:{attr} "
+            f"{script} points at rebrew.{mod_path}:{attr} "
             "which does not exist — update pyproject.toml"
         )
 

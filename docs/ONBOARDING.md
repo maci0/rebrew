@@ -19,12 +19,10 @@ see [TOOLCHAIN.md](TOOLCHAIN.md).
 Every compiler (including GCC, Clang and MinGW) needs docker: the image
 holds it (see `rebrew toolchain list`).
 
-> **Runtime: wine is the default.**  Every docker image runs the compiler
-> under **wine** (`REBREW_RUNNER` defaults to `wine` inside the image).
-> `wibo` (the minimal decompals PE loader) is faster but **fails on some
-> tools**, so rebrew keeps wine as the default and never steers you toward
-> wibo (a wibo binary in `tools/` is informational only; `--install-wibo`
-> leaves docker-backed projects' runner config untouched).
+Compiler runtimes depend on the profile: Windows tools use wine, 16-bit tools
+may use DOSBox, and Linux toolchains run natively inside the image. A host wine
+or wibo install does not provide a fallback for a shipped compiler profile.
+See [TOOLCHAIN.md](TOOLCHAIN.md) for profile/image details.
 
 ## The 5-minute path
 

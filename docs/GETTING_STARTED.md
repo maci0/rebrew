@@ -1,9 +1,8 @@
 # Getting started: reversing your first binary with rebrew
 
 This guide is for humans. It assumes you can read C and have poked at a
-disassembler before, but have never used rebrew. In ~15 minutes you will go
-from a bare binary to your first byte-matched function, and understand the
-loop you will repeat for every other function in the binary.
+disassembler before, but have never used rebrew. You will scaffold a binary, inspect its work queue, and follow the loop toward
+your first byte match. Matching time depends on the function and toolchain.
 
 **What rebrew is, in one paragraph:** you write C; rebrew compiles it with
 the *same compiler that built the original binary* (running inside a docker
@@ -52,7 +51,7 @@ uv tool install 'rebrew[prove] @ git+https://github.com/maci0/rebrew.git'
 The `[prove]` extra is what installs angr; without it `rebrew prove` exits
 with that install hint. Drop the extra if you never want symbolic proof.
 
-## The 15-minute walkthrough
+## Walkthrough
 
 We will use a tiny demo binary. Substitute your own game `.exe`/`.dll`
 whenever you are ready: the steps are identical.
@@ -115,9 +114,13 @@ the wrong codegen.
 ### 4. See the landscape
 
 ```bash
-rebrew status        # where you stand: counts per STATUS, per module
+rebrew status        # file agreement, accounted .text, stored data verdicts, and counts
 rebrew todo          # what to do next, ranked by ROI
 ```
+
+These status percentages have different denominators;
+[CLI accounting](CLI.md#rebrew-status) explains their byte buckets and library
+contributions. Stored data verdicts are not a fresh build comparison.
 
 `todo` is your work queue for the entire project. Start at the top: the
 smallest, easiest functions. Do not start with the largest blob it lists:
@@ -141,13 +144,15 @@ before you start.
 
 ### 6. Match your first function
 
-Pick the top item from `rebrew todo`. Say it is at `0x00401000`:
+Pick a small item from `rebrew todo --json` and open the source file it identifies.
+`intake` already documented its discovered functions, so edit that existing stub.
+For an inventory function without source, generate a skeleton:
 
 ```bash
-rebrew skeleton 0x00401000          # generate a stub with the right prototype
+rebrew skeleton 0x00401000          # only if this VA has no source yet
 ```
 
-Open the generated `src/<target>/fcn_00401000.c`. It has a `// FUNCTION:`
+Use the path the tool reports (for example `src/<target>/fcn_00401000.c`). It has a `// FUNCTION:`
 marker (the VA; do not touch it), a best-guess signature, and an empty
 body. Now write the obvious implementation: the disassembly is a click
 away:

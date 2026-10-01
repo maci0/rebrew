@@ -260,7 +260,7 @@ rebrew prove [SOURCE]
 - The GA explores deterministic mutations; novel "creative" rewrites
   (e.g. changing data structures) require a human edit before re-seeding.
 - `rebrew prove` now checks `EAX` by default and `EDX:EAX` when
-  `--check-edx` is passed or when the `PROTOTYPE` annotation declares a
+  `--check-edx` is passed or when the C function signature declares a
   64-bit return type (`long long`, `__int64`, `int64_t`, `uint64_t`,
   `long double`).
   EDX checking is auto-enabled from the prototype (E9 v1, partially addressed).

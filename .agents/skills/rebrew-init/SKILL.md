@@ -1,14 +1,9 @@
 ---
 name: rebrew-init
 description: >-
-  Use when scaffolding with `rebrew init`: bare directory, target naming,
-  `--guess-compiler` vs `--toolchain`, doctor done-gate, then hand off to
-  rebrew-intake. Triggers on 'new project', 'bootstrap', 'scaffold',
-  'bare directory', 'create project', 'initialize project', 'init project',
-  'project setup', 'start project', 'set up rebrew', 'rebrew init',
-  'guess-compiler', 'import-splat', or 'refresh-agents'. If the user hands you a
-  binary to onboard in one shot, use rebrew-intake (`rebrew intake`) instead. Not
-  for day-to-day reversing (rebrew-workflow).
+  Scaffold or refresh a Rebrew project with rebrew init, choose target names and
+  compiler profiles, and check scaffold drift. Use rebrew-intake for one-shot binary
+  onboarding and rebrew-workflow for an existing target.
 license: MIT
 ---
 
@@ -33,7 +28,8 @@ Scaffold a new rebrew project from an empty directory and a target binary.
 - Deep matching → use `rebrew-matching`
 
 Use when the user needs scaffold decisions (name, profile). Prefer `rebrew intake`
-for "here's a binary, set it up". Re-run `rebrew init --refresh-agents` to
+for "here's a binary, set it up". `rebrew-init` names this skill; the executable
+is `rebrew`, with `init` as a subcommand. Re-run `rebrew init --refresh-agents` to
 re-render the scaffold after template changes.
 
 ## Scaffold
@@ -80,7 +76,8 @@ failures are not) before handing off. The commonest failure is the toolchain
 image missing: run `rebrew toolchain pull <profile>` (a docker image pull).
 `rebrew toolchain build <profile>` compiles the image from the sibling
 rebrew-toolchains checkout, which is a long job and fails without that
-checkout, so ask the user before starting one.
+checkout. Use a pull for setup; build when the task calls for building the image
+or the user has already authorized it. Otherwise clarify before a long build.
 
 ## Scaffold drift check
 

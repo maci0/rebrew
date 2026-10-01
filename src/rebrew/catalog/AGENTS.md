@@ -33,3 +33,8 @@ Reversed `.c` + `library_*.h` → `scan_reversed_dir` → annotations; discovery
 - **Library headers**: `parse_library_header` returns every `// LIBRARY: <module> <VA>` row (module is the marker text, not the filename) — do not add a filter there. `scan_reversed_dir` then keeps a row only when its module is empty or this target's marker (`preset_module_key(module_marker(cfg))`): a shared header has no path affinity, and another target's rows must not enter this registry. Inline KV is a legacy read; do not add volatile metadata to source files.
 - **Ghidra labels**: only `thunk_*` → "thunk"; everything else → "data". `GhidraDataLabel.from_dict` coerces a non-string `label`/`state` to its default, since export JSON is untrusted and `_classify_ghidra_label` calls `.lower()` on the label.
 - **Inventory cache**: `loaders.py` has a bounded, path-keyed process cache invalidated by stat fingerprint (mtime/size/inode). The decoded-JSON cache is bounded by retained characters, not entry count (one inventory is multi-MB); the entry caches keep an entry cap. Preserve its lock around lookup, eviction, and replacement.
+
+- **Coverage views have their own scope.** Grid cells and coverage documents are
+  derived presentation data. Do not substitute cell/symbol counts for the byte
+  buckets in `status`; use the shared accounting frame for status/todo. Nested
+  origins and verification tables remain canonical metadata, not coverage rows.

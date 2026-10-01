@@ -14,7 +14,8 @@ rebrew round-trip --output <path>       # override output path
 
 - **Every EXACT/RELOC function needs SIZE in `rebrew-functions.toml`**: a legacy
   inline-only `// SIZE:` makes round-trip report `oversize (size <= 0 in metadata)`.
-  Run `rebrew lint --fix` first (dry-run with `--dry-run`).
+  Use `rebrew catalog --fix-sizes` or `rebrew migrate-markers --dry-run`, then
+  apply the migration when it is within the task scope.
 - **`catalog_resolution_drift` with CRT names** (e.g. `_fread`): the library header
   can list both `fread` (wrapper) and `_fread` (real impl) at different VAs.
   Correct the `library_*.h` VA mapping or annotate call sites; drift is never silent.

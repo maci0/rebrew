@@ -1659,6 +1659,20 @@ def check_env_wineprefix(raw: str) -> None:
         raise ConfigError(f"REBREW_WINEPREFIX={value!r} must be an absolute path")
 
 
+def source_date_epoch() -> str | None:
+    """Validated UTC build epoch, or None when the caller leaves real time enabled."""
+    raw = os.environ.get("SOURCE_DATE_EPOCH")
+    if raw is not None:
+        check_env_source_date_epoch(raw)
+    return raw
+
+
+def check_env_source_date_epoch(raw: str) -> None:
+    """Require nonnegative decimal seconds representable by a signed 64-bit clock."""
+    if not raw.isascii() or not raw.isdecimal() or len(raw) > 19 or int(raw) > 2**63 - 1:
+        raise ConfigError("SOURCE_DATE_EPOCH must be decimal seconds in 0..9223372036854775807")
+
+
 def check_env_toolchain_pin(raw: str) -> None:
     """Raise when ``REBREW_TOOLCHAIN`` names a profile no toolchain registers.
 
@@ -1724,6 +1738,7 @@ def _env_knob_parsers() -> tuple[tuple[str, Callable[[str], None]], ...]:
         (TOOLCHAIN_OVERLAY_ENV, partial(check_env_dir, TOOLCHAIN_OVERLAY_ENV)),
         (TOOLCHAINS_DIR_ENV, partial(check_env_dir, TOOLCHAINS_DIR_ENV)),
         ("REBREW_WINEPREFIX", check_env_wineprefix),
+        ("SOURCE_DATE_EPOCH", check_env_source_date_epoch),
         ("REBREW_TOOLCHAIN", check_env_toolchain_pin),
         ("REBREW_WINE_HEADLESS", _wine_headless),
         (XVFB_DISPLAY_ENV, check_env_display),

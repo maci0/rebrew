@@ -205,9 +205,8 @@ class TestVersionFlag:
     def test_every_command_offers_version(self) -> None:
         """`--version` works on each tool, not just the `rebrew` group.
 
-        Every tool also ships as its own console script (`rebrew-diff`,
-        `rebrew-test`, ...). Asking one of those for its version used to
-        return click's ``No such option: --version`` with exit 2.
+        Shared options work after the subcommand name and during direct
+        module execution, in addition to the root callback's options.
         """
         import typer
 
@@ -539,8 +538,8 @@ class TestScriptDispatch:
 
     ``run_standalone`` / ``run_cli`` turn SIGPIPE and Ctrl-C into 141/130 and
     a usage error into 2.  A bare ``app()`` skips all three, so the entry
-    attribute's body is checked rather than its name: most targets name
-    ``main_entry``, but the umbrella and the CMake bridges do not.
+    attribute's body is checked rather than its name: the umbrella and
+    four external build hooks use their own entry functions.
     """
 
     @staticmethod

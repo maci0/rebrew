@@ -922,7 +922,7 @@ def _collect_hygiene(
         dup_globals: list[tuple[str, str]] = []
         stale: list[tuple[str, str]] = []
         seen_vas: dict[Any, str] = {}
-        seen_globals: dict[str, str] = {}
+        seen_globals: dict[str, tuple[str, int, bool]] = {}
         for cfile in iter_sources(cfg.reversed_dir, cfg):
             res = lint_file(cfile, cfg, seen_vas=seen_vas, seen_globals=seen_globals)
             for _, code, msg in res.warnings:

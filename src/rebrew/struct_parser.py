@@ -121,3 +121,54 @@ def extract_enums_from_file(filepath: Path) -> Iterator[str]:
     (logged as a warning).
     """
     yield from _iter_definitions(filepath, keyword=b"enum")
+
+
+def replace_type_definition(source: str, name: str, definition: str) -> str:
+    """Replace a single named typedef or struct/enum definition through the C AST.
+
+    Both the replacement and the selected definition must be unambiguous.
+    Multiple declarations or malformed replacement text raise ValueError.
+    """
+    from rebrew.c_parser import node_text, parse_c_source
+
+    def named(node: Any, raw: bytes) -> bool:
+        declarator = node.child_by_field_name("declarator")
+        if node.type == "type_definition" and declarator is not None:
+            return node_text(declarator, raw) == name
+        if node.type in {"struct_specifier", "enum_specifier"}:
+            identifier = node.child_by_field_name("name")
+            return identifier is not None and node_text(identifier, raw) == name
+        return False
+
+    new_tree, new_raw = parse_c_source(definition)
+    declarations = [n for n in new_tree.root_node.named_children if n.type != "comment"]
+    if new_tree.root_node.has_error or len(declarations) != 1:
+        raise ValueError("replacement must be one complete type declaration")
+    declaration = declarations[0]
+    candidate = declaration
+    if candidate.type == "declaration":
+        candidate = candidate.child_by_field_name("type")
+    if candidate is None or not named(candidate, new_raw):
+        raise ValueError(f"replacement does not define {name!r}")
+    tree, raw = parse_c_source(source)
+    matches: list[tuple[int, int]] = []
+    pending = [tree.root_node]
+    while pending:
+        node = pending.pop()
+        if named(node, raw):
+            end = node.end_byte
+            if (
+                node.type != "type_definition"
+                and node.next_sibling
+                and node.next_sibling.type == ";"
+            ):
+                end = node.next_sibling.end_byte
+            matches.append((int(node.start_byte), int(end)))
+        else:
+            pending.extend(reversed(node.children))
+    if len(matches) != 1:
+        raise ValueError(f"expected one definition of {name!r}, found {len(matches)}")
+    start, end = matches[0]
+    return (raw[:start] + definition.encode("utf-8", errors="surrogateescape") + raw[end:]).decode(
+        "utf-8", errors="surrogateescape"
+    )

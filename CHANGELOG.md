@@ -1,6 +1,41 @@
 ## [Unreleased]
 
 ### Breaking
+- **Breaking:** Routine CLI tools now install only under `rebrew`. Replace
+  `rebrew-<command>` with `rebrew <command>` (for example, `rebrew-status`
+  becomes `rebrew status`). Reinstall or upgrade Rebrew to remove the old
+  executables. The four CMake/objdiff build hooks keep their names.
+  Removed executable names:
+  `rebrew-analyze`, `rebrew-asm`, `rebrew-binsync`, `rebrew-binsync-diff`,
+  `rebrew-binsync-export`, `rebrew-binsync-import`, `rebrew-binsync-init`,
+  `rebrew-binsync-overlay`, `rebrew-build-db`, `rebrew-cache`, `rebrew-cfg`, `rebrew-climb`,
+  `rebrew-context`, `rebrew-crt-match`, `rebrew-dashboard`, `rebrew-data`, `rebrew-decompme`,
+  `rebrew-describe`, `rebrew-diff`, `rebrew-discover-functions`, `rebrew-doctor`,
+  `rebrew-document-unmatched`, `rebrew-drift`, `rebrew-extract`, `rebrew-flirt`,
+  `rebrew-gap-trace`, `rebrew-gen-flirt-pat`, `rebrew-gen-stubs`, `rebrew-graph`,
+  `rebrew-identify-library`, `rebrew-import-splat`, `rebrew-imports`, `rebrew-init`,
+  `rebrew-inline-strings`, `rebrew-intake`, `rebrew-lib-match`, `rebrew-link-order`,
+  `rebrew-lint`, `rebrew-match`, `rebrew-merge`, `rebrew-merge-sweep`, `rebrew-near-diag`,
+  `rebrew-objdiff`, `rebrew-orphans`, `rebrew-pdb-info`, `rebrew-pe-info`, `rebrew-probe`,
+  `rebrew-prove`, `rebrew-qual-sweep`, `rebrew-rename`, `rebrew-report`, `rebrew-residue`,
+  `rebrew-resource`, `rebrew-round-trip`, `rebrew-similar`, `rebrew-skeleton`, `rebrew-skills`,
+  `rebrew-solutions`, `rebrew-split`, `rebrew-status`, `rebrew-strings`, `rebrew-symbol-addrs`,
+  `rebrew-test`, `rebrew-todo`, `rebrew-types`, `rebrew-unpack-lzexe`, `rebrew-verify`,
+  `rebrew-xrefs`.
+- **Breaking:** `binsync.export.type_from_declaration` and
+  `ghidra.cli.iter_sources` are no longer incidental exports. Import the helpers
+  from `rebrew.c_parser` and `rebrew.sources` respectively.
+  `c_parser.parse_c_source` (also imported by `security_scan.parse_c_source`)
+  now declares its precise `(tree, bytes)` return type. `metadata_model.FIELD_TO_ATTR`
+  derives its entries from the canonical field schema, including origins/evidence.
+- **Breaking:** `binsync.importer.normalize_prototype` is owned by
+  `binsync.state.normalize_prototype`; callers should import it there.
+  Prototype sync now updates the C definition, with names handled separately.
+- **Breaking:** `metadata_model.METADATA_FILENAME`,
+  `metadata_model.resolve_metadata_dir`, `metadata_model.update_source_status`,
+  and `metadata_model.metadata_write_lock` are no longer re-exported. Import
+  the first three from `rebrew.metadata` and the lock from
+  `rebrew.metadata_doc`; compound edits now use the atomic STATUS batch writer.
 - **Breaking:** `lib_match.match_bytes` and `lib_match.match_leading_body` now
   return `list[tuple[str, str]]` of candidates instead of
   `tuple[str, str] | None`. Relocation masking makes distinct library bodies
@@ -23,6 +58,17 @@
   already holds rather than resolving the file again.
 
 ### Added
+- Native Wine builds accept `SOURCE_DATE_EPOCH` through both the CMake
+  drivers and the local compile backend. The pinned base-image clock preserves
+  monotonic time and file mtimes; object and verification caches include the
+  epoch. LIB-generated EXP files can retain an export stamp from a separate
+  native build phase without rewriting compiler or linker output.
+- Integration sync retains a binary-scoped three-way baseline in a project-local
+  sidecar. Push preserves incoming changes; pull applies remote-only changes;
+  diff/push/pull JSON report pending fields, conflicts, removals and freshness.
+- Canonical function/data metadata retain external field origins and durable
+  verification evidence independently of ordinary edit provenance. Field type
+  validation and native sync permissions share declarative definitions.
 - `rebrew.relocations.relocation_spans` reports typed PE and linked ELF x86 fixups
   as absolute addresses and byte widths for private digest clients. Unsupported
   formats or relocation kinds refuse the map; numeric constants are never
@@ -31,6 +77,50 @@
   share the scorer's explicit relocation masking without importing a private name.
 
 ### Fixed
+
+- Lint W021 accepts same-address annotated `extern` references beside their
+  single initialized owner. Conflicting addresses and duplicate initialized
+  definitions still warn, including DATA/GLOBAL marker pairs; `recommend`
+  uses the same corrected check.
+- Lint W033 checks the shared project scaffold against the first declared
+  target, as `init --refresh-agents` renders it. Selecting another target or
+  `--all-targets` no longer reports fresh instructions as stale.
+- Toolchain builds resolve the generated Dockerfile's `ARG BASE_IMAGE`
+  before `FROM` and build the matching local base directory first, including
+  `base-noble`. Previously the variable hid the dependency from the CLI.
+- Documentation and project-agent guidance now agree on accounting denominators,
+  migrated source identity, data-verdict acknowledgment, verification evidence,
+  and BinSync field reconciliation. SDK examples have a dedicated Python API
+  guide; all six skill descriptions are concise and rendered copies regenerated.
+  Documentation checks include packaged rules/templates and current CLI examples.
+- BinSync global imports write names/types/sizes together, and function metadata
+  imports batch notes/locals/comments. Failed writes cannot acknowledge a sync.
+- Prototype pulls update C signatures through the AST instead of writing ignored
+  comments; existing type definitions use the same three-way decisions. Identical
+  exports preserve artifact mtimes, and sync watchers include data, headers,
+  project settings, binaries and newly discovered inputs.
+  Empty optional fields reconcile without pending noise, clearing the last
+  exported note empties its native comment table, and remote function/global/type
+  removals remain absent until resolved. Human output identifies unresolved fields.
+- Verification evidence fingerprints inputs before individual and batched
+  compilation, and discards evidence if those inputs change during the run.
+- Function metadata and lint W031 share field validation. Compound typed
+  edits write STATUS and associated fields atomically, preserving old
+  verdicts and blockers on validation or serialization failure. Nested
+  metadata strings and keys are sanitized without silently merging keys.
+- Data verification and accounting require complete known extents instead
+  of guessing sizes for unresolved arrays, structs, and typedefs; other
+  architectures require explicit sizes. `short int` spellings use two bytes,
+  and supported constant array expressions are sized through the C AST.
+- `status` marks the last verification stale after function metadata changes,
+  including SIZE/CFLAGS/TOOLCHAIN edits that leave source files untouched,
+  and reuses its source scan when checking freshness.
+- `lib-match` retains COFF weak `SEARCH_ALIAS` candidates, including stock
+  MSVC's machine-neutral, zero-code tcmap members. Alias chains forward the
+  target's body and relocation mask; JSON keeps ambiguous names null and
+  records both the alias member and actual code owner. Missing targets and
+  cycles without a body produce no match. Parser normalization is in memory
+  only; no archive or linker input is modified.
 - Shared struct parsing handles multidimensional array fields, fixing a
   `StopIteration` crash in `rebrew types` and struct consumers in BinSync.
 - The CMake linker bridge preserves `/STUB:` while translating absolute DOS
@@ -45,6 +135,9 @@
   STATUS, preventing partial writes on invalid extents.
   Shared metadata key parsing rejects non-ASCII or padded addresses and
   normalizes module identity consistently between raw and cached readers.
+  Duplicate key spellings count as one data symbol and are reported by lint
+  W031; granular writers reject them before a partial update can be hidden
+  or a deleted field resurrected by another spelling.
 - `build-check --objects` bounds its `make -q` freshness probe with a timeout
   and kills make's process group, so a wedged mount or a hung sub-make can no
   longer block the command. A probe that times out, or a make that cannot be

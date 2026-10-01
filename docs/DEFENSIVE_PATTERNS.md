@@ -53,16 +53,12 @@ verbosity.
 
 ## Test the real entry path
 
-`CliRunner().invoke(app, ...)` masks a missing `@app.callback` that the
-standalone `rebrew-<cmd>` script hits at runtime.
-`test_docs_hygiene.py::test_every_script_main_has_callback_decorator`
-pins this. Same class: a `[project.scripts]` entry whose module was
-never appended to `builtins.py`; `rebrew-<cmd>` works while
-`rebrew <cmd>` fails (the `residue` incident, `ADDING_A_COMMAND.md` §3).
-No test checks that pairing: `[project.scripts]` also holds binaries
-that are not commands, and many commands ship without a script, so the
-pin is the per-command mount test from `ADDING_A_COMMAND.md` §4; write
-it when you add the command.
+Testing a module's app alone misses registration in `builtins.py`: the
+module works while `rebrew <cmd>` fails (the `residue` incident,
+[ADDING_A_COMMAND.md](ADDING_A_COMMAND.md)). Test the mounted command through
+the umbrella. `test_docs_hygiene.py::test_every_component_main_has_callback_decorator`
+checks module wiring, and the packaging gate allows only `rebrew` plus four
+external build hooks, so separate executable names cannot mask a missing mount.
 
 ## Uncommitted work poisons `git add -A` releases
 

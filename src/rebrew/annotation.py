@@ -150,6 +150,8 @@ METADATA_KEYS: frozenset[str] = frozenset(
         "COMMENTS",
         "UPDATED_BY",
         "UPDATED_AT",
+        "ORIGINS",
+        "VERIFICATION",
     }
 )
 ALL_KNOWN_KEYS = OPTIONAL_KEYS | METADATA_KEYS | {"MARKER", "VA"}
@@ -530,6 +532,9 @@ class Annotation:
     prove_constraints: dict[str, Any] = field(default_factory=dict)
     updated_by: str = ""
     updated_at: str = ""
+    origins: dict[str, Any] = field(default_factory=dict)
+    verification: dict[str, Any] = field(default_factory=dict)
+    comparison_inputs: dict[str, str] | None = field(default=None, repr=False)
 
     # -- Dict-like access and field aliases --
 

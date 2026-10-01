@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+import pytest
+
 
 def _write(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -103,6 +105,63 @@ class TestCoverageReporting:
 
 
 class TestVerifyDataBytes:
+    @pytest.mark.parametrize(
+        "type_str", ["char[COUNT]", "char[]", "char[0]", "struct Large", "int (*)[16]"]
+    )
+    def test_unresolved_extent_cannot_verify_a_matching_prefix(
+        self, tmp_path: Path, type_str: str
+    ) -> None:
+        from rebrew.data_metadata import set_data_fields_batch
+        from rebrew.data_verify import verify_data_bytes
+
+        meta = tmp_path / "rebrew-data.toml"
+        set_data_fields_batch(
+            tmp_path,
+            [
+                {
+                    "module": "SERVER",
+                    "va": 0x1000,
+                    "fields": {"name": "g_a", "type": type_str, "section": ".data"},
+                }
+            ],
+        )
+        report = verify_data_bytes(
+            metadata_path=meta,
+            expected={0x1000: b"A" * 64},
+            actual={0x1000: b"A" * 32 + b"X" * 32},
+            sizes={0x1000: 64},
+        )
+        assert report["matched"] == report["compared"] == 0
+        assert report["results"][0]["status"] == "UNCHECKED"
+        set_data_fields_batch(
+            tmp_path, [{"module": "SERVER", "va": 0x1000, "fields": {"size": 64}}]
+        )
+        report = verify_data_bytes(
+            metadata_path=meta,
+            expected={0x1000: b"A" * 64},
+            actual={0x1000: b"A" * 32 + b"X" * 32},
+            sizes={0x1000: 64},
+        )
+        assert report["results"][0]["status"] == "DRIFT"
+
+    def test_duplicate_key_spellings_count_as_one_symbol(self, tmp_path: Path) -> None:
+        from rebrew.data_verify import verify_data_bytes
+
+        meta = tmp_path / "rebrew-data.toml"
+        _write(
+            meta,
+            '["SERVER.0x00001000"]\nname="g_a"\nsize=4\nsection=".data"\n'
+            '["SERVER.0X1000"]\nname="g_a"\nnote="same identity"\n',
+        )
+        report = verify_data_bytes(
+            metadata_path=meta,
+            expected={0x1000: b"abcd"},
+            actual={0x1000: b"abcd"},
+            sizes={0x1000: 4},
+        )
+        assert report["matched"] == report["compared"] == report["total"] == 1
+        assert len(report["results"]) == 1
+
     def test_equal_truncated_bytes_cannot_verify_a_larger_symbol(self, tmp_path: Path) -> None:
         from rebrew.data_verify import verify_data_bytes
 

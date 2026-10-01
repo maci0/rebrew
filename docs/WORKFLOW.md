@@ -157,9 +157,10 @@ rebrew test src/target_name/my_func.c           # compile + update STATUS
 rebrew test src/target_name/my_func.c --no-promote  # compile without updating STATUS
 ```
 
-The `.c` file only ever contains the stable `// FUNCTION: MODULE 0xVA` marker line
-(SIZE/CFLAGS still inline-read as reccmp-native contract keys).
-Other volatile STATUS/BLOCKER/NOTE fields live in the metadata.
+Unmigrated source carries a MODULE/VA marker and may co-read legacy SIZE/CFLAGS.
+`rebrew migrate-markers` moves function identity into TOML and leaves pure C;
+do not restore the marker block. Volatile fields live in metadata. See
+[METADATA_FORMAT.md](METADATA_FORMAT.md) for ownership and provenance.
 
 For NEAR_MATCHING functions, auto-classify and write the BLOCKER:
 
@@ -378,11 +379,9 @@ added; users control the directory structure freely.
 
 ## Source Marker Format
 
-Every `.c` file must start with a marker block. See [ANNOTATIONS.md](ANNOTATIONS.md)
-for the full format reference.
-
-Only the marker line is enforced as a linter error (E001): `FUNCTION`/`LIBRARY`/`STUB`
-with MODULE and VA. `STATUS` (and other volatile keys) are metadata-only in
+Function identity comes from an inline MODULE/VA marker or a migrated metadata
+entry. Link-only files use `// SUPPORT: MODULE reason`. See
+[ANNOTATIONS.md](ANNOTATIONS.md) for the full format and E001 exemptions. `STATUS` (and other volatile keys) are metadata-only in
 `rebrew-functions.toml`, not parsed inline. `SIZE`/`CFLAGS` are co-read (inline
 reccmp contract + TOML override). Conditional: SOURCE (for CRT/ZLIB), BLOCKER
 (for NEAR_MATCHING/STUB; stored in `rebrew-functions.toml`).

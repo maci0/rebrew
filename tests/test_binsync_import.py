@@ -352,16 +352,16 @@ class TestBinsyncRoundTrip:
         p.write_text(tomlkit.dumps(doc), encoding="utf-8")
 
         result = _invoke_import(tmp_path, tmp_path / "state", monkeypatch, "--json")
-        assert result.exit_code == 1
+        assert result.exit_code == 0
         data = json.loads(result.stdout)
-        assert data["applied_prototypes"] == 0
-        assert data["conflicts"] == 1
+        assert data["applied_prototypes"] == 1
+        assert data["conflicts"] == 0
 
         result = _invoke_import(
             tmp_path, tmp_path / "state", monkeypatch, "--json", "--accept-binsync"
         )
         assert result.exit_code == 0
-        assert json.loads(result.stdout)["applied_prototypes"] == 1
+        assert json.loads(result.stdout)["applied_prototypes"] == 0
 
     def test_global_round_trip(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _make_project(
@@ -691,14 +691,14 @@ class TestStructImport:
 
 class TestNormalizePrototype:
     def test_whitespace_only_difference_ignored(self) -> None:
-        from rebrew.binsync.importer import normalize_prototype
+        from rebrew.binsync.state import normalize_prototype
 
         assert normalize_prototype("int foo(int a, char *b);") == normalize_prototype(
             "int  foo( int a,char*b )"
         )
 
     def test_real_difference_kept(self) -> None:
-        from rebrew.binsync.importer import normalize_prototype
+        from rebrew.binsync.state import normalize_prototype
 
         assert normalize_prototype("int foo(int a);") != normalize_prototype("int foo(char a);")
 

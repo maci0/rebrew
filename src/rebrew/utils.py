@@ -717,6 +717,10 @@ _REPLACEMENT_CHAR = "�"
 def toml_safe(value: Any) -> Any:
     """Strip control characters from strings before TOML serialization.
 
+    Walk tables and arrays too: locals/comments contain nested strings.
+    Sanitization must not merge distinct table keys; a collision raises
+    before the owning writer replaces the store.
+
     tomlkit>=0.15 emits some controls (e.g. ESC) as ``\\e``, which is
     not valid TOML and fails the next parse — a Ghidra comment or note
     carrying one would corrupt the whole metadata file, key or value.  This
@@ -736,6 +740,16 @@ def toml_safe(value: Any) -> Any:
     ``"Café"`` and ``"Cafe"`` the same stored note; U+FFFD keeps the
     position of the byte that was there.
     """
+    if isinstance(value, dict):
+        safe: dict[Any, Any] = {}
+        for key, item in value.items():
+            clean_key = toml_safe(key)
+            if clean_key in safe:
+                raise ValueError(f"TOML keys collide after sanitization: {key!r}")
+            safe[clean_key] = toml_safe(item)
+        return safe
+    if isinstance(value, (list, tuple)):
+        return [toml_safe(item) for item in value]
     if not isinstance(value, str):
         return value
     return "".join(

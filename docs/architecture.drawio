@@ -112,7 +112,7 @@
         <mxCell id="ghidra" value="&lt;b&gt;Ghidra + BinSync&lt;/b&gt;&lt;br&gt;sync: BinSync state-dir TOML&lt;br&gt;MCP only for structural ops&lt;br&gt;binsync-export / import / diff" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#475569;fontColor=#1e293b;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="864" y="712" width="240" height="108" as="geometry"/>
         </mxCell>
-        <mxCell id="reccmp" value="&lt;b&gt;reccmp&lt;/b&gt;&lt;br&gt;FUNCTION:/STUB: markers&lt;br&gt;catalog CSV export&lt;br&gt;recomp can read the tree" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#475569;fontColor=#1e293b;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="reccmp" value="&lt;b&gt;reccmp&lt;/b&gt;&lt;br&gt;compatible inline markers&lt;br&gt;migrated C uses TOML identity&lt;br&gt;see ANNOTATIONS.md" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#475569;fontColor=#1e293b;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="1128" y="712" width="230" height="108" as="geometry"/>
         </mxCell>
         <mxCell id="decomp" value="&lt;b&gt;decompedia&lt;/b&gt;&lt;br&gt;community wiki&lt;br&gt;no code dependency&lt;br&gt;reference only" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#475569;fontColor=#1e293b;align=center;fontSize=11;" vertex="1" parent="1">
@@ -127,7 +127,7 @@
         <mxCell id="e-rb-ghidra" value="state-dir TOML" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#475569;fontSize=10;endArrow=block;startArrow=block;startFill=1;" edge="1" parent="1" source="rb" target="ghidra">
           <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="224" y="658"/><mxPoint x="984" y="658"/></Array></mxGeometry>
         </mxCell>
-        <mxCell id="e-rb-reccmp" value="markers + CSV" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#475569;fontSize=10;dashed=1;endArrow=block;" edge="1" parent="1" source="prj" target="reccmp">
+        <mxCell id="e-rb-reccmp" value="compatible markers" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#475569;fontSize=10;dashed=1;endArrow=block;" edge="1" parent="1" source="prj" target="reccmp">
           <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="630" y="658"/><mxPoint x="1243" y="658"/></Array></mxGeometry>
         </mxCell>
 
@@ -160,7 +160,7 @@
         <mxCell id="toml" value="&lt;b&gt;rebrew-project.toml&lt;/b&gt;&lt;br&gt;targets, compiler profile, paths&lt;br&gt;config.py → ProjectConfig" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dbeafe;strokeColor=#3b82f6;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="60" y="206" width="260" height="80" as="geometry"/>
         </mxCell>
-        <mxCell id="meta" value="&lt;b&gt;rebrew-functions.toml&lt;/b&gt;&lt;br&gt;STATUS CFLAGS TOOLCHAIN BLOCKER NOTE&lt;br&gt;mode 0444; CLI chmods to write&lt;br&gt;metadata.py + metadata_model.py" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffedd5;strokeColor=#ea580c;fontColor=#7c2d12;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="meta" value="&lt;b&gt;rebrew-functions.toml&lt;/b&gt;&lt;br&gt;identity, fields, origins, verification&lt;br&gt;0444; locked atomic CLI/API writes&lt;br&gt;metadata.py + metadata_model.py" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffedd5;strokeColor=#ea580c;fontColor=#7c2d12;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="60" y="302" width="260" height="90" as="geometry"/>
         </mxCell>
         <mxCell id="bin" value="&lt;b&gt;target binary&lt;/b&gt;&lt;br&gt;PE / ELF / Mach-O / NE&lt;br&gt;binary_loader.py (LIEF) → bytes at VA" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e2e8f0;strokeColor=#475569;fontColor=#1e293b;align=center;fontSize=11;" vertex="1" parent="1">
@@ -192,7 +192,7 @@
         <mxCell id="cmp" value="&lt;b&gt;CompareResult&lt;/b&gt;&lt;br&gt;matched · status · match_percent · delta&lt;br&gt;obj_bytes · reloc_offsets · similarity" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bbf7d0;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=12;" vertex="1" parent="1">
           <mxGeometry x="1010" y="110" width="320" height="80" as="geometry"/>
         </mxCell>
-        <mxCell id="status" value="&lt;b&gt;update_source_status&lt;/b&gt;&lt;br&gt;EXACT / RELOC / NEAR_MATCHING / MISMATCH&lt;br&gt;metadata only; never rewrite .c markers&lt;br&gt;rebrew test (single) · verify (batch)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffedd5;strokeColor=#ea580c;fontColor=#7c2d12;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="status" value="&lt;b&gt;update_source_status&lt;/b&gt;&lt;br&gt;EXACT / RELOC / NEAR_MATCHING / STUB&lt;br&gt;metadata only; evidence kept separately&lt;br&gt;rebrew test (single) · verify (batch)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffedd5;strokeColor=#ea580c;fontColor=#7c2d12;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="1360" y="100" width="330" height="96" as="geometry"/>
         </mxCell>
         <mxCell id="diff" value="&lt;b&gt;diff / near-diag / match&lt;/b&gt;&lt;br&gt;byte + mnemonic diffs&lt;br&gt;NEAR_MATCHING buckets&lt;br&gt;GA + flag sweep (page 4)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fed7aa;strokeColor=#ea580c;fontColor=#7c2d12;align=center;fontSize=11;" vertex="1" parent="1">
@@ -254,7 +254,7 @@
           <mxGeometry relative="1" as="geometry"/>
         </mxCell>
 
-        <mxCell id="rules" value="Routing: STATUS/CFLAGS/TOOLCHAIN/BLOCKER live only in rebrew-functions.toml. .c markers never get a STATUS rewrite. Hand-edit of locked TOML fails (0444); use rebrew test / verify / blocker / diff --fix-blocker. Similarity is best-effort: missing resembl leaves CompareResult.similarity = None, never a fake 0." style="rounded=1;whiteSpace=wrap;html=1;align=left;spacingLeft=12;spacingRight=12;fillColor=#fff7ed;strokeColor=#ea580c;fontColor=#7c2d12;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="rules" value="Routing: STATUS/TOOLCHAIN/BLOCKER are metadata-owned. Legacy SIZE/CFLAGS are co-read; migrated identity leaves pure C. Origins and verification evidence stay durable. Locked TOML uses CLI/API writers. See METADATA.md. Missing similarity is None, not a fake 0." style="rounded=1;whiteSpace=wrap;html=1;align=left;spacingLeft=12;spacingRight=12;fillColor=#fff7ed;strokeColor=#ea580c;fontColor=#7c2d12;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="40" y="508" width="1680" height="56" as="geometry"/>
         </mxCell>
 
@@ -574,10 +574,10 @@
         <mxCell id="hub" value="*-rebrew project (guild-rebrew, win2k-notepad-rebrew, … under rebrew-projects/)" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=12;spacingTop=6;fillColor=#dcfce7;strokeColor=#16a34a;fontColor=#14532d;fontStyle=1;fontSize=13;" vertex="1" parent="1">
           <mxGeometry x="480" y="80" width="800" height="210" as="geometry"/>
         </mxCell>
-        <mxCell id="h-src" value="&lt;b&gt;C sources&lt;/b&gt;&lt;br&gt;FUNCTION: markers&lt;br&gt;file-only VA/MODULE/SYMBOL" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fef9c3;strokeColor=#ca8a04;fontColor=#713f12;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="h-src" value="&lt;b&gt;C sources&lt;/b&gt;&lt;br&gt;MODULE/VA or TOML identity&lt;br&gt;name/signature derived from C" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fef9c3;strokeColor=#ca8a04;fontColor=#713f12;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="500" y="116" width="180" height="70" as="geometry"/>
         </mxCell>
-        <mxCell id="h-meta" value="&lt;b&gt;rebrew-functions.toml&lt;/b&gt;&lt;br&gt;STATUS CFLAGS BLOCKER&lt;br&gt;0444; CLI writers only" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffedd5;strokeColor=#ea580c;fontColor=#7c2d12;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="h-meta" value="&lt;b&gt;Function/data metadata&lt;/b&gt;&lt;br&gt;fields, origins, verification&lt;br&gt;0444; CLI/API writers only" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffedd5;strokeColor=#ea580c;fontColor=#7c2d12;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="700" y="116" width="180" height="70" as="geometry"/>
         </mxCell>
         <mxCell id="h-db" value="&lt;b&gt;db/coverage-&lt;target&gt;.toml&lt;/b&gt;&lt;br&gt;format: COVERAGE_DOCUMENT.md" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
@@ -586,7 +586,7 @@
         <mxCell id="h-ga" value="&lt;b&gt;ga_runs.jsonl&lt;/b&gt;&lt;br&gt;solutions DB&lt;br&gt;seeds next match" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="1090" y="116" width="170" height="70" as="geometry"/>
         </mxCell>
-        <mxCell id="h-note" value="One project = one binary. Durable facts live here. Siblings either read these files or shell/import rebrew to rewrite them. Nothing else owns STATUS." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#16a34a;fontColor=#14532d;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="h-note" value="One project may hold several binary targets. Durable metadata is keyed by MODULE/VA. Siblings read files or call Rebrew writers; derived coverage is rebuilt. Nothing external earns STATUS." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#16a34a;fontColor=#14532d;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="500" y="200" width="760" height="70" as="geometry"/>
         </mxCell>
 
@@ -622,16 +622,16 @@
         <mxCell id="bs-lane" value="2. Collaboration: BinSync (fields) and Ghidra ReVa MCP (structure only)" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=10;spacingTop=4;fillColor=#e2e8f0;strokeColor=#475569;fontColor=#1e293b;fontStyle=1;fontSize=12;" vertex="1" parent="1">
           <mxGeometry x="40" y="480" width="1680" height="170" as="geometry"/>
         </mxCell>
-        <mxCell id="bs1" value="rebrew binsync-export&lt;br&gt;functions/*.toml&lt;br&gt;global_vars.toml · structs/*.toml&lt;br&gt;[rebrew] STATUS/CFLAGS as comments" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#475569;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="bs1" value="rebrew binsync-export&lt;br&gt;native function/global/type fields&lt;br&gt;STATUS/CFLAGS remain private&lt;br&gt;schema/input/artifact manifest digests" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#475569;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="60" y="520" width="260" height="100" as="geometry"/>
         </mxCell>
-        <mxCell id="bs2" value="&lt;b&gt;BinSync state dir&lt;/b&gt;&lt;br&gt;plain TOML, no libbs&lt;br&gt;IDA · Binary Ninja · Ghidra plugins" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#475569;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="bs2" value="&lt;b&gt;BinSync state dir&lt;/b&gt;&lt;br&gt;declib native artifacts&lt;br&gt;IDA · Binary Ninja · Ghidra plugins" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#475569;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="360" y="520" width="240" height="100" as="geometry"/>
         </mxCell>
-        <mxCell id="bs3" value="rebrew binsync-import&lt;br&gt;names, prototypes, global labels&lt;br&gt;--accept-binsync / --accept-local&lt;br&gt;writes metadata + source" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fde68a;strokeColor=#ca8a04;fontColor=#713f12;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="bs3" value="rebrew binsync-import&lt;br&gt;three-way field reconciliation&lt;br&gt;--accept-binsync / --accept-local&lt;br&gt;C signatures + metadata origins" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fde68a;strokeColor=#ca8a04;fontColor=#713f12;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="640" y="520" width="260" height="100" as="geometry"/>
         </mxCell>
-        <mxCell id="bs4" value="binsync-diff&lt;br&gt;read-only CI gate&lt;br&gt;exit 1 on divergence" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#475569;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="bs4" value="rebrew binsync-diff&lt;br&gt;pending edits/conflicts/deletions&lt;br&gt;stale origins/verification&lt;br&gt;read-only JSON health" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#475569;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="940" y="520" width="200" height="100" as="geometry"/>
         </mxCell>
         <mxCell id="bs5" value="&lt;b&gt;rebrew sync (ReVa MCP)&lt;/b&gt;&lt;br&gt;create-function, bookmarks, data&lt;br&gt;not the field store&lt;br&gt;interactive Ghidra only" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#475569;align=center;fontSize=11;" vertex="1" parent="1">
@@ -742,10 +742,10 @@
           <mxGeometry x="470" y="356" width="370" height="80" as="geometry"/>
         </mxCell>
 
-        <mxCell id="fn" value="&lt;b&gt;rebrew-functions.toml&lt;/b&gt;&lt;br&gt;cfg.metadata_dir (parent of reversed_dir)&lt;br&gt;key: MODULE.0xVA&lt;br&gt;mode 0444; never hand-edit&lt;br&gt;&lt;br&gt;STATUS CFLAGS TOOLCHAIN SKIP&lt;br&gt;GLOBALS BLOCKER BLOCKER_DELTA&lt;br&gt;SOURCE NOTE GHIDRA ANALYSIS&lt;br&gt;PROVE_CONSTRAINTS SIZE (override)&lt;br&gt;&lt;br&gt;Writers: test / verify / prove (STATUS)&lt;br&gt;blocker set/clear · diff --fix-blocker&lt;br&gt;near-diag --fix-blocker · document-unmatched&lt;br&gt;update_field / remove_field" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="fn" value="&lt;b&gt;rebrew-functions.toml&lt;/b&gt;&lt;br&gt;cfg.metadata_dir; shared across targets&lt;br&gt;key: MODULE.0xVA&lt;br&gt;0444; never hand-edit&lt;br&gt;&lt;br&gt;identity + mutable function fields&lt;br&gt;STATUS via gated comparison writers&lt;br&gt;origins: accepted external fields&lt;br&gt;verification: inputs + measurement time&lt;br&gt;updated_by/at: ordinary edit stamp&lt;br&gt;&lt;br&gt;metadata.py owns field/schema rules&lt;br&gt;See METADATA_FORMAT.md + METADATA.md" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="880" y="120" width="260" height="370" as="geometry"/>
         </mxCell>
-        <mxCell id="dt" value="&lt;b&gt;rebrew-data.toml&lt;/b&gt;&lt;br&gt;same metadata_dir, no walk-up&lt;br&gt;key: MODULE.0xVA&lt;br&gt;mode 0444; never hand-edit&lt;br&gt;&lt;br&gt;name · size · section · note&lt;br&gt;for DATA / GLOBAL markers&lt;br&gt;&lt;br&gt;Writers: rebrew data&lt;br&gt;(scan / annotate / --fix-bss)&lt;br&gt;rebrew sync --pull-data&lt;br&gt;data_metadata.set_data_field" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="dt" value="&lt;b&gt;rebrew-data.toml&lt;/b&gt;&lt;br&gt;same metadata_dir, no walk-up&lt;br&gt;key: MODULE.0xVA&lt;br&gt;0444; never hand-edit&lt;br&gt;&lt;br&gt;name · type · size · section · note&lt;br&gt;VERIFIED / DRIFT / UNCHECKED&lt;br&gt;origins + verification evidence&lt;br&gt;&lt;br&gt;Writers: data / verify / BinSync pull&lt;br&gt;complete known extent for verification&lt;br&gt;See METADATA_FORMAT.md" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="1160" y="120" width="250" height="370" as="geometry"/>
         </mxCell>
         <mxCell id="lb" value="&lt;b&gt;rebrew-libraries.toml&lt;/b&gt;&lt;br&gt;at a source subtree root&lt;br&gt;walk-up from the .c file&lt;br&gt;&lt;br&gt;toolchain + cflags for the&lt;br&gt;whole library (zlib, CRT, …)&lt;br&gt;presets fill gaps&lt;br&gt;(msvcrt-static = /MT /O2 /Gd)&lt;br&gt;&lt;br&gt;Writer: rebrew library set/rm&lt;br&gt;&lt;br&gt;&lt;b&gt;.c markers (file-only)&lt;/b&gt;&lt;br&gt;// FUNCTION|LIBRARY|STUB|DATA|GLOBAL:&lt;br&gt;MODULE 0xVA&lt;br&gt;optional // SIZE: N (reccmp contract)&lt;br&gt;inline STATUS/CFLAGS → lint W019&lt;br&gt;&lt;br&gt;library_*.h = LIBRARY headers" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
@@ -825,11 +825,11 @@
         <mxCell id="e4" value="&lt;b&gt;Remote backend&lt;/b&gt;&lt;br&gt;REBREW_RECOMPILE_URL&lt;br&gt;or [compiler] recompile_url&lt;br&gt;recompile_emit_assembly&lt;br&gt;(training tap, default off)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="870" y="926" width="250" height="110" as="geometry"/>
         </mxCell>
-        <mxCell id="e5" value="&lt;b&gt;Who owns which fact&lt;/b&gt;&lt;br&gt;identity: .c marker + catalog registry&lt;br&gt;STATUS/BLOCKER/CFLAGS: functions.toml&lt;br&gt;globals: data.toml&lt;br&gt;layout bytes: layout/&amp;lt;t&amp;gt;/  (not original/)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bbf7d0;strokeColor=#16a34a;fontColor=#14532d;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="e5" value="&lt;b&gt;Who owns which fact&lt;/b&gt;&lt;br&gt;identity: markers or migrated TOML + registry&lt;br&gt;function fields/evidence: functions.toml&lt;br&gt;global fields/evidence: data.toml&lt;br&gt;layout reference bytes: layout/&lt;t&gt;/" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bbf7d0;strokeColor=#16a34a;fontColor=#14532d;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="1140" y="926" width="550" height="110" as="geometry"/>
         </mxCell>
 
-        <mxCell id="prec" value="SIZE: compile contract = annotation/metadata SIZE; coverage uses registry canonical_size. STATUS display: metadata &gt; verify_cache measured (PROVEN never in cache) &gt; grid/DB snapshot. Inline metadata keys: lint W019, lint --fix migrates to TOML." style="text;html=1;align=left;fontSize=11;fontColor=#475569;" vertex="1" parent="1">
+        <mxCell id="prec" value="Compile extent: annotation/metadata SIZE. Grid extent: registry canonical size. Status/todo: separate file, accounted .text, and initialized-data metrics. Library/padding contributions visible; overlapping data spans count once. See CLI.md status accounting." style="text;html=1;align=left;fontSize=11;fontColor=#475569;" vertex="1" parent="1">
           <mxGeometry x="40" y="1070" width="1680" height="24" as="geometry"/>
         </mxCell>
       </root>

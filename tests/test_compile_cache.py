@@ -1487,3 +1487,25 @@ class TestAtexitClose:
         fn(*args)
         assert cc._caches == {}
         fn(*args)  # inverse is idempotent
+
+
+class TestSourceDateEpochCacheIdentity:
+    def test_epoch_separates_objects_and_verdicts(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.verify_hash import compiler_config_hash
+
+        cfg = ProjectConfig(root=tmp_path)
+        monkeypatch.delenv("SOURCE_DATE_EPOCH", raising=False)
+        keys = []
+        for epoch in (None, "1071482016", "1771046057"):
+            if epoch is not None:
+                monkeypatch.setenv("SOURCE_DATE_EPOCH", epoch)
+            keys.append(
+                (
+                    compile_cache_key("char date[] = __DATE__;", "date.c", [], [], "clock-test"),
+                    compiler_config_hash(cfg),
+                )
+            )
+        assert len({key[0] for key in keys}) == 3
+        assert len({key[1] for key in keys}) == 3

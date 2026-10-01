@@ -1,6 +1,6 @@
 """Tests for tools/validate_skill_commands.py.
 
-Runs the validator script against the real agent-skills directory to confirm
+Runs the validator against packaged skills and current guides/templates to confirm
 it doesn't crash and that all commands found in SKILL.md files are actually
 registered in the CLI.  Does NOT invoke real rebrew commands; it only confirms
 ``--help`` works (i.e., the subcommand exists and the flag is advertised).
@@ -41,7 +41,7 @@ class TestValidateSkillCommands:
         mod = importlib.util.module_from_spec(spec)
         assert spec.loader is not None
         spec.loader.exec_module(mod)
-        return bool(mod.validate(quiet=True))
+        return bool(mod.validate(quiet=True, docs=True))
 
     def test_script_is_importable(self) -> None:
         """The script must be importable (no syntax errors)."""
@@ -53,12 +53,12 @@ class TestValidateSkillCommands:
         assert hasattr(mod, "validate")
 
     def test_validate_function_returns_bool(self, _validate_once: bool) -> None:
-        """validate() must return True when every skill command resolves."""
+        """Current documentation and skill commands must resolve against the CLI."""
         assert isinstance(_validate_once, bool)
         assert _validate_once is True
 
     def test_no_unknown_subcommands(self, _validate_once: bool) -> None:
-        """All subcommands referenced in SKILL.md files must exist in the CLI.
+        """All subcommands referenced in current guides/skills must exist in the CLI.
 
         Reuses the session fixture's in-process run (the same probe set the
         script entrypoint runs) instead of spawning the script a second time.
@@ -74,7 +74,7 @@ class TestValidateSkillCommands:
         import sys
 
         for result, code in ((True, 0), (False, 1)):
-            monkeypatch.setattr(mod, "validate", lambda quiet=False, _r=result: _r)
+            monkeypatch.setattr(mod, "validate", lambda quiet=False, docs=False, _r=result: _r)
             monkeypatch.setattr(sys, "argv", ["validate_skill_commands.py", "--quiet"])
             with pytest.raises(SystemExit) as exc:
                 mod.main()

@@ -21,8 +21,8 @@ Needs **uv** (CI pins `uv-version` in `.github/actions/uv-env/action.yml`,
 currently `0.12.14`), **Python 3.13+** (see `.python-version`), **nasm** on `PATH`
 (CI installs nasm for asm round-trip tests), and **bun** on `PATH` (the
 `tests/dashboard_*.mjs` interaction tests skip without it, so a host with no
-bun sees a green `make test` that never ran the dashboard JS the CI job
-does; `make test` fails on a missing bun, `make test-one` only warns).
+bun cannot run the dashboard JS exercised by CI; `make test` fails on a
+missing bun, while `make test-one` only warns).
 `make clone-resembl` also needs
 **bash**: it runs `tools/ci_clone_resembl.sh`, and the target says so instead of
 printing `bash: not found`.  **shellcheck** is optional locally
@@ -151,6 +151,15 @@ make layering-check           # wrong-direction imports (also runs in make check
 make idempotency-check        # every --json command run twice (CI test job)
 make release-check            # version/changelog/tag preflight before tagging
 ```
+
+## Documentation, templates, and skills
+
+Follow [documentation style](docs/STYLE.md): current guides own runtime facts;
+ADRs, released notes, and scoped PRDs preserve historical decisions/evidence.
+The [documentation index](docs/README.md) links each subject's home.
+Edit packaged skills/templates, then regenerate the copies; the style guide
+lists the rendering, link, CLI-help, metadata-field, and template checks.
+Python SDK examples belong in [PYTHON_API.md](docs/PYTHON_API.md), not the README.
 
 ## What to work on
 

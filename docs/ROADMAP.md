@@ -8,6 +8,8 @@ first-class proof target, with PPC/ARM as the follow-on set.
 - **Date**: 2026-08 (updated 2026-09)
 - **Owner**: rebrew team
 
+> This is an RFC: proposed command/flag examples are designs, not current CLI
+> instructions. Use [CLI.md](CLI.md) for shipped behavior.
 > The table records the original work list, so an unchecked row is a claim to
 > re-verify against code, not current fact. Open items the table does not
 > track: `ToolchainSpec.arch` field + gcc-mips spec, `asm.py` x86 hardcodes,

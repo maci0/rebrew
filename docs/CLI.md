@@ -3,6 +3,15 @@
 All 101 CLI commands are registered under the unified `rebrew` entry point in `main.py`
 (100 packaged `CliComponent` entries in `builtins.py` plus `import-splat` from
 `main.py` `_EXTRA_COMPONENTS`).
+Only `rebrew` is installed for routine CLI use. Invoke tools as subcommands:
+`rebrew status`, `rebrew test`, `rebrew binsync push`, and so on. The old
+`rebrew-<command>` executables are removed; reinstall or upgrade Rebrew to
+remove them from your environment. Four executable build hooks remain:
+`rebrew-cmake-cl`, `rebrew-cmake-link`, `rebrew-cmake-lib` (CMake compiler,
+linker, and archiver drivers) and `rebrew-objdiff-build` (objdiff's rebuild
+command). They accept their build tool's arguments, not ordinary CLI flags.
+See [ADR 026](adr/026-unified-cli-entry-point.md).
+
 Most tools support `--target / -t` to select a target from `rebrew-project.toml` and
 read defaults (binary path, reversed_dir, compiler settings) from the project config.
 The ones that do not (`postlink`, `cmake-toolchain`, `build-check`, `order-sources`,
@@ -23,8 +32,8 @@ Run any tool with `--help` to see usage examples and context
 (typer `rich_markup_mode="rich"` with epilog text).
 
 `--version/-V`, `--verbose/-v` (repeatable) and `--quiet/-q` are shared options:
-`rebrew.cli.add_global_options` injects them into every command and every
-`rebrew-<cmd>` console script, so they parse after the subcommand name as well
+`rebrew.cli.add_global_options` injects them into every command,
+so they parse after the subcommand name as well
 as before it (`rebrew -vv diff` and `rebrew diff -vv` agree).  A tool that
 declares one of these flags itself keeps its own meaning: `rebrew lint --quiet`
 still means "errors only", not "logs at warning".  `REBREW_LOG_LEVEL` sets the
@@ -61,8 +70,8 @@ over it.
 
 ## Exit Codes
 
-Every entry point (`rebrew <cmd>` and the standalone `rebrew-<cmd>` scripts)
-returns the same five codes, enforced by `rebrew.cli.run_cli`:
+Every `rebrew <cmd>` invocation uses the same exit contract, enforced by
+`rebrew.cli.run_cli`:
 
 | Code | Meaning |
 |------|---------|
@@ -605,7 +614,7 @@ graph TD
 | `--jobs N` / `-j N` | Number of parallel compile jobs (default: from project.jobs or 4) |
 | `--compare` | Compare against last saved `.rebrew/verify_baseline.toml`, detect regressions/improvements; exit code 1 on regression |
 | `-s` / `--summary` | Show EXACT/RELOC/NEAR_MATCHING summary table with match percentages |
-| `--full` | Force full verification, ignoring cached results (also required after header/include changes) |
+| `--full` | Force full verification, ignoring cached results; header/include changes invalidate affected entries automatically |
 | `--json` | Structured JSON report to stdout |
 | `--output FILE` / `-o FILE` | Write report to specific file |
 | `--dry-run` | Preview STATUS metadata changes without writing (JSON report carries `dry_run: true`) |
@@ -615,7 +624,7 @@ graph TD
 | `--prune-orphans` | Delete metadata blocks whose VA has no source marker before verifying (same scan as `rebrew orphans --prune`; EXACT/RELOC/PROVEN blocks held back) |
 | `--data` | Byte-compare built `.data`/`.rdata` against the reference, per metadata symbol with first-diff attribution; verdicts persist as data STATUS (`VERIFIED`/`DRIFT`/`UNCHECKED`) and surface in `status` + `todo data-drift` |
 | `--built PATH` | Built binary for `--data` / `--text` / `--whole-binary` comparison (default `build/<target>`) |
-| `--raw-link` | Ack that `--built` is the raw link, not a postlinked deliverable. Without it, `--data` suppresses DRIFT status write-backs (a raw link's `.data` divergence is postlink-supplied and would flip wrong statuses) |
+| `--raw-link` | Ack that `--built` is the raw link, not a postlinked deliverable. Without it (or configured `raw_link`), `--data` reports comparisons but suppresses all stored data verdict/evidence writes; existing verdicts remain unchanged |
 | `--text` | Check built `.text` function placement against the `// FUNCTION:` markers via `text-audit`; exit 1 on any misplaced function |
 | `--whole-binary` | Compare built binary against the reference: whole-file raw bytes, section sizes, exports, imports, PE base relocations, `.rsrc` bytes, headers, plus layout-freshness check |
 | `--context FILE` | Compile every source with these declarations merged ahead of it under `#line` directives (see `rebrew test --context`); each result and the report carry `context_hash`. Each entry records the context digest it was earned under, so a cached verdict is served only to a run pinned to the exact same context (a changed or absent digest re-verifies); context runs write back like bare runs |
@@ -1175,15 +1184,15 @@ state dir cannot express: function creation, bookmarks, data pulls.
 |------|-------------|
 | `--state-dir DIR` | BinSync state directory (defaults to `targets.<name>.binsync_state_dir` when configured) |
 | `--push` | Export annotations to the BinSync state dir |
-| `--pull` | Import the BinSync state dir into rebrew (renames, `// PROTOTYPE:`, notes, globals, structs) |
+| `--pull` | Import the BinSync state dir into rebrew (renames, C signatures, notes, locals/comments, globals, types) |
 | `--create-functions` | With `--pull`: create the imported VAs in Ghidra (MCP chain). Standalone: create list-only functions in Ghidra |
-| `--accept-binsync` | With `--pull`: accept BinSync names on conflicts |
-| `--accept-local` | With `--pull`: keep local names on conflicts (records provenance) |
-| `--create-missing` | With `--pull`: STUB files for BinSync functions not in the catalog |
+| `--accept-binsync` | With `--pull`: accept remote field values on conflicts |
+| `--accept-local` | With `--pull`: keep local field values on conflicts |
+| `--create-missing` | With `--pull`: STUB files for catalog-known functions without local annotations |
 | `--bookmarks` | Set status bookmarks in Ghidra via MCP (category `rebrew`, status in the comment; a rerun replaces each) |
 | `--pull-data` | Pull Ghidra data labels into `rebrew_globals.h` (MCP) |
 | `--summary` | Preview the push (dry-run export) without writing |
-| `--watch` | With `--push --state-dir`: re-export on every source change |
+| `--watch` | With `--push --state-dir`: re-export on source/header, metadata, config, binary, or remote-state changes |
 | `--dry-run` | Preview any operation without applying changes |
 | `--endpoint URL` | ReVa MCP endpoint URL (structural ops) |
 | `--json` | Output results as JSON |
@@ -1308,7 +1317,7 @@ Prove semantic equivalence of a NEAR_MATCHING function via angr symbolic executi
 
 On success, updates `STATUS` from `NEAR_MATCHING`/`SIZE_MISMATCH` → `PROVEN`. On failure (timeout, path explosion, or Z3 finds a distinguishing input), status remains unchanged. Failure messages include a concrete counterexample (register/memory values from the Z3 model). `SIZE_MISMATCH` is accepted so functions whose compiled size differs structurally can still be proven semantically equivalent: the proof is what makes them PROVEN.
 
-**64-bit returns**: Functions that return `long long`, `__int64`, `int64_t`, or `uint64_t` use the EDX:EAX register pair for their return value. `rebrew prove` auto-detects this from the `PROTOTYPE` annotation and enables EDX comparison automatically: no flag needed. Pass `--check-edx` explicitly to force EDX checking even when the heuristic does not trigger.
+**64-bit returns**: Functions that return `long long`, `__int64`, `int64_t`, or `uint64_t` use the EDX:EAX register pair for their return value. `rebrew prove` auto-detects this from the C function signature and enables EDX comparison automatically: no flag needed. Pass `--check-edx` explicitly to force EDX checking even when the heuristic does not trigger.
 
 **Memory side effects**: By default only return registers (EAX, optionally EDX) are compared. Functions that write to globals or output-pointer arguments can therefore pass even when their memory effects differ. Pass `--watch-va` (repeatable) or set `prove_constraints.watched_vas = [0x...]` in the function metadata to also compare the first 4 bytes at each watched address between the original and compiled executions; an address mapped on only one side counts as a difference. Keep the watched set small (<10) to avoid Z3 blowup.
 
@@ -1696,48 +1705,62 @@ to function-only verify/diff.
 
 `rebrew status [--json] [--target NAME | --all-targets]`
 
-At-a-glance reversing progress.  The terminal prints one progress percentage.
-When `.text` size is known, that percentage is `byte_coverage_pct` (share of
-`.text` in byte-matched functions), in the headline, with a bar of the same
-ratio.  The function ratio is a count (`261/262`), not a second percentage.
-When `.text` size is unknown, the percentage is `matched_pct` (EXACT+RELOC
-over all functions) instead.  JSON still carries both fields, plus
-`coverage_pct` (functions with a source file).  The `%` column is that count's share of functions, and the data table's
-`%` column is the share of data symbols.  A separate PROVEN line records
-semantic equivalence while the bytes still differ.  The rest of `.text` is
-accounted for on the next line and in JSON: `unmatched_bytes` (functions not
-byte-matched), `padding_bytes` (runs of `CC`, `90` or `00` at the edges of a gap
-between functions; a zero byte inside unknown code is not fill) and
-`unattributed_bytes` (bytes no known function covers, such as import
-thunks).  The four add up to `total_text_bytes`.  `status_bytes` gives the
-function bytes per effective status plus `LIBRARY` and `NO_SOURCE`, and
-`accounted_text_bytes` is matched plus padding.  A compiled function counts
-its annotated SIZE, the extent verify compares; a library row, which nothing
-compiles, counts its discovered extent.  Each span stops at the next function
-start and is clipped to `.text`.  Switch arms inside a function are not starts.  When a verify cache
-exists, reported statuses are the **effective** status (verify result
-overrides metadata; see `docs/ANNOTATIONS.md` "Effective Status").
-`verify_cache: {overrides, missing_size, effective_matches}` in JSON surfaces
-how many functions the cache overrode, plus the effective-match count
-(register-allocation-only delta, the prove queue).  Data sits in its own
-block under the function table. When the binary has file-backed `.data` and
-`.rdata`, the block opens with the same kind of bar as `.text`: the share of
-those bytes covered by `VERIFIED` symbols (`byte_pct`, `verified_bytes`,
-`total_bytes` in JSON). A symbol that runs into the BSS tail is clipped to
-the file bytes. The BSS tail itself stays a symbol count. Under the bar:
-`verified/total`, a verdict table, and the same counts per section (`.data`,
-`.rdata`, `.bss`, then any other).  That is this target's module and library modules, not other
-targets in the same `rebrew-data.toml`.  JSON is
-`data: {verified, drift, unchecked, total, sections}`, plus `bytes`
-(disjoint `drift`, `unchecked`, `verified`, `untracked` byte counts; where
-overlapping symbols disagree, drift beats unchecked beats verified) and
-`conflicting_verified_bytes` (VERIFIED bytes lost to such an overlap).  The
-whole-file block (`file` in JSON) adds `unmatched_bytes` and `sections`, the
-same-offset byte compare per reference section plus `headers / other`.  The `.text` figure
-stays the only progress
-percentage.  `last_verify.library_passed` counts the last verify's
-passes on functions status treats as library code (verify compiles them;
-progress excludes them).
+Progress without compilation. `status` and the `coverage` frame in `todo` JSON
+share the same accounting. The terminal shows three independent measures when
+their inputs are available:
+
+| Measure | JSON | Denominator |
+|---|---|---|
+| Whole-file agreement | `file.similarity_pct` | Longer of reference and built image; bytes compared at the same file offsets |
+| Accounted executable bytes | `byte_coverage_pct` | File-backed `.text`; matched functions, library attributions, and alignment fill count |
+| Stored data verification | `data.byte_pct` | File-backed `.data` + `.rdata`; only VERIFIED bytes without conflicting verdicts count |
+
+Do not add these percentages or treat stored verdicts as a fresh build check.
+Whole-file agreement uses configured `raw_link` or `build/<target>`; a missing
+configured image is reported rather than silently substituted. `.bss` has no
+file-backed bytes and appears as symbol counts/virtual-layout work.
+
+Function `coverage_pct` counts source presence; `matched_pct` counts EXACT/RELOC.
+Library functions are excluded from those reversing denominators and shown as
+`library_identified`; their bytes still contribute to accounted `.text`.
+`decompiled_pct` excludes matched `// SOURCE: naked` assembly reconstructions.
+PROVEN is semantic evidence and earns no byte-match credit.
+
+Executable accounting reconciles as:
+
+```text
+matched_bytes + unmatched_bytes + padding_bytes + unattributed_bytes = total_text_bytes
+accounted_text_bytes = matched_bytes + padding_bytes
+```
+
+`matched_bytes` includes library attributions. `status_bytes` partitions function
+extents by effective status plus LIBRARY and NO_SOURCE. Sourced functions use
+the annotated SIZE that verification compares; library rows use discovered
+extents. Spans stop at the next actual function start and at section bounds;
+switch arms inside a function do not split it. Padding recognizes CC/90/00 runs
+at gap edges, not zero bytes inside unknown code. When `.text` is unavailable,
+the terminal falls back to the matched-function ratio.
+
+Data JSON includes symbol counts (`verified`, `drift`, `unchecked`, `total`,
+`sections`) and disjoint `bytes` buckets (`drift`, `unchecked`, `verified`,
+`untracked`) adding to `total_bytes`. Overlaps count once, with drift taking
+precedence over unchecked, then verified. `conflicting_verified_bytes` reports
+VERIFIED spans excluded by another verdict. Unknown complete extents cannot
+claim guessed bytes. The active target and its library modules are included;
+other targets in the shared data store are excluded.
+
+`file.matched_bytes + file.unmatched_bytes = file.total_bytes`. `file.sections`
+attributes the same-offset comparison to reference sections and headers/other;
+extra or missing built bytes remain unmatched. File agreement also measures
+layout/header differences that function matching does not.
+
+Reported statuses use the effective verify-cache overlay; see
+[Effective Status](ANNOTATIONS.md#effective-status-verify-cache-vs-metadata). JSON `verify_cache` includes
+`overrides`, `missing_size`, and `effective_matches` (register-only residue).
+`last_verify.library_passed` / `library_total` keep library checks visible outside
+reversing progress. `last_verify.stale` flags source/function metadata newer than
+the cached run; full input/evidence freshness is covered by integration health.
+Unavailable byte measurements are omitted or null; they are not measured zeroes.
 
 ### `rebrew similar`
 
@@ -1968,6 +1991,9 @@ host binary).  See [TOOLCHAIN.md](TOOLCHAIN.md) for the full model.
 
 ### `rebrew binsync-export`
 
+Shared field ownership, three-way reconciliation, manifest digests, and JSON
+`health` are specified in [BINSYNC_INTEGRATION.md](BINSYNC_INTEGRATION.md#field-ownership-reconciliation-and-provenance).
+
 Export annotations to a BinSync state directory.  Merges reversed annotations
 (`scan_reversed_dir`) with the **project catalog** (`function_structure.json` →
 `build_function_registry`, canonical sizes) so that
@@ -1996,8 +2022,8 @@ them as STUB files.
 | `--dry-run` | Preview changes without writing |
 | `--json` | JSON structured output |
 | `--module NAME` | Only this module (e.g. SERVER) |
-| `--accept-binsync` | Accept BinSync names for all conflicts |
-| `--accept-local` | Keep local, record BinSync name as GHIDRA provenance |
+| `--accept-binsync` | Accept remote field values on conflicts |
+| `--accept-local` | Keep local field values; retain alternate function names as GHIDRA |
 | `--create-missing` | Create STUB files for BinSync functions present in the catalog but not yet in `src/` |
 | `--target NAME` | Select a target from `rebrew-project.toml` |
 

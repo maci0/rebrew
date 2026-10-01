@@ -2,7 +2,12 @@
 
 ## What goes in the `.c` file
 
-The `.c` file contains **only the marker line**, a stable identity that never changes:
+Unmigrated function source carries a stable MODULE/VA marker. Legacy
+SIZE/CFLAGS are co-readable; other volatile fields belong in metadata.
+`rebrew migrate-markers` moves function identity into the store and leaves
+pure C. Do not add markers back to migrated files.
+
+An unmigrated example:
 
 ```c
 // FUNCTION: SERVER 0x10008880
@@ -17,7 +22,6 @@ For library functions:
 
 ```c
 // LIBRARY: SERVER 0x10023714
-// SOURCE: ENVIRON.C
 
 int stub(void) { return 0; }
 ```
@@ -39,6 +43,8 @@ int stub(void) { return 0; }
 > - `rebrew sync --pull --state-dir <dir>` → NOTE, GHIDRA
 
 ## What goes in `rebrew-functions.toml` metadata file
+
+Illustrative managed output, not a file to edit:
 
 ```toml
 ["SERVER.0x10008880"]
@@ -67,7 +73,14 @@ even when not present inline.
 STUB -> NEAR_MATCHING -> RELOC -> EXACT
            \-> PROVEN (via rebrew prove)
 
-Managed via `rebrew test` (auto-promotes). Never edit STATUS by hand.
+Byte verdicts come from `rebrew test` / `rebrew verify`, including regressions.
+PROVEN records bounded semantic evidence, earns no matched bytes, and the next
+byte verdict replaces it. Never edit STATUS by hand.
+
+`updated_by` / `updated_at` describe ordinary edits. `origins` holds per-field
+external source facts; `verification` holds the comparison inputs and measurement
+time independently. Repeating identical evidence preserves its timestamp;
+changing source, headers, or compiler inputs requires another comparison.
 
 ## Multi-Target
 

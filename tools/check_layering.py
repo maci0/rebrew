@@ -132,6 +132,7 @@ PACKAGE_EXTERNALS: dict[str, frozenset[str]] = {
             "struct_parser",
             "types",
             "utils",
+            "verify_hash",
         }
     ),
     "ghidra": frozenset(
@@ -139,6 +140,7 @@ PACKAGE_EXTERNALS: dict[str, frozenset[str]] = {
             "binary_loader",
             "binsync.export",
             "binsync.importer",
+            "binsync.state",
             "catalog",
             "cli",
             "config",

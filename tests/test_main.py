@@ -96,7 +96,7 @@ class TestClosedStdout:
             # or Rich (markdown), both of which swallow it into exit 1.
             ["rebrew.main", "skills", "show", "rebrew-workflow", "--json"],
             ["rebrew.main", "skills", "show", "rebrew-workflow"],
-            # Standalone console-script entry (``rebrew-skills``).
+            # Direct module execution keeps the same pipe handling.
             ["rebrew.skills", "show", "rebrew-workflow", "--json"],
         ],
     )

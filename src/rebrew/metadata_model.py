@@ -9,7 +9,7 @@ This module provides a typed, validated view of one entry:
 
 * :class:`MetadataEntry.load` — read + coerce an entry into typed fields.
 * :meth:`MetadataEntry.apply` — validate every field, route STATUS through
-  the promotion gate (:func:`rebrew.metadata.update_source_status`) and
+  the promotion gate (:func:`rebrew.metadata.update_statuses_batch`) and
   write the rest in a single read-modify-write.
 * :meth:`MetadataEntry.remove` — typed removal with the STATUS guard.
 * :meth:`MetadataEntry.problems` — human-readable validation problems.
@@ -28,64 +28,25 @@ from typing import Any
 
 from rebrew.errors import RebrewError
 from rebrew.metadata import (
+    METADATA_FIELD_TYPES,
     METADATA_FIELDS,
-    METADATA_FILENAME,
     as_metadata_int,
     canonical_status,
     get_entry,
     remove_field,
-    resolve_metadata_dir,
     set_fields,
-    update_source_status,
+    update_statuses_batch,
+    validate_metadata_field,
 )
-from rebrew.metadata_doc import metadata_write_lock
 from rebrew.workspace.status import KNOWN_STATUSES, MATCHED_STATUSES
 
 # Field names (lower-case TOML keys) with a single canonical Python type.
 _INT_FIELDS = frozenset({"size", "blocker_delta"})
-_JSON_FIELDS = frozenset({"prove_constraints", "locals", "comments"})
-
-#: Fields whose canonical type is exactly ``str`` (mirrors
-#: ``metadata._FIELD_TYPES``).  ``skip``/``globals`` accept more than one type
-#: and are deliberately not listed.
-_STR_FIELDS = frozenset(
-    {
-        "cflags",
-        "toolchain",
-        "status",
-        "blocker",
-        "note",
-        "ghidra",
-        "analysis",
-        "source",
-        "updated_by",
-        "updated_at",
-    }
-)
+_JSON_FIELDS = frozenset(k for k, v in METADATA_FIELD_TYPES.items() if v is dict)
+_STR_FIELDS = frozenset(k for k, v in METADATA_FIELD_TYPES.items() if v is str)
 
 # Field → typed dataclass attribute (public: annotation overlays use the same map).
-FIELD_TO_ATTR: dict[str, str] = {
-    "size": "size",
-    "cflags": "cflags",
-    "toolchain": "toolchain",
-    "status": "status",
-    "blocker": "blocker",
-    "blocker_delta": "blocker_delta",
-    "note": "note",
-    "ghidra": "ghidra",
-    "analysis": "analysis",
-    "skip": "skip",
-    "globals": "globals",
-    "locals": "locals",
-    "comments": "comments",
-    "source": "source",
-    "prove_constraints": "prove_constraints",
-    # Provenance of the last STATUS write (mirrors METADATA_FIELDS /
-    # Annotation / apply_metadata_entry — without these they land in
-    # ``extra`` and update_annotation_key cannot idempotency-check them).
-    "updated_by": "updated_by",
-    "updated_at": "updated_at",
-}
+FIELD_TO_ATTR: dict[str, str] = {key: key for key in METADATA_FIELD_TYPES}
 
 
 class MetadataValidationError(RebrewError, ValueError):
@@ -143,6 +104,8 @@ class MetadataEntry:
     prove_constraints: dict[str, Any] | None = None
     updated_by: str | None = None
     updated_at: str | None = None
+    origins: dict[str, Any] | None = None
+    verification: dict[str, Any] | None = None
     extra: dict[str, Any] = field(default_factory=dict)
     load_problems: list[str] = field(default_factory=list, repr=False)
     """Per-field coercion failures seen by :meth:`load` (empty when clean).
@@ -208,7 +171,7 @@ class MetadataEntry:
         """Validate + write *fields* for this entry.
 
         * STATUS routes through the promotion gate
-          (:func:`rebrew.metadata.update_source_status`) — *force* (default
+          (:func:`rebrew.metadata.update_statuses_batch`) — *force* (default
           False) decides whether parked SKIP may be overwritten, exactly
           like the raw writer.  Pass ``force=True`` only for explicit
           user-intent writes.  Blockers are cleared only for byte-identical
@@ -217,10 +180,9 @@ class MetadataEntry:
           keep them.
         * Every other key must be a metadata-owned field; ``size`` /
           ``blocker_delta`` are coerced to ``int``.  The non-STATUS fields go
-          out as one read-modify-write, STATUS as its own — both inside one
-          ``metadata_write_lock`` critical section (reentrant within a thread),
-          so a STATUS promotion that clears blockers and the field write that
-          replaces them cannot be observed half-applied by another writer.
+          out with STATUS in one atomic read-modify-write, so readers cannot
+          observe a promotion without its associated fields and a failed
+          serialization cannot leave the promotion behind.
         * *updated_by* is the provenance tag recorded alongside the write
           (``updated_by`` / UTC ``updated_at``), the same pair the CLI writers
           stamp.  It is keyword-only so it can never be read as a field value.
@@ -232,7 +194,13 @@ class MetadataEntry:
                 "belong in the .c annotation, not rebrew-functions.toml"
             )
         # Normalize key case (callers may pass "SIZE" or "size") and coerce.
-        coerced = {k.lower(): _coerce(k.lower(), v) for k, v in fields.items()}
+        try:
+            coerced = {
+                k.lower(): validate_metadata_field(k.lower(), _coerce(k.lower(), v))
+                for k, v in fields.items()
+            }
+        except ValueError as exc:
+            raise MetadataValidationError(str(exc)) from exc
         for key in _INT_FIELDS:
             if key in coerced and coerced[key] < 0:
                 raise MetadataValidationError(f"{key} must be non-negative, got {coerced[key]}")
@@ -245,20 +213,23 @@ class MetadataEntry:
                 raise MetadataValidationError(
                     f"unknown STATUS {status!r} (expected one of {sorted(KNOWN_STATUSES)})"
                 )
-        dir_path = resolve_metadata_dir(directory)
-        with metadata_write_lock(dir_path, METADATA_FILENAME):
-            if canon is not None:
-                update_source_status(
-                    directory,
-                    canon,
-                    self.module,
-                    self.va,
-                    force=force,
-                    clear_blockers=canon in MATCHED_STATUSES,
-                    updated_by=updated_by,
-                )
-            if coerced:
-                set_fields(directory, self.va, coerced, module=self.module, updated_by=updated_by)
+        if canon is not None:
+            update_statuses_batch(
+                directory,
+                [
+                    {
+                        "module": self.module,
+                        "va": self.va,
+                        "new_status": canon,
+                        "clear_blockers": canon in MATCHED_STATUSES,
+                        "force": force,
+                        "updated_by": updated_by,
+                        "fields": coerced,
+                    }
+                ],
+            )
+        elif coerced:
+            set_fields(directory, self.va, coerced, module=self.module, updated_by=updated_by)
 
     def remove(self, directory: Path, key: str) -> bool:
         """Remove one metadata-owned *key*; returns True if anything changed."""

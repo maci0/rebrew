@@ -78,7 +78,7 @@ flowchart LR
 | `rebrew/config.py` | `ProjectConfig` dataclass + `rebrew-project.toml` loader (multi-target) |
 | `rebrew/workspace/` | Workspace-root discovery and the target list (`find_root`, `db_dir`, `default_target`, `config.py`'s resolved view, `status.py`, `va.py`). Stdlib-only leaf, so a tool needing just the project's directories and target names never pulls in LIEF, capstone, or tree-sitter. It resolves no coverage data: `db_dir` names the directory, `coverage_toml.py` reads it |
 | `rebrew/annotation.py` | Marker/KV annotation parsing (`// FUNCTION: MOD 0xVA`), key classification (file-only vs metadata), `iter_annotations` batch loader |
-| `rebrew/metadata.py` | `rebrew-functions.toml` store + routing (`METADATA_FIELDS`, `update_source_status` / `update_field` / `remove_field`); typed facade in `metadata_model.py` (`MetadataEntry`) |
+| `rebrew/metadata.py` | `rebrew-functions.toml` store + routing (`METADATA_FIELD_TYPES`, `METADATA_FIELDS`, `SYNC_FIELD_RULES`, `update_source_status` / `update_field` / `remove_field`); typed facade in `metadata_model.py` (`MetadataEntry`) |
 | `rebrew/decompiler.py` | Pluggable decompiler backends for pseudo-C (`r2`/`rz` ghidra and dec, Ghidra via the ReVa MCP bridge, m2c for MIPS/PPC/ARM/SH), registered through the `rebrew.decompiler_backends` entry-point group. `fetch_decompilation` is the one entry point `rebrew skeleton --decomp` calls; `"auto"` picks the first backend that answers |
 | `rebrew/llm_seed.py` | Optional LLM-assisted GA seeding for `rebrew match --seed-llm`: asks the `[llm]` endpoint for alternative C, keeps only tree-sitter-valid single-function snippets, injects them as extra seeds. Off by default; with no endpoint the flag warns and the GA runs unchanged |
 | `rebrew/compile.py` | Compile (docker image by default; host binary only for plugin toolchains without `image`) + compare → `CompareResult` |
@@ -109,7 +109,7 @@ flowchart LR
 | `rebrew/headless.py` | Persistent per-process Xvfb for headless wine compiles (no window, no DISPLAY needed) |
 | `rebrew/toolchain_detect.py` | Layered compiler-family detector: Detect It Easy (diec) → PDB → PE metadata (Rich header/linker version) → codegen heuristics; feeds init's CRT/opt seeding and doctor's alignment check. Its four tables (profile compat, Rich-build and linker-era profiles, plugin detectors) are one generation: read them through `detection_tables()` |
 | `rebrew/wibo.py` | Locate + SHA256-verify the wibo runner (`doctor --install-wibo`); a legacy host-runner fallback for toolchains registered without an `image`, not a shipped compile path (ADR 008) |
-| `rebrew/binsync/` (`export.py` / `importer.py` / `diff.py` / `git.py` / `init.py` / `overlay.py`, plus `serial.py`, `cli.py`, `state.py`) | BinSync state export/import/diff/init/overlay, the `rebrew binsync` umbrella (git automation), and the shared state readers; artifact TOML serialized with declib (the `binsync` extra) |
+| `rebrew/binsync/` (`export.py` / `importer.py` / `diff.py` / `git.py` / `init.py` / `overlay.py`, plus `serial.py`, `cli.py`, `state.py`) | BinSync state export/import/diff/init/overlay, the `rebrew binsync` umbrella (git automation), and the shared state readers/reconciliation baseline and freshness projection; artifact TOML serialized with declib (the `binsync` extra) |
 | `rebrew/crypto_scan.py` | Cryptography detection: data-section constant tables (AES S-boxes, SHA-256 K/H, SHA-1, MD5 T) plus imported-API and project-name matching |
 | `rebrew/fingerprints.py` | Content fingerprint bundle for a binary: streamed MD5/SHA1/SHA256/SHA512/SHA3 digests and CRC32, Mandiant imphash, PE export hash, MSVC Rich-header hash, per-section entropy, optional TLSH/ssdeep |
 | `rebrew/climb.py` | Deterministic single-statement hill-climb over one function body (adjacent-statement swaps scored through the compile→compare path); complements the GA when the residual is statement order |
@@ -173,29 +173,22 @@ would be a second answer to that question. See
    (via `rebrew blocker set/clear`, `rebrew diff --fix-blocker`, etc.) do the
    same for BLOCKER/BLOCKER_DELTA: never hand-edit `rebrew-functions.toml`.
 
-## Metadata routing rules (file-only vs metadata-only)
+## Metadata routing and provenance
 
-- **metadata-owned**: STATUS, TOOLCHAIN, BLOCKER, BLOCKER_DELTA,
-  NOTE, GHIDRA, ANALYSIS, SKIP, GLOBALS, LOCALS, COMMENTS, SOURCE,
-  PROVE_CONSTRAINTS; live in `rebrew-functions.toml`; inline use fires lint
-  W019. UPDATED_BY/UPDATED_AT (write provenance) are stamped on every metadata
-  write, and an inline occurrence fires W019 like any other metadata key (W019's
-  `--fix` strips them rather than migrating a stamp). SIZE is co-read
-  inline (reccmp contract: W019 warns only on disagreement, never migrates);
-  CFLAGS gets the same disagreement-only check when the metadata has a value,
-  and otherwise the deprecation W019; `// SOURCE: naked` is file-borne and
-  exempt.
-- **file-only**: MARKER, VA, MODULE, SYMBOL; in the `.c` block, or in the
-  TOML entry's `file`/`marker_type`/`symbol`/`name` on a migrated file (ADR 023).
-- **legacy**: ORIGIN (derived from module); inline → W019, never stored in function metadata.
-- **data-owned**: SECTION (owned by `rebrew-data.toml` for DATA/GLOBAL
-  entries); deliberately absent from function `METADATA_FIELDS`.
-- `metadata.METADATA_FIELDS` is the single routing table. `annotation.METADATA_KEYS`
-  is the W019 key set: `METADATA_FIELDS` plus the legacy ORIGIN and the
-  data-owned SECTION (the `SIZE`/`CFLAGS`/`SOURCE:naked` exemptions live in
-  W019's check, not the key set);
-  `metadata_model.MetadataEntry.apply` rejects writes of any other key with
-  `MetadataValidationError`.
+[`metadata.py`](../src/rebrew/metadata.py) owns `METADATA_FIELD_TYPES`,
+`METADATA_FIELDS`, and `SYNC_FIELD_RULES`. The typed facade, data-field schemas,
+linter, and integration projections reuse those definitions. Keep field shapes
+and native sync permissions there rather than copying catalogs into callers.
+
+[METADATA_FORMAT.md](METADATA_FORMAT.md) owns inline/migrated identity and field
+rules; [METADATA.md](METADATA.md) owns canonical/derived/cache tiers and the
+separate ordinary edit stamps, imported origins, and verification evidence.
+[BINSYNC_INTEGRATION.md](BINSYNC_INTEGRATION.md) specifies field reconciliation,
+manifest freshness, deletion handling, and the per-file atomicity boundary.
+
+Status/todo reuse one accounting frame. Coverage documents and grids are derived
+views; their cell/symbol counts do not replace the disjoint byte buckets in
+[status accounting](CLI.md#rebrew-status).
 
 ## Key architectural rules
 

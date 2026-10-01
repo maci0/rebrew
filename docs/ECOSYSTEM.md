@@ -24,14 +24,14 @@ flowchart TB
 
     subgraph L1["Core workbench"]
         RB["rebrew<br/>compile → compare → STATUS<br/>GA engine · FLIRT · catalog<br/>db/coverage-*.toml · rebrew-functions.toml"]
-        PRJ["*-rebrew workspaces<br/>target binary + C sources +<br/>rebrew-project.toml"]
+        PRJ["Project workspaces<br/>target binary + C sources +<br/>rebrew-project.toml"]
     end
 
     subgraph L2["Intelligence & visualization"]
         RES["resembl<br/>MinHash + LSH asm similarity<br/>own DB (SQLite/Postgres/…)"]
         RECOV["recovery<br/>Bottle + VanJS coverage SPA<br/>reads db/coverage-*.toml"]
         REPORTAL["reportal<br/>self-hosted portal: binaries ·<br/>functions · matches · scans · reports"]
-        REAGENT["reagent<br/>autonomous LLM RE agent<br/>imports rebrew internals"]
+        REAGENT["reagent<br/>autonomous LLM RE agent<br/>imports Rebrew internals"]
     end
 
     subgraph L3["Services & product vision"]
@@ -63,7 +63,7 @@ flowchart TB
     REL -.->|"snowball datasets from matched pairs"| REAGENT
     REL -.->|"community knowledge"| DECOMP
     RB -.->|"reccmp-compatible source<br/>markers"| RECCMP
-    RECCMP -.->|"recomp build reads<br/>rebrew source trees"| PRJ
+    RECCMP -.->|"recomp build reads<br/>Rebrew source trees"| PRJ
     RB <-.->|"state-dir TOML:<br/>binsync-export / binsync-import"| BINSYNC
 ```
 
@@ -181,7 +181,7 @@ implemented (`rebrew.recompile_client`); the training pipeline itself is not.
 
 ### reagent: autonomous LLM RE agent
 
-Unattended reversing loop built directly on rebrew internals: it talks to a
+Unattended reversing loop built directly on Rebrew internals: it talks to a
 local LLM over an OpenAI-compatible endpoint, picks a per-function workflow
 (`skip` / `ga_only` / `llm_then_ga` / `llm_only` / `flag_sweep_first`), and
 runs the ASM → LLM → compile → test → feedback loop, tracking state in
@@ -255,7 +255,7 @@ locals, and comments between analysts and tools. rebrew bridges to it at the
   `Function` artifacts (one per function, reversed + catalog-only with
   canonical sizes; header, stack vars, and comments included),
   `global_vars.toml`, `structs/`, `enums.toml`, `typedefs.toml`, and
-  `metadata.toml`. STATUS/CFLAGS are verify-earned and never exported.
+  `metadata.toml`. STATUS is comparison-earned and CFLAGS are local compiler inputs; neither is exported.
 - `rebrew binsync-import <state-dir>` is the inverse: it reads a state
   directory produced by any BinSync-aware decompiler and applies names,
   prototypes, globals, stack vars, comments, and type definitions back into
@@ -279,7 +279,7 @@ Full details: [BINSYNC_INTEGRATION.md](BINSYNC_INTEGRATION.md).
 
 ```mermaid
 flowchart LR
-    subgraph RBS["rebrew project"]
+    subgraph RBS["Rebrew project"]
         ANN["annotations + metadata<br/>(rebrew-functions.toml,<br/>rebrew-data.toml)"]
         SRC["C source trees"]
         CAT["catalog + coverage data"]
@@ -393,7 +393,7 @@ binary being decompiled.
 
 ## Further reading
 
-- [ARCHITECTURE.md](ARCHITECTURE.md): rebrew internals (module map, compile
+- [ARCHITECTURE.md](ARCHITECTURE.md): Rebrew internals (module map, compile
   loop, metadata routing rules)
 - [architecture.drawio](architecture.drawio): the same map in diagrams.net (ecosystem,
   compile loop, toolchains, FLIRT/resembl/GA, reverse data flows,

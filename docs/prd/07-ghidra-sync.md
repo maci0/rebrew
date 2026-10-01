@@ -47,10 +47,10 @@ BinSync state directory for field-level sync and the ReVa MCP server
 - Safe defaults:
   - Generic names (`FUN_`, `DAT_`, `func_`, `switchdata`, `thunk_`, `g_<hex>`)
     are never overwritten.
-  - Conflicts (both sides have meaningful names) are reported, not
-    silently resolved.
-  - Rebrew-authored comments (the `[rebrew:note]` / `[rebrew:ghidra]` prefixes)
-    are never pulled back into source as NOTE.
+  - Concurrent field edits are reported as conflicts; a shared baseline lets
+    remote-only edits apply automatically.
+  - Tagged notes/GHIDRA comments map to their owned metadata fields; ordinary
+    instruction comments remain distinct.
 - Bulk operations for labels, sizes, new function creation, struct
   pushes, signature pushes, and data-label syncing.
 - Offline field sync: `--push`/`--pull` read and write only the BinSync state
@@ -81,16 +81,16 @@ BinSync state directory for field-level sync and the ReVa MCP server
 - `--pull` imports the BinSync state directory into rebrew's C sources and
   metadata.
 - `--summary` shows what would be pushed without writing to the state directory.
-- `--watch` watches source files and re-pushes to the state directory on change
+- `--watch` watches sources/headers, metadata, config, binary, and remote state
   (requires `--push --state-dir`).
 - Conflict resolution on pull:
   - Default: report conflict and skip.
-  - `--accept-binsync`: accept BinSync names on pull conflicts, rewriting local
+  - `--accept-binsync`: accept remote field values on pull conflicts, rewriting local
     sources and updating cross-references.
-  - `--accept-local`: keep local names on pull conflicts, recording BinSync
-    provenance notes in metadata (`GHIDRA: …`).
-- `--create-missing`: creates STUB files for BinSync functions not present in
-  the catalog.
+  - `--accept-local`: keep local field values on pull conflicts; retain alternate
+    function names as GHIDRA.
+- `--create-missing`: creates STUB files for catalog-known BinSync functions
+  without a local annotation.
 
 ### Structural operations (ReVa MCP)
 
@@ -214,8 +214,8 @@ rebrew binsync {init,diff,overlay,push,pull,summary}
 - Generic names from Ghidra never overwrite meaningful local names.
 - Pulled names from the BinSync state always update every cross-reference in
   reversed source (no orphan references after `--pull --state-dir D --accept-binsync`).
-- Offline runs (Ghidra not reachable) degrade to read-only operations
-  with a clear error rather than corrupting state.
+- Offline field sync applies local state-directory changes without Ghidra;
+  structural operations require their configured live backend.
 - BinSync export round-trips without losing the exported BinSync fields.
 
 ## Open Questions / Known Limitations

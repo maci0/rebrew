@@ -2,9 +2,9 @@
 
 `rebrew binsync-export`, `rebrew binsync-import`, and `rebrew binsync-diff`
 provide a bidirectional bridge between rebrew and any BinSync-aware decompiler
-plugin (IDA Pro, Binary Ninja, Ghidra via BinSync). The export now carries real
-global types and struct fields; the import closes the loop for names,
-prototypes, and global labels; `binsync-diff` reports divergence read-only.
+plugin (IDA Pro, Binary Ninja, Ghidra via BinSync). Shared native fields include
+names, C signatures, notes, comments, locals, globals, structs, enums, and
+typedefs. `binsync-diff` reports divergence and provenance freshness read-only.
 
 > BinSync state I/O goes through [declib](https://github.com/binsync/declib), BinSync's
 > artifact layer (the `declib>=4.5` dependency of the `binsync` extra). Install it with
@@ -65,7 +65,52 @@ rebrew binsync overlay ./binsync_state       # same as binsync-overlay
   each direction would change. It writes nothing and never touches git.
 
 The flat `rebrew binsync-init/export/import/diff/overlay` commands remain for
-scripting and back-compat; the umbrella is a thin layer over the same code.
+direct export/import and scripting; the umbrella composes the same code with
+git operations. These are peer command surfaces, not compatibility aliases.
+
+---
+
+## Field ownership, reconciliation, and provenance
+
+`SYNC_FIELD_RULES` in `rebrew.metadata` is the shared field schema used by
+push, pull, and diff. Function size is push-only; global name/type/size and
+native function/type fields synchronize in both directions. STATUS, CFLAGS,
+toolchain choices, blockers, origins, and verification evidence stay local.
+
+Push and pull compare each field with the last shared value:
+
+| Change since baseline | Pull | Push |
+|---|---|---|
+| Local only | Preserve local edit | Export local edit |
+| Remote only | Apply remote edit | Preserve incoming edit |
+| Both, same value | Keep shared value | Keep shared value |
+| Both, different values | Report conflict | Preserve conflict |
+| Remote field/artifact removed | Report deletion requiring resolution | Do not recreate it automatically |
+
+Without a baseline, import keeps the conservative meaningful-name/prototype
+conflict rules. `--accept-binsync` chooses remote conflict values;
+`--accept-local` keeps local values (and retains alternate function names as
+GHIDRA). Generic incoming names never replace meaningful names.
+
+The binary-scoped baseline is a local `.rebrew/sync/<hash>.toml` sidecar keyed
+by resolved state-directory path and module. Only equal fields after successful
+writes/applications advance it. Previews and failed writes do not. Atomic
+replacement protects each file/store; an entire sync is not a multi-file
+transaction. Related-target overlays use structural matching rather than this
+same-binary baseline.
+
+Imported function/global fields record tool, user, snapshot, and value digests
+in canonical `origins` tables. Comparison writers maintain separate
+`verification` evidence. Later local edits can make an origin stale without
+rewriting its history. See [METADATA.md](METADATA.md#external-origin-and-measurement-evidence)
+for evidence ownership and [the baseline contract](METADATA.md#integration-baseline-and-freshness).
+
+`rebrew binsync diff STATE_DIR --json` exposes `health`: pending push/pull,
+conflicts, unbased fields, deletions requiring resolution, stale verification,
+and stale origins. Binary identity or metadata-schema mismatches block writes.
+Ordinary local/remote changes since export are freshness information for the
+merge, not a blanket write prohibition. Matching digests indicate unchanged
+inputs/artifacts, not a byte-match verdict.
 
 ---
 
@@ -114,11 +159,11 @@ with `--create-missing`.
 | Enum definitions | `Enum.name` + `Enum.members` values | `enums.toml` (`[<name>.members]`) |
 | Standalone typedefs | `Typedef.name` + `Typedef.type` | `typedefs.toml` |
 | Target binary MD5 | Binary identity binding | `binary_hash` (omitted when the target binary is unavailable) |
-| Export manifest | Freshness facts | `manifest.toml` (`exported_at`, `content_hash`, `target`, `binary_hash`, optional `commit`) |
+| Export manifest | Freshness facts | `manifest.toml` (`exported_at`, `content_hash`, `target`, `binary_hash`, optional `commit`, `metadata_schema`, `input_hash`) |
 
 ### Rebrew Metadata Comment Format
 
-`STATUS`/`CFLAGS` are verify-earned and never exported.  Notes, the
+`STATUS` is comparison-earned; CFLAGS are local compiler inputs. Neither is exported.  Notes, the
 Ghidra-synced name, and per-instruction comments all travel as declib
 `Comment` artifacts in `comments.toml`, keyed by address and tagged with the
 owning function's `func_addr`:
@@ -236,9 +281,10 @@ type = "unsigned int"
 Bare enum members auto-increment from the previous value (starting at 0).
 declib carries no enum/typedef body text, so import synthesizes the
 declaration from the name + members/type.  `binsync-import` writes unknown
-enum/typedef definitions into the local `binsync_types.h` (known names are
-never overwritten), and `binsync-overlay` imports them from a related target's
-state directory the same way.
+enum/typedef definitions into the local `binsync_types.h`. Remote-only changes
+to an existing, unambiguous definition update it through the C AST; concurrent
+edits are conflicts. Related-target overlays add unknown definitions and
+preserve known ones.
 
 ---
 
@@ -249,12 +295,11 @@ and applies changes back into rebrew metadata/source:
 
 - **Names**: declib `Function.name` → rebrew symbols
   (via `rebrew rename` cross-reference rewriting). Generic→meaningful is applied
-  directly; meaningful↔meaningful raises a conflict.
-- **Prototypes**: declib `Function.header.type` → `// PROTOTYPE:` inline
-  annotations in the local `.c` files (PROTOTYPE is a file-only key, not
-  metadata).  Comparison is whitespace-normalized (formatting-only differences
-  are not divergence); a differing local prototype raises a conflict like a
-  name: `--accept-binsync` overwrites.
+  directly without a baseline; established fields follow the three-way rules above.
+- **Prototypes**: declib `Function.header.type` → the actual C function
+  signature through the AST. The body and locally selected name are preserved;
+  name changes use the rename path. No `// PROTOTYPE:` comment is written.
+  Whitespace-only differences are ignored; concurrent signature edits conflict.
 - **Globals**: declib `GlobalVariable` records → `rebrew-data.toml` names,
   plus differing `type`/`size` written back (section comes from the binary).
 - **Notes / comments**: declib `Comment` artifacts in `comments.toml`:
@@ -265,9 +310,9 @@ and applies changes back into rebrew metadata/source:
 - **Locals**: declib `Function.stack_vars` → the function's `locals` metadata
   (`[<module>.<va>.locals]`, offset-keyed `{name, type, size}`).
 - **Structs / enums / typedefs**: declib `Struct`, `Enum`, and `Typedef`
-  records unknown locally land in `binsync_types.h`; known names are never
-  overwritten, and unparseable synthesized definitions import as comments, never
-  as compile-breaking typedefs.
+  records unknown locally land in `binsync_types.h`. Remote-only changes update
+  one unambiguous existing definition; concurrent edits conflict. Unparseable
+  synthesized definitions import as comments rather than active declarations.
 
 ### Per-address comment markers
 
@@ -301,8 +346,8 @@ Conflict resolution mirrors `rebrew sync`:
 CONFLICT 0x10001000: local=_OldName vs binsync=_NewName
 ```
 
-- `--accept-binsync`: accept BinSync name (rewrites local files).
-- `--accept-local`: keep local, record BinSync name as `GHIDRA` provenance.
+- `--accept-binsync`: accept remote field values on conflicts.
+- `--accept-local`: keep local field values; record an alternate function name as GHIDRA.
 
 `--module FILTER` restricts to one module; `--dry-run`/`--json` work as elsewhere.  For BinSync
 functions with no local annotation but present in the catalog, import proposes a new STUB
@@ -314,7 +359,7 @@ functions with no local annotation but present in the catalog, import proposes a
 # Preview what would be imported
 rebrew binsync-import ./binsync_state --dry-run
 
-# Accept all BinSync renames
+# Accept remote values on conflicts
 rebrew binsync-import ./binsync_state --accept-binsync
 
 # Accept only one module
@@ -391,7 +436,8 @@ divergence exists (CI-friendly). Same filtering semantics as
 - **Globals**: `global_vars.toml` labels missing or renamed locally
 - **New in BinSync**: catalog-known functions present in BinSync but not yet
   reversed locally (the same population import surfaces as `proposed_missing`)
-- **Freshness**: `manifest.toml` facts surfaced in `--json` (`exported_at`, `content_hash`)
+- **Types, locals, comments, and deletions**: shared field rules identify incoming, outgoing, and conflicting changes
+- **Freshness**: manifest schema/input/artifact digests and canonical origin/verification freshness in JSON `health`
 
 ```bash
 rebrew binsync-diff ./binsync_state            # divergences (exit 1 if any)
@@ -446,14 +492,14 @@ rebrew binsync-export ./binsync_state --json
 
 | Status | Name | Prototype | Metadata comment |
 |--------|------|-----------|-----------------|
-| EXACT / RELOC / PROVEN | yes | yes (if annotated) | yes |
-| NEAR_MATCHING | yes | yes (if annotated) | yes |
-| STUB | yes | yes (if annotated) | yes |
-| LIBRARY | yes | yes (if annotated) | yes |
-| (no STATUS) | yes | yes (if annotated) | omitted |
+| EXACT / RELOC / PROVEN | yes | yes (if a C signature is available) | yes |
+| NEAR_MATCHING | yes | yes (if a C signature is available) | yes |
+| STUB | yes | yes (if a C signature is available) | yes |
+| LIBRARY | yes | yes (if a C signature is available) | yes |
+| (no STATUS) | yes | yes (if a C signature is available) | omitted |
 
 The metadata-comment column is notes and differing Ghidra names only:
-`STATUS`/`CFLAGS` are verify-earned and never leave the project.
+`STATUS` is comparison-earned; CFLAGS are local compilation inputs. Both stay local.
 
 ---
 
@@ -502,13 +548,13 @@ graph TD
 | Status bookmarks | Local → Ghidra | Done | `--bookmarks` (category `rebrew`, status in the comment) |
 | Custom MCP endpoint URL | n/a | Done | `--endpoint URL` |
 | Summary / dry-run preview | n/a | Done | `--summary`, `--dry-run` |
-| Prototype conflict gating | File → Local | Done | differing local prototype reports a conflict; `--accept-binsync` overwrites |
+| Prototype conflict gating | File → Local | Done | remote-only edits apply; concurrent edits conflict; `--accept-binsync` resolves |
 | Whitespace-normalized prototype compare | n/a | Done | formatting-only differences are not divergence |
-| Freshness manifest | File | Done | `manifest.toml` (`exported_at`, `content_hash`); surfaced by `binsync-diff --json` |
-| Conflict detection (names, prototypes) | Both | Done | Warns on conflict, `--accept-binsync`/`--accept-local` |
+| Freshness manifest | File | Done | `manifest.toml` schema/input/artifact digests; JSON `health` reports freshness |
+| Field conflict detection | Both | Done | Warns on conflict, `--accept-binsync`/`--accept-local` |
 | Pull data labels from Ghidra | Ghidra → Local | Done | `--pull-data` (generates `rebrew_globals.h`) |
 | Validate `programPath` against Ghidra project | n/a | Done | queries `get-current-program` via ReVa MCP and warns on mismatch |
-| Watch mode (live file-change sync) | Local → Ghidra | Done | `--watch` (push only) |
+| Watch mode (live input-change sync) | Local → state dir | Done | `--watch` (push only) |
 | XREF context in skeleton generation | Ghidra → Local | Done | `skeleton --xrefs` |
 | Ghidra decompilation backend for skeleton | Ghidra → Local | Done | `skeleton --decomp --decomp-backend ghidra` |
 | Metadata-aware linting | Local | Done | `rebrew lint` reads `rebrew-functions.toml` before validation |

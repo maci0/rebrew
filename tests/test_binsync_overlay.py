@@ -295,7 +295,7 @@ class TestPrototypeAndNote:
         assert result.exit_code == 0, result.output
         payload = json.loads(result.output)
         assert payload["applied_prototypes"] == 1
-        assert "// PROTOTYPE: int Meaningful(int x)" in dest.read_text(encoding="utf-8")
+        assert "int func_401040(int x)" in dest.read_text(encoding="utf-8")
 
     def test_note_applied(self, tmp_path: Path, monkeypatch) -> None:
         from rebrew.metadata import get_entry

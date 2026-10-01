@@ -93,7 +93,7 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
   source marker before verifying.
 - `--data` / `--text` / `--whole-binary` (with `--built`) compare built
   artifacts against the reference; `--raw-link` acknowledges that `--built`
-  is a raw link (suppressing DRIFT write-backs); `--context PATH` compiles
+  is a raw link (enabling data verdict/evidence writes; otherwise suppressed); `--context PATH` compiles
   with extra declarations.
 - `--jobs JOBS` parallel compile jobs.
 - `--json` machine-readable.

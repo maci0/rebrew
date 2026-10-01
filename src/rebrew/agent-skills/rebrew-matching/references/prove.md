@@ -30,15 +30,18 @@ parse C calling convention → hook external call relocs with `ReturnUnconstrain
 LoopSeer-bounded exec → Z3 compare EAX (optional EDX).
 
 **64-bit / EDX**: `long long` / `__int64` / `int64_t` / `uint64_t` use EDX:EAX.
-`--check-edx` forces EDX; PROTOTYPE return types auto-enable it.
+`--check-edx` forces EDX; return types derived from the C signature auto-enable it.
 
 Requirements: STATUS NEAR_MATCHING or SIZE_MISMATCH and the `[prove]` extra (angr). If `rebrew prove`
-fails to import angr, stop and ask the user to install it (network download):
+fails to import angr, the extra must be installed in the environment running
+Rebrew. Install it when dependency setup is authorized; otherwise report this
+requirement and continue work that does not need proving:
 `uv tool install --reinstall 'rebrew[prove] @ git+https://github.com/maci0/rebrew.git'`
 From a checkout, install the extra into that same tool environment:
 `uv tool install --reinstall --editable '/path/to/rebrew[prove]'`.
 
 Limitations: float-heavy may not prove; raise `--timeout` / `--loop-bound` for
-loops; never false-positive. `--watch-va` is **decimal unless `0x`-prefixed**
+loops. A proof is bounded by modeled calls, inputs, and loop limits; inspect
+those assumptions before treating it as semantic evidence. `--watch-va` is **decimal unless `0x`-prefixed**
 (unlike most rebrew tools). Keep watched set small (<10).
 `prove_constraints.watched_vas` metadata is the durable form.

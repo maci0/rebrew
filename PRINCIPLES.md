@@ -9,7 +9,7 @@ Every tool in the Rebrew suite (`rebrew catalog`, `rebrew verify`, `rebrew init`
 Global and project-specific settings live in `rebrew-project.toml`. Tools must rely on this central configuration rather than requiring complex, manual CLI path arguments. This creates a unified entry point and guarantees that any agent or contributor is working with the exact same context (paths, compiler flags, target binaries).
 
 ## 3. Composability and Modularity
-Rebrew is built as a collection of small, single-purpose CLI utilities following the Unix philosophy. Complex workflows, such as autonomous batch reversing, are chains of these tools, which suits AI orchestration and custom batch scripts.
+Rebrew exposes small, single-purpose tools as subcommands of one installed `rebrew` CLI. Complex workflows chain `rebrew <command>` invocations, which suits AI orchestration and custom batch scripts. Do not add duplicate `rebrew-<command>` executables. Four external build hooks keep separate names because CMake and objdiff invoke them directly.
 
 ## 4. Verdict Fidelity (No Silent Status Loss)
 Whether driven by a human or an AI agent, the system must **never** silently lose a function's record. The byte comparison stays the only source of a verdict, and any change it produces is written, improvements and regressions alike (`RELOC` -> `NEAR_MATCHING` and `PROVEN` -> `NEAR_MATCHING` are both recorded). Three verdicts are refused: a status parked as `SKIP`, a `STUB` displaced by a placeholder size verdict, and a tooling failure verdict written over an earned status. `PROVEN` records semantic equivalence rather than a byte match, so the next byte verdict replaces it.
@@ -24,10 +24,10 @@ To prevent corruption of known-good decompilation (`EXACT` / `RELOC` states), ex
 Success breeds success. Every reversed function immediately enriches the context available to the ecosystem. Tools and agents process the easiest functions first (smallest functions, library matches, single-block leaves), continuously expanding the semantic database. This makes subsequent, harder functions easier to reverse.
 
 ## 8. Bi-Directional Synchronization
-Local decompilation workflows and reverse-engineering platforms (like Ghidra) must complement each other. Discoveries made in the local repository (struct definitions, variable renames, compilation flags) must flow back into the disassembler's project database, and vice-versa, avoiding silos of knowledge.
+Local decompilation workflows and reverse-engineering platforms (like Ghidra) must complement each other. Shared native fields (names, signatures, comments, locals, globals, and types) flow through BinSync state. Local STATUS, compiler flags, blockers, and verification evidence remain Rebrew-owned. A binary-scoped shared baseline distinguishes incoming changes from conflicting edits; previews and failures never advance it. Missing remote fields require explicit deletion resolution.
 
 ## 9. RAG over Hallucination
-AI models infer semantics, but they cannot guess absolute Virtual Addresses (VAs), structure offsets, or proprietary calling conventions. Therefore, all AI code generation must be grounded by a Retrieval-Augmented Generation (RAG) system. Deterministic facts (e.g., jump targets, global pointer types) must be retrieved from the known coverage documents (`db/coverage-<target>.toml`) and explicitly injected into the LLM prompt.
+AI models infer semantics, but they cannot guess absolute Virtual Addresses (VAs), structure offsets, or proprietary calling conventions. Ground generated code in retrieved evidence: reference binary/disassembly, canonical source and metadata, and derived context/coverage documents. Retrieve addresses, types, and calling conventions from their authoritative source rather than guessing them. Coverage documents are a regenerable view, not the owner of those facts.
 
 ## 10. AI as a Baseline, Not a Finisher
 The LLM's role is to generate a semantically correct structural baseline. It shouldn't be relied upon to perfectly guess register allocation optimizations or minute instruction jitter. Once the LLM achieves a `NEAR_MATCHING` state with a small byte delta, deterministic programmatic tools (like the Genetic Algorithm) take over to brute-force the remaining permutations.
@@ -46,16 +46,16 @@ When dealing with older compilers (like MSVC6), code must map directly to compil
 - Logic structure (`if/else` flow, loop choice) dictates the machine code generation directly, requiring rigid adherence over modern "clean code" stylistic preferences.
 
 ## 14. Continuous Linting and Validation
-Every decompiled `.c` file must undergo strict, continuous linting (`rebrew lint`) at every step of the generation, compilation, and modification process. This guarantees that the marker line (`// FUNCTION: MODULE 0xVA`) remains structurally compliant, so the dashboard and matching engines parse it without manual intervention. `STATUS` and other volatile keys are metadata-only in `rebrew-functions.toml` (not parsed from the header). `SIZE`/`CFLAGS` are co-read: `// SIZE:` / `// CFLAGS:` are the reccmp contract in the `.c`, with TOML overrides; bare `CFLAGS` falls back to the project default from `rebrew-project.toml`. `ORIGIN` is the retired inline spelling; the field is now `SOURCE` in `rebrew-functions.toml`, and `rebrew lint --fix` strips an inline `// ORIGIN:` rather than storing it. The `--origin` flag on `rebrew verify` / `rebrew test` is unrelated: it filters by module name.
+Run `rebrew lint` after source/metadata changes and `rebrew test` / `rebrew verify` after changes to compilation inputs. Identity may be an inline MODULE/VA marker or migrated TOML identity; do not restore markers to pure-C migrated files. STATUS and other volatile fields are metadata-owned. Legacy SIZE/CFLAGS remain co-readable with TOML overrides; `// SOURCE: naked` stays source-owned. See the annotation and metadata references for the exact field rules.
 
 ## 15. Full-Binary Scope (Beyond `.text`)
-A faithful decompilation requires coverage of the *entire* binary, not just executable code. The `.data`, `.rdata`, and `.bss` sections contain globals, dispatch tables, vtables, string tables, and const arrays that are equally critical for correctness. Tools must inventory and cross-reference data-section artifacts (`rebrew data`), detect dispatch tables / vtables by scanning for contiguous function-pointer arrays, and flag type conflicts across files. Code coverage and data coverage are tracked together.
+A faithful decompilation requires coverage of the *entire* binary, not just executable code. The `.data`, `.rdata`, and `.bss` sections contain globals, dispatch tables, vtables, string tables, and const arrays that are equally critical for correctness. Tools must inventory and cross-reference data-section artifacts (`rebrew data`), detect dispatch tables / vtables by scanning for contiguous function-pointer arrays, and flag type conflicts across files. Report file agreement, accounted `.text`, and initialized-data verdict bytes with their own denominators. Data buckets must be disjoint even for overlapping symbols. `.bss` has no file-backed bytes; show its symbol/virtual-layout progress separately.
 
 ## 16. Automated Near-Miss Promotion
 Many `NEAR_MATCHING` functions differ from the target by only a handful of bytes: an operand swap, branch inversion, or register allocation jitter. The system must be able to batch-process these near-miss cases unattended (`rebrew match --all --near-miss --threshold N`), sorted by byte delta so the easiest wins come first. Trivial NEAR_MATCHING→RELOC promotions then happen without a person, who works only on the functions that need one.
 
 ## 17. Source / Metadata Separation
-Volatile, frequently-changing metadata (`STATUS`, `BLOCKER`, `NOTE`, `GHIDRA`, etc.) lives in the project's single `rebrew-functions.toml` (`cfg.metadata_dir`, the outermost store at or above the source root, shared by every target), **not** in the `.c` source files. `SIZE`/`CFLAGS` are co-read (inline reccmp contract + TOML override) so an external build can read the `.c` directly. This separation keeps STATUS updates from touching C source and enables atomic metadata writes. The metadata is managed exclusively by Rebrew CLI tools. **Never manually edit `rebrew-functions.toml`.** The `.c` file keeps stable identity (`FUNCTION:` / `LIBRARY:` / `STUB:` marker) plus co-read `// SIZE:` / `// CFLAGS:` when needed for reccmp.
+Volatile metadata lives in `rebrew-functions.toml` and `rebrew-data.toml` at `cfg.metadata_dir`, shared across targets. CLI writers preserve stable `(module, VA)` identity and validate against the shared schemas. Never manually edit these managed stores or write STATUS in C. Legacy function SIZE/CFLAGS remain co-readable; `rebrew migrate-markers` moves function identity and fields into TOML and leaves pure C. External field origins and verification inputs/measurement time are durable canonical facts, separate from ordinary edit stamps and regenerable coverage/cache files.
 
 ## Atomicity
 
@@ -64,4 +64,5 @@ Source-file rewrites (`rebrew lint --fix`, `rebrew skeleton`, `rebrew rename`,
 (`rebrew-functions.toml`, `rebrew-data.toml`, BinSync state TOML) uses
 `atomic_write_locked` (chmod writable, atomic replace, then mode 0444), so a
 crash never leaves a torn file and casual hand-edits fail with Permission
-denied.
+denied. Atomicity is per file/store; a multi-file sync is not one transaction.
+Identical writes preserve content and timestamps to avoid watch-loop churn.

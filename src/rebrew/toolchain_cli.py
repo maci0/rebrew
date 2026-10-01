@@ -16,6 +16,7 @@ import time
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
+from string import Template
 from typing import TYPE_CHECKING, Any
 
 import typer
@@ -790,9 +791,9 @@ def vendor_cmd(
 #: source + toolchain → the same object, every build).
 _SMOKE_SOURCE = "int add(int a, int b) { return a + b; }\n"
 _SMOKE_DPR = "program hello;\nbegin\nend.\n"
-# SOURCE_DATE_EPOCH convention: a fixed source mtime makes the object
-# metadata deterministic across runs (the object embeds the source path
-# and its modification time — fresh writes would break the golden hashes).
+# Fix source mtime for compilers that embed file metadata. Runtime object
+# timestamps are separately masked by each golden entry; VC6's COFF stamp
+# comes from the build clock, as do __DATE__ and __TIME__ expansions.
 _SDE = 1767225600  # 2026-01-01 00:00:00 UTC
 _SMOKE_GOLDEN: dict[
     str, tuple[list[str], str, str, str, tuple[int, int] | list[tuple[int, int]] | None]
@@ -1289,14 +1290,25 @@ def build_cmd(
 
     # Every toolchain image inherits FROM rebrew/base — build it first so a
     # fresh docker daemon resolves the dependency.
-    base_dir = repo / "base"
     base_from = None
+    build_args: dict[str, str] = {}
     for line in (build_dir / "Dockerfile").read_text(encoding="utf-8").splitlines():
-        if line.upper().startswith("FROM "):
-            base_from = line.split()[1]
+        words = line.split()
+        if len(words) < 2:
+            continue
+        if words[0].upper() == "ARG":
+            key, separator, value = words[1].partition("=")
+            if separator:
+                build_args[key] = value
+        if words[0].upper() == "FROM":
+            base_from = Template(words[1]).safe_substitute(build_args)
             break
     if base_from and base_from.startswith("rebrew/"):
         base_tag = base_from
+        base_name = base_tag.rsplit(":", 1)[0].removeprefix("rebrew/")
+        if not base_name or "/" in base_name or "\\" in base_name or base_name.startswith("."):
+            error_exit(f"invalid local base image {base_tag!r}", json_mode=json_output)
+        base_dir = repo / base_name
         base_dockerfile = base_dir / "Dockerfile"
         if base_dockerfile.exists():
             rc, log = _docker_build(base_tag, base_dir, stream=not json_output)

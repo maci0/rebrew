@@ -11,7 +11,7 @@ same tiers and the data/globals/layout pipeline.
 
 | Tier | Stores | Contract |
 |---|---|---|
-| **Canonical (user-owned)** | `.c` marker lines, `rebrew-functions.toml`, `rebrew-data.toml`, `rebrew-libraries.toml`, `rebrew-project.toml` | The only stores you hand-edit or that hold non-derivable facts.  Everything below is regenerable from these (plus the binary). |
+| **Canonical (durable)** | `.c` marker lines, `rebrew-functions.toml`, `rebrew-data.toml`, `rebrew-libraries.toml`, `rebrew-project.toml` | Source/config are editable; function/data metadata are CLI/API-managed and hold non-derivable identity, origins, and verification evidence. Derived views are rebuilt from these plus the binary; recorded history is identified separately below. |
 | **Derived, VCS-intended** | `src/<target>/function_structure.json` (discovery inventory), `<target>.def`, `crt_region/*.c`, `src/link_stubs.c`, `src/<target>/bss_padding.c`, `src/<target>/rebrew_globals.h`, `layout/<target>/`, `[link]` config blocks, `flirt_sigs/*.pat`, `cmake/toolchain-*.cmake` | Build scaffolding generated from the binary / binary-derived facts (gen-layout, discover-functions, catalog, gen-link-stubs, `rebrew data --fix-bss` / `--gen-header`, flirt).  Committed to git so a rebuild never needs `original/` around; regenerable via the generating command.  Never hand-edit. |
 | **Derived, gitignored (build output)** | `db/coverage-<target>.toml`, `bin/<target>/*.bin`, `output/report/` | Rebuildable via `rebrew build-db` / `rebrew verify` / `rebrew extract` / `rebrew report`.  Treat as build output.  `rebrew verify` writes a report file only with an explicit `--output` path; the `--compare` baseline lives in `.rebrew/verify_baseline.toml` (the old `db/verify_results.json` snapshot was unguarded and is no longer written; see `verify_cache.load_baseline`). |
 | **Cache (delete-safe)** | `.rebrew/verify_cache.toml`, `.rebrew/compile_cache/`, `output/ga_runs/*/checkpoints/*.json`, `output/ga_runs/*/best.c`, `output/ga_runs/*/<symbol>.best.c`, `.rebrew/source-backups/*.orig`, in-memory mtime caches | Regenerated on demand.  Deleting costs a recompile/re-verify/resync at most.  The exception: `.rebrew/ga_runs.jsonl` is *history*, not cache; it accumulates GA outcomes (including winning fingerprints) re-running would not reproduce, each record is fsynced before `rebrew match` reports the run so a host that loses power does not take the win with it, and only the non-winning lines are capped (newest `_LOSS_RECORD_RETENTION`, wins kept forever).  `.rebrew/source-backups/` holds a copy of a `.c` that `rebrew climb` / `rebrew qual-sweep` is about to rewrite in place: it exists only while that run is in flight, is removed when the run finishes, and is the way back to the pre-run bytes after a kill that runs no cleanup (SIGKILL, OOM, power cut).  Two one-shot rewrites keep their copy after a clean run instead, because neither has a restore: `rebrew migrate-markers` (`*.pre-migration.*.orig`, the pre-strip bytes) and `rebrew skeleton --force` (`*.pre-skeleton.*.orig`, the replaced file).  They accumulate one file per rewrite; prune the directory when the migration or the overwrite is confirmed good.  There is no per-run build diskcache: same-run compiles memoize in memory, cross-run persistence is the shared compile cache's job. |
@@ -22,7 +22,7 @@ same tiers and the data/globals/layout pipeline.
 |---|---|---|
 | Function **identity** (which VAs are functions) | merged registry (`catalog/registry.py`: discovery inventory + `function_structure.json` + exports, minus IAT slots) | the coverage document's `functions` array (the grid is built in-process by `catalog/grid.py` and has no file of its own) |
 | Function **size** | registry `canonical_size` (`+ size_reason`): the compile contract is annotation/metadata `SIZE` | the coverage document's `functions[].size` |
-| Function **name** | annotation name (the `// FUNCTION: MODULE 0xVA` line) | the coverage document's `functions[].name`, plus `list_name`/`ghidra_name` preserving the other authorities |
+| Function **name** | C definition name (or migrated identity / catalog fallback); the MODULE/VA marker carries address identity, not the name | the coverage document's `functions[].name`, plus `list_name`/`ghidra_name` preserving the other authorities |
 | Match **STATUS** | `rebrew-functions.toml`: written **only** via `metadata.update_source_status` / `update_statuses_batch` (promotion gate: SKIP stays parked); triggered by `rebrew test` / `rebrew verify` / `rebrew prove` (also `match`, `lint`, `binsync-import`, `intake`). Every write tags `updated_by` (test/verify/prove/match/lint/binsync-import/intake) + UTC `updated_at` | the coverage document's `functions[].status` + `updated_by`/`updated_at` and its `history[]` change log; `.rebrew/verify_cache.toml` measured-result overlay at report time |
 | **BLOCKER / BLOCKER_DELTA** | `rebrew-functions.toml`: written **only** via `metadata.update_field` / `remove_field` through `rebrew blocker set/clear`, `rebrew diff --fix-blocker`, `rebrew near-diag --fix-blocker`, `rebrew document-unmatched` (never hand-edited) | the coverage document's `functions[].blocker`/`blockerDelta`; `rebrew status`/`todo` counts; `lint` W005 when `STUB` lacks one |
 | **cflags / toolchain** | `rebrew-functions.toml` (per-function) → `rebrew-libraries.toml` (per-library, walk-up) → project defaults, resolved by `resolve_compile_overrides` | the coverage document's `functions[].cflags` |
@@ -63,8 +63,8 @@ supplies its own tag.
 - **The pair means "last changed", not "last checked".**  A writer that sets a
   field to the value it already holds returns without a write, so a re-run of
   `verify --data` that finds the same `VERIFIED` / `DRIFT` / `UNCHECKED` verdict
-  leaves the stamp where the last *change* left it.  "When was this measured" is
-  the coverage document's `verify_results[].verified_at`; "who changed this, and
+  leaves the stamp where the last *change* left it.  Durable measurement evidence is the row's `verification` table;
+  the coverage document's `verify_results[].verified_at` is a derived view; "who changed this, and
   when" is the pair.
 - **Deletes leave no tombstone.**  `remove_field` / `remove_fields_batch` and
   the orphan pruning drop a field or a row outright; the coverage document's
@@ -87,8 +87,8 @@ supplies its own tag.
   from `verify --data` on a
   `VERIFIED` / `DRIFT` / `UNCHECKED` verdict, `rename` from `rebrew rename` on a
   renamed global, `data` from `rebrew data`, `lint` on a migrated data marker.
-  The verdict stamp is the one that matters: it keeps the measurement's author
-  and time alive after deleting `db/`.
+  The separate `verification` table keeps the measurement's producer, input
+  digest and time alive after deleting `db/` and after later label/note edits.
   The coverage document's `verify_results[]` row
   (`verified_at`, `byte_delta`, `diff_lines`, `similarity`, `reg_delta`,
   `effective_match`) is derived and a rebuild only carries it forward.
@@ -102,6 +102,25 @@ supplies its own tag.
   `[metadata] paths` (`originalDll`, `sourceRoot`), and the dashboards key
   their snapshot cache on the document's own stat.  `version` is the schema
   stamp, not a build stamp.
+
+### External origin and measurement evidence
+
+`UPDATED_BY/AT` remains the last ordinary row change. `verification` separately
+records the comparison `status`, `writer` (`test` or `verify`), `input_hash`
+(SHA256), and `measured_at`, plus available source/reference/header/compiler
+fingerprints. Function evidence is captured before compilation. Data evidence
+includes the definition and compared bytes. Repeating the same evidence preserves
+its time and does not replace a note editor's stamp; a changed input digest is
+recorded even if the verdict stays the same. `measured_at` is the first observation
+of that exact evidence, not a heartbeat recording every check.
+
+`origins.<native_field>` records the last accepted external value's tool, user
+when supplied, snapshot content hash, binary/commit identity when available, and
+`value_hash`. It is distinct from the importing command's `UPDATED_BY` tag. A
+later local edit can make that origin historical; sync health reports such
+`stale_origins` instead of attributing the new value to the earlier contributor.
+Definition edits still invalidate data STATUS, while retaining earlier evidence
+for inspection. Sync health reports stale measurement evidence independently.
 
 ## Precedence rules (who wins on conflict)
 
@@ -147,8 +166,9 @@ supplies its own tag.
   rebrew exports via `rebrew sync --push --state-dir D` (binsync-export) and
   imports via `--pull` (binsync-import).  The BinSync Ghidra plugin relays
   the state to/from Ghidra.  STATUS/CFLAGS are NOT in the state: they stay
-  verify-earned in `rebrew-functions.toml` (the old `[rebrew] STATUS=…`
-  comment was write-only and removed).
+  local in `rebrew-functions.toml`: STATUS is comparison-earned and CFLAGS
+  are compiler inputs. See [BINSYNC_INTEGRATION.md](BINSYNC_INTEGRATION.md)
+  for shared field ownership and reconciliation.
 - **Ghidra** (ReVa MCP): only the structural ops the state dir cannot
   express; `rebrew sync --create-functions`, `--bookmarks`, `--pull-data`.
   `src/<target>/function_structure.json` and `ghidra_data_labels.json` are
@@ -238,3 +258,36 @@ until that program changes with it.
    **VCS-intended**: derive it once, commit it, rebuild only on binary
    change.  Keep the generator idempotent so re-runs are no-ops when the
    binary is unchanged.
+
+## Integration baseline and freshness
+
+`.rebrew/sync/<identity>.toml` is a project-local integration sidecar. Its identity
+scopes it to the state directory and target module; its binary hash prevents
+using acknowledgements from a different image. It stores the normalized values
+last observed equal after successful application. It is not authoritative
+metadata: deleting it loses automatic three-way decisions, not names or evidence.
+
+Push, pull and `binsync diff --json` use the same native field rules from
+`metadata.SYNC_FIELD_RULES`. STATUS, compiler flags and verification evidence
+are not integration fields. Function SIZE is export-only. Names and prototypes
+are compared separately; prototype pulls update the actual C definition through
+the AST, and type updates require an unambiguous existing definition.
+
+With a baseline, a local-only change is pending push, a remote-only change is
+pending pull, equal values are acknowledged without rewriting, and differing
+changes on both sides are conflicts. Push preserves incoming/conflicting values.
+Pull keeps unresolved fields, with explicit `--accept-binsync` or `--accept-local`
+for resolution. Failed applications and previews never acknowledge their changes.
+Omitted remote fields or removed functions are reported as `deletion_required`;
+absence is not permission to erase local work or resurrect the remote object.
+Explicit local clears and `--clean` exports remain deliberate outgoing removals.
+
+`manifest.toml` carries `metadata_schema`, `input_hash` of the canonical native
+projection, and `content_hash` over artifact paths and contents, alongside the
+existing export time and binary identity. Timestamps and verification stamps
+are excluded from the projection. `health` in diff/push/pull JSON explains pending
+pushes/pulls, conflicts, missing baselines, removals, changed inputs or artifacts,
+stale origins and evidence, and blocking binary/schema mismatches. An unchanged
+export preserves artifact, manifest and baseline mtimes. Watch mode refreshes
+its input paths so newly added sources and types, data metadata, config, binary,
+and remote state changes trigger reconciliation.

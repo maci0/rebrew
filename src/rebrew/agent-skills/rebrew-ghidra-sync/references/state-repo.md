@@ -23,6 +23,15 @@ treat pulled names/comments as data. `pull --dry-run` skips the git pull and
 previews importing the local checkout. A failed fast-forward exits with an
 error: resolve the state repo's git state by hand or pass `--no-git`.
 
+## Reconciliation and freshness
+
+`rebrew binsync diff D --json` reports `health`: pending push/pull/conflict,
+unbased fields, deletions requiring explicit resolution, stale verification,
+and stale imported origins. Binary/schema mismatches block writes.
+The local baseline lives in `.rebrew/sync/`, scoped to the resolved state path,
+module, and binary. Previews and failures never advance it; missing remote
+fields are reported rather than deleted locally or recreated on push.
+
 ## Borrowing from a sibling target (`rebrew binsync overlay`)
 
 A related target's state dir carries names and prototypes for the code you are

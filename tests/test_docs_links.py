@@ -16,11 +16,23 @@ ROOT = Path(__file__).resolve().parent.parent
 _LINK = re.compile(r"(?<!!)\[([^\]\[]*)\]\(([^)\s]+)\)")
 _CODE_SPAN = re.compile(r"`[^`]*`")
 
-RULE_FILES = ("AGENTS.md", "CONTRIBUTING.md", "README.md")
+RULE_FILES = (
+    "AGENTS.md",
+    "CONTRIBUTING.md",
+    "README.md",
+    "SECURITY.md",
+    "PRINCIPLES.md",
+    "CHANGELOG.md",
+)
 
 
 def _doc_files() -> list[Path]:
-    return [*sorted((ROOT / "docs").rglob("*.md")), *(ROOT / name for name in RULE_FILES)]
+    return [
+        *sorted((ROOT / "docs").rglob("*.md")),
+        *(ROOT / name for name in RULE_FILES),
+        *sorted((ROOT / "src" / "rebrew").rglob("*.md")),
+        ROOT / "src" / "rebrew" / "AGENTS.md.template",
+    ]
 
 
 def _strip_code_spans(line: str) -> str:

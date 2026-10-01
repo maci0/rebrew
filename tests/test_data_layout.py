@@ -1301,6 +1301,16 @@ class TestLongLongSize:
         assert c_type_size("char") == 1
         assert estimate_type_size("int tbl[4]") == 16
 
+    def test_explicit_int_spellings_keep_their_width(self) -> None:
+        from rebrew.data_layout import data_symbol_size
+
+        for spelling in ("short int", "signed short int", "unsigned short int"):
+            assert c_type_size(spelling) == 2
+            assert data_symbol_size({"type": f"{spelling}[2 + 2]"}) == 8
+        assert data_symbol_size({"type": "const unsigned long int[3]"}) == 12
+        assert data_symbol_size({"type": "void*"}, arch="x86_64") == 0
+        assert data_symbol_size({"type": "void*", "size": 8}, arch="x86_64") == 8
+
 
 def test_fix_ownership_rolls_back_when_a_write_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch

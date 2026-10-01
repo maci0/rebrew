@@ -30,7 +30,6 @@ from rebrew.ghidra.commands import (
 from rebrew.ghidra.commands import (
     pull_data as pull_data_cmd,
 )
-from rebrew.sources import iter_sources
 
 log = logging.getLogger(__name__)
 
@@ -240,17 +239,16 @@ def main(
         result = export_state(cfg, out, dry_run=preview)
         print_export_result(result, json_output=json_output, dry_run=preview)
         if watch and not dry_run:
+            from rebrew.binsync.state import sync_watch_paths
             from rebrew.utils import watch_files
 
-            watch_paths = list(iter_sources(cfg.reversed_dir, cfg)) + [
-                cfg.metadata_dir / "rebrew-functions.toml"
-            ]
+            watch_paths = sync_watch_paths(cfg, out)
 
             def _re_export() -> None:
                 fresh = export_state(cfg, out, dry_run=False)
                 print_export_result(fresh, json_output=False, dry_run=False)
 
-            watch_files(watch_paths, _re_export)
+            watch_files(watch_paths, _re_export, path_provider=lambda: sync_watch_paths(cfg, out))
         return
 
     if pull:

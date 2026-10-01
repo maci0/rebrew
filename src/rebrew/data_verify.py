@@ -10,10 +10,11 @@ Pure logic here (dicts in, report out) so it is unit-testable without a
 link; the binary-reading thin layer lives in ``verify --data``.
 """
 
+import hashlib
 from pathlib import Path
 from typing import Any
 
-from rebrew.data_metadata import iter_data_symbols
+from rebrew.data_metadata import data_definition_hash, iter_data_symbols
 
 
 def verify_data_bytes(
@@ -61,7 +62,7 @@ def verify_data_bytes(
         if not fields.get("name") or not module_visible_to_target(module, cfg):
             continue
         name = str(fields["name"])
-        size = data_symbol_size(fields)
+        size = data_symbol_size(fields, arch=getattr(cfg, "arch", "x86_32"))
         if "size" not in fields and "type" not in fields:
             size = sizes.get(va, 0)
         row = {
@@ -71,6 +72,15 @@ def verify_data_bytes(
             "size": size,
             "status": "UNCHECKED",
         }
+        definition_hash = data_definition_hash(
+            module, va, fields, arch=getattr(cfg, "arch", "x86_32")
+        )
+        row["definition_hash"] = definition_hash
+        digest = hashlib.sha256(definition_hash.encode())
+        for label, data in (("reference", expected.get(va)), ("built", actual.get(va))):
+            digest.update(label.encode())
+            digest.update(b"missing" if data is None else hashlib.sha256(data[:size]).digest())
+        row["input_hash"] = digest.hexdigest()
         results.append(row)
         exp = expected.get(va)
         got = actual.get(va)
@@ -161,7 +171,9 @@ def section_symbol_bytes(
             continue
         if not module_visible_to_target(module, cfg):
             continue
-        size = data_symbol_size(val)
+        size = data_symbol_size(
+            val, arch=getattr(info, "arch", "") or getattr(cfg, "arch", "x86_32")
+        )
         if size <= sizes.get(va, 0):
             continue
         sec = info.sections.get(declared)

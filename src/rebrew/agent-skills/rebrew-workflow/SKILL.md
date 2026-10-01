@@ -1,21 +1,11 @@
 ---
 name: rebrew-workflow
 description: >-
-  Use for day-to-day reversing on an onboarded target: `todo`, skeleton,
-  edit, `test`/`diff`, verify, lint, round-trip, the catalog / `build-db`,
-  the coverage dashboard, source-tree reorg (split, merge, rename, call
-  graph), and the recon lane (`rebrew analyze`, `describe`, `diagnose`,
-  `recommend`, `refactor`, `xrefs`). Triggers on 'reverse',
-  'match function', 'implement function', 'decompile',
-  'test function', 'todo', 'asm', 'status', 'coverage', 'progress', 'blocker',
-  'flirt', 'crt-match', 'lib-match', 'library code', 'one function per file',
-  'multi-function file', 'annotation format', 'FUNCTION marker',
-  'SOURCE: naked', 'migrate-markers', 'src/shared', 'shared marker',
-  'rebrew probe', 'rebrew similar', 'recover-structs', 'document-unmatched',
-  'doctor fails', 'splice', 'dashboard'.
-  Hand off near-miss GA/prove to rebrew-matching; new binaries to
-  rebrew-intake; scaffold or profile choice to rebrew-init; globals/BSS to
-  rebrew-data-analysis; Ghidra to rebrew-ghidra-sync.
+  Reverse functions on an onboarded Rebrew target: select work, generate skeletons,
+  edit/test/diff C, verify progress, manage annotations, and reorganize sources. Covers
+  status accounting, coverage documents, and local recon. Use rebrew-matching for
+  stalled byte matches, rebrew-data-analysis for globals, and rebrew-ghidra-sync for
+  integration sync.
 license: MIT
 ---
 
@@ -36,9 +26,12 @@ graph TD
 
 # Rebrew Workflow
 
-All commands run from a directory containing `rebrew-project.toml`; every one of them
-exits non-zero with a config error when it is missing. Use `--json` for structured
-output. In a multi-target project pass `--target NAME`; the default target is used
+Invoke tools as `rebrew <command>`. Names such as `rebrew-workflow` identify
+skills; separate executables are reserved for the four CMake/objdiff build hooks.
+
+Project workflow commands find `rebrew-project.toml` by walking up from the
+working directory. Binary inspection subcommands can also accept a
+binary path. Use `--json` for structured output. In a multi-target project pass `--target NAME`; the default target is used
 otherwise, and the batch commands (`test` / `verify` / `lint` / `status` / `todo`)
 take `--all-targets` instead. For annotation syntax details, see
 `references/annotation-format.md`.
@@ -66,8 +59,9 @@ rebrew similar 0x10001000 --json        # Find structurally similar functions (s
 
 **Default to `rebrew todo --json`.** Each item has a ready `command`: run it.
 The categories above are interleaved by one continuous ROI score, not a fixed
-tier ladder. `coverage` in JSON is the progress source of truth; `status --json`
-is cheap recon.
+tier ladder. `todo` JSON embeds the same accounting frame as `status --json`.
+Keep file agreement, accounted `.text`, and stored data verdicts separate;
+function source counts do not measure matched bytes.
 
 - `documented`: audit-only, hidden from the default list.
 - `extract-error`: symbol missing from `.obj`; fix the marker/definition before GA.
@@ -131,12 +125,19 @@ Rebrew filters annotations by the active `--target`. Several `// FUNCTION: <MODU
 
 > [!CAUTION]
 > **Volatile metadata lives only in `rebrew-functions.toml` at `cfg.metadata_dir`.
-> Never inline in `.c`, never hand-edit the TOML.** Keys: STATUS, SIZE, CFLAGS,
+> Never hand-edit the TOML or inline volatile fields in `.c`.** Keys: STATUS, SIZE, CFLAGS,
 > TOOLCHAIN, BLOCKER/BLOCKER_DELTA, NOTE, GHIDRA, ANALYSIS, SOURCE, SKIP, GLOBALS,
-> LOCALS, COMMENTS, PROVE_CONSTRAINTS, UPDATED_BY/UPDATED_AT (SECTION lives in
+> LOCALS, COMMENTS, PROVE_CONSTRAINTS, ORIGINS, VERIFICATION, UPDATED_BY/UPDATED_AT (SECTION lives in
 > `rebrew-data.toml`). STATUS via `rebrew test`/`verify` only; use `rebrew blocker
 > set/clear`, `rebrew lint --fix` for migrations. Files are mode 0444
-> (`atomic_write_locked`). Marker rules: `references/annotation-format.md`.
+> (`atomic_write_locked`). Legacy SIZE/CFLAGS remain co-readable;
+> `// SOURCE: naked` is a source-owned reconstruction marker.
+> `rebrew migrate-markers` moves function identity and inline fields into the
+> store and leaves pure C; do not restore those markers. Marker rules: `references/annotation-format.md`.
+
+`ORIGINS` records the external source of each imported field; `VERIFICATION`
+records comparison evidence independently of ordinary edits. Note edits preserve
+that evidence. Re-run `test`/`verify` when source, headers, or compiler inputs change.
 
 ## 4. Implement and Test
 
@@ -221,7 +222,8 @@ rebrew round-trip --json                # splice every EXACT/RELOC function back
 rebrew round-trip --dry-run             # preview without writing <binary>.reasm
 ```
 
-SIZE must live in `rebrew-functions.toml` (`rebrew lint --fix` migrates inline keys).
+Round-trip needs canonical SIZE in `rebrew-functions.toml`: backfill it with
+`rebrew catalog --fix-sizes` or migrate legacy headers with `rebrew migrate-markers`.
 PROVEN is skipped. Full fallback/drift rules: `references/round-trip.md`.
 
 ## Toolchains

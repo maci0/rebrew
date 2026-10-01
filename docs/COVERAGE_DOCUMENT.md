@@ -3,7 +3,7 @@
 > **Scope:** the `db/coverage-<target>.toml` documents `rebrew build-db` writes
 > and the coverage dashboards read, and the `rebrew dashboard` REST API.  For
 > `verify` / `status` flag semantics see
-> [prd/05-verification-and-progress.md](prd/05-verification-and-progress.md).
+> [CLI.md](CLI.md#rebrew-status).
 
 Coverage is clear text.  `rebrew build-db` writes one TOML document per target,
 `db/coverage-<target>.toml`, by scanning the project in-process, and
@@ -51,10 +51,11 @@ scripts pass it.
 
 ## 1. `db/coverage-<target>.toml`
 
-One document holds everything one target knows: its sections and their cells, its
-functions, its globals, its verify results and its status history.  The file is
-the target's only storage: no sidecar stands beside it and no cache has to be
-invalidated with it.  `rebrew build-db` is a thin front over
+One document holds a derived coverage view: sections/cells, functions, globals,
+verify results, and recent status history. Canonical identity, external origins,
+and durable verification evidence remain in the function/data stores; this
+document does not mirror their nested `origins` / `verification` tables.
+Deleting it loses its retained history, but not canonical evidence.  `rebrew build-db` is a thin front over
 `rebrew.coverage_toml.write_coverage_toml`, and the same module's reader is what
 the dashboards import.
 
@@ -159,8 +160,8 @@ see a document with no functions.
 | `blockerDelta` | integer or `""` | Bytes from the target while blocked. |
 | `size_reason` | string | How the canonical size was chosen (`ghidra`, `list`, `annotation`). |
 | `similarity` | float or `""` | Structural similarity in `[0, 1]`; `""` when never scored. |
-| `updated_by` | string | Provenance tag of the last STATUS write. |
-| `updated_at` | string | UTC stamp of the last STATUS write. |
+| `updated_by` | string | Tool tag of the last ordinary metadata change. |
+| `updated_at` | string | UTC stamp of the last ordinary metadata change. |
 
 Rows sharing a VA collapse to the last one with a warning, and a row whose VA
 parses from neither the catalog key nor `vaStart` is dropped the same way, so the
@@ -175,7 +176,7 @@ document never holds a function no reader can key.
 | `decl` | string | C declaration (`int g_counter;`). |
 | `files` | array of strings | Associated source files. |
 | `module` | string | Origin module. |
-| `size` | integer | Bytes; `4` (pointer-sized) when the catalog gives no usable size. |
+| `size` | integer | Bytes; legacy display fallback `4` when the catalog gives no usable size. This is not a verification extent. |
 | `status` | string | Data verdict: `VERIFIED`, `DRIFT`, `UNCHECKED`, or `""` when never compared. |
 
 #### `verify_results`
@@ -259,7 +260,7 @@ apart.
 | `exact` | Byte-identical match | `exact` | EXACT `#1a6b3c` |
 | `verified` | Data verdict `VERIFIED` (`rebrew verify --data`) | `exact` | none (count only) |
 | `reloc` | Match after relocation normalization | `reloc` | RELOC `#0f6a5f` |
-| `near_matching` / `near_match` | Functionally matching, not byte-identical | `near_match` | NEAR_MATCHING `#8f5105` |
+| `near_matching` / `near_match` | Byte-similar, not byte-identical; semantics unproven | `near_match` | NEAR_MATCHING `#8f5105` |
 | `proven` | PROVEN status (semantic equivalence, bytes differ) | `proven` | PROVEN `#146b7d` |
 | `size_mismatch` | SIZE_MISMATCH status | `size_mismatch` | SIZE_MISMATCH `#6f3210` |
 | `stub` | Stub implementation (placeholder) | `stub` | STUB `#3f3a33` |

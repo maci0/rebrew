@@ -15,6 +15,7 @@
 | Document | Description |
 |----------|-------------|
 | [CLI.md](CLI.md) | All CLI commands (umbrella `rebrew` + multi-command groups): flags, examples, internal modules |
+| [PYTHON_API.md](PYTHON_API.md) | Library imports, toolchain registry views, structured errors, and injectable service clients |
 | [CONFIG.md](CONFIG.md) | `rebrew-project.toml` format, config loader, arch presets, compiler profiles |
 | [ANNOTATIONS.md](ANNOTATIONS.md) | Source-file marker format (`// FUNCTION:` / `library_*.h`) and linter codes E000–E023 / W003–W036 |
 | [METADATA_FORMAT.md](METADATA_FORMAT.md) | TOML metadata files (`rebrew-functions.toml`, `rebrew-data.toml`): volatile fields, status lifecycle |
@@ -46,7 +47,7 @@
 | [BINSYNC_INTEGRATION.md](BINSYNC_INTEGRATION.md) | `rebrew binsync-init/export/import/diff/overlay`: declib-backed state bridge (names, prototypes, globals, structs, enums, typedefs, locals, comments) + `rebrew sync` feature matrix |
 | [DECOMPME_COMPILERS.md](DECOMPME_COMPILERS.md) | decomp.me compiler fleet research + snippet-scrape guide |
 | [JEV.md](JEV.md) | TypeSafe Jev (System One) research: typed decisions over rebrew JSON, not codegen |
-| [ROADMAP.md](ROADMAP.md) | Multi-arch plan + consoles dossier appendix |
+| [ROADMAP.md](ROADMAP.md) | RFC: multi-arch proposals and consoles dossier; proposed commands are not shipped contracts |
 | [IDEAS-GUILD.md](IDEAS-GUILD.md) | Open feature ideas from the guild-rebrew byte-identical campaign, with evidence pointers |
 
 ## Ecosystem
@@ -60,7 +61,7 @@
 
 | Document | Description |
 |----------|-------------|
-| [PRINCIPLES.md](PRINCIPLES.md) | Core architectural philosophy (idempotency, score monotonicity, snowball effect) |
+| [PRINCIPLES.md](PRINCIPLES.md) | Core architectural rules: verdict fidelity, field ownership, evidence, and per-file atomicity |
 | [adr/](adr/README.md) | Architecture decision records (settled decisions, Nygard format) |
-| [prd/](prd/README.md) | Product requirements per subsystem |
+| [prd/](prd/README.md) | Subsystem requirements and scoped implementation status, including historical examples |
 | [codegen/](codegen/README.md) | Per-compiler-version codegen reference (prologues, registers, FPU, loops) |

@@ -1150,7 +1150,7 @@ class TestW021W022:
             return f
 
         f1 = _write("one.c", "g_counter", 0x10001000)
-        seen: dict[str, str] = {}
+        seen: dict[str, tuple[str, int, bool]] = {}
         r1 = lint_file(f1, seen_globals=seen)
         assert not any(c == "W021" for _, c, _ in r1.warnings)
 
@@ -1164,7 +1164,7 @@ class TestW021W022:
         """SERVER and GOLDTL each own a g_counter. Same C name, different binary."""
         from rebrew.lint import lint_file
 
-        seen: dict[str, str] = {}
+        seen: dict[str, tuple[str, int, bool]] = {}
         f1 = _write_c(tmp_path, "server.c", "// DATA: SERVER 0x10001000\nextern int g_counter;\n")
         f2 = _write_c(tmp_path, "client.c", "// DATA: GOLDTL 0x00677918\nextern int g_counter;\n")
         assert not any(c == "W021" for _, c, _ in lint_file(f1, seen_globals=seen).warnings)
@@ -1173,7 +1173,7 @@ class TestW021W022:
     def test_unique_globals_no_warning(self, tmp_path: Path) -> None:
         from rebrew.lint import lint_file
 
-        seen: dict[str, str] = {}
+        seen: dict[str, tuple[str, int, bool]] = {}
         for i, name in enumerate(("g_a", "g_b", "g_c")):
             f = _write_c(
                 tmp_path, f"f{i}.c", f"// DATA: SERVER 0x1000{i:03x}\nextern int {name};\n"
@@ -1187,13 +1187,40 @@ class TestW021W022:
         unreported."""
         from rebrew.lint import lint_file
 
-        seen: dict[str, str] = {}
+        seen: dict[str, tuple[str, int, bool]] = {}
         f1 = _write_c(tmp_path, "one.c", "/* DATA: SERVER 0x1000 */\nextern int g_counter;\n")
         r1 = lint_file(f1, seen_globals=seen)
         assert not any(c == "W021" for _, c, _ in r1.warnings)
         f2 = _write_c(tmp_path, "two.c", "/* DATA: SERVER 0x2000 */\nextern int g_counter;\n")
         r2 = lint_file(f2, seen_globals=seen)
         assert any(c == "W021" for _, c, _ in r2.warnings)
+
+    @pytest.mark.parametrize("owner_first", [False, True])
+    def test_owner_and_references_preserve_duplicate_detection(
+        self, tmp_path: Path, owner_first: bool
+    ) -> None:
+        """Same-address externs are references, and cannot hide a second owner."""
+        seen: dict[str, tuple[str, int, bool]] = {}
+        owner = "/* DATA: SERVER 0x10001000 */\nint g_counter = 0;\n"
+        reference = "// GLOBAL: SERVER 0x10001000\nextern int g_counter;\n"
+        sources = [owner, reference] if owner_first else [reference, owner]
+        sources.append(reference)
+        for i, content in enumerate(sources):
+            result = lint_file(_write_c(tmp_path, f"f{i}.c", content), seen_globals=seen)
+            assert not any(code == "W021" for _, code, _ in result.warnings)
+        duplicate = lint_file(_write_c(tmp_path, "duplicate.c", owner), seen_globals=seen)
+        assert any(code == "W021" for _, code, _ in duplicate.warnings)
+
+    def test_repeated_externs_still_detect_conflicting_address(self, tmp_path: Path) -> None:
+        """An extern may repeat its address, but cannot identify two addresses."""
+        seen: dict[str, tuple[str, int, bool]] = {}
+        for i in range(2):
+            source = "// GLOBAL: SERVER 0x10001000\nextern int g_counter;\n"
+            result = lint_file(_write_c(tmp_path, f"f{i}.c", source), seen_globals=seen)
+            assert not any(code == "W021" for _, code, _ in result.warnings)
+        conflict = "// DATA: SERVER 0x10002000\nextern int g_counter;\n"
+        result = lint_file(_write_c(tmp_path, "conflict.c", conflict), seen_globals=seen)
+        assert any(code == "W021" for _, code, _ in result.warnings)
 
     def test_zero_init_global_warns(self, tmp_path: Path) -> None:
         from rebrew.lint import lint_file
@@ -2684,6 +2711,27 @@ class TestDataSectionNamesMemoConcurrent:
 class TestW031MetadataStore:
     """W031: the store shapes a reader silently ignores."""
 
+    def test_function_fields_share_the_writer_validation(self, tmp_path: Path) -> None:
+        (tmp_path / "rebrew-functions.toml").write_text(
+            'format=1\n["SERVER.0x1000"]\nsize=-1\nstatus="FINISHED"\n'
+            "cflags=false\nskip=[]\nfile=7\n",
+            encoding="utf-8",
+        )
+        warnings = self._warnings(self._cfg(tmp_path))
+        for problem in (
+            "size must be non-negative",
+            "unknown STATUS",
+            "cflags must be",
+            "skip must be",
+            "file must be a string",
+        ):
+            assert problem in warnings
+
+    @pytest.mark.parametrize("filename", ["rebrew-functions.toml", "rebrew-data.toml"])
+    def test_uppercase_field_is_reported(self, tmp_path: Path, filename: str) -> None:
+        (tmp_path / filename).write_text('format=1\n["SERVER.0x1000"]\nSIZE=4\n', encoding="utf-8")
+        assert "field 'SIZE' must use lower-case spelling" in self._warnings(self._cfg(tmp_path))
+
     @pytest.mark.parametrize("filename", ["rebrew-data.toml", "rebrew-functions.toml"])
     def test_duplicate_identity_is_reported(self, tmp_path: Path, filename: str) -> None:
         (tmp_path / filename).write_text(
@@ -2988,9 +3036,8 @@ class TestW033AgentScaffold:
     def test_missing_scaffold_is_reported(self, tmp_path: Path) -> None:
         assert "refresh-agents" in self._messages(self._cfg(tmp_path))
 
-    def test_fresh_scaffold_is_silent(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    @pytest.mark.parametrize("selected_target", ["bench", "client"])
+    def test_fresh_scaffold_is_silent(self, tmp_path: Path, selected_target: str) -> None:
         """A project rendered from the packaged sources passes."""
         from rebrew.init import agent_skill_files
 
@@ -3003,7 +3050,13 @@ class TestW033AgentScaffold:
         import rebrew
 
         shutil.copyfile(Path(rebrew.__file__).parent / "PRINCIPLES.md", tmp_path / "PRINCIPLES.md")
-        assert self._messages(self._cfg(tmp_path)) == ""
+        cfg = self._cfg(tmp_path)
+        cfg.target_name = selected_target
+        cfg.all_targets = ["bench", "client"]
+        assert self._messages(cfg) == ""
+        victim = tmp_path / ".agents" / "skills" / "rebrew-workflow" / "SKILL.md"
+        victim.write_text("old workflow instructions\n", encoding="utf-8")
+        assert "rebrew-workflow/SKILL.md" in self._messages(cfg)
 
     def test_an_edited_skill_file_is_reported(self, tmp_path: Path) -> None:
         from rebrew.init import agent_skill_files

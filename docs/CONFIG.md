@@ -542,7 +542,7 @@ rebrew receives.
   explicit `-v` / `-q` outranks it.  An unknown name warns and keeps the
   default, so a typo is reported by `cfg effective` rather than aborting the
   run that would have named it.
-- `_REBREW_COMPLETE`: click's shell-completion mode marker, set by the completion scripts `rebrew init --install-completions` writes. Rebrew never reads it itself, and there is no `rebrew completion` command.
+- `_REBREW_COMPLETE`: click's shell-completion mode marker, set by the completion scripts `rebrew init --install-completions` writes. Rebrew never reads it itself, and there is no `completion` subcommand.
 - `GH_TOKEN` / `GITHUB_TOKEN`: optional GitHub auth for `rebrew toolchain`
   downloads that need a token (not a rebrew-prefixed name; standard gh env).
 - `KUNA_SPECS`: SLEIGH spec directory the host `kuna` binary reads for

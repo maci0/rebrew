@@ -17,6 +17,7 @@ Usage::
 
     uv run --frozen python tools/validate_skill_commands.py
     uv run --frozen python tools/validate_skill_commands.py --quiet
+    uv run --frozen python tools/validate_skill_commands.py --docs
 """
 
 from __future__ import annotations
@@ -84,14 +85,14 @@ def _multi_subcommands() -> frozenset[str]:
 _MULTI_SUBCOMMANDS: frozenset[str] = _multi_subcommands()
 
 
-def _is_placeholder(token: str) -> bool:
+def _is_placeholder(word: str) -> bool:
     """True for ``<va>``-style placeholders and ``a/b`` slash alternations.
 
     Prose writes ``rebrew toolchain list/status/pull/build`` and ``rebrew
     diff/match/prove/test 0x<va>`` to name several commands at once; neither
     resolves as a single subcommand.
     """
-    return any(c in token for c in "<>/")
+    return any(c in word for c in "<>/{}[]*…") or word == "..."
 
 
 def _parse_command(line: str) -> tuple[str, list[str]] | None:
@@ -107,11 +108,13 @@ def _parse_command(line: str) -> tuple[str, list[str]] | None:
     tokens = line.split()
     if len(tokens) < 2 or _is_placeholder(tokens[1]):
         return None
-    subcommand = tokens[1]
+    subcommand = tokens[1].strip("\"'")
+    if not re.fullmatch(r"[a-z][a-z0-9-]*", subcommand):
+        return None
 
     # For multi-command groups, absorb the subsubcommand if present
     if subcommand in _MULTI_SUBCOMMANDS and len(tokens) >= 3:
-        second_sub = tokens[2]
+        second_sub = tokens[2].strip("\"'")
         if not second_sub.startswith("-") and not _is_placeholder(second_sub):
             subcommand = f"{subcommand} {second_sub}"
 
@@ -220,8 +223,24 @@ def _probe_failure_message(skill_name: str, subcommand: str, output: str) -> str
     return f"{skill_name}: rebrew {subcommand} — subcommand not found"
 
 
-def validate(*, quiet: bool = False) -> bool:
-    """Validate all agent-skills markdown command references.  Returns True if all pass."""
+def _current_docs() -> list[Path]:
+    """Current guides/rules; dated release records and proposals are not CLI contracts."""
+    docs = _REPO_ROOT / "docs"
+    proposals = {"ROADMAP.md", "IDEAS-GUILD.md", "JEV.md"}
+    return [
+        *(p for p in sorted(docs.glob("*.md")) if p.name not in proposals),
+        *(p for p in sorted((docs / "prd").glob("*.md")) if p.name[:2] not in {"00", "09"}),
+        *(
+            _REPO_ROOT / name
+            for name in ("README.md", "AGENTS.md", "CONTRIBUTING.md", "SECURITY.md")
+        ),
+        *sorted((_REPO_ROOT / "src" / "rebrew").rglob("AGENTS.md")),
+        _REPO_ROOT / "src" / "rebrew" / "AGENTS.md.template",
+    ]
+
+
+def validate(*, quiet: bool = False, docs: bool = False) -> bool:
+    """Validate skill references, optionally including current guides and agent templates."""
     if not _SKILLS_DIR.is_dir():
         print(f"[SKIP] agent-skills dir not found: {_SKILLS_DIR}", file=sys.stderr)
         return True
@@ -249,6 +268,13 @@ def validate(*, quiet: bool = False) -> bool:
                     continue
                 seen.add(key)
                 combos.append((skill_name, subcommand, tuple(sorted(flags))))
+
+    if docs:
+        for path in _current_docs():
+            for subcommand, doc_flags in sorted(
+                {(sub, tuple(sorted(fs))) for sub, fs in _extract_commands(path)}
+            ):
+                combos.append((str(path.relative_to(_REPO_ROOT)), subcommand, doc_flags))
 
     unique_subs = sorted({c[1] for c in combos})
     with ThreadPoolExecutor(max_workers=_HELP_WORKERS) as pool:
@@ -278,7 +304,8 @@ def validate(*, quiet: bool = False) -> bool:
 
     if not quiet:
         print(
-            f"\nChecked {checked} unique (subcommand, flags) combinations across {_SKILLS_DIR.name}/."
+            f"\nChecked {checked} unique (subcommand, flags) combinations across "
+            f"{_SKILLS_DIR.name}/{' and current docs/templates' if docs else ''}."
         )
         if errors:
             print(f"{len(errors)} failure(s).")
@@ -299,9 +326,12 @@ def main() -> None:
     parser.add_argument(
         "--quiet", "-q", action="store_true", help="Only print failures and summary."
     )
+    parser.add_argument(
+        "--docs", action="store_true", help="Also check current guides and agent templates."
+    )
     args = parser.parse_args()
 
-    ok = validate(quiet=args.quiet)
+    ok = validate(quiet=args.quiet, docs=args.docs)
     sys.exit(0 if ok else 1)
 
 

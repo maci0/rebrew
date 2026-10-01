@@ -851,8 +851,11 @@ class TestCflagsPersistence:
 
     def test_no_cflags_no_persist(self, tmp_path: Path, monkeypatch: Any) -> None:
         self._run(tmp_path, monkeypatch)
-        meta = (tmp_path / "src" / "rebrew-functions.toml").read_text()
-        assert "cflags" not in meta
+        from rebrew.utils import load_tomllib
+
+        assert (
+            "cflags" not in load_tomllib(tmp_path / "src" / "rebrew-functions.toml")["X.0x00001000"]
+        )
 
 
 class TestCliSizeLintSuppression:

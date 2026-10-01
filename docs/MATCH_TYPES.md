@@ -6,6 +6,11 @@ file keeps the `// FUNCTION: MODULE 0xVA` marker line (plus co-read `// SIZE:` /
 `// CFLAGS:` when present for reccmp); after `rebrew migrate-markers` (ADR 023) the
 file is pure C and its identity lives in the TOML entry's `file` field.
 
+Function presence, accounted executable bytes, and matched-function counts are
+different measures. The table below describes byte-match credit; see
+[status accounting](CLI.md#rebrew-status) for denominators and library/padding
+contributions. Managed TOML examples illustrate output; never hand-edit them.
+
 ## Status Overview
 
 `UNDOCUMENTED` is not a STATUS value: it is the state of a catalog function that has
@@ -23,11 +28,11 @@ UNDOCUMENTED  →  STUB  →  NEAR_MATCHING  →  RELOC  →  EXACT
 |--------|-----------|--------|-------------------|
 | *(undocumented)* | n/a | Automatic (no `.c` file); the coverage document records `UNKNOWN` | No |
 | `STUB` | <60% | `rebrew test` (demotion) | No |
-| `NEAR_MATCHING` | ≥60% | `rebrew test` | Partial |
+| `NEAR_MATCHING` | ≥60% | `rebrew test` | No matched-function credit |
 | `RELOC` | 100% (masked) | `rebrew test` | Yes |
 | `EXACT` | 100% (raw) | `rebrew test` | Yes |
 | `PROVEN` | Semantic (bytes differ) | `rebrew prove` | No (shown separately) |
-| `SKIP` | N/A | Manual (metadata) | Yes (excluded) |
+| `SKIP` | N/A | Metadata API (parked) | No byte-match credit |
 
 `rebrew test` / `rebrew verify` also persist machine verdicts (`SIZE_MISMATCH`,
 `COMPILE_ERROR`, `EXTRACT_ERROR`, `MISSING_SIZE`, `MISSING_FILE`, `INVALID_VA`)
@@ -74,7 +79,8 @@ wrong calling convention, completely wrong algorithm structure.
 
 ## NEAR_MATCHING
 
-The compiled output is ≥ 60% byte-similar to the target but has structural differences
+The compiled output is ≥ 60% byte-similar to the target. That percentage does
+not prove equivalent behavior. It can have structural differences
 that persist after relocation masking: different register allocation, different loop
 structure, different branch ordering.
 

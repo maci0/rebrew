@@ -60,12 +60,15 @@ from typing import TYPE_CHECKING, Any
 import tomlkit
 
 from rebrew.metadata import (
+    METADATA_FIELD_TYPES,
     PROVENANCE_TAGS,
     as_metadata_int,
     canonical_status,
+    record_verification,
     resolve_metadata_dir,
     stamp_format,
     stamp_provenance,
+    validate_provenance_table,
 )
 from rebrew.metadata_doc import (
     MetadataDocCache,
@@ -112,9 +115,16 @@ DATA_METADATA_FILENAME = "rebrew-data.toml"
 #: when" is answerable from the canonical store — the coverage document's
 #: ``verify_results[]`` row is derived and gitignored, and a rebuild carries it
 #: forward but does not recreate it.
-DATA_METADATA_FIELDS: frozenset[str] = frozenset(
-    {"NAME", "TYPE", "SIZE", "SECTION", "NOTE", "STATUS", "UPDATED_BY", "UPDATED_AT"}
-)
+DATA_METADATA_FIELD_TYPES: dict[str, type | tuple[type, ...]] = {
+    "name": str,
+    "type": str,
+    **{
+        key: METADATA_FIELD_TYPES[key]
+        for key in ("size", "note", "status", "updated_by", "updated_at", "origins", "verification")
+    },
+    "section": str,
+}
+DATA_METADATA_FIELDS = frozenset(key.upper() for key in DATA_METADATA_FIELD_TYPES)
 
 #: Data verification verdicts written by ``verify --data``.
 DATA_STATUS_VERIFIED = "VERIFIED"
@@ -134,11 +144,15 @@ _CANONICAL_ORDER = [
     "status",
     "updated_by",
     "updated_at",
+    "origins",
+    "verification",
 ]
 
 __all__ = [
     "DATA_METADATA_FILENAME",
     "DATA_METADATA_FIELDS",
+    "DATA_METADATA_FIELD_TYPES",
+    "data_definition_hash",
     "load_data_metadata",
     "iter_data_symbols",
     "get_data_entry",
@@ -167,6 +181,8 @@ def validate_data_field(key: str, value: Any) -> Any:
             f"unknown data metadata field {key!r} "
             f"(expected one of {sorted(k.lower() for k in DATA_METADATA_FIELDS)})"
         )
+    if key in {"origins", "verification"}:
+        return validate_provenance_table(key, value)
     if key == "size":
         try:
             size = as_metadata_int(value)
@@ -477,14 +493,20 @@ def set_data_fields_batch(
                 entry[key] = safe
                 changed = True
                 definition_changed |= key in ("name", "type", "size", "section")
-            if changed:
+            evidence_changed = False
+            evidence = u.get("verification")
+            if evidence is not None:
+                if tag != "verify" or evidence.get("status") != fields.get("status"):
+                    raise ValueError("data verification evidence requires its verify verdict")
+                evidence_changed = record_verification(entry, evidence, now=now)
+            if changed or evidence_changed:
                 # A verdict measured the old symbol extent/identity. Notes and
                 # provenance leave it valid; a new measurement may set it in
                 # the same update as the definition it verified.
                 if definition_changed and "status" not in fields:
                     entry.pop("status", None)
                 tag = str(u.get("updated_by") or "")
-                if tag:
+                if tag and changed:
                     stamp_provenance(entry, tag, now=now)
                 changed_entries += 1
         if changed_entries:
@@ -594,3 +616,19 @@ def merge_into_data_annotation(ann: Annotation, directory: Path | str | Any) -> 
         ann.updated_at = str(updated_at)
 
     return ann
+
+
+def data_definition_hash(
+    module: str, va: int, fields: dict[str, Any], *, arch: str = "x86_32"
+) -> str:
+    """Fingerprint the canonical definition without its label, note or edit stamps."""
+    import hashlib
+    import json
+
+    definition = {
+        "module": module,
+        "va": va,
+        "arch": arch,
+        **{field: fields.get(field, "") for field in ("size", "type", "section")},
+    }
+    return hashlib.sha256(json.dumps(definition, sort_keys=True).encode()).hexdigest()

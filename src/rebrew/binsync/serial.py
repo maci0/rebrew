@@ -154,11 +154,21 @@ def new_comment(addr: int, func_addr: int, comment: str) -> Any:
 # ---------------------------------------------------------------------------
 
 
-def dump_artifact(path: Path, artifact: Any) -> None:
-    """Write one artifact as a TOML file (write-locked 0444)."""
+def write_state_text(path: Path, text: str) -> None:
+    """Write a changed artifact only, preserving mtimes on identical re-exports."""
     from rebrew.utils import atomic_write_locked
 
-    atomic_write_locked(path, artifact.dumps(), encoding="utf-8")
+    try:
+        if path.read_text(encoding="utf-8-sig") == text:
+            return
+    except FileNotFoundError:
+        pass
+    atomic_write_locked(path, text, encoding="utf-8")
+
+
+def dump_artifact(path: Path, artifact: Any) -> None:
+    """Write one artifact as a TOML file (write-locked 0444)."""
+    write_state_text(path, artifact.dumps())
 
 
 def load_artifact(path: Path, kind: str) -> Any | None:
@@ -182,13 +192,9 @@ def load_artifact(path: Path, kind: str) -> Any | None:
 
 
 def dump_many(path: Path, kind: str, artifacts: list[Any], *, key: str = "addr") -> None:
-    """Write many artifacts keyed by *key* (skips an empty list, writes nothing)."""
-    if not artifacts:
-        return
-    from rebrew.utils import atomic_write_locked
-
+    """Write many artifacts keyed by *key*, including an explicitly emptied table."""
     text = _class_for(kind).dumps_many(artifacts, key_attr=key)
-    atomic_write_locked(path, text, encoding="utf-8")
+    write_state_text(path, text)
 
 
 def load_many(path: Path, kind: str) -> list[Any]:
@@ -214,12 +220,10 @@ def load_many(path: Path, kind: str) -> list[Any]:
 
 def write_metadata(state_dir: Path, *, user: str, version: str = REBREW_STATE_VERSION) -> None:
     """Write the ``user``/``version`` metadata ``State.parse`` requires."""
-    from rebrew.utils import atomic_write_locked
-
     doc = tomlkit.document()
     doc["user"] = user
     doc["version"] = version
-    atomic_write_locked(state_dir / METADATA_FILE, tomlkit.dumps(doc), encoding="utf-8")
+    write_state_text(state_dir / METADATA_FILE, tomlkit.dumps(doc))
 
 
 def state_user(state_dir: Path) -> str:

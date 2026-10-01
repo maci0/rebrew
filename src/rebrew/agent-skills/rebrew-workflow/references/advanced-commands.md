@@ -10,7 +10,7 @@ Manual inspection and linkage tools outside the main reverse loop. Run
 | `rebrew stack-cmp` | Compare the compiled function's stack frame against the target binary. |
 | `rebrew pdb-info` | Extract compiler version, flags, and function names from a sibling PDB. |
 | `rebrew recover-structs` | Recover struct definitions from decompiler output (offset evidence to typedefs). |
-| `rebrew document-unmatched` | Document unmatched functions as STUB skeletons plus blockers. Writes one `.c` + BLOCKER per unmatched function: preview with `--dry-run` and confirm the count with the user before the real run. `--backfill-blockers` adds a BLOCKER to existing STUBs. |
+| `rebrew document-unmatched` | Document unmatched functions as STUB skeletons plus blockers. Writes one `.c` + BLOCKER per unmatched function: preview with `--dry-run` and check that the file count fits the authorized scope. `--backfill-blockers` adds a BLOCKER to existing STUBs. |
 | `rebrew binary-similarity` | Whole-binary structural similarity against another binary (versions, DLL+EXE). |
 | `rebrew cross-import` | Import matched functions from another target (same code, different VAs). `--shared` stacks the marker onto the shared file in `src/shared` (one file, one marker per target) instead of copying; prefer it when targets share one codebase. |
 | `rebrew verify-exports` | Verify the recompiled binary's export table matches the original target. |

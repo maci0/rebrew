@@ -1,18 +1,10 @@
 ---
 name: rebrew-data-analysis
 description: >-
-  Use when working with globals, '// DATA:'/'// GLOBAL:' annotations, BSS gaps,
-  dispatch tables/vtables, XX relocations or missing_globals hints in a diff,
-  or cross-TU type conflicts. Triggers on 'global', 'global variable',
-  'data section', 'BSS', 'vtable', 'dispatch table', 'bss gap', 'bss padding',
-  'fix bss', 'bss_padding.c', 'extern', 'missing extern', 'type conflict',
-  'rebrew data', 'rebrew data --bss', 'rebrew data --fix-bss',
-  'rebrew data --gen-header', 'data-drift',
-  'start-data', 'fill-data', 'layout-audit', 'set-type', 'set-section', 'W016',
-  'W031', 'W032', 'coverage document',
-  'data placement', 'converge', 'fix-ownership', 'rebrew verify --data',
-  or 'rebrew_globals.h'. Not for function bodies
-  (rebrew-workflow/matching) or Ghidra data pulls (rebrew-ghidra-sync --pull-data).
+  Analyze and verify Rebrew globals, DATA/GLOBAL annotations, complete data extents, BSS
+  gaps, dispatch tables/vtables, relocation hints, and cross-TU type conflicts. Covers
+  data layout repairs and stored verdict accounting. Use rebrew-ghidra-sync for external
+  data imports and rebrew-workflow for function bodies.
 license: MIT
 ---
 
@@ -67,9 +59,10 @@ rebrew verify --data --built build/bench     # byte-compare built .data/.rdata p
 rebrew todo --category data-drift --json                # data symbols whose built bytes differ from the reference
 ```
 
-`--data` only writes the `status` field back when `--built` is a postlinked
-deliverable; add `--raw-link` when it is a raw link, or DRIFT stays unreported
-and `todo --category data-drift` stays empty.
+`--data` reports comparisons but writes stored verdicts/evidence only with
+`--raw-link` or a configured `raw_link` image. Without that acknowledgment,
+existing metadata stays unchanged. Compare a raw link: postlink-copied data
+can match without demonstrating that the source reproduces it.
 
 Use `--gen-header` when working offline or before any Ghidra sync: it emits typed
 `extern` declarations grouped by PE section. `rebrew sync --pull-data` overwrites
@@ -116,17 +109,25 @@ note    = "lookup table for sprite indices"
 
 | Field | Purpose |
 |-------|---------|
-| `name` | Preferred variable label; overrides C stem; written by `rebrew sync --pull --state-dir <dir>` from Ghidra |
+| `name` | Preferred variable label; overrides C stem; imported from BinSync state |
 | `type` | Declared type `--gen-header` uses when the source has none; set with `rebrew data --set-type 0xVA=TYPE` |
 | `size` | Size in bytes |
 | `section` | PE section (`.data`, `.rdata`, `.bss`) |
-| `note` | Description; written by `rebrew sync --pull --state-dir <dir>` from Ghidra comments |
+| `note` | Local analysis description; native BinSync globals do not carry notes |
 | `status` | Data verdict written by `rebrew verify --data`: `VERIFIED` (built bytes match), `DRIFT` (differ), `UNCHECKED` (not compared); counted in `rebrew status` and `rebrew todo --category data-drift` |
 
 Changing `name`, `type`, `size`, or `section` clears the previous verdict:
 re-run verification after editing a definition. Notes and unchanged values
-preserve it. Writers store `size` as a non-negative integer and the other
-fields as strings; lint W031 uses the same validation.
+preserve it. `origins` and `verification` are nested tables for external source
+facts and comparison evidence; ordinary edit stamps remain separate. Writers
+store `size` as a non-negative integer and descriptive fields as strings; lint W031 uses the same validation. Duplicate spellings
+of one `(module, VA)` count once; W031 reports them and granular writers
+refuse ambiguous updates.
+
+Verification needs a known complete extent. Without `size`, only supported
+x86_32 types and complete constant arrays are inferred; unresolved types or
+bounds and other architectures need explicit `size`. A matching prefix of
+an unknown-sized symbol cannot earn `VERIFIED`.
 
 > [!CAUTION]
 > **Never manually edit `rebrew-data.toml`.** It is managed automatically by `rebrew data`,

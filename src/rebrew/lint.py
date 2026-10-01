@@ -93,11 +93,6 @@ log = logging.getLogger(__name__)
 # lint must not report E001/E002 on a file the parser reads fine.
 _HEADER_MARKER_RE = re.compile(r"(?://|/\*)\s*(\w+):\s*(\S+)\s+(0x[0-9a-fA-F]+)")
 _SIZE_ANNOTATION_RE = re.compile(r"//\s*SIZE\s+0x[0-9a-fA-F]+")
-# The two comment styles a marker header can wear (see _HEADER_MARKER_RE).
-# A check that recognizes only `//` silently skips a whole `/*` marker block.
-# Module is part of the identity: SERVER and GOLDTL may both annotate
-# g_log_newline. Two files annotating one name for the same module still warn.
-_DATA_MARKER_RE = re.compile(r"(?://|/\*)\s*(DATA|GLOBAL):\s*([A-Za-z_][A-Za-z0-9_]*)")
 
 
 def _is_comment_line(text: str) -> bool:
@@ -849,26 +844,33 @@ def _check_W031_metadata_store(cfg: ProjectConfig) -> list[LintResult]:
     the store's vocabulary, half a provenance pair, a provenance tag outside
     :data:`rebrew.metadata.PROVENANCE_TAGS`, a top-level key that is neither the
     format stamp nor a ``MODULE.0xVA`` entry, or a missing / foreign format
-    stamp.  A reader drops an unknown key silently and falls back to the
+    stamp, or duplicate spellings of the same identity. A reader drops an
+    unknown key silently and falls back to the
     default, so the symptom is a flag that "did not apply" with nothing to
     explain it.  Warn-only, reported per entry: the rest of the store loads.
     """
     from rebrew.data_metadata import (
         DATA_METADATA_FIELDS,
         DATA_METADATA_FILENAME,
-        DATA_STATUSES,
         validate_data_field,
     )
-    from rebrew.metadata import FORMAT_KEY, FORMAT_VERSION, PROVENANCE_TAGS
+    from rebrew.metadata import (
+        FORMAT_KEY,
+        FORMAT_VERSION,
+        PROVENANCE_TAGS,
+        validate_metadata_field,
+    )
     from rebrew.metadata_doc import parse_metadata_key
     from rebrew.utils import load_tomllib
+    from rebrew.workspace.status import KNOWN_STATUSES
 
     results: list[LintResult] = []
 
     def check_store(
         path: Path,
         fields: frozenset[str],
-        statuses: frozenset[str] | None,
+        *,
+        data_store: bool,
     ) -> None:
         if not path.is_file():
             return
@@ -918,14 +920,25 @@ def _check_W031_metadata_store(cfg: ProjectConfig) -> list[LintResult]:
             for name in entry:
                 if str(name).upper() not in known_fields:
                     problems.append(f"{key}: unknown field {name!r} (every reader ignores it)")
-            if statuses is not None:
-                for name, value in entry.items():
-                    if str(name).upper() not in known_fields:
-                        continue
-                    try:
+                elif str(name) != str(name).lower():
+                    problems.append(f"{key}: field {name!r} must use lower-case spelling")
+            for name, value in entry.items():
+                if str(name).upper() not in known_fields:
+                    continue
+                try:
+                    if data_store:
                         validate_data_field(str(name), value)
-                    except (TypeError, ValueError) as exc:
-                        problems.append(f"{key}: {exc}")
+                    elif str(name).upper() in METADATA_FIELDS:
+                        validate_metadata_field(str(name), value)
+                        if (
+                            str(name).lower() == "status"
+                            and canonical_status(value) not in KNOWN_STATUSES
+                        ):
+                            raise ValueError(f"unknown STATUS {value!r}")
+                    elif not isinstance(value, str):
+                        raise ValueError(f"{name} must be a string, got {value!r}")
+                except (TypeError, ValueError) as exc:
+                    problems.append(f"{key}: {exc}")
             if ("updated_by" in lower) != ("updated_at" in lower):
                 problems.append(
                     f"{key}: half a provenance pair (updated_by / updated_at are written together)"
@@ -948,12 +961,12 @@ def _check_W031_metadata_store(cfg: ProjectConfig) -> list[LintResult]:
     check_store(
         (Path(cfg.metadata_dir) / "rebrew-functions.toml").resolve(),
         function_fields,
-        None,
+        data_store=False,
     )
     check_store(
         (Path(cfg.metadata_dir) / DATA_METADATA_FILENAME).resolve(),
         DATA_METADATA_FIELDS,
-        DATA_STATUSES,
+        data_store=True,
     )
     return results
 
@@ -1173,10 +1186,10 @@ def _check_W033_agent_scaffold(cfg: ProjectConfig) -> list[LintResult]:
     """
     from rebrew.init import agent_skill_files
 
-    # The render needs the target name to substitute `<target>`; a config
-    # without one (a bare file list, an out-of-project run) cannot be compared,
-    # and guessing would flag a project that is not wrong.
-    target_name = str(getattr(cfg, "target_name", "") or "")
+    # init --refresh-agents renders the first declared target for this shared
+    # project scaffold, independently of the target selected for lint.
+    targets = getattr(cfg, "all_targets", [])
+    target_name = str((targets[0] if targets else getattr(cfg, "target_name", "")) or "")
     if not target_name or not getattr(cfg, "root", None):
         return []
 
@@ -1567,30 +1580,37 @@ def _check_W021_duplicate_globals(
     result: LintResult,
     lines: list[str],
     filepath: Path,
-    seen_globals: dict[str, str] | None,
+    seen_globals: dict[str, tuple[str, int, bool]] | None,
 ) -> None:
-    """Warn when a DATA/GLOBAL symbol name is annotated in multiple files.
+    """Warn when a global's annotated address or initialized ownership conflicts.
 
     Catches the np-rebrew pattern where ``globals.c`` and another source both
     annotate/define the same global (g_ vs DAT_ collisions, duplicate
-    definitions).  ``seen_globals`` maps ``marker:name`` → filepath, threaded
-    across the batch like ``seen_vas``.
+    definitions). ``seen_globals`` maps ``module:name`` to its defining path,
+    address and initialized-definition flag, threaded across the batch like
+    ``seen_vas``. Extern declarations at the owner's address are references,
+    matching E013's progressive-ownership rule.
 
     The key carries the annotation's marker: a shared tree annotates the same
     symbol once per target (SERVER ``g_log_newline`` at 0x100270e4, the
     client's at 0x677ac8), and those are two binaries' globals, not a
-    collision.  Two files annotating one name under the SAME marker still warn.
+    collision. Conflicting addresses or two initialized definitions under the
+    same module still warn, including a DATA marker beside a GLOBAL marker.
     """
     if seen_globals is None:
         return
     pending = False
     marker = ""
+    module = ""
+    va = 0
     for i, line in enumerate(lines, start=1):
         s = line.strip()
-        ds_match = _DATA_MARKER_RE.match(s)
-        if ds_match:
+        ds_match = _HEADER_MARKER_RE.match(s)
+        if ds_match and ds_match.group(1) in DATA_MARKERS:
             pending = True
             marker = f"{ds_match.group(1)}:{ds_match.group(2)}"
+            module = ds_match.group(2)
+            va = int(ds_match.group(3), 16)
             continue
         if not pending:
             continue
@@ -1600,17 +1620,22 @@ def _check_W021_duplicate_globals(
         m = _GLOBAL_NAME_RE.search(s)
         if m:
             name = m.group(1)
-            key = f"{marker}:{name}"
+            key = f"{module}:{name}"
+            defines = _block_defines(lines, i - 1)
             prev = seen_globals.get(key)
-            if prev is not None and prev != str(filepath):
+            if (
+                prev is not None
+                and prev[0] != str(filepath)
+                and (prev[1] != va or (prev[2] and defines))
+            ):
                 result.warning(
                     i,
                     "W021",
-                    f"global '{name}' ({marker}) is also annotated in {prev} — "
+                    f"global '{name}' ({marker}) is also annotated in {prev[0]} — "
                     "duplicate definition or naming collision",
                 )
-            else:
-                seen_globals[key] = str(filepath)
+            elif prev is None or defines:
+                seen_globals[key] = (str(filepath), va, defines)
 
 
 _ZERO_INIT_RE = re.compile(
@@ -2004,7 +2029,7 @@ def lint_file(
     *,
     seen_vas: dict[Any, str] | None = None,
     seen_va_defines: dict[Any, bool] | None = None,
-    seen_globals: dict[str, str] | None = None,
+    seen_globals: dict[str, tuple[str, int, bool]] | None = None,
     preloaded_metadata: dict[tuple[str, int], dict[str, Any]] | None = None,
     preloaded_data_metadata: dict[tuple[str, int], dict[str, Any]] | None = None,
     function_index: tuple[set[int], list[tuple[int, int, str]]] | None = None,
@@ -2022,8 +2047,8 @@ def lint_file(
         seen_va_defines: Optional parallel dict mapping the same keys to
                   whether the first-seen block defines its symbol (DATA/
                   GLOBAL E013 needs both sides defining to collide).
-        seen_globals: Optional dict mapping global symbol name → filename for
-                      W021 duplicate-global detection. Will be mutated.
+        seen_globals: Optional dict mapping module/global name to path, address
+                      and initialized ownership for W021. Will be mutated.
         preloaded_metadata: Pre-loaded metadata dict (avoids per-file I/O in batch).
         preloaded_data_metadata: Pre-loaded data metadata dict (avoids per-file I/O in batch).
         function_index: ``(starts, spans)`` from the target function list
@@ -2521,7 +2546,7 @@ def main(
     # cross-module files that legitimately share a VA in different targets.
     seen_vas: dict[Any, str] = {}
     seen_va_defines: dict[Any, bool] = {}
-    seen_globals: dict[str, str] = {}
+    seen_globals: dict[str, tuple[str, int, bool]] = {}
 
     # Pre-load metadata once for the whole batch (avoids per-file I/O).
     _preloaded_metadata: dict[tuple[str, int], dict[str, Any]] | None = None

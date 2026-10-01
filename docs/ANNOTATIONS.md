@@ -72,7 +72,10 @@ All rebrew-specific keys use unique names that reccmp's parser safely ignores, s
 
 ## Function Annotations
 
-Every `.c` file containing a reversed function must begin with a **marker line**:
+Unmigrated `.c` files containing reversed functions carry a MODULE/VA marker.
+`rebrew migrate-markers` moves function identity and fields into TOML and leaves
+pure C; migrated files must not regain marker blocks. The examples below show
+the unmigrated format:
 
 ```c
 // FUNCTION: MODULE 0xVA
@@ -153,7 +156,7 @@ support TU only when nothing in the reversed tree can carry it.
 
 | Key | Required? | Linter | Description |
 |-----|:---------:|--------|-------------|
-| Marker line | **Mandatory** | E001 | `// FUNCTION:`, `// LIBRARY:`, `// STUB:`, `// GLOBAL:`, or `// DATA:` with MODULE and VA, or `// SUPPORT:` (see below) for link-only files. Note: `SUPPORT` is lint-only (blesses against E001); the annotation parser does not yield an `Annotation` for support files |
+| Identity | **Mandatory** | E001 | Migrated function identity in TOML, or an inline marker: `// FUNCTION:`, `// LIBRARY:`, `// STUB:`, `// GLOBAL:`, or `// DATA:` with MODULE and VA, or `// SUPPORT:` (see below) for link-only files. Note: `SUPPORT` is lint-only (blesses against E001); the annotation parser does not yield an `Annotation` for support files |
 | `STATUS` | Metadata-owned | n/a | Match quality (see below); lives in rebrew-functions.toml, never parsed inline |
 | `SIZE` | Co-read (inline + override) | n/a | Function size in bytes from the original binary; `// SIZE:` is the reccmp contract in the `.c`, TOML `SIZE` is an override (W019 warns only on disagreement) |
 | `CFLAGS` | Co-read (inline + override) | W018 | Per-function compiler flag override, read both inline and from metadata. Falls back to the module's `[compiler].cflags_presets` entry, then `[compiler].cflags` (`/O2 /Gd` for MSVC profiles when unset); `base_cflags` is always prepended, never the fallback. Only needed for functions compiled with non-default flags (e.g. a static lib linked with `/O1` into an `/O2` binary). |
@@ -166,6 +169,7 @@ support TU only when nothing in the reversed tree can carry it.
 | `GLOBALS` | Optional | n/a | Comma-separated list of globals referenced (e.g. `g_counter, g_state`) |
 | `SKIP` | Optional | n/a | Known acceptable byte differences (e.g. `SKIP: xor edi,edi after call`) |
 | `ANALYSIS` | Optional | n/a | Freeform analysis notes from decompiler or reverse engineer; the per-address form `// ANALYSIS @ 0xADDR: text` is documented below |
+| `ORIGINS` / `VERIFICATION` | Tool-owned tables | W031 | Imported field source facts and comparison evidence; see [METADATA_FORMAT.md](METADATA.md#external-origin-and-measurement-evidence) |
 
 > [!CAUTION]
 > **Never manually edit `rebrew-functions.toml`.** This metadata file stores volatile metadata
@@ -175,7 +179,8 @@ support TU only when nothing in the reversed tree can carry it.
 > Manual edits bypass the write-lock/atomicity and will be silently lost or may corrupt the file.
 
 > [!TIP]
-> **Rule of thumb**: Only the marker line is enforced as a linter error (E001). `STATUS`
+> **Rule of thumb**: E001 requires identity from a marker or migrated metadata
+> (or a SUPPORT declaration for a link-only file). `STATUS`
 > (and other volatile keys) are metadata-only in `rebrew-functions.toml`, not parsed
 > inline. `SIZE`/`CFLAGS` are co-read: inline forms are the reccmp contract in the `.c`,
 > TOML values override; W019 warns only on disagreement. Bare `CFLAGS` falls back to the
@@ -204,7 +209,7 @@ the metadata `comments` store for the same address.
 |--------|---------|
 | `EXACT` | Compiled bytes are identical to the original |
 | `RELOC` | Matches after masking relocation addresses |
-| `NEAR_MATCHING` | Functionally equivalent but bytes differ |
+| `NEAR_MATCHING` | At least 60% byte similarity; no guarantee of semantic equivalence |
 | `PROVEN` | Semantically equivalent, proven via symbolic execution (angr + Z3); bytes still differ, so not matched |
 | `STUB` | Placeholder, doesn't match yet |
 | `SKIP` | User-parked ("don't touch"): neutral gate rank, status-equal with `STUB` (see `verify._STATUS_RANK`/`_STATUS_ORDER`) |
@@ -478,7 +483,7 @@ Warnings indicate style issues, missing optional fields, or format migration opp
 | W010 | Unknown annotation key | `// FOOBAR: value`: key not in the known set. `--fix` strips only retired derived keys (`SYMBOL`, `PROTOTYPE`; recomputed from the C source); anything else stays until a human decides |
 | W015 | Mixed-case VA hex digits | `0x10003Da0`: prefer consistent `0x10003da0` or `0x10003DA0` |
 | W020 | Asm-dump placeholder | Body uses `__asm`/`__emit`: pasted disassembly, not real C.  Does **not** fire for whole-function `__declspec(naked)` + asm (that is **E023**; error).  **Escalates** when the file's `STATUS` claims a non-stub match (`EXACT`/`RELOC`/...): an asm dump cannot be a byte-match, so the metadata status is wrong (fix it or mark `BLOCKER`).  `STATUS: STUB` + asm dump is an expected documented placeholder and gets the base message only |
-| W021 | Duplicate global | Same global defined in more than one file |
+| W021 | Duplicate global | Conflicting addresses for one module/name, or initialized definitions in more than one file; same-address extern references are allowed |
 | W022 | Zero-init `.bss` global | File-scope `= 0` initializer on a `.bss`-style global |
 | W023 | Default function name | Function named `fcn`/`fn`/`fun`/... (pedantic only): rename it; a descriptive name is what the call graph and reports key on |
 | W024 | Function naming convention | Function name does not match project naming convention (`lint_naming_convention` in config) |

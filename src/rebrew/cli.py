@@ -302,10 +302,10 @@ def json_print(data: dict[str, Any] | list[Any]) -> None:
 def _standalone_command_kwargs(main: Any) -> dict[str, Any]:
     """Help-facing Typer settings copied from the calling module's ``app``.
 
-    ``rebrew diff --help`` and ``rebrew-diff --help`` are the same command,
+    ``rebrew diff --help`` and ``python -m rebrew.diff --help`` run the same command,
     so they must print the same help, examples, and exit codes.  Building a
     bare ``typer.Typer()`` dropped the module's ``help=`` / ``epilog=``,
-    leaving the console script with a bare option list.  Typer reads them
+    leaving module execution with a bare option list. Typer reads them
     from the *command* registration, not the app, for a single-command app.
     Unset fields hold a ``DefaultPlaceholder``, which the constructor would
     not accept, so only plain values are copied.
@@ -428,10 +428,9 @@ def _declares(cmd: TyperBaseCommand, *names: str) -> bool:
 def add_global_options(cmd: TyperBaseCommand) -> TyperBaseCommand:
     """Give *cmd* the umbrella's ``--version``/``--verbose``/``--quiet`` flags.
 
-    ``rebrew --version`` covers the group, but each tool also ships as its own
-    console script (``rebrew-diff``, ``rebrew-test``, …) and each is a
-    subcommand of the umbrella, so asking one of those for its version or for
-    ``-v`` got click's ``No such option`` and exit 2.  Injected as eager,
+    The root callback covers flags before the subcommand name; injection also
+    accepts them after it (``rebrew diff --version``). Direct module execution
+    uses the same options. Injected as eager,
     ``expose_value=False`` Typer options so the tool callbacks keep their own
     signatures: no wrapper, no re-annotated copy of every command.  Groups
     recurse, so ``rebrew binsync push --version`` works like the flat form.
@@ -504,7 +503,7 @@ def run_standalone(main: Any) -> None:
     """Run a module's ``main`` callback as a plain command on a fresh app.
 
     The group-style ``invoke_without_command`` callback fails to parse
-    positional-then-option invocations (``rebrew-<cmd> ARG --opt`` — click
+    positional-then-option invocations (``python -m rebrew.diff ARG --opt`` — click
     treats the positional as a command name), while the umbrella's command
     registration parses both orderings.
     """

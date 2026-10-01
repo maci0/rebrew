@@ -1,19 +1,10 @@
 ---
 name: rebrew-matching
 description: >-
-  Use when a function is stuck at NEAR_MATCHING and C edits no longer close
-  the byte diff (structural diff, flag sweep, GA, climb/qual-sweep, or
-  symbolic prove to reach EXACT/RELOC or PROVEN). Triggers on 'stuck',
-  'stuck matching', 'almost matches', 'almost matching', 'byte match',
-  'mismatch', 'mismatched', 'does not match', "doesn't match", 'off by N bytes',
-  'wrong bytes', 'offset', 'unmatched', 'size mismatch', 'SIZE_MISMATCH',
-  'close diff', 'drift', 'flag tuning', 'register allocation', 'GA',
-  'genetic algorithm', 'flag sweep', 'near-diag', 'near-miss', 'prove',
-  'angr', 'symbolic equivalence', 'objdiff', 'gap-trace', 'climb',
-  'qual-sweep', 'solutions', 'rebrew match', 'rebrew library set',
-  'rebrew-libraries.toml', 'library preset', 'msvcrt-static', or a
-  per-library CFLAGS override. For first-pass
-  test/verify/todo, use rebrew-workflow instead.
+  Resolve stalled Rebrew byte matches with structural diffs, compiler flag sweeps, GA,
+  statement/qualifier search, symbolic proving, and library flag overrides. Use after
+  ordinary C edits stop improving a match; use rebrew-workflow for the initial edit/test
+  loop.
 license: MIT
 ---
 
@@ -177,7 +168,8 @@ qualifier variants. Batch flag/GA details: `references/flag-sweep.md`.
   file save, faster than re-typing the command. It never exits on its own: start it only when the
   user wants a live loop, and stop it when they are done. `match --watch` is single-function only
   (it cannot be combined with `--all`).
-- Do not start long GA (`-g` large / `--all`) without user confirmation.
+- Use the authorized time/scope for GA batches. Clarify before a multi-hour
+  run when that scope has not already been authorized.
 
 ## 6. Symbolic Equivalence Proving
 
@@ -191,7 +183,8 @@ rebrew prove src/<target>/<file>.c --json
 `REGISTER (N% of delta)` verdicts are prime PROVEN candidates: prefer
 `rebrew prove --all` before more GA. Full flags, EDX/`--watch-va` gotchas, and
 angr mechanics: `references/prove.md`. Needs the `[prove]` extra (angr); if
-`rebrew prove` import-fails, stop and ask the user to install it (see the reference).
+missing, install it when dependency setup is authorized, otherwise report the
+requirement and continue byte-matching work (see the reference).
 
 ## 7. End-to-End Round-Trip
 

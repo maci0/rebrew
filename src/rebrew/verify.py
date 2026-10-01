@@ -197,6 +197,8 @@ def verify_entry(
     """
     from rebrew.compile import compile_and_compare
 
+    batch_inputs = entry.comparison_inputs if _precompiled_obj is not None else None
+    entry.comparison_inputs = None
     cfile = contained_path(source_roots(cfg), entry.filepath)
     if cfile is None:
         # ``file`` is metadata-supplied: an absolute or ``..`` value would
@@ -260,6 +262,34 @@ def verify_entry(
             log.debug("verify hint lookup failed: %s", exc)
         return _failed_result("EXTRACT_ERROR", "Cannot extract DLL bytes" + hint)
 
+    from rebrew.verify_hash import comparison_inputs
+
+    entry.comparison_inputs = comparison_inputs(
+        cfg,
+        cfile,
+        target_bytes,
+        toolchain=toolchain,
+        cflags=cflags,
+        module=entry.module,
+        va=entry.va,
+        context_hash=context.sha256 if context is not None else "",
+    )
+    if _precompiled_obj is not None and (
+        not batch_inputs
+        or not entry.comparison_inputs
+        or any(
+            batch_inputs[field] != entry.comparison_inputs[field]
+            for field in (
+                "source_hash",
+                "headers_hash",
+                "compiler_hash",
+                "toolchain",
+                "cflags",
+                "defines",
+            )
+        )
+    ):
+        entry.comparison_inputs = None
     result = compile_and_compare(
         cfg,
         cfile,
@@ -273,6 +303,10 @@ def verify_entry(
         context=context,
         _precompiled_obj=_precompiled_obj,
     )
+    from rebrew.verify_hash import comparison_inputs_current
+
+    if not comparison_inputs_current(cfg, cfile, entry.comparison_inputs):
+        entry.comparison_inputs = None
     if not result.matched:
         # A fenced naked source compiled without REBREW_ALLOW_NAKED produces
         # its empty #else fallback — the mismatch is the build matrix, not
@@ -1027,12 +1061,18 @@ def main(
             for row in data_report["results"]:
                 module, va, status = row["module"], int(row["va"], 16), row["status"]
                 entry = entries.get((module, va))
-                if entry is not None and entry.get("status") != status:
+                if entry is not None:
                     status_updates.append(
                         {
                             "module": module,
                             "va": va,
                             "fields": {"status": status},
+                            "verification": {
+                                "status": status,
+                                "writer": "verify",
+                                "input_hash": row["input_hash"],
+                                "definition_hash": row["definition_hash"],
+                            },
                             # Provenance: this is the measurement, so the row
                             # names the tool and the time it was taken.  The
                             # coverage document's verify_results[] mirror is
@@ -2460,6 +2500,26 @@ def run_verification(
     _batch_objs: dict[int, str] = {}
     try:
         from rebrew.compile import precompile_batch
+        from rebrew.compile_overrides import resolve_compile_overrides_cached
+        from rebrew.verify_hash import comparison_inputs
+
+        for entry in entries_to_verify:
+            source = contained_path(source_roots(cfg), entry.filepath)
+            if source is None:
+                continue
+            toolchain, flags = resolve_compile_overrides_cached(
+                cfg, source.parent, entry.toolchain, entry.cflags, entry.module
+            )
+            entry.comparison_inputs = comparison_inputs(
+                cfg,
+                source,
+                b"",
+                toolchain=toolchain,
+                cflags=flags,
+                module=entry.module,
+                va=entry.va,
+                context_hash=context.sha256 if context is not None else "",
+            )
 
         _batch_objs = precompile_batch(cfg, entries_to_verify, cache=compile_cache, context=context)
     except Exception as exc:  # batch is an optimization; never fail the run
@@ -2697,7 +2757,7 @@ def apply_status_updates(
         # Parked SKIP never moves; a STUB's placeholder always size-mismatches
         # (keep the user's classification); unchanged status is a no-op.  All
         # decided by should_promote_status.
-        if not should_promote_status(current_status, status):
+        if current_status != status and not should_promote_status(current_status, status):
             continue
         updates.append(
             {
@@ -2706,6 +2766,17 @@ def apply_status_updates(
                 "new_status": status,
                 "clear_blockers": clears_blocker(status, fp),
                 "updated_by": "verify",
+                **(
+                    {
+                        "verification": {
+                            **(entry.comparison_inputs or {}),
+                            "writer": "verify",
+                            "status": status,
+                        }
+                    }
+                    if getattr(entry, "comparison_inputs", None)
+                    else {}
+                ),
             }
         )
 

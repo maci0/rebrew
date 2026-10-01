@@ -41,7 +41,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Literal
 
-from rebrew.config import TOOLCHAIN_OVERLAY_ENV, ConfigError, env_dir_path
+from rebrew.config import TOOLCHAIN_OVERLAY_ENV, ConfigError, env_dir_path, source_date_epoch
 from rebrew.errors import RebrewError
 from rebrew.registry import RegistryError, merge_provider_dict
 from rebrew.toolchain_data import BUILTIN_TOOLCHAINS, IMAGE_ENTRYPOINTS
@@ -1237,6 +1237,12 @@ def run_toolchain(
             cmd += ["-v", bind_mount(host_dir, container_dir, readonly=True)]
         for key, value in image_msvc_env(spec).items():
             cmd += ["-e", f"{key}={value}"]
+        try:
+            epoch = source_date_epoch()
+        except ConfigError as exc:
+            raise ToolchainError(str(exc), kind="validation", name=spec.name) from exc
+        if epoch is not None:
+            cmd += ["-e", f"SOURCE_DATE_EPOCH={epoch}"]
         if spec.image_entrypoint is not None:
             cmd += ["--entrypoint", spec.image_entrypoint]
         cmd.append(spec.image)

@@ -40,10 +40,10 @@ from rich.table import Table
 
 from rebrew.binsync.importer import (
     apply_binsync_func_name,
+    apply_binsync_prototype,
     import_type_definitions,
     is_meaningful,
     is_safe_prototype,
-    normalize_prototype,
     normalize_stack_vars,
     resolve_state_dir,
     strip_cdecl_prefix,
@@ -56,6 +56,7 @@ from rebrew.binsync.state import (
     load_binsync_typedefs,
     load_manifest,
     module_predicate,
+    normalize_prototype,
 )
 from rebrew.cli import (
     EXIT_MISMATCH,
@@ -266,26 +267,23 @@ def _apply_global_entry(
     source record carries them.  ``section`` uses the destination's own
     section name (the span the content was matched in).
     """
-    from rebrew.data_metadata import set_data_field
+    from rebrew.data_metadata import set_data_fields_batch
 
-    set_data_field(cfg.metadata_dir, dst_va, "name", bs_name, module, updated_by="binsync-import")
-    type_value = str(entry.get("type") or "").strip()
-    if type_value:
-        set_data_field(
-            cfg.metadata_dir, dst_va, "type", type_value, module, updated_by="binsync-import"
-        )
-    size_value = str(entry.get("size") or "").strip()
-    if size_value:
-        set_data_field(
-            cfg.metadata_dir,
-            dst_va,
-            "size",
-            int(size_value, 0),
-            module,
-            updated_by="binsync-import",
-        )
-    set_data_field(
-        cfg.metadata_dir, dst_va, "section", section, module, updated_by="binsync-import"
+    fields: dict[str, Any] = {"name": bs_name, "section": section}
+    if entry.get("type"):
+        fields["type"] = str(entry["type"]).strip()
+    if entry.get("size"):
+        fields["size"] = int(str(entry["size"]), 0)
+    set_data_fields_batch(
+        cfg.metadata_dir,
+        [
+            {
+                "module": module,
+                "va": dst_va,
+                "fields": fields,
+                "updated_by": "binsync-import",
+            }
+        ],
     )
 
 
@@ -333,7 +331,6 @@ def overlay_state(
     (documented ``--json`` keys plus a ``rows`` list for the non-JSON table).
     Writes happen only when *dry_run* is False.
     """
-    from rebrew.annotation import update_annotation_key
     from rebrew.metadata import get_entry, update_field
 
     wanted_module = preset_module_key(module) if module else None
@@ -487,13 +484,9 @@ def overlay_state(
                         applied.append("prototype")
                     else:
                         try:
-                            update_annotation_key(
-                                file_path,
-                                dst_va,
-                                "PROTOTYPE",
-                                bs_proto,
-                                metadata_dir=cfg.metadata_dir,
-                            )
+                            if not apply_binsync_prototype(cfg, local, bs_proto, str(file_path)):
+                                skipped += 1
+                                continue
                             applied_prototypes += 1
                             touched.add(dst_va)
                             applied.append("prototype")

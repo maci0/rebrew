@@ -2,7 +2,10 @@
 
 Sourced from the 100% byte-identical `server.dll` campaign (MSVC6, x86-32).
 Each entry: observed pain, proposed feature, evidence pointer in guild-rebrew.
-Status `open` unless noted. Promote to ROADMAP when scoped.
+This is a proposal/evidence ledger, not a command manual: example commands and
+flags may be unshipped. Status `open` unless noted; observations describe the
+campaign at the time recorded. Use [CLI.md](CLI.md) for shipped behavior and
+promote scoped proposals to [ROADMAP.md](ROADMAP.md).
 
 ## Measure truth, not proxies
 
@@ -291,7 +294,10 @@ Status `open` unless noted. Promote to ROADMAP when scoped.
   coverage gap.
   Evidence: guild-rebrew `docs/workflow-traps.md` §17.
 
-- **`verify --data` should refuse to write statuses when `--built` is not the postlinked deliverable.**
+- **Data verdict write acknowledgment (shipped).**
+  Current behavior: `verify --data` reports comparisons but suppresses stored
+  verdict/evidence writes unless `--raw-link` or configured `raw_link` acknowledges
+  the image. See [CLI.md](CLI.md#rebrew-verify). Original observation:
   Pain: running `rebrew verify --data --built build/split_poc.dll` (the raw link) to escape the
   "tautological" warning flipped 30 symbols' `status` from `VERIFIED` to `DRIFT` in the tool-owned
   `rebrew-data.toml`. The raw link's `.data` divergence is postlink-supplied (AMBIGUOUS-by-design), so the

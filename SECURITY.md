@@ -172,14 +172,12 @@ plugin cache backends or remove the open upstream diskcache advisory.
   `import_function`, `import_shared_function`, `promote_to_shared`) all
   resolve through it; `rebrew rename` (`rename.py`, `rename_ops.py`) and
   the verify cache's patch refresh (`verify_cache.py`) keep their own
-  resolve-and-compare. What this does **not** claim: `rebrew
-  binsync-overlay` does not use the validator at all
-  (`src/rebrew/binsync/overlay.py` joins the field onto `reversed_dir` with
-  no containment check on its read at `:226`, its `PROTOTYPE` write
-  (`:479`, into the path joined at `:382`), or its `ANALYSIS` marker write
-  (`:604`)), and because the outer bound
-  is the project `root`, a value naming `.git/hooks/`,
-  `rebrew-project.toml`, or `.rebrew/` passes everywhere. It says nothing
+  resolve-and-compare. BinSync overlay also uses
+  `contained_path` for source reads and signature/comment targets; prototype
+  imports update the actual C signature through the AST and the importer's
+  source-tree check. What this does **not** claim: the shared validator's outer
+  bound is the project `root`, so project-internal paths such as `.git/hooks/`,
+  `rebrew-project.toml`, or `.rebrew/` can pass that validator. It says nothing
   about a project running host commands, which
   [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) §4 covers separately.
 - No claim that `REBREW_CONTAINER_RUNTIME` is restricted to a container

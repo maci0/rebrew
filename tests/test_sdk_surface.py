@@ -781,8 +781,8 @@ class TestGhidraClientInjection:
 class TestDocumentedLibrarySurface:
     """Every import a doc shows must resolve against the shipped package.
 
-    The README's Library usage block and the ``rebrew`` package docstring are
-    the only map a consumer has of the import surface.  A module move or a
+    The Python API guide and the ``rebrew`` package docstring describe
+    the import surface.  A module move or a
     rename that leaves them behind is a broken quickstart, not a stale
     sentence, so the docs are walked the way a reader would.
     """
@@ -831,7 +831,7 @@ class TestDocumentedLibrarySurface:
 
 
 class TestDocumentedToolchainRegistryViews:
-    """The README's two toolchain-registry views must stay distinct and true.
+    """The Python API guide's two toolchain-registry views must stay distinct and true.
 
     ``TOOLCHAINS`` (name -> spec) and ``list_toolchains()`` (a row per
     profile, carrying ``origin`` and the docker flag) are what the library
@@ -842,8 +842,8 @@ class TestDocumentedToolchainRegistryViews:
     one reading ``payload`` as the list breaks if it is ever flattened.
     """
 
-    def test_readme_names_the_two_views_and_the_json_envelope(self) -> None:
-        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    def test_api_guide_names_the_two_views_and_the_json_envelope(self) -> None:
+        readme = (ROOT / "docs" / "PYTHON_API.md").read_text(encoding="utf-8")
         assert "from rebrew.toolchain import TOOLCHAINS, get_toolchain" in readme
         assert "list_toolchains()" in readme
         assert '{"toolchains": list_toolchains(), "docker_available": <bool>}' in readme

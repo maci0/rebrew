@@ -174,10 +174,10 @@ def _write_minimal_config(tmp_path: Path, **replacements: str) -> Path:
 
 
 def _invoke(args: list[str]) -> Any:
-    """Invoke the command the way ``main_entry`` publishes it as a script.
+    """Invoke the CLI callback without composing the umbrella app.
 
     ``splat_config.main`` is registered as a plain command on a fresh app, the
-    same shape the standalone ``rebrew-import-splat`` entry point uses, so the
+    same shape direct module execution uses, so the
     tests exercise the CLI function without composing the umbrella app (and
     without depending on the toolchain registry that the umbrella's other
     components resolve at import time).
@@ -517,10 +517,6 @@ class TestRegistration:
         )
         assert 'name="import-splat"' in source
         assert 'module="rebrew.splat_config"' in source
-
-    def test_pyproject_publishes_a_standalone_script(self) -> None:
-        toml = (Path(__file__).parent.parent / "pyproject.toml").read_text(encoding="utf-8")
-        assert 'rebrew-import-splat = "rebrew.splat_config:main_entry"' in toml
 
 
 class TestApply:

@@ -14,12 +14,17 @@ from pathlib import Path
 import typer
 from rich.table import Table
 
-from rebrew.binsync.importer import is_meaningful, normalize_prototype, resolve_state_dir
+from rebrew.binsync.importer import is_meaningful, resolve_state_dir
 from rebrew.binsync.state import (
     index_local_and_catalog,
     load_binsync_state,
     load_manifest,
+    local_sync_records,
     module_predicate,
+    normalize_prototype,
+    remote_sync_records,
+    sync_health,
+    sync_health_messages,
 )
 from rebrew.cli import (
     EXIT_MISMATCH,
@@ -68,6 +73,18 @@ def main(
 
     local_by_va, catalog_sizes = index_local_and_catalog(cfg)
 
+    local_records = local_sync_records(cfg, list(local_by_va.values()))
+    if module:
+        local_records = {
+            k: v
+            for k, v in local_records.items()
+            if k.split(".", 1)[0] not in {"function", "global"}
+            or k.split(".", 1)[1].rsplit(".", 1)[0] == preset_module_key(module)
+        }
+    remote_records = remote_sync_records(cfg, state_dir, funcs_by_va, globals_by_va, local_records)
+    if module:
+        remote_records = {k: v for k, v in remote_records.items() if k in local_records}
+    health = sync_health(cfg, state_dir, local_records, remote_records)
     wanted_module = preset_module_key(module) if module else None
     module_selected = module_predicate(wanted_module)
 
@@ -186,12 +203,34 @@ def main(
                 }
             )
 
+    seen = {(row.get("va"), row.get("field")) for row in divergences}
+    for item in health["items"]:
+        if item["action"] == "unbased" and item["remote"] is None:
+            continue
+        identity = item["identity"]
+        kind = identity.split(".", 1)[0]
+        address = identity.rsplit(".", 1)[1] if kind in {"function", "global"} else identity
+        report_va = f"0x{int(address, 16):08x}" if kind in {"function", "global"} else address
+        field = "global_name" if kind == "global" and item["field"] == "name" else item["field"]
+        if (report_va, field) not in seen:
+            divergences.append(
+                {
+                    "va": report_va,
+                    "field": field,
+                    "local": str(item["local"] or ""),
+                    "binsync": str(item["remote"] or ""),
+                    "kind": item["action"],
+                }
+            )
+            seen.add((report_va, field))
+
     if json_output:
         result: dict[str, object] = {
             "state_dir": str(state_dir),
             "divergences": len(divergences),
             "skipped": skipped,
             "manifest": manifest,
+            "health": health,
         }
         if module is not None:
             result["module"] = wanted_module
@@ -200,10 +239,15 @@ def main(
         if new_in_binsync:
             result["new_in_binsync"] = new_in_binsync
         json_print(result)
-        if divergences:
+        if divergences or health["blocked"] or health["pending"]["deletion_required"]:
             raise typer.Exit(code=EXIT_MISMATCH)
         return
 
+    for message in sync_health_messages(health):
+        console.print(message, markup=False)
+    if health["blocked"] or health["pending"]["deletion_required"]:
+        console.print("[yellow]Sync requires resolution; see --json health.items.[/yellow]")
+        raise typer.Exit(code=EXIT_MISMATCH)
     if not divergences:
         console.print("[green]No divergences — rebrew and BinSync are in sync.[/green]")
         return

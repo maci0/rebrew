@@ -16,7 +16,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from rebrew.config import ProjectConfig, compiler_dir
+from rebrew.config import ProjectConfig, compiler_dir, source_date_epoch
 from rebrew.utils import BYTES_PER_MIB
 
 #: Sentinel stored in VerifyCacheEntry.toolchain when no override names a
@@ -250,6 +250,7 @@ def compiler_config_hash(cfg: ProjectConfig) -> str:
         # previous toolchain: cfg.compiler_command is just a command string
         # and defaults to an unrelated "wine CL.EXE".
         getattr(cfg, "compiler_profile", ""),
+        source_date_epoch() or "",
         # The remote backend is part of the compile identity too (compile.py
         # keys the object cache on it), so a switch between local docker and
         # the service must not reuse the other one's measurements.  Imported
@@ -581,3 +582,61 @@ def entry_headers_fp(
     except OSError:
         return ""
     return header_dependency_hash(content, str(source_dir), include_dirs)
+
+
+def comparison_inputs(
+    cfg: Any,
+    source: Path,
+    reference: bytes,
+    *,
+    toolchain: str | None,
+    cflags: str,
+    module: str,
+    va: int,
+    context_hash: str = "",
+) -> dict[str, str] | None:
+    """Fingerprint the actual comparison inputs before compilation, independent of caches.
+
+    Unreadable sources or incomplete configurations produce no evidence rather
+    than an invented digest. The verdict can still be reported by its caller.
+    """
+    import json
+    import logging
+
+    try:
+        inputs = {
+            "source_hash": source_hash(Path(source)),
+            "reference_hash": hashlib.sha256(reference).hexdigest(),
+            "reference_size": str(len(reference)),
+            "headers_hash": entry_headers_fp(cfg, Path(source), cflags),
+            "compiler_hash": compiler_config_hash(cfg),
+            "toolchain": toolchain or DEFAULT_TOOLCHAIN,
+            "cflags": cflags,
+            "module": module,
+            "va": f"0x{va:x}",
+            "context_hash": context_hash,
+            "defines": json.dumps(
+                sorted(getattr(cfg, "defines", None) or []), separators=(",", ":")
+            ),
+        }
+    except (OSError, AttributeError, TypeError, ValueError) as exc:
+        logging.getLogger(__name__).warning("cannot retain comparison input evidence: %s", exc)
+        return None
+    inputs["input_hash"] = hashlib.sha256(
+        json.dumps(inputs, sort_keys=True, ensure_ascii=True).encode()
+    ).hexdigest()
+    return inputs
+
+
+def comparison_inputs_current(cfg: Any, source: Path, inputs: dict[str, str] | None) -> bool:
+    """True only while captured source/header/compiler inputs still describe the comparison."""
+    if not inputs:
+        return False
+    try:
+        return (
+            source_hash(source) == inputs["source_hash"]
+            and entry_headers_fp(cfg, source, inputs["cflags"]) == inputs["headers_hash"]
+            and compiler_config_hash(cfg) == inputs["compiler_hash"]
+        )
+    except (OSError, AttributeError, TypeError, ValueError):
+        return False

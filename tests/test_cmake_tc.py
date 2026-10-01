@@ -249,6 +249,34 @@ def _chdir_project(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     return prefix
 
 
+@pytest.mark.parametrize("mode", ["cl", "link", "lib"])
+def test_source_date_epoch_freezes_tool_after_real_wineboot(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, mode: str
+) -> None:
+    """Each driver uses the native clock helper; prefix initialization stays real."""
+    _chdir_project(monkeypatch, tmp_path)
+    monkeypatch.setenv("SOURCE_DATE_EPOCH", "1071482016")
+    calls: list[list[str]] = []
+
+    def fake_run(cmd: list[str], **kwargs: object) -> SimpleNamespace:
+        calls.append(cmd)
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr("rebrew.cmake_tc.subprocess.run", fake_run)
+    spec = TOOLCHAINS["msvc-6.0"]
+    assert _docker_run(spec, mode, ["/nologo"]) == 0
+    init, tool = calls
+    assert not any(a.startswith("SOURCE_DATE_EPOCH=") for a in init)
+    entry = tool.index("--entrypoint")
+    assert tool[entry + 1 : entry + 4] == [
+        "/usr/local/bin/rebrew-clock",
+        spec.image,
+        "/usr/bin/wine",
+    ]
+    assert tool[entry + 4 :] == [f"{spec.tool_root}/{mode.upper()}.EXE", "/nologo"]
+    assert "SOURCE_DATE_EPOCH=1071482016" in tool[:entry]
+
+
 def test_docker_run_timeout_kills_container(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

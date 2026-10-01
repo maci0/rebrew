@@ -73,7 +73,7 @@ from rebrew.utils import BYTES_PER_MIB, split_source_lines
 logger = logging.getLogger(__name__)
 
 # Bump on key semantics changes to invalidate stale entries.
-CACHE_SCHEMA_VERSION = 6
+CACHE_SCHEMA_VERSION = 7
 
 # Warn once per process *and per operation*: a corrupt/contended store
 # degrades every get/put, and one line per lookup would flood a GA batch's
@@ -1297,6 +1297,9 @@ def compile_cache_key(
     )
     h.update(f"\0headers={headers}\0".encode())
     h.update(f"\0toolchain={toolchain_id}\0".encode("utf-8", errors="surrogateescape"))
+    from rebrew.config import source_date_epoch
+
+    h.update(f"\0source_date_epoch={source_date_epoch()}\0".encode())
     return h.hexdigest()
 
 

@@ -358,6 +358,14 @@ class TestBindMount:
 
 
 class TestRunToolchain:
+    def test_source_date_epoch_reaches_image(self, tmp_path: Path, monkeypatch) -> None:
+        """The regular compile backend forwards the same epoch as CMake."""
+        monkeypatch.setenv("SOURCE_DATE_EPOCH", "1071482016")
+        calls = _monkey_docker(monkeypatch)
+        spec = TOOLCHAINS["msvc-6.0"]
+        assert run_toolchain(spec, ["/c", "f.c"], workdir=tmp_path).ok
+        assert calls[0].index("SOURCE_DATE_EPOCH=1071482016") < calls[0].index(spec.image)
+
     def test_docker_backend_uses_image_and_mount(self, tmp_path: Path, monkeypatch) -> None:
         spec = ToolchainSpec(
             name="t", image="rebrew/t:latest", binary="cl", image_entrypoint="/usr/local/bin/cl"
@@ -2149,3 +2157,34 @@ class TestDockerBuildProcessGroup:
         rc, log = cli._docker_build("rebrew/base:latest", tmp_path, stream=True)
         assert (rc, log) == (1, "")
         assert "capture_output" not in calls[0]["kwargs"]
+
+
+class TestGeneratedBaseDependency:
+    @pytest.mark.parametrize("base", ["base", "base-noble"])
+    def test_arg_base_builds_matching_directory_first(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, base: str
+    ) -> None:
+        import rebrew.toolchain as tc
+        import rebrew.toolchain_cli as cli
+
+        spec = ToolchainSpec(name="clock", image="rebrew/msvc:clock-win32")
+        directory = tmp_path / "msvc/clock-win32"
+        directory.mkdir(parents=True)
+        (directory / "Dockerfile").write_text(
+            "ARG BASE_IMAGE=rebrew/" + base + ":1.0\nFROM ${BASE_IMAGE}\n"
+        )
+        base_dir = tmp_path / base
+        base_dir.mkdir()
+        (base_dir / "Dockerfile").write_text("FROM debian:bookworm-slim\n")
+        calls = []
+        monkeypatch.setattr(tc, "get_toolchain", lambda name: spec)
+        monkeypatch.setattr(tc, "require_toolchains_repo", lambda: tmp_path)
+        monkeypatch.setattr(tc, "swap_toolchain_image", lambda image, build: build())
+
+        def build(tag: str, path: Path, *, stream: bool) -> tuple[int, str]:
+            calls.append((tag, path))
+            return 0, ""
+
+        monkeypatch.setattr(cli, "_docker_build", build)
+        cli.build_cmd("clock", json_output=True)
+        assert calls == [("rebrew/" + base + ":1.0", base_dir), (spec.image, directory)]

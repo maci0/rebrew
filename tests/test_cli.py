@@ -707,7 +707,7 @@ class TestCliAllExports:
 
 
 class TestStandaloneHelpParity:
-    """``rebrew <cmd> --help`` and ``rebrew-<cmd> --help`` print the same page."""
+    """Umbrella and direct module execution preserve the same help settings."""
 
     def test_help_and_epilog_come_from_the_module_app(self, monkeypatch) -> None:
         import sys
