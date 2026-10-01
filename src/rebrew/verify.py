@@ -982,6 +982,7 @@ def main(
             expected=ref_bytes,
             actual=built_bytes,
             sizes={va: ref_sizes.get(va, built_sizes.get(va, 0)) for va in ref_sizes | built_sizes},
+            cfg=cfg,
         )
         # A postlinked binary is not evidence.  Where a project's postlink step
         # copies whole sections from the reference (rebrew's own `data` fixer
@@ -1017,45 +1018,16 @@ def main(
             data_report["section_copied_warning"] = _dsec
         if not dry_run:
             from rebrew.data_metadata import (
-                DATA_STATUS_DRIFT,
-                DATA_STATUS_UNCHECKED,
-                DATA_STATUS_VERIFIED,
                 load_data_metadata,
-                module_visible_to_target,
                 set_data_fields_batch,
             )
 
             entries = load_data_metadata(cfg.metadata_dir)
-            # One row per (module, va), but the verdicts are keyed by name and
-            # the byte comparison is keyed by VA — and several modules are
-            # visible to one target (the active marker plus every module that is
-            # not another target's).  A dict keyed on VA alone collapsed those
-            # rows: the second module at a shared address replaced the first,
-            # which then kept its old status forever with no warning.  Collect
-            # every visible row and index the names per VA for the lookups.
-            visible_rows: list[tuple[str, int, str]] = []
-            names_by_va: dict[int, set[str]] = {}
-            for (module, va), fields in entries.items():
-                if not module_visible_to_target(module, cfg):
-                    continue
-                name = str(fields.get("name") or "")
-                if name:
-                    visible_rows.append((module, va, name))
-                    names_by_va.setdefault(va, set()).add(name)
-            drift_names = {str(m["name"]) for m in data_report["mismatched"]}
-            missing_names = set(data_report["missing"])
-            matched_names = {
-                name for va in ref_sizes for name in names_by_va.get(va, ())
-            } - drift_names
             status_updates: list[dict[str, Any]] = []
-            for module, va, name in visible_rows:
-                if name in drift_names or name in missing_names:
-                    status = DATA_STATUS_DRIFT
-                elif name in matched_names or va in built_bytes:
-                    status = DATA_STATUS_VERIFIED
-                else:
-                    status = DATA_STATUS_UNCHECKED
-                if entries[(module, va)].get("status") != status:
+            for row in data_report["results"]:
+                module, va, status = row["module"], int(row["va"], 16), row["status"]
+                entry = entries.get((module, va))
+                if entry is not None and entry.get("status") != status:
                     status_updates.append(
                         {
                             "module": module,

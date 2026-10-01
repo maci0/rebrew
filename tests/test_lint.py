@@ -2684,6 +2684,24 @@ class TestDataSectionNamesMemoConcurrent:
 class TestW031MetadataStore:
     """W031: the store shapes a reader silently ignores."""
 
+    @pytest.mark.parametrize("filename", ["rebrew-data.toml", "rebrew-functions.toml"])
+    def test_duplicate_identity_is_reported(self, tmp_path: Path, filename: str) -> None:
+        (tmp_path / filename).write_text(
+            'format=1\n["SERVER.0x00001000"]\nnote="first"\n["SERVER.0X1000"]\nnote="last"\n',
+            encoding="utf-8",
+        )
+        assert "duplicate metadata keys" in self._warnings(self._cfg(tmp_path))
+
+    def test_data_field_types_share_the_writer_validation(self, tmp_path: Path) -> None:
+        (tmp_path / "rebrew-data.toml").write_text(
+            'format = 1\n["SERVER.0x1000"]\nsize = 1.5\nname = false\nsection = 7\n',
+            encoding="utf-8",
+        )
+        warnings = self._warnings(self._cfg(tmp_path))
+        assert "size must be a non-negative integer" in warnings
+        assert "name must be a string" in warnings
+        assert "section must be a string" in warnings
+
     def _cfg(self, tmp_path: Path) -> SimpleNamespace:
         return SimpleNamespace(root=tmp_path, metadata_dir=tmp_path)
 

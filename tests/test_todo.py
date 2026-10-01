@@ -1839,6 +1839,32 @@ class TestGaCeilingRouting:
 
 
 class TestDataDrift:
+    def test_typed_copied_symbol_is_sized_and_excluded(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.data_metadata import set_data_fields_batch
+        from rebrew.todo import _collect_data_drift
+
+        cfg = _make_cfg(tmp_path)
+        set_data_fields_batch(
+            tmp_path,
+            [
+                {
+                    "module": "TEST",
+                    "va": 0x1000,
+                    "fields": {
+                        "name": "g_copy",
+                        "type": "int",
+                        "status": "DRIFT",
+                    },
+                }
+            ],
+        )
+        monkeypatch.setattr("rebrew.status.postlink_copied_ranges", lambda _cfg: [(0x1000, 0x1004)])
+        assert _collect_data_drift(cfg) == []
+        monkeypatch.setattr("rebrew.status.postlink_copied_ranges", lambda _cfg: [])
+        assert _collect_data_drift(cfg)[0].size == 4
+
     def test_drift_symbol_surfaces(self, tmp_path: Path) -> None:
         from rebrew.data_metadata import set_data_field
         from rebrew.todo import CAT_DATA_DRIFT, _collect_data_drift

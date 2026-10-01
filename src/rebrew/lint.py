@@ -857,6 +857,7 @@ def _check_W031_metadata_store(cfg: ProjectConfig) -> list[LintResult]:
         DATA_METADATA_FIELDS,
         DATA_METADATA_FILENAME,
         DATA_STATUSES,
+        validate_data_field,
     )
     from rebrew.metadata import FORMAT_KEY, FORMAT_VERSION, PROVENANCE_TAGS
     from rebrew.metadata_doc import parse_metadata_key
@@ -894,6 +895,7 @@ def _check_W031_metadata_store(cfg: ProjectConfig) -> list[LintResult]:
         elif stamp != FORMAT_VERSION:
             problems.append(f"{FORMAT_KEY} = {stamp!r}, this rebrew reads {FORMAT_VERSION}")
         known_fields = {f.upper() for f in fields}
+        identities: dict[tuple[str, int], str] = {}
         for key, entry in doc.items():
             if key == FORMAT_KEY:
                 continue
@@ -902,17 +904,28 @@ def _check_W031_metadata_store(cfg: ProjectConfig) -> list[LintResult]:
                     f"top-level {key!r} is neither {FORMAT_KEY!r} nor a MODULE.0xVA entry"
                 )
                 continue
-            if parse_metadata_key(key) is None:
+            identity = parse_metadata_key(key)
+            if identity is None:
                 problems.append(f"top-level {key!r} is not a MODULE.0xVA entry")
+            elif identity in identities:
+                problems.append(
+                    f"duplicate metadata keys {identities[identity]!r} and {key!r} "
+                    "resolve to the same module and VA; writes require consolidation"
+                )
+            else:
+                identities[identity] = key
             lower = {str(k).lower() for k in entry}
             for name in entry:
                 if str(name).upper() not in known_fields:
                     problems.append(f"{key}: unknown field {name!r} (every reader ignores it)")
-            status = str(entry.get("status") or "")
-            if statuses is not None and status and status not in statuses:
-                problems.append(
-                    f"{key}: STATUS {status!r} is not one of {', '.join(sorted(statuses))}"
-                )
+            if statuses is not None:
+                for name, value in entry.items():
+                    if str(name).upper() not in known_fields:
+                        continue
+                    try:
+                        validate_data_field(str(name), value)
+                    except (TypeError, ValueError) as exc:
+                        problems.append(f"{key}: {exc}")
             if ("updated_by" in lower) != ("updated_at" in lower):
                 problems.append(
                     f"{key}: half a provenance pair (updated_by / updated_at are written together)"

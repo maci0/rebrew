@@ -581,6 +581,63 @@ class TestDiffReports:
 
 
 class TestVerifyCli:
+    def test_data_writeback_uses_qualified_identity_instead_of_name(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from bin_util import append_pe_section, make_pe
+
+        from rebrew.binary_loader import load_binary
+        from rebrew.data_metadata import get_data_entry, set_data_fields_batch
+        from rebrew.verify import app
+
+        cfg = _cfg(tmp_path, all_markers={"SERVER", "OTHER"})
+        cfg.target_binary.write_bytes(append_pe_section(make_pe(b"\xc3"), ".data", b"abcdefgh"))
+        sec = load_binary(cfg.target_binary).sections[".data"]
+        built = bytearray(cfg.target_binary.read_bytes())
+        built[sec.file_offset + 3] ^= 1
+        built[sec.file_offset + 4] ^= 1
+        built_path = tmp_path / "built.dll"
+        built_path.write_bytes(built)
+        set_data_fields_batch(
+            tmp_path,
+            [
+                {
+                    "module": "SERVER",
+                    "va": sec.va,
+                    "fields": {"name": "shared", "size": 2, "section": ".data"},
+                },
+                {
+                    "module": "LIB",
+                    "va": sec.va,
+                    "fields": {"name": "long", "size": 4, "section": ".data"},
+                },
+                {
+                    "module": "SERVER",
+                    "va": sec.va + 4,
+                    "fields": {"name": "shared", "size": 2, "section": ".data"},
+                },
+                {
+                    "module": "OTHER",
+                    "va": sec.va,
+                    "fields": {
+                        "name": "foreign",
+                        "size": 4,
+                        "section": ".data",
+                        "status": "VERIFIED",
+                    },
+                },
+            ],
+        )
+        self._patch_flow(monkeypatch, cfg, passed=0)
+        result = CliRunner().invoke(
+            app, ["--data", "--built", str(built_path), "--raw-link", "--json"]
+        )
+        assert result.exit_code == EXIT_MISMATCH, result.output
+        assert get_data_entry(tmp_path, sec.va, "SERVER")["status"] == "VERIFIED"
+        assert get_data_entry(tmp_path, sec.va, "LIB")["status"] == "DRIFT"
+        assert get_data_entry(tmp_path, sec.va + 4, "SERVER")["status"] == "DRIFT"
+        assert get_data_entry(tmp_path, sec.va, "OTHER")["status"] == "VERIFIED"
+
     def _patch_flow(
         self,
         monkeypatch: pytest.MonkeyPatch,

@@ -241,21 +241,15 @@ def parse_metadata_key(key: str) -> tuple[str, int] | None:
         True
 
     """
-    if ".0x" in key:
-        # The VA suffix is the LAST ``.0x``: a module name is arbitrary text
-        # (the target name in rebrew-project.toml) and may carry one itself,
-        # and splitting at the first occurrence read ``srv.0x10.0x00024000``
-        # as module ``srv`` with the unparseable tail ``0x10.0x00024000``,
-        # dropping the whole entry.  For a plain ``MODULE.0xVA`` key the two
-        # positions coincide.
-        dot = key.rindex(".0x")
-        module = unicodedata.normalize("NFC", key[:dot])
-        hex_part = key[dot + 1 :]  # includes leading 0x
-        try:
-            return module, int(hex_part, 16)
-        except ValueError:
-            return None
-    return None
+    module, sep, address = key.rpartition(".")
+    if not sep or address[:2].lower() != "0x":
+        return None
+    digits = address[2:]
+    # int() also accepts underscores, Unicode digits, and trailing whitespace;
+    # those spellings must not resolve to a VA other readers skip.
+    if not digits or digits.strip("0123456789abcdefABCDEF"):
+        return None
+    return unicodedata.normalize("NFC", module), int(digits, 16)
 
 
 def build_metadata_key_index(doc: dict[str, Any]) -> dict[tuple[str, int], str]:
@@ -264,7 +258,8 @@ def build_metadata_key_index(doc: dict[str, Any]) -> dict[tuple[str, int], str]:
     Built once per batch write so :func:`resolve_metadata_key` is O(1) per
     update instead of O(n) (intake / verify STATUS sync grow as O(n²) without
     this when every new entry misses the canonical spelling and rescans).
-    Prefers the canonical spelling when both forms are present.
+    Rejects duplicate identities: updating only one spelling can leave a
+    later table overriding the write, or resurrect a deleted field.
     """
     index: dict[tuple[str, int], str] = {}
     for existing in doc:
@@ -272,8 +267,12 @@ def build_metadata_key_index(doc: dict[str, Any]) -> dict[tuple[str, int], str]:
         if parsed is None:
             continue
         key = str(existing)
-        if parsed not in index or key == qualified_key(*parsed):
-            index[parsed] = key
+        if parsed in index:
+            raise ValueError(
+                f"duplicate metadata keys {index[parsed]!r} and {key!r} "
+                f"resolve to {qualified_key(*parsed)!r}; consolidate them before writing"
+            )
+        index[parsed] = key
     return index
 
 
@@ -292,33 +291,23 @@ def resolve_metadata_key(
     only tests :func:`qualified_key` then appends a second table instead of
     updating the first, and the fields split across the two.
 
-    Prefers the canonical spelling, falls back to whatever spelling the store
-    already uses, and returns the canonical key when the entry is absent so
-    callers can create it.  Shared by ``metadata.py`` and ``data_metadata.py``.
+    Uses whatever spelling the store already has, and returns the canonical
+    key when the entry is absent so callers can create it. Duplicate identities
+    raise before any write. Shared by ``metadata.py`` and ``data_metadata.py``.
 
     Pass *index* (from :func:`build_metadata_key_index`) on batch writers so
-    each resolve stays O(1); without it, a missing canonical key falls back
-    to a linear scan (fine for single-entry writers).
+    each resolve stays O(1); without it, build the checked index once for this
+    single-entry write.
     """
     if module:
         module = unicodedata.normalize("NFC", module)
     canonical = qualified_key(module, va)
-    if canonical in doc:
-        return canonical
     want = (module, va)
-    if index is not None:
-        existing = index.get(want)
-        if existing is not None and existing in doc:
-            return existing
-        return canonical
-    # Common alternate: unpadded hex (SERVER.0x24000 vs SERVER.0x00024000).
-    if module:
-        alt = f"{module}.0x{va:x}"
-        if alt in doc:
-            return alt
-    for existing in doc:
-        if parse_metadata_key(str(existing)) == want:
-            return str(existing)
+    if index is None:
+        index = build_metadata_key_index(doc)
+    existing = index.get(want)
+    if existing is not None and existing in doc:
+        return existing
     return canonical
 
 

@@ -233,6 +233,9 @@ class MetadataEntry:
             )
         # Normalize key case (callers may pass "SIZE" or "size") and coerce.
         coerced = {k.lower(): _coerce(k.lower(), v) for k, v in fields.items()}
+        for key in _INT_FIELDS:
+            if key in coerced and coerced[key] < 0:
+                raise MetadataValidationError(f"{key} must be non-negative, got {coerced[key]}")
 
         status = coerced.pop("status", None)
         canon: str | None = None

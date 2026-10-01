@@ -77,6 +77,10 @@ All mutable function and data metadata lives in single root TOML metadata files 
 
 Keyed by `MODULE.0xVA`:
 
+Addresses use ASCII hexadecimal digits without spaces or underscores; `0X`
+is also accepted. Module names may contain dots and are normalized to Unicode
+NFC so cached and raw readers resolve the same identity.
+
 ```toml
 ["SERVER.0x10008880"]
 status = "NEAR_MATCHING"
@@ -103,7 +107,7 @@ shapes that matter for a hand-written script or a review:
 | Field | Value | Written by |
 |---|---|---|
 | `STATUS` | one of the twelve `rebrew.metadata.KNOWN_STATUSES` values: the six ladder values below plus the six machine verdicts | the STATUS writers only, through the promotion gate |
-| `SIZE` | integer | annotation migration, `rebrew verify --fix-sizes`, `rebrew catalog --fix-sizes`; co-read with `// SIZE:` (an override, not a move) |
+| `SIZE` | non-negative integer | annotation migration, `rebrew verify --fix-sizes`, `rebrew catalog --fix-sizes`; co-read with `// SIZE:` (an override, not a move) |
 | `CFLAGS`, `TOOLCHAIN` | string | `rebrew cfg set-cflags` / `set-compiler`, library-override resolution, lint `--fix`; `CFLAGS` co-read with `// CFLAGS:` |
 | `BLOCKER`, `BLOCKER_DELTA` | string / integer | `rebrew blocker set/clear`, `rebrew diff --fix-blocker`, `rebrew near-diag --fix-blocker`, `rebrew document-unmatched`; cleared on a byte match |
 | `NOTE`, `GHIDRA`, `ANALYSIS` | string | `update_field` (`rebrew blocker`/lint migrations, BinSync pull) |
@@ -143,6 +147,18 @@ note = "player count"
 Owned fields per entry: `name`, `type`, `size`, `section`, `note`, `status`
 (`VERIFIED`/`DRIFT`/`UNCHECKED` data verdicts, written by `verify --data`), and
 the `updated_by` / `updated_at` write stamp every gated writer records.
+
+`size` is stored as a non-negative integer; the other data fields are strings.
+The writers and lint W031 share this validation. A changed `name`, `type`,
+`size`, or `section` clears the old verdict, so reports show `UNCHECKED` until
+verification measures the new definition. Notes and unchanged values preserve
+the verdict. A batch may record a definition and its new measured verdict in
+the same atomic write.
+
+Data verification reports and writes verdicts by `(module, VA)`, even when
+symbols share names or addresses. Each symbol is checked over its own extent;
+equal truncated buffers cannot earn `VERIFIED`. Other targets stay outside
+the report's denominator and write-back.
 
 Managed exclusively by `rebrew.data_metadata` (locked + atomic): via
 `rebrew data` (the bare command scans; `--annotate`, `--set-type`,

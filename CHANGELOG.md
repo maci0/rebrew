@@ -36,8 +36,15 @@
 - The CMake linker bridge preserves `/STUB:` while translating absolute DOS
   stub paths, including paths in response files, instead of converting the
   entire option into a filename.
-- Shared struct parsing handles multidimensional array fields, fixing a
-  `StopIteration` crash in `rebrew types` and struct consumers in BinSync.
+- Data metadata writers share one validation/write path, normalize sizes, and
+  clear old verdicts when a symbol's definition changes. Status, todo, and
+  verification use the same size resolution. Data verification preserves
+  `(module, VA)` identity across aliases and repeated names, excludes other
+  targets from its totals, and rejects truncated matches. Function metadata
+  rejects negative sizes, and typed compound edits validate before promoting
+  STATUS, preventing partial writes on invalid extents.
+  Shared metadata key parsing rejects non-ASCII or padded addresses and
+  normalizes module identity consistently between raw and cached readers.
 - `build-check --objects` bounds its `make -q` freshness probe with a timeout
   and kills make's process group, so a wedged mount or a hung sub-make can no
   longer block the command. A probe that times out, or a make that cannot be

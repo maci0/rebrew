@@ -874,7 +874,7 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     # Data verdicts: count rebrew-data.toml STATUS values written by
     # `verify --data`.  Named symbols only — unnamed inventory rows carry
     # no verdict.
-    from rebrew.data_layout import estimate_type_size
+    from rebrew.data_layout import data_symbol_size
     from rebrew.data_metadata import load_data_metadata, module_visible_to_target
 
     data_spans: dict[str, list[tuple[int, int]]] = {"verified": [], "drift": [], "unchecked": []}
@@ -884,12 +884,7 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
             continue
         if not fields.get("name"):
             continue
-        try:
-            size = int(fields.get("size") or 0)
-        except (TypeError, ValueError):
-            size = 0
-        if size <= 0 and fields.get("type"):
-            size = estimate_type_size(str(fields["type"]))
+        size = data_symbol_size(fields)
         if span_is_copied(va, size, copied):
             continue
         verdict = str(fields.get("status") or "UNCHECKED").upper()
@@ -1030,9 +1025,9 @@ def _initialized_data_ranges(cfg: ProjectConfig) -> list[tuple[int, int]]:
     """File-backed ``.data`` and ``.rdata`` the link is responsible for.
 
     Virtual size past the raw size is the BSS tail: those bytes are not in
-    the file, and ``verify --data`` does not compare them. Raw size past the
-    virtual size is file alignment. The overlap is the bytes a verified
-    symbol can cover.
+    the file, so their verdicts count symbols rather than initialized bytes.
+    Raw size past the virtual size is file alignment. The overlap is the
+    initialized bytes a verified symbol can cover.
 
     The IAT and the import directory through the end of ``.rdata`` are not
     in that overlap. ``postlink`` copies both from the reference, so a raw

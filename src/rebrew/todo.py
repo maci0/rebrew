@@ -1018,6 +1018,7 @@ def _collect_data_drift(cfg: ProjectConfig) -> list[TodoItem]:
     Data VAs live in a separate address space from function VAs in practice
     (.data/.rdata vs .text), so no dedup against function items is needed.
     """
+    from rebrew.data_layout import data_symbol_size
     from rebrew.data_metadata import load_data_metadata, module_visible_to_target
     from rebrew.status import postlink_copied_ranges, span_is_copied
 
@@ -1029,10 +1030,7 @@ def _collect_data_drift(cfg: ProjectConfig) -> list[TodoItem]:
         if str(fields.get("status") or "").upper() != "DRIFT":
             continue
         name = str(fields.get("name") or f"DAT_{va:08x}")
-        try:
-            size = int(fields.get("size") or 0)
-        except (TypeError, ValueError):
-            size = 0
+        size = data_symbol_size(fields)
         if span_is_copied(va, size, copied):
             continue
         items.append(
@@ -1067,6 +1065,8 @@ def _zero_fill_tail_checker(cfg: ProjectConfig) -> Callable[[dict[str, Any]], bo
     missing = object()
 
     def in_tail(fields: dict[str, Any]) -> bool:
+        from rebrew.data_layout import data_symbol_size
+
         section = str(fields.get("section") or "")
         if section in ("", ".idata", ".bss"):
             return section == ".bss"
@@ -1084,17 +1084,7 @@ def _zero_fill_tail_checker(cfg: ProjectConfig) -> Callable[[dict[str, Any]], bo
         sec = sections.get(section)
         if sec is None:
             return False
-        try:
-            size = int(fields.get("size") or 0)
-        except (TypeError, ValueError):
-            size = 0
-        if size <= 0:
-            try:
-                from rebrew.data_layout import estimate_type_size
-
-                size = estimate_type_size(str(fields.get("type") or ""))
-            except (ImportError, ValueError):
-                size = 0
+        size = data_symbol_size(fields)
         if size <= 0:
             return False
         offset = int(fields.get("va") or 0) - int(sec.va)
@@ -1132,6 +1122,7 @@ def _collect_start_data(cfg: ProjectConfig) -> list[TodoItem]:
     them already correct (5 with file bytes byte-identical, 111 in the zero-fill
     tail, 84 import slots, 7 without a size).
     """
+    from rebrew.data_layout import data_symbol_size
     from rebrew.data_metadata import load_data_metadata, module_visible_to_target
 
     in_zero_fill_tail = _zero_fill_tail_checker(cfg)
@@ -1153,10 +1144,7 @@ def _collect_start_data(cfg: ProjectConfig) -> list[TodoItem]:
         if in_zero_fill_tail({**fields, "va": va}):
             continue
         name = str(fields.get("name") or f"DAT_{va:08x}")
-        try:
-            size = int(fields.get("size") or 0)
-        except (TypeError, ValueError):
-            size = 0
+        size = data_symbol_size(fields)
         items.append(
             TodoItem(
                 category=CAT_START_DATA,

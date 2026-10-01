@@ -123,6 +123,11 @@ note    = "lookup table for sprite indices"
 | `note` | Description; written by `rebrew sync --pull --state-dir <dir>` from Ghidra comments |
 | `status` | Data verdict written by `rebrew verify --data`: `VERIFIED` (built bytes match), `DRIFT` (differ), `UNCHECKED` (not compared); counted in `rebrew status` and `rebrew todo --category data-drift` |
 
+Changing `name`, `type`, `size`, or `section` clears the previous verdict:
+re-run verification after editing a definition. Notes and unchanged values
+preserve it. Writers store `size` as a non-negative integer and the other
+fields as strings; lint W031 uses the same validation.
+
 > [!CAUTION]
 > **Never manually edit `rebrew-data.toml`.** It is managed automatically by `rebrew data`,
 > `rebrew data --fix-bss`, and `rebrew sync --pull --state-dir <dir>`. Entries are keyed `"MODULE.0xVA"`

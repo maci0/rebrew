@@ -389,6 +389,17 @@ class TestDeleteField:
 
 
 class TestUpdateField:
+    @pytest.mark.parametrize("value", [-1, "-1"])
+    def test_negative_size_is_rejected_before_writing(
+        self, tmp_path: Path, value: int | str
+    ) -> None:
+        update_field(tmp_path, 0x1000, "size", 4, "SERVER")
+        path = tmp_path / "rebrew-functions.toml"
+        before = path.read_bytes()
+        with pytest.raises(ValueError, match="non-negative"):
+            update_field(tmp_path, 0x1000, "size", value, "SERVER")
+        assert path.read_bytes() == before
+
     def test_raw_write_no_guard(self, tmp_path: Path) -> None:
         _set_field(tmp_path, 0x01006364, "status", "EXACT", module="SERVER")
         entry = get_entry(tmp_path, 0x01006364, module="SERVER")

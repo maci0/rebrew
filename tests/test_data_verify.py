@@ -103,6 +103,71 @@ class TestCoverageReporting:
 
 
 class TestVerifyDataBytes:
+    def test_equal_truncated_bytes_cannot_verify_a_larger_symbol(self, tmp_path: Path) -> None:
+        from rebrew.data_verify import verify_data_bytes
+
+        meta = tmp_path / "rebrew-data.toml"
+        _write(meta, '["SERVER.0x1000"]\nname = "g_a"\nsize = 4\nsection = ".data"\n')
+        report = verify_data_bytes(
+            metadata_path=meta, expected={0x1000: b"ab"}, actual={0x1000: b"ab"}, sizes={0x1000: 4}
+        )
+        assert report["matched"] == report["compared"] == 0
+        assert report["results"][0]["status"] == "UNCHECKED"
+        report = verify_data_bytes(
+            metadata_path=meta,
+            expected={0x1000: b"abcd"},
+            actual={0x1000: b"ab"},
+            sizes={0x1000: 4},
+        )
+        assert report["matched"] == 0
+        assert report["missing"] == ["g_a"]
+
+    def test_module_va_identity_survives_name_and_address_aliases(self, tmp_path: Path) -> None:
+        from types import SimpleNamespace
+
+        from rebrew.data_metadata import set_data_fields_batch
+        from rebrew.data_verify import verify_data_bytes
+
+        set_data_fields_batch(
+            tmp_path,
+            [
+                {
+                    "module": "SERVER",
+                    "va": 0x1000,
+                    "fields": {"name": "shared", "size": 2, "section": ".data"},
+                },
+                {
+                    "module": "LIB",
+                    "va": 0x1000,
+                    "fields": {"name": "long_alias", "size": 4, "section": ".data"},
+                },
+                {
+                    "module": "SERVER",
+                    "va": 0x2000,
+                    "fields": {"name": "shared", "size": 2, "section": ".data"},
+                },
+                {
+                    "module": "OTHER",
+                    "va": 0x1000,
+                    "fields": {"name": "foreign", "size": 2, "section": ".data"},
+                },
+            ],
+        )
+        report = verify_data_bytes(
+            metadata_path=tmp_path / "rebrew-data.toml",
+            expected={0x1000: b"abcd", 0x2000: b"ef"},
+            actual={0x1000: b"abXd", 0x2000: b"eX"},
+            sizes={0x1000: 4, 0x2000: 2},
+            cfg=SimpleNamespace(marker="SERVER", all_markers={"SERVER", "OTHER"}),
+        )
+        assert report["total"] == report["compared"] == 3
+        assert report["matched"] == 1
+        assert {(r["module"], r["va"]): r["status"] for r in report["results"]} == {
+            ("SERVER", "0x1000"): "VERIFIED",
+            ("LIB", "0x1000"): "DRIFT",
+            ("SERVER", "0x2000"): "DRIFT",
+        }
+
     def test_matching_symbols_verify(self, tmp_path: Path) -> None:
         from rebrew.data_verify import verify_data_bytes
 
@@ -198,6 +263,20 @@ class TestSectionFilter:
 
 
 class TestSectionSymbolBytesBounds:
+    def test_alias_read_keeps_the_largest_extent(self, tmp_path: Path, monkeypatch) -> None:
+        from rebrew.data_verify import section_symbol_bytes
+
+        self._fake_info(monkeypatch, size=16, raw_size=16, data=b"abcdefghijklmnop")
+        meta = tmp_path / "rebrew-data.toml"
+        _write(
+            meta,
+            '["SERVER.0x1000"]\nname = "long"\nsize = 8\nsection = ".data"\n'
+            '["LIB.0x1000"]\nname = "short"\nsize = 2\nsection = ".data"\n',
+        )
+        by_va, sizes = section_symbol_bytes(metadata_path=meta, binary_path=tmp_path / "ref.dll")
+        assert sizes[0x1000] == 8
+        assert by_va[0x1000] == b"abcdefgh"
+
     """Reads clamp to the owning section's mapped extent; an oversized
     SIZE is an error, not a silent cross-section read."""
 

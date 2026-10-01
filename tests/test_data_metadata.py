@@ -76,6 +76,34 @@ class TestLoadSaveDataMetadata:
 
 
 class TestGetDataEntry:
+    def test_duplicate_identity_merges_before_section_filter(self, tmp_path: Path) -> None:
+        from rebrew.data_metadata import iter_data_symbols
+        from rebrew.utils import load_tomllib
+
+        path = tmp_path / DATA_METADATA_FILENAME
+        path.write_text(
+            '["SERVER.0x00001000"]\nname="g_a"\nsize=4\nsection=".data"\n'
+            '["SERVER.0X1000"]\nsection=".rdata"\nstatus="DRIFT"\n',
+            encoding="utf-8",
+        )
+        raw = load_tomllib(path)
+        entries = list(iter_data_symbols(raw, None))
+        assert entries == [("SERVER", 0x1000, get_data_entry(tmp_path, 0x1000, "SERVER"))]
+        assert list(iter_data_symbols(raw, ".data")) == []
+        assert list(iter_data_symbols(raw, ".rdata")) == entries
+
+    def test_raw_iteration_and_store_loading_share_unicode_identity(self, tmp_path: Path) -> None:
+        from rebrew.data_metadata import iter_data_symbols
+        from rebrew.utils import load_tomllib
+
+        (tmp_path / DATA_METADATA_FILENAME).write_text(
+            '["MO\u0301D.0X1000"]\nname = "g_a"\n', encoding="utf-8"
+        )
+        raw = load_tomllib(tmp_path / DATA_METADATA_FILENAME)
+        assert [(module, va) for module, va, _fields in iter_data_symbols(raw, None)] == list(
+            load_data_metadata(tmp_path)
+        )
+
     def test_missing_returns_empty(self, tmp_path: Path) -> None:
         assert get_data_entry(tmp_path, 0x10025000, "SERVER") == {}
 
@@ -168,6 +196,89 @@ class TestSetDataField:
 
 
 class TestSetDataFieldsBatch:
+    @pytest.mark.parametrize("batch", [False, True])
+    def test_duplicate_identity_write_leaves_store_untouched(
+        self, tmp_path: Path, batch: bool
+    ) -> None:
+        from rebrew.data_metadata import set_data_fields_batch
+
+        path = tmp_path / DATA_METADATA_FILENAME
+        path.write_text(
+            '["SERVER.0x00001000"]\nname="g_a"\nstatus="VERIFIED"\n'
+            '["SERVER.0x1000"]\nstatus="DRIFT"\n',
+            encoding="utf-8",
+        )
+        before = path.read_bytes()
+        with pytest.raises(ValueError, match="duplicate metadata keys"):
+            if batch:
+                set_data_fields_batch(
+                    tmp_path, [{"module": "SERVER", "va": 0x1000, "fields": {"status": "VERIFIED"}}]
+                )
+            else:
+                set_data_field(tmp_path, 0x1000, "status", "VERIFIED", "SERVER")
+        assert path.read_bytes() == before
+
+    @pytest.mark.parametrize("batch", [False, True])
+    @pytest.mark.parametrize(
+        "key,value", [("size", -1), ("size", True), ("size", 1.5), ("name", 5)]
+    )
+    def test_invalid_fields_leave_existing_store_untouched(
+        self, tmp_path: Path, batch: bool, key: str, value: float | str
+    ) -> None:
+        from rebrew.data_metadata import set_data_fields_batch
+
+        set_data_field(tmp_path, 0x1000, "name", "g_a", "SERVER")
+        path = tmp_path / DATA_METADATA_FILENAME
+        before = path.read_bytes()
+        with pytest.raises(ValueError):
+            if batch:
+                set_data_fields_batch(
+                    tmp_path,
+                    [
+                        {"module": "SERVER", "va": 0x2000, "fields": {"name": "g_b"}},
+                        {"module": "SERVER", "va": 0x1000, "fields": {key: value}},
+                    ],
+                )
+            else:
+                set_data_field(tmp_path, 0x1000, key, value, "SERVER")
+        assert path.read_bytes() == before
+
+    @pytest.mark.parametrize(
+        "key,value", [("size", 8), ("type", "int[2]"), ("name", "g_b"), ("section", ".rdata")]
+    )
+    @pytest.mark.parametrize("batch", [False, True])
+    def test_definition_edits_clear_verdict_but_notes_and_noops_keep_it(
+        self, tmp_path: Path, key: str, value: int | str, batch: bool
+    ) -> None:
+        from rebrew.data_metadata import set_data_fields_batch
+
+        set_data_fields_batch(
+            tmp_path,
+            [
+                {
+                    "module": "SERVER",
+                    "va": 0x1000,
+                    "fields": {
+                        "name": "g_a",
+                        "size": 4,
+                        "type": "int",
+                        "section": ".data",
+                        "status": "VERIFIED",
+                    },
+                }
+            ],
+        )
+        set_data_field(tmp_path, 0x1000, "size", "0x4", "SERVER")
+        set_data_field(tmp_path, 0x1000, "note", "annotation only", "SERVER")
+        assert get_data_entry(tmp_path, 0x1000, "SERVER")["status"] == "VERIFIED"
+        if batch:
+            set_data_fields_batch(
+                tmp_path, [{"module": "SERVER", "va": 0x1000, "fields": {key: value}}]
+            )
+        else:
+            set_data_field(tmp_path, 0x1000, key, value, "SERVER")
+        assert "status" not in get_data_entry(tmp_path, 0x1000, "SERVER")
+
     def test_batch_writes_many_entries_once(self, tmp_path: Path) -> None:
         from rebrew.data_metadata import set_data_fields_batch
 

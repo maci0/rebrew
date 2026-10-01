@@ -23,16 +23,22 @@ def verify_data_bytes(
     actual: dict[int, bytes],
     sizes: dict[int, int],
     sections: tuple[str, ...] = (".data", ".rdata"),
+    cfg: Any | None = None,
 ) -> dict[str, Any]:
     """Compare per-symbol bytes; return ``matched`` / ``mismatched`` / ``missing``.
 
-    *metadata_path* supplies symbol names (``rebrew-data.toml``).  *expected*
-    maps VA to reference bytes, *actual* maps VA to built bytes, *sizes* maps
-    VA to the compared length.  Only symbols whose metadata ``section`` is in
+    *metadata_path* supplies symbol definitions (``rebrew-data.toml``). *expected*
+    maps VA to reference bytes, *actual* maps VA to built bytes, and *sizes*
+    supplies available extents and a fallback for unsized symbols.
+    Only symbols whose metadata ``section`` is in
     *sections* are compared.  Symbols absent from *actual* are ``missing``;
     present-but-different bytes are ``mismatched`` with the first differing
     offset.  Symbols with no name in metadata are skipped (unnamed inventory
     cannot be attributed).
+    ``results`` preserves each symbol's ``(module, VA)`` identity and verdict;
+    aliases are compared at their own sizes. With *cfg*, other targets are
+    excluded from both results and totals. Incomplete reference bytes remain
+    UNCHECKED, and incomplete built bytes are missing rather than matched.
     **Coverage is reported, because the summary is otherwise misleading.** A
     symbol is comparable only when its ``section`` is in *sections* *and*
     ``section_symbol_bytes`` could read bytes for it. A zero-fill span inside
@@ -41,46 +47,56 @@ def verify_data_bytes(
     the difference, and ``coverage`` is the fraction compared, so a caller can
     tell "122 matched" from "122 of 329 matched".
     """
+    from rebrew.data_layout import data_symbol_size
+    from rebrew.data_metadata import module_visible_to_target
     from rebrew.utils import load_tomllib
 
     db = load_tomllib(metadata_path)
-    names: dict[int, str] = {}
-    kept: set[int] = set()
-    for _module, va, val in iter_data_symbols(db, section=None):
-        name = val.get("name")
-        if not name:
-            continue
-        names[va] = str(name)
-        if _section_selected(str(val.get("section") or ""), sections):
-            kept.add(va)
-
     matched = 0
     mismatched: list[dict[str, Any]] = []
     missing: list[str] = []
     compared = 0
-    for va, size in sizes.items():
-        if va not in kept:
+    results: list[dict[str, Any]] = []
+    for module, va, fields in iter_data_symbols(db, section=None):
+        if not fields.get("name") or not module_visible_to_target(module, cfg):
             continue
-        name = names.get(va)
-        if name is None:
-            continue
-        compared += 1
+        name = str(fields["name"])
+        size = data_symbol_size(fields)
+        if "size" not in fields and "type" not in fields:
+            size = sizes.get(va, 0)
+        row = {
+            "module": module,
+            "va": f"0x{va:x}",
+            "name": name,
+            "size": size,
+            "status": "UNCHECKED",
+        }
+        results.append(row)
         exp = expected.get(va)
         got = actual.get(va)
-        if exp is None or got is None:
+        if not _section_selected(str(fields.get("section") or ""), sections):
+            continue
+        if size <= 0 or va not in sizes or exp is None or len(exp) < size:
+            continue
+        compared += 1
+        if got is None or len(got) < size:
+            row["status"] = "DRIFT"
             missing.append(name)
             continue
         exp_slice = exp[:size]
         got_slice = got[:size]
         if exp_slice == got_slice:
+            row["status"] = "VERIFIED"
             matched += 1
             continue
         first_diff = next(
             (i for i, (a, b) in enumerate(zip(exp_slice, got_slice, strict=False)) if a != b),
             min(len(exp_slice), len(got_slice)),
         )
-        mismatched.append({"name": name, "va": f"0x{va:x}", "size": size, "first_diff": first_diff})
-    total = len(names)
+        row["status"] = "DRIFT"
+        row["first_diff"] = first_diff
+        mismatched.append(dict(row))
+    total = len(results)
     return {
         "matched": matched,
         "mismatched": mismatched,
@@ -89,6 +105,7 @@ def verify_data_bytes(
         "compared": compared,
         "not_comparable": total - compared,
         "coverage": (compared / total) if total else 0.0,
+        "results": results,
     }
 
 
@@ -128,7 +145,7 @@ def section_symbol_bytes(
     UNCHECKED would erase that target's verdict.
     """
     from rebrew.binary_loader import load_binary
-    from rebrew.data_layout import estimate_type_size
+    from rebrew.data_layout import data_symbol_size
     from rebrew.data_metadata import module_visible_to_target
     from rebrew.utils import load_tomllib
 
@@ -144,19 +161,8 @@ def section_symbol_bytes(
             continue
         if not module_visible_to_target(module, cfg):
             continue
-        try:
-            size = int(val.get("size") or 0)
-        except (TypeError, ValueError):
-            continue
-        if size <= 0:
-            # Fall back to the declared type.  `size` is an optional field and
-            # a project may carry none at all (guild-rebrew: 310 entries, zero
-            # `size`, but 303 with a `type`), in which case skipping meant
-            # `rebrew verify --data` compared NOTHING and still reported
-            # "0 matched, 0 mismatched, 0 missing" -- a pass that had verified
-            # nothing.  The type is what the summary already sizes globals by.
-            size = estimate_type_size(str(val.get("type") or "")) if val.get("type") else 0
-        if size <= 0:
+        size = data_symbol_size(val)
+        if size <= sizes.get(va, 0):
             continue
         sec = info.sections.get(declared)
         if sec is None:

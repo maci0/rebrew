@@ -44,6 +44,12 @@ which makes them good next-matching candidates.
 
 ## Failure modes
 
+`verify --data --json` includes a `data.results` row for every visible named
+symbol: `{module, va, name, size, status}` plus `first_diff` on a content
+mismatch. Identity is `(module, va)`; aliases keep separate verdicts and
+symbols from another target are excluded. Incomplete reference bytes remain
+`UNCHECKED`; missing or truncated built bytes are `DRIFT`.
+
 | Symptom | Cause | Fix |
 |---|---|---|
 | `rebrew-project.toml not found` / config error | Running outside a project | `cd` into the project (config discovery walks up to `rebrew-project.toml`) |

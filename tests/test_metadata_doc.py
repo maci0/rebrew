@@ -49,6 +49,17 @@ class TestCanonicalVaKey:
 
 
 class TestParseMetadataKey:
+    @pytest.mark.parametrize("address", ["0x1_0", "0x١0", "0x10 ", "0x", "0x-4"])
+    def test_non_ascii_or_padded_address_is_rejected(self, address: str) -> None:
+        from rebrew.metadata_doc import parse_metadata_key
+
+        assert parse_metadata_key(f"SERVER.{address}") is None
+
+    def test_uppercase_prefix_and_dotted_module_use_the_same_identity(self) -> None:
+        from rebrew.metadata_doc import parse_metadata_key
+
+        assert parse_metadata_key("srv.0x10.0X00002400") == ("srv.0x10", 0x2400)
+
     def test_valid(self) -> None:
         from rebrew.metadata_doc import parse_metadata_key
 
@@ -72,6 +83,18 @@ class TestParseMetadataKey:
 
 
 class TestResolveMetadataKey:
+    @pytest.mark.parametrize("indexed", [False, True])
+    def test_duplicate_identity_is_rejected(self, indexed: bool) -> None:
+        from rebrew.metadata_doc import build_metadata_key_index, resolve_metadata_key
+
+        doc = {"SERVER.0x00001000": {"status": "VERIFIED"}, "SERVER.0X1000": {"status": "DRIFT"}}
+        with pytest.raises(ValueError, match="duplicate metadata keys"):
+            if indexed:
+                build_metadata_key_index(doc)
+            else:
+                resolve_metadata_key(doc, "SERVER", 0x1000)
+        assert len(doc) == 2
+
     def test_absent_entry_returns_canonical(self) -> None:
         from rebrew.metadata_doc import resolve_metadata_key
 

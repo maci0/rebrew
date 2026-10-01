@@ -18,6 +18,7 @@ rely on (``data_annotate``, ``data_layout``, ``gen_link_stubs``):
 
 from __future__ import annotations
 
+import unicodedata
 from typing import Any
 
 from hypothesis import assume, given, settings
@@ -100,7 +101,9 @@ class TestIterDataSymbols:
         digits = addr_text[2:] if addr_text[:2].lower() == "0x" else addr_text
         merged = dict(doc)
         merged[key] = {"section": ".data"}
-        assert (module, int(digits, 16), merged[key]) in list(iter_data_symbols(merged, None))
+        entries = {(m, va): fields for m, va, fields in iter_data_symbols(merged, None)}
+        fields = entries[(unicodedata.normalize("NFC", module), int(digits, 16))]
+        assert all(fields[name] == value for name, value in merged[key].items())
 
     @given(module=_MODULES, tail=_JUNK_VA, section=_SECTIONS)
     @settings(max_examples=200)
@@ -124,7 +127,7 @@ class TestIterDataSymbols:
         doc = {f"{module}.0x10": {"section": ".data"}}
         entries = list(iter_data_symbols(doc, None))
         if entries:
-            assert entries[0][0] == module
+            assert entries[0][0] == unicodedata.normalize("NFC", module)
 
     @given(
         doc=st.dictionaries(

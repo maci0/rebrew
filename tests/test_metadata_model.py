@@ -70,6 +70,17 @@ def test_problems_accept_a_negative_free_entry(tmp_path: Path) -> None:
     assert loaded.problems() == []
 
 
+@pytest.mark.parametrize("key", ["size", "blocker_delta"])
+def test_invalid_extent_does_not_partially_promote_status(tmp_path: Path, key: str) -> None:
+    e = _entry(tmp_path)
+    e.apply(tmp_path, status="STUB", size=4)
+    path = tmp_path / "rebrew-functions.toml"
+    before = path.read_bytes()
+    with pytest.raises(MetadataValidationError, match="non-negative"):
+        e.apply(tmp_path, status="EXACT", **{key: -1})
+    assert path.read_bytes() == before
+
+
 def test_load_problems_empty_when_clean(tmp_path: Path) -> None:
     e = _entry(tmp_path)
     e.apply(tmp_path, size=8)

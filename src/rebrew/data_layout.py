@@ -875,6 +875,24 @@ def c_type_size(ctype: str) -> int:
     return 4
 
 
+def data_symbol_size(fields: dict[str, Any]) -> int:
+    """Known symbol extent from SIZE, otherwise the existing type-size model.
+
+    An invalid explicit SIZE stays unknown rather than being truncated or
+    replaced by an estimate. Zero is an unspecified size.
+    """
+    from rebrew.metadata import as_metadata_int
+
+    try:
+        size = as_metadata_int(fields.get("size", 0))
+    except (TypeError, ValueError):
+        return 0
+    if size < 0:
+        return 0
+    type_str = fields.get("type")
+    return size or (estimate_type_size(type_str) if isinstance(type_str, str) and type_str else 0)
+
+
 def estimate_type_size(type_str: str) -> int:
     """Byte size of a declared C type string (pointer- and array-aware)."""
     # Every dimension counts.  The first bracket alone sized ``short tbl[2][4]``

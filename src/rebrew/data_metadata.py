@@ -72,6 +72,7 @@ from rebrew.metadata_doc import (
     build_metadata_key_index,
     load_metadata_doc,
     metadata_write_lock,
+    parse_metadata_key,
     pop_metadata_doc_cache,
     resolve_metadata_key,
 )
@@ -145,6 +146,7 @@ __all__ = [
     "module_visible_to_target",
     "set_data_field",
     "set_data_fields_batch",
+    "validate_data_field",
     "merge_into_data_annotation",
 ]
 
@@ -154,8 +156,8 @@ __all__ = [
 # ---------------------------------------------------------------------------
 
 
-def _check_data_field(key: str, value: Any) -> None:
-    """Reject a key outside :data:`DATA_METADATA_FIELDS` or a non-verdict STATUS.
+def validate_data_field(key: str, value: Any) -> Any:
+    """Validate and normalize one lower-case data metadata field.
 
     Function-only fields (BLOCKER, CFLAGS, …) and function STATUS values have no
     meaning in the data store; accepting them would give a fact a second home.
@@ -165,17 +167,26 @@ def _check_data_field(key: str, value: Any) -> None:
             f"unknown data metadata field {key!r} "
             f"(expected one of {sorted(k.lower() for k in DATA_METADATA_FIELDS)})"
         )
+    if key == "size":
+        try:
+            size = as_metadata_int(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"size must be a non-negative integer, got {value!r}") from exc
+        if size < 0:
+            raise ValueError(f"size must be a non-negative integer, got {value!r}")
+        return size
+    if not isinstance(value, str):
+        raise ValueError(f"{key} must be a string, got {value!r}")
     if key == "status" and value not in DATA_STATUSES:
-        raise ValueError(f"invalid data STATUS {value!r} (expected one of {sorted(DATA_STATUSES)})")
+        raise ValueError(
+            f"invalid data STATUS {value!r}: not one of {', '.join(sorted(DATA_STATUSES))}"
+        )
+    return value
 
 
 # ---------------------------------------------------------------------------
 # Raw-document iteration
 # ---------------------------------------------------------------------------
-
-#: The only characters a qualified-key address may be spelled with.  ``int()``
-#: would also read underscores, padding, and non-ASCII decimal digits.
-_HEX_DIGITS = "0123456789abcdefABCDEF"
 
 
 def iter_data_symbols(
@@ -189,7 +200,9 @@ def iter_data_symbols(
     or a non-hex VA are skipped.  The VA is plain ASCII hex digits, with an
     optional ``0x`` prefix: a key like ``"MOD.1_0"``, ``"MOD. 0x10"``, or one
     spelled in a non-ASCII digit set is skipped rather than read as an
-    address nobody wrote.
+    address nobody wrote. Module names use the same NFC normalization as
+    the cached metadata reader. Duplicate identities merge fields, with later
+    fields winning, before filtering by section, just as the cached reader does.
 
     Args:
         doc: Parsed ``rebrew-data.toml`` content (string keys → field dicts).
@@ -200,18 +213,21 @@ def iter_data_symbols(
         ``(module, va, fields)`` triples.
 
     """
+    merged: dict[tuple[str, int], dict[str, Any]] = {}
     for key, val in doc.items():
         if not isinstance(val, dict):
             continue
-        if section is not None and val.get("section") != section:
-            continue
         module, sep, addr_text = str(key).rpartition(".")
-        if not sep or not addr_text or addr_text.strip(" \t") != addr_text:
+        if not sep:
             continue
-        digits = addr_text[2:] if addr_text[:2].lower() == "0x" else addr_text
-        if not digits or not all(ch in _HEX_DIGITS for ch in digits):
+        address = addr_text if addr_text[:2].lower() == "0x" else f"0x{addr_text}"
+        parsed = parse_metadata_key(f"{module}.{address}")
+        if parsed is None:
             continue
-        yield module, int(digits, 16), val
+        merged.setdefault(parsed, {}).update(val)
+    for (module, va), fields in merged.items():
+        if section is None or fields.get("section") == section:
+            yield module, va, fields
 
 
 # ---------------------------------------------------------------------------
@@ -373,46 +389,18 @@ def set_data_field(
             the wall clock.
 
     """
-    if not module:
-        raise ValueError("data metadata writes require a non-empty module")
-    _check_data_field(key, value)
-    if va < 0:
-        raise ValueError(f"VA must be non-negative, got {va:#x}")
-    dir_path = resolve_metadata_dir(directory)
-    path = dir_path / DATA_METADATA_FILENAME
-
-    with metadata_write_lock(dir_path, DATA_METADATA_FILENAME):
-        doc = load_toml_for_write(path, "data metadata")
-        toml_key = resolve_metadata_key(doc, module, va)
-
-        if toml_key not in doc:
-            doc[toml_key] = tomlkit.table()
-        elif not isinstance(doc[toml_key], dict):
-            # Same predicate the loader uses to skip unusable entries: a scalar
-            # (or AoT) at the key cannot hold fields, and indexing it raised
-            # TypeError out of `rebrew data --set-*`.  Failing loud beats
-            # silently discarding whatever is there.
-            raise ValueError(
-                f"data metadata entry {toml_key!r} is not a table "
-                f"({type(doc[toml_key]).__name__}); repair or remove it first"
-            )
-
-        from rebrew.utils import toml_safe
-
-        # Same-value short-circuit: a re-run that sets the field to what is
-        # already stored must not rewrite the TOML (mtime churn would invalidate
-        # verify caches and make an idempotent `--fix-bss` look dirty).
-        entry = doc[toml_key]
-        safe = toml_safe(value)
-        if isinstance(entry, dict) and entry.get(key) == safe:
-            return
-
-        entry[key] = safe
-        if updated_by:
-            stamp_provenance(entry, updated_by, now=now)
-        stamp_format(doc)
-        atomic_write_locked(path, tomlkit.dumps(doc))
-        _invalidate_data_cache(path)
+    set_data_fields_batch(
+        directory,
+        [
+            {
+                "module": module,
+                "va": va,
+                "fields": {key: value},
+                "updated_by": updated_by,
+            }
+        ],
+        now=now,
+    )
 
 
 def set_data_fields_batch(
@@ -426,6 +414,9 @@ def set_data_fields_batch(
     ``updated_by`` / ``updated_at`` pair in the same write when the update
     changes something.  Same-value short-circuit is preserved per field.
     Returns the number of entries that changed at least one field.
+
+    Changing a symbol's name/type/size/section removes its previous STATUS
+    unless the update includes a fresh verdict. Notes and no-ops preserve it.
 
     *now* fixes the instant every row the batch stamps records, so a replay
     lands the same bytes (see :func:`rebrew.metadata.stamp_provenance`).
@@ -452,7 +443,7 @@ def set_data_fields_batch(
             va = u.get("va")
             if va is None:
                 raise ValueError(f"data field update for {module!r} missing 'va': {u!r}")
-            va_int = int(va)
+            va_int = as_metadata_int(va)
             if va_int < 0:
                 raise ValueError(f"VA must be non-negative, got {va_int:#x}")
             fields = u.get("fields") or {}
@@ -478,14 +469,20 @@ def set_data_fields_batch(
                 )
             entry = doc[toml_key]
             changed = False
+            definition_changed = False
             for key, value in fields.items():
-                _check_data_field(key, value)
-                safe = toml_safe(value)
+                safe = toml_safe(validate_data_field(key, value))
                 if isinstance(entry, dict) and entry.get(key) == safe:
                     continue
                 entry[key] = safe
                 changed = True
+                definition_changed |= key in ("name", "type", "size", "section")
             if changed:
+                # A verdict measured the old symbol extent/identity. Notes and
+                # provenance leave it valid; a new measurement may set it in
+                # the same update as the definition it verified.
+                if definition_changed and "status" not in fields:
+                    entry.pop("status", None)
                 tag = str(u.get("updated_by") or "")
                 if tag:
                     stamp_provenance(entry, tag, now=now)

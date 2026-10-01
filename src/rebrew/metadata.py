@@ -505,12 +505,17 @@ def _validate_field(key: str, value: Any) -> Any:
         if isinstance(value, bool):
             raise ValueError(f"size must be an int, got {value!r}")
         if isinstance(value, int):
+            if value < 0:
+                raise ValueError(f"size must be non-negative, got {value!r}")
             return value
         if isinstance(value, str):
             try:
-                return int(value.strip(), 0)
+                size = int(value.strip(), 0)
             except ValueError:
                 raise ValueError(f"size must be an int, got {value!r}") from None
+            if size < 0:
+                raise ValueError(f"size must be non-negative, got {value!r}")
+            return size
         raise ValueError(f"size must be an int, got {value!r}")
     if key == "blocker_delta" and isinstance(value, str):
         with contextlib.suppress(ValueError):
