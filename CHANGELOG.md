@@ -33,6 +33,11 @@
 ### Fixed
 - Shared struct parsing handles multidimensional array fields, fixing a
   `StopIteration` crash in `rebrew types` and struct consumers in BinSync.
+- The CMake linker bridge preserves `/STUB:` while translating absolute DOS
+  stub paths, including paths in response files, instead of converting the
+  entire option into a filename.
+- Shared struct parsing handles multidimensional array fields, fixing a
+  `StopIteration` crash in `rebrew types` and struct consumers in BinSync.
 - `build-check --objects` bounds its `make -q` freshness probe with a timeout
   and kills make's process group, so a wedged mount or a hung sub-make can no
   longer block the command. A probe that times out, or a make that cannot be

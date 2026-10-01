@@ -103,6 +103,17 @@ class TestRewriteArgsLink:
         assert "/OUT:" + r"Z:\home\x.dll" in out
         assert "/PDB:" + r"Z:\home\x.pdb" in out
 
+    @pytest.mark.parametrize(
+        ("argument", "expected"),
+        [
+            ("/STUB:stub.exe", "/STUB:stub.exe"),
+            ("/stub:build/stub.exe", "/STUB:build/stub.exe"),
+            ("/Stub:/home/build dir/stub.exe", r"/STUB:Z:\home\build dir\stub.exe"),
+        ],
+    )
+    def test_stub_path_keeps_linker_option(self, argument: str, expected: str) -> None:
+        assert _rewrite_args("link", [argument]) == [expected]
+
 
 class TestRewriteArgsLib:
     @pytest.mark.parametrize("flag", ["/OUT:", "/DEF:", "/LIST:", "/LIBPATH:"])
@@ -391,7 +402,9 @@ def test_response_paths_are_rewritten_without_changing_original(tmp_path: Path) 
     from rebrew.cmake_tc import _rewrite_response_files
 
     response = tmp_path / "input.rsp"
-    original = '"/home/build dir/a.obj" /home/build/b.lib /MACHINE:I386\n'
+    original = (
+        '"/home/build dir/a.obj" /home/build/b.lib /STUB:/home/build/stub.exe /MACHINE:I386\n'
+    )
     response.write_text(original)
     output = tmp_path / "copies"
     output.mkdir()
@@ -400,6 +413,7 @@ def test_response_paths_are_rewritten_without_changing_original(tmp_path: Path) 
     rewritten = next(output.glob("*.rsp")).read_text()
     assert '"Z:\\home\\build dir\\a.obj"' in rewritten
     assert "Z:\\home\\build\\b.lib" in rewritten
+    assert "/STUB:Z:\\home\\build\\stub.exe" in rewritten
     assert "/MACHINE:I386" in rewritten
     assert response.read_text() == original
 

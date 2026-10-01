@@ -237,6 +237,7 @@ def _rewrite_args(mode: str, args: list[str]) -> list[str]:
             for flag, name in (
                 ("/OUT:", "OUT"),
                 ("/DEF:", "DEF"),
+                ("/STUB:", "STUB"),
                 ("/LIBPATH:", "LIBPATH"),
                 ("/IMPLIB:", "IMPLIB"),
                 ("/PDB:", "PDB"),
