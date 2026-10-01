@@ -30,6 +30,7 @@ import json
 import logging
 import threading
 import tomllib
+import unicodedata
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -1265,7 +1266,9 @@ def _snapshot(path: Path, doc: dict[str, Any], target: str) -> CoverageSnapshot:
     if type(version) is not int or version != _TOML_VERSION:
         raise CoverageTomlError(f"{path}: version is {version!r}, expected {_TOML_VERSION}")
     doc_target = _text(doc.get("target"))
-    if doc_target and doc_target != target:
+    # NFC: *target* is NFC (config name or normalized listing); compare the
+    # document spelling the same way so NFD and NFC of one name agree.
+    if doc_target and unicodedata.normalize("NFC", doc_target) != target:
         raise CoverageTomlError(f"{path}: target is {doc_target!r}, expected {target!r}")
 
     sections_doc = _table(doc.get("sections", {}), "sections", path)
@@ -1373,7 +1376,9 @@ def load_all_coverage_from(db_directory: Path) -> dict[str, CoverageSnapshot]:
         return cached[1]
     snapshots: dict[str, CoverageSnapshot] = {}
     for name, _mtime_ns, _size, _ino in key[1]:
-        target = name[len(_FILENAME_PREFIX) : -len(_FILENAME_SUFFIX)]
+        # NFC: lookups and the writer use the NFC config target name, but a
+        # decomposing filesystem (HFS+/APFS) lists the file NFD.
+        target = unicodedata.normalize("NFC", name[len(_FILENAME_PREFIX) : -len(_FILENAME_SUFFIX)])
         path = db_directory / name
         try:
             snapshots[target] = _read_document(path, target)

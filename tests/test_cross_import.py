@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import errno
 import os
+import unicodedata
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -1036,6 +1037,19 @@ class TestSharedImport:
     def test_stack_marker_idempotent(self) -> None:
         src = "// FUNCTION: DST 0x601000\n// SIZE: 13\nint f1(void){ return 1; }\n"
         assert ci._stack_marker(src, "DST", 0x601000, 13) == src
+
+    def test_stack_marker_idempotent_under_nfd_module(self) -> None:
+        """An NFD marker in the file is the same module as the NFC argument.
+
+        The module half comes from config (NFC, via load_config) while the
+        file's half comes out of source text. Byte equality let one module name
+        stack a second block for a marker the file already carried.
+        """
+        nfc = "café"
+        nfd = unicodedata.normalize("NFD", nfc)
+        assert nfc != nfd
+        src = f"// FUNCTION: {nfd} 0x601000\n// SIZE: 13\nint f1(void){{ return 1; }}\n"
+        assert ci._stack_marker(src, nfc, 0x601000, 13) == src
 
     def test_shared_import_stacks_in_place(self, tmp_path: Path, monkeypatch) -> None:
         rev = tmp_path / "src_shared"

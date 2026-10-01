@@ -13,6 +13,7 @@ import logging
 import os
 import re
 import tomllib
+import unicodedata
 from collections.abc import Callable
 from dataclasses import FrozenInstanceError
 from datetime import UTC, datetime
@@ -1192,6 +1193,34 @@ class TestMemo:
 
         (tmp_path / "db" / "coverage-other.dll.toml").unlink()
         assert sorted(load_all_coverage(tmp_path)) == [TARGET]
+
+    def test_nfd_filename_keys_the_snapshot_nfc(
+        self, monkeypatch: pytest.MonkeyPatch, data: dict[str, Any], tmp_path: Path
+    ) -> None:
+        """A decomposed filename still keys the snapshot under the NFC name.
+
+        macOS hands back the NFD spelling of a filename from a decomposing
+        volume, while the writer spells the file from the NFC config target
+        name and every lookup arrives NFC. Keying the snapshot on the raw
+        filename made an NFC `?target=` miss a document that was on disk.
+        """
+        nfc = "café.dll"
+        nfd = unicodedata.normalize("NFD", nfc)
+        assert nfc != nfd
+
+        monkeypatch.setattr(
+            coverage_toml,
+            "load_coverage_datasets",
+            lambda *a, **k: [(nfc, copy.deepcopy(data))],
+            raising=True,
+        )
+        write_coverage_toml(tmp_path)
+        doc = tmp_path / "db" / f"coverage-{nfc}.toml"
+        # Spell the file the way a decomposing filesystem stores it.
+        doc.rename(tmp_path / "db" / f"coverage-{nfd}.toml")
+        coverage_toml._ALL_CACHE = None
+
+        assert list(load_all_coverage(tmp_path)) == [nfc]
 
 
 class TestReaderFailures:

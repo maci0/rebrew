@@ -26,6 +26,7 @@ from __future__ import annotations
 import heapq
 import re
 import shutil
+import unicodedata
 from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -577,9 +578,16 @@ def _stack_marker(text: str, module: str, va: int, size: int) -> str:
     """
     from rebrew.annotation import NEW_FUNC_CAPTURE_RE
 
+    # NFC on the source's half, as annotation.py does for every marker read:
+    # `module` comes from config already NFC.
+    module_norm = unicodedata.normalize("NFC", module)
     for line in text.splitlines():
         m = NEW_FUNC_CAPTURE_RE.match(line.strip())
-        if m and m.group("module") == module and int(m.group("va"), 16) == va:
+        if (
+            m
+            and unicodedata.normalize("NFC", m.group("module")) == module_norm
+            and int(m.group("va"), 16) == va
+        ):
             return text
     eol = source_newline(text)
     marker_idx = next(
