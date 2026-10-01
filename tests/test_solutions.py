@@ -703,7 +703,9 @@ class TestGaRunHistory:
             )
         assert log_path.read_bytes() == before
 
-    def test_the_prune_publishes_durably(self, project_root: Path, monkeypatch) -> None:
+    def test_the_prune_publishes_durably(
+        self, project_root: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """The prune's rewrite is fsynced before it replaces the log.
 
         The rewrite republishes the whole log, wins included, and the log is
@@ -724,7 +726,7 @@ class TestGaRunHistory:
             )
 
         seen: list[Path] = []
-        real_atomic_replace = solutions_mod.atomic_write_bytes
+        from rebrew.utils import atomic_write_bytes as real_atomic_replace
 
         def _spy(path: Path, data: bytes) -> None:
             seen.append(Path(path))
