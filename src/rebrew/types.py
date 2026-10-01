@@ -98,11 +98,15 @@ def _parse_field(decl: Any, source: bytes) -> tuple[str, str] | None:
             suffix = " *"
         elif child.type == "array_declarator":
             raw = _field_text(child, source)
-            ident = _field_text(
-                next(c for c in child.children if c.type == "field_identifier"), source
-            )
-            name = ident
-            suffix = raw[len(ident) :].strip()
+            ident = child
+            while ident.type == "array_declarator":
+                ident = ident.child_by_field_name("declarator")
+                if ident is None:
+                    return None
+            if ident.type != "field_identifier":
+                return None
+            name = _field_text(ident, source)
+            suffix = raw[len(name) :].strip()
         elif child.type not in (";", ","):
             base_parts.append(_field_text(child, source))
     if not name:

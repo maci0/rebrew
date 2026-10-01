@@ -31,6 +31,8 @@
   share the scorer's explicit relocation masking without importing a private name.
 
 ### Fixed
+- Shared struct parsing handles multidimensional array fields, fixing a
+  `StopIteration` crash in `rebrew types` and struct consumers in BinSync.
 - `build-check --objects` bounds its `make -q` freshness probe with a timeout
   and kills make's process group, so a wedged mount or a hung sub-make can no
   longer block the command. A probe that times out, or a make that cannot be

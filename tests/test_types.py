@@ -22,6 +22,20 @@ class TestParseStructs:
         assert bar.fields == [("p", "int *", 0), ("buf", "char[8]", 4)]
         assert bar.size == 12
 
+    def test_multidimensional_array_fields(self) -> None:
+        structs = parse_structs(
+            "typedef struct { char tag; float m[4][4]; double grid[2][3][4]; int tail; } Matrix;"
+        )
+        matrix = structs["Matrix"]
+        assert matrix.complete
+        assert matrix.fields == [
+            ("tag", "char", 0),
+            ("m", "float[4][4]", 4),
+            ("grid", "double[2][3][4]", 72),
+            ("tail", "int", 264),
+        ]
+        assert matrix.size == 272
+
     def test_named_struct_tag(self) -> None:
         structs = parse_structs("struct Baz { int a; int b; };")
         assert structs["Baz"].size == 8
