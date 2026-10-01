@@ -687,7 +687,14 @@ def test_obj_helpers_robust_on_malformed(
     data: tuple[bytes, str, int, list[tuple[str, int]]],
 ) -> None:
     """Fuzz: truncated/corrupted .obj blobs must never make the extraction
-    helpers raise — they degrade to empty results."""
+    helpers raise, and whatever they return keeps the documented shape:
+
+    - every string key is one the caller asked for;
+    - string content is non-empty with at most one NUL, at the end (the
+      NUL-terminated form that keeps a target scan from matching a prefix
+      of a longer string);
+    - every local-label key is a requested ``$``-prefixed compiler label.
+    """
     from bin_util import make_coff_obj
 
     from rebrew.round_trip import _extract_local_labels, _extract_string_symbols
@@ -699,13 +706,20 @@ def test_obj_helpers_robust_on_malformed(
         func_value=func_value,
         section_symbols=section_symbols,
     )
+    requested = {name for name, _v in section_symbols}
     with tempfile.TemporaryDirectory() as td:
         obj_path = Path(td) / "x.obj"
-        for _i, variant in enumerate(_mutate(obj)):
+        for variant in _mutate(obj):
             obj_path.write_bytes(variant)
             # Neither helper may raise on adversarial input.
-            _extract_local_labels(obj_path, func_symbol, 0x10001000)
-            _extract_string_symbols(obj_path, {name for name, _v in section_symbols})
+            labels = _extract_local_labels(obj_path, func_symbol, 0x10001000)
+            strings = _extract_string_symbols(obj_path, requested)
+
+            assert set(labels) <= {name for name in requested if name.startswith("$")}
+            assert set(strings) <= requested
+            for content in strings.values():
+                assert content
+                assert b"\x00" not in content[:-1]
 
 
 # ---------------------------------------------------------------------------
