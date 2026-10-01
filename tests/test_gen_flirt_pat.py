@@ -94,6 +94,28 @@ class TestParseArchive:
         members = list(parse_archive(str(lib)))
         assert members == []
 
+    @pytest.mark.parametrize("delimiter", [b"\0", b"/\n"])
+    def test_resolves_long_member_names(self, tmp_path: Path, delimiter: bytes) -> None:
+        first = b"build/intel/mt_obj/fread.obj"
+        second = b"build/intel/mt_obj/fwrite.obj"
+        table = first + delimiter + second + delimiter
+        offset = len(first) + len(delimiter)
+        lib = self._make_archive(
+            [("/", table), ("/0", b"read"), (f"/{offset}", b"write")], tmp_path
+        )
+        assert list(parse_archive(str(lib))) == [
+            (first.decode(), b"read"),
+            (second.decode(), b"write"),
+        ]
+
+    @pytest.mark.parametrize("table, offset", [(b"", 0), (b"name\0", 99), (b"name", 0)])
+    def test_rejects_invalid_long_member_names(
+        self, tmp_path: Path, table: bytes, offset: int
+    ) -> None:
+        lib = self._make_archive([("/", table), (f"/{offset}", b"object")], tmp_path)
+        with pytest.raises(ValueError, match="invalid long"):
+            list(parse_archive(str(lib)))
+
 
 # ---------------------------------------------------------------------------
 # Hypothesis fuzz — ar archive member-size parser on untrusted .lib bytes

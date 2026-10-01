@@ -146,8 +146,12 @@ class TestLibMatch:
         report = json.loads(result.stdout)
         finding = report if single_va else report["findings"][0]
         assert finding["symbol"] is None
-        assert finding["object"] == lib.name
+        assert finding["object"] is None
         assert {candidate["symbol"] for candidate in finding["candidates"]} == {"_fread", "_fwrite"}
+        assert {candidate["object"] for candidate in finding["candidates"]} == {
+            f"{lib.name}:_fread.obj",
+            f"{lib.name}:_fwrite.obj",
+        }
 
     def test_json_output(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         import json

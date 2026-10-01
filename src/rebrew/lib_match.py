@@ -98,9 +98,9 @@ def index_library(path: Path) -> Index:
     index: Index = {}
     try:
         members = parse_archive(str(path))
-        for _member_name, obj in members:
+        for member_name, obj in members:
             for sym, code, relocs in parse_coff_obj(obj):
-                index.setdefault(sym, []).append((path.name, code, relocs))
+                index.setdefault(sym, []).append((f"{path.name}:{member_name}", code, relocs))
     except Exception as exc:  # bad archive / unparsable member
         error_exit(f"cannot index {path}: {exc}", code=EXIT_ERROR)
     return index
