@@ -207,6 +207,11 @@ paths:
       tags: [database]
       operationId: getTargets
       summary: Every readable target in the coverage directory, ordered by name.
+      description: |
+        A target IS one readable `coverage-<target>.toml` document, so a
+        document that does not parse is skipped with a log line and is not
+        listed.  Unpaged: the envelope reports `paged: false`, `limit` is the
+        row count, and `offset` is 0.  `limit`/`offset` are not accepted here.
       responses:
         "200":
           description: The target list.
@@ -923,7 +928,44 @@ components:
             is a non-negative integer by construction: one past `total_bytes`
             is capped and logged, never served.  `coverage_pct` and
             `identified_pct` are `matched_bytes` and `covered_bytes` over
-            `total_bytes`, each floored.
+            `total_bytes`, each floored.  Every one of the six keys is derived
+            from the stored rows, so the server always populates exactly these
+            and never omits one.
+          required:
+            - total
+            - covered_bytes
+            - matched_bytes
+            - total_bytes
+            - by_status
+            - by_module_counts
+          properties:
+            total:
+              type: integer
+              minimum: 0
+              description: Code rows in the target (the `FUNCTION`/`LIBRARY`/`STUB` markers).
+            covered_bytes:
+              type: integer
+              minimum: 0
+              description: Identified bytes, every function and STUB placeholder included.
+            matched_bytes:
+              type: integer
+              minimum: 0
+              description: Byte-matched bytes (`EXACT`/`RELOC` only) — the headline figure.
+            total_bytes:
+              type: integer
+              minimum: 0
+              description: The `.text` section size, 0 when the document records no `.text`.
+            by_status:
+              type: object
+              description: Row count per match status, keys sorted. `UNKNOWN` is a function with no STATUS.
+              additionalProperties: { type: integer, minimum: 0 }
+            by_module_counts:
+              type: object
+              description: |
+                Row count per module, keys sorted, spelled exactly as the
+                document stores them (a module is not folded here).  `""` is
+                the unset module and is a real key, not "no module".
+              additionalProperties: { type: integer, minimum: 0 }
           additionalProperties: true
         coverage_pct:
           type: number

@@ -23,6 +23,14 @@
   already holds rather than resolving the file again.
 
 ### Fixed
+- `dashboard-api.yaml` declares the `function_stats` keys the summary
+  populates, as required non-negative integers, instead of leaving the object
+  to `additionalProperties`. A generated client could not read a field it was
+  never given, and could not tell an integer count from a float.
+- `dashboard-api.yaml` documents `/api/targets`, the one route that had a
+  summary and no description. It now states that a target is one readable
+  document and that `limit`/`offset` are not accepted, matching
+  `/api/sections`.
 - `report`'s strings page states how many strings it is showing, the way the
   index, imports and import-stub pages already do. A single-page strings table
   renders no pager, so the count had nowhere else to appear.

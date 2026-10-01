@@ -5337,3 +5337,63 @@ def _sentence_containing(block: str, needle: str) -> str:
     matches = [sentence for sentence in sentences if needle in sentence]
     assert len(matches) == 1, needle
     return matches[0]
+
+
+class TestSummaryAggregateContract:
+    """``function_stats`` is a typed object, not a bag of undeclared keys."""
+
+    def test_documented_keys_match_the_derivation(self, dashboard: Dashboard) -> None:
+        """The schema names every key the summary populates, and no others.
+
+        An object typed only ``additionalProperties: true`` tells a generated
+        client nothing it can read: every field is untyped, so a client cannot
+        sum ``by_status`` without hand-parsing JSON and cannot treat
+        ``matched_bytes`` as the integer ``coverage_pct`` is computed from.
+        Declaring the keys makes the aggregate a contract, and pinning it to the
+        derivation keeps the declaration honest: a seventh key the summary
+        starts sending, or a renamed one, fails here.
+        """
+        stats_schema = _spec()["components"]["schemas"]["Summary"]["properties"]["function_stats"]
+        _, _, body = dashboard.handle("GET", "/api/summary", {"target": ["server_dll"]})
+        assert set(stats_schema["properties"]) == set(json.loads(body)["function_stats"])
+        # Derived from the document's own rows, so a client may rely on all six
+        # being present rather than probing for each.
+        assert set(stats_schema["required"]) <= set(stats_schema["properties"])
+        # The count maps are keyed by an open vocabulary (a status or module
+        # name), so the value type is pinned and the key is not an enum.
+        for key in ("by_status", "by_module_counts"):
+            inner = stats_schema["properties"][key]["additionalProperties"]
+            assert inner == {"type": "integer", "minimum": 0}, key
+
+    def test_byte_counts_are_declared_as_the_guard_leaves_them(self) -> None:
+        """Every derived count is a non-negative integer, as ``_byte_count`` enforces.
+
+        ``_byte_count`` raises on a negative or non-integer count, so a schema
+        saying ``number`` (or leaving the floor off) would let a client's own
+        validator accept an aggregate the route has already refused.
+        """
+        stats_schema = _spec()["components"]["schemas"]["Summary"]["properties"]["function_stats"]
+        for name in ("total", "covered_bytes", "matched_bytes", "total_bytes"):
+            declared = stats_schema["properties"][name]
+            assert declared["type"] == "integer", name
+            assert declared["minimum"] == 0, name
+            assert declared["description"], name
+
+    def test_unpaged_routes_document_the_parameters_they_refuse(self) -> None:
+        """A route that reads no paging parameter says so in prose.
+
+        ``/api/sections`` and ``/api/targets`` answer ``paged: false`` and read
+        no paging parameters; a client that sends one gets it silently ignored
+        and an envelope whose ``limit`` is the row count it never asked to
+        change.  The prose is what tells it not to.
+        """
+        spec = _spec()
+        for path in ("/api/targets", "/api/sections"):
+            operation = spec["paths"][path]["get"]
+            description = operation["description"]
+            assert "not accepted here" in description, path
+            # Only ``target``: the paging parameters every list route declares
+            # are refused here, and a spec that listed them would invite the
+            # client to send the one its envelope cannot honour.
+            declared = [ref["$ref"].rsplit("/", 1)[-1] for ref in operation.get("parameters") or []]
+            assert declared == (["Target"] if path == "/api/sections" else []), path
