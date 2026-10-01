@@ -469,7 +469,7 @@ warn-test-extras: ensure-uv
 # host-tool gap the bootstrap steps cannot install.
 doctor:
 	@set -u; \
-	rc=0; setup_rc=0; \
+	rc=0; setup_rc=0; uv_rc=0; \
 	for check in ensure-uv warn-uv-version ensure-resembl ensure-bash ensure-nasm ensure-node warn-shellcheck warn-yamllint warn-vnu ensure-extras; do \
 	  case $$check in \
 	    ensure-uv) label='uv on PATH' ;; \
@@ -487,8 +487,23 @@ doctor:
 	    ensure-resembl|ensure-extras) bucket=setup ;; \
 	    *) bucket=host ;; \
 	  esac; \
+	  # Without uv, the uv-dependent checks would each repeat the uv error \
+	  # instead of what they check, so they print SKIP; they still count in \
+	  # rc/setup_rc, so the exit code is unchanged. \
+	  case $$check in \
+	    warn-uv-version|ensure-resembl|ensure-extras) \
+	      if [ $$uv_rc -ne 0 ]; then \
+	        case $$check in \
+	          ensure-resembl|ensure-extras) setup_rc=1 ;; \
+	          *) rc=1 ;; \
+	        esac; \
+	        printf 'SKIP  %s (needs uv; re-run make doctor once uv is installed)\n' "$$label"; \
+	        continue; \
+	      fi ;; \
+	  esac; \
 	  out=$$($(MAKE) --no-print-directory $$check 2>&1); \
 	  st=$$?; \
+	  if [ $$check = ensure-uv ] && [ $$st -ne 0 ]; then uv_rc=1; fi; \
 	  if [ -z "$$out" ]; then \
 	    printf 'ok    %s\n' "$$label"; \
 	  else \
