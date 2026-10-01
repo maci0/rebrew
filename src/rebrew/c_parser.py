@@ -271,11 +271,19 @@ def _extract_array_suffix(declarator: Any, source_bytes: bytes) -> str:
         for child in node.children:
             if child.type == "[":
                 bracket_start = child.start_byte
+                bracket_open_end = child.end_byte
                 for sibling in node.children:
                     if sibling.type == "]":
-                        bracket_end = sibling.end_byte
+                        # A truncated declarator (``extern int a[;``) makes
+                        # tree-sitter emit a zero-width ``]`` where the close
+                        # bracket would be.  Slicing on it yields a dangling
+                        # suffix (``[``) that leaves the bracket unbalanced in
+                        # the type string, so only a ``]`` lying strictly after
+                        # the ``[`` closes a well-formed span.
+                        if sibling.end_byte <= bracket_open_end:
+                            break
                         parts.append(
-                            source_bytes[bracket_start:bracket_end].decode(
+                            source_bytes[bracket_start : sibling.end_byte].decode(
                                 "utf-8", errors="surrogateescape"
                             )
                         )

@@ -25,13 +25,17 @@ is drawable, and assert:
 from __future__ import annotations
 
 import struct
+import tempfile
 from pathlib import Path
 
+import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
+from test_postlink import make_full_pe
 
 from rebrew.binary_model import BinaryInfo, SectionInfo
 from rebrew.layout_meta import LayoutMetadata, SectionMeta
+from rebrew.postlink import FIXER_ORDER as FIXER_NAMES
 
 _u16 = st.integers(min_value=0, max_value=0xFFFF)
 _u32 = st.integers(min_value=0, max_value=0xFFFFFFFF)
@@ -209,8 +213,6 @@ def test_check_text_alignment_agrees_with_coverage(
     """``check_text_alignment`` breaks the build on exactly the ratios below the
     published floor, and stays silent on a package with no layout-map entries
     at all."""
-    import pytest
-
     from rebrew.postlink import MIN_LAYOUT_MAP_COVERAGE, check_text_alignment, map_coverage
 
     built, meta, info = data
@@ -222,3 +224,94 @@ def test_check_text_alignment_agrees_with_coverage(
     else:
         with pytest.raises(ValueError, match="position-aligned"):
             check_text_alignment(built, meta, info)
+
+
+# ---------------------------------------------------------------------------
+# The whole fixer chain over a mutated PE pair
+# ---------------------------------------------------------------------------
+
+
+def _seed_pe() -> bytes:
+    """A four-section PE with imports, exports and a relocation block."""
+    return make_full_pe(
+        imports=[("KERNEL32.dll", ["GetLocalTime", "WriteFile"]), ("USER32.dll", ["MessageBoxA"])],
+        timestamp=0x60000000,
+        checksum=0x4D328,
+    )
+
+
+#: Patch window: the DOS stub, COFF/optional headers, the section table and the
+#: two data directories — the fields every fixer's precondition reads.  Past it
+#: lies section content whose corruption only produces ordinary mismatches.
+_MUTATE_SPAN = 0x800
+
+
+@st.composite
+def _mutated_pe(draw: st.DrawFn) -> bytes:
+    """The seed PE with drawn byte patches and an optional truncation."""
+    data = bytearray(_seed_pe())
+    span = min(_MUTATE_SPAN, len(data))
+    for offset, chunk in draw(
+        st.lists(
+            st.tuples(
+                st.integers(min_value=0, max_value=span - 1), st.binary(min_size=1, max_size=4)
+            ),
+            max_size=10,
+        )
+    ):
+        data[offset : offset + len(chunk)] = chunk
+    if draw(st.booleans()):
+        data = data[: draw(st.integers(min_value=0, max_value=len(data)))]
+    return bytes(data)
+
+
+@settings(max_examples=40, deadline=None)
+@given(
+    _mutated_pe(),
+    _mutated_pe(),
+    st.lists(st.sampled_from(FIXER_NAMES), unique=True),
+)
+def test_run_fixers_reports_only_valueerror(
+    built: bytes, reference: bytes, fixer_names: list[str]
+) -> None:
+    """``ValueError`` is the fixers' whole failure vocabulary.
+
+    ``rebrew postlink`` catches ``ValueError`` and turns it into an
+    ``error_exit``; any other exception reaching the CLI is a traceback.  Both
+    inputs are forgeable — the built link and the reference binary the user
+    points the command at — and a mutated section table deletes a section name
+    outright, so every lookup in the chain must degrade to ``ValueError`` rather
+    than a bare ``KeyError`` / ``struct.error`` / ``IndexError``.
+    """
+    from rebrew.postlink import run_fixers
+
+    with tempfile.TemporaryDirectory() as td:
+        built_path = Path(td) / "built.dll"
+        ref_path = Path(td) / "ref.dll"
+        built_path.write_bytes(built)
+        ref_path.write_bytes(reference)
+        try:
+            patched, reports = run_fixers(built_path, ref_path, fixer_names or None)
+        except ValueError:
+            return
+        # On success the patched image is a byte string and every requested
+        # fixer reports exactly once, in FIXER_ORDER order.  An empty
+        # selection means "all fixers", which is what run_fixers(None) runs.
+        requested = set(fixer_names) if fixer_names else set(FIXER_NAMES)
+        assert isinstance(patched, bytes)
+        assert reports
+        assert [r.name for r in reports] == [n for n in FIXER_NAMES if n in requested]
+
+
+@settings(max_examples=100, deadline=None)
+@given(st.binary(max_size=256))
+def test_map_coverage_refuses_a_textless_image(blob: bytes) -> None:
+    """A built image with no ``.text`` section is a ``ValueError``, not a
+    ``KeyError``: the section name comes from the file, so a corrupted table
+    removes it, and every caller of the mapper catches ``ValueError``."""
+    from rebrew.postlink import map_coverage
+
+    meta, info = _meta_and_info(0, len(blob), {}, {})
+    info.sections = {}  # the built image declares no section at all
+    with pytest.raises(ValueError, match=r"no \.text section"):
+        map_coverage(blob, meta, info)

@@ -68,7 +68,13 @@ import typer
 from rebrew.binary_loader import decode_binary_name, load_binary
 from rebrew.binary_model import BinaryInfo, SectionInfo
 from rebrew.cli import EXIT_ERROR, console, error_exit, json_print
-from rebrew.layout_meta import ImportMeta, LayoutMetadata, extract_layout, load_package
+from rebrew.layout_meta import (
+    ImportMeta,
+    LayoutMetadata,
+    SectionMeta,
+    extract_layout,
+    load_package,
+)
 from rebrew.pe_headers import find_section, pe_layout, pe_lfanew, sections_at
 from rebrew.utils import atomic_write_bytes
 
@@ -185,6 +191,34 @@ def _section_header_offset(info: BinaryInfo, name: str) -> int:
     return section.header_offset
 
 
+def _built_section(info_b: BinaryInfo, name: str) -> SectionInfo:
+    """The built image's *name* section, or ``ValueError``.
+
+    A corrupted or truncated built PE can be missing a section entirely (its
+    name bytes forged, the table cut short).  The fixers index
+    ``info_b.sections[...]`` directly, so without this guard a forged section
+    table escapes as a bare ``KeyError`` instead of the module's documented
+    ``ValueError`` — the single type every CLI caller of the fixers catches.
+    """
+    section = info_b.sections.get(name)
+    if section is None:
+        raise ValueError(f"built image has no {name} section")
+    return section
+
+
+def _meta_section(meta: LayoutMetadata, name: str) -> SectionMeta:
+    """The layout package's *name* section, or ``ValueError``.
+
+    ``LayoutMetadata.section`` raises ``KeyError``; a hand-edited or truncated
+    ``rebrew-layout.toml`` is as forgeable as a binary, so the fixers convert
+    it to the ``ValueError`` every other failure in this module uses.
+    """
+    try:
+        return meta.section(name)
+    except KeyError as exc:
+        raise ValueError(f"layout package has no {name} section") from exc
+
+
 # ---------------------------------------------------------------------------
 # Fixer 1: imports
 # ---------------------------------------------------------------------------
@@ -281,7 +315,7 @@ def _fix_imports(built: bytearray, meta: LayoutMetadata, info_b: BinaryInfo) -> 
         slots_r[_entry_key(imp_m.dll, imp_m.name, imp_m.ordinal)] = imp_m.iat_va
     remap = {slots_b[k]: slots_r[k] for k in slots_b if slots_b[k] != slots_r[k]}
     if remap and iat_rva:
-        text = info_b.sections[".text"]
+        text = _built_section(info_b, ".text")
         moved = 0
         skipped = 0
         for off in range(text.file_offset + 2, text.file_offset + text.raw_size - 4):
@@ -365,9 +399,9 @@ def _fix_data(built: bytearray, meta: LayoutMetadata, info_b: BinaryInfo) -> Fix
     come from the text metadata (operands/calls sparse maps + hex dumps).
     """
     report = FixerReport(name="data", changed=False)
-    text = info_b.sections[".text"]
-    rdata = meta.section(".rdata")
-    data_m = meta.section(".data")
+    text = _built_section(info_b, ".text")
+    rdata = _meta_section(meta, ".rdata")
+    data_m = _meta_section(meta, ".data")
 
     # operand ranges, image-base-relative (== the reference's RVA space)
     lo_r = rdata.va
@@ -418,8 +452,8 @@ def _fix_data(built: bytearray, meta: LayoutMetadata, info_b: BinaryInfo) -> Fix
     # left as the built binary's, which for X X is the reference itself.)
     # Both sides resolve through their own headers: the built trim point
     # from the built geometry, not the reference's file offsets.
-    text_m = meta.section(".text")
-    text_b = info_b.sections[".text"]
+    text_m = _meta_section(meta, ".text")
+    text_b = _built_section(info_b, ".text")
     # The trim start is the BUILT section's own file offset plus the
     # reference's raw size.  Using the reference's ``raw_ptr`` here would index
     # the built buffer with the reference's layout: a built link whose .text
@@ -466,7 +500,7 @@ def _fix_data(built: bytearray, meta: LayoutMetadata, info_b: BinaryInfo) -> Fix
             report.changed = True
 
     # ---- 4. grow .data to the reference raw size and copy it ----
-    data_b = info_b.sections[".data"]
+    data_b = _built_section(info_b, ".data")
     if len(meta.data) > len(built) - data_b.file_offset:
         built.extend(b"\x00" * (data_b.file_offset + len(meta.data) - len(built)))
     built[data_b.file_offset : data_b.file_offset + len(meta.data)] = meta.data
@@ -475,13 +509,13 @@ def _fix_data(built: bytearray, meta: LayoutMetadata, info_b: BinaryInfo) -> Fix
     # .data's VirtualSize is the reference's (24 MB: the section's zero-fill
     # tail), not the built link's — the raw copy above only fills the raw
     # extent, so the header value has to come from the layout package.
-    struct.pack_into("<I", built, _data_hdr + 8, meta.section(".data").vs)
+    struct.pack_into("<I", built, _data_hdr + 8, _meta_section(meta, ".data").vs)
 
     # ---- 5. replace .reloc (at the built file's own .reloc offset) ----
     # The built file's .reloc raw pointer comes from its own headers —
     # the reference's raw_ptr belongs to the reference's layout.
-    reloc_b = info_b.sections[".reloc"]
-    reloc_m = meta.section(".reloc")
+    reloc_b = _built_section(info_b, ".reloc")
+    reloc_m = _meta_section(meta, ".reloc")
     # Two contracts:
     #  * default — keep the BUILT link's own raw pointer.  A layout that has
     #    not converged (sections shifted, .data longer than the reference's)
@@ -687,10 +721,16 @@ def map_coverage(
     when it already holds the reference value or sits on an E8/E9 with the
     recorded two-byte context on either side.  Both are the conditions the
     ``data`` fixer itself patches under.
+
+    Raises ``ValueError`` (never ``KeyError``) when the built image or the
+    layout package lacks a section the score is computed against: both inputs
+    are forgeable — a truncated/corrupted section table, or a hand-edited
+    ``rebrew-layout.toml`` — and every other failure in this module surfaces
+    as ``ValueError`` so a CLI caller can catch one type.
     """
-    text = info_b.sections[".text"]
-    rdata = meta.section(".rdata")
-    data_m = meta.section(".data")
+    text = _built_section(info_b, ".text")
+    rdata = _meta_section(meta, ".rdata")
+    data_m = _meta_section(meta, ".data")
     spans = (
         (rdata.va, rdata.va + rdata.vs),
         (data_m.va, data_m.va + data_m.vs),
@@ -747,8 +787,8 @@ def check_text_alignment(built: bytes, meta: LayoutMetadata, info_b: BinaryInfo)
     if coverage >= MIN_LAYOUT_MAP_COVERAGE:
         return
 
-    text_b = info_b.sections[".text"]
-    text_m = meta.section(".text")
+    text_b = _built_section(info_b, ".text")
+    text_m = _meta_section(meta, ".text")
     raise ValueError(
         "built .text is not position-aligned with the reference — "
         f"only {ok}/{total} layout-map entries validate ({100 * coverage:.1f}%, "
