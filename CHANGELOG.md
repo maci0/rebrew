@@ -36,6 +36,7 @@
   share the scorer's explicit relocation masking without importing a private name.
 
 ### Fixed
+- Pre-push tests clear Git's repository-local environment before creating fixture repositories, preserving the checkout and its Git settings.
 - The lockfile uses virtualenv 21.14.2 and records its declared MIT grant in the dependency inventory.
 - Function metadata and lint W031 share field validation. Compound typed
   edits write STATUS and associated fields atomically, preserving old
