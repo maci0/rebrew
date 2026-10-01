@@ -155,6 +155,16 @@ def test_filename_component_folds_nfc_and_nfd_to_one_name() -> None:
     assert filename_component("CAFÉ") == filename_component("CAFE\u0301")
 
 
+def test_filename_component_escapes_dos_device_stems() -> None:
+    # Win32 opens the device for NUL, nul.json or COM1.best.c, discarding writes.
+    assert filename_component("NUL") == "_NUL"
+    assert filename_component("con.json") == "_con.json"
+    assert filename_component("Com1.best.c") == "_Com1.best.c"
+    assert filename_component("lpt9") == "_lpt9"
+    assert filename_component("CONSOLE") == "CONSOLE"
+    assert filename_component("COM10") == "COM10"
+
+
 def test_filename_component_keeps_distinct_names_distinct() -> None:
     assert filename_component("Café") != filename_component("Cafe")
 

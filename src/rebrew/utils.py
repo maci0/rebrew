@@ -104,6 +104,14 @@ _PE_NAME_MAX_CHARS = 255
 #: NAME_MAX once a suffix such as ``.best.c`` is appended.
 _FILENAME_COMPONENT_RE = re.compile(r"[^A-Za-z0-9._@-]+")
 _FILENAME_COMPONENT_MAX_CHARS = 200
+#: DOS device names Windows reserves in *every* case and with *any* suffix:
+#: ``NUL``, ``NUL.json`` and ``nul.best.c`` all address the null device, so a
+#: write silently succeeds and the bytes are discarded.  Matched against the
+#: part before the first dot, which is what Win32's name parser reads.
+_RESERVED_WINDOWS_STEMS = frozenset(
+    {"CON", "PRN", "AUX", "NUL"}
+    | {f"{prefix}{n}" for prefix in ("COM", "LPT") for n in range(1, 10)}
+)
 #: Mode :func:`atomic_write_text` creates its temp file with, and therefore
 #: installs at the target path.  Owner read/write only for a non-secret file
 #: rebrew owns; a writer holding a credential passes something tighter.
@@ -842,10 +850,18 @@ def filename_component(name: str) -> str:
     deletes a *different* amount for each spelling of one name, so without it
     ``"CAFÉ"`` and ``"CAFE\\u0301"`` (the same DLL named from a PE import table
     and from a ``.pat`` file on a decomposing volume) land in two headers.
+
+    A stem that is a DOS device name gets an underscore: Win32 resolves
+    ``CON``, ``con.json`` and ``nul.best.c`` to the device, not to a file, so
+    a symbol or module called ``NUL`` would make the write succeed and discard
+    the bytes.  A caller appending its own suffix (``{symbol}.best.c``) does
+    not clear the reservation, so the check belongs here, not at each writer.
     """
     name = unicodedata.normalize("NFC", name)
     cleaned = _FILENAME_COMPONENT_RE.sub("_", name).lstrip(".-")
     cleaned = cleaned[:_FILENAME_COMPONENT_MAX_CHARS].rstrip("._-")
+    if cleaned.partition(".")[0].upper() in _RESERVED_WINDOWS_STEMS:
+        cleaned = f"_{cleaned}"
     if not cleaned:
         digest = hashlib.sha256(name.encode("utf-8", "surrogateescape")).hexdigest()[:16]
         return f"sym_{digest}"

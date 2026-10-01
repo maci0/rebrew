@@ -23,6 +23,9 @@
   already holds rather than resolving the file again.
 
 ### Fixed
+- Output file names derived from a symbol or module named after a DOS device
+  (`CON`, `NUL`, `COM1`, `LPT1`, any case, any suffix) get a leading
+  underscore, so a write on Windows lands in a file instead of the device.
 - `status` reconciles whole-file bytes by reference section and `.text` bytes
   by verdict, library attribution, and padding. Function extents stay within
   `.text`, and zero operands inside unknown code no longer count as padding.
