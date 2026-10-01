@@ -94,6 +94,7 @@ class TestEmitters:
         )
         assert '#pragma comment(linker, "/include:__imp__ExitProcess@4")' in text
         assert "0x2000" in text
+        assert "linker input order also determines IAT placement" in text
 
     def test_resolve_imports_unknown_suffix(self) -> None:
         from rebrew.pe_image import PeImport
