@@ -1030,7 +1030,7 @@ def _collect_data_drift(cfg: ProjectConfig) -> list[TodoItem]:
         if str(fields.get("status") or "").upper() != "DRIFT":
             continue
         name = str(fields.get("name") or f"DAT_{va:08x}")
-        size = data_symbol_size(fields)
+        size = data_symbol_size(fields, arch=getattr(cfg, "arch", "x86_32"))
         if span_is_copied(va, size, copied):
             continue
         items.append(
@@ -1084,7 +1084,7 @@ def _zero_fill_tail_checker(cfg: ProjectConfig) -> Callable[[dict[str, Any]], bo
         sec = sections.get(section)
         if sec is None:
             return False
-        size = data_symbol_size(fields)
+        size = data_symbol_size(fields, arch=getattr(cfg, "arch", "x86_32"))
         if size <= 0:
             return False
         offset = int(fields.get("va") or 0) - int(sec.va)
@@ -1144,7 +1144,7 @@ def _collect_start_data(cfg: ProjectConfig) -> list[TodoItem]:
         if in_zero_fill_tail({**fields, "va": va}):
             continue
         name = str(fields.get("name") or f"DAT_{va:08x}")
-        size = data_symbol_size(fields)
+        size = data_symbol_size(fields, arch=getattr(cfg, "arch", "x86_32"))
         items.append(
             TodoItem(
                 category=CAT_START_DATA,

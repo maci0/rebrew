@@ -62,7 +62,7 @@ class VerifyInfo:
     passed: int = 0
     failed: int = 0
     total: int = 0
-    stale: bool = False  # sources newer than the cache, or its mtime unreadable
+    stale: bool = False  # sources/metadata newer than cache, or its mtime unreadable
     #: Passes on VAs status counts as library code (not progress).
     library_passed: int = 0
     #: Last-verify rows on library-attributed VAs, passed or not.
@@ -460,6 +460,8 @@ def _load_verify_info(
     cfg: ProjectConfig,
     library_vas: frozenset[int] | set[int] = frozenset(),
     raw: dict[str, Any] | None = None,
+    *,
+    sources: list[Path] | None = None,
 ) -> VerifyInfo | None:
     """Load last verify summary from the verify cache file.
 
@@ -468,6 +470,7 @@ def _load_verify_info(
     already-validated document when the caller has one, so a run that also
     needs the effective statuses reads the cache once.
     """
+    from rebrew.metadata import metadata_path
     from rebrew.verify_cache import cache_path_for
 
     cache_path = cache_path_for(cfg)
@@ -512,13 +515,15 @@ def _load_verify_info(
     except OSError:
         timestamp = ""
         cache_mtime_ns = None
-    # Freshness: a source newer than the cache means the summary is stale.
+    # Freshness: a source or function metadata newer than the cache makes
+    # the summary stale; SIZE/CFLAGS/TOOLCHAIN edits need no source rewrite.
     # stat inside the loop races vs a write that races vs another writer:
     # read once, compare against that snapshot.  An unreadable cache mtime
     # leaves freshness unknown, which reports stale rather than current.
     stale = cache_mtime_ns is None
     if cache_mtime_ns:
-        for src in iter_sources(cfg.reversed_dir, cfg):
+        paths = iter_sources(cfg.reversed_dir, cfg) if sources is None else sources
+        for src in [*paths, metadata_path(cfg)]:
             try:
                 if src.stat().st_mtime_ns > cache_mtime_ns:
                     stale = True
@@ -884,7 +889,7 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
             continue
         if not fields.get("name"):
             continue
-        size = data_symbol_size(fields)
+        size = data_symbol_size(fields, arch=getattr(cfg, "arch", "x86_32"))
         if span_is_copied(va, size, copied):
             continue
         verdict = str(fields.get("status") or "UNCHECKED").upper()
@@ -920,7 +925,7 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     report.data_conflicting_verified_bytes = verified - report.data_verified_bytes
 
     # Verify info
-    report.verify_info = _load_verify_info(cfg, library_vas, cache_raw)
+    report.verify_info = _load_verify_info(cfg, library_vas, cache_raw, sources=sources)
 
     # Quick W019 scan: files ``rebrew lint --fix`` can migrate — counted by
     # lint's own rule (shared header parser, no full lint run).

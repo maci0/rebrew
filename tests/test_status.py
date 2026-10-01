@@ -1040,6 +1040,32 @@ class TestInlineMetadataWarning:
 
 
 class TestVerifyCacheHelpers:
+    def test_metadata_edit_marks_summary_stale_without_rescanning_sources(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import os
+
+        from rebrew.metadata import update_field
+        from rebrew.status import _load_verify_info
+
+        self._write_cache(
+            tmp_path,
+            {"version": 2, "target": "T", "entries": {"0x1": {"status": "EXACT", "passed": True}}},
+        )
+        cfg = self._cfg(tmp_path)
+        info = _load_verify_info(cfg, sources=[])
+        assert info is not None and not info.stale
+        update_field(tmp_path, 0x1, "cflags", "/Od", "T")
+        cache_mtime = (tmp_path / ".rebrew" / "verify_cache.toml").stat().st_mtime_ns
+        os.utime(tmp_path / "rebrew-functions.toml", ns=(cache_mtime + 1, cache_mtime + 1))
+
+        def no_rescan(*args: Any, **kwargs: Any) -> list[Path]:
+            raise AssertionError("status already supplied its source scan")
+
+        monkeypatch.setattr("rebrew.status.iter_sources", no_rescan)
+        info = _load_verify_info(cfg, sources=[])
+        assert info is not None and info.stale
+
     def _cfg(self, tmp_path: Path) -> object:
         from types import SimpleNamespace
 

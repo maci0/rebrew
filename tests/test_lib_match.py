@@ -1,6 +1,7 @@
 """Tests for rebrew lib-match — byte-compare reversed functions vs .lib archives."""
 
 import json
+import struct
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -10,6 +11,18 @@ from typer.testing import CliRunner
 
 CODE = bytes(range(1, 41))  # 40 distinct bytes; same in lib and target
 LIB_CODE = CODE
+
+
+def _alias_obj(alias: str, target: str, machine: int) -> bytes:
+    """Empty COFF member with a weak alias; target index counts a preceding AUX."""
+    strings = target.encode() + b"\0" + alias.encode() + b"\0"
+    symbols = struct.pack("<8sIhHBB", b".text", 0, 1, 0, 3, 1) + bytes(18)
+    symbols += struct.pack("<IIIhHBB", 0, 4, 0, 0, 0, 2, 0)
+    symbols += struct.pack("<IIIhHBB", 0, 5 + len(target), 0, 0, 0, 105, 1)
+    symbols += struct.pack("<II10s", 2, 3, bytes(10))
+    header = struct.pack("<HHIIIHH", machine, 1, 0, 60, 5, 0, 0)
+    section = struct.pack("<8sIIIIIIHHI", b".text", 0, 0, 0, 0, 0, 0, 0, 0, 0x60000020)
+    return header + section + symbols + struct.pack("<I", len(strings) + 4) + strings
 
 
 def _write_project(tmp_path: Path) -> tuple[Path, Path, int]:
@@ -55,6 +68,43 @@ def _mock_cfg(tmp_path: Path, pe_path: Path, monkeypatch: pytest.MonkeyPatch) ->
 
 
 class TestLibMatch:
+    @pytest.mark.parametrize("single_va", [False, True])
+    @pytest.mark.parametrize("machine", [0, 0x14C])
+    def test_weak_aliases_remain_ambiguous(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, single_va: bool, machine: int
+    ) -> None:
+        """Zero-code aliases forward bodies/fixups without inventing a unique name."""
+        from rebrew.lib_match import app
+
+        pe, lib, va = _write_project(tmp_path)
+        members = [
+            ("chain.obj", _alias_obj("_chain", "_alias", machine)),
+            ("alias.obj", _alias_obj("_alias", "_mylibfn", machine)),
+            ("missing.obj", _alias_obj("_missing", "_absent", machine)),
+            ("cycle1.obj", _alias_obj("_cycle1", "_cycle2", machine)),
+            ("cycle2.obj", _alias_obj("_cycle2", "_cycle1", machine)),
+            ("body.obj", make_coff_obj(CODE, func_symbol="_mylibfn", relocs=[(8, 0x14, "_call")])),
+        ]
+        lib.write_bytes(make_lib_archive(members))
+        before = lib.read_bytes()
+        _mock_cfg(tmp_path, pe, monkeypatch)
+        args = ["--lib", str(lib), "--json"]
+        if single_va:
+            args.extend(["--va", hex(va)])
+        res = CliRunner().invoke(app, args)
+        assert res.exit_code == 1, res.output
+        report = json.loads(res.output)
+        hit = report if single_va else report["findings"][0]
+        assert hit["symbol"] is None
+        assert hit["object"] is None
+        assert {c["symbol"] for c in hit["candidates"]} == {"_mylibfn", "_alias", "_chain"}
+        assert {c["object"] for c in hit["candidates"]} == {
+            "mylib.lib:body.obj",
+            "mylib.lib:alias.obj -> mylib.lib:body.obj",
+            "mylib.lib:chain.obj -> mylib.lib:alias.obj -> mylib.lib:body.obj",
+        }
+        assert lib.read_bytes() == before
+
     def test_flags_reversed_library_function(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

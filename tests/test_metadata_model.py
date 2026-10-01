@@ -81,6 +81,26 @@ def test_invalid_extent_does_not_partially_promote_status(tmp_path: Path, key: s
     assert path.read_bytes() == before
 
 
+def test_invalid_field_does_not_promote_status_or_clear_blocker(tmp_path: Path) -> None:
+    e = _entry(tmp_path)
+    e.apply(tmp_path, status="STUB", size=4, blocker="keep this evidence")
+    path = tmp_path / "rebrew-functions.toml"
+    before = path.read_bytes()
+    with pytest.raises(MetadataValidationError, match="skip must be"):
+        e.apply(tmp_path, status="EXACT", skip=[])
+    assert path.read_bytes() == before
+
+
+def test_serialization_failure_keeps_compound_edit_atomic(tmp_path: Path) -> None:
+    e = _entry(tmp_path)
+    e.apply(tmp_path, status="STUB", size=4, blocker="keep this evidence")
+    path = tmp_path / "rebrew-functions.toml"
+    before = path.read_bytes()
+    with pytest.raises(TypeError):
+        e.apply(tmp_path, status="EXACT", locals={"bad": object()})
+    assert path.read_bytes() == before
+
+
 def test_load_problems_empty_when_clean(tmp_path: Path) -> None:
     e = _entry(tmp_path)
     e.apply(tmp_path, size=8)
@@ -220,6 +240,15 @@ def test_apply_skip_needs_force(tmp_path: Path) -> None:
     # force=True is the explicit user-intent override (lint --fix migration).
     e.apply(tmp_path, status="STUB", force=True)
     assert MetadataEntry.load(tmp_path, 0x1000, "MAIN").status == "STUB"
+
+
+def test_parked_status_still_allows_associated_field_edit(tmp_path: Path) -> None:
+    e = _entry(tmp_path)
+    e.apply(tmp_path, status="SKIP", size=4)
+    e.apply(tmp_path, status="EXACT", size=8)
+    loaded = MetadataEntry.load(tmp_path, 0x1000, "MAIN")
+    assert loaded.status == "SKIP"
+    assert loaded.size == 8
 
 
 def test_remove_roundtrip(tmp_path: Path) -> None:

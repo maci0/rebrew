@@ -126,7 +126,14 @@ note    = "lookup table for sprite indices"
 Changing `name`, `type`, `size`, or `section` clears the previous verdict:
 re-run verification after editing a definition. Notes and unchanged values
 preserve it. Writers store `size` as a non-negative integer and the other
-fields as strings; lint W031 uses the same validation.
+fields as strings; lint W031 uses the same validation. Duplicate spellings
+of one `(module, VA)` count once; W031 reports them and granular writers
+refuse ambiguous updates.
+
+Verification needs a known complete extent. Without `size`, only supported
+x86_32 types and complete constant arrays are inferred; unresolved types or
+bounds and other architectures need explicit `size`. A matching prefix of
+an unknown-sized symbol cannot earn `VERIFIED`.
 
 > [!CAUTION]
 > **Never manually edit `rebrew-data.toml`.** It is managed automatically by `rebrew data`,

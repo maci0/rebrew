@@ -267,6 +267,7 @@ __all__ = [
     "should_promote_status",
     "stamp_format",
     "stamp_provenance",
+    "validate_metadata_field",
     "validate_identity_file",
     "update_field",
     "update_source_status",
@@ -298,7 +299,7 @@ def is_table_field(key: str) -> bool:
 
     Inline ``// KEY: value`` comments carry scalars only, so a caller migrating
     an inline key must not hand a string to a table field — ``update_field``
-    rejects it (``_validate_field``), which surfaced as a traceback out of
+    rejects it (``validate_metadata_field``), which surfaced as a traceback out of
     ``rebrew lint --fix``.
     """
     return _FIELD_TYPES.get(key.lower()) is dict
@@ -486,7 +487,7 @@ the truthy spellings the readers understand.
 """
 
 
-def _validate_field(key: str, value: Any) -> Any:
+def validate_metadata_field(key: str, value: Any) -> Any:
     """Validate *value* for lower-case TOML *key*; return the value to store.
 
     Raises :class:`ValueError` on an unknown key or a wrongly-typed value.
@@ -720,7 +721,7 @@ def set_fields(
                 raise ValueError(
                     "Use update_source_status() for STATUS changes — it enforces promotion rules"
                 )
-            safe = toml_safe(_validate_field(key, value))
+            safe = toml_safe(validate_metadata_field(key, value))
             if entry.get(key) != safe:
                 entry[key] = safe
                 changed = True
@@ -791,7 +792,7 @@ def set_fields_batch(
                 key = key.lower()
                 if key == "status":
                     raise ValueError("Use update_statuses_batch() for STATUS changes")
-                safe = toml_safe(_validate_field(key, value))
+                safe = toml_safe(validate_metadata_field(key, value))
                 if entry.get(key) != safe:
                     entry[key] = safe
                     changed = True
@@ -855,7 +856,7 @@ def record_migrated_markers(metadata_dir: Path | str | Any, rows: list[dict[str,
                 key = key.lower()
                 if key == "status":
                     raise ValueError("Use update_statuses_batch() for STATUS changes")
-                updates[key] = toml_safe(_validate_field(key, value))
+                updates[key] = toml_safe(validate_metadata_field(key, value))
             for key, value in (row.get("identity") or {}).items():
                 if key not in MARKER_IDENTITY_FIELDS:
                     raise ValueError(f"unknown marker identity field {key!r}")
@@ -1082,7 +1083,7 @@ def update_field(
         directory,
         va,
         key,
-        _validate_field(key, value),
+        validate_metadata_field(key, value),
         module=module,
         updated_by=updated_by,
         now=now,
@@ -1278,8 +1279,10 @@ def update_statuses_batch(
     *updates*: list of dicts with keys ``module``, ``va``, ``new_status``
     and optional ``clear_blockers`` (default True), ``force`` (default
     False), ``updated_by`` (provenance tag; when set, also records
-    ``updated_at``).  Returns the number of entries written, which counts a
-    same-status write that only stripped a stale blocker.  *now* fixes that
+    ``updated_at``), and ``fields`` (non-STATUS fields applied in the same
+    atomic write, even if STATUS stays parked). Returns the number of entries
+    written, including a same-status write that stripped a stale blocker or
+    changed associated fields. *now* fixes that
     one instant for every row the batch stamps, so a replay lands the same
     bytes (see :func:`stamp_provenance`).
 
@@ -1332,31 +1335,33 @@ def update_statuses_batch(
             clear_blockers = u.get("clear_blockers", True)
             force = u.get("force", False)
 
-            # Idempotency guard — avoid a write when nothing changed
             current_status = canonical_status(str(entry.get("status", "")))
             current_blocker = entry.get("blocker", "")
             current_blocker_delta = entry.get("blocker_delta")
-            if current_status == new_status and (
-                not clear_blockers or (not current_blocker and current_blocker_delta is None)
-            ):
-                continue
-
-            # Canonical promotion policy — only consulted for actual status
-            # changes; same-status writes proceed so clear_blockers can
-            # strip a stale blocker from an already-classified entry.
-            if (
+            status_change = (
                 current_status != new_status
-                and not force
-                and not should_promote_status(current_status, new_status)
-            ):
+                or (clear_blockers and (bool(current_blocker) or current_blocker_delta is not None))
+            ) and (
+                current_status == new_status
+                or force
+                or should_promote_status(current_status, new_status)
+            )
+            row_changed = bool(status_change)
+            if status_change:
+                entry["status"] = new_status
+                if clear_blockers:
+                    entry.pop("blocker", None)
+                    entry.pop("blocker_delta", None)
+            for key, value in (u.get("fields") or {}).items():
+                key = key.lower()
+                if key == "status":
+                    raise ValueError("Use new_status for STATUS changes")
+                safe = toml_safe(validate_metadata_field(key, value))
+                if entry.get(key) != safe:
+                    entry[key] = safe
+                    row_changed = True
+            if not row_changed:
                 continue
-
-            entry["status"] = new_status
-            if clear_blockers:
-                with contextlib.suppress(KeyError):
-                    del entry["blocker"]
-                with contextlib.suppress(KeyError):
-                    del entry["blocker_delta"]
             updated_by = str(u.get("updated_by") or "")
             if updated_by:
                 stamp_provenance(entry, updated_by, now=now)

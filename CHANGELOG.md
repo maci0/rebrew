@@ -1,6 +1,11 @@
 ## [Unreleased]
 
 ### Breaking
+- **Breaking:** `metadata_model.METADATA_FILENAME`,
+  `metadata_model.resolve_metadata_dir`, `metadata_model.update_source_status`,
+  and `metadata_model.metadata_write_lock` are no longer re-exported. Import
+  the first three from `rebrew.metadata` and the lock from
+  `rebrew.metadata_doc`; compound edits now use the atomic STATUS batch writer.
 - **Breaking:** `lib_match.match_bytes` and `lib_match.match_leading_body` now
   return `list[tuple[str, str]]` of candidates instead of
   `tuple[str, str] | None`. Relocation masking makes distinct library bodies
@@ -31,6 +36,24 @@
   share the scorer's explicit relocation masking without importing a private name.
 
 ### Fixed
+- The lockfile uses virtualenv 21.14.2 and records its declared MIT grant in the dependency inventory.
+- Function metadata and lint W031 share field validation. Compound typed
+  edits write STATUS and associated fields atomically, preserving old
+  verdicts and blockers on validation or serialization failure. Nested
+  metadata strings and keys are sanitized without silently merging keys.
+- Data verification and accounting require complete known extents instead
+  of guessing sizes for unresolved arrays, structs, and typedefs; other
+  architectures require explicit sizes. `short int` spellings use two bytes,
+  and supported constant array expressions are sized through the C AST.
+- `status` marks the last verification stale after function metadata changes,
+  including SIZE/CFLAGS/TOOLCHAIN edits that leave source files untouched,
+  and reuses its source scan when checking freshness.
+- `lib-match` retains COFF weak `SEARCH_ALIAS` candidates, including stock
+  MSVC's machine-neutral, zero-code tcmap members. Alias chains forward the
+  target's body and relocation mask; JSON keeps ambiguous names null and
+  records both the alias member and actual code owner. Missing targets and
+  cycles without a body produce no match. Parser normalization is in memory
+  only; no archive or linker input is modified.
 - Shared struct parsing handles multidimensional array fields, fixing a
   `StopIteration` crash in `rebrew types` and struct consumers in BinSync.
 - The CMake linker bridge preserves `/STUB:` while translating absolute DOS
@@ -45,6 +68,9 @@
   STATUS, preventing partial writes on invalid extents.
   Shared metadata key parsing rejects non-ASCII or padded addresses and
   normalizes module identity consistently between raw and cached readers.
+  Duplicate key spellings count as one data symbol and are reported by lint
+  W031; granular writers reject them before a partial update can be hidden
+  or a deleted field resurrected by another spelling.
 - `build-check --objects` bounds its `make -q` freshness probe with a timeout
   and kills make's process group, so a wedged mount or a hung sub-make can no
   longer block the command. A probe that times out, or a make that cannot be

@@ -772,15 +772,21 @@ _TYPE_SIZES: dict[str, int] = {
     "BYTE": 1,
     "BOOLEAN": 1,
     "short": 2,
+    "short int": 2,
     "unsigned short": 2,
+    "unsigned short int": 2,
     "signed short": 2,
+    "signed short int": 2,
     "wchar_t": 2,
     "WORD": 2,
     "int": 4,
     "unsigned int": 4,
     "signed int": 4,
     "long": 4,
+    "long int": 4,
     "unsigned long": 4,
+    "unsigned long int": 4,
+    "signed long int": 4,
     "BOOL": 4,  # Windef.h: typedef int BOOL
     "DWORD": 4,
     "LONG": 4,
@@ -875,12 +881,16 @@ def c_type_size(ctype: str) -> int:
     return 4
 
 
-def data_symbol_size(fields: dict[str, Any]) -> int:
-    """Known symbol extent from SIZE, otherwise the existing type-size model.
+def data_symbol_size(fields: dict[str, Any], *, arch: str = "x86_32") -> int:
+    """Known symbol extent from SIZE or a supported fixed-size declaration.
 
     An invalid explicit SIZE stays unknown rather than being truncated or
-    replaced by an estimate. Zero is an unspecified size.
+    replaced by an estimate. Unresolved bounds, structs, and unknown typedefs
+    need explicit SIZE; a guessed prefix cannot prove the complete symbol.
+    Zero is an unspecified size. Type inference uses the existing x86_32
+    model; other architectures need explicit SIZE.
     """
+    from rebrew.c_parser import array_type_shape
     from rebrew.metadata import as_metadata_int
 
     try:
@@ -889,8 +899,26 @@ def data_symbol_size(fields: dict[str, Any]) -> int:
         return 0
     if size < 0:
         return 0
+    if size:
+        return size
+    if arch != "x86_32":
+        return 0
     type_str = fields.get("type")
-    return size or (estimate_type_size(type_str) if isinstance(type_str, str) and type_str else 0)
+    if not isinstance(type_str, str) or not type_str:
+        return 0
+    base, dimensions = array_type_shape(type_str)
+    if "[" in type_str and not dimensions:
+        return 0
+    base = " ".join(word for word in base.split() if word not in _NON_TYPE_WORDS)
+    if "(" in base or ")" in base:
+        return 0
+    # ponytail: existing 32-bit type model; other ABIs need explicit SIZE.
+    width = 4 if base.endswith("*") else _TYPE_SIZES.get(base, 0)
+    for bound in dimensions:
+        if not isinstance(bound, int) or bound <= 0:
+            return 0
+        width *= bound
+    return width
 
 
 def estimate_type_size(type_str: str) -> int:

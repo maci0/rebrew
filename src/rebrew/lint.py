@@ -849,26 +849,33 @@ def _check_W031_metadata_store(cfg: ProjectConfig) -> list[LintResult]:
     the store's vocabulary, half a provenance pair, a provenance tag outside
     :data:`rebrew.metadata.PROVENANCE_TAGS`, a top-level key that is neither the
     format stamp nor a ``MODULE.0xVA`` entry, or a missing / foreign format
-    stamp.  A reader drops an unknown key silently and falls back to the
+    stamp, or duplicate spellings of the same identity. A reader drops an
+    unknown key silently and falls back to the
     default, so the symptom is a flag that "did not apply" with nothing to
     explain it.  Warn-only, reported per entry: the rest of the store loads.
     """
     from rebrew.data_metadata import (
         DATA_METADATA_FIELDS,
         DATA_METADATA_FILENAME,
-        DATA_STATUSES,
         validate_data_field,
     )
-    from rebrew.metadata import FORMAT_KEY, FORMAT_VERSION, PROVENANCE_TAGS
+    from rebrew.metadata import (
+        FORMAT_KEY,
+        FORMAT_VERSION,
+        PROVENANCE_TAGS,
+        validate_metadata_field,
+    )
     from rebrew.metadata_doc import parse_metadata_key
     from rebrew.utils import load_tomllib
+    from rebrew.workspace.status import KNOWN_STATUSES
 
     results: list[LintResult] = []
 
     def check_store(
         path: Path,
         fields: frozenset[str],
-        statuses: frozenset[str] | None,
+        *,
+        data_store: bool,
     ) -> None:
         if not path.is_file():
             return
@@ -918,14 +925,25 @@ def _check_W031_metadata_store(cfg: ProjectConfig) -> list[LintResult]:
             for name in entry:
                 if str(name).upper() not in known_fields:
                     problems.append(f"{key}: unknown field {name!r} (every reader ignores it)")
-            if statuses is not None:
-                for name, value in entry.items():
-                    if str(name).upper() not in known_fields:
-                        continue
-                    try:
+                elif str(name) != str(name).lower():
+                    problems.append(f"{key}: field {name!r} must use lower-case spelling")
+            for name, value in entry.items():
+                if str(name).upper() not in known_fields:
+                    continue
+                try:
+                    if data_store:
                         validate_data_field(str(name), value)
-                    except (TypeError, ValueError) as exc:
-                        problems.append(f"{key}: {exc}")
+                    elif str(name).upper() in METADATA_FIELDS:
+                        validate_metadata_field(str(name), value)
+                        if (
+                            str(name).lower() == "status"
+                            and canonical_status(value) not in KNOWN_STATUSES
+                        ):
+                            raise ValueError(f"unknown STATUS {value!r}")
+                    elif not isinstance(value, str):
+                        raise ValueError(f"{name} must be a string, got {value!r}")
+                except (TypeError, ValueError) as exc:
+                    problems.append(f"{key}: {exc}")
             if ("updated_by" in lower) != ("updated_at" in lower):
                 problems.append(
                     f"{key}: half a provenance pair (updated_by / updated_at are written together)"
@@ -948,12 +966,12 @@ def _check_W031_metadata_store(cfg: ProjectConfig) -> list[LintResult]:
     check_store(
         (Path(cfg.metadata_dir) / "rebrew-functions.toml").resolve(),
         function_fields,
-        None,
+        data_store=False,
     )
     check_store(
         (Path(cfg.metadata_dir) / DATA_METADATA_FILENAME).resolve(),
         DATA_METADATA_FIELDS,
-        DATA_STATUSES,
+        data_store=True,
     )
     return results
 
