@@ -617,7 +617,7 @@ graph TD
 | `--built PATH` | Built binary for `--data` / `--text` / `--whole-binary` comparison (default `build/<target>`) |
 | `--raw-link` | Ack that `--built` is the raw link, not a postlinked deliverable. Without it, `--data` suppresses DRIFT status write-backs (a raw link's `.data` divergence is postlink-supplied and would flip wrong statuses) |
 | `--text` | Check built `.text` function placement against the `// FUNCTION:` markers via `text-audit`; exit 1 on any misplaced function |
-| `--whole-binary` | Compare built binary against the reference: section sizes, exports, imports, `.rsrc` bytes, headers, plus layout-freshness check |
+| `--whole-binary` | Compare built binary against the reference: whole-file raw bytes, section sizes, exports, imports, PE base relocations, `.rsrc` bytes, headers, plus layout-freshness check |
 | `--context FILE` | Compile every source with these declarations merged ahead of it under `#line` directives (see `rebrew test --context`); each result and the report carry `context_hash`. Each entry records the context digest it was earned under, so a cached verdict is served only to a run pinned to the exact same context (a changed or absent digest re-verifies); context runs write back like bare runs |
 | `--dir TEXT` | Restrict to this subdirectory: project-relative first (`src/shared` scopes the shared tree), then relative to reversed_dir |
 | `--origin TEXT` | Restrict to one module (e.g. GAME) |
@@ -638,7 +638,9 @@ not missing functions, and reads as such in the human line.
 block (same shape as `text-audit`: `functions`/`found`/`correct`/`misplaced`/
 `missing` counts plus the `misplaced_list` rows, exit 1 on any misplaced
 function); `--whole-binary` adds
-a `whole_binary` block (per-area verdicts for sections, exports, imports,
+a `whole_binary` block (per-area verdicts for `file` (whole-file raw bytes, with
+the first differing file offset), sections, exports, imports, `relocations` (PE
+base fixups by RVA and type, with the block/directory/section byte layout),
 `rsrc`, headers, plus `layout` freshness; `errors` lists binaries that failed
 to load or parse, which counts as drift).
 Per-function result rows carry `diff_lines` (structural diff count),
@@ -1242,6 +1244,11 @@ never ships a `.LIB`.
 | `--allow FILE` | VAs known to be library code kept for link reasons (one hex per line, `#` comments) |
 | `--target NAME` | Select a target from `rebrew-project.toml` |
 | `--json` | Output results as JSON |
+
+A masked wrapper pair can match several library bodies, so a JSON finding
+carries `symbol` and `object` (each `null` when the bytes do not resolve one)
+beside a `candidates` array of every `{symbol, object}` pair; `--va` answers
+the same shape plus `library`.
 
 ### `rebrew extract`
 

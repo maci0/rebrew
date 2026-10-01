@@ -1,5 +1,27 @@
 ## [Unreleased]
 
+### Breaking
+- **Breaking:** `lib_match.match_bytes` and `lib_match.match_leading_body` now
+  return `list[tuple[str, str]]` of candidates instead of
+  `tuple[str, str] | None`. Relocation masking makes distinct library bodies
+  identical (an `fread`/`fwrite` wrapper pair), so one match proves library
+  origin but never a unique name; a consumer that unpacked the pair
+  (`sym, obj = match_bytes(index, data)`) now unpacks a list and raises.
+  An empty list means no match, where `None` meant it. `rebrew lib-match --json`
+  answers `--va` and each finding with `symbol` and `object` (either is `null`
+  when the bytes do not resolve one) plus a `candidates` array of every
+  `{symbol, object}` pair, so a client reading `symbol` keeps working where
+  the bytes are masked.
+- **Breaking:** `data_verify.fill_uncovered_zero_fill` is gone. It fabricated
+  reference zero-fill into the built image so that reference BSS the build
+  stops short of compared equal; it now reports that span missing instead of
+  passing it. The `zero_fill=` keyword of
+  `data_verify.section_symbol_bytes` still collects the spans it needs.
+- **Breaking:** `rebrew.test` no longer re-exports `contained_path` and
+  `source_roots`. They are unchanged in `rebrew.sources`; the two names left
+  `rebrew.test` because its annotation paths now read the compiled source it
+  already holds rather than resolving the file again.
+
 ### Fixed
 - `report`'s strings page states how many strings it is showing, the way the
   index, imports and import-stub pages already do. A single-page strings table
@@ -13,7 +35,7 @@
   zstd / 13319 gzip and 560/592 B, so the binding gzip path had 1 byte of
   slack against the 13320 B budget, not the 21 the prose claimed. A test pins
   both totals, so the record cannot drift again.
-- Library body matching reports all candidate symbols when relocation masking makes wrappers identical, so `lib-match` and `todo` no longer assign an arbitrary function name. The `match_bytes` and `match_leading_body` APIs now return candidate lists (empty for no match).
+- Library body matching reports every candidate symbol when relocation masking makes wrappers identical, and says on the terminal when the bytes do not resolve a unique name. See the Breaking entry for the API shape and the JSON.
 - CMake LIB wrappers preserve `/DEF`, `/LIST`, `/LIBPATH`, and `/OUT` option prefixes when translating their path operands.
 - COFF library inspection resolves long function names stored as suffixes of other string-table entries, including LIB compatibility-format import members.
 - CMake toolchain wrappers translate paths inside response files using temporary copies, so absolute POSIX object paths reach Wine correctly.
