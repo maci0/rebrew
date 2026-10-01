@@ -80,13 +80,14 @@ pull the attributed components named in [`NOTICE`](NOTICE) (`pyvex`/LibVEX,
 extras, and without angr every `angr`/`claripy` reference collapses to `Any`
 (unknown `SimProcedure` base, `import-not-found`, unused `type: ignore`).
 The `similarity` group (`rapidfuzz`, `resembl`) is the same class of gap:
-`matcher/scoring.py` imports both, and both ship type information, so without
-them mypy reports `import-not-found` there. `make mypy` checks for both
-before running and names the fix instead of printing the cascade; the same
-check runs in the pre-commit `mypy` hook. `make test` and `make coverage`
-run the same preflight for the same reason on the other gate: those tests
-skip without the groups, so a venv that never saw `make setup` would report
-a green suite that never exercised the code CI's test job runs. `make test-one`
+`src/rebrew/matcher/scoring.py` imports both, and both ship type
+information, so without them mypy reports `import-not-found` there. `make
+mypy` checks for both before running and names the fix instead of printing
+the cascade; the same check runs in the pre-commit `mypy` hook. `make test`
+and `make coverage` run the same preflight for the same reason on the other
+gate: those tests skip without the groups, so a venv that never saw `make
+setup` would report a green suite that never exercised the code CI's test job
+runs. `make test-one`
 only warns, like its nasm and node checks, so an unrelated file stays
 runnable. Every target that
 shells out to `uv run` likewise fails with `ERROR: uv not on PATH` rather than
