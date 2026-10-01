@@ -609,6 +609,18 @@ def score_candidate(
     # on par with having wrong bytes (~1000 per byte).
     byte_score += float(len_diff)
 
+    # Explicit fixups account for every differing byte. Inline pointer tables
+    # may decode as unrelated opcodes before linking; that mnemonic noise must
+    # not make the GA or flag sweep reject an otherwise complete RELOC match.
+    if reloc_offsets is not None and byte_score == 0.0:
+        prologue_bonus = (
+            _PROLOGUE_BONUS
+            if min_len >= _PROLOGUE_LEN
+            and target_bytes[:_PROLOGUE_LEN] == candidate_bytes[:_PROLOGUE_LEN]
+            else 0.0
+        )
+        return Score(0, 0.0, 0.0, 0.0, prologue_bonus)
+
     # 2. Relocation-aware similarity
     reloc_score = 0.0
     cand_mnems: list[str] | None = None
@@ -808,6 +820,27 @@ def diff_functions(
             _zero_reloc_fields_raw(addr, size, b, norm_cand_buf, _md_det_fallback)
         norm_target = bytes(norm_target_buf)
         norm_cand = bytes(norm_cand_buf)
+
+    # Inline pointer tables decode into different instruction boundaries when
+    # the object holds unresolved relocations. Once the complete buffers match
+    # outside explicit fixups, use the reference boundaries for both views.
+    # Keep the candidate's raw bytes; a range that cannot decode at that width
+    # is displayed as data rather than inventing a missing instruction tail.
+    if (
+        reloc_offsets is not None
+        and norm_target == norm_cand
+        and [(a, s) for a, s, *_ in target_insns] != [(a, s) for a, s, *_ in cand_insns]
+    ):
+        cand_insns = []
+        for addr, size, _mnem, _op, _raw in target_insns:
+            raw = candidate_bytes[addr : addr + size]
+            decoded = next(md.disasm_lite(raw, addr), None)
+            if decoded is not None and decoded[1] == size:
+                mnem, op = decoded[2:]
+            else:
+                mnem, op = "db", raw.hex(" ")
+            cand_insns.append((addr, size, mnem, op, raw))
+
     if register_aware and norm_target:
         _t_buf = bytearray(norm_target)
         _apply_register_mask(target_bytes, _t_buf, cs_arch, cs_mode)

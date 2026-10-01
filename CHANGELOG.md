@@ -23,6 +23,10 @@
   already holds rather than resolving the file again.
 
 ### Fixed
+- Instruction diffs align relocation-only inline pointer tables with the
+  reference, preventing unresolved object pointers from creating false
+  structural mismatches and missing instruction tails. GA and flag-sweep
+  scoring accept their complete masked byte matches without a mnemonic penalty.
 - `rebrew sync`'s MCP pull closes every walk with one record naming the tool,
   the program, the pages and items it read, how long it took, and whether it
   ran to the end. A pull stopped by an item cap, the page cap, or a server

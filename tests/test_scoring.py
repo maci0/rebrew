@@ -467,6 +467,28 @@ class TestDiffFunctions:
         assert isinstance(result, dict)
         assert len(result["instructions"]) == 0
 
+    def test_unresolved_inline_table_does_not_create_structural_diffs(self) -> None:
+        target = b"\xc3" + bytes.fromhex("39780110 15780110") + b"\x90\xc3"
+        candidate = b"\xc3" + bytes(8) + b"\x90\xc3"
+        result = diff_functions(target, candidate, [1, 5], as_dict=True)
+        assert result is not None
+        assert result["summary"]["structural"] == 0
+        assert result["summary"]["reloc"] > 0
+        assert (
+            b"".join(bytes.fromhex(r["candidate"]["bytes"]) for r in result["instructions"])
+            == candidate
+        )
+        assert structural_similarity(target, candidate, [1, 5]).structural == 0
+        assert score_candidate(target, candidate, [1, 5]).total == 0.0
+
+        invalid = diff_functions(target, candidate, [1, 5], invalid_relocs=[5], as_dict=True)
+        assert invalid is not None
+        assert invalid["summary"]["invalid"] > 0
+        changed = diff_functions(target, candidate[:-2] + b"\x40\xc3", [1, 5], as_dict=True)
+        assert changed is not None
+        assert changed["summary"]["structural"] > 0
+        assert score_candidate(target, candidate[:-2] + b"\x40\xc3", [1, 5]).byte_score > 0
+
     def test_disp32_zeroed_general(self) -> None:
         # A1 00 00 00 10 is mov eax, dword ptr [0x10000000]
         # This is caught by the specific A0-A3 check, but let's test a general one like 8b 0d
