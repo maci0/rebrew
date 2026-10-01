@@ -506,7 +506,14 @@ def end_mcp_session(client: McpHttpClient, endpoint: str, session_id: str) -> No
             timeout=MCP_SESSION_END_TIMEOUT_S,
         )
     except httpx.HTTPError as exc:
-        logger.debug("MCP session %s termination failed at %s: %s", session_id, endpoint, exc)
+        # WARNING, not DEBUG: Python drops a DEBUG record without a
+        # DEBUG-configured handler, so at DEBUG this failure left no trace at
+        # all.  It is the one fault on this path with no other symptom — the
+        # caller's result is unaffected by design — while the server keeps the
+        # session's state until told otherwise, so the sessions accumulate
+        # until the server refuses new ones, with nothing in the log to say
+        # why.  The call still must not raise: this runs on the cleanup path.
+        logger.warning("MCP session %s termination failed at %s: %s", session_id, endpoint, exc)
         return
     close_response(resp)
 
@@ -527,12 +534,38 @@ def _paginate_mcp_list(
     Shared by ``fetch_all_symbols`` / ``fetch_all_functions`` so the
     nextStartIndex / totalCount advance guards cannot drift apart.
     Returns the raw per-item dicts (metadata rows excluded).
+
+    Every exit path logs one record naming the tool, the program, how many
+    pages and items came back, how long the walk took, and whether it ran to
+    the end.  A pull that stops early (a cap, a page the server would not
+    advance past, a transport failure ending the walk) returns a list that is
+    indistinguishable from a complete one, so without this record a truncated
+    program reads as a full sync until someone counts rows against Ghidra.
+    ``apply_commands_via_mcp`` already closes its run this way; the pull path
+    had no equivalent.  Complete walks log at INFO, incomplete ones at
+    WARNING, so a grep separates them without parsing the message.
     """
     if batch_size <= 0:
         raise McpError("batch_size must be positive", kind="validation")
+    started = time.perf_counter()
     items: list[dict[str, Any]] = []
     start = 0
     request_id = request_id_start
+    pages = 0
+
+    def finish(outcome: str) -> list[dict[str, Any]]:
+        """Log the one record this walk produces, then hand back its items."""
+        record = logger.warning if outcome != "complete" else logger.info
+        record(
+            "MCP %s pull of %s: %s (%d page(s), %d item(s), %.1fs)",
+            tool_name,
+            program_path,
+            outcome,
+            pages,
+            len(items),
+            time.perf_counter() - started,
+        )
+        return items
 
     for _ in range(MAX_MCP_PAGES):
         raw = fetch_mcp_tool(
@@ -564,17 +597,24 @@ def _paginate_mcp_list(
                 page.append(item)
 
         items.extend(page)
+        pages += 1
 
         if metadata is None or len(page) == 0:
-            return items
+            # ``fetch_mcp_tool`` answers an empty list for a failure it logged
+            # (transport, HTTP, oversized body, unparseable reply) as well as
+            # for a page the server finished on, and this layer cannot tell
+            # those two apart from the list alone.  The metadata row can: a
+            # server that answers with one has reported its state, so a short
+            # or empty page is the walk ending as designed — a program with no
+            # symbols reports ``totalCount: 0`` and is complete, not a fault.
+            # No metadata row on the first page means no usable answer arrived
+            # at all, which is the unreachable-endpoint case, so it reports at
+            # WARNING rather than as a clean pull of nothing.
+            if metadata is None and not items:
+                return finish("ended on the first page with no rows")
+            return finish("complete")
         if len(items) >= MAX_MCP_ITEMS:
-            logger.warning(
-                "MCP %s pagination hit the %s-item cap for %s; returning partial list",
-                tool_name,
-                MAX_MCP_ITEMS,
-                program_path,
-            )
-            return items
+            return finish(f"stopped at the {MAX_MCP_ITEMS}-item cap")
         # A metadata row without a usable ``totalCount`` reports no total, so
         # the count check below cannot stop the walk; the page runs until the
         # server sends a short or empty page, bounded by MAX_MCP_ITEMS.
@@ -589,18 +629,12 @@ def _paginate_mcp_list(
         # Stop on a server that echoes nextStartIndex without advancing,
         # which would otherwise loop forever.
         if next_start <= start:
-            return items
+            return finish("stopped: server did not advance nextStartIndex")
         start = next_start
         if total >= 0 and start >= total:
-            return items
+            return finish("complete")
 
-    logger.warning(
-        "MCP %s pagination hit %s-page cap for %s; returning partial list",
-        tool_name,
-        MAX_MCP_PAGES,
-        program_path,
-    )
-    return items
+    return finish(f"stopped at the {MAX_MCP_PAGES}-page cap")
 
 
 def fetch_all_symbols(

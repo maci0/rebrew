@@ -662,6 +662,151 @@ class TestFetchAllPaginated:
         )
         assert [s["name"] for s in syms] == ["a", "b"]
 
+    def test_complete_pull_logs_pages_items_and_duration(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """One INFO record closes a walk that ran to the end, with its counts."""
+        import rebrew.ghidra.client as client
+
+        pages = [
+            [{"nextStartIndex": 2, "totalCount": 4}, {"address": "0x1000", "name": "a"}],
+            [{"nextStartIndex": 4, "totalCount": 4}, {"address": "0x1001", "name": "b"}],
+        ]
+        monkeypatch.setattr(client, "fetch_mcp_tool", lambda *a, **k: pages.pop(0) if pages else [])
+        with caplog.at_level(logging.INFO, logger="rebrew.ghidra.client"):
+            syms = client.fetch_all_symbols(  # type: ignore[arg-type]
+                None, "http://x", "/prog", "s", batch_size=2
+            )
+        assert len(syms) == 2
+        close = [r for r in caplog.records if "pull of /prog" in r.getMessage()]
+        assert len(close) == 1
+        assert close[0].levelno == logging.INFO
+        message = close[0].getMessage()
+        assert "get-symbols" in message
+        assert "complete" in message
+        assert "2 page(s)" in message
+        assert "2 item(s)" in message
+
+    def test_capped_pull_logs_a_warning_not_a_completion(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A walk stopped by a cap reports the cap at WARNING, not as complete."""
+        import rebrew.ghidra.client as client
+
+        monkeypatch.setattr(client, "MAX_MCP_ITEMS", 3)
+        monkeypatch.setattr(
+            client,
+            "fetch_mcp_tool",
+            lambda _c, _e, _t, args, *_a, **_k: [
+                {"nextStartIndex": int(args["startIndex"]) + 2},
+                {"address": "0x1", "name": "a"},
+                {"address": "0x2", "name": "b"},
+            ],
+        )
+        with caplog.at_level(logging.INFO, logger="rebrew.ghidra.client"):
+            client.fetch_all_symbols(  # type: ignore[arg-type]
+                None, "http://x", "/prog", "s", batch_size=2
+            )
+        close = [r for r in caplog.records if "pull of /prog" in r.getMessage()]
+        assert len(close) == 1
+        assert close[0].levelno == logging.WARNING
+        assert "3-item cap" in close[0].getMessage()
+
+    def test_page_cap_and_stalled_server_are_reported(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Every truncated walk names its reason instead of reading as complete."""
+        import rebrew.ghidra.client as client
+
+        monkeypatch.setattr(client, "MAX_MCP_PAGES", 2)
+        monkeypatch.setattr(
+            client,
+            "fetch_mcp_tool",
+            lambda _c, _e, _t, args, *_a, **_k: [
+                {"nextStartIndex": int(args["startIndex"]) + 1},
+                {"address": "0x1", "name": "a"},
+            ],
+        )
+        with caplog.at_level(logging.INFO, logger="rebrew.ghidra.client"):
+            client.fetch_all_symbols(  # type: ignore[arg-type]
+                None, "http://x", "/prog", "s", batch_size=1
+            )
+        assert any(
+            "2-page cap" in r.getMessage()
+            for r in caplog.records
+            if "pull of /prog" in r.getMessage()
+        )
+
+        caplog.clear()
+        monkeypatch.setattr(
+            client,
+            "fetch_mcp_tool",
+            lambda _c, _e, _t, _args, *_a, **_k: [
+                {"nextStartIndex": 0},
+                {"address": "0x1", "name": "a"},
+            ],
+        )
+        with caplog.at_level(logging.INFO, logger="rebrew.ghidra.client"):
+            client.fetch_all_symbols(  # type: ignore[arg-type]
+                None, "http://x", "/prog", "s", batch_size=1
+            )
+        stalled = [r for r in caplog.records if "pull of /prog" in r.getMessage()]
+        assert len(stalled) == 1
+        assert stalled[0].levelno == logging.WARNING
+        assert "did not advance nextStartIndex" in stalled[0].getMessage()
+
+    def test_a_pull_that_never_got_a_page_is_not_reported_complete(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """An empty first page is a failed walk, not a completed pull of nothing.
+
+        ``fetch_mcp_tool`` answers ``[]`` for both a finished walk and a
+        failure it already logged, so the pagination loop has to say which one
+        it saw or an unreachable endpoint reads as an empty program.
+        """
+        import rebrew.ghidra.client as client
+
+        monkeypatch.setattr(client, "fetch_mcp_tool", lambda *a, **k: [])
+        with caplog.at_level(logging.INFO, logger="rebrew.ghidra.client"):
+            assert (
+                client.fetch_all_symbols(  # type: ignore[arg-type]
+                    None, "http://x", "/prog", "s"
+                )
+                == []
+            )
+        close = [r for r in caplog.records if "pull of /prog" in r.getMessage()]
+        assert len(close) == 1
+        assert close[0].levelno == logging.WARNING
+        assert "first page" in close[0].getMessage()
+        assert "0 item(s)" in close[0].getMessage()
+
+    def test_an_empty_program_is_a_complete_pull(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """``totalCount: 0`` with no rows is a server that answered, not a fault.
+
+        The record above keys on the missing metadata row precisely so this
+        case stays INFO: warning on it would page an operator for every empty
+        program in a workspace, which is the alert fatigue this record must not
+        introduce.
+        """
+        import rebrew.ghidra.client as client
+
+        monkeypatch.setattr(
+            client, "fetch_mcp_tool", lambda *a, **k: [{"totalCount": 0, "nextStartIndex": 0}]
+        )
+        with caplog.at_level(logging.INFO, logger="rebrew.ghidra.client"):
+            assert (
+                client.fetch_all_symbols(  # type: ignore[arg-type]
+                    None, "http://x", "/prog", "s"
+                )
+                == []
+            )
+        close = [r for r in caplog.records if "pull of /prog" in r.getMessage()]
+        assert len(close) == 1
+        assert close[0].levelno == logging.INFO
+        assert "complete" in close[0].getMessage()
+
     def test_non_positive_batch_size_is_validation_error(self) -> None:
         from rebrew.ghidra.client import McpError, fetch_all_functions, fetch_all_symbols
 
@@ -1188,6 +1333,33 @@ class TestEndMcpSession:
         down = _Down()
         end_mcp_session(down, "http://x", "sess-9")  # type: ignore[arg-type]
         assert down.calls == 1
+
+
+class TestEndMcpSessionVisibility:
+    """A swallowed termination failure is the only symptom of a leaked session."""
+
+    def test_failure_is_visible_without_a_debug_handler(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """It must not be DEBUG: Python drops those when no handler claims them.
+
+        The failure changes nothing about the caller's result by design, so at
+        DEBUG the server-side session is never released and nothing says so.
+        """
+        import httpx
+
+        from rebrew.ghidra.client import end_mcp_session
+
+        class _Down:
+            def delete(self, *_a: object, **_k: object) -> None:
+                raise httpx.ConnectError("refused")
+
+        with caplog.at_level(logging.INFO, logger="rebrew.ghidra.client"):
+            end_mcp_session(_Down(), "http://x", "sess-9")  # type: ignore[arg-type]
+        warned = [r for r in caplog.records if "termination failed" in r.getMessage()]
+        assert len(warned) == 1
+        assert warned[0].levelno == logging.WARNING
+        assert "sess-9" in warned[0].getMessage()
 
 
 class TestApplyRunSummary:

@@ -283,11 +283,40 @@ class TestCompileSource:
                 sleep=lambda _s: None,
             )
         lines = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
-        assert len(lines) == 2
+        assert len(lines) == 3
         assert "http://svc" in lines[0]
         assert "attempt 1/3" in lines[0] and "attempt 2/3" in lines[1]
         assert "http 503" in lines[0]
         assert "retrying in 0.25s" in lines[0] and "retrying in 0.50s" in lines[1]
+        # The exhausted run closes with its own record: the two above only
+        # say a retry is coming, so without this the log ends mid-sequence and
+        # a run that gave up is indistinguishable from one still waiting.
+        assert "gave up after 3 attempt(s)" in lines[2]
+        assert "http 503" in lines[2]
+
+    def test_a_terminal_failure_is_logged_without_any_retry(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """``retries=0`` (the batch default) must still leave a record.
+
+        The retry lines only exist between attempts, so a single-shot call
+        against a backend that is down logged nothing: the caller turned the
+        raise into a per-source compile error and the log stream — the one a
+        batch or GA run is read through — could not name the faulting
+        dependency.
+        """
+        client = _FakeClient(_Resp(503, text="down"))
+        monkeypatch.setattr(httpx, "Client", lambda **kwargs: client)
+        with (
+            caplog.at_level(logging.WARNING, logger="rebrew.recompile_client"),
+            pytest.raises(RecompileError),
+        ):
+            compile_source("http://svc/", "msvc-6.0", "int f(void){}", ["/c"])
+        lines = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(lines) == 1
+        assert "gave up after 1 attempt(s)" in lines[0]
+        assert "http://svc" in lines[0]
+        assert "http 503" in lines[0]
 
     def test_retries_artifact_get_without_repost(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """After a successful compile POST, retries must not re-POST.

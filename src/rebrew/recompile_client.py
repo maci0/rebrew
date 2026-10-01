@@ -335,6 +335,10 @@ def compile_source(
     # Body + artifact_url from a successful compile POST.  Set once; retries
     # only re-GET so emit_assembly cannot double-append train.jsonl.
     pending: tuple[dict[str, Any], str] | None = None
+    # Stopwatch for the terminal record: how long the run spent on a
+    # dependency before giving up, which is the number an operator needs when
+    # the service is the thing that changed.
+    started_at = time.perf_counter()
     for attempt in range(attempts):
         # One client for POST + GET.  Injected clients are not closed here.
         cm: Any = nullcontext(client) if client is not None else httpx.Client(timeout=timeout)
@@ -401,6 +405,25 @@ def compile_source(
         except RecompileError as exc:
             last_exc = exc
             if not exc.retryable or attempt + 1 >= attempts:
+                # The last word on a dependency that is down: the retries
+                # above logged each attempt that would be retried, so a run
+                # with ``retries=0`` (the default, and what a batch compile of
+                # many sources sends) logged nothing at all.  Its caller turns
+                # the raise into a per-source compile error, so on the log
+                # stream — the one a batch or GA run is grepped through — a
+                # recompile backend that is unreachable, down, or rejecting
+                # reads as a compiler that dislikes the source.  One record
+                # per terminal failure, naming the service and the elapsed
+                # time, is what makes "which dependency failed" answerable.
+                log.warning(
+                    "recompile %s gave up after %d attempt(s) over %.1fs (%s%s): %s",
+                    url,
+                    attempt + 1,
+                    time.perf_counter() - started_at,
+                    exc.kind,
+                    "" if exc.status_code is None else f" {exc.status_code}",
+                    retry_log_detail(exc),
+                )
                 raise
             # Immediate re-POST of a 503/timeout hammers a recovering service;
             # exponential backoff (capped) gives it room without unbounded wait.

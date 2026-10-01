@@ -23,6 +23,22 @@
   already holds rather than resolving the file again.
 
 ### Fixed
+- `rebrew sync`'s MCP pull closes every walk with one record naming the tool,
+  the program, the pages and items it read, how long it took, and whether it
+  ran to the end. A pull stopped by an item cap, the page cap, or a server
+  that would not advance `nextStartIndex` returned a list indistinguishable
+  from a complete one, so a truncated program read as a full sync; the record
+  is INFO for a walk that finished and WARNING for one that did not.
+- `end_mcp_session` logs a failed termination at WARNING instead of DEBUG,
+  where Python dropped it without a DEBUG-configured handler. The caller's
+  result is unaffected by design, so a session the server never released
+  accumulated with nothing on the stream to say why.
+- A `recompile` backend that fails on the last attempt now logs a terminal
+  record naming the service, the attempt count, and the elapsed time. Only
+  retried attempts were logged, so the default single-shot call a batch
+  compile sends logged nothing and its caller turned the raise into a
+  per-source compile error — a backend that was down read as a compiler that
+  disliked the source.
 - `dashboard-api.yaml` declares the `function_stats` keys the summary
   populates, as required non-negative integers, instead of leaving the object
   to `additionalProperties`. A generated client could not read a field it was
