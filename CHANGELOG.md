@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [2.19.0] - 2026-10-02
+
 ### Breaking
 - **Breaking:** Routine CLI tools now install only under `rebrew`. Replace
   `rebrew-<command>` with `rebrew <command>` (for example, `rebrew-status`

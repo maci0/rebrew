@@ -166,4 +166,3 @@ not: a removal, move, or signature change there ships in a minor release with
 a `**Breaking:**` entry in the changelog, and there is no deprecation window,
 so pin the minor version if you import rebrew as a library. See
 [CONTRIBUTING.md](../CONTRIBUTING.md#versioning-and-releases).
-
