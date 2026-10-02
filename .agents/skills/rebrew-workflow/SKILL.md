@@ -1,7 +1,7 @@
 ---
 name: rebrew-workflow
 description: >-
-  Reverse functions on an onboarded Rebrew target: select work, generate skeletons,
+  Reverse functions on an onboarded Rebrew target: select work with todo, generate skeletons,
   edit/test/diff C, verify progress, manage annotations, and reorganize sources. Covers
   status accounting, coverage documents, and local recon. Use rebrew-matching for
   stalled byte matches, rebrew-data-analysis for globals, and rebrew-ghidra-sync for
