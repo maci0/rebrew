@@ -1776,7 +1776,9 @@ class TestCiPins:
         """Pre-push must hit ``ensure-nasm``; a bare pytest skips asm tests CI runs."""
         text = (ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8")
         hook = text.split("- id: pytest\n", 1)[1].split("- id:", 1)[0]
-        assert re.search(r"(?m)^\s*entry: make --no-print-directory test\s*$", hook)
+        assert re.search(r"(?m)\bexec make --no-print-directory test'\s*$", hook)
+        assert 'unset "$name"' in hook
+        assert "git rev-parse --local-env-vars" in hook
         assert "stages: [pre-push]" in hook
 
     def test_skill_command_validator_runs_in_the_check_gate(self) -> None:

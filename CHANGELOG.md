@@ -77,7 +77,12 @@
   share the scorer's explicit relocation masking without importing a private name.
 
 ### Fixed
-
+- The validator installer creates its cache parent before downloading, so a
+  fresh CI runner can validate HTML. Its version and archive digest now pin
+  the official 26.9.30 release. CI invokes the installed launcher directly
+  before the next step receives its PATH entry.
+- Pre-push tests clear Git's repository-local environment before creating fixture repositories, preserving the checkout and its Git settings.
+- The lockfile uses virtualenv 21.14.2 and records its declared MIT grant in the dependency inventory.
 - Lint W021 accepts same-address annotated `extern` references beside their
   single initialized owner. Conflicting addresses and duplicate initialized
   definitions still warn, including DATA/GLOBAL marker pairs; `recommend`

@@ -144,7 +144,7 @@ REGISTRY_LICENSES: dict[str, str] = {
     "typing-extensions==4.16.0": "PSF-2.0",
     "typing-inspection==0.4.4": "MIT",
     "uefi-firmware==1.16": "BSD-3-Clause",
-    "virtualenv==21.7.9": "MIT",
+    "virtualenv==21.14.2": "MIT",
     "wcwidth==0.8.3": "MIT",
     "z3-solver==4.13.0.0": "MIT License",
     "zstandard==0.25.0": "BSD-3-Clause",
