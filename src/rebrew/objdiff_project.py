@@ -13,7 +13,7 @@ This module provides two entry points:
   at their original VAs, with the annotation symbols) and emit an objdiff
   project configuration with one unit per file.  Opening ``objdiff.json`` in
   the objdiff GUI shows the project's match state immediately.
-- ``rebrew-objdiff-build <target> <base-object>`` — the ``custom_make``
+- ``rebrew objdiff-build <target> <base-object>`` — the ``custom_make``
   shim objdiff invokes to rebuild a base object: maps the object path back
   to its source file and compiles it with the project's per-file toolchain
   and flags (the same resolution ``rebrew test``/``verify`` use).
@@ -26,14 +26,13 @@ from __future__ import annotations
 
 import json
 import struct
-import sys
 from pathlib import Path
 from typing import Any
 
 import typer
 
 from rebrew.annotation import iter_annotations
-from rebrew.cli import TargetOption, console, error_exit, require_config, run_cli
+from rebrew.cli import TargetOption, console, error_exit, require_config
 from rebrew.sources import (
     contained_path,
     iter_sources,
@@ -218,13 +217,13 @@ def _build_one_object(cfg: Any, base_object: Path) -> None:
         # passes the configured base_path verbatim, which may be either.
         rel = rel[idx + len(marker) :]
     if not rel.endswith(".o"):
-        error_exit(f"rebrew-objdiff-build: unexpected object path {base_object}")
+        error_exit(f"rebrew objdiff-build: unexpected object path {base_object}")
     source_rel = rel[: -len(".o")]
     source = contained_path(source_roots(cfg), source_rel)
     if source is None:
-        error_exit(f"rebrew-objdiff-build: source path escapes the project: {source_rel}")
+        error_exit(f"rebrew objdiff-build: source path escapes the project: {source_rel}")
     if not source.exists():
-        error_exit(f"rebrew-objdiff-build: no source file for {source_rel} ({source})")
+        error_exit(f"rebrew objdiff-build: no source file for {source_rel} ({source})")
 
     # Per-file override resolution — the same inputs test/verify use, from the
     # file's own annotation.  Passing empty strings dropped a persisted
@@ -256,7 +255,7 @@ def _build_one_object(cfg: Any, base_object: Path) -> None:
         use_cache=False,
     )
     if obj_path is None:
-        error_exit(f"rebrew-objdiff-build: compile failed: {err}")
+        error_exit(f"rebrew objdiff-build: compile failed: {err}")
     console.print(f"[green]Built {base_object}[/green]")
 
 
@@ -300,8 +299,8 @@ def main(
 
     doc: dict[str, Any] = {
         "min_version": "2.0.0",
-        "custom_make": "rebrew-objdiff-build",
-        "custom_args": [cfg.target_name],
+        "custom_make": "rebrew",
+        "custom_args": ["objdiff-build", cfg.target_name],
         "build_base": True,
         "units": units,
         "watch_patterns": _watch_patterns(cfg),
@@ -320,35 +319,15 @@ def main(
     )
     console.print(
         "[dim]Open objdiff.json in the objdiff GUI; it rebuilds base objects "
-        "via `rebrew-objdiff-build` on demand.[/dim]"
+        "via `rebrew objdiff-build` on demand.[/dim]"
     )
 
 
-def objdiff_build_entry() -> None:
-    """Console-script entry for the objdiff custom_make shim.
-
-    argv: ``rebrew-objdiff-build <target> <base-object>``
-    """
-    run_cli(_objdiff_build)
-
-
-_OBJDIFF_BUILD_USAGE = "usage: rebrew-objdiff-build <target> <base-object>"
-
-
-def _objdiff_build() -> None:
-    if len(sys.argv) >= 2 and sys.argv[1] in ("-h", "--help"):
-        print(_OBJDIFF_BUILD_USAGE)
-        return
-    if len(sys.argv) >= 2 and sys.argv[1].startswith("-"):
-        # This shim takes two positionals and nothing else, so a flag here is
-        # a typo. Say so instead of reading it as a target name and failing
-        # later with a config error.  Checked before the arity test so a lone
-        # `-x` names the flag instead of printing a bare usage line.
-        error_exit(f"unknown option '{sys.argv[1]}'; {_OBJDIFF_BUILD_USAGE}")
-    if len(sys.argv) < 3:
-        error_exit(_OBJDIFF_BUILD_USAGE)
-    target_name = sys.argv[1]
-    base_object = Path(sys.argv[2])
+def build_main(
+    target_name: str = typer.Argument(..., help="Project target to compile"),
+    base_object: Path = typer.Argument(..., help="Base object path supplied by objdiff"),
+) -> None:
+    """Rebuild an objdiff base object using its source's toolchain and flags."""
     cfg = require_config(target=target_name)
     _build_one_object(cfg, base_object)
 

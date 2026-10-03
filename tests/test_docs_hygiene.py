@@ -242,7 +242,7 @@ def test_every_component_main_has_callback_decorator() -> None:
 def test_every_project_script_resolves() -> None:
     """Every ``[project.scripts]`` entry resolves to a live module attribute.
 
-    This checks the unified CLI and four external build hooks; a missing
+    This checks the single installed CLI; a missing
     module or attribute would leave an installed executable that cannot run.
     """
     import importlib

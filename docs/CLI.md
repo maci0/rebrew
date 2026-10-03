@@ -1,16 +1,17 @@
 # CLI Reference
 
-All 101 CLI commands are registered under the unified `rebrew` entry point in `main.py`
-(100 packaged `CliComponent` entries in `builtins.py` plus `import-splat` from
+All 103 CLI commands are registered under the unified `rebrew` entry point in `main.py`
+(102 packaged `CliComponent` entries in `builtins.py` plus `import-splat` from
 `main.py` `_EXTRA_COMPONENTS`).
-Only `rebrew` is installed for routine CLI use. Invoke tools as subcommands:
+Only `rebrew` is installed. Invoke tools as subcommands:
 `rebrew status`, `rebrew test`, `rebrew binsync push`, and so on. The old
 `rebrew-<command>` executables are removed; reinstall or upgrade Rebrew to
-remove them from your environment. Four executable build hooks remain:
-`rebrew-cmake-cl`, `rebrew-cmake-link`, `rebrew-cmake-lib` (CMake compiler,
-linker, and archiver drivers) and `rebrew-objdiff-build` (objdiff's rebuild
-command). They accept their build tool's arguments, not ordinary CLI flags.
-See [ADR 026](adr/026-unified-cli-entry-point.md).
+remove them from your environment. CMake uses
+`rebrew cmake-driver <cl|link|lib> -- <arguments>` and objdiff uses
+`rebrew objdiff-build <target> <base-object>`. Compiler flags after `--` pass
+through unchanged. Regenerate CMake toolchains and objdiff configurations
+when upgrading from the separate executable hooks.
+See [ADR 027](adr/027-build-hooks-under-umbrella.md).
 
 Most tools support `--target / -t` to select a target from `rebrew-project.toml` and
 read defaults (binary path, reversed_dir, compiler settings) from the project config.
@@ -978,11 +979,30 @@ a shared TU is flagless in the build without this.
 `rebrew cmake-toolchain [--toolchain msvc-6.0] [--output cmake/] [--dry-run] [--json]`
 
 Write a CMake toolchain file that drives a docker toolchain's tools from
-CMake: `CMAKE_C_COMPILER/LINKER/AR` point at the `rebrew-cmake-{cl,link,lib}`
-console scripts, which translate CMake invocations into `docker run` calls
+CMake: `CMAKE_C_COMPILER/LINKER/AR` point at the single `rebrew` executable.
+The compiler argument prefix and generated rule overrides select
+`cmake-driver cl/link/lib`, translating CMake invocations into `docker run` calls
 against the toolchain image (same-path-mounted project root, shared
 flock-initialized wineprefix, self-contained `INCLUDE`/`LIB`).  Use the
 generated file with `cmake -B build --toolchain <file> -DCMAKE_BUILD_TYPE=Release`.
+The companion `rules-<toolchain>-docker.cmake` preserves CMake's MSVC link/archive
+rules and adds the subcommand arguments after platform initialization. Keep it
+beside the toolchain file. Custom archive commands use `${REBREW_CMAKE_AR_COMMAND}`
+as a CMake argument list; `${CMAKE_AR}` alone names the executable.
+
+### `rebrew cmake-driver`
+
+`rebrew cmake-driver <cl|link|lib> -- <arguments>`
+
+Invoke the compiler, linker or archiver inside the selected toolchain image.
+The `--` separates Rebrew options from tool flags, including `--help`, `--version`,
+and `-v`, which must reach the compiler unchanged. Tool exit codes propagate.
+
+### `rebrew objdiff-build`
+
+`rebrew objdiff-build <target> <base-object>`
+
+Rebuild the base object supplied by objdiff using the source's compiler and flags.
 
 ### `rebrew link-sweep`
 
@@ -1012,7 +1032,7 @@ stub, so a re-annotated global cannot produce a TU that does not compile.
 
 ### `rebrew calibrate-bss`
 
-`rebrew calibrate-bss [--stub src/link_stubs.c] [--symbol g_bss_tail] [--target-vs 0x...] [--max-iters 8] [--compile-cmd rebrew-cmake-cl] [--cflags "/O2 /Gd"] [--dry-run] [--json]`
+`rebrew calibrate-bss [--stub src/link_stubs.c] [--symbol g_bss_tail] [--target-vs 0x...] [--max-iters 8] [--compile-cmd "rebrew cmake-driver cl --"] [--cflags "/O2 /Gd"] [--dry-run] [--json]`
 
 Size the BSS tail pad empirically so the raw link's `.data` VirtualSize
 matches the reference (from `layout/<target>/rebrew-layout.toml`):
@@ -1737,6 +1757,12 @@ Do not add these percentages or treat stored verdicts as a fresh build check.
 Whole-file agreement uses configured `raw_link` or `build/<target>`; a missing
 configured image is reported rather than silently substituted. `.bss` has no
 file-backed bytes and appears as symbol counts/virtual-layout work.
+
+The overlap warning concerns stored byte verdicts, independently of the C type
+checks in `rebrew data --conflicts`. A VERIFIED object can sit inside a larger
+DRIFT layout span. Status conservatively counts those overlapping bytes as
+unverified, without alleging a type disagreement. The symbol table still counts
+each record's verdict; the byte table counts each initialized address once.
 
 Function `coverage_pct` counts source presence; `matched_pct` counts EXACT/RELOC.
 Functions marked `LIBRARY` or assigned to a configured external module are excluded
@@ -2660,10 +2686,10 @@ Generate an objdiff project for GUI byte-diffing: one synthesized target
 COFF object per annotated source file (function bytes from the reference
 binary at their original VAs, annotation symbols, i386 machine; the
 multi-arch path is a `write_coff_object(machine=...)` parameter), plus an
-`objdiff.json` with one unit per file, `custom_make: rebrew-objdiff-build`, and
-`custom_args: [<target>]`.  Open `objdiff.json`
+`objdiff.json` with one unit per file, `custom_make: rebrew`, and
+`custom_args: [objdiff-build, <target>]`. Open `objdiff.json`
 in the objdiff GUI; it rebuilds base objects on demand via
-`rebrew-objdiff-build <target> <base-object>`, which maps the object path
+`rebrew objdiff-build <target> <base-object>`, which maps the object path
 back to its source and compiles it with the same per-file toolchain/flag
 resolution as `rebrew test`/`verify`.
 

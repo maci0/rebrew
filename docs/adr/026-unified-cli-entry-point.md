@@ -1,6 +1,6 @@
 # ADR-026: One installed CLI for routine commands
 
-- **Status**: Accepted
+- **Status**: Amended by 027
 - **Date**: 2026-10
 
 ## Context

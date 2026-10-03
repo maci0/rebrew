@@ -50,4 +50,5 @@ itself, and the consequences (including trade-offs accepted).
 | 023 | Markers: TOML single source (pure-C sources, `rebrew migrate-markers`) |
 | 024 | PROVEN is not matched and not sticky |
 | 025 | Remove the todo blocked lens |
-| 026 | One installed CLI for routine commands |
+| 026 | One installed CLI for routine commands *(amended by 027)* |
+| 027 | Build hooks under the umbrella CLI |

@@ -10,6 +10,20 @@ from rebrew.data_render import render_globals
 from rebrew.data_scan import scan_globals
 
 
+def test_function_pointer_type_keeps_calling_convention_in_inventory(tmp_path: Path) -> None:
+    (tmp_path / "runtime.h").write_text(
+        "// GLOBAL: SERVER 0x1000\n"
+        "extern int (__stdcall *g_handler)(void *, unsigned int, void *);\n"
+    )
+    scan = scan_globals(tmp_path)
+    entry = scan.globals["g_handler"]
+    assert entry.type_str == "int (__stdcall *)(void *, unsigned int, void *)"
+    assert entry.to_dict()["type"] == entry.type_str
+    buf = StringIO()
+    render_globals(Console(file=buf, width=240, color_system=None), scan)
+    assert entry.type_str in buf.getvalue()
+
+
 def test_owner_and_users_are_independent_of_markers(tmp_path: Path) -> None:
     (tmp_path / "owner.c").write_text("// DATA: SERVER 0x1000\nint g;\n")
     (tmp_path / "global.h").write_text("// GLOBAL: SERVER 0x1000\nextern int g;\n")

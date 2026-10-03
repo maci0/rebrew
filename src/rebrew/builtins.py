@@ -128,8 +128,22 @@ BUILTIN_COMPONENTS: tuple[CliComponent, ...] = (
     CliComponent(
         name="cmake-toolchain",
         module="rebrew.cmake_tc",
-        help="Write a CMake toolchain file that drives a docker toolchain via rebrew-cmake-*.",
+        help="Write a CMake toolchain file that drives a docker toolchain via rebrew.",
         panel=Panel.PROJECT_SETUP,
+    ),
+    CliComponent(
+        name="cmake-driver",
+        module="rebrew.cmake_tc",
+        attr="driver_main",
+        help="Run the compiler, linker, or archiver for CMake.",
+        panel=Panel.PROJECT_SETUP,
+    ),
+    CliComponent(
+        name="objdiff-build",
+        module="rebrew.objdiff_project",
+        attr="build_main",
+        help="Rebuild an objdiff base object.",
+        panel=Panel.MATCHING,
     ),
     CliComponent(
         name="cmake-flags",

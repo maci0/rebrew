@@ -1,10 +1,10 @@
 """cmake_tc.py — CMake toolchain bridge for docker-based toolchains.
 
 The rebrew toolchain images (e.g. ``rebrew/msvc:6.0-win32``) encapsulate the
-command-line tools, but CMake needs three separate executables —
+command-line tools, but CMake needs three tool commands —
 ``CMAKE_C_COMPILER`` / ``CMAKE_LINKER`` / ``CMAKE_AR`` — invoked with plain
-argv.  These console scripts (``rebrew-cmake-cl`` / ``rebrew-cmake-link`` /
-``rebrew-cmake-lib``) translate CMake's invocations into ``docker run`` calls
+argv. ``rebrew cmake-driver <cl|link|lib> -- <arguments>`` translates
+CMake's invocations into ``docker run`` calls
 against the toolchain image: the same backend the rebrew compile pipeline
 uses, reusable from any project's CMake build:
 
@@ -19,7 +19,7 @@ uses, reusable from any project's CMake build:
   is self-contained.
 
 ``rebrew cmake-toolchain --toolchain msvc-6.0`` writes the CMake toolchain file
-that points ``CMAKE_C_COMPILER/LINKER/AR`` at these scripts.
+that points ``CMAKE_C_COMPILER/LINKER/AR`` at the single rebrew executable.
 """
 
 from __future__ import annotations
@@ -31,6 +31,7 @@ import sys
 import tempfile
 import tomllib
 import uuid
+from enum import StrEnum
 from pathlib import Path
 
 import typer
@@ -54,22 +55,24 @@ _EPILOG = (
     "  rebrew cmake-toolchain --toolchain gcc-14.2.0 --output cmake/ · Choose the output directory\n\n"
     "  cmake -B build --toolchain cmake/toolchain-msvc-6.0-docker.cmake\n\n"
     "[dim]Then configure and build as usual; the file routes cl/link/lib through "
-    "rebrew-cmake-cl, rebrew-cmake-link, and rebrew-cmake-lib.[/dim]\n"
+    "rebrew cmake-driver cl/link/lib.[/dim]\n"
 )
 
 
 app = typer.Typer(
-    help="Write a CMake toolchain file that drives a docker toolchain via rebrew-cmake-*.",
+    help="Write a CMake toolchain file that drives a docker toolchain via rebrew.",
     rich_markup_mode="rich",
     epilog=_EPILOG,
 )
 
-#: console-script basename -> tool mode
-_TOOL_MODES = {
-    "rebrew-cmake-cl": "cl",
-    "rebrew-cmake-link": "link",
-    "rebrew-cmake-lib": "lib",
-}
+
+class ToolMode(StrEnum):
+    """Compiler, linker, or archiver selection for the CMake bridge."""
+
+    CL = "cl"
+    LINK = "link"
+    LIB = "lib"
+
 
 _TOOL_EXES = {"cl": "CL.EXE", "link": "LINK.EXE", "lib": "LIB.EXE"}
 
@@ -333,7 +336,7 @@ def _ensure_wineprefix(prefix: Path, spec: ToolchainSpec) -> None:
             error_exit(f"wineprefix init failed (rc={r.returncode}) at {prefix}: {stderr}")
         # Stamp the initialized prefix while the lock is still held, so the
         # two guards above actually mean "exactly once".  Without it every
-        # rebrew-cmake-* invocation serialized on this lock behind another
+        # rebrew cmake-driver invocation serialized on this lock behind another
         # wineboot against the same live prefix.
         (prefix / ".update-timestamp").write_text("", encoding="utf-8")
 
@@ -375,7 +378,7 @@ def _docker_run(spec: ToolchainSpec, mode: str, args: list[str]) -> int:
     root = walk_up_to_root(Path.cwd())
     if root is None:
         error_exit(
-            "rebrew-cmake-*: no rebrew-project.toml found above the cwd — run "
+            "rebrew cmake-driver: no rebrew-project.toml found above the cwd — run "
             "CMake from inside the project (build dir under the project root)"
         )
     prefix = _wineprefix(spec)
@@ -446,21 +449,15 @@ def _docker_run(spec: ToolchainSpec, mode: str, args: list[str]) -> int:
     return r.returncode
 
 
-def tc_main() -> None:
-    """Console-script entry: dispatch by argv[0] basename (cl/link/lib)."""
-    from rebrew.cli import run_cli
-
-    run_cli(_tc_dispatch)
-
-
-def _tc_dispatch() -> None:
-    mode = _TOOL_MODES.get(Path(sys.argv[0]).name)
-    if mode is None:
-        error_exit(f"rebrew-cmake-*: unknown invocation name {Path(sys.argv[0]).name!r}")
+def driver_main(
+    mode: ToolMode = typer.Argument(..., help="Tool to invoke inside the compiler image"),
+    args: list[str] = typer.Argument(None, help="Tool arguments (place flags after --)"),
+) -> None:
+    """Run a CMake tool: rebrew cmake-driver <cl|link|lib> -- <arguments>."""
     root = walk_up_to_root(Path.cwd())
     if root is None:
         error_exit(
-            "rebrew-cmake-*: no rebrew-project.toml found above the cwd — run "
+            "rebrew cmake-driver: no rebrew-project.toml found above the cwd — run "
             "CMake from inside the project (build dir under the project root)"
         )
     # Per-file compiler selection.  CMake fixes one compiler for the whole
@@ -470,7 +467,7 @@ def _tc_dispatch() -> None:
     # toolchain pin could only ever affect `rebrew test`, never the linked
     # bytes (guild-rebrew round 224 measured a real +11 byte gain that was
     # unreachable for exactly this reason).
-    argv = list(sys.argv[1:])
+    argv = list(args or [])
     pinned: str | None = None
     for i, a in enumerate(argv):
         if a.startswith(("/REBREW_TOOLCHAIN:", "-REBREW_TOOLCHAIN:")):
@@ -480,11 +477,11 @@ def _tc_dispatch() -> None:
     name = pinned or os.environ.get("REBREW_TOOLCHAIN", "").strip() or _load_profile(root)
     spec = _resolve_spec(name)
     try:
-        rc = _docker_run(spec, mode, argv)
+        rc = _docker_run(spec, mode.value, argv)
     except subprocess.TimeoutExpired:
         # A hung wine build must exit with a clean message, not a raw
         # traceback polluting CMake's error output.
-        error_exit(f"rebrew-cmake-{mode}: toolchain command timed out (3600s)")
+        error_exit(f"rebrew cmake-driver {mode.value}: toolchain command timed out (3600s)")
     sys.exit(rc)
 
 
@@ -494,14 +491,14 @@ def _tc_dispatch() -> None:
 
 
 def generate_toolchain_file(spec: ToolchainSpec, out_dir: Path) -> Path:
-    """Write ``toolchain-<name>-docker.cmake`` pointing at rebrew-cmake-*."""
+    """Write a CMake toolchain and rule overrides using the rebrew executable."""
     version = _cmake_c_compiler_versions().get(spec.name, _CMAKE_C_COMPILER_VERSION_FALLBACK)
     name = spec.name
     text = f"""# CMake toolchain file for {name} via the rebrew docker image (wine inside).
 # Generated by `rebrew cmake-toolchain --toolchain {name}` — do not hand-edit.
 #
-# The rebrew-cmake-{{cl,link,lib}} console scripts (from the rebrew CLI on
-# PATH) translate CMake invocations into docker runs against {spec.image}.
+# rebrew cmake-driver cl/link/lib translates CMake invocations into
+# docker runs against {spec.image}.
 # Build the image first:  rebrew toolchain build {name}
 #
 # Usage:
@@ -511,14 +508,16 @@ def generate_toolchain_file(spec: ToolchainSpec, out_dir: Path) -> Path:
 set(CMAKE_SYSTEM_NAME Windows)
 set(CMAKE_SYSTEM_PROCESSOR x86)
 
-find_program(_REBREW_CMAKE_CL NAMES rebrew-cmake-cl)
-if(NOT _REBREW_CMAKE_CL)
-  message(FATAL_ERROR "rebrew-cmake-cl not found on PATH; activate the Rebrew environment")
+find_program(_REBREW_EXECUTABLE NAMES rebrew)
+if(NOT _REBREW_EXECUTABLE)
+  message(FATAL_ERROR "rebrew not found on PATH; activate the Rebrew environment")
 endif()
-get_filename_component(_REBREW_CMAKE_BIN "${{_REBREW_CMAKE_CL}}" DIRECTORY)
-set(CMAKE_C_COMPILER "${{_REBREW_CMAKE_CL}}")
-set(CMAKE_LINKER "${{_REBREW_CMAKE_BIN}}/rebrew-cmake-link")
-set(CMAKE_AR "${{_REBREW_CMAKE_BIN}}/rebrew-cmake-lib")
+set(CMAKE_C_COMPILER "${{_REBREW_EXECUTABLE}}")
+set(CMAKE_C_COMPILER_ARG1 "cmake-driver cl --")
+set(CMAKE_LINKER "${{_REBREW_EXECUTABLE}}")
+set(CMAKE_AR "${{_REBREW_EXECUTABLE}}")
+set(REBREW_CMAKE_AR_COMMAND "${{_REBREW_EXECUTABLE}}" cmake-driver lib --)
+set(CMAKE_USER_MAKE_RULES_OVERRIDE_C "${{CMAKE_CURRENT_LIST_DIR}}/rules-{name}-docker.cmake")
 
 set(CMAKE_C_COMPILER_ID "MSVC" CACHE STRING "" FORCE)
 set(CMAKE_C_COMPILER_VERSION "{version}" CACHE STRING "" FORCE)
@@ -541,6 +540,20 @@ set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
 set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
 """
     out_dir.mkdir(parents=True, exist_ok=True)
+    rules = out_dir / f"rules-{name}-docker.cmake"
+    atomic_write_text(
+        rules,
+        "# Generated by rebrew cmake-toolchain; preserves CMake's MSVC rules.\n"
+        "foreach(rule CREATE_SHARED_LIBRARY CREATE_SHARED_MODULE LINK_EXECUTABLE)\n"
+        '  string(REPLACE "<CMAKE_LINKER>" "<CMAKE_LINKER> cmake-driver link --"\n'
+        '    CMAKE_C_${rule} "${CMAKE_C_${rule}}")\n'
+        "endforeach()\n"
+        "foreach(rule CREATE_STATIC_LIBRARY CREATE_STATIC_LIBRARY_IPO)\n"
+        '  string(REPLACE "<CMAKE_AR>" "<CMAKE_AR> cmake-driver lib --"\n'
+        '    CMAKE_C_${rule} "${CMAKE_C_${rule}}")\n'
+        "endforeach()\n",
+        encoding="utf-8",
+    )
     out = out_dir / f"toolchain-{name}-docker.cmake"
     atomic_write_text(out, text, encoding="utf-8")
     return out
@@ -558,7 +571,7 @@ def main(
     """Write a CMake toolchain file for a docker-based toolchain.
 
     The generated file sets CMAKE_C_COMPILER/LINKER/AR to the
-    ``rebrew-cmake-{cl,link,lib}`` console scripts, which run the tools
+    ``rebrew cmake-driver cl/link/lib`` commands, which run the tools
     inside the toolchain image (see the module docstring).
     """
     spec = _resolve_spec(toolchain, json_mode=json_output)

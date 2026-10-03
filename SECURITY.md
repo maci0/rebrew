@@ -167,7 +167,7 @@ plugin cache backends or remove the open upstream diskcache advisory.
   refused entry is recorded `MISSING_FILE`), that module's cache-validity
   read and deferred STATUS pass, the batch compile (`compile.py`
   `precompile_batch`), the blocker clear in `rebrew test`, the
-  `rebrew-objdiff-build` shim (`objdiff_project.py`), `rebrew merge-sweep`,
+  `rebrew objdiff-build` command (`objdiff_project.py`), `rebrew merge-sweep`,
   and every read and write in `rebrew cross-import` (`cross_import.py`
   `import_function`, `import_shared_function`, `promote_to_shared`) all
   resolve through it; `rebrew rename` (`rename.py`, `rename_ops.py`) and

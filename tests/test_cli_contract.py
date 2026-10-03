@@ -67,7 +67,7 @@ def _command_functions():
                 if sub.callback is not None:
                     out.append((comp.name, sub.name or "?", sub.callback))
         else:
-            fn = getattr(module, "main", None)
+            fn = getattr(module, comp.attr or "main", None)
             if fn is not None:
                 out.append((comp.name, "main", fn))
     return out
@@ -538,8 +538,8 @@ class TestScriptDispatch:
 
     ``run_standalone`` / ``run_cli`` turn SIGPIPE and Ctrl-C into 141/130 and
     a usage error into 2.  A bare ``app()`` skips all three, so the entry
-    attribute's body is checked rather than its name: the umbrella and
-    four external build hooks use their own entry functions.
+    attribute's body is checked rather than its name; all commands now
+    dispatch through the umbrella.
     """
 
     @staticmethod

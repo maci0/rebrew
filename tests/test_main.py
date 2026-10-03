@@ -131,13 +131,15 @@ class TestPlainEntryErrorExit:
         proc = subprocess.run(
             [
                 sys.executable,
-                "-c",
-                "from rebrew.objdiff_project import objdiff_build_entry as e; e()",
+                "-m",
+                "rebrew.main",
+                "objdiff-build",
             ],
             capture_output=True,
             timeout=120,
             check=False,
         )
         assert proc.returncode == 2, proc.stderr
-        assert b"usage: rebrew-objdiff-build" in proc.stderr
+        assert b"Usage:" in proc.stderr
+        assert b"objdiff-build" in proc.stderr
         assert b"Traceback" not in proc.stderr

@@ -584,7 +584,8 @@ def _variable_tree(source: str) -> tuple[Any, bytes]:
     The C grammar misparses MSVC assembly labels and may absorb declarations
     after the function into its body. Replace assembly with C expressions for
     its symbolic operands before scanning scopes. Strings/comments/macros remain
-    opaque; calling conventions are removed only from code tokens.
+    opaque; calling conventions are masked only in the parser input. Returned
+    source bytes retain their spelling at the same offsets as the parsed tree.
     """
     tree, raw = parse_c_source(source)
     tokens: list[tuple[str, int, int, int, str]] = []
@@ -661,11 +662,12 @@ def _variable_tree(source: str) -> tuple[Any, bytes]:
         "far",
     }
     edits: list[tuple[int, int, bytes]] = []
+    convention_spans: list[tuple[int, int]] = []
     i = 0
     while i < len(tokens):
         kind, start, end, row, text = tokens[i]
         if kind not in opaque and text in _CALLING_CONVENTIONS:
-            edits.append((start, end, b" " * (end - start)))
+            convention_spans.append((start, end))
         if kind in opaque or text not in {"__asm", "_asm"} or i + 1 == len(tokens):
             i += 1
             continue
@@ -712,9 +714,14 @@ def _variable_tree(source: str) -> tuple[Any, bytes]:
         replacement += b"\n" * raw[start:stop].count(b"\n")
         edits.append((start, stop, replacement))
         i = j + 1 if block else j
+    parser_bytes = raw
+    for start, end in convention_spans:
+        parser_bytes = parser_bytes[:start] + b" " * (end - start) + parser_bytes[end:]
     for start, end, replacement in reversed(edits):
         raw = raw[:start] + replacement + raw[end:]
-    return parse_c_source(raw)
+        parser_bytes = parser_bytes[:start] + replacement + parser_bytes[end:]
+    tree, _ = parse_c_source(parser_bytes)
+    return tree, raw
 
 
 def find_extern_variables(
@@ -836,12 +843,12 @@ def find_extern_variables(
                         spelling = (
                             spelling[: start - decl.start_byte] + spelling[end - decl.start_byte :]
                         )
+                    compact = " ".join(spelling.decode("utf-8", errors="surrogateescape").split())
+                    compact = compact.replace("( ", "(").replace(" )", ")").replace(" ,", ",")
                     results.append(
                         ExternVar(
                             name=name,
-                            type_str=type_str
-                            + " "
-                            + spelling.decode("utf-8", errors="surrogateescape"),
+                            type_str=type_str + " " + compact,
                             array_suffix="",
                         )
                     )

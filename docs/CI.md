@@ -75,8 +75,8 @@ reports the installed version and path and exits non-zero naming any of
 `workspace/py.typed` the wheel failed to ship. It then runs every console
 script the installed distribution declares, as the installer wrote it, and
 exits non-zero naming one that is missing from the bin directory or that fails
-to start; the three `rebrew-cmake-*` compiler-driver bridges are excluded
-because CMake hands them a compiler command line rather than a CLI one. A
+to start. The single installed executable exposes the build hooks as subcommands;
+the CMake integration tests check tool arguments and generated build rules. A
 `cli-contract`
 job that greps the high-value `--help` surfaces. No pipeline step and no
 Makefile recipe inlines Python: each check is a `tools/` script

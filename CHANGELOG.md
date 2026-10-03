@@ -1,12 +1,32 @@
 ## [Unreleased]
 
 ### Breaking
+- **Breaking:** Only `rebrew` is installed. CMake now invokes
+  `rebrew cmake-driver <cl|link|lib> -- <arguments>` and objdiff invokes
+  `rebrew objdiff-build <target> <base-object>`. Regenerate their configurations,
+  reconfigure CMake, and use `${REBREW_CMAKE_AR_COMMAND}` for custom archive
+  commands. The four separate hook executables and entry functions are removed.
+  Removed executables: `rebrew-cmake-cl`, `rebrew-cmake-link`, `rebrew-cmake-lib`,
+  and `rebrew-objdiff-build`.
+- **Breaking:** `rebrew.cmake_tc.tc_main` and
+  `rebrew.objdiff_project.objdiff_build_entry` are removed; the component
+  callbacks are `rebrew.cmake_tc.driver_main` and
+  `rebrew.objdiff_project.build_main`. `run_cli` is no longer re-exported by
+  `rebrew.objdiff_project`; import it from `rebrew.cli`.
+  `rebrew.builtins.BUILTIN_COMPONENTS` and `rebrew.main.BUILTIN_COMPONENTS` include
+  the new build commands, and `rebrew.calibrate_bss.main` now defaults
+  `compile_cmd` to `rebrew cmake-driver cl --` and splits command arguments.
 - **Breaking:** `data_metadata.DATA_METADATA_FIELD_TYPES` now accepts
   `storage_kind`, `backing`, and `link_symbol`. Older Rebrew validators cannot
   validate stores using these fields; update tools that exhaustively validate
   the data metadata field set.
 
 ### Fixed
+- Public API release notes recognize fully qualified `rebrew.module.symbol` paths.
+- Status labels overlapping VERIFIED and DRIFT/UNCHECKED data records explicitly;
+  these stored byte verdicts are separate from `data --conflicts` type checks.
+- Function-pointer data types retain calling conventions such as `__stdcall`
+  instead of displaying parser masking spaces; multiline types display compactly.
 - Dashboard pagination rejects control characters that Python's unrestricted
   whitespace stripping previously accepted as part of a numeric query.
 - Data scanning keeps function-pointer storage, mixed function/variable declarations,
@@ -29,6 +49,12 @@
   records; uncertain or cyclic relationships remain unresolved.
 
 ### Changed
+- `rebrew data` highlights C types in terminal inventories and conflict tables;
+  JSON remains plain structured data.
+- CLI contract checks cover every runtime callback, including group default
+  actions and nested commands. Qualifier sweeps expose `--jobs/-j`, matching
+  the other parallel compile commands. The complete CLI review records
+  proposed simplifications and grouping decisions in `docs/CLI_REVIEW.md`.
 - Cordis documentation describes host disposal order, activation LIFO, plugin
   declaration failures and process restarts for changed CLI plugins. The tutorial
   includes separately runnable examples and a tested temporary-directory recipe.

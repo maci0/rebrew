@@ -39,8 +39,8 @@ rebrew status --json                     # inspect accounting
 rebrew todo --json                       # choose a scoped action
 ```
 
-Use `rebrew <command>` for every routine tool. Separate executable names are
-reserved for the four CMake/objdiff build hooks; see the
+Use `rebrew <command>` for every tool, including CMake and objdiff build hooks;
+see the
 [CLI reference](https://github.com/maci0/rebrew/blob/main/docs/CLI.md).
 
 Symbolic proving needs the optional extra in the environment running Rebrew:
