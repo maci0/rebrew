@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [2.20.0] - 2026-10-03
+
 ### Breaking
 - **Breaking:** `link_order.read_source_text` is no longer an incidental
   export. Import it from `rebrew.utils`.
