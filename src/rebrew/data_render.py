@@ -160,28 +160,43 @@ def render_globals(console: Console, scan: ScanResult, conflicts_only: bool = Fa
     tbl.add_column("Name")
     tbl.add_column("Type")
     tbl.add_column("Section", style="dim")
-    tbl.add_column("Files", style="dim")
+    tbl.add_column("Owner", style="dim")
+    tbl.add_column("Users", style="dim")
+    tbl.add_column("Declarations", style="dim")
+
+    def paths(names: list[str]) -> str:
+        shown = ", ".join(untrusted_text(name) for name in names[:3])
+        if len(names) > 3:
+            shown += f" (+{len(names) - 3})"
+        return shown or "—"
 
     for entry in sorted(entries, key=lambda e: (e.va or 0xFFFFFFFF, e.name)):
         va_str = f"0x{entry.va:08x}" if entry.va else "—"
-        files_str = ", ".join(untrusted_text(name) for name in entry.declared_in[:3])
-        if len(entry.declared_in) > 3:
-            files_str += f" (+{len(entry.declared_in) - 3})"
         type_cell = untrusted_text(entry.type_str)
         if entry.conflict:
             type_cell += " ⚠ CONFLICT"
-        style = "red" if entry.conflict else ""
+        owners = entry.defined_in + [
+            f"{owner['library']}:{owner['member']}" for owner in entry.library_owners
+        ]
+        style = "red" if entry.conflict or len(owners) > 1 else ""
         tbl.add_row(
             va_str,
             untrusted_text(entry.name),
             type_cell,
             untrusted_text(entry.section) if entry.section else "—",
-            files_str,
+            paths(owners),
+            paths(entry.referenced_in),
+            paths(entry.declared_in),
             style=style,
         )
 
     title = "[bold]Type Conflicts[/]" if conflicts_only else "[bold]Global Data Inventory[/]"
     console.print(Panel(tbl, title=title, border_style="blue"))
+    console.print(
+        "[dim]Owner is a source definition or library:object with link-map evidence. "
+        "— means none established. Users are syntactic references; declarations alone "
+        "are not users.[/]"
+    )
 
 
 def section_summary(scan: ScanResult, sections: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:

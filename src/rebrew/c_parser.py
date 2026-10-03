@@ -675,6 +675,102 @@ def find_extern_variables(source: str, *, include_definitions: bool = False) -> 
     return results
 
 
+def find_variable_roles(source: str) -> tuple[set[str], set[str], set[str]]:
+    """Return file definitions, extern declarations, and syntactic variable uses.
+
+    This is a source inventory, not a preprocessor or linker verdict. Declaration
+    names, member names, strings, and locally shadowed names are not uses. A
+    tentative file-scope definition owns storage; an initialized extern does too.
+    """
+    tree, src = parse_c_source(strip_cc(source))
+    definitions: set[str] = set()
+    declarations: set[str] = set()
+    uses: set[str] = set()
+    imported = {m.group(1) for m in _DLLIMPORT_DECL_RE.finditer(source)}
+
+    def declared_name(node: Any) -> str | None:
+        # Follow only declarators: an initializer or parameter is not the name.
+        while node is not None:
+            if node.type == "identifier":
+                return node_text(node, src)
+            inner = node.child_by_field_name("declarator")
+            if inner is None and node.type == "parenthesized_declarator":
+                inner = next(iter(node.named_children), None)
+            node = inner
+        return None
+
+    def is_function(node: Any) -> bool:
+        while node is not None:
+            if node.type == "function_declarator":
+                inner = node.child_by_field_name("declarator")
+                return inner is not None and inner.type != "parenthesized_declarator"
+            node = node.child_by_field_name("declarator")
+        return False
+
+    def walk(node: Any, shadows: set[str], file_scope: bool = False) -> None:
+        if node.type.startswith("preproc_"):
+            # Raw conditional branches can contain source facts; macro bodies
+            # are not C expression references and require preprocessing.
+            if node.type in {"preproc_if", "preproc_ifdef", "preproc_else", "preproc_elif"}:
+                for child in node.named_children:
+                    if child != node.child_by_field_name("condition"):
+                        walk(child, shadows, file_scope)
+            return
+        if node.type == "function_definition":
+            local = set(shadows)
+            declarator = node.child_by_field_name("declarator")
+            if declarator is not None:
+                stack = [declarator]
+                while stack:
+                    part = stack.pop()
+                    if part.type == "parameter_declaration":
+                        name = declared_name(part.child_by_field_name("declarator"))
+                        if name:
+                            local.add(name)
+                    else:
+                        stack.extend(part.named_children)
+            body = node.child_by_field_name("body")
+            if body is not None:
+                walk(body, local)
+            return
+        if node.type in {"compound_statement", "for_statement"}:
+            local = set(shadows)
+            for child in node.named_children:
+                walk(child, local)
+            return
+        if node.type == "declaration":
+            has_extern = any(
+                c.type == "storage_class_specifier" and node_text(c, src) == "extern"
+                for c in node.named_children
+            )
+            for declarator in node.children_by_field_name("declarator"):
+                name = declared_name(declarator)
+                if not name or is_function(declarator):
+                    continue
+                value = declarator.child_by_field_name("value")
+                if file_scope:
+                    if name not in imported and (not has_extern or value is not None):
+                        definitions.add(name)
+                    else:
+                        declarations.add(name)
+                elif not has_extern:
+                    shadows.add(name)
+                if value is not None:
+                    walk(value, shadows)
+            return
+        if node.type == "identifier":
+            name = node_text(node, src)
+            if name not in shadows:
+                uses.add(name)
+            return
+        for child in node.named_children:
+            walk(child, shadows, file_scope)
+
+    for node in tree.root_node.named_children:
+        walk(node, set(), True)
+    return definitions, declarations, uses
+
+
 # ---------------------------------------------------------------------------
 # Plain declaration type extraction (regex fallback for single lines)
 # ---------------------------------------------------------------------------

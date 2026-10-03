@@ -755,8 +755,26 @@ externs in a file whose markers are all that other target's.  `rebrew status`,
 count the same rows, and so does the `db/coverage-<target>.toml` the coverage
 document stores them in.
 
+The inventory separates source storage owners (`defined_in`), syntactic symbol
+users (`referenced_in`), and all declaration sites (`declared_in`). The table's
+single `Owner` column shows a source file or `library:object`; JSON retains each
+kind's separate evidence. An extern or DATA/GLOBAL marker does not own storage.
+`summary.multiple_definitions` counts
+globals with multiple source definitions. An empty owner list means no source
+definition was found; archive/map evidence is needed to identify a library owner.
+The raw source scan does not expand macros or select conditional build branches.
+`library_owners` separately records archive/member, link symbol, linked VA, map
+hash, and evidence (`link-map` or `link-map+archive`). `summary.library_owned`
+counts established library owners. By default use the MSVC `.map` beside configured
+`raw_link`; `--link-map` selects another. COMMON data requires a unique defining
+member in an already-cached configured archive that the map selected. Missing
+automatic maps or archives leave attribution unknown; the scan never downloads
+libraries. Map addresses can differ from reference VAs, so match symbol names.
+DLL import slots, uncertain aliases, and unselected archive members are excluded.
+
 | Flag | Description |
 |------|-------------|
+| `--link-map PATH` | MSVC link map identifying library data owners (default: configured `raw_link` image with `.map` suffix) |
 | `--conflicts` | Show only type-conflict globals |
 | `--summary` | Show section-level summary only |
 | `--bss` | Verify .bss layout and detect gaps |

@@ -259,6 +259,9 @@ def _generate_bss_fix(
 
 @app.callback(invoke_without_command=True)
 def main(
+    link_map: Path | None = typer.Option(
+        None, "--link-map", help="MSVC link map for library data owners (default: raw_link's .map)"
+    ),
     conflicts: bool = typer.Option(
         False, "--conflicts", help="Show only globals with type conflicts"
     ),
@@ -776,6 +779,13 @@ def main(
             render_dispatch(console, tables)
         return
 
+    from rebrew.data_ownership import enrich_library_owners
+
+    try:
+        enrich_library_owners(scan, cfg, link_map)
+    except (OSError, ValueError) as exc:
+        error_exit(f"cannot read link map: {exc}", json_mode=json_output)
+
     if json_output:
         data = scan.to_dict()
         if conflicts:
@@ -791,6 +801,12 @@ def main(
                 1 for g in data["globals"].values() if g["annotated"]
             )
             data["summary"]["unannotated"] = data["summary"]["total"] - data["summary"]["annotated"]
+            data["summary"]["multiple_definitions"] = sum(
+                len(g["defined_in"]) > 1 for g in data["globals"].values()
+            )
+            data["summary"]["library_owned"] = sum(
+                bool(g["library_owners"]) for g in data["globals"].values()
+            )
         data["sections"] = {
             name: {"va": f"0x{s['va']:08x}", "size": s["size"]} for name, s in sections.items()
         }
