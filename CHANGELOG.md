@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [2.21.0] - 2026-10-03
+
 ### Added
 - `rebrew data` separates source storage definitions (`defined_in`), syntactic
   users (`referenced_in`), and declaration sites (`declared_in`), and reports

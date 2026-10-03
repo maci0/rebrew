@@ -51,7 +51,7 @@ if TYPE_CHECKING:
 os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 
-__version__ = "2.20.0"
+__version__ = "2.21.0"
 
 _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
     "CompareResult": ("rebrew.compile", "CompareResult"),
