@@ -7,6 +7,8 @@
   the data metadata field set.
 
 ### Fixed
+- Dashboard pagination rejects control characters that Python's unrestricted
+  whitespace stripping previously accepted as part of a numeric query.
 - Data scanning keeps function-pointer storage, mixed function/variable declarations,
   conditional definitions, and globals following MSVC assembly. Complete multiline
   declarations retain target scoping; assembly operand users preserve C scopes.

@@ -1748,7 +1748,19 @@ class TestIntParam:
         """
         from rebrew.dashboard import _DEFAULT_LIMIT, _MAX_LIMIT, _int_param
 
-        for raw in ("1_0", "10_00", "+5", "٥", "1e3", "0x10", "5 5", " 5 x", "3.0"):
+        for raw in (
+            "1_0",
+            "10_00",
+            "+5",
+            "٥",
+            "1e3",
+            "0x10",
+            "5 5",
+            " 5 x",
+            "3.0",
+            "5\x1f",
+            "\x1c5",
+        ):
             assert _int_param({"limit": [raw]}, "limit", _DEFAULT_LIMIT) == _DEFAULT_LIMIT, raw
         # A value past every ceiling still clamps to the page-size cap rather
         # than falling back: it is a number, just a large one.
