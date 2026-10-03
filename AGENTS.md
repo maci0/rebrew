@@ -47,6 +47,37 @@ Bare `uv run --frozen pytest` matches `make test` (`pyproject.toml` pytest confi
 - Docstrings on every module; section separators `# ---...---`
 - Use imported libs' APIs: LIEF for new parses of formats it supports (no new header unpacker). `pe_headers`/`pe_image` patch PE bytes in place; `ne_loader` and `omf16` stay because LIEF cannot parse NE or that OMF dialect. httpx for MCP (never `urllib.request`), tree-sitter for C AST (no new regex C parsers; legacy mutation regex stays), angr only behind `[prove]`, declib only behind `[binsync]`
 
+## Global ownership
+
+- **One storage owner per global.** The owner is the source definition or linked
+  library object that allocates its bytes. `extern` declarations, headers, DATA/GLOBAL
+  markers, and referring functions are declarations or users, not additional owners.
+  Keep definition owners, declaration sites, and users separate in inventories;
+  an extern-only scan cannot establish a library owner. `rebrew data` uses the
+  raw link's MSVC map (`--link-map` overrides it) to identify archive members;
+  COMMON attribution also requires a unique definition in a selected, configured
+  archive member. Keep uncertain aliases unresolved.
+- **Separate game and runtime globals by provenance.** Keep game declarations in
+  game or subsystem headers and CRT declarations in one CRT header. Physical
+  `.data`/`.rdata`/`.bss` placement does not establish logical ownership: game
+  constants near CRT code still belong to the game. Headers contain `extern`
+  declarations; game storage is defined once in its owning translation unit.
+- **Linked stock libraries own their code and data.** When the CRT is fully linked,
+  describe its globals with declarations and annotations; do not create replacement
+  CRT `.c` definitions or copied data blobs. Any necessary local displacement must
+  name the displaced library member and explain why the reference needs it.
+- **An interior address is a view, not another allocation.** Record its backing
+  object, offset, type, and complete extent. Byte-span inventory and layout padding
+  are layout facts; they must not become duplicate globals or pretend CRT owners.
+- **Reuse the canonical declaration.** Prefer the owning subsystem header over
+  repeated per-function externs. Preserve proven compiler-sensitive declaration
+  order when consolidating; verify affected functions after header changes.
+- **Resolve gaps from evidence.** Establish VA, full extent, section, and provenance
+  before creating storage. Check the binary's sections and zero-filled virtual
+  tail; use the CLI or locked metadata APIs for metadata changes. Preview header
+  generation, ownership moves, and padding emission, and reconcile generated or
+  imported headers with existing game/CRT boundaries before replacing them.
+
 ## Layout
 
 ```

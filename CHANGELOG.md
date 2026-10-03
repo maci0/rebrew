@@ -1,5 +1,24 @@
 ## [Unreleased]
 
+## [2.21.0] - 2026-10-03
+
+### Added
+- `rebrew data` separates source storage definitions (`defined_in`), syntactic
+  users (`referenced_in`), and declaration sites (`declared_in`), and reports
+  globals with multiple source definitions.
+- Library data owners identify the archive and object member in `library_owners`,
+  using the configured raw link's MSVC map or `--link-map`. COMMON symbols require
+  a unique defining member selected from a configured, cached archive; uncertain
+  aliases remain unresolved. Ownership evidence records map and archive hashes.
+- The inventory's single `Owner` column displays a source file or `library:object`,
+  keeping users and declarations in their own columns.
+
+### Changed
+- Project instructions, generated templates, and packaged skills document one
+  storage owner per global, separate game and CRT declarations, and linked stock
+  library ownership. Headers and address annotations describe globals without
+  allocating replacement runtime storage.
+
 ## [2.20.0] - 2026-10-03
 
 ### Breaking

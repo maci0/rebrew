@@ -104,6 +104,13 @@ rebrew sync --bookmarks                          # status bookmarks (category re
 rebrew sync --pull-data                          # Ghidra data labels -> rebrew_globals.h
 ```
 
+`--pull-data` replaces the default globals header without prompting and groups
+labels by section, not logical ownership. Preserve an existing game/CRT header
+split before pulling and reconcile imported declarations into canonical headers.
+Imported labels are not storage definitions or proof of a library owner; interior
+addresses remain views of their backing object. Use `rebrew-data-analysis` for
+ownership reconciliation and reverify functions after header changes.
+
 ## 3. Where Results Land
 
 - `functions/*.toml`, `global_vars.toml`, `structs/*.toml`: the BinSync state dir (`--state-dir`)

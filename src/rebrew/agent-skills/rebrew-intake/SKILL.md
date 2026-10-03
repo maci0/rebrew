@@ -72,6 +72,11 @@ Writes `src/<target>/<target>.def`, `src/<target>/crt_region/crt_imports.c`, and
 `rebrew postlink <built.dll> --layout layout/<target>` can converge without the
 original DLL. Keep `layout/` in VCS.
 
+Identify data provenance alongside library code: a fully linked CRT supplies its
+own storage. Keep game constants in game/subsystem sources and runtime externs in
+a CRT header. Imported labels and generated section spans are inventory facts,
+not additional definitions. Use `rebrew-data-analysis` for ownership and aliases.
+
 ## Intake Procedure
 
 ### 0. Toolchain ID + optional recon

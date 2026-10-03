@@ -87,6 +87,14 @@ target name. Run `rebrew init --check` to report drift in any of them; it exits
 1 when a rendered file differs from the packaged source, so it is the check to
 run rather than comparing the tree by hand.
 
+## Global organization
+
+Organize game and CRT extern declarations separately, with one canonical header
+per subsystem and one CRT header. Headers do not allocate storage; definitions
+belong to one source owner or linked stock library member. A section range is not
+subsystem ownership. Preserve an existing curated split when refreshing scaffolds
+or generating headers; use `rebrew-data-analysis` for consolidation.
+
 ## Handoff
 
 Scaffold done → `rebrew-intake` owns the binary from here (FLIRT scan,

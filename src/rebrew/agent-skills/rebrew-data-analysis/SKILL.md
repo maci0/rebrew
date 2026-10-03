@@ -10,14 +10,10 @@ license: MIT
 
 ```mermaid
 graph TD
-    Scan[Scan globals<br/>rebrew data --json] --> Annotate[Annotate globals<br/>// GLOBAL: / // DATA: markers<br/>with SECTION metadata]
-    Annotate --> Dispatch[Detect dispatch tables<br/>rebrew data --dispatch --json]
-    Dispatch --> Bss{Check BSS layout<br/>rebrew data --bss --json}
-    Bss -->|gaps found| FixBss[Generate bss_padding.c<br/>rebrew data --fix-bss]
-    FixBss --> Extern[Add missing externs<br/>// GLOBAL: markers]
-    Extern --> Bss
-    Bss -->|no gaps| Header[Generate rebrew_globals.h<br/>rebrew data --gen-header]
-    Header --> Lint[Lint annotations<br/>rebrew lint (W016)]
+    Scan[Scan globals<br/>rebrew data --json] --> Roles[Separate definition owners,<br/>declarations, and users]
+    Roles --> Evidence[Establish extent, section,<br/>backing object and library provenance]
+    Evidence --> Repair[Repair canonical declarations<br/>and managed metadata]
+    Repair --> Verify[Lint, test affected functions,<br/>verify raw linked data]
 ```
 
 # Rebrew Data Analysis
@@ -29,12 +25,30 @@ Inspect global variables and detect type conflicts across translation units.
 - Function bodies / disassembly / matching → use `rebrew-workflow` or `rebrew-matching`
 - Pulling data labels back from Ghidra → use `rebrew-ghidra-sync` (`rebrew sync --pull-data`)
 
+## Ownership first
+
+A storage definition owns a global; an `extern`, annotation, or referring function
+is a declaration or user. Keep game and CRT declarations separate, with one
+canonical declaration per object. Fully linked CRT storage stays in the stock
+library. Interior field views and section-span annotations allocate no storage.
+For consolidation, duplicate-owner triage, or gap repair, read
+`references/global-ownership.md` before moving definitions or generating padding.
+
+Library owners come from the configured `raw_link` image's sibling MSVC `.map`,
+or explicit `--link-map`. The table has one `Owner` column showing source files or
+`library:object`; JSON separates `library_owners` from source `defined_in`.
+COMMON rows require a unique provider in configured archives already cached on
+disk and a member selected by the map; scanning never pulls/extracts libraries.
+Owner evidence describes the linked build, whose `linked_va` can differ from the
+reference VA. DLL import slots and unresolved aliases are not static library owners.
+
 ## Commands
 
 Run from the project root (config discovery walks up to `rebrew-project.toml`). Add
 `--target NAME` for non-default targets in multi-target projects.
 
 ```bash
+rebrew data --link-map build/server.map --json  # explicit MSVC map for library owners
 rebrew data --json                              # full inventory: globals, data_annotations, type_conflicts, summary, sections
 rebrew data --summary --json                    # per-section progress: JSON `summary` becomes {sections, conflicts}
 rebrew data --conflicts --json                  # only globals with type conflicts (same name, different types across files)
@@ -64,20 +78,19 @@ rebrew todo --category data-drift --json                # data symbols whose bui
 existing metadata stays unchanged. Compare a raw link: postlink-copied data
 can match without demonstrating that the source reproduces it.
 
-Use `--gen-header` when working offline or before any Ghidra sync: it emits typed
-`extern` declarations grouped by PE section. `rebrew sync --pull-data` overwrites
-this header with Ghidra-sourced labels when available (same default path
-`{reversed_dir}/rebrew_globals.h`, but `--pull-data` never prompts).
-
-`--gen-header` refuses to overwrite an existing file without `--force`. Run
-`--fix-bss` / `--gen-header` with `--dry-run` first: `--fix-bss` writes both a
-source file and metadata.
+`--gen-header` emits externs grouped by physical section, not game/CRT ownership.
+Use `--dry-run` or `--gen-header-out` to review output before merging into canonical
+subsystem headers. `--force` replaces an existing header. `rebrew sync --pull-data`
+also replaces the default header without prompting: preserve and reconcile any
+existing split first.
 
 `--layout-audit` reports SPAN/ORDER and unowned symbols. `--fix-ownership`
-re-partitions definitions; `--fill-data` pads uncovered runs; `--own`
-materializes stub-file globals into owner TUs; `--converge`
-adjusts leading pads against the current `build/<target>` and does not invoke
-the build: rebuild, then re-run. Preview each with `--dry-run`.
+re-partitions definitions; `--own` materializes stub-file storage. Neither a
+reference count nor physical adjacency establishes a library or subsystem owner.
+`--fill-data` and `--fix-bss` emit padding; use only for proven uncovered storage,
+not aliases or bytes already emitted by stock libraries. Preview every mutation
+with `--dry-run`. `--converge` adjusts leading pads against the current build;
+it does not build or prove the resulting data: rebuild, then verify.
 
 JSON response shapes and failure-mode table: `references/json-and-failures.md`.
 
@@ -138,7 +151,7 @@ an unknown-sized symbol cannot earn `VERIFIED`.
 
 When a function references a global address from disassembly:
 
-1. Declare the global in a source file or centralized header.
+1. Reuse its canonical game/subsystem or CRT header; add an extern there if missing.
 2. Annotate with `// GLOBAL: MODULE 0x<VA>` for tracking (declaration must follow on the next line).
 3. Metadata (name, size, section, note) goes in `rebrew-data.toml`, same format as DATA.
 
@@ -161,11 +174,12 @@ Two diff signals point at globals:
 
 1. `rebrew diff --json src/<target>/<file>.c`: note `XX` rows and `missing_globals`
 2. Add the missing `extern` declarations with `// GLOBAL:` annotations
-3. `rebrew data --bss --json`: gaps between known globals mean more missing externs
-4. `rebrew data --fix-bss --dry-run`, then `rebrew data --fix-bss` to generate
-   `bss_padding.c` (writes SIZE/SECTION/NOTE into `{metadata_dir}/rebrew-data.toml`)
-5. Re-run `rebrew data --bss --json` until no gaps remain, then
-   `rebrew test src/<target>/<file>.c --json`
+3. Check the backing object and stock-library provenance before adding storage.
+4. Use `rebrew data --bss --json` to inspect gaps. A gap can be an incomplete
+   extent, alignment, an interior view, or library storage; it is not proof that
+   another allocation is missing. Emit padding only after establishing the cause.
+5. Re-run `rebrew data --json`, `rebrew lint --json`, and affected function tests;
+   rebuild and verify raw linked data when storage or link inputs changed.
 
 ## Dispatch Tables and Vtables
 

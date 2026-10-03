@@ -130,6 +130,9 @@ class GlobalEntry:
     type_str: str = ""
     section: str = ""  # .data, .rdata, .bss, or ""
     declared_in: list[str] = field(default_factory=list)
+    defined_in: list[str] = field(default_factory=list)
+    referenced_in: list[str] = field(default_factory=list)
+    library_owners: list[dict[str, str]] = field(default_factory=list)
     annotated: bool = False  # True if has a // GLOBAL: annotation
     conflict: bool = False  # True if files declare this name with different types
     _declared: set[str] = field(default_factory=set, repr=False, compare=False)
@@ -153,6 +156,9 @@ class GlobalEntry:
         if self.section:
             d["section"] = self.section
         d["declared_in"] = self.declared_in
+        d["defined_in"] = self.defined_in
+        d["referenced_in"] = self.referenced_in
+        d["library_owners"] = self.library_owners
         d["annotated"] = self.annotated
         if self.conflict:
             d["conflict"] = True
@@ -179,6 +185,8 @@ class ScanResult:
                 "unannotated": sum(1 for g in self.globals.values() if not g.annotated),
                 "data_entries": len(self.data_annotations),
                 "conflicts": len(self.type_conflicts),
+                "multiple_definitions": sum(len(g.defined_in) > 1 for g in self.globals.values()),
+                "library_owned": sum(bool(g.library_owners) for g in self.globals.values()),
             },
         }
 
@@ -299,7 +307,7 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
     disagree, with no ``.c`` declaration, still conflict, and so do two
     ``.c`` markers that spell the same global differently.
     """
-    from rebrew.c_parser import array_type_shape, find_extern_variables
+    from rebrew.c_parser import array_type_shape, find_extern_variables, find_variable_roles
     from rebrew.sources import iter_sources_and_headers
     from rebrew.utils import rel_display_path
 
@@ -338,6 +346,7 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
             spelled.append(type_str)
 
     header_files: set[str] = set()
+    file_roles: dict[str, tuple[set[str], set[str], set[str]]] = {}
     for cfile in iter_sources_and_headers(src_dir, cfg):
         is_header = cfile.suffix.lower() == ".h"
         try:
@@ -380,6 +389,8 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
             extern_text = "\n".join(
                 "" if i in foreign_decl_lines else line for i, line in enumerate(lines)
             )
+
+        file_roles[fname] = find_variable_roles(extern_text)
 
         # Pre-compute extern variables from tree-sitter (used for unannotated
         # scan).  Definitions are included: a global's real type lives on its
@@ -528,6 +539,19 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
             result.globals[f"{name}@0x{va:x}"] = entry
         else:
             result.globals[name] = entry
+
+    # An annotation and an extern are address/declaration facts, not owners.
+    # Only actual source definitions contribute owners. Linked archive ownership
+    # requires separate link evidence and is deliberately not guessed here.
+    for entry in result.globals.values():
+        for fname, (definitions, _declarations, uses) in file_roles.items():
+            # For TU-local names at distinct VAs, associate only that TU's facts.
+            if len(entries_by_name[entry.name]) > 1 and fname not in entry.declared_in:
+                continue
+            if entry.name in definitions and fname in entry.declared_in:
+                entry.defined_in.append(fname)
+            if entry.name in uses:
+                entry.referenced_in.append(fname)
 
     # Compare type shapes; preserve the source spellings in each report.
     int_bits = 16 if arch_pointer_size(getattr(cfg, "arch", "x86_32")) == 2 else 32

@@ -14,13 +14,35 @@ is taken from; `declared_bytes` is the raw sum of the declared type sizes):
 
 ```json
 {"globals": {"g_name": {"name": "g_name", "type": "int *", "va": "0x10025000",
-                        "section": ".bss", "declared_in": ["server/main.c"], "annotated": true}},
+                        "section": ".bss", "declared_in": ["server/main.c"],
+                        "defined_in": ["server/owner.c"], "referenced_in": ["server/main.c"],
+                        "library_owners": [],
+                        "annotated": true}},
  "data_annotations": [{"va": "0x10025000", "name": "g_sprite_lut", "size": 256,
                        "section": ".rdata", "note": "lookup table", "filepath": "server/main.c"}],
  "type_conflicts": [{"name": "g_count", "types": {"int": ["a.c"], "short": ["b.c"]}}],
- "summary": {"total": 42, "annotated": 10, "unannotated": 32, "data_entries": 5, "conflicts": 1},
+ "summary": {"total": 42, "annotated": 10, "unannotated": 32, "data_entries": 5, "conflicts": 1, "multiple_definitions": 0, "library_owned": 0},
  "sections": {".data": {"va": "0x10022000", "size": 4096}}}
 ```
+
+`defined_in` lists source storage definitions, including tentative definitions and
+initialized externs. `declared_in` lists all source/header declaration sites,
+including definitions. `referenced_in` lists syntactic expression references,
+excluding declaration names, member names, and local shadows. Users can reference
+a symbol supplied by an included header without redeclaring it in their `.c`.
+These are raw source facts: macros/conditional branches are not preprocessed, and
+archive ownership requires separate link evidence. An empty `defined_in` means
+no source definition found, not a claim that a specific library owns the symbol.
+`summary.multiple_definitions` counts globals with more than one source definition.
+`library_owners` records `{library, member, symbol, linked_va, map, map_hash,
+evidence}`; evidence is `link-map`, or `link-map+archive` with `archive_hash` for
+COMMON data. `summary.library_owned` counts globals with an established library
+owner. The default map is the configured `raw_link` image with `.map` suffix;
+`--link-map PATH` selects another. Missing automatic maps are optional; explicit
+unreadable maps error. A map and its hashes describe a build snapshot, not proof
+that the reference bytes match. Names must match the C/link spelling; VAs, header
+names, CRT prefixes, and unselected archive definitions establish no owner.
+
 
 Check `summary.conflicts > 0` to decide whether `--conflicts` needs attention.
 `globals` with `"annotated": false` are plain `extern` declarations with no VA;
@@ -32,7 +54,8 @@ give them `// GLOBAL: MODULE 0xVA` markers so they resolve to a section.
  "gaps": [{"offset", "size", "between": [before, after]}], "coverage_pct",
  "summary": {"total_globals", "gaps", "total_gap_bytes"}}`.
 
-Each `gaps` entry is a likely undeclared `extern`, which is what `--fix-bss` fills.
+A gap is uncovered inventory, not proof of missing storage. Check complete extents,
+alignment, interior views, and linked library storage before using `--fix-bss`.
 
 ## `--dispatch --json`
 

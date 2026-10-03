@@ -89,6 +89,13 @@ function source counts do not measure matched bytes.
 > hashes differently from the image's copy: delete the cached archive to
 > re-extract, or drop `--stock-lib` for that run.
 
+Globals follow the same library attribution rule. An extern is a user declaration,
+not a storage owner. Reuse game/subsystem headers for game globals and the CRT
+header for runtime globals; stock libraries supply CRT storage. Record interior
+views against their backing object. For ownership or header consolidation, use
+the global ownership reference in `rebrew-data-analysis`; reverify known
+matches after changing declarations.
+
 ## 2. Generate Skeleton
 
 ```bash
