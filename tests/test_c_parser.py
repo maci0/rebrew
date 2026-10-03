@@ -386,6 +386,23 @@ class TestTypeFromDeclaration:
 
 
 class TestVariableInventory:
+    @pytest.mark.parametrize("convention", ["__cdecl", "__stdcall", "__fastcall", "WINAPI"])
+    @pytest.mark.parametrize("assembly", ["", "void f(void) { __asm {\n ret\n} }\n"])
+    def test_function_pointer_preserves_calling_convention(
+        self, convention: str, assembly: str
+    ) -> None:
+        declaration = (
+            f"extern int ({convention} *callback)(\n    void *, unsigned int,\n    void *);"
+        )
+        variables = find_extern_variables(assembly + declaration)
+        assert len(variables) == 1
+        assert variables[0].type_str == f"int ({convention} *)(void *, unsigned int, void *)"
+        assert variables[0].declaration == declaration
+        assert variables[0].line == assembly.count("\n") + 1
+        from rebrew.c_parser import find_variable_roles
+
+        assert find_variable_roles(assembly + declaration) == (set(), {"callback"}, set())
+
     def test_mixed_function_and_pointer_declarations(self) -> None:
         variables = find_extern_variables("extern int function(void), *object;")
         assert [(v.name, v.type_str) for v in variables] == [("object", "int *")]
@@ -396,7 +413,7 @@ class TestVariableInventory:
         )
         assert len(variables) == 1
         assert variables[0].name == "callback"
-        assert "value" not in variables[0].type_str
+        assert variables[0].type_str == "void (__cdecl *)(int)"
         from rebrew.c_parser import find_variable_roles
 
         assert find_variable_roles("void (*callback)(void);") == ({"callback"}, set(), set())

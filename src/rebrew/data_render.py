@@ -11,12 +11,13 @@ from typing import TYPE_CHECKING, Any
 
 from rich.console import Console, Group
 from rich.panel import Panel
+from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
 
 from rebrew.present import bar_plain, count_column, ratio_bar
 from rebrew.status_style import STATUS_COLORS
-from rebrew.utils import floor_pct, merged_span_bytes, untrusted_text
+from rebrew.utils import floor_pct, merged_span_bytes, untrusted_literal, untrusted_text
 
 if TYPE_CHECKING:
     from rebrew.data_scan import BssReport, DispatchTable, ScanResult
@@ -172,9 +173,12 @@ def render_globals(console: Console, scan: ScanResult, conflicts_only: bool = Fa
 
     for entry in sorted(entries, key=lambda e: (e.va or 0xFFFFFFFF, e.name)):
         va_str = f"0x{entry.va:08x}" if entry.va else "—"
-        type_cell = untrusted_text(entry.type_str)
+        type_literal = untrusted_literal(entry.type_str)
+        type_cell = Syntax(type_literal, "c", theme="ansi_dark").highlight(type_literal)
+        type_cell.rstrip()
+        type_cell.no_wrap = False
         if entry.conflict:
-            type_cell += " ⚠ CONFLICT"
+            type_cell.append(" ⚠ CONFLICT", style="bold red")
         owners = (
             entry.defined_in
             + entry.generated_owners

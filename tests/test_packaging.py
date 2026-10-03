@@ -1062,18 +1062,6 @@ class TestWheelSmokeScript:
             f"no console script installed at {Path(sys.executable).parent / names[0]}"
         ]
 
-    def test_compiler_drivers_are_excluded_by_name_and_still_checked(self) -> None:
-        """The three CMake bridges take a compiler command line, so `--help` is
-        not a probe for them; the shim they are installed as still has to be
-        there, and the exclusion stays as narrow as the bridge set."""
-        from tools.smoke_wheel_install import COMPILER_DRIVERS, unusable_console_scripts
-
-        scripts = _project()["scripts"]
-        bridges = {name for name, target in scripts.items() if target.endswith(":tc_main")}
-        assert bridges == COMPILER_DRIVERS
-        for driver in sorted(COMPILER_DRIVERS):
-            assert unusable_console_scripts([driver]) == [], driver
-
     def test_names_every_missing_runtime_file(self, tmp_path: Path) -> None:
         """A wheel that imports but ships no agent-skills must fail the gate."""
         import rebrew

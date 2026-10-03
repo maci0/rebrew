@@ -20,7 +20,7 @@ Manual inspection and linkage tools outside the main reverse loop. Run
 | `rebrew gen-link-stubs` | Generate a `link_stubs.c`-style BSS placeholder TU from the data metadata. |
 | `rebrew inline-strings` | Inline string-literal globals (`s_<hint>_<0xADDR>`) from the reference binary. |
 | `rebrew link-sweep` | Sweep LINK options to reproduce the reference PE header (find stamp-only fields). |
-| `rebrew cmake-toolchain` | Write a CMake toolchain file that drives a docker toolchain via `rebrew-cmake-*`. |
+| `rebrew cmake-toolchain` | Write a CMake toolchain file that drives a docker toolchain via `rebrew cmake-driver`. |
 | `rebrew cmake-flags` | Write per-file CFLAGS from `rebrew-functions.toml` as a CMake include. |
 | `rebrew cmake-sources` | Write the target's marker-selected source list as a CMake include. |
 | `rebrew migrate-markers` | ADR 023: move inline markers into `rebrew-functions.toml` and strip the `.c` to pure C (idempotent, `--dry-run` previews). |

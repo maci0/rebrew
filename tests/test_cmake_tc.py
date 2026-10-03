@@ -7,16 +7,18 @@ command construction (mocked runner — no docker is executed here).
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from rebrew.cmake_tc import (
-    _TOOL_MODES,
+    ToolMode,
     _docker_run,
     _docker_user_args,
     _ensure_wineprefix,
@@ -148,11 +150,7 @@ def test_find_project_root_rejects_directory_marker(tmp_path: Path) -> None:
 
 
 def test_tool_modes_dispatch() -> None:
-    assert _TOOL_MODES == {
-        "rebrew-cmake-cl": "cl",
-        "rebrew-cmake-link": "link",
-        "rebrew-cmake-lib": "lib",
-    }
+    assert {mode.value for mode in ToolMode} == {"cl", "link", "lib"}
 
 
 class TestDockerUserArgs:
@@ -384,10 +382,9 @@ def test_generated_toolchain_binds_one_installation(
     drivers = tmp_path / "drivers"
     drivers.mkdir()
     modes = ["cl", "link", "lib"]
-    for mode in modes:
-        driver = drivers / f"rebrew-cmake-{mode}"
-        driver.write_text("#!/bin/sh\nexit 99\n", encoding="utf-8")
-        driver.chmod(0o755)
+    driver = drivers / "rebrew"
+    driver.write_text("#!/bin/sh\nexit 99\n", encoding="utf-8")
+    driver.chmod(0o755)
     monkeypatch.setenv("PATH", str(drivers))
     toolchain = generate_toolchain_file(TOOLCHAINS["msvc-6.0"], tmp_path)
     paths = tmp_path / "paths.txt"
@@ -401,7 +398,7 @@ def test_generated_toolchain_binds_one_installation(
     )
     subprocess.run([cmake, "-P", str(script)], check=True, capture_output=True)
     assert paths.read_text(encoding="utf-8").splitlines() == [
-        str(drivers / f"rebrew-cmake-{mode}") for mode in modes
+        str(drivers / "rebrew") for _ in modes
     ]
     script.write_text(
         "set(CMAKE_FIND_USE_CMAKE_SYSTEM_PATH FALSE)\n"
@@ -411,7 +408,74 @@ def test_generated_toolchain_binds_one_installation(
     )
     missing = subprocess.run([cmake, "-P", str(script)], capture_output=True, text=True)
     assert missing.returncode != 0
-    assert "rebrew-cmake-cl not found on PATH" in missing.stderr
+    assert "rebrew not found on PATH" in missing.stderr
+
+
+@pytest.mark.parametrize("generator,tool", [("Unix Makefiles", "make"), ("Ninja", "ninja")])
+def test_generated_toolchain_builds_with_only_umbrella_executable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, generator: str, tool: str
+) -> None:
+    """Actual CMake builds route compile, archive, and both link rules through rebrew."""
+    cmake = shutil.which("cmake")
+    if os.name != "posix" or cmake is None or shutil.which(tool) is None:
+        pytest.skip("POSIX CMake and build tool required for the fake driver")
+    drivers = tmp_path / "driver with spaces"
+    drivers.mkdir()
+    driver = drivers / "rebrew"
+    driver.write_text(
+        f"#!{sys.executable}\n"
+        "import json, os, sys\n"
+        "from pathlib import Path\n"
+        "assert sys.argv[1] == 'cmake-driver' and sys.argv[3] == '--', sys.argv\n"
+        "with open(os.environ['REBREW_FAKE_DRIVER_LOG'], 'a') as log:\n"
+        "    log.write(json.dumps(sys.argv[1:]) + '\\n')\n"
+        "for arg in sys.argv[4:]:\n"
+        "    if arg.startswith('/Fo') or arg.lower().startswith('/out:'):\n"
+        "        out = Path(arg[3:] if arg.startswith('/Fo') else arg[5:])\n"
+        "        out.parent.mkdir(parents=True, exist_ok=True)\n"
+        "        out.write_bytes(b'fake compiler output')\n",
+        encoding="utf-8",
+    )
+    driver.chmod(0o755)
+    monkeypatch.setenv("PATH", str(drivers) + os.pathsep + os.environ.get("PATH", ""))
+    log = tmp_path / "commands.jsonl"
+    monkeypatch.setenv("REBREW_FAKE_DRIVER_LOG", str(log))
+    (tmp_path / "unit.c").write_text("int main(void) { return 0; }\n")
+    (tmp_path / "CMakeLists.txt").write_text(
+        "cmake_minimum_required(VERSION 3.15)\n"
+        "project(bridge C)\n"
+        "add_library(arch STATIC unit.c)\n"
+        "add_library(shared SHARED unit.c)\n"
+        "add_executable(exe unit.c)\n"
+    )
+    toolchain = generate_toolchain_file(TOOLCHAINS["msvc-6.0"], tmp_path / "cmake")
+    build = tmp_path / "build"
+    configured = subprocess.run(
+        [
+            cmake,
+            "-G",
+            generator,
+            "-S",
+            str(tmp_path),
+            "-B",
+            str(build),
+            "--toolchain",
+            str(toolchain),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert configured.returncode == 0, configured.stdout + configured.stderr
+    built = subprocess.run(
+        [cmake, "--build", str(build)], capture_output=True, text=True, check=False
+    )
+    assert built.returncode == 0, built.stdout + built.stderr
+    commands = [json.loads(line) for line in log.read_text().splitlines()]
+    assert {args[1] for args in commands} == {"cl", "link", "lib"}
+    assert sum(args[1] == "link" for args in commands) == 2
+    for artifact in ("arch.lib", "shared.dll", "exe.exe"):
+        assert (build / artifact).is_file(), artifact
 
 
 def test_per_toolchain_version_stamping(tmp_path: Path) -> None:
@@ -451,8 +515,11 @@ def test_resolve_spec_rejects_dosbox_image() -> None:
             assert _resolve_spec(name) is spec, name
 
 
-def test_tc_main_dispatch_and_run(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """tc_main resolves the toolchain from the project toml and runs docker."""
+@pytest.mark.parametrize("mode", ["cl", "link", "lib"])
+def test_driver_dispatch_and_run(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, mode: str
+) -> None:
+    """Umbrella driver preserves compiler flags and propagates the tool exit."""
     proj = tmp_path / "proj"
     (proj / "build").mkdir(parents=True)
     (proj / "rebrew-project.toml").write_text(
@@ -466,14 +533,15 @@ def test_tc_main_dispatch_and_run(monkeypatch: pytest.MonkeyPatch, tmp_path: Pat
         return 7
 
     monkeypatch.setattr("rebrew.cmake_tc._docker_run", fake_docker_run)
-    monkeypatch.setattr("rebrew.cmake_tc.sys.argv", ["rebrew-cmake-cl", "/c", "x.c"])
     monkeypatch.setattr("rebrew.cmake_tc.Path.cwd", lambda: proj / "build")
-    with pytest.raises(SystemExit) as exc:
-        import rebrew.cmake_tc as tc
+    from typer.testing import CliRunner
 
-        tc.tc_main()
-    assert exc.value.code == 7
-    assert calls == [("cl", ["/c", "x.c"])]
+    from rebrew.main import app
+
+    args = ["/c", "x.c", "--help", "--version", "-v", "/Ipath with spaces"]
+    result = CliRunner().invoke(app, ["cmake-driver", mode, "--", *args])
+    assert result.exit_code == 7, result.output
+    assert calls == [(mode, args)]
 
 
 def test_docker_run_rejects_relative_wineprefix(

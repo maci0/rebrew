@@ -31,10 +31,12 @@ accounted `.text`, but library functions do not count as reversing progress.
 
 ## CLI Tools
 
-Invoke routine tools through the single `rebrew <command>` CLI. Names such as
-`rebrew-workflow` identify skills, not executables. Only `rebrew-cmake-cl`,
-`rebrew-cmake-link`, `rebrew-cmake-lib`, and `rebrew-objdiff-build` are separate
-build hooks, invoked by CMake/objdiff with their own arguments.
+Invoke all tools through the single `rebrew <command>` CLI. Names such as
+`rebrew-workflow` identify skills, not executables. CMake invokes
+`rebrew cmake-driver <cl|link|lib> -- <arguments>`; objdiff invokes
+`rebrew objdiff-build <target> <base-object>`. Place compiler flags after `--`
+so Rebrew passes them through unchanged. Regenerate old CMake/objdiff configs
+when updating Rebrew; no separate `rebrew-*` executables are installed.
 Use `--json` for structured output (preferred for agents).
 
 | Command | Use |

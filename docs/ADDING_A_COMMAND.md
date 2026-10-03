@@ -36,8 +36,8 @@ Conventions (CLI review will flag drift):
   for ownership and the [tutorial](CORDIS_TUTORIAL.md) for a complete lifetime.
   This is what makes `rebrew <name>` exist; no gate adds it for you.
 - Leave `pyproject.toml` `[project.scripts]` alone. People use one executable,
-  `rebrew`; only four machine-facing CMake/objdiff hooks have separate names
-  ([ADR 026](adr/026-unified-cli-entry-point.md)). `main_entry()` supports
+  `rebrew`; CMake/objdiff hooks also run as subcommands
+  ([ADR 027](adr/027-build-hooks-under-umbrella.md)). `main_entry()` supports
   direct module execution for development, not another installed executable.
 
 Third-party commands skip both: they register through the

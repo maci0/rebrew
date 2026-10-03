@@ -1693,6 +1693,20 @@ class TestRenderTerminal:
         assert out.index(".data") < out.index(".rdata")
         assert "50.0% of .text" in out
 
+    def test_data_overlap_warning_identifies_byte_verdicts(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.status import _render_terminal
+
+        buf = self._capture(monkeypatch)
+        report = self._report()
+        report.data_verified = 2
+        report.data_verified_bytes = 100
+        report.data_total_bytes = 200
+        report.data_conflicting_verified_bytes = 12
+        _render_terminal(report)
+        assert "12B in VERIFIED records overlap DRIFT/UNCHECKED records" in buf.getvalue()
+
     def test_status_rows_add_up_to_the_total(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Functions with no source get their own row, so the table sums to the
         headline total (259 + 4 + 20 = 283, not 263 of 283 unexplained)."""

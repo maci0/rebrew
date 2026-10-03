@@ -143,8 +143,8 @@ class TestObjdiffProject:
         )
         assert r.exit_code == 0
         doc = json.loads(out.read_text(encoding="utf-8"))
-        assert doc["custom_make"] == "rebrew-objdiff-build"
-        assert doc["custom_args"] == ["T"]
+        assert doc["custom_make"] == "rebrew"
+        assert doc["custom_args"] == ["objdiff-build", "T"]
         assert len(doc["units"]) == 1
         unit = doc["units"][0]
         assert unit["name"] == "funcs/a.c"
@@ -212,10 +212,10 @@ class TestObjdiffProject:
         monkeypatch.setattr(
             "rebrew.compile_overrides.resolve_compile_overrides", lambda cfg, d, a, b, c: (None, "")
         )
-        import sys
+        from rebrew.main import app
 
-        monkeypatch.setattr(sys, "argv", ["rebrew-objdiff-build", "T", str(base)])
-        objdiff_project.objdiff_build_entry()
+        result = runner.invoke(app, ["objdiff-build", "T", str(base)])
+        assert result.exit_code == 0, result.output
         assert len(calls) == 1
         assert calls[0][0] == src_file
         assert calls[0][3] == base.name
@@ -241,15 +241,12 @@ class TestObjdiffProject:
             "rebrew.compile.compile_to_obj",
             lambda *a, **kw: calls.append(a) or ("x.o", ""),
         )
-        import sys
+        from rebrew.main import app
 
-        monkeypatch.setattr(
-            sys,
-            "argv",
-            ["rebrew-objdiff-build", "T", "build/objdiff/current/../../outside.c.o"],
+        result = runner.invoke(
+            app, ["objdiff-build", "T", "build/objdiff/current/../../outside.c.o"]
         )
-        with pytest.raises(SystemExit):
-            objdiff_project.objdiff_build_entry()
+        assert result.exit_code == 2, result.output
         assert calls == []
 
     def test_build_entry_refuses_absolute_source(
@@ -268,41 +265,28 @@ class TestObjdiffProject:
             "rebrew.compile.compile_to_obj",
             lambda *a, **kw: calls.append(a) or ("x.o", ""),
         )
-        import sys
+        from rebrew.main import app
 
-        monkeypatch.setattr(
-            sys, "argv", ["rebrew-objdiff-build", "T", str(outside.with_suffix(".c.o"))]
-        )
-        with pytest.raises(SystemExit):
-            objdiff_project.objdiff_build_entry()
+        result = runner.invoke(app, ["objdiff-build", "T", str(outside.with_suffix(".c.o"))])
+        assert result.exit_code == 2, result.output
         assert calls == []
 
-    def test_build_entry_help_prints_usage(
-        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-    ) -> None:
-        """``--help`` prints usage on stdout and exits 0 instead of a usage error."""
-        import sys
+    def test_build_entry_help_prints_usage(self) -> None:
+        """Help succeeds through the installed umbrella command."""
+        from rebrew.main import app
 
-        monkeypatch.setattr(sys, "argv", ["rebrew-objdiff-build", "--help"])
-        objdiff_project.objdiff_build_entry()
-        assert capsys.readouterr().out.startswith("usage: rebrew-objdiff-build")
+        result = runner.invoke(app, ["objdiff-build", "--help"])
+        assert result.exit_code == 0
+        assert "objdiff-build" in result.output
 
     @pytest.mark.parametrize("argv", [["-x"], ["-x", "base.o"]])
-    def test_build_entry_names_an_unknown_option(
-        self, argv: list[str], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-    ) -> None:
-        """A lone stray flag must name it, not print a bare usage line.
+    def test_build_entry_names_an_unknown_option(self, argv: list[str]) -> None:
+        """Stray flags are usage errors rather than target names."""
+        from rebrew.main import app
 
-        The arity check used to run first, so ``-x`` alone read as "too few
-        arguments" and the user never learned which token was wrong.
-        """
-        import sys
-
-        monkeypatch.setattr(sys, "argv", ["rebrew-objdiff-build", *argv])
-        with pytest.raises(SystemExit) as exc:
-            objdiff_project.objdiff_build_entry()
-        assert exc.value.code == 2
-        assert "unknown option '-x'" in capsys.readouterr().err
+        result = runner.invoke(app, ["objdiff-build", *argv])
+        assert result.exit_code == 2
+        assert "No such option: -x" in result.output
 
     def test_build_entry_uses_annotation_overrides(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -335,10 +319,10 @@ class TestObjdiffProject:
             "rebrew.compile.compile_to_obj",
             lambda cfg_, source, cflags, workdir, **kw: (str(workdir / kw["obj_name"]), ""),
         )
-        import sys
+        from rebrew.main import app
 
-        monkeypatch.setattr(sys, "argv", ["rebrew-objdiff-build", "T", str(base)])
-        objdiff_project.objdiff_build_entry()
+        result = runner.invoke(app, ["objdiff-build", "T", str(base)])
+        assert result.exit_code == 0, result.output
         assert seen == {"tool": "msvc-5.0", "cflags": "/O1", "module": "T"}
 
     def test_watch_patterns_follow_reversed_dir(

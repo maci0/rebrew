@@ -512,13 +512,15 @@ class TestCliComponent:
 
 
 class TestBuiltinManifest:
-    def test_names_and_modules_are_unique(self) -> None:
+    def test_names_and_targets_are_unique(self) -> None:
         from rebrew.builtins import BUILTIN_COMPONENTS
 
         names = [c.name for c in BUILTIN_COMPONENTS]
-        modules = [c.module for c in BUILTIN_COMPONENTS]
+        targets = [
+            (c.module, c.attr or ("app" if c.is_group else "main")) for c in BUILTIN_COMPONENTS
+        ]
         assert len(names) == len(set(names))
-        assert len(modules) == len(set(modules))
+        assert len(targets) == len(set(targets))
 
     def test_panels_are_declared(self) -> None:
         from rebrew.builtins import BUILTIN_COMPONENTS

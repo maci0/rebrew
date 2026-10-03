@@ -1159,7 +1159,8 @@ def _data_block(report: StatusReport) -> list[Any]:
         if report.data_conflicting_verified_bytes:
             block.append(
                 Text(
-                    f"{report.data_conflicting_verified_bytes:,}B have conflicting stored verdicts"
+                    f"{report.data_conflicting_verified_bytes:,}B in VERIFIED records overlap"
+                    " DRIFT/UNCHECKED records"
                     " (counted as unverified)",
                     style="yellow",
                 )

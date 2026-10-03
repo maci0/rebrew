@@ -490,14 +490,10 @@ class TestDeclaredScripts:
         assert isinstance(project, dict)
         return project["scripts"]
 
-    def test_only_unified_cli_and_external_build_hooks_are_installed(self) -> None:
+    def test_only_unified_cli_is_installed(self) -> None:
         """New commands belong under rebrew, without another executable in PATH."""
         assert self._scripts() == {
             "rebrew": "rebrew.main:main",
-            "rebrew-objdiff-build": "rebrew.objdiff_project:objdiff_build_entry",
-            "rebrew-cmake-cl": "rebrew.cmake_tc:tc_main",
-            "rebrew-cmake-link": "rebrew.cmake_tc:tc_main",
-            "rebrew-cmake-lib": "rebrew.cmake_tc:tc_main",
         }
 
     def test_every_script_target_resolves(self) -> None:

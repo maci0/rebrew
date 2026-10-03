@@ -21,7 +21,7 @@ Names are `"<image-family>-<version>"` (lowercase, version dots kept), e.g. `msv
 
 Docker build source lives in the sibling **rebrew-toolchains** checkout (`REBREW_TOOLCHAINS_DIR` override). Resolve via `rebrew.toolchain_paths.toolchains_repo()`; commands that need it call `rebrew.toolchain.require_toolchains_repo()`.
 
-**CMake**: `rebrew cmake-toolchain --toolchain msvc-6.0 --output cmake/` then `cmake -B build --toolchain cmake/toolchain-msvc-6.0-docker.cmake`. Bridge scripts: `rebrew-cmake-{cl,link,lib}`.
+**CMake**: `rebrew cmake-toolchain --toolchain msvc-6.0 --output cmake/` then `cmake -B build --toolchain cmake/toolchain-msvc-6.0-docker.cmake`. Tools run as `rebrew cmake-driver <cl|link|lib> -- <arguments>`; compiler flags follow `--` unchanged.
 
 **Library overrides** (`rebrew-libraries.toml`, `rebrew library set/show/list/rm`): resolve most-specific-first (per-function `TOOLCHAIN`/`CFLAGS` → nearest `rebrew-libraries.toml` (walk-up) → project default). Presets fill missing fields (e.g. `msvcrt-static` = `/O2 /Gd /MT`).
 
@@ -106,7 +106,7 @@ Dockerfiles / wrappers / 16-bit media: sibling **rebrew-toolchains** (not vendor
 
 ## CLI Conventions
 
-Install one user CLI, `rebrew`, and register tools as components in `builtins.py`. Do not add `rebrew-<command>` console scripts. `[project.scripts]` contains only the umbrella (`rebrew.main:main`), the objdiff build hook (`objdiff_build_entry`), and three CMake compiler drivers (`tc_main`); external build tools invoke those four hooks directly (ADR 026). Single-command modules use `@app.callback(invoke_without_command=True)` and may keep `main_entry()` for `python -m` execution.
+Install one CLI, `rebrew`, and register all tools as components in `builtins.py`. Do not add `rebrew-<command>` console scripts. `[project.scripts]` contains only the umbrella (`rebrew.main:main`); external build tools use `rebrew cmake-driver <cl|link|lib> -- <arguments>` and `rebrew objdiff-build <target> <base-object>` (ADR 027). Regenerate CMake/objdiff configs when upgrading from the old executable hooks. Single-command modules use `@app.callback(invoke_without_command=True)` and may keep `main_entry()` for `python -m` execution.
 
 - **Shared helpers** come from `rebrew.cli`: `TargetOption`, `require_config()`, `error_exit(..., json_mode=json_output)`, `json_print`, `parse_va`, `EXIT_*`. `load_config` is in no `__all__` there even though the module imports it; import it from `rebrew.config`, and only for optional loads.
 - **Param order**: `--json` before `--target`, both last. The batch tools (`verify`/`test`/`lint`/`status`/`todo`) put `--all-targets` after `--target`, since it is mutually exclusive with it.

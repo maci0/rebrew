@@ -53,7 +53,7 @@ rebrew objdiff --output objdiff.json                # GUI diffing project (objdi
 `rebrew objdiff` synthesizes one target COFF object per annotated source file
 from the reference binary and writes an objdiff project config; open
 `objdiff.json` in the objdiff GUI for instruction-level diffing of every
-function at once (objdiff rebuilds base objects via `rebrew-objdiff-build`).
+function at once (objdiff rebuilds base objects via `rebrew objdiff-build`).
 
 > **VA on a multi-function file**: `rebrew diff/match/prove/test 0x<va>` targets the
 > annotation whose VA matches, NOT the first function in the file. When the

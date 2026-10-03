@@ -187,7 +187,10 @@ def _named(
         spelling in notes for spelling in (f"`{leaf}`", f"`{leaf}()`", f" {leaf} ")
     ):
         return True
-    if any(f"`{part}`" in notes for part in _spellings(symbol)):
+    if any(
+        f"`{part}`" in notes
+        for part in (*_spellings(symbol), f"rebrew.{symbol}", f"rebrew.{symbol}()")
+    ):
         return True
     named_module = moved_to if moved_to is not None else module
     if moved_to is None and not module_emptied:
@@ -221,6 +224,15 @@ class TestNoteNaming:
 
     def test_qualified_path_names_the_symbol(self) -> None:
         assert _named("`ProjectConfig.to_dict` is gone", "config.ProjectConfig.to_dict", "config")
+
+    @pytest.mark.parametrize("suffix", ["", "()"])
+    def test_package_qualified_path_names_the_symbol(self, suffix: str) -> None:
+        assert _named(
+            f"`rebrew.cmake_tc.tc_main{suffix}` is removed",
+            "cmake_tc.tc_main",
+            "cmake_tc",
+            module_emptied=False,
+        )
 
     def test_module_path_names_the_symbol(self) -> None:
         assert _named("nothing public left in `rebrew.exports`", "exports.main", "exports")

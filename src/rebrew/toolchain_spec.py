@@ -70,7 +70,7 @@ class ToolchainSpec:
     # MSVC, binl for Watcom, "" for the root — Delphi)
     tool_root: str | None = None  # container dir holding the command-line tools
     # (e.g. "/opt/msvc6.0/VC98/Bin"); the CMake toolchain wrapper
-    # (rebrew-cmake-cl/link/lib) calls the tools there directly via `wine`, and
+    # (rebrew cmake-driver cl --/link/lib) calls the tools there directly via `wine`, and
     # both it and the compile runner derive the Include/Lib dirs from it
     # (rebrew.toolchain.image_msvc_env)
     bits: int | None = None  # target code model: 16 / 32 / 64; None = unknown

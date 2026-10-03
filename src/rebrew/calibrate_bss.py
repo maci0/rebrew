@@ -121,7 +121,7 @@ def main(
     ),
     max_iters: int = typer.Option(8, "--max-iters", help="Max calibration iterations"),
     compile_cmd: str = typer.Option(
-        "rebrew-cmake-cl", "--compile-cmd", help="Command to recompile the stub TU"
+        "rebrew cmake-driver cl --", "--compile-cmd", help="Command to recompile the stub TU"
     ),
     cflags: str = typer.Option("/O2 /Gd", "--cflags", help="Flags for the stub compile"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
@@ -239,7 +239,7 @@ def main(
             try:
                 run_process_group(
                     [
-                        compile_cmd,
+                        *safe_shlex_split(compile_cmd),
                         "/nologo",
                         "/c",
                         *safe_shlex_split(cflags),

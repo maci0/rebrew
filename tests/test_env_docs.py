@@ -34,8 +34,8 @@ _NOT_ENV_VARS = frozenset(
         "REBREW_EXTERNAL_LIBS",
         "REBREW_GLOBALS_H",
         # Generated CMake-local variables, not process environment settings.
-        "REBREW_CMAKE_BIN",
-        "REBREW_CMAKE_CL",
+        "REBREW_CMAKE_AR_COMMAND",
+        "REBREW_EXECUTABLE",
         "REBREW_LINK_EXE",
         "REBREW_LLM_",
         "REBREW_NAKED",

@@ -27,7 +27,10 @@ graph TD
 # Rebrew Workflow
 
 Invoke tools as `rebrew <command>`. Names such as `rebrew-workflow` identify
-skills; separate executables are reserved for the four CMake/objdiff build hooks.
+skills, not executables. Build tools also use the umbrella: CMake invokes
+`rebrew cmake-driver <cl|link|lib> -- <arguments>` and objdiff invokes
+`rebrew objdiff-build <target> <base-object>`. Compiler flags follow `--` so
+they pass through unchanged. Regenerate old CMake/objdiff configs after updating.
 
 Project workflow commands find `rebrew-project.toml` by walking up from the
 working directory. Binary inspection subcommands can also accept a

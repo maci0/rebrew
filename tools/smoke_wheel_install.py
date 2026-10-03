@@ -12,7 +12,7 @@ Every declared console script is then run as the installer wrote it, because
 that shim is the artifact a user invokes and nothing else in the gates
 exercises it: ``[project.scripts]`` names a module and an attribute, the
 static check imports the module in the *dev* tree, and ``rebrew --help`` covers
-the user CLI but not the four external build hooks. A target whose import chain reaches
+every command, including the build hooks. A target whose import chain reaches
 something the wheel does not carry installs cleanly and fails on first use.
 
 Run with the *installed* interpreter, not the project's, so the import
@@ -32,13 +32,6 @@ from importlib.metadata import EntryPoint, PackageNotFoundError, entry_points, v
 from pathlib import Path
 
 DIST_NAME = "rebrew"
-
-# The three CMAKE_C_COMPILER / CMAKE_LINKER / CMAKE_AR wrappers.  CMake runs
-# them with a compiler command line, not a CLI one, so `--help` is not a probe
-# for them: `rebrew-cmake-cl --help` forwards the flag to cl.exe, which exits
-# on the missing source file.  They are probed by the CMake bridge tests
-# instead, and the shim still has to exist.
-COMPILER_DRIVERS = frozenset({"rebrew-cmake-cl", "rebrew-cmake-link", "rebrew-cmake-lib"})
 
 # A console script that hangs on `--help` is a wedged install, not a slow one.
 _SCRIPT_TIMEOUT = 60
@@ -105,8 +98,6 @@ def unusable_console_scripts(names: list[str] | None = None) -> list[str]:
         shim = bin_dir / name
         if not shim.is_file():
             failures.append(f"no console script installed at {shim}")
-            continue
-        if name in COMPILER_DRIVERS:
             continue
         try:
             result = subprocess.run(

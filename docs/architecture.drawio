@@ -331,7 +331,7 @@
         <mxCell id="obj" value="&lt;b&gt;Object parse&lt;/b&gt;&lt;br&gt;parsers.py  COFF/ELF/Mach-O via LIEF&lt;br&gt;omf16.py    16-bit OMF (MSVC 1.52 dialect)&lt;br&gt;→ function bytes + reloc slot offsets" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="880" y="308" width="360" height="100" as="geometry"/>
         </mxCell>
-        <mxCell id="cmake" value="&lt;b&gt;CMake bridge&lt;/b&gt;&lt;br&gt;rebrew cmake-toolchain --output cmake/&lt;br&gt;rebrew-cmake-{cl,link,lib} wrap docker run&lt;br&gt;same images, same wineprefix flock" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="cmake" value="&lt;b&gt;CMake bridge&lt;/b&gt;&lt;br&gt;rebrew cmake-toolchain --output cmake/&lt;br&gt;rebrew cmake-driver <cl|link|lib> -- wrap docker run&lt;br&gt;same images, same wineprefix flock" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="1260" y="308" width="360" height="100" as="geometry"/>
         </mxCell>
         <mxCell id="smoke" value="rebrew toolchain smoke: byte-reproducible objects for every image-backed toolchain. Missing image is a hard error (rebrew toolchain build | pull). Remote backend: cache id pins (url, profile), never shared with local." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fee2e2;strokeColor=#ef4444;fontColor=#7f1d1d;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
@@ -650,7 +650,7 @@
         <mxCell id="ext-lane" value="3. External GUIs and reccmp (mostly consume; objdiff compiles back through rebrew)" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=10;spacingTop=4;fillColor=#dbeafe;strokeColor=#3b82f6;fontColor=#1e3a5f;fontStyle=1;fontSize=12;" vertex="1" parent="1">
           <mxGeometry x="40" y="670" width="1680" height="160" as="geometry"/>
         </mxCell>
-        <mxCell id="ex1" value="&lt;b&gt;rebrew objdiff&lt;/b&gt;&lt;br&gt;synthesized target COFF + objdiff.json&lt;br&gt;rebrew-objdiff-build = custom_make&lt;br&gt;compiles base .obj via same toolchain" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bfdbfe;strokeColor=#1d4ed8;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="ex1" value="&lt;b&gt;rebrew objdiff&lt;/b&gt;&lt;br&gt;synthesized target COFF + objdiff.json&lt;br&gt;rebrew objdiff-build = custom_make&lt;br&gt;compiles base .obj via same toolchain" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bfdbfe;strokeColor=#1d4ed8;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="60" y="710" width="300" height="96" as="geometry"/>
         </mxCell>
         <mxCell id="ex2" value="&lt;b&gt;rebrew decompme&lt;/b&gt;&lt;br&gt;upload COFF + C seed + context&lt;br&gt;claim_token URL; anonymous create&lt;br&gt;no automatic pull back" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#3b82f6;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">

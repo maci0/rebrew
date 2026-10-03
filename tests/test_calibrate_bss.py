@@ -101,6 +101,8 @@ class TestCalibrateLoop:
 
         def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[bytes]:
             # The raw link ("true ...") succeeds; the stub compile fails.
+            if cmd[0] != "true":
+                assert cmd[:4] == ["rebrew", "cmake-driver", "cl", "--"]
             rc = 0 if cmd[0] == "true" else 1
             return subprocess.CompletedProcess(cmd, rc, b"", b"boom")
 

@@ -42,6 +42,8 @@ TARGETLESS_EXEMPT: set[tuple[str, str]] = {
     ("gen-link-stubs", "main"),
     # toolchain image management (not project-scoped)
     ("cmake-toolchain", "main"),
+    # compiler driver uses the build's profile and raw tool arguments
+    ("cmake-driver", "main"),
     ("toolchain", "list"),
     ("toolchain", "status"),
     ("toolchain", "pull"),
@@ -117,7 +119,7 @@ def _command_functions() -> list[tuple[str, str, Any]]:
                 if sub.callback is not None:
                     out.append((comp.name, sub.name or "?", sub.callback))
         else:
-            fn = getattr(module, "main", None)
+            fn = getattr(module, comp.attr or "main", None)
             if fn is not None:
                 out.append((comp.name, "main", fn))
     return out
