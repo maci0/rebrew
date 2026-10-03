@@ -78,3 +78,55 @@ def test_for_scope_does_not_shadow_a_global_after_the_loop() -> None:
     assert find_variable_roles("int run(void) { for (int g = 0; g < 1; ++g) {} return g; }")[2] == {
         "g"
     }
+
+
+def test_multiline_marker_declaration_keeps_foreign_target_scoping(tmp_path: Path) -> None:
+    from types import SimpleNamespace
+
+    (tmp_path / "globals.h").write_text(
+        "// GLOBAL: SERVER 0x1000\nextern void\n (*hook)(void);\n"
+        "// GLOBAL: GOLD 0x2000\nextern unsigned\n int foreign[4];\n"
+    )
+    cfg = SimpleNamespace(marker="SERVER", all_markers={"SERVER", "GOLD"}, metadata_dir=tmp_path)
+    scan = scan_globals(tmp_path, cfg)
+    assert set(scan.globals) == {"hook"}
+    assert scan.globals["hook"].va == 0x1000
+    assert scan.globals["hook"].type_str.startswith("void")
+
+
+def test_coverage_includes_header_data_and_separates_owner_from_declarers(tmp_path: Path) -> None:
+    from rebrew.sections import get_globals
+
+    (tmp_path / "globals.h").write_text("// DATA: SERVER 0x1000\nextern int object[4];\n")
+    (tmp_path / "owner.c").write_text("int object[4];\n")
+    (tmp_path / "use.c").write_text("int read(void) { return object[0]; }\n")
+    row = get_globals(tmp_path)[0x1000]
+    assert row["owners"] == ["owner.c"]
+    assert row["referenced_in"] == ["use.c"]
+    assert set(row["declared_in"]) == {"globals.h", "owner.c"}
+    assert row["size"] == 16
+
+
+def test_foreign_function_bodies_do_not_contribute_users(tmp_path: Path) -> None:
+    from types import SimpleNamespace
+
+    (tmp_path / "mixed.c").write_text(
+        "int server_value; int foreign_value;\n"
+        "// FUNCTION: SERVER 0x1000\nint server_fn(void) { return server_value; }\n"
+        "// FUNCTION: GOLD 0x2000\nint gold_fn(void) { return foreign_value; }\n"
+    )
+    cfg = SimpleNamespace(marker="SERVER", all_markers={"SERVER", "GOLD"}, metadata_dir=tmp_path)
+    scan = scan_globals(tmp_path, cfg)
+    assert scan.globals["server_value"].referenced_in == ["mixed.c"]
+    assert scan.globals["foreign_value"].referenced_in == []
+
+
+def test_stacked_identity_markers_keep_shared_function_users(tmp_path: Path) -> None:
+    from types import SimpleNamespace
+
+    (tmp_path / "shared.c").write_text(
+        "int value;\n// FUNCTION: SERVER 0x1000\n// FUNCTION: GOLD 0x2000\n"
+        "int shared(void) { return value; }\n"
+    )
+    cfg = SimpleNamespace(marker="SERVER", all_markers={"SERVER", "GOLD"}, metadata_dir=tmp_path)
+    assert scan_globals(tmp_path, cfg).globals["value"].referenced_in == ["shared.c"]

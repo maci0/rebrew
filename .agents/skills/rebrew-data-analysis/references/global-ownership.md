@@ -61,3 +61,16 @@ An undefined zero-valued COFF reference, an unselected archive definition, or a
 DLL import slot is not a static library storage owner. If several selected members
 supply COMMON storage, leave its provider unresolved. Do not match descriptive
 aliases to a library merely because their reference VA coincides with a map VA.
+
+Record verified relationships with `rebrew data --set-storage-kind 0xVA=KIND`
+(`object`, `alias`, `literal`, `span`, or `import`), `--set-backing 0xVA=GLOBAL`,
+and `--set-link-symbol 0xVA=SYMBOL`. A backing view inherits its object's owner
+without becoming another definition. Native symbol mappings need reference
+evidence, such as a validated library-function relocation or an exact compiler
+literal comparison; never infer them from matching addresses alone. Explicit
+archive symbols still require a unique provider in a selected archive member.
+PE import slots are linker-owned function pointers in data, not function bodies.
+Layout spans have no independent storage owner; do not add definitions to fill
+that field. Coverage documents and dashboards use the same source/header scan
+and keep owners, users and declaration sites separate. Legacy `files` describes
+declaration sites and must never be promoted to ownership.

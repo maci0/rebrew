@@ -6,12 +6,11 @@ utilities (back-jump detection, padding trimming).
 """
 
 import logging
-import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from rebrew.config import ProjectConfig
-from rebrew.sources import iter_sources
+from rebrew.sources import iter_sources as iter_sources
 
 logger = logging.getLogger(__name__)
 
@@ -70,10 +69,6 @@ def has_back_jumps(
     return False
 
 
-_GLOBAL_COMMENT_RE = re.compile(r"(?://|/\*)\s*GLOBAL:\s*(?P<target>[A-Z0-9_]+)\s+(0x[0-9a-fA-F]+)")
-_DECL_NAME_RE = re.compile(r"([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:\[.*\])?\s*;")
-
-
 if TYPE_CHECKING:
     from rebrew.binary_model import BinaryInfo
 
@@ -108,62 +103,82 @@ def sections_from_info(info: "BinaryInfo") -> dict[str, dict[str, int]]:
 
 
 def get_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> dict[int, dict[str, Any]]:
-    """Scan annotated sources and return globals keyed by VA.
+    """Coverage globals from the same source/header inventory as ``rebrew data``.
 
-    Each value is a dict with keys: va, name, decl, files, module, size.
-    Sizes come from the shared data_layout type-size model (the same table
-    that sizes materialized definitions, BSS coverage, and annotated bytes),
-    so the estimates cannot drift apart.
+    Declaration sites, storage owners and users remain distinct. Durable data
+    extents override type estimates; headers and migrated metadata are included.
     """
     from rebrew.data_layout import estimate_type_size
-    from rebrew.data_metadata import module_visible_to_target
+    from rebrew.data_scan import scan_globals
 
+    scan = scan_globals(src_dir, cfg)
+    if cfg is not None:
+        from rebrew.data_ownership import enrich_library_owners
+
+        enrich_library_owners(scan, cfg)
     globals_dict: dict[int, dict[str, Any]] = {}
-    for p in iter_sources(src_dir, cfg):
-        try:
-            from rebrew.utils import read_source_text
+    entries = sorted(
+        scan.globals.values(),
+        key=lambda entry: (
+            entry.storage_kind == "span",
+            entry.storage_kind == "alias",
+            not bool(entry.defined_in or entry.library_owners),
+            entry.name == "unknown",
+        ),
+    )
+    for entry in entries:
+        if not entry.annotated:
+            continue
+        from rebrew.data_metadata import get_data_entry
 
-            text, _ = read_source_text(p)
-            lines = text.splitlines()
-            for i, line in enumerate(lines):
-                m = _GLOBAL_COMMENT_RE.search(line)
-                if m:
-                    va = int(m.group(2), 16)
-                    decl = ""
-                    if i + 1 < len(lines):
-                        decl = lines[i + 1].strip()
-
-                    name = "unknown"
-                    name_m = _DECL_NAME_RE.search(decl)
-                    if name_m:
-                        name = name_m.group(1)
-
-                    origin = m.group("target")  # MODULE from // GLOBAL: MODULE 0xVA
-                    # Same scope as ``rebrew data``: another target's marker
-                    # in a shared tree is that binary's global, not this one.
-                    if not module_visible_to_target(origin, cfg):
-                        continue
-
-                    size = estimate_type_size(decl) if decl else 4
-
-                    if va not in globals_dict:
-                        globals_dict[va] = {
-                            "va": va,
-                            "name": name,
-                            "decl": decl,
-                            "files": [p.name],
-                            "module": origin,
-                            "size": size,
-                            "status": "",
-                        }
-                    elif p.name not in globals_dict[va]["files"]:
-                        globals_dict[va]["files"].append(p.name)
-        except (OSError, KeyError, ValueError) as exc:
-            # An unreadable source contributes no globals, so the coverage grid
-            # renders those VAs as absent with no way to tell them from
-            # "not yet discovered".  The binary and data-metadata loads in the
-            # catalog grid warn on the same degradation.
-            logger.warning("global scan failed for %s: %s", p, exc)
+        meta = (
+            get_data_entry(cfg.metadata_dir, entry.va, module=entry.module)
+            if cfg and getattr(cfg, "metadata_dir", None)
+            else {}
+        )
+        row = globals_dict.setdefault(
+            entry.va,
+            {
+                "va": entry.va,
+                "name": entry.name,
+                "decl": entry.declaration,
+                "files": [],
+                "module": entry.module,
+                "size": meta.get(
+                    "size", estimate_type_size(entry.type_str) if entry.type_str else 4
+                ),
+                "status": meta.get("status", ""),
+                "defined_in": [],
+                "referenced_in": [],
+                "declared_in": [],
+                "library_owners": [],
+                "generated_owners": [],
+                "storage_kind": entry.storage_kind,
+                "backing": entry.backing,
+            },
+        )
+        for key in (
+            "defined_in",
+            "referenced_in",
+            "declared_in",
+            "library_owners",
+            "generated_owners",
+        ):
+            if entry.name != row["name"] and key in {
+                "defined_in",
+                "library_owners",
+                "generated_owners",
+            }:
+                continue
+            for value in getattr(entry, key):
+                if value not in row[key]:
+                    row[key].append(value)
+        row["files"] = list(row["declared_in"])
+        row["owners"] = [
+            *row["defined_in"],
+            *row["generated_owners"],
+            *(f"{owner['library']}:{owner['member']}" for owner in row["library_owners"]),
+        ]
     return globals_dict
 
 

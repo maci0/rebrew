@@ -1413,3 +1413,9 @@ def test_fix_ownership_rollback_survives_a_non_oserror_restore_failure(
 
     for name, text in before.items():
         assert (src / name).read_text(encoding="utf-8") == text, name
+
+
+def test_estimate_type_size_folds_complete_arithmetic_bounds() -> None:
+    assert estimate_type_size("unsigned char[0x300 * 0x21c]") == 0x300 * 0x21C
+    assert estimate_type_size("unsigned short[(2 + 1) * 4][2]") == 48
+    assert estimate_type_size("extern char records[16 * 0xac];") == 16 * 0xAC

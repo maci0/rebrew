@@ -923,22 +923,14 @@ def data_symbol_size(fields: dict[str, Any], *, arch: str = "x86_32") -> int:
 
 def estimate_type_size(type_str: str) -> int:
     """Byte size of a declared C type string (pointer- and array-aware)."""
-    # Every dimension counts.  The first bracket alone sized ``short tbl[2][4]``
-    # as 4 bytes (one row) instead of 16, and that count is what coverage,
-    # catalog cells, and BSS gaps persist.
-    elem_count = 1
-    for bound in _ARRAY_SUFFIX_RE.findall(type_str):
-        try:
-            n = parse_c_integer_literal(bound)
-        except ValueError:
-            continue
-        # ``T[0]`` is a flexible-array extension; treat it as a single element so
-        # coverage / extent math never sees a zero-length symbol (catalog cells
-        # and data_verify walks both assume a positive size).
-        if n <= 0:
-            n = 1
-        elem_count *= n
-    return c_type_size(type_str) * elem_count
+    from rebrew.c_parser import array_type_shape
+
+    base, dimensions = array_type_shape(type_str.rstrip().rstrip(";").strip())
+    count = 1
+    for bound in dimensions:
+        if isinstance(bound, int) and bound > 0:
+            count *= bound
+    return c_type_size(base) * count
 
 
 def typed_array_literal(ctype: str, data: bytes, byte_order: str = "<") -> tuple[str, int]:

@@ -188,3 +188,106 @@ def test_removed_auto_map_clears_derived_library_owners(tmp_path: Path) -> None:
     link_map.unlink()
     enrich_library_owners(scan, cfg)
     assert scan.globals["g"].library_owners == []
+
+
+def test_backing_owners_resolve_chains_without_inventing_cycle_owners(tmp_path: Path) -> None:
+    scan = ScanResult(
+        globals={
+            "root": GlobalEntry("root", defined_in=["root.c"]),
+            "field": GlobalEntry("field", backing="root", storage_kind="alias"),
+            "view": GlobalEntry("view", backing="field", storage_kind="alias"),
+            "cycle_a": GlobalEntry("cycle_a", backing="cycle_b"),
+            "cycle_b": GlobalEntry("cycle_b", backing="cycle_a"),
+        }
+    )
+    enrich_library_owners(scan, _cfg(tmp_path))
+    assert scan.globals["field"].defined_in == []
+    assert scan.globals["field"].generated_owners == ["root.c (via root)"]
+    assert scan.globals["view"].generated_owners
+    assert not scan.globals["cycle_a"].generated_owners
+    assert not scan.globals["cycle_b"].generated_owners
+
+
+def test_explicit_native_label_does_not_depend_on_reference_va(tmp_path: Path) -> None:
+    link_map = tmp_path / "game.map"
+    link_map.write_text(" 0003:00000000 __iob 20003000 CRT:file.obj\n")
+    entry = GlobalEntry(
+        "historical_streams", va=0x10001000, link_symbol="__iob", storage_kind="alias"
+    )
+    enrich_library_owners(ScanResult(globals={entry.name: entry}), _cfg(tmp_path), link_map)
+    assert entry.library_owners[0]["symbol"] == "__iob"
+    assert entry.library_owners[0]["member"] == "file.obj"
+
+
+def test_unmapped_explicit_archive_symbol_needs_selected_unique_provider(tmp_path: Path) -> None:
+    archive = tmp_path / "crt.lib"
+    archive.write_bytes(make_lib_archive([("runtime.obj", _common_object("_private", 4))]))
+    link_map = tmp_path / "game.map"
+    link_map.write_text(" 0001:00000000 _init 10001000 f CRT:runtime.obj\n")
+    entry = GlobalEntry("historical_name", link_symbol="_private")
+    cfg = _cfg(tmp_path, external_libs={"CRT": "./crt.lib"})
+    enrich_library_owners(ScanResult(globals={entry.name: entry}), cfg, link_map)
+    assert entry.library_owners[0]["evidence"] == "link-map+archive-symbol"
+    assert "linked_va" not in entry.library_owners[0]
+    link_map.write_text("")
+    enrich_library_owners(ScanResult(globals={entry.name: entry}), cfg, link_map)
+    assert not entry.library_owners
+
+
+def test_external_compilation_source_can_own_data(tmp_path: Path) -> None:
+    import json
+
+    source = tmp_path / "vendor" / "crc.c"
+    source.parent.mkdir()
+    source.write_text("static unsigned int crc_table[256];\n")
+    build = tmp_path / "build"
+    build.mkdir()
+    link_map = build / "game.map"
+    link_map.write_text(" 0003:00000000 _crc_table 20003000 crc.c.obj\n")
+    (build / "compile_commands.json").write_text(json.dumps([{"file": str(source)}]))
+    entry = GlobalEntry("crc_table")
+    cfg = _cfg(tmp_path, reversed_dir=tmp_path / "src")
+    enrich_library_owners(ScanResult(globals={entry.name: entry}), cfg, link_map)
+    assert entry.defined_in == ["../vendor/crc.c"]
+    assert not entry.library_owners
+
+
+def test_import_slot_is_linker_owned_without_a_link_map(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import lief
+
+    binary = tmp_path / "game.dll"
+    binary.write_bytes(b"fixture")
+    monkeypatch.setattr(
+        lief.PE,
+        "parse",
+        lambda _: SimpleNamespace(
+            optional_header=SimpleNamespace(imagebase=0x400000),
+            imports=[
+                SimpleNamespace(
+                    name="KERNEL32.dll",
+                    entries=[SimpleNamespace(name="GetVersion", ordinal=0, iat_address=0x2000)],
+                )
+            ],
+        ),
+    )
+    entry = GlobalEntry("__imp_GetVersion", va=0x402000)
+    cfg = _cfg(tmp_path, target_binary=binary)
+    enrich_library_owners(ScanResult(globals={entry.name: entry}), cfg)
+    assert entry.storage_kind == "import"
+    assert entry.generated_owners == ["linker:KERNEL32.dll!GetVersion"]
+    assert not entry.library_owners
+
+
+def test_explicit_function_symbol_is_not_a_data_owner(tmp_path: Path) -> None:
+    archive = tmp_path / "crt.lib"
+    archive.write_bytes(
+        make_lib_archive([("runtime.obj", make_coff_obj(b"\xc3", func_symbol="_fn"))])
+    )
+    link_map = tmp_path / "game.map"
+    link_map.write_text(" 0001:00000000 _fn 10001000 f CRT:runtime.obj\n")
+    entry = GlobalEntry("misnamed_data", link_symbol="_fn")
+    cfg = _cfg(tmp_path, external_libs={"CRT": "./crt.lib"})
+    enrich_library_owners(ScanResult(globals={entry.name: entry}), cfg, link_map)
+    assert not entry.library_owners

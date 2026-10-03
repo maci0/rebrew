@@ -12,6 +12,19 @@ Rebrew implements a synchronous Python composition runtime in
 It shares the context, dependency, and inverse discipline with DeepSeek Harness.
 It has its own API and lifetime boundaries.
 
+For a first component, start with the [runnable tutorial](CORDIS_TUTORIAL.md#run-the-example).
+For a CLI extension, follow [Add a CLI plugin](#add-a-cli-plugin).
+
+- [Five concepts](#five-concepts)
+- [Dependencies and provisions](#declare-dependencies-and-provisions)
+- [Lifecycle and ownership](#lifecycle-and-ownership)
+- [Failure behavior](#failure-behavior)
+- [Public runtime API](#public-runtime-api)
+- [Recipes](#recipes)
+- [Troubleshooting](#troubleshooting)
+- [Paper contracts and limits](#paper-contracts-and-limits)
+- [Coming from DeepSeek Harness](#coming-from-deepseek-harness)
+
 ## Five concepts
 
 | Concept | Meaning in Rebrew |
@@ -99,7 +112,14 @@ Host-owned bindings are withdrawn individually.
 A fork and a scope created inside an activation are owned effects. They end
 with that activation. Closing a scope removes its registrations; disposing a
 host context also closes its child contexts and scopes. Both operations are
-idempotent. A fork follows its parent for service lookup and notifications;
+idempotent. Host disposal drains children and scopes before the remaining
+host inverses, even when an ordinary host effect was recorded later. This
+keeps host resources available during child cleanup. The remaining host
+inverses run in reverse order; there is no single LIFO order across the whole
+context tree. Inside `apply()`, record a resource's cleanup before creating
+children that use it, so activation LIFO ends those children first.
+
+A fork follows its parent for service lookup and notifications;
 it cannot shadow a binding in its ancestor chain. `fork()` does not implement
 the paper's isolation or interception operations.
 
@@ -124,6 +144,9 @@ remaining inverses still run. Request the enclosing operation after the
 current lifecycle call returns. Closing an already closing or closed scope
 remains a no-op, as does disposing the current unloading activation view.
 Cleanup can close its own nested scopes and forks normally.
+It can also retire independent siblings. Those removals do not skip the
+remaining registrations during scope close or dependency withdrawal;
+their inverses still run once, before provider cleanup.
 Likewise, retiring a provider or disposing a host while a consumer's `apply()`
 is running cannot invalidate that consumer's binding; the circular request
 raises `ComponentError`. Perform host lifecycle changes between synchronous
@@ -161,7 +184,7 @@ covers lifecycle, committed views, confinement, and failure behavior.
 | `ctx.effect(dispose: Callable[[], None]) -> None` | Record a cleanup callable. It does not call the function now, acquire a resource, or return a disposer. |
 | `ctx.fork() -> Context` | Create an owned child with inherited lookup and notifications. Forking a disposed or unloading activation fails. |
 | `ctx.dispose() -> None` | End this context's lifetime and drain owned cleanup. On an activation view, retire that exact registration. |
-| `ctx.disposed -> bool` | Report whether the context has reached terminal disposal. |
+| `ctx.disposed -> bool` | Report the disposal flag. A host sets it before cleanup; an activation view sets it after cleanup. It does not establish that cleanup succeeded. |
 | `CoeffectScope(ctx)` | Attach a reactive scope and track its close on `ctx`. A disposed or unloading context rejects attachment. |
 | `scope.add(component) -> None` | Reserve declared provisions and register the component; activate when satisfied. Adding to a closed scope has no effect. |
 | `scope.remove(component) -> None` | Retire the first registration with that exact component object. An absent registration has no effect. |
@@ -235,19 +258,51 @@ checklist lives in [Adding a command](ADDING_A_COMMAND.md).
 
 After opening a file, creating a temporary directory, or acquiring a handle,
 record its cleanup on the activation view before doing more work. For a
-temporary report directory, the sequence inside `apply()` is:
+temporary report directory, save this example as `/tmp/rebrew_cordis_resource.py`.
+From a contributor checkout ([setup](DEVELOPMENT.md)), run:
 
-```python
-directory = tempfile.TemporaryDirectory()
-ctx.effect(directory.cleanup)
-ctx.provide("report_dir", Path(directory.name))
+```bash
+uv run --frozen python /tmp/rebrew_cordis_resource.py
 ```
 
-The containing component declares `provides = ("report_dir",)` and imports
-`tempfile` and `Path`. The binding is removed before the directory's cleanup
+```python
+"""Keep a temporary directory alive for its component's activation."""
+
+import tempfile
+from pathlib import Path
+
+from rebrew.plugin import Context, activate
+
+
+class ReportDirectory:
+    needs: tuple[str, ...] = ()
+    provides = ("report_dir",)
+
+    def apply(self, ctx: Context) -> None:
+        directory = tempfile.TemporaryDirectory()
+        ctx.effect(directory.cleanup)
+        ctx.provide("report_dir", Path(directory.name))
+
+
+host = Context()
+try:
+    scope = activate([ReportDirectory()], host)
+    path = host.resolve("report_dir")
+    assert path.is_dir()
+    scope.close()
+    assert not host.has("report_dir")
+    assert not path.exists()
+finally:
+    host.dispose()
+```
+
+Successful execution reaches the assertions and exits without output.
+The binding is removed before the directory's cleanup
 runs, and consumers drain before either provider inverse. Closing a resource
 with a `with` block inside `apply()` instead would end it before consumers use
-the service.
+the service. [`test_cordis_docs.py`](../tests/test_cordis_docs.py) runs this
+recipe alongside the CLI recipe; verify both with
+`make test-one T=tests/test_cordis_docs.py`.
 
 ### Register on a shared service
 

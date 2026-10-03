@@ -174,7 +174,12 @@ document never holds a function no reader can key.
 | `va` | integer | Virtual address. |
 | `name` | string | Variable name. |
 | `decl` | string | C declaration (`int g_counter;`). |
-| `files` | array of strings | Associated source files. |
+| `files` | array of strings | Declaration sites (legacy compatibility). |
+| `owners` | array of strings | Source definition, `library:object`, linker import, or backing owner. Empty means unknown. |
+| `referenced_in` | array of strings | Syntactic users. |
+| `declared_in` | array of strings | Declaration sites, including headers. |
+| `storage_kind` | string | `object`, `alias`, `literal`, `span`, or `import`. |
+| `backing` | string | Backing allocation for an alias. |
 | `module` | string | Origin module. |
 | `size` | integer | Bytes; legacy display fallback `4` when the catalog gives no usable size. This is not a verification extent. |
 | `status` | string | Data verdict: `VERIFIED`, `DRIFT`, `UNCHECKED`, or `""` when never compared. |
@@ -522,3 +527,8 @@ Clients read the applied values back from the envelope.
 > `r<N> client disconnected serving <request line>` (INFO, not counted).
 > Totals (`requests`, `server errors`, `slowest ms`) print once on
 > shutdown. See [`dashboard.py`](../src/rebrew/dashboard.py).
+
+Global ownership fields are optional additions to version 1. Readers of older
+documents leave owners empty and retain `files` as declaration sites; they never
+guess ownership from those files. Regenerate with `rebrew build-db` to populate
+the roles from the shared scanner.

@@ -922,6 +922,7 @@ class TestRoundTrip:
             name="g_counter",
             decl="int g_counter;",
             files=("globals.c",),
+            declared_in=("globals.c",),
             module="GAME",
             size=4,
             status="VERIFIED",
@@ -1379,3 +1380,17 @@ def test_lone_surrogate_in_a_name_still_renders_a_parsable_document() -> None:
     fns[key] = {**fns[key], "name": "Caf\udc80"}
     doc = tomllib.loads(render_coverage_toml(TARGET, data, previous={}))
     assert any(fn["name"] == "Caf\ufffd" for fn in doc["functions"])
+
+
+def test_global_ownership_round_trips_and_old_rows_do_not_become_owners(
+    write: Callable[[dict[str, Any]], list[Path]], data: dict[str, Any], tmp_path: Path
+) -> None:
+    row = data["globals"]["0x10030000"]
+    row.update(
+        owners=["owner.c", "LIBCMT:heap.obj"], referenced_in=["use.c"], declared_in=["globals.h"]
+    )
+    write(data)
+    symbol = next(g for g in load_coverage(tmp_path, TARGET).globals if g.va == 0x10030000)
+    assert symbol.owners == ("owner.c", "LIBCMT:heap.obj")
+    assert symbol.referenced_in == ("use.c",)
+    assert symbol.declared_in == ("globals.h",)

@@ -370,10 +370,8 @@ class TestScanGlobals:
 def test_function_pointer_declaration_not_treated_as_function() -> None:
     from rebrew.c_parser import find_extern_variables
 
-    # Function pointer variable — tree-sitter recognises the function_declarator
-    # and find_extern_variables correctly skips it (it's not a simple variable).
     line = "extern int (__cdecl *g_callback)(int, int);"
-    assert find_extern_variables(line) == []
+    assert [v.name for v in find_extern_variables(line)] == ["g_callback"]
 
 
 # ---------------------------------------------------------------------------
@@ -983,3 +981,18 @@ def test_data_rejects_combined_metadata_mutations(monkeypatch):
     )
     assert result.exit_code != 0
     assert "Use only one" in json.loads(result.stdout)["error"]
+
+
+def test_bss_aliases_do_not_create_gaps_inside_backing_allocations() -> None:
+    from rebrew.data_scan import GlobalEntry, ScanResult, verify_bss_layout
+
+    scan = ScanResult(
+        globals={
+            "array": GlobalEntry("array", va=0x2000, type_str="char[4]", size=0x100),
+            "field": GlobalEntry("field", va=0x2004, type_str="int", size=4, backing="array"),
+            "next": GlobalEntry("next", va=0x2100, type_str="int", size=4),
+        }
+    )
+    report = verify_bss_layout(scan, {".bss": {"va": 0x2000, "size": 0x104}})
+    assert report.gaps == []
+    assert report.coverage_bytes == 0x104

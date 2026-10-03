@@ -11,6 +11,7 @@ import logging
 import re
 import struct
 import warnings
+from bisect import bisect_right
 from collections import defaultdict
 from dataclasses import dataclass, field
 from itertools import combinations
@@ -73,7 +74,7 @@ _GLOBAL_RE = re.compile(
 # FUNCTION/STUB lines is that target's source even when its externs have
 # no GLOBAL line of their own.
 _ANY_MARKER_RE = re.compile(
-    r"(?://|/\*)\s*(?:FUNCTION|STUB|LIBRARY|DATA|GLOBAL|VTABLE|STRING):\s*"
+    r"(?://|/\*)\s*(?P<kind>FUNCTION|STUB|LIBRARY|DATA|GLOBAL|VTABLE|STRING):\s*"
     r"(?P<module>[A-Z0-9_]+)\s+0x[0-9a-fA-F]+"
 )
 
@@ -134,6 +135,13 @@ class GlobalEntry:
     referenced_in: list[str] = field(default_factory=list)
     library_owners: list[dict[str, str]] = field(default_factory=list)
     annotated: bool = False  # True if has a // GLOBAL: annotation
+    module: str = ""
+    declaration: str = ""
+    storage_kind: str = "object"
+    size: int | None = None
+    backing: str = ""
+    link_symbol: str = ""
+    generated_owners: list[str] = field(default_factory=list)
     conflict: bool = False  # True if files declare this name with different types
     _declared: set[str] = field(default_factory=set, repr=False, compare=False)
 
@@ -159,6 +167,11 @@ class GlobalEntry:
         d["defined_in"] = self.defined_in
         d["referenced_in"] = self.referenced_in
         d["library_owners"] = self.library_owners
+        d["storage_kind"] = self.storage_kind
+        d["size"] = self.size
+        d["backing"] = self.backing
+        d["link_symbol"] = self.link_symbol
+        d["generated_owners"] = self.generated_owners
         d["annotated"] = self.annotated
         if self.conflict:
             d["conflict"] = True
@@ -374,6 +387,35 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
         # listed on every target (guild-rebrew `g_6624a0` under GOLD and
         # GOLDTL showed up on the server with no VA). Blank those lines for
         # the extern pass only; the marker walk below still sees them.
+        # Stacked identity markers describe one shared function. Skip bodies
+        # belonging solely to other targets, while retaining unmarked helpers.
+        scope_starts: list[int] = []
+        scope_visible: list[bool] = []
+        pending_modules: list[str] = []
+        for number, line in enumerate(lines, 1):
+            marker_match = _ANY_MARKER_RE.search(line)
+            if marker_match and marker_match.group("kind") in {"FUNCTION", "STUB", "LIBRARY"}:
+                pending_modules.append(marker_match.group("module"))
+            elif (
+                pending_modules and line.strip() and not line.lstrip().startswith(("//", "/*", "*"))
+            ):
+                scope_starts.append(number)
+                scope_visible.append(
+                    any(module_visible_to_target(module, cfg) for module in pending_modules)
+                )
+                pending_modules.clear()
+
+        def function_visible(
+            line: int,
+            starts: tuple[int, ...] = tuple(scope_starts),
+            visible: tuple[bool, ...] = tuple(scope_visible),
+        ) -> bool:
+            index = bisect_right(starts, line) - 1
+            return index < 0 or visible[index]
+
+        parsed_vars = find_extern_variables(
+            text, include_definitions=True, function_filter=function_visible
+        )
         foreign_decl_lines: set[int] = set()
         if cfg is not None:
             for i, line in enumerate(lines):
@@ -383,23 +425,30 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
                     and not module_visible_to_target(gm.group("module"), cfg)
                     and i + 1 < len(lines)
                 ):
-                    foreign_decl_lines.add(i + 1)
+                    following = next((v for v in parsed_vars if v.end_line > i + 1), None)
+                    if following is not None:
+                        foreign_decl_lines.update(range(following.line - 1, following.end_line))
         extern_text = text
         if foreign_decl_lines:
             extern_text = "\n".join(
                 "" if i in foreign_decl_lines else line for i, line in enumerate(lines)
             )
 
-        file_roles[fname] = find_variable_roles(extern_text)
+        file_roles[fname] = find_variable_roles(extern_text, function_filter=function_visible)
 
         # Pre-compute extern variables from tree-sitter (used for unannotated
         # scan).  Definitions are included: a global's real type lives on its
         # definition, and conflict detection that only sees `extern` lines
         # cannot report the mismatch that matters most -- `int g[4] = {...}`
         # in one file against `extern short g;` in another.
-        extern_vars = {
-            v.name: v for v in find_extern_variables(extern_text, include_definitions=True)
-        }
+        visible_vars = (
+            find_extern_variables(
+                extern_text, include_definitions=True, function_filter=function_visible
+            )
+            if foreign_decl_lines
+            else parsed_vars
+        )
+        extern_vars = {v.name: v for v in visible_vars}
 
         # Track which names are already handled via GLOBAL annotation
         annotated_names: set[str] = set()
@@ -419,13 +468,23 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
                 if cfg is not None and not module_visible_to_target(gm.group("module"), cfg):
                     continue
                 va = int(gm.group("va"), 16)
-                # Next line should be the declaration
-                decl = lines[i + 1].strip() if i + 1 < len(lines) else ""
+                # Read the complete following declaration, including definitions
+                # and function pointers, from the shared AST scan.
+                following = next((v for v in parsed_vars if v.end_line > i + 1), None)
+                next_marker = next(
+                    (j for j in range(i + 1, len(lines)) if _ANY_MARKER_RE.search(lines[j])),
+                    len(lines),
+                )
+                if following is not None and following.line - 1 < next_marker:
+                    decl = following.declaration
+                    decl_vars = [following]
+                else:
+                    decl = lines[i + 1].strip() if i + 1 < len(lines) else ""
+                    decl_vars = []
                 name = "unknown"
                 type_str = ""
 
                 # Try to parse declaration via tree-sitter (single line)
-                decl_vars = find_extern_variables(decl)
                 if decl_vars:
                     ev = decl_vars[0]
                     name = ev.name
@@ -483,6 +542,13 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
                     entry.annotated = True
 
                 entry.declare(fname)
+                entry.module = gm.group("module")
+                entry.size = meta.get("size")
+                entry.storage_kind = str(meta.get("storage_kind") or "object")
+                entry.backing = str(meta.get("backing") or "")
+                entry.link_symbol = str(meta.get("link_symbol") or "")
+                if decl_vars:
+                    entry.declaration = decl
 
                 if type_str:
                     type_by_name[name][type_str].append(fname)
@@ -963,7 +1029,11 @@ def verify_bss_layout(
     bss_entries: list[BssEntry] = []
     for entry in scan.globals.values():
         if entry.va and bss_va <= entry.va < bss_end:
-            size_hint = estimate_type_size(entry.type_str) if entry.type_str else 4
+            size_hint = (
+                entry.size
+                if entry.size is not None
+                else (estimate_type_size(entry.type_str) if entry.type_str else 4)
+            )
             bss_entries.append(
                 BssEntry(
                     name=entry.name,
@@ -993,21 +1063,21 @@ def verify_bss_layout(
                 )
             )
 
-    for i in range(len(bss_entries) - 1):
-        curr = bss_entries[i]
-        nxt = bss_entries[i + 1]
-        expected_end = curr.va + curr.size_hint
-        if nxt.va > expected_end:
-            gap_size = nxt.va - expected_end
-            if gap_size >= _BSS_GAP_BYTES_MIN:
-                report.gaps.append(
-                    BssGap(
-                        offset=expected_end,
-                        size=gap_size,
-                        before=curr.name,
-                        after=nxt.name,
-                    )
+    frontier = bss_entries[0].va + bss_entries[0].size_hint
+    frontier_name = bss_entries[0].name
+    for bss_entry in bss_entries[1:]:
+        if bss_entry.va - frontier >= _BSS_GAP_BYTES_MIN:
+            report.gaps.append(
+                BssGap(
+                    offset=frontier,
+                    size=bss_entry.va - frontier,
+                    before=frontier_name,
+                    after=bss_entry.name,
                 )
+            )
+        end = bss_entry.va + bss_entry.size_hint
+        if end > frontier:
+            frontier, frontier_name = end, bss_entry.name
 
     # Calculate coverage: the union of the entries' spans, clipped to .bss.
     # Summing double-counts two names for one address (an alias, a struct and

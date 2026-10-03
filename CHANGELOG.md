@@ -1,5 +1,34 @@
 ## [Unreleased]
 
+### Breaking
+- **Breaking:** `data_metadata.DATA_METADATA_FIELD_TYPES` now accepts
+  `storage_kind`, `backing`, and `link_symbol`. Older Rebrew validators cannot
+  validate stores using these fields; update tools that exhaustively validate
+  the data metadata field set.
+
+### Fixed
+- Data scanning keeps function-pointer storage, mixed function/variable declarations,
+  conditional definitions, and globals following MSVC assembly. Complete multiline
+  declarations retain target scoping; assembly operand users preserve C scopes.
+- BSS reports use managed extents and complete arithmetic array bounds, and
+  overlap-aware gap detection does not invent gaps inside backing allocations.
+- Catalog coverage uses the shared source/header inventory and managed extents,
+  retaining owners, users and declaration sites independently across the CLI and
+  dashboards. Legacy declaration files never become assumed storage owners.
+- Cordis scope cleanup traverses stable snapshots, so inverses retiring sibling
+  registrations cannot skip another cleanup or retain a closed provider.
+
+### Added
+- Explicit storage kinds, backing allocations and native linker-symbol mappings
+  distinguish aliases, compiler literals, layout spans and import pointers.
+  Ownership follows selected archive members, compilation inputs and PE IAT
+  records; uncertain or cyclic relationships remain unresolved.
+
+### Changed
+- Cordis documentation describes host disposal order, activation LIFO, plugin
+  declaration failures and process restarts for changed CLI plugins. The tutorial
+  includes separately runnable examples and a tested temporary-directory recipe.
+
 ## [2.21.0] - 2026-10-03
 
 ### Added

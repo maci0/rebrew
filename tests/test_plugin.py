@@ -660,6 +660,93 @@ class TestMidApplyFailure:
 
 
 class TestCompositionLifecycle:
+    @pytest.mark.parametrize("operation", ["close", "withdraw"])
+    @pytest.mark.parametrize("fail_cleanup", [False, True])
+    def test_sibling_removal_does_not_skip_remaining_cleanup(
+        self, operation: str, fail_cleanup: bool
+    ) -> None:
+        host = Context()
+        events: list[str] = []
+        resource = {"open": True}
+        views: list[Context] = []
+
+        class _Provider:
+            needs: tuple[str, ...] = ()
+            provides = ("resource",)
+
+            def apply(self, ctx: Context) -> None:
+                ctx.provide("resource", resource)
+
+                def close_resource() -> None:
+                    resource["open"] = False
+                    events.append("provider")
+
+                ctx.effect(close_resource)
+
+        class _Contribution:
+            needs = ("resource",)
+
+            def __init__(self, name: str) -> None:
+                self.name = name
+                self.provides = (name,)
+
+            def apply(self, ctx: Context) -> None:
+                views.append(ctx)
+                ctx.provide(self.name, object())
+
+                def undo() -> None:
+                    assert ctx.resolve("resource") is resource
+                    assert resource["open"]
+                    events.append(self.name)
+
+                ctx.effect(undo)
+
+        first, second, remaining = [_Contribution(name) for name in ("a", "b", "c")]
+        activate([_Provider()], host)
+        scope = CoeffectScope(host)
+
+        class _Remover:
+            needs = ("resource",)
+            provides: tuple[str, ...] = ()
+
+            def apply(self, ctx: Context) -> None:
+                views.append(ctx)
+
+                def undo() -> None:
+                    events.append("remover")
+                    scope.remove(first)
+                    scope.remove(second)
+                    if fail_cleanup:
+                        raise ValueError("cleanup failed")
+
+                ctx.effect(undo)
+
+        for component in (first, second, remaining, _Remover()):
+            scope.add(component)
+
+        def retire() -> None:
+            if operation == "close":
+                scope.close()
+            else:
+                host.unprovide("resource")
+
+        try:
+            if fail_cleanup:
+                with pytest.raises(ValueError, match="cleanup failed"):
+                    retire()
+            else:
+                retire()
+            expected = ["remover", "a", "b", "c"]
+            if operation == "withdraw":
+                expected.append("provider")
+            assert events == expected
+            assert all(view.disposed for view in views)
+            assert all(not host.has(key) for key in ("a", "b", "c"))
+            scope.close()
+            assert events == expected
+        finally:
+            host.dispose()
+
     @pytest.mark.parametrize("operation", ["remove", "close", "withdraw", "dispose"])
     def test_provider_retirement_cannot_interrupt_consumer_activation(self, operation: str) -> None:
         host = Context()

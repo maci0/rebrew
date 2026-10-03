@@ -171,6 +171,11 @@ These facts survive removal of derived coverage and compile caches.
 - **An interior address is a view, not another allocation.** Record its backing
   object, offset, type, and complete extent. Byte-span inventory and layout padding
   are layout facts; they must not become duplicate globals or pretend CRT owners.
+- **Record storage relationships explicitly.** Use `rebrew data --set-storage-kind`
+  for objects, aliases, compiler literals, layout spans and imports;
+  `--set-backing` identifies a view's allocation, and `--set-link-symbol` records
+  a verified native symbol. Import slots are linker-owned pointers. Spans have
+  no standalone owner. Coverage and dashboard declarations are never owners.
 - **Reuse the canonical declaration.** Prefer the owning subsystem header over
   repeated per-function externs. Preserve proven compiler-sensitive declaration
   order when consolidating; verify affected functions after header changes.

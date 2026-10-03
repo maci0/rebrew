@@ -1,9 +1,10 @@
-"""Execute the Cordis tutorial so its example and transcript stay accurate."""
+"""Execute Cordis tutorial transcripts and the guide's runnable recipes."""
 
 import re
 import sys
 from pathlib import Path
 from types import ModuleType
+from typing import Any
 
 import pytest
 import typer
@@ -67,3 +68,12 @@ class TestCordisTutorial:
             assert app.registered_commands == []
         finally:
             host.dispose()
+
+    def test_resource_recipe_withdraws_binding_and_removes_directory(self) -> None:
+        path = Path(__file__).resolve().parents[1] / "docs" / "CORDIS.md"
+        namespace: dict[str, Any] = {"__name__": "__main__"}
+        exec(compile(_blocks(path, "python")[1], str(path), "exec"), namespace)  # noqa: S102
+        directory = namespace["path"]
+        host = namespace["host"]
+        assert isinstance(directory, Path) and not directory.exists()
+        assert isinstance(host, Context) and host.disposed and not host.has("report_dir")
