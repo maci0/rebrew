@@ -2298,6 +2298,8 @@ def prepare_entries(
 
         if cached_entry.filepath != getattr(entry, "filepath", ""):
             continue
+        if cached_entry.symbol != _entry_symbol(entry):
+            continue
 
         # Same VA re-annotated under another module is a different function
         # for STATUS purposes — a stale verdict earned under the old module

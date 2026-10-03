@@ -52,8 +52,8 @@
 - Incremental `rebrew verify` is faster on an all-cache-hit run. The cache
   and baseline writers emit TOML directly, a scalar cache document is read
   by a line parser, and repeated path and header work is reused while the
-  source stat is unchanged. Verdicts, cache identity, and stored fingerprint
-  fields stay the same.
+  source stat is unchanged. Verdicts and stored fingerprint fields stay the
+  same. A changed native symbol misses the cache.
 - `rebrew data` highlights C types in terminal inventories and conflict tables;
   JSON remains plain structured data.
 - CLI contract checks cover every runtime callback, including group default

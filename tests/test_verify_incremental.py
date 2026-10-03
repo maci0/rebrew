@@ -1140,6 +1140,32 @@ class TestPatchVerifyCacheEntries:
 
 
 class TestIncrementalVerify:
+    def test_changing_native_symbol_invalidates_cached_body(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        cfg = _make_cfg(tmp_path)
+        (cfg.reversed_dir / "vendor.c").write_text(
+            "int first(void) { return 1; }\nint second(void) { return 2; }\n"
+        )
+        entry = Annotation(
+            va=0x10001000,
+            name="vendor",
+            filepath="vendor.c",
+            size=16,
+            symbol="_first",
+            marker_type="LIBRARY",
+            status="STUB",
+        )
+        calls: list[int] = []
+        _patch_verify(monkeypatch, cfg, [entry], calls)
+        assert runner.invoke(app, ["--json", "--no-promote"]).exit_code == 0
+        calls.clear()
+        assert runner.invoke(app, ["--json", "--no-promote"]).exit_code == 0
+        assert calls == []
+        entry.symbol = "_second"
+        assert runner.invoke(app, ["--json", "--no-promote"]).exit_code == 0
+        assert calls == [entry.va]
+
     @pytest.mark.parametrize("preserve_keys", [None, {"0x00001000"}])
     def test_identical_full_save_refreshes_verify_time(
         self, tmp_path: Path, preserve_keys: set[str] | None
