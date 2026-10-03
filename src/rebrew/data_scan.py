@@ -298,7 +298,9 @@ def _source_visible_to_target(lines: list[str], cfg: ProjectConfig | None) -> bo
     return not saw_marker
 
 
-def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
+def scan_globals(
+    src_dir: Path, cfg: ProjectConfig | None = None, *, record_roles: bool = True
+) -> ScanResult:
     """Scan reversed source files for global declarations.
 
     Collects:
@@ -319,6 +321,9 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
     ``unsigned int g[4]`` in a source is one global. Two headers that
     disagree, with no ``.c`` declaration, still conflict, and so do two
     ``.c`` markers that spell the same global differently.
+
+    *record_roles* fills ``defined_in`` and ``referenced_in``. The reloc
+    name map only reads names and VAs, so it passes False and skips that walk.
     """
     from rebrew.c_parser import array_type_shape, find_extern_variables, find_variable_roles
     from rebrew.sources import iter_sources_and_headers
@@ -434,7 +439,8 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
                 "" if i in foreign_decl_lines else line for i, line in enumerate(lines)
             )
 
-        file_roles[fname] = find_variable_roles(extern_text, function_filter=function_visible)
+        if record_roles:
+            file_roles[fname] = find_variable_roles(extern_text, function_filter=function_visible)
 
         # Pre-compute extern variables from tree-sitter (used for unannotated
         # scan).  Definitions are included: a global's real type lives on its

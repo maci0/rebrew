@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import threading
+import weakref
 from collections import OrderedDict
 from dataclasses import dataclass
 from functools import lru_cache
@@ -17,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from rebrew.config import ProjectConfig, compiler_dir, source_date_epoch
-from rebrew.utils import BYTES_PER_MIB
+from rebrew.utils import BYTES_PER_MIB, path_is_relative_to, resolved_path
 
 #: Sentinel stored in VerifyCacheEntry.toolchain when no override names a
 #: compiler (the project's default profile applies).  Distinct from ``""`` so
@@ -53,6 +54,9 @@ class EntryFingerprint:
     headers_fp: str
     source_hash: str
     mtime_ns: int
+    #: Resolved source path. The hit check stats it again so a delete between
+    #: the read and the hit is a miss. Not a stored cache field.
+    path: str
 
 
 def entry_fingerprint(cfg: ProjectConfig, entry: Any) -> EntryFingerprint | None:
@@ -68,7 +72,10 @@ def entry_fingerprint(cfg: ProjectConfig, entry: Any) -> EntryFingerprint | None
     nothing and costs correctness: a per-file key that named the source and
     the config but not the headers would serve a stale ``headers_fp`` for
     the rest of the process, which is the one input a long ``verify`` run can
-    see change under it.
+    see change under it.  The hit check always calls this function.  The
+    writer may reuse the object just produced via
+    :func:`fresh_entry_fingerprint`, and only while a fresh source stat
+    still matches.
     """
     from rebrew.compile_overrides import resolve_compile_overrides_cached
 
@@ -87,7 +94,7 @@ def entry_fingerprint(cfg: ProjectConfig, entry: Any) -> EntryFingerprint | None
         return None
     try:
         source_bytes, source_digest = _source_body(
-            str(filepath.resolve()), st.st_mtime_ns, st.st_size, st.st_ino
+            str(resolved_path(filepath)), st.st_mtime_ns, st.st_size, st.st_ino
         )
     except OSError:
         return None
@@ -98,7 +105,7 @@ def entry_fingerprint(cfg: ProjectConfig, entry: Any) -> EntryFingerprint | None
         getattr(entry, "cflags", "") or "",
         getattr(entry, "module", "") or "",
     )
-    return EntryFingerprint(
+    fingerprint = EntryFingerprint(
         toolchain=toolchain or DEFAULT_TOOLCHAIN,
         cflags=cflags,
         defines="\x00".join(sorted(getattr(cfg, "defines", None) or [])) or "(none)",
@@ -106,7 +113,93 @@ def entry_fingerprint(cfg: ProjectConfig, entry: Any) -> EntryFingerprint | None
         headers_fp=entry_headers_fp(cfg, filepath, cflags, source_bytes=source_bytes),
         source_hash=source_digest,
         mtime_ns=st.st_mtime_ns,
+        path=str(filepath),
     )
+    _remember_fingerprint(
+        entry,
+        fingerprint,
+        st.st_mtime_ns,
+        st.st_size,
+        st.st_ino,
+        str(filepath),
+    )
+    return fingerprint
+
+
+#: ``id(entry)`` -> ``(weakref, fingerprint, mtime_ns, size, ino, path)``.
+#: Annotation is unhashable (it defines equality), so this cannot be a
+#: WeakKeyDictionary.  The weakref drops the row when the entry is collected
+#: and rejects an id that a new object reused.
+_FRESH_FINGERPRINTS: dict[
+    int, tuple[weakref.ReferenceType[Any], EntryFingerprint, int, int, int, str]
+] = {}
+_FRESH_FINGERPRINT_LOCK = threading.Lock()
+
+
+def _remember_fingerprint(
+    entry: Any,
+    fingerprint: EntryFingerprint,
+    mtime_ns: int,
+    size: int,
+    ino: int,
+    path_str: str,
+) -> None:
+    """Stash *fingerprint* for *entry* until the object is collected."""
+    ident = id(entry)
+
+    def _drop(ref: weakref.ReferenceType[Any], ident: int = ident) -> None:
+        with _FRESH_FINGERPRINT_LOCK:
+            row = _FRESH_FINGERPRINTS.get(ident)
+            if row is not None and row[0] is ref:
+                del _FRESH_FINGERPRINTS[ident]
+
+    try:
+        ref = weakref.ref(entry, _drop)
+    except TypeError:
+        # A slot object with no weak reference cannot be stashed.  The writer
+        # recomputes.  The hit check never reads the stash.
+        return
+    with _FRESH_FINGERPRINT_LOCK:
+        _FRESH_FINGERPRINTS[ident] = (ref, fingerprint, mtime_ns, size, ino, path_str)
+
+
+def _recall_fingerprint(
+    entry: Any,
+) -> tuple[EntryFingerprint, int, int, int, str] | None:
+    """Return the stash for *entry*, or None when it is missing or reused."""
+    with _FRESH_FINGERPRINT_LOCK:
+        row = _FRESH_FINGERPRINTS.get(id(entry))
+    if row is None or row[0]() is not entry:
+        return None
+    return row[1], row[2], row[3], row[4], row[5]
+
+
+def fresh_entry_fingerprint(cfg: ProjectConfig, entry: Any) -> EntryFingerprint | None:
+    """Reuse *entry*'s fingerprint when its source stat is still the same.
+
+    :func:`entry_fingerprint` records the value it just computed, including
+    the resolved path.  The verify writer calls this so an all-hit save does
+    not walk the include closure or the source roots a second time.  The
+    reuse holds only while a fresh ``stat`` of that resolved path matches
+    ``(mtime_ns, size, ino)``.  A header edit that leaves the source stat
+    alone can be stored from the earlier check; the next check stats the
+    header and misses, so the stored row is not served.  The hit check does
+    not call this.
+    """
+    stashed = _recall_fingerprint(entry)
+    if stashed is not None:
+        fingerprint, mtime_ns, size, ino, path_str = stashed
+        try:
+            st = Path(path_str).stat()
+        except OSError:
+            st = None
+        if st is not None and (st.st_mtime_ns, st.st_size, st.st_ino) == (
+            mtime_ns,
+            size,
+            ino,
+        ):
+            return fingerprint
+    return entry_fingerprint(cfg, entry)
 
 
 def cflags_equivalent(stored: str, current: str) -> bool:
@@ -333,7 +426,7 @@ def headers_hash(cfg: ProjectConfig) -> str:
     # resolved source directory is part of the key or the second root is
     # served the first root's digest.
     stat_fp: tuple[tuple[str, int, int, int] | str, ...] = (
-        str(src_dir.resolve()),
+        str(resolved_path(src_dir)),
         *_headers_stat_fingerprint(src_dir),
         ext_digest,
     )
@@ -479,7 +572,13 @@ def _source_body(path_str: str, mtime_ns: int, size: int, ino: int) -> tuple[byt
         if hit is not None:
             _SOURCE_MEMO.move_to_end(key)
             return hit
-    data = Path(path_str).read_bytes()
+    from rebrew.utils import cached_source_bytes
+
+    # The annotation scan just read these bytes. Reuse them instead of a
+    # second open. 2000 files: 21 ms → the hash alone.
+    data = cached_source_bytes(Path(path_str), mtime_ns, size, ino)
+    if data is None:
+        data = Path(path_str).read_bytes()
     digest = hashlib.sha256(data).hexdigest()
     with _SOURCE_MEMO_LOCK:
         if key in _SOURCE_MEMO:  # raced with another thread's read of the same file
@@ -502,7 +601,7 @@ def source_hash(filepath: Path) -> str:
     read_bytes would fail too — do not pretend a fallback hash exists.
     """
     st = filepath.stat()
-    return _source_body(str(filepath.resolve()), st.st_mtime_ns, st.st_size, st.st_ino)[1]
+    return _source_body(str(resolved_path(filepath)), st.st_mtime_ns, st.st_size, st.st_ino)[1]
 
 
 @lru_cache(maxsize=_FLAG_SPLIT_CACHE_MAX)
@@ -555,8 +654,8 @@ def entry_headers_fp(
     shared = getattr(cfg, "shared_dir", None)
     if shared is not None:
         try:
-            shared_path = Path(shared).resolve()
-            if Path(source_dir).resolve().is_relative_to(shared_path):
+            shared_path = resolved_path(Path(shared))
+            if path_is_relative_to(resolved_path(Path(source_dir)), shared_path):
                 shared_str = str(shared_path)
                 if shared_str not in include_dirs:
                     include_dirs.append(shared_str)

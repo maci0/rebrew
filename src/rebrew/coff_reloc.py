@@ -263,7 +263,7 @@ def build_name_to_va(
         # 1292: GOLDTL's log tables resolved to the SERVER VAs 0x10027078...).
         active_marker = module_marker(cfg)
 
-        scan = scan_globals(cfg.reversed_dir, cfg)
+        scan = scan_globals(cfg.reversed_dir, cfg, record_roles=False)
         for name, glob in scan.globals.items():
             if glob.va:
                 name_to_va[name] = glob.va

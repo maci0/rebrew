@@ -8,6 +8,8 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 
+import pytest
+
 from rebrew.binary_loader import detect_source_language
 from rebrew.config import ProjectConfig
 from rebrew.sources import (
@@ -346,6 +348,23 @@ class TestContainedPath:
         rev = tmp_path / "src_SERVER"
         rev.mkdir()
         assert contained_path(rev, "pool/f.c") == (rev / "pool/f.c").resolve()
+
+    def test_join_does_not_walk_path_parents(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Containment is a parts compare. The parents walk is not the check."""
+        from rebrew.sources import contained_path
+
+        rev = tmp_path / "src_SERVER"
+        rev.mkdir()
+        (rev / "f.c").write_text("int f(void) { return 1; }\n", encoding="utf-8")
+
+        def refuse(self: Path, other: object, /, *args: object, **kwargs: object) -> bool:
+            raise AssertionError("parents walk")
+
+        monkeypatch.setattr(Path, "is_relative_to", refuse)
+        assert contained_path(rev, "f.c") == (rev / "f.c").resolve()
+        assert contained_path(rev, "../outside.c") is None
 
     def test_parent_escape_refused(self, tmp_path: Path) -> None:
         from rebrew.sources import contained_path

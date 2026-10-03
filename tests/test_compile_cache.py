@@ -585,10 +585,10 @@ class TestHeaderDependencyHash:
 
         real_stat = Path.stat
 
-        def _fail(self: Path) -> os.stat_result:
+        def _fail(self: Path, *, follow_symlinks: bool = True) -> os.stat_result:
             if self.name == "a.h":
                 raise OSError("simulated stat failure")
-            return real_stat(self)
+            return real_stat(self, follow_symlinks=follow_symlinks)
 
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr(Path, "stat", _fail)
@@ -608,6 +608,90 @@ class TestHeaderDependencyHash:
         (inc / "b.h").write_text("typedef long B;\n")
         k2 = compile_cache_key(src, "f.c", ["/O2"], [str(inc)], "wine CL")
         assert k1 == k2
+
+    def test_shared_header_digest_is_built_once(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Two sources that reach one header build the digest once, until it changes."""
+        import rebrew.compile_cache as compile_cache
+
+        inc = tmp_path / "inc"
+        inc.mkdir()
+        header = inc / "a.h"
+        header.write_text("typedef int A;\n", encoding="utf-8")
+        calls = {"n": 0}
+        real = compile_cache._header_key_entries
+
+        def _counting(
+            paths: tuple[str, ...], source_dir: str | None, include_dirs: list[str]
+        ) -> list[tuple[int, str, int, int, int]]:
+            calls["n"] += 1
+            return real(paths, source_dir, include_dirs)
+
+        monkeypatch.setattr(compile_cache, "_header_key_entries", _counting)
+        dirs = [str(inc)]
+        src_a = "#include <a.h>\nint fa(void){return 1;}\n"
+        src_b = "#include <a.h>\nint fb(void){return 2;}\n"
+        first = header_dependency_hash(src_a, None, dirs)
+        assert calls["n"] == 1
+        assert header_dependency_hash(src_b, None, dirs) == first
+        assert calls["n"] == 1
+
+        stat = header.stat()
+        os.utime(header, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1_000_000_000))
+        assert header_dependency_hash(src_a, None, dirs) != first
+        assert calls["n"] == 2
+
+        real_b = tmp_path / "b"
+        real_b.mkdir()
+        (real_b / "a.h").write_text("typedef int B;\n", encoding="utf-8")
+        link = tmp_path / "link"
+        link.symlink_to(inc, target_is_directory=True)
+        linked = header_dependency_hash(src_a, None, [str(link)])
+        held = calls["n"]
+        assert header_dependency_hash(src_b, None, [str(link)]) == linked
+        assert calls["n"] == held
+        link.unlink()
+        link.symlink_to(real_b, target_is_directory=True)
+        assert header_dependency_hash(src_a, None, [str(link)]) != linked
+        assert calls["n"] == held + 1
+
+    def test_repeated_search_dir_is_stat_once(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The source directory is also an include dir. One stat fills both slots."""
+        from rebrew.compile_cache import _search_dir_mtimes
+
+        directory = str(tmp_path)
+        other = tmp_path / "inc"
+        other.mkdir()
+        missing = str(tmp_path / "nope")
+        calls: list[str] = []
+        real = os.stat
+
+        def counting(
+            path: str | os.PathLike[str], *args: object, **kwargs: object
+        ) -> os.stat_result:
+            calls.append(os.fspath(path))
+            return real(path, *args, **kwargs)  # type: ignore[arg-type]
+
+        def refuse(self: Path, *_args: object, **_kwargs: object) -> os.stat_result:
+            raise AssertionError("Path.stat")
+
+        monkeypatch.setattr(os, "stat", counting)
+        monkeypatch.setattr(Path, "stat", refuse)
+        mtime = real(directory).st_mtime_ns
+        assert _search_dir_mtimes(directory, (directory,)) == (mtime, mtime)
+        assert calls == [directory]
+
+        calls.clear()
+        other_mtime = real(other).st_mtime_ns
+        assert _search_dir_mtimes(directory, (str(other),)) == (mtime, other_mtime)
+        assert calls == [directory, str(other)]
+
+        calls.clear()
+        assert _search_dir_mtimes(missing, (missing,)) == (0, 0)
+        assert calls == [missing]
 
     def test_reached_header_edit_changes_key(self, tmp_path: Path) -> None:
         inc = tmp_path / "inc"

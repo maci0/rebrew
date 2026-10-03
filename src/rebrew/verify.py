@@ -2335,14 +2335,11 @@ def prepare_entries(
         # None and were only ever written by bare-source runs).
         if cached_entry.context_hash != (context.sha256 if context is not None else None):
             continue
-        cached_source = contained_path(source_roots(cfg), getattr(entry, "filepath", ""))
-        if cached_source is None:
-            # A ``file`` outside the source trees is not a cache candidate.
-            continue
         try:
-            cached_source.stat()
+            # The fingerprint just resolved this path. Stat it again so a
+            # delete in between is a miss, without resolving the roots twice.
+            Path(fp.path).stat()
         except OSError:
-            # File deleted between fingerprint and stat — treat as a miss.
             continue
         if fp.source_hash != cached_entry.source_hash:
             continue
