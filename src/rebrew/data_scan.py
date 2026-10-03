@@ -619,6 +619,31 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
             if entry.name in uses:
                 entry.referenced_in.append(fname)
 
+    # Metadata is keyed by VA, so its relationship may describe an alternate
+    # label at the allocation's first byte. One explicit annotated source
+    # definition owns that identity; the other annotated names are views.
+    owners_by_va: dict[int, list[GlobalEntry]] = defaultdict(list)
+    for entry in result.globals.values():
+        if entry.va and entry.defined_in:
+            owners_by_va[entry.va].append(entry)
+    for entry in result.globals.values():
+        owners = owners_by_va.get(entry.va, [])
+        if len(owners) != 1:
+            continue
+        owner = owners[0]
+        if entry is owner:
+            if entry.storage_kind in {"alias", "span"}:
+                entry.storage_kind = "object"
+                entry.backing = ""
+        elif entry.annotated:
+            from rebrew.data_layout import estimate_type_size
+
+            entry.storage_kind = "alias"
+            entry.backing = owner.name
+            # A field at offset zero does not acquire the backing array's
+            # complete extent merely because they share a metadata key.
+            entry.size = estimate_type_size(entry.type_str)
+
     # Compare type shapes; preserve the source spellings in each report.
     int_bits = 16 if arch_pointer_size(getattr(cfg, "arch", "x86_32")) == 2 else 32
 

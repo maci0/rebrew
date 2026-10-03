@@ -46,6 +46,41 @@ def test_duplicate_tentative_definitions_are_owners(tmp_path: Path) -> None:
     assert scan.to_dict()["summary"]["multiple_definitions"] == 1
 
 
+def test_first_field_alias_does_not_reclassify_its_backing_definition(tmp_path: Path) -> None:
+    from types import SimpleNamespace
+
+    from rebrew.data_metadata import set_data_fields_batch
+    from rebrew.data_ownership import resolve_backing_owners
+
+    (tmp_path / "owner.c").write_text("// GLOBAL: SERVER 0x1000\nint storage[8];\n")
+    (tmp_path / "field.h").write_text("// GLOBAL: SERVER 0x1000\nextern int first;\n")
+    set_data_fields_batch(
+        tmp_path,
+        [
+            {
+                "va": 0x1000,
+                "module": "SERVER",
+                "updated_by": "data",
+                "fields": {
+                    "name": "storage",
+                    "size": 32,
+                    "storage_kind": "alias",
+                    "backing": "storage",
+                },
+            }
+        ],
+    )
+    cfg = SimpleNamespace(marker="SERVER", all_markers={"SERVER"}, metadata_dir=tmp_path)
+    scan = scan_globals(tmp_path, cfg)
+    resolve_backing_owners(scan)
+    assert scan.globals["storage"].storage_kind == "object"
+    assert scan.globals["storage"].backing == ""
+    assert scan.globals["storage"].size == 32
+    assert scan.globals["first"].storage_kind == "alias"
+    assert scan.globals["first"].size == 4
+    assert scan.globals["first"].generated_owners == ["owner.c (via storage)"]
+
+
 def test_roles_include_initialized_externs_and_function_pointer_storage() -> None:
     owners, declarations, users = find_variable_roles(
         "extern int declared; extern int initialized = 3; int tentative;\n"

@@ -10,6 +10,8 @@
 - Data scanning keeps function-pointer storage, mixed function/variable declarations,
   conditional definitions, and globals following MSVC assembly. Complete multiline
   declarations retain target scoping; assembly operand users preserve C scopes.
+- Alternate labels at an allocation's first byte retain their own extents and
+  cannot reclassify the actual source definition as a storage view.
 - BSS reports use managed extents and complete arithmetic array bounds, and
   overlap-aware gap detection does not invent gaps inside backing allocations.
 - Catalog coverage uses the shared source/header inventory and managed extents,
