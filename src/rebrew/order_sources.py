@@ -38,7 +38,7 @@ def main(
     first_va: list[str] = typer.Option(
         [],
         "--first-va",
-        help="File basename=0xVA for files without FUNCTION markers (repeatable)",
+        help="File basename=0xVA for files without code markers (repeatable)",
     ),
     exclude: list[str] = typer.Option(
         [], "--exclude", help="File basenames absent from the original (repeatable)"
@@ -46,7 +46,7 @@ def main(
     marker: str = typer.Option(
         "",
         "--marker",
-        help="FUNCTION: module to order by (e.g. SERVER) when files carry markers for several targets",
+        help="Code marker module to order by (e.g. SERVER) when files carry several targets",
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:

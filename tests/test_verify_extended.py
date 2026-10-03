@@ -581,8 +581,19 @@ class TestDiffReports:
 
 
 class TestVerifyCli:
-    def test_data_writeback_uses_qualified_identity_instead_of_name(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize(
+        "acknowledgement",
+        [
+            "flag",
+            "configured-default",
+            "configured-explicit",
+            "configured-relative",
+            "other",
+            "none",
+        ],
+    )
+    def test_data_writeback_acknowledges_raw_link_and_qualified_identity(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, acknowledgement: str
     ) -> None:
         from bin_util import append_pe_section, make_pe
 
@@ -598,6 +609,20 @@ class TestVerifyCli:
         built[sec.file_offset + 4] ^= 1
         built_path = tmp_path / "built.dll"
         built_path.write_bytes(built)
+        args = ["--data", "--json"]
+        if acknowledgement.startswith("configured-"):
+            cfg.raw_link = built_path
+        elif acknowledgement == "other":
+            cfg.raw_link = tmp_path / "other.dll"
+            cfg.raw_link.write_bytes(built)
+        if acknowledgement != "configured-default":
+            if acknowledgement == "configured-relative":
+                monkeypatch.chdir(tmp_path)
+                args += ["--built", "./built.dll"]
+            else:
+                args += ["--built", str(built_path)]
+        if acknowledgement == "flag":
+            args.append("--raw-link")
         set_data_fields_batch(
             tmp_path,
             [
@@ -629,13 +654,20 @@ class TestVerifyCli:
             ],
         )
         self._patch_flow(monkeypatch, cfg, passed=0)
-        result = CliRunner().invoke(
-            app, ["--data", "--built", str(built_path), "--raw-link", "--json"]
-        )
+        result = CliRunner().invoke(app, args)
         assert result.exit_code == EXIT_MISMATCH, result.output
-        assert get_data_entry(tmp_path, sec.va, "SERVER")["status"] == "VERIFIED"
-        assert get_data_entry(tmp_path, sec.va, "LIB")["status"] == "DRIFT"
-        assert get_data_entry(tmp_path, sec.va + 4, "SERVER")["status"] == "DRIFT"
+        acknowledged = acknowledgement not in {"other", "none"}
+        report = json.loads(result.stdout)
+        assert report["data"].get("raw_link_status_suppressed", False) is not acknowledged
+        assert get_data_entry(tmp_path, sec.va, "SERVER").get("status") == (
+            "VERIFIED" if acknowledged else None
+        )
+        assert get_data_entry(tmp_path, sec.va, "LIB").get("status") == (
+            "DRIFT" if acknowledged else None
+        )
+        assert get_data_entry(tmp_path, sec.va + 4, "SERVER").get("status") == (
+            "DRIFT" if acknowledged else None
+        )
         assert get_data_entry(tmp_path, sec.va, "OTHER")["status"] == "VERIFIED"
 
     def _patch_flow(

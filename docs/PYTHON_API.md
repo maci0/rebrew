@@ -47,8 +47,12 @@ for name, spec in sorted(TOOLCHAINS.items()):
 
 Remote compile transport, registry plugins, workspace helpers, and the GA
 matcher follow the same pattern (`rebrew.recompile_client`, `rebrew.registry`,
-`rebrew.plugin`, `rebrew.workspace`, `rebrew.matcher`). Every error class is
-importable from `rebrew.errors`, whichever submodule defines it. Catch the
+`rebrew.plugin`, `rebrew.workspace`, `rebrew.matcher`). Component declarations,
+scoped contexts, and teardown are documented in the [Cordis guide](CORDIS.md);
+the [tutorial](CORDIS_TUTORIAL.md) exercises provider replacement with the public API.
+
+Every error class is importable from `rebrew.errors`, whichever submodule
+defines it. Catch the
 specific type (`ConfigError`, `RecompileError`, `McpError`, `ToolchainError`,
 `RegistryError`, ...) when the recovery differs per failure, and `RebrewError`
 when it does not:

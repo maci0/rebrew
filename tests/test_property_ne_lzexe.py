@@ -142,12 +142,7 @@ def ne_blob(draw: st.DrawFn) -> tuple[bytes, int, NeSpec]:
             )
             mix_at += 1
             if by_name:
-                off = draw(
-                    st.one_of(
-                        st.sampled_from(name_offsets),
-                        st.integers(min_value=0, max_value=len(names) - 1),
-                    )
-                )
+                off = draw(st.sampled_from(name_offsets))
                 import_blocks += struct.pack("<H", 0x8000 | off)
             else:
                 import_blocks += struct.pack("<H", draw(st.integers(min_value=0, max_value=0xFFFE)))

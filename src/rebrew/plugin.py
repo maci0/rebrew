@@ -17,6 +17,14 @@ rebrew's composition points.  A unit of functionality is a *component*:
   in reverse on disposal (Theorem 16), so deactivation reverts exactly what the
   component added and leaves its siblings' effects interleaved but untouched.
 
+``provides`` reserves a component's service keys before activation. Components
+receive a scoped Context with a committed dependency view (Definition 55 and
+Algorithm 6); it permits declared access and ownership-based withdrawal and
+expires after teardown. Python plugins are trusted: external mutations still
+require correct, independent inverses, as CLI registrations have. The runtime
+checks the context API rather than sandboxing arbitrary Python or proving the
+paper's commutativity premises for user-supplied callbacks.
+
 A service provision is itself such an effect: its inverse is the restriction of
 the key (Definition 20), so ``unprovide`` or disposal withdraws the binding.
 
@@ -33,6 +41,7 @@ from __future__ import annotations
 import contextlib
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
+from functools import partial
 from typing import Any, Protocol, override, runtime_checkable
 
 import typer
@@ -44,6 +53,37 @@ from rebrew.errors import RebrewError
 from rebrew.registry import Registration, RegistryError, import_registration
 
 Disposer = Callable[[], None]
+
+
+def _run_cleanup(disposers: Iterable[Disposer]) -> None:
+    """Attempt every inverse, preserving failures after the remaining cleanup."""
+    errors: list[BaseException] = []
+    for dispose in disposers:
+        try:
+            dispose()
+        except BaseException as exc:
+            # Cancellation must not strand the rest of an inverse accumulator.
+            errors.append(exc)
+    _raise_errors(errors)
+
+
+def _raise_errors(errors: list[BaseException]) -> None:
+    """Preserve one failure or report all failures from independent operations."""
+    if len(errors) == 1:
+        raise errors[0]
+    if errors:
+        raise BaseExceptionGroup("component cleanup failed", errors)
+
+
+def _rollback(dispose: Disposer, failure: BaseException) -> None:
+    """Keep the original failure when rollback also raises."""
+    try:
+        dispose()
+    except BaseException as cleanup:
+        raise BaseExceptionGroup(
+            "component activation and rollback failed", [failure, cleanup]
+        ) from None
+
 
 COMMANDS_GROUP = "rebrew.commands"
 MULTI_COMMANDS_GROUP = "rebrew.multicommands"
@@ -74,7 +114,7 @@ class Panel:
 
 
 class ComponentError(RebrewError, RuntimeError):
-    """A component could not activate: unknown service, duplicate, or bad shape."""
+    """A component violates declaration, access, ownership, or lifecycle contracts."""
 
 
 @dataclass
@@ -121,10 +161,15 @@ class Context:
         self._parent = parent
         self._children: list[Context] = []
         self._services: dict[str, Any] = {}
+        self._withdrawing: set[str] = set()
+        self._pending: set[str] = set()
+        self._reservations: dict[str, _Entry] = {}
         self._effects: list[_Effect] = []
         self._owners: list[list[_Effect]] = []
+        self._activating_needs: list[tuple[str, ...]] = []
         self._disposed = False
         self._on_change: list[Callable[[], None]] = []
+        self._parent_effect: _Effect | None = None
 
     # -- coeffect half: the dependency table --------------------------------
 
@@ -139,14 +184,21 @@ class Context:
         """
         if self._disposed:
             raise ComponentError("context is disposed; cannot provide services")
-        if self.has(key):
+        for ctx in self._scope_chain():
+            reservation = ctx._reservations.get(key)
+            if reservation is not None and not (
+                reservation.view is not None
+                and any(owner is reservation.view._effects for owner in self._owners)
+            ):
+                raise ComponentError(f"service {key!r} is reserved by a component")
+        if self.has(key) or any(key in child._services for child in self._descendants()):
             raise ComponentError(f"service {key!r} is already provided")
         self._services[key] = value
         self._record(_Effect(dispose=self._restrict(key), key=key))
         self._changed()
 
     def unprovide(self, key: str) -> None:
-        """Withdraw *key*, running exactly its binding's inverse.
+        """Withdraw *key*, retiring its provider when component-owned.
 
         Dependents deactivate first: every scope on the chain reverts entries
         needing *key* while the binding is still resolvable, so no component
@@ -154,45 +206,106 @@ class Context:
         """
         if key not in self._services:
             raise ComponentError(f"service {key!r} is not provided")
-        seen: set[int] = set()
+        self._guard_withdrawal(key)
+        reservation = self._reservations.get(key)
+        if reservation is not None and reservation.view is not None:
+            reservation.view.dispose()
+            return
+        for effect in self._effects:
+            if effect.key == key:
+                self._forget(effect)
+                effect.revert()
+                break
+
+    def _begin_withdrawal(self, key: str) -> None:
+        """Hide a binding from new activations, then drain its actual consumers."""
+        if key in self._withdrawing:
+            return
+        self._withdrawing.add(key)
+        disposers: list[Disposer] = []
         for ctx in self._scope_chain():
             for callback in list(ctx._on_change):
                 scope = getattr(callback, "__self__", None)
-                if id(callback) not in seen and isinstance(scope, CoeffectScope):
-                    seen.add(id(callback))
-                    scope._withdraw_key(key)
-        for index, effect in enumerate(self._effects):
-            if effect.key == key:
-                del self._effects[index]
-                # The inverse (restriction) notifies the scope itself.
-                effect.revert()
-                break
+                if isinstance(scope, CoeffectScope) and scope._ctx._binding_context(key) is self:
+                    disposers.append(partial(scope._withdraw_key, key))
+        _run_cleanup(disposers)
+
+    def _guard_withdrawal(self, key: str) -> None:
+        """Keep a binding alive through a synchronous consumer transition."""
+        if any(
+            ctx._binding_context(key) is self and key in needs
+            for ctx in self._scope_chain()
+            for needs in ctx._activating_needs
+        ):
+            raise ComponentError(
+                f"cannot withdraw service {key!r} during activation of its consumer"
+            )
+        if any(
+            isinstance(ctx, _ComponentContext)
+            and ctx._unloading
+            and not ctx.disposed
+            and key in ctx._committed
+            and ctx._host._binding_context(key) is self
+            for ctx in self._scope_chain()
+        ):
+            raise ComponentError(f"cannot withdraw service {key!r} during consumer teardown")
+
+    def _guard_disposal(self) -> None:
+        """Keep an enclosing lifetime alive until its current inverse returns."""
+        if any(
+            isinstance(ctx, _ComponentContext) and ctx._unloading and not ctx.disposed
+            for ctx in (self, *self._descendants())
+        ):
+            raise ComponentError("cannot dispose an enclosing context during component teardown")
+        for ctx in (self, *self._descendants()):
+            for key in ctx._services:
+                ctx._guard_withdrawal(key)
 
     def _restrict(self, key: str) -> Disposer:
         """The inverse of binding *key*: drop it from this context's table."""
 
         def dispose() -> None:
-            self._services.pop(key, None)
-            self._changed()
+            def restrict() -> None:
+                self._services.pop(key, None)
+                self._withdrawing.discard(key)
+                self._changed()
+
+            _run_cleanup((lambda: self._begin_withdrawal(key), restrict))
 
         return dispose
 
     def resolve(self, key: str) -> Any:
         """Return the service under *key*, searching enclosing contexts."""
-        ctx: Context | None = self
-        while ctx is not None:
-            if key in ctx._services:
-                return ctx._services[key]
-            ctx = ctx._parent
+        if key in self._services:
+            return self._services[key]
+        if self._parent is not None:
+            return self._parent.resolve(key)
         raise ComponentError(f"service {key!r} is not provided")
 
     def has(self, key: str) -> bool:
-        ctx: Context | None = self
-        while ctx is not None:
-            if key in ctx._services:
-                return True
-            ctx = ctx._parent
-        return False
+        if key in self._services:
+            return True
+        return self._parent is not None and self._parent.has(key)
+
+    def _binding_context(self, key: str) -> Context | None:
+        if key in self._services:
+            return self
+        return self._parent._binding_context(key) if self._parent is not None else None
+
+    def _storage(self) -> Context:
+        return self
+
+    def _available(self, key: str) -> bool:
+        owner = self._binding_context(key)
+        reservation = owner._reservations.get(key) if owner is not None else None
+        provider = reservation.view if reservation is not None else None
+        return (
+            owner is not None
+            and not owner._disposed
+            and key not in owner._withdrawing
+            and key not in owner._pending
+            and (provider is None or not (provider._unloading or provider._retired))
+        )
 
     # -- effect half: the inverse accumulator --------------------------------
 
@@ -223,6 +336,9 @@ class Context:
             raise ComponentError("context is disposed; cannot fork")
         child = Context(parent=self)
         self._children.append(child)
+        effect = _Effect(dispose=child.dispose)
+        child._parent_effect = effect
+        self._record(effect)
         return child
 
     # ponytail: no isolation realms or service interception (paper Def 24-27);
@@ -237,15 +353,43 @@ class Context:
         """Revert every effect in reverse registration order."""
         if self._disposed:
             return
+        self._guard_disposal()
         self._disposed = True
         if self._parent is not None:
             # A disposed fork must not stay reachable from its parent.
             _remove_identity(self._parent._children, self)
-        # Detach the scopes first: withdrawing the provisions as they revert
-        # must not reclassify anything during teardown.
-        self._on_change.clear()
-        while self._effects:
-            self._effects.pop().revert()
+            if self._parent_effect is not None:
+                self._parent._forget(self._parent_effect)
+                self._parent_effect.armed = False
+        # Keep scopes reachable until teardown finishes: a provider must
+        # still find its consumers while its accumulator is being reverted.
+        scopes = [
+            scope
+            for callback in self._on_change
+            if isinstance(scope := getattr(callback, "__self__", None), CoeffectScope)
+        ]
+
+        def revert_effects() -> None:
+            def inverses() -> Iterator[Disposer]:
+                while self._effects:
+                    yield self._effects.pop().revert
+
+            _run_cleanup(inverses())
+
+        try:
+            _run_cleanup(
+                [child.dispose for child in reversed(self._children)]
+                + [scope.close for scope in reversed(scopes)]
+                + [revert_effects]
+            )
+        finally:
+            self._on_change.clear()
+            self._parent = None
+
+    def _descendants(self) -> Iterator[Context]:
+        for child in self._children:
+            yield child
+            yield from child._descendants()
 
     def _scope_chain(self) -> Iterator[Context]:
         """Yield this context, its enclosing contexts, and every derived context.
@@ -272,12 +416,14 @@ class Context:
         every scope on the enclosing chain and below this context reclassifies
         — not just the nearest.
         """
+        callbacks: list[Disposer] = []
         seen: set[int] = set()
         for ctx in self._scope_chain():
             for callback in list(ctx._on_change):
                 if id(callback) not in seen:
                     seen.add(id(callback))
-                    callback()
+                    callbacks.append(callback)
+        _run_cleanup(callbacks)
 
 
 @runtime_checkable
@@ -286,15 +432,14 @@ class Component(Protocol):
 
     ``needs`` is the coeffect specification: the service keys that must be
     available before ``apply`` runs (Definition 21).  ``apply`` installs the
-    component's effects on the context; the scope records them, so deactivation
-    reverts exactly those.
+    component's effects on its scoped context. ``provides`` reserves the keys
+    it owns (Definition 48); successful activation installs all of them
+    (Definition 76). The scope records effects so deactivation reverts those
+    alone. Retained contexts reject access after their activation ends.
     """
 
-    # ponytail: no lifecycle states beyond inactive/active, no confinement
-    # boundary (paper §4.2.2/§4.2.3); apply() receives the whole Context.
-    # Add states + a restricted view when hosting untrusted third-party code.
-
     needs: tuple[str, ...]
+    provides: tuple[str, ...]
 
     def apply(self, ctx: Context) -> None: ...
 
@@ -305,9 +450,121 @@ class _Entry:
 
     component: Component
     needs: tuple[str, ...]
+    provides: tuple[str, ...]
+    view: _ComponentContext | None = None
     #: The effects ``apply`` installed, or ``None`` while the component is
     #: inactive (its specification is unsatisfied).
     effects: list[_Effect] | None = None
+
+
+class _ComponentContext(Context):
+    """An activation's declared access, committed bindings, and own effects.
+
+    This checks the public context API; Python plugins remain trusted code.
+    A disposer must undo its own changes to a resolved service, as CLI mounts
+    do by removing their exact registration rather than resetting the app.
+    """
+
+    def __init__(self, scope: CoeffectScope, entry: _Entry) -> None:
+        super().__init__(parent=scope._ctx)
+        self._scope = scope
+        self._entry = entry
+        self._host = scope._ctx._storage()
+        self._committed = {
+            key: owner._services[key]
+            for key in entry.needs
+            if (owner := scope._ctx._binding_context(key)) is not None
+        }
+        self._installing = True
+        self._unloading = False
+        self._retired = False
+        scope._ctx._children.append(self)
+
+    @override
+    def _storage(self) -> Context:
+        return self._host
+
+    @override
+    def _binding_context(self, key: str) -> Context | None:
+        return self._host._binding_context(key)
+
+    @override
+    def resolve(self, key: str) -> Any:
+        if self.disposed:
+            raise ComponentError("component context is disposed; cannot resolve services")
+        if key in self._committed:
+            return self._committed[key]
+        if key in self._entry.provides:
+            return self._host.resolve(key)
+        ancestor = self._parent
+        while ancestor is not None:
+            if isinstance(ancestor, _ComponentContext) and key in ancestor._entry.needs:
+                return ancestor.resolve(key)
+            ancestor = ancestor._parent
+        raise ComponentError(f"service {key!r} is undeclared by this component")
+
+    @override
+    def has(self, key: str) -> bool:
+        if self.disposed:
+            raise ComponentError("component context is disposed; cannot read services")
+        if key in self._committed:
+            return True
+        if key in self._entry.provides:
+            return self._host.has(key)
+        ancestor = self._parent
+        while ancestor is not None:
+            if isinstance(ancestor, _ComponentContext) and key in ancestor._entry.needs:
+                return ancestor.has(key)
+            ancestor = ancestor._parent
+        raise ComponentError(f"service {key!r} is undeclared by this component")
+
+    @override
+    def provide(self, key: str, value: Any) -> None:
+        if self.disposed or self._unloading:
+            raise ComponentError("component context is disposed; cannot provide services")
+        if key not in self._entry.provides:
+            raise ComponentError(f"service {key!r} is an undeclared provision")
+        if self._installing:
+            self._host._pending.add(key)
+        self._host._owners.append(self._effects)
+        try:
+            self._host.provide(key, value)
+        finally:
+            self._host._owners.pop()
+
+    @override
+    def unprovide(self, key: str) -> None:
+        if self.disposed:
+            raise ComponentError("component context is disposed; cannot withdraw services")
+        if not any(effect.key == key and effect.armed for effect in self._effects):
+            raise ComponentError(f"service {key!r} is not owned by this component")
+        self.dispose()
+
+    @override
+    def dispose(self) -> None:
+        if not self.disposed and not self._retired and not self._unloading:
+            self._scope._remove_entry(self._entry)
+
+    @override
+    def _record(self, effect: _Effect) -> None:
+        if self._unloading and not self.disposed:
+            raise ComponentError("component context is unloading; cannot install effects")
+        super()._record(effect)
+
+    @override
+    def fork(self) -> Context:
+        if self._unloading and not self.disposed:
+            raise ComponentError("component context is unloading; cannot fork")
+        return super().fork()
+
+    def _finish(self) -> None:
+        self._disposed = True
+        self._host._pending.difference_update(self._entry.provides)
+        self._committed.clear()
+        self._effects.clear()
+        if self._parent is not None:
+            _remove_identity(self._parent._children, self)
+            self._parent = None
 
 
 class CoeffectScope:
@@ -322,25 +579,62 @@ class CoeffectScope:
     """
 
     def __init__(self, ctx: Context) -> None:
+        if ctx.disposed:
+            raise ComponentError("context is disposed; cannot attach a scope")
         self._ctx = ctx
         self._entries: list[_Entry] = []
         self._settling = False
         self._bulk = False
         self._closed = False
-        ctx._on_change.append(self._classify)
-        # The scope is a fiber: disposing the context must close it.
+        # Disposing the context closes every registration owned by this scope.
         ctx.effect(self.close)
+        self._lifetime_effect = ctx._effects[-1]
+        ctx._on_change.append(self._classify)
 
     def add(self, component: Component) -> None:
         """Register *component*; it activates as soon as its needs are met."""
         if self._closed:
             return
-        self._entries.append(_Entry(component=component, needs=tuple(component.needs)))
+        for field in ("needs", "provides"):
+            keys = getattr(component, field, None)
+            if not isinstance(keys, tuple) or not all(isinstance(key, str) and key for key in keys):
+                raise ComponentError(f"component {field} must be a tuple of nonempty service keys")
+            if len(set(keys)) != len(keys):
+                raise ComponentError(f"component {field} contains duplicate service keys")
+        entry = _Entry(
+            component=component, needs=tuple(component.needs), provides=tuple(component.provides)
+        )
+        storage = self._ctx._storage()
+        for key in entry.provides:
+            if storage._binding_context(key) is not None or any(
+                key in ctx._reservations or key in ctx._services for ctx in storage._scope_chain()
+            ):
+                raise ComponentError(f"service {key!r} is already provided or reserved")
+        for key in entry.provides:
+            storage._reservations[key] = entry
+        self._entries.append(entry)
         # A bulk registration runs one classify pass instead of one per
         # component: activation cascades are already resolved by the loop
         # inside _classify, so per-add passes are quadratic for nothing.
         if not self._bulk and not self._settling:
             self._classify()
+
+    def remove(self, component: Component) -> None:
+        """Retire one registration by identity and revert its activation."""
+        for entry in self._entries:
+            if entry.component is component:
+                self._remove_entry(entry)
+                return
+
+    def _remove_entry(self, entry: _Entry) -> None:
+        self._guard_teardown((entry,))
+        if entry.view is not None:
+            entry.view._retired = True
+        _remove_identity(self._entries, entry)
+        try:
+            self._deactivate(entry)
+        finally:
+            self._release(entry)
 
     def unresolved(self) -> list[Component]:
         """Registered components whose specification is still unsatisfied."""
@@ -350,19 +644,47 @@ class CoeffectScope:
         """Deactivate every entry, newest first."""
         if self._closed:
             return
+        self._guard_teardown(self._entries)
         self._closed = True
-        with contextlib.suppress(ValueError):
-            self._ctx._on_change.remove(self._classify)
         self._settling = True
         try:
-            for entry in reversed(self._entries):
-                self._deactivate(entry)
+            _run_cleanup(partial(self._deactivate, entry) for entry in reversed(self._entries))
         finally:
+            with contextlib.suppress(ValueError):
+                self._ctx._on_change.remove(self._classify)
+            for entry in self._entries:
+                self._release(entry)
             self._entries.clear()
             self._settling = False
+            self._ctx._forget(self._lifetime_effect)
+            self._lifetime_effect.armed = False
+
+    def _guard_teardown(self, entries: Iterable[_Entry]) -> None:
+        """Reject synchronous retirement that would interrupt a running inverse."""
+        for entry in entries:
+            if entry.view is not None:
+                entry.view._guard_disposal()
+            for key in entry.provides:
+                self._ctx._storage()._guard_withdrawal(key)
+
+    def _release(self, entry: _Entry) -> None:
+        if entry.view is not None and entry.view._installing:
+            # A diverted activation still owns its provisions until rollback.
+            return
+        reservations = self._ctx._storage()._reservations
+        for key in entry.provides:
+            if reservations.get(key) is entry:
+                del reservations[key]
 
     def _satisfied(self, needs: tuple[str, ...]) -> bool:
-        return all(self._ctx.has(key) for key in needs)
+        ctx: Context | None = self._ctx
+        while ctx is not None:
+            if ctx.disposed or (
+                isinstance(ctx, _ComponentContext) and (ctx._unloading or ctx._retired)
+            ):
+                return False
+            ctx = ctx._parent
+        return all(self._ctx._available(key) for key in needs)
 
     def _withdraw_key(self, key: str) -> None:
         """Deactivate every active entry needing *key*, newest first.
@@ -370,15 +692,16 @@ class CoeffectScope:
         Called by ``unprovide`` before the binding is withdrawn, so each
         dependent reverts while the service is still resolvable.
         """
-        if self._closed or self._settling:
-            return
+        settling = self._settling
         self._settling = True
         try:
-            for entry in reversed(self._entries):
-                if entry.effects is not None and key in entry.needs:
-                    self._deactivate(entry)
+            _run_cleanup(
+                partial(self._deactivate, entry)
+                for entry in reversed(self._entries)
+                if entry.effects is not None and key in entry.needs
+            )
         finally:
-            self._settling = False
+            self._settling = settling
 
     def _classify(self) -> None:
         """Drive activation and deactivation from the current satisfaction.
@@ -386,53 +709,125 @@ class CoeffectScope:
         Activating one component may provide a service another is waiting on,
         so the pass repeats until no specification changes status.  Reentrant
         calls (a change made while classifying) are absorbed into that loop.
-        Deactivation runs newest-first: a dependent that activated later than
-        its provider deactivates before the provider's own withdrawal is
-        processed, so no component ever resolves against a half-withdrawn
-        table (the relied-upon-before-dependent order of Theorem 70).
+        Before a provider's inverses run, _revert drains the actual consumers
+        of its bindings across scopes. That dependency order is independent
+        of registration order (Theorem 70).
         """
         if self._closed or self._settling:
             return
+        # Table changes made by an inverse settle after that teardown finishes.
+        # Reentering another scope now could unload its provider underneath the
+        # current consumer, whose effects have already left its entry.
+        if any(
+            isinstance(ctx, _ComponentContext) and ctx._unloading and not ctx.disposed
+            for ctx in self._ctx._scope_chain()
+        ):
+            return
         self._settling = True
+        errors: list[BaseException] = []
         try:
             changed = True
-            while changed:
+            while changed and not self._closed:
                 changed = False
                 for entry in self._entries:
+                    if self._closed:
+                        break
                     satisfied = self._satisfied(entry.needs)
                     if satisfied and entry.effects is None:
-                        entry.effects = self._activate(entry.component)
+                        try:
+                            entry.effects = self._activate(entry)
+                        except BaseException as exc:
+                            _remove_identity(self._entries, entry)
+                            self._release(entry)
+                            errors.append(exc)
+                            changed = True
+                            break
+                        try:
+                            self._ctx._changed()
+                        except BaseException as exc:
+                            errors.append(exc)
                         changed = True
                 for entry in reversed(self._entries):
                     if entry.effects is not None and not self._satisfied(entry.needs):
-                        self._deactivate(entry)
+                        try:
+                            self._deactivate(entry)
+                        except BaseException as exc:
+                            errors.append(exc)
                         changed = True
         finally:
             self._settling = False
+        _raise_errors(errors)
 
-    def _activate(self, component: Component) -> list[_Effect]:
-        owned: list[_Effect] = []
-        self._ctx._owners.append(owned)
+    def _activate(self, entry: _Entry) -> list[_Effect]:
+        view = _ComponentContext(self, entry)
+        entry.view = view
+        owned = view._effects
+        self._ctx._activating_needs.append(entry.needs)
         try:
-            component.apply(self._ctx)
-        except Exception:
+            entry.component.apply(view)
+            if self._closed or self._ctx.disposed or view._retired:
+                view._unloading = True
+                _run_cleanup((lambda: self._revert(owned), view._finish, self._ctx._changed))
+            else:
+                missing = set(entry.provides) - {
+                    effect.key for effect in owned if effect.armed and effect.key is not None
+                }
+                if missing:
+                    raise ComponentError(
+                        f"component did not provide declared services: {sorted(missing)}"
+                    )
+                view._host._pending.difference_update(entry.provides)
+        except BaseException as exc:
             # A mid-apply failure must not leave orphaned residue: effects
             # already installed belong to no live entry (entry.effects stays
             # None), so no later deactivation would revert them. Revert here.
-            for effect in reversed(owned):
-                self._ctx._forget(effect)
-                effect.revert()
+            view._unloading = True
+            try:
+                _rollback(
+                    lambda: _run_cleanup(
+                        (lambda: self._revert(owned), view._finish, self._ctx._changed)
+                    ),
+                    exc,
+                )
+            finally:
+                view._finish()
             raise
         finally:
-            self._ctx._owners.pop()
+            self._ctx._activating_needs.pop()
+            view._installing = False
+            if view._retired:
+                self._release(entry)
         return owned
 
     def _deactivate(self, entry: _Entry) -> None:
+        if entry.view is not None and entry.view._installing:
+            entry.view._retired = True
+            return
         effects = entry.effects or []
         entry.effects = None
-        for effect in reversed(effects):
-            self._ctx._forget(effect)
+        if entry.view is not None:
+            entry.view._unloading = True
+        _run_cleanup(
+            [lambda: self._revert(effects)]
+            + ([entry.view._finish] if entry.view is not None else [])
+            + [self._ctx._changed]
+        )
+
+    def _revert(self, effects: list[_Effect]) -> None:
+        """Drain dependents before any of their provider's inverses run."""
+
+        def revert(effect: _Effect) -> None:
+            self._ctx._storage()._forget(effect)
             effect.revert()
+
+        _run_cleanup(
+            [
+                partial(self._ctx._storage()._begin_withdrawal, effect.key)
+                for effect in effects
+                if effect.key is not None and effect.armed
+            ]
+            + [partial(revert, effect) for effect in reversed(effects)]
+        )
 
 
 def activate(components: Iterable[Component], ctx: Context) -> CoeffectScope:
@@ -448,9 +843,13 @@ def activate(components: Iterable[Component], ctx: Context) -> CoeffectScope:
     try:
         for component in components:
             scope.add(component)
+        scope._bulk = False
+        scope._classify()
+    except BaseException as exc:
+        _rollback(scope.close, exc)
+        raise
     finally:
         scope._bulk = False
-    scope._classify()
     return scope
 
 
@@ -528,6 +927,7 @@ class CliComponent(Component):
     # component declares them: withdrawing either service deactivates its
     # dependents instead of leaving them mounted on a stale app.
     needs: tuple[str, ...] = (CLI_SERVICE, CONSOLE_SERVICE)
+    provides: tuple[str, ...] = ()
 
     @property
     def group(self) -> str:
@@ -546,13 +946,12 @@ class CliComponent(Component):
         )
         try:
             obj = import_registration(registration)
+            if self.is_group:
+                self._mount_group(app, console, obj, ctx)
+            else:
+                self._mount_command(app, console, obj, ctx)
         except RegistryError as exc:
             self._mount_unavailable(app, console, exc, ctx)
-            return
-        if self.is_group:
-            self._mount_group(app, console, obj, ctx)
-        else:
-            self._mount_command(app, console, obj, ctx)
 
     def _bad_plugin(self, detail: str) -> RegistryError:
         return RegistryError(
@@ -562,8 +961,15 @@ class CliComponent(Component):
             origin=self.origin,
         )
 
+    def _plugin_attribute(self, obj: Any, name: str) -> Any:
+        """Inspect an export before mounting, retaining the unavailable fallback."""
+        try:
+            return getattr(obj, name, None)
+        except Exception as exc:
+            raise self._bad_plugin(f"cannot read {name!r} ({type(exc).__name__}: {exc})") from exc
+
     def _mount_group(self, app: typer.Typer, console: Console, obj: Any, ctx: Context) -> None:
-        group_app = obj if isinstance(obj, typer.Typer) else getattr(obj, "app", None)
+        group_app = obj if isinstance(obj, typer.Typer) else self._plugin_attribute(obj, "app")
         if not isinstance(group_app, typer.Typer):
             self._mount_unavailable(
                 app,
@@ -584,11 +990,12 @@ class CliComponent(Component):
     def _mount_command(self, app: typer.Typer, console: Console, obj: Any, ctx: Context) -> None:
         if self.attr:
             command = obj
-            help_text = (getattr(obj, "__doc__", None) or self.help).strip()
+            doc = self._plugin_attribute(obj, "__doc__")
+            help_text = (doc if isinstance(doc, str) and doc else self.help).strip()
             epilog = None
         else:
-            command = getattr(obj, "main", None)
-            module_app = getattr(obj, "app", None)
+            command = self._plugin_attribute(obj, "main")
+            module_app = self._plugin_attribute(obj, "app")
             if not callable(command) or not isinstance(module_app, typer.Typer):
                 self._mount_unavailable(
                     app,

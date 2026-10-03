@@ -7,6 +7,7 @@ one) and extract function bytes from the resulting object/executable.
 """
 
 import contextlib
+import copy
 import functools
 import itertools
 import logging
@@ -121,7 +122,7 @@ def _map_symbol_re(symbol: str) -> re.Pattern[str]:
 # Map of profiles → synced Flags lists (the packaged base; entry-point
 # providers in rebrew.flag_sets extend/override per profile — see
 # _merged_flag_sets below).
-_FLAGS_MAP: dict[str, Flags] = {
+_PACKAGED_FLAGS_MAP: dict[str, Flags] = {
     "msvc": COMMON_MSVC_FLAGS,
     "msvc-7.0": COMMON_MSVC_FLAGS,  # legacy 7.0 profile — cl 13.10.3077 (the 7.1 build)
     "msvc-7.0-rtm": COMMON_MSVC_FLAGS,
@@ -194,8 +195,8 @@ def _merged_flag_sets() -> tuple[dict[str, Flags], dict[str, dict[str, list[str]
     sweep axes stand)."""
     from rebrew.registry import iter_optional_provider_dicts
 
-    flags = dict(_FLAGS_MAP)
-    tiers = dict(_PACKAGED_FLAG_TIERS)
+    flags = {name: list(axes) for name, axes in _PACKAGED_FLAGS_MAP.items()}
+    tiers = copy.deepcopy(_PACKAGED_FLAG_TIERS)
     for reg, provided in iter_optional_provider_dicts(
         FLAG_SET_ENTRY_POINT_GROUP, log, expected="dict[profile, (Flags, tiers)]"
     ):
@@ -213,8 +214,62 @@ def _merged_flag_sets() -> tuple[dict[str, Flags], dict[str, dict[str, list[str]
                 )
                 continue
             profile_flags, profile_tiers = value
-            flags[name] = profile_flags
-            tiers[name] = profile_tiers
+            if not (
+                isinstance(name, str)
+                and isinstance(profile_flags, list)
+                and all(
+                    isinstance(axis, FlagSet | Checkbox)
+                    and isinstance(axis.id, str)
+                    and bool(axis.id)
+                    and (
+                        isinstance(axis.flag, str)
+                        if isinstance(axis, Checkbox)
+                        else isinstance(axis.flags, tuple)
+                        and all(isinstance(flag, str) for flag in axis.flags)
+                    )
+                    for axis in profile_flags
+                )
+                and isinstance(profile_tiers, dict)
+                and all(
+                    isinstance(tier, str)
+                    and (
+                        axes is None
+                        or (isinstance(axes, list) and all(isinstance(axis, str) for axis in axes))
+                    )
+                    for tier, axes in profile_tiers.items()
+                )
+            ):
+                log.warning(
+                    "skipping %s provider %r entry %r: expected (Flags, tiers)",
+                    reg.group,
+                    reg.name,
+                    name,
+                )
+                continue
+            axis_ids = {axis.id for axis in profile_flags}
+            if len(axis_ids) != len(profile_flags):
+                log.warning(
+                    "skipping %s provider %r entry %r: duplicate flag axis ids",
+                    reg.group,
+                    reg.name,
+                    name,
+                )
+                continue
+            if any(
+                axis not in axis_ids
+                for axes in profile_tiers.values()
+                if axes is not None
+                for axis in axes
+            ):
+                log.warning(
+                    "skipping %s provider %r entry %r: tier references an unknown flag axis",
+                    reg.group,
+                    reg.name,
+                    name,
+                )
+                continue
+            flags[name] = list(profile_flags)
+            tiers[name] = copy.deepcopy(profile_tiers)
     return flags, tiers
 
 
@@ -249,7 +304,7 @@ def refresh_flag_sets() -> tuple[dict[str, Flags], dict[str, dict[str, list[str]
     flags, tiers = _merged_flag_sets()
     with _FLAG_SETS_LOCK:
         _FLAGS_MAP, _TIERS_MAP = flags, tiers
-    return flags, tiers
+    return ({name: list(axes) for name, axes in flags.items()}, copy.deepcopy(tiers))
 
 
 def _ensure_wine_env(env: dict[str, str] | None, cmd: list[str]) -> dict[str, str]:

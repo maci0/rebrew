@@ -1141,6 +1141,12 @@ def smoke_cmd(
         help="Print the computed masked sha256 per toolchain (for updating "
         "_SMOKE_GOLDEN after a toolchain source change) instead of comparing",
     ),
+    fixture: str | None = typer.Option(
+        None,
+        "--fixture",
+        help="Reuse a built-in smoke source, flags and timestamp mask; requires a named "
+        "toolchain and --print-goldens",
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
     """Compile the fixed smoke source in each image and verify the object
@@ -1154,11 +1160,18 @@ def smoke_cmd(
     maintainer who bumps a pinned toolchain source (new tarball/snapshot)
     can regenerate the _SMOKE_GOLDEN table mechanically: run it, verify the
     new hashes are stable across a second run, then paste them in.
+    --fixture selects another profile's smoke inputs for a named new or
+    overlay profile; it is only accepted with --print-goldens and never
+    supplies an expected hash for that profile.
     """
     import os
 
     from rebrew.toolchain import get_toolchain
 
+    if fixture is not None and (not print_goldens or name is None):
+        error_exit(
+            "--fixture requires a named toolchain and --print-goldens", json_mode=json_output
+        )
     targets = [name] if name else sorted(_SMOKE_GOLDEN)
     results: dict[str, str] = {}
     # Two failure kinds, two exit codes: a toolchain that cannot run at all
@@ -1178,7 +1191,17 @@ def smoke_cmd(
             if spec.image is None and spec.host_path is None:
                 results[tool] = "skip (no image, no vendored host tree)"
                 continue
-            flags, out_name, golden, src_name, mask = _SMOKE_GOLDEN[tool]
+            recipe = _SMOKE_GOLDEN.get(fixture or tool)
+            if recipe is None:
+                results[tool] = (
+                    f"FAIL (no smoke fixture for {fixture or tool!r}; "
+                    "use --fixture with --print-goldens)"
+                )
+                infra_ok = False
+                continue
+            flags, out_name, golden, src_name, mask = recipe
+            obj = workdir / out_name
+            obj.unlink(missing_ok=True)
             src = _SMOKE_SOURCE if src_name == "t.c" else _SMOKE_DPR
             src_path = workdir / src_name
             src_path.write_text(src, encoding="utf-8")
@@ -1192,7 +1215,15 @@ def smoke_cmd(
                     results[tool] = f"FAIL (docker run timed out after {_SMOKE_TIMEOUT_S}s)"
                     infra_ok = False
                     continue
+                except OSError as exc:
+                    results[tool] = f"FAIL (could not run {spec.image}: {exc})"
+                    infra_ok = False
+                    continue
                 detail = (r.stdout + r.stderr)[-120:].strip()
+                if r.returncode:
+                    results[tool] = f"FAIL (compile exited {r.returncode}: {detail})"
+                    infra_ok = False
+                    continue
             else:
                 # Host-only vendored toolchain (a plugin spec under wine, or an
                 # image-less native compiler): gate its reproducibility through
@@ -1208,7 +1239,6 @@ def smoke_cmd(
                     results[tool] = "FAIL (" + str(exc)[-120:] + ")"
                     infra_ok = False
                     continue
-            obj = workdir / out_name
             if not obj.exists():
                 results[tool] = "FAIL (no object: " + detail + ")"
                 infra_ok = False
@@ -1453,13 +1483,19 @@ def _image_smoke_hash(tool: str, workdir: Path) -> str | None:
     spec = get_toolchain(tool)
     if spec.image is None:
         return None
-    flags, out_name, _golden, src_name, mask = _SMOKE_GOLDEN[tool]
+    recipe = _SMOKE_GOLDEN.get(tool)
+    if recipe is None:
+        logging.getLogger(__name__).warning("no smoke fixture for %s", tool)
+        return None
+    flags, out_name, _golden, src_name, mask = recipe
+    obj = workdir / out_name
+    obj.unlink(missing_ok=True)
     src = _SMOKE_SOURCE if src_name == "t.c" else _SMOKE_DPR
     src_path = workdir / src_name
     src_path.write_text(src, encoding="utf-8")
     os.utime(src_path, (_SDE, _SDE))
     try:
-        _run_smoke_container(spec.image, f"rebrew-smoke-hash-{tool}", workdir, flags)
+        result = _run_smoke_container(spec.image, f"rebrew-smoke-hash-{tool}", workdir, flags)
     except subprocess.TimeoutExpired as exc:
         # The caller reports "smoke compile failed"; say which failure it was,
         # since a hung docker and a broken image need different fixes.
@@ -1474,7 +1510,11 @@ def _image_smoke_hash(tool: str, workdir: Path) -> str | None:
             "smoke compile for %s could not run %s: %s", tool, spec.image, exc
         )
         return None
-    obj = workdir / out_name
+    if result.returncode:
+        logging.getLogger(__name__).warning(
+            "smoke compile for %s exited %s", tool, result.returncode
+        )
+        return None
     if not obj.exists():
         return None
     digest = _masked_obj_sha256(obj, mask)

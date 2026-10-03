@@ -421,10 +421,10 @@ def _docker_run(spec: ToolchainSpec, mode: str, args: list[str]) -> int:
         cmd.append(_WINE)
     cmd.append(str(tool_root / _TOOL_EXES[mode]))
 
-    try:
-        with tempfile.TemporaryDirectory(prefix="rebrew-rsp-", dir=root) as rsp_dir:
-            cmd.extend(_rewrite_args(mode, _rewrite_response_files(mode, args, Path(rsp_dir))))
-            with file_lock(prefix / ".run.lock"):
+    with tempfile.TemporaryDirectory(prefix="rebrew-rsp-", dir=root) as rsp_dir:
+        cmd.extend(_rewrite_args(mode, _rewrite_response_files(mode, args, Path(rsp_dir))))
+        with file_lock(prefix / ".run.lock"):
+            try:
                 r = subprocess.run(
                     cmd,
                     capture_output=True,
@@ -433,19 +433,14 @@ def _docker_run(spec: ToolchainSpec, mode: str, args: list[str]) -> int:
                     errors="replace",
                     timeout=3600,
                 )
-    except subprocess.TimeoutExpired:
-        # Killing the CLI leaves the wine container running under dockerd —
-        # kill it by name so a hung compile does not outlive the timeout.
-        # (The raised TimeoutExpired is converted to a clean error by the
-        # console-script entry in tc_main.)
-        if "--name" in cmd:
-            kill_container(str(cmd[cmd.index("--name") + 1]))
-        raise
-    except BaseException:
-        # Ctrl+C kills only the docker CLI; the container would keep running.
-        if "--name" in cmd:
-            kill_container(str(cmd[cmd.index("--name") + 1]))
-        raise
+            except OSError:
+                # The docker CLI could not start, so there is nothing to kill.
+                raise
+            except BaseException:
+                # Timeout/Ctrl+C kills the CLI; dockerd may still be running
+                # Wine. Clean up before releasing the shared prefix lock.
+                kill_container(str(cmd[cmd.index("--name") + 1]))
+                raise
     sys.stdout.write((r.stdout + r.stderr).replace("\r", ""))
     sys.stdout.flush()
     return r.returncode
@@ -516,9 +511,14 @@ def generate_toolchain_file(spec: ToolchainSpec, out_dir: Path) -> Path:
 set(CMAKE_SYSTEM_NAME Windows)
 set(CMAKE_SYSTEM_PROCESSOR x86)
 
-set(CMAKE_C_COMPILER "rebrew-cmake-cl")
-set(CMAKE_LINKER "rebrew-cmake-link")
-set(CMAKE_AR "rebrew-cmake-lib")
+find_program(_REBREW_CMAKE_CL NAMES rebrew-cmake-cl)
+if(NOT _REBREW_CMAKE_CL)
+  message(FATAL_ERROR "rebrew-cmake-cl not found on PATH; activate the Rebrew environment")
+endif()
+get_filename_component(_REBREW_CMAKE_BIN "${{_REBREW_CMAKE_CL}}" DIRECTORY)
+set(CMAKE_C_COMPILER "${{_REBREW_CMAKE_CL}}")
+set(CMAKE_LINKER "${{_REBREW_CMAKE_BIN}}/rebrew-cmake-link")
+set(CMAKE_AR "${{_REBREW_CMAKE_BIN}}/rebrew-cmake-lib")
 
 set(CMAKE_C_COMPILER_ID "MSVC" CACHE STRING "" FORCE)
 set(CMAKE_C_COMPILER_VERSION "{version}" CACHE STRING "" FORCE)

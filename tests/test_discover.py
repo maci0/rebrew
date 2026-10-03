@@ -152,6 +152,31 @@ class TestDiscoverFunctions:
 
 
 class TestDiscovererPlugins:
+    def test_one_discovery_retains_its_provider_generation(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import rebrew.binary_loader as binary_loader
+        import rebrew.discover as disc
+
+        def _first(binary: Path) -> list[tuple[int, int, str]]:
+            disc._DISCOVERER_MAP = {
+                "ne loader": lambda binary: [(0x1000, 10, "new-first")],
+                "plugin": lambda binary: [(0x2000, 10, "new-plugin")],
+            }
+            return [(0x1000, 10, "old-first")]
+
+        monkeypatch.setattr(
+            disc,
+            "_DISCOVERER_MAP",
+            {
+                "ne loader": _first,
+                "plugin": lambda binary: [(0x2000, 10, "old-plugin")],
+            },
+        )
+        monkeypatch.setattr(binary_loader, "is_ne", lambda binary: True)
+        result = disc.discover_functions(tmp_path / "test.ne", min_size=0)
+        assert result.functions == [(0x1000, 10, "old-first"), (0x2000, 10, "old-plugin")]
+
     """Third-party discoverers join every branch via rebrew.discoverers."""
 
     def test_plugin_results_merge(self, monkeypatch) -> None:

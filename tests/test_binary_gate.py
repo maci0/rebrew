@@ -239,6 +239,38 @@ class TestCompareSnapshots:
 
 
 class TestLayoutFreshness:
+    @pytest.mark.parametrize("pe32_plus", [False, True])
+    @pytest.mark.parametrize("part", ["dos", "timestamp", "raw_pointer", "flags", "code"])
+    def test_header_drift_excludes_section_contents(
+        self, tmp_path: Path, pe32_plus: bool, part: str
+    ) -> None:
+        from bin_util import make_pe
+
+        from rebrew.binary_gate import check_layout_freshness, layout_fingerprint
+        from rebrew.pe_headers import pe_layout
+
+        data = bytearray(make_pe(b"\x90\xc3", pe32_plus=pe32_plus))
+        layout = pe_layout(data)
+        assert layout is not None
+        offsets = {
+            "dos": 0x20,
+            "timestamp": layout.e_lfanew + 8,
+            "raw_pointer": layout.sections[0].header_offset + 20,
+            "flags": layout.sections[0].header_offset + 36,
+            "code": layout.sections[0].pointer_to_raw_data,
+        }
+        binary = tmp_path / "ref.dll"
+        binary.write_bytes(data)
+        fingerprint = layout_fingerprint(binary)
+        assert fingerprint
+        (tmp_path / "layout.fingerprint").write_text(fingerprint + "\n", encoding="utf-8")
+        data[offsets[part]] ^= 1
+        binary.write_bytes(data)
+
+        result = check_layout_freshness(tmp_path, binary)
+        assert result["match"] is (part == "code")
+        assert result["status"] == ("fresh" if part == "code" else "stale")
+
     def test_missing_fingerprint_is_unknown(self, tmp_path: Path) -> None:
         from rebrew.binary_gate import check_layout_freshness
 

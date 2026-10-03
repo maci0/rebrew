@@ -344,13 +344,17 @@ def _extract_array_suffix(declarator: Any, source_bytes: bytes) -> str:
                         # suffix (``[``) that leaves the bracket unbalanced in
                         # the type string, so only a ``]`` lying strictly after
                         # the ``[`` closes a well-formed span.
-                        if sibling.end_byte <= bracket_open_end:
+                        if (
+                            getattr(sibling, "is_missing", False)
+                            or sibling.end_byte <= bracket_open_end
+                        ):
                             break
-                        parts.append(
-                            source_bytes[bracket_start : sibling.end_byte].decode(
-                                "utf-8", errors="surrogateescape"
-                            )
+                        span = source_bytes[bracket_start : sibling.end_byte].decode(
+                            "utf-8", errors="surrogateescape"
                         )
+                        if not span.endswith("]") or span.count("[") != span.count("]"):
+                            break
+                        parts.append(span)
                         break
                 break
         inner = _find_child(node, "array_declarator", "identifier", "pointer_declarator")

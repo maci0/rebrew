@@ -2054,7 +2054,17 @@ def detection_tables() -> DetectionTables:
 
     One reference, so a reader that needs more than one table gets a
     consistent set; :func:`refresh_detection_tables` replaces it whole."""
-    return _DETECTION_TABLES
+    with _DETECTION_REFRESH_LOCK:
+        tables = _DETECTION_TABLES
+        return DetectionTables(
+            profile_compat={
+                key: set(value) if value is not None else None
+                for key, value in tables.profile_compat.items()
+            },
+            rich_build_profiles=dict(tables.rich_build_profiles),
+            linker_era_profiles=dict(tables.linker_era_profiles),
+            detectors=list(tables.detectors),
+        )
 
 
 def profile_matches_detection(profile: str, info: ToolchainInfo) -> tuple[bool, str | None]:

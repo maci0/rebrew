@@ -1705,7 +1705,7 @@ def _merged_library_presets() -> dict[str, dict[str, str]]:
     packaged presets stand) instead of bricking metadata resolution."""
     from rebrew.registry import iter_optional_provider_dicts
 
-    presets = dict(LIBRARY_PRESETS)
+    presets = {name: dict(fields) for name, fields in LIBRARY_PRESETS.items()}
     for reg, provided in iter_optional_provider_dicts(
         LIBRARY_PRESET_ENTRY_POINT_GROUP, logger, expected="dict[name, {toolchain, cflags}]"
     ):
@@ -1758,13 +1758,13 @@ def refresh_library_presets() -> dict[str, dict[str, str]]:
     with _LIBRARY_PRESETS_LOCK:
         _LIBRARY_PRESETS_ALL = merged
         _LIBRARY_PRESETS_GENERATION += 1
-    return _LIBRARY_PRESETS_ALL
+    return {name: dict(fields) for name, fields in merged.items()}
 
 
 def all_library_presets() -> dict[str, dict[str, str]]:
     """The full library-preset registry (packaged + plugin-provided)."""
     with _LIBRARY_PRESETS_LOCK:
-        return _LIBRARY_PRESETS_ALL
+        return {name: dict(fields) for name, fields in _LIBRARY_PRESETS_ALL.items()}
 
 
 #: Process-level memo for :func:`parse_library_metadata`, keyed by file path.

@@ -1,5 +1,81 @@
 ## [Unreleased]
 
+### Breaking
+- **Breaking:** `link_order.read_source_text` is no longer an incidental
+  export. Import it from `rebrew.utils`.
+- **Breaking:** `registry.iter_optional_provider_dicts` returns tables with
+  nonempty string keys; malformed keys are skipped with a warning.
+- **Breaking:** `plugin.Component` declares both `needs` and `provides` as
+  tuples of service keys. Activation receives a context with declared access
+  and committed dependency bindings; saved contexts expire after teardown.
+  Successful activation must install every declared provision. Retire a
+  registration with `CoeffectScope.remove(component)` before replacing it.
+  Withdrawing a component-owned provision retires its entire registration.
+  A child must declare a parent's provision in its own `needs`; inherited
+  access authorizes only dependencies committed by enclosing components.
+
+### Added
+- Cordis component guide and runnable tutorial covering declared services,
+  ownership, lifecycle and failure behavior, the public API, author recipes,
+  and differences from DeepSeek Harness. CI executes the tutorial and checks
+  its output transcript.
+
+### Fixed
+- `probe` supplies the active symbol map, function VA and import slots to
+  relocation validation, so matched functions agree with `test` and wrong
+  catalogued targets remain rejected. Its historical relocation count covers
+  all four bytes of each validated slot; catalog failures report an error.
+- Toolchain smoke can measure a new/overlay profile with `--fixture` and
+  `--print-goldens`, without assuming another profile's expected hash.
+  Missing recipes report an infrastructure failure instead of `KeyError`;
+  failed compiles and stale objects cannot produce accepted smoke hashes.
+- Layout fingerprints include PE headers through the section table, so DOS/header
+  changes, section raw pointers and attributes invalidate stale layout packages.
+- `verify --data --built` acknowledges the configured `raw_link` when both
+  resolve to the same path, so explicit selection no longer suppresses data verdicts.
+- Refresh the last-verification timestamp after a full run with identical
+  cached verdicts, so `status` does not stay stale after successful verification.
+  Filtered runs retain the previous timestamp when the cache bytes do not change.
+- Library byte accounting retains the larger annotated/discovered extent, bounded
+  by the next function and section, so early-return tails remain attributed.
+- Source ordering reads FUNCTION, LIBRARY and STUB through the shared annotation
+  parser, so library attribution preserves target-scoped link positions.
+- Status/todo stop counting anonymous x86 alignment runs as functions without source;
+  their bytes count as padding instead.
+- Component teardown drains transitive consumers before provider inverses,
+  including across scopes and forks. Forks follow their owner's lifetime;
+  failed or cancelled activations roll back, partial providers stay unavailable,
+  and cleanup attempts all inverses while preserving failures. Reactive failures
+  leave healthy siblings running; interrupted activation keeps its reservations
+  until rollback finishes.
+  Cleanup rejects circular requests to retire an enclosing lifetime or a provider
+  still in use; table changes made by inverses settle after teardown, preserving
+  consumer-before-provider ordering across scopes. Provider retirement also
+  preserves bindings during consumer activation, and failing lazy CLI exports
+  mount unavailable stubs without breaking healthy commands.
+- Compile-cache instance identity includes its backend factory, so registry
+  replacement cannot reuse a stale provider. Shutdown attempts every close
+  even when one fails and clears the instance table before invoking plugins.
+  Factory and eviction callbacks run outside the pool lock; concurrent
+  construction publishes one shared instance and closes unused candidates.
+- Registry refresh starts from packaged flag definitions, removing retired
+  plugin axes and restoring overridden defaults. Returned registry snapshots
+  cannot mutate live tables. Discovery and decompiler calls capture one provider
+  generation, duplicate optional callables and malformed tuning entries are
+  skipped, and shared recompile-client shutdown attempts every close.
+- CMake resolves CL, LINK and LIB from the same Rebrew installation, so a
+  later PATH change cannot mix compiler drivers from different versions.
+- CMake compile/link/lib runs leave response-file and cache-lock failures
+  free of false orphan warnings, and finish cleanup before releasing the
+  shared Wine prefix lock.
+- `rebrew status` separates function and library counts from `.text` byte coverage;
+  status table percentages and bars use `.text` bytes when available.
+  Lint accepts target-scoped LIBRARY markers for vendored library source.
+- NE loader property tests sample by-name import offsets from written name
+  offsets, matching the generator's reported names.
+- Array declarator suffix extraction ignores missing or unbalanced closing
+  brackets on malformed syntax.
+
 ## [2.19.0] - 2026-10-02
 
 ### Breaking

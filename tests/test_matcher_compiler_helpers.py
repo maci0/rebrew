@@ -143,7 +143,7 @@ class TestMalformedFlagSetProvider:
             lambda r, log: lambda: {"msvc-6.0": None},
         )
         flags, _tiers = compiler_mod._merged_flag_sets()
-        assert flags["msvc-6.0"] is compiler_mod._FLAGS_MAP["msvc-6.0"]
+        assert flags["msvc-6.0"] == compiler_mod._PACKAGED_FLAGS_MAP["msvc-6.0"]
 
 
 class TestBuildCandidateMap:

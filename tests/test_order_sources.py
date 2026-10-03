@@ -100,3 +100,21 @@ class TestFileVaMarker:
 
     def test_unknown_marker_falls_back(self, tmp_path: Path) -> None:
         assert file_va(self._stacked(tmp_path), "V9") == 0x401000
+
+    def test_library_and_stub_keep_target_link_positions(self, tmp_path: Path) -> None:
+        lib = _write(
+            tmp_path / "gzread.c",
+            "// LIBRARY: SERVER 0x10003960\n// FUNCTION: GOLDTL 0x45f380\n"
+            "int gzread(void){return 1;}\n",
+        )
+        stub = _write(
+            tmp_path / "stub.c",
+            "/* STUB: SERVER 0x10003d20 */\nint stub(void){return 0;}\n"
+            "/* DATA: SERVER 0x10001000 */\nint data;\n",
+        )
+        game = _write(
+            tmp_path / "game.c", "// FUNCTION: SERVER 0x10006c80\nint game(void){return 0;}\n"
+        )
+        assert file_va(lib, "SERVER") == 0x10003960
+        assert file_va(stub, "SERVER") == 0x10003D20
+        assert order_sources([game, stub, lib], marker="SERVER")[0] == [lib, stub, game]

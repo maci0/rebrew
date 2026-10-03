@@ -1,13 +1,14 @@
 """Property-based tests for the library-config merge (order independence).
 
-Per the Cordis paper's confluence result (Theorem 73), the quiescent state of
+Inspired by the Cordis paper's confluence result (Theorem 80), the quiescent state of
 a composed system is a function of the *final configuration alone*, not of
 the order in which the components were assembled.  Rebrew's analog: the
 resolved ``(toolchain, cflags)`` for a source must depend only on the final
 set of override declarations (per-function metadata, per-library
 ``rebrew-libraries.toml`` files, known-library presets, project defaults) —
-never on the order the fields were written, the order the files were
-created, or the order the presets were merged in.
+never on the order the fields were written or the order the files were
+created. Conflicting preset providers retain the registry's override policy;
+these tests do not prove the paper's independence and confinement premises.
 """
 
 from __future__ import annotations

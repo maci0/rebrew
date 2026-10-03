@@ -370,7 +370,7 @@ def refresh_mutations() -> list[Callable[..., str | None]]:
         ALL_MUTATIONS = merged
         # The weight memo is positional over ALL_MUTATIONS.
         _mutation_weight_list.cache_clear()
-    return merged
+    return list(merged)
 
 
 # Only the PACKAGED operators are re-exported: their names are module

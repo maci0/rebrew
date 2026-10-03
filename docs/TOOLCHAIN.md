@@ -390,6 +390,19 @@ tarball/snapshot), `rebrew toolchain smoke --print-goldens`
 regenerates the masked hashes WITHOUT comparing: run it twice, confirm
 the hashes are stable, then paste them into `_SMOKE_GOLDEN`.
 
+For a newly registered or overlay profile without a golden, select a
+compatible built-in smoke recipe explicitly:
+
+```bash
+rebrew toolchain smoke msvc-6.0-sp5-crt --fixture msvc-6.0-sp5 --print-goldens --json
+```
+
+`--fixture` reuses the source, compiler flags and timestamp mask. It requires
+a named profile and `--print-goldens`; no expected hash is inherited and the
+golden table is not modified. Missing recipes, missing runners and nonzero
+compiler exits report infrastructure failures. Existing output is removed
+before each compile so an old object cannot satisfy the gate.
+
 Exit code: `1` when an object does not match its golden (the image drifted,
 which is the finding this gate exists to surface), `2` when a toolchain
 could not run at all (missing image, docker timeout, no object produced).

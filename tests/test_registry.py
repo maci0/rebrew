@@ -856,6 +856,78 @@ class TestCliRegistry:
 
 
 class TestFlagSetRegistry:
+    @pytest.mark.parametrize("bad_field", ["id", "flags", "duplicate"])
+    def test_malformed_axis_fields_are_skipped(
+        self, bad_field: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.flags import FlagSet
+        from rebrew.matcher import compiler
+
+        bad_value: Any = []
+        axis = FlagSet(
+            id=bad_value if bad_field == "id" else "axis",
+            flags=bad_value if bad_field == "flags" else ("-O2",),
+        )
+        axes = [axis, axis] if bad_field == "duplicate" else [axis]
+        _install_fake_module(
+            monkeypatch,
+            "invalid_flag_fields",
+            provider=lambda: {"msvc-6.0": (axes, {"full": None})},
+        )
+        monkeypatch.setattr(
+            "rebrew.registry.entry_points",
+            _fake_entry_points(**{"rebrew.flag_sets": [("p", "invalid_flag_fields:provider")]}),
+        )
+        flags, _ = compiler.refresh_flag_sets()
+        assert flags["msvc-6.0"] == compiler._PACKAGED_FLAGS_MAP["msvc-6.0"]
+
+    def test_removal_restores_packaged_flags_and_drops_plugin_profiles(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.flags import FlagSet
+        from rebrew.matcher import compiler
+
+        replacement = [FlagSet(id="plugin", flags=("-Oplugin",))]
+        provided = {
+            "mytc": (replacement, {"quick": ["plugin"]}),
+            "msvc-6.0": (replacement, {"quick": ["plugin"]}),
+        }
+        _install_fake_module(monkeypatch, "removable_flag_provider", provider=lambda: provided)
+        monkeypatch.setattr(
+            "rebrew.registry.entry_points",
+            _fake_entry_points(**{"rebrew.flag_sets": [("p", "removable_flag_provider:provider")]}),
+        )
+        flags, tiers = compiler.refresh_flag_sets()
+        assert flags["msvc-6.0"] == replacement
+        # Neither the provider nor a caller owns the published nested tables.
+        replacement.clear()
+        provided["mytc"][1]["quick"].clear()
+        flags["msvc-6.0"].clear()
+        tiers["mytc"]["quick"].clear()
+        current_flags, current_tiers = compiler._flag_set_snapshot()
+        assert current_flags["mytc"] and current_flags["msvc-6.0"]
+        assert current_tiers["mytc"]["quick"] == ["plugin"]
+        monkeypatch.setattr("rebrew.registry.entry_points", _fake_entry_points())
+        restored, restored_tiers = compiler.refresh_flag_sets()
+        assert "mytc" not in restored and "mytc" not in restored_tiers
+        assert restored["msvc-6.0"] == compiler._PACKAGED_FLAGS_MAP["msvc-6.0"]
+
+    @pytest.mark.parametrize("value", [(None, {}), ([], None), ([], {"quick": ["missing"]})])
+    def test_malformed_flag_shapes_do_not_replace_packaged_axes(
+        self, value: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.matcher import compiler
+
+        _install_fake_module(
+            monkeypatch, "invalid_flag_shape", provider=lambda: {"msvc-6.0": value}
+        )
+        monkeypatch.setattr(
+            "rebrew.registry.entry_points",
+            _fake_entry_points(**{"rebrew.flag_sets": [("p", "invalid_flag_shape:provider")]}),
+        )
+        flags, _ = compiler.refresh_flag_sets()
+        assert flags["msvc-6.0"] == compiler._PACKAGED_FLAGS_MAP["msvc-6.0"]
+
     def _patch(self, monkeypatch: pytest.MonkeyPatch) -> None:
         def _provider() -> dict[str, object]:
             from rebrew.flags import FlagSet
@@ -1090,6 +1162,83 @@ class TestToolchainDetectorRegistry:
         assert "msvc-6.0" in compat["msvc"]  # packaged family table intact
 
 
+class TestRegistryOwnership:
+    @pytest.mark.parametrize(
+        ("module_name", "refresh_name", "table_name"),
+        [
+            ("binary_loader", "refresh_loaders", "_PLUGIN_LOADERS"),
+            ("compile_cache", "refresh_cache_backends", "_CACHE_BACKENDS"),
+            ("decompiler", "refresh_backends", "_BACKEND_MAP"),
+            ("discover", "refresh_discoverers", "_DISCOVERER_MAP"),
+            ("matcher.mutator", "refresh_mutations", "ALL_MUTATIONS"),
+            ("metadata", "refresh_library_presets", "_LIBRARY_PRESETS_ALL"),
+        ],
+    )
+    def test_refresh_results_do_not_alias_the_published_table(
+        self, module_name: str, refresh_name: str, table_name: str
+    ) -> None:
+        import importlib
+
+        module = importlib.import_module(f"rebrew.{module_name}")
+        returned = getattr(module, refresh_name)()
+        live = getattr(module, table_name)
+        assert returned == live
+        assert returned is not live
+        returned.clear()
+        assert getattr(module, table_name) == live
+
+    def test_preset_snapshots_do_not_alias_nested_fields(self) -> None:
+        from rebrew import metadata
+
+        expected = metadata.all_library_presets()
+        returned = metadata.refresh_library_presets()
+        returned["msvcrt-static"]["toolchain"] = "bad"
+        current = metadata.all_library_presets()
+        current["msvcrt-static"].clear()
+        assert metadata.all_library_presets() == expected
+        assert metadata.LIBRARY_PRESETS["msvcrt-static"] == expected["msvcrt-static"]
+
+    def test_optional_list_registry_skips_duplicate_names(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        from rebrew import binary_loader
+
+        _install_fake_module(
+            monkeypatch, "duplicate_loaders", first=lambda *a: None, second=lambda *a: None
+        )
+        monkeypatch.setattr(
+            "rebrew.registry.entry_points",
+            _fake_entry_points(
+                **{
+                    "rebrew.binary_loaders": [
+                        ("same", "duplicate_loaders:first"),
+                        ("same", "duplicate_loaders:second"),
+                    ]
+                }
+            ),
+        )
+        loaders = binary_loader.refresh_loaders()
+        assert [name for name, _ in loaders] == ["same"]
+        assert "duplicate" in caplog.text
+
+    def test_optional_provider_skips_non_string_keys(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from rebrew import toolchain_detect
+
+        _install_fake_module(
+            monkeypatch,
+            "invalid_provider_key",
+            provider=lambda: {42: ["mytc"], "build:9999": ["mytc"]},
+        )
+        monkeypatch.setattr(
+            "rebrew.registry.entry_points",
+            _fake_entry_points(
+                **{"rebrew.msvc_versions": [("p", "invalid_provider_key:provider")]}
+            ),
+        )
+        toolchain_detect.refresh_detection_tables()
+        assert toolchain_detect.detection_tables().rich_build_profiles[9999] == ("mytc",)
+
+
 class TestDetectionTablesSnapshot:
     """The detection registries publish as ONE generation.
 
@@ -1107,10 +1256,22 @@ class TestDetectionTablesSnapshot:
 
         td.refresh_detection_tables()
         tables = td.detection_tables()
-        assert tables.profile_compat is td.PROFILE_COMPAT_ALL
-        assert tables.rich_build_profiles is td.RICH_BUILD_PROFILES_ALL
-        assert tables.linker_era_profiles is td.LINKER_ERA_PROFILES_ALL
-        assert tables.detectors is td._PLUGIN_DETECTORS
+        assert tables.profile_compat == td.PROFILE_COMPAT_ALL
+        assert tables.rich_build_profiles == td.RICH_BUILD_PROFILES_ALL
+        assert tables.linker_era_profiles == td.LINKER_ERA_PROFILES_ALL
+        assert tables.detectors == td._PLUGIN_DETECTORS
+
+    def test_returned_tables_cannot_modify_the_live_generation(self) -> None:
+        import rebrew.toolchain_detect as td
+
+        snapshot = td.detection_tables()
+        expected = td.detection_tables()
+        assert snapshot.profile_compat["msvc"] is not None
+        snapshot.profile_compat["msvc"].clear()
+        snapshot.rich_build_profiles.clear()
+        snapshot.linker_era_profiles.clear()
+        snapshot.detectors.append(("fake", lambda: None))
+        assert td.detection_tables() == expected
 
     def test_plugin_contribution_arrives_and_leaves_with_its_entry_point(
         self, monkeypatch: pytest.MonkeyPatch

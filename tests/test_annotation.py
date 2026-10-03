@@ -2131,6 +2131,12 @@ class TestMarkerConsistencyStub:
         )
         assert any("inconsistent with module" in w for w in warnings)
 
+    @pytest.mark.parametrize("status", ["STUB", "EXACT", "RELOC"])
+    def test_target_scoped_library_marker_ok(self, status: str) -> None:
+        errors, warnings = self._anno("LIBRARY", status).validate()
+        assert errors == []
+        assert not any("inconsistent with module" in w for w in warnings)
+
     def test_fastcall_decorated_symbol(self) -> None:
         """__fastcall functions get @name@N symbols (ecx/edx args counted)."""
         from rebrew.annotation import parse_new_format

@@ -190,6 +190,14 @@ Status/todo reuse one accounting frame. Coverage documents and grids are derived
 views; their cell/symbol counts do not replace the disjoint byte buckets in
 [status accounting](CLI.md#rebrew-status).
 
+## Composition guarantees
+
+The [Cordis guide](CORDIS.md) owns component lifecycle and API contracts,
+the [paper mapping and limits](CORDIS.md#paper-contracts-and-limits), and
+component-author recipes. Its [tutorial](CORDIS_TUTORIAL.md) demonstrates
+dependency-driven activation and provider replacement with executable checks.
+Registry publication has its own [snapshot contract](DEVELOPMENT.md#registry-snapshots).
+
 ## Key architectural rules
 
 - Config-driven: every tool reads `rebrew-project.toml` via `require_config`.

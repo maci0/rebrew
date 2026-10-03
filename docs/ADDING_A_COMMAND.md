@@ -32,7 +32,8 @@ Conventions (CLI review will flag drift):
 - `src/rebrew/builtins.py`: append a `CliComponent` (name, module, help,
   panel, is_group). The `help` string shows in `--help`; keep it one line.
   Default `needs` are `cli` and `console`; `apply()` mounts only while
-  those services are provided. Unmount is a tracked inverse (ADR 014).
+  those services are provided. See the [Cordis CLI recipe](CORDIS.md#add-a-cli-plugin)
+  for ownership and the [tutorial](CORDIS_TUTORIAL.md) for a complete lifetime.
   This is what makes `rebrew <name>` exist; no gate adds it for you.
 - Leave `pyproject.toml` `[project.scripts]` alone. People use one executable,
   `rebrew`; only four machine-facing CMake/objdiff hooks have separate names

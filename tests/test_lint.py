@@ -235,6 +235,15 @@ class TestWarnings:
         result = lint_file(f, cfg=cfg)
         assert any((c == "E015" for _, c, _ in result.errors))
 
+    def test_target_scoped_library_marker_allowed(self, tmp_path: Path) -> None:
+        source = _write_c(
+            tmp_path,
+            "gzread.c",
+            "// LIBRARY: SERVER 0x10003960\nint gzread(void) { return 0; }\n",
+        )
+        result = lint_file(source, cfg=_make_cfg())
+        assert not any(code == "E015" for _, code, _ in result.errors)
+
     def test_w005_stub_without_blocker(self, tmp_path: Path) -> None:
         content = "// STUB: SERVER 0x10008880\n// STATUS: STUB\n// SIZE: 31\n// CFLAGS: /O2\nint foo(void) { return 0; }\n"
         f = _write_c(tmp_path, "foo.c", content)

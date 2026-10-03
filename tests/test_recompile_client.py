@@ -528,6 +528,30 @@ class TestRecompileUrl:
 
 
 class TestCompileViaRecompile:
+    def test_shutdown_closes_other_clients_after_one_failure(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        closed: list[str] = []
+
+        class _Client:
+            def __init__(self, name: str, fails: bool = False) -> None:
+                self.name = name
+                self.fails = fails
+
+            def close(self) -> None:
+                closed.append(self.name)
+                if self.fails:
+                    raise RuntimeError("close failed")
+
+        monkeypatch.setattr(compile_mod, "_recompile_clients", {10.0: _Client("first")})
+        monkeypatch.setattr(compile_mod, "_recompile_retired", [_Client("retired", fails=True)])
+        with pytest.raises(RuntimeError, match="close failed"):
+            compile_mod._close_recompile_client()
+        assert closed == ["retired", "first"]
+        assert compile_mod._recompile_clients == {} and compile_mod._recompile_retired == []
+        compile_mod._close_recompile_client()
+        assert closed == ["retired", "first"]
+
     def _cfg(self, url: str = "http://svc") -> SimpleNamespace:
         return SimpleNamespace(recompile_url=url, compile_timeout=60, recompile_emit_assembly=True)
 

@@ -89,12 +89,21 @@ def main(
     size_val = require_positive_size(size_val, json_mode=json_output)
 
     from rebrew.analysis import disasm_insns
-    from rebrew.coff_reloc import smart_reloc_compare
+    from rebrew.coff_reloc import (
+        CatalogScanError,
+        build_iat_region,
+        build_name_to_va,
+        smart_reloc_compare,
+    )
     from rebrew.compile_overrides import resolve_compile_overrides
     from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
     from rebrew.near_analysis import align_and_classify
 
     load_binary(cfg.target_binary)
+    try:
+        name_to_va = build_name_to_va(cfg)
+    except CatalogScanError as exc:
+        error_exit(f"Catalog scan failed: {exc}", json_mode=json_output)
     ref_raw = extract_raw_bytes(cfg.target_binary, va_int, size_val)
 
     # Same fallback chain as test/verify/near-diag so module presets and
@@ -124,9 +133,16 @@ def main(
     cb = obj_bytes[:n]
     # Strict: both sides relocate or neither does and bytes agree.
     # Generous (matched-reloc): either side's reloc suffices — historical.
-    _, strict_count, _, valid, _ = smart_reloc_compare(cb, ref_raw[: len(cb)], coff_relocs, None)
+    _, strict_count, _, valid, _ = smart_reloc_compare(
+        cb,
+        ref_raw[: len(cb)],
+        coff_relocs,
+        name_to_va=name_to_va,
+        section_va=va_int,
+        iat_region=build_iat_region(cfg),
+    )
     obj_rels = set(valid)
-    generous = matched_reloc_count(ref_raw, cb, obj_rels, n)
+    generous = matched_reloc_count(ref_raw, cb, {r + i for r in valid for i in range(4)}, n)
 
     ref_insns = disasm_insns(ref_raw, va_int, cfg.capstone_arch, cfg.capstone_mode)
     obj_insns = disasm_insns(cb, va_int, cfg.capstone_arch, cfg.capstone_mode)

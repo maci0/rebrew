@@ -1296,10 +1296,12 @@ def _recompile_release(client: Any) -> None:
 def _close_recompile_client() -> None:
     """Close the shared recompile clients (``atexit`` hook)."""
     with _recompile_client_lock:
-        for client in (*_recompile_clients.values(), *_recompile_retired):
-            client.close()
+        clients = [*_recompile_clients.values(), *_recompile_retired]
         _recompile_clients.clear()
         _recompile_retired.clear()
+    with contextlib.ExitStack() as cleanup:
+        for client in clients:
+            cleanup.callback(client.close)
 
 
 # cordis-boundary: process lifetime — a shared client outlives any component,

@@ -238,9 +238,13 @@ def iter_optional_callables(
     with a warning, and *expected* names the kind in that warning.  Order is
     discovery order unless *sort_key* ranks the registrations."""
     regs = entry_point_registrations(group)
+    seen: set[str] = set()
     if sort_key is not None:
         regs = sorted(regs, key=sort_key)
     for reg in regs:
+        if reg.name in seen:
+            log.warning("skipping duplicate %s registration %r", reg.group, reg.name)
+            continue
         member = load_registration_optional(reg, log)
         if member is None:
             continue
@@ -253,17 +257,19 @@ def iter_optional_callables(
                 type(member).__name__,
             )
             continue
+        seen.add(reg.name)
         yield reg, member
 
 
 def iter_optional_provider_dicts(
     group: str, log: logging.Logger, *, expected: str
-) -> Iterator[tuple[Registration, dict[Any, Any]]]:
+) -> Iterator[tuple[Registration, dict[str, Any]]]:
     """Yield ``(reg, provided)`` for each provider function in optional *group*.
 
     A provider that fails to import, raises, or returns a non-dict is skipped
     with a warning; *expected* names the dict shape in that warning.  Entries
-    inside *provided* are unvalidated: the caller checks each one."""
+    must have nonempty string keys; callers validate the registry-specific
+    value shapes."""
     for reg in entry_point_registrations(group):
         provider = load_registration_optional(reg, log)
         if provider is None:
@@ -288,7 +294,18 @@ def iter_optional_provider_dicts(
                 type(provided).__name__,
             )
             continue
-        yield reg, provided
+        valid: dict[str, Any] = {}
+        for name, value in provided.items():
+            if not isinstance(name, str) or not name:
+                log.warning(
+                    "skipping %s provider %r key %r: expected a nonempty string",
+                    reg.group,
+                    reg.name,
+                    name,
+                )
+                continue
+            valid[name] = value
+        yield reg, valid
 
 
 def merge_into(
@@ -368,9 +385,9 @@ def refresh_all() -> dict[str, int]:
     concurrent calls cannot interleave and leave a mixture of two composite
     refreshes.  It does not order a refresh against a reader: each module
     publishes under its own lock, so a reader that takes only those sees each
-    group at whatever generation it had reached.  A caller that needs every
-    group at one generation must read them under the module locks itself
-    (``registry_snapshot``, ``detection_tables``).
+    group at whatever generation it had reached. Snapshot accessors
+    (``registry_snapshot``, ``detection_tables``) guarantee consistency within
+    their owning group, not an atomic generation spanning different groups.
 
     CLI command groups are the documented forward-only exception: a command
     the app already mounted is not unmounted, so a second refresh cannot

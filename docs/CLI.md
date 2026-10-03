@@ -240,13 +240,12 @@ discovered components merge on top.  Conflict and failure policy per group:
 CLI tools (packaged and third-party) mount through `rebrew.plugin`.
 `main.compose()` provides the `cli` and `console` services, then
 `activate()` registers every `CliComponent` on a `CoeffectScope`.
-A component whose `needs` are missing stays inactive until those
-services appear; withdrawing a service unmounts its dependents.
-Disposing the context closes the scope; inverses fire at most once.
 Composition runs at `rebrew.main` import, and the module keeps the
 context and scope (`_COMPOSED`) for the process lifetime: nothing
 unmounts before interpreter exit, and there is no hot-reload. See
 [ADR 014](adr/014-component-composition.md).
+The [Cordis guide](CORDIS.md) owns dependency, ownership, failure, and
+teardown contracts; the [tutorial](CORDIS_TUTORIAL.md) runs them end to end.
 
 A CLI plugin whose module cannot be imported degrades to a stub command that
 reports the missing dependency (exit 2), the same fallback built-ins get
@@ -1721,8 +1720,19 @@ configured image is reported rather than silently substituted. `.bss` has no
 file-backed bytes and appears as symbol counts/virtual-layout work.
 
 Function `coverage_pct` counts source presence; `matched_pct` counts EXACT/RELOC.
-Library functions are excluded from those reversing denominators and shown as
-`library_identified`; their bytes still contribute to accounted `.text`.
+Functions marked `LIBRARY` or assigned to a configured external module are excluded
+from those reversing denominators and shown as `library_identified`; their bytes
+still contribute to accounted `.text`. Vendored library code tracked as `FUNCTION`
+remains in the function counts; exclusion depends on attribution, not code origin.
+For confirmed vendored library functions, use a target-scoped `LIBRARY` marker
+(for example, `// LIBRARY: SERVER 0x10003960`) in place of `FUNCTION`. Sourced
+library functions remain compilable; status and todo exclude them from the function
+denominators and include them in the separate `Library functions` count. For migrated
+sources, update the stored `marker_type` through `rebrew.metadata`, not by hand.
+The terminal shows total, matched, and sourced function counts separately from
+library counts. When `.text` size and per-status bytes are available, the status
+table's `.text %` column and bars use bytes, including libraries and padding, just
+like the coverage headline. Otherwise the table falls back to `Count %`.
 `decompiled_pct` excludes matched `// SOURCE: naked` assembly reconstructions.
 PROVEN is semantic evidence and earns no byte-match credit.
 
@@ -1735,11 +1745,17 @@ accounted_text_bytes = matched_bytes + padding_bytes
 
 `matched_bytes` includes library attributions. `status_bytes` partitions function
 extents by effective status plus LIBRARY and NO_SOURCE. Sourced functions use
-the annotated SIZE that verification compares; library rows use discovered
-extents. Spans stop at the next actual function start and at section bounds;
+the annotated SIZE that verification compares; library rows use the larger of
+the annotated and discovered extents so discovery stopping at an early return
+does not leave another branch's bytes unattributed. Spans stop at the next actual
+function start and at section bounds;
 switch arms inside a function do not split it. Padding recognizes CC/90/00 runs
 at gap edges, not zero bytes inside unknown code. When `.text` is unavailable,
 the terminal falls back to the matched-function ratio.
+The shared status/todo loader rejects anonymous, unannotated x86 inventory spans
+of only NOP/INT3 bytes shorter than 16 bytes ending at the next aligned start.
+These bytes count as padding, not pending functions; named or exported functions
+and source annotations are preserved.
 
 Data JSON includes symbol counts (`verified`, `drift`, `unchecked`, `total`,
 `sections`) and disjoint `bytes` buckets (`drift`, `unchecked`, `verified`,

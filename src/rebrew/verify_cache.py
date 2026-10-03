@@ -858,6 +858,11 @@ def save_verify_cache(
         atomic_write_text(
             cache_path, tomlkit.dumps(toml_document(cache_data.to_dict())), encoding="utf-8"
         )
+        # Status uses this mtime as the full verification instant. The atomic
+        # writer preserves it for identical bytes; a completed full run must
+        # still advance it. A filtered run cannot refresh unmeasured rows.
+        if not preserve_keys:
+            cache_path.touch()
         _invalidate_verify_cache_memo(cache_path)
 
 

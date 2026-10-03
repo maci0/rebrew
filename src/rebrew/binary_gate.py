@@ -189,6 +189,14 @@ def layout_fingerprint(binary_path: Path) -> str:
     except (OSError, ValueError):
         return ""
     h = hashlib.sha256()
+    if info.format == "pe":
+        from rebrew.pe_headers import SECTION_ENTRY_SIZE, pe_layout
+
+        layout = pe_layout(info.data)
+        if layout is None or len(layout.sections) != layout.number_of_sections:
+            return ""
+        header_end = layout.section_table_offset + layout.number_of_sections * SECTION_ENTRY_SIZE
+        h.update(info.data[:header_end])
     for name in sorted(info.sections):
         sec = info.sections[name]
         h.update(name.encode("utf-8", "replace"))

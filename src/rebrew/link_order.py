@@ -24,10 +24,11 @@ from pathlib import Path
 
 import typer
 
+from rebrew.annotation import FUNCTION_MARKERS, parse_c_file_multi
 from rebrew.cli import EXIT_MISMATCH, TargetOption, console, error_exit, json_print, require_config
 from rebrew.config import module_marker
 from rebrew.sources import iter_sources, source_exts
-from rebrew.utils import atomic_write_text, preset_module_key, read_source_text
+from rebrew.utils import atomic_write_text, preset_module_key
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
@@ -45,31 +46,25 @@ app = typer.Typer(
 
 _CMAKE_LISTS = "CMakeLists.txt"
 
-_FUNC_RE = re.compile(r"^(?://|/\*)\s*FUNCTION:\s+(\S+)\s+0x([0-9A-Fa-f]+)", re.M)
-
 
 def file_va(path: Path, marker: str | None = None) -> int | None:
-    """Lowest ``// FUNCTION:``/``/* FUNCTION: */`` VA in *path* (None when none).
+    """Lowest FUNCTION/LIBRARY/STUB VA in *path* (None when none).
 
-    Both marker styles are accepted: the block form is what rebrew emits for
-    C89-strict 16-bit compilers, and matching only ``//`` dropped those files
-    to the unknown-VA tail of the order.
+    The shared annotation parser accepts both line and C89 block comments
+    and keeps library attribution from changing a file's link position.
 
     With *marker*, only that target's markers count: a stacked shared file
     carries one VA per target in unrelated address spaces, so the minimum
     across all markers can order the file at another target's address.
     """
-    try:
-        # Detected encoding (not UTF-8-replace): markers are ASCII, but a
-        # legacy-encoded source must still round-trip through the same
-        # reader used by annotation/edit so path identity stays consistent.
-        text, _ = read_source_text(path)
-    except OSError:
-        return None
+    matches = [
+        (ann.module, ann.va)
+        for ann in parse_c_file_multi(path)
+        if ann.marker_type in FUNCTION_MARKERS
+    ]
     if marker is None:
-        vas = [int(m.group(2), 16) for m in _FUNC_RE.finditer(text)]
+        vas = [va for _, va in matches]
     else:
-        matches = [(m.group(1), int(m.group(2), 16)) for m in _FUNC_RE.finditer(text)]
         own = [va for mod, va in matches if preset_module_key(mod) == preset_module_key(marker)]
         # Fall back to all markers when none names this target (legacy files
         # whose module predates the configured marker) — filtering to empty

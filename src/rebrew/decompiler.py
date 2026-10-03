@@ -1163,7 +1163,7 @@ def refresh_backends() -> dict[str, Callable[..., str | None]]:
     merged, auto_probe = _merge_entry_point_backends()
     with _BACKEND_REFRESH_LOCK:
         _BACKEND_MAP, _AUTO_PROBE_BACKENDS = merged, auto_probe
-        return _BACKEND_MAP
+        return dict(merged)
 
 
 def fetch_decompilation(
@@ -1217,11 +1217,13 @@ def fetch_decompilation(
                 return result, name
         return None, "auto"
 
-    backend_fn = _BACKEND_MAP.get(backend)
+    with _BACKEND_REFRESH_LOCK:
+        backends = _BACKEND_MAP
+    backend_fn = backends.get(backend)
     if backend_fn is None:
         console.print(
             f"[yellow]note:[/yellow] decompiler: unknown backend "
-            f"'{untrusted_literal(backend)}'. Available: {', '.join(_BACKEND_MAP)}, auto"
+            f"'{untrusted_literal(backend)}'. Available: {', '.join(backends)}, auto"
         )
         return None, backend
 

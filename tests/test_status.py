@@ -317,6 +317,20 @@ class TestCollectStatus:
         assert report.library_identified == 1
         assert report.covered_functions == 1
 
+    def test_sourced_library_excluded_from_function_counts(self, tmp_path: Path) -> None:
+        cfg = _make_cfg(tmp_path)
+        cfg.reversed_dir.mkdir()
+        (cfg.reversed_dir / "game.c").write_text(
+            "// FUNCTION: TEST 0x1000\nvoid game(void) {}\n", encoding="utf-8"
+        )
+        (cfg.reversed_dir / "gzread.c").write_text(
+            "// LIBRARY: TEST 0x2000\nint gzread(void) { return 0; }\n", encoding="utf-8"
+        )
+        report = collect_status(cfg)
+        assert report.total_functions == report.covered_functions == 1
+        assert report.library_identified == 1
+        assert sum(report.status_counts.values()) == 1
+
     def test_proven_bytes_not_counted_as_matched(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -370,21 +384,30 @@ class TestCollectStatus:
         assert report.total_functions == 1
         assert report.matched_bytes == 128
 
-    def test_library_row_counts_its_discovered_extent(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize(("annotated", "discovered"), [(16, 64), (64, 16)])
+    def test_library_row_counts_its_complete_extent(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        annotated: int,
+        discovered: int,
     ) -> None:
-        """A library SIZE is never checked by a compile and is often short of
-        the linked body; the inventory extent counts, or the tail reads as
-        code in no function."""
+        """Neither truncated discovery nor a short annotation hides library bytes."""
         import rebrew.naming
         from rebrew.catalog.models import FunctionEntry
 
         cfg = _make_cfg(tmp_path)
-        existing = {0x1000: {"filename": "library_x.h", "size": "16", "marker_type": "LIBRARY"}}
+        existing = {
+            0x1000: {"filename": "library_x.h", "size": str(annotated), "marker_type": "LIBRARY"}
+        }
         monkeypatch.setattr(
             rebrew.naming,
             "load_data",
-            lambda cfg, **kw: ([FunctionEntry(va=0x1000, size=0x40)], existing, {0x1000: "x"}),
+            lambda cfg, **kw: (
+                [FunctionEntry(va=0x1000, size=discovered)],
+                existing,
+                {0x1000: "x"},
+            ),
         )
         assert collect_status(cfg).matched_bytes == 0x40  # type: ignore[arg-type]
 
@@ -395,6 +418,55 @@ class TestCollectStatus:
         text = b"\x55\xc3" + b"\xcc\xcc" + b"\xff\x25\x04\x10" + b"\x90\x55\xc3"
         # Functions at +0 (2 bytes) and +9 (2 bytes); +8 is a 0x90 fill byte.
         assert classify_text_gaps(text, 0x1000, [(0x1000, 2), (0x1009, 2)]) == (3, 4)
+
+    @pytest.mark.parametrize(
+        ("body", "annotated", "named", "exported", "expected"),
+        [
+            (b"\x90" * 15, False, False, False, 2),
+            (b"\xcc" * 15, False, False, False, 2),
+            (b"\x90" * 14 + b"\xc3", False, False, False, 3),
+            (b"\x90" * 15, True, False, False, 3),
+            (b"\xcc" * 15, False, True, False, 3),
+            (b"\xcc" * 15, False, False, True, 3),
+        ],
+    )
+    def test_inventory_alignment_is_padding_not_pending_functions(
+        self,
+        tmp_path: Path,
+        body: bytes,
+        annotated: bool,
+        named: bool,
+        exported: bool,
+        expected: int,
+    ) -> None:
+        from bin_util import make_pe
+
+        from rebrew.naming import load_data
+
+        cfg = _make_cfg(tmp_path)
+        cfg.target_binary.write_bytes(make_pe(b"\xc3" + body + b"\xc3"))
+        cfg.reversed_dir.mkdir()
+        candidate = 0x401001
+        if exported:
+            cfg.dll_exports = {candidate: "trap"}
+        inventory = [
+            {"va": 0x401000, "size": 1},
+            {"va": candidate, "size": 15, "name": "trap" if named else f"fcn.{candidate:08x}"},
+            {"va": 0x401010, "size": 1},
+        ]
+        (cfg.reversed_dir / "function_structure.json").write_text(
+            json.dumps(inventory), encoding="utf-8"
+        )
+        if annotated:
+            (cfg.reversed_dir / "trap.c").write_text(
+                f"// FUNCTION: TEST {candidate:#x}\nvoid trap(void) {{}}\n", encoding="utf-8"
+            )
+        functions, _, _ = load_data(cfg)
+        assert len(functions) == expected
+        report = collect_status(cfg)
+        assert report.total_functions == expected
+        assert report.padding_bytes == (15 if expected == 2 else 0)
+        assert report.unmatched_bytes == (2 if expected == 2 else 17)
 
     def test_matched_bytes_stop_at_next_function(self, tmp_path: Path) -> None:
         """An inventory entry that runs into the next function counts only its
@@ -1518,9 +1590,8 @@ class TestRenderTerminal:
         out = buf.getvalue()
         assert "50.0% of .text" in out
         assert "512B / 1,024B" in out
-        assert "Functions  5/10" in out
-        assert "With source" in out
-        assert "6/10" in out
+        assert "Function counts  10 total, 5 matched, 6 with source" in out
+        assert "Count %" in out
         assert "(60.0%)" not in out
         assert "(50.0%)" not in out
         assert out.count("50.0% of .text") == 1
@@ -1539,18 +1610,53 @@ class TestRenderTerminal:
         buf = self._capture(monkeypatch)
         _render_terminal(
             self._report(
-                total_functions=262,
+                total_functions=341,
                 covered_functions=262,
-                status_counts={"EXACT": 27, "RELOC": 234, "NEAR_MATCHING": 1},
-                matched_bytes=136_414,
+                status_counts={"EXACT": 22, "RELOC": 239, "COMPILE_ERROR": 1},
+                status_bytes={
+                    "EXACT": 1_436,
+                    "RELOC": 76_271,
+                    "COMPILE_ERROR": 0,
+                    "LIBRARY": 61_143,
+                    "NO_SOURCE": 757,
+                },
+                library_identified=314,
+                matched_bytes=138_850,
+                padding_bytes=1_740,
+                unattributed_bytes=35,
                 total_text_bytes=141_382,
             )
         )
         out = buf.getvalue()
-        assert "96.4% of .text" in out
-        assert out.count("96.4% of .text") == 1
-        assert "261/262" in out
-        assert "99.6%" not in out
+        assert "99.4% of .text" in out
+        assert out.count("99.4% of .text") == 1
+        assert "140,590B / 141,382B" in out
+        assert "Function counts  341 total, 261 matched, 262 with source" in out
+        assert "Library functions  314 (excluded from function counts)" in out
+        assert ".text %" in out
+        assert "Count %" not in out
+        assert "76.8%" not in out
+        library = next(line for line in out.splitlines() if "LIBRARY" in line)
+        assert library.replace("│", "").split()[:4] == ["LIBRARY", "314", "61,143", "43.2%"]
+        no_source = next(line for line in out.splitlines() if "(no source)" in line)
+        assert no_source.replace("│", "").split()[:5] == ["(no", "source)", "79", "757", "0.5%"]
+        for status, count, size, percentage, ticks in (
+            ("EXACT", "22", "1,436", "1.0%", 1),
+            ("RELOC", "239", "76,271", "53.9%", 8),
+            ("COMPILE_ERROR", "1", "0", "0.0%", 0),
+            ("padding", "", "1,740", "1.2%", 1),
+            ("no function", "", "35", "0.0%", 1),
+        ):
+            row = next(
+                line
+                for line in out.splitlines()
+                if line.replace("│", "").split()[: len(status.split())] == status.split()
+            )
+            cells = row.replace("│", "").split()
+            assert cells[: len(status.split()) + bool(count) + 2] == (
+                status.split() + ([count] if count else []) + [size, percentage]
+            )
+            assert row.count("█") == ticks
 
     def test_data_block_sits_with_functions(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Data is a block of its own: verified count, verdicts, sections.

@@ -1139,6 +1139,30 @@ class TestPatchVerifyCacheEntries:
 
 
 class TestIncrementalVerify:
+    @pytest.mark.parametrize("preserve_keys", [None, {"0x00001000"}])
+    def test_identical_full_save_refreshes_verify_time(
+        self, tmp_path: Path, preserve_keys: set[str] | None
+    ) -> None:
+        """A completed full verify must clear stale time even with identical rows."""
+        from rebrew.status import _load_verify_info
+
+        cfg = _make_cfg(tmp_path)
+        entries, results = _func_b_row(cfg)
+        cache_path = cfg.root / ".rebrew" / "verify_cache.toml"
+        save_verify_cache(cache_path, cfg, results, entries)
+        original = cache_path.read_bytes()
+        support = cfg.reversed_dir / "support.c"
+        support.write_text("int g_support;\n", encoding="utf-8")
+        older = support.stat().st_mtime_ns - 1_000_000_000
+        os.utime(cache_path, ns=(older, older))
+        info = _load_verify_info(cfg, sources=[support])
+        assert info is not None and info.stale
+
+        save_verify_cache(cache_path, cfg, results, entries, preserve_keys=preserve_keys)
+        assert cache_path.read_bytes() == original
+        info = _load_verify_info(cfg, sources=[support])
+        assert info is not None and info.stale == bool(preserve_keys)
+
     def test_only_changed_files_are_recompiled(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

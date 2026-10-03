@@ -925,6 +925,125 @@ class TestHeaderDependencyHash:
 
 
 class TestGetCompileCache:
+    def test_factory_and_eviction_close_run_outside_pool_lock(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import rebrew.compile_cache as cc
+
+        def _factory(path: Path, cap: int) -> CompileCache:
+            assert cc._caches_lock.acquire(blocking=False)
+            cc._caches_lock.release()
+            cache = CompileCache(path, cap)
+            original_close = cache.close
+
+            def _close() -> None:
+                assert cc._caches_lock.acquire(blocking=False)
+                cc._caches_lock.release()
+                original_close()
+
+            monkeypatch.setattr(cache, "close", _close)
+            return cache
+
+        close_all_caches()
+        monkeypatch.setattr(cc, "_CACHE_BACKENDS", {"plugin": _factory})
+        monkeypatch.setattr(cc, "_CACHES_MAX", 1)
+        try:
+            first = get_compile_cache(tmp_path / "first", "plugin")
+            second = get_compile_cache(tmp_path / "second", "plugin")
+            assert not first.is_open() and second.is_open()
+            assert len(cc._caches) == 1
+        finally:
+            close_all_caches()
+
+    @pytest.mark.parametrize("shared", [False, True])
+    def test_racing_factories_publish_once_and_close_the_loser(
+        self, shared: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import threading
+        from concurrent.futures import ThreadPoolExecutor
+
+        import rebrew.compile_cache as cc
+
+        ready = threading.Barrier(2)
+        candidates: list[CompileCache] = []
+        candidates_lock = threading.Lock()
+
+        def _factory(path: Path, cap: int) -> CompileCache:
+            with candidates_lock:
+                cache = candidates[0] if shared and candidates else CompileCache(path, cap)
+                candidates.append(cache)
+            ready.wait(timeout=5)
+            return cache
+
+        close_all_caches()
+        monkeypatch.setattr(cc, "_CACHE_BACKENDS", {"plugin": _factory})
+        try:
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                futures = [pool.submit(get_compile_cache, tmp_path, "plugin") for _ in range(2)]
+                results = [future.result(timeout=10) for future in futures]
+            assert results[0] is results[1]
+            assert len(candidates) == 2 and len(cc._caches) == 1
+            unique_candidates = {id(cache): cache for cache in candidates}
+            assert sum(cache.is_open() for cache in unique_candidates.values()) == 1
+        finally:
+            close_all_caches()
+        assert all(not cache.is_open() for cache in candidates)
+
+    def test_replaced_factory_gets_a_new_instance(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import rebrew.compile_cache as cc
+
+        monkeypatch.setattr(cc, "_CACHE_BACKENDS", dict(cc._CACHE_BACKENDS))
+
+        def _first(path: Path, cap: int) -> CompileCache:
+            return CompileCache(path, cap)
+
+        def _second(path: Path, cap: int) -> CompileCache:
+            return CompileCache(path, cap)
+
+        monkeypatch.setattr(cc, "_discover_cache_backends", lambda: {"plugin": _first})
+        close_all_caches()
+        try:
+            cc.refresh_cache_backends()
+            old = get_compile_cache(tmp_path, "plugin")
+            monkeypatch.setattr(cc, "_discover_cache_backends", lambda: {"plugin": _second})
+            cc.refresh_cache_backends()
+            new = get_compile_cache(tmp_path, "plugin")
+            assert new is not old
+            assert get_compile_cache(tmp_path, "plugin") is new
+            # Outstanding users keep their committed instance until cleanup.
+            assert old.is_open()
+            monkeypatch.setattr(cc, "_discover_cache_backends", lambda: {})
+            cc.refresh_cache_backends()
+            with pytest.raises(ValueError, match="unknown cache backend"):
+                get_compile_cache(tmp_path, "plugin")
+        finally:
+            close_all_caches()
+        assert not old.is_open() and not new.is_open()
+
+    def test_close_failure_does_not_strand_other_instances(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import rebrew.compile_cache as cc
+
+        close_all_caches()
+        first = get_compile_cache(tmp_path / "first")
+        second = get_compile_cache(tmp_path / "second")
+        assert isinstance(second, CompileCache)
+        original_close = second.close
+
+        def _close_then_fail() -> None:
+            original_close()
+            raise RuntimeError("close failed")
+
+        monkeypatch.setattr(second, "close", _close_then_fail)
+        with pytest.raises(RuntimeError, match="close failed"):
+            close_all_caches()
+        assert not first.is_open() and not second.is_open()
+        assert cc._caches == {}
+        close_all_caches()
+
     def test_returns_same_instance(self, tmp_path: Path) -> None:
         close_all_caches()
         c1 = get_compile_cache(tmp_path)

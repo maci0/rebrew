@@ -431,7 +431,7 @@ def refresh_cache_backends() -> dict[str, Callable[[Path, int], CacheBackend]]:
     discovered = _discover_cache_backends()
     with _CACHE_BACKENDS_LOCK:
         _CACHE_BACKENDS = discovered
-    return _CACHE_BACKENDS
+    return dict(discovered)
 
 
 def available_cache_backends() -> list[str]:
@@ -1307,7 +1307,9 @@ def compile_cache_key(
 # Module-level cache registry (avoids re-opening SQLite on every call)
 # ---------------------------------------------------------------------------
 
-_caches: dict[tuple[str, str, int], CacheBackend] = {}
+_caches: dict[
+    tuple[str, str, int, int], tuple[Callable[[Path, int], CacheBackend], CacheBackend]
+] = {}
 _caches_lock = threading.Lock()
 #: Cap open backends so a long-lived process that touches many project roots
 #: does not retain every diskcache SQLite handle until atexit.
@@ -1325,8 +1327,9 @@ def get_compile_cache(
     """Return a shared cache instance for a project root and backend.
 
     The diskcache backend stores at ``{project_root}/.rebrew/compile_cache/``.
-    Multiple calls with the same ``(root, backend, size_limit)`` return the
-    same instance.
+    Multiple calls with the same ``(root, backend, size_limit)`` and factory
+    return the same instance. A replacement factory gets a new instance;
+    outstanding users retain the previous instance until eviction or shutdown.
 
     Args:
         project_root: The project root (cache namespace).
@@ -1350,30 +1353,52 @@ def get_compile_cache(
             f"set [cache] backend in rebrew-project.toml"
         )
     cache_dir = str((project_root / ".rebrew" / "compile_cache").resolve())
-    key = (backend, cache_dir, size_limit)
-    with _caches_lock:
-        existing = _caches.get(key)
-        if existing is not None:
+    # Retain the factory beside its instance so its id cannot be reused.
+    key = (backend, cache_dir, size_limit, id(factory))
+
+    def reuse() -> CacheBackend | None:
+        """Look up and refresh an existing instance while the pool lock is held."""
+        entry = _caches.get(key)
+        if entry is not None:
+            _, existing = entry
             if not existing.is_open():
                 del _caches[key]
             else:
                 # Refresh insertion order so repeated use is not FIFO-evicted.
                 del _caches[key]
-                _caches[key] = existing
+                _caches[key] = entry
                 return existing
-        while len(_caches) >= _CACHES_MAX:
-            oldest_key = next(iter(_caches))
-            old = _caches.pop(oldest_key)
-            with contextlib.suppress(Exception):
-                old.close()
-        _caches[key] = factory(Path(cache_dir), size_limit)
-        global _CACHES_ATEXIT_REGISTERED
-        if not _CACHES_ATEXIT_REGISTERED:
-            # cordis-boundary: process lifetime — the store's handles outlive
-            # any component, so the inverse is the exit close, registered once.
-            atexit.register(close_all_caches)
-            _CACHES_ATEXIT_REGISTERED = True
-        return _caches[key]
+        return None
+
+    with _caches_lock:
+        if (existing := reuse()) is not None:
+            return existing
+    # A plugin factory or close hook may re-enter the pool. Construct outside
+    # its lock, then publish once; a racing candidate owns its own cleanup.
+    with contextlib.ExitStack() as candidate_cleanup:
+        candidate = factory(Path(cache_dir), size_limit)
+        candidate_cleanup.callback(candidate.close)
+        retired: list[CacheBackend] = []
+        with _caches_lock:
+            if (existing := reuse()) is not None:
+                if candidate is existing:
+                    candidate_cleanup.pop_all()
+                return existing
+            while len(_caches) >= _CACHES_MAX:
+                oldest_key = next(iter(_caches))
+                _, old = _caches.pop(oldest_key)
+                retired.append(old)
+            _caches[key] = (factory, candidate)
+            candidate_cleanup.pop_all()
+            global _CACHES_ATEXIT_REGISTERED
+            if not _CACHES_ATEXIT_REGISTERED:
+                # cordis-boundary: process lifetime — handles outlive components.
+                atexit.register(close_all_caches)
+                _CACHES_ATEXIT_REGISTERED = True
+        with contextlib.suppress(Exception), contextlib.ExitStack() as retirement:
+            for old in retired:
+                retirement.callback(old.close)
+        return candidate
 
 
 def get_project_cache(cfg: Any) -> CacheBackend:
@@ -1393,6 +1418,8 @@ def get_project_cache(cfg: Any) -> CacheBackend:
 def close_all_caches() -> None:
     """Close all open cache instances (for clean shutdown)."""
     with _caches_lock:
-        for cache in _caches.values():
-            cache.close()
+        entries = list(_caches.values())
         _caches.clear()
+    with contextlib.ExitStack() as cleanup:
+        for _, cache in entries:
+            cleanup.callback(cache.close)

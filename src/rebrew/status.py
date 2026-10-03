@@ -735,11 +735,9 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
 
     ghidra_vas = {f.va for f in ghidra_funcs}
 
-    # Progress counts game functions only: library attributions are tallied
-    # separately below, so the headline denominators cover FUNCTION rows plus
-    # the ghidra inventory MINUS identified library code — counting the
-    # binary's whole inventory (game + CRT/zlib/static libs) made coverage
-    # read "half done" when library code was never work.
+    # Count FUNCTION rows and inventory entries, excluding recorded library
+    # attributions. Vendored library code tracked as FUNCTION still counts;
+    # this classification describes tracked work, not the code's origin.
     function_vas = {va for va in existing if va not in library_vas}
     # Switch arms and split bodies inside an annotated function are not
     # functions (the same rule `rebrew todo` applies).
@@ -773,16 +771,17 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
         """Start and size of *va*, clipped to .text and the next function.
 
         A compiled function's annotated SIZE is what verify compared, so it
-        wins; the inventory extent can include padding or a split body.  A
-        library row is never compiled, so its SIZE is unchecked (often short
-        of the linked body) and the discovered extent wins there.
+        wins; the inventory extent can include padding or a split body.
+        Library extents can be truncated in either annotation or discovery
+        (for example, at the first return before another branch's epilogue),
+        so retain the larger extent, bounded by the next function and .text.
         """
         try:
             annotated = int(info.get("size") or 0)
         except (TypeError, ValueError):
             annotated = 0
         inventory = size_by_va.get(va, 0)
-        size = (inventory or annotated) if va in library_vas else (annotated or inventory)
+        size = max(inventory, annotated) if va in library_vas else (annotated or inventory)
         # A negative SIZE is truthy, so it would win the selection above and
         # then move matched_bytes the wrong way.
         size = clip_span(starts, va, max(size, 0))
@@ -1119,7 +1118,7 @@ def _breakdown_table(*, byte_counts: bool = False) -> Table:
     table.add_column("Count", justify="right", width=12, no_wrap=True)
     if byte_counts:
         table.add_column(".text bytes", justify="right", width=12, no_wrap=True)
-    table.add_column("%", justify="right", width=7, no_wrap=True)
+    table.add_column("Count %", justify="right", width=7, no_wrap=True)
     table.add_column("", width=_TICK_WIDTH, no_wrap=True)
     return table
 
@@ -1296,21 +1295,26 @@ def _render_terminal(report: StatusReport) -> None:
 
     # --- Status table ---
     show_bytes = bool(report.status_bytes)
+    byte_percentages = show_bytes and report.total_text_bytes > 0
+    denominator = report.total_text_bytes if byte_percentages else report.total_functions
     status_table = _breakdown_table(byte_counts=show_bytes)
     status_table.columns[0].header = "Status"
+    if byte_percentages:
+        status_table.columns[-2].header = ".text %"
 
     for status in _STATUS_ORDER:
         count = report.status_counts.get(status, 0)
         if count == 0:
             continue
-        pct = floor_pct(count, report.total_functions)
+        part = report.status_bytes.get(status, 0) if byte_percentages else count
+        pct = floor_pct(part, denominator)
         color = STATUS_COLORS.get(status, "white")
         status_table.add_row(
             f"[{color}]{status}[/{color}]",
             f"[{color}]{count}[/{color}]",
             *([f"{report.status_bytes.get(status, 0):,}"] if show_bytes else []),
             f"[{color}]{pct}%[/{color}]",
-            f"[{color}]{_ticks(count, report.total_functions)}[/{color}]",
+            f"[{color}]{_ticks(part, denominator)}[/{color}]",
         )
 
     # Other statuses not in the standard order
@@ -1319,39 +1323,47 @@ def _render_terminal(report: StatusReport) -> None:
         count = report.status_counts[status]
         if count == 0:
             continue
-        pct = floor_pct(count, report.total_functions)
+        part = report.status_bytes.get(status, 0) if byte_percentages else count
+        pct = floor_pct(part, denominator)
         color = STATUS_COLORS.get(status, "red")
         status_table.add_row(
             f"[{color}]{status}[/{color}]",
             f"[{color}]{count}[/{color}]",
             *([f"{report.status_bytes.get(status, 0):,}"] if show_bytes else []),
             f"[{color}]{pct}%[/{color}]",
-            f"[{color}]{_ticks(count, report.total_functions)}[/{color}]",
+            f"[{color}]{_ticks(part, denominator)}[/{color}]",
         )
 
     # Functions without a source file: the rows then add up to the total.
     no_source = report.total_functions - report.covered_functions
     if no_source > 0:
+        part = report.status_bytes.get("NO_SOURCE", 0) if byte_percentages else no_source
         status_table.add_row(
             "[dim](no source)[/dim]",
             f"[dim]{no_source}[/dim]",
             *([f"{report.status_bytes.get('NO_SOURCE', 0):,}"] if show_bytes else []),
-            f"[dim]{floor_pct(no_source, report.total_functions)}%[/dim]",
-            f"[dim]{_ticks(no_source, report.total_functions)}[/dim]",
+            f"[dim]{floor_pct(part, denominator)}%[/dim]",
+            f"[dim]{_ticks(part, denominator)}[/dim]",
         )
 
-    if show_bytes and report.library_identified:
-        status_table.add_row(
-            "[dim]LIBRARY[/dim]",
-            "",
-            f"{report.status_bytes.get('LIBRARY', 0):,}",
-            "",
-            "",
-        )
-    if show_bytes and report.padding_bytes is not None:
-        status_table.add_row("[dim]padding[/dim]", "", f"{report.padding_bytes:,}", "", "")
-    if show_bytes and report.unattributed_bytes is not None:
-        status_table.add_row("[dim]no function[/dim]", "", f"{report.unattributed_bytes:,}", "", "")
+    if show_bytes:
+        for label, count_text, size in (
+            (
+                "LIBRARY",
+                f"{report.library_identified:,}",
+                report.status_bytes.get("LIBRARY", 0) if report.library_identified else None,
+            ),
+            ("padding", "", report.padding_bytes),
+            ("no function", "", report.unattributed_bytes),
+        ):
+            if size is not None:
+                status_table.add_row(
+                    f"[dim]{label}[/dim]",
+                    count_text,
+                    f"{size:,}",
+                    f"{floor_pct(size, denominator)}%" if byte_percentages else "",
+                    _ticks(size, denominator) if byte_percentages else "",
+                )
 
     # --- Summary lines ---
     summary_lines: list[str] = []
@@ -1386,14 +1398,7 @@ def _render_terminal(report: StatusReport) -> None:
             "[/dim]"
         )
 
-    # Source file count, and library rows that are not reversing progress.
-    sources = f"[dim]{report.source_files} source files scanned[/dim]"
-    if report.library_identified:
-        sources += (
-            f"    [green]{report.library_identified} library[/green]"
-            "  [dim]not reversing progress[/dim]"
-        )
-    summary_lines.append(sources)
+    summary_lines.append(f"[dim]{report.source_files} source files scanned[/dim]")
 
     if report.load_error:
         # Replaces "No functions yet": the zero counts are unmeasured, not
@@ -1456,12 +1461,19 @@ def _render_terminal(report: StatusReport) -> None:
         panel_rows.append(Text("Stored EXACT/RELOC + identified libraries + padding", style="dim"))
     if report.total_functions > 0:
         counts = Text()
-        if report.total_text_bytes > 0:
-            counts.append("Functions", style="bold")
-            counts.append(f"  {report.matched_functions}/{report.total_functions}    ")
-        counts.append("With source", style="bold")
-        counts.append(f"  {report.covered_functions}/{report.total_functions}")
+        counts.append("Function counts", style="bold")
+        counts.append(
+            f"  {report.total_functions:,} total, {report.matched_functions:,} matched, "
+            f"{report.covered_functions:,} with source",
+        )
         panel_rows.append(counts)
+    if report.library_identified:
+        panel_rows.append(
+            Text(
+                f"Library functions  {report.library_identified:,} (excluded from function counts)",
+                style="dim",
+            )
+        )
     if status_table.row_count:
         panel_rows.extend([Text(""), status_table])
     data_block = _data_block(report)

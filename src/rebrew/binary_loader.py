@@ -116,7 +116,7 @@ def refresh_loaders() -> list[tuple[str, Any]]:
     discovered = _discover_binary_loaders()
     with _PLUGIN_LOADERS_LOCK:
         _PLUGIN_LOADERS = discovered
-        return _PLUGIN_LOADERS
+        return list(discovered)
 
 
 #: Real-mode linear addresses are 20 bits: ``segment*16 + offset`` wraps at

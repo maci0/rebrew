@@ -103,6 +103,10 @@ covers library imports, registry views, structured errors, and injectable client
 The CLI/config compatibility policy and Python/API versioning policy are in
 [CONTRIBUTING.md](https://github.com/maci0/rebrew/blob/main/CONTRIBUTING.md#versioning-and-releases).
 
+For component authors, the [Cordis guide](https://github.com/maci0/rebrew/blob/main/docs/CORDIS.md) owns the composition
+contracts; its [runnable tutorial](https://github.com/maci0/rebrew/blob/main/docs/CORDIS_TUTORIAL.md) demonstrates provider
+replacement and teardown.
+
 ## Development
 
 Clean clone needs **uv**, **Python 3.13+** (`.python-version`), **nasm** and

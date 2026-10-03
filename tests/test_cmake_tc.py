@@ -8,6 +8,8 @@ command construction (mocked runner — no docker is executed here).
 from __future__ import annotations
 
 import os
+import shutil
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -332,17 +334,84 @@ def test_wineprefix_init_timeout_kills_container(
     assert calls[1][:2] == ["docker", "kill"]
 
 
+@pytest.mark.parametrize("failure", ["response", "lock", "spawn"])
+def test_docker_run_does_not_kill_before_launch(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, failure: str
+) -> None:
+    """Preparation/spawn failures cannot leave a container running."""
+    prefix = _chdir_project(monkeypatch, tmp_path)
+    prefix.mkdir()
+    (prefix / ".update-timestamp").touch()
+    killed: list[str] = []
+    launched: list[list[str]] = []
+
+    def fail(*args: object, **kwargs: object) -> None:
+        raise PermissionError("denied")
+
+    def fail_spawn(cmd: list[str], **kwargs: object) -> None:
+        launched.append(cmd)
+        fail()
+
+    monkeypatch.setattr("rebrew.cmake_tc.kill_container", killed.append)
+    monkeypatch.setattr("rebrew.cmake_tc.subprocess.run", fail_spawn)
+    if failure == "response":
+        monkeypatch.setattr("rebrew.cmake_tc._rewrite_response_files", fail)
+    elif failure == "lock":
+        monkeypatch.setattr("rebrew.cmake_tc.file_lock", fail)
+    with pytest.raises(PermissionError, match="denied"):
+        _docker_run(TOOLCHAINS["msvc-6.0"], "cl", ["/c", "x.c"])
+    assert killed == []
+    assert len(launched) == (1 if failure == "spawn" else 0)
+
+
 def test_generate_toolchain_file(tmp_path: Path) -> None:
     spec = TOOLCHAINS["msvc-6.0"]
     out = generate_toolchain_file(spec, tmp_path)
     assert out.name == "toolchain-msvc-6.0-docker.cmake"
     text = out.read_text(encoding="utf-8")
-    assert 'set(CMAKE_C_COMPILER "rebrew-cmake-cl")' in text
-    assert 'set(CMAKE_LINKER "rebrew-cmake-link")' in text
-    assert 'set(CMAKE_AR "rebrew-cmake-lib")' in text
     assert spec.image in text
     assert 'CMAKE_C_COMPILER_ID "MSVC"' in text
     assert 'CMAKE_C_OUTPUT_EXTENSION ".obj"' in text
+
+
+def test_generated_toolchain_binds_one_installation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """CMake retains absolute sibling drivers when PATH changes later."""
+    cmake = shutil.which("cmake")
+    if cmake is None:
+        pytest.skip("CMake unavailable")
+    drivers = tmp_path / "drivers"
+    drivers.mkdir()
+    modes = ["cl", "link", "lib"]
+    for mode in modes:
+        driver = drivers / f"rebrew-cmake-{mode}"
+        driver.write_text("#!/bin/sh\nexit 99\n", encoding="utf-8")
+        driver.chmod(0o755)
+    monkeypatch.setenv("PATH", str(drivers))
+    toolchain = generate_toolchain_file(TOOLCHAINS["msvc-6.0"], tmp_path)
+    paths = tmp_path / "paths.txt"
+    script = tmp_path / "check.cmake"
+    script.write_text(
+        f'include("{toolchain}")\n'
+        'set(ENV{PATH} "")\n'
+        f'file(WRITE "{paths}" '
+        '"${CMAKE_C_COMPILER}\n${CMAKE_LINKER}\n${CMAKE_AR}\n")\n',
+        encoding="utf-8",
+    )
+    subprocess.run([cmake, "-P", str(script)], check=True, capture_output=True)
+    assert paths.read_text(encoding="utf-8").splitlines() == [
+        str(drivers / f"rebrew-cmake-{mode}") for mode in modes
+    ]
+    script.write_text(
+        "set(CMAKE_FIND_USE_CMAKE_SYSTEM_PATH FALSE)\n"
+        "set(CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH FALSE)\n"
+        f'include("{toolchain}")\n',
+        encoding="utf-8",
+    )
+    missing = subprocess.run([cmake, "-P", str(script)], capture_output=True, text=True)
+    assert missing.returncode != 0
+    assert "rebrew-cmake-cl not found on PATH" in missing.stderr
 
 
 def test_per_toolchain_version_stamping(tmp_path: Path) -> None:

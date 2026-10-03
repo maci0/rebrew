@@ -743,7 +743,7 @@ def main(
         False,
         "--raw-link",
         help="Ack that --built is the raw link, not a postlinked deliverable. "
-        "Without it, --data suppresses DRIFT status write-backs (a raw link's "
+        "Without it or a matching configured raw_link, --data suppresses DRIFT status write-backs (a raw link's "
         ".data divergence is postlink-supplied and would flip wrong statuses)",
     ),
     text: bool = typer.Option(
@@ -824,15 +824,14 @@ def main(
     if jobs is None:
         jobs = cfg.default_jobs
 
-    # A configured `raw_link` is the image the linker emitted, before any
-    # postlink fixer ran, so it stands in for build/<target> (docs/CONFIG.md).
-    # It also carries its own acknowledgement: .data divergence against a raw
-    # link is postlink-supplied by construction, which is exactly what
-    # --raw-link attests, so the DRIFT write-back is not suppressed here.
+    # The configured raw linker output carries its acknowledgement even when
+    # explicitly selected with --built. Other paths still require --raw-link.
     cfg_raw_link: Path | None = getattr(cfg, "raw_link", None)
-    if built is None and cfg_raw_link is not None:
-        built = cfg_raw_link
-        raw_link = True
+    if cfg_raw_link is not None:
+        if built is None:
+            built = cfg_raw_link
+        if built.resolve() == cfg_raw_link.resolve():
+            raw_link = True
 
     # The optional compile context (see `rebrew test --context`).  It is a
     # compile input: merged into every compile unit and hashed into each

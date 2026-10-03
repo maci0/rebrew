@@ -20,7 +20,8 @@ Composability", arXiv:2608.25512):
 - `rebrew.plugin` provides the runtime: one `Context` type carrying both
   halves of the paradigm (the service table is the coeffect half, the inverse
   accumulator the effect half), the `Component` protocol (`needs` is the
-  coeffect specification), `CoeffectScope` (reactive resolution),
+  coeffect specification, `provides` declares provision ownership),
+  `CoeffectScope` (reactive resolution),
   `activate()` (startup registration onto a `CoeffectScope`), and
   `CliComponent`. A missing declared service leaves the component inactive;
   it does not raise.
@@ -29,8 +30,10 @@ Composability", arXiv:2608.25512):
   rest of the accumulator. Each inverse is armed: `_Effect.revert` fires it
   at most once, so overlapping `Context.dispose` and `CoeffectScope.close`
   cannot run it twice.
-- `CoeffectScope` is a fiber on its context (`ctx.effect(self.close)`).
-  Disposing the context closes the scope. `close` is idempotent.
+- `CoeffectScope` owns a group of component registrations on its context
+  (`ctx.effect(self.close)`). Each activation has its own scoped context and
+  inverse accumulator, corresponding to a fiber. Disposing the enclosing
+  context closes the scope. `close` is idempotent.
 - `CoeffectScope` classifies every change to the service table against each
   component's specification: a component activates when its dependencies
   appear, and is deactivated, reverting exactly the effects that activation
@@ -66,6 +69,9 @@ Composability", arXiv:2608.25512):
   chain classifies every change (not just the nearest), provision is
   single-source across forks (no shadowing), and `unprovide` deactivates
   dependents newest-first before running the inverse (Theorem 70 order).
+  The current declaration, committed-view, failure, and cleanup contracts are
+  maintained in the [Cordis guide](../CORDIS.md), with executable examples in
+  the [tutorial](../CORDIS_TUTORIAL.md).
 - The loader tier of the paper (configuration reconciliation and hot module
   replacement) is deliberately not built.  A CLI process composes once and has
   no module to swap; `CoeffectScope` is the seam a long-lived host (the

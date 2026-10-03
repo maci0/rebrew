@@ -32,6 +32,7 @@ import logging
 import re
 import struct
 import subprocess
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -375,6 +376,9 @@ def discoverer_map() -> dict[str, Discoverer]:
     return merged
 
 
+_DISCOVERERS_LOCK = threading.Lock()
+
+
 def refresh_discoverers() -> dict[str, Discoverer]:
     """Re-run discovery and refresh the discoverer snapshot.
 
@@ -382,8 +386,10 @@ def refresh_discoverers() -> dict[str, Discoverer]:
     without a restart."""
     global _DISCOVERER_MAP
 
-    _DISCOVERER_MAP = discoverer_map()
-    return _DISCOVERER_MAP
+    discovered = discoverer_map()
+    with _DISCOVERERS_LOCK:
+        _DISCOVERER_MAP = discovered
+    return dict(discovered)
 
 
 _DISCOVERER_MAP = discoverer_map()
@@ -869,7 +875,11 @@ def _is_discovery_result(found: Any) -> bool:
 
 
 def _run_providers(
-    names: list[str], binary: Path, d: Discovery
+    names: list[str],
+    binary: Path,
+    d: Discovery,
+    *,
+    providers: dict[str, Discoverer],
 ) -> dict[str, list[tuple[int, int, str]]]:
     """Run named providers, recording per-source counts on *d*.
 
@@ -880,7 +890,7 @@ def _run_providers(
     """
     out: dict[str, list[tuple[int, int, str]]] = {}
     for name in names:
-        fn = _DISCOVERER_MAP.get(name)
+        fn = providers.get(name)
         if fn is None:
             continue
         try:
@@ -930,10 +940,15 @@ def discover_functions(binary: Path, *, min_size: int = 8) -> Discovery:
     from rebrew.binary_loader import is_mz, is_ne, load_binary
 
     d = Discovery()
-    plugins = [n for n in _DISCOVERER_MAP if n not in _PACKAGED_DISCOVERERS]
+    with _DISCOVERERS_LOCK:
+        providers = _DISCOVERER_MAP
+    plugins = [n for n in providers if n not in _PACKAGED_DISCOVERERS]
 
     if is_ne(binary):
-        merged = _merge_union(_run_providers(["ne loader", *plugins], binary, d), min_size=min_size)
+        merged = _merge_union(
+            _run_providers(["ne loader", *plugins], binary, d, providers=providers),
+            min_size=min_size,
+        )
         d.functions = sorted((va, size, name) for va, (size, name) in merged.items())
         return d
 
@@ -941,7 +956,9 @@ def discover_functions(binary: Path, *, min_size: int = 8) -> Discovery:
         # Sizes are unknown in a bare MZ sweep (no symbol table) — estimate
         # each candidate's extent as the gap to the next candidate so
         # --min-size is honored (a size-0 filter would drop everything).
-        merged = _merge_union(_run_providers(["mz sweep", *plugins], binary, d))
+        merged = _merge_union(
+            _run_providers(["mz sweep", *plugins], binary, d, providers=providers)
+        )
         pairs = sorted(merged.items())
         sized: list[tuple[int, int, str]] = []
         for idx, (va, (_size, name)) in enumerate(pairs):
@@ -950,7 +967,12 @@ def discover_functions(binary: Path, *, min_size: int = 8) -> Discovery:
         d.functions = [f for f in sized if f[1] >= min_size]
         return d
 
-    found = _run_providers(["rizin aaa", "rizin aa;aap", "eh_frame", "pdata", *plugins], binary, d)
+    found = _run_providers(
+        ["rizin aaa", "rizin aa;aap", "eh_frame", "pdata", *plugins],
+        binary,
+        d,
+        providers=providers,
+    )
     # Merge: prefer-larger-size union over every provider (rizin strategies
     # and plugins alike); the merged-rizin count tracks the rizin pair only.
     merged = _merge_union(found)
@@ -959,7 +981,7 @@ def discover_functions(binary: Path, *, min_size: int = 8) -> Discovery:
     )
 
     # Add capstone sweep candidates not already present.
-    sweep = _run_providers(["capstone sweep"], binary, d)["capstone sweep"]
+    sweep = _run_providers(["capstone sweep"], binary, d, providers=providers)["capstone sweep"]
     sweep_names = {va: name for va, _, name in sweep}
     for va, name in sweep_names.items():
         if va not in merged:

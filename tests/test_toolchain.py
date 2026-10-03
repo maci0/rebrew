@@ -1403,6 +1403,97 @@ class TestSmokePrintGoldens:
     without comparing (the regeneration path for _SMOKE_GOLDEN after a
     toolchain source change)."""
 
+    @pytest.mark.parametrize(
+        ("fixture", "print_goldens", "expected_exit", "expected_runs"),
+        [
+            ("msvc-6.0-sp5", True, 0, 1),
+            (None, True, 2, 0),
+            ("missing-fixture", True, 2, 0),
+            ("msvc-6.0-sp5", False, 2, 0),
+        ],
+    )
+    def test_overlay_fixture_bootstraps_only_measured_hashes(
+        self, monkeypatch, fixture, print_goldens, expected_exit, expected_runs
+    ) -> None:
+        import hashlib
+        import json
+        from dataclasses import replace
+        from types import SimpleNamespace
+
+        from typer.testing import CliRunner
+
+        from rebrew.main import app as umbrella
+        from rebrew.toolchain import get_toolchain
+        from rebrew.toolchain_cli import _SMOKE_GOLDEN
+
+        name = "msvc-6.0-sp5-crt"
+        spec = replace(
+            get_toolchain("msvc-6.0-sp5"), name=name, image="rebrew/msvc:6.0-sp5-crt-win32"
+        )
+        monkeypatch.setattr("rebrew.toolchain.get_toolchain", lambda tool: spec)
+        calls = []
+        obj = b"OBJ" + b"\x01\x02\x03\x04" + b"TAIL"
+        before = dict(_SMOKE_GOLDEN)
+
+        def compile_image(image, prefix, workdir, flags):
+            calls.append((image, flags))
+            assert (workdir / "t.c").read_text() == "int add(int a, int b) { return a + b; }\n"
+            (workdir / "t.obj").write_bytes(obj)
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr("rebrew.toolchain_cli._run_smoke_container", compile_image)
+        args = ["toolchain", "smoke", name, "--json"]
+        if fixture:
+            args.extend(["--fixture", fixture])
+        if print_goldens:
+            args.append("--print-goldens")
+        result = CliRunner().invoke(umbrella, args)
+        assert result.exit_code == expected_exit, result.output
+        assert len(calls) == expected_runs
+        payload = json.loads(result.stdout)
+        if expected_runs:
+            assert calls == [(spec.image, ["/c", "t.c"])]
+            masked = bytearray(obj)
+            masked[4:8] = b"\x00" * 4
+            assert payload == {"goldens": {name: hashlib.sha256(masked).hexdigest()}}
+        else:
+            assert "error" in payload or "FAIL" in payload["goldens"][name]
+        assert before == _SMOKE_GOLDEN
+
+    @pytest.mark.parametrize("hash_only", [False, True])
+    @pytest.mark.parametrize("missing_runner", [False, True])
+    def test_failed_compile_cannot_pass_with_a_matching_object(
+        self, tmp_path: Path, monkeypatch, hash_only, missing_runner
+    ) -> None:
+        import json
+        from types import SimpleNamespace
+
+        from typer.testing import CliRunner
+
+        from rebrew.main import app as umbrella
+        from rebrew.toolchain_cli import _image_smoke_hash
+
+        def compile_image(image, prefix, workdir, flags):
+            (workdir / "t.obj").write_bytes(b"incomplete object")
+            if missing_runner:
+                raise FileNotFoundError("container runner missing")
+            return SimpleNamespace(returncode=1, stdout="", stderr="compiler failed")
+
+        def unexpected_hash(*args):
+            pytest.fail("failed compile output must not be compared or accepted")
+
+        monkeypatch.setattr("rebrew.toolchain_cli._run_smoke_container", compile_image)
+        monkeypatch.setattr("rebrew.toolchain_cli._masked_obj_sha256", unexpected_hash)
+        if hash_only:
+            assert _image_smoke_hash("msvc-6.0", tmp_path) is None
+        else:
+            result = CliRunner().invoke(umbrella, ["toolchain", "smoke", "msvc-6.0", "--json"])
+            assert result.exit_code == 2, result.output
+            payload = json.loads(result.stdout)
+            assert payload["passed"] is False
+            message = "could not run" if missing_runner else "compile exited 1"
+            assert message in payload["results"]["msvc-6.0"]
+
     def test_print_goldens_emits_masked_hash(self, tmp_path: Path, monkeypatch, capsys) -> None:
         import hashlib
         import json

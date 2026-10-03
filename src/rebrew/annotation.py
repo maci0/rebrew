@@ -707,9 +707,10 @@ class Annotation:
 
         # Check marker consistency against module name.  A STUB-status function
         # may keep either its STUB or FUNCTION marker (status lives in
-        # rebrew-functions.toml); only library-module mismatches are flagged.
+        # rebrew-functions.toml). LIBRARY may use the binary's target module:
+        # vendored source is still target-scoped, even when attributed to a library.
         _lib = library_modules or set()
-        if self.module in _lib:
+        if self.module in _lib or self.marker_type == "LIBRARY":
             expected_marker = "LIBRARY"
             marker_ok = self.marker_type == "LIBRARY"
         elif self.status == "STUB":

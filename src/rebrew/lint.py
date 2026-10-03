@@ -731,9 +731,10 @@ def _check_E015_marker_consistency(
     # module configured as library should be LIBRARY.  A STUB-status function
     # may legitimately keep either its STUB marker or the FUNCTION marker
     # (status lives in rebrew-functions.toml per the metadata convention), so
-    # both are allowed; anything else is inconsistent.
+    # both are allowed. Explicit LIBRARY markers may use the target module
+    # for vendored source.
     lib_modules = cfg.library_modules if cfg and cfg.library_modules is not None else set()
-    if module in lib_modules:
+    if module in lib_modules or marker == "LIBRARY":
         expected_marker = "LIBRARY"
         allowed = {"LIBRARY"}
     elif status == "STUB":

@@ -7,6 +7,7 @@
 | [GETTING_STARTED.md](GETTING_STARTED.md) | Start here (humans): the mental model, the 15-minute walkthrough, the core loop |
 | [ONBOARDING.md](ONBOARDING.md) | First-run walkthrough: binary → intake → doctor → first match (incl. manual discovery) |
 | [WORKFLOW.md](WORKFLOW.md) | Full iteration loop: test, diff, match, prove, verify; multi-binary; JSON / CI |
+| [CORDIS_TUTORIAL.md](CORDIS_TUTORIAL.md) | Runnable component walkthrough: dependency gating, provider replacement, and owned teardown |
 | [CODEGEN_PATTERNS.md](CODEGEN_PATTERNS.md) | MSVC6 codegen patterns table, SEH helpers, C89 rules, matching idioms |
 | [FLIRT_SIGNATURES.md](FLIRT_SIGNATURES.md) | Obtaining, creating, and using FLIRT signatures for library identification |
 
@@ -16,6 +17,7 @@
 |----------|-------------|
 | [CLI.md](CLI.md) | All CLI commands (umbrella `rebrew` + multi-command groups): flags, examples, internal modules |
 | [PYTHON_API.md](PYTHON_API.md) | Library imports, toolchain registry views, structured errors, and injectable service clients |
+| [CORDIS.md](CORDIS.md) | Composition concepts, runtime API, lifecycle and failure contracts, recipes, and paper mapping |
 | [CONFIG.md](CONFIG.md) | `rebrew-project.toml` format, config loader, arch presets, compiler profiles |
 | [ANNOTATIONS.md](ANNOTATIONS.md) | Source-file marker format (`// FUNCTION:` / `library_*.h`) and linter codes E000–E023 / W003–W036 |
 | [METADATA_FORMAT.md](METADATA_FORMAT.md) | TOML metadata files (`rebrew-functions.toml`, `rebrew-data.toml`): volatile fields, status lifecycle |

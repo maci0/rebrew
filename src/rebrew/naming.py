@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
 from rebrew.analysis import capstone_handle
 from rebrew.annotation import min_valid_va_for, parse_c_file_multi, parse_library_header
-from rebrew.binary_loader import extract_bytes_at_va
+from rebrew.binary_loader import extract_bytes_at_va, load_binary
 from rebrew.binary_model import BinaryInfo
 from rebrew.config import ProjectConfig, inventory_path_for, module_marker
 from rebrew.sources import (
@@ -340,6 +340,36 @@ def load_data(
             covered_vas[entry.va] = hfile.name
 
     _clip_to_next_start(ghidra_funcs, existing.keys())
+    # Discovery can mistake alignment runs for functions. Keep annotations,
+    # named functions, and exports; inspect only short anonymous x86 spans.
+    binary = getattr(cfg, "target_binary", None)
+    if binary is not None and Path(binary).is_file():
+        try:
+            info = load_binary(Path(binary))
+        except (OSError, KeyError, ValueError):
+            info = None
+        if info is not None and info.arch.startswith("x86"):
+            starts = {f.va for f in ghidra_funcs} | existing.keys()
+            protected = existing.keys() | set(getattr(cfg, "dll_exports", {}) or {})
+            filtered = []
+            for func in ghidra_funcs:
+                raw = None
+                # ponytail: short single-byte x86 fill only; decode other padding if needed.
+                if (
+                    func.va not in protected
+                    and func.name in ("", f"fcn.{func.va:08x}")
+                    and 0 < func.size < 16
+                    and info.text_va
+                    <= func.va
+                    < func.va + func.size
+                    <= info.text_va + info.text_size
+                    and (func.va + func.size) % 16 == 0
+                    and func.va + func.size in starts
+                ):
+                    raw = extract_bytes_at_va(info, func.va, func.size, trim_padding=False)
+                if raw is None or len(raw) != func.size or raw.strip(b"\x90\xcc"):
+                    filtered.append(func)
+            ghidra_funcs = filtered
     return ghidra_funcs, existing, covered_vas
 
 

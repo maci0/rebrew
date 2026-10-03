@@ -114,10 +114,20 @@ build every value **before** rebinding, then publish under the module's lock:
 never mutate a published map in place, or a concurrent reader straddles two
 generations.
 
+Refresh builds from packaged definitions, never from the previous merged table:
+removing a plugin must remove its contributions and restore any overridden
+defaults. Public refresh results and snapshots copy mutable containers, including
+nested tuning data. Provider-owned dictionaries and returned snapshots must not
+be able to mutate a published generation. Discovery captures its provider map
+once for the whole strategy run, so a refresh cannot swap providers mid-run.
+
 `registry.refresh_all()` re-runs every group under one lock and returns
 `{group: count}`, keyed without the `rebrew.` prefix.  The CLI command groups
 (`rebrew.commands`, `rebrew.multicommands`) are not refreshed: the umbrella app
 mounts them once, and a second mount could not restore that generation.
+The composite lock serializes refresh calls. Reads across different registry
+groups can observe different generations. Group snapshots guarantee
+consistency within their owning group.
 
 A test that installs a fake entry point must let the refresh be the inverse:
 re-register with the entry point gone and assert the contribution left
