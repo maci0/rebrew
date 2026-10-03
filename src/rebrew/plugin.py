@@ -146,8 +146,9 @@ class Context:
     One type carries both halves of the paradigm:
 
     * the *coeffect* half is the service table components resolve by key;
-    * the *effect* half is the accumulator of inverses, held in registration
-      order and run in reverse, so disposal reverts exactly what was installed.
+    * the *effect* half is the accumulator of inverses. Host disposal drains
+      child contexts and scopes first, then remaining inverses in reverse
+      registration order. Each activation drains its own inverses in reverse.
 
     A provision is an effect: ``provide`` records the restriction of its key as
     the inverse, and ``unprovide`` runs that inverse alone.  Every change to the
@@ -350,7 +351,7 @@ class Context:
         return self._disposed
 
     def dispose(self) -> None:
-        """Revert every effect in reverse registration order."""
+        """Close children and scopes, then drain remaining inverses in reverse."""
         if self._disposed:
             return
         self._guard_disposal()
@@ -648,7 +649,11 @@ class CoeffectScope:
         self._closed = True
         self._settling = True
         try:
-            _run_cleanup(partial(self._deactivate, entry) for entry in reversed(self._entries))
+            # An inverse may retire independent siblings; keep the traversal
+            # stable so their removal cannot skip another live registration.
+            _run_cleanup(
+                partial(self._deactivate, entry) for entry in reversed(self._entries.copy())
+            )
         finally:
             with contextlib.suppress(ValueError):
                 self._ctx._on_change.remove(self._classify)
@@ -697,7 +702,7 @@ class CoeffectScope:
         try:
             _run_cleanup(
                 partial(self._deactivate, entry)
-                for entry in reversed(self._entries)
+                for entry in reversed(self._entries.copy())
                 if entry.effects is not None and key in entry.needs
             )
         finally:
@@ -1049,9 +1054,9 @@ def entry_point_components(existing: set[str]) -> tuple[list[CliComponent], list
 
     Returns ``(components, warnings)``: duplicate names (a plugin must not
     shadow a built-in) come back as data — discovery runs before any context
-    exists, so the caller prints them through CONSOLE_SERVICE.  Malformed
-    registrations keep degrading to an ``[unavailable]`` stub, so one broken
-    plugin never takes the CLI down.
+    exists, so the caller prints them through CONSOLE_SERVICE. Malformed
+    entry-point declarations are skipped with a registry warning; valid
+    declarations that fail to load mount an ``[unavailable]`` stub on apply.
     """
     from rebrew.registry import entry_point_registrations
 

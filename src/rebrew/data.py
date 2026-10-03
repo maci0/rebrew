@@ -262,6 +262,17 @@ def main(
     link_map: Path | None = typer.Option(
         None, "--link-map", help="MSVC link map for library data owners (default: raw_link's .map)"
     ),
+    set_storage_kind: list[str] = typer.Option(
+        [], "--set-storage-kind", help="0xVA=object|alias|literal|span|import (repeatable)"
+    ),
+    set_backing: list[str] = typer.Option(
+        [], "--set-backing", help="0xVA=GLOBAL: backing storage for an alias (repeatable)"
+    ),
+    set_link_symbol: list[str] = typer.Option(
+        [],
+        "--set-link-symbol",
+        help="0xVA=SYMBOL: exact native linker symbol for an analysis label (repeatable)",
+    ),
     conflicts: bool = typer.Option(
         False, "--conflicts", help="Show only globals with type conflicts"
     ),
@@ -380,9 +391,24 @@ def main(
     target: str | None = TargetOption,
 ) -> None:
     """Scan reversed source files for global data declarations."""
-    if sum(bool(value) for value in (set_type, set_name, set_size, set_section)) > 1:
+    if (
+        sum(
+            bool(value)
+            for value in (
+                set_type,
+                set_name,
+                set_size,
+                set_section,
+                set_storage_kind,
+                set_backing,
+                set_link_symbol,
+            )
+        )
+        > 1
+    ):
         error_exit(
-            "Use only one of --set-type, --set-name, --set-size, or --set-section per call.",
+            "Use only one data setter per call: --set-type, --set-name, --set-size, "
+            "--set-section, --set-storage-kind, --set-backing, or --set-link-symbol.",
             json_mode=json_output,
         )
     cfg = require_config(target=target, json_mode=json_output)
@@ -391,6 +417,25 @@ def main(
     bin_path = cfg.target_binary
 
     # --set-type: correct a declared global type in the data metadata
+    if set_storage_kind or set_backing or set_link_symbol:
+        from rebrew.data_annotate import set_data_relation
+
+        try:
+            rows = []
+            for field, specs in (
+                ("storage_kind", set_storage_kind),
+                ("backing", set_backing),
+                ("link_symbol", set_link_symbol),
+            ):
+                rows.extend(set_data_relation(cfg, specs, field, dry_run=dry_run))
+        except ValueError as exc:
+            error_exit(str(exc), json_mode=json_output)
+        if json_output:
+            json_print({"dry_run": dry_run, "set": rows})
+        else:
+            console.print(f"Updated {len(rows)} data storage relationship(s).")
+        return
+
     if set_type:
         from rebrew.data_annotate import set_data_types
 

@@ -389,10 +389,9 @@ def refresh_all() -> dict[str, int]:
     (``registry_snapshot``, ``detection_tables``) guarantee consistency within
     their owning group, not an atomic generation spanning different groups.
 
-    CLI command groups are the documented forward-only exception: a command
-    the app already mounted is not unmounted, so a second refresh cannot
-    restore that generation either — compensated by re-mounting the umbrella
-    app.
+    CLI command groups retain their process-lifetime registrations. Restart
+    the process to rebuild the CLI after changing its plugins; registry
+    refresh does not remount the umbrella app.
     """
     from rebrew import (
         binary_loader,

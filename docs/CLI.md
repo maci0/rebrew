@@ -213,9 +213,10 @@ discovered components merge on top.  Conflict and failure policy per group:
 - `rebrew.toolchains`: a duplicate name or a registration that fails to
   load raises `RegistryError` (fields `group`, `name`, `origin`); a wrong
   compiler produces wrong bytes.
-- `rebrew.commands` / `rebrew.multicommands`: a name clashing with a
-  built-in is ignored with a warning; an unimportable module degrades to a
-  stub command (exit 2).
+- `rebrew.commands` / `rebrew.multicommands`: a name already used by a
+  built-in or another CLI plugin is ignored with a warning. Malformed
+  declarations are skipped with a logged warning; import or export-shape
+  failures mount an unavailable stub (exit 2).
 - `rebrew.flag_sets`, `rebrew.library_presets`, `rebrew.msvc_versions`:
   tuning data; a later source extends or overrides by name.
 - Every other group: a broken or duplicate registration is skipped with a
@@ -226,7 +227,7 @@ discovered components merge on top.  Conflict and failure policy per group:
 | Toolchain | `rebrew.toolchains` | `module:attr`: a zero-arg callable returning `dict[str, ToolchainSpec]` |
 | Decompiler backend | `rebrew.decompiler_backends` | `module:attr`: `fn(binary, va, root, **kwargs) -> str \| None`; selectable by name, and joins the `auto` backend probe order (`skeleton --decomp-backend auto`) when the callable carries `__rebrew_auto_probe__ = True` |
 | CLI single command | `rebrew.commands` | `module` (uses `main`/`app` help, like built-ins) or `module:callable` |
-| CLI multi-command group | `rebrew.multicommands` | `module` (a Typer app) or `module:app` |
+| CLI multi-command group | `rebrew.multicommands` | `module` (uses `module.app`) or `module:app`; the app must be a `typer.Typer` |
 | GA mutation | `rebrew.mutations` | `module:attr`: `(source, rng) -> str \| None`; `None` or an exception counts as a failed attempt (an exception is warned once per process) |
 | Sweep flag set | `rebrew.flag_sets` | `module:attr`: zero-arg callable returning `dict[profile, (Flags, tiers)]`; tuning data: may override a packaged profile's axes |
 | Library preset | `rebrew.library_presets` | `module:attr`: zero-arg callable returning `dict[name, {toolchain, cflags}]`; tuning data: may override a packaged preset |
@@ -3126,3 +3127,10 @@ These semantics are intentionally distinct: a function can be
 promotion.  For CI, run both tools with `--json` and branch on `.status` (for
 `rebrew test`) or `.summary.structural` (for `rebrew diff`) rather than relying on
 the exit code alone.
+
+Data storage relationships: `rebrew data --set-storage-kind 0xVA=alias`,
+`--set-backing 0xVA=GLOBAL`, and `--set-link-symbol 0xVA=SYMBOL` update managed
+metadata. Kinds are `object`, `alias`, `literal`, `span`, and `import`. Backing
+aliases inherit ownership; compiler literal and library labels need verified
+native-symbol mappings. PE IAT slots are linker-owned pointers. Layout spans
+have no standalone owner. Owner, users and declarations remain separate.

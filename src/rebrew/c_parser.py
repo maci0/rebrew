@@ -13,7 +13,10 @@ from __future__ import annotations
 import logging
 import re
 import threading
-from dataclasses import dataclass
+from bisect import bisect_left
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from itertools import pairwise
 from typing import Any
 
 from rebrew.utils import parse_c_integer_literal
@@ -50,11 +53,6 @@ _CC_PATTERN = re.compile(
 # grammar doesn't know them.  Allow any content up to the matching ')',
 # including a nested (...) such as align(16).
 _DECLSPEC_PATTERN = re.compile(r"__declspec\s*\((?:[^()]*|\([^)]*\))*\)")
-# The declared name of a `__declspec(dllimport)` variable, read from the raw
-# source because `strip_cc` removes the declspec before parsing.
-_DLLIMPORT_DECL_RE = re.compile(
-    r"__declspec\s*\(\s*dllimport\s*\)[^;{}]*?([A-Za-z_]\w*)\s*(?:\[[^\]]*\]\s*)*[;=]"
-)
 
 # ---------------------------------------------------------------------------
 # Lazy tree-sitter initialisation
@@ -543,9 +541,188 @@ class ExternVar:
     name: str
     type_str: str  # e.g. "int", "char *", "unsigned short"
     array_suffix: str  # e.g. "[10]", "[]", ""
+    declaration: str = field(default="", compare=False)
+    line: int = field(default=0, compare=False)
+    end_line: int = field(default=0, compare=False)
 
 
-def find_extern_variables(source: str, *, include_definitions: bool = False) -> list[ExternVar]:
+def _variable_name(node: Any, source: bytes) -> str | None:
+    """Follow a declarator's name, excluding parameters and initializers."""
+    while node is not None:
+        if node.type == "identifier":
+            return node_text(node, source)
+        inner = node.child_by_field_name("declarator")
+        if inner is None and node.type == "parenthesized_declarator":
+            inner = next(iter(node.named_children), None)
+        node = inner
+    return None
+
+
+def _declares_function(node: Any) -> bool:
+    """Distinguish a function from storage containing a function pointer."""
+    closest = ""
+    while node is not None:
+        if node.type in {"function_declarator", "pointer_declarator", "array_declarator"}:
+            closest = node.type
+        inner = node.child_by_field_name("declarator")
+        if inner is None and node.type == "parenthesized_declarator":
+            inner = next(iter(node.named_children), None)
+        node = inner
+    return closest == "function_declarator"
+
+
+def _file_scope(node: Any) -> bool:
+    parent = node.parent
+    while parent is not None and parent.type.startswith("preproc_"):
+        parent = parent.parent
+    return parent is not None and parent.type == "translation_unit"
+
+
+def _variable_tree(source: str) -> tuple[Any, bytes]:
+    """Normalize MSVC syntax using tree-sitter tokens, preserving asm operands.
+
+    The C grammar misparses MSVC assembly labels and may absorb declarations
+    after the function into its body. Replace assembly with C expressions for
+    its symbolic operands before scanning scopes. Strings/comments/macros remain
+    opaque; calling conventions are removed only from code tokens.
+    """
+    tree, raw = parse_c_source(source)
+    tokens: list[tuple[str, int, int, int, str]] = []
+    cursor = tree.walk()
+    newlines = [i for i, byte in enumerate(raw) if byte == 10]
+    opaque = {"comment", "string_literal", "char_literal", "preproc_arg"}
+    while True:
+        node = cursor.node
+        terminal = node.type in opaque or node.child_count == 0
+        if terminal and not node.is_missing:
+            tokens.append(
+                (
+                    node.type,
+                    node.start_byte,
+                    node.end_byte,
+                    bisect_left(newlines, node.start_byte),
+                    node_text(node, raw),
+                )
+            )
+        if not terminal and cursor.goto_first_child():
+            continue
+        while not cursor.goto_next_sibling():
+            if not cursor.goto_parent():
+                break
+        else:
+            continue
+        break
+
+    registers = {
+        "eax",
+        "ebx",
+        "ecx",
+        "edx",
+        "esi",
+        "edi",
+        "esp",
+        "ebp",
+        "eip",
+        "ax",
+        "bx",
+        "cx",
+        "dx",
+        "si",
+        "di",
+        "sp",
+        "bp",
+        "ip",
+        "al",
+        "ah",
+        "bl",
+        "bh",
+        "cl",
+        "ch",
+        "dl",
+        "dh",
+        "cs",
+        "ds",
+        "es",
+        "fs",
+        "gs",
+        "ss",
+        "st",
+    } | {f"{prefix}{n}" for prefix in ("mm", "xmm", "cr", "dr") for n in range(16)}
+    qualifiers = {
+        "byte",
+        "word",
+        "dword",
+        "qword",
+        "tbyte",
+        "ptr",
+        "offset",
+        "short",
+        "near",
+        "far",
+    }
+    edits: list[tuple[int, int, bytes]] = []
+    i = 0
+    while i < len(tokens):
+        kind, start, end, row, text = tokens[i]
+        if kind not in opaque and text in _CALLING_CONVENTIONS:
+            edits.append((start, end, b" " * (end - start)))
+        if kind in opaque or text not in {"__asm", "_asm"} or i + 1 == len(tokens):
+            i += 1
+            continue
+        if tokens[i + 1][4] == "(":  # GNU asm expressions are valid C grammar.
+            i += 1
+            continue
+        block = tokens[i + 1][0] == "{"
+        first = i + 2 if block else i + 1
+        j, depth = first, 1
+        while j < len(tokens):
+            token = tokens[j]
+            if block:
+                depth += int(token[0] == "{") - int(token[0] == "}")
+                if depth == 0:
+                    break
+            elif token[3] != row or token[0] == "}" or token[4] in {"__asm", "_asm"}:
+                break
+            j += 1
+        if block and j == len(tokens):  # An unterminated block cannot establish scope.
+            i += 1
+            continue
+        body = tokens[first:j]
+        labels = {a[4] for a, b in pairwise(body) if b[0] == ":"}
+        names: set[str] = set()
+        opcode_row = -1
+        prefix = False
+        comment_row = -1
+        for asm_kind, _start, _end, token_row, word in body:
+            if asm_kind == ";":
+                comment_row = token_row
+            if token_row == comment_row or asm_kind not in {"identifier", "type_identifier"}:
+                continue
+            if word in labels or word in {"__asm", "_asm"}:
+                continue
+            if token_row != opcode_row or prefix:
+                opcode_row = token_row
+                prefix = word.lower() in {"rep", "repe", "repne", "repz", "repnz", "lock"}
+                continue
+            if word.lower() not in registers | qualifiers:
+                names.add(word)
+        stop = tokens[j][2] if block else (tokens[j][1] if j < len(tokens) else len(raw))
+        expressions = " ".join(name + ";" for name in sorted(names))
+        replacement = ("{ " + expressions + " }" if block else expressions or ";").encode()
+        replacement += b"\n" * raw[start:stop].count(b"\n")
+        edits.append((start, stop, replacement))
+        i = j + 1 if block else j
+    for start, end, replacement in reversed(edits):
+        raw = raw[:start] + replacement + raw[end:]
+    return parse_c_source(raw)
+
+
+def find_extern_variables(
+    source: str,
+    *,
+    include_definitions: bool = False,
+    function_filter: Callable[[int], bool] | None = None,
+) -> list[ExternVar]:
     """Find extern variable (non-function) declarations.
 
     Tree-sitter naturally distinguishes function declarations (which have
@@ -564,23 +741,19 @@ def find_extern_variables(source: str, *, include_definitions: bool = False) -> 
     if not source or not source.strip():
         return []
     try:
-        tree, src_bytes = parse_c_source(strip_cc(source))
+        tree, src_bytes = _variable_tree(source)
     except ImportError:
         return []
-
-    # `strip_cc` deletes the whole `__declspec(...)` before tree-sitter sees
-    # it, so the in-tree dllimport check below can never fire on a declaration
-    # that has no `extern` -- it only ever worked because such declarations
-    # were rejected for lacking `extern`.  Once definitions are in scope that
-    # is no longer true, so collect the dllimport names from the raw text.
-    # Unconditional: the in-tree check was also silently failing for
-    # `extern __declspec(dllimport) int g;`, which reached the results despite
-    # the documented intent to skip dllimport.
-    dllimport_names: set[str] = {m.group(1) for m in _DLLIMPORT_DECL_RE.finditer(source)}
 
     results: list[ExternVar] = []
 
     def walk(node: Any) -> None:
+        if (
+            node.type == "function_definition"
+            and function_filter is not None
+            and not function_filter(src_bytes.count(b"\n", 0, node.start_byte) + 1)
+        ):
+            return
         if node.type == "declaration":
             has_extern = False
             has_dllimport = False
@@ -591,21 +764,16 @@ def find_extern_variables(source: str, *, include_definitions: bool = False) -> 
                 ):
                     has_extern = True
                 text = node_text(child, src_bytes)
-                if "dllimport" in text:
+                if child.type == "ms_declspec_modifier" and "dllimport" in text:
                     has_dllimport = True
 
             # A definition qualifies only at file scope: a local `int i = 0;`
             # inside a function body is not a global and must not be reported.
-            at_file_scope = node.parent is not None and node.parent.type == "translation_unit"
+            at_file_scope = _file_scope(node)
             if not (has_extern or (include_definitions and at_file_scope)) or has_dllimport:
                 for child in node.children:
                     walk(child)
                 return
-
-            # Skip function declarators — those are not variable declarations
-            for child in node.children:
-                if _has_function_declarator(child):
-                    return
 
             type_parts: list[str] = [
                 node_text(child, src_bytes)
@@ -624,7 +792,60 @@ def find_extern_variables(source: str, *, include_definitions: bool = False) -> 
 
             type_str = " ".join(type_parts) if type_parts else ""
 
-            for child in node.children:
+            first_result = len(results)
+            for child in node.children_by_field_name("declarator"):
+                if _declares_function(child):
+                    continue
+                if _has_function_declarator(child):
+                    decl = (
+                        child.child_by_field_name("declarator")
+                        if child.type == "init_declarator"
+                        else child
+                    )
+                    name = _variable_name(decl, src_bytes)
+                    if name is None:
+                        continue
+                    # Remove names from the declarator, leaving its pointer and
+                    # parameter types. Named parameters do not change its type.
+                    removed: list[tuple[int, int]] = []
+                    stack = [decl]
+                    while stack:
+                        part = stack.pop()
+                        if part.type == "identifier" and _variable_name(
+                            decl, src_bytes
+                        ) == node_text(part, src_bytes):
+                            removed.append((part.start_byte, part.end_byte))
+                        if part.type == "parameter_declaration":
+                            parameter = part.child_by_field_name("declarator")
+                            parameter_name = _variable_name(parameter, src_bytes)
+                            if parameter_name:
+                                pending = [parameter]
+                                while pending:
+                                    parameter_node = pending.pop()
+                                    if (
+                                        parameter_node.type == "identifier"
+                                        and node_text(parameter_node, src_bytes) == parameter_name
+                                    ):
+                                        removed.append(
+                                            (parameter_node.start_byte, parameter_node.end_byte)
+                                        )
+                                    pending.extend(parameter_node.named_children)
+                        stack.extend(part.named_children)
+                    spelling = src_bytes[decl.start_byte : decl.end_byte]
+                    for start, end in sorted(set(removed), reverse=True):
+                        spelling = (
+                            spelling[: start - decl.start_byte] + spelling[end - decl.start_byte :]
+                        )
+                    results.append(
+                        ExternVar(
+                            name=name,
+                            type_str=type_str
+                            + " "
+                            + spelling.decode("utf-8", errors="surrogateescape"),
+                            array_suffix="",
+                        )
+                    )
+                    continue
                 if child.type in (
                     "init_declarator",
                     "pointer_declarator",
@@ -656,8 +877,6 @@ def find_extern_variables(source: str, *, include_definitions: bool = False) -> 
                         array_suffix = _extract_array_suffix(arr_node, src_bytes)
 
                     name = _find_declarator_name(decl, src_bytes)
-                    if name in dllimport_names:
-                        continue
                     if name:
                         full_type = type_str
                         if ptr_depth:
@@ -667,6 +886,10 @@ def find_extern_variables(source: str, *, include_definitions: bool = False) -> 
                         results.append(
                             ExternVar(name=name, type_str=full_type, array_suffix=array_suffix)
                         )
+            for variable in results[first_result:]:
+                variable.line = src_bytes.count(b"\n", 0, node.start_byte) + 1
+                variable.end_line = src_bytes.count(b"\n", 0, node.end_byte) + 1
+                variable.declaration = node_text(node, src_bytes)
         else:
             for child in node.children:
                 walk(child)
@@ -675,37 +898,19 @@ def find_extern_variables(source: str, *, include_definitions: bool = False) -> 
     return results
 
 
-def find_variable_roles(source: str) -> tuple[set[str], set[str], set[str]]:
+def find_variable_roles(
+    source: str, *, function_filter: Callable[[int], bool] | None = None
+) -> tuple[set[str], set[str], set[str]]:
     """Return file definitions, extern declarations, and syntactic variable uses.
 
     This is a source inventory, not a preprocessor or linker verdict. Declaration
     names, member names, strings, and locally shadowed names are not uses. A
     tentative file-scope definition owns storage; an initialized extern does too.
     """
-    tree, src = parse_c_source(strip_cc(source))
+    tree, src = _variable_tree(source)
     definitions: set[str] = set()
     declarations: set[str] = set()
     uses: set[str] = set()
-    imported = {m.group(1) for m in _DLLIMPORT_DECL_RE.finditer(source)}
-
-    def declared_name(node: Any) -> str | None:
-        # Follow only declarators: an initializer or parameter is not the name.
-        while node is not None:
-            if node.type == "identifier":
-                return node_text(node, src)
-            inner = node.child_by_field_name("declarator")
-            if inner is None and node.type == "parenthesized_declarator":
-                inner = next(iter(node.named_children), None)
-            node = inner
-        return None
-
-    def is_function(node: Any) -> bool:
-        while node is not None:
-            if node.type == "function_declarator":
-                inner = node.child_by_field_name("declarator")
-                return inner is not None and inner.type != "parenthesized_declarator"
-            node = node.child_by_field_name("declarator")
-        return False
 
     def walk(node: Any, shadows: set[str], file_scope: bool = False) -> None:
         if node.type.startswith("preproc_"):
@@ -713,10 +918,17 @@ def find_variable_roles(source: str) -> tuple[set[str], set[str], set[str]]:
             # are not C expression references and require preprocessing.
             if node.type in {"preproc_if", "preproc_ifdef", "preproc_else", "preproc_elif"}:
                 for child in node.named_children:
-                    if child != node.child_by_field_name("condition"):
+                    if child not in (
+                        node.child_by_field_name("condition"),
+                        node.child_by_field_name("name"),
+                    ):
                         walk(child, shadows, file_scope)
             return
         if node.type == "function_definition":
+            if function_filter is not None and not function_filter(
+                src.count(b"\n", 0, node.start_byte) + 1
+            ):
+                return
             local = set(shadows)
             declarator = node.child_by_field_name("declarator")
             if declarator is not None:
@@ -724,7 +936,7 @@ def find_variable_roles(source: str) -> tuple[set[str], set[str], set[str]]:
                 while stack:
                     part = stack.pop()
                     if part.type == "parameter_declaration":
-                        name = declared_name(part.child_by_field_name("declarator"))
+                        name = _variable_name(part.child_by_field_name("declarator"), src)
                         if name:
                             local.add(name)
                     else:
@@ -743,13 +955,17 @@ def find_variable_roles(source: str) -> tuple[set[str], set[str], set[str]]:
                 c.type == "storage_class_specifier" and node_text(c, src) == "extern"
                 for c in node.named_children
             )
+            imported = any(
+                child.type == "ms_declspec_modifier" and "dllimport" in node_text(child, src)
+                for child in node.named_children
+            )
             for declarator in node.children_by_field_name("declarator"):
-                name = declared_name(declarator)
-                if not name or is_function(declarator):
+                name = _variable_name(declarator, src)
+                if not name or _declares_function(declarator):
                     continue
                 value = declarator.child_by_field_name("value")
                 if file_scope:
-                    if name not in imported and (not has_extern or value is not None):
+                    if not imported and (not has_extern or value is not None):
                         definitions.add(name)
                     else:
                         declarations.add(name)

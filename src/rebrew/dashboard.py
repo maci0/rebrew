@@ -1849,7 +1849,7 @@ def _paging_int(raw: str, ceiling: int) -> int | None:
     negative and clamps to *ceiling* when it is not, because only the positive
     direction has a documented answer to clamp to.
     """
-    text = raw.strip()
+    text = raw.strip(" \t\n\r\f\v")
     if _PAGING_INT_RE.fullmatch(text) is None:
         return None
     if len(text.removeprefix("-")) > _PAGING_DIGIT_LIMIT:

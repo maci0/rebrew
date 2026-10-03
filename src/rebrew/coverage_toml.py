@@ -163,7 +163,20 @@ _FUNCTION_COLUMNS: tuple[str, ...] = (
 )
 
 #: ``build_db``'s ``globals`` INSERT column list, less ``target``.
-_GLOBAL_COLUMNS: tuple[str, ...] = ("va", "name", "decl", "files", "module", "size", "status")
+_GLOBAL_COLUMNS: tuple[str, ...] = (
+    "va",
+    "name",
+    "decl",
+    "files",
+    "module",
+    "size",
+    "status",
+    "owners",
+    "referenced_in",
+    "declared_in",
+    "storage_kind",
+    "backing",
+)
 
 #: The removed SQLite writer's ``history`` column list, less ``target`` and
 #: less the ``id`` the file's array position already carries.  A history row
@@ -182,7 +195,9 @@ _HISTORY_COLUMNS: tuple[str, ...] = (
 #: normalizer already decided what the field holds (a non-list ``functions``
 #: becomes ``[]``, a missing ``size_by_tool`` becomes ``{}``), so decoding the
 #: stored spelling is what keeps the two writers from disagreeing.
-_JSON_COLUMNS: frozenset[str] = frozenset({"functions", "files", "detected_by", "size_by_tool"})
+_JSON_COLUMNS: frozenset[str] = frozenset(
+    {"functions", "files", "detected_by", "size_by_tool", "owners", "referenced_in", "declared_in"}
+)
 
 #: ``build_db``'s ``verify_results`` columns, less ``target``, in the INSERT's
 #: order — which is also the order :func:`rebrew.coverage_db.import_verify_rows`
@@ -430,6 +445,11 @@ def _global_rows(target_name: str, data: dict[str, Any]) -> list[tuple[Any, ...]
                 str(g.get("module") or g.get("origin") or ""),
                 g_size,
                 g_status,
+                json.dumps(g.get("owners", [])),
+                json.dumps(g.get("referenced_in", [])),
+                json.dumps(g.get("declared_in", g.get("files", []))),
+                str(g.get("storage_kind") or "object"),
+                str(g.get("backing") or ""),
             )
         )
     if bad_va:
@@ -1034,6 +1054,11 @@ class Global:
     module: str
     size: int
     status: str
+    owners: tuple[str, ...] = ()
+    referenced_in: tuple[str, ...] = ()
+    declared_in: tuple[str, ...] = ()
+    storage_kind: str = "object"
+    backing: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -1195,6 +1220,11 @@ def _global(row: dict[str, Any]) -> Global:
         module=_text(row.get("module")),
         size=_int(row.get("size"), 0),
         status=_text(row.get("status")),
+        owners=_str_tuple(row.get("owners")),
+        referenced_in=_str_tuple(row.get("referenced_in")),
+        declared_in=_str_tuple(row.get("declared_in", row.get("files"))),
+        storage_kind=_text(row.get("storage_kind")) or "object",
+        backing=_text(row.get("backing")),
     )
 
 

@@ -8,6 +8,7 @@ COMMON storage needs a member independently selected by the link map.
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import re
 from dataclasses import dataclass
@@ -34,6 +35,7 @@ class LinkSymbol:
     member: str = ""
     common: bool = False
     is_function: bool = False
+    object: str = ""
 
 
 def parse_link_map(text: str) -> list[LinkSymbol]:
@@ -62,7 +64,15 @@ def parse_link_map(text: str) -> list[LinkSymbol]:
         if member.casefold().endswith(".dll"):
             continue
         symbols.append(
-            LinkSymbol(name, int(address, 16), library, member, origin == "<common>", "f" in flags)
+            LinkSymbol(
+                name,
+                int(address, 16),
+                library,
+                member,
+                origin == "<common>",
+                "f" in flags,
+                origin if not library and origin != "<common>" else "",
+            )
         )
     return symbols
 
@@ -102,7 +112,9 @@ def _cached_archives(cfg: ProjectConfig) -> dict[str, Path]:
     return archives
 
 
-def _common_definitions(archive: Path, selected: set[str], names: set[str]) -> dict[str, list[str]]:
+def _common_definitions(
+    archive: Path, selected: set[str], names: set[str], static_names: set[str] | None = None
+) -> dict[str, list[str]]:
     """Data definitions in the archive members this map demonstrably selected."""
     import lief
 
@@ -117,9 +129,11 @@ def _common_definitions(archive: Path, selected: set[str], names: set[str]) -> d
         if obj is None:
             continue
         for symbol in obj.symbols:
-            if (
-                symbol.name not in names
-                or symbol.storage_class != lief.COFF.Symbol.STORAGE_CLASS.EXTERNAL
+            if symbol.complex_type == lief.COFF.Symbol.COMPLEX_TYPE.FUNCTION:
+                continue
+            if symbol.name not in names or (
+                symbol.storage_class != lief.COFF.Symbol.STORAGE_CLASS.EXTERNAL
+                and symbol.name not in (static_names or set())
             ):
                 continue
             # A zero-valued undefined symbol is a reference. Nonzero COMMON
@@ -142,12 +156,37 @@ def enrich_library_owners(
     """
     for entry in scan.globals.values():
         entry.library_owners.clear()
+        entry.generated_owners.clear()
+    import lief
+
+    binary = getattr(cfg, "target_binary", None)
+    if binary and Path(binary).is_file() and getattr(cfg, "binary_format", "pe") == "pe":
+        image = lief.PE.parse(str(binary))
+        if image is not None:
+            imports: dict[int, str] = {}
+            for import_library in image.imports:
+                library_name = import_library.name
+                if isinstance(library_name, bytes):
+                    library_name = library_name.decode("utf-8", errors="replace")
+                for item in import_library.entries:
+                    name = item.name
+                    if isinstance(name, bytes):
+                        name = name.decode("utf-8", errors="replace")
+                    imports[int(image.optional_header.imagebase) + item.iat_address] = (
+                        f"linker:{library_name}!{name or '#' + str(item.ordinal)}"
+                    )
+            for entry in scan.globals.values():
+                if entry.va in imports and entry.storage_kind != "span":
+                    entry.storage_kind = "import"
+                    entry.generated_owners.append(imports[entry.va])
     if link_map is None:
         raw = getattr(cfg, "raw_link", None)
         if raw is None:
+            resolve_backing_owners(scan)
             return
         link_map = Path(raw).with_suffix(".map")
         if not link_map.is_file():
+            resolve_backing_owners(scan)
             return
     map_bytes = link_map.read_bytes()
     rows = parse_link_map(map_bytes.decode("utf-8", errors="surrogateescape"))
@@ -167,13 +206,16 @@ def enrich_library_owners(
             selected.setdefault(_library_key(row.library), set()).add(row.member.casefold())
     library_names = {_library_key(row.library): row.library for row in rows if row.library}
     common_names = {row.name for row in rows if row.common}
+    explicit_names = {entry.link_symbol for entry in scan.globals.values() if entry.link_symbol}
     common: dict[str, list[tuple[str, str, str]]] = {}
     for library, archive in _cached_archives(cfg).items():
         members = selected.get(library, set())
-        if not members or not common_names:
+        if not members or not (common_names | explicit_names):
             continue
         try:
-            definitions = _common_definitions(archive, members, common_names)
+            definitions = _common_definitions(
+                archive, members, common_names | explicit_names, explicit_names
+            )
         except (OSError, ValueError, RuntimeError) as exc:
             log.warning("cannot read data ownership from %s: %s", archive, exc)
             continue
@@ -182,10 +224,44 @@ def enrich_library_owners(
             common.setdefault(name, []).extend(
                 (library_names[library], member, archive_hash) for member in defining_members
             )
+    # Compile commands resolve a selected project object to its source even
+    # when that source lives outside the reversed-source root. Ambiguity stays
+    # unresolved; a basename alone does not choose between two source files.
+    source_objects: dict[str, set[Path]] = {}
+    compilation_db = link_map.parent / "compile_commands.json"
+    if compilation_db.is_file():
+        try:
+            commands = json.loads(compilation_db.read_text())
+            for command in commands:
+                source = Path(command["file"])
+                if not source.is_absolute():
+                    source = Path(command["directory"]) / source
+                source_objects.setdefault(source.name.casefold() + ".obj", set()).add(source)
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            log.warning("cannot resolve data object sources from %s: %s", compilation_db, exc)
+    function_symbols = {row.name for row in rows if row.is_function}
     for entry in scan.globals.values():
         spellings = ["_" + entry.name, entry.name] if cfg.arch == "x86_32" else [entry.name]
+        if entry.link_symbol:
+            spellings = [entry.link_symbol]
+        if any(name in function_symbols for name in spellings):
+            continue
         linked = next((symbols[name] for name in spellings if name in symbols), None)
         if linked is None:
+            providers = common.get(entry.link_symbol, []) if entry.link_symbol else []
+            if len(providers) == 1:
+                library, member, archive_hash = providers[0]
+                entry.library_owners.append(
+                    {
+                        "symbol": entry.link_symbol,
+                        "library": library,
+                        "member": member,
+                        "map": str(link_map),
+                        "map_hash": map_hash,
+                        "archive_hash": archive_hash,
+                        "evidence": "link-map+archive-symbol",
+                    }
+                )
             continue
         evidence = {
             "symbol": linked.name,
@@ -202,6 +278,30 @@ def enrich_library_owners(
                     "evidence": "link-map",
                 }
             )
+        elif linked.object and not entry.defined_in:
+            source_candidates = source_objects.get(
+                PureWindowsPath(linked.object).name.casefold(), set()
+            )
+            if len(source_candidates) == 1:
+                source_path = next(iter(source_candidates))
+                from rebrew.c_parser import find_variable_roles
+                from rebrew.utils import read_source_text, rel_display_path
+
+                try:
+                    source_definitions, _, _ = find_variable_roles(read_source_text(source_path)[0])
+                except OSError:
+                    source_definitions = set()
+                display = rel_display_path(source_path, cfg.reversed_dir)
+                if entry.name in source_definitions:
+                    entry.defined_in.append(display)
+                elif entry.link_symbol:
+                    entry.generated_owners.append(
+                        f"{display} (compiler literal)"
+                        if entry.storage_kind == "literal"
+                        else f"{display}:{linked.name}"
+                    )
+            elif entry.link_symbol:
+                entry.generated_owners.append(f"{linked.object}:{linked.name}")
         elif linked.common:
             candidates = common.get(linked.name, [])
             # Several selected COMMON providers may be coalesced. The map did
@@ -217,3 +317,29 @@ def enrich_library_owners(
                         "archive_hash": archive_hash,
                     }
                 )
+
+    resolve_backing_owners(scan)
+
+
+def resolve_backing_owners(scan: ScanResult) -> None:
+    """Propagate owners through explicit backing relationships, leaving cycles unknown."""
+    # Aliases inherit the backing object's owner without claiming another
+    # definition. Resolve chains conservatively and leave cycles unresolved.
+    for _ in range(len(scan.globals)):
+        changed = False
+        for entry in scan.globals.values():
+            if not entry.backing or entry.generated_owners:
+                continue
+            backing = scan.globals.get(entry.backing)
+            if backing is None or backing is entry:
+                continue
+            owners = [
+                *backing.defined_in,
+                *backing.generated_owners,
+                *(f"{owner['library']}:{owner['member']}" for owner in backing.library_owners),
+            ]
+            if owners:
+                entry.generated_owners.extend(f"{owner} (via {entry.backing})" for owner in owners)
+                changed = True
+        if not changed:
+            break

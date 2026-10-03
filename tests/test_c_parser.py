@@ -179,11 +179,11 @@ class TestExternVariableDeclarators:
         assert vars_found and vars_found[0].name == "g_ptrs"
         assert vars_found[0].type_str == "char *[4]"
 
-    def test_function_pointer_not_treated_as_variable(self) -> None:
+    def test_function_pointer_is_variable_storage(self) -> None:
         from rebrew.c_parser import find_extern_variables
 
-        # A function-pointer declaration is skipped (caller may want a prototype).
-        assert find_extern_variables("extern int (*g_cb)(int);") == []
+        variables = find_extern_variables("extern int (*g_cb)(int);")
+        assert [(v.name, v.type_str) for v in variables] == [("g_cb", "int (*)(int)")]
 
     def test_function_declaration_not_variable(self) -> None:
         from rebrew.c_parser import find_extern_variables
@@ -383,3 +383,70 @@ class TestTypeFromDeclaration:
 
     def test_empty_decl_returns_none(self) -> None:
         assert type_from_declaration("", "x") is None
+
+
+class TestVariableInventory:
+    def test_mixed_function_and_pointer_declarations(self) -> None:
+        variables = find_extern_variables("extern int function(void), *object;")
+        assert [(v.name, v.type_str) for v in variables] == [("object", "int *")]
+
+    def test_function_pointer_definition_and_named_parameters(self) -> None:
+        variables = find_extern_variables(
+            "void (__cdecl *callback)(int value);", include_definitions=True
+        )
+        assert len(variables) == 1
+        assert variables[0].name == "callback"
+        assert "value" not in variables[0].type_str
+        from rebrew.c_parser import find_variable_roles
+
+        assert find_variable_roles("void (*callback)(void);") == ({"callback"}, set(), set())
+
+    def test_conditionals_keep_definitions_and_ignore_directive_names(self) -> None:
+        from rebrew.c_parser import find_variable_roles
+
+        source = "#ifdef global\nint global;\n#else\nint other;\n#endif\n"
+        assert {v.name for v in find_extern_variables(source, include_definitions=True)} == {
+            "global",
+            "other",
+        }
+        assert find_variable_roles(source) == ({"global", "other"}, set(), set())
+
+    @pytest.mark.parametrize(
+        "assembly",
+        [
+            "__asm {\nL1:\n mov eax, global\n jmp L1\n}",
+            "__asm mov eax, global\n__asm ret",
+            "__asm {\n mov eax, global ; mention_not_a_use\n ret\n}",
+        ],
+    )
+    def test_msvc_assembly_preserves_following_globals_and_operand_uses(
+        self, assembly: str
+    ) -> None:
+        from rebrew.c_parser import find_variable_roles
+
+        source = f"extern int global;\nvoid f(void) {{\n{assembly}\n}}\nint after;\n"
+        assert {v.name for v in find_extern_variables(source, include_definitions=True)} == {
+            "global",
+            "after",
+        }
+        definitions, declarations, uses = find_variable_roles(source)
+        assert definitions == {"after"}
+        assert declarations == {"global"}
+        assert uses == {"global"}
+
+    def test_compiler_words_in_literals_comments_and_macros_remain_opaque(self) -> None:
+        from rebrew.c_parser import find_variable_roles
+
+        source = '#define CODE __asm { global }\nchar *text = "__asm { global }";\n/* __asm { global } */\nint after;\n'
+        assert find_variable_roles(source) == ({"text", "after"}, set(), set())
+
+    def test_nested_local_shadow_does_not_hide_outer_use(self) -> None:
+        from rebrew.c_parser import find_variable_roles
+
+        source = "int global; void f(void) { { int global; global = 1; } global = 2; }"
+        assert find_variable_roles(source) == ({"global"}, set(), {"global"})
+
+
+def test_function_returning_function_pointer_is_not_variable_storage() -> None:
+    source = "extern int (*factory(void))(int); extern int (*callback)(int);"
+    assert [v.name for v in find_extern_variables(source)] == ["callback"]

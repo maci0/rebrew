@@ -9,6 +9,13 @@ For concepts and exact API behavior, read the [Cordis guide](CORDIS.md).
 The real CLI uses Typer registrations through `CliComponent`; the same
 ownership rule applies to both.
 
+- [Run the example](#run-the-example)
+- [Follow the lifetime](#follow-the-lifetime)
+- [Try dependency loss](#try-dependency-loss-instead-of-retirement)
+- [Compose an owned child](#compose-an-owned-child)
+- [Recover from activation failure](#recover-from-activation-failure)
+- [Check the examples in CI](#check-the-examples-in-ci)
+
 ## Run the example
 
 From an installed contributor checkout ([setup](DEVELOPMENT.md)), save the following block as
@@ -168,7 +175,13 @@ registering a provider again. See [lifecycle and ownership](CORDIS.md#lifecycle-
 
 ## Compose an owned child
 
-Run this as a separate file with the same command. The parent declares
+Save this independent example as `/tmp/rebrew_cordis_child.py` and run:
+
+```bash
+uv run --frozen python /tmp/rebrew_cordis_child.py
+```
+
+The parent declares
 `prefix`, and the child inherits that committed dependency while declaring
 its own `suffix`. Its fork and nested scope belong to the parent activation.
 Record the parent's cleanup before the child acquisition to get the LIFO
@@ -226,7 +239,13 @@ activation then waits for the parent to commit that provision. See
 
 ## Recover from activation failure
 
-Run this independent example to see rollback and explicit recovery. Providing
+Save this independent example as `/tmp/rebrew_cordis_failure.py` and run:
+
+```bash
+uv run --frozen python /tmp/rebrew_cordis_failure.py
+```
+
+Providing
 `ready` starts the waiting component, but its first activation fails after
 installing a binding and recording cleanup. The partial binding is rolled
 back, the failed registration is removed, and an unrelated change cannot

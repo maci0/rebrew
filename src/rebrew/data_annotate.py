@@ -202,6 +202,25 @@ def _set_global_field(
     return rows
 
 
+def set_data_relation(
+    cfg: ProjectConfig, specs: list[str], field: str, *, dry_run: bool = False
+) -> list[dict[str, Any]]:
+    """Record explicit storage relationships; attribution still needs link evidence."""
+    if field not in {"storage_kind", "backing", "link_symbol"}:
+        raise ValueError(f"unsupported data relationship {field!r}")
+    return _set_global_field(
+        cfg,
+        specs,
+        option="--set-" + field.replace("_", "-"),
+        placeholder="VALUE",
+        field=field,
+        allowed=("object", "alias", "literal", "span", "import")
+        if field == "storage_kind"
+        else None,
+        dry_run=dry_run,
+    )
+
+
 def set_data_types(
     cfg: ProjectConfig, specs: list[str], *, dry_run: bool = False
 ) -> list[dict[str, str]]:

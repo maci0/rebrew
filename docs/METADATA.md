@@ -291,3 +291,9 @@ stale origins and evidence, and blocking binary/schema mismatches. An unchanged
 export preserves artifact, manifest and baseline mtimes. Watch mode refreshes
 its input paths so newly added sources and types, data metadata, config, binary,
 and remote state changes trigger reconciliation.
+
+Data storage relationships use managed `storage_kind` (`object`, `alias`,
+`literal`, `span`, `import`), `backing` (the allocating global), and `link_symbol`
+(the exact verified native symbol). Write them through `rebrew data --set-storage-kind`,
+`--set-backing`, `--set-link-symbol`, or `set_data_fields_batch`. These describe
+provenance rather than a byte verdict; recording them does not verify storage.

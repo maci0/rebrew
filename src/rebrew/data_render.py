@@ -175,16 +175,28 @@ def render_globals(console: Console, scan: ScanResult, conflicts_only: bool = Fa
         type_cell = untrusted_text(entry.type_str)
         if entry.conflict:
             type_cell += " ⚠ CONFLICT"
-        owners = entry.defined_in + [
-            f"{owner['library']}:{owner['member']}" for owner in entry.library_owners
-        ]
+        owners = (
+            entry.defined_in
+            + entry.generated_owners
+            + [f"{owner['library']}:{owner['member']}" for owner in entry.library_owners]
+        )
         style = "red" if entry.conflict or len(owners) > 1 else ""
         tbl.add_row(
             va_str,
             untrusted_text(entry.name),
             type_cell,
             untrusted_text(entry.section) if entry.section else "—",
-            paths(owners),
+            paths(owners)
+            if owners
+            else (
+                "layout span"
+                if entry.storage_kind == "span"
+                else "compiler literal"
+                if entry.storage_kind == "literal"
+                else f"view of {entry.backing}"
+                if entry.backing
+                else "—"
+            ),
             paths(entry.referenced_in),
             paths(entry.declared_in),
             style=style,
@@ -194,7 +206,9 @@ def render_globals(console: Console, scan: ScanResult, conflicts_only: bool = Fa
     console.print(Panel(tbl, title=title, border_style="blue"))
     console.print(
         "[dim]Owner is a source definition or library:object with link-map evidence. "
-        "— means none established. Users are syntactic references; declarations alone "
+        "Views identify their backing allocation; layout spans have no separate owner. "
+        "Import pointers are linker-owned. — means none established. "
+        "Users are syntactic references; declarations alone "
         "are not users.[/]"
     )
 

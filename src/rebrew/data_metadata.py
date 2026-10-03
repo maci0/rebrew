@@ -123,6 +123,9 @@ DATA_METADATA_FIELD_TYPES: dict[str, type | tuple[type, ...]] = {
         for key in ("size", "note", "status", "updated_by", "updated_at", "origins", "verification")
     },
     "section": str,
+    "storage_kind": str,
+    "backing": str,
+    "link_symbol": str,
 }
 DATA_METADATA_FIELDS = frozenset(key.upper() for key in DATA_METADATA_FIELD_TYPES)
 
@@ -140,6 +143,9 @@ _CANONICAL_ORDER = [
     "type",
     "size",
     "section",
+    "storage_kind",
+    "backing",
+    "link_symbol",
     "note",
     "status",
     "updated_by",
@@ -193,6 +199,8 @@ def validate_data_field(key: str, value: Any) -> Any:
         return size
     if not isinstance(value, str):
         raise ValueError(f"{key} must be a string, got {value!r}")
+    if key == "storage_kind" and value not in {"object", "alias", "literal", "span", "import"}:
+        raise ValueError(f"invalid storage_kind {value!r}")
     if key == "status" and value not in DATA_STATUSES:
         raise ValueError(
             f"invalid data STATUS {value!r}: not one of {', '.join(sorted(DATA_STATUSES))}"
