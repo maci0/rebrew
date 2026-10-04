@@ -7,6 +7,7 @@ from typing import Any, cast
 import pytest
 
 from rebrew.compile import (
+    compile_and_compare,
     compile_to_obj,
     filter_wine_stderr,
     maybe_headless_wine,
@@ -574,6 +575,231 @@ class TestFilterWineStderr:
     def test_filter_no_noise(self) -> None:
         text = "CL : Command line warning D9002 : ignoring unknown option '/bad'"
         assert filter_wine_stderr(text) == text
+
+
+class TestCompileErrorExcerpt:
+    """A wine prefix notice must not eat the compiler diagnostic."""
+
+    def test_compare_keeps_gcc_error_after_wine_notice(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        stderr = (
+            'wine: configuration in L"/opt/wineprefix" has been updated.\n'
+            "i686-w64-mingw32-gcc.exe: warning: /nologo: linker input file "
+            "unused because linking not done\n"
+            "i686-w64-mingw32-gcc.exe: error: /nologo: linker input file "
+            "not found: No such file or directory\n"
+            "i686-w64-mingw32-gcc.exe: warning: /c: linker input file "
+            "unused because linking not done\n"
+            "i686-w64-mingw32-gcc.exe: error: /c: linker input file "
+            "not found: No such file or directory\n"
+            "i686-w64-mingw32-gcc.exe: warning: /MT: linker input file "
+            "unused because linking not done\n"
+            "i686-w64-mingw32-gcc.exe: error: /MT: linker input file "
+            "not found: No such file or directory\n"
+        )
+
+        def _fail(
+            spec: object, args: list[str], *, workdir: Path, timeout: int, mounts: object = None
+        ):
+            del spec, args, timeout, mounts
+            return SimpleNamespace(returncode=1, stdout="", stderr=stderr)
+
+        monkeypatch.setattr("rebrew.compile.run_toolchain", _fail)
+        monkeypatch.setattr("rebrew.compile.get_project_cache", lambda *a, **k: None)
+        src_dir = tmp_path / "src"
+        src_dir.mkdir()
+        source = src_dir / "f.c"
+        source.write_text("int f(void){return 1;}\n", encoding="utf-8")
+        cfg: Any = SimpleNamespace(
+            root=tmp_path,
+            compiler_includes=tmp_path,
+            base_cflags="/nologo /c /MT",
+            compile_timeout=3,
+            compiler_command="i686-w64-mingw32-gcc",
+            compiler_runner="",
+            compiler_libs=tmp_path,
+            compiler_profile="mingw-16.2.0",
+            posix_style=True,
+            msvc_env=lambda: {},
+        )
+        result = compile_and_compare(
+            cast(ProjectConfig, cfg),
+            source,
+            "_f",
+            b"\x90" * 8,
+            ["-O2"],
+            use_cache=False,
+        )
+        assert result.status == "COMPILE_ERROR"
+        body = result.message.split("COMPILE_ERROR: ", 1)[-1]
+        assert "error: /nologo: linker input file not found" in body or (
+            "error: /MT: linker input file not found" in body
+        )
+        assert "error: /MT: linker input file not found" in body
+        assert not body.startswith("file or directory")
+        assert "has been updated" not in result.message
+
+    def test_compare_keeps_msvc_error_c_before_warnings(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        error_line = "f.c(10) : error C2065: 'x' : undeclared identifier"
+        warning_line = "f.c(12) : warning C4101: 'unused' : unreferenced local variable"
+        stderr = error_line + "\n" + "\n".join([warning_line] * 8) + "\n"
+        assert len(stderr) > 200
+
+        def _fail(
+            spec: object, args: list[str], *, workdir: Path, timeout: int, mounts: object = None
+        ):
+            del spec, args, timeout, mounts
+            return SimpleNamespace(returncode=1, stdout="", stderr=stderr)
+
+        monkeypatch.setattr("rebrew.compile.run_toolchain", _fail)
+        monkeypatch.setattr("rebrew.compile.get_project_cache", lambda *a, **k: None)
+        src_dir = tmp_path / "src"
+        src_dir.mkdir()
+        source = src_dir / "f.c"
+        source.write_text("int f(void){return 1;}\n", encoding="utf-8")
+        cfg: Any = SimpleNamespace(
+            root=tmp_path,
+            compiler_includes=tmp_path,
+            base_cflags="/nologo /c /MT",
+            compile_timeout=3,
+            compiler_command="CL.EXE",
+            compiler_runner="",
+            compiler_libs=tmp_path,
+            compiler_profile="msvc-6.0",
+            posix_style=False,
+            msvc_env=lambda: {},
+        )
+        result = compile_and_compare(
+            cast(ProjectConfig, cfg),
+            source,
+            "_f",
+            b"\x90" * 8,
+            ["/O2"],
+            use_cache=False,
+        )
+        assert result.status == "COMPILE_ERROR"
+        assert error_line in result.message
+
+
+class TestPosixDropsMsvcBaseCflags:
+    """A mingw compile must not hand ``/nologo /c /MT`` to gcc."""
+
+    def test_posix_compile_drops_msvc_base_cflags(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        captured: dict[str, list[str]] = {}
+
+        def _run(
+            spec: object,
+            args: list[str],
+            *,
+            workdir: Path,
+            timeout: int,
+            mounts: object = None,
+        ):
+            del spec, timeout, mounts
+            captured["args"] = list(args)
+            if any(a in {"/nologo", "/c", "/MT"} for a in args):
+                return SimpleNamespace(
+                    returncode=1,
+                    stdout="",
+                    stderr=(
+                        "i686-w64-mingw32-gcc.exe: error: /MT: linker input file "
+                        "not found: No such file or directory\n"
+                    ),
+                )
+            obj_name = args[args.index("-o") + 1]
+            (workdir / obj_name).write_bytes(b"not-coff")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr("rebrew.compile.run_toolchain", _run)
+        monkeypatch.setattr("rebrew.compile.get_project_cache", lambda *a, **k: None)
+        src_dir = tmp_path / "src"
+        src_dir.mkdir()
+        source = src_dir / "f.c"
+        source.write_text("int f(void){return 1;}\n", encoding="utf-8")
+        cfg: Any = SimpleNamespace(
+            root=tmp_path,
+            compiler_includes=tmp_path,
+            base_cflags="/nologo /c /MT",
+            compile_timeout=3,
+            compiler_command="i686-w64-mingw32-gcc",
+            compiler_runner="",
+            compiler_libs=tmp_path,
+            compiler_profile="mingw-16.2.0",
+            posix_style=True,
+            msvc_env=lambda: {},
+        )
+        result = compile_and_compare(
+            cast(ProjectConfig, cfg),
+            source,
+            "_f",
+            b"\x90" * 8,
+            ["-O2"],
+            use_cache=False,
+        )
+        assert result.status != "COMPILE_ERROR"
+        assert "linker input file not found" not in result.message
+        args = captured["args"]
+        assert "/nologo" not in args
+        assert "/c" not in args
+        assert "/MT" not in args
+        assert "-c" in args
+        assert "-O2" in args
+
+    def test_msvc_compile_keeps_base_cflags(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        captured: dict[str, list[str]] = {}
+
+        def _run(
+            spec: object,
+            args: list[str],
+            *,
+            workdir: Path,
+            timeout: int,
+            mounts: object = None,
+        ):
+            del spec, timeout, mounts
+            captured["args"] = list(args)
+            obj = next(a[3:] for a in args if a.startswith("/Fo"))
+            (workdir / obj).write_bytes(b"not-coff")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr("rebrew.compile.run_toolchain", _run)
+        monkeypatch.setattr("rebrew.compile.get_project_cache", lambda *a, **k: None)
+        src_dir = tmp_path / "src"
+        src_dir.mkdir()
+        source = src_dir / "f.c"
+        source.write_text("int f(void){return 1;}\n", encoding="utf-8")
+        cfg: Any = SimpleNamespace(
+            root=tmp_path,
+            compiler_includes=tmp_path,
+            base_cflags="/nologo /c /MT",
+            compile_timeout=3,
+            compiler_command="CL.EXE",
+            compiler_runner="",
+            compiler_libs=tmp_path,
+            compiler_profile="msvc-6.0",
+            posix_style=False,
+            msvc_env=lambda: {},
+        )
+        compile_and_compare(
+            cast(ProjectConfig, cfg),
+            source,
+            "_f",
+            b"\x90" * 8,
+            ["/O2"],
+            use_cache=False,
+        )
+        args = captured["args"]
+        assert "/nologo" in args
+        assert "/c" in args
+        assert "/MT" in args
+        assert "/O2" in args
 
 
 class TestCompileToObjToolchainProfiles:

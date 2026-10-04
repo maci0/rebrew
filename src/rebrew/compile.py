@@ -729,6 +729,45 @@ def filter_wine_stderr(text: str) -> str:
     return text.strip()
 
 
+def _is_compiler_error_line(line: str) -> bool:
+    """True for a gcc ``error:`` / ``fatal error`` line or an MSVC ``error C####``."""
+    low = line.lower()
+    return "error:" in low or "error c" in low or "fatal error" in low
+
+
+def _compiler_error_excerpt(err: str, limit: int = 200) -> str:
+    """Wine-stripped compiler diagnostic, capped at *limit* characters.
+
+    A head slice let a leading ``wine:`` prefix notice fill the budget, so
+    ``rebrew test`` reported ``error: /nologo: link`` and dropped
+    ``er input file not found``. A raw tail slice then started mid-line
+    (``file or directory``) once gcc complained about every MSVC flag.
+    Keeping only ``error:`` lines then dropped MSVC ``error C2065`` once
+    later ``warning C4101`` lines filled the budget. Keep complete error
+    lines (``error:``, ``error C``, ``fatal error``), and the last ones
+    that fit.
+    """
+    text = filter_wine_stderr(err)
+    if not text:
+        text = err.strip()
+    if len(text) <= limit:
+        return text
+    lines = [ln for ln in text.splitlines() if ln.strip()]
+    errors = [ln for ln in lines if _is_compiler_error_line(ln)]
+    chosen = errors or lines
+    kept: list[str] = []
+    total = 0
+    for ln in reversed(chosen):
+        extra = len(ln) + (1 if kept else 0)
+        if total + extra > limit:
+            break
+        kept.append(ln)
+        total += extra
+    if kept:
+        return "\n".join(reversed(kept))
+    return chosen[-1][-limit:]
+
+
 #: A candidate body this small against a much larger target is an
 #: unimplemented skeleton stub (see classify_compare_result).
 _STUB_BODY_MAX_BYTES = 8
@@ -905,6 +944,22 @@ def _dedupe_flags(flags: list[str]) -> list[str]:
     return list(dict.fromkeys(flags))
 
 
+#: An MSVC switch such as ``/nologo``, ``/c``, or ``/MT``. A posix compiler
+#: opens that token as an input file. A path with another slash
+#: (``/usr/include``) is not a switch.
+_MSVC_SWITCH = re.compile(r"/[A-Za-z][^/\\]*")
+
+
+def _without_msvc_switches(flags: list[str]) -> list[str]:
+    """Drop MSVC switches a posix compiler would open as input files.
+
+    Scaffolded ``base_cflags`` are often ``/nologo /c /MT`` even on a mingw
+    project. gcc then reports ``error: /MT: linker input file not found``
+    and the compile never starts. The posix driver adds its own ``-c``.
+    """
+    return [flag for flag in flags if _MSVC_SWITCH.fullmatch(flag) is None]
+
+
 def _effective_compile_flags(
     cfg: ProjectConfig,
     spec: "ToolchainSpec | None",
@@ -915,8 +970,10 @@ def _effective_compile_flags(
 
     Mirrors ``compile_to_obj``: project ``base_cflags``, per-function
     overrides, resolved relative ``/I``/``-I``, then target ``defines``.
-    Batch cache lookup/put must call this so a batch-built object and a
-    later single-file compile share one key for the same inputs.
+    A posix spec drops MSVC switches (``/nologo /c /MT``) so they are not
+    hashed into the cache key or passed to gcc. Batch cache lookup/put
+    must call this so a batch-built object and a later single-file compile
+    share one key for the same inputs.
     """
     own = safe_shlex_split(cflags) if isinstance(cflags, str) else list(cflags)
     base_flags = resolve_include_flags(
@@ -943,7 +1000,10 @@ def _effective_compile_flags(
         if is_shared:
             prefix = "-I" if (spec is not None and spec.flags_style == "posix") else "/I"
             all_flags.append(f"{prefix}{Path(shared).resolve()}")
-    return _dedupe_flags(all_flags)
+    flags = _dedupe_flags(all_flags)
+    if spec is not None and getattr(spec, "flags_style", None) == "posix":
+        flags = _without_msvc_switches(flags)
+    return flags
 
 
 def _merged_include_tokens(flags: list[str]) -> Iterator[str]:
@@ -1377,7 +1437,7 @@ def _compile_via_recompile(
     finally:
         _recompile_release(client)
     if not res.ok or res.obj_bytes is None:
-        err = (res.log or "").strip()[-400:]
+        err = _compiler_error_excerpt(res.log or "", limit=400)
         return None, err or "recompile service reported failure with no log"
     obj_file = workdir / obj_name
     try:
@@ -1818,7 +1878,7 @@ def compile_to_obj(
                 obj_file,
             )
         if tr.returncode != 0 or not obj_file.exists():
-            err = (tr.stdout + "\n" + tr.stderr).strip()
+            err = _compiler_error_excerpt(tr.stdout + "\n" + tr.stderr, limit=4000)
             if not err:
                 err = f"compiler produced no object ({obj_name}) and no output"
             return None, err
@@ -1884,7 +1944,10 @@ def compile_batch_objs(
         # Partial success: CL compiles each TU independently, so siblings
         # of a broken file still emit objects — keep them, and report the
         # error so the caller falls back per file for the REST (ADR-021).
-        err = (tr.stdout + "\n" + tr.stderr).strip() or "batch compile failed with no output"
+        err = (
+            _compiler_error_excerpt(tr.stdout + "\n" + tr.stderr, limit=4000)
+            or "batch compile failed with no output"
+        )
         return out, err
     return out, ""
 
@@ -2535,7 +2598,7 @@ def compile_and_compare(
             return _pin(
                 classify_compare_result(
                     False,
-                    f"COMPILE_ERROR: {err[:200]}",
+                    f"COMPILE_ERROR: {_compiler_error_excerpt(err)}",
                     target_bytes,
                     None,
                     None,
@@ -2912,7 +2975,7 @@ def compile_and_compare_linked(
         )
         if obj_path is None:
             return classify_compare_result(
-                False, f"COMPILE_ERROR: {err[:200]}", target_bytes, None, None
+                False, f"COMPILE_ERROR: {_compiler_error_excerpt(err)}", target_bytes, None, None
             )
 
         dll_path = workdir / "linked_out.dll"
@@ -2925,7 +2988,7 @@ def compile_and_compare_linked(
                 (
                     "COMPILE_ERROR: link failed - the source references externals "
                     "the shell cannot resolve, or LINK.EXE failed: "
-                    f"{link_err[:200]}"
+                    f"{_compiler_error_excerpt(link_err)}"
                 ),
                 target_bytes,
                 None,

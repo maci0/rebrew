@@ -72,6 +72,17 @@
 
 ### Fixed
 
+- Compiler failure text keeps complete error lines, including gcc
+  `error:` and MSVC `error C####` / `fatal error`. A leading wine prefix
+  notice no longer fills the 200-character budget, a long gcc diagnostic
+  no longer starts mid-line, and later warnings no longer push an
+  `error C2065` line out of the excerpt.
+
+- A posix toolchain no longer forwards MSVC `base_cflags` such as
+  `/nologo /c /MT`. gcc treated each one as a linker input and
+  `rebrew test` stopped at `error: /MT: linker input file not found`.
+  The posix driver still adds `-c`. MSVC profiles keep those flags.
+
 - `rebrew source merge` combines migrated files from their function rows.
   Each C definition and its file-scope objects move to the output, with
   storage before functions. Every function or data row that names an input
