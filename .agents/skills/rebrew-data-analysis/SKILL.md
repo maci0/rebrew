@@ -10,7 +10,7 @@ license: MIT
 
 ```mermaid
 graph TD
-    Scan[Scan globals<br/>rebrew data --json] --> Roles[Separate definition owners,<br/>declarations, and users]
+    Scan[Scan globals<br/>rebrew data list --json] --> Roles[Separate definition owners,<br/>declarations, and users]
     Roles --> Evidence[Establish extent, section,<br/>backing object and library provenance]
     Evidence --> Repair[Repair canonical declarations<br/>and managed metadata]
     Repair --> Verify[Lint, test affected functions,<br/>verify raw linked data]
@@ -23,7 +23,7 @@ Inspect global variables and detect type conflicts across translation units.
 ## When NOT to use this skill
 
 - Function bodies / disassembly / matching → use `rebrew-workflow` or `rebrew-matching`
-- Pulling data labels back from Ghidra → use `rebrew-ghidra-sync` (`rebrew sync --pull-data`)
+- Pulling data labels back from Ghidra → use `rebrew-ghidra-sync` (`rebrew sync pull-data`)
 
 ## Ownership first
 
@@ -48,27 +48,27 @@ Run from the project root (config discovery walks up to `rebrew-project.toml`). 
 `--target NAME` for non-default targets in multi-target projects.
 
 ```bash
-rebrew data --link-map build/server.map --json  # explicit MSVC map for library owners
-rebrew data --json                              # full inventory: globals, data_annotations, type_conflicts, summary, sections
-rebrew data --summary --json                    # per-section progress: JSON `summary` becomes {sections, conflicts}
-rebrew data --conflicts --json                  # only globals with type conflicts (same name, different types across files)
-rebrew data --dispatch --json                   # detect dispatch tables / vtables in .data/.rdata
-rebrew data --dispatch --min-table-len 5 --json # require >= 5 entries per table
-rebrew data --dispatch --max-pointer-stride 8   # allow 8-byte stride between slots (sparse tables)
-rebrew data --bss --json                        # verify .bss layout, detect gaps from missing externs
-rebrew data --fix-bss --dry-run                 # preview bss_padding.c + metadata changes, write nothing
-rebrew data --fix-bss                           # generate bss_padding.c + write SIZE/SECTION/NOTE to metadata
-rebrew data --gen-header --dry-run              # preview rebrew_globals.h contents
-rebrew data --gen-header                        # write rebrew_globals.h from local // GLOBAL: / // DATA: annotations (no Ghidra)
-rebrew data --gen-header --gen-header-out /path/to/my_globals.h  # override output path
-rebrew data --gen-header --force                # overwrite existing file without prompting
-rebrew data --layout-audit --section .rdata     # per-TU span/order audit for .rdata (default .data)
-rebrew data --set-type 0x10025000='unsigned char *'  # write type into rebrew-data.toml (repeatable)
-rebrew data --set-section 0x10025000=.rdata     # write section (.data / .rdata / .bss); this fixes W016
-rebrew data --fix-ownership --dry-run           # re-partition defs; fixes layout-audit SPAN/ORDER
-rebrew data --fill-data --dry-run               # emit _dpad_<addr>[N] for uncovered .data runs
-rebrew data --own --dry-run                     # materialize link_stubs.c globals into owner TUs
-rebrew data --converge --dry-run                # adjust _dlead_<tu> pads vs build/bench; does not rebuild
+rebrew data list --link-map build/server.map --json # explicit MSVC map for library owners
+rebrew data list --json # full inventory: globals, data_annotations, type_conflicts, summary, sections
+rebrew data list --summary --json # per-section progress: JSON`summary` becomes {sections, conflicts}
+rebrew data list --conflicts --json # only globals with type conflicts (same name, different types across files)
+rebrew data dispatch --json # detect dispatch tables / vtables in .data/.rdata
+rebrew data dispatch --min-table-len 5 --json # require >= 5 entries per table
+rebrew data dispatch --max-pointer-stride 8 # allow 8-byte stride between slots (sparse tables)
+rebrew data bss --json # verify .bss layout, detect gaps from missing externs
+rebrew data fix-bss --dry-run # preview bss_padding.c + metadata changes, write nothing
+rebrew data fix-bss # generate bss_padding.c + write SIZE/SECTION/NOTE to metadata
+rebrew data header --dry-run # preview rebrew_globals.h contents
+rebrew data header # write rebrew_globals.h from scanned globals (inline markers or rebrew-data.toml rows)
+rebrew data header --output /path/to/my_globals.h # override output path
+rebrew data header --force # overwrite existing file without prompting
+rebrew data layout audit --section .rdata # per-TU span/order audit for .rdata (default .data)
+rebrew data set --type 0x10025000='unsigned char *' # write type into rebrew-data.toml (repeatable)
+rebrew data set --section 0x10025000=.rdata # write section (.data / .rdata / .bss); this fixes W016
+rebrew data layout fix-ownership --dry-run # re-partition defs; fixes layout-audit SPAN/ORDER
+rebrew data layout fill --dry-run # emit _dpad_<addr>[N] for uncovered .data runs
+rebrew data layout own --dry-run # materialize link_stubs.c globals into owner TUs
+rebrew data layout converge --dry-run # adjust _dlead_<tu> pads vs build/bench; does not rebuild
 rebrew verify --data --built build/bench     # byte-compare built .data/.rdata per symbol (VERIFIED/DRIFT/UNCHECKED)
 rebrew todo --category data-drift --json                # data symbols whose built bytes differ from the reference
 ```
@@ -78,16 +78,16 @@ rebrew todo --category data-drift --json                # data symbols whose bui
 existing metadata stays unchanged. Compare a raw link: postlink-copied data
 can match without demonstrating that the source reproduces it.
 
-`--gen-header` emits externs grouped by physical section, not game/CRT ownership.
-Use `--dry-run` or `--gen-header-out` to review output before merging into canonical
-subsystem headers. `--force` replaces an existing header. `rebrew sync --pull-data`
+`data header` emits externs grouped by physical section, not game/CRT ownership.
+Use `--dry-run` or `--output` to review output before merging into canonical
+subsystem headers. `--force` replaces an existing header. `rebrew sync pull-data`
 also replaces the default header without prompting: preserve and reconcile any
 existing split first.
 
-`--layout-audit` reports SPAN/ORDER and unowned symbols. `--fix-ownership`
+`data layout audit` reports SPAN/ORDER and unowned symbols. `data layout fix-ownership`
 re-partitions definitions; `--own` materializes stub-file storage. Neither a
 reference count nor physical adjacency establishes a library or subsystem owner.
-`--fill-data` and `--fix-bss` emit padding; use only for proven uncovered storage,
+`data layout fill` and `data fix-bss` emit padding; use only for proven uncovered storage,
 not aliases or bytes already emitted by stock libraries. Preview every mutation
 with `--dry-run`. `--converge` adjusts leading pads against the current build;
 it does not build or prove the resulting data: rebuild, then verify.
@@ -102,9 +102,9 @@ DATA metadata lives in a **`rebrew-data.toml`** beside `rebrew-functions.toml` a
 the project root, so one store covers every target. The loader does no walk-up of its own
 (it reads exactly `directory / rebrew-data.toml`), so library code must pass
 `cfg.metadata_dir` rather than the `.c` file's directory.
-Only the stable marker line stays in the `.c` file:
+New writers emit the declaration and record the row. An unmigrated `.c` may still carry the marker line below. `rebrew source migrate-markers` walks `.c` sources, not headers: it copies `file` and `marker_type` into `rebrew-data.toml`, fills `name`, `type`, `size`, `section`, and `note` when the row lacks them, and strips the marker. Readers bind a marker-less file, including a header, by `file`. A file that still has a data-marker line is read from the line. Do not put a marker back into a migrated file.
 
-**`.c` file:**
+**Unmigrated `.c` file:**
 ```c
 // DATA: SERVER 0x10025000
 
@@ -114,24 +114,26 @@ const unsigned char g_sprite_lut[256] = { ... };
 **`rebrew-data.toml`** (auto-managed, never edit manually):
 ```toml
 ["SERVER.0x10025000"]
-name    = "g_sprite_lut"      # preferred label (BinSync/Ghidra import target)
-size    = 256
-section = ".rdata"
-note    = "lookup table for sprite indices"
+file        = "server/lut.c"
+marker_type = "DATA"
+name        = "g_sprite_lut"      # preferred label (BinSync/Ghidra import target)
+size        = 256
+section     = ".rdata"
+note        = "lookup table for sprite indices"
 ```
 
 | Field | Purpose |
 |-------|---------|
+| `file` | Source path relative to the metadata root. `rebrew source migrate-markers` writes it |
+| `marker_type` | `GLOBAL`, `DATA`, `VTABLE`, or `STRING`. A row without it is read as `DATA` |
 | `name` | Preferred variable label; overrides C stem; imported from BinSync state |
-| `type` | Declared type `--gen-header` uses when the source has none; set with `rebrew data --set-type 0xVA=TYPE` |
+| `type` | Declared type `data header` uses when the source has none; set with `rebrew data set --type 0xVA=TYPE` |
 | `size` | Size in bytes |
 | `section` | PE section (`.data`, `.rdata`, `.bss`) |
 | `note` | Local analysis description; native BinSync globals do not carry notes |
 | `status` | Data verdict written by `rebrew verify --data`: `VERIFIED` (built bytes match), `DRIFT` (differ), `UNCHECKED` (not compared); counted in `rebrew status` and `rebrew todo --category data-drift` |
 
-Changing `name`, `type`, `size`, or `section` clears the previous verdict:
-re-run verification after editing a definition. Notes and unchanged values
-preserve it. `origins` and `verification` are nested tables for external source
+`rebrew data set` clears the previous verdict when `name`, `type`, `size`, or `section` changes: re-run verification after editing a definition. Notes and unchanged values preserve it. `rebrew source migrate-markers` fills a missing name, type, size, section, or note and leaves the verdict in place. `origins` and `verification` are nested tables for external source
 facts and comparison evidence; ordinary edit stamps remain separate. Writers
 store `size` as a non-negative integer and descriptive fields as strings; lint W031 uses the same validation. Duplicate spellings
 of one `(module, VA)` count once; W031 reports them and granular writers
@@ -143,8 +145,8 @@ bounds and other architectures need explicit `size`. A matching prefix of
 an unknown-sized symbol cannot earn `VERIFIED`.
 
 > [!CAUTION]
-> **Never manually edit `rebrew-data.toml`.** It is managed automatically by `rebrew data`,
-> `rebrew data --fix-bss`, and `rebrew sync --pull --state-dir <dir>`. Entries are keyed `"MODULE.0xVA"`
+> **Never manually edit `rebrew-data.toml`.** It is managed automatically by `rebrew data list`,
+> `rebrew data fix-bss`, and `rebrew sync pull --state-dir <dir>`. Entries are keyed `"MODULE.0xVA"`
 > (qualified, same scheme as `rebrew-functions.toml`).
 
 ## GLOBAL Annotations
@@ -152,13 +154,13 @@ an unknown-sized symbol cannot earn `VERIFIED`.
 When a function references a global address from disassembly:
 
 1. Reuse its canonical game/subsystem or CRT header; add an extern there if missing.
-2. Annotate with `// GLOBAL: MODULE 0x<VA>` for tracking (declaration must follow on the next line).
+2. Put the declaration in the owning `.c` or header. `rebrew data annotate` records `file` and `marker_type` for a declaration that has no row. Do not add a new `// GLOBAL:` line.
 3. Metadata (name, size, section, note) goes in `rebrew-data.toml`, same format as DATA.
 
-`--gen-header` picks up both `// GLOBAL:` and `// DATA:` markers, merging in `name`/`type`/`size`/
+`data header` picks up inline `// GLOBAL:` and `// DATA:` markers and `rebrew-data.toml` rows on sources with no data-marker line, merging in `name`/`type`/`size`/
 `section`/`note` from `rebrew-data.toml` (a source declaration's type wins over metadata `type`).
-`rebrew lint` flags `DATA`/`GLOBAL` markers missing `SECTION` metadata (W016), inline volatile keys, and the `rebrew-data.toml` shapes the writers reject (W031: an unknown field, a STATUS outside `VERIFIED`/`DRIFT`/`UNCHECKED`, half an `updated_by`/`updated_at` pair); run it after adding markers and after any hand-check of the store. `W032` covers the coverage documents themselves (a `db/coverage-bench.toml` the dashboards cannot serve, or a leftover `coverage.db` / grid JSON / CSV from the replaced stores).
-Set a missing section with `rebrew data --set-section 0xVA=.bss` (`.data`, `.rdata`, or `.bss`). Do not hand-edit the TOML.
+`rebrew lint` flags `DATA`/`GLOBAL` rows missing `SECTION` metadata (W016), inline volatile keys, and the `rebrew-data.toml` shapes the writers reject (W031: an unknown field, a STATUS outside `VERIFIED`/`DRIFT`/`UNCHECKED`, half an `updated_by`/`updated_at` pair); run it after recording a row and after any hand-check of the store. `W032` covers the coverage documents themselves (a `db/coverage-bench.toml` the dashboards cannot serve, or a leftover `coverage.db` / grid JSON / CSV from the replaced stores).
+Set a missing section with `rebrew data set --section 0xVA=.bss` (`.data`, `.rdata`, or `.bss`). Do not hand-edit the TOML.
 
 ## Debugging Relocation Mismatches
 
@@ -168,22 +170,22 @@ Two diff signals point at globals:
 | Signal in `rebrew diff --json` | Cause | Fix |
 |--------------------------------|-------|-----|
 | `XX` rows (`summary` counts them as mismatches) | Relocation resolves to a catalogued global at the wrong VA: wrong name or a type conflict | Check the name in `rebrew-data.toml`; run `--conflicts` and unify the type |
-| `missing_globals` hints (`[0]` operand on a `**` row) | Reference never resolved: no definition for the target address | Add `extern` + `// GLOBAL: MODULE 0x<VA>` |
+| `missing_globals` hints (`[0]` operand on a `**` row) | Reference never resolved: no definition for the target address | Add `extern`, then `rebrew data annotate` so the row records `file`. Do not add a new marker line |
 
 ### Workflow
 
 1. `rebrew diff --json src/bench/<file>.c`: note `XX` rows and `missing_globals`
-2. Add the missing `extern` declarations with `// GLOBAL:` annotations
+2. Add the missing `extern` declarations, then `rebrew data annotate` to record the row. Do not add a new marker line
 3. Check the backing object and stock-library provenance before adding storage.
-4. Use `rebrew data --bss --json` to inspect gaps. A gap can be an incomplete
+4. Use `rebrew data bss --json` to inspect gaps. A gap can be an incomplete
    extent, alignment, an interior view, or library storage; it is not proof that
    another allocation is missing. Emit padding only after establishing the cause.
-5. Re-run `rebrew data --json`, `rebrew lint --json`, and affected function tests;
+5. Re-run `rebrew data list --json`, `rebrew lint --json`, and affected function tests;
    rebuild and verify raw linked data when storage or link inputs changed.
 
 ## Dispatch Tables and Vtables
 
-`rebrew data --dispatch` scans `.data` and `.rdata` sections for arrays of
+`rebrew data dispatch` scans `.data` and `.rdata` sections for arrays of
 function pointers. Tables are not labelled vtable vs dispatch table; decide from
 the callers. Table fields are in `references/json-and-failures.md`.
 

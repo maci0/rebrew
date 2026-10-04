@@ -560,7 +560,7 @@ def pe_directories(path: str | Path) -> PeDirectories:
 
     Never raises for a missing, non-PE, or malformed image: those return an
     empty ``PeDirectories`` whose notes say why.  This is the reader
-    ``rebrew pe-info`` reports, and :func:`pe_symbols` names it.
+    ``rebrew binary pe`` reports, and :func:`pe_symbols` names it.
     """
     target = Path(path)
     if not target.exists():

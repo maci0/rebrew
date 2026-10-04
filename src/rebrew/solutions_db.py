@@ -1,6 +1,6 @@
 """solutions_db.py — query the GA solutions database and run history.
 
-``rebrew solutions`` lists the winning fingerprints and, with ``--best``,
+``rebrew match solutions`` lists the winning fingerprints and, with ``--best``,
 the best-known GA outcome per function — both derived from the append-only
 run log (``.rebrew/ga_runs.jsonl``).  Read-only.
 """
@@ -21,9 +21,9 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew solutions · · · · · · · · · · · · · · List winning solutions\n\n"
-        "  rebrew solutions --symbol malloc · · · · · · Filter by symbol\n\n"
-        "  rebrew solutions --best --json · · · · · · · Best GA score per function\n\n"
+        "  rebrew match solutions · · · · · · · · · · · · · · List winning solutions\n\n"
+        "  rebrew match solutions --symbol malloc · · · · · · Filter by symbol\n\n"
+        "  rebrew match solutions --best --json · · · · · · · Best GA score per function\n\n"
         "[dim]Reads .rebrew/ga_runs.jsonl (wins + run history).[/dim]"
     ),
 )

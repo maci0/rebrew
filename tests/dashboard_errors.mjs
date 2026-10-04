@@ -29,7 +29,7 @@ respond = async () => { throw new TypeError("Failed to fetch"); };
 await el("retry-summary").onclick();
 assert.match(
   el("dashboard-error").textContent,
-  /\(the dashboard server did not respond; check that rebrew dashboard is still running\)/,
+  /\(the dashboard server did not respond; check that rebrew coverage serve is still running\)/,
   "a dead server is named instead of a raw fetch error",
 );
 assert.equal(el("dashboard-error").scrolled, 2, "a different alert scrolls itself into view");

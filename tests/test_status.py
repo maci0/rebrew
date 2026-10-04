@@ -1016,10 +1016,9 @@ class TestInlineMetadataWarning:
             encoding="utf-8",
         )
         report = collect_status(cfg)  # type: ignore[arg-type]
-        # Only func_a's `// STATUS:` counts: SIZE is the reccmp-native inline
-        # contract and lint's W019 never migrates it, so counting it nagged the
-        # user to run `rebrew lint --fix` for a migration that never happens.
-        assert report.inline_metadata_warning == 1
+        # func_a's STATUS and func_b's SIZE are both migratable. func_c has
+        # only the marker line.
+        assert report.inline_metadata_warning == 2
 
     def test_markerless_cflags_not_counted(self, tmp_path: Path) -> None:
         """A markerless // CFLAGS (naked-guard #else convention) is not counted.
@@ -1588,13 +1587,13 @@ class TestRenderTerminal:
         buf = self._capture(monkeypatch)
         _render_terminal(self._report())
         out = buf.getvalue()
-        assert "50.0% of .text" in out
+        assert "50.0% of virtual .text" in out
         assert "512B / 1,024B" in out
-        assert "Function counts  10 total, 5 matched, 6 with source" in out
+        assert "Game functions  10,  5 byte-matched,  6 with source,  4 no source" in out
         assert "Count %" in out
         assert "(60.0%)" not in out
         assert "(50.0%)" not in out
-        assert out.count("50.0% of .text") == 1
+        assert out.count("50.0% of virtual .text") == 1
         assert "1 PROVEN  semantically equivalent, bytes still differ (not byte-matched)" in out
         assert "blocked" not in out
         assert "reversed" not in out
@@ -1628,35 +1627,38 @@ class TestRenderTerminal:
             )
         )
         out = buf.getvalue()
-        assert "99.4% of .text" in out
-        assert out.count("99.4% of .text") == 1
+        assert "99.4% of virtual .text" in out
+        assert out.count("99.4% of virtual .text") == 1
         assert "140,590B / 141,382B" in out
-        assert "Function counts  341 total, 261 matched, 262 with source" in out
-        assert "Library functions  314 (excluded from function counts)" in out
-        assert ".text %" in out
+        assert ("Game functions  341,  261 byte-matched,  262 with source,  79 no source") in out
+        assert "Libraries  314, in the code account" in out
+        assert ".text %" not in out
         assert "Count %" not in out
         assert "76.8%" not in out
-        library = next(line for line in out.splitlines() if "LIBRARY" in line)
-        assert library.replace("│", "").split()[:4] == ["LIBRARY", "314", "61,143", "43.2%"]
+        assert "EXACT and RELOC are both byte matches" in out
+        library = next(
+            line for line in out.splitlines() if line.replace("│", "").split()[:1] == ["LIBRARY"]
+        )
+        assert library.replace("│", "").split()[:3] == ["LIBRARY", "314", "61,143"]
         no_source = next(line for line in out.splitlines() if "(no source)" in line)
-        assert no_source.replace("│", "").split()[:5] == ["(no", "source)", "79", "757", "0.5%"]
-        for status, count, size, percentage, ticks in (
-            ("EXACT", "22", "1,436", "1.0%", 1),
-            ("RELOC", "239", "76,271", "53.9%", 8),
-            ("COMPILE_ERROR", "1", "0", "0.0%", 0),
-            ("padding", "", "1,740", "1.2%", 1),
-            ("no function", "", "35", "0.0%", 1),
+        assert no_source.replace("│", "").split()[:4] == ["(no", "source)", "79", "757"]
+        for status, count, size in (
+            ("EXACT", "22", "1,436"),
+            ("RELOC", "239", "76,271"),
+            ("COMPILE_ERROR", "1", "0"),
+            ("padding", "", "1,740"),
+            ("no function", "", "35"),
         ):
             row = next(
                 line
                 for line in out.splitlines()
-                if line.replace("│", "").split()[: len(status.split())] == status.split()
+                if line.replace("│", "").split()[: len(status.split()) + bool(count)]
+                == status.split() + ([count] if count else [])
             )
             cells = row.replace("│", "").split()
-            assert cells[: len(status.split()) + bool(count) + 2] == (
-                status.split() + ([count] if count else []) + [size, percentage]
+            assert cells[: len(status.split()) + bool(count) + 1] == (
+                status.split() + ([count] if count else []) + [size]
             )
-            assert row.count("█") == ticks
 
     def test_data_block_sits_with_functions(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Data is a block of its own: verified count, verdicts, sections.
@@ -1675,23 +1677,27 @@ class TestRenderTerminal:
         }
         _render_terminal(report)
         out = buf.getvalue()
-        assert "50.0% of initialized data verified (stored verdicts)" in out
+        assert "50.0% of .data+.rdata verified (stored verdicts)" in out
         assert "100B / 200B" in out
         assert "2/4 verified" in out
         assert "VERIFIED" in out
         assert "UNCHECKED" in out
         assert "DRIFT" not in out
         data_row = next(
-            line for line in out.splitlines() if ".data" in line and "excludes" not in line
+            line
+            for line in out.splitlines()
+            if line.replace("│", "").split()[:5] == [".data", "2", "0", "1", "3"]
         )
         rdata_row = next(
-            line for line in out.splitlines() if ".rdata" in line and "excludes" not in line
+            line
+            for line in out.splitlines()
+            if line.replace("│", "").split()[:5] == [".rdata", "0", "0", "1", "1"]
         )
         assert data_row.replace("│", "").split() == [".data", "2", "0", "1", "3"]
         assert rdata_row.replace("│", "").split() == [".rdata", "0", "0", "1", "1"]
         # .data before .rdata, the section order, not alphabetical.
         assert out.index(".data") < out.index(".rdata")
-        assert "50.0% of .text" in out
+        assert "50.0% of virtual .text" in out
 
     def test_data_overlap_warning_identifies_byte_verdicts(
         self, monkeypatch: pytest.MonkeyPatch
@@ -1771,6 +1777,47 @@ class TestRenderTerminal:
         assert "SERVER" in out
         # Warning only emitted when inline_metadata_warning > 0.
         assert "inline STATUS" not in out
+
+    def test_linked_file_and_code_account_stay_distinct(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The file percentage and the code account name different denominators."""
+        from rebrew.status import _render_terminal
+
+        buf = self._capture(monkeypatch)
+        _render_terminal(
+            self._report(
+                file_matched_bytes=267_806,
+                file_total_bytes=286_720,
+                file_built="build/server.dll",
+                file_sections={
+                    ".text": {"matched_bytes": 141_266, "total_bytes": 143_360},
+                    ".reloc": {"matched_bytes": 53_248, "total_bytes": 69_632},
+                },
+                total_text_bytes=141_382,
+                status_bytes={"EXACT": 1_436, "RELOC": 75_380, "NO_SOURCE": 20_894},
+                status_counts={"EXACT": 22, "RELOC": 238},
+                total_functions=309,
+                covered_functions=260,
+                matched_bytes=76_816,
+                padding_bytes=2_489,
+                unattributed_bytes=828,
+            )
+        )
+        out = buf.getvalue()
+        assert "Linked file  93.4% same offset" in out
+        assert "267,806B / 286,720B" in out
+        assert "Code account  56.0% of virtual .text" in out
+        assert "79,305B / 141,382B" in out
+        assert ".text on disk is 143,360B, including file alignment." in out
+        assert "Code accounting uses the virtual size, 141,382B." in out
+        assert "Largest gap: .reloc 16,384B of 18,914B" in out
+        assert "Game functions  309,  260 byte-matched,  49 no source" in out
+        assert "260 with source" not in out
+        reloc = next(
+            line for line in out.splitlines() if line.replace("│", "").split()[:1] == ["RELOC"]
+        )
+        assert "%" not in reloc
 
 
 class TestCollectStatusSizeFallback:
@@ -2187,7 +2234,7 @@ class TestAccounting:
         _render_terminal(report)
         out = buf.getvalue()
         assert "…" not in out
-        assert "Stored EXACT/RELOC + identified libraries + padding" in out
+        assert "Matched functions, identified libraries, and alignment padding." in out
         assert any(
             line.replace("│", "").split() == [".data", "212", "184", "0", "396"]
             for line in out.splitlines()

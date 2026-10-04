@@ -216,6 +216,10 @@ _VERIFY_RESULTS_COLUMNS: tuple[str, ...] = (
 #: section name with a dot or a space) has to be quoted or the document fails
 #: to parse.
 _BARE_KEY_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-")
+# Column names repeat on every row. The bare-key scan was 600k all() calls
+# per 8000-row render.
+_BARE_KEY_CACHE: dict[str, str] = {}
+_BARE_KEY_CACHE_MAX = 4096
 
 
 # ---------------------------------------------------------------------------
@@ -238,14 +242,27 @@ def _string(value: str) -> str:
     the document is written and then rejected by every reader, losing the whole
     coverage file rather than the one bad name.
     """
-    return json.dumps(toml_safe(value))
+    # Printable ASCII with no quote or backslash is exactly json.dumps, and
+    # it cannot be a lone surrogate. Empty fields are the common row.
+    # 8000 function rows: 188 ms → 105 ms.
+    if not value:
+        return '""'
+    for ch in value:
+        code = ord(ch)
+        if code < 0x20 or code >= 0x7F or ch in '"\\':
+            return json.dumps(toml_safe(value))
+    return '"' + value + '"'
 
 
 def _key(name: str) -> str:
     """Render a TOML key, bare when it can be and quoted when it cannot."""
-    if name and all(ch in _BARE_KEY_CHARS for ch in name):
-        return name
-    return _string(name)
+    cached = _BARE_KEY_CACHE.get(name)
+    if cached is not None:
+        return cached
+    rendered = name if name and all(ch in _BARE_KEY_CHARS for ch in name) else _string(name)
+    if len(_BARE_KEY_CACHE) < _BARE_KEY_CACHE_MAX:
+        _BARE_KEY_CACHE[name] = rendered
+    return rendered
 
 
 def _value(value: Any) -> str:

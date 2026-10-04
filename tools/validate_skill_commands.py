@@ -26,7 +26,11 @@ import argparse
 import re
 import subprocess
 import sys
+from functools import cache
 from pathlib import Path
+
+from typer._click.core import Command as TyperBaseCommand
+from typer.core import TyperGroup
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -41,6 +45,7 @@ _SKILLS_DIR = _REPO_ROOT / "src" / "rebrew" / "agent-skills"
 
 _BASH_BLOCK_RE = re.compile(r"```bash\n(.*?)```", re.DOTALL)
 _INLINE_SPAN_RE = re.compile(r"`(rebrew [^`]+)`")
+_CODE_SPAN_RE = re.compile(r"`([^`\n]+)`")
 _MERMAID_BLOCK_RE = re.compile(r"```mermaid\n(.*?)```", re.DOTALL)
 #: Mermaid node labels, edge labels, and arrows: ``Pick[a<br/>rebrew todo --json]``
 #: splits here so each fragment is a bare command with no diagram punctuation.
@@ -68,23 +73,6 @@ _SKIP_FLAGS: frozenset[str] = frozenset(
 )
 
 
-def _multi_subcommands() -> frozenset[str]:
-    """CLI groups whose top-level --help does not list subcommand flags.
-
-    For these we validate ``<group> <subcommand>`` pairs instead.  Derived from
-    the component registry so a newly added group is validated without editing
-    this file — a hand-maintained list silently skipped ``binsync``/``library``/
-    ``toolchain``/``resource`` after they were added.
-    """
-    from rebrew.builtins import BUILTIN_COMPONENTS
-
-    return frozenset(c.name for c in BUILTIN_COMPONENTS if c.is_group)
-
-
-#: Resolved once at import; see :func:`_multi_subcommands`.
-_MULTI_SUBCOMMANDS: frozenset[str] = _multi_subcommands()
-
-
 def _is_placeholder(word: str) -> bool:
     """True for ``<va>``-style placeholders and ``a/b`` slash alternations.
 
@@ -95,12 +83,21 @@ def _is_placeholder(word: str) -> bool:
     return any(c in word for c in "<>/{}[]*…") or word == "..."
 
 
+@cache
+def _command_tree() -> TyperBaseCommand:
+    """Use the composed command tree to resolve arbitrarily nested routes."""
+    import typer
+
+    from rebrew.main import app
+
+    return typer.main.get_command(app)
+
+
 def _parse_command(line: str) -> tuple[str, list[str]] | None:
     """Return ``(subcommand, flags)`` for one ``rebrew …`` invocation, or None.
 
-    For multi-command groups (e.g. ``rebrew cfg add-target``), the subcommand
-    is taken as ``cfg add-target`` so we invoke ``rebrew cfg add-target --help``
-    instead of ``rebrew cfg --help`` (which would not list subcommand flags).
+    Resolve every nested operation (for example ``cfg target add``) before
+    inspecting its flags; group help does not list leaf options.
     """
     line = line.split("#", maxsplit=1)[0].strip()
     if not line.startswith("rebrew "):
@@ -112,11 +109,23 @@ def _parse_command(line: str) -> tuple[str, list[str]] | None:
     if not re.fullmatch(r"[a-z][a-z0-9-]*", subcommand):
         return None
 
-    # For multi-command groups, absorb the subsubcommand if present
-    if subcommand in _MULTI_SUBCOMMANDS and len(tokens) >= 3:
-        second_sub = tokens[2].strip("\"'")
-        if not second_sub.startswith("-") and not _is_placeholder(second_sub):
-            subcommand = f"{subcommand} {second_sub}"
+    import typer
+
+    command = _command_tree()
+    path: list[str] = []
+    for token in tokens[1:]:
+        token = token.strip("\"'")
+        if token.startswith("-") or _is_placeholder(token):
+            break
+        if not isinstance(command, TyperGroup):
+            break
+        context = typer._click.core.Context(command)
+        child = command.get_command(context, token)
+        path.append(token)
+        if child is None:
+            break  # retain an unknown route so its help probe reports the error
+        command = child
+    subcommand = " ".join(path) or subcommand
 
     return subcommand, [f for f in _FLAG_RE.findall(line) if f not in _SKIP_FLAGS]
 
@@ -135,6 +144,24 @@ def _extract_commands(skill_md: Path) -> list[tuple[str, list[str]]]:
     ]
     # Inline spans wrapping a line break are prose sentences, not invocations.
     lines += [m.group(1) for m in _INLINE_SPAN_RE.finditer(text) if "\n" not in m.group(1)]
+    # Command tables often put options in the description cell rather than
+    # inside the invocation. Validate those too, when the first cell names
+    # exactly one command. Other cells may describe separate alternatives.
+    for row in text.splitlines():
+        if not row.lstrip().startswith("|"):
+            continue
+        cells = row.strip().strip("|").split("|")
+        command_cell = cells[0].strip()
+        invocation = re.fullmatch(r"`(rebrew [^`]+)`", command_cell)
+        if invocation is None:
+            continue
+        descriptions = "|".join(cells[1:])
+        spans = _CODE_SPAN_RE.findall(descriptions)
+        if any(span.startswith("rebrew ") for span in spans):
+            continue
+        flags = [flag for span in spans if span.startswith("--") for flag in _FLAG_RE.findall(span)]
+        if flags:
+            lines.append(" ".join([invocation.group(1), *flags]))
     lines += [
         m.group(0).strip()
         for block in _MERMAID_BLOCK_RE.finditer(text)
@@ -295,22 +322,25 @@ def validate(*, quiet: bool = False, docs: bool = False) -> bool:
                 print(f"FAIL  {err}")
             continue
 
+        available_flags = set(_FLAG_RE.findall(output))
         for flag in combo_flags:
-            if flag not in output:
+            if flag not in available_flags:
                 err = f"{skill_name}: rebrew {subcommand} {flag} — flag not in --help output"
                 errors.append(err)
                 if not quiet:
                     print(f"FAIL  {err}")
 
-    if not quiet:
-        print(
-            f"\nChecked {checked} unique (subcommand, flags) combinations across "
-            f"{_SKILLS_DIR.name}/{' and current docs/templates' if docs else ''}."
-        )
-        if errors:
-            print(f"{len(errors)} failure(s).")
-        else:
-            print("All OK.")
+    if quiet:
+        for error in errors:
+            print(f"FAIL  {error}")
+    print(
+        f"\nChecked {checked} unique (subcommand, flags) combinations across "
+        f"{_SKILLS_DIR.name}/{' and current docs/templates' if docs else ''}."
+    )
+    if errors:
+        print(f"{len(errors)} failure(s).")
+    else:
+        print("All OK.")
     return len(errors) == 0
 
 
@@ -321,7 +351,7 @@ def validate(*, quiet: bool = False, docs: bool = False) -> bool:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Validate rebrew CLI flags referenced in agent SKILL.md files."
+        description="Validate Rebrew command paths and flags in skills, guides, and agent templates."
     )
     parser.add_argument(
         "--quiet", "-q", action="store_true", help="Only print failures and summary."

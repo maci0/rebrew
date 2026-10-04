@@ -2,7 +2,7 @@
 
 Translates the in-memory sync operation list into ``ghidra-cli`` subprocess
 invocations.  Select via ``ghidra_backend = "cli"`` in ``rebrew-project.toml``
-(default stays ``"reva"``); ``rebrew sync`` also falls back to it when MCP
+(default stays ``"reva"``); ``rebrew sync push`` also falls back to it when MCP
 fails before any operation is applied.  ghidra-cli keeps a
 bridge with Ghidra loaded in memory, so the first call is slow (headless
 spawn) and subsequent per-op calls are cheap TCP round-trips.

@@ -609,8 +609,7 @@ class TestLintFileBranches:
         )
         result = lint_file(f)
         w019 = [m for _, c, m in result.warnings if c == "W019"]
-        # SIZE is reccmp-native and stays inline (R3) — only CFLAGS is flagged.
-        assert not any("'// SIZE:'" in m for m in w019), w019
+        assert any("'// SIZE:'" in m for m in w019), w019
         assert any("'// CFLAGS:'" in m for m in w019), w019
 
     def test_w019_silent_for_source_naked_marker(self, tmp_path: Path) -> None:
@@ -848,11 +847,10 @@ class TestLintFix:
         assert result.exit_code == 0
         text = f.read_text(encoding="utf-8")
         assert "// STATUS:" not in text
-        # SIZE is reccmp-native and stays inline (R3) — --fix leaves it.
-        assert "// SIZE: 42" in text
+        assert "// SIZE:" not in text
         entry = get_entry(tmp_path, 0x1000, "SERVER")
         assert entry.get("status") == "EXACT"
-        assert entry.get("size") is None  # SIZE is not migrated to metadata
+        assert entry.get("size") == 42
 
     def test_fix_leaves_function_only_key_on_data_marker(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -883,7 +881,7 @@ class TestLintFix:
     def test_fix_metadata_sourced_status_not_migrated(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """STATUS already in metadata is metadata-sourced → not listed for migration."""
+        """STATUS already in metadata is stripped, not migrated. SIZE still moves."""
         from typer.testing import CliRunner
 
         from rebrew.lint import app
@@ -895,9 +893,11 @@ class TestLintFix:
         monkeypatch.setattr("rebrew.lint.load_config", lambda root=None, **kw: cfg)
         result = CliRunner().invoke(app, ["--fix", "--dry-run", str(f)])
         assert result.exit_code == 0
-        assert "Would migrate" not in result.output  # overlay marks it metadata-sourced
-        assert "Would strip" in result.output  # dead inline copy still listed for removal
-        assert "SIZE" not in result.output  # SIZE stays inline (reccmp-native, R3)
+        migrate_lines = [line for line in result.output.splitlines() if "Would migrate" in line]
+        assert migrate_lines
+        assert all("SIZE" in line for line in migrate_lines)
+        assert not any("STATUS" in line for line in migrate_lines)
+        assert "Would strip" in result.output
 
     def test_fix_duplicate_va_second_file_already_migrated(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -923,15 +923,14 @@ class TestLintFix:
         result = CliRunner().invoke(app, ["--fix", str(a), str(b)])
         assert result.exit_code == 1  # E013 duplicate VA is an error
         assert "E013" in result.output
-        # STATUS stripped from both inline copies; metadata owns it once.
-        # SIZE stays inline (reccmp-native, R3).
+        # Both inline copies are stripped. Metadata owns STATUS and SIZE once.
         for f in (a, b):
             text = f.read_text(encoding="utf-8")
             assert "// STATUS:" not in text
-            assert "// SIZE: 42" in text
+            assert "// SIZE:" not in text
         entry = get_entry(tmp_path, 0x1000, "SERVER")
         assert entry.get("status") == "EXACT"
-        assert entry.get("size") is None
+        assert entry.get("size") == 42
 
 
 class TestLintFixConvergence:
@@ -969,9 +968,8 @@ class TestLintFixConvergence:
         assert not any(e[1] == "W019" for e in again.warnings + again.errors)
         entry = get_entry(tmp_path, 0x1000, "SERVER")
         assert entry.get("status") == "EXACT"
-        # SIZE stays inline (reccmp-native, R3) — not migrated to metadata.
-        assert entry.get("size") is None
-        assert "// SIZE: 42" in f.read_text(encoding="utf-8")
+        assert entry.get("size") == 42
+        assert "// SIZE:" not in f.read_text(encoding="utf-8")
 
 
 class TestW020AsmDump:
@@ -3139,6 +3137,18 @@ class TestW034IdentityPaths:
         )
         assert "must not escape the project" in self._warnings(self._cfg(tmp_path))
 
+    def test_absolute_path_in_the_data_store_is_reported(self, tmp_path: Path) -> None:
+        (tmp_path / "rebrew-data.toml").write_text(
+            'format = 1\n\n["SERVER.0x1000"]\nfile = "/etc/passwd"\n', encoding="utf-8"
+        )
+        assert "must be relative to the project" in self._warnings(self._cfg(tmp_path))
+
+    def test_relative_data_path_is_silent(self, tmp_path: Path) -> None:
+        (tmp_path / "rebrew-data.toml").write_text(
+            'format = 1\n\n["SERVER.0x1000"]\nfile = "src/SERVER/a.c"\n', encoding="utf-8"
+        )
+        assert self._warnings(self._cfg(tmp_path)) == ""
+
 
 class TestW035UnknownModules:
     """W035: rows for a target this project no longer declares."""
@@ -3279,3 +3289,35 @@ class TestW032OldJsonStores:
         db.mkdir()
         (db / "verify_cache.toml").write_text("version = 2\n", encoding="utf-8")
         assert self._messages(tmp_path) == ""
+
+
+@pytest.mark.parametrize("metadata_in_src", [False, True])
+def test_markerless_library_binding_uses_project_root(
+    tmp_path: Path, metadata_in_src: bool
+) -> None:
+    """A migrated bound library body is annotated even with a separate metadata root."""
+    from types import SimpleNamespace
+
+    from rebrew.lint import lint_file
+
+    src = tmp_path / "src"
+    src.mkdir()
+    metadata = src if metadata_in_src else tmp_path
+    provider = src / "provider.c"
+    provider.write_text("int provider(void) { return 0; }\n")
+    cfg = SimpleNamespace(root=tmp_path, metadata_dir=metadata, marker="S", all_markers={"S"})
+    entries = {
+        ("S", 0x401000): {
+            "file": "src/provider.c",
+            "marker_type": "LIBRARY",
+            "name": "provider",
+            "symbol": "_provider",
+        }
+    }
+    result = lint_file(provider, cfg=cfg, preloaded_metadata=entries, preloaded_data_metadata={})
+    assert not any(code == "E001" for _, code, _ in result.errors)
+    unrelated = tmp_path / "other" / "provider.c"
+    unrelated.parent.mkdir()
+    unrelated.write_text(provider.read_text())
+    result = lint_file(unrelated, cfg=cfg, preloaded_metadata=entries, preloaded_data_metadata={})
+    assert any(code == "E001" for _, code, _ in result.errors)

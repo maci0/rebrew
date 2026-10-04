@@ -152,7 +152,7 @@ def render_globals(console: Console, scan: ScanResult, conflicts_only: bool = Fa
         else:
             console.print(
                 "[dim]No globals found. Annotate sources with GLOBAL:/DATA: markers, "
-                "then re-run.[/]"
+                "or record the global in rebrew-data.toml, then re-run.[/]"
             )
         return
 

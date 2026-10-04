@@ -59,7 +59,7 @@ class TestCatalogCli:
     def test_catalog_writes_no_coverage_document(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """The document is `rebrew build-db`'s to write; catalog only reports."""
+        """The document is `rebrew coverage build`'s to write; catalog only reports."""
         cfg = _patch(monkeypatch, tmp_path)
         r = runner.invoke(catalog_cli.app, [])
         assert r.exit_code == 0

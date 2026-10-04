@@ -1,10 +1,10 @@
 # BinSync Integration
 
-`rebrew binsync-export`, `rebrew binsync-import`, and `rebrew binsync-diff`
+`rebrew binsync export`, `rebrew binsync import`, and `rebrew binsync diff`
 provide a bidirectional bridge between rebrew and any BinSync-aware decompiler
 plugin (IDA Pro, Binary Ninja, Ghidra via BinSync). Shared native fields include
 names, C signatures, notes, comments, locals, globals, structs, enums, and
-typedefs. `binsync-diff` reports divergence and provenance freshness read-only.
+typedefs. `rebrew binsync diff` reports divergence and provenance freshness read-only.
 
 > BinSync state I/O goes through [declib](https://github.com/binsync/declib), BinSync's
 > artifact layer (the `declib>=4.5` dependency of the `binsync` extra). Install it with
@@ -14,7 +14,7 @@ typedefs. `binsync-diff` reports divergence and provenance freshness read-only.
 
 ---
 
-## Init: `rebrew binsync-init <state-dir>`
+## Init: `rebrew binsync init <state-dir>`
 
 Creates the git envelope upstream BinSync's `Client` requires. rebrew writes
 BinSync-format files, but upstream resolves the state root from a git repo
@@ -24,9 +24,9 @@ created from that root. Without it, `_get_or_init_binsync_repo` raises "not a
 BinSync repo".
 
 ```bash
-rebrew binsync-init ./binsync_state
-rebrew binsync-init ./binsync_state --user alice
-rebrew binsync-init ./binsync_state --dry-run
+rebrew binsync init ./binsync_state
+rebrew binsync init ./binsync_state --user alice
+rebrew binsync init ./binsync_state --dry-run
 ```
 
 `--user` defaults to `git config user.name` (else `rebrew`). The root commit
@@ -42,31 +42,31 @@ differs from the target binary errors.
 ## Umbrella: `rebrew binsync <push|pull|summary|init|diff|overlay>`
 
 `rebrew binsync` is a multi-command group that orchestrates the same
-functions as the flat commands and adds git automation:
+export/import owners and adds Git automation:
 
 ```bash
-rebrew binsync init ./binsync_state          # build the git envelope (same as binsync-init)
+rebrew binsync init ./binsync_state          # build the Git envelope
 rebrew binsync push ./binsync_state          # export + git commit
 rebrew binsync push ./binsync_state --git-push --remote origin
 rebrew binsync pull ./binsync_state          # git pull --ff-only + import
 rebrew binsync pull ./binsync_state --no-git --accept-binsync
 rebrew binsync summary ./binsync_state       # read-only preview of both directions
-rebrew binsync diff ./binsync_state          # same as binsync-diff
-rebrew binsync overlay ./binsync_state       # same as binsync-overlay
+rebrew binsync diff ./binsync_state          # inspect divergence
+rebrew binsync overlay ./binsync_state       # apply related-target evidence
 ```
 
-- **`push`** runs `binsync-export`, staging and committing the state directory
+- **`push`** runs `rebrew binsync export`, staging and committing the state directory
   (`--no-git` skips the commit). `--git-push` pushes both `binsync/__root__` and
   the current branch to `--remote` (default `origin`).
 - **`pull`** fast-forwards the state directory's git repo (`--no-git` skips it;
   a non-fast-forward points you at resolving the repo by hand), then runs
-  `binsync-import`. Unresolved conflicts exit `1`, like the flat import.
+  `rebrew binsync import`. Unresolved conflicts exit `1`, like raw import.
 - **`summary`** calls export and import in dry-run mode and reports the counts
   each direction would change. It writes nothing and never touches git.
 
-The flat `rebrew binsync-init/export/import/diff/overlay` commands remain for
-direct export/import and scripting; the umbrella composes the same code with
-git operations. These are peer command surfaces, not compatibility aliases.
+Raw `rebrew binsync export` and `rebrew binsync import` exchange local state
+without the default Git steps of push/pull. All operations live under the
+`rebrew binsync` group and retain their distinct option sets.
 
 ---
 
@@ -114,7 +114,7 @@ inputs/artifacts, not a byte-match verdict.
 
 ---
 
-## Export: `rebrew binsync-export <outdir>`
+## Export: `rebrew binsync export <outdir>`
 
 Writes a [BinSync](https://github.com/binsync/binsync) state directory from the
 project's annotations and metadata:
@@ -280,7 +280,7 @@ type = "unsigned int"
 
 Bare enum members auto-increment from the previous value (starting at 0).
 declib carries no enum/typedef body text, so import synthesizes the
-declaration from the name + members/type.  `binsync-import` writes unknown
+declaration from the name + members/type.  `rebrew binsync import` writes unknown
 enum/typedef definitions into the local `binsync_types.h`. Remote-only changes
 to an existing, unambiguous definition update it through the C AST; concurrent
 edits are conflicts. Related-target overlays add unknown definitions and
@@ -288,13 +288,13 @@ preserve known ones.
 
 ---
 
-## Import: `rebrew binsync-import <state-dir>`
+## Import: `rebrew binsync import <state-dir>`
 
 Reads a BinSync state directory (own export or one produced by another tool)
 and applies changes back into rebrew metadata/source:
 
 - **Names**: declib `Function.name` → rebrew symbols
-  (via `rebrew rename` cross-reference rewriting). Generic→meaningful is applied
+  (via `rebrew source rename` cross-reference rewriting). Generic→meaningful is applied
   directly without a baseline; established fields follow the three-way rules above.
 - **Prototypes**: declib `Function.header.type` → the actual C function
   signature through the AST. The body and locally selected name are preserved;
@@ -340,7 +340,7 @@ the owning `.c` file and never touches a function body):
 The metadata `comments` field remains the lossless store (it survives even for
 addresses with no source marker).
 
-Conflict resolution mirrors `rebrew sync`:
+Conflict resolution mirrors `rebrew sync push`:
 
 ```
 CONFLICT 0x10001000: local=_OldName vs binsync=_NewName
@@ -357,21 +357,21 @@ functions with no local annotation but present in the catalog, import proposes a
 
 ```bash
 # Preview what would be imported
-rebrew binsync-import ./binsync_state --dry-run
+rebrew binsync import ./binsync_state --dry-run
 
 # Accept remote values on conflicts
-rebrew binsync-import ./binsync_state --accept-binsync
+rebrew binsync import ./binsync_state --accept-binsync
 
 # Accept only one module
-rebrew binsync-import ./binsync_state --module SERVER --accept-binsync
+rebrew binsync import ./binsync_state --module SERVER --accept-binsync
 
 # Machine-readable summary
-rebrew binsync-import ./binsync_state --dry-run --json | jq .
+rebrew binsync import ./binsync_state --dry-run --json | jq .
 ```
 
 ---
 
-## Overlay: `rebrew binsync-overlay <state-dir>`
+## Overlay: `rebrew binsync overlay <state-dir>`
 
 Transfers BinSync names, prototypes, and notes from a **related target** onto
 structurally-matched functions of the target the command runs against. Two
@@ -391,7 +391,7 @@ The source target comes from `--from`, or from the `target` key in the state
 - **Notes**: a differing non-empty remote note is written to the `note`
   metadata field.
 - **Structs, enums, typedefs**: unknown definitions from the state import into
-  the destination's `binsync_types.h` as in `binsync-import`; known names are
+  the destination's `binsync_types.h` as in `rebrew binsync import`; known names are
   never overwritten.
 - **Globals** (opt-in via `--fields global`): a source global is matched to
   the destination by exact content, not by address. Its bytes are searched in
@@ -403,33 +403,33 @@ The source target comes from `--from`, or from the `target` key in the state
 include content-matched globals). `--module NAME` restricts the destination to
 one module.
 
-Default conflict behavior matches `binsync-import`: a conflict is reported,
+Default conflict behavior matches `rebrew binsync import`: a conflict is reported,
 nothing is written, and the command exits `1`. Pass `--accept-binsync` to take
 the remote value, or `--accept-local` to keep the local value and record the
 remote one as `GHIDRA` provenance.
 
 ```bash
 # Preview what would move from v1's state onto this target
-rebrew binsync-overlay ../v1/state --dry-run
+rebrew binsync overlay ../v1/state --dry-run
 
 # Source target from the manifest; accept BinSync names on conflicts
-rebrew binsync-overlay ../v1/state --accept-binsync
+rebrew binsync overlay ../v1/state --accept-binsync
 
 # Only names and prototypes, machine-readable
-rebrew binsync-overlay ./state --fields name,prototype --json | jq .
+rebrew binsync overlay ./state --fields name,prototype --json | jq .
 
 # Include content-matched globals
-rebrew binsync-overlay ./state --fields global
+rebrew binsync overlay ./state --fields global
 ```
 
 ---
 
-## Diff: `rebrew binsync-diff <state-dir>`
+## Diff: `rebrew binsync diff <state-dir>`
 
 Read-only divergence report between the local project (reversed annotations +
 catalog) and a BinSync state directory. Never writes; exits `1` when any
 divergence exists (CI-friendly). Same filtering semantics as
-`binsync-import --dry-run`.
+`rebrew binsync import --dry-run`.
 
 - **Names**: generic-vs-meaningful and meaningful↔meaningful conflicts
 - **Prototypes**: BinSync `[header].type` vs local prototype (whitespace-normalized)
@@ -440,18 +440,18 @@ divergence exists (CI-friendly). Same filtering semantics as
 - **Freshness**: manifest schema/input/artifact digests and canonical origin/verification freshness in JSON `health`
 
 ```bash
-rebrew binsync-diff ./binsync_state            # divergences (exit 1 if any)
-rebrew binsync-diff ./state --json | jq .      # machine-readable report
-rebrew binsync-diff ./state --module SERVER    # one module only
+rebrew binsync diff ./binsync_state            # divergences (exit 1 if any)
+rebrew binsync diff ./state --json | jq .      # machine-readable report
+rebrew binsync diff ./state --module SERVER    # one module only
 ```
 
 ---
 
 ## Common Flags
 
-`binsync-export`, `binsync-import`, and `binsync-diff` share the standard
-rebrew surface (`binsync-diff` is read-only: no `--dry-run` or `--accept-*`;
-it exits `1` on divergence). `binsync-overlay` adds `--from` and `--fields`,
+`rebrew binsync export`, `rebrew binsync import`, and `rebrew binsync diff` share the standard
+rebrew surface (`rebrew binsync diff` is read-only: no `--dry-run` or `--accept-*`;
+it exits `1` on divergence). `rebrew binsync overlay` adds `--from` and `--fields`,
 and supports the same `--target`/`--module`/`--dry-run`/`--json` flags:
 
 | Flag | Effect |
@@ -468,22 +468,22 @@ and supports the same `--target`/`--module`/`--dry-run`/`--json` flags:
 
 ```bash
 # Export to a directory
-rebrew binsync-export ./binsync_state
+rebrew binsync export ./binsync_state
 
 # Export one module only
-rebrew binsync-export ./binsync_state --module SERVER
+rebrew binsync export ./binsync_state --module SERVER
 
 # Export + git commit the state
-rebrew binsync-export ./binsync_state --git
+rebrew binsync export ./binsync_state --git
 
 # Export for a specific target (multi-target project)
-rebrew binsync-export ./binsync_state --target server
+rebrew binsync export ./binsync_state --target server
 
 # Preview without writing (dry-run)
-rebrew binsync-export ./binsync_state --dry-run
+rebrew binsync export ./binsync_state --dry-run
 
 # Machine-readable summary
-rebrew binsync-export ./binsync_state --json
+rebrew binsync export ./binsync_state --json
 ```
 
 ---
@@ -515,28 +515,28 @@ The metadata-comment column is notes and differing Ghidra names only:
 
 ---
 
-## `rebrew sync`: feature matrix and known issues
+## `rebrew sync push`: feature matrix and known issues
 
-`rebrew sync` is BinSync-primary: field sync (names, prototypes, structs,
+`rebrew sync push` is BinSync-primary: field sync (names, prototypes, structs,
 globals) goes through the shared state dir above, and ReVa MCP remains only
 for the structural ops the state dir cannot express (create-functions,
 bookmarks, pull-data).  For the product vision see [prd/07-ghidra-sync.md](prd/07-ghidra-sync.md);
-for flags see [CLI.md](CLI.md#rebrew-sync).
+for flags see [CLI.md](CLI.md#rebrew-sync-push).
 
 ```mermaid
 graph TD
-    Sync[rebrew sync] --> Push[--push state-dir]
+    Sync[rebrew sync] --> Push[rebrew sync push --state-dir D]
     Push --> Relay[external BinSync plugin relays into Ghidra]
-    Sync --> Pull[--pull state-dir]
+    Sync --> Pull[rebrew sync pull --state-dir D]
     Pull --> Names[names + prototypes + structs + globals + notes]
     Pull --> Create[--create-functions chains MCP function creation]
-    Sync --> Struct[--create-functions · --bookmarks · --pull-data]
+    Sync --> Struct[create-functions · bookmarks · pull-data]
     Struct --> MCP[ReVa MCP structural ops]
     Names --> Conflict{conflict?}
     Conflict -->|yes| Decide[--accept-binsync / --accept-local]
     Decide --> Update[update metadata]
     Conflict -->|no| Update
-    Update --> Summary[--summary / --dry-run preview]
+    Update --> Summary[summary / pull --dry-run preview]
 ```
 
 | Feature | Direction | Status | Command |
@@ -556,7 +556,7 @@ graph TD
 | Validate `programPath` against Ghidra project | n/a | Done | queries `get-current-program` via ReVa MCP and warns on mismatch |
 | Watch mode (live input-change sync) | Local → state dir | Done | `--watch` (push only) |
 | XREF context in skeleton generation | Ghidra → Local | Done | `skeleton --xrefs` |
-| Ghidra decompilation backend for skeleton | Ghidra → Local | Done | `skeleton --decomp --decomp-backend ghidra` |
+| Ghidra decompilation backend for skeleton | Ghidra → Local | Done | `skeleton --decomp --decompiler ghidra` |
 | Metadata-aware linting | Local | Done | `rebrew lint` reads `rebrew-functions.toml` before validation |
 
 ### Known issues
@@ -570,6 +570,6 @@ graph TD
 
 ## Related
 
-- [`rebrew catalog`](CLI.md#rebrew-catalog): function registry and coverage grid
+- [`rebrew coverage catalog`](CLI.md#rebrew-coverage-catalog): function registry and coverage grid
 - [BinSync GitHub](https://github.com/binsync/binsync)
 - [declib](https://github.com/binsync/declib)

@@ -1,12 +1,11 @@
 """skeleton.py - Generate .c skeleton file for an uncovered function.
 
-Given a VA address, generates a properly annotated .c file skeleton with:
-- reccmp-style marker line (FUNCTION/LIBRARY/STUB:  MODULE 0xVA)
-- A placeholder function body
-- Prints the exact rebrew test command to verify it
+Given a VA address, generates a pure-C skeleton and records the function's
+identity (``file``, symbol, name, marker type, and size when the store lacks
+it) in ``rebrew-functions.toml`` under ``MODULE.0xVA``. The ``.c`` file has
+no marker line. Prints the exact rebrew test command to verify it.
 
-All volatile metadata (STATUS, SIZE, CFLAGS, BLOCKER) is written to the
-``rebrew-functions.toml`` metadata by this generator, not into the .c file.
+STATUS is not written. An existing SIZE is left alone.
 
 Usage:
     rebrew skeleton 0x10003da0                    # Generate skeleton
@@ -76,10 +75,6 @@ from rebrew.utils import (
 
 logger = logging.getLogger(__name__)
 
-#: 16-bit DOS profiles whose C compiler rejects ``//`` comments (C89-strict).
-#: Their skeleton markers are emitted as ``/* ... */`` instead.
-C89_STRICT_PROFILES = frozenset({"borland-2.0", "msvc-1.52", "watcom-2.0-win16"})
-
 
 def _decomp_comment_lines(decomp_code: str, decomp_backend: str) -> list[str]:
     """Wrap decompiler output in a block comment it cannot escape.
@@ -123,16 +118,12 @@ def _render_annotation_block(
     convention_note: str | None = None,
     profile: str = "",
 ) -> str:
-    # The annotation marker must use ``/* */`` for the C89-strict 16-bit
-    # compilers that reject ``//`` comments (Turbo C 2.0 errors on any
-    # ``//`` line — verified; MSVC 1.52 and Watcom C are equally strict).
-    # TCC 3.1 and the 32-bit profiles accept both, so ``/* */`` would also
-    # work there — but keep ``//`` (the long-standing convention) for them.
-    use_block_comment = profile in C89_STRICT_PROFILES
-    if use_block_comment:
-        lines = [f"/* {marker}: {cfg_marker} 0x{va:08x} */\n"]
-    else:
-        lines = [f"// {marker}: {cfg_marker} 0x{va:08x}\n"]
+    # Identity (marker, module, VA) is recorded by the write path. The file
+    # is pure C so a migrated tree has nothing for an external marker parser
+    # to read. The three arguments stay so existing callers keep their
+    # keyword shape.
+    del marker, cfg_marker, va
+    lines: list[str] = []
     if xref_context:
         lines.append(f"{xref_context}\n")
     if decomp_code and decomp_body:
@@ -259,7 +250,7 @@ def generate_skeleton(
     func_name = sanitize_name(custom_name if custom_name else ghidra_name)
 
     # Calling-convention-aware stub: the skeleton signature should match the
-    # target's convention (rebrew asm's inference), not always `int __cdecl
+    # target's convention (rebrew binary asm show's inference), not always `int __cdecl
     # f(void)` — for MFC-heavy binaries most functions are thiscall, and a
     # wrong starting signature costs a rewrite per function.
     signature, conv_note = _convention_stub(cfg, va, func_name, func_lookup)
@@ -708,7 +699,7 @@ def _stale_size_note(cfg: ProjectConfig, va: int, size: int) -> str | None:
     if extent is not None and size < extent:
         return (
             f"declared size {size}B is stale — code continues to at least {extent}B; "
-            "run `rebrew asm --size <extent>` to see the real function, or "
+            "run `rebrew binary asm show --size <extent>` to see the real function, or "
             "`rebrew test --fix-sizes` once the body is written"
         )
     return None
@@ -977,10 +968,11 @@ _EPILOG = (
     "  rebrew skeleton 0x10003da0 --append crt_env.c  Append to existing multi-function file\n\n"
     "  rebrew skeleton --batch 10 · · · · · · · · Generate 10 skeletons at once\n\n"
     "[bold]What it creates:[/bold]\n\n"
-    "  A .c file with a FUNCTION marker and placeholder body. All volatile metadata "
-    "(STATUS, SIZE, CFLAGS, BLOCKER) is written to rebrew-functions.toml, not into "
-    "the file itself. With --append, the marker block is appended to an existing "
-    ".c file for multi-function compilation units.\n\n"
+    "  A pure-C .c file with a placeholder body. Identity (file, symbol, name, "
+    "marker type) and SIZE, when the store lacks it, are written to "
+    "rebrew-functions.toml under MODULE.0xVA. STATUS is not written. "
+    "With --append, the body is appended to an existing .c file; a file that "
+    "still has marker lines is migrated first.\n\n"
     "[dim]See also: 'rebrew todo' for a prioritized action list with ROI scoring. "
     "Reads function_structure.json and existing .c files to determine what's uncovered.[/dim]"
 )
@@ -1136,7 +1128,7 @@ def _run_batch_mode(
         else:
             overwrite_backup = _preserve_overwrite(cfg, filepath)
             atomic_write_text(filepath, content, encoding="utf-8")
-            _write_skeleton_metadata(cfg, va_val, size_val, cfg.marker)
+            _write_skeleton_metadata(cfg, filepath, va_val, size_val, cfg.marker, name_val)
 
         symbol_val = "_" + sanitize_name(name_val)
         test_cmd = generate_test_command(rel_path, symbol_val, va_val, size_val)
@@ -1179,20 +1171,42 @@ def _run_batch_mode(
         console.print(f"\n[bold]{label} {len(created)} skeleton files.[/]")
 
 
-def _write_skeleton_metadata(cfg: ProjectConfig, va_int: int, size: int, module_val: str) -> None:
-    """Record SIZE for a freshly created skeleton when metadata lacks it.
+def _write_skeleton_metadata(
+    cfg: ProjectConfig,
+    filepath: Path,
+    va_int: int,
+    size: int,
+    module_val: str,
+    func_name: str,
+    *,
+    kind_module: str = "",
+) -> None:
+    """Record identity and fill SIZE when the store lacks it.
 
-    Without SIZE the function shows MISSING_SIZE and cannot be verified
-    (rebrew test / verify need it to extract target bytes).  Only fills
-    the gap — never overwrites an existing SIZE or touches STATUS.
+    The row key is ``module_val`` (the address module). ``kind_module``
+    selects FUNCTION or LIBRARY: a library module under the game marker is
+    LIBRARY. Never overwrites an existing SIZE and never writes STATUS.
     """
-    from rebrew.metadata import get_entry, update_field
+    from rebrew.annotation import derive_c_symbol, marker_for_module
+    from rebrew.metadata import get_entry, identity_file, record_function_identity
 
     existing = get_entry(cfg.metadata_dir, va_int, module_val)
-    if "size" not in existing:
-        update_field(
-            cfg.metadata_dir, va_int, "size", size, module=module_val, updated_by="skeleton"
-        )
+    name = sanitize_name(func_name)
+    record_function_identity(
+        cfg.metadata_dir,
+        module=module_val,
+        va=va_int,
+        file=identity_file(filepath, cfg.metadata_dir),
+        marker_type=marker_for_module(
+            kind_module or module_val,
+            "RELOC",
+            set(getattr(cfg, "library_modules", None) or ()),
+        ),
+        name=name,
+        symbol=derive_c_symbol(name, ""),
+        size=size if "size" not in existing and size else 0,
+        updated_by="skeleton",
+    )
 
 
 def _run_append_mode(
@@ -1254,9 +1268,20 @@ def _run_append_mode(
         decomp_body=decomp_body,
     )
 
-    # Ensure there's a blank line separator before the new block.  Read with
-    # the tolerant reader and write back in the file's own encoding so
-    # legacy-encoded sources (cp1252/shift_jis) survive the append.
+    # A file that still has marker lines is read from those lines, so an
+    # appended pure-C function is invisible until the file is migrated.
+    # target_name=None records every marker, including another target's.
+    from rebrew.marker_migration import migrate_source_file
+
+    migrated = migrate_source_file(cfg, append_path, None, dry_run=dry_run)
+    if migrated and migrated.get("skipped") == "unrecorded-markers":
+        error_exit(
+            f"{append_path.name} has marker lines that were not recorded; nothing was appended",
+            json_mode=json_output,
+        )
+
+    # Read with the tolerant reader and write back in the file's own encoding
+    # so legacy-encoded sources (cp1252/shift_jis) survive the append.
     existing_text, encoding = read_source_text(append_path)
     # The block is built LF-only; a CRLF source must get the block in its own
     # ending or the appended half of the file is mixed.
@@ -1303,7 +1328,14 @@ def _run_append_mode(
         )
     else:
         atomic_write_text(append_path, existing_text + separator + block, encoding=encoding)
-        _write_skeleton_metadata(cfg, va_int, size, module_val)
+        _write_skeleton_metadata(
+            cfg,
+            append_path,
+            va_int,
+            size,
+            module_val,
+            name if name else ghidra_name,
+        )
 
     rel_path_val = rel_display_path(append_path, root)
     symbol_val = "_" + sanitize_name(name if name else ghidra_name)
@@ -1396,7 +1428,14 @@ def _run_single_va_mode(
     else:
         overwrite_backup = _preserve_overwrite(cfg, filepath_val)
         atomic_write_text(filepath_val, content_val, encoding="utf-8")
-        _write_skeleton_metadata(cfg, va_int, size, module_val)
+        _write_skeleton_metadata(
+            cfg,
+            filepath_val,
+            va_int,
+            size,
+            module_val,
+            name if name else ghidra_name,
+        )
 
     # Compute test commands
     symbol_val = "_" + sanitize_name(name if name else ghidra_name)
@@ -1479,7 +1518,7 @@ def main(
     ),
     decomp_backend: str = typer.Option(
         "auto",
-        "--decomp-backend",
+        "--decompiler",
         help=f"Decompiler backend: {BACKEND_HELP_CHOICES}",
     ),
     xrefs: bool = typer.Option(

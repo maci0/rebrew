@@ -1,4 +1,4 @@
-"""Tests for rebrew link-order — enforce VA order into CMakeLists.txt SOURCES."""
+"""Tests for rebrew build link-order — enforce VA order into CMakeLists.txt SOURCES."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ import pytest
 from typer.testing import CliRunner
 
 from rebrew.link_order import find_sources_block, normalize_listed, render_block
+from rebrew.metadata import record_function_identity
 
 _TOML_CFG = """
 [project]
@@ -108,6 +109,30 @@ class TestFindSourcesBlock:
 
 
 class TestLinkOrderCli:
+    def test_migrated_sources_order_by_store(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        _make_project(tmp_path, {"a.c": None, "b.c": None})
+        for name, va in (("a.c", 0x10003000), ("b.c", 0x10001000)):
+            record_function_identity(
+                tmp_path / "src",
+                module="server.dll",
+                va=va,
+                file=name,
+                marker_type="FUNCTION",
+            )
+        result = _invoke(tmp_path, monkeypatch)
+        assert result.exit_code == 0
+        assert _stdout(result).splitlines()[:2] == ["src/b.c", "src/a.c"]
+
+        from rebrew.order_sources import app
+
+        result = CliRunner().invoke(app, ["--json", "src/a.c", "src/b.c"])
+        assert result.exit_code == 0
+        assert json.loads(result.stdout)["ordered"] == ["src/b.c", "src/a.c"]
+
     def test_preview_lists_va_order(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _make_project(tmp_path, {"a.c": 0x10001000, "b.c": 0x10003000})
         result = _invoke(tmp_path, monkeypatch)

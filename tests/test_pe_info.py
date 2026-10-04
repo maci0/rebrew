@@ -640,14 +640,14 @@ class TestErrors:
 
 class TestPeInfoCli:
     def test_json_output(self) -> None:
-        result = runner.invoke(rebrew.main.app, ["pe-info", str(MINI_PE), "--json"])
+        result = runner.invoke(rebrew.main.app, ["binary", "pe", str(MINI_PE), "--json"])
         assert result.exit_code == 0
         payload = json.loads(result.stdout)
         assert payload["format"] == "pe"
         assert payload["sections"][0]["name"] == ".text"
 
     def test_human_output(self) -> None:
-        result = runner.invoke(rebrew.main.app, ["pe-info", str(MINI_PE)])
+        result = runner.invoke(rebrew.main.app, ["binary", "pe", str(MINI_PE)])
         assert result.exit_code == 0
         assert "Sections" in result.output
         assert ".text" in result.output
@@ -655,7 +655,9 @@ class TestPeInfoCli:
         assert "Security checklist" in result.output
 
     def test_missing_binary_exits_two(self, tmp_path: Path) -> None:
-        result = runner.invoke(rebrew.main.app, ["pe-info", str(tmp_path / "absent.exe"), "--json"])
+        result = runner.invoke(
+            rebrew.main.app, ["binary", "pe", str(tmp_path / "absent.exe"), "--json"]
+        )
         assert result.exit_code == 2
         payload = json.loads(result.stdout)
         assert "error" in payload
@@ -663,7 +665,7 @@ class TestPeInfoCli:
     def test_unsupported_binary_exits_two(self, tmp_path: Path) -> None:
         path = tmp_path / "notes.txt"
         path.write_text("not a binary", encoding="utf-8")
-        result = runner.invoke(rebrew.main.app, ["pe-info", str(path), "--json"])
+        result = runner.invoke(rebrew.main.app, ["binary", "pe", str(path), "--json"])
         assert result.exit_code == 2
         payload = json.loads(result.stdout)
         assert "error" in payload

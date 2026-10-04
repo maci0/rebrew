@@ -1,4 +1,4 @@
-"""stack_cmp.py — the ``rebrew stack-cmp`` command.
+"""stack_cmp.py — the ``rebrew diagnose stack`` command.
 
 Compiles the seed source and hands the target and compiled bytes to
 :mod:`rebrew.stack_analysis`, which derives and diffs the frames.  This module
@@ -8,9 +8,9 @@ it without importing a command.
 
 Usage::
 
-    rebrew stack-cmp src/game/my_func.c
-    rebrew stack-cmp 0x10009310
-    rebrew stack-cmp src/game/my_func.c --json
+    rebrew diagnose stack src/game/my_func.c
+    rebrew diagnose stack 0x10009310
+    rebrew diagnose stack src/game/my_func.c --json
 """
 
 from __future__ import annotations
@@ -126,9 +126,9 @@ def run_stack_cmp(
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew stack-cmp src/game/my_func.c · · · · Compare frame vs target\n\n"
-    "  rebrew stack-cmp 0x10009310 · · · · · · · Resolve VA to its source\n\n"
-    "  rebrew stack-cmp src/game/my_func.c --json · JSON output\n\n"
+    "  rebrew diagnose stack src/game/my_func.c · · · · Compare frame vs target\n\n"
+    "  rebrew diagnose stack 0x10009310 · · · · · · · Resolve VA to its source\n\n"
+    "  rebrew diagnose stack src/game/my_func.c --json · JSON output\n\n"
     "[bold]Exit codes:[/bold]\n\n"
     "  0   Stack frames match\n\n"
     "  1   Frame differs (size / frame pointer / ret-popping / slot layout)\n\n"

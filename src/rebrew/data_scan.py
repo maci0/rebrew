@@ -1,10 +1,10 @@
-"""data_scan.py – Global data scanning library behind ``rebrew data``.
+"""data_scan.py – Global data scanning library behind ``rebrew data list``.
 
 Scans reversed .c files for ``// GLOBAL: MODULE 0xVA`` and ``// DATA: MODULE 0xVA``
 annotations (reccmp standard) and ``extern`` data declarations, detects dispatch
 tables / vtables in data sections, and verifies ``.bss`` layout.  Holds no CLI
 code, so compile-time callers (``coff_reloc``) and analysis commands import it
-without pulling in the ``rebrew data`` Typer app (``rebrew.data``).
+without pulling in the ``rebrew data list`` Typer app (``rebrew.data``).
 """
 
 import logging
@@ -77,6 +77,7 @@ _ANY_MARKER_RE = re.compile(
     r"(?://|/\*)\s*(?P<kind>FUNCTION|STUB|LIBRARY|DATA|GLOBAL|VTABLE|STRING):\s*"
     r"(?P<module>[A-Z0-9_]+)\s+0x[0-9a-fA-F]+"
 )
+_INLINE_DATA_KINDS = frozenset({"GLOBAL", "DATA", "VTABLE", "STRING"})
 
 # extern data declarations are parsed by c_parser.find_extern_variables()
 # via tree-sitter AST walking — see scan_globals().
@@ -298,7 +299,99 @@ def _source_visible_to_target(lines: list[str], cfg: ProjectConfig | None) -> bo
     return not saw_marker
 
 
-def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
+def _has_inline_data_marker(lines: list[str]) -> bool:
+    """Whether *lines* still carry a GLOBAL/DATA/VTABLE/STRING marker.
+
+    One such line means the file has not migrated its data identity.  The
+    marker walk is the source of truth, and stored ``file`` rows are not
+    merged on top of it.
+    """
+    for line in lines:
+        match = _ANY_MARKER_RE.search(line)
+        if match is not None and match.group("kind") in _INLINE_DATA_KINDS:
+            return True
+    return False
+
+
+def _bind_stored_data_rows(
+    *,
+    cfg: ProjectConfig,
+    cfile: Path,
+    fname: str,
+    is_header: bool,
+    extern_vars: dict[str, Any],
+    annotated_names: set[str],
+    by_key: dict[tuple[str, int], GlobalEntry],
+    remember: Any,
+    type_by_name: dict[str, dict[str, list[str]]],
+    mark: Any,
+) -> None:
+    """Attach ``rebrew-data.toml`` rows whose ``file`` matches *cfile*.
+
+    Called only when the source has no inline data marker.  Names are added
+    to *annotated_names* before the extern pass so a ``(name, 0)`` entry is
+    not created for a global the store already placed.  An existing
+    ``(name, 0)`` entry is adopted.  A header does not take a ``.c`` row,
+    and it does not become the reference type.
+    """
+    from rebrew.data_metadata import data_rows_for_path
+
+    try:
+        rows = data_rows_for_path(cfg.metadata_dir, cfile)
+    except (OSError, ValueError) as exc:
+        log.warning("rebrew-data.toml file lookup failed for %s: %s", cfile, exc)
+        return
+    for module, va, entry in rows:
+        if not module_visible_to_target(module, cfg):
+            continue
+        stored_name = Path(str(entry.get("file") or "").replace("\\", "/")).name
+        if is_header and stored_name != cfile.name:
+            continue
+        name = str(entry.get("name") or "")
+        declared = extern_vars.get(name) if name else None
+        type_str = str(entry.get("type") or "")
+        if not type_str and declared is not None and declared.type_str:
+            type_str = declared.type_str
+        if not name:
+            warnings.warn(
+                f"{fname}: data row {module}.0x{va:08x} matches this file but has no name",
+                stacklevel=3,
+            )
+            name = "unknown"
+        annotated_names.add(name)
+        key = (name, va)
+        bound = by_key.get(key)
+        if bound is None:
+            bound = by_key.pop((name, 0), None)
+            if bound is not None:
+                bound.va = va
+                bound.annotated = True
+                remember(bound, key)
+            else:
+                bound = GlobalEntry(name=name, va=va, type_str=type_str, annotated=True)
+                remember(bound, key)
+        else:
+            bound.annotated = True
+        bound.declare(fname)
+        bound.module = module
+        if "size" in entry:
+            bound.size = entry.get("size")
+        bound.storage_kind = str(entry.get("storage_kind") or "object")
+        bound.backing = str(entry.get("backing") or "")
+        bound.link_symbol = str(entry.get("link_symbol") or "")
+        if declared is not None and declared.declaration:
+            bound.declaration = declared.declaration
+        if type_str and not bound.type_str:
+            bound.type_str = type_str
+        if type_str:
+            type_by_name[name][type_str].append(fname)
+            if not is_header:
+                mark(name, type_str)
+
+
+def scan_globals(
+    src_dir: Path, cfg: ProjectConfig | None = None, *, record_roles: bool = True
+) -> ScanResult:
     """Scan reversed source files for global declarations.
 
     Collects:
@@ -313,12 +406,19 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
     A file whose markers are all another target's contributes nothing.
     Library-module markers stay: they are not targets.
 
+    A file with no inline data marker binds ``rebrew-data.toml`` rows whose
+    ``file`` matches it.  A file that still has one is read from that line
+    and does not also take stored rows.
+
     Headers are scanned after sources. A header redeclaration does not
     conflict with a ``.c`` declaration of the same name, and the ``.c``
     type is the one kept for size: ``extern int g[]`` in a header beside
     ``unsigned int g[4]`` in a source is one global. Two headers that
     disagree, with no ``.c`` declaration, still conflict, and so do two
     ``.c`` markers that spell the same global differently.
+
+    *record_roles* fills ``defined_in`` and ``referenced_in``. The reloc
+    name map only reads names and VAs, so it passes False and skips that walk.
     """
     from rebrew.c_parser import array_type_shape, find_extern_variables, find_variable_roles
     from rebrew.sources import iter_sources_and_headers
@@ -434,7 +534,8 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
                 "" if i in foreign_decl_lines else line for i, line in enumerate(lines)
             )
 
-        file_roles[fname] = find_variable_roles(extern_text, function_filter=function_visible)
+        if record_roles:
+            file_roles[fname] = find_variable_roles(extern_text, function_filter=function_visible)
 
         # Pre-compute extern variables from tree-sitter (used for unannotated
         # scan).  Definitions are included: a global's real type lives on its
@@ -558,6 +659,20 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
                         _mark(name, type_str)
 
                 continue
+
+        if cfg is not None and not _has_inline_data_marker(lines):
+            _bind_stored_data_rows(
+                cfg=cfg,
+                cfile=cfile,
+                fname=fname,
+                is_header=is_header,
+                extern_vars=extern_vars,
+                annotated_names=annotated_names,
+                by_key=by_key,
+                remember=_remember,
+                type_by_name=type_by_name,
+                mark=_mark,
+            )
 
         # 2. Add unannotated extern variables from tree-sitter
         for ev_name, ev in extern_vars.items():
@@ -773,7 +888,7 @@ def build_dispatch_known_functions(cfg: ProjectConfig, src_dir: Path) -> dict[in
     FLIRT-identified CRT functions).  A "0% resolved" table is misleading
     when the catalog already knows the names.
 
-    Shared by ``rebrew data --dispatch`` and ``rebrew analyze``'s dossier, so
+    Shared by ``rebrew data dispatch`` and ``rebrew binary analyze``'s dossier, so
     both report the same resolution count.
     """
     known_functions = build_source_known_functions(cfg, src_dir)

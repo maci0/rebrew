@@ -17,6 +17,7 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from rebrew.config import ProjectConfig
+from rebrew.utils import path_is_relative_to, resolved_path
 
 logger = logging.getLogger(__name__)
 
@@ -221,8 +222,11 @@ def contained_path(roots: Path | str | Sequence[Path | str], relative: str | Pat
     if not base:
         return None
     try:
-        resolved = (base[0].resolve() / candidate).resolve()
-        return next((resolved for root in base if resolved.is_relative_to(root.resolve())), None)
+        resolved = resolved_path(resolved_path(base[0]) / candidate)
+        return next(
+            (resolved for root in base if path_is_relative_to(resolved, resolved_path(root))),
+            None,
+        )
     except (OSError, ValueError):
         return None
 
@@ -260,7 +264,7 @@ def iter_library_headers(
     :func:`iter_sources` applies to sources, and what
     :func:`rebrew.catalog.scan_reversed_dir` already did for headers.  Without
     it, shared ``library_*.h`` markers are invisible to coverage (`status`,
-    `todo`), `crt-match`, the call graph, and ``rebrew context``.
+    `todo`), `crt-match`, the call graph, and ``rebrew export context``.
 
     *scanned* is a :func:`scan_files` result for the same directory.
     """

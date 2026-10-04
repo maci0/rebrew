@@ -80,7 +80,7 @@ class TestBackendDispatch:
         assert set(_BACKEND_MAP) <= listed
         assert "auto" in listed
 
-    @pytest.mark.parametrize("command", ["decompile", "recover-structs", "skeleton"])
+    @pytest.mark.parametrize("command", ["decompile", "types recover", "skeleton"])
     def test_command_help_spells_every_backend(self, command: str) -> None:
         """The rendered ``--help`` of each command that takes a backend.
 
@@ -91,7 +91,7 @@ class TestBackendDispatch:
 
         from rebrew.main import app
 
-        result = CliRunner().invoke(app, [command, "--help"])
+        result = CliRunner().invoke(app, [*command.split(), "--help"])
         assert result.exit_code == 0, result.output
         rendered = " ".join(result.output.split())
         for name in _BACKEND_MAP:

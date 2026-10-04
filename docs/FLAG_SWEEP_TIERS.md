@@ -1,6 +1,6 @@
 # Flag-Sweep Tiers
 
-`rebrew match --flag-sweep-only` (and the GA engine's `--flag-sweep` mode)
+`rebrew match flags` (and `rebrew match batch --algorithm flags`)
 exhaustively compiles a function across a grid of MSVC6 flag combinations and
 reports the best-matching variant.  To keep runtimes manageable the grid is
 tiered by coverage vs. speed.
@@ -15,7 +15,7 @@ options) or a `Checkbox` (on/off), so total combinations multiply.
 | Tier | Axes | Combinations | Typical runtime | When to use |
 |------|------|-------------|-----------------|-------------|
 | `quick` | 3 | 192 | < 1 min | First attempt on a new STUB; rules out most /O and /G variants fast |
-| `targeted` | 5 | 1,152 | 1–3 min | Default for `--flag-sweep-only`; adds /Oy and /Op |
+| `targeted` | 5 | 1,152 | 1–3 min | Default for `rebrew match flags`; adds /Oy and /Op |
 | `normal` | 5 | 5,376 | 3–10 min | Follow-up when `targeted` is close but not EXACT; adds /ML-/MTd runtime-library axis |
 | `thorough` | 9 | 258,048 | hours | Use when `normal` still leaves a near-match; adds struct alignment and debug-info toggles |
 | `full` | 13 | 6,193,152 | hours | Last resort; sweeps every known axis including /TP, /GR, /GX |
@@ -105,19 +105,19 @@ pass, not an exhaustive one.
 
 ```bash
 # Default tier (targeted, 1,152 combinations)
-rebrew match src/game_dll/my_func.c --flag-sweep-only
+rebrew match flags src/game_dll/my_func.c
 
 # Explicit tier
-rebrew match src/game_dll/my_func.c --flag-sweep-only --tier quick
-rebrew match src/game_dll/my_func.c --flag-sweep-only --tier targeted
-rebrew match src/game_dll/my_func.c --flag-sweep-only --tier thorough
-rebrew match src/game_dll/my_func.c --flag-sweep-only --tier full
+rebrew match flags src/game_dll/my_func.c --tier quick
+rebrew match flags src/game_dll/my_func.c --tier targeted
+rebrew match flags src/game_dll/my_func.c --tier thorough
+rebrew match flags src/game_dll/my_func.c --tier full
 
 # Batch: sweep all NEAR_MATCHING functions and auto-update CFLAGS on hit
-rebrew match --all --flag-sweep --fix-cflags
+rebrew match batch --fix-cflags --algorithm flags
 ```
 
-See also [CLI.md](CLI.md) under `rebrew match` for the full flag reference,
+See also [CLI.md](CLI.md) under `rebrew match flags` for the full flag reference,
 and `rebrew-matching/SKILL.md` for the AI-agent workflow that wraps the GA engine.
 
 ## Non-MSVC6 sweep grids
@@ -127,13 +127,13 @@ CLI sweep runs.  `MSVC_SWEEP_TIERS` is shared with the 7.x-and-later flag set
 (`COMMON_MSVC_FLAGS`), where `normal` and `thorough` also resolve `msvc_fp`
 (`/fp:*`): an id that `MSVC6_FLAGS` does not carry, so it contributes nothing
 there.  The other grids in `flag_data.py` are reached only through the toolchain sweep
-(`--flag-sweep-only --flag-sweep-toolchains`), which enumerates the image-backed
-**MSVC** toolchains (`--sweep-toolchains`/`--sweep-exclude-toolchains` filter by profile
+(`rebrew match toolchains --flags`), which enumerates the image-backed
+**MSVC** toolchains (`--toolchains`/`--exclude-toolchains` filter by profile
 name or version prefix, e.g. `msvc-6.0,6.0,win16`).
 
 ### MSVC 1.52 (16-bit)
 
-`rebrew match --flag-sweep-only --flag-sweep-toolchains --sweep-toolchains msvc-1.52`
+`rebrew match toolchains --toolchains msvc-1.52 --flags`
 sweeps the 16-bit CL flags (`/Od /O1 /O2 /Ox` opt, `/AS /AM /AC /AL`
 **memory models**, `/G2 /G3` codegen, `/Aw /Au` far-data, `/Gs`/`/Za`
 toggles): quick=25, targeted=75, normal=450, thorough=900 combinations.

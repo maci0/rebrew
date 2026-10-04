@@ -29,7 +29,7 @@ flowchart TB
 
     subgraph L2["Intelligence & visualization"]
         RES["resembl<br/>MinHash + LSH asm similarity<br/>own DB (SQLite/Postgres/…)"]
-        RECOV["recovery<br/>Bottle + VanJS coverage SPA<br/>reads db/coverage-*.toml"]
+        RECOV["recoverage<br/>Bottle + Preact coverage SPA<br/>reads db/coverage-*.toml"]
         REPORTAL["reportal<br/>self-hosted portal: binaries ·<br/>functions · matches · scans · reports"]
         REAGENT["reagent<br/>autonomous LLM RE agent<br/>imports Rebrew internals"]
     end
@@ -50,7 +50,7 @@ flowchart TB
     RB -->|"reads Dockerfiles via<br/>REBREW_TOOLCHAINS_DIR"| RT
     RB -->|"docker run"| IMG
     RB -->|"similarity group:<br/>resembl/scoring.py"| RES
-    RB -->|"rebrew catalog + rebrew build-db"| RECOV
+    RB -->|"rebrew coverage catalog + rebrew coverage build"| RECOV
     RB -->|"rebrew CLI: analyze · asm · decompile ·<br/>fingerprints · crypto-scan · xrefs"| REPORTAL
     RECOV -.->|"coverage document format"| REPORTAL
     RES -.->|"scoring core (similarity group)"| REPORTAL
@@ -62,9 +62,9 @@ flowchart TB
     REPORTAL -.->|"self-hosted portal UX"| REL
     REL -.->|"snowball datasets from matched pairs"| REAGENT
     REL -.->|"community knowledge"| DECOMP
-    RB -.->|"reccmp-compatible source<br/>markers"| RECCMP
+    RB -.->|"parser reads unmigrated<br/>reccmp markers"| RECCMP
     RECCMP -.->|"recomp build reads<br/>Rebrew source trees"| PRJ
-    RB <-.->|"state-dir TOML:<br/>binsync-export / binsync-import"| BINSYNC
+    RB <-.->|"state-dir TOML:<br/>binsync export / binsync import"| BINSYNC
 ```
 
 ## Components
@@ -84,7 +84,7 @@ What rebrew *produces* for the ecosystem:
 - matched C sources + per-function `rebrew-functions.toml` / `rebrew-data.toml`
   metadata (the durable output),
 - `db/coverage-<target>.toml`: one clear-text coverage document per target,
-  consumed by recovery ([COVERAGE_DOCUMENT.md](COVERAGE_DOCUMENT.md)),
+  consumed by recoverage ([COVERAGE_DOCUMENT.md](COVERAGE_DOCUMENT.md)),
 - GA run history (`ga_runs.jsonl`) and FLIRT signature indexes,
 - docker image names/builds (consumed via rebrew-toolchains).
 
@@ -126,44 +126,46 @@ dependency and keeps its own database.
 Boundary with rebrew's own matchers: `resembl` owns the *persisted corpus and
 approximate search* case (a snippet library built across projects, near
 neighbours, a query that is a fragment of a larger function). rebrew's
-`instruction_clones` (`rebrew similar --submatch` / `--cluster`) owns the *in-process,
+`instruction_clones` (`rebrew similarity function --submatch` / `--cluster`) owns the *in-process,
 exact, one target* case (where two functions correspond, which functions are
 identical after normalization) and keeps no index. Cross-project duplicate
 detection belongs on `resembl`; see
 [ARCHITECTURE.md](ARCHITECTURE.md#which-similarity-tool) for the full list of
 similarity surfaces.
 
-### recovery: coverage dashboard
+### recoverage: coverage dashboard
 
-Standalone consumer of rebrew's output: a Bottle web server + zero-build
-VanJS SPA rendering a defrag-style per-byte coverage grid over
-`db/coverage-<target>.toml` (exact/reloc/matching/stub/none cells, function detail
-panel, live cross-references, potato mode, CI gate via `recovery check`).
+Standalone consumer of Rebrew's coverage documents: a Bottle server and a
+Preact SPA display per-byte section coverage, function and data details, and
+server-rendered Potato Mode. `recoverage check` supplies a coverage gate.
 
-The contract is the coverage document alone: `rebrew build-db` →
-`db/coverage-<target>.toml` → `recovery serve`.  recovery imports nothing from rebrew and runs on any machine
-holding readable documents: no toolchain required.
+The shared contract is [COVERAGE_DOCUMENT.md](COVERAGE_DOCUMENT.md):
+`rebrew coverage build` writes `db/coverage-<target>.toml`, and
+`recoverage serve` reads it through `rebrew.coverage_toml`.
+`rebrew.workspace` resolves project configuration and the coverage directory;
+Recoverage regeneration calls `write_coverage_toml` in process. Serving existing
+documents requires no compiler toolchain or original binary.
 
 ### reportal: the self-hosted portal
 
-A self-hosted portal: a Bottle JSON API plus a
-zero-build ES-module SPA over a SQLite store, replacing hosted SaaS tooling with the
-sibling engines. It registers binaries (`add-binary`, `import-rebrew`), stores
-fingerprints, strings, and imports, browses functions with disassembly and
-decompilation, ranks cross-corpus matches with a softmax confidence, records
-rename history with revert and applies a match as a rename, organizes
-collections and tags, searches, runs triage (`rebrew analyze`), report,
-recovered-struct, and crypto scans, and serves the generated report site.
+Reportal serves a FastAPI JSON API and a Vite/Preact SPA over its own SQLite
+store. It imports Rebrew projects, stores binary analyses and functions,
+compares listings through Resembl, and exposes inspection and source-recovery
+operations. Its [README](../../reportal/README.md) and
+[capability reference](../../reportal/docs/PARITY.md) describe the complete
+portal surface.
 
-Backing engines: `rebrew` is invoked through its CLI (`analyze`, `asm`,
-`decompile`, `imports`, `strings`, `xrefs`, `fingerprints`, `crypto-scan`,
-`recover-structs`, `report`), and `resembl`'s scoring core supplies the
-matching similarity (the optional `similarity` dependency group). The contract is
-rebrew's `db/coverage-<target>.toml` documents plus its project directories; reportal imports
-nothing from rebrew at runtime and runs offline. The hosted AI surfaces
-(embedding matching, AI decompilation prose, the security and LM agents,
-dynamic execution, auth/teams) are deliberately out of scope, and its
-`docs/PARITY.md` tracks each portal capability and its status.
+Rebrew is a library dependency. `reportal.engines` owns direct Python calls for
+inspection, disassembly, decompilation and scans; intake launches the Rebrew CLI
+and then generates coverage documents in process. `reportal.rebrew_import`
+reads those documents through the shared TOML reader and records the project's
+path for later engine operations. Reportal keeps its own portal database;
+coverage documents are derived Rebrew inputs.
+
+The default is local operation. LLM endpoints, guarded URL ingestion, external
+sources and sandbox execution are opt-in features configured by the workspace.
+See Reportal's [threat model](../../reportal/docs/THREAT_MODEL.md) for their
+boundaries.
 
 ### recompile: compiler-as-a-service
 
@@ -227,16 +229,17 @@ dependency.
 comparison framework from the LEGO Island decomp community: the de-facto
 standard toolset for Windows binary-matching decomp projects. It is
 **external** (not a sibling repo in this workspace), but rebrew deliberately
-maintains format- and workflow-level compatibility with it, so a rebrew
-project is a drop-in for a reccmp-based one and vice versa.
+keeps the comparison tools and the parser for reccmp's marker lines. A
+migrated rebrew tree is pure C, so a reccmp checkout of that tree sees no
+annotations. An unmigrated tree still parses.
 
 | Boundary | How rebrew interoperates |
 |---|---|
-| Source markers | The `// FUNCTION: MODULE 0xVA` annotation format is reccmp-compatible: reccmp's parser reads rebrew source files (marker + symbol; the extra rebrew KV lines are ignored), and `annotation.py` parses reccmp-style blocks. The reccmp-only `ANALYSIS` key is tolerated inline so reccmp files round-trip, even though rebrew's own convention routes it to metadata (inline use fires lint W019) |
-| Tool equivalents | rebrew reimplements reccmp's toolset natively: `rebrew verify-exports` = `verexp`, `rebrew stack-cmp` = `stackcmp` (adapted; frames derived from disassembly on both sides instead of a recomp PDB, so it works for MSVC 6.0 whose PDBs `llvm-pdbutil` cannot read), `rebrew lint` = `decomplint`-inspired, `rebrew verify --nolib` = reccmp `--nolib` |
-| Match semantics | Verify's *effective match* parity: a delta that is pure register allocation counts as 100%, matching reccmp's effective-match rule (`rebrew near-diag` reports it as `EFFECTIVE`) |
+| Source markers | The parser still reads reccmp's `// FUNCTION: MODULE 0xVA` blocks (marker + symbol; extra KV lines are rebrew's). New writers do not emit them: identity is a `MODULE.0xVA` row and the `.c` is pure C. A reccmp checkout of a migrated tree sees no annotations. The reccmp-only `ANALYSIS` key is tolerated inline so an unmigrated reccmp file still loads (inline use fires lint W019) |
+| Tool equivalents | rebrew reimplements reccmp's toolset natively: `rebrew build check-exports` = `verexp`, `rebrew diagnose stack` = `stackcmp` (adapted; frames derived from disassembly on both sides instead of a recomp PDB, so it works for MSVC 6.0 whose PDBs `llvm-pdbutil` cannot read), `rebrew lint` = `decomplint`-inspired, `rebrew verify --nolib` = reccmp `--nolib` |
+| Match semantics | Verify's *effective match* parity: a delta that is pure register allocation counts as 100%, matching reccmp's effective-match rule (`rebrew diagnose near` reports it as `EFFECTIVE`) |
 | Adapted modules | Beyond the tool equivalents, four adaptations from reccmp's source (MIT) remain: pinned-sequence diffing, the jump-swap instruction-equivalence check (in `near_analysis`), and vtordisp/float-const detection; see [RECCMP_ADAPTATIONS.md](RECCMP_ADAPTATIONS.md) |
-| Recomp build | rebrew sources build into a reccmp-style recomp binary: `rebrew round-trip` splices matched functions back into the PE and reports the naked-fenced sources so the reccmp build can compile them with `-DREBREW_ALLOW_NAKED=1` |
+| Recomp build | rebrew sources build into a reccmp-style recomp binary: `rebrew build round-trip` splices matched functions back into the PE and reports the naked-fenced sources so the reccmp build can compile them with `-DREBREW_ALLOW_NAKED=1` |
 
 ### BinSync
 
@@ -248,30 +251,30 @@ locals, and comments between analysts and tools. rebrew bridges to it at the
 [declib](https://github.com/binsync/declib) (BinSync's artifact layer, the
 `binsync` extra):
 
-- `rebrew binsync-init <state-dir>` creates the git envelope upstream
+- `rebrew binsync init <state-dir>` creates the git envelope upstream
   requires: the `binsync/__root__` root commit (`.gitignore` +
   `binary_hash`) and a `binsync/<user>` branch.
-- `rebrew binsync-export <outdir>` writes a BinSync state directory: declib
+- `rebrew binsync export <outdir>` writes a BinSync state directory: declib
   `Function` artifacts (one per function, reversed + catalog-only with
   canonical sizes; header, stack vars, and comments included),
   `global_vars.toml`, `structs/`, `enums.toml`, `typedefs.toml`, and
   `metadata.toml`. STATUS is comparison-earned and CFLAGS are local compiler inputs; neither is exported.
-- `rebrew binsync-import <state-dir>` is the inverse: it reads a state
+- `rebrew binsync import <state-dir>` is the inverse: it reads a state
   directory produced by any BinSync-aware decompiler and applies names,
   prototypes, globals, stack vars, comments, and type definitions back into
-  rebrew, with the same conflict resolution as `rebrew sync`
+  rebrew, with the same conflict resolution as `rebrew sync push`
   (`--accept-binsync` / `--accept-local`, `--module`, `--dry-run`,
   `--create-missing`).
-- `rebrew binsync-overlay <state-dir>` maps a related target's BinSync data
+- `rebrew binsync overlay <state-dir>` maps a related target's BinSync data
   onto structurally matched functions of this target (the same code at
   different VAs): names, prototypes, notes, globals by content, and shifted
   stack vars/comments.
-- `rebrew binsync-diff <state-dir>` is a read-only divergence report (exit
+- `rebrew binsync diff <state-dir>` is a read-only divergence report (exit
   1 on any divergence, JSON output) for previewing imports and guarding
   sync drift in CI.
 
 BinSync is the *team/tool* boundary, complementary to the Ghidra-only ReVa
-MCP bridge (`rebrew sync`): anything BinSync-aware can consume rebrew's
+MCP bridge (`rebrew sync push`): anything BinSync-aware can consume rebrew's
 exports and feed renames back, while the Ghidra bridge stays interactive.
 Full details: [BINSYNC_INTEGRATION.md](BINSYNC_INTEGRATION.md).
 
@@ -286,9 +289,9 @@ flowchart LR
     end
 
     subgraph BS["BinSync collaboration loop"]
-        EXP["rebrew binsync-export"]
-        IMP["rebrew binsync-import"]
-        DIFF["rebrew binsync-diff<br/>(CI gate)"]
+        EXP["rebrew binsync export"]
+        IMP["rebrew binsync import"]
+        DIFF["rebrew binsync diff<br/>(CI gate)"]
         STATE[("BinSync state directory")]
         DEC["BinSync-aware decompilers<br/>IDA · Binary Ninja · Ghidra"]
     end
@@ -311,7 +314,7 @@ flowchart LR
 ```
 
 Both interop loops in one view: the BinSync collaboration cycle
-(export → decompilers → import back, with `binsync-diff` guarding drift)
+(export → decompilers → import back, with `rebrew binsync diff` guarding drift)
 and the reccmp format interop (sources into the recomp build).
 
 The full external-tools table (decomp.me, LIEF, Capstone, angr, ReVa, and
@@ -327,9 +330,9 @@ flowchart LR
     CMP --> MET["rebrew-functions.toml<br/>STATUS promotion"]
     CMP --> VFY["rebrew verify<br/>similarity column"]
     RES["resembl scoring core"] --> VFY
-    CMP --> BDB["rebrew build-db"]
+    CMP --> BDB["rebrew coverage build"]
     BDB --> DB[("db/coverage-<target>.toml")]
-    DB --> DASH["recovery serve<br/>defrag grid SPA"]
+    DB --> DASH["recoverage serve<br/>defrag grid SPA"]
 ```
 
 The compile-service flow is the same compiler boundary, served over HTTP
@@ -344,12 +347,13 @@ Edges point strictly upward in the diagram above: the graph is acyclic:
 | Component | Depends on | Boundary contract |
 |---|---|---|
 | rebrew | resembl (scoring core), rebrew-toolchains (image source) | python import; sibling checkout + `docker run` |
-| recovery | (nothing from rebrew) | the `coverage-<target>.toml` document format |
+| recoverage | rebrew (shared reader, workspace helpers, regeneration) | coverage TOML + direct Python APIs |
+| reportal | rebrew (engine APIs and coverage), optional resembl (scores) | direct Python APIs + coverage TOML |
 | recompile | rebrew (toolchain catalog), toolchain images | path dependency + HTTP API out |
 | reagent | rebrew (internals) | direct `rebrew.*` imports |
 | relumea | none yet: vision layer over the stack | n/a |
 | recondb / decompedia | none | n/a |
-| reccmp (external) | nothing from rebrew: consumes its outputs | source-marker format + recomp build (the catalog CSV export is no longer written) |
+| reccmp (external) | nothing from rebrew: consumes its outputs | unmigrated marker lines still parse; a migrated tree is pure C. The recomp build still applies (the catalog CSV export is no longer written) |
 | BinSync (external) | nothing from rebrew: consumes its exports | BinSync state-dir TOML layout |
 
 Decoupling is by stable contract, not shared code:
@@ -357,13 +361,13 @@ Decoupling is by stable contract, not shared code:
 - **toolchains**: docker images + the `sources.json` manifest; rebrew and
   recompile are interchangeable consumers,
 - **coverage**: the clear-text document format in [COVERAGE_DOCUMENT.md](COVERAGE_DOCUMENT.md);
-  rebrew writes it, recovery reads it, and the two never import each other,
+  Rebrew writes it; Recoverage and Reportal use the shared Rebrew reader,
 - **similarity**: the `resembl/scoring.py` module, importable without
   resembl's database stack,
 - **compiles**: `POST /api/v1/compile` for remote consumers,
 - **collaboration**: the BinSync state-dir TOML layout for any
-  BinSync-aware decompiler; the reccmp source-marker format for the
-  comparison ecosystem,
+  BinSync-aware decompiler. Reccmp still parses an unmigrated marker
+  line; a migrated tree has none,
 - **agents/vision**: HTTP + file datasets (train JSONL), nothing shipped
   depends on the SaaS layer.
 
@@ -377,7 +381,8 @@ Decoupling is by stable contract, not shared code:
 ├── rebrew-projects/     # *-rebrew project instances (win2k-*, skifree16/32,
 │                        #   test_*, bench, smygb, makehm, ...)
 ├── resembl/             # asm similarity search library
-├── recovery/          # coverage dashboard SPA
+├── recoverage/          # coverage dashboard SPA
+├── reportal/            # local reverse-engineering portal
 ├── recompile/           # compiler-as-a-service API
 ├── reagent/             # autonomous LLM RE agent
 ├── relumea/             # SaaS workbench vision (Go backend + React frontend)
@@ -401,10 +406,10 @@ binary being decompiled.
   AI-decomp research landscape)
 - [TOOLCHAIN.md](TOOLCHAIN.md): the toolchain zoo and image provenance
 - [COVERAGE_DOCUMENT.md](COVERAGE_DOCUMENT.md): the coverage document format shared with
-  recovery
+  recoverage
 - [BINSYNC_INTEGRATION.md](BINSYNC_INTEGRATION.md): the BinSync state-dir
   bridge in detail
 - [PRINCIPLES.md](PRINCIPLES.md): idempotency, score monotonicity, snowball
   effect
-- Sibling READMEs: `../rebrew-toolchains`, `../resembl`, `../recovery`,
+- Sibling READMEs: `../rebrew-toolchains`, `../resembl`, `../recoverage`,
   `../recompile`, `../relumea`, `../reagent`

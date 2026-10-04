@@ -125,6 +125,33 @@ def test_every_cli_command_documented() -> None:
     )
 
 
+def test_every_nested_cli_route_is_documented() -> None:
+    """New domain operations cannot silently escape the reference's coverage."""
+    import typer
+    from typer._click.core import Command
+    from typer.core import TyperGroup
+
+    from rebrew.main import app
+
+    root = typer.main.get_command(app)
+    assert isinstance(root, TyperGroup)
+    builtin_names = {component.name for component in BUILTIN_COMPONENTS}
+    pending: list[tuple[tuple[str, ...], Command]] = [
+        ((name,), command) for name, command in root.commands.items() if name in builtin_names
+    ]
+    reference = (ROOT / "docs" / "CLI.md").read_text(encoding="utf-8")
+    missing: list[str] = []
+    while pending:
+        path, command = pending.pop()
+        route = " ".join(path)
+        if not re.search(r"\brebrew " + re.escape(route) + r"(?![\w-])", reference):
+            missing.append(route)
+        if isinstance(command, TyperGroup):
+            for name, child in command.commands.items():
+                pending.append(((*path, name), child))
+    assert not missing, f"Runtime routes missing from docs/CLI.md: {sorted(missing)}"
+
+
 #: Commands intentionally absent from the agent skills — meta/niche tooling
 #: agents never drive (PE resource compare, skill discovery itself).  Every
 #: other command must be named in a SKILL.md or a progressive-disclosure
@@ -233,6 +260,14 @@ def test_every_component_main_has_callback_decorator() -> None:
         src = (ROOT / "src" / "rebrew" / f"{mod_file}.py").read_text(encoding="utf-8")
         # Single-command modules need @app.callback on main(); multi-command
         # apps register @app.command subcommands and run app() directly.
+        if component.attr:
+            import importlib
+
+            import typer
+
+            exported = getattr(importlib.import_module(component.module), component.attr)
+            assert isinstance(exported, typer.Typer) or callable(exported)
+            continue
         assert "@app.callback" in src or "@app.command" in src, (
             f"{mod_file}.py wires no callback and no subcommands — "
             "direct module execution fails at runtime"
@@ -269,7 +304,7 @@ def test_every_component_module_resolves() -> None:
     for component in BUILTIN_COMPONENTS:
         mod = importlib.import_module(component.module)
         if component.is_group:
-            assert hasattr(mod, "app"), (
+            assert hasattr(mod, component.attr or "app"), (
                 f"group component {component.name!r} module {component.module} has no app"
             )
         else:
@@ -290,12 +325,12 @@ def test_option_help_survives_rich_markup() -> None:
 
     from rebrew.main import app
 
-    result = CliRunner().invoke(app, ["gen-layout", "--help"])
+    result = CliRunner().invoke(app, ["build", "layout", "--help"])
     assert result.exit_code == 0, result.output
     assert "[link]" in result.stdout
     assert "[targets.<t>.layout]" in result.stdout
 
-    match_result = CliRunner().invoke(app, ["match", "--help"])
+    match_result = CliRunner().invoke(app, ["match", "run", "--help"])
     assert match_result.exit_code == 0, match_result.output
     assert "[llm]" in match_result.stdout
 

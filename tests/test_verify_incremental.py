@@ -26,6 +26,7 @@ from rebrew.verify_hash import (
     compiler_config_hash,
     entry_fingerprint,
     entry_headers_fp,
+    fresh_entry_fingerprint,
     headers_hash,
     source_hash,
 )
@@ -1139,6 +1140,32 @@ class TestPatchVerifyCacheEntries:
 
 
 class TestIncrementalVerify:
+    def test_changing_native_symbol_invalidates_cached_body(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        cfg = _make_cfg(tmp_path)
+        (cfg.reversed_dir / "vendor.c").write_text(
+            "int first(void) { return 1; }\nint second(void) { return 2; }\n"
+        )
+        entry = Annotation(
+            va=0x10001000,
+            name="vendor",
+            filepath="vendor.c",
+            size=16,
+            symbol="_first",
+            marker_type="LIBRARY",
+            status="STUB",
+        )
+        calls: list[int] = []
+        _patch_verify(monkeypatch, cfg, [entry], calls)
+        assert runner.invoke(app, ["--json", "--no-promote"]).exit_code == 0
+        calls.clear()
+        assert runner.invoke(app, ["--json", "--no-promote"]).exit_code == 0
+        assert calls == []
+        entry.symbol = "_second"
+        assert runner.invoke(app, ["--json", "--no-promote"]).exit_code == 0
+        assert calls == [entry.va]
+
     @pytest.mark.parametrize("preserve_keys", [None, {"0x00001000"}])
     def test_identical_full_save_refreshes_verify_time(
         self, tmp_path: Path, preserve_keys: set[str] | None
@@ -1569,6 +1596,154 @@ class TestHeadersHashCacheInvalidation:
         assert raw["headers_hash"] != ""
 
 
+class TestVerifyCacheDump:
+    """The cache rewrite emits scalars directly. The generic walk is the fallback."""
+
+    def test_scalar_rows_match_without_the_generic_walk(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.verify_cache import _dump_toml, _dump_verify_cache, toml_document
+
+        document = {
+            "version": 2,
+            "compiler_hash": "ab",
+            "target": "server",
+            "entries": {
+                "0x10000000": {
+                    "status": "EXACT",
+                    "va": "0x10000000",
+                    "match_percent": 100.0,
+                    "passed": True,
+                    "message": 'say "hi"',
+                    "context_hash": None,
+                    "delta": 0,
+                }
+            },
+            "headers_hash": "cd",
+            "binary_id": "ef",
+        }
+        generic = tomllib.loads(_dump_toml(toml_document(document)))
+
+        def refuse(*_args: object, **_kwargs: object) -> None:
+            raise AssertionError("generic emitter")
+
+        monkeypatch.setattr("rebrew.verify_cache._emit_toml_table", refuse)
+        flat = tomllib.loads(_dump_verify_cache(document))
+        assert flat == generic
+        assert flat["entries"]["0x10000000"]["context_hash"] == ""
+        assert flat["entries"]["0x10000000"]["match_percent"] == 100.0
+
+    def test_nested_row_uses_the_generic_emitter(self) -> None:
+        from rebrew.verify_cache import _dump_toml, _dump_verify_cache, toml_document
+
+        document = {
+            "version": 2,
+            "entries": {"0x10000000": {"status": "EXACT", "files": ["a.c"]}},
+        }
+        generic = tomllib.loads(_dump_toml(toml_document(document)))
+        assert tomllib.loads(_dump_verify_cache(document)) == generic
+
+
+class TestVerifyBaselineDump:
+    """The baseline rewrite emits its shape directly. The generic walk is the fallback."""
+
+    def test_summary_and_rows_match_without_the_generic_walk(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.verify_cache import _dump_toml, _dump_verify_baseline, toml_document
+
+        document = {
+            "schema_version": 2,
+            "target": "server",
+            "context_hash": None,
+            "dry_run": False,
+            "size_divergences": [],
+            "compiler_hash": "ab",
+            "summary": {
+                "total": 1,
+                "passed": 1,
+                "library_providers": {"compiled": 0, "prebuilt": 0},
+            },
+            "results": [
+                {
+                    "status": "EXACT",
+                    "match_percent": 100.0,
+                    "passed": True,
+                    "message": 'say "hi"',
+                    "context_hash": None,
+                    "delta": 0,
+                }
+            ],
+        }
+        generic = tomllib.loads(_dump_toml(toml_document(document)))
+
+        def refuse(*_args: object, **_kwargs: object) -> None:
+            raise AssertionError("generic emitter")
+
+        monkeypatch.setattr("rebrew.verify_cache._emit_toml_table", refuse)
+        flat = tomllib.loads(_dump_verify_baseline(document))
+        assert flat == generic
+        assert flat["context_hash"] == ""
+        assert flat["results"][0]["match_percent"] == 100.0
+        assert flat["size_divergences"] == []
+
+    def test_mixed_result_list_uses_the_generic_emitter(self) -> None:
+        from rebrew.verify_cache import _dump_toml, _dump_verify_baseline, toml_document
+
+        document = {"results": [{"status": "EXACT"}, "nope"]}
+        generic = tomllib.loads(_dump_toml(toml_document(document)))
+        assert tomllib.loads(_dump_verify_baseline(document)) == generic
+
+
+class TestHitChecksTheResolvedSource:
+    """A cache hit stats the path the fingerprint resolved. It does not resolve again."""
+
+    def test_hit_does_not_resolve_the_source_twice(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.sources import contained_path
+
+        cfg, _shared, _other = _seed_current_cache(tmp_path)
+        hit_resolves = {"n": 0}
+
+        def counting(*args: object, **kwargs: object) -> Path | None:
+            hit_resolves["n"] += 1
+            return contained_path(*args, **kwargs)  # type: ignore[arg-type]
+
+        monkeypatch.setattr("rebrew.verify.contained_path", counting)
+        count, cached = _prepare_cached(cfg)
+        assert count == 2
+        assert cached == 2
+        assert hit_resolves["n"] == 0
+
+
+class TestFreshFingerprintReuse:
+    """The save re-stats the resolved source. It does not resolve the roots again."""
+
+    def test_unchanged_source_does_not_resolve_again(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        cfg = _make_cfg(tmp_path)
+        (cfg.reversed_dir / "a.c").write_text("int a(void) { return 1; }\n", encoding="utf-8")
+
+        class _Source:
+            filepath = "a.c"
+            size = 4
+            cflags = ""
+            module = ""
+            toolchain = ""
+
+        entry = _Source()
+        first = entry_fingerprint(cfg, entry)
+        assert first is not None
+
+        def refuse(*_args: object, **_kwargs: object) -> None:
+            raise AssertionError("contained_path")
+
+        monkeypatch.setattr("rebrew.sources.contained_path", refuse)
+        assert fresh_entry_fingerprint(cfg, entry) is first
+
+
 class TestEntryHeadersFp:
     def test_reached_header_edit_changes_fp(self, tmp_path: Path) -> None:
         """A header the source reaches shapes the entry fingerprint."""
@@ -1596,6 +1771,41 @@ class TestEntryHeadersFp:
         fp2 = entry_headers_fp(cfg, src, "")
         assert fp1 == fp2
         assert fp1 != ""
+
+    def test_nested_shared_dir_is_an_include_root_without_a_parents_walk(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A source under shared/sub hashes the shared root. A sibling does not.
+
+        The check used to walk ``Path.parents`` once per source.
+        """
+        cfg = _make_cfg(tmp_path)
+        shared = tmp_path / "src" / "shared"
+        nested = shared / "sub"
+        nested.mkdir(parents=True)
+        sibling = tmp_path / "src" / "shared-extra"
+        sibling.mkdir()
+        cfg.shared_dir = shared
+        under = nested / "func.c"
+        under.write_text("int func(void){return 1;}\n", encoding="utf-8")
+        beside = sibling / "func.c"
+        beside.write_text("int func(void){return 1;}\n", encoding="utf-8")
+        seen: dict[str, list[str]] = {}
+
+        def capture(content: str, source_dir: str | None, include_dirs: list[str]) -> str:
+            seen["dirs"] = list(include_dirs)
+            return "digest"
+
+        monkeypatch.setattr("rebrew.compile_cache.header_dependency_hash", capture)
+
+        def refuse(self: Path, other: object, /, *args: object, **kwargs: object) -> bool:
+            raise AssertionError("parents walk")
+
+        monkeypatch.setattr(Path, "is_relative_to", refuse)
+        assert entry_headers_fp(cfg, under, "") == "digest"
+        assert str(shared.resolve()) in seen["dirs"]
+        assert entry_headers_fp(cfg, beside, "") == "digest"
+        assert str(shared.resolve()) not in seen["dirs"]
 
     def test_force_include_falls_back_to_dir_fp(self, tmp_path: Path) -> None:
         """A force-include flag (/FI) must fall back to directory fingerprinting."""
@@ -1830,3 +2040,311 @@ class TestEntryFingerprint:
         after = entry_fingerprint(cfg, entry)
         assert before is not None and after is not None
         assert before.headers_fp != after.headers_fp
+
+
+def _write_hit_sources(cfg: ProjectConfig) -> tuple[Path, Path]:
+    """Two functions that reach ``shared.h``, plus a header neither reaches."""
+    shared = cfg.reversed_dir / "shared.h"
+    shared.write_text("typedef int BOOL;\n", encoding="utf-8")
+    other = cfg.reversed_dir / "other.h"
+    other.write_text("typedef int UNUSED;\n", encoding="utf-8")
+    for index, name in enumerate(("fa", "fb")):
+        va = 0x10001000 + index * 16
+        (cfg.reversed_dir / f"{name}.c").write_text(
+            f"// FUNCTION: SERVER 0x{va:08X}\n"
+            f"// SIZE: 16\n"
+            f'#include "shared.h"\n'
+            f"int {name}(void) {{ return {index}; }}\n",
+            encoding="utf-8",
+        )
+    return shared, other
+
+
+def _seed_current_cache(tmp_path: Path) -> tuple[ProjectConfig, Path, Path]:
+    """Write a verify cache with the shipped ``save_verify_cache``."""
+    from rebrew.catalog.loaders import scan_reversed_dir
+    from rebrew.verify_cache import save_verify_cache
+
+    cfg = _make_cfg(tmp_path)
+    shared, other = _write_hit_sources(cfg)
+    found = [
+        entry
+        for entry in scan_reversed_dir(cfg.reversed_dir, cfg=cfg)
+        if not str(getattr(entry, "filepath", "")).endswith(".h")
+    ]
+    assert len(found) == 2
+    rows = [
+        {
+            "status": "EXACT",
+            "va": f"0x{entry.va:08x}",
+            "size": entry.size,
+            "filepath": entry.filepath,
+            "name": entry.name,
+            "symbol": entry.symbol,
+            "module": entry.module,
+            "delta": 0,
+            "match_percent": 100.0,
+            "passed": True,
+            "message": "EXACT MATCH",
+            "similarity": 1.0,
+            "reg_delta": 0,
+            "effective_match": True,
+            "diff_lines": 0,
+            "context_hash": None,
+        }
+        for entry in found
+    ]
+    save_verify_cache(cfg.root / ".rebrew" / "verify_cache.toml", cfg, rows, found)
+    return cfg, shared, other
+
+
+def _prepare_cached(cfg: ProjectConfig, context: Any = None) -> tuple[int, int]:
+    """Return ``(annotation count, cached count)`` from the shipped hit check."""
+    from rebrew.verify import prepare_entries
+
+    entries, _passed, _failed, _details, _results, cached, *_rest = prepare_entries(
+        cfg, False, True, context=context
+    )
+    return len(entries), cached
+
+
+def _bump_mtime(path: Path) -> None:
+    """Move *path*'s mtime by one second and require the stat to change."""
+    before = path.stat().st_mtime_ns
+    updated = before + 1_000_000_000
+    os.utime(path, ns=(updated, updated))
+    assert path.stat().st_mtime_ns != before
+
+
+class TestCurrentWriterCacheIdentity:
+    """Hit and miss through a cache file the current writer produced.
+
+    ``prepare_entries`` is the check ``rebrew verify`` runs.  These tests do
+    not stub the loader.  A stat change is applied in this process, which is
+    the ``verify --watch`` case: a memo that ignored the new stat would still
+    report a hit.
+    """
+
+    def test_unchanged_entries_hit(self, tmp_path: Path) -> None:
+        cfg, shared, other = _seed_current_cache(tmp_path)
+        count, cached = _prepare_cached(cfg)
+        assert count == 2
+        assert cached == count
+        _bump_mtime(other)
+        other.write_text("typedef long UNUSED;\n", encoding="utf-8")
+        count, cached = _prepare_cached(cfg)
+        assert count == 2
+        assert cached == count
+        before = shared.stat().st_mtime_ns
+        _bump_mtime(shared)
+        assert shared.stat().st_mtime_ns != before
+        count, cached = _prepare_cached(cfg)
+        assert count == 2
+        assert cached == 0
+
+    def test_source_edit_misses(self, tmp_path: Path) -> None:
+        cfg, _shared, _other = _seed_current_cache(tmp_path)
+        assert _prepare_cached(cfg) == (2, 2)
+        for path in cfg.reversed_dir.glob("*.c"):
+            path.write_text(path.read_text(encoding="utf-8") + "/* touched */\n", encoding="utf-8")
+        assert _prepare_cached(cfg) == (2, 0)
+
+    def test_cflags_change_misses(self, tmp_path: Path) -> None:
+        cfg, _shared, _other = _seed_current_cache(tmp_path)
+        assert _prepare_cached(cfg) == (2, 2)
+        cfg.cflags = "/O1"
+        assert _prepare_cached(cfg) == (2, 0)
+
+    def test_toolchain_change_misses(self, tmp_path: Path) -> None:
+        cfg, _shared, _other = _seed_current_cache(tmp_path)
+        assert _prepare_cached(cfg) == (2, 2)
+        for path in cfg.reversed_dir.glob("*.c"):
+            text = path.read_text(encoding="utf-8")
+            path.write_text(
+                text.replace("// SIZE: 16\n", "// SIZE: 16\n// TOOLCHAIN: watcom-2.0-win32\n", 1),
+                encoding="utf-8",
+            )
+        assert _prepare_cached(cfg) == (2, 0)
+
+    def test_defines_change_misses(self, tmp_path: Path) -> None:
+        cfg, _shared, _other = _seed_current_cache(tmp_path)
+        assert _prepare_cached(cfg) == (2, 2)
+        cfg.defines = ["FOO"]
+        assert _prepare_cached(cfg) == (2, 0)
+
+    def test_size_change_misses(self, tmp_path: Path) -> None:
+        cfg, _shared, _other = _seed_current_cache(tmp_path)
+        assert _prepare_cached(cfg) == (2, 2)
+        for path in cfg.reversed_dir.glob("*.c"):
+            text = path.read_text(encoding="utf-8")
+            path.write_text(text.replace("// SIZE: 16\n", "// SIZE: 32\n", 1), encoding="utf-8")
+        assert _prepare_cached(cfg) == (2, 0)
+
+    def test_module_change_misses(self, tmp_path: Path) -> None:
+        cfg, _shared, _other = _seed_current_cache(tmp_path)
+        assert _prepare_cached(cfg) == (2, 2)
+        for path in cfg.reversed_dir.glob("*.c"):
+            text = path.read_text(encoding="utf-8")
+            path.write_text(
+                text.replace("// FUNCTION: SERVER ", "// FUNCTION: CLIENT ", 1), encoding="utf-8"
+            )
+        assert _prepare_cached(cfg) == (2, 0)
+
+    def test_context_digest_change_misses(self, tmp_path: Path) -> None:
+        from rebrew.compile_context import CompileContext
+
+        cfg, _shared, _other = _seed_current_cache(tmp_path)
+        assert _prepare_cached(cfg) == (2, 2)
+        context = CompileContext(path=cfg.root / "ctx.c", text="typedef int T;\n", sha256="abc")
+        assert _prepare_cached(cfg, context) == (2, 0)
+
+    def test_comparison_logic_change_misses(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import rebrew.verify_hash as verify_hash
+
+        cfg, _shared, _other = _seed_current_cache(tmp_path)
+        assert _prepare_cached(cfg) == (2, 2)
+        monkeypatch.setattr(verify_hash, "_compare_logic_hash", lambda: "f" * 64)
+        assert _prepare_cached(cfg) == (2, 0)
+
+
+class TestResultRowCopy:
+    def test_cached_row_does_not_deepcopy(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A cache hit rebuilds its report row without copying the entry.
+
+        ``asdict`` deep-copies every field, then the row drops the identity
+        ones. The counter is ``copy.deepcopy`` calls, which stay at zero.
+        """
+        import copy
+
+        from rebrew.verify_cache import VerifyCache, VerifyCacheEntry
+
+        def _boom(*_args: object, **_kwargs: object) -> None:
+            raise AssertionError("deepcopy")
+
+        monkeypatch.setattr(copy, "deepcopy", _boom)
+        entry = VerifyCacheEntry(
+            status="EXACT",
+            va="0x10001000",
+            size=16,
+            filepath="src/f.c",
+            name="f",
+            symbol="f",
+            module="SERVER",
+            delta=0,
+            match_percent=100.0,
+            passed=True,
+            message="EXACT MATCH",
+            similarity=1.0,
+            reg_delta=0,
+            effective_match=True,
+            diff_lines=0,
+            context_hash=None,
+            source_hash="ab",
+            mtime_ns=1,
+            cflags="/O2",
+            headers_fp="cd",
+            toolchain="(default)",
+            defines="(none)",
+        )
+        row = entry.result_row()
+        assert row["status"] == "EXACT"
+        assert row["match_percent"] == 100.0
+        assert "source_hash" not in row
+        cache = VerifyCache(
+            version=2,
+            compiler_hash="ef",
+            target="server",
+            entries={"0x10001000": entry},
+        )
+        document = cache.to_dict()
+        assert document["entries"]["0x10001000"]["source_hash"] == "ab"
+        assert document["entries"]["0x10001000"]["status"] == "EXACT"
+
+
+class TestVerifyCacheLineParse:
+    """A verify cache of scalars is read without the general TOML parser."""
+
+    def _simple_cache(self, cfg: ProjectConfig) -> Path:
+        cache_path = cfg.root / ".rebrew" / "verify_cache.toml"
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(
+            "\n".join(
+                [
+                    "version = 2",
+                    f'compiler_hash = "{compiler_config_hash(cfg)}"',
+                    'target = "SERVER"',
+                    'headers_hash = "abc"',
+                    "[entries.0x00000010]",
+                    'status = "EXACT"',
+                    'va = "0x00000010"',
+                    "size = 4",
+                    'filepath = "a.c"',
+                    'name = "func_a"',
+                    'symbol = "_func_a"',
+                    'module = "SERVER"',
+                    "delta = 0",
+                    "match_percent = 100.0",
+                    "passed = true",
+                    'message = "say \\"hi\\""',
+                    "similarity = 1.0",
+                    "reg_delta = 0",
+                    "effective_match = true",
+                    "diff_lines = 0",
+                    'context_hash = ""',
+                    'source_hash = "abc"',
+                    "mtime_ns = 5",
+                    'cflags = "/O2 /Gd"',
+                    'headers_fp = "def"',
+                    'toolchain = "(default)"',
+                    'defines = "(none)"',
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        return cache_path
+
+    def test_simple_cache_does_not_call_tomllib(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        cfg = _make_cfg(tmp_path)
+        cache_path = self._simple_cache(cfg)
+
+        def refuse(*_args: object, **_kwargs: object) -> None:
+            raise AssertionError("tomllib")
+
+        monkeypatch.setattr("rebrew.verify_cache.tomllib.loads", refuse)
+        loaded = load_verify_cache(cache_path, cfg)
+        assert loaded is not None
+        row = loaded.entries["0x00000010"]
+        assert row.message == 'say "hi"'
+        assert row.context_hash is None
+        assert row.match_percent == 100.0
+        assert isinstance(row.match_percent, float)
+        assert row.passed is True
+        assert row.mtime_ns == 5
+
+    def test_trailing_comment_uses_tomllib(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        cfg = _make_cfg(tmp_path)
+        cache_path = self._simple_cache(cfg)
+        text = cache_path.read_text(encoding="utf-8").replace(
+            "version = 2\n", "version = 2 # keep\n", 1
+        )
+        cache_path.write_text(text, encoding="utf-8")
+        calls = {"n": 0}
+        original = tomllib.loads
+
+        def counting(payload: str, *args: object, **kwargs: object) -> dict[str, Any]:
+            calls["n"] += 1
+            return original(payload, *args, **kwargs)  # type: ignore[arg-type]
+
+        monkeypatch.setattr("rebrew.verify_cache.tomllib.loads", counting)
+        loaded = load_verify_cache(cache_path, cfg)
+        assert calls["n"] == 1
+        assert loaded is not None
+        assert loaded.version == 2
+        assert loaded.entries["0x00000010"].message == 'say "hi"'

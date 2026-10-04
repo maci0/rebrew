@@ -95,10 +95,10 @@ class TestParserConsolidation:
         assert "FUNCTION" in meta
 
     def test_blocker_present(self, tmp_path: Path) -> None:
-        # Volatile keys are metadata-owned: inline BLOCKER is ignored.
+        # Legacy BLOCKER is co-read for migration; a stored value overrides it.
         p = _write_c(tmp_path, "stub.c", STUB_HEADER)
         meta = parse_source_metadata(str(p))
-        assert "BLOCKER" not in meta
+        assert meta["BLOCKER"] == "initial decompilation"
 
 
 # ---------------------------------------------------------------------------

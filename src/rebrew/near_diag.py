@@ -1,4 +1,4 @@
-"""near_diag.py — the ``rebrew near-diag`` command.
+"""near_diag.py — the ``rebrew diagnose near`` command.
 
 Compiles the C source, extracts the target bytes, and hands the pair to
 :mod:`rebrew.near_analysis`, which classifies the delta.  This module owns the
@@ -340,9 +340,9 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew near-diag src/game/func.c · · · · · Classify the delta\n\n"
-        "  rebrew near-diag src/game/func.c --json · · Machine-readable\n\n"
-        "  rebrew near-diag --all --fix-blocker · · · Classify + document all NEAR_MATCHING\n\n"
+        "  rebrew diagnose near src/game/func.c · · · · · Classify the delta\n\n"
+        "  rebrew diagnose near src/game/func.c --json · · Machine-readable\n\n"
+        "  rebrew diagnose near --all --fix-blocker · · · Classify + document all NEAR_MATCHING\n\n"
         "[dim]Categories: register (same insn, different regs), equivalent\n"
         "(semantically equal instruction selection), reloc (relocation-masked),\n"
         "structural (different layout). The verdict suggests whether the delta\n"

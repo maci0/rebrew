@@ -2,6 +2,7 @@
 
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 import typer
@@ -36,9 +37,9 @@ class TestMatchCliWatch:
             default_jobs=2,
         )
         monkeypatch.setattr("rebrew.match.require_config", lambda **kw: cfg)
-        result = CliRunner().invoke(app, ["--watch", "--all"])
+        result = CliRunner().invoke(app, ["batch", "--watch"])
         assert result.exit_code == 2
-        assert "--watch cannot be combined with --all" in result.output
+        assert "No such option: --watch" in result.output
 
     def test_watch_enters_watch_mode_and_retests(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -65,7 +66,7 @@ class TestMatchCliWatch:
             "rebrew.utils.watch_files",
             lambda paths, retest: captured.update(paths=paths, retest=retest),
         )
-        result = CliRunner().invoke(app, ["--watch", "f.c"])
+        result = CliRunner().invoke(app, ["run", "--watch", "f.c"])
         assert result.exit_code == 0
         # First invocation must enter watch mode, not run the GA itself.
         assert seen == {}
@@ -120,7 +121,7 @@ class TestMatchAllTargets:
             return (1, 0) if seen["n"] == 1 else (0, 1)
 
         monkeypatch.setattr("rebrew.match.run_all", _fake_run_all)
-        result = CliRunner().invoke(app, ["--all-targets", "--json"])
+        result = CliRunner().invoke(app, ["batch", "--all-targets", "--json"])
         # Documented exit contract: 1 = no match found — a batch with any
         # failed stub is not a success (previously always exited 0, a false
         # green for CI gates).
@@ -133,16 +134,16 @@ class TestMatchAllTargets:
         assert payload["matched"] == 1
         assert payload["failed"] == 1
 
-    def test_all_targets_with_all_errors(
+    def test_batch_rejects_retired_all_flag(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         from rebrew.match import app
 
         cfg = self._cfg(tmp_path)
         monkeypatch.setattr("rebrew.match.require_config", lambda **kw: cfg)
-        result = CliRunner().invoke(app, ["--all-targets", "--all"])
+        result = CliRunner().invoke(app, ["batch", "--all-targets", "--all"])
         assert result.exit_code == 2
-        assert "--all-targets cannot be combined with --all" in result.output
+        assert "No such option: --all" in result.output
 
     def test_one_broken_target_does_not_discard_the_others(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -176,7 +177,7 @@ class TestMatchAllTargets:
             return 2, 0
 
         monkeypatch.setattr("rebrew.match.run_all", _fake_run_all)
-        result = CliRunner().invoke(app, ["--all-targets", "--json"])
+        result = CliRunner().invoke(app, ["batch", "--all-targets", "--json"])
         # The broken target counts as failed → documented exit contract (1),
         # and the healthy target still runs and aggregates (its GA was not
         # discarded by the sibling's failure).
@@ -199,9 +200,9 @@ class TestMatchAllTargets:
 
         cfg = self._cfg(tmp_path)
         monkeypatch.setattr("rebrew.match.require_config", lambda **kw: cfg)
-        result = CliRunner().invoke(app, ["--all-targets", "--watch"])
+        result = CliRunner().invoke(app, ["batch", "--all-targets", "--watch"])
         assert result.exit_code == 2
-        assert "--watch cannot be combined with --all-targets" in result.output
+        assert "No such option: --watch" in result.output
 
 
 class TestResolveBuildParamsSymbol:
@@ -431,7 +432,7 @@ int other(void) { return 2; }
 
 
 class TestMatchCliDryRun:
-    """rebrew match --dry-run is batch-only; single-function must reject it."""
+    """Only batch selection and LLM requests support matcher previews."""
 
     def test_single_function_dry_run_rejected(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -451,9 +452,23 @@ class TestMatchCliDryRun:
             raise AssertionError("run_single_ga ran for a single function under --dry-run")
 
         monkeypatch.setattr("rebrew.match.run_single_ga", _boom)
-        result = CliRunner().invoke(app, ["--dry-run", "f.c"])
+        result = CliRunner().invoke(app, ["run", "--dry-run", "f.c"])
         assert result.exit_code == 2
         assert "batch mode only" in result.output
+
+    @pytest.mark.parametrize("operation", ["flags", "toolchains"])
+    def test_compiler_sweeps_reject_preview_before_loading_config(
+        self, operation: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.match import app
+
+        def unexpected(**kwargs: Any) -> None:
+            raise AssertionError("unsupported option reached project loading")
+
+        monkeypatch.setattr("rebrew.match.require_config", unexpected)
+        result = CliRunner().invoke(app, [operation, "f.c", "--dry-run"])
+        assert result.exit_code == 2
+        assert "No such option" in result.output
 
 
 class TestAllTargetsParallel:
@@ -498,7 +513,7 @@ class TestAllTargetsParallel:
             return (1, 0)
 
         monkeypatch.setattr("rebrew.match.run_all", _fake_run_all)
-        result = CliRunner().invoke(app, ["--all-targets", "--json"])
+        result = CliRunner().invoke(app, ["batch", "--all-targets", "--json"])
         assert result.exit_code == 0
         # 4 jobs over 2 targets → 2 each; total wine concurrency stays ~4.
         assert job_args == [2, 2]
@@ -516,7 +531,7 @@ class TestAllTargetsParallel:
             return (1, 0)
 
         monkeypatch.setattr("rebrew.match.run_all", _fake_run_all)
-        result = CliRunner().invoke(app, ["--all-targets", "--json"])
+        result = CliRunner().invoke(app, ["batch", "--all-targets", "--json"])
         assert result.exit_code == 0
         assert job_args == [4]  # no split needed
 
@@ -561,7 +576,7 @@ class TestAllTargetsParallel:
         import concurrent.futures as cf
 
         monkeypatch.setattr(cf, "ThreadPoolExecutor", _CapturingPool)
-        result = CliRunner().invoke(app, ["--all-targets", "--json"])
+        result = CliRunner().invoke(app, ["batch", "--all-targets", "--json"])
         assert result.exit_code == 0
         # 4 jobs cap concurrent targets at 4; each gets jobs//4 = 1.
         assert job_args == [1] * 8
@@ -600,7 +615,7 @@ class TestMatchCliLink:
             lambda *a, **k: captured.update(args=a, kwargs=k),
         )
         result = CliRunner().invoke(
-            app, ["--no-compare-obj", "--link", "link /SUBSYSTEM:WINDOWS", "f.c"]
+            app, ["run", "--no-compare-obj", "--link", "link /SUBSYSTEM:WINDOWS", "f.c"]
         )
         assert result.exit_code == 0, result.output
         # The linked build path (compare_obj=False) receives --link by keyword.
@@ -610,7 +625,7 @@ class TestMatchCliLink:
     def test_help_exposes_link(self) -> None:
         from rebrew.match import app
 
-        result = CliRunner().invoke(app, ["--help"])
+        result = CliRunner().invoke(app, ["run", "--help"])
         assert result.exit_code == 0
         assert "Linker command" in result.output
         assert "--link" in result.output

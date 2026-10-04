@@ -8,6 +8,10 @@ per-target copies ``cross-import`` used to make) collapse into one stacked
 block per body (one ``// FUNCTION: <target> <va>`` marker per target,
 ADR-022): the migration path from N copies to one shared file.  Bodies
 that differ between targets are refused, never averaged.
+
+A migrated file has no marker block.  The same command reads each function
+row, copies that C definition and its file-scope objects into the output,
+and retargets every row that names an input.  ``--dry-run`` writes nothing.
 """
 
 import re
@@ -19,6 +23,7 @@ import typer
 
 from rebrew.annotation import (
     DATA_MARKERS,
+    FUNCTION_MARKERS,
     NEW_FUNC_CAPTURE_RE,
     NEW_KV_RE,
     block_markers,
@@ -34,10 +39,25 @@ from rebrew.cli import (
     require_config,
 )
 from rebrew.config import ProjectConfig
+from rebrew.data_metadata import load_data_metadata, record_migrated_data_markers
+from rebrew.metadata import (
+    identity_file,
+    load_metadata,
+    record_migrated_markers,
+    validate_identity_file,
+)
 from rebrew.sources import (
     iter_sources,
     source_exts,
     target_marker,
+)
+from rebrew.split import (
+    SourceSpan,
+    row_labels,
+    shared_preamble,
+    source_layout,
+    span_extent,
+    stored_file_matches,
 )
 from rebrew.utils import (
     atomic_write_text,
@@ -54,12 +74,13 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew merge src/game/func1.c src/game/func2.c --output merged.c · Merge two files\n\n"
-        "  rebrew merge src/game/ --output all_funcs.c · · · · · · · · · · · Merge entire directory\n\n"
-        "  rebrew merge src/game/ --output merged.c --delete · · · · · · · · Merge and delete originals\n\n"
-        "  rebrew merge src/game/ --output merged.c --consolidate · · · · · · Hoist declarations to the top\n\n"
+        "  rebrew source merge src/game/func1.c src/game/func2.c --output merged.c · Merge two files\n\n"
+        "  rebrew source merge src/game/ --output all_funcs.c · · · · · · · · · · · Merge entire directory\n\n"
+        "  rebrew source merge src/game/ --output merged.c --delete · · · · · · · · Merge and delete originals\n\n"
+        "  rebrew source merge src/game/ --output merged.c --consolidate · · · · · · Hoist declarations to the top\n\n"
         "[dim]Shared preambles (includes, typedefs) are deduplicated. "
-        "Each function block retains its // FUNCTION: marker.[/dim]"
+        "An unmigrated file keeps its // FUNCTION: markers. "
+        "A migrated file is copied from its function rows.[/dim]"
     ),
 )
 
@@ -476,13 +497,732 @@ def _collect_input_files(
     return files
 
 
+# --- Marker-less merge -------------------------------------------------------
+# A pure-C file has no // FUNCTION: block.  The output keeps each C definition
+# and the file-scope objects defined beside it.  Rows whose file names an
+# input move to the output.  A file-level naked, struct, or callers fence is
+# dropped, because the result has a second function.
+
+_NO_VA = 2**63
+
+
+def _file_borne_line(line: str) -> bool:
+    body = line.strip()
+    if body.startswith("//"):
+        body = body[2:].strip()
+    elif body.startswith("/*") and body.endswith("*/"):
+        body = body[2:-2].strip()
+    else:
+        return False
+    key, _, value = body.partition(":")
+    key = key.strip().upper()
+    if key in {"STRUCT", "CALLERS"}:
+        return True
+    return key == "SOURCE" and value.strip().upper() == "NAKED"
+
+
+def _drop_file_borne(text: str) -> str:
+    return "".join(line for line in text.splitlines(keepends=True) if not _file_borne_line(line))
+
+
+def _norm_c(text: str) -> str:
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    lines = [line.rstrip() for line in normalized.split("\n")]
+    while lines and lines[0] == "":
+        lines.pop(0)
+    while lines and lines[-1] == "":
+        lines.pop()
+    return "\n".join(lines)
+
+
+@dataclass
+class _Piece:
+    """One definition copied into the merged file."""
+
+    name: str
+    text: str
+    norm: str
+    rows: list[tuple[str, int, str]]
+    va: int
+
+
+@dataclass
+class _InputLayout:
+    """Preamble and definitions from one migrated input, in source order."""
+
+    rel: str
+    preamble: str
+    va: int
+    stores: list[_Piece]
+    functions: list[_Piece]
+
+
+def _definition_problem(span: SourceSpan, filename: str, *, function: bool) -> str | None:
+    """Refuse a conditional, unparsed, or unnamed definition before any write."""
+    broken = span.inside_pp or not span.name or (function and not span.proto)
+    if not broken:
+        return None
+    label = span.name or ("a function" if function else "an object")
+    return f"{label} in {filename} is inside a preprocessor conditional or did not parse"
+
+
+def _take_rows(
+    name: str,
+    candidates: list[tuple[str, int, dict[str, Any]]],
+    claimed: dict[tuple[str, int], str],
+    seen: set[tuple[str, int]],
+    *,
+    noun: str,
+) -> tuple[list[tuple[str, int, str]], list[str]]:
+    """Rows whose symbol or name is *name*.  One row cannot name two definitions."""
+    rows: list[tuple[str, int, str]] = []
+    problems: list[str] = []
+    for module, va, entry in candidates:
+        if name not in row_labels(entry):
+            continue
+        key = (module, va)
+        previous = claimed.get(key)
+        if previous is not None and previous != name:
+            problems.append(f"{noun} {module}.0x{va:08x} matches {previous} and {name}")
+            continue
+        claimed[key] = name
+        seen.add(key)
+        rows.append((module, va, str(entry.get("file") or "")))
+    return rows, problems
+
+
+def _make_piece(
+    span: SourceSpan,
+    raw: bytes,
+    spans: list[SourceSpan],
+    rows: list[tuple[str, int, str]],
+) -> _Piece:
+    """Definition text for *span*, with a file-level fence removed."""
+    start, end = span_extent(raw, span, spans)
+    body = _drop_file_borne(raw[start:end].decode("utf-8", errors="surrogateescape"))
+    return _Piece(
+        name=span.name,
+        text=body,
+        norm=_norm_c(body),
+        rows=rows,
+        va=min((row_va for _module, row_va, _old in rows), default=_NO_VA),
+    )
+
+
+def _append_function(
+    span: SourceSpan,
+    raw: bytes,
+    spans: list[SourceSpan],
+    candidates: list[tuple[str, int, dict[str, Any]]],
+    claimed: dict[tuple[str, int], str],
+    seen: set[tuple[str, int]],
+    filename: str,
+    pieces: list[_Piece],
+    problems: list[str],
+) -> None:
+    """Copy one function.  A non-static definition needs a row; a static helper does not."""
+    problem = _definition_problem(span, filename, function=True)
+    if problem is not None:
+        problems.append(problem)
+        return
+    rows, claim_problems = _take_rows(span.name, candidates, claimed, seen, noun="Row")
+    problems.extend(claim_problems)
+    if not span.static and not rows:
+        problems.append(f"{span.name} in {filename} has no function row")
+    pieces.append(_make_piece(span, raw, spans, rows))
+
+
+def _append_storage(
+    span: SourceSpan,
+    raw: bytes,
+    spans: list[SourceSpan],
+    candidates: list[tuple[str, int, dict[str, Any]]],
+    claimed: dict[tuple[str, int], str],
+    seen: set[tuple[str, int]],
+    filename: str,
+    pieces: list[_Piece],
+    problems: list[str],
+) -> None:
+    """Copy one file-scope object.  A matching data row moves with it."""
+    problem = _definition_problem(span, filename, function=False)
+    if problem is not None:
+        problems.append(problem)
+        return
+    rows, claim_problems = _take_rows(span.name, candidates, claimed, seen, noun="Data row")
+    problems.extend(claim_problems)
+    pieces.append(_make_piece(span, raw, spans, rows))
+
+
+def _missing_rows(
+    candidates: list[tuple[str, int, dict[str, Any]]],
+    seen: set[tuple[str, int]],
+    filename: str,
+    rel: str,
+    *,
+    data: bool,
+) -> list[str]:
+    """Rows for this file that no copied definition claimed."""
+    noun = "Data row" if data else "Row"
+    gap = "object" if data else "C definition"
+    return [
+        f"{noun} {module}.0x{va:08x} names {entry.get('file') or rel} "
+        f"and no {gap} in {filename} matches"
+        for module, va, entry in candidates
+        if (module, va) not in seen
+    ]
+
+
+def _function_rows(
+    entries: dict[tuple[str, int], dict[str, Any]], rel: str
+) -> list[tuple[str, int, dict[str, Any]]]:
+    return [
+        (module, va, entry)
+        for (module, va), entry in entries.items()
+        if str(entry.get("marker_type") or "FUNCTION") in FUNCTION_MARKERS
+        and stored_file_matches(str(entry.get("file") or ""), rel)
+    ]
+
+
+def _data_rows(
+    entries: dict[tuple[str, int], dict[str, Any]], rel: str
+) -> list[tuple[str, int, dict[str, Any]]]:
+    return [
+        (module, va, entry)
+        for (module, va), entry in entries.items()
+        if stored_file_matches(str(entry.get("file") or ""), rel)
+    ]
+
+
+def _layout_one(
+    file_path: Path,
+    raw: bytes,
+    spans: list[SourceSpan],
+    meta: Any,
+    entries: dict[tuple[str, int], dict[str, Any]],
+    data_entries: dict[tuple[str, int], dict[str, Any]],
+    claimed: dict[tuple[str, int], str],
+    claimed_data: dict[tuple[str, int], str],
+) -> tuple[_InputLayout, list[str]]:
+    """Preamble, storage, and functions from one migrated input."""
+    rel = identity_file(file_path, meta)
+    functions = [span for span in spans if span.kind == "function"]
+    stores = [span for span in spans if span.kind == "storage"]
+    file_rows = _function_rows(entries, rel)
+    file_data = _data_rows(data_entries, rel)
+    problems: list[str] = []
+    func_pieces: list[_Piece] = []
+    seen_funcs: set[tuple[str, int]] = set()
+    for span in functions:
+        _append_function(
+            span, raw, spans, file_rows, claimed, seen_funcs, file_path.name, func_pieces, problems
+        )
+    problems.extend(_missing_rows(file_rows, seen_funcs, file_path.name, rel, data=False))
+    store_pieces: list[_Piece] = []
+    seen_data: set[tuple[str, int]] = set()
+    for span in stores:
+        _append_storage(
+            span,
+            raw,
+            spans,
+            file_data,
+            claimed_data,
+            seen_data,
+            file_path.name,
+            store_pieces,
+            problems,
+        )
+    problems.extend(_missing_rows(file_data, seen_data, file_path.name, rel, data=True))
+    layout = _InputLayout(
+        rel=rel,
+        preamble=shared_preamble(raw, spans, [], sole=False),
+        va=min((piece.va for piece in func_pieces), default=_NO_VA),
+        stores=store_pieces,
+        functions=func_pieces,
+    )
+    return layout, problems
+
+
+def _note_encoding(enc: str, current: str, legacy: set[str]) -> str:
+    if enc in ("utf-8", "utf-8-sig"):
+        return current
+    legacy.add(enc)
+    return enc
+
+
+def _read_layouts(
+    meta: Any,
+    input_files: list[Path],
+    entries: dict[tuple[str, int], dict[str, Any]],
+    data_entries: dict[tuple[str, int], dict[str, Any]],
+    json_output: bool,
+) -> tuple[list[_InputLayout], list[str], str, str]:
+    """Read every input.  The last legacy encoding wins, as on the marker path."""
+    layouts: list[_InputLayout] = []
+    problems: list[str] = []
+    claimed: dict[tuple[str, int], str] = {}
+    claimed_data: dict[tuple[str, int], str] = {}
+    legacy_encodings: set[str] = set()
+    out_encoding = "utf-8"
+    input_eol = "\n"
+    for file_path in input_files:
+        try:
+            text, enc = read_source_text(file_path)
+        except OSError as exc:
+            error_exit(f"Failed to read {file_path}: {exc}", json_mode=json_output)
+        out_encoding = _note_encoding(enc, out_encoding, legacy_encodings)
+        input_eol = source_newline(text)
+        try:
+            raw, spans = source_layout(text)
+        except ImportError as exc:
+            error_exit(str(exc), json_mode=json_output)
+        layout, layout_problems = _layout_one(
+            file_path, raw, spans, meta, entries, data_entries, claimed, claimed_data
+        )
+        layouts.append(layout)
+        problems.extend(layout_problems)
+    if len(legacy_encodings) > 1:
+        problems.append(
+            f"input files use conflicting source encodings ({', '.join(sorted(legacy_encodings))})"
+        )
+    return layouts, problems, out_encoding, input_eol
+
+
+def _union_rows(prior: _Piece, piece: _Piece) -> None:
+    seen_keys = {row[:2] for row in prior.rows}
+    for row in piece.rows:
+        if row[:2] not in seen_keys:
+            prior.rows.append(row)
+            seen_keys.add(row[:2])
+
+
+def _accept_storage(
+    seen: dict[str, _Piece],
+    ordered: list[_Piece],
+    piece: _Piece,
+    *,
+    json_output: bool,
+) -> None:
+    prior = seen.get(piece.name)
+    if prior is None:
+        seen[piece.name] = piece
+        ordered.append(piece)
+        return
+    if prior.norm != piece.norm:
+        error_exit(
+            f"{piece.name} differs between inputs. Nothing was written.",
+            json_mode=json_output,
+        )
+    _union_rows(prior, piece)
+
+
+def _accept_function(
+    seen: dict[str, _Piece],
+    ordered: list[_Piece],
+    piece: _Piece,
+    *,
+    shared: bool,
+    json_output: bool,
+) -> None:
+    prior = seen.get(piece.name)
+    if prior is None:
+        seen[piece.name] = piece
+        ordered.append(piece)
+        return
+    if shared and prior.norm == piece.norm:
+        _union_rows(prior, piece)
+        return
+    if shared:
+        error_exit(
+            f"Refusing shared merge: {piece.name} differs between inputs. Nothing was written.",
+            json_mode=json_output,
+        )
+    error_exit(
+        f"{piece.name} is defined in more than one input. Nothing was written.",
+        json_mode=json_output,
+    )
+
+
+def _require_merged_functions(
+    func_out: list[_Piece], *, shared: bool, marker: str, json_output: bool
+) -> None:
+    if not any(piece.rows for piece in func_out):
+        error_exit(
+            "No function row matches the input files. Nothing was written.",
+            json_mode=json_output,
+        )
+    if len(func_out) < 2 and not shared:
+        error_exit(
+            f"Need at least two functions for target '{marker}'",
+            json_mode=json_output,
+        )
+    if shared and not func_out:
+        error_exit("No functions found in input files", json_mode=json_output)
+
+
+def _assemble_pieces(
+    layouts: list[_InputLayout], *, shared: bool, marker: str, json_output: bool
+) -> tuple[list[_Piece], list[_Piece]]:
+    """Storage first, then functions.  Files are ordered by their lowest function VA."""
+    layouts.sort(key=lambda item: (item.va, item.rel))
+    store_out: list[_Piece] = []
+    seen_store: dict[str, _Piece] = {}
+    for layout in layouts:
+        for piece in layout.stores:
+            _accept_storage(seen_store, store_out, piece, json_output=json_output)
+    func_out: list[_Piece] = []
+    seen_func: dict[str, _Piece] = {}
+    for layout in layouts:
+        for piece in layout.functions:
+            _accept_function(seen_func, func_out, piece, shared=shared, json_output=json_output)
+    _require_merged_functions(func_out, shared=shared, marker=marker, json_output=json_output)
+    return store_out, func_out
+
+
+def _compose_markerless(
+    layouts: list[_InputLayout],
+    store_out: list[_Piece],
+    func_out: list[_Piece],
+    *,
+    input_eol: str,
+) -> str:
+    parts: list[str] = []
+    preamble = merge_preambles([layout.preamble for layout in layouts])
+    if preamble.strip():
+        parts.append(preamble.strip("\r\n"))
+    for piece in store_out:
+        if piece.text.strip():
+            parts.append(piece.text.strip("\r\n"))
+    for piece in func_out:
+        if piece.text.strip():
+            parts.append(piece.text.strip("\r\n"))
+    merged_text = "\n\n".join(parts) + "\n"
+    if input_eol == "\r\n":
+        merged_text = re.sub(r"\r\n|\r|\n", input_eol, merged_text)
+    return merged_text
+
+
+def _warn_externs(report: ExternReport) -> None:
+    for dropped in report.dropped:
+        console.print(f"[yellow]merge: dropped unparseable extern {dropped!r}[/yellow]")
+    resolved_by_name: dict[str, str] = {}
+    for decl in report.resolved:
+        decl_name = _extract_extern_name(decl)
+        if decl_name is not None:
+            resolved_by_name.setdefault(decl_name, decl)
+    for name, variants in report.conflicts.items():
+        kept = resolved_by_name.get(name, "")
+        console.print(
+            f"[yellow]merge: conflicting externs for {name}: "
+            f"kept {kept!r} over {[variant for variant in variants if variant != kept]!r}[/yellow]"
+        )
+
+
+def _markerless_payload(
+    *,
+    output_path: Path,
+    func_out: list[_Piece],
+    store_out: list[_Piece],
+    input_files: list[Path],
+    cfg: Any,
+    dry_run: bool,
+    delete: bool,
+    consolidate: bool,
+    extern_report: ExternReport | None,
+) -> dict[str, Any]:
+    function_rows = [row for piece in func_out for row in piece.rows]
+    return {
+        "output": str(output_path),
+        "count": len(func_out),
+        "input_count": len(input_files),
+        "dry_run": dry_run,
+        "deleted": bool(delete and not dry_run),
+        "consolidated": consolidate,
+        "inputs": [rel_display_path(path, cfg.reversed_dir) for path in input_files],
+        "vas": [f"0x{va:08x}" for va in sorted({va for _module, va, _old in function_rows})],
+        "extern_dropped": extern_report.dropped if extern_report else [],
+        "extern_conflicts": dict(extern_report.conflicts) if extern_report else {},
+        "retargeted": [f"{module}.0x{va:08x}" for module, va, _old in function_rows],
+    }
+
+
+def _stop_before_write(
+    *,
+    dry_run: bool,
+    force: bool,
+    delete: bool,
+    json_output: bool,
+    output_path: Path,
+    input_files: list[Path],
+    func_out: list[_Piece],
+    payload: dict[str, Any],
+) -> bool:
+    """Confirm a retarget, or print a dry run and return True."""
+    if not dry_run and not force:
+        if json_output:
+            error_exit(
+                "Merge retargets rows onto the output file. "
+                "Pass --force to apply it in --json mode, or use --dry-run to preview.",
+                json_mode=True,
+            )
+        extra = f" and delete {len(input_files)} input file(s)" if delete else ""
+        confirm_abort(f"Merge will retarget rows onto {output_path.name}{extra}. Continue?")
+    if not dry_run:
+        return False
+    if json_output:
+        json_print(payload)
+        return True
+    console.print(
+        f"Would merge [bold]{len(func_out)}[/] functions from {len(input_files)} files "
+        f"into {output_path.name}"
+    )
+    return True
+
+
+def _rollback_output(output_path: Path, previous: bytes | None) -> None:
+    if previous is None:
+        output_path.unlink(missing_ok=True)
+    else:
+        output_path.write_bytes(previous)
+
+
+def _retarget_rows(
+    meta: Any,
+    rows: list[tuple[str, int, str]],
+    *,
+    new_file: str | None,
+) -> None:
+    """Point *rows* at *new_file*, or back at the file each row had."""
+    payload = [
+        {
+            "module": module,
+            "va": va,
+            "identity": {"file": new_file if new_file is not None else old},
+        }
+        for module, va, old in rows
+        if new_file is not None or old
+    ]
+    if not payload:
+        return
+    record_migrated_markers(meta, payload)
+
+
+def _retarget_data_rows(
+    meta: Any,
+    rows: list[tuple[str, int, str]],
+    *,
+    new_file: str | None,
+) -> None:
+    payload = [
+        {
+            "module": module,
+            "va": va,
+            "identity": {"file": new_file if new_file is not None else old},
+        }
+        for module, va, old in rows
+        if new_file is not None or old
+    ]
+    if not payload:
+        return
+    record_migrated_data_markers(meta, payload)
+
+
+def _undo_retarget(
+    meta: Any,
+    function_rows: list[tuple[str, int, str]],
+    data_rows: list[tuple[str, int, str]],
+    *,
+    functions_done: bool,
+    data_done: bool,
+    exc: Exception,
+    json_output: bool,
+) -> None:
+    try:
+        if data_done:
+            _retarget_data_rows(meta, data_rows, new_file=None)
+        if functions_done:
+            _retarget_rows(meta, function_rows, new_file=None)
+    except Exception:
+        error_exit(
+            f"Merge did not finish ({exc}). The output was restored "
+            "and the row retarget could not be undone.",
+            json_mode=json_output,
+        )
+    error_exit(
+        f"Merge did not finish ({exc}). The output was restored.",
+        json_mode=json_output,
+    )
+
+
+def _commit_markerless(
+    *,
+    meta: Any,
+    new_file: str,
+    output_path: Path,
+    merged_text: str,
+    out_encoding: str,
+    function_rows: list[tuple[str, int, str]],
+    data_rows: list[tuple[str, int, str]],
+    json_output: bool,
+) -> None:
+    previous = output_path.read_bytes() if output_path.exists() else None
+    functions_done = False
+    data_done = False
+    try:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write_text(output_path, merged_text, encoding=out_encoding)
+        if function_rows:
+            _retarget_rows(meta, function_rows, new_file=new_file)
+            functions_done = True
+        if data_rows:
+            _retarget_data_rows(meta, data_rows, new_file=new_file)
+            data_done = True
+    except UnicodeEncodeError as exc:
+        _rollback_output(output_path, previous)
+        offending = exc.object[exc.start : exc.end]
+        error_exit(
+            f"merged source cannot be encoded as {out_encoding} "
+            f"(offending text {offending!r}); convert the inputs to a common "
+            "encoding first",
+            json_mode=json_output,
+        )
+    except Exception as exc:
+        _rollback_output(output_path, previous)
+        _undo_retarget(
+            meta,
+            function_rows,
+            data_rows,
+            functions_done=functions_done,
+            data_done=data_done,
+            exc=exc,
+            json_output=json_output,
+        )
+
+
+def _delete_inputs(input_files: list[Path], output_path: Path) -> None:
+    for file_path in input_files:
+        if file_path.resolve() == output_path.resolve():
+            continue
+        file_path.unlink(missing_ok=True)
+
+
+def _report_markerless(
+    *,
+    json_output: bool,
+    payload: dict[str, Any],
+    func_out: list[_Piece],
+    input_files: list[Path],
+    output_path: Path,
+    delete: bool,
+) -> None:
+    if json_output:
+        json_print(payload)
+        return
+    console.print(
+        f"Merged [bold]{len(func_out)}[/] functions from {len(input_files)} files "
+        f"into {output_path.name}"
+    )
+    if delete:
+        console.print("Deleted original input files after merge")
+        return
+    console.print(
+        "[dim]Rows now name the output. Re-run with --delete to remove the input copies.[/dim]"
+    )
+
+
+def _destination(cfg: Any, output_path: Path, json_output: bool) -> tuple[Any, str]:
+    meta = getattr(cfg, "metadata_dir", None)
+    if meta is None:
+        error_exit("No metadata directory configured", json_mode=json_output)
+    try:
+        new_file = validate_identity_file(identity_file(output_path, meta))
+    except ValueError as exc:
+        error_exit(str(exc), json_mode=json_output)
+    return meta, new_file
+
+
+def _merge_markerless(
+    *,
+    cfg: Any,
+    input_files: list[Path],
+    output_path: Path,
+    dry_run: bool,
+    force: bool,
+    delete: bool,
+    consolidate: bool,
+    shared: bool,
+    json_output: bool,
+) -> None:
+    """Merge pure-C files from their rows.  ``error_exit`` does not return."""
+    meta, new_file = _destination(cfg, output_path, json_output)
+    entries = load_metadata(meta)
+    data_entries = load_data_metadata(meta)
+    layouts, problems, out_encoding, input_eol = _read_layouts(
+        meta, input_files, entries, data_entries, json_output
+    )
+    if problems:
+        error_exit(f"{problems[0]}. Nothing was written.", json_mode=json_output)
+    store_out, func_out = _assemble_pieces(
+        layouts, shared=shared, marker=str(cfg.marker), json_output=json_output
+    )
+    merged_text = _compose_markerless(layouts, store_out, func_out, input_eol=input_eol)
+    extern_report: ExternReport | None = None
+    if consolidate:
+        merged_text, extern_report = consolidate_declarations(merged_text)
+        _warn_externs(extern_report)
+    payload = _markerless_payload(
+        output_path=output_path,
+        func_out=func_out,
+        store_out=store_out,
+        input_files=input_files,
+        cfg=cfg,
+        dry_run=dry_run,
+        delete=delete,
+        consolidate=consolidate,
+        extern_report=extern_report,
+    )
+    if _stop_before_write(
+        dry_run=dry_run,
+        force=force,
+        delete=delete,
+        json_output=json_output,
+        output_path=output_path,
+        input_files=input_files,
+        func_out=func_out,
+        payload=payload,
+    ):
+        return
+    _commit_markerless(
+        meta=meta,
+        new_file=new_file,
+        output_path=output_path,
+        merged_text=merged_text,
+        out_encoding=out_encoding,
+        function_rows=[row for piece in func_out for row in piece.rows],
+        data_rows=[row for piece in store_out for row in piece.rows],
+        json_output=json_output,
+    )
+    if delete:
+        _delete_inputs(input_files, output_path)
+    _report_markerless(
+        json_output=json_output,
+        payload=payload,
+        func_out=func_out,
+        input_files=input_files,
+        output_path=output_path,
+        delete=delete,
+    )
+
+
 @app.callback(invoke_without_command=True)
 def main(
     sources: list[str] | None = typer.Argument(None, help="Input source files (or directories)"),
     output: str = typer.Option(..., "--output", "-o", help="Output merged source file"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     force: bool = typer.Option(
-        False, "--force", help="Overwrite output if it exists; also skips the --delete confirmation"
+        False,
+        "--force",
+        help="Overwrite output if it exists, skip the --delete confirmation, "
+        "and apply a migrated merge without a prompt",
     ),
     delete: bool = typer.Option(
         False, "--delete", help="Delete input files after successful merge"
@@ -497,7 +1237,8 @@ def main(
         "--shared",
         help="Collapse twin files (same body, different target markers) into "
         "one stacked block per body (one // FUNCTION: marker per target). "
-        "Bodies that differ are refused, never merged",
+        "A migrated file keeps one C definition and retargets every row "
+        "that names an input. Bodies that differ are refused, never merged",
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
@@ -518,6 +1259,38 @@ def main(
 
     if output_path.exists() and not force:
         error_exit(f"Output file already exists: {output_path}", json_mode=json_output)
+
+    marked = False
+    plain = False
+    for file_path in input_files:
+        try:
+            preview, _preview_enc = read_source_text(file_path)
+        except OSError as exc:
+            error_exit(f"Failed to read {file_path}: {exc}", json_mode=json_output)
+        _preview_preamble, preview_blocks = split_annotation_sections(preview)
+        if preview_blocks:
+            marked = True
+        else:
+            plain = True
+    if marked and plain:
+        error_exit(
+            "Merge inputs mix marker blocks and migrated files. "
+            "Migrate every file, or merge the marker files on their own.",
+            json_mode=json_output,
+        )
+    if plain:
+        _merge_markerless(
+            cfg=cfg,
+            input_files=input_files,
+            output_path=output_path,
+            dry_run=dry_run is True,
+            force=force is True,
+            delete=delete is True,
+            consolidate=consolidate is True,
+            shared=shared,
+            json_output=json_output is True,
+        )
+        return
 
     preambles: list[str] = []
     blocks_with_va: list[tuple[int, str]] = []

@@ -546,7 +546,7 @@ class TestSharedLibraryHeaderCoverage:
     def test_iter_library_headers_includes_shared_root(self, tmp_path: Path) -> None:
         """`iter_sources` adds `cfg.shared_dir`; the header scan must too, or a
         shared `library_*.h` is invisible to coverage, crt-match, the call
-        graph and `rebrew context`."""
+        graph and `rebrew export context`."""
         from rebrew.sources import iter_library_headers
 
         cfg = _cfg(tmp_path)
@@ -578,7 +578,7 @@ class TestSharedLibraryHeaderCoverage:
 
     def test_load_data_sees_shared_library_markers(self, tmp_path: Path) -> None:
         """`status`/`todo` count coverage via `naming.load_data`: a shared
-        LIBRARY marker must appear there, not only in `rebrew catalog`."""
+        LIBRARY marker must appear there, not only in `rebrew coverage catalog`."""
         from rebrew.naming import load_data
 
         cfg = _cfg(tmp_path)

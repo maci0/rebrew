@@ -310,11 +310,12 @@ class TestParseNewFormat:
         result = parse_new_format(lines)
         assert result is not None
         assert result["va"] == 0x10001000
-        # Inline STATUS/GLOBALS are metadata-owned — not read from source.
+        # Inline STATUS is not byte evidence. Legacy GLOBALS remain co-readable
+        # so marker migration can preserve the list before stripping it.
         assert result["status"] == "STUB"
         assert result["size"] == 100
         assert result["cflags"] == "/O2"
-        assert result["globals"] == []
+        assert result["globals"] == ["g_counter", "g_flag"]
 
 
 class TestParseCFile:
@@ -1778,6 +1779,79 @@ class TestParseNewFormatEdges:
         results = parse_new_format_multi(lines)
         assert results[0].blocker_delta is None
 
+    def test_function_block_reads_blocker_and_delta(self) -> None:
+        from rebrew.annotation import parse_new_format_multi
+
+        lines = [
+            "// FUNCTION: SERVER 0x1000",
+            "// BLOCKER: 2B diff",
+            "// BLOCKER_DELTA: 2",
+            "// NOTE: inner loop",
+            "int f(void) { return 0; }",
+        ]
+        results = parse_new_format_multi(lines)
+        assert results[0].blocker == "2B diff"
+        assert results[0].blocker_delta == 2
+        assert results[0].note == "inner loop"
+
+    def test_marker_less_file_reports_its_naked_fence(self, tmp_path: Path) -> None:
+        from rebrew.metadata import record_migrated_markers
+
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "f.c").write_text(
+            "// SOURCE: naked\n// STRUCT: Foo\n// CALLERS: _send\nvoid f(void) {}\n",
+            encoding="utf-8",
+        )
+        record_migrated_markers(
+            tmp_path,
+            [
+                {
+                    "module": "S",
+                    "va": 0x1000,
+                    "identity": {
+                        "file": "src/f.c",
+                        "symbol": "_f",
+                        "name": "f",
+                        "marker_type": "FUNCTION",
+                    },
+                    "fields": {},
+                }
+            ],
+        )
+        ann = parse_c_file_multi(src / "f.c", metadata_dir=tmp_path)[0]
+        assert ann.source == "naked"
+        assert ann.struct == "Foo"
+        assert ann.callers == "_send"
+
+    def test_naked_fence_does_not_cover_a_second_function(self, tmp_path: Path) -> None:
+        from rebrew.metadata import record_migrated_markers
+
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "f.c").write_text(
+            "// SOURCE: naked\nvoid f(void) {}\nvoid g(void) {}\n", encoding="utf-8"
+        )
+        record_migrated_markers(
+            tmp_path,
+            [
+                {
+                    "module": "S",
+                    "va": va,
+                    "identity": {
+                        "file": "src/f.c",
+                        "symbol": symbol,
+                        "name": name,
+                        "marker_type": "FUNCTION",
+                    },
+                    "fields": {},
+                }
+                for va, symbol, name in ((0x1000, "_f", "f"), (0x2000, "_g", "g"))
+            ],
+        )
+        annos = parse_c_file_multi(src / "f.c", metadata_dir=tmp_path)
+        assert {ann.source for ann in annos} == {""}
+
 
 class TestUpdateAnnotationKeySameValue:
     def test_same_value_noop_file_key(self, tmp_path: Path) -> None:
@@ -2302,3 +2376,61 @@ def test_update_annotation_key_rejects_multiline_value(tmp_path: Path) -> None:
 
     assert changed is False
     assert f.read_text(encoding="utf-8") == content
+
+
+@pytest.mark.parametrize(
+    ("first", "second"),
+    [
+        ("FUNCTION", "LIBRARY"),
+        ("LIBRARY", "FUNCTION"),
+        ("LIBRARY", "LIBRARY"),
+        ("STUB", "LIBRARY"),
+        ("FUNCTION", "STUB"),
+    ],
+)
+def test_mixed_code_marker_stack_binds_common_definition(
+    tmp_path: Path, first: str, second: str
+) -> None:
+    """Different target classifications do not erase a common C identity."""
+    source = tmp_path / "gzread.c"
+    source.write_text(
+        f"// {first}: GOLDTL 0x0045f380\n// SIZE: 560\n"
+        f"// {second}: SERVER 0x10003960\n// SIZE: 600\n"
+        "#include <stdio.h>\nvoid helper(void);\n"
+        "int ZEXPORT gzread(int file, void *buf, unsigned len)\n"
+        "{ return file; }\n"
+    )
+    annotations = parse_c_file_multi(source)
+    assert [ann.name for ann in annotations] == ["gzread", "gzread"]
+    assert [ann.symbol for ann in annotations] == ["_gzread", "_gzread"]
+    assert [ann.size for ann in annotations] == [560, 600]
+    assert [ann.marker_type for ann in annotations] == [first, second]
+    assert all("ZEXPORT gzread" in ann.prototype for ann in annotations)
+    for target in ("GOLDTL", "SERVER"):
+        selected = parse_c_file_multi(source, target_name=target)
+        assert len(selected) == 1
+        assert selected[0].name == "gzread"
+
+
+def test_code_marker_stack_stops_at_data_marker(tmp_path: Path) -> None:
+    """A data marker cannot acquire the next code block's function identity."""
+    source = tmp_path / "mixed.c"
+    source.write_text(
+        "// FUNCTION: A 0x1000\n"
+        "// DATA: A 0x2000\nextern int count;\n"
+        "// LIBRARY: B 0x3000\nint later(void) { return 1; }\n"
+    )
+    annotations = parse_c_file_multi(source)
+    assert annotations[0].name == ""
+    assert annotations[1].name != "later"
+    assert annotations[2].name == "later"
+
+
+def test_mixed_code_markers_after_definition_are_separate(tmp_path: Path) -> None:
+    """Code between the markers preserves distinct definitions."""
+    source = tmp_path / "separate.c"
+    source.write_text(
+        "// FUNCTION: A 0x1000\nint first(void) { return 1; }\n"
+        "// LIBRARY: B 0x2000\nint second(void) { return 2; }\n"
+    )
+    assert [ann.name for ann in parse_c_file_multi(source)] == ["first", "second"]

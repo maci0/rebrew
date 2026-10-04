@@ -81,7 +81,7 @@ def _make_project(tmp_path: Path, *, write_binary: bool = True) -> Path:
 
 
 def _invoke(state: Path, *extra: str) -> Any:
-    return runner.invoke(app, ["binsync-init", str(state), *extra], catch_exceptions=False)
+    return runner.invoke(app, ["binsync", "init", str(state), *extra], catch_exceptions=False)
 
 
 class TestInit:

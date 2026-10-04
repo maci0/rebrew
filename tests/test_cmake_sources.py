@@ -1,4 +1,4 @@
-"""`rebrew cmake-sources` — the build must link what the target owns.
+"""`rebrew build cmake-sources` — the build must link what the target owns.
 
 A glob over a shared tree over-includes: every target's TUs compile and
 link into every binary (duplicate symbols at best, foreign bytes at
@@ -160,3 +160,59 @@ def test_config_change_regenerates_library_order(tmp_path: Path) -> None:
     config.write_text(TOML + libraries.replace("KERNEL32", "USER32"))
     subprocess.run([cmake, "--build", str(build)], check=True, capture_output=True)
     assert (build / "libs.txt").read_text() == "USER32.lib"
+
+
+@pytest.mark.parametrize("metadata_in_src", [False, True])
+def test_migrated_library_sources_keep_target_scope(tmp_path: Path, metadata_in_src: bool) -> None:
+    """Project-root bindings select their owners rather than the unannotated fallback."""
+    from rebrew.metadata import record_function_identity, save_metadata
+
+    _project(
+        tmp_path,
+        {
+            "src/shared/client_lib.c": "int client_lib(void) { return 1; }\n",
+            "src/shared/server_lib.c": "int server_lib(void) { return 2; }\n",
+            "src/shared/common_lib.c": "int common_lib(void) { return 3; }\n",
+            "src/server_dll/client_lib.c": "int helper(void) { return 4; }\n",
+        },
+    )
+    config = tmp_path / "rebrew-project.toml"
+    config.write_text(
+        config.read_text().replace(
+            'default_target = "server_dll"', 'default_target = "server_dll"\nshared_dir = "src"'
+        )
+    )
+    metadata = tmp_path / "src" if metadata_in_src else tmp_path
+    save_metadata(metadata, {})
+    for module, va, name in [
+        ("CLIENT", 0x20001000, "client_lib"),
+        ("SERVER", 0x10001000, "server_lib"),
+        ("SERVER", 0x10002000, "common_lib"),
+        ("CLIENT", 0x20002000, "common_lib"),
+    ]:
+        record_function_identity(
+            metadata,
+            module=module,
+            va=va,
+            file=f"src/shared/{name}.c",
+            marker_type="LIBRARY",
+            name=name,
+            symbol="_" + name,
+        )
+    for target, expected in [
+        (
+            "server_dll",
+            {"src/shared/server_lib.c", "src/shared/common_lib.c", "src/server_dll/client_lib.c"},
+        ),
+        (
+            "client_exe",
+            {"src/shared/client_lib.c", "src/shared/common_lib.c", "src/server_dll/client_lib.c"},
+        ),
+    ]:
+        cfg = load_config(root=tmp_path, target=target)
+        assert cfg.metadata_dir == metadata
+        own, foreign = collect(cfg, cfg.marker)
+        assert {f.relative_to(tmp_path).as_posix() for f in own} == expected
+        assert {f.relative_to(tmp_path).as_posix() for f in foreign} == {
+            "src/shared/client_lib.c" if target == "server_dll" else "src/shared/server_lib.c"
+        }

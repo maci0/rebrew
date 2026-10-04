@@ -339,6 +339,29 @@ def load_data(
             }
             covered_vas[entry.va] = hfile.name
 
+    # A LIBRARY row can name a .c outside reversed_dir (vendored zlib under
+    # references/).  Verify and the catalog already compile that row.  Status
+    # and todo share this loader, so the same row has to land here or the
+    # address stays "no source" and shows up as work.
+    from rebrew.function_providers import compiled_library_annotations
+
+    floor = min_valid_va_for(cfg)
+    for entry in compiled_library_annotations(cfg):
+        if entry.va in existing or entry.va < floor:
+            continue
+        existing[entry.va] = {
+            "filename": entry.filepath,
+            "size": str(entry.size),
+            "status": entry.status or "STUB",
+            "module": entry.module or "",
+            "marker_type": entry.marker_type or "LIBRARY",
+            "blocker": entry.blocker or "",
+            "blocker_delta": str(entry.blocker_delta) if entry.blocker_delta is not None else "",
+            "symbol": entry.symbol,
+            "source": entry.source or "",
+        }
+        covered_vas[entry.va] = entry.filepath
+
     _clip_to_next_start(ghidra_funcs, existing.keys())
     # Discovery can mistake alignment runs for functions. Keep annotations,
     # named functions, and exports; inspect only short anonymous x86 spans.

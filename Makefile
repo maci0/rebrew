@@ -582,7 +582,7 @@ check: warn-shellcheck warn-yamllint ensure-uv
 cli-contract: ensure-uv
 	@set -eu; \
 	help=$$(NO_COLOR=1 TERM=dumb _TYPER_FORCE_DISABLE_TERMINAL=1 \
-		uv run --frozen rebrew round-trip --help); \
+		uv run --frozen rebrew build round-trip --help); \
 	printf '%s\n' "$$help" | grep -- '--strict-catalog' >/dev/null; \
 	help=$$(NO_COLOR=1 TERM=dumb _TYPER_FORCE_DISABLE_TERMINAL=1 \
 		uv run --frozen rebrew verify --help); \

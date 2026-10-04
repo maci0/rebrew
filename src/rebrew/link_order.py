@@ -1,6 +1,6 @@
 """link-order — enforce VA-ordered sources into CMakeLists.txt SOURCES.
 
-``rebrew order-sources`` prints the VA link order; this command writes that
+``rebrew build order-sources`` prints the VA link order; this command writes that
 order into the project's ``CMakeLists.txt`` so the link actually builds TUs
 in position-aligned order, and ``--check`` gates drift in CI.
 
@@ -11,7 +11,7 @@ keywords (``STATIC``, ``WIN32``, ...), generator expressions, quoting, and
 every line outside the entries are preserved verbatim.
 
 Usage:
-    rebrew link-order [--apply] [--dry-run] [--check] [--json]
+    rebrew build link-order [--apply] [--dry-run] [--check] [--json]
 """
 
 from __future__ import annotations
@@ -32,9 +32,9 @@ from rebrew.utils import atomic_write_text, preset_module_key
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew link-order --check · · · · · · Fail if CMakeLists.txt drifts (CI gate)\n\n"
-    "  rebrew link-order --dry-run · · · · · Show the reordering, write nothing\n\n"
-    "  rebrew link-order --apply · · · · · · · Rewrite CMakeLists.txt in VA order\n"
+    "  rebrew build link-order --check · · · · · · Fail if CMakeLists.txt drifts (CI gate)\n\n"
+    "  rebrew build link-order --dry-run · · · · · Show the reordering, write nothing\n\n"
+    "  rebrew build link-order --apply · · · · · · · Rewrite CMakeLists.txt in VA order\n"
 )
 
 
@@ -47,11 +47,14 @@ app = typer.Typer(
 _CMAKE_LISTS = "CMakeLists.txt"
 
 
-def file_va(path: Path, marker: str | None = None) -> int | None:
+def file_va(
+    path: Path, marker: str | None = None, *, metadata_dir: Path | None = None
+) -> int | None:
     """Lowest FUNCTION/LIBRARY/STUB VA in *path* (None when none).
 
     The shared annotation parser accepts both line and C89 block comments
     and keeps library attribution from changing a file's link position.
+    Pass the project's metadata root to include migrated, pure C sources.
 
     With *marker*, only that target's markers count: a stacked shared file
     carries one VA per target in unrelated address spaces, so the minimum
@@ -59,7 +62,7 @@ def file_va(path: Path, marker: str | None = None) -> int | None:
     """
     matches = [
         (ann.module, ann.va)
-        for ann in parse_c_file_multi(path)
+        for ann in parse_c_file_multi(path, metadata_dir=metadata_dir)
         if ann.marker_type in FUNCTION_MARKERS
     ]
     if marker is None:
@@ -87,6 +90,8 @@ def order_sources(
     first_va: dict[str, int] | None = None,
     exclude: set[str] | None = None,
     marker: str | None = None,
+    *,
+    metadata_dir: Path | None = None,
 ) -> tuple[list[Path], list[str]]:
     """Order *files* by first-function VA.
 
@@ -95,6 +100,7 @@ def order_sources(
     original) are dropped.  ``first_va`` and ``exclude`` match on basenames,
     so ``zlib/adler32.c=0x10001000`` matches ``src/zlib/adler32.c``.
     *marker* scopes stacked shared files to one target's VA.
+    *metadata_dir* supplies function identities for migrated sources.
     """
     first_by_base = {_base_key(k): v for k, v in (first_va or {}).items()}
     exclude_bases = {_base_key(e) for e in (exclude or set())}
@@ -108,7 +114,11 @@ def order_sources(
             continue
         # Presence check, not truthiness: an explicit --first-va of 0x0 is a
         # real override and must not fall through to the marker.
-        va = first_by_base[base] if base in first_by_base else file_va(f, marker)
+        va = (
+            first_by_base[base]
+            if base in first_by_base
+            else file_va(f, marker, metadata_dir=metadata_dir)
+        )
         if va is None:
             unknown.append(f)
         else:
@@ -348,7 +358,7 @@ def _print_drift(diff: str) -> None:
 
     The ordered source list is piped data and stays on stdout, but the diff is
     the human explanation that sits beside a ``console`` status line, so
-    ``rebrew link-order --check > out`` captures the same thing on both
+    ``rebrew build link-order --check > out`` captures the same thing on both
     branches instead of a report on one and a message on the other.
     """
     console.print(diff, soft_wrap=True, markup=False, highlight=False)
@@ -391,7 +401,9 @@ def main(
     files = iter_sources(cfg.reversed_dir, cfg)
     if not files:
         error_exit(f"no source files found in {cfg.reversed_dir}", json_mode=json_output)
-    ordered_paths, _excluded = order_sources(files, marker=module_marker(cfg) or None)
+    ordered_paths, _excluded = order_sources(
+        files, marker=module_marker(cfg) or None, metadata_dir=cfg.metadata_dir
+    )
     by_key = {_abs_key(cfg.root, str(p)): _rel(cfg.root, p) for p in ordered_paths}
     computed = [_rel(cfg.root, p) for p in ordered_paths]
 

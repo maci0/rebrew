@@ -13,7 +13,7 @@ review indicator, not proof of an exploitable bug: the same call can be safe
 in context.
 
 Usage:
-    rebrew security-scan [DIR] [--min-severity high|medium|low]
+    rebrew source security [DIR] [--min-severity high|medium|low]
 """
 
 from __future__ import annotations
@@ -472,10 +472,10 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew security-scan · · · · · · · · · Scan the project's reversed sources\n\n"
-        "  rebrew security-scan src/other · · · · Scan an arbitrary C source tree\n\n"
-        "  rebrew security-scan --min-severity high Only high-severity findings\n\n"
-        "  rebrew security-scan --json · · · · · · Machine-readable findings\n\n"
+        "  rebrew source security · · · · · · · · · Scan the project's reversed sources\n\n"
+        "  rebrew source security src/other · · · · Scan an arbitrary C source tree\n\n"
+        "  rebrew source security --min-severity high Only high-severity findings\n\n"
+        "  rebrew source security --json · · · · · · Machine-readable findings\n\n"
         "[bold]Rules (id, CWE, severity):[/bold]\n\n"
         "  unbounded-copy · · · strcpy/strcat/sprintf/gets/... (CWE-120, high)\n\n"
         "  format-string · · · · non-literal printf-family format (CWE-134, medium)\n\n"

@@ -159,6 +159,12 @@ def write_fixture_project(project_dir: Path) -> Path:
         "// FUNCTION: SERVER 0x00401000\nint __cdecl _func1(void) { return 0; }\n",
         encoding="utf-8",
     )
+    # Keep signature inputs local: an actively updated sibling repository is
+    # a different input between scans, not an idempotency failure.
+    (project_dir / "flirt_sigs").mkdir()
+    (project_dir / "flirt_sigs" / "fixture.pat").write_text(
+        "90" * 31 + "C3 00 0000 0020 :0000 fixture_signature\n---\n", encoding="utf-8"
+    )
     return project_dir
 
 
@@ -331,23 +337,23 @@ DEFAULT_COMMANDS = [
     "todo --json",
     "verify --json --dry-run",
     # The full offline --json surface (mirrors tests/test_json_purity.py).
-    "strings --json",
-    "imports --json",
-    "asm --json 0x401000",
-    "describe --json 0x401000",
-    "xrefs original/mini_pe.exe 0x401000 --json",
-    "analyze --json",
-    "identify-library --json",
-    "pdb-info original/mini_pe.exe --json",  # deterministic error path (no sibling .pdb)
+    "binary strings --json",
+    "binary imports list --json",
+    "binary asm show --json 0x401000",
+    "binary function --json 0x401000",
+    "binary xrefs original/mini_pe.exe 0x401000 --json",
+    "binary analyze --json",
+    "library identify --json",
+    "binary pdb show original/mini_pe.exe --json",  # deterministic error path (no sibling .pdb)
     "lint --json",
-    "data --json",
+    "data list --json",
     "doctor --json",
     "cache stats --json",
     "cfg show --json",
-    "flirt --binary original/mini_pe.exe --json",
+    "library scan-signatures flirt_sigs --binary original/mini_pe.exe --json",
     # Reports the catalog and writes nothing: the coverage document is
     # ``build-db``'s (the write sweep).
-    "catalog --json",
+    "coverage catalog --json",
 ]
 
 
@@ -363,11 +369,11 @@ WRITE_COMMANDS = [
     # ::TestIncrementalVerify::test_cache_hit_reports_the_same_row_bytes_as_a_fresh_run.
     #
     # Strips inline markers into rebrew-functions.toml (ADR 023).
-    "migrate-markers",
+    "source migrate-markers",
     # Writes a STUB .c + BLOCKER + STATUS for every undocumented function.
-    "document-unmatched",
+    "source document-unmatched",
     # Regenerates the link_stubs.c BSS placeholder TU from rebrew-data.toml.
-    "gen-link-stubs",
+    "build link-stubs",
     # Writes one skeleton .c + metadata row for the inventory's uncovered VA.
     # Addressed explicitly: the single-VA form must refuse a second run rather
     # than cover the same function twice (``--force`` and ``--append`` are the
@@ -382,17 +388,17 @@ WRITE_COMMANDS = [
     # block then makes a duplicate of on every later run.
     "skeleton --append fcn.c --force 0x00401010",
     # Renders db/coverage-<target>.toml by scanning the tree in-process.
-    # `rebrew catalog` left this list when it stopped writing: it reports the
+    # `rebrew coverage catalog` left this list when it stopped writing: it reports the
     # catalog and nothing else, so it is a read-only command now.
-    "build-db",
+    "coverage build",
     # Rewrites the splat-style symbol_addrs file from the annotations.
-    "symbol-addrs",
+    "export symbols",
     # Renders the CMake toolchain file driving the docker bridge scripts.
-    "cmake-toolchain",
+    "build cmake-toolchain",
     # Sanitizes raw decompiler output into <file>.fixed.c beside the source.
-    "fix src/SERVER/fcn.c",
+    "source fix src/SERVER/fcn.c",
     # Emits the universal decompilation context file into the source tree.
-    "context",
+    "export context",
     # Writes BLOCKER text, then BLOCKER + BLOCKER_DELTA: the two writers
     # differ in that the second is numeric, so a re-run that appended rather
     # than replaced would show up as text and as a digit run.
@@ -408,17 +414,17 @@ WRITE_COMMANDS = [
     # summary, so a second run that recomputed one field differently (a
     # generation stamp, a page count) would rewrite the whole site and show up
     # as a changed tree.
-    "report",
+    "coverage report",
     # Renders rebrew_globals.h from the GLOBAL:/DATA: annotations.  The header
     # carries a "Generated:" line, so a re-run that rewrote it unconditionally
     # would churn every file it produces without changing a declaration.
-    "data --gen-header",
+    "data header",
     # Field writers into rebrew-data.toml: a plain set, and one run after the
     # other on the same address.  A writer that appended a second key or
     # duplicated the section header on a re-run would show up as a changed
     # tree on the second pass.
-    "data --set-type 0x00403000=int",
-    "data --set-section 0x00403000=.data",
+    "data set --type 0x00403000=int",
+    "data set --section 0x00403000=.data",
     # The ``cfg`` writers into rebrew-project.toml, one per shape the file can
     # take: a scalar assignment, a whole-table write (``set-compiler`` rewrites
     # the [compiler] block), an append to a list (``add-module`` pushes onto
@@ -427,13 +433,13 @@ WRITE_COMMANDS = [
     # on a re-run, and a writer that appended a second key, a repeated header,
     # or a duplicate list entry instead would show up as a changed tree.
     "cfg set project.name idem",
-    "cfg set-compiler SERVER msvc-6.0",
-    "cfg add-module GAME -t SERVER",
+    "cfg target set-compiler SERVER msvc-6.0",
+    "cfg module add GAME -t SERVER",
     # ``--`` keeps the leading-dash flags out of typer's option parser: a cflags
     # value is almost always ``-O2`` or ``/O2``, so without it the command
     # cannot be written the way it is documented.
-    "cfg set-cflags -t SERVER -- GAME -O2",
-    "cfg add-target CLIENT --binary original/mini_pe.exe",
+    "cfg module set-cflags -t SERVER -- GAME -O2",
+    "cfg target add CLIENT --binary original/mini_pe.exe",
     # ``inline-strings`` is deliberately absent: it reads the layout package
     # that ``gen-layout`` writes, and that needs a reference binary the
     # read-only fixture does not ship.  It exited 2 on every run, which the
@@ -446,7 +452,7 @@ _DATA_TOML = "[SYMBOLS.SERVER.g_player]\nsection = '.data'\nname = 'g_player'\ns
 
 #: Commands in :data:`WRITE_COMMANDS` that need a ``rebrew-data.toml`` with one
 #: declared symbol to write against.
-_DATA_METADATA_COMMANDS = ("gen-link-stubs", "data --set-type", "data --set-section")
+_DATA_METADATA_COMMANDS = ("build link-stubs", "data set --type", "data set --section")
 
 
 def _write_sweep_dir(base: Path, index: int, cmd: str) -> Path:

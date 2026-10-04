@@ -20,7 +20,7 @@ from typing import Any
 import tomlkit
 import typer
 
-from rebrew.cli import console, error_exit, json_print
+from rebrew.cli import TargetOption, console, error_exit, json_print, parse_va, require_config
 from rebrew.metadata import (
     LIBRARY_METADATA_FILE,
     all_library_presets,
@@ -41,7 +41,7 @@ app = typer.Typer(
         "  rebrew library show src/mylib · · Show the override in force for a directory\n\n"
         "  rebrew library list · · · · · · · · · List every rebrew-libraries.toml\n\n"
         "  rebrew library set src/mylib --toolchain gcc-14.2.0 --cflags '-O1'\n\n"
-        "  rebrew library rm src/mylib · · · · Revert to the project default\n\n"
+        "  rebrew library remove src/mylib · · · · Revert to the project default\n\n"
         "[dim]Resolution is most-specific-first: a per-function TOOLCHAIN/CFLAGS in\n"
         "rebrew-functions.toml, then the nearest rebrew-libraries.toml walking up\n"
         "toward the project root, then the project default.[/dim]"
@@ -49,12 +49,76 @@ app = typer.Typer(
 )
 
 
+@app.command(
+    "bind-source",
+    epilog="Examples:\n\n  rebrew library bind-source 0x10001000 references/zlib/adler32.c --symbol _adler32\n",
+)
+def bind_source_cmd(
+    va: str = typer.Argument(..., help="Reference virtual address of a library function"),
+    source: Path = typer.Argument(..., help="Project source file compiled for this function"),
+    symbol: str = typer.Option(..., "--symbol", help="Native object symbol to compare"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
+) -> None:
+    """Bind an identified library function to a source file we compile ourselves."""
+    from rebrew.annotation import parse_library_header
+    from rebrew.config import module_marker
+    from rebrew.metadata import get_entry, record_migrated_markers
+    from rebrew.sources import iter_library_headers
+    from rebrew.utils import preset_module_key
+
+    cfg = require_config(target=target, json_mode=json_output)
+    address = parse_va(va, json_mode=json_output)
+    marker = preset_module_key(module_marker(cfg))
+    known = any(
+        entry.va == address and preset_module_key(entry.module or "") == marker
+        for header in iter_library_headers(cfg.reversed_dir, cfg)
+        for entry in parse_library_header(header, metadata_dir=cfg.metadata_dir)
+    )
+    existing = get_entry(cfg.metadata_dir, address, module_marker(cfg))
+    known = known or existing.get("marker_type") == "LIBRARY"
+    if not known:
+        error_exit(
+            f"No library declaration for {va} in target {cfg.target_name}", json_mode=json_output
+        )
+    candidate = (cfg.root / source).resolve()
+    if not candidate.is_relative_to(cfg.root.resolve()) or not candidate.is_file():
+        error_exit(
+            "Library source must be an existing file inside the project", json_mode=json_output
+        )
+    if candidate.suffix.casefold() not in {".c", ".cpp", ".cc", ".cxx"} or not symbol.strip():
+        error_exit(
+            "Provide a C/C++ source file and a nonempty native symbol", json_mode=json_output
+        )
+    identity = {
+        "file": candidate.relative_to(cfg.root.resolve()).as_posix(),
+        "symbol": symbol,
+        "marker_type": "LIBRARY",
+    }
+    if not dry_run:
+        record_migrated_markers(
+            cfg.metadata_dir,
+            [{"module": module_marker(cfg), "va": address, "identity": identity}],
+        )
+    payload = {"va": f"0x{address:08x}", "provider": "compiled", **identity, "dry_run": dry_run}
+    if json_output:
+        json_print(payload)
+    else:
+        console.print(
+            f"{'Would bind' if dry_run else 'Bound'} {va} to {identity['file']} ({symbol})"
+        )
+
+
 def _resolve_root(dir_arg: str | None) -> Path:
     """The directory argument (or CWD)."""
     return Path(dir_arg).resolve() if dir_arg else Path.cwd().resolve()
 
 
-@app.command("show")
+@app.command(
+    "show",
+    epilog="Examples:\n\n  rebrew library show --json\n\nOverrides are resolved per function, nearest library configuration, then project defaults.",
+)
 def show_cmd(
     directory: str = typer.Argument(".", help="Library directory (walk-up from here)"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
@@ -90,7 +154,10 @@ def show_cmd(
         console.print(f"  presets:   {', '.join(ovr.presets)}")
 
 
-@app.command("list")
+@app.command(
+    "list",
+    epilog="Examples:\n\n  rebrew library list --json\n\nOverrides are resolved per function, nearest library configuration, then project defaults.",
+)
 def list_cmd(
     root: str = typer.Argument(".", help="Project root (recursively finds rebrew-libraries.toml)"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
@@ -127,7 +194,10 @@ def list_cmd(
         console.print(f"{lib['file']}  toolchain={tc}  cflags={cf}")
 
 
-@app.command("set")
+@app.command(
+    "set",
+    epilog="Examples:\n\n  rebrew library set --dry-run --json\n\nOverrides are resolved per function, nearest library configuration, then project defaults.",
+)
 def set_cmd(
     directory: str = typer.Argument(
         ".", help="Library directory (writes rebrew-libraries.toml here)"
@@ -218,7 +288,10 @@ def set_cmd(
             )
 
 
-@app.command("rm")
+@app.command(
+    "remove",
+    epilog="Examples:\n\n  rebrew library remove --dry-run --json\n\nOverrides are resolved per function, nearest library configuration, then project defaults.",
+)
 def rm_cmd(
     directory: str = typer.Argument(
         ".", help="Library directory (removes rebrew-libraries.toml here)"

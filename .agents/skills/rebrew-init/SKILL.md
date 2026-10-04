@@ -41,10 +41,10 @@ mkdir -p original && cp /path/to/<binary> original/
 rebrew init --target <name> --binary <filename> --guess-compiler --no-wizard
 ```
 
-Target naming: bare binary stem, no extension (`server.dll` → `server`, `game.exe` → `game`; lowercased, non-alnum → `_`), and a name becomes a path component, so no separators. With `--no-wizard` nothing derives it: `--target` defaults to `main` and you must pass the name. The wizard prompt and `rebrew intake` default to the binary stem. Override with `--target` when MODULE markers already use a different form (e.g. legacy `server.dll`). Paths are `layout/bench/`, `src/bench/`.
+Target naming: bare binary stem, no extension (`server.dll` → `server`, `game.exe` → `game`; lowercased, non-alnum → `_`), and a name becomes a path component, so no separators. With `--no-wizard` nothing derives it: `--target` defaults to `main` and you must pass the name. The wizard prompt and `rebrew intake` default to the binary stem. Override with `--target` when existing MODULE keys already use a different form (e.g. legacy `server.dll`). Paths are `layout/bench/`, `src/bench/`.
 
 Starting from a splat YAML instead of a bare binary:
-`rebrew import-splat <config>` plans names, layout, and annotations, and writes
+`rebrew source import-splat <config>` plans names, layout, and annotations, and writes
 nothing until `--write` (`--force` replaces conflicting annotations).
 
 ## Profile selection

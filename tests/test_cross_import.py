@@ -2,7 +2,7 @@
 
 Covers the pure matching core (structural signatures), the two-PE fixture
 scenario (shared functions at different VAs, differing and absent functions),
-the import mechanics (marker remap + SIZE, file write, verify + STATUS), and
+the import mechanics (marker strip, identity row, file write, verify + STATUS), and
 the CLI wiring.  The mingw-16.2.0 end-to-end test runs a real compile+verify
 round-trip when the native toolchain is installed (it is on this host).
 """
@@ -132,56 +132,54 @@ class TestTwoPEFixture:
 
 
 class TestMarkerRewrite:
-    def test_line_style_remaps_module_va_size(self) -> None:
+    """``_rewrite_marker`` strips marker lines. It does not retag or insert SIZE."""
+
+    def test_line_style_strips_marker_and_size(self) -> None:
         src = "// FUNCTION: SRC 0x401000\n// SIZE: 11\nint f1(void){ return 1; }\n"
         out = ci._rewrite_marker(src, "DST", 0x401040, 13)
-        lines = out.splitlines()
-        assert lines[0] == "// FUNCTION: DST 0x401040"
-        assert lines[1] == "// SIZE: 13"
-        assert out.count("// SIZE:") == 1
+        assert out == "int f1(void){ return 1; }\n"
+        assert "FUNCTION:" not in out
+        assert "SIZE:" not in out
 
-    def test_block_comment_style_remapped(self) -> None:
+    def test_block_comment_marker_is_stripped(self) -> None:
         src = "/* FUNCTION: SRC 0x401000 */\nint f1(void){ return 1; }\n"
         out = ci._rewrite_marker(src, "DST", 0x401040, 13)
-        assert "/* FUNCTION: DST 0x401040 */" in out
-        assert "// SIZE: 13" in out
+        assert out == "int f1(void){ return 1; }\n"
+        assert "FUNCTION:" not in out
+        assert "SIZE:" not in out
 
-    def test_size_inserted_when_missing(self) -> None:
+    def test_missing_size_is_not_inserted(self) -> None:
         src = "// FUNCTION: SRC 0x401000\nint f1(void){ return 1; }\n"
         out = ci._rewrite_marker(src, "DST", 0x401040, 13)
-        lines = out.splitlines()
-        assert lines[0] == "// FUNCTION: DST 0x401040"
-        assert lines[1] == "// SIZE: 13"
+        assert out == "int f1(void){ return 1; }\n"
+        assert "SIZE:" not in out
 
     def test_no_marker_raises(self) -> None:
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="no FUNCTION/LIBRARY/STUB marker found in source"):
             ci._rewrite_marker("int f1(void){return 1;}\n", "DST", 1, 1)
 
-    def test_stacked_markers_collapsed_to_destination(self) -> None:
-        """A shared multi-version source stacks one marker per target; the
-        imported copy must carry ONLY the destination marker (stale VAs must
-        not leak into the destination's reversed_dir)."""
+    def test_stacked_markers_are_stripped(self) -> None:
+        """A shared multi-version source stacks one marker per target. The
+        imported copy carries none of them. Identity is a metadata row."""
         src = (
             "// FUNCTION: V1 0x401000\n// SIZE: 11\n"
             "// FUNCTION: V2 0x501000\n// SIZE: 11\n"
             "int common(void){ return 1; }\n"
         )
         out = ci._rewrite_marker(src, "V3", 0x601000, 13)
-        markers = [line for line in out.splitlines() if "FUNCTION:" in line]
-        assert markers == ["// FUNCTION: V3 0x601000"]
-        assert "// SIZE: 13" in out
-        assert "int common(void)" in out
+        assert out == "int common(void){ return 1; }\n"
+        assert "FUNCTION:" not in out
+        assert "SIZE:" not in out
 
-    def test_multi_function_markers_kept(self) -> None:
-        """A genuinely multi-function source keeps its later markers — only
-        STACKED leading blocks (the shared-source pattern) are collapsed."""
+    def test_multi_function_bodies_kept(self) -> None:
+        """Every marker line goes. Each function body stays."""
         src = (
             "// FUNCTION: DST 0x601000\nint f1(void){ return 1; }\n"
             "// FUNCTION: DST 0x601010\nint f2(void){ return 2; }\n"
         )
         out = ci._rewrite_marker(src, "DST", 0x601000, 11)
-        markers = [line.strip() for line in out.splitlines() if "FUNCTION:" in line]
-        assert markers == ["// FUNCTION: DST 0x601000", "// FUNCTION: DST 0x601010"]
+        assert out == ("int f1(void){ return 1; }\nint f2(void){ return 2; }\n")
+        assert "FUNCTION:" not in out
 
     def test_foreign_target_marker_dropped(self) -> None:
         """A later marker for ANOTHER target goes, with its key-value block.
@@ -201,18 +199,17 @@ class TestMarkerRewrite:
         assert "// SIZE: 8" not in out
         assert "int f2(void){ return 2; }" in out  # the body stays
 
-    def test_size_rewrite_stops_at_block_boundary(self) -> None:
-        """The SIZE rewrite must stay inside the imported marker's own block —
-        a scan to EOF clobbered the NEXT function's SIZE line."""
+    def test_strip_keeps_both_bodies(self) -> None:
+        """Stripping one function's marker must not eat the next function's body.
+        SIZE lines go with their markers. Nothing is inserted."""
         src = (
             "// FUNCTION: SRC 0x401000\nint f1(void){ return 1; }\n"
             "// FUNCTION: DST 0x601010\n// SIZE: 8\nint f2(void){ return 2; }\n"
         )
         out = ci._rewrite_marker(src, "DST", 0x601000, 11)
-        lines = out.splitlines()
-        assert lines[0] == "// FUNCTION: DST 0x601000"
-        assert lines[1] == "// SIZE: 11"  # inserted into f1's own block
-        assert "// SIZE: 8" in out  # f2's SIZE untouched
+        assert out == ("int f1(void){ return 1; }\nint f2(void){ return 2; }\n")
+        assert "FUNCTION:" not in out
+        assert "SIZE:" not in out
 
 
 class TestExtractSingleFunction:
@@ -251,8 +248,10 @@ class TestExtractSingleFunction:
         assert ci._extract_function_text(src, 0x999999) is None
 
     def test_import_emits_only_matched_function(self, tmp_path: Path, monkeypatch) -> None:
-        """End-to-end: a SERVER multi-function file imports ONLY f1 into GOLDTL,
-        re-tagged — no foreign markers survive, no co-resident body duplicated."""
+        """End-to-end: a SERVER multi-function file imports ONLY f1 into GOLDTL
+        as pure C. No foreign marker survives, and the co-resident body is not
+        copied. SIZE and identity live on the destination row, recorded
+        before verify."""
         import rebrew.cross_import as ci_mod
 
         rev_src = tmp_path / "src_SERVER"
@@ -287,10 +286,13 @@ class TestExtractSingleFunction:
         )
 
         from rebrew.compile import CompareResult
+        from rebrew.metadata import get_entry
 
-        monkeypatch.setattr(
-            "rebrew.verify.verify_entry",
-            lambda *a, **k: CompareResult(
+        seen: dict[str, Any] = {}
+
+        def fake_verify(entry, cfg, cache=None, **kw):
+            seen["row"] = get_entry(tmp_path, 0x601000, "DST")
+            return CompareResult(
                 matched=True,
                 status="RELOC",
                 match_percent=100.0,
@@ -298,17 +300,25 @@ class TestExtractSingleFunction:
                 obj_bytes=b"x",
                 reloc_offsets=[],
                 message="RELOC",
-            ),
-        )
+            )
+
+        monkeypatch.setattr("rebrew.verify.verify_entry", fake_verify)
         monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda *a, **k: None)
         monkeypatch.setattr(ci_mod, "_source_flags", lambda *a, **k: "")
 
         res = ci_mod.import_function(cfg_dst, cfg_src, 0x601000, 0x401000, "shared.c", 11)
         assert res["action"] == "imported"
         text = (rev_dst / "shared.c").read_text(encoding="utf-8")
-        assert "// FUNCTION: DST 0x601000" in text
-        assert text.count("FUNCTION:") == 1
+        assert text.startswith('#include "shared.h"')
+        assert "int f1(void){ return 1; }" in text
         assert "int f2" not in text
+        assert "FUNCTION:" not in text
+        assert "SIZE:" not in text
+        assert seen["row"]["marker_type"] == "FUNCTION"
+        assert seen["row"]["name"] == "f1"
+        assert seen["row"]["symbol"] == "_f1"
+        assert seen["row"]["size"] == 11
+        assert seen["row"]["file"] == "src_GOLDTL/shared.c"
 
 
 class TestOnlyVaGuard:
@@ -469,11 +479,13 @@ class TestImportMechanics:
         )
 
         from rebrew.compile import CompareResult
+        from rebrew.metadata import get_entry
 
         seen: dict[str, Any] = {}
 
         def fake_verify(entry, cfg, cache=None, **kw):
             seen["entry"] = entry
+            seen["row"] = get_entry(tmp_path, B_F1, "DST")
             return CompareResult(
                 matched=True,
                 status="EXACT",
@@ -495,10 +507,16 @@ class TestImportMechanics:
         assert res["action"] == "imported"
         assert res["status"] == "EXACT"
         text = (cfg_dst.reversed_dir / "f1.c").read_text(encoding="utf-8")
-        assert "// FUNCTION: DST 0x401040" in text
-        assert "// SIZE: 11" in text
+        assert text == "int f1(void){ return 1; }\n"
+        assert "FUNCTION:" not in text
+        assert "SIZE:" not in text
         assert seen["entry"].va == B_F1
         assert seen["entry"].size == 11
+        assert seen["row"]["marker_type"] == "FUNCTION"
+        assert seen["row"]["name"] == "f1"
+        assert seen["row"]["symbol"] == "_f1"
+        assert seen["row"]["size"] == 11
+        assert seen["row"]["file"] == "src_DST/f1.c"
         assert applied and applied[0][0][0][1] == "EXACT"
 
     def test_import_verifies_with_the_symbol_map(self, tmp_path: Path, monkeypatch) -> None:
@@ -645,7 +663,108 @@ class TestImportMechanics:
         res = ci.import_function(cfg_dst, cfg_src, B_F1, A_F1, "f1.c", 11, dst_file="f1.c")
         assert res["action"] == "imported"
         text = (cfg_dst.reversed_dir / "f1.c").read_text(encoding="utf-8")
-        assert "// FUNCTION: DST 0x401040" in text
+        assert text == "int f1(void){ return 1; }\n"
+        assert "FUNCTION:" not in text
+        assert "return 0" not in text
+        from rebrew.metadata import get_entry
+
+        row = get_entry(tmp_path, B_F1, "DST")
+        assert row["marker_type"] == "FUNCTION"
+        assert row["size"] == 11
+        assert row["file"] == "src_DST/f1.c"
+
+    def test_unmatched_copy_still_applies_status(self, tmp_path: Path, monkeypatch) -> None:
+        """A copy that fails verify stays imported-unverified and still applies STATUS.
+
+        Identity is recorded before verify. The written body is pure C.
+        """
+        cfg_src = self._cfg(tmp_path, "SRC", tmp_path / "a.exe")
+        cfg_dst = self._cfg(tmp_path, "DST", tmp_path / "b.exe")
+        (cfg_src.reversed_dir / "f1.c").write_text(
+            "// FUNCTION: SRC 0x401000\n// SIZE: 11\nint f1(void){ return 1; }\n",
+            encoding="utf-8",
+        )
+        from rebrew.compile import CompareResult
+        from rebrew.metadata import get_entry
+
+        applied: list[Any] = []
+
+        def fake_verify(entry, cfg, cache=None, **kw):
+            assert get_entry(tmp_path, B_F1, "DST")["marker_type"] == "FUNCTION"
+            return CompareResult(
+                matched=False,
+                status="NEAR_MATCHING",
+                match_percent=40.0,
+                delta=4,
+                obj_bytes=b"x",
+                reloc_offsets=[],
+                message="NEAR",
+            )
+
+        monkeypatch.setattr("rebrew.verify.verify_entry", fake_verify)
+        monkeypatch.setattr(
+            "rebrew.verify.apply_status_updates",
+            lambda fixes, cfg: applied.append(fixes),
+        )
+        res = ci.import_function(cfg_dst, cfg_src, B_F1, A_F1, "f1.c", 11)
+        assert res["action"] == "imported-unverified"
+        assert res["status"] == "NEAR_MATCHING"
+        assert applied and applied[0][0][1] == "NEAR_MATCHING"
+        text = (cfg_dst.reversed_dir / "f1.c").read_text(encoding="utf-8")
+        assert text == "int f1(void){ return 1; }\n"
+        assert "SIZE:" not in text
+
+    def test_markerless_single_function_is_copied_whole(self, tmp_path: Path, monkeypatch) -> None:
+        """One function row and no marker: the file is copied as pure C."""
+        cfg_src = self._cfg(tmp_path, "SRC", tmp_path / "a.exe")
+        cfg_dst = self._cfg(tmp_path, "DST", tmp_path / "b.exe")
+        body = "int f1(void){ return 1; }\n"
+        src_path = cfg_src.reversed_dir / "f1.c"
+        src_path.write_text(body, encoding="utf-8")
+        from rebrew.compile import CompareResult
+        from rebrew.metadata import get_entry, identity_file, record_function_identity
+
+        record_function_identity(
+            tmp_path,
+            module="SRC",
+            va=A_F1,
+            file=identity_file(src_path, tmp_path),
+            marker_type="FUNCTION",
+            name="f1",
+            symbol="_f1",
+            size=11,
+        )
+        monkeypatch.setattr(
+            "rebrew.verify.verify_entry",
+            lambda *a, **k: CompareResult(
+                matched=True,
+                status="EXACT",
+                match_percent=100.0,
+                delta=0,
+                obj_bytes=b"x",
+                reloc_offsets=[],
+                message="EXACT MATCH",
+            ),
+        )
+        monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda *a, **k: None)
+        res = ci.import_function(cfg_dst, cfg_src, B_F1, A_F1, "f1.c", 13)
+        assert res["action"] == "imported"
+        assert (cfg_dst.reversed_dir / "f1.c").read_text(encoding="utf-8") == body
+        row = get_entry(tmp_path, B_F1, "DST")
+        assert row["marker_type"] == "FUNCTION"
+        assert row["name"] == "f1"
+        assert row["symbol"] == "_f1"
+        assert row["size"] == 13
+
+    def test_markerless_file_without_a_row_is_an_error(self, tmp_path: Path) -> None:
+        cfg_src = self._cfg(tmp_path, "SRC", tmp_path / "a.exe")
+        cfg_dst = self._cfg(tmp_path, "DST", tmp_path / "b.exe")
+        (cfg_src.reversed_dir / "f1.c").write_text("int f1(void){ return 1; }\n", encoding="utf-8")
+        res = ci.import_function(cfg_dst, cfg_src, B_F1, A_F1, "f1.c", 11)
+        assert res["action"] == "error"
+        assert res["status"] == "NO_MARKER"
+        assert res["message"] == "source f1.c has no function row for 0x401000"
+        assert not (cfg_dst.reversed_dir / "f1.c").exists()
 
 
 class TestSizelessMatching:
@@ -663,6 +782,7 @@ class TestSizelessMatching:
         return SimpleNamespace(
             root=tmp_path,
             target_name=target,
+            marker=target,
             reversed_dir=rev,
             metadata_dir=tmp_path,
             target_binary=binary,
@@ -725,6 +845,32 @@ class TestSizelessMatching:
         out = ci.unmatched_dest_bytes(cfg, only_va=A_F1)
         assert out[A_F1] == F1
 
+    def test_matched_donor_uses_managed_body_extent(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.metadata import update_field
+
+        pa = tmp_path / "a.exe"
+        pa.write_bytes(_pe_a())
+        cfg = self._cfg(tmp_path, "SRC", pa)
+        monkeypatch.setattr(ci, "annotations_by_va", lambda _c: {A_F1: ("EXACT", "f1.c")})
+        monkeypatch.setattr(ci, "registry", lambda _c: {A_F1: {"canonical_size": len(F1) + 4}})
+        update_field(cfg.metadata_dir, A_F1, "size", len(F1), module="SRC")
+        assert ci.matched_source_bytes(cfg)[A_F1] == F1
+
+    def test_donor_extent_is_target_scoped(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.metadata import update_field
+
+        pa = tmp_path / "a.exe"
+        pa.write_bytes(_pe_a())
+        cfg = self._cfg(tmp_path, "SRC", pa)
+        monkeypatch.setattr(ci, "annotations_by_va", lambda _c: {A_F1: ("EXACT", "f1.c")})
+        monkeypatch.setattr(ci, "registry", lambda _c: {A_F1: {"canonical_size": len(F1)}})
+        update_field(cfg.metadata_dir, A_F1, "size", 1, module="DST")
+        assert ci.matched_source_bytes(cfg)[A_F1] == F1
+
     def test_matched_source_bytes_sizeless_matches(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -762,7 +908,7 @@ class TestCLI:
         self._project(tmp_path)
         monkeypatch.chdir(tmp_path)
         runner = CliRunner()
-        result = runner.invoke(umbrella, ["cross-import", "--from", "DST"])
+        result = runner.invoke(umbrella, ["source", "import-related", "--from", "DST"])
         assert result.exit_code != 0
         assert "--from must name a different target" in result.output
 
@@ -806,7 +952,7 @@ class TestCLI:
         runner = CliRunner()
         result = runner.invoke(
             umbrella,
-            ["cross-import", "--from", "SRC", "--json", "--dry-run"],
+            ["source", "import-related", "--from", "SRC", "--json", "--dry-run"],
         )
         assert result.exit_code == 0, result.output
         payload = json_mod.loads(result.output)
@@ -855,7 +1001,7 @@ class TestCLI:
         monkeypatch.setattr("rebrew.cross_import.import_function", _fake_import)
         runner = CliRunner()
         result = runner.invoke(
-            umbrella, ["cross-import", "--from", "SRC", "--json", "--limit", "0"]
+            umbrella, ["source", "import-related", "--from", "SRC", "--json", "--limit", "0"]
         )
         assert result.exit_code == 0, result.output
         assert calls == []
@@ -905,7 +1051,7 @@ class TestCLI:
         runner = CliRunner()
         result = runner.invoke(
             umbrella,
-            ["cross-import", "--from", "SRC", "--json", "--dry-run"],
+            ["source", "import-related", "--from", "SRC", "--json", "--dry-run"],
         )
         assert result.exit_code == 0, result.output
         payload = json_mod.loads(result.output)
@@ -996,43 +1142,49 @@ class TestMingwEndToEnd:
             "READ_ERROR",
         ), res
         text = (cfg_dst.reversed_dir / "f1.c").read_text(encoding="utf-8")
-        assert "// FUNCTION: DST 0x401040" in text
+        assert "FUNCTION:" not in text
+        assert "SIZE:" not in text
+        assert "int f1(void){ return 1; }" in text
+        from rebrew.metadata import get_entry
+
+        row = get_entry(cfg_dst.metadata_dir, B_F1, "DST")
+        assert row["marker_type"] == "FUNCTION"
+        assert row["name"] == "f1"
+        assert row["size"] == len(F1)
 
 
 class TestRewriteMarkerSizeAndLineEndings:
-    def test_block_comment_size_is_replaced(self) -> None:
-        """The parser accepts `/* SIZE: N */` and is last-wins, so inserting a
-        second `// SIZE` before it left the SOURCE size in force and verify
-        sliced the wrong length."""
+    def test_block_comment_size_is_stripped(self) -> None:
+        """The parser accepts `/* SIZE: N */`. The copy drops that line with
+        the marker. SIZE is not rewritten inline."""
         import rebrew.cross_import as ci
 
         src = "/* FUNCTION: SRC 0x401000 */\n/* SIZE: 11 */\nint f(void) { return 0; }\n"
         out = ci._rewrite_marker(src, "DST", 0x601000, 13)
-        assert "// SIZE: 13" in out
-        assert "SIZE: 11" not in out
+        assert out == "int f(void) { return 0; }\n"
+        assert "FUNCTION:" not in out
+        assert "SIZE:" not in out
 
-    def test_crlf_line_endings_preserved(self) -> None:
+    def test_crlf_body_survives_the_strip(self) -> None:
+        """The marker line does not remain. The C body's CRLF does."""
         import rebrew.cross_import as ci
 
         src = "// FUNCTION: SRC 0x401000\r\n// SIZE: 11\r\nint f(void) { return 0; }\r\n"
         out = ci._rewrite_marker(src, "DST", 0x601000, 13)
-        lines = out.splitlines(keepends=True)
-        assert lines[0] == "// FUNCTION: DST 0x601000\r\n"
-        assert lines[1] == "// SIZE: 13\r\n"
-        assert all(line.endswith("\r\n") for line in lines if line.strip())
+        assert out == "int f(void) { return 0; }\r\n"
+        assert "FUNCTION:" not in out
+        assert "SIZE:" not in out
 
 
 class TestSharedImport:
-    """`--shared`: stack the destination marker onto one file (ADR-010)."""
+    """`--shared`: record a destination row for one file (ADR-010).
 
-    def test_stack_marker_prepends_destination_block(self) -> None:
+    ``_stack_marker`` does not insert a marker line.
+    """
+
+    def test_stack_marker_leaves_text_unchanged(self) -> None:
         src = "// FUNCTION: SRC 0x401000\n// SIZE: 11\nint f1(void){ return 1; }\n"
-        out = ci._stack_marker(src, "DST", 0x601000, 13)
-        lines = out.splitlines()
-        assert lines[0] == "// FUNCTION: DST 0x601000"
-        assert lines[1] == "// SIZE: 13"
-        assert "// FUNCTION: SRC 0x401000" in out
-        assert "int f1(void)" in out
+        assert ci._stack_marker(src, "DST", 0x601000, 13) == src
 
     def test_stack_marker_idempotent(self) -> None:
         src = "// FUNCTION: DST 0x601000\n// SIZE: 13\nint f1(void){ return 1; }\n"
@@ -1051,7 +1203,7 @@ class TestSharedImport:
         src = f"// FUNCTION: {nfd} 0x601000\n// SIZE: 13\nint f1(void){{ return 1; }}\n"
         assert ci._stack_marker(src, nfc, 0x601000, 13) == src
 
-    def test_shared_import_stacks_in_place(self, tmp_path: Path, monkeypatch) -> None:
+    def test_shared_import_records_destination_row(self, tmp_path: Path, monkeypatch) -> None:
         rev = tmp_path / "src_shared"
         rev.mkdir(parents=True)
         src_file = rev / "f1.c"
@@ -1094,9 +1246,20 @@ class TestSharedImport:
         res = ci.import_shared_function(cfg_dst, cfg_src, B_F1, A_F1, "f1.c", 11)
         assert res["action"] == "imported-shared"
         text = src_file.read_text(encoding="utf-8")
-        assert "// FUNCTION: DST 0x401040" in text
-        assert "// FUNCTION: SRC 0x401000" in text
+        assert text == "int f1(void){ return 1; }\n"
+        assert "FUNCTION:" not in text
         assert not (dst_rev / "f1.c").exists()  # no copy: one file serves both
+        from rebrew.metadata import get_entry
+
+        row = get_entry(tmp_path, B_F1, "DST")
+        assert row["marker_type"] == "FUNCTION"
+        assert row["name"] == "f1"
+        assert row["symbol"] == "_f1"
+        assert row["size"] == 11
+        assert row["file"] == "src_shared/f1.c"
+        src_row = get_entry(tmp_path, A_F1, "SRC")
+        assert src_row["marker_type"] == "FUNCTION"
+        assert src_row["file"] == "src_shared/f1.c"
 
 
 class TestPromoteToShared:
@@ -1122,6 +1285,50 @@ class TestPromoteToShared:
         assert res["action"] == "promoted"
         assert (cfg.shared_dir / "Units" / "vfs" / "f1.c").is_file()
         assert not (cfg.reversed_dir / "Units" / "vfs" / "f1.c").exists()
+
+    def test_promote_retargets_the_row_file(self, tmp_path: Path) -> None:
+        """A pure-C row's ``file`` follows the move. The marker does not."""
+        cfg = self._cfg(tmp_path)
+        cfg.metadata_dir = tmp_path
+        src = cfg.reversed_dir / "f1.c"
+        src.write_text("int f1(void){ return 1; }\n", encoding="utf-8")
+        from rebrew.data_metadata import load_data_metadata, record_migrated_data_markers
+        from rebrew.metadata import get_entry, identity_file, record_function_identity
+
+        record_function_identity(
+            tmp_path,
+            module="SRC",
+            va=0x401000,
+            file=identity_file(src, tmp_path),
+            marker_type="FUNCTION",
+            name="f1",
+            symbol="_f1",
+        )
+        record_migrated_data_markers(
+            tmp_path,
+            [
+                {
+                    "module": "SRC",
+                    "va": 0x402000,
+                    "identity": {
+                        "file": identity_file(src, tmp_path),
+                        "marker_type": "DATA",
+                        "name": "g_gap",
+                    },
+                }
+            ],
+        )
+        res = ci.promote_to_shared(cfg, "f1.c")
+        assert res["action"] == "promoted"
+        moved = cfg.shared_dir / "f1.c"
+        assert moved.is_file()
+        assert "FUNCTION:" not in moved.read_text(encoding="utf-8")
+        new_file = identity_file(moved, tmp_path)
+        row = get_entry(tmp_path, 0x401000, "SRC")
+        assert row["file"] == new_file
+        assert row["marker_type"] == "FUNCTION"
+        data = load_data_metadata(tmp_path)[("SRC", 0x402000)]
+        assert data["file"] == new_file
 
     def test_promote_moves_across_filesystems(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1263,7 +1470,7 @@ class TestPromoteToShared:
 
         runner = CliRunner()
         result = runner.invoke(
-            umbrella, ["cross-import", "--from", "SRC", "--shared", "--target", "DST"]
+            umbrella, ["source", "import-related", "--from", "SRC", "--shared", "--target", "DST"]
         )
         assert result.exit_code == 0, result.output
         assert (tmp_path / "src" / "shared" / "f1.c").is_file()
@@ -1346,12 +1553,19 @@ class TestSharedSupersede:
                 message="NEAR",
             ),
         )
-        monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda *a, **k: None)
+        applied: list[Any] = []
+        monkeypatch.setattr(
+            "rebrew.verify.apply_status_updates",
+            lambda *a, **k: applied.append(a),
+        )
         monkeypatch.setattr("rebrew.cross_import._source_flags", lambda *a, **k: "")
         res = ci.import_shared_function(cfg_dst, cfg_src, B_F1, A_F1, "f1.c", 11, dst_file="stub.c")
-        # The failed stack is rolled back: leaving it would give the VA two
-        # claimants (lint E013) while the stub is the only matchable owner.
+        # A failed new claim is not recorded. The stub stays the only owner.
         assert res["action"] == "skipped-unverified"
+        assert res["message"].endswith(
+            "(destination already annotates this VA; claim not recorded)"
+        )
+        assert applied == []
         assert (cfg_dst.reversed_dir / "stub.c").is_file()
         assert "FUNCTION: DST" not in (cfg_src.shared_dir / "f1.c").read_text()
 
@@ -1389,6 +1603,9 @@ class TestSharedSupersede:
         monkeypatch.setattr("rebrew.cross_import._source_flags", lambda *a, **k: "/O2")
         res = ci.import_shared_function(cfg_dst, cfg_src, B_F1, A_F1, "f1.c", 11, dst_file="stub.c")
         assert res["action"] == "skipped-unverified"
+        assert res["message"].endswith(
+            "(destination already annotates this VA; claim not recorded)"
+        )
         assert get_entry(tmp_path, 0x401040, "DST").get("cflags") == "/G5"
         entry = load_metadata(tmp_path).get(("DST", 0x401040), {})
         assert entry.get("status") == "EXACT"
@@ -1424,10 +1641,109 @@ class TestSharedSupersede:
         monkeypatch.setattr("rebrew.cross_import._source_flags", lambda *a, **k: "/O2")
         res = ci.import_shared_function(cfg_dst, cfg_src, B_F1, A_F1, "f1.c", 11, dst_file="stub.c")
         assert res["action"] == "skipped-unverified"
+        assert res["message"].endswith(
+            "(destination already annotates this VA; claim not recorded)"
+        )
         # The attempt created the entry, so the rollback removes it: an empty
         # table would be left behind otherwise.
         assert get_entry(tmp_path, 0x401040, "DST") == {}
         assert "0x00401040" not in (tmp_path / "rebrew-functions.toml").read_text()
+
+    def test_failed_reverify_of_stacked_claim_applies_status(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """A destination marker already on the source block keeps the verify result.
+
+        A failed re-verify still applies STATUS and does not roll the cflags
+        write back. The file text is not rewritten.
+        """
+        from rebrew.compile import CompareResult
+        from rebrew.metadata import get_entry, update_field
+
+        cfg_src, cfg_dst = self._cfgs(tmp_path)
+        original = (
+            "// FUNCTION: SRC 0x401000\n// SIZE: 11\n"
+            "// FUNCTION: DST 0x401040\n// SIZE: 11\n"
+            "int f1(void){ return 1; }\n"
+        )
+        (cfg_src.shared_dir / "f1.c").write_text(original, encoding="utf-8")
+        update_field(tmp_path, B_F1, "cflags", "/G5", "DST")
+        applied: list[Any] = []
+        monkeypatch.setattr(
+            "rebrew.verify.verify_entry",
+            lambda *a, **k: CompareResult(
+                matched=False,
+                status="NEAR_MATCHING",
+                match_percent=50.0,
+                delta=5,
+                obj_bytes=b"x",
+                reloc_offsets=[],
+                message="NEAR",
+            ),
+        )
+        monkeypatch.setattr(
+            "rebrew.verify.apply_status_updates",
+            lambda fixes, cfg: applied.append(fixes),
+        )
+        monkeypatch.setattr("rebrew.cross_import._source_flags", lambda *a, **k: "/O2")
+        res = ci.import_shared_function(cfg_dst, cfg_src, B_F1, A_F1, "f1.c", 11)
+        assert res["action"] == "imported-unverified"
+        assert "claim not recorded" not in res["message"]
+        assert applied and applied[0][0][1] == "NEAR_MATCHING"
+        assert get_entry(tmp_path, B_F1, "DST").get("cflags") == "/O2"
+        assert (cfg_src.shared_dir / "f1.c").read_text(encoding="utf-8") == original
+
+    def test_failed_reverify_of_toml_claim_applies_status(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """A destination row already naming this file is not a new claim.
+
+        The inline file has only the source marker. The destination identity
+        is already in the store, so a failed re-verify still applies STATUS
+        and does not roll cflags back.
+        """
+        from rebrew.compile import CompareResult
+        from rebrew.metadata import get_entry, identity_file, record_function_identity, update_field
+
+        cfg_src, cfg_dst = self._cfgs(tmp_path)
+        path = cfg_src.shared_dir / "f1.c"
+        original = "// FUNCTION: SRC 0x401000\n// SIZE: 11\nint f1(void){ return 1; }\n"
+        path.write_text(original, encoding="utf-8")
+        record_function_identity(
+            tmp_path,
+            module="DST",
+            va=B_F1,
+            file=identity_file(path, tmp_path),
+            marker_type="FUNCTION",
+            name="f1",
+            symbol="_f1",
+            size=11,
+        )
+        update_field(tmp_path, B_F1, "cflags", "/G5", "DST")
+        applied: list[Any] = []
+        monkeypatch.setattr(
+            "rebrew.verify.verify_entry",
+            lambda *a, **k: CompareResult(
+                matched=False,
+                status="NEAR_MATCHING",
+                match_percent=50.0,
+                delta=5,
+                obj_bytes=b"x",
+                reloc_offsets=[],
+                message="NEAR",
+            ),
+        )
+        monkeypatch.setattr(
+            "rebrew.verify.apply_status_updates",
+            lambda fixes, cfg: applied.append(fixes),
+        )
+        monkeypatch.setattr("rebrew.cross_import._source_flags", lambda *a, **k: "/O2")
+        res = ci.import_shared_function(cfg_dst, cfg_src, B_F1, A_F1, "f1.c", 11)
+        assert res["action"] == "imported-unverified"
+        assert "claim not recorded" not in res["message"]
+        assert applied and applied[0][0][1] == "NEAR_MATCHING"
+        assert get_entry(tmp_path, B_F1, "DST").get("cflags") == "/O2"
+        assert path.read_text(encoding="utf-8") == original
 
     def test_same_file_stub_never_deleted(self, tmp_path: Path, monkeypatch) -> None:
         cfg_src, cfg_dst = self._cfgs(tmp_path)
@@ -1532,16 +1848,18 @@ class TestSharedDryRunPath:
         assert res["action"] == "would-import-shared"
         assert res["filepath"] == "../shared/f1.c"
         assert str(tmp_path) not in res["filepath"]
+        assert res["message"] == "would record DST 0x401040"
+        assert not (tmp_path / "rebrew-functions.toml").exists()
 
 
 class TestUnifiedTreeMarkerMove:
     """Unified tree (``shared_dir`` == ``reversed_dir``): one file holds the
     source body AND the destination's own claim.
 
-    The copy path must never write one extracted function over such a file —
-    that deletes every co-resident function and duplicates the body.  The
-    shared path must MOVE the destination marker onto the source block instead
-    of the old idempotent no-op, which verified the stale body.
+    The copy path must never write one extracted function over such a file.
+    That deletes every co-resident function and duplicates the body. The
+    shared path records the destination row for the source body. It does not
+    insert a marker, and it does not drop a claim from the text.
     """
 
     SRC_FILE = (
@@ -1575,7 +1893,9 @@ class TestUnifiedTreeMarkerMove:
         dst = SimpleNamespace(**{**vars(src), "target_name": "DST", "marker": "DST"})
         return src, dst
 
-    def test_stack_marker_on_block_moves_onto_named_block(self) -> None:
+    def test_stack_marker_on_block_leaves_named_block(self) -> None:
+        """The named source block is present, so the text comes back unchanged.
+        The caller records the destination row. Nothing is inserted."""
         text = (
             "#include <stdio.h>\n"
             "// FUNCTION: SRC 0x401000\n"
@@ -1587,15 +1907,10 @@ class TestUnifiedTreeMarkerMove:
             "int f2(void){ return 2; }\n"
         )
         out = ci.stack_marker_on_block(text, "DST", 0x401040, 11, "SRC", 0x401010)
-        assert out is not None
-        lines = out.splitlines()
-        # The destination marker sits directly above the SECOND block's body.
-        assert lines[lines.index("// FUNCTION: DST 0x401040") + 2] == "// FUNCTION: SRC 0x401010"
-        assert lines[lines.index("// FUNCTION: DST 0x401040") + 4].startswith("int f2")
-        assert out.count("FUNCTION: DST") == 1
-        assert "#include <stdio.h>" in out
+        assert out == text
 
-    def test_stack_marker_on_block_drops_superseded_claim(self) -> None:
+    def test_stack_marker_on_block_keeps_superseded_claim(self) -> None:
+        """A drop argument does not remove the other claim or its body."""
         text = (
             "// FUNCTION: SRC 0x401000\n// SIZE: 11\nint f1(void){ return 1; }\n"
             "\n// FUNCTION: DST 0x401040\n// SIZE: 3\nint f1(void){ return 0; }\n"
@@ -1603,35 +1918,29 @@ class TestUnifiedTreeMarkerMove:
         out = ci.stack_marker_on_block(
             text, "DST", 0x401040, 11, "SRC", 0x401000, drop=("DST", 0x401040)
         )
-        assert out is not None
-        assert out.count("FUNCTION: DST") == 1
-        assert "return 0" not in out  # the stale destination body is gone
-        assert out.splitlines()[0] == "// FUNCTION: DST 0x401040"
+        assert out == text
 
-    def test_new_shared_claim_lands_on_the_source_block(self) -> None:
-        """A destination VA not yet claimed in a multi-function file goes onto the
-        SOURCE block, not above the file's first marker.
+    def test_place_shared_marker_leaves_text_unchanged(self) -> None:
+        """A destination VA not yet claimed stays out of the file text.
 
-        Regression: guild-rebrew plant.c got `GOLDTL 0x4bcbd0` stacked on the first
-        function (another target's marker) while the import verified the source
-        function, so it reported EXACT for a body the marker was not on.
+        Regression: guild-rebrew plant.c got `GOLDTL 0x4bcbd0` stacked on the
+        first function while the import verified the source function. The row
+        is recorded by the caller. The text is not edited.
         """
         text = (
             "// FUNCTION: DST 0x4bcb80\n// FUNCTION: SRC 0x401000\nint f1(void){ return 1; }\n"
             "\n// FUNCTION: SRC 0x401010\nint f2(void){ return 2; }\n"
         )
         out = ci._place_shared_marker(text, "DST", 0x4BCBD0, 11, "SRC", 0x401010, superseded=False)
-        lines = out.splitlines()
-        at = lines.index("// FUNCTION: DST 0x4bcbd0")
-        assert lines[at + 2] == "// FUNCTION: SRC 0x401010"
-        assert lines[0] == "// FUNCTION: DST 0x4bcb80"
+        assert out == text
 
-    def test_superseded_claim_drops_only_its_marker(self) -> None:
-        """A superseded destination claim stacked on another target's function
-        loses its own marker lines; that function's marker and body stay.
+    def test_superseded_claim_stays_in_the_text(self) -> None:
+        """A superseded destination claim is not dropped from the file.
 
         Regression: the whole block went, and guild-rebrew server4.c lost a
-        SERVER function body (372 lines) to a GOLDTL re-claim."""
+        SERVER function body (372 lines) to a GOLDTL re-claim. The text keeps
+        every marker and body. The caller records the row.
+        """
         text = (
             "// FUNCTION: DST 0x4bcb80\n// SIZE: 80\n// FUNCTION: SRC 0x401000\n// SIZE: 11\n"
             "int f1(void){ return 1; }\n"
@@ -1640,12 +1949,7 @@ class TestUnifiedTreeMarkerMove:
         out = ci.stack_marker_on_block(
             text, "DST", 0x4BCB80, 11, "SRC", 0x401010, drop=("DST", 0x4BCB80)
         )
-        assert out is not None
-        assert "// FUNCTION: SRC 0x401000" in out
-        assert "int f1(void){ return 1; }" in out
-        assert out.count("FUNCTION: DST 0x4bcb80") == 1
-        lines = out.splitlines()
-        assert lines[lines.index("// FUNCTION: DST 0x4bcb80") + 2] == "// FUNCTION: SRC 0x401010"
+        assert out == text
 
     def test_stack_marker_on_block_absent_source(self) -> None:
         text = "// FUNCTION: SRC 0x401000\nint f1(void){ return 1; }\n"
@@ -1679,10 +1983,11 @@ class TestUnifiedTreeMarkerMove:
         res = ci.import_function(dst, src, 0x401040, 0x409999, "f1.c", 11, dry_run=True)
         assert res["action"] == "error"
         assert res["status"] == "NO_MARKER"
+        assert res["message"] == (
+            "source f1.c has more than one function and no marker to split at 0x409999"
+        )
 
-    def test_shared_import_moves_marker_onto_same_file_body(
-        self, tmp_path: Path, monkeypatch
-    ) -> None:
+    def test_shared_import_records_retarget_on_same_file(self, tmp_path: Path, monkeypatch) -> None:
         from rebrew.compile import CompareResult
 
         src, dst = self._cfgs(tmp_path)
@@ -1709,22 +2014,31 @@ class TestUnifiedTreeMarkerMove:
 
         res = ci.import_shared_function(dst, src, 0x401040, 0x401000, "f1.c", 11)
         assert res["action"] == "imported-shared"
-        assert "moved the DST marker" in res["message"]
+        assert "(retargeted DST 0x401040 onto the 0x401000 body)" in res["message"]
         text = path.read_text(encoding="utf-8")
-        assert text.count("FUNCTION: DST") == 1
-        assert "return 0" not in text
+        assert "FUNCTION:" not in text
         assert "return 1" in text
+        assert "return 0" in text  # the other body is not dropped
+        from rebrew.metadata import get_entry
 
-    def test_shared_import_dry_run_announces_the_move(self, tmp_path: Path) -> None:
+        row = get_entry(tmp_path, 0x401040, "DST")
+        assert row["marker_type"] == "FUNCTION"
+        assert row["name"] == "f1"
+        assert row["size"] == 11
+
+    def test_shared_import_dry_run_announces_the_retarget(self, tmp_path: Path) -> None:
         src, dst = self._cfgs(tmp_path)
         (src.reversed_dir / "f1.c").write_text(
             "// FUNCTION: SRC 0x401000\n// SIZE: 11\nint f1(void){ return 1; }\n"
             "\n// FUNCTION: DST 0x401040\n// SIZE: 3\nint f1(void){ return 0; }\n",
             encoding="utf-8",
         )
+        before = (src.reversed_dir / "f1.c").read_text(encoding="utf-8")
         res = ci.import_shared_function(dst, src, 0x401040, 0x401000, "f1.c", 11, dry_run=True)
         assert res["action"] == "would-import-shared"
-        assert "move the DST marker" in res["message"]
+        assert res["message"] == "would retarget DST 0x401040 onto the 0x401000 body"
+        assert (src.reversed_dir / "f1.c").read_text(encoding="utf-8") == before
+        assert not (tmp_path / "rebrew-functions.toml").exists()
 
     def test_failed_move_is_reverted(self, tmp_path: Path, monkeypatch) -> None:
         from rebrew.compile import CompareResult
@@ -1748,11 +2062,18 @@ class TestUnifiedTreeMarkerMove:
                 message="NEAR",
             ),
         )
-        monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda *a, **k: None)
+        applied: list[Any] = []
+        monkeypatch.setattr(
+            "rebrew.verify.apply_status_updates",
+            lambda *a, **k: applied.append(a),
+        )
         monkeypatch.setattr("rebrew.cross_import._source_flags", lambda *a, **k: "")
 
         res = ci.import_shared_function(dst, src, 0x401040, 0x401000, "f1.c", 11)
         assert res["action"] == "skipped-unverified"
+        assert res["message"].endswith("(claim not recorded)")
+        assert "destination already annotates" not in res["message"]
+        assert applied == []
         assert path.read_text(encoding="utf-8") == original
 
 
@@ -1822,7 +2143,15 @@ class TestCandidatesOnly:
         runner = CliRunner()
         result = runner.invoke(
             umbrella,
-            ["cross-import", "--from", "SRC", "--json", "--dry-run", "--candidates-only"],
+            [
+                "source",
+                "import-related",
+                "--from",
+                "SRC",
+                "--json",
+                "--dry-run",
+                "--candidates-only",
+            ],
         )
         assert result.exit_code == 0, result.output
         payload = json_mod.loads(result.output)
@@ -1858,7 +2187,9 @@ class TestCandidatesOnly:
         )
 
         runner = CliRunner()
-        result = runner.invoke(umbrella, ["cross-import", "--from", "SRC", "--json", "--dry-run"])
+        result = runner.invoke(
+            umbrella, ["source", "import-related", "--from", "SRC", "--json", "--dry-run"]
+        )
         assert result.exit_code == 0, result.output
         payload = json_mod.loads(result.output)
         assert len(payload["results"]) == 2
@@ -2187,9 +2518,16 @@ class TestMergedInventoryEntry:
         from rebrew.annotation import parse_c_file_multi
         from rebrew.metadata import get_entry
 
-        inline = [a.size for a in parse_c_file_multi(path, target_name="DST") if a.va == _MERGED_VA]
+        text = path.read_text(encoding="utf-8")
+        assert "FUNCTION:" not in text
+        assert "SIZE:" not in text
+        seen = [
+            a.size
+            for a in parse_c_file_multi(path, target_name="DST", metadata_dir=cfg_dst.metadata_dir)
+            if a.va == _MERGED_VA
+        ]
         recorded = get_entry(cfg_dst.metadata_dir, _MERGED_VA, "DST").get("size")
-        return inline[0], recorded
+        return seen[0], recorded
 
     def test_merged_entry_sized_to_the_body(self, tmp_path: Path, monkeypatch) -> None:
         cfg_src, cfg_dst = self._cfgs(tmp_path, _merged_pe())
@@ -2223,6 +2561,8 @@ class TestMergedInventoryEntry:
         res = ci.import_shared_function(cfg_dst, cfg_src, _MERGED_VA, A_F1, "f.c", _MERGED_ENTRY)
         assert res["action"] == "skipped-unverified"
         assert res["status"] == "SIZE_MISMATCH"
+        assert "(claim not recorded)" in res["message"]
+        assert "destination already annotates" not in res["message"]
         assert sizes == [_MERGED_ENTRY]
         assert "DST" not in (cfg_src.reversed_dir / "f.c").read_text(encoding="utf-8")
 
@@ -2250,3 +2590,121 @@ class TestMergedInventoryEntry:
         assert "62-byte body" in res["message"]
         assert sizes == [_MERGED_ENTRY, _MERGED_BODY]
         assert self._dst_sizes(cfg_dst, cfg_dst.reversed_dir / "f.c") == (62, 62)
+
+
+class TestSourceVA:
+    """An evidenced donor disambiguates twins without bypassing matching."""
+
+    def _setup(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        TestCLI()._project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        from rebrew.config import load_config
+
+        source = load_config(tmp_path, target="SRC").reversed_dir
+        source.mkdir(parents=True, exist_ok=True)
+        for name, va in [("f1.c", A_F1), ("f2.c", A_F2)]:
+            (source / name).write_text(f"// FUNCTION: SRC 0x{va:x}\nint f(void) {{ return 0; }}\n")
+        monkeypatch.setattr(ci, "matched_source_bytes", lambda cfg: {A_F1: F1, A_F2: F1})
+        monkeypatch.setattr(ci, "unmatched_dest_bytes", lambda cfg, only_va=None: {B_F1: F1})
+        monkeypatch.setattr(ci, "registry", lambda cfg: {})
+        monkeypatch.setattr(ci, "sizeless_dest_vas", lambda cfg: ({}, []))
+        monkeypatch.setattr(
+            ci,
+            "annotations_by_va",
+            lambda cfg: {A_F1: ("EXACT", "f1.c"), A_F2: ("RELOC", "f2.c")},
+        )
+
+        def preview(*args: Any, **kwargs: Any) -> dict[str, Any]:
+            assert kwargs["dry_run"] is True
+            return {
+                "dst_va": f"0x{args[2]:08x}",
+                "src_va": f"0x{args[3]:08x}",
+                "score": None,
+                "action": "would-import",
+                "status": "",
+                "filepath": args[4],
+                "message": "",
+            }
+
+        monkeypatch.setattr(ci, "import_function", preview)
+        monkeypatch.setattr(ci, "import_shared_function", preview)
+
+    @pytest.mark.parametrize("shared", [False, True])
+    @pytest.mark.parametrize("donor", [A_F1, A_F2])
+    def test_selects_evidenced_twin_at_default_gap(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, shared: bool, donor: int
+    ) -> None:
+        import json
+
+        from typer.testing import CliRunner
+
+        from rebrew.main import app as umbrella
+
+        self._setup(tmp_path, monkeypatch)
+        args = ["source", "import-related", "--from", "SRC", "--dry-run", "--json"]
+        if shared:
+            args.append("--shared")
+        runner = CliRunner()
+        ambiguous = runner.invoke(umbrella, args)
+        assert ambiguous.exit_code == 0, ambiguous.output
+        assert json.loads(ambiguous.output)["results"][0]["action"] == "skipped"
+        selected = runner.invoke(umbrella, [*args, "--source-va", hex(donor)])
+        assert selected.exit_code == 0, selected.output
+        row = json.loads(selected.output)["results"][0]
+        assert row["src_va"] == f"0x{donor:08x}"
+        assert row["score"] == 100.0
+        assert row["action"] == "would-import"
+        assert row["src_file"] == ("f1.c" if donor == A_F1 else "f2.c")
+
+    @pytest.mark.parametrize("source_va", ["bad-address", "0x409999"])
+    def test_invalid_or_unmatched_donor_is_an_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, source_va: str
+    ) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.main import app as umbrella
+
+        self._setup(tmp_path, monkeypatch)
+        result = CliRunner().invoke(
+            umbrella,
+            [
+                "source",
+                "import-related",
+                "--from",
+                "SRC",
+                "--source-va",
+                source_va,
+                "--dry-run",
+                "--json",
+            ],
+        )
+        assert result.exit_code == 2, result.output
+        assert "error" in result.output
+
+    def test_explicit_donor_still_obeys_score_threshold(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import json
+
+        from typer.testing import CliRunner
+
+        from rebrew.main import app as umbrella
+
+        self._setup(tmp_path, monkeypatch)
+        result = CliRunner().invoke(
+            umbrella,
+            [
+                "source",
+                "import-related",
+                "--from",
+                "SRC",
+                "--source-va",
+                hex(A_F1),
+                "--min-score",
+                "101",
+                "--dry-run",
+                "--json",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.output)["results"][0]["action"] == "skipped"

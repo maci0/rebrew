@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -13,12 +14,28 @@ from rebrew.intake import _suggest_profile, blocker_reason
 FAKE_FUNCS = [(0x401000, 32, "fcn.00401000"), (0x401020, 8, "fcn.00401020")]
 
 
+@pytest.fixture(autouse=True)
+def _isolate_metadata_cache() -> Iterator[None]:
+    """Intake addresses the store as a relative ``src`` after chdir.
+
+    The resolved-path memo is keyed by that string. A later test in the same
+    process would otherwise read the previous project.
+    """
+    from rebrew.metadata import clear_metadata_cache
+
+    clear_metadata_cache()
+    yield
+    clear_metadata_cache()
+
+
 def _run_main(tmp_path: Path, monkeypatch, *, argv: list[str]) -> str:
     """Invoke the intake CLI (via the real `rebrew intake` command), capturing stdout."""
     from typer.testing import CliRunner
 
     import rebrew.main as main_mod
+    from rebrew.metadata import clear_metadata_cache
 
+    clear_metadata_cache()
     runner = CliRunner()
     monkeypatch.chdir(tmp_path)
 
@@ -65,9 +82,23 @@ class TestIntake:
         assert "0x00401000" not in funcs  # VAs are ints, not hex strings
         assert "4198400" in funcs  # 0x401000
         assert "fcn.00401000" in funcs
-        # STUB .c written
+        # STUB .c written: pure C, identity in the store.
         stub = (tmp_path / "src" / "game" / "fcn_00401000.c").read_text()
-        assert "// STUB: GAME 0x00401000" in stub
+        assert "/* rebrew-stub GAME 00401000 */" in stub
+        assert "pending per-function decompilation" in stub
+        assert "// STUB:" not in stub
+        from rebrew.metadata import get_entry
+
+        entry = get_entry(tmp_path / "src", 0x401000, "GAME")
+        assert entry["marker_type"] == "STUB"
+        assert entry["symbol"] == "_fcn_00401000"
+        assert entry["name"] == "fcn_00401000"
+        assert entry["file"] == "game/fcn_00401000.c"
+        other = get_entry(tmp_path / "src", 0x401020, "GAME")
+        assert other["marker_type"] == "STUB"
+        assert other["symbol"] == "_fcn_00401020"
+        assert other["name"] == "fcn_00401020"
+        assert other["file"] == "game/fcn_00401020.c"
         # metadata has blocker + STUB
         meta = (tmp_path / "src" / "rebrew-functions.toml").read_text()
         assert "blocker" in meta
@@ -124,7 +155,12 @@ class TestIntake:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, status: str
     ) -> None:
         from rebrew.annotation import iter_annotations
-        from rebrew.metadata import get_entry, update_field, update_source_status
+        from rebrew.metadata import (
+            get_entry,
+            record_migrated_markers,
+            update_field,
+            update_source_status,
+        )
         from rebrew.sources import iter_sources
 
         (tmp_path / "game.exe").write_bytes(b"MZ")
@@ -137,6 +173,19 @@ class TestIntake:
         nested.mkdir()
         renamed = nested / "render_frame.c"
         original.rename(renamed)
+        # The marker no longer travels inside the .c. The row's file is the
+        # identity a later intake uses to see the moved source.
+        record_migrated_markers(
+            metadata_dir,
+            [
+                {
+                    "module": "GAME",
+                    "va": 0x401000,
+                    "identity": {"file": "game/render/render_frame.c"},
+                    "fields": {},
+                }
+            ],
+        )
         update_source_status(metadata_dir, status, "GAME", 0x401000)
         update_field(metadata_dir, 0x401000, "blocker", "Needs float math", module="GAME")
         update_field(metadata_dir, 0x401000, "size", 30, module="GAME")
@@ -148,15 +197,19 @@ class TestIntake:
             assert {path: path.read_bytes() for path in iter_sources(src_dir)} == expected_sources
             annotations = [
                 ann
-                for _, anns in iter_annotations(iter_sources(src_dir), target="GAME")
+                for _, anns in iter_annotations(
+                    iter_sources(src_dir), target="GAME", metadata_dir=metadata_dir
+                )
                 for ann in anns
                 if ann["va"] == 0x401000
             ]
             assert len(annotations) == 1
+            assert annotations[0]["filepath"].endswith("render_frame.c")
             entry = get_entry(metadata_dir, 0x401000, "GAME")
             assert entry["status"] == status
             assert entry["blocker"] == "Needs float math"
             assert entry["size"] == 30
+            assert entry["file"] == "game/render/render_frame.c"
 
     def test_binary_missing_fails(self, tmp_path: Path, monkeypatch) -> None:
         from typer.testing import CliRunner

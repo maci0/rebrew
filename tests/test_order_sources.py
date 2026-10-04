@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from rebrew.link_order import _base_key, file_va, order_sources
+from rebrew.metadata import record_function_identity
 
 
 def _write(path: Path, text: str) -> Path:
@@ -40,6 +41,32 @@ class TestBaseKey:
 
 
 class TestOrderSources:
+    def test_migrated_sources_keep_function_order(self, tmp_path: Path) -> None:
+        sources = tmp_path / "nested"
+        sources.mkdir()
+        hi = _write(sources / "a.c", "int high(void){return 2;}\n")
+        lo = _write(sources / "z.c", "int low(void){return 1;}\n")
+        for path, module, va, marker in (
+            (hi, "SERVER", 0x10003000, "FUNCTION"),
+            (lo, "SERVER", 0x10001000, "LIBRARY"),
+            (hi, "CLIENT", 0x401000, "FUNCTION"),
+        ):
+            record_function_identity(
+                tmp_path,
+                module=module,
+                va=va,
+                file=f"nested/{path.name}",
+                marker_type=marker,
+            )
+        assert file_va(hi, "SERVER", metadata_dir=tmp_path) == 0x10003000
+        assert order_sources([hi, lo], marker="SERVER", metadata_dir=tmp_path)[0] == [lo, hi]
+        assert order_sources(
+            [hi, lo],
+            first_va={"a.c": 0},
+            marker="SERVER",
+            metadata_dir=tmp_path,
+        )[0] == [hi, lo]
+
     def test_known_first_then_unknown(self, tmp_path: Path) -> None:
         hi = _write(tmp_path / "hi.c", "// FUNCTION: T 0x10002000\nint h(void){return 0;}\n")
         lo = _write(tmp_path / "lo.c", "// FUNCTION: T 0x10001000\nint l(void){return 0;}\n")

@@ -4,11 +4,11 @@
 - **Date**: 2026-05-20 (audited 2026-08-22, re-audited 2026-09)
 - **Owner**: rebrew team
 
-> **Correction (2026-09):** `rebrew sync` is BinSync-primary; field sync via
+> **Correction (2026-09):** `rebrew sync push` is BinSync-primary; field sync via
 > `--push`/`--pull --state-dir` (`--accept-binsync` / `--accept-local`); the
 > removed `--pull-signatures` / `--pull-structs` / `--pull-comments` /
 > `--accept-ghidra` flags referenced below are superseded (see
-> `rebrew sync --help`). `--pull-data` remains as a ReVa MCP structural op
+> `rebrew sync push --help`). `--pull-data` remains as a ReVa MCP structural op
 > (data labels → `rebrew_globals.h`). This report is a historical record,
 > kept as written.
 
@@ -48,7 +48,7 @@ workflows, and limitations.
 
 ### Gap: PRD claims `cfg add-target` auto-detects format/arch from binary, but the binary may not exist at add time
 
-- **Gap:** `rebrew cfg add-target NAME --binary FILE` calls `_detect_format_and_arch`
+- **Gap:** `rebrew cfg target add NAME --binary FILE` calls `_detect_format_and_arch`
   on the binary path. If the binary isn't placed yet (likely on fresh projects), the
   detector silently falls back to defaults and the stanza is wrong-but-quiet.
 - **Evidence:** `src/rebrew/cfg.py:162` `_detect_format_and_arch`, `src/rebrew/cfg.py:302` `add_target`.
@@ -59,9 +59,9 @@ workflows, and limitations.
   binary file doesn't exist at the configured `original/` path, so users don't end up
   with a silently mis-formatted target stanza.
 
-### Gap: PRD describes `rebrew doctor --install-wibo`, code accepts the flag but does not document scope clearly
+### Gap: PRD describes `rebrew toolchain install-wibo`, code accepts the flag but does not document scope clearly
 
-- **Gap:** `rebrew doctor --install-wibo` downloads `tools/wibo` if missing. Help text
+- **Gap:** `rebrew toolchain install-wibo` downloads `tools/wibo` if missing. Help text
   doesn't make clear whether running it on a working project replaces the binary.
 - **Evidence:** `uv run rebrew doctor --help` (see /tmp/rebrew_help.txt), `src/rebrew/wibo.py`.
 - **Severity:** nit (fixed)
@@ -78,7 +78,7 @@ workflows, and limitations.
 - **Evidence:** `src/rebrew/cfg.py:450` `set_value` handles arbitrary dotted keys
   generically, but the `--help` text only shows scalar examples; no shortcut.
 - **Severity:** enhancement (fixed)
-- **Fixed:** dedicated `rebrew cfg set-compiler TARGET PROFILE` ships
+- **Fixed:** dedicated `rebrew cfg target set-compiler TARGET PROFILE` ships
   (`src/rebrew/cfg.py:699`), and the `cfg` epilog now shows dotted-key examples
   (`cfg set compiler.timeout 120`, `cfg show targets.main.binary`).
 - **Suggested fix:** Add a worked example to `rebrew cfg set --help` for
@@ -89,12 +89,12 @@ workflows, and limitations.
 
 ## Feature: 02: Function Catalog
 
-### Gap: `rebrew extract show` lacks a `--size` override, despite skeletons / asm needing one
+### Gap: `rebrew binary extract show` lacks a `--size` override, despite skeletons / asm needing one
 
-- **Gap:** `rebrew extract show VA` only accepts `--min-size`/`--max-size` as filters
-  (not overrides). `rebrew asm VA --size N` accepts a `--size` override, so the
+- **Gap:** `rebrew binary extract show VA` only accepts `--min-size`/`--max-size` as filters
+  (not overrides). `rebrew binary asm show VA --size N` accepts a `--size` override, so the
   two extraction commands are inconsistent.
-- **Evidence:** `uv run rebrew extract show --help` (no `--size`),
+- **Evidence:** `uv run rebrew binary extract show --help` (no `--size`),
   `src/rebrew/extract.py:335` `show_candidate`.
 - **Severity:** enhancement (fixed)
 - **Fixed:** `show_candidate` now accepts `--size N` ("Override catalog-recorded size
@@ -102,11 +102,11 @@ workflows, and limitations.
 - **Suggested fix:** Add `--size N` to `extract show` so it can extract a single
   function with a known size override.
 
-### Gap: `rebrew flirt` lacks a documented `--sig-dir` flag
+### Gap: `rebrew library scan-signatures` lacks a documented `--sig-dir` flag
 
 - **Gap:** Help text says "Requires .sig/.pat signature files in the project or passed
   via `--sig-dir`," but the actual option is the positional `[SIG_DIR]` argument.
-- **Evidence:** `uv run rebrew flirt --help` shows `SIG_DIR` as positional; epilog
+- **Evidence:** `uv run rebrew library scan-signatures --help` shows `SIG_DIR` as positional; epilog
   references non-existent `--sig-dir`.
 - **Severity:** nit (fixed)
 - **Fixed:** epilog now says "passed as the positional SIG_DIR argument" and no longer
@@ -114,7 +114,7 @@ workflows, and limitations.
 - **Suggested fix:** Update the help epilog to refer to the positional argument, or
   add `--sig-dir` as an alias.
 
-### Gap: `rebrew build-db` schema is not auto-migrated
+### Gap: `rebrew coverage build` schema is not auto-migrated
 
 - **Gap:** PRD acknowledges this. Schema version is stamped in metadata, but on
   mismatch the tool errors instead of recreating; users may not know to delete the file.
@@ -125,14 +125,14 @@ workflows, and limitations.
   (`src/rebrew/build_db.py:158`).
 - **Suggested fix:** When the version mismatches, prompt to drop+recreate the DB or
   auto-recreate when `--force` is passed.
-- **Amended (2026-09):** the store this gap is about is gone. `rebrew build-db`
+- **Amended (2026-09):** the store this gap is about is gone. `rebrew coverage build`
   writes one clear-text document per target (`db/coverage-<target>.toml`), so
   there is no schema version to mismatch, no `--force` unlink to explain and no
   `_check_db_version` to name. The fix above was real for the SQLite store and is
   kept as the record of it; the gap itself cannot arise. See
   [COVERAGE_DOCUMENT.md](../COVERAGE_DOCUMENT.md).
 
-### Gap: `rebrew catalog --csv` output path is implicit
+### Gap: `rebrew coverage catalog --csv` output path is implicit
 
 - **Gap:** Help text says `--csv` "Generate reccmp-compatible CSV" but doesn't tell
   users where it lands. Code writes next to data JSON (`db/`).
@@ -142,7 +142,7 @@ workflows, and limitations.
   db/<target>_functions.csv)" (`src/rebrew/catalog/cli.py:85`).
 - **Suggested fix:** Help line should mention the output path.
 - **Later:** moot; `--csv`, the grid JSON and `catalog/export.py` are deleted;
-  `rebrew build-db` writes `db/coverage-<target>.toml` and `rebrew catalog`
+  `rebrew coverage build` writes `db/coverage-<target>.toml` and `rebrew coverage catalog`
   writes no artifact.
 
 ---
@@ -188,10 +188,10 @@ workflows, and limitations.
 - **Suggested fix:** Add an example showing `--fix --dry-run` as the safe preview
   combination.
 
-### Gap: `rebrew rename` does not document its safety semantics for macros / strings
+### Gap: `rebrew source rename` does not document its safety semantics for macros / strings
 
 - **Gap:** PRD documents the limitation. CLI help text doesn't.
-- **Evidence:** `uv run rebrew rename --help` epilog only mentions FUNCTION markers,
+- **Evidence:** `uv run rebrew source rename --help` epilog only mentions FUNCTION markers,
   definitions, externs.
 - **Severity:** nit (fixed)
 - **Fixed:** epilog note added ("macros and string literals are NOT rewritten)
@@ -230,7 +230,7 @@ workflows, and limitations.
 - **Suggested fix:** Extend proof goals to cover EDX:EAX pairs and selected memory
   locations referenced by the function, behind a flag.
 
-### Gap: `rebrew match --no-seeds` and `--seed-file` interact silently
+### Gap: `rebrew match run --no-seeds` and `--seed-file` interact silently
 
 - **Gap:** Passing both `--no-seeds` and `--seed-file PATH` is accepted but their
   precedence isn't documented; current behaviour is `--no-seeds` wins.
@@ -288,16 +288,16 @@ workflows, and limitations.
 - **Suggested fix:** When `rebrew status` is invoked, run a quick lint
   (W019) and print a hint if inline metadata is present anywhere in the project.
 
-### Gap: `rebrew graph` does not surface function-pointer call edges
+### Gap: `rebrew source graph` does not surface function-pointer call edges
 
 - **Gap:** PRD captures the limitation. Indirect calls through vtables / dispatch
   tables don't appear in the graph, undercutting the visualisation's value for
   C++-heavy code.
 - **Evidence:** `src/rebrew/depgraph.py` (string-match call detection).
 - **Severity:** enhancement (fixed)
-- **Fixed:** `rebrew graph --include-dispatch` folds dispatch-table edges in as
+- **Fixed:** `rebrew source graph --include-dispatch` folds dispatch-table edges in as
   virtual `dispatch_0x<VA>` nodes (`src/rebrew/depgraph.py:12`, `:220`).
-- **Suggested fix:** Cross-reference `rebrew data --dispatch` results into the graph
+- **Suggested fix:** Cross-reference `rebrew data dispatch` results into the graph
   builder so dispatch-table edges appear (perhaps under a `--include-dispatch` flag).
 
 ### Gap: `rebrew cache` does not report hit rate
@@ -314,7 +314,7 @@ workflows, and limitations.
 
 ## Feature: 06: Data Section Analysis
 
-### Gap: `rebrew data --fix-bss` writes to `rebrew-data.toml`, but the SKILL.md still mentions `rebrew-functions.toml`
+### Gap: `rebrew data fix-bss` writes to `rebrew-data.toml`, but the SKILL.md still mentions `rebrew-functions.toml`
 
 - **Gap:** Help epilogue mentions metadata writes; both the workflow skill and PRD
   reference `rebrew-functions.toml`. The actual writes for DATA/GLOBAL metadata go to
@@ -326,13 +326,13 @@ workflows, and limitations.
 - **Severity:** nit (fixed)
 - **Fixed:** both skills now make the split explicit; data metadata lives in
   `rebrew-data.toml` at `cfg.metadata_dir` (`rebrew-data-analysis/SKILL.md:103`,
-  `rebrew-workflow/SKILL.md:197`); `rebrew data --fix-bss` writes SIZE/SECTION/NOTE
+  `rebrew-workflow/SKILL.md:197`); `rebrew data fix-bss` writes SIZE/SECTION/NOTE
   there (`src/rebrew/data.py:772`).
 - **Suggested fix:** Audit the data-section docstrings + skill text to make the
   function-metadata vs data-metadata split explicit. (PRDs in this directory already
   call it out.)
 
-### Gap: `rebrew data --dispatch` heuristic is not configurable
+### Gap: `rebrew data dispatch` heuristic is not configurable
 
 - **Gap:** The pointer-alignment heuristic is hard-coded; users can't tune the
   minimum table length or pointer range.
@@ -342,7 +342,7 @@ workflows, and limitations.
   `--dispatch`); `src/rebrew/data.py` epilog/examples.
 - **Suggested fix:** Surface `--min-table-len` / `--max-pointer-stride` options.
 
-### Gap: `rebrew data --gen-header` overwrites `rebrew_globals.h` without backup
+### Gap: `rebrew data header` overwrites `rebrew_globals.h` without backup
 
 - **Gap:** PRD notes the limitation. There's no `--out PATH` override and no
   prompt before clobbering hand-edits.
@@ -357,7 +357,7 @@ workflows, and limitations.
 
 ## Feature: 07: Ghidra Sync
 
-### Gap: Default MCP endpoint differs between `rebrew sync`/`rebrew skeleton --endpoint` and the skill
+### Gap: Default MCP endpoint differs between `rebrew sync push`/`rebrew skeleton --endpoint` and the skill
 
 - **Gap:** See blocker under PRD 03. Code default is
   `http://localhost:8080/mcp/message`; the `rebrew-ghidra-sync` SKILL text says
@@ -369,7 +369,7 @@ workflows, and limitations.
   (`src/rebrew/ghidra/client.py:373`, `ghidra/cli.py:477`, SKILL.md:40).
 - **Suggested fix:** Pick one default and align.
 
-### Gap: `rebrew sync --pull-structs` writes a single `types.h` regardless of source module
+### Gap: `rebrew sync push --pull-structs` writes a single `types.h` regardless of source module
 
 - **Gap:** Multi-module projects get one merged `types.h`. Users wanting per-module
   isolation must edit the file by hand.
@@ -377,8 +377,8 @@ workflows, and limitations.
   `cfg.reversed_dir / "types.h"`.
 - **Severity:** enhancement (resolved by redesign, not by a fix)
 - **Resolution:** `--pull-structs` (and its `--types-out` / `--by-module` shape) no
-  longer exists. `rebrew sync` is BinSync-primary, so struct fields round-trip through
-  the state dir (`rebrew sync --push/--pull --state-dir`); the BinSync Ghidra plugin
+  longer exists. `rebrew sync push` is BinSync-primary, so struct fields round-trip through
+  the state dir (`rebrew sync push --push/--pull --state-dir`); the BinSync Ghidra plugin
   relays them. There is no per-module `types_*.h` split, and the merged `types.h` is
   not re-emitted by rebrew. See [PRD 07](07-ghidra-sync.md).
 
@@ -397,10 +397,10 @@ workflows, and limitations.
   state dir; MCP is for the structural ops. There is no offline mode to
 > document.
 
-### Gap: `rebrew binsync-export` is one-way _(fixed)_
+### Gap: `rebrew binsync export` is one-way _(fixed)_
 
 - **Previously:** PRD listed this as a known limitation. There was no `binsync-import` command.
-- **Now:** `src/rebrew/binsync/importer.py` provides `rebrew binsync-import <state-dir>` (reads
+- **Now:** `src/rebrew/binsync/importer.py` provides `rebrew binsync import <state-dir>` (reads
   `functions/*.toml` + `global_vars.toml` back into `rebrew-functions.toml` / `rebrew-data.toml`
   for names/prototypes/globals, with `--accept-binsync`/`--accept-local` conflict handling,
   `--module` filter, `--dry-run`/`--json`). The exporter also now writes real global types
@@ -410,16 +410,16 @@ workflows, and limitations.
 - **Severity:** enhancement (fixed)
 - **Suggested fix:** Done; keep `docs/BINSYNC_INTEGRATION.md` as the user-facing reference for the current scope.
 
-### Gap: `rebrew sync --refresh-cache` doesn't refresh data labels
+### Gap: `rebrew sync push --refresh-cache` doesn't refresh data labels
 
 - **Gap:** `--refresh-cache` is documented to "Fetch all functions" but
-  `ghidra_data_labels.json` (used by `rebrew catalog --export-ghidra-labels` and
+  `ghidra_data_labels.json` (used by `rebrew coverage catalog --export-ghidra-labels` and
   the data analysis skill) is not refreshed unless `--pull-data` is invoked.
 - **Evidence:** `src/rebrew/ghidra/cli.py` `--refresh-cache` handling.
 - **Severity:** enhancement (moot)
-- **Resolution:** `rebrew sync` has no `--refresh-cache` flag; the Ghidra-side caches it
+- **Resolution:** `rebrew sync push` has no `--refresh-cache` flag; the Ghidra-side caches it
   used to refresh are gone. `function_structure.json` is the external discovery export
-  and `ghidra_data_labels.json` is now generated by `rebrew catalog
+  and `ghidra_data_labels.json` is now generated by `rebrew coverage catalog
   --export-ghidra-labels` from detected tables, so there is no MCP data-label cache to
   keep in step.
 
@@ -452,14 +452,14 @@ workflows, and limitations.
 
 ### Gap: `rebrew-intake` skill suggests `rebrew doctor` before catalog/FLIRT, but doesn't mandate `cfg detect-crt`
 
-- **Gap:** Without `cfg detect-crt`, `rebrew crt-match --all` returns zero matches.
+- **Gap:** Without `cfg detect-crt`, `rebrew library crt-match --all` returns zero matches.
   The intake skill should chain it explicitly.
 - **Evidence:** `src/rebrew/agent-skills/rebrew-intake/SKILL.md` intake procedure
   (no `cfg detect-crt` step).
 - **Severity:** nit (fixed)
-- **Fixed:** intake procedure now chains `rebrew cfg detect-crt --write` between
+- **Fixed:** intake procedure now chains `rebrew cfg detect-crt apply` between
   doctor and crt-match (SKILL.md:11 flow + `:163` "required before crt-match").
-- **Suggested fix:** Add `rebrew cfg detect-crt` between doctor and crt-match in the
+- **Suggested fix:** Add `rebrew cfg detect-crt show` between doctor and crt-match in the
   intake procedure.
 
 ### Gap: Skill descriptions claim default ReVa port that disagrees with code
@@ -504,7 +504,7 @@ workflows, and limitations.
 - **Gap:** `docs/CONFIG.md:286` lists `compiler_command` in the "what each tool
   reads" matrix. The actual TOML key is `compiler.command` (dotted) and the
   ProjectConfig attribute is `compiler_command`. Newcomers reading CONFIG.md may
-  try `rebrew cfg set compiler_command "wine CL.EXE"` and fail.
+  try `rebrew cfg set compiler_command"wine CL.EXE"` and fail.
 - **Evidence:** `docs/CONFIG.md:286`, `src/rebrew/config.py:134`,
   `src/rebrew/cfg.py:192` (uses dotted form in example).
 - **Severity:** nit (fixed)

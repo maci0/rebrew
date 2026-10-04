@@ -30,6 +30,7 @@ from rebrew.utils import (
     library_header_name,
     load_tomllib,
     merged_span_bytes,
+    path_is_relative_to,
     read_compile_source,
     read_source_text,
     read_toml_text,
@@ -695,7 +696,7 @@ class TestSourceEncoding:
 
         Regression: the cp1252 fallback decoded 0x81 to U+FFFD, and the
         write-back (``encoding="cp1252"``) then raised UnicodeEncodeError,
-        so ``rebrew rename`` crashed on such a source.
+        so ``rebrew source rename`` crashed on such a source.
         """
         f = tmp_path / "legacy.c"
         # 0x81 followed by a space: not a valid Shift-JIS pair, and not CP1252.
@@ -740,6 +741,65 @@ class TestSourceTextMemo:
             assert read_source_text(f)[0] == "// body\n"
         clear_source_text_memo()
         assert read_source_text(f)[0] == "// body\n"
+
+    def test_second_pass_does_not_reread(self, tmp_path: Path) -> None:
+        """A tree larger than the old 512 cap must stay cached for the rescan."""
+        import rebrew.utils as utils
+
+        n = 600
+        paths = []
+        for i in range(n):
+            path = tmp_path / f"f{i}.c"
+            path.write_text(f"int f{i}(void) {{ return {i}; }}\n", encoding="utf-8")
+            paths.append(path)
+        utils.clear_source_text_memo()
+        reads = 0
+        real = Path.read_bytes
+
+        def counting(self: Path, *args: object, **kwargs: object) -> bytes:
+            nonlocal reads
+            reads += 1
+            return real(self, *args, **kwargs)
+
+        Path.read_bytes = counting  # type: ignore[method-assign]
+        try:
+            for path in paths:
+                read_source_text(path)
+            first = reads
+            for path in paths:
+                read_source_text(path)
+        finally:
+            Path.read_bytes = real  # type: ignore[method-assign]
+            utils.clear_source_text_memo()
+        assert first == n
+        assert reads == n
+
+    def test_source_hash_reuses_cached_bytes(self, tmp_path: Path) -> None:
+        """A hash after read_source_text must not open the file again."""
+        from rebrew.verify_hash import clear_source_memo, source_hash
+
+        path = tmp_path / "hashed.c"
+        path.write_text("int f(void) { return 1; }\n", encoding="utf-8")
+        clear_source_text_memo()
+        clear_source_memo()
+        read_source_text(path)
+        reads = 0
+        real = Path.read_bytes
+
+        def counting(self: Path, *args: object, **kwargs: object) -> bytes:
+            nonlocal reads
+            reads += 1
+            return real(self, *args, **kwargs)
+
+        Path.read_bytes = counting  # type: ignore[method-assign]
+        try:
+            digest = source_hash(path)
+        finally:
+            Path.read_bytes = real  # type: ignore[method-assign]
+            clear_source_text_memo()
+            clear_source_memo()
+        assert reads == 0
+        assert len(digest) == 64
 
     def test_out_of_band_edit_is_not_served_stale(self, tmp_path: Path) -> None:
         f = tmp_path / "c.c"
@@ -1833,3 +1893,42 @@ class TestBinaryFingerprint:
 
     def test_missing_file_is_empty(self, tmp_path: Path) -> None:
         assert binary_fingerprint(tmp_path / "absent.exe") == ""
+
+
+class TestPathIsRelativeTo:
+    """The parts check must answer what ``Path.is_relative_to`` answers."""
+
+    def test_matches_stdlib_without_calling_it(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from pathlib import PureWindowsPath
+
+        pairs: list[tuple[Any, Any]] = [
+            (Path("/proj/src/a.c"), Path("/proj/src")),
+            (Path("/proj/src"), Path("/proj/src")),
+            (Path("/proj/src"), Path("/proj/src2")),
+            (Path("/proj/src"), Path("/proj/src-extra")),
+            (Path("/proj/src"), Path("/proj/src/nested")),
+            (Path("/proj/src/a.c"), Path("/")),
+            (Path("/proj/src/a.c"), Path("/other")),
+            (Path("rel/a.c"), Path("rel")),
+            (Path("rel/a.c"), Path(".")),
+            (Path("rel/a.c"), Path("")),
+            (Path("/a/b"), Path(".")),
+            (Path("/a/b"), Path("")),
+            (Path("/a/b/../c"), Path("/a")),
+            (Path("/a/b/../c"), Path("/a/c")),
+            (Path("/a/b"), Path("/a/b/")),
+            (Path("."), Path(".")),
+            (PureWindowsPath(r"C:\Foo\Bar"), PureWindowsPath(r"c:\foo")),
+            (PureWindowsPath(r"C:\Foo\Bar"), PureWindowsPath(r"C:\Foo\Bar2")),
+            (PureWindowsPath(r"C:\Foo\Bar"), PureWindowsPath(r"C:\Foo")),
+            (PureWindowsPath("rel/a"), PureWindowsPath(".")),
+            (PureWindowsPath(r"C:\Foo"), PureWindowsPath(".")),
+        ]
+        expected = [(child, parent, child.is_relative_to(parent)) for child, parent in pairs]
+
+        def refuse(self: Path, other: object, /, *args: object, **kwargs: object) -> bool:
+            raise AssertionError("parents walk")
+
+        monkeypatch.setattr(Path, "is_relative_to", refuse)
+        for child, parent, answer in expected:
+            assert path_is_relative_to(child, parent) is answer

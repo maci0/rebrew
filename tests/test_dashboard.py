@@ -1,4 +1,4 @@
-"""Tests for rebrew dashboard — read-only web dashboard over the coverage documents.
+"""Tests for rebrew coverage serve — read-only web dashboard over the coverage documents.
 
 The dashboard reads ``db/coverage-<target>.toml``, one document per target (see
 :mod:`rebrew.coverage_toml`); it no longer opens a SQLite database.  Fixtures
@@ -429,6 +429,30 @@ cells = []
         data = dashboard.functions("server_dll", q="func_a")
         assert data["count"] == 1
         assert data["functions"][0][2] == "_func_a"
+
+    def test_search_folds_each_row_once(self, dashboard: Dashboard) -> None:
+        """A second query must not fold names again. Wall clock is not the check."""
+        import rebrew.dashboard as dash
+
+        dash._FOLDED.clear()
+        calls = 0
+        real = dash._fold
+
+        def counting(text: str) -> str:
+            nonlocal calls
+            calls += 1
+            return real(text)
+
+        dash._fold = counting
+        try:
+            dashboard.functions("server_dll", q="func")
+            first = calls
+            dashboard.functions("server_dll", q="FUNC")
+            dashboard.functions("server_dll", q="nope")
+        finally:
+            dash._fold = real
+        assert first > 0
+        assert calls == first
 
     def test_functions_search_by_address(self, dashboard: Dashboard) -> None:
         """A hex address finds the function when the name does not contain it."""
@@ -1666,14 +1690,14 @@ class TestCli:
         result = CliRunner().invoke(app, ["--root", str(tmp_path)])
         assert result.exit_code == 2
         assert "no readable coverage document" in result.output
-        assert "rebrew build-db" in result.output
+        assert "rebrew coverage build" in result.output
 
     def test_registered_in_umbrella(self) -> None:
         from rebrew.main import app as umbrella
 
-        result = CliRunner().invoke(umbrella, ["--help"])
+        result = CliRunner().invoke(umbrella, ["coverage", "--help"])
         assert result.exit_code == 0
-        assert "dashboard" in result.output
+        assert "serve" in result.output
 
     def test_target_option_is_not_advertised(self) -> None:
         """`--target` was accepted and silently ignored (the dashboard serves
@@ -2260,7 +2284,7 @@ class TestEncodingNegotiation:
 
     @pytest.mark.parametrize(
         ("accept", "expected_body"),
-        [("zstd", 12695), ("gzip", 13319)],
+        [("zstd", 12690), ("gzip", 13317)],
     )
     def test_the_documented_entry_flight_matches_the_wire(
         self, accept: str, expected_body: int
@@ -5219,9 +5243,9 @@ _DOCS = Path(__file__).resolve().parents[1] / "docs"
 
 
 def _cli_dashboard_section() -> str:
-    """The `rebrew dashboard` section of ``CLI.md``, from its heading to the next one."""
+    """The `rebrew coverage serve` section of ``CLI.md``, from its heading to the next one."""
     text = (_DOCS / "CLI.md").read_text(encoding="utf-8")
-    start = text.index("### `rebrew dashboard`")
+    start = text.index("### `rebrew coverage serve`")
     end = text.index("\n## ", start)
     return text[start:end]
 
@@ -5247,7 +5271,7 @@ class TestHumanReadableContract:
             assert path in section, path
 
     def test_help_names_every_served_path(self) -> None:
-        """A path the server serves is in ``rebrew dashboard --help``.
+        """A path the server serves is in ``rebrew coverage serve --help``.
 
         The epilog is a third copy of the endpoint list, checked by neither the
         spec gate above nor the ``CLI.md`` gate beside it, so a route could be

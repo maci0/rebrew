@@ -2,12 +2,15 @@
 
 ## What goes in the `.c` file
 
-Unmigrated function source carries a stable MODULE/VA marker. Legacy
-SIZE/CFLAGS are co-readable; other volatile fields belong in metadata.
-`rebrew migrate-markers` moves function identity into the store and leaves
-pure C. Do not add markers back to migrated files.
+New writers emit pure C and record a `MODULE.0xVA` row. An unmigrated file
+may still carry a MODULE/VA marker. SIZE and CFLAGS are metadata-owned.
+`rebrew source migrate-markers` moves function identity into `rebrew-functions.toml`
+and data identity into `rebrew-data.toml`, and leaves pure C. An inline blocker,
+note, ghidra name, skip, and globals list move with the function row. A value
+already in the store wins. `// SOURCE: naked`, `// STRUCT:`, and `// CALLERS:`
+stay in the file. Do not add markers back to migrated files.
 
-An unmigrated example:
+Unmigrated input the parser still reads:
 
 ```c
 // FUNCTION: SERVER 0x10008880
@@ -18,7 +21,7 @@ int __cdecl bit_reverse(int x)
 }
 ```
 
-For library functions:
+Unmigrated library input:
 
 ```c
 // LIBRARY: SERVER 0x10023714
@@ -26,7 +29,11 @@ For library functions:
 int stub(void) { return 0; }
 ```
 
-For stubs:
+`LIBRARY` is origin. The provider is separate: a project `.c` is built from
+source, and a unique member of a configured external archive is statically
+linked. A row with neither stays unresolved. When both exist, the source wins.
+
+Unmigrated stub input:
 ```c
 // STUB: SERVER 0x1002dead
 
@@ -38,9 +45,9 @@ int stub(void) { return 0; }
 > BLOCKER, NOTE, GHIDRA, …; full key list in the SKILL.md caution) is managed exclusively by Rebrew CLI tools:
 > - `rebrew test` / `rebrew verify` → STATUS (EXACT/RELOC auto-promote; `--no-promote` skips the test write). Those clear BLOCKER unless the file still has `__asm`, `_asm`, or `__emit`
 > - `rebrew blocker set/clear` → BLOCKER / BLOCKER_DELTA (ad-hoc; for STUBs diff cannot classify)
-> - `rebrew diff --fix-blocker` / `rebrew near-diag --fix-blocker` → BLOCKER / BLOCKER_DELTA (auto-classified)
-> - `rebrew document-unmatched` → STUB skeletons + BLOCKER for every unmatched function
-> - `rebrew sync --pull --state-dir <dir>` → NOTE, GHIDRA
+> - `rebrew diff --fix-blocker` / `rebrew diagnose near --fix-blocker` → BLOCKER / BLOCKER_DELTA (auto-classified)
+> - `rebrew source document-unmatched` → STUB skeletons + BLOCKER for every unmatched function
+> - `rebrew sync pull --state-dir <dir>` → NOTE, GHIDRA
 
 ## What goes in `rebrew-functions.toml` metadata file
 
@@ -84,42 +91,47 @@ changing source, headers, or compiler inputs requires another comparison.
 
 ## Multi-Target
 
-Same function body, multiple marker lines:
+One pure-C body, one `MODULE.0xVA` row per target. Both rows name that file:
 
 ```c
-// FUNCTION: LEGO1 0x1009a8c0
-
-// FUNCTION: BETA10 0x101832f7
-void my_func() {}
+void my_func(void) {}
 ```
 
-Each target has its own metadata file entry, keyed by `MODULE.0xVA`:
-
 ```toml
-# A single rebrew-functions.toml at cfg.metadata_dir (e.g. src/ for src/bench/):
+# One rebrew-functions.toml at cfg.metadata_dir (e.g. src/ for src/bench/):
 ["LEGO1.0x1009a8c0"]
+file = "shared/my_func.c"
+marker_type = "FUNCTION"
 status = "EXACT"
 size = 42
 
 ["BETA10.0x101832f7"]
+file = "shared/my_func.c"
+marker_type = "FUNCTION"
 status = "NEAR_MATCHING"
 size = 42
 blocker = "register allocation"
 ```
 
-Using qualified keys prevents collision if two targets ever happen to share
-the same VA (which can occur when multiple DLLs are compiled from the same
-base address). The key format directly mirrors the `// FUNCTION: MODULE 0xVA`
-marker line.
+The qualified key is the address an unmigrated marker line used to spell.
+Two images can share a VA. An unmigrated file may still stack one marker
+line per target; `rebrew source merge` and `rebrew source split` still
+rearrange those lines. A migrated file is split from the row: the definition
+moves, storage stays, and every row that shares it is retargeted. A migrated
+merge copies the definitions into one file and retargets every row that names
+an input.
+`import-related --shared` records the destination row on the one file.
 
-Shared files live under `src/shared` (one marker per target, per-target
+Shared files live under `src/shared` (one `MODULE.0xVA` row per target, per-target
 `STATUS`). Shared headers live there too: a shared source finds them by
 bare name (the shared root is on the include path). Move a per-target file
-there with `rebrew cross-import --from <src> --promote`; import with
+there with `rebrew source import-related --from <src> --promote`; import with
 `--shared` instead of copying.
 
 ## Data Annotations
 
-`// DATA:` and `// GLOBAL:` markers, their `rebrew-data.toml` fields, and the
-`rebrew data` commands that write them are the `rebrew-data-analysis` skill's
-subject. Load that skill for a data marker or a global you are about to touch.
+Data rows live in `rebrew-data.toml` (`file` plus `marker_type`). An unmigrated
+`// DATA:` or `// GLOBAL:` line is still read, and `rebrew source migrate-markers`
+moves it out of `.c` sources with the function markers, including a note when
+the row lacks one. A marker-less header
+is read from its row. Load `rebrew-data-analysis` before touching a global.

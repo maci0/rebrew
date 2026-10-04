@@ -10,7 +10,7 @@ Sync rebrew annotations with Ghidra. Field-level sync (names, comments, prototyp
 | `client.py` | ReVa MCP HTTP client: session init, JSON-RPC tool invocation, `McpError` / `McpApplyAborted` |
 | `commands.py` | MCP command builders (`build_new_function_commands`, `build_bookmark_commands`) + apply orchestration |
 | `cli_backend.py` | `ghidra-cli` subprocess backend, the alternative transport to MCP |
-| `cli.py` | the single `rebrew sync` command (`--push` / `--pull` / `--create-functions` / `--bookmarks` / `--pull-data`) |
+| `cli.py` | the `rebrew sync` group (`push`, `pull`, `summary`, `watch`, `create-functions`, `bookmarks`, `pull-data`) |
 
 Externals (the only packages this one may import): `binary_loader`, `binsync.export`, `binsync.importer`, `binsync.state`, `catalog`, `cli`, `config`, `errors`, `sources`, `status_style`, `utils`. The `binsync.*` imports are the read side of the sync; a field write still goes out through `rebrew.binsync`. `status_style` is the display status vocabulary the CLI renders, not the canonical set, which `workspace.status` owns; it is the leaf that owns `DISPLAY_STATUSES`, the display order `commands.py` picks the statuses a bookmark may claim from.
 

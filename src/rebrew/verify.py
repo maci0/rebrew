@@ -23,7 +23,7 @@ import logging
 import math
 import threading
 from collections import OrderedDict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -130,7 +130,7 @@ def _fenced_naked_note_cached(path_key: str, _mtime_ns: int, _size: int, _ino: i
         "source is fenced naked (#ifdef REBREW_ALLOW_NAKED): the comparison "
         "build compiles the #else fallback, which cannot byte-match — "
         "byte-identity requires a REBREW_ALLOW_NAKED build "
-        "(`rebrew round-trip --allow-naked`; for reccmp, build the recomp "
+        "(`rebrew build round-trip --allow-naked`; for reccmp, build the recomp "
         "binary with -DREBREW_ALLOW_NAKED=1)"
     )
 
@@ -143,7 +143,7 @@ def _fenced_naked_note(cfile: Path) -> str:
     build — for byte-identity the ``#ifdef`` branch must be active.  When
     such a function fails to byte-match, the bare mismatch hides the real
     cause (the build lacks the define), so name it: the caller can then use
-    ``rebrew round-trip --allow-naked`` (or build the reccmp recomp binary
+    ``rebrew build round-trip --allow-naked`` (or build the reccmp recomp binary
     with ``-DREBREW_ALLOW_NAKED=1``) instead of chasing a phantom source bug.
     """
     try:
@@ -192,7 +192,7 @@ def verify_entry(
 
     *name_to_va* is the shared data-catalog map used for DIR32 absolute
     validation, same source as ``rebrew test``.  *context* is the project's
-    compile context (``rebrew context`` output), merged into the compile unit
+    compile context (``rebrew export context`` output), merged into the compile unit
     and recorded on the result as its digest.
     """
     from rebrew.compile import compile_and_compare
@@ -719,15 +719,15 @@ def main(
     nolib: bool = typer.Option(
         False,
         "--nolib",
-        help="Exclude LIBRARY-marked functions from verification — the reccmp "
-        "--nolib equivalent (gate on game code only; CRT/zlib sources are not "
-        "counted or compiled)",
+        help="Exclude library-origin functions from verification. "
+        "Game code only: source-built and statically linked library rows "
+        "are left out of the compile and the count",
     ),
     prune_orphans: bool = typer.Option(
         False,
         "--prune-orphans",
         help="Delete metadata blocks whose VA has no source marker (orphans) "
-        "before verifying — same scan as `rebrew orphans --prune`",
+        "before verifying — same scan as `rebrew orphans prune`",
     ),
     data: bool = typer.Option(
         False,
@@ -761,7 +761,7 @@ def main(
         None,
         "--context",
         help=(
-            "C declarations to compile with every source (e.g. 'rebrew context' output); "
+            "C declarations to compile with every source (e.g. 'rebrew export context' output); "
             "each result records the context hash it was earned under"
         ),
     ),
@@ -1227,7 +1227,7 @@ def main(
                     else:
                         console.print(
                             f"  [yellow]layout[/yellow]: {untrusted_ident(layout['status'])} — "
-                            "regenerate with rebrew gen-layout"
+                            "regenerate with rebrew build layout"
                         )
 
     batch = run_batch(
@@ -1285,6 +1285,8 @@ class BatchResult:
     inventory_count: int = 0
     #: VAs `rebrew status` counts as library code (see :func:`_library_vas`).
     library_vas: frozenset[int] = frozenset()
+    #: Library ancestry is independent of a compiled or prebuilt provider.
+    library_providers: list[dict[str, Any]] = field(default_factory=list)
 
 
 def run_batch(
@@ -1323,6 +1325,11 @@ def run_batch(
         inventory_count,
     ) = prepare_entries(cfg, full, json_output, context=context)
     library_vas = frozenset(_library_vas(cfg, unique_entries))
+    from rebrew.function_providers import resolve_library_providers
+
+    library_providers = resolve_library_providers(
+        cfg, unique_entries, _library_header_rows(cfg), library_vas
+    )
     (
         unique_entries,
         total,
@@ -1387,6 +1394,7 @@ def run_batch(
         cached_count=cached_count,
         inventory_count=inventory_count,
         library_vas=library_vas,
+        library_providers=library_providers,
     )
 
 
@@ -1414,6 +1422,7 @@ def build_report(
     orphans_pruned: int = 0,
     library_passed: int = 0,
     library_total: int = 0,
+    library_providers: list[dict[str, Any]] | None = None,
     data_report: dict[str, Any] | None = None,
     text_report: dict[str, Any] | None = None,
     whole_report: dict[str, Any] | None = None,
@@ -1462,6 +1471,10 @@ def build_report(
             # Passes on functions `rebrew status` counts as library code, not progress.
             "library_passed": library_passed,
             "library_total": library_total,
+            "library_providers": {
+                kind: sum(row["provider"] == kind for row in (library_providers or []))
+                for kind in ("compiled", "prebuilt", "unresolved")
+            },
             "library_excluded": library_excluded,
             "orphans_pruned": orphans_pruned,
             # Not-yet-reversed denominator: functions the inventory names but
@@ -1472,6 +1485,7 @@ def build_report(
         "missing_sizes": missing_sizes,
         "duplicate_vas": duplicate_vas,
         "results": results,
+        "libraries": library_providers or [],
         "data": data_report,
         "text": text_report,
         "whole_binary": whole_report,
@@ -1525,6 +1539,7 @@ def _save_report(
         inventory_count=batch.inventory_count,
         library_passed=library_passed,
         library_total=library_total,
+        library_providers=batch.library_providers,
         now=now,
     )
 
@@ -1733,6 +1748,7 @@ def _save_report(
         library_total=library_total,
         size_divergences=size_divergences,
         merge_count=merge_count,
+        library_providers=batch.library_providers,
     )
 
     _raise_if_regression(gate_failed)
@@ -2098,11 +2114,19 @@ def _library_header_rows(cfg: Any) -> dict[int, dict[str, str]]:
     workers racing on the same key both parse but only one entry survives.
     """
     from rebrew.annotation import parse_library_header
+    from rebrew.function_providers import compiled_library_annotations
+    from rebrew.metadata import METADATA_FILENAME
     from rebrew.sources import iter_library_headers
 
     marker = preset_module_key(module_marker(cfg))
     headers = list(iter_library_headers(cfg.reversed_dir, cfg))
-    key = (marker, tuple((str(h), *_stat_identity(h)) for h in headers))
+    metadata_dir = getattr(cfg, "metadata_dir", None)
+    metadata_path = Path(metadata_dir) / METADATA_FILENAME if metadata_dir else None
+    key = (
+        marker,
+        tuple((str(h), *_stat_identity(h)) for h in headers),
+        (str(metadata_path), *_stat_identity(metadata_path)) if metadata_path else None,
+    )
     with _LIBRARY_HEADER_CACHE_LOCK:
         cached = _LIBRARY_HEADER_CACHE.get(key)
         if cached is not None:
@@ -2114,9 +2138,21 @@ def _library_header_rows(cfg: Any) -> dict[int, dict[str, str]]:
         return cached
     rows: dict[int, dict[str, str]] = {}
     for header in headers:
-        for e in parse_library_header(header, metadata_dir=cfg.metadata_dir):
+        for e in parse_library_header(header, metadata_dir=metadata_dir):
             if preset_module_key(e.module or "") in ("", marker):
-                rows[e.va] = {"marker_type": e.marker_type or "LIBRARY", "module": e.module or ""}
+                rows[e.va] = {
+                    "marker_type": e.marker_type or "LIBRARY",
+                    "module": e.module or "",
+                    "name": e.name,
+                    "symbol": e.symbol,
+                }
+    for entry in compiled_library_annotations(cfg):
+        rows[entry.va] = {
+            "marker_type": "LIBRARY",
+            "module": entry.module,
+            "name": entry.name,
+            "symbol": entry.symbol,
+        }
     # Bounded LRU, not clear-on-miss: ``verify --all-targets`` walks one
     # target per iteration in this process, and a single slot re-parsed the
     # whole ``library_*.h`` tree on every target's turn.
@@ -2269,9 +2305,7 @@ def prepare_entries(
     if data_count and not json_output:
         console.print(f"Skipped {data_count} DATA/GLOBAL entries (not compilable)")
     if library_header_count and not json_output:
-        console.print(
-            f"Skipped {library_header_count} library header entries (identified, not compiled)"
-        )
+        console.print(f"Skipped {library_header_count} library declarations (no source binding)")
 
     passed = 0
     failed = 0
@@ -2297,6 +2331,8 @@ def prepare_entries(
             continue
 
         if cached_entry.filepath != getattr(entry, "filepath", ""):
+            continue
+        if cached_entry.symbol != _entry_symbol(entry):
             continue
 
         # Same VA re-annotated under another module is a different function
@@ -2335,14 +2371,11 @@ def prepare_entries(
         # None and were only ever written by bare-source runs).
         if cached_entry.context_hash != (context.sha256 if context is not None else None):
             continue
-        cached_source = contained_path(source_roots(cfg), getattr(entry, "filepath", ""))
-        if cached_source is None:
-            # A ``file`` outside the source trees is not a cache candidate.
-            continue
         try:
-            cached_source.stat()
+            # The fingerprint just resolved this path. Stat it again so a
+            # delete in between is a miss, without resolving the roots twice.
+            Path(fp.path).stat()
         except OSError:
-            # File deleted between fingerprint and stat — treat as a miss.
             continue
         if fp.source_hash != cached_entry.source_hash:
             continue
@@ -2926,6 +2959,7 @@ def _print_results(
     library_total: int = 0,
     size_divergences: list[dict[str, Any]] | None = None,
     merge_count: int = 0,
+    library_providers: list[dict[str, Any]] | None = None,
 ) -> None:
     """Print diff report, summary table, and failure details.
 
@@ -3045,17 +3079,38 @@ def _print_results(
     # Summary
     style = "green" if failed == 0 else "red"
     result_text = Text()
-    # Game code first, on `rebrew status`'s basis; library-attributed
-    # functions (compiled, but not reversing progress) are reported apart.
-    game_failed = failed - (library_total - library_passed)
+    # The headline uses the progress bar and JSON report's combined total.
+    # Separate game and library results below it to keep reversing progress clear.
     result_text.append("\nVerification: ")
-    result_text.append(f"{passed - library_passed}/{total - library_total} passed", style=style)
-    if game_failed:
+    result_text.append(f"{passed}/{total} passed", style=style)
+    if failed:
         result_text.append(", ")
-        result_text.append(f"{game_failed} failed", style="red")
+        result_text.append(f"{failed} failed", style="red")
     if library_total:
-        result_text.append(f"; library-attributed: {library_passed}/{library_total} passed")
+        library_failed = library_total - library_passed
+        game_failed = failed - library_failed
+        result_text.append("\n  Game: ")
+        result_text.append(
+            f"{passed - library_passed}/{total - library_total} passed",
+            style="red" if game_failed else "green",
+        )
+        if game_failed:
+            result_text.append(f", {game_failed} failed", style="red")
+        result_text.append("; compiled libraries: ")
+        result_text.append(
+            f"{library_passed}/{library_total} passed",
+            style="red" if library_failed else "green",
+        )
+        if library_failed:
+            result_text.append(f", {library_failed} failed", style="red")
     console.print(result_text)
+    if library_providers:
+        prebuilt = sum(row["provider"] == "prebuilt" for row in library_providers)
+        unresolved = sum(row["provider"] == "unresolved" for row in library_providers)
+        console.print(
+            f"[dim]Library providers: {prebuilt} prebuilt (not compiled), "
+            f"{unresolved} unresolved[/dim]"
+        )
     under = [
         d
         for d in (size_divergences or [])
@@ -3101,7 +3156,7 @@ def _print_results(
         n = sum(1 for r in results if r["status"] == "MISSING_SIZE")
         console.print(
             f"[dim]hint: {n} function(s) have no SIZE — backfill from the "
-            "inventory with `rebrew verify --fix-sizes` (or `rebrew catalog "
+            "inventory with `rebrew verify --fix-sizes` (or `rebrew coverage catalog "
             "--fix-sizes` without verifying).[/dim]"
         )
 

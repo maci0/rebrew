@@ -1,8 +1,8 @@
-"""data_annotate.py — GLOBAL annotation and header generation.
+"""data_annotate.py — data-row binding and header generation.
 
-Inserts ``// GLOBAL:`` markers into reversed sources, applies declared global
-types, and generates ``rebrew_globals.h`` from the data metadata and source
-declarations.
+Binds a data row's ``file`` to the declaration that owns it, applies declared
+global types, and generates ``rebrew_globals.h`` from the data metadata and
+source declarations. It does not write marker lines.
 """
 
 from __future__ import annotations
@@ -19,7 +19,6 @@ from rebrew.utils import (
     atomic_write_text,
     c_comment_safe,
     is_safe_c_ident,
-    join_source_lines,
     load_tomllib,
     read_source_text,
     split_source_lines,
@@ -28,11 +27,9 @@ from rebrew.utils import (
 
 log = logging.getLogger(__name__)
 
-_GLOBAL_MARKER_RE = re.compile(r"^\s*(?://|/\*)\s*GLOBAL:\s*\S+\s+0x([0-9a-fA-F]+)")
 _DECL_LINE_RE = re.compile(
     r"^\s*(?:extern\s+)?[\w\s\*]+\s+([A-Za-z_]\w*)(?:\[\d*\])?\s*(?:=\s*[^;]*|\s*;)"
 )
-_EXISTING_MARKER_RE = re.compile(r"^\s*(?://|/\*)\s*(?:DATA|GLOBAL):")
 _ARRAY_TYPE_RE = re.compile(r"\s*(\[[^\]]*\])$")
 #: Label for a global whose section name is empty, in both the emitted header
 #: and the returned report, so a caller can match one against the other.
@@ -51,30 +48,32 @@ def annotate_globals(
     dry_run: bool = False,
     cfg: ProjectConfig | None = None,
 ) -> tuple[dict[str, int], int]:
-    """Insert ``// GLOBAL: <marker> 0x<VA>`` markers from the data metadata.
+    """Bind ``file`` on named data rows that do not have one yet.
 
-    For every symbol in ``rebrew-data.toml``, insert the marker immediately
-    above the first declaration/definition of that name in each source file
-    that mentions it (extern or definition).  Declarations already carrying a
-    ``GLOBAL:`` or ``DATA:`` marker are skipped.
+    The first declaration of the name owns the row. A row that already has
+    ``file`` is left alone. A file that still has a data-marker line is
+    migrated first (every marker, not only this target's) so a new ``file``
+    is visible; a VA that marker already names is not bound again.
 
-    Sources are discovered with :func:`iter_sources` (``cfg.source_ext``,
-    exclude dirs, and the project shared-sources root), matching
-    ``scan_globals`` — a raw ``rglob("*.c")`` missed ``.cpp`` sources and the
-    shared tree, and descended into build directories.
+    *marker* is unused. The row's own module is the key, and the kind
+    written for a new bind is ``GLOBAL``.
 
-    Returns ``(per_file, skipped_unnamed)`` — *skipped_unnamed* is the count
-    of metadata entries dropped because they carry no ``name`` field (the
-    marker anchors on the source declaration, so an unnamed entry cannot be
-    placed); a project whose data metadata is entirely unnamed (e.g. notepad)
-    previously produced a silent 0-marker no-op.
+    Returns ``(per_file, skipped_unnamed)``. *skipped_unnamed* counts rows
+    with no ``name``: the declaration is what locates them.
     """
+    from types import SimpleNamespace
+
+    from rebrew.annotation import DATA_MARKERS, NEW_FUNC_CAPTURE_RE
+    from rebrew.data_metadata import record_migrated_data_markers
+    from rebrew.marker_migration import migrate_source_file
+    from rebrew.metadata import identity_file
     from rebrew.sources import iter_sources
     from rebrew.utils import rel_display_path
 
+    del marker
     db = load_tomllib(metadata)
     skipped_unnamed = 0
-    symbols: dict[str, tuple[str, int]] = {}
+    symbols: dict[str, tuple[str, int, bool]] = {}
     for module, addr, val in iter_data_symbols(db, section=None):
         # Count by the entry itself, not by ``total - len(symbols)``: two
         # metadata entries sharing a name collapse in ``symbols`` and would be
@@ -82,38 +81,68 @@ def annotate_globals(
         if not val.get("name"):
             skipped_unnamed += 1
             continue
-        symbols[str(val["name"])] = (module, addr)
+        symbols[str(val["name"])] = (module, addr, bool(str(val.get("file") or "").strip()))
 
+    meta_dir = metadata.parent
+    migrate_cfg: Any = (
+        cfg if cfg is not None else SimpleNamespace(metadata_dir=meta_dir, root=meta_dir)
+    )
+    claimed: set[str] = set()
+    rows: list[dict[str, Any]] = []
     per_file: dict[str, int] = {}
     for f in iter_sources(src_dir, cfg):
-        text, encoding = read_source_text(f)
+        text, _encoding = read_source_text(f)
         lines = split_source_lines(text)
-        existing = {int(m.group(1), 16) for m in (_GLOBAL_MARKER_RE.match(ln) for ln in lines) if m}
-        pending = {
-            name: (mod, addr) for name, (mod, addr) in symbols.items() if addr not in existing
+        marked = {
+            int(match.group("va"), 16)
+            for line in lines
+            if (match := NEW_FUNC_CAPTURE_RE.match(line.strip()))
+            and match.group("type") in DATA_MARKERS
+            and match.group("va")
         }
-        insertions: list[tuple[int, str]] = []
-        for i, ln in enumerate(lines):
-            if not pending:
-                break
-            m = _DECL_LINE_RE.match(ln)
-            if not m:
+        if marked and not dry_run:
+            migrated = migrate_source_file(migrate_cfg, f, None, dry_run=False)
+            if migrated and migrated.get("skipped") == "unrecorded-markers":
+                log.warning(
+                    "%s has marker lines that were not recorded; its data rows were not bound",
+                    f,
+                )
                 continue
-            name = m.group(1)
-            if name not in pending:
+            text, _encoding = read_source_text(f)
+            lines = split_source_lines(text)
+        bound_here = 0
+        seen_in_file: set[str] = set()
+        for line in lines:
+            decl = _DECL_LINE_RE.match(line)
+            if not decl:
                 continue
-            if i > 0 and _EXISTING_MARKER_RE.match(lines[i - 1]):
+            name = decl.group(1)
+            if name not in symbols or name in claimed or name in seen_in_file:
                 continue
-            _mod, sym_addr = pending.pop(name)
-            insertions.append((i, f"// GLOBAL: {marker} 0x{sym_addr:08x}"))
-        if not insertions:
-            continue
-        insertions.sort(key=lambda x: x[0])
-        for shift, (hit, marker_line) in enumerate(insertions):
-            lines.insert(hit + shift, marker_line)
-        per_file[rel_display_path(f, src_dir)] = len(insertions)
-        if not dry_run:
-            atomic_write_text(f, join_source_lines(text, lines), encoding=encoding)
+            seen_in_file.add(name)
+            module, addr, has_file = symbols[name]
+            if has_file or addr in marked:
+                if addr in marked:
+                    claimed.add(name)
+                continue
+            claimed.add(name)
+            bound_here += 1
+            if not dry_run:
+                rows.append(
+                    {
+                        "module": module,
+                        "va": addr,
+                        "identity": {
+                            "file": identity_file(f, meta_dir),
+                            "marker_type": "GLOBAL",
+                            "name": name,
+                        },
+                    }
+                )
+        if bound_here:
+            per_file[rel_display_path(f, src_dir)] = bound_here
+    if rows:
+        record_migrated_data_markers(meta_dir, rows)
     return per_file, skipped_unnamed
 
 
@@ -168,7 +197,7 @@ def _set_global_field(
     """Write one metadata field per ``0xVA=VALUE`` spec and return the rows.
 
     *option* and *placeholder* only shape the two ValueError messages, so
-    ``--set-type`` still reports ``0xVA=TYPE`` and ``--set-section`` reports
+    ``--type`` still reports ``0xVA=TYPE`` and ``--section`` reports
     ``0xVA=SECTION``; *allowed*, when given, rejects a value outside it.
     """
     from rebrew.data_metadata import set_data_fields_batch
@@ -231,7 +260,7 @@ def set_data_types(
     one has to be correctable through the tool rather than by editing the TOML.
     """
     return _set_global_field(
-        cfg, specs, option="--set-type", placeholder="TYPE", field="type", dry_run=dry_run
+        cfg, specs, option="--type", placeholder="TYPE", field="type", dry_run=dry_run
     )
 
 
@@ -240,7 +269,7 @@ def set_data_names(
 ) -> list[dict[str, Any]]:
     """Name annotated globals so data verification can attribute their spans."""
     return _set_global_field(
-        cfg, specs, option="--set-name", placeholder="NAME", field="name", dry_run=dry_run
+        cfg, specs, option="--name", placeholder="NAME", field="name", dry_run=dry_run
     )
 
 
@@ -249,7 +278,7 @@ def set_data_sizes(
 ) -> list[dict[str, Any]]:
     """Correct positive byte sizes and invalidate verdicts for the old spans."""
     return _set_global_field(
-        cfg, specs, option="--set-size", placeholder="BYTES", field="size", dry_run=dry_run
+        cfg, specs, option="--size", placeholder="BYTES", field="size", dry_run=dry_run
     )
 
 
@@ -268,7 +297,7 @@ def set_data_sections(
     return _set_global_field(
         cfg,
         specs,
-        option="--set-section",
+        option="--section",
         placeholder="SECTION",
         field="section",
         allowed=_DATA_SECTIONS,
@@ -472,7 +501,7 @@ def gen_globals_header(
 
     generated = datetime.now(UTC).isoformat(timespec="seconds")
     header_lines = [
-        "/* Auto-generated by rebrew data --gen-header. DO NOT EDIT.",
+        "/* Auto-generated by rebrew data list --gen-header. DO NOT EDIT.",
         " * Source: GLOBAL:/DATA: annotations + rebrew-data.toml",
         f" * Generated: {generated}",
         " */",

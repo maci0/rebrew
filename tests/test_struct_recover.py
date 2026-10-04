@@ -296,7 +296,7 @@ class TestCli:
 
         monkeypatch.setattr("rebrew.decompiler.fetch_decompilation", _fake_fetch)
         result = CliRunner().invoke(
-            main_mod.app, ["recover-structs", "--functions", "0x401000", "--json"]
+            main_mod.app, ["types", "recover", "--functions", "0x401000", "--json"]
         )
         assert result.exit_code == 0, result.output
         data = json.loads(result.stdout)
@@ -333,7 +333,7 @@ class TestCli:
 
         monkeypatch.setattr("rebrew.decompiler.fetch_decompilation", _fake_fetch)
         result = CliRunner().invoke(
-            main_mod.app, ["recover-structs", "--functions", "0x401000", "--json"]
+            main_mod.app, ["types", "recover", "--functions", "0x401000", "--json"]
         )
         assert result.exit_code == 0, result.output
         data = json.loads(result.stdout)
@@ -391,7 +391,7 @@ class TestFailureEnvelope:
 
         monkeypatch.setattr("rebrew.decompiler.fetch_decompilation", _fake_fetch)
         result = CliRunner().invoke(
-            main_mod.app, ["recover-structs", "--functions", "0x401000", "--json"]
+            main_mod.app, ["types", "recover", "--functions", "0x401000", "--json"]
         )
         assert result.exit_code == EXIT_ERROR
         data = json.loads(result.output)
@@ -447,7 +447,7 @@ class TestRecoverProjectStructs:
         import rebrew.main as main_mod
 
         result = CliRunner().invoke(
-            main_mod.app, ["recover-structs", "--functions", "0x401000", "--json"]
+            main_mod.app, ["types", "recover", "--functions", "0x401000", "--json"]
         )
         assert result.exit_code == 0, result.output
         assert json.loads(result.stdout) == payload

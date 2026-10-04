@@ -1435,7 +1435,7 @@ class TestMissingSizeHint:
         result = CliRunner().invoke(umbrella, ["test", "src/x/f.c"])
         assert result.exit_code == 2, result.output
         assert "SIZE 32" in result.output
-        assert "rebrew catalog --fix-sizes" in result.output
+        assert "rebrew coverage catalog --fix-sizes" in result.output
 
     def test_no_hint_without_inventory_entry(self, tmp_path: Path, monkeypatch: Any) -> None:
         import json as _json

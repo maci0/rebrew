@@ -38,9 +38,9 @@ class TestExtractCommands:
         assert ("diff", ["--mm"]) in results
 
     def test_multi_subcommand_absorbed(self, tmp_path: Path) -> None:
-        md = _md("```bash\nrebrew cfg add-target --binary x.dll\n```\n", tmp_path)
+        md = _md("```bash\nrebrew cfg target add --binary x.dll\n```\n", tmp_path)
         results = vsc._extract_commands(md)
-        assert ("cfg add-target", ["--binary"]) in results
+        assert ("cfg target add", ["--binary"]) in results
 
     def test_multi_subcommand_flag_second_token(self, tmp_path: Path) -> None:
         md = _md("```bash\nrebrew cache stats --json\n```\n", tmp_path)
@@ -89,6 +89,28 @@ class TestExtractCommands:
     def test_mermaid_placeholder_is_not_a_subcommand(self, tmp_path: Path) -> None:
         md = _md("```mermaid\n    N[rebrew <cmd> 0x1]\n```\n", tmp_path)
         assert vsc._extract_commands(md) == []
+
+    def test_table_description_options_belong_to_its_command(self, tmp_path: Path) -> None:
+        md = _md(
+            "| Command | Purpose |\n"
+            "| `rebrew binary imports list` | Mark import stubs (`--mark`). |\n",
+            tmp_path,
+        )
+        assert ("binary imports list", ["--mark"]) in vsc._extract_commands(md)
+
+    def test_table_alternatives_do_not_inherit_each_others_options(self, tmp_path: Path) -> None:
+        md = _md(
+            "| `rebrew binary imports list` | Use `rebrew binary imports mark --dry-run`. |\n",
+            tmp_path,
+        )
+        assert vsc._extract_commands(md) == [
+            ("binary imports list", []),
+            ("binary imports mark", ["--dry-run"]),
+        ]
+
+    def test_other_programs_options_are_not_rebrew_options(self, tmp_path: Path) -> None:
+        md = _md("| `rebrew binsync pull STATE_DIR` | Runs `git pull --ff-only`. |\n", tmp_path)
+        assert vsc._extract_commands(md) == [("binsync pull", [])]
 
 
 class TestRunHelp:
@@ -142,6 +164,21 @@ class TestProbeFailureMessage:
 
 
 class TestDocumentationValidation:
+    def test_option_prefix_is_not_the_option(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        skills = tmp_path / "skills"
+        skills.mkdir()
+        guide = _md("`rebrew test --target`", tmp_path)
+        monkeypatch.setattr(vsc, "_REPO_ROOT", tmp_path)
+        monkeypatch.setattr(vsc, "_SKILLS_DIR", skills)
+        monkeypatch.setattr(vsc, "_current_docs", lambda: [guide])
+        monkeypatch.setattr(vsc, "_run_help", lambda sub: (True, "--target-bin"))
+        assert not vsc.validate(quiet=True, docs=True)
+        output = capsys.readouterr().out
+        assert "--target" in output and "flag not in --help" in output
+        assert "1 failure(s)" in output
+
     def test_docs_flag_checks_guide_flags(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

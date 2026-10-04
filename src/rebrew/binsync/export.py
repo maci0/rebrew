@@ -58,11 +58,11 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew binsync-export ./binsync_state · · · · · · Export all annotations\n\n"
-        "  rebrew binsync-export ./state --dry-run · · · · · Preview without writing\n\n"
-        "  rebrew binsync-export ./state --json · · · · · · · Machine-readable output\n\n"
-        "  rebrew binsync-export ./state --module SERVER · · Export one module only\n\n"
-        "  rebrew binsync-export ./state --git · · · · · · · Export + git commit\n\n"
+        "  rebrew binsync export ./binsync_state · · · · · · Export all annotations\n\n"
+        "  rebrew binsync export ./state --dry-run · · · · · Preview without writing\n\n"
+        "  rebrew binsync export ./state --json · · · · · · · Machine-readable output\n\n"
+        "  rebrew binsync export ./state --module SERVER · · Export one module only\n\n"
+        "  rebrew binsync export ./state --git · · · · · · · Export + git commit\n\n"
         "[dim]Produces BinSync-compatible TOML layout: functions/, global_vars.toml, "
         "structs/ — BinSync-native fields only (STATUS/CFLAGS stay in "
         "rebrew-functions.toml).[/dim]"
@@ -287,7 +287,7 @@ def _git_commit_state_dir(state_dir: Path, target: str) -> str | None:
         return None
 
     utc = datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds")
-    msg = f"rebrew binsync-export: {target} @ {utc}"
+    msg = f"rebrew binsync export: {target} @ {utc}"
     commit = run_git(state_dir, "commit", "-m", msg, timeout=15)
     if commit.returncode != 0:
         # Empty commit (nothing changed) is not an error
@@ -392,7 +392,7 @@ def export_state(
         # Heuristic discovery produces these constantly: it emits switch arms as
         # pseudo-functions (`case.0x1000ad61.*`) and splits bodies it cannot
         # walk.  Exporting them pollutes the shared state, and because import
-        # reads the same state back, `sync --pull` then proposes creating them
+        # reads the same state back, `sync pull` then proposes creating them
         # as real functions -- inside code that is already EXACT/RELOC.
         # Build spans from the annotated sizes and skip anything they contain.
         annotated_spans = sorted(

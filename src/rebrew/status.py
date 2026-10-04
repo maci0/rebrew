@@ -1104,8 +1104,13 @@ def _ticks(part: float, whole: float) -> str:
     return "█" * _filled(part, whole, _TICK_WIDTH)
 
 
-def _breakdown_table(*, byte_counts: bool = False) -> Table:
-    """Count table with optional function byte totals."""
+def _breakdown_table(*, byte_counts: bool = False, percent: bool = True) -> Table:
+    """Count table with optional function byte totals.
+
+    ``percent`` adds a ratio column and tick marks. The code-account table
+    leaves it off: that percentage already leads the block, and a per-status
+    ratio reads as a second match score.
+    """
     table = Table(
         show_header=True,
         header_style="bold",
@@ -1118,8 +1123,9 @@ def _breakdown_table(*, byte_counts: bool = False) -> Table:
     table.add_column("Count", justify="right", width=12, no_wrap=True)
     if byte_counts:
         table.add_column(".text bytes", justify="right", width=12, no_wrap=True)
-    table.add_column("Count %", justify="right", width=7, no_wrap=True)
-    table.add_column("", width=_TICK_WIDTH, no_wrap=True)
+    if percent:
+        table.add_column("Count %", justify="right", width=7, no_wrap=True)
+        table.add_column("", width=_TICK_WIDTH, no_wrap=True)
     return table
 
 
@@ -1136,7 +1142,7 @@ def _data_block(report: StatusReport) -> list[Any]:
     if report.data_total_bytes > 0:
         headline = Text()
         headline.append(
-            f"{report.data_byte_pct}% of initialized data verified (stored verdicts)",
+            f"{report.data_byte_pct}% of .data+.rdata verified (stored verdicts)",
             style="bold green",
         )
         headline.append(
@@ -1171,7 +1177,10 @@ def _data_block(report: StatusReport) -> list[Any]:
     if report.data_drift:
         header.append(f", {report.data_drift} drift", style="red")
 
-    table = _breakdown_table()
+    # The byte headline is the data percentage. A symbol-count percent beside
+    # it names a wider population (it includes BSS) and reads as a disagreement.
+    show_symbol_pct = report.data_total_bytes <= 0
+    table = _breakdown_table(percent=show_symbol_pct)
     table.columns[0].header = "Data"
     rows = (
         ("VERIFIED", report.data_verified, "green"),
@@ -1181,11 +1190,18 @@ def _data_block(report: StatusReport) -> list[Any]:
     for label, count, color in rows:
         if count == 0:
             continue
+        ratio = (
+            (
+                f"[{color}]{floor_pct(count, total)}%[/{color}]",
+                f"[{color}]{_ticks(count, total)}[/{color}]",
+            )
+            if show_symbol_pct
+            else ()
+        )
         table.add_row(
             f"[{color}]{label}[/{color}]",
             f"[{color}]{count}[/{color}]",
-            f"[{color}]{floor_pct(count, total)}%[/{color}]",
-            f"[{color}]{_ticks(count, total)}[/{color}]",
+            *ratio,
         )
     sections = Table(box=None, pad_edge=False, padding=(0, 2))
     sections.add_column("Section", no_wrap=True)
@@ -1222,7 +1238,12 @@ def _panel_title(report: StatusReport) -> str:
 
 
 def _file_rows(report: StatusReport) -> list[Any]:
-    """Whole-file line, the panel's top row. Empty when no image was scored."""
+    """Linked-file agreement, the panel's top block. Empty when no image was scored.
+
+    This is the raw same-offset compare. It is a different measure from the
+    code account below: a high file score can sit next to a lower accounted
+    share, and the other way around.
+    """
     if report.file_missing_raw_link:
         return [
             Text.assemble(
@@ -1233,9 +1254,7 @@ def _file_rows(report: StatusReport) -> list[Any]:
     if report.file_total_bytes <= 0:
         return []
     text = Text()
-    text.append(
-        f"{report.file_similarity_pct}% of file identical at same offsets", style="bold green"
-    )
+    text.append(f"Linked file  {report.file_similarity_pct}% same offset", style="bold")
     text.append(
         f"    {report.file_matched_bytes:,}B / {report.file_total_bytes:,}B",
         style="dim",
@@ -1243,12 +1262,8 @@ def _file_rows(report: StatusReport) -> list[Any]:
     if report.file_built:
         text.append(f"    {report.file_built}", style="dim")
     rows: list[Any] = [text, _bar(report.file_matched_bytes, report.file_total_bytes, _BAR_WIDTH)]
-    rows.append(
-        Text(
-            f"different / missing {report.file_total_bytes - report.file_matched_bytes:,}B",
-            style="dim",
-        )
-    )
+    gap = report.file_total_bytes - report.file_matched_bytes
+    rows.append(Text(f"{gap:,}B differ or are missing", style="dim"))
     if report.file_sections:
         table = Table(box=None, pad_edge=False, padding=(0, 2))
         table.add_column("File region", no_wrap=True)
@@ -1257,22 +1272,48 @@ def _file_rows(report: StatusReport) -> list[Any]:
         for name, counts in report.file_sections.items():
             same, total = counts["matched_bytes"], counts["total_bytes"]
             table.add_row(name, f"{same:,}", f"{total - same:,}", f"{total:,}")
-        rows.extend(
-            [table, Text("Reference file regions include section alignment", style="dim"), Text("")]
-        )
+        rows.append(table)
+        text_on_disk = report.file_sections.get(".text", {}).get("total_bytes", 0)
+        if text_on_disk and report.total_text_bytes and text_on_disk != report.total_text_bytes:
+            rows.append(
+                Text(
+                    f".text on disk is {text_on_disk:,}B, including file alignment.",
+                    style="dim",
+                )
+            )
+            rows.append(
+                Text(
+                    f"Code accounting uses the virtual size, {report.total_text_bytes:,}B.",
+                    style="dim",
+                )
+            )
+        else:
+            rows.append(Text("File regions are on-disk sizes, including alignment.", style="dim"))
+        if gap:
+            name, counts = max(
+                report.file_sections.items(),
+                key=lambda item: item[1]["total_bytes"] - item[1]["matched_bytes"],
+            )
+            region_gap = counts["total_bytes"] - counts["matched_bytes"]
+            if region_gap:
+                rows.append(Text(f"Largest gap: {name} {region_gap:,}B of {gap:,}B", style="dim"))
+        rows.append(Text(""))
     return rows
 
 
 def _headline(report: StatusReport) -> tuple[Text, Text | None]:
-    """The one progress percentage, and the bar that pictures it.
+    """The code-account percentage, and the bar that pictures it.
 
-    ``.text`` share when that size is known, otherwise the function share.
-    The bar uses the same ratio, so it cannot disagree with the number.
+    Virtual ``.text`` share when that size is known, otherwise the function
+    share. The bar uses the same ratio, so it cannot disagree with the number.
+    The linked-file percentage is a separate block and is not repeated here.
     """
     if report.total_text_bytes > 0:
         text = Text()
         accounted = report.accounted_text_bytes
-        text.append(f"{report.byte_coverage_pct}% of .text covered", style="bold green")
+        text.append(
+            f"Code account  {report.byte_coverage_pct}% of virtual .text", style="bold green"
+        )
         text.append(
             f"    {accounted:,}B / {report.total_text_bytes:,}B",
             style="dim",
@@ -1298,24 +1339,30 @@ def _render_terminal(report: StatusReport) -> None:
     show_bytes = bool(report.status_bytes)
     byte_percentages = show_bytes and report.total_text_bytes > 0
     denominator = report.total_text_bytes if byte_percentages else report.total_functions
-    status_table = _breakdown_table(byte_counts=show_bytes)
+    # Byte rows already sit under the code-account percentage. A second ratio
+    # on each status made RELOC look like an unfinished score.
+    status_table = _breakdown_table(byte_counts=show_bytes, percent=not byte_percentages)
     status_table.columns[0].header = "Status"
-    if byte_percentages:
-        status_table.columns[-2].header = ".text %"
+
+    def ratio_cells(part: float, *, color: str) -> tuple[str, ...]:
+        if byte_percentages:
+            return ()
+        return (
+            f"[{color}]{floor_pct(part, denominator)}%[/{color}]",
+            f"[{color}]{_ticks(part, denominator)}[/{color}]",
+        )
 
     for status in _STATUS_ORDER:
         count = report.status_counts.get(status, 0)
         if count == 0:
             continue
         part = report.status_bytes.get(status, 0) if byte_percentages else count
-        pct = floor_pct(part, denominator)
         color = STATUS_COLORS.get(status, "white")
         status_table.add_row(
             f"[{color}]{status}[/{color}]",
             f"[{color}]{count}[/{color}]",
             *([f"{report.status_bytes.get(status, 0):,}"] if show_bytes else []),
-            f"[{color}]{pct}%[/{color}]",
-            f"[{color}]{_ticks(part, denominator)}[/{color}]",
+            *ratio_cells(part, color=color),
         )
 
     # Other statuses not in the standard order
@@ -1325,14 +1372,12 @@ def _render_terminal(report: StatusReport) -> None:
         if count == 0:
             continue
         part = report.status_bytes.get(status, 0) if byte_percentages else count
-        pct = floor_pct(part, denominator)
         color = STATUS_COLORS.get(status, "red")
         status_table.add_row(
             f"[{color}]{status}[/{color}]",
             f"[{color}]{count}[/{color}]",
             *([f"{report.status_bytes.get(status, 0):,}"] if show_bytes else []),
-            f"[{color}]{pct}%[/{color}]",
-            f"[{color}]{_ticks(part, denominator)}[/{color}]",
+            *ratio_cells(part, color=color),
         )
 
     # Functions without a source file: the rows then add up to the total.
@@ -1343,8 +1388,7 @@ def _render_terminal(report: StatusReport) -> None:
             "[dim](no source)[/dim]",
             f"[dim]{no_source}[/dim]",
             *([f"{report.status_bytes.get('NO_SOURCE', 0):,}"] if show_bytes else []),
-            f"[dim]{floor_pct(part, denominator)}%[/dim]",
-            f"[dim]{_ticks(part, denominator)}[/dim]",
+            *ratio_cells(part, color="dim"),
         )
 
     if show_bytes:
@@ -1362,8 +1406,7 @@ def _render_terminal(report: StatusReport) -> None:
                     f"[dim]{label}[/dim]",
                     count_text,
                     f"{size:,}",
-                    f"{floor_pct(size, denominator)}%" if byte_percentages else "",
-                    _ticks(size, denominator) if byte_percentages else "",
+                    *ratio_cells(size, color="dim"),
                 )
 
     # --- Summary lines ---
@@ -1385,9 +1428,10 @@ def _render_terminal(report: StatusReport) -> None:
             " byte-exact but not decompiled — implement the C bodies)[/dim]"
         )
 
-    # Every .text byte accounted for, so the gap under the headline is explained.
+    # Repeat the gap only when the status table is not already a byte ledger.
     if (
-        report.total_text_bytes > 0
+        not show_bytes
+        and report.total_text_bytes > 0
         and report.padding_bytes is not None
         and report.unattributed_bytes is not None
     ):
@@ -1421,7 +1465,11 @@ def _render_terminal(report: StatusReport) -> None:
             f"Last verify  [{verify_color}]{v.passed - v.library_passed}/"
             f"{v.total - v.library_total} byte-matched[/{verify_color}]"
             f", [red]{v.failed - (v.library_total - v.library_passed)} failed[/red]"
-            + (f", {v.library_passed}/{v.library_total} library" if v.library_total else "")
+            + (
+                f", {v.library_passed}/{v.library_total} compiled libraries"
+                if v.library_total
+                else ""
+            )
             + f"  [dim]{v.timestamp}[/dim]{stale_suffix}"
         )
         # Effective-status overlay: verify results override metadata statuses.
@@ -1453,29 +1501,38 @@ def _render_terminal(report: StatusReport) -> None:
     # --- Assemble panel ---
     from rich.console import Group
 
-    # Whole-file progress leads: it is the figure the panel title promises.
+    # The linked file leads. The code account under it is a different measure.
     panel_rows: list[Any] = _file_rows(report)
     panel_rows.append(headline)
     if bar is not None:
         panel_rows.append(bar)
     if show_bytes:
-        panel_rows.append(Text("Stored EXACT/RELOC + identified libraries + padding", style="dim"))
-    if report.total_functions > 0:
-        counts = Text()
-        counts.append("Function counts", style="bold")
-        counts.append(
-            f"  {report.total_functions:,} total, {report.matched_functions:,} matched, "
-            f"{report.covered_functions:,} with source",
-        )
-        panel_rows.append(counts)
-    if report.library_identified:
         panel_rows.append(
             Text(
-                f"Library functions  {report.library_identified:,} (excluded from function counts)",
+                "Matched functions, identified libraries, and alignment padding.",
                 style="dim",
             )
         )
+    if report.total_functions > 0:
+        counts = Text()
+        counts.append("Game functions", style="bold")
+        counts.append(f"  {report.total_functions:,},  {report.matched_functions:,} byte-matched")
+        if report.covered_functions != report.matched_functions:
+            counts.append(f",  {report.covered_functions:,} with source")
+        if no_source > 0:
+            counts.append(f",  {no_source:,} no source")
+        panel_rows.append(counts)
+    if report.library_identified:
+        library_line = (
+            f"Libraries  {report.library_identified:,}, in the code account"
+            if report.total_text_bytes > 0
+            else f"Libraries  {report.library_identified:,}, omitted from the game total"
+        )
+        panel_rows.append(Text(library_line, style="dim"))
     if status_table.row_count:
+        if byte_percentages:
+            panel_rows.append(Text("EXACT and RELOC are both byte matches.", style="dim"))
+            panel_rows.append(Text("Each row is that many bytes of virtual .text.", style="dim"))
         panel_rows.extend([Text(""), status_table])
     data_block = _data_block(report)
     if data_block:
@@ -1506,7 +1563,7 @@ _EPILOG = (
     "  rebrew status --json · · · · Machine-readable JSON output\n\n"
     "  rebrew status --target client_exe · Status for a specific target\n\n"
     "[dim]Reads source markers, metadata, and function structure (no compilation needed). "
-    "Run 'rebrew verify' first for verify stats, or 'rebrew catalog' for function data.[/dim]"
+    "Run 'rebrew verify' first for verify stats, or 'rebrew coverage catalog' for function data.[/dim]"
 )
 
 app = typer.Typer(

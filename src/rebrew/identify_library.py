@@ -15,12 +15,11 @@ Candidates are merged by VA with provenance ranking (CRT > FLIRT > import)
 and only VAs with no existing FUNCTION/LIBRARY annotation are written, so the
 command is safe to re-run (idempotent) and never overwrites a decompiled
 function.  High-confidence CRT matches also get their ``SOURCE`` metadata
-written (same rule as ``rebrew crt-match --fix-source``).
+written (same rule as ``rebrew library crt-match --fix-source``).
 """
 
 from __future__ import annotations
 
-import os
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -41,11 +40,12 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew identify-library · · · · · · · Identify and write library entries\n\n"
-        "  rebrew identify-library --dry-run · · Preview without writing\n\n"
-        "  rebrew identify-library --json · · · · Machine-readable report\n\n"
-        "[dim]Writes // LIBRARY: entries to library_<module>.h in the reversed "
-        "directory; never touches annotated functions.[/dim]"
+        "  rebrew library identify · · · · · · · Identify and write library entries\n\n"
+        "  rebrew library identify --dry-run · · Preview without writing\n\n"
+        "  rebrew library identify --json · · · · Machine-readable report\n\n"
+        "[dim]Records LIBRARY rows in rebrew-functions.toml and keeps a "
+        "library_<module>.h so the scan can find them. Never touches "
+        "annotated functions.[/dim]"
     ),
 )
 
@@ -203,7 +203,7 @@ def _crt_candidates(cfg: Any) -> list[LibCandidate]:
         console.print(f"[yellow]warning:[/yellow] CRT matching skipped: {exc}")
         return []
     out: list[LibCandidate] = []
-    # Same SOURCE spelling as `rebrew crt-match --fix-source` (file:line for a
+    # Same SOURCE spelling as `rebrew library crt-match --fix-source` (file:line for a
     # parsed definition) — the two tools write the same key for the same match.
     from rebrew.crt_match import source_ref
 
@@ -368,49 +368,64 @@ def collect_candidates(cfg: Any, default_module: str | None = None) -> list[LibC
     return sorted(merged.values(), key=lambda c: c.va)
 
 
-def _append_entry(header: Path, cand: LibCandidate) -> None:
-    """Append one minimal reccmp-compatible LIBRARY entry to *header*."""
-    # The module and the name are raw target-binary text: an import table's
-    # DLL and hint/name strings, or a FLIRT/.pat hit.  They reach a header the
-    # toolchain compiles, so a newline in either would end the ``//`` comment
-    # and compile the remainder as top-level C.  pe_name_token is the same
-    # sanitizer the sibling import-stub writer (``imports.py``) applies to the
-    # identical block.
-    block = (
-        f"// LIBRARY: {pe_name_token(cand.module)} 0x{cand.va:08x}\n"
-        f"// {pe_name_token(cand.name)}\n\n"
+_LIBRARY_BANNER = "/* Library function identities live in rebrew-functions.toml. */\n"
+
+
+def _prepare_library_header(cfg: Any, header: Path) -> bool:
+    """Ensure *header* exists and has no LIBRARY marker lines.
+
+    Returns False when the header still has marker lines that could not be
+    recorded. A new row on that file would be invisible, so the caller skips
+    the module. A missing header is created with a non-marker banner.
+    """
+    from rebrew.annotation import NEW_FUNC_RE
+    from rebrew.marker_migration import migrate_source_file
+
+    if not header.is_file():
+        header.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write_text(header, _LIBRARY_BANNER, encoding="utf-8")
+        return True
+    text, _encoding = read_source_text(header)
+    if not NEW_FUNC_RE.search(text):
+        return True
+    row = migrate_source_file(cfg, header, None, dry_run=False)
+    if row and row.get("skipped") == "unrecorded-markers":
+        console.print(
+            f"[yellow]warning:[/yellow] {header.name} has marker lines that were not "
+            "recorded; new library rows would be invisible until it is clean"
+        )
+        return False
+    return True
+
+
+def _record_library_candidate(cfg: Any, header: Path, cand: LibCandidate, source: str) -> None:
+    """Record one LIBRARY row. The header file is the row's ``file``."""
+    from rebrew.metadata import identity_file, record_function_identity
+
+    # The module and the name are raw target-binary text. pe_name_token drops
+    # a newline so neither can break out of a later comment or a TOML string.
+    token = pe_name_token(cand.name)
+    record_function_identity(
+        cfg.metadata_dir,
+        module=pe_name_token(cand.module),
+        va=cand.va,
+        file=identity_file(header, cfg.metadata_dir),
+        marker_type="LIBRARY",
+        name=token.lstrip("_"),
+        symbol=token,
+        source=source,
     )
-    # A pre-existing header may not end in a newline; a bare append would
-    # splice the marker onto its last line (e.g. code), corrupting the entry.
-    prefix = ""
-    try:
-        if header.exists() and header.stat().st_size:
-            with header.open("rb") as fh:
-                fh.seek(-1, os.SEEK_END)
-                if fh.read(1) != b"\n":
-                    prefix = "\n"
-    except OSError:
-        prefix = ""
-    # Rewrite atomically rather than appending: a crash or a full disk
-    # mid-append would leave a half-written ``// LIBRARY:`` block in a header
-    # the next run's dedup then skips forever.
-    # Read tolerantly, not as utf-8: the header lives beside the .c sources,
-    # which may be Shift-JIS or CP1252, and a legacy byte in a comment would
-    # otherwise raise UnicodeDecodeError out of the whole command.  Writing
-    # back in the detected encoding keeps the untouched bytes intact.
-    previous, encoding = read_source_text(header) if header.is_file() else ("", "utf-8")
-    atomic_write_text(header, previous + prefix + block, encoding=encoding)
 
 
 def write_candidates(cfg: Any, candidates: list[LibCandidate], existing: set[int]) -> int:
-    """Write new ``library_<module>.h`` entries for *candidates*.
+    """Record new LIBRARY rows for *candidates*.
 
-    Only VAs not in *existing* are written (idempotent).  High-confidence CRT
-    matches with a parsed definition also get their SOURCE metadata written
-    (same rule as ``rebrew crt-match --fix-source``: filename-only evidence
-    never auto-writes).  Returns the count.
+    Only VAs not in *existing* are written (idempotent). Each module keeps a
+    ``library_<module>.h`` so the header scan can find the rows. High-confidence
+    CRT matches with a parsed definition also store SOURCE (same rule as
+    ``rebrew library crt-match --fix-source``: filename-only evidence never
+    auto-writes). Returns the count.
     """
-    from rebrew.annotation import update_annotation_key
     from rebrew.crt_match import SOURCE_AUTO_WRITE_MIN_CONFIDENCE
 
     written = 0
@@ -426,27 +441,21 @@ def write_candidates(cfg: Any, candidates: list[LibCandidate], existing: set[int
         # writing its header outside the reversed dir, and gives every writer
         # the same file for one module.
         header = cfg.reversed_dir / library_header_name(module)
+        if not _prepare_library_header(cfg, header):
+            continue
         for cand in cands:
-            _append_entry(header, cand)
-            existing.add(cand.va)
+            source = ""
             if (
                 cand.kind == "crt"
                 and cand.confidence >= SOURCE_AUTO_WRITE_MIN_CONFIDENCE
                 and cand.source_line > 0
                 and cand.source_ref
+                and "\n" not in cand.source_ref
+                and "\r" not in cand.source_ref
             ):
-                try:
-                    update_annotation_key(
-                        header,
-                        cand.va,
-                        "SOURCE",
-                        cand.source_ref,
-                        metadata_dir=cfg.metadata_dir,
-                    )
-                except Exception as exc:  # SOURCE is best-effort
-                    console.print(
-                        f"[yellow]warning:[/yellow] SOURCE write failed for 0x{cand.va:08x}: {exc}"
-                    )
+                source = cand.source_ref
+            _record_library_candidate(cfg, header, cand, source)
+            existing.add(cand.va)
             written += 1
     return written
 

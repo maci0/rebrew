@@ -6,7 +6,7 @@ ranked list of "what to work on next" with ROI scoring.
 Usage::
 
     rebrew todo                     Top 20 actions by ROI
-    rebrew todo --count 50          Show top 50
+    rebrew todo --limit 50          Show top 50
     rebrew todo --category fix-delta        Filter by category
     rebrew todo --stats             Show coverage stats header
     rebrew todo --json              Machine-readable output
@@ -486,7 +486,7 @@ def _collect_active_functions(
                     "no prover to run; try match variants or near-diag"
                 )
                 score = calculate_roi(size, v_match, calc_delta)
-                cmd = f"rebrew near-diag 0x{va:08x}"
+                cmd = f"rebrew diagnose near 0x{va:08x}"
 
         elif calc_delta is not None and calc_delta <= 20:
             category = CAT_FIX_DELTA
@@ -510,14 +510,14 @@ def _collect_active_functions(
                     # the VA to its source via resolve_source_arg.
                     cmd = f"rebrew diff 0x{va:08x}"
                 else:
-                    cmd = f"rebrew match --flag-sweep-only 0x{va:08x}"
+                    cmd = f"rebrew match flags 0x{va:08x}"
             elif calc_delta <= 4:
                 # VA form (not the reversed_dir-relative filename): commands
                 # stay runnable from the project root — rebrew diff resolves
                 # the VA to its source via resolve_source_arg.
                 cmd = f"rebrew diff 0x{va:08x}"
             else:
-                cmd = f"rebrew match --flag-sweep-only 0x{va:08x}"
+                cmd = f"rebrew match flags 0x{va:08x}"
 
         else:
             category = CAT_IMPROVE_MATCH
@@ -863,9 +863,9 @@ def _collect_new_functions(
                     filename="",
                     description=f"linked library code ({objects}); candidates: "
                     + ", ".join(symbols)
-                    + ": add a // LIBRARY: marker, "
+                    + ": record a LIBRARY row, "
                     "do not reverse",
-                    command=f"rebrew lib-match --stock-lib LIBCMT.LIB --va 0x{va:08x}",
+                    command=f"rebrew library match --stock-lib LIBCMT.LIB --va 0x{va:08x}",
                 )
             )
             continue
@@ -967,7 +967,7 @@ def _collect_library_candidates(
                 size=size,
                 filename="",
                 description=f"{module or 'library'} function — check reference sources or FLIRT",
-                command=f"rebrew flirt --va 0x{va:08x}",
+                command=f"rebrew library scan-signatures --va 0x{va:08x}",
             )
         )
     return items
@@ -1223,7 +1223,7 @@ def _collect_postlink_rewritten(
 ) -> list[TodoItem]:
     """Collect functions whose shipped bytes a postlink fixer produced.
 
-    ``rebrew postlink`` rewrites ``.text`` IAT slot operands, absolute data
+    ``rebrew build postlink`` rewrites ``.text`` IAT slot operands, absolute data
     operands, and call/jump targets, so a function can be byte-matched in the
     deliverable while the toolchain never emitted those bytes.  Only detectable
     when the project configures ``raw_link``; without it the lane is empty
@@ -1336,7 +1336,7 @@ def collect_all(
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
     "  rebrew todo · · · · · · · · · · Top 20 actions by ROI (size + similarity to target)\n\n"
-    "  rebrew todo --count 50 · · · · · Show top 50\n\n"
+    "  rebrew todo --limit 50 · · · · · Show top 50\n\n"
     "  rebrew todo --category fix-delta · · · · Filter to quick-win near-misses (<= 20B diff)\n\n"
     "  rebrew todo --category improve-match · · Filter to functions needing general work\n\n"
     "  rebrew todo --json · · · · · · · Machine-readable JSON output\n\n"
@@ -1372,7 +1372,7 @@ app = typer.Typer(
 
 @app.callback(invoke_without_command=True)
 def main(
-    count: int = typer.Option(20, "--count", "-n", help="Number of items to show"),
+    count: int = typer.Option(20, "--limit", "-n", help="Number of items to show"),
     category: str | None = typer.Option(
         None,
         "--category",
@@ -1387,7 +1387,7 @@ def main(
     """Show prioritized actions ranked by ROI."""
     category = option_default(category, None)
     count = require_non_negative(
-        option_default(count, 20), "--count", json_mode=option_default(json_output, False)
+        option_default(count, 20), "--limit", json_mode=option_default(json_output, False)
     )
     if category is not None and category not in _CATEGORY_COLORS:
         error_exit(

@@ -270,11 +270,12 @@ def test_block_comment_marker_parses(tmp_path: Path) -> None:
 
 
 def test_skeleton_marker_style_matches_profile() -> None:
-    """Skeletons use ``/* */`` markers for C89-strict 16-bit profiles and
-    keep ``//`` for the rest."""
+    """Skeletons are pure C for every profile. The profile still chooses the
+    signature: cdecl-default compilers omit ``__cdecl``; MSVC keeps it.
+    No profile emits a marker line."""
     from rebrew.skeleton import _render_annotation_block
 
-    def first_line(profile: str) -> str:
+    def rendered(profile: str) -> str:
         return _render_annotation_block(
             marker="FUNCTION",
             cfg_marker="MAIN",
@@ -286,24 +287,20 @@ def test_skeleton_marker_style_matches_profile() -> None:
             ghidra_name="",
             convention_stub=None,
             profile=profile,
-        ).splitlines()[0]
+        )
 
-    assert first_line("borland-2.0") == "/* FUNCTION: MAIN 0x0000042e */"
-    assert first_line("msvc-1.52") == "/* FUNCTION: MAIN 0x0000042e */"
-    assert first_line("borland-3.1") == "// FUNCTION: MAIN 0x0000042e"
-    # cdecl is the default convention for the Borland family — no __cdecl.
-    body = _render_annotation_block(
-        marker="FUNCTION",
-        cfg_marker="MAIN",
-        va=0x42E,
-        xref_context=None,
-        decomp_code=None,
-        decomp_backend="",
-        func_name="fcn_042e",
-        ghidra_name="",
-        convention_stub=None,
-        profile="borland-2.0",
-    )
+    for profile in ("borland-2.0", "msvc-1.52", "borland-3.1"):
+        text = rendered(profile)
+        assert "// FUNCTION:" not in text
+        assert "/* FUNCTION:" not in text
+        assert "// LIBRARY:" not in text
+        assert "// SIZE:" not in text
+    # cdecl is the default convention for the Borland family, so no __cdecl.
+    # msvc-1.52 is not in that set and keeps the MSVC spelling.
+    assert rendered("borland-2.0").splitlines()[0] == "int fcn_042e(void)"
+    assert rendered("borland-3.1").splitlines()[0] == "int fcn_042e(void)"
+    assert rendered("msvc-1.52").splitlines()[0] == "int __cdecl fcn_042e(void)"
+    body = rendered("borland-2.0")
     assert "int fcn_042e(void)" in body
     assert "__cdecl" not in body
 

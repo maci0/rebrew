@@ -11,7 +11,7 @@ are not re-derived by hand.
 Rebrew is not a splat re-implementation: its loop is compiler-in-the-loop C,
 while splat's reassembly path needs GNU ``as``/``ld``/``objcopy``.  What this
 module provides is interop in one direction, the one that helps: splat ->
-rebrew.  Nothing here writes a splat file back out (``rebrew symbol-addrs``
+rebrew.  Nothing here writes a splat file back out (``rebrew export symbols``
 already exports the symbol side).
 
 What it delegates to (no second mechanism):
@@ -22,23 +22,20 @@ What it delegates to (no second mechanism):
   outside it is a hard error, never a silent misread.
 - Symbols: :func:`rebrew.symbol_addrs.parse_symbol_addrs` reads every
   ``symbol_addrs_path`` file, including the rich ``// type:``/``// size:``
-  trailing comments the ``rebrew symbol-addrs`` writer emits.
+  trailing comments the ``rebrew export symbols`` writer emits.
 - Binary identity and layout: :func:`rebrew.binary_loader.load_binary`
   supplies format, arch, and image base; the configured binary is copied by
   the same convention ``rebrew intake`` uses (``original/<target>``).
-- Function annotations: :func:`rebrew.skeleton.generate_skeleton` renders the
-  ``// FUNCTION: <MODULE> 0x<va>`` marker and its stub body;
-  ``SIZE``/``STATUS`` land in ``rebrew-functions.toml`` through
-  :func:`rebrew.metadata.set_fields_batch` and
-  :func:`rebrew.metadata.update_statuses_batch` (status is metadata-owned,
-  never inline).
-- Library annotations: :func:`rebrew.identify_library.write_candidates` appends
-  the ``// LIBRARY: <MODULE> 0x<va>`` entries to ``library_<module>.h``.
-- Data annotations: the ``// DATA: <MODULE> 0x<va>`` marker plus
-  :func:`rebrew.data_metadata.set_data_field` for ``size``/``section``.
+- Function annotations: :func:`rebrew.skeleton.generate_skeleton` renders a
+  pure-C stub. Identity, ``SIZE``, and ``STATUS`` land in
+  ``rebrew-functions.toml`` (status is metadata-owned, never inline).
+- Library annotations: :func:`rebrew.identify_library.write_candidates` records
+  ``LIBRARY`` rows. The header is a banner, not inline markers.
+- Data annotations: the C declaration plus a ``rebrew-data.toml`` row for
+  ``size`` and ``section``.
 - Layout entries: :class:`rebrew.layout_meta.SectionMeta` records, written
   into ``layout/<target>/rebrew-layout.toml`` in the same shape
-  ``rebrew gen-layout`` writes, so ``rebrew data``/``calibrate-bss`` read them
+  ``rebrew build layout`` writes, so ``rebrew data list``/``calibrate-bss`` read them
   unchanged.
 
 What a splat config cannot give rebrew (skipped on purpose, reported by
@@ -62,9 +59,9 @@ What a splat config cannot give rebrew (skipped on purpose, reported by
 
 Usage::
 
-    rebrew import-splat splat.yaml            # dry run: what it would write
-    rebrew import-splat splat.yaml --write    # apply
-    rebrew import-splat splat.yaml --write --force --target win32_app.exe
+    rebrew source import-splat splat.yaml            # dry run: what it would write
+    rebrew source import-splat splat.yaml --write    # apply
+    rebrew source import-splat splat.yaml --write --force --target win32_app.exe
 
 Config subset
 -------------
@@ -153,7 +150,7 @@ _IGNORED_OPTION_REASONS: dict[str, str] = {
     "create_c_files": "splat generates .c files from ranges; rebrew has no generator",
     "data_string_encoding": "splat's assembly emitter option",
     "disassemble_all": "splat's split path",
-    "dump_symbols": "splat's own symbols dump; use `rebrew symbol-addrs --references`",
+    "dump_symbols": "splat's own symbols dump; use `rebrew export symbols --references`",
     "dump_symbols_references": "splat's own symbols dump",
     "emit_subalign": "GNU ld directive (splat's linker script)",
     "elf_path": "splat's reassembly output (rebrew compiles sources directly; parsed, not read)",
@@ -206,7 +203,7 @@ _IGNORED_OPTION_REASONS: dict[str, str] = {
 
 UNKNOWN_OPTION_REASON = (
     "not a splat option this importer consumes; rebrew has no equivalent "
-    "(see the rebrew repo's docs/CLI.md `rebrew import-splat`)"
+    "(see the rebrew repo's docs/CLI.md `rebrew source import-splat`)"
 )
 
 #: Top-level keys (outside ``options``) splat writes or accepts.
@@ -263,7 +260,7 @@ _IGNORED_SUBSEGMENT_REASONS: dict[str, str] = {
     "c": "splat's C-file split range (rebrew's sources are hand-written, not "
     "generated from ranges)",
     "hasm": "splat's handwritten-asm split range",
-    "jtbl": "splat's jump-table split (rebrew decodes switches with `rebrew switch`)",
+    "jtbl": "splat's jump-table split (rebrew decodes switches with `rebrew binary switches`)",
     "jtbl_label": "splat's jump-table labels",
     "label": "splat's bare label marker (no bytes, no rebrew annotation)",
     "alabel": "splat's asm label marker",
@@ -292,7 +289,7 @@ _IGNORED_SUBSEGMENT_REASONS: dict[str, str] = {
 UNKNOWN_SUBSEGMENT_REASON = "subsegment type rebrew has no equivalent for"
 
 #: splat symbol ``type:`` (as written in the ``// type:`` comment) -> C type for
-#: a ``// DATA:`` declaration.  ``func`` is handled as a function annotation and
+#: a data declaration.  ``func`` is handled as a function annotation and
 #: is deliberately absent here.
 _DATA_C_TYPES: dict[str, str] = {
     "u8": "unsigned char",
@@ -314,7 +311,7 @@ FUNC_TYPE = "func"
 #: The provenance splat's ``create_config`` writes for an IAT-slot symbol
 #: (``// type:u32 -- import from KERNEL32.dll``).  A row carrying it names an
 #: imported library API, so a code-section row becomes a ``LIBRARY`` entry (the
-#: same classification ``rebrew identify-library``'s import backend makes).
+#: same classification ``rebrew library identify``'s import backend makes).
 _IMPORT_DETAIL_RE = re.compile(r"import from\s+(?P<dll>[^\s,;]+)")
 
 #: Bytes per :data:`_DATA_C_TYPES` element, for sizing an array declaration.
@@ -377,9 +374,9 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew import-splat splat.yaml · · · · · · Dry run: what would be written\n\n"
-        "  rebrew import-splat splat.yaml --write · · · Apply\n\n"
-        "  rebrew import-splat splat.yaml --json · · · · Machine-readable plan\n\n"
+        "  rebrew source import-splat splat.yaml · · · · · · Dry run: what would be written\n\n"
+        "  rebrew source import-splat splat.yaml --write · · · Apply\n\n"
+        "  rebrew source import-splat splat.yaml --json · · · · Machine-readable plan\n\n"
         "[dim]Reads the config surface rebrew consumes (target_path, platform, "
         "compiler, segments/subsegments, symbol_addrs, undefined_* lists).\n"
         "Ignored keys are reported by name with the reason, never dropped "
@@ -670,7 +667,7 @@ def parse_splat_config(path: Path) -> SplatConfig:
             f"{path}: platform {platform!r} is not supported: rebrew seeds only "
             f"from a {SUPPORTED_PLATFORM!r} (PE) config: other platforms carry "
             "segment vocabularies and assets rebrew cannot compile "
-            "(see `rebrew import-splat --help`)"
+            "(see `rebrew source import-splat --help`)"
         )
 
     compiler = str(options.get("compiler") or "")
@@ -787,7 +784,7 @@ def load_symbols(cfg_splat: SplatConfig) -> SymbolSet:
 
     Every row goes through :func:`rebrew.symbol_addrs.parse_symbol_addrs`, the
     reader for the rich ``name = 0xVA; // type:… size:…`` form that
-    ``rebrew symbol-addrs`` writes.  ``undefined_funcs_auto``/``undefined_syms_auto``
+    ``rebrew export symbols`` writes.  ``undefined_funcs_auto``/``undefined_syms_auto``
     use the plain ``name = 0xVA;`` form splat writes (splat's
     ``write_undefined_auto``); the same reader covers both.
 
@@ -833,11 +830,12 @@ def load_symbols(cfg_splat: SplatConfig) -> SymbolSet:
 
 @dataclass(frozen=True)
 class Annotation:
-    """One annotation the import would add, in rebrew's syntax.
+    """One annotation the import would add.
 
-    ``kind`` is the rebrew marker (``FUNCTION``/``LIBRARY``/``DATA``); *path*
-    is relative to the target's ``reversed_dir``; ``marker`` is the annotation
-    text itself (the ``// DATA:`` form also carries its declaration).
+    ``kind`` is ``FUNCTION``, ``LIBRARY``, or ``DATA``. *path* is relative to
+    the target's ``reversed_dir``. ``marker`` is the text written into the
+    source: the C declaration, or a comment that is not the legacy marker
+    grammar. Identity is recorded in the metadata stores.
     """
 
     kind: str
@@ -1009,8 +1007,8 @@ def _layout_sections(
     numbers are reported when they disagree); a segment with no PE counterpart
     falls back to the splat span and the characteristics implied by its
     subsegment kind.  Either way the record is the same shape
-    ``rebrew gen-layout`` writes, so ``rebrew data`` and
-    ``rebrew calibrate-bss`` read it unchanged.
+    ``rebrew build layout`` writes, so ``rebrew data list`` and
+    ``rebrew build calibrate-bss`` read it unchanged.
     """
     from rebrew.pe_headers import pe_layout
 
@@ -1097,7 +1095,7 @@ def _existing_annotations(cfg: Any) -> dict[int, tuple[str, str]]:
             name = ann.symbol or ann.name or ""
             existing.setdefault(ann.va, (f"{ann.marker_type} {name}".strip(), path.name))
     for header in sorted(cfg.reversed_dir.glob("library_*.h")):
-        for ann in parse_library_header(header):
+        for ann in parse_library_header(header, metadata_dir=cfg.metadata_dir):
             name = ann.symbol or ann.name or ""
             existing.setdefault(ann.va, (f"LIBRARY {name}".strip(), header.name))
     return existing
@@ -1295,11 +1293,11 @@ def _plan_library_annotations(
     notes: list[str],
     skipped: list[tuple[str, str]],
 ) -> list[Annotation]:
-    """Plan ``// LIBRARY:`` entries from the two ``undefined_*`` lists.
+    """Plan ``LIBRARY`` rows from the two ``undefined_*`` lists.
 
     Splat writes those files for symbols referenced but *not defined* in the
-    image: code that lives in a library, which is what rebrew's ``LIBRARY``
-    marker records.  The module is inferred with
+    image: code that lives in a library, which is what a ``LIBRARY``
+    row records.  The module is inferred with
     :func:`rebrew.identify_library.infer_module` (the CRT/zlib name tables,
     the same inference ``identify_library``'s import backend uses) and falls
     back to the target's own marker.  The VA has to land inside the image,
@@ -1323,7 +1321,7 @@ def _plan_library_annotations(
                     row.name,
                     f"undefined symbol at 0x{row.va:08X} lies outside the image; splat "
                     "records no bytes for it, so there is no address to annotate "
-                    "(link it with `rebrew gen-stubs` instead)",
+                    "(link it with `rebrew build symbol-stubs` instead)",
                 )
             )
             continue
@@ -1363,7 +1361,7 @@ def _import_module(detail: str) -> str:
 
     A generated win32 symbol file writes ``// type:u32 -- import from
     KERNEL32.dll`` for an IAT slot; the module is that DLL's stem uppercased,
-    the spelling ``rebrew identify-library`` gives import candidates.
+    the spelling ``rebrew library identify`` gives import candidates.
     """
     match = _IMPORT_DETAIL_RE.search(detail or "")
     if match is None:
@@ -1389,9 +1387,21 @@ def _locate(cfg_splat: SplatConfig, va: int) -> tuple[str, str] | None:
 
 
 def _marker_line(kind: str, module: str, va: int, declaration: str) -> str:
-    """The annotation text a plan entry would write, in rebrew's syntax."""
-    marker = f"// {kind}: {module} 0x{va:08x}"
-    return f"{marker}\n{declaration}" if declaration else marker
+    """The text a plan entry would write.
+
+    Data rows write the declaration only. A function with no declaration
+    gets a comment that is not the legacy marker grammar (no colon after
+    the kind). Identity is recorded in the metadata stores.
+    """
+    from rebrew.annotation import DATA_MARKERS
+
+    if kind in DATA_MARKERS:
+        text = declaration
+    else:
+        text = declaration or f"/* {kind} {module} 0x{va:08x} */"
+    if text and not text.endswith("\n"):
+        text += "\n"
+    return text
 
 
 def _same_name(existing: str, name: str) -> bool:
@@ -1476,7 +1486,7 @@ def _write_target_metadata(plan: ImportPlan, root: Path) -> bool:
     """Patch the target's binary/format/arch/profile and write its layout package.
 
     Layout sections + image base go to ``layout/<target>/rebrew-layout.toml`` (the
-    same package ``rebrew gen-layout`` writes, minus the hex blobs a splat
+    same package ``rebrew build layout`` writes, minus the hex blobs a splat
     import has no binary to derive) so ``data``/``calibrate-bss`` read one
     source.  Uses a tomlkit round trip for the project config so comments
     and unrelated keys survive.  Returns whether anything changed, so a
@@ -1532,18 +1542,22 @@ def _write_target_metadata(plan: ImportPlan, root: Path) -> bool:
 
 
 def _write_functions(cfg: Any, plan: ImportPlan, planned: list[Annotation]) -> list[str]:
-    """Write one ``// FUNCTION:`` skeleton per planned function annotation.
+    """Write one pure-C skeleton per planned function.
 
-    The marker and stub body come from
-    :func:`rebrew.skeleton.generate_skeleton` (the project's FUNCTION-marker
-    writer); ``SIZE``/``BLOCKER`` and ``STATUS`` go to
-    ``rebrew-functions.toml`` through the batched metadata writers, because
-    those keys are metadata-owned, never inline.
+    The body comes from :func:`rebrew.skeleton.generate_skeleton`. Identity,
+    ``SIZE``/``BLOCKER``, and ``STATUS`` go to ``rebrew-functions.toml``.
     """
-    from rebrew.metadata import set_fields_batch, update_statuses_batch
+    from rebrew.annotation import derive_c_symbol
+    from rebrew.metadata import (
+        identity_file,
+        record_migrated_markers,
+        set_fields_batch,
+        update_statuses_batch,
+    )
     from rebrew.skeleton import generate_skeleton
 
     written: list[str] = []
+    identity_rows: list[dict[str, Any]] = []
     field_updates: list[dict[str, Any]] = []
     status_updates: list[dict[str, Any]] = []
     for ann in planned:
@@ -1558,6 +1572,19 @@ def _write_functions(cfg: Any, plan: ImportPlan, planned: list[Annotation]) -> l
         target_path.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_text(target_path, body)
         written.append(target_path.relative_to(cfg.root).as_posix())
+        identity_rows.append(
+            {
+                "module": plan.marker,
+                "va": ann.va,
+                "identity": {
+                    "file": identity_file(target_path, cfg.metadata_dir),
+                    "symbol": derive_c_symbol(ann.name, ""),
+                    "name": ann.name,
+                    "marker_type": "FUNCTION",
+                },
+                "fields": {},
+            }
+        )
         fields: dict[str, Any] = {"blocker": SEED_BLOCKER}
         if ann.size:
             fields["size"] = ann.size
@@ -1571,35 +1598,53 @@ def _write_functions(cfg: Any, plan: ImportPlan, planned: list[Annotation]) -> l
                 "updated_by": "import-splat",
             }
         )
+    record_migrated_markers(cfg.metadata_dir, identity_rows)
     set_fields_batch(cfg.metadata_dir, field_updates)
     update_statuses_batch(cfg.metadata_dir, status_updates)
     return written
 
 
 def _write_data(cfg: Any, plan: ImportPlan, planned: list[Annotation]) -> list[str]:
-    """Write ``// DATA:`` markers and their ``rebrew-data.toml`` size/section."""
-    from rebrew.data_metadata import set_data_fields_batch
+    """Write data declarations and their ``rebrew-data.toml`` identity."""
+    from rebrew.data_metadata import record_migrated_data_markers, set_data_fields_batch
+    from rebrew.metadata import identity_file
 
     written: list[str] = []
     updates: list[dict[str, Any]] = []
+    identity_rows: list[dict[str, Any]] = []
     for ann in planned:
         target_path = cfg.reversed_dir / ann.path
         target_path.parent.mkdir(parents=True, exist_ok=True)
-        atomic_write_text(target_path, f"{ann.marker}\n")
+        atomic_write_text(
+            target_path, ann.marker if ann.marker.endswith("\n") else f"{ann.marker}\n"
+        )
         written.append(target_path.relative_to(cfg.root).as_posix())
+        identity_rows.append(
+            {
+                "module": plan.marker,
+                "va": ann.va,
+                "identity": {
+                    "file": identity_file(target_path, cfg.metadata_dir),
+                    "marker_type": "DATA",
+                    "name": ann.name,
+                },
+                "fill": {"size": ann.size, "section": ann.section},
+            }
+        )
         fields: dict[str, Any] = {"section": ann.section, "name": ann.name}
         if ann.size:
             fields["size"] = ann.size
         updates.append(
             {"module": plan.marker, "va": ann.va, "fields": fields, "updated_by": "intake"}
         )
+    record_migrated_data_markers(cfg.metadata_dir, identity_rows)
     # One rebrew-data.toml rewrite for the whole import, not three per symbol.
     set_data_fields_batch(cfg.metadata_dir, updates)
     return written
 
 
 def _write_libraries(cfg: Any, plan: ImportPlan, planned: list[Annotation]) -> list[str]:
-    """Append ``// LIBRARY:`` entries through ``identify_library.write_candidates``."""
+    """Record LIBRARY rows through ``identify_library.write_candidates``."""
     from rebrew.identify_library import LibCandidate, write_candidates
     from rebrew.naming import sanitize_name
 

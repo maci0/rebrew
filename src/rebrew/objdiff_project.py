@@ -8,18 +8,18 @@ so rebrew's MSVC/mingw-16.2.0 targets fit natively.
 
 This module provides two entry points:
 
-- ``rebrew objdiff --output objdiff.json`` — synthesize one target COFF object
+- ``rebrew export objdiff --output objdiff.json`` — synthesize one target COFF object
   per annotated source file (the functions' bytes from the reference binary
   at their original VAs, with the annotation symbols) and emit an objdiff
   project configuration with one unit per file.  Opening ``objdiff.json`` in
   the objdiff GUI shows the project's match state immediately.
-- ``rebrew objdiff-build <target> <base-object>`` — the ``custom_make``
+- ``rebrew build objdiff-driver <target> <base-object>`` — the ``custom_make``
   shim objdiff invokes to rebuild a base object: maps the object path back
   to its source file and compiles it with the project's per-file toolchain
   and flags (the same resolution ``rebrew test``/``verify`` use).
 
 Target objects carry no relocations (the reference binary gives raw bytes);
-objdiff diffs them byte-wise, which is exactly the rebrew matching model.
+objdiff diffs them byte-wise, which is exactly the rebrew match runing model.
 """
 
 from __future__ import annotations
@@ -44,9 +44,9 @@ from rebrew.utils import atomic_write_bytes, atomic_write_text
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew objdiff · · · · · · · · · · Write objdiff.json and copy the target objects\n\n"
-    "  rebrew objdiff --output objdiff.json --target-dir build/objdiff · Custom paths\n\n"
-    "  rebrew objdiff --dry-run --json · · Report the plan, write nothing\n"
+    "  rebrew export objdiff · · · · · · · · · · Write objdiff.json and copy the target objects\n\n"
+    "  rebrew export objdiff --output objdiff.json --target-dir build/objdiff · Custom paths\n\n"
+    "  rebrew export objdiff --output output/objdiff --json · · Report the plan, write nothing\n"
 )
 
 
@@ -217,13 +217,13 @@ def _build_one_object(cfg: Any, base_object: Path) -> None:
         # passes the configured base_path verbatim, which may be either.
         rel = rel[idx + len(marker) :]
     if not rel.endswith(".o"):
-        error_exit(f"rebrew objdiff-build: unexpected object path {base_object}")
+        error_exit(f"rebrew build objdiff-driver: unexpected object path {base_object}")
     source_rel = rel[: -len(".o")]
     source = contained_path(source_roots(cfg), source_rel)
     if source is None:
-        error_exit(f"rebrew objdiff-build: source path escapes the project: {source_rel}")
+        error_exit(f"rebrew build objdiff-driver: source path escapes the project: {source_rel}")
     if not source.exists():
-        error_exit(f"rebrew objdiff-build: no source file for {source_rel} ({source})")
+        error_exit(f"rebrew build objdiff-driver: no source file for {source_rel} ({source})")
 
     # Per-file override resolution — the same inputs test/verify use, from the
     # file's own annotation.  Passing empty strings dropped a persisted
@@ -255,7 +255,7 @@ def _build_one_object(cfg: Any, base_object: Path) -> None:
         use_cache=False,
     )
     if obj_path is None:
-        error_exit(f"rebrew objdiff-build: compile failed: {err}")
+        error_exit(f"rebrew build objdiff-driver: compile failed: {err}")
     console.print(f"[green]Built {base_object}[/green]")
 
 
@@ -300,7 +300,7 @@ def main(
     doc: dict[str, Any] = {
         "min_version": "2.0.0",
         "custom_make": "rebrew",
-        "custom_args": ["objdiff-build", cfg.target_name],
+        "custom_args": ["build", "objdiff-driver", cfg.target_name],
         "build_base": True,
         "units": units,
         "watch_patterns": _watch_patterns(cfg),
@@ -319,7 +319,7 @@ def main(
     )
     console.print(
         "[dim]Open objdiff.json in the objdiff GUI; it rebuilds base objects "
-        "via `rebrew objdiff-build` on demand.[/dim]"
+        "via `rebrew build objdiff-driver` on demand.[/dim]"
     )
 
 

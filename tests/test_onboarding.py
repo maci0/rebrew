@@ -78,16 +78,23 @@ class TestOnboardingJourney:
         assert 0x00401000 in vas
         assert 0x00401018 in vas
 
-        # Documented skeletons carry valid rebrew markers.
+        # Pure-C skeletons resolve their identities from the managed store.
+        from rebrew.annotation import parse_c_file_multi
+        from rebrew.config import load_config
+
+        cfg = load_config(tmp_path)
         skeletons = sorted((tmp_path / "src" / "mini_pe").glob("*.c"))
         assert len(skeletons) == 2
-        markers = [
-            line
+        assert all(
+            not _MARKER_RE.match(line.strip())
             for f in skeletons
             for line in f.read_text(encoding="utf-8").splitlines()
-            if _MARKER_RE.match(line.strip())
+        )
+        identities = [
+            ann for f in skeletons for ann in parse_c_file_multi(f, metadata_dir=cfg.metadata_dir)
         ]
-        assert len(markers) == 2
+        assert {ann.va for ann in identities} == vas
+        assert all(ann.marker_type == "STUB" and ann.symbol for ann in identities)
 
         # Binary copied into original/.
         assert (tmp_path / "original" / "mini_pe.exe").exists()

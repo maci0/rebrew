@@ -39,13 +39,22 @@ def codegen_cflags_key(cflags: str) -> frozenset[str]:
 def inline_equals_store(found_key: str, inline_value: str, store_value: str) -> bool:
     """Whether an inline annotation duplicates its metadata-store value.
 
-    CFLAGS compares order-insensitively (``/O2 /Gd`` == ``/Gd /O2``); every
-    other key compares stripped strings.  A differing inline copy is left
-    alone — deleting it would destroy information a human may rely on.
+    CFLAGS compares the codegen set: order does not matter and a ``/D``
+    define is not a disagreement (``/DREBREW_ALLOW_NAKED /O2`` == ``/O2``).
+    SIZE compares numerically when both sides parse (``32`` == ``0x20``).
+    Every other key compares stripped strings. A differing inline copy is
+    left alone: deleting it would destroy information a human may rely on.
     """
+    inline = inline_value.strip()
+    store = store_value.strip()
     if found_key == "CFLAGS":
-        return cflags_key(inline_value.strip()) == cflags_key(store_value.strip())
-    return inline_value.strip() == store_value.strip()
+        return codegen_cflags_key(inline) == codegen_cflags_key(store)
+    if found_key == "SIZE":
+        try:
+            return int(inline, 0) == int(store, 0)
+        except ValueError:
+            return inline == store
+    return inline == store
 
 
 @dataclass(frozen=True)
@@ -152,7 +161,7 @@ def drop_redundant_presets(
     # One locked read-modify-write.  This drops whole ``cflags_presets`` keys
     # from a document it parsed before the lock, so a concurrent writer of
     # another key in the same file (a splat import patching
-    # ``[targets.<name>].arch``, ``rebrew cfg add-target``) had its edit
+    # ``[targets.<name>].arch``, ``rebrew cfg target add``) had its edit
     # discarded wholesale by the replace at the end.
     with project_toml_lock(cfg.root) as toml_path:
         try:

@@ -1,4 +1,4 @@
-"""Tests for rebrew build-check.
+"""Tests for rebrew build check.
 
 ``build/`` is gitignored in every rebrew project, so a hand-edited ``build.make``
 is invisible to ``git status``, ``rebrew lint`` and ``rebrew verify`` -- while
@@ -252,7 +252,7 @@ def test_recorded_tokens_are_not_drift(tmp_path, token):
 def test_missing_source_is_drift(tmp_path):
     """A rename leaves build.make naming an object that no longer exists.
 
-    Regression for guild-rebrew round 1080: `rebrew rename` rewrote the source
+    Regression for guild-rebrew round 1080: `rebrew source rename` rewrote the source
     but not the gitignored build/, so split_link.sh died at exit 157 while this
     check reported clean.  Flags on the stale object all still agreed, and the
     object was skipped rather than flagged, because the flag loop only inspects
@@ -358,7 +358,7 @@ def test_cmake_pin_for_honours_cfg_build_dir(tmp_path: Path) -> None:
 
 def test_pin_generated_from_metadata_does_not_block_a_cflags_write() -> None:
     """The per-file flags CMake records come from the metadata (via
-    `rebrew cmake-flags`), so matching flags are the metadata's own value and
+    `rebrew build cmake-flags`), so matching flags are the metadata's own value and
     a new --cflags reaches the build on the next configure.  Only flags the
     metadata did not produce are a CMakeLists pin that --cflags cannot change.
 

@@ -2,7 +2,7 @@
 
 Thin CLI over :mod:`rebrew.link_order` (which owns ``order_sources``,
 ``file_va``, and the VA-order enforcement used by the CMake drift gate).
-Kept as its own command so ``rebrew order-sources`` prints an ordering
+Kept as its own command so ``rebrew build order-sources`` prints an ordering
 without requiring a CMakeLists.txt.
 """
 
@@ -12,14 +12,15 @@ from pathlib import Path
 
 import typer
 
-from rebrew.cli import console, error_exit, json_print
+from rebrew.cli import TargetOption, console, error_exit, json_print
+from rebrew.config import ConfigError, ConfigNotFoundError, load_config, module_marker
 from rebrew.link_order import order_sources
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew order-sources src/*.c · · · · · Print the VA-ordered source list\n\n"
-    "  rebrew order-sources src/*.c --first-va 0x10001000 · · Ignore files below this VA\n\n"
-    "  rebrew order-sources src/*.c --exclude tests/ --json · Machine-readable order\n"
+    "  rebrew build order-sources src/*.c · · · · · Print the VA-ordered source list\n\n"
+    "  rebrew build order-sources src/*.c --first-va 0x10001000 · · Ignore files below this VA\n\n"
+    "  rebrew build order-sources src/*.c --exclude tests/ --json · Machine-readable order\n"
 )
 
 
@@ -49,6 +50,7 @@ def main(
         help="Code marker module to order by (e.g. SERVER) when files carry several targets",
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
 ) -> None:
     """Print *files* ordered by their first function's original VA."""
     table: dict[str, int] = {}
@@ -68,7 +70,21 @@ def main(
                 f"--first-va {entry!r}: cannot parse VA {va!r} as an integer",
                 json_mode=json_output,
             )
-    ordered, excluded = order_sources(files, table, set(exclude), marker=marker or None)
+    try:
+        cfg = load_config(target=target)
+    except ConfigNotFoundError as exc:
+        if target is not None:
+            error_exit(str(exc), json_mode=json_output)
+        cfg = None
+    except ConfigError as exc:
+        error_exit(str(exc), json_mode=json_output)
+    ordered, excluded = order_sources(
+        files,
+        table,
+        set(exclude),
+        marker=marker or (module_marker(cfg) if cfg is not None else None),
+        metadata_dir=cfg.metadata_dir if cfg is not None else None,
+    )
     if json_output:
         json_print({"ordered": [str(f) for f in ordered], "excluded": excluded})
     else:

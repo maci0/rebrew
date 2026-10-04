@@ -1747,9 +1747,9 @@ class TestOutDirRejection:
                 target_binary=tmp_path / "x.dll",
             ),
         )
-        result = CliRunner().invoke(app, ["--all", "--out-dir", "custom/out"])
+        result = CliRunner().invoke(app, ["batch", "--output", "custom/out"])
         assert result.exit_code != 0
-        assert "--out-dir only applies to single-function mode" in result.output
+        assert "No such option: --output" in result.output
 
     def test_all_with_default_out_dir_passes(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1778,7 +1778,7 @@ class TestOutDirRejection:
             return (0, 0)
 
         monkeypatch.setattr("rebrew.match.run_all", _fake_run_all)
-        result = CliRunner().invoke(app, ["--all"])
+        result = CliRunner().invoke(app, ["batch"])
         assert result.exit_code == 0, result.output
         # A silent success that never starts the batch still exits 0.
         assert len(seen) == 1
@@ -1791,9 +1791,9 @@ class TestSeedLlmRejection:
     """--seed-llm is single-function only; batch mode must reject it, not
     silently drop a flag the operator asked a paid endpoint for."""
 
-    @pytest.mark.parametrize("mode", ["--all", "--all-targets"])
+    @pytest.mark.parametrize("mode", [[], ["--all-targets"]])
     def test_batch_rejects_seed_llm(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: str
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: list[str]
     ) -> None:
         from types import SimpleNamespace
 
@@ -1812,9 +1812,9 @@ class TestSeedLlmRejection:
                 target_binary=tmp_path / "x.dll",
             ),
         )
-        result = CliRunner().invoke(app, [mode, "--seed-llm"])
+        result = CliRunner().invoke(app, ["batch", *mode, "--seed-llm"])
         assert result.exit_code != 0
-        assert "--seed-llm is single-function only" in result.output
+        assert "No such option: --seed-llm" in result.output
 
 
 class TestGaHistory:
@@ -1869,7 +1869,7 @@ class TestGaHistory:
             + "{broken\n",
             encoding="utf-8",
         )
-        result = CliRunner().invoke(app, ["--ga-history", "--json"])
+        result = CliRunner().invoke(app, ["history", "--json"])
         assert result.exit_code == 0
         data = json.loads(result.stdout)
         assert data["total"] == 3  # broken line skipped
@@ -1907,7 +1907,7 @@ class TestGaHistory:
             + "\n",
             encoding="utf-8",
         )
-        result = CliRunner().invoke(app, ["--ga-history"])
+        result = CliRunner().invoke(app, ["history"])
         assert result.exit_code == 0
         assert "+00:00" not in result.output
         assert "_a" in result.output
@@ -1973,7 +1973,7 @@ class TestGaHistory:
         from rebrew.match import app
 
         self._setup(tmp_path, monkeypatch)
-        result = CliRunner().invoke(app, ["--ga-history", "--json"])
+        result = CliRunner().invoke(app, ["history", "--json"])
         assert result.exit_code == 0
         data = json.loads(result.stdout)
         assert data["total"] == 0

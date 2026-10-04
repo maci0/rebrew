@@ -75,8 +75,8 @@ def test_status_bars_are_labeled(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     out = buf.getvalue()
     assert "/home/" not in out.split("╮", 1)[0]
-    assert "50.0% of .text" in out
-    assert "25.0% of initialized data verified (stored verdicts)" in out
+    assert "50.0% of virtual .text" in out
+    assert "25.0% of .data+.rdata verified (stored verdicts)" in out
     text_bar = _bar_line(out)
     assert "█" in text_bar and "░" in text_bar
 

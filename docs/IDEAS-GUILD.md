@@ -9,7 +9,7 @@ promote scoped proposals to [ROADMAP.md](ROADMAP.md).
 
 ## Measure truth, not proxies
 
-- [ ] **Link-residue as first-class metric (`rebrew residue --json`).**
+- [ ] **Link-residue as first-class metric (`rebrew build residue --json`).**
   Pain: object metrics (`matched`, `aligned`) pointed the wrong way ≥6 times;
   only `scripts/linktest.sh` + `split_link.sh` + `postlink_residual.py` told
   the truth, all out-of-tree. Feature: built-in command that relinks, applies
@@ -43,7 +43,7 @@ promote scoped proposals to [ROADMAP.md](ROADMAP.md).
   probe reads the map, hand-built each time. Feature: auto-generate the
   probe TU, compile, report reference-vs-object slot assignment per local.
   Evidence: codegen-walls §1, allocator Finding 60.
-- [ ] **Volatile fixed-point sweep (`rebrew match --volatile-sweep`).**
+- [ ] **Volatile fixed-point sweep (`rebrew match run --volatile-sweep`).**
   Pain: volatile is per-variable fixed point, per-site wall; manual sweeps
   (1/8/17 sites) cost rounds. Feature: systematic per-variable qualify/
   dequalify sweep with link-residue ranking, respecting composition band.
@@ -60,7 +60,7 @@ promote scoped proposals to [ROADMAP.md](ROADMAP.md).
 
 ## Data round support
 
-- [ ] **`rebrew data` composition awareness.**
+- [ ] **`rebrew data list` composition awareness.**
   Pain: data edits move `.text` cost unpredictably (AcceptConnections:
   local 0 diffs, gate `.text` +180 via COMDAT literal emission). Feature:
   data verify that also reports `.text` delta of the change, warning when a
@@ -72,7 +72,7 @@ promote scoped proposals to [ROADMAP.md](ROADMAP.md).
   pre-link. Evidence: goal.md types section.
 - [ ] **String-to-owner attribution with push verification.**
   Pain: RevEng attribution wrong twice; manual `asm | grep push` confirmation
-  each time. Feature: `rebrew strings --verify-push`; attribute `"<name>():
+  each time. Feature: `rebrew binary strings --verify-push`; attribute `"<name>():
   ..."` strings, confirm each by disassembling the owner for the literal
   push, report unverified ones. Evidence: naming_conventions.md attested
   table method.
@@ -264,10 +264,10 @@ promote scoped proposals to [ROADMAP.md](ROADMAP.md).
   Pain: `build/` is gitignored, so a hand-edited `build.make` (or `flags.make`)
   is invisible to `git status`, to `rebrew lint`, to `rebrew verify --full`, and
   to `cmake --build`, while silently redefining what any consumer's measurement
-  means. `rebrew postlink` and `rebrew cmake-flags` both read that tree. A round
+  means. `rebrew build postlink` and `rebrew build cmake-flags` both read that tree. A round
   sweeping per-file toolchain pins hit this and left a tree reporting 58% residue
   with a 290,816-byte deliverable against the correct 286,720 / 8628.
-  Feature: `rebrew build-check` (and a `rebrew doctor` clause) comparing
+  Feature: `rebrew build check` (and a `rebrew doctor` clause) comparing
   `build.make`'s compile lines against CMake's own `flags.make` records;
   shipped as `src/rebrew/build_check.py`.
   Evidence: guild-rebrew `docs/workflow-traps.md` §20.
@@ -321,7 +321,7 @@ promote scoped proposals to [ROADMAP.md](ROADMAP.md).
   Evidence: guild-rebrew `src/server.dll/DieGildeAddOnServer/server_c/ServerMainThread.c` header,
   "PROVEN is NOT reachable for this function" block (rounds 6-9 probes).
 
-- **`rebrew orphans --prune` deletes metadata for block-comment `/* DATA: SERVER 0x... */` markers.**
+- **`rebrew orphans prune` deletes metadata for block-comment `/* DATA: SERVER 0x... */` markers.**
   Pain: pruned 260 lines from `rebrew-data.toml` + 3 GOLDTL function entries, orphaning live source
   DATA markers (vfs4.c `0x1002944c..0x100294a0` range form, vfs_OpenStream.c `0x100294a4`) and
   tripping W016 ("DATA marker missing // SECTION") + W022. The orphan detector appears to match only
@@ -332,13 +332,13 @@ promote scoped proposals to [ROADMAP.md](ROADMAP.md).
   report (not delete) any entry whose marker form the detector did not recognize.
   Evidence: guild-rebrew `src/Develop/Units/vfs/vfs4.c` line 17 range marker.
 
-- **`rebrew data` needs a `--set-size` (data extent correction).**
+- **`rebrew data list` needs a `--set-size` (data extent correction).**
   Pain: a stale `size` on a data symbol cannot be corrected by any CLI; `--set-type` writes only
   `type` (and preserves existing `size`), `annotation.py` only ever grows size, and `--fix-bss`
   writes sizes only for new gaps. When a range marker overstates an extent (`0x1002944c..0x100294a0`
   = 84 parsed onto a 4-byte `char s_rb[4]`), the extent gate fails and the only fix is calling
   `rebrew.data_metadata.set_data_field(dir, va, "size", n, module)` by hand.
-  Feature: `rebrew data --set-size 0xVA=N` (mirror `--set-type`) so extent corrections go through
+  Feature: `rebrew data set --size 0xVA=N` (mirror `--set-type`) so extent corrections go through
   the sanctioned atomic writer.
   Evidence: guild-rebrew `src/rebrew-data.toml` s_rb_1002944c size 84 vs binary 4 (round 1282).
 
@@ -364,3 +364,162 @@ promote scoped proposals to [ROADMAP.md](ROADMAP.md).
   is Turbo C++ 4.0J; an IDO loop that did not unroll is not a lower `-O`. The verdict stays per
   function, and two styles clearing the bar stays `mixed`.
   Evidence: the guild-rebrew "Compiler opt level heuristics" report (not in this repo).
+
+## Calling-convention evidence
+
+- [ ] **Infer caller-cleaned stack arguments before generating skeleton signatures.**
+  Pain: correcting local ECX definition tracking identifies server `m_pool_free`
+  as cdecl, but a cdecl skeleton still defaults to `int f(void)` despite two
+  observed arguments. A plain `ret` does not establish zero stack arguments.
+  Feature: track ESP bias through saves and local allocation, report supported
+  incoming stack slots, and corroborate arity with caller pushes/cleanup. Keep
+  unknown counts and types explicit; do not manufacture a `self` parameter.
+  Evidence: guild-rebrew `docs/msvc6-c-shapes.md` section 257, callee
+  `0x10006e30` and callers `0x10008e2a` / `0x10009220` with `add esp,8`.
+
+## Relocation evidence in shared-client checks
+
+- [ ] **Expose unresolved relocation targets separately from validated RELOC slots.**
+  Pain: the shared GOLD/TL `fcn_00401180` source calls the numeric GOLD symbol
+  `fcn_00430bd0`; TL's original helper calls `vfs_ReadData` at `0x004306b0`.
+  Both ordinary checks report RELOC because an uncatalogued REL32 target is
+  deliberately masked in `coff_reloc._validate_rel32`. Those checks establish
+  instruction agreement but do not establish the destination callee binding.
+  Feature: report masked-unresolved and validated counts separately, with an
+  optional strict catalog/linked-address check for shared-source promotion.
+  Evidence: guild-rebrew `src/GOLD.fcn_00401180.c`, original helpers at
+  `0x00401180`, `.scratch/goal-client-loop/test-gold-helper.json`,
+  `.scratch/goal-client-loop/test-tl-return-in-loop.json`, and the target-scoped
+  TL annotation in `src/Develop/Units/vfs/GOLDTL.vfs_ReadData.c`.
+
+
+## References inside mixed-target translation units
+
+- [ ] **Bind rename references to their annotated function/data owner inside a shared file.**
+  Pain: target-aware rename can isolate independent same-name target functions,
+  but a file containing both targets may place an unrelated reference in a
+  common prototype, table initializer, or a different target's function body.
+  Whole-file text replacement cannot decide which binding is meant. It now
+  fails before writing rather than renaming both symbols.
+  Feature: use C AST reference spans and target-scoped function/data identities,
+  with explicit treatment of common declarations; keep unresolved references
+  visible instead of inferring ownership from a filename or proximity.
+  Evidence: guild-rebrew TL `0x00406510` rename dry run names `command7.c` and
+  `alchemistry_logic3.c`; `.scratch/goal-rename/project-builder-preview.json`.
+  `tests/test_rename.py::TestRenameTargetIsolation` covers the safe boundary.
+
+
+## Skeleton append should offer reference-VA insertion
+
+Pain: todo recommends `skeleton <VA> --append <neighbor.c>`, which appends a
+lower-VA function after its higher-VA neighbor. W030 then reports that source
+order disagrees with reference linker order. Literal append works as named;
+the missing feature is ordered insertion with declarations left above both
+functions. Proposed `--insert-by-va` (or a todo recommendation that requests
+it), respecting each target's shared marker order and rejecting conflicting
+multi-target order. Evidence: guild `.scratch/goal-character/lint-final.json`,
+three W030 hits for TL 0x40df00, 0x40e110 and 0x405540. Source definitions are
+reordered directly as ordinary source-tree repair; no warning is suppressed.
+
+
+## Retire an erroneously reversed game body after a stock-library match
+
+Pain: library identify deliberately never touches annotated functions; a later
+whole-body archive hit therefore leaves an erroneous Game C implementation
+and its failed verification history in the tree. Correcting classification
+requires a manual source/header move, with separate accounting checks.
+Proposed library adopt/retire command: accept an exact archive-match receipt,
+preview incoming references and source/header changes, retain provenance and
+failed prior measurements as history, retire the local body and annotate library
+origin through locked writers. Do not infer a prebuilt build provider from an
+archive hit alone, manufacture EXACT, or patch the archive.
+Evidence: guild-rebrew GOLD0x5e3d3d, stock ___sbh_find_block in sbheap.obj;
+.scratch/goal-crt-retirement/retirement.json and
+.scratch/goal-shared-sound/gold-crt-recheck.json.
+
+## Explicit related-import donor for evidenced structural twins (2026-10-04)
+
+Pain: source import-related can restrict a destination (--va) but cannot name an
+evidenced donor. TL mouse4117c0 and keyboard4117f0 share the same42-byte structural
+shape. Native GUID/CreateDevice output proof identifies Gold410710 and410740, but
+default gap refuses both and gap0 chooses the same source for both. Lowering a
+threshold cannot communicate the proven identity.
+Proposal: --source-va filters the EXACT/RELOC donor set before ordinary score/gap
+matching and verification; invalid/unmatched donor addresses must be errors. Keep
+thresholds, library exclusion, preview, and verification unchanged.
+Evidence: guild-rebrew .scratch/goal-input-types/ambiguous-donors.json, bindings.json;
+.scratch/goal-forward-ret/input-guid-cross-build.json and gold-input-init-asm.json.
+
+### Consolidate an already-matched related destination
+
+Pain: import-related --shared only considers unmatched destination functions. Native-proven TL420b70/Gold4247e0 reset has duplicate existing implementations; Gold EXACT37 is excluded before source-va matching, so normal import refuses with no unmatched functions. Proposed feature: explicit --consolidate-matched, preview both source owners and native binding proof, verify the shared replacement in both targets, and retire the superseded file atomically while preserving managed VA metadata/history. Existing unmatched import default should remain conservative. Evidence: guild-rebrew/.scratch/goal-net-stats/import-dryrun.json, native-bindings.json, before-GOLD.fcn_004247e0.c.
+
+### Report native comparison scope in library-match output
+
+Pain: library match --va chooses managed SIZE or a32-byte prefix, not the existing native inventory span. Un-sized LIBRARY markers for TL66080a/Gold5eaad6 therefore produce both strlwr/strupr candidates, while complete native308/158-byte comparisons uniquely identify strupr.obj (strlwr has7/4 fixed mismatches). Current JSON does not expose compared byte count or prefix-vs-complete provenance. Proposed --size and explicit compared_bytes/comparison_scope fields, with previewed inventory-size fallback. Keep prefix hits visibly provisional; report whole-body only after proving the extent. Evidence guild-rebrew/.scratch/goal-vfs-casefold/full-runtime-attribution.json and .scratch/goal-net-stats/next-helper*-library.json.
+
+### 2026-10-04 — Native bindings for declaration-only game callees across targets
+
+Pain: shared TL442c00/442cb0 and Gold4471b0/447260 callers refer to fcn_00450a00, but its body exists only for TL450a00. Gold calls a different native body at453890. FUNCTION parsing deliberately skips prototypes; the declaration alone cannot supply a target-scoped function binding. Unknown REL32 fallback can therefore mask a wrong or unmapped legacy callee name (TL40ec60 currently names Gold453890 while actually calling TL450a00). Adding a fake DATA owner or an empty C definition would misrepresent the tree. Proposed feature: a declaration-only native function binding, stored target-scoped through a supported CLI/API and attached to a canonical prototype, resolved for call validation/link planning without adding a reversed-function body or storage owner. Preview collisions and preserve distinction between build-specific bodies, DLL imports, and data. Evidence: guild-rebrew/.scratch/goal-client-call-api/jobs.json and helper-import-preview.json; .scratch/goal-small-extents/next-tl-40ec60-native.json; src/GOLDTL.fcn_00450a00.c and shared442c00/442cb0 callers. Independently bind native call operands until available; do not claim an unchanged Gold helper import.
+
+### Batch function-extent reconciliation from native boundaries and padding
+
+Pain: TL full gate57178 reports322 shorter SIZE_MISMATCH bodies with zero common-prefix differences;309 have native terminal ret/tailjmp and exclusively NOP tails. These discovery/alignment sizes make already recovered bodies appear unfinished. Existing `test --fix-sizes`, `verify --fix-sizes`, and catalog backfill address size repair; they do not provide the joint strict CFG, complete relocation/literal binding, negative-control, library-exclusion evidence preview described here. Proposed CLI preview/apply operation combining conservative native CFG/end evidence, retained padding/layout accounting, complete object/native binding validation, library exclusion, and target-scoped locked SIZE updates; never shorten solely from object length or a masked prefix score. Surface ambiguous branches/data separately and verify every affected/shared build. Evidence guild-rebrew/.scratch/goal-small-client-helpers/{zero-diff-candidates,native-extent-screen}.json. Current supported metadata APIs can apply individually evidenced repairs; no game-code padding or raw assembly workaround.
+
+
+## Metadata-backed source split / extraction after marker migration
+
+Landed: `rebrew source split` reads the function row when the file has no marker block. It slices that C definition, leaves file-scope storage in the original, refuses a static or preprocessor-wrapped dependency, and retargets every row that shares the definition. `--dry-run` writes nothing, and a failed retarget restores the source.
+
+Observed 2026-10-04: `rebrew source split src/Develop/DieGildeAddOn/game/spiel622.c --va 0x1001a0d0 --dry-run --target server.dll --json` reported `No function block found` although the managed SERVER identity resolved to the existing gm_RandomMod definition. The CLI at that point only extracted inline marker blocks.
+
+The landed path resolves the selected module and VA through the function store, identifies the C definition, and retargets every row that shares it. File-scope storage stays in the original. A static dependency or a definition inside a preprocessor conditional is refused. `--dry-run` writes nothing, and a failed retarget restores the source. The command does not write a marker line.
+
+Evidence: guild-rebrew/.scratch/goal-random-helper/{split-server-preview.json,split-server-preview.log}. The marker path remains for unmigrated sources.
+
+### Preserve library ancestry when marker inventories overlap C-source identities
+
+A migrated library inventory and an existing FUNCTION C body can share a
+(module, VA). Header and source migration currently overwrite the single
+marker_type/name identity in order-dependent ways: two Gold runtime wrappers
+(5deaf3,5e3a71) remained compiled but disappeared from library accounting and
+acquired header hint display names. Preserve library ancestry separately from
+the provider decision, keep the actual C provider symbol/name, and normalize
+compiled-library paths to the established project-root contract. Exercise
+both migration orders, minimal config roots, existing explicit bindings,
+and migrated catalog/verification views; dry runs and repeated runs must not
+change identities. Do not infer archive ownership from names or repair it by
+reversing CRT code. Evidence: guild-rebrew/.scratch/goal-migration-revalidation/
+full-native-rejected-comparison.json and after-native-all.json (15645 CLOSED2;
+48 intended Gold byte gains remain unaccepted until classification is repaired).
+
+### Lint explicit compiled-library paths after marker migration
+
+Pain: library source bindings are project-root relative, but markerless lint checks only metadata-root-relative paths. Gold src/GOLD.fcn_005deaf3.c and src/GOLD.fcn_005e3a71.c resolve as actual compiled providers yet each receives E001 in every target after ancestry recovery. Proposed fix: let the shared metadata-backed-file predicate resolve explicit LIBRARY bindings against cfg.root with exact paths, without blessing unrelated files or changing ordinary function/data path rules. Evidence: guild-rebrew/.scratch/goal-migration-revalidation/lint-ancestry-all.json and gold-library-actual-provider-check.json.
+
+### Scope migrated compiled-library bodies in CMake source selection
+
+Pain: project-root LIBRARY bindings are discovered by verification/lint but parse_c_file_multi's metadata-relative lookup cannot see them. cmake-sources classifies the pure-C body as unannotated and includes it in every target. After Gold ancestry recovery, server wrongly selected GOLD.fcn_005deaf3.c and GOLD.fcn_005e3a71.c; the raw link fails on foreign _fcn_005e899f. Proposed fix: incorporate actual bound-library file identities for every module before the unannotated fallback, using the public library-source binder and exact resolved paths; retain ordinary helpers and per-target/shared ownership. Evidence guild-rebrew/.scratch/goal-random-helper/server-link/build.log and regenerated build/rebrew-sources-server.cmake. No source filtering workaround or library patch.
+
+
+### Keep verified inline jump tables out of instruction-only diff summaries
+
+Pain: GOLDTL0x004c3a50 has a348-byte code region plus103 four-byte inline
+jump-table entries (760-byte recorded extent). `rebrew diff --json` reports
+207 structural instructions after decoding pointer data as x86 code, although
+the typed byte comparison isolates eight differing code bytes: independent
+MOV/LEA setup instructions emitted in reverse order. Every native table
+target agrees with the candidate COFF label value plus addend and function
+base; the dispatch operand names the same table. This differs from the older
+function-end walker proposal: the extent is already correct.
+
+Proposed feature: expose proven code/table ranges and classify inline pointer
+entries as typed relocations in structured diff output. Require COFF symbol,
+relocation, dispatch, and bounded entry evidence; preserve comparison of the
+entire recorded extent and every table target. Do not remove table bytes or
+mask unknown storage to lower structural scores.
+
+Evidence: guild-rebrew/.scratch/goal-tl-training/4c3a50-diff.json,
+command-table-audit.log, command-table-differences.json (zero differing
+table targets), and probe-command.json (eight code-byte differences in the
+baseline). No upstream implementation change or verdict promotion.

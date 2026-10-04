@@ -30,16 +30,16 @@ reversed_dir = "src/target_name"         # Where reversed .c files live
 bin_dir = "bin/target_name"
 # source_ext = ".c"                      # Source file extension (default: ".c")
 # ghidra_program_path = ""               # Ghidra program path for ReVa MCP sync
-# origins = ["GAME", "ZLIB"]             # Recorded by `rebrew cfg add-target`; informational
+# origins = ["GAME", "ZLIB"]             # Recorded by `rebrew cfg target add`; informational
 # only; module filters come from the annotations themselves
-# library_modules = ["MSVCRT", "ZLIB"]   # Modules that should use LIBRARY markers
+# library_modules = ["MSVCRT", "ZLIB"]   # Modules recorded as LIBRARY
 # raw_link = "bin/target_name/target_name_pre.dll"  # Image as the linker emitted
-# it, before any `rebrew postlink` fixer rewrote it. Optional; when it is set,
+# it, before any `rebrew build postlink` fixer rewrote it. Optional; when it is set,
 # `rebrew status` compares against this file instead of `build/<target>`, so a
 # fixer-supplied byte is not reported as a regression. A configured path that
 # does not exist is an error, never a silent fallback to the postlinked image.
 # layout = "layout/target_name"          # Position-alignment package printed by
-# `rebrew gen-layout --layout-config`; parsed by the layout tooling, not the loader
+# `rebrew build layout --layout-config`; parsed by the layout tooling, not the loader
 
 # Add more targets as needed:
 # [targets.client_exe]
@@ -61,29 +61,29 @@ libs = "toolchain/msvc/6.0-win32/source/VC98/Lib"
 | `target_name` | Key under `[targets]` | Active target name (e.g. `"game_dll"`) |
 | `all_targets` | All keys under `[targets]` | List of all available target names |
 | `project_name` | `[project].name` | Project name (informational; defaults to `""`) |
-| `marker` | `[targets.<name>].marker` | Module identifier for source markers (default: target name uppercased, characters other than letters, digits, and `_` stripped) |
+| `marker` | `[targets.<name>].marker` | Module name in `MODULE.0xVA` keys (default: target name uppercased, characters other than letters, digits, and `_` stripped) |
 | `target_binary` | `[targets.<name>].binary` | Resolved path to the target executable/DLL |
 | `default_jobs` | `[project].jobs` | Default parallelism for batch commands (default `4`) |
-| `db_dir` | `[project].db_dir` | Where `rebrew build-db` writes `coverage-<target>.toml` (verify reports are no longer written here by default; the `--compare` baseline lives in `.rebrew/`) |
+| `db_dir` | `[project].db_dir` | Where `rebrew coverage build` writes `coverage-<target>.toml` (verify reports are no longer written here by default; the `--compare` baseline lives in `.rebrew/`) |
 | `output_dir` | `[project].output_dir` | Default output directory for generated artifacts |
 | `image_base` | Auto-detected from PE | `0x10000000` for example DLL |
 | `text_va` | Auto-detected from PE | `.text` section virtual address |
 | `reversed_dir` | `[targets.<name>].reversed_dir` | Where `.c` files are stored |
 | `inventory_file` | `[targets.<name>].inventory_file` | Function-inventory path override, relative to project root (default: `reversed_dir/function_structure.json`); per-target inventories for one shared source tree |
-| `shared_dir` | `[project].shared_dir` | Project-level shared-sources root (`src/shared` by default); sources here are scanned for every target and may carry one `// FUNCTION: <target> <va>` marker per target. Empty value disables shared sources. When the whole tree is the source root (`reversed_dir` is `src` itself), the TOMLs may live inside it |
+| `shared_dir` | `[project].shared_dir` | Project-level shared-sources root (`src/shared` by default); sources here are scanned for every target. Each target's identity is a `MODULE.0xVA` row naming that file. An unmigrated file may still carry one marker line per target. Empty value disables shared sources. When the whole tree is the source root (`reversed_dir` is `src` itself), the TOMLs may live inside it |
 | `metadata_dir` | Derived: the parent of `reversed_dir` when it holds `rebrew-functions.toml`, otherwise the outermost store found walking up through `reversed_dir` and its ancestors to the project root, falling back to `reversed_dir`'s parent when no store exists yet | Canonical home of `rebrew-functions.toml` / `rebrew-data.toml`; the loaders do no walk-up, so callers must pass it explicitly |
 | `capstone_arch` / `capstone_mode` | Derived from `arch` and the target image header | Capstone disassembly constants. MIPS, PPC, and SH2 set `CS_MODE_BIG_ENDIAN` unless the image header is little-endian; ARM sets it only when the image is big-endian |
 | `padding_bytes` | Derived from `arch` | `(0xCC, 0x90)` for x86_32/x86_64 (see Architecture Presets) |
-| `external_libs` | `[targets.<name>].external_libs` | External `.lib` code: `module = "link-spec"` table (e.g. `LIBCMT = "LIBCMT.lib"`, `D3DX8 = "references/dxsdk8/lib/d3dx8.lib"`, `MSVCRT = ""` for identified-only).  The one flag for "not our work": rows attributed to these modules leave the progress accounting, `rebrew lib-match` ingests the archives by default, and `rebrew cmake-sources` emits the non-empty specs as `REBREW_EXTERNAL_LIBS` for `target_link_libraries`; config order is link order (static archives last) |
+| `external_libs` | `[targets.<name>].external_libs` | External `.lib` code: `module = "link-spec"` table (e.g. `LIBCMT = "LIBCMT.lib"`, `D3DX8 = "references/dxsdk8/lib/d3dx8.lib"`, `MSVCRT = ""` for identified-only).  The one flag for "not our work": rows attributed to these modules leave the progress accounting, `rebrew library match` ingests the archives by default, and `rebrew build cmake-sources` emits the non-empty specs as `REBREW_EXTERNAL_LIBS` for `target_link_libraries`; config order is link order (static archives last) |
 | `crt_sources` | `[targets.<name>].crt_sources` | Maps origin names to reference source directories for CRT cross-matching |
 | `external_ranges` | `[targets.<name>].external_ranges` | Inclusive address bands (`["0x5e0000-0x64ffff"]`) the binary fills from a statically linked library rather than project sources; tools that enumerate work left skip them |
 | `defines` | `[targets.<name>].defines` | Per-target compile-time defines (`["CLIENT"]`, `["CLIENT=1"]`) for shared multi-version sources (ADR-010). Each entry is `NAME` or `NAME=value` with no whitespace; anything else fails at load instead of compiling the wrong `#ifdef` side. `NAME=value` is emitted as `/DNAME=value` (or `-DNAME=value`) |
-| `library_modules` | `[targets.<name>].library_modules` | Module names that use `LIBRARY` markers |
+| `library_modules` | `[targets.<name>].library_modules` | Module names recorded as `LIBRARY` |
 | `raw_link` | `[targets.<name>].raw_link` | Pre-postlink image to compare against instead of `build/<target>`; acknowledges data-verdict write-back when selected by default or by a matching `--built` path. Also gates the `postlink-mangled` todo category. Unset by default |
 | `source_ext` | `[targets.<name>].source_ext` | Source extension used when discovering and creating files; one extension (`".c"`, the default) or a comma-separated list (`".c,.cpp"`) for a mixed tree. A missing leading dot is added, and a value carrying a path separator is refused |
 | `ghidra_program_path` | `[targets.<name>].ghidra_program_path` | ReVa MCP program path override |
-| `origins` | `[targets.<name>].origins` | The target's module list, managed by `rebrew cfg add-module` / `rebrew cfg remove-module`. Carried for the editor and UI only; annotation filtering reads the markers themselves, not this list |
-| `layout` | `[targets.<name>].layout` | Inline position-alignment package (image base, section geometry, exports, imports) printed by `rebrew gen-layout --layout-config` and written to `layout/<target>/rebrew-layout.toml`. Not read by this loader: the layout tooling parses the file directly. Recognised here so a target carrying it does not warn on every invocation and no config rewriter drops the block |
+| `origins` | `[targets.<name>].origins` | The target's module list, managed by `rebrew cfg module add` / `rebrew cfg module remove`. Carried for the editor and UI only; annotation filtering reads the markers themselves, not this list |
+| `layout` | `[targets.<name>].layout` | Inline position-alignment package (image base, section geometry, exports, imports) printed by `rebrew build layout --layout-config` and written to `layout/<target>/rebrew-layout.toml`. Not read by this loader: the layout tooling parses the file directly. Recognised here so a target carrying it does not warn on every invocation and no config rewriter drops the block |
 | `ghidra_backend` | `[targets.<name>].ghidra_backend` | Ghidra transport: `reva` (MCP, default) or `cli`; an unknown value is a config error |
 | `binsync_state_dir` | `[targets.<name>].binsync_state_dir` | BinSync state directory (default for `--state-dir`) |
 | `iat_thunks` / `dll_exports` / `ignored_symbols` / `r2_bogus_vas` | `[targets.<name>]` | Project-specific VA lists (`iat_thunks`, `r2_bogus_vas`: VAs with known-bad r2 size data), VA → name export map, and symbol names to ignore |
@@ -116,13 +116,15 @@ ARM stays little-endian unless that header is big-endian.  x86 never sets
 
 ## Target Marker (`marker`)
 
-The `marker` field identifies which target a source file's markers belong to. It appears as the module name in marker headers:
+The `marker` field is the module name in `MODULE.0xVA` keys, and in an unmigrated marker line the parser still reads.
 
-```c
-// FUNCTION: SERVER 0x10008880    ← "SERVER" is the marker
+```toml
+["SERVER.0x10008880"]
+file = "shared/MyFunc.c"
+marker_type = "FUNCTION"
 ```
 
-When a project has multiple targets (e.g. `server.dll` and `client.exe`), the same `.c` file may contain markers for both targets. Tools use `marker` to filter markers to the active target: only markers matching `cfg.marker` are processed.
+When a project has multiple targets (e.g. `server.dll` and `client.exe`), the same `.c` file is named by one row per target. Tools use `marker` to select the active target's rows.
 
 By default, `marker` is the target key uppercased with every character outside `[A-Za-z0-9_]` stripped, so `[targets.server_dll]` gets marker `SERVER_DLL` and `[targets."server.dll"]` gets `SERVERDLL`. Override it when the marker prefix differs from the target key:
 
@@ -136,7 +138,7 @@ binary = "original/Client/client.exe"
 marker = "CLIENT"                        # override: "CLIENT" instead of default "CLIENT_EXE"
 ```
 
-A multi-target source file might look like:
+An unmigrated multi-target file still looks like this, and the parser still reads it:
 
 ```c
 // FUNCTION: SERVER 0x10008880
@@ -146,19 +148,19 @@ A multi-target source file might look like:
 void __cdecl MyFunc(void) { ... }
 ```
 
-The shared `rebrew-functions.toml` holds the metadata (STATUS, SIZE, CFLAGS, …)
+The shared `rebrew-functions.toml` holds identity and metadata (file, marker_type, STATUS, SIZE, CFLAGS, …)
 under module-prefixed keys (`SERVER.0x…`, `CLIENT.0x…`) for the corresponding VA:
 one TOML per metadata root, not one per target.
 
-Running `rebrew test --target server_dll` processes only the `SERVER` marker block. Running `rebrew test --target client_exe` processes only the `CLIENT` block.
+Running `rebrew test --target server_dll` compiles the `SERVER` row. Running `rebrew test --target client_exe` compiles the `CLIENT` row.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `marker` | `string` | target key uppercased, characters other than letters, digits, and `_` stripped (e.g. `server.dll` → `SERVERDLL`) | Module identifier used in `// FUNCTION:`, `// LIBRARY:`, `// STUB:` markers. Blank (or whitespace-only) uses that default. A value with whitespace, or one containing `.0x`, fails at load: the first never matches a marker line, and the second breaks `MODULE.0xVA` metadata keys |
+| `marker` | `string` | target key uppercased, characters other than letters, digits, and `_` stripped (e.g. `server.dll` → `SERVERDLL`) | Module name in `MODULE.0xVA` keys, and in an unmigrated `// FUNCTION:` / `// LIBRARY:` / `// STUB:` line. Blank (or whitespace-only) uses that default. A value with whitespace, or one containing `.0x`, fails at load: the first never matches a marker line, and the second breaks `MODULE.0xVA` metadata keys |
 
 The lint tool (`rebrew lint`) validates that each marker's module matches the configured marker (error E012), except stacked blocks naming another known project target, which is the `src/shared` pattern (ADR-010), not a mismatch. Each stacked block answers to its own target's CFLAGS defaults (W018).
 
-`src/shared` files are scanned for every target; `rebrew doctor` warns on multi-target projects when the shared dir is missing or `shared_dir` is disabled. `rebrew cross-import --shared` stacks the destination marker onto the shared file in place (verified before STATUS promotion) instead of copying per-target duplicates.
+`src/shared` files are scanned for every target; `rebrew doctor` warns on multi-target projects when the shared dir is missing or `shared_dir` is disabled. `rebrew source import-related --shared` records the destination `MODULE.0xVA` row on the shared file (verified before STATUS promotion) instead of copying per-target duplicates. A promote retargets rows whose `file` named the old path.
 
 Progress commands (`status`, `todo`) scope to the active target: in a shared tree every target scans every file, so unscoped counts credit one binary with another target's rows. Which rows count, including `external_libs` library headers, is precedence rule 5 in [METADATA.md](METADATA.md). Navigation maps stay unfiltered. Divergent twins that cannot share one file sit side by side as `GOLDTL.<name>.c` / `GOLD.<name>.c` (module-first, like metadata keys).
 
@@ -210,7 +212,7 @@ profile = "msvc-7.0"
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `profile` | `string` | `"msvc-6.0"` | Selects the toolchain's docker image and the flag-sweep axes for `rebrew match`. Must name a registered toolchain (`rebrew toolchain list`); an unknown or retired name raises a `ConfigError` (repair with `rebrew cfg set-compiler`) |
+| `profile` | `string` | `"msvc-6.0"` | Selects the toolchain's docker image and the flag-sweep axes for `rebrew match run`. Must name a registered toolchain (`rebrew toolchain list`); an unknown or retired name raises a `ConfigError` (repair with `rebrew cfg target set-compiler`) |
 | `command` | `string` | `"wine CL.EXE"` | Host compiler invocation (resolved relative to project root). **Empty for docker-backed profiles**: the image IS the compiler (that is what `rebrew init` writes for every shipped profile); only a plugin toolchain registered without an image sets a real command. The `wine CL.EXE` fallback default is inert under docker-only execution |
 | `includes` | `string` | `"toolchain/msvc/6.0-win32/source/VC98/Include"` | Path to compiler include directory. For `msvc-6.0`/`msvc-7.0` the default resolves the best layout actually present (full master, then the vendored compile-only mirrors `toolchain/msvc/6.0-sp6-win32`/`toolchain/msvc/6.0-sp3-win32`/`toolchain/msvc/7.0-win32`): see `rebrew init` output and docs/TOOLCHAIN.md. Empty is valid ("no extra dir"; e.g. `mingw-16.2.0` ships its own headers) |
 | `libs` | `string` | `"toolchain/msvc/6.0-win32/source/VC98/Lib"` | Path to compiler lib directory (empty is valid; the compile-only mirrors ship no `Lib/`) |
@@ -218,18 +220,18 @@ profile = "msvc-7.0"
 | `base_cflags` | `string` | `"/nologo /c /MT"` | Always-on flags prepended to every compile. Posix-style profiles (`gcc-14.2.0`, `gcc-12.3.0`, `mingw-16.2.0`, `mingw-14.2.0`, `clang-18.1.8`, `clang-16.0.4`, `ido-5.3`, `ido-7.1`, `watcom-2.0-win32`, `watcom-2.0-win16`, `borland-5.5`, `borland-3.1`, `borland-2.0`) omit the MSVC glue and the loader default is `""` for them. `rebrew init` writes `base_cflags = "-c"` for the Borland and 16-bit Watcom profiles, which need it spelled out; that spelling is the project file's own value, not the loader's |
 | `runner` | `string` | `""` | Win32 PE runner (`wine`, `wibo`, or empty). Auto-detected from `command` if not set explicitly. Under docker-only execution the runner is empty for image-backed profiles; `rebrew init --install-wibo` writes `tools/wibo` only for native (non-image) profiles: it is ignored for docker-backed ones. A relative runner path resolves against the project root and needs a `command` without the runner prefix |
 | `recompile_url` | `string` | `""` | Base URL of the recompile compile service (e.g. `http://localhost:8000`). When set (or `REBREW_RECOMPILE_URL`), every compile routes through `POST /api/v1/compile` instead of local docker images: the same pinned images, plus the opt-in training tap |
-| `recompile_emit_assembly` | `bool` | `false` | Pass `emit_assembly=true` on remote compiles (the training-data tap). Off by default; when on, every remote compile sends it (`match --collect-pairs` is unrelated). A non-boolean value here is refused by `rebrew cfg set` and warned about by the loader, which would otherwise keep the default and leave the tap silently off |
+| `recompile_emit_assembly` | `bool` | `false` | Pass `emit_assembly=true` on remote compiles (the training-data tap). Off by default; when on, every remote compile sends it (`rebrew match run --collect-pairs` is unrelated). A non-boolean value here is refused by `rebrew cfg set` and warned about by the loader, which would otherwise keep the default and leave the tap silently off |
 | `recompile_retries` | `integer` | `2` | Re-attempts of a retryable remote-compile failure (transport blips, `408/425/429/500/502/503/504`), with the backoff in `rebrew.utils.retry_backoff_delay`. `0` disables retries; a compile the service ran and rejected is never re-POSTed. Clamped to `20` with a warning: the count multiplies into wall-clock time (each re-attempt waits the capped backoff), so a mistyped 20000 would retry one transient error for about 44 hours |
 | `timeout` | `integer` | `60` | Compile subprocess timeout in seconds |
 
-Per-target compiler settings (`rebrew cfg set-compiler <target> <profile>`) are
+Per-target compiler settings (`rebrew cfg target set-compiler <target> <profile>`) are
 the supported way to vary the toolchain; `[compiler.profiles.*]` is not
 recognized (the loader warns about it as an unrecognized key).
 
 ### Origin-Based Flag Presets (`cflags_presets`)
 
 Named flag presets for projects that track common per-origin compiler flags.
-`rebrew cfg set-cflags` edits these tables, but per-function `CFLAGS` metadata is
+`rebrew cfg module set-cflags` edits these tables, but per-function `CFLAGS` metadata is
 still the value consumed by compile/test operations.
 
 ```toml
@@ -242,7 +244,7 @@ ZLIB = "/O2"
 ZLIB = "/O3"
 ```
 
-Per-target presets (`rebrew cfg set-cflags MODULE FLAGS --target <name>`, stored
+Per-target presets (`rebrew cfg module set-cflags MODULE FLAGS --target <name>`, stored
 under the target's `[compiler]` sub-table) override global presets for the same
 origin key. A legacy top-level `[targets.<name>.cflags_presets]` table is still
 honoured but warns at load: move it to `[targets.<name>.compiler.cflags_presets]`.
@@ -273,7 +275,7 @@ Only the keys you specify in the per-target `[compiler]` section override the gl
 ## Linker Settings (`[link]`)
 
 Optional declarative PE header values for byte-identical reconstruction
-(`LinkConfig`). `rebrew round-trip --fix-headers` patches them into the
+(`LinkConfig`). `rebrew build round-trip --fix-headers` patches them into the
 reassembled copy, and the round-trip `header_parity` report compares them
 against the original binary. Unknown keys warn.
 
@@ -331,7 +333,7 @@ the cache is opened, for programmatic callers that skip the loader).
 
 ## LLM Seeding (`[llm]`)
 
-`rebrew match --seed-llm` can call a chat-completions endpoint to propose
+`rebrew match run --seed-llm` can call a chat-completions endpoint to propose
 function seeds. Everything is optional: with no endpoint configured the flag
 reports that LLM seeding is unavailable and the match runs unchanged. Unknown
 keys warn.
@@ -398,7 +400,7 @@ by the CLI layer and win for that invocation.
 ### Runtime / secrets
 
 - `REBREW_LLM_ENDPOINT` / `REBREW_LLM_API_KEY` / `REBREW_LLM_MODEL`: LLM
-  seeding endpoint, key, and model pin (`rebrew match --seed-llm`). Required
+  seeding endpoint, key, and model pin (`rebrew match run --seed-llm`). Required
   for LLM seeding when `[llm]` is unset. The key is sent only as a `Bearer`
   header to the configured endpoint, never logged, and is redacted from any
   error text a failed request logs. Prefer these env vars over
@@ -425,7 +427,7 @@ by the CLI layer and win for that invocation.
   endpoint, so a `--watch` rerun that leaves the function under match
   unchanged costs no request slot and no tokens; only non-empty answers are
   cached, so a refusal or an outage is retried rather than remembered.
-  Whatever the requests cost, `rebrew match --seed-llm` prints one
+  Whatever the requests cost, `rebrew match run --seed-llm` prints one
   `LLM cost:` line per run carrying the model, prompt version, token
   counts, latency, and what the spend bought (`N seed(s) kept`, plus
   candidates the C gate rejected), so a run that bills without seeding is
@@ -482,7 +484,7 @@ rebrew receives.
 - `REBREW_FLIRT_SIGS_DIR`: path to the `rebrew-flirt-sigs` checkout.
   Default: the sibling of the rebrew source checkout, which a wheel install
   has none of, so a packaged rebrew needs this set. When set, a path that is
-  not a directory fails `rebrew flirt` instead of scanning without library
+  not a directory fails `rebrew library scan-signatures` instead of scanning without library
   sigs.
 - `REBREW_SKILLS_DIR`: user/community Agent Skills directory (overrides
   packaged skills of the same name).
@@ -529,7 +531,7 @@ rebrew receives.
 
 ### Other
 
-- `REBREW_DECOMPME_API`: base URL of the decomp.me instance `rebrew decompme`
+- `REBREW_DECOMPME_API`: base URL of the decomp.me instance `rebrew export decompme`
   uploads to (default: `https://decomp.me`, the `--api` flag's own default).
   The server issues a scratch claim token, which is printed and kept in the
   upload ledger, so the host that receives it belongs in the environment
@@ -546,7 +548,7 @@ rebrew receives.
 - `GH_TOKEN` / `GITHUB_TOKEN`: optional GitHub auth for `rebrew toolchain`
   downloads that need a token (not a rebrew-prefixed name; standard gh env).
 - `KUNA_SPECS`: SLEIGH spec directory the host `kuna` binary reads for
-  `rebrew match --seed-kuna` (unset: the first dir holding `x86.sla` under
+  `rebrew match run --seed-kuna` (unset: the first dir holding `x86.sla` under
   `UV_TOOL_DIR`, `XDG_DATA_HOME`, or the probed platform defaults).  A value
   that is not a directory warns and falls back to discovery, so an export
   left behind by a moved checkout cannot silently strand kuna on its
@@ -593,7 +595,7 @@ The config loader fail-fasts on missing/invalid structure:
 - `format` not one of `pe`, `elf`, `macho`, `ne`, `mz`, or `arch` not a known
   preset (a silent `pe` / `x86_32` substitute would disassemble the binary wrongly).
 - `[compiler] profile` not a registered toolchain (a silent `msvc-6.0` substitute
-  would compile with the wrong toolchain; repair with `rebrew cfg set-compiler`),
+  would compile with the wrong toolchain; repair with `rebrew cfg target set-compiler`),
   or `ghidra_backend` not `reva` / `cli`.
 - A `marker` that contains whitespace or `.0x`, or a target name that derives
   no marker and sets none. A blank `marker` uses the derived default.
@@ -630,7 +632,7 @@ every command that reads a project config, not a silent reset to the default;
 `rebrew cfg effective` reports the resolved values as `llm_max_requests`,
 `llm_max_tokens`, and `llm_timeout`. The remaining LLM settings (endpoint URL,
 key/host pairing, model id) are resolved later, at seeding time: a value that
-fails there is reported by `rebrew match --seed-llm` and the run continues
+fails there is reported by `rebrew match run --seed-llm` and the run continues
 without LLM seeds; it does not abort the GA.
 
 `cflags` are user-facing defaults (e.g. `/O2 /Gd`). `base_cflags` are always-on
@@ -686,42 +688,42 @@ resolves through the `server.dll` key.
 
 | Subcommand | Description | Example |
 |------------|-------------|---------|
-| `list-targets` | List all defined targets | `rebrew cfg list-targets` |
+| `list-targets` | List all defined targets | `rebrew cfg target list` |
 | `show [KEY]` | Print config or a dot-separated key | `rebrew cfg show compiler.cflags` |
-| `set KEY VALUE` | Set a scalar config key (refuses non-empty secret keys such as `llm.api_key`; use `REBREW_LLM_API_KEY`; URL, boolean, format, arch, and `[llm]` budget fields are parsed by the same validator the loader uses, so a mistyped value fails here) | `rebrew cfg set compiler.cflags "/O1"` |
+| `set KEY VALUE` | Set a scalar config key (refuses non-empty secret keys such as `llm.api_key`; use `REBREW_LLM_API_KEY`; URL, boolean, format, arch, and `[llm]` budget fields are parsed by the same validator the loader uses, so a mistyped value fails here) | `rebrew cfg set compiler.cflags"/O1"` |
 | `raw` | Dump entire config as JSON (default) or TOML (`--format toml`) | `rebrew cfg raw` |
 | `effective` | Print the values in force after env and default resolution (secrets redacted, env vars named only) | `rebrew cfg effective --json` |
 | `path` | Print absolute path to `rebrew-project.toml` | `rebrew cfg path` |
-| `add-target NAME` | Add a target section + create dirs | `rebrew cfg add-target client.exe --binary original/client.exe` |
-| `remove-target NAME` | Remove a target section | `rebrew cfg remove-target old_target` |
-| `set-cflags ORIGIN FLAGS` | Set cflags preset for an origin | `rebrew cfg set-cflags ZLIB "/O3" --target server.dll` |
-| `set-compiler TARGET PROFILE` | Set compiler profile for a target | `rebrew cfg set-compiler client.exe msvc-7.0` |
-| `add-module MODULE` | Add a module to a target's origins list | `rebrew cfg add-module ZLIB --target server.dll` |
-| `remove-module MODULE` | Remove a module from a target's origins list | `rebrew cfg remove-module ZLIB --target server.dll` |
-| `detect-crt` | Auto-detect MSVC CRT source directories | `rebrew cfg detect-crt --write` |
+| `add-target NAME` | Add a target section + create dirs | `rebrew cfg target add client.exe --binary original/client.exe` |
+| `remove-target NAME` | Remove a target section | `rebrew cfg target remove old_target` |
+| `set-cflags ORIGIN FLAGS` | Set cflags preset for an origin | `rebrew cfg module set-cflags ZLIB"/O3" --target server.dll` |
+| `set-compiler TARGET PROFILE` | Set compiler profile for a target | `rebrew cfg target set-compiler client.exe msvc-7.0` |
+| `add-module MODULE` | Add a module to a target's origins list | `rebrew cfg module add ZLIB --target server.dll` |
+| `remove-module MODULE` | Remove a module from a target's origins list | `rebrew cfg module remove ZLIB --target server.dll` |
+| `detect-crt` | Auto-detect MSVC CRT source directories | `rebrew cfg detect-crt apply` |
 
 ```bash
 # Example workflow: add a second binary and configure it
-rebrew cfg add-target client.exe --binary original/Client/client.exe --arch x86_32
-rebrew cfg set-cflags GAME "/O2 /Gd" --target client.exe
+rebrew cfg target add client.exe --binary original/Client/client.exe --arch x86_32
+rebrew cfg module set-cflags GAME"/O2 /Gd" --target client.exe
 rebrew cfg show targets.client.exe
 
 # Read/write through dotted target names
-rebrew cfg show targets.server.dll.arch         # read value through dotted key
-rebrew cfg set targets.server.dll.arch x86_64   # set value through dotted key
+rebrew cfg show targets.server.dll.arch # read value through dotted key
+rebrew cfg set targets.server.dll.arch x86_64 # set value through dotted key
 
 # Auto-detect CRT source directories from MSVC tools
-rebrew cfg detect-crt                           # preview detected paths
-rebrew cfg detect-crt --write                   # write into rebrew-project.toml
+rebrew cfg detect-crt show # preview detected paths
+rebrew cfg detect-crt apply # write into rebrew-project.toml
 
 # Dump config for scripting
-rebrew cfg raw                                  # JSON output
-rebrew cfg raw --format toml                    # TOML output
-rebrew cfg path                                 # print path to config file
+rebrew cfg raw # JSON output
+rebrew cfg raw --format toml # TOML output
+rebrew cfg path # print path to config file
 
 # See which value actually won, not what the file says
-rebrew cfg effective                            # resolved values, api_key redacted
-rebrew cfg effective --json                     # + env var names, and any rejected value
+rebrew cfg effective # resolved values, api_key redacted
+rebrew cfg effective --json # + env var names, and any rejected value
 ```
 
 `cfg show` / `cfg raw` echo `rebrew-project.toml`. `cfg effective` resolves it

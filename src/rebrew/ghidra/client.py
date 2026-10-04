@@ -456,7 +456,7 @@ def init_mcp_session(client: McpHttpClient, endpoint: str) -> str:
         "params": {
             "protocolVersion": "2025-03-26",
             "capabilities": {},
-            "clientInfo": {"name": "rebrew sync", "version": "1.0.0"},
+            "clientInfo": {"name": "rebrew sync push", "version": "1.0.0"},
         },
     }
     try:
@@ -716,7 +716,7 @@ _ALREADY_EXISTS_PATTERNS: tuple[re.Pattern[str], ...] = (
 
 #: Ops whose re-application is idempotent (the CLI backend counts their
 #: "already exists" failures as success, same as the MCP path).  Includes
-#: the structural push/retry set: a second ``rebrew sync`` (or a
+#: the structural push/retry set: a second ``rebrew sync push`` (or a
 #: ``parse-c-structure`` dependency retry after the type already landed)
 #: must not treat Ghidra's duplicate-name reply as a hard failure.
 _IDEMPOTENT_OPS = frozenset(

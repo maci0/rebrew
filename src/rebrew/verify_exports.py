@@ -6,8 +6,8 @@ are ignored because the recompiled binary's layout legitimately differs —
 so a missing or renamed export fails the check (exit ``EXIT_MISMATCH``).
 
 Usage:
-    rebrew verify-exports path/to/recomp.dll
-    rebrew verify-exports path/to/recomp.dll --json
+    rebrew build check-exports path/to/recomp.dll
+    rebrew build check-exports path/to/recomp.dll --json
 """
 
 from __future__ import annotations
@@ -59,8 +59,8 @@ def compare_exports(original: Path, recomp: Path) -> dict[str, Any]:
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew verify-exports · · · · · · · Compare the export table against the target\n\n"
-    "  rebrew verify-exports --target win16 --json · Machine-readable result\n"
+    "  rebrew build check-exports build/recomp.dll · · Compare exports against the target\n\n"
+    "  rebrew build check-exports build/recomp.dll --target win16 --json · Structured result\n"
 )
 
 

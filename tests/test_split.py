@@ -1,4 +1,4 @@
-"""Tests for the rebrew split command."""
+"""Tests for the rebrew source split command."""
 
 from pathlib import Path
 from types import SimpleNamespace
@@ -458,7 +458,7 @@ class TestSplitExtractVA:
         custom_dir = tmp_path / "custom_out"
 
         result, src = _invoke(
-            tmp_path, monkeypatch, "--va", "0x10001000", "--force", "--out-dir", str(custom_dir)
+            tmp_path, monkeypatch, "--va", "0x10001000", "--force", "--output", str(custom_dir)
         )
         assert result.exit_code == 0
         assert (custom_dir / "func_a.c").exists()
@@ -708,3 +708,297 @@ class TestSplitStackedMarkers:
         result = self._invoke_marker(tmp_path, monkeypatch, "V3", "--va", "0x401000", "--force")
         assert result.exit_code != 0
         assert "No function block found" in result.output
+
+
+def _meta_cfg(tmp_path: Path, marker: str = "SERVER") -> Any:
+    return SimpleNamespace(
+        marker=marker, source_ext=".c", reversed_dir=tmp_path, metadata_dir=tmp_path
+    )
+
+
+def _seed(tmp_path: Path, rows: list[tuple[str, int, str]], file: str = "multi.c") -> None:
+    from rebrew.metadata import record_function_identity
+
+    for module, va, symbol in rows:
+        record_function_identity(
+            tmp_path,
+            module=module,
+            va=va,
+            file=file,
+            marker_type="FUNCTION",
+            symbol=symbol,
+            name=symbol[1:] if symbol.startswith("_") else symbol,
+        )
+
+
+def _invoke_meta(
+    tmp_path: Path, monkeypatch: Any, *args: str, name: str = "multi.c"
+) -> tuple[Any, Path]:
+    src = tmp_path / name
+    monkeypatch.setattr(
+        "rebrew.split.require_config",
+        lambda target=None, json_mode=False: _meta_cfg(tmp_path),
+    )
+    return runner.invoke(app, [*args, str(src)]), src
+
+
+class TestMarkerlessSplit:
+    """A migrated file is split from its function rows, not from a marker line."""
+
+    def test_va_extracts_the_definition_and_retargets_siblings(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        from rebrew.metadata import load_metadata, update_field, update_source_status
+
+        _write(
+            tmp_path / "multi.c",
+            "#include <stdio.h>\n\nint func_a(void) { return 0; }\n\nint func_b(void) { return 1; }\n",
+        )
+        _seed(
+            tmp_path,
+            [
+                ("SERVER", 0x10001000, "_func_a"),
+                ("GOLD", 0x20001000, "_func_a"),
+                ("SERVER", 0x10002000, "_func_b"),
+            ],
+        )
+        update_source_status(
+            tmp_path,
+            "EXACT",
+            "SERVER",
+            0x10001000,
+            updated_by="verify",
+            verification={"status": "EXACT", "writer": "verify", "input_hash": "a" * 64},
+        )
+        update_field(tmp_path, 0x10001000, "note", "keep", "SERVER")
+        from rebrew.data_metadata import load_data_metadata, record_migrated_data_markers
+
+        record_migrated_data_markers(
+            tmp_path,
+            [
+                {
+                    "module": "SERVER",
+                    "va": 0x10025000,
+                    "identity": {"file": "multi.c", "marker_type": "DATA", "name": "g_table"},
+                }
+            ],
+        )
+
+        result, src = _invoke_meta(tmp_path, monkeypatch, "--va", "0x10001000", "--force")
+        assert result.exit_code == 0, result.output
+        out = (tmp_path / "multi_c" / "func_a.c").read_text(encoding="utf-8")
+        assert "#include <stdio.h>" in out
+        assert "int func_a(void) { return 0; }" in out
+        assert "func_b" not in out
+        assert "// FUNCTION:" not in out
+        original = src.read_text(encoding="utf-8")
+        assert "func_a" not in original
+        assert "int func_b(void) { return 1; }" in original
+        rows = load_metadata(tmp_path)
+        assert rows[("SERVER", 0x10001000)]["file"] == "multi_c/func_a.c"
+        assert rows[("GOLD", 0x20001000)]["file"] == "multi_c/func_a.c"
+        assert rows[("SERVER", 0x10002000)]["file"] == "multi.c"
+        kept = rows[("SERVER", 0x10001000)]
+        assert kept["status"] == "EXACT"
+        assert kept["note"] == "keep"
+        assert kept["updated_by"] == "verify"
+        assert kept["verification"]["input_hash"] == "a" * 64
+        assert load_data_metadata(tmp_path)[("SERVER", 0x10025000)]["file"] == "multi.c"
+
+    def test_storage_stays_and_a_use_becomes_an_extern(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        _write(
+            tmp_path / "multi.c",
+            "#include <stdio.h>\n\n"
+            "int g_table[4] = {1, 2, 3, 4};\n\n"
+            "int func_a(void) { return 0; }\n\n"
+            "int func_b(void) { return g_table[0]; }\n",
+        )
+        _seed(tmp_path, [("SERVER", 0x10001000, "_func_a"), ("SERVER", 0x10002000, "_func_b")])
+
+        result, src = _invoke_meta(tmp_path, monkeypatch, "--va", "0x10002000", "--force")
+        assert result.exit_code == 0, result.output
+        out = (tmp_path / "multi_c" / "func_b.c").read_text(encoding="utf-8")
+        assert "extern int g_table[4];" in out
+        assert "{1, 2, 3, 4}" not in out
+        assert "int func_b(void) { return g_table[0]; }" in out
+        original = src.read_text(encoding="utf-8")
+        assert "int g_table[4] = {1, 2, 3, 4};" in original
+        assert "func_a" in original
+        assert "func_b" not in original
+
+    def test_static_dependency_writes_nothing(self, tmp_path: Path, monkeypatch: Any) -> None:
+        source = (
+            "static int hidden = 1;\n\n"
+            "int func_a(void) { return hidden; }\n\n"
+            "int func_b(void) { return 0; }\n"
+        )
+        _write(tmp_path / "multi.c", source)
+        _seed(tmp_path, [("SERVER", 0x10001000, "_func_a"), ("SERVER", 0x10002000, "_func_b")])
+
+        result, src = _invoke_meta(tmp_path, monkeypatch, "--va", "0x10001000", "--force")
+        assert result.exit_code != 0
+        assert "hidden" in result.output
+        assert src.read_text(encoding="utf-8") == source
+        assert not (tmp_path / "multi_c").exists()
+
+    def test_static_function_is_refused(self, tmp_path: Path, monkeypatch: Any) -> None:
+        source = (
+            "static int helper(void) { return 1; }\n\n"
+            "int func_a(void) { return helper(); }\n\n"
+            "int func_b(void) { return 0; }\n"
+        )
+        _write(tmp_path / "multi.c", source)
+        _seed(tmp_path, [("SERVER", 0x10001000, "_func_a"), ("SERVER", 0x10002000, "_func_b")])
+
+        result, src = _invoke_meta(tmp_path, monkeypatch, "--va", "0x10001000", "--force")
+        assert result.exit_code != 0
+        assert "static helper" in result.output
+        assert src.read_text(encoding="utf-8") == source
+
+    def test_sibling_call_gets_a_prototype(self, tmp_path: Path, monkeypatch: Any) -> None:
+        _write(
+            tmp_path / "multi.c",
+            "int func_b(void) { return 1; }\n\nint func_a(void) { return func_b(); }\n",
+        )
+        _seed(tmp_path, [("SERVER", 0x10001000, "_func_a"), ("SERVER", 0x10002000, "_func_b")])
+
+        result, _src = _invoke_meta(tmp_path, monkeypatch, "--va", "0x10001000", "--force")
+        assert result.exit_code == 0, result.output
+        out = (tmp_path / "multi_c" / "func_a.c").read_text(encoding="utf-8")
+        assert "int func_b(void);" in out
+        assert "return 1" not in out
+
+    def test_ambiguous_and_missing_definitions_write_nothing(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        source = "int func_a(void) { return 0; }\n\nint func_b(void) { return 1; }\n"
+        _write(tmp_path / "multi.c", source)
+        from rebrew.metadata import record_function_identity
+
+        record_function_identity(
+            tmp_path,
+            module="SERVER",
+            va=0x10001000,
+            file="multi.c",
+            marker_type="FUNCTION",
+            symbol="_func_a",
+            name="func_b",
+        )
+        result, src = _invoke_meta(tmp_path, monkeypatch, "--va", "0x10001000", "--force")
+        assert result.exit_code != 0
+        assert "Ambiguous" in result.output
+        assert src.read_text(encoding="utf-8") == source
+
+        _write(tmp_path / "other.c", source)
+        record_function_identity(
+            tmp_path,
+            module="SERVER",
+            va=0x10003000,
+            file="other.c",
+            marker_type="FUNCTION",
+            symbol="_missing",
+            name="missing",
+        )
+        result, other = _invoke_meta(
+            tmp_path, monkeypatch, "--va", "0x10003000", "--force", name="other.c"
+        )
+        assert result.exit_code != 0
+        assert "No C definition" in result.output
+        assert other.read_text(encoding="utf-8") == source
+
+    def test_dry_run_is_immutable(self, tmp_path: Path, monkeypatch: Any) -> None:
+        source = "int func_a(void) { return 0; }\n\nint func_b(void) { return 1; }\n"
+        _write(tmp_path / "multi.c", source)
+        _seed(tmp_path, [("SERVER", 0x10001000, "_func_a"), ("SERVER", 0x10002000, "_func_b")])
+        before = (tmp_path / "rebrew-functions.toml").read_bytes()
+
+        result, src = _invoke_meta(tmp_path, monkeypatch, "--va", "0x10001000", "--dry-run")
+        assert result.exit_code == 0, result.output
+        assert src.read_text(encoding="utf-8") == source
+        assert (tmp_path / "rebrew-functions.toml").read_bytes() == before
+        assert not (tmp_path / "multi_c").exists()
+
+    def test_metadata_failure_restores_the_source(self, tmp_path: Path, monkeypatch: Any) -> None:
+        source = "int func_a(void) { return 0; }\n\nint func_b(void) { return 1; }\n"
+        _write(tmp_path / "multi.c", source)
+        _seed(tmp_path, [("SERVER", 0x10001000, "_func_a"), ("SERVER", 0x10002000, "_func_b")])
+        before = (tmp_path / "rebrew-functions.toml").read_bytes()
+
+        def _boom(*_args: Any, **_kwargs: Any) -> None:
+            raise RuntimeError("disk full")
+
+        monkeypatch.setattr("rebrew.split.record_migrated_markers", _boom)
+        result, src = _invoke_meta(tmp_path, monkeypatch, "--va", "0x10001000", "--force")
+        assert result.exit_code != 0
+        assert "restored" in result.output
+        assert src.read_text(encoding="utf-8") == source
+        assert (tmp_path / "rebrew-functions.toml").read_bytes() == before
+        assert not (tmp_path / "multi_c" / "func_a.c").exists()
+
+    def test_crlf_and_non_ascii_comment_round_trip(self, tmp_path: Path, monkeypatch: Any) -> None:
+        text = "#include <stdio.h>\r\n\r\n/* café */\r\nint func_a(void) { return 0; }\r\n\r\nint func_b(void) { return 1; }\r\n"
+        (tmp_path / "multi.c").write_bytes(text.encode("utf-8"))
+        _seed(tmp_path, [("SERVER", 0x10001000, "_func_a"), ("SERVER", 0x10002000, "_func_b")])
+
+        result, src = _invoke_meta(tmp_path, monkeypatch, "--va", "0x10001000", "--force")
+        assert result.exit_code == 0, result.output
+        out = (tmp_path / "multi_c" / "func_a.c").read_bytes()
+        assert "café".encode() in out
+        assert b"\n" not in out.replace(b"\r\n", b"")
+        original = src.read_bytes()
+        assert "café".encode() not in original
+        assert b"\n" not in original.replace(b"\r\n", b"")
+
+    def test_preprocessor_conditional_is_refused(self, tmp_path: Path, monkeypatch: Any) -> None:
+        source = "#if 1\nint func_a(void) { return 0; }\n#endif\nint func_b(void) { return 1; }\n"
+        _write(tmp_path / "multi.c", source)
+        _seed(tmp_path, [("SERVER", 0x10001000, "_func_a"), ("SERVER", 0x10002000, "_func_b")])
+
+        result, src = _invoke_meta(tmp_path, monkeypatch, "--va", "0x10001000", "--force")
+        assert result.exit_code != 0
+        assert "preprocessor" in result.output
+        assert src.read_text(encoding="utf-8") == source
+
+    def test_full_split_keeps_the_storage_owner(self, tmp_path: Path, monkeypatch: Any) -> None:
+        from rebrew.metadata import load_metadata
+
+        _write(
+            tmp_path / "multi.c",
+            "#include <stdio.h>\n\n"
+            "int g_table[4] = {1, 2, 3, 4};\n\n"
+            "int func_a(void) { return 0; }\n\n"
+            "int func_b(void) { return 1; }\n",
+        )
+        _seed(tmp_path, [("SERVER", 0x10001000, "_func_a"), ("SERVER", 0x10002000, "_func_b")])
+
+        result, src = _invoke_meta(tmp_path, monkeypatch, "--force")
+        assert result.exit_code == 0, result.output
+        for name in ("func_a.c", "func_b.c"):
+            body = (tmp_path / name).read_text(encoding="utf-8")
+            assert "#include <stdio.h>" in body
+            assert "g_table" not in body
+            assert "// FUNCTION:" not in body
+        original = src.read_text(encoding="utf-8")
+        assert "int g_table[4] = {1, 2, 3, 4};" in original
+        assert "func_a" not in original
+        assert "func_b" not in original
+        rows = load_metadata(tmp_path)
+        assert rows[("SERVER", 0x10001000)]["file"] == "func_a.c"
+        assert rows[("SERVER", 0x10002000)]["file"] == "func_b.c"
+
+    def test_file_level_naked_fence_stays_with_the_original(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        _write(
+            tmp_path / "multi.c",
+            "// SOURCE: naked\n#include <stdio.h>\n\nint func_a(void) { return 0; }\n\nint func_b(void) { return 1; }\n",
+        )
+        _seed(tmp_path, [("SERVER", 0x10001000, "_func_a"), ("SERVER", 0x10002000, "_func_b")])
+
+        result, src = _invoke_meta(tmp_path, monkeypatch, "--va", "0x10001000", "--force")
+        assert result.exit_code == 0, result.output
+        out = (tmp_path / "multi_c" / "func_a.c").read_text(encoding="utf-8")
+        assert "SOURCE: naked" not in out
+        assert "SOURCE: naked" in src.read_text(encoding="utf-8")

@@ -23,10 +23,12 @@ import ast
 import importlib
 import inspect
 import re
+import shlex
 from pathlib import Path
 from typing import Any
 
 import pytest
+import typer
 from typer.models import OptionInfo
 
 from rebrew.builtins import BUILTIN_COMPONENTS
@@ -56,16 +58,20 @@ VA_HELP_ALLOWED = frozenset(
 
 def _command_functions():
     """``(component, command, fn)`` for every registered command function."""
-    from rebrew.main import _EXTRA_COMPONENTS
-
     out = []
-    for comp in (*BUILTIN_COMPONENTS, *_EXTRA_COMPONENTS):
+
+    def collect(component: str, command: Any, path: str = "main") -> None:
+        if command.callback is not None:
+            out.append((component, path, inspect.unwrap(command.callback)))
+        for name, child in getattr(command, "commands", {}).items():
+            collect(component, child, name if path == "main" else f"{path} {name}")
+
+    for comp in BUILTIN_COMPONENTS:
         module = importlib.import_module(comp.module)
         if comp.is_group:
-            app = getattr(module, "app", None)
-            for sub in getattr(app, "registered_commands", []) or []:
-                if sub.callback is not None:
-                    out.append((comp.name, sub.name or "?", sub.callback))
+            app = getattr(module, comp.attr or "app", None)
+            if app is not None:
+                collect(comp.name, typer.main.get_group(app))
         else:
             fn = getattr(module, comp.attr or "main", None)
             if fn is not None:
@@ -81,13 +87,40 @@ def _options(fn) -> dict[str, OptionInfo]:
     }
 
 
-def _extra_components():
-    from rebrew.main import _EXTRA_COMPONENTS
-
-    return _EXTRA_COMPONENTS
-
-
 class TestSharedOptionHelp:
+    def test_every_runtime_callback_is_covered(self) -> None:
+        from rebrew.main import app
+
+        umbrella = typer.main.get_command(app)
+        context = typer._click.core.Context(umbrella)
+        pending = [
+            (umbrella.get_command(context, component.name), component.name)
+            for component in BUILTIN_COMPONENTS
+        ]
+        expected = set()
+        while pending:
+            command, path = pending.pop()
+            assert command is not None, path
+            if command.callback is not None:
+                expected.add(path)
+            if hasattr(command, "list_commands"):
+                context = typer._click.core.Context(command)
+                for name in command.list_commands(context):
+                    pending.append((command.get_command(context, name), f"{path} {name}"))
+        covered = {
+            component if command == "main" else f"{component} {command}"
+            for component, command, _ in _command_functions()
+        }
+        assert covered == expected
+
+    def test_jobs_keeps_its_short_form(self) -> None:
+        bad = []
+        for component, command, fn in _command_functions():
+            for name, option in _options(fn).items():
+                if "--jobs" in (option.param_decls or []) and "-j" not in option.param_decls:
+                    bad.append((component, command, name))
+        assert not bad, f"--jobs must keep its -j short form: {bad}"
+
     def test_json_help_is_uniform(self) -> None:
         bad = []
         for comp, cmd, fn in _command_functions():
@@ -214,10 +247,10 @@ class TestVersionFlag:
 
         bad = []
         for comp in BUILTIN_COMPONENTS:
-            app = getattr(importlib.import_module(comp.module), "app", None)
+            app = getattr(importlib.import_module(comp.module), comp.attr or "app", None)
             if app is None:
                 continue
-            cmd = add_global_options(typer.main.get_command(app))
+            cmd = add_global_options(typer.main.get_group(app))
             names = {opt for param in cmd.params for opt in param.opts}
             if "--version" not in names:
                 bad.append(comp.name)
@@ -283,10 +316,10 @@ class TestVerbosityFlags:
 
         missing: dict[str, list[str]] = {}
         for comp in BUILTIN_COMPONENTS:
-            app = getattr(importlib.import_module(comp.module), "app", None)
+            app = getattr(importlib.import_module(comp.module), comp.attr or "app", None)
             if app is None:
                 continue
-            cmd = add_global_options(typer.main.get_command(app))
+            cmd = add_global_options(typer.main.get_group(app))
             names = {opt for param in cmd.params for opt in param.opts}
             absent = [f for f in ("--verbose", "-v", "--quiet", "-q") if f not in names]
             if absent:
@@ -400,8 +433,8 @@ class TestHelpMarkupEscaping:
 
     def test_app_help_and_epilog_keep_their_bracketed_text(self) -> None:
         bad = []
-        for comp in (*BUILTIN_COMPONENTS, *_extra_components()):
-            app = getattr(importlib.import_module(comp.module), "app", None)
+        for comp in BUILTIN_COMPONENTS:
+            app = getattr(importlib.import_module(comp.module), comp.attr or "app", None)
             if app is None:
                 continue
             for field in ("help", "epilog"):
@@ -428,7 +461,7 @@ class TestGroupHelpEpilog:
         for comp in BUILTIN_COMPONENTS:
             if not comp.is_group:
                 continue
-            app = getattr(importlib.import_module(comp.module), "app", None)
+            app = getattr(importlib.import_module(comp.module), comp.attr or "app", None)
             if app is None:
                 continue
             epilog = getattr(app.info, "epilog", None)
@@ -452,7 +485,7 @@ class TestGroupHelpEpilog:
         for comp in BUILTIN_COMPONENTS:
             if comp.is_group:
                 continue
-            app = getattr(importlib.import_module(comp.module), "app", None)
+            app = getattr(importlib.import_module(comp.module), comp.attr or "app", None)
             if app is None:
                 continue
             epilog = getattr(app.info, "epilog", None)
@@ -475,7 +508,7 @@ class TestGroupWithoutSubcommand:
         for comp in BUILTIN_COMPONENTS:
             if not comp.is_group:
                 continue
-            app = getattr(importlib.import_module(comp.module), "app", None)
+            app = getattr(importlib.import_module(comp.module), comp.attr or "app", None)
             if app is None or app.registered_callback is not None:
                 continue  # a group callback may run a default action
             result = CliRunner().invoke(umbrella, [comp.name])
@@ -496,14 +529,15 @@ class TestRowCountOptions:
 
     #: (component, callback parameter name, flag)
     COUNT_OPTIONS = (
-        ("todo", "count", "--count"),
-        ("similar", "top", "--top"),
-        ("binary-similarity", "low", "--low"),
-        ("verify-placement", "limit", "--limit"),
-        ("text-audit", "limit", "--limit"),
-        ("analyze", "top_strings", "--top-strings"),
-        ("recover-structs", "limit", "--limit"),
-        ("graph", "depth", "--depth"),
+        ("todo", "count", "--limit"),
+        ("similarity function", "top", "--limit"),
+        ("similarity binary", "low", "--limit"),
+        ("build check-data-placement", "limit", "--limit"),
+        ("build check-text-placement", "limit", "--limit"),
+        ("binary analyze", "top_strings", "--top-strings"),
+        ("types recover", "limit", "--limit"),
+        ("source import-related", "limit", "--limit"),
+        ("source graph", "depth", "--depth"),
     )
 
     def test_negative_row_count_exits_2(self) -> None:
@@ -516,13 +550,31 @@ class TestRowCountOptions:
         assert exc_info.value.exit_code == EXIT_ERROR
         assert require_non_negative(0, "--count") == 0
 
+    def test_cross_import_rejects_negative_limit_before_loading_config(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import json
+
+        from typer.testing import CliRunner
+
+        from rebrew.main import app
+
+        monkeypatch.chdir(tmp_path)
+        result = CliRunner().invoke(
+            app, ["source", "import-related", "--from", "OTHER", "--limit", "-1", "--json"]
+        )
+        assert result.exit_code == 2
+        assert "--limit" in json.loads(result.stdout)["error"]
+
     def test_every_count_option_is_validated(self) -> None:
-        modules = {comp.name: comp.module for comp in BUILTIN_COMPONENTS}
+        callbacks = {
+            component if command == "main" else f"{component} {command}": fn
+            for component, command, fn in _command_functions()
+        }
         bad = []
         for comp, param, flag in self.COUNT_OPTIONS:
-            module = modules.get(comp)
-            assert module is not None, f"{comp} is not a registered component"
-            fn = importlib.import_module(module).main
+            assert comp in callbacks, f"{comp} is not a registered route"
+            fn = callbacks[comp]
             info = _options(fn).get(param)
             if info is None or flag not in info.param_decls:
                 bad.append((comp, param, flag))
@@ -579,3 +631,85 @@ class TestScriptDispatch:
                     if names:
                         offenders.append(f"{path.relative_to(ROOT)}")
         assert not offenders, f"import load_config from rebrew.config, not rebrew.cli: {offenders}"
+
+
+class TestComposedHelp:
+    """Nested help and examples must remain usable after route migrations."""
+
+    def test_every_route_renders_help_and_version(self) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.main import app
+
+        command = typer.main.get_command(app)
+        pending = [((), command)]
+        runner = CliRunner()
+        while pending:
+            path, current = pending.pop()
+            result = runner.invoke(app, [*path, "--help"], env={"COLUMNS": "200"})
+            assert result.exit_code == 0, (path, result.output)
+            assert "Examples:" in result.output, path
+            assert "Exit codes:" in result.output, path
+            version = runner.invoke(app, [*path, "--version"])
+            assert version.exit_code == 0, (path, version.output)
+            assert version.stdout.startswith("rebrew "), path
+            for name, child in getattr(current, "commands", {}).items():
+                pending.append(((*path, name), child))
+
+    def test_help_examples_name_real_operations_flags_and_required_arguments(self) -> None:
+        from rebrew.cli import add_global_options
+        from rebrew.main import app
+
+        root = add_global_options(typer.main.get_command(app))
+        pending = [((), root)]
+        while pending:
+            path, current = pending.pop()
+            for line in (current.epilog or "").splitlines():
+                if not line.strip().startswith("rebrew "):
+                    continue
+                example = line.strip().removeprefix("rebrew ").split("·", 1)[0].split("#", 1)[0]
+                command = root
+                words = shlex.split(example)
+                while (
+                    words and hasattr(command, "commands") and not words[0].startswith(("-", "<"))
+                ):
+                    word = words.pop(0)
+                    assert word in command.commands, (path, example, word)
+                    command = command.commands[word]
+                options = {"--help"} | {
+                    option
+                    for param in command.params
+                    for option in (*param.opts, *getattr(param, "secondary_opts", []))
+                }
+                # Build-tool argv is owned by its caller after the delimiter.
+                flags = re.findall(r"--[a-z][a-z0-9-]*", example.split(" -- ", 1)[0])
+                assert set(flags) <= options, (path, example, set(flags) - options)
+                if set(words) & {"--help", "--version", "-V"}:
+                    continue
+                named_options = {
+                    option: param
+                    for param in command.params
+                    if param.param_type_name == "option"
+                    for option in (*param.opts, *getattr(param, "secondary_opts", []))
+                }
+                positional = []
+                index = 0
+                while index < len(words):
+                    word = words[index]
+                    if word == "--":
+                        positional.extend(words[index + 1 :])
+                        break
+                    option = named_options.get(word.split("=", 1)[0])
+                    if option is not None:
+                        index += 0 if option.is_flag or "=" in word else option.nargs
+                    elif not word.startswith("-"):
+                        positional.append(word)
+                    index += 1
+                required = sum(
+                    max(param.nargs, 1)
+                    for param in command.params
+                    if param.param_type_name == "argument" and param.required
+                )
+                assert len(positional) >= required, (path, example, "missing required arguments")
+            for name, child in getattr(current, "commands", {}).items():
+                pending.append(((*path, name), child))
