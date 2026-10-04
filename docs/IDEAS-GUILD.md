@@ -523,3 +523,12 @@ Evidence: guild-rebrew/.scratch/goal-tl-training/4c3a50-diff.json,
 command-table-audit.log, command-table-differences.json (zero differing
 table targets), and probe-command.json (eight code-byte differences in the
 baseline). No upstream implementation change or verdict promotion.
+
+
+## Strict mapped DIR32 proof alongside tolerant source agreement (2026-10-04)
+
+Pain: the current catalog-limited DIR32 contract masks a mapped-symbol mismatch when the derived native address is absent from the catalog. This can give a RELOC result to a cross-imported body with the wrong table and array bound. Gold 0x004d0a30 compiled from the TL 768-record scan: fixed bytes and all six relocation spans aligned, but native Gold scans 32 records at 0x00930600, while the selected slot-table binding is 0x00770b80. Its two table operands implied different bases (0x00930600 and 0x008cf580) under the incorrect 768-record addend. Neither implied base was catalogued, so the wrong body passed.
+
+Proposed feature: an explicit strict operand-proof mode, distinct from the current tolerant agreement contract, that requires every supplied mapped DIR32 identity to satisfy native_word == bound_va + COFF_addend, even when the competing native address is not catalogued. Report unbound references separately so a fully bound proof cannot silently claim them. Preserve explicit IAT policy and compiler-local jump-table resolution; compare complete code/table extents. Include a regression where the wrong actual address is deliberately absent from the catalog, a wrong array-end addend, and positive compiler-local/IAT controls. Do not silently change the documented tolerant contract without reviewing existing callers and fixtures.
+
+Evidence: guild-rebrew/.scratch/goal-tl-callee-identities/{resolver-binding-conflicts-before,Gold-list-audit,Gold-list-applied}.json. The game repair uses its genuine target-specific C body (32 records, correct array), binds all six operands independently, and rejects every wrong-plus-four control with a correct-native-address sentinel. This is source/data proof and does not establish whole-file equality.

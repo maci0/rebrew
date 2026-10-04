@@ -218,6 +218,7 @@ __all__ = [
     "apply_library_presets",
     "apply_metadata_entry",
     "canonical_status",
+    "clear_identity_fields",
     "clear_library_override_cache",
     "clear_metadata_cache",
     "as_metadata_int",
@@ -997,6 +998,43 @@ def record_function_identity(
         ],
         updated_by=updated_by,
     )
+
+
+def clear_identity_fields(
+    directory: Path | str | Any,
+    va: int,
+    module: str,
+    *keys: str,
+) -> bool:
+    """Remove identity keys from the ``MODULE.0xVA`` row.
+
+    Only :data:`MARKER_IDENTITY_FIELDS` are accepted.  ``remove_field`` does
+    not clear them.  Other metadata on the row, including a provenance stamp,
+    stays.  An entry that has nothing left is removed.  Missing keys are a
+    no-op.  Returns True when the store changed.
+    """
+    if not keys:
+        return False
+    wanted: list[str] = []
+    for key in keys:
+        if key not in MARKER_IDENTITY_FIELDS:
+            raise ValueError(
+                f"unknown marker identity field {key!r} (expected one of {MARKER_IDENTITY_FIELDS})"
+            )
+        wanted.append(key)
+
+    def _drop(doc_dict: dict[str, Any], toml_key: str) -> bool:
+        entry = typing.cast(dict[str, Any], doc_dict[toml_key])
+        changed = False
+        for key in wanted:
+            if key in entry:
+                del entry[key]
+                changed = True
+        if changed and not list(entry):
+            del doc_dict[toml_key]
+        return changed
+
+    return _mutate_entry_doc(directory, va, module, _drop)
 
 
 def remove_fields_batch(metadata_dir: Path | str | Any, updates: list[dict[str, Any]]) -> int:

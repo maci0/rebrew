@@ -153,6 +153,9 @@
   registrations cannot skip another cleanup or retain a closed provider.
 
 ### Added
+- `metadata.clear_identity_fields` removes obsolete migrated identity fields
+  through the locked writer while preserving verdicts, evidence, provenance,
+  and same-address entries in other targets.
 - `source import-related --source-va` restricts matched donors to an evidenced
   source address while retaining similarity thresholds and destination verification.
 - `rebrew library bind-source` records the source/native-symbol identity for
