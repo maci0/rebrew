@@ -30,7 +30,7 @@ crashing the command.  The payload carries no timestamp of the run, so two
 runs over the same binary produce identical output.
 
 Usage:
-    rebrew pe-info [binary] [--json] [--target NAME]
+    rebrew binary pe [binary] [--json] [--target NAME]
 """
 
 from __future__ import annotations
@@ -1188,9 +1188,9 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew pe-info · · · · · · · Dump the project's target binary\n\n"
-        "  rebrew pe-info game.exe · · Dump a specific binary\n\n"
-        "  rebrew pe-info game.exe --json · Machine-readable payload\n\n"
+        "  rebrew binary pe · · · · · · · Dump the project's target binary\n\n"
+        "  rebrew binary pe game.exe · · Dump a specific binary\n\n"
+        "  rebrew binary pe game.exe --json · Machine-readable payload\n\n"
         "[dim]ELF and Mach-O inputs report the shared identity fields and a "
         "note that the PE-only metadata is unavailable.[/dim]"
     ),

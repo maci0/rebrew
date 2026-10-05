@@ -728,11 +728,9 @@ def extract_bytes_at_va(
             # extent (BSS tail) returns what is on disk — same rule as
             # va_to_file_offset's containment.
             if trim_padding:
-                # Trim trailing linker padding (single slice instead of per-byte)
-                end = len(data)
-                while end > 0 and data[end - 1] in padding_bytes:
-                    end -= 1
-                return data[:end]
+                # Same tail strip as sections.trim_trailing_padding. The byte
+                # loop was 16 ms for 8000 tails.
+                return data.rstrip(bytes(padding_bytes))
             return data
     return None
 
@@ -809,7 +807,11 @@ def function_extent_from_disasm(
     epilogue from a branch-merge jmp (e.g. padding past a mid-function
     jmp to reach the true epilogue) can branch on it.
 
-    Conservative by design: the walk stops at the first terminator, so a
+    On x86, a return before an observed forward conditional-branch target
+    is an early exit, not the end: the walk continues through that target.
+    Other architectures retain the linear terminator rule.
+
+    Conservative by design: the walk stops at an unconditional jump, so a
     ``jmp`` that is really a loop branch yields a *smaller* extent — callers
     must treat ``extent != compiled size`` as "cannot confirm", not as a
     contradiction.  Returns ``None`` when the region cannot be cleanly
@@ -822,8 +824,8 @@ def function_extent_from_disasm(
     gave up, the caller trusted the function-list size, and that size runs 116
     bytes past the code into ``0x09`` padding, which disassembles as
     ``or dword ptr [ecx], ecx`` and inflated the instruction count from 673 to
-    724.  The walk stops at the first terminator regardless, so a generous
-    default costs only the bytes read, never a wrong answer.
+    724. The walk stops once a terminator covers the observed forward targets;
+    a generous default does not turn trailing padding into function code.
     """
     path = Path(binary_path)
     if not path.exists():
@@ -855,9 +857,23 @@ def function_extent_from_disasm(
         delay_slot: int = 0,
     ) -> int | tuple[int, str] | None:
         offset = 0
+        forward_target = va
+        if cs_arch == capstone.CS_ARCH_X86:
+            md.detail = True
         for insn in md.disasm(data, va):
             mnem = insn.mnemonic
-            if mnem in rets:
+            if (
+                cs_arch == capstone.CS_ARCH_X86
+                and mnem not in jmps
+                and insn.group(capstone.CS_GRP_JUMP)
+                and insn.operands
+                and insn.operands[0].type == capstone.x86.X86_OP_IMM
+            ):
+                target = insn.operands[0].imm
+                if target >= va + len(data):
+                    return None
+                forward_target = max(forward_target, target)
+            if mnem in rets and insn.address >= forward_target:
                 # MIPS terminator instructions are followed by a delay-slot
                 # instruction that is part of the function (a `nop`, or the
                 # sp restore in the epilogue) — include it.

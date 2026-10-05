@@ -21,9 +21,9 @@ Names are `"<image-family>-<version>"` (lowercase, version dots kept), e.g. `msv
 
 Docker build source lives in the sibling **rebrew-toolchains** checkout (`REBREW_TOOLCHAINS_DIR` override). Resolve via `rebrew.toolchain_paths.toolchains_repo()`; commands that need it call `rebrew.toolchain.require_toolchains_repo()`.
 
-**CMake**: `rebrew cmake-toolchain --toolchain msvc-6.0 --output cmake/` then `cmake -B build --toolchain cmake/toolchain-msvc-6.0-docker.cmake`. Tools run as `rebrew cmake-driver <cl|link|lib> -- <arguments>`; compiler flags follow `--` unchanged.
+**CMake**: `rebrew build cmake-toolchain --toolchain msvc-6.0 --output cmake/` then `cmake -B build --toolchain cmake/toolchain-msvc-6.0-docker.cmake`. Tools run as `rebrew build driver <cl|link|lib> -- <arguments>`; compiler flags follow `--` unchanged.
 
-**Library overrides** (`rebrew-libraries.toml`, `rebrew library set/show/list/rm`): resolve most-specific-first (per-function `TOOLCHAIN`/`CFLAGS` → nearest `rebrew-libraries.toml` (walk-up) → project default). Presets fill missing fields (e.g. `msvcrt-static` = `/O2 /Gd /MT`).
+**Library overrides** (`rebrew-libraries.toml`, `rebrew library set/show/list/remove`): resolve most-specific-first (per-function `TOOLCHAIN`/`CFLAGS` → nearest `rebrew-libraries.toml` (walk-up) → project default). Presets fill missing fields (e.g. `msvcrt-static` = `/O2 /Gd /MT`).
 
 ## Build & Test Commands
 
@@ -49,11 +49,25 @@ Bare `uv run --frozen pytest` matches `make test` (`pyproject.toml` pytest confi
 
 ## Global ownership
 
+Library origin and build provider are separate facts. `LIBRARY` identifies
+library-derived code. It does not choose the provider.
+
+- Built from source: the body is a project `.c`, including vendored and adapted
+  library sources outside `reversed_dir`. Verify compiles it. Bind a declaration
+  with `rebrew library bind-source <va> <source> --symbol <native-symbol>`.
+- Statically linked: a unique native symbol in a configured external archive
+  appears in the raw link map. Leave that member linked. Check it with library
+  matching and raw linked-image verification.
+- Unresolved: neither fact is present. Do not infer a provider from the name.
+
+When both a source and a map entry exist, the source wins. Keep compiled
+library verification separate from game reversing progress.
+
 - **One storage owner per global.** The owner is the source definition or linked
   library object that allocates its bytes. `extern` declarations, headers, DATA/GLOBAL
-  markers, and referring functions are declarations or users, not additional owners.
+  rows, and referring functions are declarations or users, not additional owners.
   Keep definition owners, declaration sites, and users separate in inventories;
-  an extern-only scan cannot establish a library owner. `rebrew data` uses the
+  an extern-only scan cannot establish a library owner. `rebrew data list` uses the
   raw link's MSVC map (`--link-map` overrides it) to identify archive members;
   COMMON attribution also requires a unique definition in a selected, configured
   archive member. Keep uncertain aliases unresolved.
@@ -69,9 +83,9 @@ Bare `uv run --frozen pytest` matches `make test` (`pyproject.toml` pytest confi
 - **An interior address is a view, not another allocation.** Record its backing
   object, offset, type, and complete extent. Byte-span inventory and layout padding
   are layout facts; they must not become duplicate globals or pretend CRT owners.
-- **Record storage relationships explicitly.** Use `rebrew data --set-storage-kind`
+- **Record storage relationships explicitly.** Use `rebrew data set --storage-kind`
   for objects, aliases, compiler literals, layout spans and imports;
-  `--set-backing` identifies a view's allocation, and `--set-link-symbol` records
+  `--backing` identifies a view's allocation, and `--link-symbol` records
   a verified native symbol. Import slots are linker-owned pointers. Spans have
   no standalone owner. Coverage and dashboard declarations are never owners.
 - **Reuse the canonical declaration.** Prefer the owning subsystem header over
@@ -106,7 +120,7 @@ Dockerfiles / wrappers / 16-bit media: sibling **rebrew-toolchains** (not vendor
 
 ## CLI Conventions
 
-Install one CLI, `rebrew`, and register all tools as components in `builtins.py`. Do not add `rebrew-<command>` console scripts. `[project.scripts]` contains only the umbrella (`rebrew.main:main`); external build tools use `rebrew cmake-driver <cl|link|lib> -- <arguments>` and `rebrew objdiff-build <target> <base-object>` (ADR 027). Regenerate CMake/objdiff configs when upgrading from the old executable hooks. Single-command modules use `@app.callback(invoke_without_command=True)` and may keep `main_entry()` for `python -m` execution.
+Install one CLI, `rebrew`, and register all tools as components in `builtins.py`. Do not add `rebrew-<command>` console scripts. `[project.scripts]` contains only the umbrella (`rebrew.main:main`); external build tools use `rebrew build driver <cl|link|lib> -- <arguments>` and `rebrew build objdiff-driver <target> <base-object>` (ADR 027). Regenerate CMake/objdiff configs when upgrading from the old executable hooks. Single-command modules use `@app.callback(invoke_without_command=True)` and may keep `main_entry()` for `python -m` execution.
 
 - **Shared helpers** come from `rebrew.cli`: `TargetOption`, `require_config()`, `error_exit(..., json_mode=json_output)`, `json_print`, `parse_va`, `EXIT_*`. `load_config` is in no `__all__` there even though the module imports it; import it from `rebrew.config`, and only for optional loads.
 - **Param order**: `--json` before `--target`, both last. The batch tools (`verify`/`test`/`lint`/`status`/`todo`) put `--all-targets` after `--target`, since it is mutually exclusive with it.
@@ -130,9 +144,9 @@ No `conftest.py`: use `tmp_path` + inline helpers. Group by class; helpers `_`-p
 - **Declarative registration**: toolchains, decompiler backends, CLI commands, mutations, flag sets, library presets, detectors, loaders, MSVC version tables, cache backends, discoverers via `rebrew.registry` entry-point groups (+ `REBREW_TOOLCHAIN_OVERLAY_DIR` / `REBREW_SKILLS_DIR`). Conflict policy: toolchains → `RegistryError` on duplicate; CLI plugin name clashes → warn+skip; tuning groups (`flag_sets`, `library_presets`, `msvc_versions`) extend/override; other optional groups skip broken/duplicate with a warning. `refresh_all()` for long-lived processes. It composes every registry module's refresh under one lock, so two concurrent refreshes cannot interleave; it does not order a refresh against a reader, so build every value first, publish under the owning module's lock, never mutate a published map in place, and read each table you need under its own module's lock (`toolchain_detect.detection_tables()`). Adding a component must not require editing host source
 - **CLI composition**: umbrella app is a component graph (`plugin.py` + `builtins.py`); see ADR 014
 - **No backward compat**: one name per function, no aliases/shims/wrappers
-- **Import direction**: `utils.py` is the leaf (no rebrew imports); the Typer composition layer (`plugin.py`, `builtins.py`, `main.py`, `dashboard.py`) is a sink, imported at module scope only by itself (a command attaches itself to the umbrella inside its `register()`). `make cycles-check` gates cycles, `make layering-check` gates direction (a subpackage leaves itself only through the externals its own `AGENTS.md` lists)
+- **Import direction**: `utils.py` is the leaf (no imports from Rebrew modules); the Typer composition layer (`plugin.py`, `builtins.py`, `main.py`, `dashboard.py`) is a sink, imported at module scope only by itself (a command attaches itself to the umbrella inside its `register()`). `make cycles-check` gates cycles, `make layering-check` gates direction (a subpackage leaves itself only through the externals its own `AGENTS.md` lists)
 - **Underscore means module-private**: another module importing a `_name` is a boundary violation. Promote it to a public name, and list it in the owning module's `__all__` when that module has one. The `matcher/mutations/` family is the one exception (a private sub-package)
-- **Volatile metadata** (`METADATA_FIELDS` in `rebrew.metadata`): `STATUS`, `TOOLCHAIN`, `BLOCKER`, … are metadata-only. Unmigrated `.c` files still co-read `SIZE`/`CFLAGS` (inline + TOML). `rebrew migrate-markers` makes the TOML the only copy, including identity (`file`, `symbol`, `name`, `marker_type`); do not put the marker block back into that `.c`. STATUS via `update_source_status` / `update_statuses_batch`; BLOCKER via `update_field` / `remove_field` (`rebrew blocker` or auto-writers). Written **mode 0444** (`atomic_write_locked`); same lock for `rebrew-data.toml` and declib binsync artifacts
+- **Volatile metadata** (`METADATA_FIELDS` in `rebrew.metadata`): `STATUS`, `TOOLCHAIN`, `BLOCKER`, `SIZE`, `CFLAGS`, … are metadata-owned. An unmigrated `.c` may still carry inline copies; `rebrew lint --fix` moves an equal copy into the store and leaves a disagreement for the author (the store wins). New writers emit pure C and record `file` plus a kind under `MODULE.0xVA`. `rebrew source migrate-markers` makes the TOML the only copy, including identity (`file`, `symbol`, `name`, `marker_type`); do not put the marker block back into that `.c`. `// SOURCE: naked` stays file-borne. STATUS via `update_source_status` / `update_statuses_batch`; BLOCKER via `update_field` / `remove_field` (`rebrew blocker` or auto-writers). Written **mode 0444** (`atomic_write_locked`); same lock for `rebrew-data.toml` and declib binsync artifacts
 - **STATUS is earned**: only the byte comparison writes it. `PROVEN` (from `rebrew prove`) is not a byte match and not protected: the next test/verify records the byte result over it. `SKIP` stays parked, and a `STUB` is not replaced by `SIZE_MISMATCH` or `MISSING_SIZE`, unless the writer is called with `force=True`
 - **Evidence and integrations**: `METADATA_FIELD_TYPES` owns function field shapes; data validation derives its shared shapes. `origins` records accepted external fields, `verification` records comparison inputs/time, and `updated_by` / `updated_at` describe ordinary edits. Keep those independent. BinSync push/pull/diff share `SYNC_FIELD_RULES` and a binary-scoped baseline; previews/failures never advance it. See [metadata ownership](docs/METADATA.md) and [BinSync reconciliation](docs/BINSYNC_INTEGRATION.md).
 - **Accounting**: status/todo share one frame. File agreement, accounted `.text`, and stored initialized-data verdict bytes have separate denominators; library/padding contributions are visible, data overlaps count once, and BSS is not file bytes. See [status accounting](docs/CLI.md#rebrew-status).

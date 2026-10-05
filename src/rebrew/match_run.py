@@ -143,7 +143,7 @@ def run_single_ga(
     out_dir_path = Path(out_dir)
     if not out_dir_path.is_absolute():
         # Resolve relative to the project root, not the CWD — running
-        # `rebrew match` from anywhere must write into the project's
+        # `rebrew match run` from anywhere must write into the project's
         # output/ga_runs (consistent with the batch path).
         out_dir_path = getattr(p.cfg, "root", Path.cwd()) / out_dir_path
     out_dir_path.mkdir(parents=True, exist_ok=True)
@@ -232,7 +232,7 @@ def run_single_ga(
 
     # Optional Kuna-assisted seeding: decompile the target function with the
     # Kuna decompiler (agent-first Ghidra port), fix it up so it compiles
-    # (rebrew fix), and inject it into the GA's initial population.  Off by
+    # (rebrew source fix), and inject it into the GA's initial population.  Off by
     # default; degrades to a warning when kuna is unavailable.
     if kuna_seed and not no_seed:
         from rebrew.decompiler import kuna_seed_source
@@ -365,13 +365,13 @@ def run_single_ga(
             "\n[yellow]No match found.[/yellow] If the delta is register/structural "
             "class, `rebrew prove` can often establish semantic equivalence "
             "(smygb: 7/7 NEAR_MATCHING promoted) — or run "
-            "`rebrew near-diag --fix-blocker` to classify + document."
+            "`rebrew diagnose near --fix-blocker` to classify + document."
         )
         if ceiling_blocker:
             console.print(
                 "[dim]Documented GA ceiling: further GA runs on this function "
                 "will be skipped; `rebrew prove` is the sanctioned next step "
-                "(for an encoding delta, `rebrew match --flag-sweep-toolchains` "
+                "(for an encoding delta, `rebrew match toolchains` "
                 "as well).[/dim]"
             )
         raise typer.Exit(code=EXIT_MISMATCH)
@@ -746,7 +746,7 @@ def _run_one_stub_ga(
         ga.close()
 
     # Score and executed generations ride back to the batch driver so its
-    # .rebrew/ga_runs.jsonl record carries them (`--ga-history` averages the
+    # .rebrew/ga_runs.jsonl record carries them (`match history` averages the
     # scores; without them every past run reports null).
     return matched, output_summary, best_score, ga.generation, ga.rng_seed
 
@@ -841,7 +841,7 @@ _CEILING_TEXTS: dict[str, str] = {
         "encoding-only byte delta (same instructions, different opcode "
         "bytes), so byte identity needs the original compiler build's "
         "encodings, not a C change; GA exhausted {generations} generations at "
-        "best score {score:.2f}; try `rebrew match --flag-sweep-toolchains`, "
+        "best score {score:.2f}; try `rebrew match toolchains`, "
         "or `rebrew prove` for PROVEN"
     ),
 }

@@ -1,4 +1,4 @@
-"""Unit tests for rebrew.strings — the ``rebrew strings`` CLI tool.
+"""Unit tests for rebrew.strings — the ``rebrew binary strings`` CLI tool.
 
 Drives the Typer app via ``CliRunner`` against synthetic PEs built by
 ``bin_util.make_pe`` (a single ``.text`` section), whose code bytes embed
@@ -197,7 +197,7 @@ class TestErrors:
 
 
 class TestCollectStrings:
-    """``collect_strings()`` is the importable form of ``rebrew strings --json``."""
+    """``collect_strings()`` is the importable form of ``rebrew binary strings --json``."""
 
     def test_matches_cli_json(self, tmp_path: Path) -> None:
         code = b"Hello World\x00" + b"Game Boy\x00" + b"\xc3"

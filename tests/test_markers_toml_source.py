@@ -12,8 +12,8 @@ from pathlib import Path
 from typing import Any
 
 from rebrew.annotation import parse_c_file_multi, parse_c_file_text
+from rebrew.marker_migration import strip_marker_blocks
 from rebrew.match_semantics import EFFECTIVE_MATCH_NOTE, is_effective_match
-from rebrew.migrate_markers import _strip_marker_blocks
 
 
 def _write_metadata(metadata_dir: Path, entries: dict[tuple[str, int], dict[str, Any]]) -> None:
@@ -79,6 +79,31 @@ class TestTomlSynthesis:
         )
         annos = parse_c_file_multi(src / "g.c", metadata_dir=tmp_path)
         assert [a.va for a in annos] == [0x2000]
+
+    def test_migrated_function_coexists_with_data_marker(self, tmp_path: Path) -> None:
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "g.c").write_text(
+            "// DATA: S 0x5000\nint value;\nint g(void) { return value; }\n",
+            encoding="utf-8",
+        )
+        _write_metadata(tmp_path, {("S", 0x2000): {"file": "src/g.c", "symbol": "g"}})
+        annos = parse_c_file_multi(src / "g.c", metadata_dir=tmp_path)
+        assert [(a.marker_type, a.va) for a in annos] == [
+            ("DATA", 0x5000),
+            ("FUNCTION", 0x2000),
+        ]
+
+    def test_other_target_marker_does_not_hide_migrated_function(self, tmp_path: Path) -> None:
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "g.c").write_text(
+            "// FUNCTION: OTHER 0x6000\nint g(void) { return 1; }\n",
+            encoding="utf-8",
+        )
+        _write_metadata(tmp_path, {("S", 0x2000): {"file": "src/g.c", "symbol": "g"}})
+        annos = parse_c_file_multi(src / "g.c", target_name="S", metadata_dir=tmp_path)
+        assert [(a.module, a.va) for a in annos] == [("S", 0x2000)]
 
     def test_no_metadata_no_crash(self, tmp_path: Path) -> None:
         src = tmp_path / "src"
@@ -174,7 +199,7 @@ class TestStripMarkerBlocks:
             "// not an annotation: this is a plain comment\n",
             "int g(void) { return 1; }\n",
         ]
-        out = list(_strip_marker_blocks(src))
+        out = list(strip_marker_blocks(src))
         assert "".join(out) == "int f(void) { return 0; }\n" + "".join(src[4:])
 
     def test_keeps_code_after_marker_block(self) -> None:
@@ -183,24 +208,24 @@ class TestStripMarkerBlocks:
             "int f(void) { return 0; }\n",
             "// STATUS: EXACT\n",  # after code — plain comment, kept
         ]
-        assert "".join(_strip_marker_blocks(src)) == "".join(src[1:])
+        assert "".join(strip_marker_blocks(src)) == "".join(src[1:])
 
     def test_block_comment_form(self) -> None:
         src = ["/* FUNCTION: S 0x1000 */\n", "/* SIZE: 8 */\n", "int f(void) { return 0; }\n"]
-        assert "".join(_strip_marker_blocks(src)) == src[2]
+        assert "".join(strip_marker_blocks(src)) == src[2]
 
     def test_vtable_marker_stripped(self) -> None:
         src = ["// VTABLE: S 0x1000\n", "void* v[4];\n"]
-        assert "".join(_strip_marker_blocks(src)) == src[1]
+        assert "".join(strip_marker_blocks(src)) == src[1]
 
     def test_idempotent_on_pure_c(self) -> None:
         src = ["int f(void) { return 0; }\n"]
-        assert list(_strip_marker_blocks(src)) == src
+        assert list(strip_marker_blocks(src)) == src
 
 
 class TestMigrateCommandRegistered:
     def test_cli_component_registered(self) -> None:
-        from rebrew.builtins import BUILTIN_COMPONENTS as CLI_COMPONENTS
+        from rebrew.builtins import DOMAIN_COMPONENTS
 
-        names = {c.name for c in CLI_COMPONENTS}
+        names = {c.name for c in DOMAIN_COMPONENTS["source"]}
         assert "migrate-markers" in names

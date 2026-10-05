@@ -1016,10 +1016,9 @@ class TestInlineMetadataWarning:
             encoding="utf-8",
         )
         report = collect_status(cfg)  # type: ignore[arg-type]
-        # Only func_a's `// STATUS:` counts: SIZE is the reccmp-native inline
-        # contract and lint's W019 never migrates it, so counting it nagged the
-        # user to run `rebrew lint --fix` for a migration that never happens.
-        assert report.inline_metadata_warning == 1
+        # func_a's STATUS and func_b's SIZE are both migratable. func_c has
+        # only the marker line.
+        assert report.inline_metadata_warning == 2
 
     def test_markerless_cflags_not_counted(self, tmp_path: Path) -> None:
         """A markerless // CFLAGS (naked-guard #else convention) is not counted.

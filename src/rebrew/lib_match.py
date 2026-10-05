@@ -5,11 +5,11 @@ game code, and a decompiler names it ``fcn_XXXX`` like anything else. Reversing
 it is wasted effort: the linker supplies those bytes anyway. The existing
 detectors do not settle it:
 
-- ``rebrew flirt`` matches short byte signatures against prebuilt .pat files.
+- ``rebrew library scan-signatures`` matches short byte signatures against prebuilt .pat files.
   A signature set built from a different library build misses real matches
   (measured: 9 of 68 CRT functions on one MSVC6 project), and short patterns
   cannot cover every function.
-- ``rebrew crt-match`` compares against reference *source*, which exists only
+- ``rebrew library crt-match`` compares against reference *source*, which exists only
   for the CRT/zlib families.
 
 This command compares **whole function bodies** against the archives the
@@ -34,9 +34,9 @@ Details that matter, learned from real linked CRT code:
 
 Usage::
 
-    rebrew lib-match --lib LIBCMT.LIB                  # scan all reversed funcs
-    rebrew lib-match --lib LIBCMT.LIB --va 0x1001a7f7  # one function
-    rebrew lib-match --lib a.lib --lib b.lib --allow libcode_allowlist.txt
+    rebrew library match --lib LIBCMT.LIB                  # scan all reversed funcs
+    rebrew library match --lib LIBCMT.LIB --va 0x1001a7f7  # one function
+    rebrew library match --lib a.lib --lib b.lib --allow libcode_allowlist.txt
 
 Exit status is 0 when nothing matches, 1 when a reversed function's bytes come
 from one of the given libraries, 2 on config/library errors, so this works as
@@ -81,9 +81,9 @@ Index = dict[str, list[tuple[str, bytes, set[int]]]]
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew lib-match --lib msvcrt.lib · · · Compare against one static library\n\n"
-    "  rebrew lib-match --lib msvcrt.lib --stock-lib · · · Only the stock CRT\n\n"
-    "  rebrew lib-match --lib msvcrt.lib --va 0x10009310 --json · One function, machine-readable"
+    "  rebrew library match --lib msvcrt.lib · · · Compare against one static library\n\n"
+    "  rebrew library match --lib msvcrt.lib --stock-lib · · · Only the stock CRT\n\n"
+    "  rebrew library match --lib msvcrt.lib --va 0x10009310 --json · One function, machine-readable"
 )
 
 app = typer.Typer(

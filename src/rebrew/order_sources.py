@@ -2,7 +2,7 @@
 
 Thin CLI over :mod:`rebrew.link_order` (which owns ``order_sources``,
 ``file_va``, and the VA-order enforcement used by the CMake drift gate).
-Kept as its own command so ``rebrew order-sources`` prints an ordering
+Kept as its own command so ``rebrew build order-sources`` prints an ordering
 without requiring a CMakeLists.txt.
 """
 
@@ -17,9 +17,9 @@ from rebrew.link_order import order_sources
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew order-sources src/*.c · · · · · Print the VA-ordered source list\n\n"
-    "  rebrew order-sources src/*.c --first-va 0x10001000 · · Ignore files below this VA\n\n"
-    "  rebrew order-sources src/*.c --exclude tests/ --json · Machine-readable order\n"
+    "  rebrew build order-sources src/*.c · · · · · Print the VA-ordered source list\n\n"
+    "  rebrew build order-sources src/*.c --first-va 0x10001000 · · Ignore files below this VA\n\n"
+    "  rebrew build order-sources src/*.c --exclude tests/ --json · Machine-readable order\n"
 )
 
 

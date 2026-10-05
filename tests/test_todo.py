@@ -240,7 +240,7 @@ class TestCollectors:
         items = _collect_active_functions(existing, {0x1000: 100}, {}, {})
         assert len(items) == 1
         assert items[0].category == CAT_IMPROVE_MATCH
-        assert "near-diag" in items[0].command
+        assert "diagnose near" in items[0].command
 
     def test_ga_ceiling_with_angr_routes_to_prover(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.metadata import GA_CEILING_PREFIX
@@ -661,7 +661,7 @@ class TestCollectors:
         expected_name = "fcn" if ambiguous else "_strncnt"
         assert [(i.category, i.name) for i in items] == [(CAT_IDENTIFY_LIBRARY, expected_name)]
         assert "_strncnt" in items[0].description
-        assert "lib-match" in items[0].command
+        assert "library match" in items[0].command
 
     def test_new_functions_basic(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path)
@@ -1095,7 +1095,7 @@ class TestActiveFunctionsEdges:
         }
         items = _collect_active_functions(existing, {}, {}, {})
         assert len(items) == 1
-        assert "flag-sweep-only" in items[0].command
+        assert "match flags" in items[0].command
 
     def test_empty_or_non_numeric_size_does_not_crash(self) -> None:
         from rebrew.todo import _collect_active_functions
@@ -1803,7 +1803,10 @@ class TestGaCeilingRouting:
 
     @pytest.mark.parametrize(
         ("has_angr", "category", "command"),
-        [(True, CAT_RUN_PROVER, "rebrew prove"), (False, CAT_IMPROVE_MATCH, "rebrew near-diag")],
+        [
+            (True, CAT_RUN_PROVER, "rebrew prove"),
+            (False, CAT_IMPROVE_MATCH, "rebrew diagnose near"),
+        ],
     )
     def test_ceiling_not_fix_delta(
         self, monkeypatch: pytest.MonkeyPatch, has_angr: bool, category: str, command: str

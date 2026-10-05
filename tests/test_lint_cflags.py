@@ -81,6 +81,13 @@ class TestInlineEqualsStore:
         assert inline_equals_store("BLOCKER", "ring0 halt", "1B diff") is False
         assert inline_equals_store("CFLAGS", "/O2 /Gd", "/O1") is False
 
+    def test_cflags_define_is_not_a_disagreement(self) -> None:
+        assert inline_equals_store("CFLAGS", "/O2 /Gd", "/DREBREW_ALLOW_NAKED /Gd /O2") is True
+
+    def test_size_compares_numerically(self) -> None:
+        assert inline_equals_store("SIZE", "32", "0x20") is True
+        assert inline_equals_store("SIZE", "31", "0x20") is False
+
 
 # ---------------------------------------------------------------------------
 # check_redundant_cflags

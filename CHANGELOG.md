@@ -1,9 +1,57 @@
 ## [Unreleased]
 
 ### Breaking
+- **Breaking:** Shared migration routines `migrate_markers.migrate_source_file`
+  and `migrate_markers.strip_marker_blocks` move to `marker_migration` so data
+  libraries do not import the CLI command. Incidental re-exports
+  `cross_import.source_newline` and `data_annotate.join_source_lines` are removed;
+  import `utils.source_newline` and `utils.join_source_lines` instead.
+  `migrate_markers.NEW_FUNC_RE` is no longer re-exported; import
+  `annotation.NEW_FUNC_RE` from its owner.
+  `lint.codegen_cflags_key` moves to `lint_cflags.codegen_cflags_key`.
+  The unused public constant `intake.C89_STRICT_PROFILES` is removed.
+  `metadata.record_migrated_markers` and `metadata.record_function_identity`
+  add optional `updated_by` provenance, stamped only for changed rows.
+- **Breaking:** Specialized CLI commands now live under `source`, `binary`,
+  `build`, `diagnose`, `coverage`, `similarity`, `export`, and `dev`; search,
+  data, sync, orphan, imports, PDB and CRT actions use explicit operations.
+  Old names and mode flags are removed. Compiler flag/profile sweeps remove
+  the unsupported `--dry-run` option; batch and LLM request previews retain it.
+  See `docs/CLI_MIGRATION.md` and ADR 028.
+  Use `--decompiler`, `--output/-o`, and `--limit` on the migrated operations;
+  profile search uses `--toolchains`/`--exclude-toolchains`. Refresh project
+  agents/skills and regenerate CMake/objdiff files before using the new paths.
+- **Breaking:** CLI adapters `asm.main`, `data.main`, `ghidra.cli.main`,
+  `imports.main`, `match.main`, `orphans.main`, and `pdb_info.main` become
+  `asm.disassemble`, `data.execute_data`, `ghidra.cli.execute_sync`,
+  `imports.inspect_imports`, `match.execute_search`, `orphans.manage_orphans`,
+  and `pdb_info.inspect_pdb`; use explicit app operations for CLI option defaults.
+  `types_cli.main` becomes `types_cli.check`. `cfg.detect_crt` is the shared
+  routine called by `cfg.show_crt` and `cfg.apply_crt`.
+- **Breaking:** CLI option metadata changes on `binary_similarity.main`,
+  `qual_sweep.main`, `refactor.main`, `similar.main`, `skeleton.main`,
+  `split.main`, and `todo.main`. Python argument names remain stable;
+  `refactor.main` exposes `--repository` and does not load reversing config.
+  Removed incidental re-exports `refactor.RootOption`, `refactor.TargetOption`,
+  `refactor.require_config`, and `ghidra.cli.run_standalone` are available from
+  `rebrew.cli`; `main.Panel` is available from `rebrew.plugin`.
+- **Breaking:** `flirt.main` removes `init`/`init_matched`, and `doctor.main`
+  removes `install_wibo`; its incidental `doctor.require_config` re-export
+  remains available from `rebrew.cli`. Use `library init-signatures [--matched-only]` and
+  `toolchain install-wibo` for setup, keeping scans and diagnostics read-only.
+- **Breaking:** The incidental `verify_cache.entry_fingerprint` re-export is
+  removed; import `verify_hash.entry_fingerprint` from its implementation owner.
+- **Breaking:** Generated command text changes in `cmake_flags.HEADER`,
+  `cmake_sources.HEADER`, `init.DEFAULT_REBREW_TOML`,
+  `init_profiles.DEFAULT_REBREW_TOML`, and `splat_config.UNKNOWN_OPTION_REASON`.
+  Generated compiler instructions in `init.MSVC_CONSTRAINTS` and
+  `init_profiles.MSVC_CONSTRAINTS` now describe metadata-owned identity markers.
+  Regenerate affected artifacts rather than treating those strings as a protocol.
+  `plugin.CliComponent` adds optional trailing `epilog` metadata for callable
+  command examples; existing registration and activation behavior is retained.
 - **Breaking:** Only `rebrew` is installed. CMake now invokes
-  `rebrew cmake-driver <cl|link|lib> -- <arguments>` and objdiff invokes
-  `rebrew objdiff-build <target> <base-object>`. Regenerate their configurations,
+  `rebrew build driver <cl|link|lib> -- <arguments>` and objdiff invokes
+  `rebrew build objdiff-driver <target> <base-object>`. Regenerate their configurations,
   reconfigure CMake, and use `${REBREW_CMAKE_AR_COMMAND}` for custom archive
   commands. The four separate hook executables and entry functions are removed.
   Removed executables: `rebrew-cmake-cl`, `rebrew-cmake-link`, `rebrew-cmake-lib`,
@@ -15,16 +63,32 @@
   `rebrew.objdiff_project`; import it from `rebrew.cli`.
   `rebrew.builtins.BUILTIN_COMPONENTS` and `rebrew.main.BUILTIN_COMPONENTS` include
   the new build commands, and `rebrew.calibrate_bss.main` now defaults
-  `compile_cmd` to `rebrew cmake-driver cl --` and splits command arguments.
+  `compile_cmd` to `rebrew build driver cl --` and splits command arguments.
 - **Breaking:** `data_metadata.DATA_METADATA_FIELD_TYPES` now accepts
   `storage_kind`, `backing`, and `link_symbol`. Older Rebrew validators cannot
   validate stores using these fields; update tools that exhaustively validate
   the data metadata field set.
 
 ### Fixed
+- Pure-C body lint now checks line one, including struct declarations and
+  their preceding size comments.
+- Compiled library bindings remain catalog and verification candidates after
+  their declaration headers migrate to metadata, including sources outside the
+  reversed tree. Rebinding stays idempotent and library-row caches track metadata.
+- Pure-C onboarding and unmatched-source tests validate managed identities rather
+  than expecting inline markers. Skeleton identity writes retain the `skeleton`
+  provenance tag, and generated IAT comments retain hexadecimal address notation.
+- Function renames preserve independent same-name target definitions and callers,
+  reject ambiguous shared references before writing, and update migrated marker
+  identities when their symbol or source filename changes.
+- Verification summaries use the same combined game/library total as the progress
+  bar and JSON report, with an explicit breakdown and failures for each group.
+- Batch extraction rejects negative counts and start offsets before creating
+  output artifacts. Cross-target imports reject negative `--limit` values with
+  a structured CLI error instead of silently importing nothing.
 - Public API release notes recognize fully qualified `rebrew.module.symbol` paths.
 - Status labels overlapping VERIFIED and DRIFT/UNCHECKED data records explicitly;
-  these stored byte verdicts are separate from `data --conflicts` type checks.
+  these stored byte verdicts are separate from `data list --conflicts` type checks.
 - Function-pointer data types retain calling conventions such as `__stdcall`
   instead of displaying parser masking spaces; multiline types display compactly.
 - Dashboard pagination rejects control characters that Python's unrestricted
@@ -43,18 +107,52 @@
   registrations cannot skip another cleanup or retain a closed provider.
 
 ### Added
+- `source import-related --source-va` restricts matched donors to an evidenced
+  source address while retaining similarity thresholds and destination verification.
+- `rebrew library bind-source` records the source/native-symbol identity for
+  library functions compiled by the project. Verification includes those sources
+  outside the reversed tree and reports compiled, prebuilt, and unresolved providers.
+- `rebrew.verify.BatchResult.library_providers` and `rebrew.verify.build_report`
+  expose provider evidence separately from library origin and comparison verdicts.
 - Explicit storage kinds, backing allocations and native linker-symbol mappings
   distinguish aliases, compiler literals, layout spans and import pointers.
   Ownership follows selected archive members, compilation inputs and PE IAT
   records; uncertain or cyclic relationships remain unresolved.
 
 ### Changed
+- New writers emit pure C and record `file` plus a kind under `MODULE.0xVA`.
+  Inline `// FUNCTION:`, `// LIBRARY:`, `// STUB:`, `// GLOBAL:`, `// DATA:`,
+  `// VTABLE:`, and `// STRING:` lines are legacy input: the parser still
+  reads them, and `rebrew source migrate-markers` moves them. `SIZE` and
+  `CFLAGS` are metadata-owned (`rebrew lint --fix` migrates an equal copy;
+  a disagreement leaves the inline text and the store wins). `// SOURCE: naked`
+  stays in the file. A reccmp checkout of a migrated tree sees no annotations.
+  `rebrew source merge` and `rebrew source split` still rearrange a file that
+  already carries inline markers. `rebrew source import-related --shared`
+  records the destination row on the shared file, and promoting that file
+  retargets rows whose `file` named the old path. Intake rediscovery sees a
+  renamed pure-C stub through its `file` row, so it does not write `fcn_<va>.c` again.
+  Project `AGENTS.md`, the packaged skills, and the MSVC scaffold comment
+  rule describe that contract. `rebrew init --refresh-agents` reprints a
+  project's scaffold. A `LIBRARY` row records origin. A project `.c` is
+  built from source, and a unique member of a configured external archive
+  is statically linked. A row with neither stays unresolved, and the source
+  wins when both exist.
+- `rebrew source migrate-markers` moves `GLOBAL`, `DATA`, `VTABLE`, and `STRING`
+  identity into `rebrew-data.toml` (`file`, `marker_type`, and name, type, size,
+  and section when the row lacks them) and strips those marker lines. A source
+  with no data-marker line is read from that store. A verified data status is
+  left in place.
+- Incremental `rebrew verify` rewrites an all-hit cache and baseline without
+  the tomlkit document model, and reuses a same-run fingerprint when the
+  source stat is unchanged. Verdicts, cache identity, and stored fingerprint
+  fields stay the same.
 - `rebrew data` highlights C types in terminal inventories and conflict tables;
   JSON remains plain structured data.
 - CLI contract checks cover every runtime callback, including group default
   actions and nested commands. Qualifier sweeps expose `--jobs/-j`, matching
   the other parallel compile commands. The complete CLI review records
-  proposed simplifications and grouping decisions in `docs/CLI_REVIEW.md`.
+  implemented simplifications and grouping decisions in `docs/CLI_REVIEW.md`.
 - Cordis documentation describes host disposal order, activation LIFO, plugin
   declaration failures and process restarts for changed CLI plugins. The tutorial
   includes separately runnable examples and a tested temporary-directory recipe.

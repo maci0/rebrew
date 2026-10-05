@@ -235,7 +235,7 @@ def require_root(root: Path | None = None, *, json_mode: bool = False) -> Path:
     thing across the umbrella.  The commands that used to default to the current
     directory answered differently from the ones that went through
     :func:`require_config`: ``rebrew verify`` found the project from a
-    subdirectory while ``rebrew build-db`` reported a missing
+    subdirectory while ``rebrew coverage build`` reported a missing
     ``rebrew-project.toml`` there and created a stray ``db/`` beside it.
 
     An explicit *root* is checked for being an existing directory before any
@@ -288,7 +288,7 @@ def error_exit(msg: str, *, json_mode: bool = False, code: int = EXIT_ERROR) -> 
         print(json.dumps({"error": msg, "code": code}, indent=2))
     else:
         # soft_wrap keeps embedded commands/paths contiguous — without it
-        # Rich folds mid-token (e.g. `rebrew catalog …` → `rebrew\ncatalog`).
+        # Rich folds mid-token (e.g. `rebrew coverage catalog …` → `rebrew\ncatalog`).
         safe = untrusted_text(msg)
         console.print(f"[red bold]error:[/red bold] {safe}", soft_wrap=True)
     raise typer.Exit(code=code)
@@ -480,6 +480,11 @@ def add_global_options(cmd: TyperBaseCommand) -> TyperBaseCommand:
         )
     for sub in getattr(cmd, "commands", {}).values():
         add_global_options(sub)
+    if "Exit codes:" not in (cmd.epilog or ""):
+        cmd.epilog = (cmd.epilog or "").rstrip() + (
+            "\n\nExit codes: 0 success; 1 mismatch; 2 usage/config/build error; "
+            "130 interrupted; 141 output pipe closed."
+        )
     return cmd
 
 
@@ -761,6 +766,24 @@ def resolve_source_arg(cfg: ProjectConfig, source_arg: str) -> Path:
 
     if va_int is not None:
         tm = target_marker(cfg)
+        from rebrew.annotation import Annotation
+        from rebrew.function_providers import bind_library_source
+        from rebrew.metadata import load_metadata
+        from rebrew.utils import preset_module_key
+
+        metadata_root = getattr(cfg, "metadata_dir", None)
+        identities = load_metadata(metadata_root, deepcopy=False) if metadata_root else {}
+        for (module, address), identity in identities.items():
+            if (
+                address == va_int
+                and preset_module_key(module) == preset_module_key(tm or "")
+                and identity.get("marker_type") == "LIBRARY"
+                and identity.get("file")
+            ):
+                bound = bind_library_source(cfg, Annotation(va=address, module=module), identity)
+                candidate = (Path(src_dir) / bound.filepath).resolve()
+                if candidate.is_file():
+                    return candidate
         for src in sources:
             try:
                 annos = parse_c_file_multi(src, target_name=tm, metadata_dir=cfg.metadata_dir)

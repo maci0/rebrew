@@ -36,7 +36,7 @@ downloads (wibo, SDK tarballs), docker/podman images (`REBREW_CONTAINER_RUNTIME`
 cmake bridge wineprefix / profile pins (`REBREW_WINEPREFIX`, `REBREW_TOOLCHAIN`),
 `REBREW_SKILLS_DIR` overlays, BinSync state-repo git remotes (`rebrew binsync pull`
 fast-forwards and imports by default), a foreign splat project handed to
-`rebrew import-splat` (its `splat.yaml` and `symbol_addrs` files are written into
+`rebrew source import-splat` (its `splat.yaml` and `symbol_addrs` files are written into
 the local project as metadata, source markers, and `library_<module>.h` names;
 the command is a dry run unless `--write` is passed), and installed Python
 entry-point plugins
@@ -88,7 +88,7 @@ plugin cache backends or remove the open upstream diskcache advisory.
 
 ## Claims this policy does **not** make
 
-- No claim of authentication or authorization on `rebrew dashboard` (default
+- No claim of authentication or authorization on `rebrew coverage serve` (default
   bind is loopback; binding to non-loopback addresses exposes a read-only
   HTTP API without credentials). The only gate on those routes is the Host
   allow-list; there is no rate limit, and the 64-connection cap
@@ -132,11 +132,11 @@ plugin cache backends or remove the open upstream diskcache advisory.
   on the shipped path run host `llvm-pdbutil`
   (`rebrew.pdb_info` / `rebrew.toolchain_detect`), not wine `cvdump.exe`.
 - No claim that every shipped CLI command stays inside a container.
-  `rebrew calibrate-bss` executes the link command read from the project's
+  `rebrew build calibrate-bss` executes the link command read from the project's
   `build/CMakeFiles/*/link.txt` and its `--compile-cmd` on the host,
-  `rebrew link-sweep` executes that same `link.txt` command on the host,
-  `rebrew gen-stubs --build-cmd` executes an operator-supplied build command on the host,
-  `rebrew build-check --objects` runs host `make -q -f <build.make>` in the
+  `rebrew build sweep-link-flags` executes that same `link.txt` command on the host,
+  `rebrew build symbol-stubs --build-cmd` executes an operator-supplied build command on the host,
+  `rebrew build check --objects` runs host `make -q -f <build.make>` in the
   build directory, and analysis helpers run host rizin/r2, kuna, objconv,
   llvm-pdbutil, diec, objdump, and nasm against target binaries. Linked-exe GA
   (`match_ga.py` `_compile_source` / `matcher/compiler.py` `build_candidate`)
@@ -167,10 +167,10 @@ plugin cache backends or remove the open upstream diskcache advisory.
   refused entry is recorded `MISSING_FILE`), that module's cache-validity
   read and deferred STATUS pass, the batch compile (`compile.py`
   `precompile_batch`), the blocker clear in `rebrew test`, the
-  `rebrew objdiff-build` command (`objdiff_project.py`), `rebrew merge-sweep`,
-  and every read and write in `rebrew cross-import` (`cross_import.py`
+  `rebrew build objdiff-driver` command (`objdiff_project.py`), `rebrew match partitions`,
+  and every read and write in `rebrew source import-related` (`cross_import.py`
   `import_function`, `import_shared_function`, `promote_to_shared`) all
-  resolve through it; `rebrew rename` (`rename.py`, `rename_ops.py`) and
+  resolve through it; `rebrew source rename` (`rename.py`, `rename_ops.py`) and
   the verify cache's patch refresh (`verify_cache.py`) keep their own
   resolve-and-compare. BinSync overlay also uses
   `contained_path` for source reads and signature/comment targets; prototype
@@ -221,7 +221,7 @@ plugin cache backends or remove the open upstream diskcache advisory.
   exist only in the reply. A read timeout or dropped connection can therefore
   hide a create the service already committed, leaving the uploaded function
   source, ASM, and context in a public scratch that neither the analyst nor
-  `rebrew` can claim or delete. `rebrew decompme` no longer re-POSTs after a
+  `rebrew` can claim or delete. `rebrew export decompme` no longer re-POSTs after a
   post-send transport failure (`_never_delivered` in
   `src/rebrew/decompme.py`), so a single run does not mint a second orphan,
   but a hand-run retry still does, and the existing orphan is not discoverable
@@ -233,7 +233,7 @@ plugin cache backends or remove the open upstream diskcache advisory.
   `SSL_CERT_FILE`, and `REQUESTS_CA_BUNDLE` apply to the wibo asset and
   metadata fetches, the toolchain media download, and the `GH_TOKEN`-bearing
   GitHub commit lookup, none of which is size-capped.
-- No claim that `rebrew import-splat` constrains the files a foreign config
+- No claim that `rebrew source import-splat` constrains the files a foreign config
   names to the foreign project. `splat_config._rel` (`splat_config.py:516-521`)
   resolves every `splat.yaml` path against the operator's base with no
   containment check, so an absolute, `../..`, or backslash-separated entry

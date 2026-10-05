@@ -1,6 +1,6 @@
 """utils.py — the leaf helpers every other rebrew module can depend on.
 
-This module has no rebrew imports, so anything here may be called from
+This module has no rebrew binary imports list, so anything here may be called from
 anywhere without a cycle.  That freedom is also its cost: the name says
 nothing about what it owns, so the map below is the index.  Helpers are
 grouped by concern and stay in that group; a new helper joins the group
@@ -15,6 +15,8 @@ it belongs to rather than starting a sixth.
   ``untrusted_ident``
 - **Source and config reading**: ``read_source_text`` / ``read_compile_source``
   (with the LRU memo and its ``clear_source_text_memo`` reset),
+  ``resolved_path`` (a stat-keyed ``Path.resolve`` memo),
+  ``path_is_relative_to`` (``Path.is_relative_to`` without a ``parents`` walk),
   ``split_source_lines`` / ``join_source_lines``,
   ``detect_source_encoding``, ``read_toml_text``, ``load_tomllib``,
   ``load_toml_for_write`` / ``load_toml_for_write_strict``, ``read_json_text``
@@ -54,6 +56,7 @@ import hashlib
 import logging
 import math
 import os
+import posixpath
 
 try:
     import fcntl
@@ -335,7 +338,7 @@ def pe_name_token(name: str | None) -> str:
     A PE name is attacker-controlled whenever the target binary is: it comes
     from the import descriptor or the hint/name table, so a crafted binary
     can carry a newline, quote, or brace.  Those reach generated C, which
-    ``rebrew gen-layout`` compiles and links, so a newline would end the
+    ``rebrew build layout`` compiles and links, so a newline would end the
     enclosing comment and compile its remainder as top-level C.  Substituting
     every byte outside the token set keeps the import present (the IAT slot
     ordering the scaffolding exists to force is preserved) while making the
@@ -359,7 +362,11 @@ SOURCE_CHECKOUT: Path | None = _CHECKOUT if (_CHECKOUT / "pyproject.toml").is_fi
 # LRU collapses those duplicate syscalls without pinning unbounded content.
 # Guarded: verify -j N reads the same sources from worker threads.
 _SOURCE_TEXT_MEMO: OrderedDict[tuple[str, int, int, int], tuple[str, str]] = OrderedDict()
-_SOURCE_TEXT_MEMO_MAX = 512
+# A game tree is thousands of sources, and verify/status re-read each one.
+# 512 evicted the head of a 4000-file scan before the scan finished, so the
+# second pass re-read every file (78 ms vs 31 ms). 8192 small bodies is the
+# ceiling; raise it when a scan larger than that shows up in a profile.
+_SOURCE_TEXT_MEMO_MAX = 8192
 _SOURCE_TEXT_MEMO_LOCK = threading.Lock()
 # resolved path -> its live memo keys, so a write invalidates in O(1)
 # instead of scanning the whole LRU.
@@ -391,8 +398,82 @@ def _resolved_source_path(filepath: Path) -> Path:
     return resolved
 
 
+# ``(spelling, mtime_ns, size, ino)`` -> resolved path.  The stat is from
+# ``lstat``, so a content edit or a symlink retarget misses and resolves
+# again.  Unlike :func:`_resolved_source_path`, this key notices a changed
+# final component, which is what header and source identity need.
+_RESOLVED_PATHS: OrderedDict[tuple[str, int, int, int], Path] = OrderedDict()
+_RESOLVED_PATHS_MAX = 2048
+_RESOLVED_PATHS_LOCK = threading.Lock()
+
+
+def resolved_path(path: Path) -> Path:
+    """Return *path* resolved, memoized on its spelling and ``lstat`` identity.
+
+    The key is ``(spelling, mtime_ns, size, ino)``.  A relative spelling
+    includes the current directory.  ``OSError`` from ``lstat`` falls through
+    to ``Path.resolve()`` and is not memoized.  The memo stores the resolved
+    path, not file bytes: callers that need to notice a content edit still
+    ``stat`` the result.
+    """
+    try:
+        st = path.lstat()
+    except OSError:
+        return path.resolve()
+    spelling = str(path) if path.is_absolute() else f"{Path.cwd()}\0{path}"
+    key = (spelling, st.st_mtime_ns, st.st_size, st.st_ino)
+    with _RESOLVED_PATHS_LOCK:
+        hit = _RESOLVED_PATHS.get(key)
+        if hit is not None:
+            _RESOLVED_PATHS.move_to_end(key)
+            return hit
+    resolved = path.resolve()
+    with _RESOLVED_PATHS_LOCK:
+        _RESOLVED_PATHS[key] = resolved
+        _RESOLVED_PATHS.move_to_end(key)
+        while len(_RESOLVED_PATHS) > _RESOLVED_PATHS_MAX:
+            _RESOLVED_PATHS.popitem(last=False)
+    return resolved
+
+
+def path_is_relative_to(path: Path, other: Path) -> bool:
+    """Whether *path* is *other* or a path under it.
+
+    Same answer as ``Path.is_relative_to`` for one flavour of path. That
+    method walks ``parents`` and builds a path per ancestor. A verify of a
+    few hundred sources asks this of every source directory, and the walk
+    is the cost. Comparing ``parts`` does not build those paths. An empty
+    ``other`` is ``.``: every relative path sits under it, and an absolute
+    path does not. Windows compares through ``normcase``, so ``C:/Foo``
+    still sits under ``c:/foo``.
+    """
+    parser = path.parser
+    if getattr(other, "parser", None) is not parser:
+        other = path.with_segments(os.fspath(other))
+    path_parts = path.parts
+    other_parts = other.parts
+    count = len(other_parts)
+    if count == 0:
+        return path.anchor == ""
+    if len(path_parts) < count:
+        return False
+    head = path_parts[:count]
+    if head == other_parts:
+        return True
+    if parser is posixpath:
+        return False
+    fold = parser.normcase
+    return all(fold(left) == fold(right) for left, right in zip(head, other_parts, strict=True))
+
+
+# Raw bytes from the same read as the text memo, so source_hash does not
+# open the file again. Dropped with the text entry.
+_SOURCE_RAW: dict[tuple[str, int, int, int], bytes] = {}
+
+
 def _memo_forget(memo_key: tuple[str, int, int, int]) -> None:
     """Unlink *memo_key*'s path from the index, dropping an emptied entry."""
+    _SOURCE_RAW.pop(memo_key, None)
     keys = _SOURCE_TEXT_MEMO_BY_PATH.get(memo_key[0])
     if keys is not None:
         keys.discard(memo_key)
@@ -686,6 +767,7 @@ def read_source_text(filepath: Path) -> tuple[str, str]:
     text = data.decode(encoding, errors="replace")
     with _SOURCE_TEXT_MEMO_LOCK:
         _memo_store(memo_key, (text, encoding))
+        _SOURCE_RAW[memo_key] = data
     return text, encoding
 
 
@@ -694,7 +776,17 @@ def clear_source_text_memo() -> None:
     with _SOURCE_TEXT_MEMO_LOCK:
         _SOURCE_TEXT_MEMO.clear()
         _SOURCE_TEXT_MEMO_BY_PATH.clear()
+        _SOURCE_RAW.clear()
         _RESOLVED_SOURCE_PATHS.clear()
+
+
+def cached_source_bytes(filepath: Path, mtime_ns: int, size: int, ino: int) -> bytes | None:
+    """File bytes just read by :func:`read_source_text`, or ``None``.
+
+    Keyed by the resolved path and the same stat identity as the text memo.
+    """
+    resolved = _resolved_source_path(filepath)
+    return _SOURCE_RAW.get((str(resolved), mtime_ns, size, ino))
 
 
 def read_toml_text(path: Path) -> str:

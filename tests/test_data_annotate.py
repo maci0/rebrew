@@ -1,4 +1,4 @@
-"""Tests for rebrew data --annotate (// GLOBAL: marker insertion)."""
+"""Tests for rebrew data annotate (binding GLOBAL rows to declarations)."""
 
 from __future__ import annotations
 
@@ -43,14 +43,29 @@ def test_annotate_writes_and_skips_existing(tmp_path: Path) -> None:
         '["SERVER.0x10027004"]\nname = "g_b"\nsection = ".data"\n',
         encoding="utf-8",
     )
-    annotate_globals(src, meta, "SERVER", dry_run=False)
+    per_file, skipped = annotate_globals(src, meta, "SERVER", dry_run=False)
     text = (src / "mod.c").read_text()
-    assert text.count("// GLOBAL:") == 2  # g_a skipped (marked), g_b added
-    assert "// GLOBAL: SERVER 0x10027004\nint g_b;" in text
+    # The existing GLOBAL line is migrated off the source. g_b had no marker,
+    # so this pass binds its file and does not insert a line.
+    assert per_file == {"mod.c": 1}
+    assert skipped == 0
+    assert "// GLOBAL:" not in text
+    assert text == "int g_a;\nint g_b;\n"
+    from rebrew.data_metadata import get_data_entry
+
+    migrated = get_data_entry(tmp_path, 0x10027000, "SERVER")
+    assert migrated["name"] == "g_a"
+    assert migrated["marker_type"] == "GLOBAL"
+    assert migrated["file"] == "src/mod.c"
+    bound = get_data_entry(tmp_path, 0x10027004, "SERVER")
+    assert bound["name"] == "g_b"
+    assert bound["marker_type"] == "GLOBAL"
+    assert bound["file"] == "src/mod.c"
 
     # Rerun must be completely idempotent (0 files modified, text unchanged)
     per_file, skipped = annotate_globals(src, meta, "SERVER", dry_run=False)
     assert per_file == {}
+    assert skipped == 0
     assert (src / "mod.c").read_text() == text
 
 
@@ -65,7 +80,13 @@ def test_annotate_skips_block_comment_markers(tmp_path: Path) -> None:
     )
     per_file, _ = annotate_globals(src, meta, "SERVER", dry_run=False)
     assert per_file == {}
-    assert (src / "mod.c").read_text() == "/* GLOBAL: SERVER 0x10027000 */\nint g_a;\n"
+    assert (src / "mod.c").read_text() == "int g_a;\n"
+    from rebrew.data_metadata import get_data_entry
+
+    entry = get_data_entry(tmp_path, 0x10027000, "SERVER")
+    assert entry["name"] == "g_a"
+    assert entry["marker_type"] == "GLOBAL"
+    assert entry["file"] == "src/mod.c"
 
 
 def test_annotate_reports_skipped_unnamed(tmp_path: Path) -> None:

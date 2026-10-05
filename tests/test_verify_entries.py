@@ -110,6 +110,7 @@ class TestPrepareEntriesCache:
     # hashing a path outside its own tmp_path.
     _src_dir: Path | None = None
     _root: Path | None = None
+    _entry: Annotation | None = None
 
     def _setup(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, entry: Annotation
@@ -120,6 +121,7 @@ class TestPrepareEntriesCache:
         src.mkdir(exist_ok=True)
         self._root = tmp_path
         self._src_dir = src
+        self._entry = entry
         f = src / entry.filepath
         f.write_text("int f(void) { return 0; }\n", encoding="utf-8")
         monkeypatch.setattr(verify_mod, "scan_reversed_dir", lambda _d, cfg=None: [entry])
@@ -142,7 +144,7 @@ class TestPrepareEntriesCache:
         size: int = 64,
         cflags: str | None = None,
     ) -> dict:
-        if self._root is None or self._src_dir is None:
+        if self._root is None or self._src_dir is None or self._entry is None:
             raise AssertionError("_setup() must run before _cache_entry()")
         root, src_dir = self._root, self._src_dir
         if cflags is None:
@@ -180,8 +182,8 @@ class TestPrepareEntriesCache:
             "defines": "(none)",
             "status": "EXACT" if passed else "STUB",
             "va": "0x1000",
-            "name": "f",
-            "symbol": "_f",
+            "name": self._entry.name,
+            "symbol": verify_mod._entry_symbol(self._entry),
             "delta": 0 if passed else 4,
             "match_percent": 100.0 if passed else 90.0,
             "passed": passed,

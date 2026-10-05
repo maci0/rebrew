@@ -1,4 +1,4 @@
-"""Tests for rebrew inline-strings (string-literal global materialization)."""
+"""Tests for rebrew source inline-strings (string-literal global materialization)."""
 
 import re
 from pathlib import Path

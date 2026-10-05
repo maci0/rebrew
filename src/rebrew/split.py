@@ -51,11 +51,11 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew split src/game/funcs.c · · · · · · · · Split all functions into individual files\n\n"
-        "  rebrew split src/game/funcs.c --va 0x10003da0 · Extract one function by VA\n\n"
-        "  rebrew split src/game/funcs.c --dry-run · · · · Preview without writing files\n\n"
-        "  rebrew split src/game/funcs.c --out-dir out · · Custom output directory\n\n"
-        "  rebrew split src/game/funcs.c --force · · · · · Overwrite existing output files\n\n"
+        "  rebrew source split src/game/funcs.c · · · · · · · · Split all functions into individual files\n\n"
+        "  rebrew source split src/game/funcs.c --va 0x10003da0 · Extract one function by VA\n\n"
+        "  rebrew source split src/game/funcs.c --dry-run · · · · Preview without writing files\n\n"
+        "  rebrew source split src/game/funcs.c --output out · · Custom output directory\n\n"
+        "  rebrew source split src/game/funcs.c --force · · · · · Overwrite existing output files\n\n"
         "[dim]Each output file gets the shared preamble (includes, typedefs) plus one function. "
         "With --va, the function is extracted and removed from the original source.[/dim]"
     ),
@@ -138,7 +138,7 @@ def main(
     va: str | None = typer.Option(
         None, "--va", help="Extract a single function by VA (hex) into its own file"
     ),
-    output_dir: str | None = typer.Option(None, "--out-dir", help="Output directory"),
+    output_dir: str | None = typer.Option(None, "--output", "-o", help="Output directory"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     force: bool = typer.Option(
         False,

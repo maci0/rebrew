@@ -1,4 +1,4 @@
-"""`rebrew cmake-sources` — the build must link what the target owns.
+"""`rebrew build cmake-sources` — the build must link what the target owns.
 
 A glob over a shared tree over-includes: every target's TUs compile and
 link into every binary (duplicate symbols at best, foreign bytes at

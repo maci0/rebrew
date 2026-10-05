@@ -2,7 +2,7 @@
 
 Decompiler output (Ghidra, r2ghidra, r2dec, Kuna) uses pseudo-types,
 qualified symbol names, and junk specifiers that msvc-6.0 rejects.
-:func:`sanitize_tokens` is that rewrite.  ``rebrew fix`` and Kuna
+:func:`sanitize_tokens` is that rewrite.  ``rebrew source fix`` and Kuna
 seeding both call it from here.
 """
 

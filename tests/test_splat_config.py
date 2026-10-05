@@ -1,4 +1,4 @@
-"""Tests for splat_config.py: reading a splat config and `rebrew import-splat`.
+"""Tests for splat_config.py: reading a splat config and `rebrew source import-splat`.
 
 The fixture under ``fixtures/splat_config/`` is a hand-written splat config for
 a minimal PE built here (``_build_pe``), so these tests exercise the real path:
@@ -453,9 +453,7 @@ class TestPlan:
         assert by_va[0x00401020].path == "library_other.h"
         assert by_va[0x00402000].kind == "DATA"
         assert by_va[0x00402000].section == ".data"
-        assert by_va[0x00402010].marker == (
-            "// DATA: FIXTURE 0x00402010\nextern unsigned int imp_KERNEL32_dll_GetTickCount;"
-        )
+        assert by_va[0x00402010].marker == ("extern unsigned int imp_KERNEL32_dll_GetTickCount;\n")
         # The undefined_* function lands inside .text: the config says that code
         # is a library's, so it is a LIBRARY entry with the inferred module.
         assert by_va[0x00401030].kind == "LIBRARY"
@@ -505,18 +503,11 @@ class TestPlan:
 
 class TestRegistration:
     def test_registered_in_the_umbrella_manifest(self) -> None:
-        """The command is mounted by ``main.py``'s component list.
+        """The declarative source family mounts the import adapter."""
+        from rebrew.builtins import DOMAIN_COMPONENTS
 
-        A text check (the way ``test_docs_hygiene`` pins the pyproject
-        manifest): importing ``rebrew.main`` composes the whole component
-        graph, which a unit test should not depend on.  The mount itself is
-        exercised by running ``rebrew import-splat`` for real.
-        """
-        source = (Path(__file__).parent.parent / "src" / "rebrew" / "main.py").read_text(
-            encoding="utf-8"
-        )
-        assert 'name="import-splat"' in source
-        assert 'module="rebrew.splat_config"' in source
+        component = next(c for c in DOMAIN_COMPONENTS["source"] if c.name == "import-splat")
+        assert component.module == "rebrew.splat_config"
 
 
 class TestApply:
@@ -533,7 +524,10 @@ class TestApply:
         result = _invoke([str(yaml_path)])
         assert result.exit_code == 0, result.output
         assert "dry run" in result.output
-        assert "// FUNCTION: FIXTURE 0x00401000" in result.output
+        assert "// FUNCTION:" not in result.output
+        assert "// DATA:" not in result.output
+        assert "/* FUNCTION FIXTURE 0x00401000 */" in result.output
+        assert "extern unsigned int imp_KERNEL32_dll_GetTickCount;" in result.output
         assert sorted(p.name for p in project.rglob("*")) == before
 
     def test_write_creates_the_annotations(
@@ -545,19 +539,19 @@ class TestApply:
 
         reversed_dir = project / "src" / "fixture.exe"
         function = (reversed_dir / "entrypoint.c").read_text(encoding="utf-8")
-        assert function.startswith("// FUNCTION: FIXTURE 0x00401000\n")
+        assert function.startswith("int __cdecl entrypoint(void)\n")
+        assert "// FUNCTION:" not in function
         assert "entrypoint(void)" in function
 
+        banner = "/* Library function identities live in rebrew-functions.toml. */\n"
         library = (reversed_dir / "library_other.h").read_text(encoding="utf-8")
-        assert "// LIBRARY: OTHER 0x00401020" in library
-        assert "// imp_OTHER_dll_FarProc" in library
-
+        assert library == banner
         crt = (reversed_dir / "library_msvcrt.h").read_text(encoding="utf-8")
-        assert "// LIBRARY: MSVCRT 0x00401030" in crt
+        assert crt == banner
 
         data = (reversed_dir / "data_g_table.c").read_text(encoding="utf-8")
-        assert data.startswith("// DATA: FIXTURE 0x00402000\n")
-        assert "extern unsigned int g_table[4];" in data
+        assert data.startswith("extern unsigned int g_table[4];")
+        assert "// DATA:" not in data
 
         assert (project / "original" / "fixture.exe").is_file()
         config = (project / "rebrew-project.toml").read_text(encoding="utf-8")
@@ -568,14 +562,43 @@ class TestApply:
         assert 'source = "splat:win32_app.yaml"' in lay
         assert 'name = ".text"' in lay and "va = 4096" in lay
 
+        from rebrew.data_metadata import get_data_entry
+        from rebrew.metadata import get_entry
+
         functions = (project / "src" / "rebrew-functions.toml").read_text(encoding="utf-8")
         assert 'status = "STUB"' in functions
         assert "size = 19" in functions
         assert "seeded from a splat config" in functions
+        fn = get_entry(project / "src", 0x00401000, "FIXTURE")
+        assert fn["marker_type"] == "FUNCTION"
+        assert fn["symbol"] == "_entrypoint"
+        assert fn["name"] == "entrypoint"
+        assert fn["file"] == "fixture.exe/entrypoint.c"
+        assert fn["status"] == "STUB"
+        assert fn["size"] == 19
+        other = get_entry(project / "src", 0x00401020, "OTHER")
+        assert other["marker_type"] == "LIBRARY"
+        assert other["symbol"] == "imp_OTHER_dll_FarProc"
+        assert other["name"] == "imp_OTHER_dll_FarProc"
+        assert other["file"] == "fixture.exe/library_other.h"
+        crt_row = get_entry(project / "src", 0x00401030, "MSVCRT")
+        assert crt_row["marker_type"] == "LIBRARY"
+        assert crt_row["symbol"] == "printf"
+        assert crt_row["name"] == "printf"
+        assert crt_row["file"] == "fixture.exe/library_msvcrt.h"
 
         data_meta = (project / "src" / "rebrew-data.toml").read_text(encoding="utf-8")
         assert 'section = ".data"' in data_meta
         assert "size = 16" in data_meta
+        table = get_data_entry(project / "src", 0x00402000, "FIXTURE")
+        assert table["marker_type"] == "DATA"
+        assert table["name"] == "g_table"
+        assert table["section"] == ".data"
+        assert table["size"] == 16
+        assert table["file"] == "fixture.exe/data_g_table.c"
+        imported = get_data_entry(project / "src", 0x00402010, "FIXTURE")
+        assert imported["marker_type"] == "DATA"
+        assert imported["name"] == "imp_KERNEL32_dll_GetTickCount"
 
     def test_write_copies_the_binary_into_the_project(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -611,7 +634,9 @@ class TestApply:
 
         forced = _invoke([str(yaml_path), "--write", "--force"])
         assert forced.exit_code == 0, forced.output
-        assert foreign.read_text(encoding="utf-8").startswith("// FUNCTION: FIXTURE 0x00401000")
+        forced_text = foreign.read_text(encoding="utf-8")
+        assert forced_text.startswith("int __cdecl entrypoint(void)\n")
+        assert "// FUNCTION:" not in forced_text
 
     def test_json_payload_lists_the_plan(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

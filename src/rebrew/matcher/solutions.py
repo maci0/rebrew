@@ -84,7 +84,7 @@ class SolutionEntry:
     """Path to the source ``.c`` file, **relative to the project root**.
 
     :func:`save_solution` normalizes whatever the caller passes into this form,
-    because the only reader (``rebrew match --all`` seeding) resolves it as
+    because the only reader (``rebrew match batch`` seeding) resolves it as
     ``project_root / source_file``.  A path outside the project root is stored
     absolute and still resolves correctly."""
 
@@ -106,7 +106,7 @@ class SolutionEntry:
     """Distinct ``mut_*`` operators applied during the winning run (the GA's
     ``applied_mutations`` at the win site).  Cross-function learning: a later
     function solved from a similar source can bias its own GA toward the
-    operators that worked here (see ``rebrew match`` similar-solution
+    operators that worked here (see ``rebrew match run`` similar-solution
     seeding)."""
 
     source_sha: str = ""
@@ -239,7 +239,7 @@ def _iter_run_records(path: Path) -> Iterator[dict[str, Any]]:
 def load_solutions_file(path: Path) -> list[SolutionEntry]:
     """Load solution entries from another project's run log.
 
-    Supports cross-project seeding: ``rebrew match --seed-solutions-file
+    Supports cross-project seeding: ``rebrew match run --seed-solutions-file
     ../other-project/.rebrew/ga_runs.jsonl`` transfers winning
     cflags/source fingerprints between projects sharing a compiler.
     Returns an empty list when the file is missing or malformed (never
@@ -552,7 +552,7 @@ def record_ga_run(
     Win-only fields (*cflags*, *size*, *source_file*, *mutations*) turn the
     record into a solution fingerprint readable by ``load_solutions``.
     *rng_seed* is the seed the GA ran from; replay the stub with
-    ``rebrew match --seed <rng_seed>``.
+    ``rebrew match run --seed <rng_seed>``.
 
     A record identical to one already in the log's tail window apart from
     *ts* / *solved_at* is a replay of a run already recorded, so it is

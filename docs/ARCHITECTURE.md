@@ -13,10 +13,11 @@ boundaries: `rebrew-toolchains` supplies the docker compiler images,
 `resembl` supplies the assembly-similarity scoring core, `recovery` serves
 the `db/coverage-<target>.toml` documents this repo builds, `recompile` wraps the toolchain zoo
 as an HTTP API, and `reagent` automates the loop with an LLM. External
-tools interoperate through file formats: reccmp-compatible source
-markers and the coverage document (the catalog's reccmp CSV export is gone
-with the catalog's own artifacts), and the BinSync state directory (`rebrew binsync`, plus `rebrew binsync-export` / `-import` /
-`-diff` / `-init` / `-overlay`).
+tools interoperate through file formats: the coverage document and the
+BinSync state directory (`rebrew binsync`, plus `rebrew binsync export` /
+`-import` / `-diff` / `-init` / `-overlay`). A migrated tree is pure C; the
+parser still reads an unmigrated reccmp marker. The catalog's reccmp CSV
+export is gone with the catalog's own artifacts.
 The full cross-repo map, dependency layering, and mermaid diagrams are in
 [ECOSYSTEM.md](ECOSYSTEM.md). Open [architecture.drawio](architecture.drawio)
 in diagrams.net for the same map as nine pages: ecosystem, compile-compare
@@ -80,12 +81,12 @@ flowchart LR
 | `rebrew/annotation.py` | Marker/KV annotation parsing (`// FUNCTION: MOD 0xVA`), key classification (file-only vs metadata), `iter_annotations` batch loader |
 | `rebrew/metadata.py` | `rebrew-functions.toml` store + routing (`METADATA_FIELD_TYPES`, `METADATA_FIELDS`, `SYNC_FIELD_RULES`, `update_source_status` / `update_field` / `remove_field`); typed facade in `metadata_model.py` (`MetadataEntry`) |
 | `rebrew/decompiler.py` | Pluggable decompiler backends for pseudo-C (`r2`/`rz` ghidra and dec, Ghidra via the ReVa MCP bridge, m2c for MIPS/PPC/ARM/SH), registered through the `rebrew.decompiler_backends` entry-point group. `fetch_decompilation` is the one entry point `rebrew skeleton --decomp` calls; `"auto"` picks the first backend that answers |
-| `rebrew/llm_seed.py` | Optional LLM-assisted GA seeding for `rebrew match --seed-llm`: asks the `[llm]` endpoint for alternative C, keeps only tree-sitter-valid single-function snippets, injects them as extra seeds. Off by default; with no endpoint the flag warns and the GA runs unchanged |
+| `rebrew/llm_seed.py` | Optional LLM-assisted GA seeding for `rebrew match run --seed-llm`: asks the `[llm]` endpoint for alternative C, keeps only tree-sitter-valid single-function snippets, injects them as extra seeds. Off by default; with no endpoint the flag warns and the GA runs unchanged |
 | `rebrew/compile.py` | Compile (docker image by default; host binary only for plugin toolchains without `image`) + compare → `CompareResult` |
 | `rebrew/binary_model.py` | `BinaryInfo` / `SectionInfo`: the format-agnostic parsed-binary types every loader fills in and every consumer reads. Owns the lazy `data` read and its size cap, so a format loader never imports the dispatcher that selects it |
 | `rebrew/binary_loader.py` | PE/ELF/Mach-O via LIEF, NE via `ne_loader.py`, MZ via its own header parser → `BinaryInfo` (sections, VAs, raw bytes) |
 | `rebrew/pe_image.py` | PE32 section/export/import walk and the MSVC LINK options read off those header fields. Shared by `gen-layout` and `link-sweep`; the command modules do not own the parser |
-| `rebrew/pseudo_c.py` | Deterministic rewrite of decompiler pseudo-C into C89 tokens (`sanitize_tokens`). Shared by `rebrew fix` and Kuna seeding |
+| `rebrew/pseudo_c.py` | Deterministic rewrite of decompiler pseudo-C into C89 tokens (`sanitize_tokens`). Shared by `rebrew source fix` and Kuna seeding |
 | `rebrew/matcher/` | GA engine: `scoring.py` (numpy + capstone), `mutator.py` (`ALL_MUTATIONS`: the 128 tree-sitter mutations from `mutations/*.py` plus plugin entry points), `compiler.py` (flag sweep), `solutions.py` (cross-function seeding + run history) |
 | `rebrew/catalog/` | Function registry and the coverage grid (`grid.py`) the `db/coverage-<target>.toml` document is rendered from |
 | `rebrew/ghidra/` | BinSync-primary field sync + ReVa MCP structural ops (function create/delete and similar) |
@@ -103,12 +104,12 @@ flowchart LR
 | `rebrew/round_trip.py` | Splice matched functions back into the target PE, verify byte equality |
 | `rebrew/similar.py` | Structural clone detection (mnemonic-histogram similarity) |
 | `rebrew/near_analysis.py` | NEAR_MATCHING delta classification (register/encoding/equivalent/reloc/structural buckets) and the verdict; the library half, with no Typer app, so the GA engine and `probe` import it |
-| `rebrew/near_diag.py` | The `rebrew near-diag` CLI over `near_analysis.py`: argument parsing, Rich output, BLOCKER metadata writes, `--catalog` |
+| `rebrew/near_diag.py` | The `rebrew diagnose near` CLI over `near_analysis.py`: argument parsing, Rich output, BLOCKER metadata writes, `--catalog` |
 | `rebrew/stack_analysis.py` | Stack-frame derivation and diff (frame size, ebp-vs-esp, `ret N` popping, `[ebp±N]` slots) from disassembly on both sides; the library half |
-| `rebrew/stack_cmp.py` | The `rebrew stack-cmp` CLI over `stack_analysis.py` |
+| `rebrew/stack_cmp.py` | The `rebrew diagnose stack` CLI over `stack_analysis.py` |
 | `rebrew/headless.py` | Persistent per-process Xvfb for headless wine compiles (no window, no DISPLAY needed) |
 | `rebrew/toolchain_detect.py` | Layered compiler-family detector: Detect It Easy (diec) → PDB → PE metadata (Rich header/linker version) → codegen heuristics; feeds init's CRT/opt seeding and doctor's alignment check. Its four tables (profile compat, Rich-build and linker-era profiles, plugin detectors) are one generation: read them through `detection_tables()` |
-| `rebrew/wibo.py` | Locate + SHA256-verify the wibo runner (`doctor --install-wibo`); a legacy host-runner fallback for toolchains registered without an `image`, not a shipped compile path (ADR 008) |
+| `rebrew/wibo.py` | Locate + SHA256-verify the wibo runner (`toolchain install-wibo`); a legacy host-runner fallback for toolchains registered without an `image`, not a shipped compile path (ADR 008) |
 | `rebrew/binsync/` (`export.py` / `importer.py` / `diff.py` / `git.py` / `init.py` / `overlay.py`, plus `serial.py`, `cli.py`, `state.py`) | BinSync state export/import/diff/init/overlay, the `rebrew binsync` umbrella (git automation), and the shared state readers/reconciliation baseline and freshness projection; artifact TOML serialized with declib (the `binsync` extra) |
 | `rebrew/crypto_scan.py` | Cryptography detection: data-section constant tables (AES S-boxes, SHA-256 K/H, SHA-1, MD5 T) plus imported-API and project-name matching |
 | `rebrew/fingerprints.py` | Content fingerprint bundle for a binary: streamed MD5/SHA1/SHA256/SHA512/SHA3 digests and CRC32, Mandiant imphash, PE export hash, MSVC Rich-header hash, per-section entropy, optional TLSH/ssdeep |
@@ -120,7 +121,7 @@ flowchart LR
 | `rebrew/identify_library.py` | Library-function identification backends (CRT/ZLIB marking) |
 | `rebrew/dashboard.py` | Read-only web dashboard over the `db/coverage-<target>.toml` documents |
 | `rebrew/import_table.py` | Import-table parsing (PE IAT, ELF dynamic imports, 16-bit NE module references) and `jmp [iat]` stub detection; library layer shared by analysis passes |
-| `rebrew/imports.py` | `rebrew imports` CLI over `import_table.py`, plus `--mark` LIBRARY annotation of import stubs |
+| `rebrew/imports.py` | `rebrew binary imports list` inspects `import_table.py` results; `rebrew binary imports mark` records LIBRARY annotations for import stubs |
 | `rebrew/skills.py` | Agent-skill discovery CLI (`list`/`show` subcommands) |
 | `rebrew/agent-skills/` | Bundled `SKILL.md` workflows (init, intake, workflow, matching, data analysis, ghidra sync) |
 
@@ -156,14 +157,15 @@ would be a second answer to that question. See
    used from the `.c`. A migrated, marker-less file (ADR 023) has no
    block to read: `_annotations_from_metadata` synthesizes the same
    Annotations from the TOML entries whose `file` field matches. Inline
-   keys still read on an unmigrated file: co-read `SIZE`/`CFLAGS` (reccmp contract),
-   `TOOLCHAIN`/`SOURCE` (until migrated; metadata wins on merge),
-   `// SOURCE: naked` (file-borne), and structural `STRUCT`/`CALLERS`
-   (`SECTION` on DATA/GLOBAL is data-metadata-owned). Inline `STATUS`
-   etc. are NOT parsed (`_kv_to_annotation` hardcodes `STUB`).
+   keys still read on an unmigrated file: `SIZE`/`CFLAGS` (metadata-owned;
+   an equal inline copy is migration debt), `TOOLCHAIN`/`SOURCE` (until
+   migrated; metadata wins on merge), `// SOURCE: naked` (file-borne), and
+   structural `STRUCT`/`CALLERS` (`SECTION` on DATA/GLOBAL is
+   data-metadata-owned). Inline `STATUS` etc. are NOT parsed
+   (`_kv_to_annotation` hardcodes `STUB`).
 2. `merge_into_annotation()` overlays `rebrew-functions.toml` values (metadata
-   wins for owned fields: STATUS, TOOLCHAIN, BLOCKER, NOTE, GHIDRA, …;
-   SIZE/CFLAGS are co-read with metadata as override).
+   wins for owned fields, including STATUS, TOOLCHAIN, BLOCKER, NOTE, GHIDRA,
+   SIZE, and CFLAGS).
 3. `compile_and_compare()` compiles the source in the pinned toolchain
    image (`toolchain.py`; docker-only for every shipped profile, including
    gcc/clang/mingw; images built from the `rebrew-toolchains` checkout) and
@@ -203,7 +205,7 @@ Registry publication has its own [snapshot contract](DEVELOPMENT.md#registry-sna
 - Config-driven: every tool reads `rebrew-project.toml` via `require_config`.
 - Idempotent: every tool is safe to re-run.
 - One canonical name per function: no aliases/shims/legacy wrappers.
-- STATUS promotion only via `update_source_status` (never inline in `.c`); BLOCKER only via `update_field`/`remove_field` through `rebrew blocker set/clear` or the auto-writers (`diff --fix-blocker`, `near-diag --fix-blocker`, `document-unmatched`).
+- STATUS promotion only via `update_source_status` (never inline in `.c`); BLOCKER only via `update_field`/`remove_field` through `rebrew blocker set/clear` or the auto-writers (`diff --fix-blocker`, `rebrew diagnose near --fix-blocker`, `document-unmatched`).
 - Source discovery via `iter_sources`; batch annotations via `iter_annotations`.
 - Registries republish as a whole: one `refresh_*` call is one generation, and a
   reader that needs two tables takes one snapshot (`registry_snapshot()`,

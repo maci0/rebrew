@@ -26,7 +26,7 @@ The Function Catalog feature unifies these by collecting **all** known
 function metadata from Ghidra exports, the discovery inventory, FLIRT
 signatures, CRT source mirrors, and the user's own `// FUNCTION:` /
 `// LIBRARY:` / `// STUB:` annotations, then reports the merged view in
-process: `rebrew build-db` is what writes it, as
+process: `rebrew coverage build` is what writes it, as
 `db/coverage-<target>.toml`.
 (>2026-09: CATALOG.md generation and `functions.txt` were removed; the same
 information lives in `rebrew-functions.toml`, served by `status`/`todo`/dashboard.)
@@ -43,32 +43,32 @@ information lives in `rebrew-functions.toml`, served by `status`/`todo`/dashboar
 
 ## Goals
 
-- Single command (`rebrew catalog`) that scans annotations and produces:
+- Single command (`rebrew coverage catalog`) that scans annotations and produces:
   - the coverage grid, in process (the rendered result is
-    `db/coverage-<target>.toml`, written by `rebrew build-db`; the JSON and CSV
+    `db/coverage-<target>.toml`, written by `rebrew coverage build`; the JSON and CSV
     files this goal originally named are gone)
   - Ghidra function/label exports
 - Bulk extraction of raw `.bin` slices of uncovered functions for
-  byte-level work (`rebrew extract`).
+  byte-level work (`rebrew binary extract`).
 - FLIRT signature scan that flags library functions in the binary
-  (`rebrew flirt`).
+  (`rebrew library scan-signatures`).
 - CRT source cross-reference matcher that maps `LIBRARY:` markers to a
-  specific MSVC CRT source file (`rebrew crt-match`).
-- Clear-text coverage document build (`rebrew build-db`).
+  specific MSVC CRT source file (`rebrew library crt-match`).
+- Clear-text coverage document build (`rebrew coverage build`).
 
 ## Non-Goals
 
 - The catalog does not modify source files (data JSON/CSV are generated; `.c`
   files are read-only).
-- `rebrew extract` produces `.bin` files only, never C skeletons. Skeleton
+- `rebrew binary extract` produces `.bin` files only, never C skeletons. Skeleton
   generation lives in PRD 03.
-- `rebrew flirt` is signature-driven; it does not infer arguments or types.
+- `rebrew library scan-signatures` is signature-driven; it does not infer arguments or types.
 - CRT matching identifies *which* CRT source likely produced a function; it
   doesn't compile or verify the candidate. That belongs to PRD 03/05.
 
 ## Functional Requirements
 
-### `rebrew catalog`
+### `rebrew coverage catalog`
 
 - Scans `reversed_dir` for `.c` files containing reccmp-style markers.
 - Loads optional `function_structure.json` (discovery inventory / Ghidra
@@ -84,7 +84,7 @@ information lives in `rebrew-functions.toml`, served by `status`/`todo`/dashboar
   (`Size disagree: N`), never per-function names.
 - Outputs in any combination of modes:
   - Default (no flags): scan + validate, and print the summary table.  No
-    artifact is written by `catalog` itself; `rebrew build-db` renders the
+    artifact is written by `catalog` itself; `rebrew coverage build` renders the
     coverage document from the same in-process scan.
   - `--data-json` / `--csv` (removed): the grid JSON and the reccmp-compatible
     CSV have no replacement.  A reader that needs the grid reads
@@ -101,7 +101,7 @@ information lives in `rebrew-functions.toml`, served by `status`/`todo`/dashboar
     required to combine it with `--json`).
 - `--json` produces machine-readable output.
 
-### `rebrew extract`
+### `rebrew binary extract`
 
 Three subcommands:
 
@@ -116,7 +116,7 @@ Three subcommands:
 All three accept `--binary`/`--min-size`/`--max-size` filters and `--json`.
 Output `.bin` files land in the configured `bin_dir`.
 
-### `rebrew flirt`
+### `rebrew library scan-signatures`
 
 - Scans the target PE/ELF with FLIRT signatures (`.sig` or `.pat`).
 - Emits matched function VAs + likely library identities.
@@ -128,7 +128,7 @@ Output `.bin` files land in the configured `bin_dir`.
   `rebrew-project.toml`.
 - `--json` emits structured matches.
 
-### `rebrew crt-match`
+### `rebrew library crt-match`
 
 - Indexes the `crt_sources` target table (set via `cfg detect-crt` or manually) by symbol.
 - Matches `LIBRARY:` annotations (or a single VA) against the indexed
@@ -143,7 +143,7 @@ Output `.bin` files land in the configured `bin_dir`.
 - `--index` prints the constructed CRT index for inspection.
 - `--json` emits structured matches.
 
-### `rebrew lib-match`
+### `rebrew library match`
 
 - Byte-compares reversed functions against linked static-library archives (`.lib`/`.a`) to flag code the linker supplies (ADR-013).
 - `--lib PATH` checks against a specific static library (repeatable).
@@ -158,7 +158,7 @@ Output `.bin` files land in the configured `bin_dir`.
 - `--allow PATH` ignores known library VAs from a file.
 - `--json` emits structured matches.
 
-### `rebrew build-db`
+### `rebrew coverage build`
 
 - Scans the project in process and writes
   `db/coverage-<target>.toml` (one document per target), a clear-text document per target holding the
@@ -178,43 +178,43 @@ Output `.bin` files land in the configured `bin_dir`.
 ### Story 1: First intake of a new binary
 
 1. After `rebrew init` + `rebrew doctor`, the user runs
-   `rebrew flirt --json` and discovers 412 MSVCRT/MFC/DirectX functions.
-2. `rebrew catalog --json` reports the catalog summary (the coverage document
-   itself comes from `rebrew build-db`).
-3. `rebrew extract batch 20` produces 20 `.bin` files ready for the
+   `rebrew library scan-signatures --json` and discovers 412 MSVCRT/MFC/DirectX functions.
+2. `rebrew coverage catalog --json` reports the catalog summary (the coverage document
+   itself comes from `rebrew coverage build`).
+3. `rebrew binary extract batch 20` produces 20 `.bin` files ready for the
    reversing loop.
-4. `rebrew build-db` produces `db/coverage-<target>.toml`, consumed by the
+4. `rebrew coverage build` produces `db/coverage-<target>.toml`, consumed by the
    recovery dashboard.
 
 ### Story 2: Mapping library functions to upstream source
 
 1. User has dozens of `// LIBRARY: MSVCRT 0x...` annotations with empty
    bodies.
-2. User runs `rebrew cfg detect-crt` so the MSVC source mirror is registered.
-3. `rebrew crt-match --all --fix-source` records each writable match's
+2. User runs `rebrew cfg detect-crt show` so the MSVC source mirror is registered.
+3. `rebrew library crt-match --all --fix-source` records each writable match's
    `SOURCE` (e.g. `vcsrc/.../strcpy.c:1234`) in `rebrew-functions.toml`.
 4. The user then runs `rebrew test` on the candidates and many promote to
    EXACT/RELOC because the CRT source already compiles to identical bytes.
 
 ### Story 3: Resolving a Ghidra/annotation size disagreement
 
-1. `rebrew catalog --summary` counts `_my_func` in `Size disagree: N`, so the
+1. `rebrew coverage catalog --summary` counts `_my_func` in `Size disagree: N`, so the
    user knows some function has annotation size 42 where Ghidra reports 47
    (the summary names no functions; the user isolates the VA from the catalog
    JSON).
-2. User runs `rebrew catalog --fix-sizes` to write the canonical 47 to
+2. User runs `rebrew coverage catalog --fix-sizes` to write the canonical 47 to
    `rebrew-functions.toml`.
 3. Next `rebrew verify` no longer fails the size check.
 
 ### Story 4: Dashboard refresh
 
-1. CI runs `rebrew build-db --json` on every push to main.
+1. CI runs `rebrew coverage build --json` on every push to main.
 2. `db/coverage-<target>.toml` is uploaded as an artifact and consumed by recovery.
 
 ## CLI Surface
 
 ```
-rebrew catalog [OPTIONS]
+rebrew coverage catalog [OPTIONS]
       --summary
       --export-ghidra
       --export-ghidra-labels
@@ -224,21 +224,19 @@ rebrew catalog [OPTIONS]
       --json
   -t, --target TEXT
 
-rebrew extract list   [--json] [-t TARGET]
-rebrew extract show VA [--size N] [--json] [-t TARGET]
-rebrew extract batch [N] [--start M] [--dry-run] [--json] [-t TARGET]
+rebrew binary extract list   [--json] [-t TARGET]
+rebrew binary extract show VA [--size N] [--json] [-t TARGET]
+rebrew binary extract batch [N] [--start M] [--dry-run] [--json] [-t TARGET]
 
-rebrew flirt [SIG_DIR]
+rebrew library scan-signatures [SIG_DIR]
       --binary PATH
       --min-size N           (default 16)
       --va VA
-      --init
-      --init-matched
       --show-ambiguous
       --json
   -t, --target TEXT
 
-rebrew crt-match [VA]
+rebrew library crt-match [VA]
       --all
       --fix-source
       --index
@@ -246,7 +244,7 @@ rebrew crt-match [VA]
       --json
   -t, --target TEXT
 
-rebrew lib-match [OPTIONS]
+rebrew library match [OPTIONS]
       --lib PATH
       --stock-lib TEXT
       --compile-commands PATH
@@ -255,7 +253,7 @@ rebrew lib-match [OPTIONS]
       --json
   -t, --target TEXT
 
-rebrew build-db
+rebrew coverage build
       --root PATH
       --force
       --regen
@@ -265,7 +263,7 @@ rebrew build-db
 
 ## Success Metrics
 
-- `rebrew catalog --json` runs in under 10 s on a 5000-function binary.
+- `rebrew coverage catalog --json` runs in under 10 s on a 5000-function binary.
 - After FLIRT + catalog + CRT triage, the share of LIBRARY-attributed
   uncovered functions in `rebrew todo` drops to <5% (the rest become
   `identify-library` follow-up work).
@@ -276,9 +274,9 @@ rebrew build-db
 
 ## Open Questions / Known Limitations
 
-- Rebrew ships no `.sig` files of its own. `rebrew flirt --init` copies the
+- Rebrew ships no `.sig` files of its own. `rebrew library init-signatures` copies the
   sibling `rebrew-flirt-sigs` checkout into the project's `flirt_sigs/`
-  (`--init-matched` copies only the sigs matching the target), and
+  (`--matched-only` copies only the sigs matching the target), and
   `gen_flirt_pat.py` can build `.pat` files from `.lib` archives. Converting
   `.pat` → `.sig` still requires the upstream `sigmake` tool.
 - CRT matching relies on symbol heuristics; ambiguous names yield multiple
@@ -287,14 +285,14 @@ rebrew build-db
   Ghidra export). The former `functions.txt` format is gone.
 - `--export-ghidra` writes no cache: it prints interactive Ghidra MCP export
   instructions for `function_structure.json` / `ghidra_data_labels.json` and
-  exits (refuses `--json`). `rebrew catalog` writes no inventory file at all:
-  only `rebrew build-db` writes a file; no command in rebrew produces a
+  exits (refuses `--json`). `rebrew coverage catalog` writes no inventory file at all:
+  only `rebrew coverage build` writes a file; no command in rebrew produces a
   stamped `function_structure.json` today, so the ingester's `_generated_by`
   filter only skips one written elsewhere. Fetch live data via
-  `rebrew sync`.
+  `rebrew sync push`.
 - `build-db` writes each `coverage-<target>.toml` deterministically.  It never
   migrates an older format: a document from another `version` contributes no
   history and is replaced whole on the next run, so an upgrade costs a rebuild
   and loses nothing the catalog can regenerate.
-- `rebrew extract show` uses capstone for x86; non-x86 targets are out of
+- `rebrew binary extract show` uses capstone for x86; non-x86 targets are out of
   scope until matching adds support.

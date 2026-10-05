@@ -12,6 +12,66 @@ from rebrew.c_parser import (
 )
 
 
+class TestParseMemo:
+    def test_second_pass_does_not_reparse(self) -> None:
+        """A tree larger than the old 512 cap stays parsed for the second walk."""
+        import rebrew.c_parser as c_parser
+
+        c_parser._tls.parse_memo = None
+        calls = 0
+        real_get = c_parser._get_parser
+
+        def counting_get() -> tuple[object, object]:
+            parser, lang = real_get()
+
+            class _Counting:
+                def parse(self, source: bytes, *args: object, **kwargs: object) -> object:
+                    nonlocal calls
+                    calls += 1
+                    return parser.parse(source, *args, **kwargs)
+
+            return _Counting(), lang
+
+        c_parser._get_parser = counting_get  # type: ignore[assignment]
+        try:
+            sources = [f"int f{i}(void) {{ return {i}; }}\n" for i in range(600)]
+            for source in sources:
+                c_parser.parse_c_source(source)
+            first = calls
+            for source in sources:
+                c_parser.parse_c_source(source)
+        finally:
+            c_parser._get_parser = real_get  # type: ignore[assignment]
+            c_parser._tls.parse_memo = None
+        assert first == 600
+        assert calls == 600
+
+
+class TestVariableTreeSkip:
+    def test_plain_source_does_not_walk_tokens(self) -> None:
+        """No asm or calling-convention marker means no token walk."""
+        import rebrew.c_parser as c_parser
+
+        c_parser._tls.variable_tree_memo = None
+        calls = 0
+        real = c_parser.bisect_left
+
+        def counting(seq: list[int], value: int) -> int:
+            nonlocal calls
+            calls += 1
+            return real(seq, value)
+
+        c_parser.bisect_left = counting  # type: ignore[assignment]
+        try:
+            c_parser._variable_tree("int f(void) { return 1; }\n")
+            assert calls == 0
+            c_parser._variable_tree("int __cdecl g(void) { return 1; }\n")
+            assert calls > 0
+        finally:
+            c_parser.bisect_left = real  # type: ignore[assignment]
+            c_parser._tls.variable_tree_memo = None
+
+
 class TestExtractFunctionNameAndProto:
     def test_simple_function(self) -> None:
         name, proto = extract_function_name_and_proto("int foo(int a) { return a; }")

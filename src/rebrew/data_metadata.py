@@ -11,8 +11,10 @@ The metadata file lives **only** at ``cfg.metadata_dir``.  There is no walk-up
 discovery — callers must pass the correct root directory.  Subdirectories
 do **not** have their own data metadata files.
 
-The ``.c`` file retains only the stable reccmp-compatible marker line and the
-C declaration::
+An unmigrated ``.c`` may still carry the marker line plus the C declaration.
+New writers emit the declaration and record the row. ``rebrew source
+migrate-markers`` copies identity into this store and strips that line, so a
+migrated file is pure C and readers bind the row by ``file``::
 
     // DATA: SERVER 0x10025000
 
@@ -21,9 +23,12 @@ C declaration::
 All rebrew-specific metadata lives in ``rebrew-data.toml``::
 
     ["SERVER.0x10025000"]
-    size    = 256
-    section = ".rdata"
-    note    = "sprite index lookup table"
+    file        = "src/server/lut.c"
+    marker_type = "DATA"
+    name        = "g_sprite_lut"
+    size        = 256
+    section     = ".rdata"
+    note        = "sprite index lookup table"
 
 Key format
 ----------
@@ -35,7 +40,13 @@ updated in place, never shadowed by an appended twin.
 
 Owned fields per entry::
 
-    name, type, size, section, note, status, updated_by, updated_at
+    file, marker_type, name, type, size, section, note, status,
+    updated_by, updated_at
+
+``file`` and ``marker_type`` are the identity ``rebrew source migrate-markers``
+writes.  ``marker_type`` keeps the source word (``GLOBAL``, ``DATA``,
+``VTABLE``, or ``STRING``).  Rows written before that migration have neither
+field; readers treat a missing ``marker_type`` as ``DATA``.
 
 (``status`` is the data-verify verdict: ``VERIFIED`` / ``DRIFT`` / ``UNCHECKED``.
 ``updated_by`` / ``updated_at`` are the write provenance pair, stamped by the
@@ -50,6 +61,7 @@ Writes use ``tomlkit`` for round-trip-safe serialisation and
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import unicodedata
 from collections.abc import Iterator
@@ -68,6 +80,7 @@ from rebrew.metadata import (
     resolve_metadata_dir,
     stamp_format,
     stamp_provenance,
+    validate_identity_file,
     validate_provenance_table,
 )
 from rebrew.metadata_doc import (
@@ -96,10 +109,99 @@ logger = logging.getLogger(__name__)
 
 _data_metadata_cache: MetadataDocCache = {}
 
+#: Stored ``file`` path -> rows, keyed by the identity of the cached document.
+#: A scan looks up one path per source; without the index each lookup walks
+#: the whole table.  The owner pin stops a freed document's ``id`` from being
+#: reused as a live key.  Cleared on every data-store write.
+_DATA_FILE_INDEX: dict[int, dict[str, list[tuple[str, int, dict[str, Any]]]]] = {}
+_DATA_FILE_INDEX_OWNER: dict[int, dict[tuple[str, int], dict[str, Any]]] = {}
+_DATA_FILE_INDEX_LOCK = threading.Lock()
+_DATA_FILE_INDEX_MAX = 4
+
 
 def _invalidate_data_cache(path: Path) -> None:
     """Drop the cached parse for *path* (resolved) after a write."""
     pop_metadata_doc_cache(_data_metadata_cache, path.resolve())
+    with _DATA_FILE_INDEX_LOCK:
+        _DATA_FILE_INDEX.clear()
+        _DATA_FILE_INDEX_OWNER.clear()
+
+
+def _path_suffixes(rel_path: str) -> list[str]:
+    """Every distinct path suffix of *rel_path* that a ``file`` value may store.
+
+    ``"a/b/c.c"`` yields ``["a/b/c.c", "b/c.c", "c.c"]``.  The same rule the
+    function store uses, kept here so this module does not import annotation's
+    private helper.
+    """
+    parts = rel_path.replace("\\", "/").split("/")
+    return ["/".join(parts[i:]) for i in range(len(parts)) if parts[i] not in ("", ".")]
+
+
+def data_file_index(
+    directory: Path | str | Any,
+) -> dict[str, list[tuple[str, int, dict[str, Any]]]]:
+    """Index ``rebrew-data.toml`` rows by their stored ``file`` path.
+
+    The returned lists alias the cached entry dicts.  Callers read them and
+    do not mutate them.  An empty store returns an empty index.
+    """
+    dir_path = resolve_metadata_dir(directory)
+    path = (dir_path / DATA_METADATA_FILENAME).resolve()
+    cached = load_metadata_doc(
+        path,
+        _data_metadata_cache,
+        "data metadata",
+        deepcopy=False,
+        known_fields=DATA_METADATA_FIELDS,
+    )
+    if not cached:
+        return {}
+    key = id(cached)
+    with _DATA_FILE_INDEX_LOCK:
+        if _DATA_FILE_INDEX_OWNER.get(key) is cached:
+            found = _DATA_FILE_INDEX.get(key)
+            if found is not None:
+                return found
+    index: dict[str, list[tuple[str, int, dict[str, Any]]]] = {}
+    for (module, va), entry in cached.items():
+        stored = str(entry.get("file", "")).replace("\\", "/")
+        if stored:
+            index.setdefault(stored, []).append((module, va, entry))
+    with _DATA_FILE_INDEX_LOCK:
+        if len(_DATA_FILE_INDEX) >= _DATA_FILE_INDEX_MAX:
+            _DATA_FILE_INDEX.clear()
+            _DATA_FILE_INDEX_OWNER.clear()
+        _DATA_FILE_INDEX[key] = index
+        _DATA_FILE_INDEX_OWNER[key] = cached
+    return index
+
+
+def data_rows_for_path(
+    directory: Path | str | Any, filepath: Path
+) -> list[tuple[str, int, dict[str, Any]]]:
+    """Return data rows whose ``file`` matches *filepath*.
+
+    The match is the metadata-root-relative path, any trailing suffix of it,
+    or the bare filename.  One ``(module, va)`` is returned once even when
+    several suffixes hit it.
+    """
+    dir_path = resolve_metadata_dir(directory)
+    try:
+        rel = filepath.resolve().relative_to(dir_path.resolve()).as_posix()
+    except ValueError:
+        rel = Path(os.path.relpath(filepath, dir_path)).as_posix()
+    seen: set[tuple[str, int]] = set()
+    rows: list[tuple[str, int, dict[str, Any]]] = []
+    index = data_file_index(directory)
+    for candidate in _path_suffixes(rel):
+        for module, va, entry in index.get(candidate, ()):
+            identity = (module, va)
+            if identity in seen:
+                continue
+            seen.add(identity)
+            rows.append((module, va, entry))
+    return rows
 
 
 # ---------------------------------------------------------------------------
@@ -109,13 +211,15 @@ def _invalidate_data_cache(path: Path) -> None:
 DATA_METADATA_FILENAME = "rebrew-data.toml"
 
 #: Fields owned by the data metadata.  Must match ``_CANONICAL_ORDER``: `type`
-#: is written by `rebrew data --set-type` and the binsync import/overlay paths.
+#: is written by `rebrew data set --type` and the binsync import/overlay paths.
 #: ``UPDATED_BY`` / ``UPDATED_AT`` are the write provenance pair the gated
 #: writers stamp on every change, so "who decided this symbol is DRIFT, and
 #: when" is answerable from the canonical store — the coverage document's
 #: ``verify_results[]`` row is derived and gitignored, and a rebuild carries it
 #: forward but does not recreate it.
 DATA_METADATA_FIELD_TYPES: dict[str, type | tuple[type, ...]] = {
+    "file": str,
+    "marker_type": str,
     "name": str,
     "type": str,
     **{
@@ -137,8 +241,11 @@ DATA_STATUSES: frozenset[str] = frozenset(
     {DATA_STATUS_VERIFIED, DATA_STATUS_DRIFT, DATA_STATUS_UNCHECKED}
 )
 
-# Canonical TOML key order when writing.
+# Canonical TOML key order when writing.  Identity first, then the fields
+# `rebrew data set` and the verdict writers already emit.
 _CANONICAL_ORDER = [
+    "file",
+    "marker_type",
     "name",
     "type",
     "size",
@@ -154,6 +261,14 @@ _CANONICAL_ORDER = [
     "verification",
 ]
 
+#: Identity keys ``rebrew source migrate-markers`` moves out of a data marker.
+#: ``name`` is filled only when the row has none, so a later rename survives
+#: a second migration.  Deliberately written by :func:`record_migrated_data_markers`
+#: rather than :func:`set_data_fields_batch`, which clears a verdict when
+#: ``name`` / ``type`` / ``size`` / ``section`` change.
+_DATA_MARKER_IDENTITY = ("file", "marker_type", "name")
+_DATA_MARKER_FILL = ("type", "size", "section")
+
 __all__ = [
     "DATA_METADATA_FILENAME",
     "DATA_METADATA_FIELDS",
@@ -168,6 +283,9 @@ __all__ = [
     "set_data_fields_batch",
     "validate_data_field",
     "merge_into_data_annotation",
+    "record_migrated_data_markers",
+    "data_file_index",
+    "data_rows_for_path",
 ]
 
 
@@ -205,6 +323,17 @@ def validate_data_field(key: str, value: Any) -> Any:
         raise ValueError(
             f"invalid data STATUS {value!r}: not one of {', '.join(sorted(DATA_STATUSES))}"
         )
+    if key == "file":
+        return validate_identity_file(value)
+    if key == "marker_type":
+        # Lazy: annotation synthesizes data rows from this module, so a
+        # module-level import here would cycle at import time.
+        from rebrew.annotation import DATA_MARKERS
+
+        if value not in DATA_MARKERS:
+            raise ValueError(
+                f"marker_type must be one of {', '.join(sorted(DATA_MARKERS))}, got {value!r}"
+            )
     return value
 
 
@@ -558,6 +687,82 @@ def delete_data_entries_batch(directory: Path | str | Any, targets: list[tuple[s
             atomic_write_locked(path, tomlkit.dumps(doc))
             _invalidate_data_cache(path)
     return removed
+
+
+def record_migrated_data_markers(
+    metadata_dir: Path | str | Any, rows: list[dict[str, Any]]
+) -> None:
+    """Write ``migrate-markers`` data rows into ``rebrew-data.toml`` in one edit.
+
+    Each row carries ``module``, ``va``, ``identity`` (``file``,
+    ``marker_type``, and ``name``; empty values are skipped and ``name`` is
+    set only when the entry has none) and ``fill`` (``type``, ``size``,
+    ``section``, written only when the entry lacks that key).  A stored
+    verdict is left in place: this writer does not go through
+    :func:`set_data_fields_batch`, which drops ``status`` when a definition
+    field changes.  It also does not stamp ``updated_by``.  STATUS in either
+    map is rejected.
+
+    Raises:
+        ValueError: The existing store cannot be parsed (it is left untouched),
+            a row has no module, or a field fails validation.
+
+    """
+    if not rows:
+        return
+    from rebrew.utils import load_toml_for_write_strict, toml_safe
+
+    dir_path = resolve_metadata_dir(metadata_dir)
+    path = (dir_path / DATA_METADATA_FILENAME).resolve()
+    with metadata_write_lock(dir_path, DATA_METADATA_FILENAME):
+        doc = load_toml_for_write_strict(path, "data metadata")
+        key_index = build_metadata_key_index(doc)
+        changed = False
+        for row in rows:
+            module = str(row.get("module") or "")
+            if not module:
+                raise ValueError("data metadata writes require a non-empty module")
+            va_int = as_metadata_int(row["va"])
+            if va_int < 0:
+                raise ValueError(f"VA must be non-negative, got {va_int:#x}")
+            toml_key = resolve_metadata_key(doc, module, va_int, index=key_index)
+            if toml_key not in doc:
+                doc[toml_key] = tomlkit.table()
+                key_index[(unicodedata.normalize("NFC", module), va_int)] = toml_key
+            elif not isinstance(doc[toml_key], dict):
+                raise ValueError(
+                    f"data metadata entry {toml_key!r} is not a table "
+                    f"({type(doc[toml_key]).__name__}); repair or remove it first"
+                )
+            entry = doc[toml_key]
+            updates: dict[str, Any] = {}
+            for key, value in (row.get("identity") or {}).items():
+                if key == "status":
+                    raise ValueError("data migration does not write STATUS")
+                if key not in _DATA_MARKER_IDENTITY:
+                    raise ValueError(f"unknown data marker identity field {key!r}")
+                if value and not (key == "name" and entry.get("name")):
+                    stored = validate_data_field(key, value)
+                    if stored:
+                        updates[key] = toml_safe(stored)
+            for key, value in (row.get("fill") or {}).items():
+                if key == "status":
+                    raise ValueError("data migration does not write STATUS")
+                if key not in _DATA_MARKER_FILL:
+                    raise ValueError(f"unknown data marker fill field {key!r}")
+                if value in (None, "", 0):
+                    continue
+                if entry.get(key) not in (None, ""):
+                    continue
+                updates[key] = toml_safe(validate_data_field(key, value))
+            for key, value in updates.items():
+                if entry.get(key) != value:
+                    entry[key] = value
+                    changed = True
+        if changed:
+            stamp_format(doc)
+            atomic_write_locked(path, tomlkit.dumps(doc))
+            _invalidate_data_cache(path)
 
 
 # ---------------------------------------------------------------------------

@@ -21,6 +21,15 @@ from rebrew.skeleton import (
     list_uncovered,
 )
 
+_WRITER_MARKERS = ("// FUNCTION:", "// LIBRARY:", "// SIZE:", "/* FUNCTION:")
+
+
+def _assert_pure_c(text: str) -> None:
+    """Generated C carries no inline marker line."""
+    for token in _WRITER_MARKERS:
+        assert token not in text
+
+
 # -------------------------------------------------------------------------
 # generate_test_command
 # -------------------------------------------------------------------------
@@ -208,20 +217,76 @@ class TestGenerateSkeletonModules:
         defaults.update(overrides)
         return ProjectConfig(root=Path("/tmp"), **defaults)
 
-    def test_library_module_uses_library_marker(self) -> None:
+    def test_library_module_uses_library_marker(self, tmp_path: Path) -> None:
+        """The C is marker-free. kind_module in library_modules records LIBRARY
+        under the address module, which the CLI sets to cfg.marker."""
+        from rebrew.metadata import get_entry
+        from rebrew.skeleton import _write_skeleton_metadata
+
         cfg = self._make_cfg()
         content = generate_skeleton(cfg, 0x10001000, "dx_init", "DIRECTX")
-        assert content.startswith("// LIBRARY: SERVER")
+        _assert_pure_c(content)
+        assert "dx_init" in content
 
-    def test_non_library_module_uses_function_marker(self) -> None:
+        meta = SimpleNamespace(metadata_dir=tmp_path, library_modules={"DIRECTX"})
+        _write_skeleton_metadata(
+            meta,
+            tmp_path / "dx_init.c",
+            0x10001000,
+            32,
+            "SERVER",
+            "dx_init",
+            kind_module="DIRECTX",
+        )
+        entry = get_entry(tmp_path, 0x10001000, "SERVER")
+        assert entry["marker_type"] == "LIBRARY"
+        assert entry["name"] == "dx_init"
+        assert entry["symbol"] == "_dx_init"
+        assert entry["size"] == 32
+        assert entry["file"] == "dx_init.c"
+        assert "status" not in entry
+        store = (tmp_path / "rebrew-functions.toml").read_text(encoding="utf-8")
+        assert "SERVER.0x10001000" in store
+
+    def test_non_library_module_uses_function_marker(self, tmp_path: Path) -> None:
+        from rebrew.metadata import get_entry
+        from rebrew.skeleton import _write_skeleton_metadata
+
         cfg = self._make_cfg()
         content = generate_skeleton(cfg, 0x10001000, "game_func", "SERVER")
-        assert content.startswith("// FUNCTION: SERVER")
+        _assert_pure_c(content)
+        assert "game_func" in content
 
-    def test_annotation_block_library_module(self) -> None:
+        meta = SimpleNamespace(metadata_dir=tmp_path, library_modules={"DIRECTX"})
+        _write_skeleton_metadata(
+            meta, tmp_path / "game_func.c", 0x10001000, 32, "SERVER", "game_func"
+        )
+        entry = get_entry(tmp_path, 0x10001000, "SERVER")
+        assert entry["marker_type"] == "FUNCTION"
+        assert entry["name"] == "game_func"
+        assert entry["symbol"] == "_game_func"
+        assert entry["size"] == 32
+        assert "status" not in entry
+
+    def test_annotation_block_library_module(self, tmp_path: Path) -> None:
+        """An address module that is itself a library module records LIBRARY."""
+        from rebrew.metadata import get_entry
+        from rebrew.skeleton import _write_skeleton_metadata
+
         cfg = self._make_cfg()
         block = generate_annotation_block(cfg, 0x10001000, "dx_init", "DIRECTX")
-        assert block.startswith("// LIBRARY: SERVER")
+        _assert_pure_c(block)
+        assert "dx_init" in block
+
+        meta = SimpleNamespace(metadata_dir=tmp_path, library_modules={"DIRECTX"})
+        _write_skeleton_metadata(meta, tmp_path / "dx_init.c", 0x10001000, 16, "DIRECTX", "dx_init")
+        entry = get_entry(tmp_path, 0x10001000, "DIRECTX")
+        assert entry["marker_type"] == "LIBRARY"
+        assert entry["name"] == "dx_init"
+        assert entry["symbol"] == "_dx_init"
+        assert "status" not in entry
+        store = (tmp_path / "rebrew-functions.toml").read_text(encoding="utf-8")
+        assert "DIRECTX.0x10001000" in store
 
     def test_default_comment_in_skeleton(self) -> None:
         cfg = self._make_cfg()
@@ -325,7 +390,7 @@ class TestGenerateAnnotationBlock:
         from rebrew.skeleton import generate_annotation_block
 
         block = generate_annotation_block(self._cfg(), 0x1000, "FUN_10001000")
-        assert "FUNCTION: SERVER 0x00001000" in block
+        _assert_pure_c(block)
         assert "func_10001000" in block
 
     def test_custom_name_wins(self) -> None:
@@ -337,14 +402,32 @@ class TestGenerateAnnotationBlock:
         assert "my_func" in block
         assert "func_10001000" not in block
 
-    def test_library_module_marker(self) -> None:
+    def test_library_module_marker(self, tmp_path: Path) -> None:
         from types import SimpleNamespace
 
-        from rebrew.skeleton import generate_annotation_block
+        from rebrew.metadata import get_entry
+        from rebrew.skeleton import _write_skeleton_metadata, generate_annotation_block
 
-        cfg = SimpleNamespace(library_modules={"MSVCRT"}, marker="SERVER")
+        cfg = SimpleNamespace(library_modules={"MSVCRT"}, marker="SERVER", metadata_dir=tmp_path)
         block = generate_annotation_block(cfg, 0x1000, "FUN_10001000", module="MSVCRT")
-        assert "LIBRARY" in block
+        _assert_pure_c(block)
+        assert "func_10001000" in block
+        assert "LIBRARY" not in block
+        _write_skeleton_metadata(
+            cfg,
+            tmp_path / "crt.c",
+            0x1000,
+            8,
+            "SERVER",
+            "func_10001000",
+            kind_module="MSVCRT",
+        )
+        entry = get_entry(tmp_path, 0x1000, "SERVER")
+        assert entry["marker_type"] == "LIBRARY"
+        assert entry["name"] == "func_10001000"
+        assert entry["symbol"] == "_func_10001000"
+        assert entry["size"] == 8
+        assert "status" not in entry
 
 
 class TestSkeletonListFallback:
@@ -353,7 +436,6 @@ class TestSkeletonListFallback:
     def _cfg(self, tmp_path: Path) -> SimpleNamespace:
         src_dir = tmp_path / "src"
         src_dir.mkdir(exist_ok=True)
-        (tmp_path / "md").mkdir(exist_ok=True)
         import json as _json
 
         (src_dir / "function_structure.json").write_text(
@@ -364,7 +446,7 @@ class TestSkeletonListFallback:
         return SimpleNamespace(
             root=tmp_path,
             reversed_dir=src_dir,
-            metadata_dir=tmp_path / "md",
+            metadata_dir=tmp_path,
             marker="GAME",
             source_ext=".c",
             target_binary=tmp_path / "game.dll",
@@ -389,7 +471,19 @@ class TestSkeletonListFallback:
         created = list((tmp_path / "src").glob("*.c"))
         assert len(created) == 1
         text = created[0].read_text(encoding="utf-8")
-        assert "0x10001000" in text  # marker from the list-derived entry
+        _assert_pure_c(text)
+        assert "fcn_10001000" in text
+        from rebrew.metadata import get_entry
+
+        entry = get_entry(cfg.metadata_dir, 0x10001000, "GAME")
+        assert entry["marker_type"] == "FUNCTION"
+        assert entry["name"] == "fcn_10001000"
+        assert entry["symbol"] == "_fcn_10001000"
+        assert entry["size"] == 42
+        assert entry["file"] == "src/fcn_10001000.c"
+        assert "status" not in entry
+        store = (cfg.metadata_dir / "rebrew-functions.toml").read_text(encoding="utf-8")
+        assert "GAME.0x10001000" in store
 
     def test_unresolved_va_errors_cleanly(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -409,7 +503,6 @@ class TestSkeletonMetadataSize:
     def _cfg(self, tmp_path: Path) -> SimpleNamespace:
         src = tmp_path / "src"
         src.mkdir(exist_ok=True)
-        (tmp_path / "md").mkdir(exist_ok=True)
         import json as _json
 
         (src / "function_structure.json").write_text(
@@ -420,7 +513,7 @@ class TestSkeletonMetadataSize:
         return SimpleNamespace(
             root=tmp_path,
             reversed_dir=src,
-            metadata_dir=tmp_path / "md",
+            metadata_dir=tmp_path,
             marker="GAME",
             source_ext=".c",
             target_binary=tmp_path / "game.dll",
@@ -444,26 +537,35 @@ class TestSkeletonMetadataSize:
 
         entry = get_entry(cfg.metadata_dir, 0x10001000, "GAME")
         assert entry.get("size") == 42  # from the function list, now verifiable
+        assert entry.get("marker_type") == "FUNCTION"
+        assert entry.get("name") == "fcn_10001000"
+        assert entry.get("symbol") == "_fcn_10001000"
+        assert entry.get("updated_by") == "skeleton"
+        assert entry.get("updated_at")
+        assert "status" not in entry
 
     def test_existing_size_not_overwritten(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.metadata import update_field
+        from rebrew.metadata import get_entry, update_field
         from rebrew.skeleton import _write_skeleton_metadata
 
         cfg = self._cfg(tmp_path)
         update_field(cfg.metadata_dir, 0x10001000, "size", 99, module="GAME")
-        _write_skeleton_metadata(cfg, 0x10001000, 42, "GAME")
-        from rebrew.metadata import get_entry
-
-        assert get_entry(cfg.metadata_dir, 0x10001000, "GAME").get("size") == 99
+        _write_skeleton_metadata(cfg, cfg.reversed_dir / "keep.c", 0x10001000, 42, "GAME", "keep")
+        entry = get_entry(cfg.metadata_dir, 0x10001000, "GAME")
+        assert entry.get("size") == 99
+        assert entry.get("marker_type") == "FUNCTION"
+        assert entry.get("name") == "keep"
+        assert entry.get("symbol") == "_keep"
+        assert entry.get("file") == "src/keep.c"
+        assert "status" not in entry
 
 
 class TestSkeletonDryRun:
     def _cfg(self, tmp_path: Path) -> SimpleNamespace:
         src = tmp_path / "src"
         src.mkdir(exist_ok=True)
-        (tmp_path / "md").mkdir(exist_ok=True)
         import json as _json
 
         (src / "function_structure.json").write_text(
@@ -479,7 +581,7 @@ class TestSkeletonDryRun:
         return SimpleNamespace(
             root=tmp_path,
             reversed_dir=src,
-            metadata_dir=tmp_path / "md",
+            metadata_dir=tmp_path,
             marker="GAME",
             source_ext=".c",
             target_binary=tmp_path / "game.dll",
@@ -556,6 +658,37 @@ class TestSkeletonDryRun:
         # (rich hard-wraps the path across lines).
         assert "replaced source kept at" in result.output
         assert backups[0].name in "".join(result.output.split())
+
+    def test_force_overwrite_does_not_migrate_markers(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """--force replaces the whole file. It does not migrate the old marker."""
+        from typer.testing import CliRunner
+
+        import rebrew.skeleton as sk
+        from rebrew.metadata import get_entry
+        from rebrew.skeleton import make_filename
+
+        cfg = self._cfg(tmp_path)
+        cfg.dll_exports = {}
+        existing = cfg.reversed_dir / make_filename("fcn.10001000", cfg=cfg)
+        hand = "// FUNCTION: GAME 0x00009999\nint keep(void) { return 1; }\n"
+        existing.write_text(hand, encoding="utf-8")
+        monkeypatch.setattr(sk, "require_config", lambda target=None, json_mode=False: cfg)
+        result = CliRunner().invoke(sk.app, ["--force", "0x10001000"])
+        assert result.exit_code == 0, result.output
+        text = existing.read_text(encoding="utf-8")
+        _assert_pure_c(text)
+        assert "fcn_10001000" in text
+        backups = list((tmp_path / ".rebrew" / "source-backups").glob(f"{existing.name}.*"))
+        assert len(backups) == 1
+        assert backups[0].read_text(encoding="utf-8") == hand
+        assert get_entry(cfg.metadata_dir, 0x9999, "GAME") == {}
+        written = get_entry(cfg.metadata_dir, 0x10001000, "GAME")
+        assert written["marker_type"] == "FUNCTION"
+        assert written["name"] == "fcn_10001000"
+        assert written["size"] == 42
+        assert "status" not in written
 
     def test_batch_dry_run_creates_nothing(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -834,6 +967,20 @@ class TestConventionStub:
         code = bytes.fromhex("8b 44 24 04 c3")
         monkeypatch.setattr("rebrew.binary_loader.extract_raw_bytes", lambda p, va, n: code)
         sig, note = _convention_stub(self._cfg(tmp_path), 0x1000, "f")
+        assert sig is None
+        assert note is None
+
+    def test_local_ecx_pool_pointer_keeps_cdecl_default(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """m_pool_free's local ECX must not become a fabricated self argument."""
+        from rebrew.skeleton import _convention_stub
+
+        # mov edx,[esp+8]; push esi; lea ecx,[edx-4]; test ecx,ecx;
+        # je return; mov eax,[ecx]; pop esi; ret
+        code = bytes.fromhex("8b 54 24 08 56 8d 4a fc 85 c9 74 02 8b 01 5e c3")
+        monkeypatch.setattr("rebrew.binary_loader.extract_raw_bytes", lambda p, va, n: code)
+        sig, note = _convention_stub(self._cfg(tmp_path), 0x1000, "m_pool_free")
         assert sig is None
         assert note is None
 
@@ -1204,11 +1351,10 @@ class TestAppendCrlfSource:
     def _cfg(self, tmp_path: Path) -> SimpleNamespace:
         src = tmp_path / "src"
         src.mkdir(exist_ok=True)
-        (tmp_path / "md").mkdir(exist_ok=True)
         return SimpleNamespace(
             root=tmp_path,
             reversed_dir=src,
-            metadata_dir=tmp_path / "md",
+            metadata_dir=tmp_path,
             marker="GAME",
             source_ext=".c",
             target_binary=tmp_path / "game.dll",

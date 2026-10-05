@@ -1,6 +1,6 @@
 """link-order — enforce VA-ordered sources into CMakeLists.txt SOURCES.
 
-``rebrew order-sources`` prints the VA link order; this command writes that
+``rebrew build order-sources`` prints the VA link order; this command writes that
 order into the project's ``CMakeLists.txt`` so the link actually builds TUs
 in position-aligned order, and ``--check`` gates drift in CI.
 
@@ -11,7 +11,7 @@ keywords (``STATIC``, ``WIN32``, ...), generator expressions, quoting, and
 every line outside the entries are preserved verbatim.
 
 Usage:
-    rebrew link-order [--apply] [--dry-run] [--check] [--json]
+    rebrew build link-order [--apply] [--dry-run] [--check] [--json]
 """
 
 from __future__ import annotations
@@ -32,9 +32,9 @@ from rebrew.utils import atomic_write_text, preset_module_key
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew link-order --check · · · · · · Fail if CMakeLists.txt drifts (CI gate)\n\n"
-    "  rebrew link-order --dry-run · · · · · Show the reordering, write nothing\n\n"
-    "  rebrew link-order --apply · · · · · · · Rewrite CMakeLists.txt in VA order\n"
+    "  rebrew build link-order --check · · · · · · Fail if CMakeLists.txt drifts (CI gate)\n\n"
+    "  rebrew build link-order --dry-run · · · · · Show the reordering, write nothing\n\n"
+    "  rebrew build link-order --apply · · · · · · · Rewrite CMakeLists.txt in VA order\n"
 )
 
 
@@ -348,7 +348,7 @@ def _print_drift(diff: str) -> None:
 
     The ordered source list is piped data and stays on stdout, but the diff is
     the human explanation that sits beside a ``console`` status line, so
-    ``rebrew link-order --check > out`` captures the same thing on both
+    ``rebrew build link-order --check > out`` captures the same thing on both
     branches instead of a report on one and a message on the other.
     """
     console.print(diff, soft_wrap=True, markup=False, highlight=False)

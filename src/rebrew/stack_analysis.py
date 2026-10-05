@@ -22,7 +22,7 @@ A frame delta is a classic per-function flag symptom — frame-pointer omission
 convention — the exact signal for tuning static-CRT / vendored-zlib LIBRARY
 functions per-function (the reccmp <50% grind).
 
-The library half of the ``rebrew stack-cmp`` command: deriving a frame from
+The library half of the ``rebrew diagnose stack`` command: deriving a frame from
 disassembly and diffing two frames is pure analysis, with no Typer app and no
 console output, so ``rebrew.near_analysis`` and the command both import it.
 ``rebrew.stack_cmp`` owns the CLI.

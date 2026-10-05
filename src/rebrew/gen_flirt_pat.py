@@ -31,9 +31,9 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew gen-flirt-pat toolchain/msvc/6.0-win32/VC98/Lib/LIBCMT.LIB\n\n"
-        "  rebrew gen-flirt-pat LIBCMT.LIB --output flirt_sigs/libcmt.pat\n\n"
-        "  rebrew gen-flirt-pat libultra.a --output flirt_sigs/libultra.pat\n\n"
+        "  rebrew library signatures toolchain/msvc/6.0-win32/VC98/Lib/LIBCMT.LIB\n\n"
+        "  rebrew library signatures LIBCMT.LIB --output flirt_sigs/libcmt.pat\n\n"
+        "  rebrew library signatures libultra.a --output flirt_sigs/libultra.pat\n\n"
         "[dim]Reads COFF .obj or ELF .o members from an ar archive, extracts public "
         "function symbols with relocations, and emits FLIRT .pat-format "
         "signatures.[/dim]"
@@ -500,7 +500,7 @@ def generate_pat(lib_file: Path, out_path: Path) -> dict[str, int | bool]:
     writing it again does not create signatures. An existing file at
     *out_path* is removed in that case.
 
-    Shared by ``rebrew gen-flirt-pat`` and ``rebrew identify-library
+    Shared by ``rebrew library signatures`` and ``rebrew library identify
     --build-sigs`` (batch over a toolchain Lib dir).
     """
     out_path.parent.mkdir(parents=True, exist_ok=True)

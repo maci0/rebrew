@@ -492,12 +492,16 @@ class TestRenderers:
         out = tmp_path / "bss_padding.c"
         assert out.exists()
         text = out.read_text(encoding="utf-8")
-        assert "// DATA: SERVER 0x00005004" in text
+        assert "// DATA:" not in text
         assert "char gap_00005004[16];" in text
-        from rebrew.data_metadata import load_data_metadata
+        from rebrew.data_metadata import get_data_entry, load_data_metadata
 
         meta = load_data_metadata(tmp_path)
         assert any(m.get("size") == 16 and m.get("section") == ".bss" for m in meta.values())
+        entry = get_data_entry(tmp_path, 0x5004, "SERVER")
+        assert entry["marker_type"] == "DATA"
+        assert entry["name"] == "gap_00005004"
+        assert entry["file"] == "bss_padding.c"
 
 
 class TestDataCli:
@@ -523,7 +527,7 @@ class TestDataCli:
     def test_json_output(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         cfg = _cfg(tmp_path)
         self._write_global(cfg)
-        result = self._invoke(tmp_path, monkeypatch, ["--json"])
+        result = self._invoke(tmp_path, monkeypatch, ["list", "--json"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert "g_counter" in data["globals"]
@@ -532,7 +536,7 @@ class TestDataCli:
     def test_summary_text(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         cfg = _cfg(tmp_path)
         self._write_global(cfg)
-        result = self._invoke(tmp_path, monkeypatch, ["--summary"])
+        result = self._invoke(tmp_path, monkeypatch, ["list", "--summary"])
         assert result.exit_code == 0
         assert "Global" in result.output
         # PRD 06 --summary: section-level counts, bytes annotated, % coverage.
@@ -542,7 +546,7 @@ class TestDataCli:
         """--summary --json emits a structured section-progress summary."""
         cfg = _cfg(tmp_path)
         self._write_global(cfg)
-        result = self._invoke(tmp_path, monkeypatch, ["--summary", "--json"])
+        result = self._invoke(tmp_path, monkeypatch, ["list", "--summary", "--json"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert "summary" in data
@@ -559,7 +563,7 @@ class TestDataCli:
         (cfg.reversed_dir / "b.c").write_text(
             "// GLOBAL: SERVER 0x1000\nextern float g_x;\n", encoding="utf-8"
         )
-        result = self._invoke(tmp_path, monkeypatch, ["--conflicts"])
+        result = self._invoke(tmp_path, monkeypatch, ["list", "--conflicts"])
         assert result.exit_code == 0
         assert "Type Conflicts" in result.output
         assert "g_x" in result.output
@@ -577,20 +581,20 @@ class TestDataCli:
         (cfg.reversed_dir / "b.c").write_text(
             "// GLOBAL: SERVER 0x2000\nextern float g_x;\n", encoding="utf-8"
         )
-        result = self._invoke(tmp_path, monkeypatch, ["--conflicts", "--json"])
+        result = self._invoke(tmp_path, monkeypatch, ["list", "--conflicts", "--json"])
         assert result.exit_code == 0, result.output
         data = json.loads(result.output)
         assert list(data["globals"]) == ["g_x"]
         assert data["summary"]["total"] == 1
         assert data["summary"]["conflicts"] == 1
         # Control: without --conflicts the full set comes back.
-        result = self._invoke(tmp_path, monkeypatch, ["--json"])
+        result = self._invoke(tmp_path, monkeypatch, ["list", "--json"])
         assert "g_counter" in json.loads(result.output)["globals"]
 
     def test_gen_header_writes_file(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         cfg = _cfg(tmp_path)
         self._write_global(cfg)
-        result = self._invoke(tmp_path, monkeypatch, ["--gen-header"])
+        result = self._invoke(tmp_path, monkeypatch, ["header"])
         assert result.exit_code == 0
         out = cfg.reversed_dir / "rebrew_globals.h"
         assert out.exists()
@@ -602,18 +606,16 @@ class TestDataCli:
         print only to the Rich console and emit nothing on stdout."""
         cfg = _cfg(tmp_path)
         self._write_global(cfg)
-        result = self._invoke(tmp_path, monkeypatch, ["--gen-header", "--json"])
+        result = self._invoke(tmp_path, monkeypatch, ["header", "--json"])
         assert result.exit_code == 0, result.output
         data = json.loads(result.output)
         assert data["written"] is True
         assert data["globals"] >= 1
         assert data["path"] == str(cfg.reversed_dir / "rebrew_globals.h")
         # Re-run with --force: identical body → written=False (nothing rewritten).
-        result = self._invoke(tmp_path, monkeypatch, ["--gen-header", "--force", "--json"])
+        result = self._invoke(tmp_path, monkeypatch, ["header", "--force", "--json"])
         assert json.loads(result.output)["written"] is False
-        result = self._invoke(
-            tmp_path, monkeypatch, ["--gen-header", "--force", "--dry-run", "--json"]
-        )
+        result = self._invoke(tmp_path, monkeypatch, ["header", "--force", "--dry-run", "--json"])
         assert json.loads(result.output)["dry_run"] is True
 
     def test_gen_header_refuses_overwrite_without_force(
@@ -623,7 +625,7 @@ class TestDataCli:
         self._write_global(cfg)
         out = cfg.reversed_dir / "rebrew_globals.h"
         out.write_text("existing", encoding="utf-8")
-        result = self._invoke(tmp_path, monkeypatch, ["--gen-header", "--json"])
+        result = self._invoke(tmp_path, monkeypatch, ["header", "--json"])
         assert result.exit_code == 2, result.output
         assert "already exists" in json.loads(result.output)["error"]
         assert out.read_text(encoding="utf-8") == "existing"
@@ -634,7 +636,7 @@ class TestDataCli:
         cfg = _cfg(tmp_path)
         self._write_global(cfg)
         out = tmp_path / "custom.h"
-        result = self._invoke(tmp_path, monkeypatch, ["--gen-header", "--gen-header-out", str(out)])
+        result = self._invoke(tmp_path, monkeypatch, ["header", "--output", str(out)])
         assert result.exit_code == 0
         assert out.exists()
 
@@ -656,7 +658,7 @@ class TestDataCli:
             ),
         )
         (tmp_path / "fake.dll").write_bytes(b"\x00" * 16)
-        result = self._invoke(tmp_path, monkeypatch, ["--bss", "--json"])
+        result = self._invoke(tmp_path, monkeypatch, ["bss", "--json"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["bss_size"] == 0x100
@@ -670,7 +672,7 @@ class TestDataCli:
             gaps=[BssGap(offset=0x1004, size=16, before="g_counter", after="next")],
         )
         monkeypatch.setattr("rebrew.data.verify_bss_layout", lambda scan, sections: report)
-        result = self._invoke(tmp_path, monkeypatch, ["--fix-bss"])
+        result = self._invoke(tmp_path, monkeypatch, ["fix-bss"])
         assert result.exit_code == 0
         assert (cfg.reversed_dir / "bss_padding.c").exists()
 
@@ -687,14 +689,14 @@ class TestDataCli:
             gaps=[BssGap(offset=0x1004, size=16, before="g_counter", after="next")],
         )
         monkeypatch.setattr("rebrew.data.verify_bss_layout", lambda scan, sections: report)
-        result = self._invoke(tmp_path, monkeypatch, ["--fix-bss"])
+        result = self._invoke(tmp_path, monkeypatch, ["fix-bss"])
         assert result.exit_code == 0
         assert padding.read_text(encoding="utf-8") == "char my_own_pad[8];\n"
 
     def test_dispatch_missing_binary_errors(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        result = self._invoke(tmp_path, monkeypatch, ["--dispatch"])
+        result = self._invoke(tmp_path, monkeypatch, ["dispatch"])
         assert result.exit_code != 0
         assert "target binary not found" in result.output
 
@@ -705,7 +707,7 @@ class TestDataCli:
             lambda p: SimpleNamespace(data=b"\x00" * 16, sections={}),
         )
         monkeypatch.setattr("rebrew.data.find_dispatch_tables", lambda *a, **k: [])
-        result = self._invoke(tmp_path, monkeypatch, ["--dispatch", "--json"])
+        result = self._invoke(tmp_path, monkeypatch, ["dispatch", "--json"])
         assert result.exit_code == 0
         assert json.loads(result.output) == []
 
@@ -725,7 +727,7 @@ class TestDataCli:
 
         monkeypatch.setattr("rebrew.binary_loader.load_binary", _fake_load)
         monkeypatch.setattr("rebrew.data.find_dispatch_tables", lambda *a, **k: [])
-        result = self._invoke(tmp_path, monkeypatch, ["--dispatch", "--json"])
+        result = self._invoke(tmp_path, monkeypatch, ["dispatch", "--json"])
         assert result.exit_code == 0
         assert calls["n"] == 1
 
@@ -1071,6 +1073,65 @@ class TestDataMarkerScan:
         assert entry.annotated is True
         assert entry.type_str == "char[24]"
 
+    def test_markerless_row_uses_the_source_type(self, tmp_path: Path) -> None:
+        """A pure-C file binds the data row, and a later header does not replace its type."""
+        from rebrew.data_metadata import set_data_field
+
+        cfg = _cfg(tmp_path)
+        (cfg.reversed_dir / "a.c").write_text("extern unsigned char lut[256];\n", encoding="utf-8")
+        (cfg.reversed_dir / "lut.h").write_text("extern int lut[];\n", encoding="utf-8")
+        set_data_field(cfg.metadata_dir, 0x10025000, "file", "src/SERVER/a.c", "SERVER")
+        set_data_field(cfg.metadata_dir, 0x10025000, "marker_type", "DATA", "SERVER")
+        set_data_field(cfg.metadata_dir, 0x10025000, "name", "lut", "SERVER")
+        scan = scan_globals(cfg.reversed_dir, cfg)
+        entry = scan.globals["lut"]
+        assert entry.annotated is True
+        assert entry.va == 0x10025000
+        assert entry.type_str == "unsigned char[256]"
+        assert entry.conflict is False
+
+    def test_inline_marker_does_not_also_bind_a_stored_row(self, tmp_path: Path) -> None:
+        from rebrew.data_metadata import set_data_field
+
+        cfg = _cfg(tmp_path)
+        (cfg.reversed_dir / "a.c").write_text(
+            "// DATA: SERVER 0x1000\nextern int lut;\n", encoding="utf-8"
+        )
+        set_data_field(cfg.metadata_dir, 0x2000, "file", "src/SERVER/a.c", "SERVER")
+        set_data_field(cfg.metadata_dir, 0x2000, "name", "g_other", "SERVER")
+        set_data_field(cfg.metadata_dir, 0x2000, "marker_type", "GLOBAL", "SERVER")
+        scan = scan_globals(cfg.reversed_dir, cfg)
+        assert scan.globals["lut"].va == 0x1000
+        assert scan.globals["lut"].annotated is True
+        assert "g_other" not in scan.globals
+
+    def test_header_does_not_adopt_a_source_row(self, tmp_path: Path) -> None:
+        from rebrew.data_metadata import set_data_field
+
+        cfg = _cfg(tmp_path)
+        (cfg.reversed_dir / "lut.h").write_text("extern int lut[];\n", encoding="utf-8")
+        set_data_field(cfg.metadata_dir, 0x10025000, "file", "src/SERVER/a.c", "SERVER")
+        set_data_field(cfg.metadata_dir, 0x10025000, "name", "lut", "SERVER")
+        set_data_field(cfg.metadata_dir, 0x10025000, "marker_type", "DATA", "SERVER")
+        scan = scan_globals(cfg.reversed_dir, cfg)
+        entry = scan.globals["lut"]
+        assert entry.annotated is False
+        assert entry.va == 0
+        assert all(item.va != 0x10025000 for item in scan.globals.values())
+
+    def test_other_target_row_is_not_bound(self, tmp_path: Path) -> None:
+        from rebrew.data_metadata import set_data_field
+
+        cfg = _cfg(tmp_path)
+        (cfg.reversed_dir / "a.c").write_text("extern unsigned char lut[256];\n", encoding="utf-8")
+        set_data_field(cfg.metadata_dir, 0x3000, "file", "src/SERVER/a.c", "GOLD")
+        set_data_field(cfg.metadata_dir, 0x3000, "name", "lut", "GOLD")
+        set_data_field(cfg.metadata_dir, 0x3000, "marker_type", "DATA", "GOLD")
+        scan = scan_globals(cfg.reversed_dir, cfg)
+        entry = scan.globals["lut"]
+        assert entry.annotated is False
+        assert entry.va == 0
+
 
 class TestSetDataSection:
     """`rebrew data --set-section`: give a `// GLOBAL:` marker its SECTION.
@@ -1099,7 +1160,7 @@ class TestSetDataSection:
         assert "section" not in self._meta(cfg).read_text(encoding="utf-8")
 
     def test_rejects_an_unknown_section(self, tmp_path: Path) -> None:
-        with pytest.raises(ValueError, match="set-section"):
+        with pytest.raises(ValueError, match="--section"):
             set_data_sections(_cfg(tmp_path), ["0x1000=.text"])
 
     def test_rejects_a_spec_without_an_equals(self, tmp_path: Path) -> None:

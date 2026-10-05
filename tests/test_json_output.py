@@ -352,6 +352,7 @@ class TestRebrewTestBatchJson:
             "byte_matched": 0,
             "library_passed": 0,
             "library_total": 0,
+            "library_providers": {"compiled": 0, "prebuilt": 0, "unresolved": 0},
             "library_excluded": 0,
             "orphans_pruned": 0,
             "inventory_count": 0,
@@ -515,7 +516,7 @@ class TestAsmJsonSchema:
 
 
 class TestFlirtJsonSchema:
-    """``rebrew flirt --json`` payloads, produced by the real command."""
+    """``rebrew library scan-signatures --json`` payloads, produced by the real command."""
 
     _PROJECT_TOML = """\
 [project]

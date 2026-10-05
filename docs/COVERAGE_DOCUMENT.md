@@ -1,11 +1,11 @@
 # Rebrew Coverage Document Format
 
-> **Scope:** the `db/coverage-<target>.toml` documents `rebrew build-db` writes
-> and the coverage dashboards read, and the `rebrew dashboard` REST API.  For
+> **Scope:** the `db/coverage-<target>.toml` documents `rebrew coverage build` writes
+> and the coverage dashboards read, and the `rebrew coverage serve` REST API.  For
 > `verify` / `status` flag semantics see
 > [CLI.md](CLI.md#rebrew-status).
 
-Coverage is clear text.  `rebrew build-db` writes one TOML document per target,
+Coverage is clear text.  `rebrew coverage build` writes one TOML document per target,
 `db/coverage-<target>.toml`, by scanning the project in-process, and
 the dashboards read those documents directly.  There is no database file, no
 schema version to gate a build on, and no cache tier between the catalog and the
@@ -18,12 +18,12 @@ cannot disagree about the shape of a document.
 
 ```mermaid
 flowchart LR
-    A["*.c annotations"] -->|rebrew build-db| C["db/coverage-&lt;target&gt;.toml<br/>one document per target"]
-    LH["library_*.h headers"] -->|rebrew build-db| C
-    FL["function_structure.json"] -->|rebrew build-db| C
-    BIN["target binary"] -->|rebrew build-db| C
-    A -->|rebrew catalog --export-ghidra-labels| GH["ghidra_data_labels.json"]
-    C -->|rebrew dashboard| D["Read-only REST API + dashboard UI"]
+    A["*.c annotations"] -->|rebrew coverage build| C["db/coverage-&lt;target&gt;.toml<br/>one document per target"]
+    LH["library_*.h headers"] -->|rebrew coverage build| C
+    FL["function_structure.json"] -->|rebrew coverage build| C
+    BIN["target binary"] -->|rebrew coverage build| C
+    A -->|rebrew coverage catalog --export-ghidra-labels| GH["ghidra_data_labels.json"]
+    C -->|rebrew coverage serve| D["Read-only REST API + dashboard UI"]
     C -->|recoverage| E["Sibling coverage dashboard"]
 ```
 
@@ -31,15 +31,15 @@ flowchart LR
 
 | Step | Tool | Input | Output |
 |------|------|-------|--------|
-| 1. Build | `rebrew build-db [--target T]` | `*.c` annotations, `library_*.h` headers, `function_structure.json`, target binary | `db/coverage-<target>.toml`, one document per target |
-| 1b. Export Labels | `rebrew catalog --export-ghidra-labels` | (same as above) | `ghidra_data_labels.json` (detected data labels/thunks for Ghidra round-trip) |
-| 3. Serve | `rebrew dashboard [--host H] [--port P]` | `db/coverage-<target>.toml` | Read-only HTTP API and UI at `localhost:8000` |
+| 1. Build | `rebrew coverage build [--target T]` | `*.c` annotations, `library_*.h` headers, `function_structure.json`, target binary | `db/coverage-<target>.toml`, one document per target |
+| 1b. Export Labels | `rebrew coverage catalog --export-ghidra-labels` | (same as above) | `ghidra_data_labels.json` (detected data labels/thunks for Ghidra round-trip) |
+| 3. Serve | `rebrew coverage serve [--host H] [--port P]` | `db/coverage-<target>.toml` | Read-only HTTP API and UI at `localhost:8000` |
 
-A document has one writer, `rebrew build-db`, and the dashboards are its readers.
-`rebrew dashboard` has no regeneration endpoint: re-run `rebrew build-db`
+A document has one writer, `rebrew coverage build`, and the dashboards are its readers.
+`rebrew coverage serve` has no regeneration endpoint: re-run `rebrew coverage build`
 to refresh a document, and the running dashboard serves the new content on the
 next request, because the reader keys its snapshot cache on the documents' own
-stat.  A project that never ran `build-db` has no documents, and `rebrew dashboard`
+stat.  A project that never ran `build-db` has no documents, and `rebrew coverage serve`
 refuses to start on a directory that yields no readable document.
 
 `--force` is a no-op.  Every run replaces each document whole (a temporary
@@ -55,7 +55,7 @@ One document holds a derived coverage view: sections/cells, functions, globals,
 verify results, and recent status history. Canonical identity, external origins,
 and durable verification evidence remain in the function/data stores; this
 document does not mirror their nested `origins` / `verification` tables.
-Deleting it loses its retained history, but not canonical evidence.  `rebrew build-db` is a thin front over
+Deleting it loses its retained history, but not canonical evidence.  `rebrew coverage build` is a thin front over
 `rebrew.coverage_toml.write_coverage_toml`, and the same module's reader is what
 the dashboards import.
 
@@ -196,7 +196,7 @@ document never holds a function no reader can key.
 | `reg_delta` | integer or `""` | Register-encoding-only differing instructions; `""` when the cache has no value. |
 | `effective_match` | `0` / `1` or `""` | `1` when the whole byte delta is register allocation. |
 
-The rows come from `.rebrew/verify_cache.toml`, imported by `rebrew build-db`;
+The rows come from `.rebrew/verify_cache.toml`, imported by `rebrew coverage build`;
 `rebrew verify` writes no document.  A cache that says nothing about the target
 keeps the document's previous rows, and a row whose measurements did not move
 keeps its earlier `verified_at`: a rebuild re-measures the same verdicts, and
@@ -212,7 +212,7 @@ the cache file's own mtime is not when a verdict was first measured.
 | `changed_at` | string | ISO 8601 stamp of the change. |
 | `updated_by` | string | Provenance tag of the write that caused it. |
 
-`rebrew build-db` compares this build's function statuses against the previous
+`rebrew coverage build` compares this build's function statuses against the previous
 document's `functions` array, appends one row per transition, and keeps only the
 newest 10,000 rows (`HISTORY_RETENTION`).  A text file has no row id, so
 retention and ordering sort by `changed_at`.
@@ -357,7 +357,7 @@ a whole directory skips an unreadable document with a log line naming the file
 and the reason and serves the rest: two readable targets beside one broken file
 beat a 500.  A target with no readable document is a 404 `unknown_target` on the
 target-scoped routes, and `/api/health` answers 500 `database_error` only when
-the whole directory yields none: the case `rebrew dashboard` also refuses to
+the whole directory yields none: the case `rebrew coverage serve` also refuses to
 start on.
 
 There is no migration, no version gate and no `--force` unlink.  Every run
@@ -374,7 +374,7 @@ stamp of a verdict whose measurements did not move.
 
 ## 2. The In-Process Catalog Dict
 
-`rebrew build-db` calls `rebrew.catalog.pipeline.build_catalog_data`, which
+`rebrew coverage build` calls `rebrew.catalog.pipeline.build_catalog_data`, which
 returns this dict for one target and is rendered into the document.  It is
 never written to disk; it is an intermediate value, not a format.
 
@@ -412,7 +412,7 @@ never written to disk; it is an intermediate value, not a format.
 }
 ```
 
-Functions and globals are keyed by **hex VA**.  `rebrew build-db` turns that key
+Functions and globals are keyed by **hex VA**.  `rebrew coverage build` turns that key
 into the document's integer `va`, falling back to the row's `vaStart` (or `va`),
 sorting each array by the result.  A row where neither parses is dropped with a
 warning naming the target and the count.
@@ -441,7 +441,7 @@ warning naming the target and the count.
 
 ## 3. Dashboard REST API
 
-`rebrew dashboard` serves the coverage documents read-only over HTTP on
+`rebrew coverage serve` serves the coverage documents read-only over HTTP on
 `http://127.0.0.1:8000` by default (`--host` / `--port`). There is no
 authentication: it binds loopback, and a non-loopback `--host` prints a startup
 warning. The machine-readable contract is
@@ -530,5 +530,5 @@ Clients read the applied values back from the envelope.
 
 Global ownership fields are optional additions to version 1. Readers of older
 documents leave owners empty and retain `files` as declaration sites; they never
-guess ownership from those files. Regenerate with `rebrew build-db` to populate
+guess ownership from those files. Regenerate with `rebrew coverage build` to populate
 the roles from the shared scanner.

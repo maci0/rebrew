@@ -105,7 +105,7 @@ Scope:
   `rebrew init`, profile selection, and target naming.
 - Multi-target file layout.
 - Ordered intake procedure: doctor → FLIRT (`cfg detect-crt --write`,
-  `rebrew flirt`) → `crt-match` → catalog → `build-db` → triage.
+  `rebrew library scan-signatures`) → `crt-match` → catalog → `build-db` → triage.
 - Outputs and post-intake hand-off to other skills.
 
 Excludes: day-to-day work, deep matching, individual function reversing.
@@ -137,18 +137,18 @@ Trigger keywords: `global`, `global variable`, `data section`, `BSS`,
 
 Scope:
 
-- `rebrew data` mode flags (`--conflicts`, `--summary`, `--dispatch`,
+- `rebrew data list` mode flags (`--conflicts`, `--summary`, `--dispatch`,
   `--bss`, `--fix-bss`, `--gen-header`).
 - DATA / GLOBAL annotation format and where metadata lives
   (`rebrew-data.toml`).
-- Relationship with `rebrew sync --pull-data`.
+- Relationship with `rebrew sync pull-data`.
 
 Excludes: function bodies, deep matching.
 
 ### `rebrew-ghidra-sync` (Ghidra ↔ rebrew)
 
 Trigger keywords: `Ghidra`, `binsync`, `sync ghidra`, `binsync push`,
-`binsync pull`, `state-dir`, `ReVa`, `rebrew sync`, `create-functions`,
+`binsync pull`, `state-dir`, `ReVa`, `rebrew sync push`, `create-functions`,
 `bookmarks`, `pull-data`.
 
 > **Architecture note (2026-09):** field sync is BinSync-primary
@@ -178,7 +178,7 @@ Excludes: source editing, picking functions, data analysis without Ghidra.
 
 1. User: "this function is NEAR_MATCHING with delta 6, can you finish it?"
 2. Agent loads `rebrew-matching`, runs `rebrew diff`, classifies the
-   blocker, then runs `rebrew match --flag-sweep-only`.
+   blocker, then runs `rebrew match flags`.
 
 ### Story 3: Agent stays in scope
 

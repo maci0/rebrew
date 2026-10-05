@@ -146,7 +146,7 @@ def test_data_cli_exposes_explicit_library_owners(
         all_targets=["SERVER"],
     )
     monkeypatch.setattr(cli, "require_config", lambda **kwargs: cfg)
-    result = CliRunner().invoke(cli.app, ["--link-map", str(link_map), "--json"])
+    result = CliRunner().invoke(cli.app, ["list", "--link-map", str(link_map), "--json"])
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     assert payload["globals"]["__argc"]["library_owners"][0]["member"] == "crt0dat.obj"

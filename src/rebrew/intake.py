@@ -36,10 +36,9 @@ from typing import Any
 import typer
 from typer.testing import CliRunner
 
-from rebrew.annotation import iter_annotations
+from rebrew.annotation import derive_c_symbol, iter_annotations
 from rebrew.cli import EXIT_OK, console, error_exit, json_print
 from rebrew.config import ConfigError, validate_target_name
-from rebrew.skeleton import C89_STRICT_PROFILES
 from rebrew.sources import iter_sources
 from rebrew.utils import (
     SOURCE_CHECKOUT,
@@ -141,7 +140,7 @@ def _suggest_profile(binary: Path) -> tuple[str, str, str, list[str]]:
 def _enumerate_functions(binary: Path) -> list[tuple[int, int, str]]:
     """Function list for a binary via the discoverer plugins.
 
-    The same pipeline ``rebrew discover-functions`` runs (packaged rizin /
+    The same pipeline ``rebrew binary functions`` runs (packaged rizin /
     capstone / NE / MZ providers plus ``rebrew.discoverers`` plugins),
     minus the capstone-refine pass ``discover`` applies — intake writes the
     raw inventory and lets ``rebrew test --fix-sizes`` converge sizes later.
@@ -191,12 +190,24 @@ def classify_all(
     honor a custom layout. Existing annotations for *marker* anywhere under
     *src_dir* prevent duplicate stubs after a source is renamed or moved.
     """
-    from rebrew.metadata import load_metadata, set_fields_batch, update_statuses_batch
+    from rebrew.metadata import (
+        identity_file,
+        load_metadata,
+        record_migrated_markers,
+        set_fields_batch,
+        update_statuses_batch,
+    )
 
     meta_base = metadata_dir if metadata_dir is not None else project / "src"
+    # A migrated source has no marker line. Its VA is visible only through
+    # the row whose ``file`` matches, so the duplicate check has to read the
+    # store. Without that, renaming a pure-C stub looks like a delete and
+    # intake writes the canonical file again.
     existing_vas = {
         ann["va"]
-        for _, annotations in iter_annotations(iter_sources(src_dir), target=marker)
+        for _, annotations in iter_annotations(
+            iter_sources(src_dir), target=marker, metadata_dir=meta_base
+        )
         for ann in annotations
     }
     documented = 0
@@ -206,21 +217,15 @@ def classify_all(
     existing_sizes = {(mod, va): fields.get("size") for (mod, va), fields in existing.items()}
     field_updates: list[dict[str, Any]] = []
     status_updates: list[dict[str, Any]] = []
+    identity_rows: list[dict[str, Any]] = []
     for va, size, _name in funcs:
         reason = blocker_reason(family, size, hint)
-        # C89-strict 16-bit profiles (Turbo C 2.0 etc.) reject `//` —
-        # emit the block-comment marker form so the stub still compiles.
-        use_block = profile in C89_STRICT_PROFILES
-        if use_block:
-            stub = (
-                f"/* STUB: {marker} 0x{va:08x} */\n\n"
-                f"void fcn_{va:08x}(void)\n{{\n    /* {reason} */\n}}\n"
-            )
-        else:
-            stub = (
-                f"// STUB: {marker} 0x{va:08x}\n\n"
-                f"void fcn_{va:08x}(void)\n{{\n    /* {reason} */\n}}\n"
-            )
+        # Pure C. The comment does not match the legacy marker grammar, so
+        # the row in rebrew-functions.toml is what names the function.
+        stub = (
+            f"/* rebrew-stub {marker} {va:08x} */\n"
+            f"void fcn_{va:08x}(void)\n{{\n    /* {reason} */\n}}\n"
+        )
         out = src_dir / f"fcn_{va:08x}.c"
         if (va in existing_vas or out.exists()) and (marker, va) in existing:
             continue
@@ -242,6 +247,20 @@ def classify_all(
         if va not in existing_vas and not out.exists():
             atomic_write_text(out, stub)
             existing_vas.add(va)
+            c_name = f"fcn_{va:08x}"
+            identity_rows.append(
+                {
+                    "module": marker,
+                    "va": va,
+                    "identity": {
+                        "file": identity_file(out, meta_base),
+                        "symbol": derive_c_symbol(c_name, ""),
+                        "name": c_name,
+                        "marker_type": "STUB",
+                    },
+                    "fields": {},
+                }
+            )
         prev_blocker = str(prev.get("blocker") or "")
         fields: dict[str, Any] = {}
         # A user-supplied blocker survives re-runs; only the auto reason
@@ -267,6 +286,7 @@ def classify_all(
             }
         )
         documented += 1
+    record_migrated_markers(meta_base, identity_rows)
     set_fields_batch(meta_base, field_updates)
     update_statuses_batch(meta_base, status_updates)
     return documented
@@ -278,6 +298,13 @@ def classify_all(
 #: their own) no longer matches, so the prune cannot delete real work.
 _AUTO_STUB_RE = re.compile(
     r"\A(?://|/\*) STUB: ([A-Za-z0-9_]+) 0x([0-9a-fA-F]{8})(?: \*/)?\n\n"
+    r"void fcn_\2\(void\)\n\{\n    /\*.*?\*/\n\}\n?\Z",
+    re.DOTALL,
+)
+# Current writer. Named groups cannot be repeated across an alternation, so
+# this is a second pattern with the same group numbers: module, then hex VA.
+_AUTO_STUB_PURE_RE = re.compile(
+    r"\A/\* rebrew-stub ([A-Za-z0-9_]+) ([0-9a-fA-F]{8}) \*/\n"
     r"void fcn_\2\(void\)\n\{\n    /\*.*?\*/\n\}\n?\Z",
     re.DOTALL,
 )
@@ -349,7 +376,7 @@ def prune_stale_stubs(
             # which leaves a partial prune with no report.
             logger.warning("skipping unreadable stub %s during prune: %s", path, exc)
             continue
-        m = _AUTO_STUB_RE.match(text)
+        m = _AUTO_STUB_RE.match(text) or _AUTO_STUB_PURE_RE.match(text)
         if m is None or m.group(1) != marker:
             continue
         va = int(m.group(2), 16)

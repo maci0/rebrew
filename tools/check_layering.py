@@ -106,6 +106,8 @@ PACKAGE_EXTERNALS: dict[str, frozenset[str]] = {
             "cli",
             "config",
             "data_metadata",
+            "function_providers",
+            "metadata",
             "present",
             "sections",
             "sources",

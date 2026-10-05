@@ -48,7 +48,7 @@ class TestOrphansList:
 
         _mock_cfg(tmp_path, monkeypatch)
         _write_project(tmp_path)
-        res = CliRunner().invoke(app, [])
+        res = CliRunner().invoke(app, ["list"])
         assert res.exit_code == 0, res.output
         assert "0x2000" in res.output
         assert "0x1000" not in res.output
@@ -65,7 +65,7 @@ class TestOrphansList:
         (tmp_path / "rebrew-functions.toml").write_text(
             '["SERVER.0x1000"]\nstatus = "STUB"\n', encoding="utf-8"
         )
-        res = CliRunner().invoke(app, [])
+        res = CliRunner().invoke(app, ["list"])
         assert res.exit_code == 0, res.output
         assert "No orphaned" in res.output
 
@@ -76,7 +76,7 @@ class TestOrphansList:
 
         _mock_cfg(tmp_path, monkeypatch)
         _write_project(tmp_path)
-        res = CliRunner().invoke(app, ["--json"])
+        res = CliRunner().invoke(app, ["list", "--json"])
         assert res.exit_code == 0, res.output
         payload = json.loads(res.output)
         assert payload["orphans"] == [
@@ -98,7 +98,7 @@ class TestOrphansPrune:
 
         _mock_cfg(tmp_path, monkeypatch)
         _write_project(tmp_path)
-        res = CliRunner().invoke(app, ["--prune"])
+        res = CliRunner().invoke(app, ["prune"])
         assert res.exit_code == 0, res.output
         assert "deleted 1" in res.output
         assert get_entry(tmp_path, 0x2000, "SERVER") == {}
@@ -112,7 +112,7 @@ class TestOrphansPrune:
 
         _mock_cfg(tmp_path, monkeypatch)
         _write_project(tmp_path)
-        res = CliRunner().invoke(app, ["--prune", "--dry-run"])
+        res = CliRunner().invoke(app, ["prune", "--dry-run"])
         assert res.exit_code == 0, res.output
         assert "would be deleted" in res.output
         assert get_entry(tmp_path, 0x2000, "SERVER").get("status") == "STUB"
@@ -127,7 +127,7 @@ class TestOrphansPrune:
 
         _mock_cfg(tmp_path, monkeypatch)
         _write_project(tmp_path)
-        res = CliRunner().invoke(app, ["--prune", "--json"])
+        res = CliRunner().invoke(app, ["prune", "--json"])
         assert res.exit_code == 0, res.output
         out = json.loads(res.output)
         assert out["pruned"] == 1
@@ -145,7 +145,7 @@ class TestOrphansPrune:
 
         _mock_cfg(tmp_path, monkeypatch)
         _write_project(tmp_path, matched_orphan=True)
-        res = CliRunner().invoke(app, ["--prune", "--include-matched", "--json"])
+        res = CliRunner().invoke(app, ["prune", "--include-matched", "--json"])
         assert res.exit_code == 0, res.output
         out = json.loads(res.output)
         assert out["pruned"] == 2
@@ -194,7 +194,7 @@ class TestKnownSourceWidening:
         from rebrew.orphans import app
 
         self._project_with_extra_known(tmp_path, monkeypatch)
-        res = CliRunner().invoke(app, ["--json"])
+        res = CliRunner().invoke(app, ["list", "--json"])
         assert res.exit_code == 0, res.output
         payload = json.loads(res.output)
         vas = sorted(o["va"] for o in payload["orphans"])
@@ -211,7 +211,7 @@ class TestKnownSourceWidening:
         from rebrew.orphans import app
 
         self._project_with_extra_known(tmp_path, monkeypatch)
-        res = CliRunner().invoke(app, ["--prune", "--include-matched"])
+        res = CliRunner().invoke(app, ["prune", "--include-matched"])
         assert res.exit_code == 0, res.output
         assert get_entry(tmp_path, 0x2000, "SERVER").get("status") == "STUB"
         assert get_entry(tmp_path, 0x3000, "SERVER").get("status") == "STUB"
@@ -243,7 +243,7 @@ class TestDataOrphansNameExemption:
         from rebrew.orphans import app
 
         self._data_project(tmp_path, monkeypatch)
-        res = CliRunner().invoke(app, ["--json"])
+        res = CliRunner().invoke(app, ["list", "--json"])
         assert res.exit_code == 0, res.output
         vas = sorted(
             o["va"] for o in json.loads(res.output)["orphans"] if o["store"] == "rebrew-data.toml"
@@ -257,7 +257,7 @@ class TestDataOrphansNameExemption:
         from rebrew.orphans import app
 
         self._data_project(tmp_path, monkeypatch)
-        res = CliRunner().invoke(app, ["--prune", "--include-matched"])
+        res = CliRunner().invoke(app, ["prune", "--include-matched"])
         assert res.exit_code == 0, res.output
         assert get_data_entry(tmp_path, 0x2000, "SERVER") == {}
         assert get_data_entry(tmp_path, 0x3000, "SERVER") == {}
@@ -343,7 +343,7 @@ class TestBatchDeletes:
             '["SERVER.0x3000"]\nstatus = "STUB"\n',
             encoding="utf-8",
         )
-        res = CliRunner().invoke(app, ["--prune"])
+        res = CliRunner().invoke(app, ["prune"])
         assert res.exit_code == 0, res.output
         assert "Holding back 1 earned" in res.output
         assert "deleted 1" in res.output
@@ -367,7 +367,7 @@ class TestBatchDeletes:
             '["SERVER.0x2000"]\nstatus = "EXACT"\nsize = 16\n',
             encoding="utf-8",
         )
-        res = CliRunner().invoke(app, ["--prune", "--include-matched"])
+        res = CliRunner().invoke(app, ["prune", "--include-matched"])
         assert res.exit_code == 0, res.output
         assert get_entry(tmp_path, 0x2000, "SERVER") == {}
 
@@ -397,7 +397,7 @@ class TestCorruptInventoryFailClosed:
             encoding="utf-8",
         )
         (src / FUNCTION_STRUCTURE_JSON).write_text("[{broken", encoding="utf-8")
-        res = CliRunner().invoke(app, [])
+        res = CliRunner().invoke(app, ["list"])
         assert res.exit_code != 0
         assert "function inventory" in res.output.lower()
         assert "Refusing" in res.output
@@ -421,7 +421,7 @@ class TestCorruptInventoryFailClosed:
             encoding="utf-8",
         )
         (src / FUNCTION_STRUCTURE_JSON).write_text("[{broken", encoding="utf-8")
-        res = CliRunner().invoke(app, ["--prune"])
+        res = CliRunner().invoke(app, ["prune"])
         assert res.exit_code != 0
         # Earned STATUS must survive — prune must not run.
         assert get_entry(tmp_path, 0x2000, "SERVER").get("status") == "EXACT"

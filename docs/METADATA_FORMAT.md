@@ -12,14 +12,16 @@
 > fact, precedence, and why none of these TOMLs are hand-edited) see
 > [METADATA.md](METADATA.md); every write goes through `rebrew.metadata` /
 > `rebrew.data_metadata` (locked + atomic), or the CLI gates
-> (`rebrew blocker`, `rebrew test`/`verify`/`prove`, `rebrew library`, `rebrew data`).
+> (`rebrew blocker`, `rebrew test`/`verify`/`prove`, `rebrew library`, `rebrew data list`).
 
-## Layer 1: Inline reccmp Markers (in `.c` files)
+## Layer 1: Legacy inline markers (in `.c` files)
 
-Unmigrated function source carries a reccmp-compatible identity marker.
-`rebrew migrate-markers` moves function identity and inline fields into TOML
-and leaves pure C. Do not restore markers in migrated files. Data markers
-remain source-owned. An unmigrated function example:
+New writers do not emit these lines. An unmigrated function source may still
+carry a reccmp-compatible identity marker, which the parser reads.
+`rebrew source migrate-markers` moves function identity into `rebrew-functions.toml`
+and data identity (`file`, `marker_type`, plus name, type, size, and section
+when the row lacks them) into `rebrew-data.toml`, then leaves pure C. Do not
+restore markers in migrated files. An unmigrated function example:
 
 ```c
 // FUNCTION: SERVER 0x10008880
@@ -37,13 +39,13 @@ Variants for different marker types:
 
 ### What stays inline
 
-- `// FUNCTION: MODULE 0xVA`  (and LIBRARY/STUB/GLOBAL/DATA)
-- `// SIZE: N`: the **reccmp-native** compile contract (reccmp reads it
-  from the `.c`).  The TOML `SIZE` is an *override*; lint W019 warns only
-  when the two disagree.
-- `// CFLAGS:`: co-read like SIZE when the metadata also has CFLAGS:
-  W019 then warns only on disagreement.  An inline CFLAGS with no metadata
-  value gets the generic deprecation W019 and `--fix` migrates it.
+- `// FUNCTION: MODULE 0xVA`  (and LIBRARY/STUB/GLOBAL/DATA), until
+  `rebrew source migrate-markers` records the row and strips the line.
+- `// SIZE: N`: metadata-owned. An equal inline copy (including `32` and
+  `0x20`) is stripped by `rebrew lint --fix`. A disagreement warns and the
+  store wins.
+- `// CFLAGS:`: metadata-owned, same rule. Disagreement ignores flag order
+  and `/D` defines. An inline CFLAGS with no metadata value is migrated.
 - `// SOURCE: naked`: the file-borne naked-reconstruction marker, exempt
   from W019.  Any other inline `// SOURCE:` value warns.
 - `// SECTION:` / `// STRUCT:` / `// CALLERS:`: structural keys read
@@ -66,8 +68,9 @@ are never stored: `--fix` strips them instead of migrating.
 stored; a stamp is written by the tools, so migrating an inline copy would
 overwrite the real one; `SECTION` on
 FUNCTION/LIBRARY/STUB markers is stripped; DATA/GLOBAL SECTION lives in
-`rebrew-data.toml`.  `SIZE`, `CFLAGS` and `SOURCE: naked` follow the
-co-read / file-borne rules above.  `LOCALS`, `COMMENTS` and
+`rebrew-data.toml`.  `SIZE` and `CFLAGS` are metadata-owned (an equal inline
+copy migrates; a disagreement stays inline because the store wins).
+`SOURCE: naked` stays file-borne.  `LOCALS`, `COMMENTS` and
 `PROVE_CONSTRAINTS`, `ORIGINS`, and `VERIFICATION` are tables, so `--fix` warns but cannot migrate an inline
 scalar.)
 
@@ -104,7 +107,7 @@ note = "register allocation differs in inner loop"
 | `update_source_status()` / `update_statuses_batch()` | Set STATUS through the promotion gate (SKIP stays parked): via `rebrew test` / `rebrew verify` / `rebrew prove` (also `match`, `lint`, `binsync-import`, `intake` tag their writes) |
 | `update_field(directory, va, key, value, module)` / `remove_field(directory, va, key, module)` | Set / delete any non-STATUS field (e.g. BLOCKER): via `rebrew blocker set` / `clear` |
 | `get_entry(directory, va, module)` | Read an entry: via `rebrew blocker show` |
-| `rebrew diff --fix-blocker` / `rebrew near-diag --fix-blocker` / `rebrew document-unmatched` | Auto-classified BLOCKER writers (same gated API underneath) |
+| `rebrew diff --fix-blocker` / `rebrew diagnose near --fix-blocker` / `rebrew source document-unmatched` | Auto-classified BLOCKER writers (same gated API underneath) |
 
 #### Owned fields
 
@@ -114,12 +117,12 @@ shapes that matter for a hand-written script or a review:
 | Field | Value | Written by |
 |---|---|---|
 | `STATUS` | one of the twelve `rebrew.metadata.KNOWN_STATUSES` values: the six ladder values below plus the six machine verdicts | the STATUS writers only, through the promotion gate |
-| `SIZE` | non-negative integer | annotation migration, `rebrew verify --fix-sizes`, `rebrew catalog --fix-sizes`; co-read with `// SIZE:` (an override, not a move) |
-| `CFLAGS`, `TOOLCHAIN` | string | `rebrew cfg set-cflags` / `set-compiler`, library-override resolution, lint `--fix`; `CFLAGS` co-read with `// CFLAGS:` |
-| `BLOCKER`, `BLOCKER_DELTA` | string / integer | `rebrew blocker set/clear`, `rebrew diff --fix-blocker`, `rebrew near-diag --fix-blocker`, `rebrew document-unmatched`; cleared on a byte match |
+| `SIZE` | non-negative integer | annotation migration, `rebrew verify --fix-sizes`, `rebrew coverage catalog --fix-sizes`; an inline `// SIZE:` is migration debt, not a second contract |
+| `CFLAGS`, `TOOLCHAIN` | string | `rebrew cfg module set-cflags` / `set-compiler`, library-override resolution, lint `--fix`; an inline `// CFLAGS:` is migration debt |
+| `BLOCKER`, `BLOCKER_DELTA` | string / integer | `rebrew blocker set/clear`, `rebrew diff --fix-blocker`, `rebrew diagnose near --fix-blocker`, `rebrew source document-unmatched`; cleared on a byte match |
 | `NOTE`, `GHIDRA`, `ANALYSIS` | string | `update_field` (`rebrew blocker`/lint migrations, BinSync pull) |
 | `SKIP` | boolean | a manual park through `update_field`; the promotion gate then keeps the row parked (no status write silently unparks it) |
-| `GLOBALS`, `LOCALS`, `COMMENTS`, `PROVE_CONSTRAINTS` | `GLOBALS` a list of strings, the other three tables | `GLOBALS` from `rebrew sync --pull`, the rest from analysis and prove writers; an inline scalar for the three table fields warns (W019) but cannot migrate, while an inline `GLOBALS` migrates as a list |
+| `GLOBALS`, `LOCALS`, `COMMENTS`, `PROVE_CONSTRAINTS` | `GLOBALS` a list of strings, the other three tables | `GLOBALS` from `rebrew sync pull`, the rest from analysis and prove writers; an inline scalar for the three table fields warns (W019) but cannot migrate, while an inline `GLOBALS` migrates as a list |
 | `SOURCE` | string | stays in the `.c` as `// SOURCE: naked`: file-borne, W019-exempt, and self-clearing when the real C body replaces it; a non-naked value is migration debt that `lint --fix` moves into the TOML |
 | `ORIGINS` | table keyed by native integration field | successful BinSync pulls; retains tool/user/snapshot and the accepted value digest |
 | `VERIFICATION` | table with status, writer, input_hash and measured_at | comparison writers; retained independently of ordinary edits |
@@ -147,7 +150,7 @@ on data rows, and it names the tool that wrote the row most recently, so a
 standing on the row.  A writer that passes no tag keeps the stored stamp.
 `rebrew-data.toml` carries the same pair, tagged by whichever data writer ran:
 `verify` from `verify --data` on each verdict, `rename` on a renamed global,
-`data` from `rebrew data`, `lint` on a migrated data marker; see
+`data` from `rebrew data list`, `lint` on a migrated data marker; see
 [Write provenance](METADATA.md#write-provenance).
 
 > **Never write `rebrew-functions.toml` manually**: every BLOCKER, STATUS,
@@ -166,9 +169,14 @@ section = ".bss"
 note = "player count"
 ```
 
-Owned fields per entry: `name`, `type`, `size`, `section`, `note`, `status`
+Owned fields per entry: `file`, `marker_type` (`GLOBAL`, `DATA`, `VTABLE`,
+or `STRING`; the identity `rebrew source migrate-markers` writes), `name`,
+`type`, `size`, `section`, `note`, `status`
 (`VERIFIED`/`DRIFT`/`UNCHECKED` data verdicts, written by `verify --data`), and
 the `updated_by` / `updated_at` write stamp every gated writer records.
+`record_migrated_data_markers` fills a missing name, type, size, or section
+without clearing `status`. `rebrew data set` still clears a verdict when
+those definition fields change.
 
 `size` is stored as a non-negative integer; the other data fields are strings.
 The writers and lint W031 share this validation. A changed `name`, `type`,
@@ -190,9 +198,9 @@ equal truncated buffers cannot earn `VERIFIED`. Other targets stay outside
 the report's denominator and write-back.
 
 Managed exclusively by `rebrew.data_metadata` (locked + atomic): via
-`rebrew data` (the bare command scans; `--annotate`, `--set-type`,
-`--set-section`, `--fix-bss`), `rebrew verify --data`, and `rebrew rename`.
-`rebrew sync --pull-data` does not touch it: that writes the derived
+`rebrew data list` (the bare command scans; `--annotate`, `--set-type`,
+`--set-section`, `--fix-bss`), `rebrew verify --data`, and `rebrew source rename`.
+`rebrew sync pull-data` does not touch it: that writes the derived
 `rebrew_globals.h`.  Never hand-edit `rebrew-data.toml` either.
 
 ## Status Lifecycle
@@ -233,14 +241,16 @@ rebrew lint --fix
 ```
 
 This will:
-1. Remove `// STATUS:`, `// BLOCKER:`, `// TOOLCHAIN:`, etc. from `.c` files
-   (leaving co-read `// SIZE:`/`// CFLAGS:`, file-borne `// SOURCE: naked`,
-   and structural `// STRUCT:`/`// CALLERS:` in place; other `// SOURCE:`
-   values migrate into the TOML; `// SECTION:` on DATA/GLOBAL migrates to
-   `rebrew-data.toml`, and on functions is a legacy key that `--fix` strips).
+1. Remove `// STATUS:`, `// SIZE:`, `// CFLAGS:`, `// BLOCKER:`,
+   `// TOOLCHAIN:`, and the other metadata-owned keys from `.c` files when
+   the copy matches the store or the store has no value. A disagreement is
+   left in place. File-borne `// SOURCE: naked` and structural `// STRUCT:` /
+   `// CALLERS:` stay. Other `// SOURCE:` values migrate. `// SECTION:` on
+   DATA/GLOBAL migrates to `rebrew-data.toml`, and on functions is a legacy
+   key that `--fix` strips.
 2. Write the values to the appropriate TOML (`rebrew-functions.toml`, or
    `rebrew-data.toml` for DATA/GLOBAL markers).
-3. Leave the reccmp marker line (`// FUNCTION: MODULE 0xVA`) plus any
-   co-read / file-borne / structural keys that were not migrated.
+3. Leave the legacy marker line (`// FUNCTION: MODULE 0xVA`) in place.
+   `rebrew source migrate-markers` is the command that strips it.
 4. Drop W029-redundant per-function `cflags` (and matching
    `compiler.cflags_presets` keys that only repeat project `cflags`).

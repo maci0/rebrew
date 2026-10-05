@@ -74,6 +74,8 @@ __all__ = [
     "MIN_VALID_VA",
     "OPTIONAL_KEYS",
     "VALID_MARKERS",
+    "derive_c_symbol",
+    "file_backed_by_metadata",
     "block_markers",
     "has_skip_annotation",
     "iter_annotations",
@@ -111,12 +113,10 @@ FUNCTION_MARKERS: frozenset[str] = frozenset({"FUNCTION", "LIBRARY", "STUB"})
 #: parser produces — dead defense that has since been removed).
 DATA_MARKERS: frozenset[str] = frozenset({"GLOBAL", "DATA", "VTABLE", "STRING"})
 
-# OPTIONAL_KEYS: only reccmp-compatible keys that are permitted inline
-# without W019.  Rebrew-specific keys live in rebrew-functions.toml —
-# see METADATA_KEYS.  SIZE/CFLAGS are listed there too but are co-read
-# (W019 warns on disagreement; does not migrate).
+# OPTIONAL_KEYS: legacy inline keys the parser still accepts.  ANALYSIS is
+# also in METADATA_KEYS, so an inline copy is W019 migration debt.
 OPTIONAL_KEYS = {
-    "ANALYSIS",  # reccmp compatibility (structural analysis note)
+    "ANALYSIS",
 }
 # Rebrew-specific keys that must live exclusively in the metadata (or, for the
 # legacy pair, never inline at all).  Finding any of these inline fires lint
@@ -984,7 +984,7 @@ def _calc_stdcall_param_size(proto: str) -> int | None:
     return total
 
 
-def _derive_c_symbol(name: str, c_func_proto: str) -> str:
+def derive_c_symbol(name: str, c_func_proto: str) -> str:
     """MSVC symbol decoration for *name* from its prototype.
 
     ``"_" + name`` for __cdecl (default), ``"_" + name + "@N"`` for
@@ -1026,16 +1026,13 @@ def _kv_to_annotation(
     ``// SYMBOL:`` and ``// PROTOTYPE:`` inline annotations are not supported;
     they are ignored during parsing and will trigger W010 (unknown key) in lint.
 
-    Volatile metadata that is *not* read from inline comments (STATUS,
-    BLOCKER, NOTE, GHIDRA, …) lives only in rebrew-functions.toml and is
-    overlaid during the parse (``apply_metadata_entry``); any inline copies
-    are migration debt
-    (lint W019 + ``lint --fix``).  Still parsed from the ``.c``:
+    Volatile metadata (STATUS, BLOCKER, NOTE, GHIDRA, SIZE, CFLAGS, …)
+    lives in the metadata stores and is overlaid during the parse
+    (``apply_metadata_entry``).  An inline copy is migration debt
+    (lint W019 + ``lint --fix``).  The parser still reads an inline value
+    so an unmigrated file compiles before that move.  When the store has
+    the field, the store wins.
 
-    - reccmp-native contract keys (SIZE, CFLAGS) — TOML is an override;
-      W019 warns on disagreement, does not migrate
-    - TOOLCHAIN and non-naked SOURCE — read inline until migrated; metadata
-      wins on merge; W019 + ``lint --fix`` move them into the TOML
     - ``// SOURCE: naked`` — file-borne (self-clears when the C body replaces
       it); W019 exempt
     - structural keys not in METADATA_FIELDS (STRUCT, CALLERS) — stay
@@ -1051,7 +1048,7 @@ def _kv_to_annotation(
     # Derive symbol: "_" + name for __cdecl (default), "_" + name + "@N" for
     # __stdcall/WINAPI, "@" + name + "@N" for __fastcall (ecx/edx args are
     # still counted in the decoration's N on MSVC).
-    symbol = _derive_c_symbol(name, c_func_proto)
+    symbol = derive_c_symbol(name, c_func_proto)
 
     size_str = kv.get("SIZE", "0")
     try:
@@ -1240,8 +1237,8 @@ def parse_new_format_multi(lines: list[str]) -> list[Annotation]:
             _flush()
             if (
                 seen_code_after_marker
-                or current_marker_type != "FUNCTION"
-                or m.group("type") != "FUNCTION"
+                or current_marker_type not in FUNCTION_MARKERS
+                or m.group("type") not in FUNCTION_MARKERS
             ):
                 stack_start = len(results)
             current_marker_type = m.group("type")
@@ -1299,11 +1296,12 @@ def parse_new_format_multi(lines: list[str]) -> list[Annotation]:
             if func_result:
                 current_kv["_C_FUNC_NAME"] = func_result[0]
                 current_kv["_C_FUNC_PROTO"] = func_result[1]
-                if current_marker_type == "FUNCTION":
-                    for ann in results[stack_start:]:
-                        if not ann.name:
-                            ann.name, ann.prototype = func_result
-                            ann.symbol = _derive_c_symbol(ann.name, ann.prototype)
+                # Every code-bearing marker in the stack names this same
+                # definition, including a library/function pair across targets.
+                for ann in results[stack_start:]:
+                    if not ann.name:
+                        ann.name, ann.prototype = func_result
+                        ann.symbol = derive_c_symbol(ann.name, ann.prototype)
 
         # Non-annotation line: mark that we've seen code, but keep pending_kv
         # so annotations survive through #include/extern/typedef lines until
@@ -1329,7 +1327,7 @@ _METADATA_FILE_INDEX_MAX = 4
 #: live cache key.
 _METADATA_FILE_INDEX_OWNER: dict[int, dict[tuple[str, int], dict[str, Any]]] = {}
 #: The owner hit, the two eviction clears, and the two stores are one
-#: check-then-act over two parallel dicts; ``rebrew match --all --jobs N`` reaches
+#: check-then-act over two parallel dicts; ``rebrew match batch --jobs N`` reaches
 #: this from pool threads.  Held only for the dict work — the index build below
 #: walks the whole entry table and stays outside.
 _METADATA_FILE_INDEX_LOCK = threading.Lock()
@@ -1374,6 +1372,40 @@ def _path_suffixes(rel_path: str) -> list[str]:
     return ["/".join(parts[i:]) for i in range(len(parts))]
 
 
+def file_backed_by_metadata(
+    filepath: Path,
+    metadata_dir: Path,
+    *,
+    function_entries: dict[tuple[str, int], dict[str, Any]] | None = None,
+    data_entries: dict[tuple[str, int], dict[str, Any]] | None = None,
+) -> bool:
+    """True when a store row's ``file`` matches *filepath*.
+
+    A pure-C source has no marker line. Lint treats it as annotated when
+    either store already names it, and ignores it when neither does.
+    *function_entries* and *data_entries* are the caller's already-loaded
+    maps; omitted maps are read from *metadata_dir*.
+    """
+    rel = os.path.relpath(filepath, metadata_dir).replace(os.sep, "/")
+    suffixes = set(_path_suffixes(rel))
+    if function_entries is None:
+        from rebrew.metadata import load_metadata
+
+        function_entries = load_metadata(metadata_dir, deepcopy=False)
+    index = _metadata_file_index(function_entries)
+    if any(candidate in index for candidate in suffixes):
+        return True
+    if data_entries is None:
+        from rebrew.data_metadata import data_rows_for_path
+
+        return bool(data_rows_for_path(metadata_dir, filepath))
+    for entry in data_entries.values():
+        stored = str(entry.get("file", "")).replace("\\", "/")
+        if stored and stored in suffixes:
+            return True
+    return False
+
+
 def _annotations_from_metadata(
     filepath: Path,
     target_name: str | None,
@@ -1383,17 +1415,31 @@ def _annotations_from_metadata(
     """Synthesize Annotations for a marker-less (pure C) file from metadata.
 
     In the TOML-single-source model (ADR 023) a migrated ``.c`` file carries
-    no ``// FUNCTION:`` markers at all; its function identities live in
-    ``rebrew-functions.toml`` entries tagged with a ``file`` field.  This
-    builds one Annotation per metadata entry whose ``file`` matches
-    *filepath* (exact relative path from the metadata root, the stored
-    relative display path, or the bare filename).
+    no marker lines at all.  Function identities live in
+    ``rebrew-functions.toml`` and data identities live in ``rebrew-data.toml``,
+    each tagged with a ``file`` field.  This builds one Annotation per entry
+    whose ``file`` matches *filepath* (exact relative path from the metadata
+    root, the stored relative display path, or the bare filename).
 
-    Returns [] when *metadata_dir* is None or no entry matches — callers
-    then behave exactly as before (a marker-less file is simply ignored).
+    Returns [] when *metadata_dir* is None or no entry matches.  Callers
+    then behave as before (a marker-less file is simply ignored).  A failure
+    to read one store omits that store's rows and still returns the other.
     """
     if metadata_dir is None:
         return []
+    results = _function_annotations_from_metadata(filepath, target_name, base_dir, metadata_dir)
+    results.extend(_data_annotations_from_metadata(filepath, target_name, base_dir, metadata_dir))
+    results.sort(key=lambda ann: ann.va)
+    return results
+
+
+def _function_annotations_from_metadata(
+    filepath: Path,
+    target_name: str | None,
+    base_dir: Path | None,
+    metadata_dir: Path,
+) -> list[Annotation]:
+    """Function rows from ``rebrew-functions.toml`` whose ``file`` matches."""
     from rebrew.metadata import apply_metadata_entry, load_metadata
 
     try:
@@ -1426,7 +1472,7 @@ def _annotations_from_metadata(
 
     rel = rel_display_path(filepath, base_dir)
     results: list[Annotation] = []
-    for module, va, entry in sorted(matches, key=lambda m: m[1]):
+    for module, va, entry in matches:
         if target_name and module and preset_module_key(module) != preset_module_key(target_name):
             continue
         ann = Annotation(
@@ -1438,6 +1484,71 @@ def _annotations_from_metadata(
             filepath=rel,
         )
         apply_metadata_entry(ann, entry)
+        results.append(ann)
+    return results
+
+
+def _data_annotations_from_metadata(
+    filepath: Path,
+    target_name: str | None,
+    base_dir: Path | None,
+    metadata_dir: Path,
+) -> list[Annotation]:
+    """Data rows from ``rebrew-data.toml`` whose ``file`` matches.
+
+    ``marker_type`` comes from the row.  A row that predates data-marker
+    migration has none and is reported as ``DATA``.  A stored word outside
+    the data markers is skipped so it cannot be compiled as a function.
+    The target filter matches function synthesis: another target's module
+    is omitted when *target_name* is set.
+    """
+    from rebrew.data_metadata import data_rows_for_path
+    from rebrew.metadata import as_metadata_int
+
+    try:
+        rows = data_rows_for_path(metadata_dir, filepath)
+    except (OSError, ValueError) as exc:
+        logger.warning(
+            "data metadata load failed for %s: %s; data in this file is omitted",
+            metadata_dir,
+            exc,
+        )
+        return []
+    rel = rel_display_path(filepath, base_dir)
+    results: list[Annotation] = []
+    for module, va, entry in rows:
+        if target_name and module and preset_module_key(module) != preset_module_key(target_name):
+            continue
+        raw_marker = entry.get("marker_type")
+        if raw_marker:
+            marker = str(raw_marker)
+            if marker not in DATA_MARKERS:
+                continue
+        else:
+            marker = "DATA"
+        ann = Annotation(
+            va=va,
+            module=module,
+            marker_type=marker,
+            name=str(entry.get("name") or ""),
+            filepath=rel,
+        )
+        if "size" in entry:
+            try:
+                ann.size = as_metadata_int(entry["size"])
+            except (TypeError, ValueError) as exc:
+                logger.warning(
+                    "rebrew-data.toml size for %s[0x%x] is not an integer (%r: %s); "
+                    "leaving the synthesized annotation's size at 0",
+                    module or "?",
+                    va,
+                    entry["size"],
+                    exc,
+                )
+        if section := entry.get("section"):
+            ann.section = str(section)
+        if note := entry.get("note"):
+            ann.note = str(note)
         results.append(ann)
     return results
 
@@ -1472,9 +1583,9 @@ def parse_c_file_multi(
         logger.warning("Skipping unreadable source %s: %s", filepath, exc)
         return []
 
-    # ADR 023: a migrated (marker-less, pure C) file has no inline blocks —
-    # fall back to synthesizing Annotations from its rebrew-functions.toml
-    # entries.  Files that still carry markers parse exactly as before.
+    # ADR 023: a migrated (marker-less, pure C) file has no inline blocks.
+    # Fall back to synthesizing Annotations from rebrew-functions.toml and
+    # rebrew-data.toml.  Files that still carry markers parse as before.
     # Structural parses are deterministic per file content — memoize them
     # for the process lifetime so repeated scans (verify's prepare_entries
     # + build_name_to_va + scan_reversed_dir, test --all) don't parse the
@@ -1518,8 +1629,9 @@ def parse_c_file_multi(
                     _PARSE_MEMO_BYTES -= _PARSE_MEMO.pop(oldest_key)[0]
     if not structural and metadata_dir is not None:
         # ADR 023: a migrated (marker-less, pure C) file synthesizes its
-        # Annotations from rebrew-functions.toml entries tagged with a
-        # `file` field.  Files that still carry markers never reach this.
+        # Annotations from rebrew-functions.toml and rebrew-data.toml entries
+        # tagged with a `file` field.  Files that still carry markers never
+        # reach this.
         return _annotations_from_metadata(filepath, target_name, base_dir, metadata_dir)
     return _finalize_entries(structural, filepath, target_name, base_dir, metadata_dir)
 
@@ -1607,6 +1719,23 @@ def _finalize_entries(
             meta = entries_by_key.get((entry.module, entry.va))
             if meta:
                 apply_metadata_entry(entry, meta)
+        # Migrated function identities coexist with DATA/GLOBAL markers.
+        # A remaining data marker must not hide a marker-less function body.
+        # Live function markers for this target still take precedence over
+        # stale TOML identities; those files have not migrated yet.
+        # Data rows are not merged here.  A file that still has inline
+        # markers is read from those lines.  Data identity is synthesized
+        # only when the structural parse is empty.
+        if not any(entry.marker_type in ("FUNCTION", "LIBRARY") for entry in filtered_entries):
+            existing = {(preset_module_key(entry.module), entry.va) for entry in filtered_entries}
+            filtered_entries.extend(
+                entry
+                for entry in _annotations_from_metadata(
+                    filepath, target_name, base_dir, metadata_dir
+                )
+                if entry.marker_type not in DATA_MARKERS
+                and (preset_module_key(entry.module), entry.va) not in existing
+            )
     return filtered_entries
 
 
@@ -1620,7 +1749,7 @@ def parse_c_file_text(
     """Parse annotation blocks from pre-read *text* with per-call overlays."""
     structural = _parse_structural_entries(text)
     if not structural:
-        # ADR 023: marker-less (pure C) file — synthesize from metadata.
+        # ADR 023: marker-less (pure C) file. Synthesize from both metadata stores.
         return _annotations_from_metadata(filepath, target_name, base_dir, metadata_dir)
     return _finalize_entries(structural, filepath, target_name, base_dir, metadata_dir)
 
@@ -1873,35 +2002,33 @@ def update_annotation_key(
 # ---------------------------------------------------------------------------
 
 
+def _library_rows_from_metadata(filepath: Path, metadata_dir: Path) -> list[Annotation]:
+    """Function rows whose ``file`` is this header.
+
+    Headers are not target-filtered: a library row's module is the library
+    name, not the game marker.
+    """
+    return _function_annotations_from_metadata(filepath, None, filepath.parent, metadata_dir)
+
+
 def parse_library_header(filepath: Path, metadata_dir: Path | None = None) -> list[Annotation]:
     """Parse a ``library_*.h`` file for LIBRARY markers.
 
-    Supports two formats per entry:
-
-    **Minimal** (reccmp-compatible, identified-only functions)::
+    Legacy headers still carry marker lines, which this parser reads::
 
         // LIBRARY: SERVER 0x1001A18A
         // _fflush
-
-    **Extended** (rebrew-only KV lines after the symbol — ignored by reccmp)::
-
-        // LIBRARY: SERVER 0x10050000
-        // _deflate
-        // STATUS: NEAR_MATCHING
         // SIZE: 120
-        // CFLAGS: /O2 /Gd
-        // SOURCE: deflate.c
 
-    reccmp's parser reads the marker + symbol, then moves on; the KV lines
-    are invisible to it.  Rebrew captures them to support library functions
-    that are actively compiled and matched from reference source.
+    A header with no LIBRARY marker is read from ``rebrew-functions.toml``
+    when *metadata_dir* is set, including an empty file.  A header that
+    still has a LIBRARY marker is not merged with the store: migration is
+    all-or-nothing, same as :func:`parse_c_file_multi`.
 
-    When *metadata_dir* is provided each returned Annotation is overlaid with
-    ``rebrew-functions.toml`` the same way :func:`parse_c_file_multi` does —
-    verify/test STATUS wins over the EXACT default / inline KV.
-
-    Returns a list of Annotations with marker_type=LIBRARY.  Entries
-    without explicit STATUS (and no metadata overlay) default to EXACT.
+    When *metadata_dir* is provided each marker-derived Annotation is
+    overlaid with ``rebrew-functions.toml`` the same way
+    :func:`parse_c_file_multi` does.  Entries without explicit STATUS (and
+    no metadata overlay) default to EXACT.
     """
     try:
         text, _ = read_source_text(filepath)
@@ -1911,6 +2038,8 @@ def parse_library_header(filepath: Path, metadata_dir: Path | None = None) -> li
 
     lines = split_source_lines(text)
     if not lines:
+        if metadata_dir is not None:
+            return _library_rows_from_metadata(filepath, metadata_dir)
         return []
 
     results: list[Annotation] = []
@@ -2000,6 +2129,8 @@ def parse_library_header(filepath: Path, metadata_dir: Path | None = None) -> li
             if meta:
                 apply_metadata_entry(entry, meta)
 
+    if not results and metadata_dir is not None:
+        return _library_rows_from_metadata(filepath, metadata_dir)
     return results
 
 

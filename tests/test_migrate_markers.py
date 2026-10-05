@@ -1,4 +1,4 @@
-"""End-to-end test for `rebrew migrate-markers`: inline markers → TOML,
+"""End-to-end test for `rebrew source migrate-markers`: inline markers → TOML,
 stripped pure-C sources, and post-migration parsing."""
 
 import threading
@@ -43,10 +43,10 @@ class TestMigrateMarkersEndToEnd:
         assert annos, "pre-migration: file must parse with inline markers"
 
         results = []
-        from rebrew.migrate_markers import _migrate_file
+        from rebrew.marker_migration import migrate_source_file
 
         for s in iter_sources(src, cfg):
-            row = _migrate_file(cfg, s, "S", dry_run=False)
+            row = migrate_source_file(cfg, s, "S", dry_run=False)
             if row:
                 results.append(row)
         assert len(results) == 1
@@ -71,7 +71,7 @@ class TestMigrateMarkersEndToEnd:
         rows2 = [
             r
             for s in iter_sources(src, cfg)
-            if (r := _migrate_file(cfg, s, "S", dry_run=False)) is not None
+            if (r := migrate_source_file(cfg, s, "S", dry_run=False)) is not None
         ]
         assert rows2 == []
 
@@ -84,9 +84,9 @@ class TestMigrateMarkersEndToEnd:
         cfg = SimpleNamespace(
             root=tmp_path, reversed_dir=src, metadata_dir=tmp_path, marker="S", source_ext=".c"
         )
-        from rebrew.migrate_markers import _migrate_file
+        from rebrew.marker_migration import migrate_source_file
 
-        row = _migrate_file(cfg, src / "f.c", "S", dry_run=True)
+        row = migrate_source_file(cfg, src / "f.c", "S", dry_run=True)
         assert row is not None
         assert "FUNCTION:" in (src / "f.c").read_text(encoding="utf-8")
         from rebrew.metadata import load_metadata
@@ -107,16 +107,16 @@ class TestMigrateMarkersEndToEnd:
         cfg = SimpleNamespace(
             root=tmp_path, reversed_dir=src, metadata_dir=tmp_path, marker="S", source_ext=".c"
         )
-        from rebrew.migrate_markers import _migrate_file
+        from rebrew.marker_migration import migrate_source_file
 
-        row = _migrate_file(cfg, src / "f.c", "S", dry_run=False)
+        row = migrate_source_file(cfg, src / "f.c", "S", dry_run=False)
         assert row is not None
         backup = Path(str(row["backup"]))
         assert backup.is_file()
         assert backup.read_text(encoding="utf-8") == original
         # A dry run writes nothing, so it names no copy.
         (src / "g.c").write_text(original, encoding="utf-8")
-        dry = _migrate_file(cfg, src / "g.c", "S", dry_run=True)
+        dry = migrate_source_file(cfg, src / "g.c", "S", dry_run=True)
         assert dry is not None and dry["backup"] is None
 
     def test_legacy_encoding_survives_the_strip(self, tmp_path: Path) -> None:
@@ -133,16 +133,16 @@ class TestMigrateMarkersEndToEnd:
         cfg = SimpleNamespace(
             root=tmp_path, reversed_dir=src, metadata_dir=tmp_path, marker="S", source_ext=".c"
         )
-        from rebrew.migrate_markers import _migrate_file
+        from rebrew.marker_migration import migrate_source_file
 
-        assert _migrate_file(cfg, src / "f.c", "S", dry_run=False) is not None
+        assert migrate_source_file(cfg, src / "f.c", "S", dry_run=False) is not None
         assert (src / "f.c").read_bytes() == body.encode("latin-1")
 
     def test_concurrent_status_promotion_survives(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         import rebrew.metadata as md
-        from rebrew.migrate_markers import _migrate_file
+        from rebrew.marker_migration import migrate_source_file
 
         src = tmp_path / "src"
         src.mkdir()
@@ -166,7 +166,7 @@ class TestMigrateMarkersEndToEnd:
             real_record(directory, rows)
 
         monkeypatch.setattr(md, "record_migrated_markers", _race_then_record)
-        _migrate_file(cfg, src / "f.c", "S", dry_run=False)
+        migrate_source_file(cfg, src / "f.c", "S", dry_run=False)
         writer.join(timeout=5)
         assert not writer.is_alive()
 
@@ -178,7 +178,7 @@ class TestMigrateMarkersEndToEnd:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         import rebrew.metadata as md
-        from rebrew.migrate_markers import _migrate_file
+        from rebrew.marker_migration import migrate_source_file
 
         src = tmp_path / "src"
         src.mkdir()
@@ -194,11 +194,11 @@ class TestMigrateMarkersEndToEnd:
 
         monkeypatch.setattr(md, "record_migrated_markers", _fail)
         with pytest.raises(OSError, match="disk full"):
-            _migrate_file(cfg, src / "f.c", "S", dry_run=False)
+            migrate_source_file(cfg, src / "f.c", "S", dry_run=False)
         assert "// SIZE: 4" in (src / "f.c").read_text(encoding="utf-8")
 
     def test_corrupt_store_is_not_overwritten(self, tmp_path: Path) -> None:
-        from rebrew.migrate_markers import _migrate_file
+        from rebrew.marker_migration import migrate_source_file
 
         src = tmp_path / "src"
         src.mkdir()
@@ -213,13 +213,13 @@ class TestMigrateMarkersEndToEnd:
         )
 
         with pytest.raises(ValueError, match="unparseable"):
-            _migrate_file(cfg, src / "f.c", "S", dry_run=False)
+            migrate_source_file(cfg, src / "f.c", "S", dry_run=False)
         assert store.read_text(encoding="utf-8") == corrupt
         assert "// SIZE: 4" in (src / "f.c").read_text(encoding="utf-8")
 
     def test_unrelated_store_content_survives(self, tmp_path: Path) -> None:
+        from rebrew.marker_migration import migrate_source_file
         from rebrew.metadata import load_metadata
-        from rebrew.migrate_markers import _migrate_file
 
         src = tmp_path / "src"
         src.mkdir()
@@ -236,7 +236,7 @@ class TestMigrateMarkersEndToEnd:
             root=tmp_path, reversed_dir=src, metadata_dir=tmp_path, marker="S", source_ext=".c"
         )
 
-        assert _migrate_file(cfg, src / "f.c", "S", dry_run=False) is not None
+        assert migrate_source_file(cfg, src / "f.c", "S", dry_run=False) is not None
 
         text = store.read_text(encoding="utf-8")
         assert "# hand note kept by tomlkit" in text
@@ -255,5 +255,6 @@ class TestMigrateMarkersEndToEnd:
         result = runner.invoke(app, ["--help"])
         assert result.exit_code == 0, result.output
         assert "rebrew-functions.toml" in result.output
+        assert "rebrew-data.toml" in result.output
         for flag in ("--dry-run", "--json", "--target"):
             assert flag in result.output, flag

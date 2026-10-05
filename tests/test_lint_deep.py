@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+import pytest
+
 from rebrew.config import ProjectConfig
 from rebrew.lint import lint_file
 
@@ -198,3 +200,17 @@ class TestLintFileEdgeCases:
         assert isinstance(d, dict)
         assert d["passed"] is True
         assert len(d["errors"]) == 0
+
+
+class TestBodyRulesFirstLine:
+    @pytest.mark.parametrize("has_size", [False, True])
+    def test_pure_c_struct_checks_include_line_one(self, has_size: bool) -> None:
+        from rebrew.lint import LintResult, _check_body_rules
+
+        lines = ["typedef struct { int value; } RECORD;"]
+        if has_size:
+            lines.insert(0, "// SIZE 0x4")
+        result = LintResult(Path("record.c"))
+        _check_body_rules(result, lines, False)
+        warnings = [(line, code) for line, code, _message in result.warnings]
+        assert warnings == ([] if has_size else [(1, "W007")])

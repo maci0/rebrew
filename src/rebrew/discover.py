@@ -1,4 +1,4 @@
-"""rebrew discover-functions — function enumeration for a target binary.
+"""rebrew binary functions — function enumeration for a target binary.
 
 Function discovery is the weak link in onboarding: rizin's ``aaa`` mis-merges
 functions on some toolchains (the MinGW GCC family) and ``aap`` misses
@@ -21,8 +21,8 @@ problem).
 
 Usage::
 
-    rebrew discover-functions original/game.exe
-    rebrew discover-functions game.exe --output src/game/function_structure.json
+    rebrew binary functions original/game.exe
+    rebrew binary functions game.exe --output src/game/function_structure.json
 """
 
 from __future__ import annotations
@@ -47,9 +47,9 @@ from rebrew.utils import atomic_write_text, run_process_group
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew discover-functions mini.exe · · · · List functions, sizes validated\n\n"
-    "  rebrew discover-functions mini.exe --output functions.csv · Write the inventory\n\n"
-    "  rebrew discover-functions mini.exe --min-size 32 --json · Machine-readable output\n"
+    "  rebrew binary functions mini.exe · · · · List functions, sizes validated\n\n"
+    "  rebrew binary functions mini.exe --output functions.csv · Write the inventory\n\n"
+    "  rebrew binary functions mini.exe --min-size 32 --json · Machine-readable output\n"
 )
 
 

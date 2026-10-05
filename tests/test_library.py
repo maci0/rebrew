@@ -215,7 +215,7 @@ class TestLibraryCli:
         assert payload["found"] is True
         assert payload["toolchain"] == "msvc-6.0"
         assert payload["cflags"] == "/O2 /Gd"
-        removed = self._invoke("rm", str(lib))
+        removed = self._invoke("remove", str(lib))
         assert removed.exit_code == 0
         assert not (lib / LIBRARY_METADATA_FILE).exists()
 
@@ -269,7 +269,7 @@ class TestLibraryCli:
         lib = tmp_path / "lib"
         lib.mkdir()
         (lib / LIBRARY_METADATA_FILE).write_text('toolchain = "msvc-6.0"\n', encoding="utf-8")
-        res = self._invoke("rm", str(lib), "--dry-run")
+        res = self._invoke("remove", str(lib), "--dry-run")
         assert res.exit_code == 0, res.output
         assert "would remove" in res.output
         assert (lib / LIBRARY_METADATA_FILE).exists()
@@ -445,3 +445,67 @@ class TestLibraryCacheConcurrency:
             t.start()
         join_all(threads)
         assert errors == []
+
+
+class TestLibraryFingerprintWalk:
+    """The override fingerprint is recomputed once per directory, not per function."""
+
+    def test_repeated_calls_walk_once_until_the_tree_changes(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import os
+
+        import rebrew.metadata as metadata
+        from rebrew.compile_overrides import resolve_compile_overrides_cached
+        from rebrew.metadata import clear_library_override_cache, library_override_fingerprint
+
+        proj, lib, fn = _tree(tmp_path)
+        clear_library_override_cache()
+        calls = {"n": 0}
+        real = metadata.nearest_library_metadata_path
+
+        def _counting(start: Path | str, root: Path | str | None = None) -> Path | None:
+            calls["n"] += 1
+            return real(start, root)
+
+        monkeypatch.setattr(metadata, "nearest_library_metadata_path", _counting)
+        assert library_override_fingerprint(fn, proj) is None
+        assert calls["n"] == 1
+        for _ in range(32):
+            assert library_override_fingerprint(fn, proj) is None
+        assert calls["n"] == 1
+        cfg = SimpleNamespace(
+            root=proj,
+            cflags_presets={},
+            cflags="",
+            cflags_explicit=False,
+            compiler_profile="",
+            posix_style=False,
+            target_name="server",
+        )
+        toolchain, _cflags = resolve_compile_overrides_cached(cfg, fn, "", "", "")
+        assert toolchain is None
+        held = calls["n"]
+        toolchain, _cflags = resolve_compile_overrides_cached(cfg, fn, "", "", "")
+        assert toolchain is None
+        assert calls["n"] == held
+
+        library = lib / LIBRARY_METADATA_FILE
+        library.write_text('toolchain = "msvc-6.0-sp6"\n', encoding="utf-8")
+        found = library_override_fingerprint(fn, proj)
+        assert calls["n"] == held + 1
+        assert found is not None and found[0] == str(library.resolve())
+
+        later = found[1] + 1_000_000_000
+        os.utime(library, ns=(later, later))
+        edited = library_override_fingerprint(fn, proj)
+        assert calls["n"] == held + 2
+        assert edited is not None and edited[1] == later
+
+        closer = fn / LIBRARY_METADATA_FILE
+        closer.write_text('toolchain = "msvc-4.2"\n', encoding="utf-8")
+        nearest = library_override_fingerprint(fn, proj)
+        assert calls["n"] == held + 3
+        assert nearest is not None and nearest[0] == str(closer.resolve())
+        toolchain, _cflags = resolve_compile_overrides_cached(cfg, fn, "", "", "")
+        assert toolchain == "msvc-4.2"

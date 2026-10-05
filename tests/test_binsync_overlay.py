@@ -104,7 +104,7 @@ def _make_state(
 
 
 def _invoke(tmp_path: Path, state: Path, *extra: str) -> Any:
-    return runner.invoke(app, ["binsync-overlay", str(state), *extra], catch_exceptions=False)
+    return runner.invoke(app, ["binsync", "overlay", str(state), *extra], catch_exceptions=False)
 
 
 def _dest_text(tmp_path: Path) -> str:

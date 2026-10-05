@@ -75,7 +75,7 @@ def _invoke_import(
     tmp_path: Path, state: Path, monkeypatch: pytest.MonkeyPatch, *extra: str
 ) -> Any:
     monkeypatch.chdir(tmp_path)
-    return runner.invoke(app, ["binsync-import", str(state), *extra])
+    return runner.invoke(app, ["binsync", "import", str(state), *extra])
 
 
 # ---------------------------------------------------------------------------
@@ -306,7 +306,7 @@ class TestBinsyncRoundTrip:
         )
         # Export
         monkeypatch.chdir(tmp_path)
-        out = runner.invoke(app, ["binsync-export", str(tmp_path / "state"), "--json"])
+        out = runner.invoke(app, ["binsync", "export", str(tmp_path / "state"), "--json"])
         assert out.exit_code == 0
 
         # Simulate IDA renaming by editing the exported TOML.  The export is
@@ -338,7 +338,7 @@ class TestBinsyncRoundTrip:
             },
         )
         monkeypatch.chdir(tmp_path)
-        runner.invoke(app, ["binsync-export", str(tmp_path / "state")])
+        runner.invoke(app, ["binsync", "export", str(tmp_path / "state")])
         # Edit prototype in BinSync state (chmod writable first — exports are
         # write-locked 0444).
         p = tmp_path / "state" / "functions" / "10001000.toml"
@@ -372,7 +372,7 @@ class TestBinsyncRoundTrip:
             },
         )
         monkeypatch.chdir(tmp_path)
-        runner.invoke(app, ["binsync-export", str(tmp_path / "state")])
+        runner.invoke(app, ["binsync", "export", str(tmp_path / "state")])
         # Rename global in BinSync state (chmod writable first — exports are
         # write-locked 0444).
         gv = tmp_path / "state" / "global_vars.toml"
@@ -537,7 +537,8 @@ reversed_dir = "src/server"
         # metadata-owned keys and must land in rebrew-functions.toml, not
         # as deprecated inline // STATUS://SIZE://NOTE: forms (lint W019).
         text = (src / "FromBinSync.c").read_text()
-        assert "// FUNCTION:" in text
+        assert text == "void FromBinSync(void) {}\n"
+        assert "// FUNCTION:" not in text
         assert "// STATUS:" not in text and "// SIZE:" not in text and "// NOTE:" not in text
         meta = (tmp_path / "src" / "rebrew-functions.toml").read_text(encoding="utf-8")
         assert "SERVER.0x10002000" in meta
@@ -551,6 +552,11 @@ reversed_dir = "src/server"
             assert entry["status"] == "STUB"
             assert entry["size"] == size
             assert entry["note"] == f"imported from BinSync as {name}"
+            c_name = name.lstrip("_")
+            assert entry["marker_type"] == "FUNCTION"
+            assert entry["name"] == c_name
+            assert entry["symbol"] == f"_{c_name}"
+            assert entry["file"] == f"server/{c_name}.c"
 
     def test_create_missing_finishes_metadata_when_stub_already_exists(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -563,7 +569,7 @@ reversed_dir = "src/server"
         """
         import json as _json
 
-        from rebrew.metadata import get_entry
+        from rebrew.metadata import get_entry, record_migrated_markers
 
         _make_project(tmp_path, {})
         src = tmp_path / "src"
@@ -571,9 +577,25 @@ reversed_dir = "src/server"
             _json.dumps([{"va": 0x10002000, "size": 16, "name": "bar_func"}]),
             encoding="utf-8",
         )
-        (src / "FromBinSync.c").write_text(
-            "// FUNCTION: SERVER 0x10002000\nvoid FromBinSync(void) {}\n",
-            encoding="utf-8",
+        # Identity was recorded and the process died before STATUS. The file
+        # is the pure-C stub, which is what the repair compares against.
+        stub = "void FromBinSync(void) {}\n"
+        (src / "FromBinSync.c").write_text(stub, encoding="utf-8")
+        record_migrated_markers(
+            tmp_path,
+            [
+                {
+                    "module": "SERVER",
+                    "va": 0x10002000,
+                    "identity": {
+                        "file": "src/FromBinSync.c",
+                        "symbol": "_FromBinSync",
+                        "name": "FromBinSync",
+                        "marker_type": "FUNCTION",
+                    },
+                    "fields": {},
+                }
+            ],
         )
         state = _make_state(tmp_path, funcs={0x10002000: "_FromBinSync"})
         result = _invoke_import(tmp_path, state, monkeypatch, "--create-missing", "--json")
@@ -584,10 +606,12 @@ reversed_dir = "src/server"
         assert entry["status"] == "STUB"
         assert entry["size"] == 16
         assert entry["note"] == "imported from BinSync as _FromBinSync"
+        assert entry["marker_type"] == "FUNCTION"
+        assert entry["name"] == "FromBinSync"
+        assert entry["symbol"] == "_FromBinSync"
+        assert entry["file"] == "src/FromBinSync.c"
         # The user's bytes were not rewritten.
-        assert (src / "FromBinSync.c").read_text(encoding="utf-8") == (
-            "// FUNCTION: SERVER 0x10002000\nvoid FromBinSync(void) {}\n"
-        )
+        assert (src / "FromBinSync.c").read_text(encoding="utf-8") == stub
 
 
 class TestGlobalTypeSizeImport:
@@ -957,7 +981,7 @@ class TestAnalysisMarkers:
 
     def _export(self, tmp_path: Path, monkeypatch: Any, outdir: Path) -> Any:
         monkeypatch.chdir(tmp_path)
-        return runner.invoke(app, ["binsync-export", str(outdir), "--json"])
+        return runner.invoke(app, ["binsync", "export", str(outdir), "--json"])
 
     def test_import_writes_marker_in_owning_file(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1128,7 +1152,7 @@ marker = "V1"
     ) -> None:
         self._shared_project(tmp_path)
         monkeypatch.chdir(tmp_path)
-        out = runner.invoke(app, ["binsync-export", str(tmp_path / "state"), "--json"])
+        out = runner.invoke(app, ["binsync", "export", str(tmp_path / "state"), "--json"])
         assert out.exit_code == 0, out.output
         p = tmp_path / "state" / "functions" / "00401000.toml"
         assert p.is_file(), sorted((tmp_path / "state" / "functions").iterdir())

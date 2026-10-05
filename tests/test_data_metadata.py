@@ -526,3 +526,87 @@ class TestDataProvenance:
         assert get_data_entry(tmp_path, 0x10025000, "SERVER")["updated_by"] == "verify"
         with pytest.raises(ValueError, match="unknown data metadata field"):
             set_data_field(tmp_path, 0x10025000, "bogus", "x", "SERVER")
+
+
+class TestRecordMigratedDataMarkers:
+    """migrate-markers fills identity without clearing a stored data verdict."""
+
+    def test_fills_a_missing_name_and_keeps_the_verdict(self, tmp_path: Path) -> None:
+        from rebrew.data_metadata import record_migrated_data_markers
+
+        set_data_field(tmp_path, 0x10025000, "size", 4, "S")
+        set_data_field(tmp_path, 0x10025000, "status", "VERIFIED", "S", updated_by="verify")
+        stamped = get_data_entry(tmp_path, 0x10025000, "S")
+        record_migrated_data_markers(
+            tmp_path,
+            [
+                {
+                    "module": "S",
+                    "va": 0x10025000,
+                    "identity": {
+                        "file": "src/d.c",
+                        "marker_type": "DATA",
+                        "name": "lut",
+                    },
+                    "fill": {"type": "unsigned char[256]", "size": 256, "section": ".rdata"},
+                }
+            ],
+        )
+        entry = get_data_entry(tmp_path, 0x10025000, "S")
+        assert entry["status"] == "VERIFIED"
+        assert entry["name"] == "lut"
+        assert entry["size"] == 4
+        assert entry["type"] == "unsigned char[256]"
+        assert entry["section"] == ".rdata"
+        assert entry["file"] == "src/d.c"
+        assert entry["marker_type"] == "DATA"
+        assert entry["updated_by"] == stamped["updated_by"]
+        assert entry["updated_at"] == stamped["updated_at"]
+
+    def test_rejects_a_function_marker_type(self, tmp_path: Path) -> None:
+        from rebrew.data_metadata import record_migrated_data_markers
+
+        with pytest.raises(ValueError, match="marker_type must be one of"):
+            record_migrated_data_markers(
+                tmp_path,
+                [
+                    {
+                        "module": "S",
+                        "va": 0x1000,
+                        "identity": {"file": "src/d.c", "marker_type": "FUNCTION"},
+                    }
+                ],
+            )
+        assert not (tmp_path / "rebrew-data.toml").exists()
+
+    def test_rejects_an_absolute_file(self, tmp_path: Path) -> None:
+        from rebrew.data_metadata import record_migrated_data_markers
+
+        with pytest.raises(ValueError, match="must be relative to the project"):
+            record_migrated_data_markers(
+                tmp_path,
+                [
+                    {
+                        "module": "S",
+                        "va": 0x1000,
+                        "identity": {"file": "/etc/passwd", "marker_type": "DATA"},
+                    }
+                ],
+            )
+        assert not (tmp_path / "rebrew-data.toml").exists()
+
+    def test_rejects_status(self, tmp_path: Path) -> None:
+        from rebrew.data_metadata import record_migrated_data_markers
+
+        with pytest.raises(ValueError, match="data migration does not write STATUS"):
+            record_migrated_data_markers(
+                tmp_path,
+                [
+                    {
+                        "module": "S",
+                        "va": 0x1000,
+                        "identity": {"status": "VERIFIED", "marker_type": "DATA"},
+                    }
+                ],
+            )
+        assert not (tmp_path / "rebrew-data.toml").exists()

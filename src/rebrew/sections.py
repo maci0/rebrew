@@ -14,6 +14,18 @@ from rebrew.sources import iter_sources as iter_sources
 
 logger = logging.getLogger(__name__)
 
+_DEFAULT_PADDING: bytes | None = None
+
+
+def _default_padding() -> bytes:
+    """``PADDING_BYTES`` as one ``bytes``, built once."""
+    global _DEFAULT_PADDING
+    if _DEFAULT_PADDING is None:
+        from rebrew.binary_loader import PADDING_BYTES
+
+        _DEFAULT_PADDING = bytes(PADDING_BYTES)
+    return _DEFAULT_PADDING
+
 
 def trim_trailing_padding(data: bytes, padding: tuple[int, ...] | None = None) -> int:
     r"""Return the length of *data* after stripping trailing padding bytes.
@@ -23,14 +35,11 @@ def trim_trailing_padding(data: bytes, padding: tuple[int, ...] | None = None) -
     >>> trim_trailing_padding(b'\xcc\xcc\xcc')
     0
     """
-    if padding is None:
-        from rebrew.binary_loader import PADDING_BYTES
-
-        padding = PADDING_BYTES
-    end = len(data)
-    while end > 0 and data[end - 1] in padding:
-        end -= 1
-    return end
+    # rstrip is the same end-strip. The Python loop was 16 ms for 8000
+    # tails and 50 ms for a 1 MB run of padding; coverage build calls this
+    # once per function and once per gap.
+    pad = _default_padding() if padding is None else bytes(padding)
+    return len(data.rstrip(pad))
 
 
 # ``jecxz`` / ``jcxz`` / ``jrcxz`` are relative too, and were never part of the
@@ -103,7 +112,7 @@ def sections_from_info(info: "BinaryInfo") -> dict[str, dict[str, int]]:
 
 
 def get_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> dict[int, dict[str, Any]]:
-    """Coverage globals from the same source/header inventory as ``rebrew data``.
+    """Coverage globals from the same source/header inventory as ``rebrew data list``.
 
     Declaration sites, storage owners and users remain distinct. Durable data
     extents override type estimates; headers and migrated metadata are included.

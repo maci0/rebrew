@@ -88,11 +88,12 @@ class TestDisassembleToNasm:
 
 
 class TestGenerateInlineC:
-    def test_msvc_default(self) -> None:
-        cfg = _cfg(Path("/tmp"), compiler_profile="msvc")
+    def test_msvc_default(self, tmp_path: Path) -> None:
+        cfg = _cfg(tmp_path, compiler_profile="msvc")
         out = generate_inline_c(b"\x55\x90", cfg, 0x1000, "_my_func")
-        assert "// FUNCTION: SERVER 0x00001000" in out
-        assert "// SIZE: 2" in out
+        # Identity is not a marker line, and the string helper writes no TOML.
+        assert "// FUNCTION:" not in out
+        assert "// SIZE:" not in out
         assert "// SOURCE: naked" in out
         assert "__declspec(naked) void my_func(void)" in out
         assert "__asm {" in out
@@ -101,6 +102,7 @@ class TestGenerateInlineC:
         assert "_emit 0x90" in out
         # Mnemonics survive as comments.
         assert "/* push ebp */" in out
+        assert not (tmp_path / "rebrew-functions.toml").exists()
 
     def test_gcc_clang(self) -> None:
         cfg = _cfg(Path("/tmp"), compiler_profile="clang-18.1.8")
@@ -108,7 +110,8 @@ class TestGenerateInlineC:
         assert "__asm__(" in out
         assert '".byte 0xb8, 0x01, 0x00, 0x00, 0x00' in out
         assert "func_00001000" in out  # default symbol fallback
-        assert "// SIZE: 5" in out
+        assert "// FUNCTION:" not in out
+        assert "// SIZE:" not in out
 
     def test_naked_fenced_for_round_trip(self) -> None:
         """The naked reconstruction must sit behind the REBREW_ALLOW_NAKED
@@ -134,15 +137,41 @@ class TestGenerateInlineC:
         out = generate_inline_c(b"\xb8\x01\x00\x00\x00", cfg, 0x1000, None)
         assert "__attribute__((naked))" in out
 
-    def test_size_matches_emitted_bytes(self) -> None:
-        """SIZE must equal the emitted byte count so `rebrew test` extracts
-        exactly the bytes the naked branch produces."""
-        cfg = _cfg(Path("/tmp"), compiler_profile="msvc")
+    def test_size_matches_emitted_bytes(self, tmp_path: Path) -> None:
+        """The naked branch emits one byte per ``_emit``, and a file write
+        records that count. The string itself has no SIZE line and no row."""
+        from rebrew.asm import _record_inline_c_identity
+        from rebrew.metadata import get_entry
+
+        cfg = _cfg(tmp_path, compiler_profile="msvc")
         code = bytes.fromhex("558bec83ec08b801000000c9c3")  # _CODE
         out = generate_inline_c(code, cfg, 0x1000, "_f")
-        assert f"// SIZE: {len(code)}" in out
+        assert "// SIZE:" not in out
+        assert "// FUNCTION:" not in out
         emitted = sum(1 for line in out.splitlines() if "_emit 0x" in line)
         assert emitted == len(code)
+        assert not (tmp_path / "rebrew-functions.toml").exists()
+
+        path = tmp_path / "f.c"
+        path.write_text(out, encoding="utf-8")
+        _record_inline_c_identity(cfg, path, 0x1000, code, "_f")
+        entry = get_entry(tmp_path, 0x1000, "SERVER")
+        assert entry["marker_type"] == "FUNCTION"
+        assert entry["name"] == "f"
+        assert entry["symbol"] == "_f"
+        assert entry["size"] == len(code)
+        assert entry["file"] == "f.c"
+        assert "status" not in entry
+
+        # No project marker: the row is keyed TARGET, still FUNCTION.
+        cfg.marker = ""
+        _record_inline_c_identity(cfg, path, 0x2000, code, "_f")
+        target = get_entry(tmp_path, 0x2000, "TARGET")
+        assert target["marker_type"] == "FUNCTION"
+        assert target["name"] == "f"
+        assert target["symbol"] == "_f"
+        assert target["size"] == len(code)
+        assert "status" not in target
 
     def test_batch_inline_c_writes_naked_skeletons(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -162,9 +191,10 @@ class TestGenerateInlineC:
             "// FUNCTION: SERVER 0x10002000\n// SIZE: 6\nint g(void) { return 0; }\n",
             encoding="utf-8",
         )
+        code = bytes.fromhex("558bec83ec08")
         monkeypatch.setattr(
             "rebrew.binary_loader.extract_raw_bytes",
-            lambda *a, **k: bytes.fromhex("558bec83ec08"),
+            lambda *a, **k: code,
         )
         out = tmp_path / "naked"
         batch_extract_nasm(cfg, out, inline_c=True)
@@ -173,9 +203,28 @@ class TestGenerateInlineC:
         assert len(files) == 2
         text = files[0].read_text(encoding="utf-8")
         assert "// SOURCE: naked" in text
-        assert "// FUNCTION: SERVER 0x10001000" in text
+        assert "// FUNCTION:" not in text
+        assert "// SIZE:" not in text
         assert "_emit 0x55" in text
         assert "REBREW_ALLOW_NAKED" in text
+        from rebrew.metadata import get_entry
+
+        # Both annotated functions become rows. Size is the extracted code,
+        # symbol is the one parsed from the .c, name drops one leading _.
+        for va, name, filename in (
+            (0x10001000, "f", "f.c.10001000.c"),
+            (0x10002000, "g", "g.c.10002000.c"),
+        ):
+            entry = get_entry(cfg.metadata_dir, va, "SERVER")
+            assert entry["marker_type"] == "FUNCTION"
+            assert entry["name"] == name
+            assert entry["symbol"] == f"_{name}"
+            assert entry["size"] == len(code)
+            assert entry["file"] == f"naked/{filename}"
+            assert "status" not in entry
+        store = (tmp_path / "rebrew-functions.toml").read_text(encoding="utf-8")
+        assert "SERVER.0x10001000" in store
+        assert "SERVER.0x10002000" in store
 
     def test_batch_inline_c_stubs_only(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -336,7 +385,7 @@ class TestBatchOutDirResolution:
         from rebrew.asm import app
 
         captured = self._setup(tmp_path, monkeypatch)
-        result = CliRunner().invoke(app, ["--format", "nasm", "--all", "--out-dir", "output/asm"])
+        result = CliRunner().invoke(app, ["batch", "--output", "output/asm"])
         assert result.exit_code == 0
         assert captured["out_dir"] == tmp_path / "output" / "asm"
 
@@ -348,7 +397,7 @@ class TestBatchOutDirResolution:
         from rebrew.asm import app
 
         captured = self._setup(tmp_path, monkeypatch)
-        result = CliRunner().invoke(app, ["--format", "nasm", "--all"])
+        result = CliRunner().invoke(app, ["batch"])
         assert result.exit_code == 0
         assert captured["out_dir"] == tmp_path / "output" / "asm"
 
@@ -361,7 +410,7 @@ class TestBatchOutDirResolution:
 
         captured = self._setup(tmp_path, monkeypatch)
         out_dir = tmp_path / "elsewhere" / "nasm"
-        result = CliRunner().invoke(app, ["--format", "nasm", "--all", "--out-dir", str(out_dir)])
+        result = CliRunner().invoke(app, ["batch", "--output", str(out_dir)])
         assert result.exit_code == 0
         assert captured["out_dir"] == out_dir
 
@@ -458,7 +507,7 @@ timeout = 60
             lambda *a, **k: (60, "ret") if k.get("with_kind") else 60,
         )
         monkeypatch.chdir(root)
-        result = CliRunner().invoke(app, ["asm", "0x401000", "--json"])
+        result = CliRunner().invoke(app, ["binary", "asm", "show", "0x401000", "--json"])
         assert result.exit_code == 0, result.stdout
         payload = json.loads(result.stdout)
         assert payload["stale_size"] is True
@@ -482,7 +531,9 @@ timeout = 60
             lambda *a, **k: (60, "ret") if k.get("with_kind") else 60,
         )
         monkeypatch.chdir(root)
-        result = CliRunner().invoke(app, ["asm", "0x401000", "--size", "10", "--json"])
+        result = CliRunner().invoke(
+            app, ["binary", "asm", "show", "0x401000", "--size", "10", "--json"]
+        )
         assert result.exit_code == 0, result.stdout
         payload = json.loads(result.stdout)
         assert payload["stale_size"] is False  # explicit --size honored
@@ -502,7 +553,9 @@ timeout = 60
 
         root = self._project(tmp_path)
         monkeypatch.chdir(root)
-        result = CliRunner().invoke(app, ["asm", "0x401000", "--size", "-5", "--json"])
+        result = CliRunner().invoke(
+            app, ["binary", "asm", "show", "0x401000", "--size", "-5", "--json"]
+        )
         assert result.exit_code == 2
         assert "--size must be a positive integer" in result.output
         assert "outside the binary image" not in result.output
@@ -523,7 +576,7 @@ timeout = 60
             lambda *a, **k: (32, "ret") if k.get("with_kind") else 32,
         )
         monkeypatch.chdir(root)
-        result = CliRunner().invoke(app, ["asm", "0x401000", "--json"])
+        result = CliRunner().invoke(app, ["binary", "asm", "show", "0x401000", "--json"])
         assert result.exit_code == 0, result.stdout
         payload = json.loads(result.stdout)
         assert payload["stale_size"] is False
@@ -554,7 +607,7 @@ timeout = 60
             lambda *a, **k: (16, "ret") if k.get("with_kind") else 16,
         )
         monkeypatch.chdir(root)
-        result = CliRunner().invoke(app, ["asm", "0x401000", "--json"])
+        result = CliRunner().invoke(app, ["binary", "asm", "show", "0x401000", "--json"])
         assert result.exit_code == 0, result.stdout
         payload = json.loads(result.stdout)
         assert payload["size"] == 16
@@ -581,7 +634,7 @@ timeout = 60
             lambda *a, **k: (16, "jmp") if k.get("with_kind") else 16,
         )
         monkeypatch.chdir(root)
-        result = CliRunner().invoke(app, ["asm", "0x401000", "--json"])
+        result = CliRunner().invoke(app, ["binary", "asm", "show", "0x401000", "--json"])
         assert result.exit_code == 0, result.stdout
         payload = json.loads(result.stdout)
         assert payload["size"] == 32  # declared size kept
@@ -606,7 +659,7 @@ timeout = 60
 
         monkeypatch.setattr("rebrew.binary_loader.function_extent_from_disasm", _boom)
         monkeypatch.chdir(root)
-        result = CliRunner().invoke(app, ["asm", "0x401000", "--json"])
+        result = CliRunner().invoke(app, ["binary", "asm", "show", "0x401000", "--json"])
         assert result.exit_code == 0, result.stdout
         payload = json.loads(result.stdout)
         assert payload["stale_size"] is False

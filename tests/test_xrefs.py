@@ -133,7 +133,7 @@ class TestXrefsCli:
 
 
 class TestVaFirstPositional:
-    """`rebrew xrefs <va>` (documented) must work with the project binary —
+    """`rebrew binary xrefs <va>` (documented) must work with the project binary —
     previously the first positional bound to `binary` and VA was missing."""
 
     def test_looks_like_va(self) -> None:
@@ -184,7 +184,7 @@ class TestVaFirstPositional:
 
 
 class TestBuildXrefsPayload:
-    """``build_xrefs_payload()`` is the importable form of ``rebrew xrefs --json``."""
+    """``build_xrefs_payload()`` is the importable form of ``rebrew binary xrefs --json``."""
 
     def test_matches_cli_json(self, tmp_path: Path) -> None:
         path, syms = make_xref_probe(tmp_path)

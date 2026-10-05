@@ -426,10 +426,10 @@ def test_generated_toolchain_builds_with_only_umbrella_executable(
         f"#!{sys.executable}\n"
         "import json, os, sys\n"
         "from pathlib import Path\n"
-        "assert sys.argv[1] == 'cmake-driver' and sys.argv[3] == '--', sys.argv\n"
+        "assert sys.argv[1:3] == ['build', 'driver'] and sys.argv[4] == '--', sys.argv\n"
         "with open(os.environ['REBREW_FAKE_DRIVER_LOG'], 'a') as log:\n"
         "    log.write(json.dumps(sys.argv[1:]) + '\\n')\n"
-        "for arg in sys.argv[4:]:\n"
+        "for arg in sys.argv[5:]:\n"
         "    if arg.startswith('/Fo') or arg.lower().startswith('/out:'):\n"
         "        out = Path(arg[3:] if arg.startswith('/Fo') else arg[5:])\n"
         "        out.parent.mkdir(parents=True, exist_ok=True)\n"
@@ -472,8 +472,8 @@ def test_generated_toolchain_builds_with_only_umbrella_executable(
     )
     assert built.returncode == 0, built.stdout + built.stderr
     commands = [json.loads(line) for line in log.read_text().splitlines()]
-    assert {args[1] for args in commands} == {"cl", "link", "lib"}
-    assert sum(args[1] == "link" for args in commands) == 2
+    assert {args[2] for args in commands} == {"cl", "link", "lib"}
+    assert sum(args[2] == "link" for args in commands) == 2
     for artifact in ("arch.lib", "shared.dll", "exe.exe"):
         assert (build / artifact).is_file(), artifact
 
@@ -539,7 +539,7 @@ def test_driver_dispatch_and_run(
     from rebrew.main import app
 
     args = ["/c", "x.c", "--help", "--version", "-v", "/Ipath with spaces"]
-    result = CliRunner().invoke(app, ["cmake-driver", mode, "--", *args])
+    result = CliRunner().invoke(app, ["build", "driver", mode, "--", *args])
     assert result.exit_code == 7, result.output
     assert calls == [(mode, args)]
 

@@ -847,7 +847,7 @@ def _kuna_declarations(source: str) -> list[str]:
 
 
 def kuna_seed_source(binary: Path, va: int, root: Path) -> str | None:
-    """Fetch Kuna's decompilation of *va* and make it compilable (rebrew fix).
+    """Fetch Kuna's decompilation of *va* and make it compilable (rebrew source fix).
 
     Two repairs beyond :func:`rebrew.pseudo_c.sanitize_tokens` are needed for Kuna output: its
     address labels (``s_``/``dat_``/``sub_``) must be declared, and its C99-isms
@@ -1006,8 +1006,8 @@ def fetch_m2c(binary: Path, va: int, root: Path, **_kwargs: Any) -> str | None:
 
     The function is disassembled arch-aware, rendered in m2c's GNU-as format
     (``func_<va>``/``loc_<va>`` labels), and piped to m2c on stdin with the
-    ``rebrew context`` output as ``--context`` when a ``ctx.c`` exists in the
-    project root (run ``rebrew context`` first to populate it).
+    ``rebrew export context`` output as ``--context`` when a ``ctx.c`` exists in the
+    project root (run ``rebrew export context`` first to populate it).
 
     Requires the ``m2c`` package, which is not on PyPI under its real name
     (the index name is an unrelated OpenAPI package).  Install with ``uv sync
@@ -1096,7 +1096,7 @@ PACKAGED_BACKEND_MAP: dict[str, Callable[..., str | None]] = {
 }
 _BACKEND_MAP: dict[str, Callable[..., str | None]] = dict(PACKAGED_BACKEND_MAP)
 
-#: Selectable backend names for the ``--decompiler`` / ``--decomp-backend``
+#: Selectable backend names for the ``--decompiler`` / ``--decompiler``
 #: help strings, in the order the map declares them.  Derived from the map so a
 #: registered backend cannot go undocumented: ``m2c`` shipped selectable on
 #: every command while three of the four help strings omitted it.

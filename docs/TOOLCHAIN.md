@@ -100,7 +100,7 @@ defaults `gcc-14.2.0`/`clang-18.1.8` are the newest of each family.  The GNU ima
 GCC from the release tarball; the Clang images extract LLVM's prebuilt
 release.  Both carry a
 minimal posix flag-sweep axis set (`rebrew.flag_data.GCC_FLAGS`), so
-`rebrew match --flag-sweep` emits flags these compilers accept rather than
+`rebrew match flags SOURCE` emits flags these compilers accept rather than
 the MSVC fallback.
 
 **Analysis note:** rizin's `aaa` mis-merges functions on this toolchain;
@@ -139,7 +139,7 @@ subtree) applies to every function under it.  `rebrew library` manages it:
 rebrew library set refs/zlib --preset msvcrt-static   # known shipped lib
 rebrew library set refs/zlib --toolchain msvc-6.0 --cflags "/O2 /Gd /MT"
 rebrew library show refs/zlib/f                       # effective override (walk-up)
-rebrew library rm refs/zlib
+rebrew library remove refs/zlib
 ```
 
 ```toml
@@ -270,7 +270,7 @@ resembl-clone and `check-updates` steps for generous API limits.
 > some tools**, so rebrew never steers projects toward it: the only shipped
 > wibo-runtime profile is the opt-in `msvc-6.0-win9x`, `rebrew doctor`
 > reports a present wibo binary as informational only, and
-> `rebrew doctor --install-wibo` downloads it but leaves a docker-backed
+> `rebrew toolchain install-wibo` downloads it but leaves a docker-backed
 > project's `runner` config untouched (the config runner is obsolete for
 > images anyway).
 
@@ -474,7 +474,7 @@ best-first:
    styles appear (per-file /O overrides; common in MS products, e.g.
    Win2K's mspaint).  `/O1` vs `/O2` change wrapper codegen, so compiling
    with the wrong level silently breaks byte-matching at every wrapper
-   call site.  The fingerprint feeds `rebrew analyze` (Optimization
+   call site.  The fingerprint feeds `rebrew binary analyze` (Optimization
    line), `rebrew init` (seeds the compiler cflags), and a `rebrew
    doctor` "Optimization level" check that warns on mismatch and points
    mixed builds at per-function flag sweeps.
@@ -597,7 +597,7 @@ Three companion extension points make a plugin toolchain fully first-class:
   with `"full": None` meaning all axes).  Without one, a profile sweeps the
   axes its spec's `flags_style` implies (a posix compiler gets the GCC axes,
   not MSVC's); a posix profile with no registered set refuses a
-  `--flag-sweep-only` run rather than compiling invalid combinations.
+  `rebrew match flags` run rather than compiling invalid combinations.
 - **`rebrew.toolchain_detectors`**: detection-family alignment.  A zero-arg
   callable returning `dict[family, list[profile]]`; the profile is then
   accepted by `rebrew doctor`'s family check and `rebrew init
@@ -777,13 +777,13 @@ Two consequences:
 
 - **A missing `INCLUDE`/`LIB` export made five of the seven builds
   uncompilable.**  Only the base and SP6 wrappers set them; every SP1/SP2/SP3/
-  SP5 compile died with `C1083`, which `rebrew match
+  SP5 compile died with `C1083`, which `rebrew match run
   --flag-sweep-toolchains` reported as a compile failure (`score: Infinity`,
   `0/0`) rather than a toolchain result.  Each of those specs now declares its
   container `tool_root`, and `run_toolchain` exports `INCLUDE`/`LIB` from it
   (`rebrew.toolchain.image_msvc_env`), the derivation the CMake bridge already
   used.  Confirm with
-  `rebrew match <seed.c> --flag-sweep-toolchains --sweep-toolchains 6.0`: all
+  `rebrew match toolchains <seed.c> --toolchains 6.0`: all
   seven builds should report the same `bytes` count.
 - **The libc/math code differs while the codegen barely does.**  The 8168
   builds share one `LIBCMT.LIB`, SP4/SP5/SP6 each carry a different one, and
@@ -868,7 +868,7 @@ DOS/Windows games and Borland Delphi 1.0 apps) are now parsed natively:
    header (segment table with sector math, resident name table = exports,
    module reference + imported names = Win16 imports).  Segments become
    `BinaryInfo` sections with synthetic flat VAs `(segment << 16 | offset)`,
-   so `load_binary`, `extract_raw_bytes`, `rebrew strings`, and `rebrew
+   so `load_binary`, `extract_raw_bytes`, `rebrew binary strings`, and `rebrew
    analyze` work on NE targets.  A capstone-based probe classifies code vs
    data segments: Borland segments carry a `[index\x00][name-string][content]`
    marker (detected conditionally; MSVC 16-bit segments start directly with
@@ -899,7 +899,7 @@ DOS/Windows games and Borland Delphi 1.0 apps) are now parsed natively:
    `omf16` parser (objconv crashes on both the unoptimized 0xA0 and
    /O-optimized 0xC2 dialects; reloc slots: e8/e9 rel16, absolute disp16,
    and far-call 9a/ea via capstone).  `rebrew test`, `verify`, and
-   `match --flag-sweep-only` (memory-model axis `/AS /AM /AC /AL`) all work
+   `rebrew match flags` (memory-model axis `/AS /AM /AC /AL`) all work
    on 16-bit NE targets.
    The GA sweep for msvc-1.52 covers 75 targeted combos through the image.
    NOTE: the vendored `rebrew-toolchains/msvc/4.2-win32` is the *32-bit* VC
@@ -907,9 +907,9 @@ DOS/Windows games and Borland Delphi 1.0 apps) are now parsed natively:
 
 The workflow for a 16-bit target is: `rebrew intake <ne.exe>` (enumerates +
 documents every function as a STUB blocker; Delphi functions are marked
-audit-only in `rebrew todo --category documented`), `rebrew analyze <ne.exe>` for the
+audit-only in `rebrew todo --category documented`), `rebrew binary analyze <ne.exe>` for the
 intelligence dossier (format, toolchain family, imports, strings),
-`rebrew asm <va>` for disassembly.  For byte matching, set `compiler.profile`
+`rebrew binary asm show <va>` for disassembly.  For byte matching, set `compiler.profile`
 to a `bits = 16` profile that emits a per-function object (for this MSVC
 16-bit line, `msvc-1.52`, `msvc-1.5`, or `msvc-1.0`; also `borland-2.0`,
 `borland-3.1`, `watcom-2.0-win16`).  `rebrew verify` then runs the full
@@ -992,8 +992,8 @@ rebrew calls (`ghidra/client.py` is the single call site):
 |------------|----------|--------|
 | Decompilation | `get-decompilation` | `decompiler.py`, `skeleton.py --decomp` |
 | Cross-references | `find-cross-references` | `skeleton.py --xrefs` |
-| Function creation | `create-function` | `rebrew sync --create-functions` |
-| Labels and comments | `create-label`, `set-comment`, `set-bookmark` | `rebrew sync` (BinSync state push/pull) |
+| Function creation | `create-function` | `rebrew sync create-functions` |
+| Labels and comments | `create-label`, `set-comment`, `set-bookmark` | `rebrew sync push` (BinSync state push/pull) |
 | Structure editing | `parse-c-structure` | `struct_parser.py` |
 
 See [BINSYNC_INTEGRATION.md](BINSYNC_INTEGRATION.md) for the sync feature matrix and known issues.
@@ -1008,7 +1008,7 @@ entry-point group without host edits.
 
 **Data files consumed by rebrew:**
 - `function_structure.json`: discovery inventory `[{va, size, name}]`
-  (consumed by `rebrew skeleton`, `rebrew todo`, `rebrew catalog`)
+  (consumed by `rebrew skeleton`, `rebrew todo`, `rebrew coverage catalog`)
 
 **Known issues:**
 - r2/rz occasionally report bogus sizes for some functions
@@ -1137,7 +1137,7 @@ are normalized.
 3. **DUMPBIN /DISASM** for quick .obj inspection
 
 ### For Compiler Flag Analysis
-1. `rebrew match --flag-sweep-only --tier normal` (~5.4K combos)
+1. `rebrew match flags --tier normal` (~5.4K combos)
 2. Use `--tier quick` for fast iteration (192), `--tier targeted` (default), `--tier thorough` for deep search (~258K), or `--tier full`
 3. **objconv** comp.id verification to confirm same compiler
 4. Re-sync flags from decomp.me: `uv run --frozen python tools/sync_decomp_flags.py`
@@ -1166,8 +1166,8 @@ using real time. The clock dependency and its complete source/license live
 in the sibling rebrew-toolchains base recipe.
 
 ```sh
-SOURCE_DATE_EPOCH=1071482016 rebrew cmake-driver lib -- /nologo /MACHINE:IX86 /DEF:src/server.def /OUT:build/server.lib
-SOURCE_DATE_EPOCH=1771046057 rebrew cmake-driver link -- <ordinary link arguments> build/server.exp
+SOURCE_DATE_EPOCH=1071482016 rebrew build driver lib -- /nologo /MACHINE:IX86 /DEF:src/server.def /OUT:build/server.lib
+SOURCE_DATE_EPOCH=1771046057 rebrew build driver link -- <ordinary link arguments> build/server.exp
 ```
 
 An EXP generated by native LIB retains its export timestamp through LINK;

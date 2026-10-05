@@ -25,8 +25,8 @@ never overwritten).
 
 Typical flow::
 
-    rebrew binsync-overlay ../v1/state --dry-run     # preview
-    rebrew binsync-overlay ../v1/state --accept-binsync
+    rebrew binsync overlay ../v1/state --dry-run     # preview
+    rebrew binsync overlay ../v1/state --accept-binsync
 """
 
 from __future__ import annotations
@@ -808,10 +808,10 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew binsync-overlay ../v1/state --dry-run · · Preview\n\n"
-        "  rebrew binsync-overlay ../v1/state --accept-binsync\n\n"
-        "  rebrew binsync-overlay ./state --fields name,prototype\n\n"
-        "  rebrew binsync-overlay ./state --fields global\n\n"
+        "  rebrew binsync overlay ../v1/state --dry-run · · Preview\n\n"
+        "  rebrew binsync overlay ../v1/state --accept-binsync\n\n"
+        "  rebrew binsync overlay ./state --fields name,prototype\n\n"
+        "  rebrew binsync overlay ./state --fields global\n\n"
         "[dim]Structurally matches the source target's BinSync functions against this\n"
         "target's unmatched functions (same code, different VAs) and overlays names,\n"
         "prototypes, and notes.  --fields global adds content-matched globals.\n"

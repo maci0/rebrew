@@ -1,6 +1,6 @@
 """importer.py — Import a BinSync state directory into rebrew metadata.
 
-Reads a BinSync state directory (as produced by ``rebrew binsync-export`` or
+Reads a BinSync state directory (as produced by ``rebrew binsync export`` or
 any BinSync-aware decompiler) and offers to apply function renames,
 prototype updates, and global names back into the rebrew project.
 
@@ -11,9 +11,9 @@ extra).  Conflict handling mirrors :mod:`rebrew.ghidra.commands`
 
 Typical flow::
 
-    rebrew binsync-export ./state          # team member renames in IDA
-    rebrew binsync-import ./state --dry-run
-    rebrew binsync-import ./state --accept-binsync
+    rebrew binsync export ./state          # team member renames in IDA
+    rebrew binsync import ./state --dry-run
+    rebrew binsync import ./state --accept-binsync
 
 Functions whose local name is generic (``func_…``, ``FUN_…``) are updated
 without conflict; when both sides have meaningful names a conflict is reported
@@ -93,10 +93,10 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew binsync-import ./state --dry-run · · · Preview without writing\n\n"
-        "  rebrew binsync-import ./state --accept-binsync · Accept BinSync names\n\n"
-        "  rebrew binsync-import ./state --accept-local · · Keep local, record provenance\n\n"
-        "  rebrew binsync-import ./state --module SERVER · Only import one module\n\n"
+        "  rebrew binsync import ./state --dry-run · · · Preview without writing\n\n"
+        "  rebrew binsync import ./state --accept-binsync · Accept BinSync names\n\n"
+        "  rebrew binsync import ./state --accept-local · · Keep local, record provenance\n\n"
+        "  rebrew binsync import ./state --module SERVER · Only import one module\n\n"
         "[dim]Reads functions/*.toml, global_vars.toml, and structs/*.toml from a BinSync\n"
         "state directory and applies names/prototypes/globals back to rebrew metadata.[/dim]"
     ),
@@ -351,7 +351,7 @@ def _stub_text(cfg: Any, va: int, bs_name: str, bs_proto: str) -> tuple[Path, st
     if proto.endswith(";"):
         proto = proto[:-1].strip()
     body = proto if proto else f"void {target_func}(void)"
-    text = f"// FUNCTION: {mod} 0x{va:08x}\n{body} {{}}\n"
+    text = f"{body} {{}}\n"
     path = Path(cfg.reversed_dir) / f"{avoid_windows_reserved(target_func)}.c"
     return path, text, mod
 
@@ -367,6 +367,35 @@ def _inventory_size(cfg: Any, va: int) -> int:
         except (TypeError, ValueError):
             continue
     return 0
+
+
+def _queue_stub_identity(
+    rows: list[dict[str, Any]],
+    *,
+    cfg: Any,
+    path: Path,
+    module: str,
+    va: int,
+    name: str,
+    proto: str,
+) -> None:
+    """Queue the identity row for a stub file. STATUS is queued separately."""
+    from rebrew.annotation import derive_c_symbol
+    from rebrew.metadata import identity_file
+
+    rows.append(
+        {
+            "module": module,
+            "va": va,
+            "identity": {
+                "file": identity_file(path, cfg.metadata_dir),
+                "symbol": derive_c_symbol(name, proto),
+                "name": name,
+                "marker_type": "FUNCTION",
+            },
+            "fields": {},
+        }
+    )
 
 
 def _queue_stub_metadata(
@@ -464,7 +493,7 @@ def import_state(
 
     Returns the result dict (counts plus ``touched_vas`` — the VAs the import
     applied names/prototypes/globals to or created stubs for, so callers like
-    ``rebrew sync --pull --create-functions`` can push them to Ghidra).
+    ``rebrew sync pull --create-functions`` can push them to Ghidra).
     """
     wanted_module = preset_module_key(module) if module else None
     module_selected = module_predicate(wanted_module)
@@ -522,6 +551,7 @@ def import_state(
     marker_writes_failed: list[str] = []
     stub_statuses: list[dict[str, Any]] = []
     stub_field_updates: list[dict[str, Any]] = []
+    stub_identities: list[dict[str, Any]] = []
 
     # --- Function names + prototypes ---
     for va, bs_entry in sorted(funcs_by_va.items()):
@@ -570,13 +600,20 @@ def import_state(
                             continue
                         from rebrew.utils import atomic_write_text as _awt
 
-                        # Marker line only — STATUS/NOTE are metadata-owned
-                        # keys and go to rebrew-functions.toml (inline forms are
-                        # deprecated: lint W019 flags them; SIZE is co-read).
+                        # Pure C. Identity, STATUS, and NOTE land in
+                        # rebrew-functions.toml after the loop. A failed
+                        # metadata write leaves the new source for the next
+                        # import, which repairs a stub whose STATUS is missing.
                         _awt(out_path, stub, encoding="utf-8")
-                        # Volatile fields and STATUS land together through the
-                        # canonical batch writer after the loop; a failed write
-                        # leaves the new source available for the next import.
+                        _queue_stub_identity(
+                            stub_identities,
+                            cfg=cfg,
+                            path=out_path,
+                            module=mod,
+                            va=va,
+                            name=out_path.stem,
+                            proto=bs_proto or "",
+                        )
                         _queue_stub_metadata(
                             stub_statuses,
                             stub_field_updates,
@@ -622,6 +659,15 @@ def import_state(
                     size_hint = int(getattr(local, "size", 0) or 0)
                     if size_hint <= 0:
                         size_hint = _inventory_size(cfg, va)
+                    _queue_stub_identity(
+                        stub_identities,
+                        cfg=cfg,
+                        path=out_path,
+                        module=mod,
+                        va=va,
+                        name=out_path.stem,
+                        proto=bs_proto or "",
+                    )
                     _queue_stub_metadata(
                         stub_statuses,
                         stub_field_updates,
@@ -844,12 +890,15 @@ def import_state(
         if not json_output and not dry_run:
             console.print(f"  CONFLICT 0x{va:08x}: local={local_name!r} vs binsync={bs_name!r}")
 
-    if stub_statuses:
-        from rebrew.metadata import set_fields_batch, update_statuses_batch
+    if stub_identities or stub_statuses:
+        from rebrew.metadata import record_migrated_markers, update_statuses_batch
 
-        for update, fields in zip(stub_statuses, stub_field_updates, strict=True):
-            update["fields"] = fields["fields"]
-        update_statuses_batch(cfg.metadata_dir, stub_statuses)
+        if stub_identities:
+            record_migrated_markers(cfg.metadata_dir, stub_identities)
+        if stub_statuses:
+            for update, fields in zip(stub_statuses, stub_field_updates, strict=True):
+                update["fields"] = fields["fields"]
+            update_statuses_batch(cfg.metadata_dir, stub_statuses)
 
     # --- Global names ---
     for va, bs_entry in sorted(globals_by_va.items()):
@@ -1402,7 +1451,7 @@ def import_type_definitions(
     blocks = [
         existing
         or "/* binsync_types.h - type definitions imported from BinSync.\n"
-        " * Regenerate/extend via: rebrew binsync-import\n */\n\n"
+        " * Regenerate/extend via: rebrew binsync import\n */\n\n"
     ]
     written = 0
     # ``landed`` includes blocks appended in this call so two keys that emit

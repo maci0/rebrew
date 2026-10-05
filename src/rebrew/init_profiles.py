@@ -77,7 +77,7 @@ timeout = {compile_timeout}          # compile subprocess timeout (seconds)
 [compiler.cflags_presets]
 GAME = "{cflags}"
 
-# Optional LLM seeding for `rebrew match --seed-llm`. Prefer env vars for the
+# Optional LLM seeding for `rebrew match run --seed-llm`. Prefer env vars for the
 # key so it is never committed: REBREW_LLM_ENDPOINT / REBREW_LLM_API_KEY.
 # Optional model pin: REBREW_LLM_MODEL or [llm] model (default gpt-4o-mini-2024-07-18).
 # Process call ceiling: REBREW_LLM_MAX_REQUESTS (default 32) stops --watch burn.
@@ -97,7 +97,7 @@ GAME = "{cflags}"
 # backend = "diskcache"
 # size_limit_mib = 500
 
-# PE header values for byte-identical reconstruction; `rebrew round-trip
+# PE header values for byte-identical reconstruction; `rebrew build round-trip
 # --fix-headers` patches them in. stack_commit must not exceed stack_reserve.
 # [link]
 # stack_reserve = 0x100000
@@ -683,7 +683,7 @@ def profile_hint(answer: str) -> str:
 
 
 MSVC_CONSTRAINTS = """- **C89 only**: no `for(int i=...)`, declare all variables at block top
-- **Comments in code**: use `/* */` only (C89). `//` is used exclusively for annotation headers
+- **Comments in code**: use `/* */` (C89). Do not add a `// FUNCTION:` line; identity is a `MODULE.0xVA` row
 - **Symbol decoration**: `_func` for `__cdecl`, `_func@N` for `__stdcall`
 - **No `/GS`** (buffer security), no `__declspec(noinline)`
 - **Execution**: all CL.EXE/LINK.EXE calls run inside the toolchain's docker image (wine lives in the image; there is no host wine/wibo fallback)"""

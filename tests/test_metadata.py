@@ -556,7 +556,7 @@ class TestRemoveField:
 
 
 class TestRecordMigratedMarkers:
-    """`rebrew migrate-markers` moves an inline marker block into the TOML
+    """`rebrew source migrate-markers` moves an inline marker block into the TOML
     through this one writer, so the identity keys it owns are only ever
     written here."""
 

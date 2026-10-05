@@ -1,4 +1,4 @@
-"""Tests for rebrew identify-library — the combined library-identification pass."""
+"""Tests for rebrew library identify — the combined library-identification pass."""
 
 from __future__ import annotations
 
@@ -19,7 +19,10 @@ from rebrew.identify_library import (
     write_candidates,
 )
 from rebrew.main import app
-from rebrew.utils import pe_name_token
+from rebrew.metadata import get_entry
+from rebrew.utils import library_header_name, pe_name_token
+
+_LIBRARY_BANNER = "/* Library function identities live in rebrew-functions.toml. */\n"
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -114,9 +117,12 @@ class TestWriteCandidates:
         assert written == 1  # only the ZLIB entry is new
 
         header = cfg.reversed_dir / "library_zlib.h"
-        text = header.read_text(encoding="utf-8")
-        assert "// LIBRARY: ZLIB 0x00002000" in text
-        assert "// DeflateInit" in text
+        assert header.read_text(encoding="utf-8") == _LIBRARY_BANNER
+        entry = get_entry(cfg.metadata_dir, 0x2000, "ZLIB")
+        assert entry["marker_type"] == "LIBRARY"
+        assert entry["symbol"] == "DeflateInit"
+        assert entry["name"] == "DeflateInit"
+        assert entry["file"] == "src/library_zlib.h"
         assert not (cfg.reversed_dir / "library_msvcrt.h").exists()
 
     def test_idempotent_second_run_writes_nothing(self, tmp_path: Path) -> None:
@@ -159,10 +165,14 @@ class TestWriteCandidates:
             ),
         ]
         write_candidates(cfg, cands, existing=set())
-        assert len(calls) == 1  # only the 0.9-confidence match gets SOURCE
-        args, _kwargs = calls[0]
-        assert args[2] == "SOURCE"
-        assert args[3] == "crt/malloc.c"
+        assert calls == []
+        malloc = get_entry(cfg.metadata_dir, 0x1000, "MSVCRT")
+        assert malloc["source"] == "crt/malloc.c"
+        assert malloc["marker_type"] == "LIBRARY"
+        assert malloc["symbol"] == "_malloc"
+        assert malloc["name"] == "malloc"
+        free = get_entry(cfg.metadata_dir, 0x2000, "MSVCRT")
+        assert "source" not in free
 
     def test_filename_only_never_auto_writes_source(self, tmp_path: Path, monkeypatch) -> None:
         """A filename-only CRT candidate (line 0) at the 0.85 threshold must
@@ -186,6 +196,9 @@ class TestWriteCandidates:
         ]
         assert write_candidates(cfg, cands, existing=set()) == 1
         assert (cfg.reversed_dir / "library_msvcrt.h").is_file()
+        entry = get_entry(cfg.metadata_dir, 0x1000, "MSVCRT")
+        assert entry["marker_type"] == "LIBRARY"
+        assert "source" not in entry
 
     def test_parsed_definition_still_writes_source(self, tmp_path: Path, monkeypatch) -> None:
         cfg = _cfg(tmp_path)
@@ -207,7 +220,11 @@ class TestWriteCandidates:
             ),
         ]
         write_candidates(cfg, cands, existing=set())
-        assert len(calls) == 1
+        assert calls == []
+        entry = get_entry(cfg.metadata_dir, 0x1000, "MSVCRT")
+        assert entry["source"] == "crt/malloc.c"
+        assert entry["symbol"] == "_malloc"
+        assert entry["name"] == "malloc"
 
 
 class TestExistingVas:
@@ -333,7 +350,7 @@ timeout = 60
             encoding="utf-8",
         )
         monkeypatch.chdir(root)
-        result = CliRunner().invoke(app, ["identify-library", "--json"])
+        result = CliRunner().invoke(app, ["library", "identify", "--json"])
         assert result.exit_code == 0, result.output
         payload = json.loads(result.stdout)  # pure JSON
         assert payload["identified"] == 0
@@ -356,14 +373,18 @@ timeout = 60
             ],
         )
         monkeypatch.setattr("rebrew.identify_library._existing_vas", lambda cfg: set())
-        result = CliRunner().invoke(app, ["identify-library", "--json"])
+        result = CliRunner().invoke(app, ["library", "identify", "--json"])
         assert result.exit_code == 0, result.output
         payload = json.loads(result.stdout)  # pure JSON, even after a write
         assert payload["to_write"] == 1
         assert payload["written"] == 1
         header = tmp_path / "src" / "library_msvcrt.h"
         assert header.exists()
-        assert "0x00001000" in header.read_text(encoding="utf-8")
+        assert header.read_text(encoding="utf-8") == _LIBRARY_BANNER
+        entry = get_entry(tmp_path, 0x1000, "MSVCRT")
+        assert entry["marker_type"] == "LIBRARY"
+        assert entry["symbol"] == "_malloc"
+        assert entry["name"] == "malloc"
 
     def test_dry_run_lists_candidates(self, tmp_path: Path, monkeypatch) -> None:
         cfg = _cfg(tmp_path)
@@ -379,7 +400,7 @@ timeout = 60
             ],
         )
         monkeypatch.setattr("rebrew.identify_library._existing_vas", lambda cfg: set())
-        result = CliRunner().invoke(app, ["identify-library", "--dry-run"])
+        result = CliRunner().invoke(app, ["library", "identify", "--dry-run"])
         assert result.exit_code == 0
         assert "_malloc" in result.output
         assert "to write" in result.output
@@ -639,13 +660,17 @@ class TestAppendEntryInjection:
         ]
         assert write_candidates(cfg, cands, existing=set()) == 1
         text = header.read_text(encoding="utf-8")
-        # Two comment lines and nothing else: no line of the header can be
-        # compiled as C, whatever the sanitizer's substitution is.
-        assert text.splitlines()[:2] == [
-            "// LIBRARY: EVIL 0x00001000",
-            "// " + pe_name_token("CreateFile\nvoid planted(void) { }\n/* rest"),
-        ]
+        # The header is the banner only. The token lives in the store, so a
+        # newline in the import name cannot become a line of C.
+        assert text == _LIBRARY_BANNER
+        token = pe_name_token("CreateFile\nvoid planted(void) { }\n/* rest")
+        entry = get_entry(cfg.metadata_dir, 0x1000, "EVIL")
+        assert entry["marker_type"] == "LIBRARY"
+        assert entry["symbol"] == token
+        assert entry["name"] == token.lstrip("_")
+        stored = (cfg.metadata_dir / "rebrew-functions.toml").read_text(encoding="utf-8")
         assert "planted(void)" not in text.replace("planted_void", "")
+        assert "planted(void)" not in stored.replace("planted_void", "")
 
     def test_newline_in_module_cannot_escape_the_comment(self, tmp_path: Path) -> None:
         cfg = _cfg(tmp_path)
@@ -660,13 +685,17 @@ class TestAppendEntryInjection:
             )
         ]
         assert write_candidates(cfg, cands, existing=set()) == 1
-        header = next(cfg.reversed_dir.glob("library_*.h"))
+        raw_module = "KERNEL32\n#include <stdio.h>"
+        header = cfg.reversed_dir / library_header_name(raw_module)
         text = header.read_text(encoding="utf-8")
-        assert text.splitlines()[:2] == [
-            f"// LIBRARY: {pe_name_token('KERNEL32\n#include <stdio.h>')} 0x00001000",
-            "// _malloc",
-        ]
-        assert "#include" not in text.splitlines()[1]
+        assert text == _LIBRARY_BANNER
+        assert "#include" not in text
+        entry = get_entry(cfg.metadata_dir, 0x1000, pe_name_token(raw_module))
+        assert entry["marker_type"] == "LIBRARY"
+        assert entry["symbol"] == "_malloc"
+        assert entry["name"] == "malloc"
+        stored = (cfg.metadata_dir / "rebrew-functions.toml").read_text(encoding="utf-8")
+        assert "#include" not in stored
 
 
 class TestAppendEntryNewline:
@@ -677,24 +706,34 @@ class TestAppendEntryNewline:
         cfg.reversed_dir.mkdir()
         header = cfg.reversed_dir / "library_msvcrt.h"
         header.write_text("// existing tail", encoding="utf-8")  # no trailing newline
+        original = header.read_bytes()
         cands = [
             LibCandidate(va=0x1000, name="_malloc", module="MSVCRT", kind="crt", confidence=0.9)
         ]
         assert write_candidates(cfg, cands, existing=set()) == 1
-        text = header.read_text(encoding="utf-8")
-        assert "// existing tail\n// LIBRARY: MSVCRT 0x00001000\n" in text
+        # A markerless header is not rewritten, so the missing newline stays.
+        assert header.read_bytes() == original
+        entry = get_entry(cfg.metadata_dir, 0x1000, "MSVCRT")
+        assert entry["marker_type"] == "LIBRARY"
+        assert entry["symbol"] == "_malloc"
+        assert entry["name"] == "malloc"
+        assert entry["file"] == "src/library_msvcrt.h"
 
     def test_append_no_extra_newline_when_present(self, tmp_path: Path) -> None:
         cfg = _cfg(tmp_path)
         cfg.reversed_dir.mkdir()
         header = cfg.reversed_dir / "library_msvcrt.h"
-        header.write_text("// existing tail\n", encoding="utf-8")
+        original = b"// existing tail\n"
+        header.write_bytes(original)
         cands = [
             LibCandidate(va=0x1000, name="_malloc", module="MSVCRT", kind="crt", confidence=0.9)
         ]
         assert write_candidates(cfg, cands, existing=set()) == 1
-        text = header.read_text(encoding="utf-8")
-        assert text.startswith("// existing tail\n// LIBRARY: MSVCRT 0x00001000\n")
+        assert header.read_bytes() == original
+        entry = get_entry(cfg.metadata_dir, 0x1000, "MSVCRT")
+        assert entry["marker_type"] == "LIBRARY"
+        assert entry["symbol"] == "_malloc"
+        assert entry["name"] == "malloc"
 
     def test_append_preserves_legacy_encoded_header(self, tmp_path: Path) -> None:
         """A Shift-JIS comment in an existing header must survive the append
@@ -708,6 +747,8 @@ class TestAppendEntryNewline:
             LibCandidate(va=0x1000, name="_malloc", module="MSVCRT", kind="crt", confidence=0.9)
         ]
         assert write_candidates(cfg, cands, existing=set()) == 1
-        raw = header.read_bytes()
-        assert raw.startswith(original)
-        assert "// LIBRARY: MSVCRT 0x00001000\n" in raw.decode("shift_jis")
+        assert header.read_bytes() == original
+        entry = get_entry(cfg.metadata_dir, 0x1000, "MSVCRT")
+        assert entry["marker_type"] == "LIBRARY"
+        assert entry["symbol"] == "_malloc"
+        assert entry["name"] == "malloc"

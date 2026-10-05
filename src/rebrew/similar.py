@@ -39,7 +39,7 @@ from rebrew.instruction_clones import (
 )
 from rebrew.utils import untrusted_ident
 
-#: Smallest duplicate group ``rebrew similar --cluster`` reports.
+#: Smallest duplicate group ``rebrew similarity function --cluster`` reports.
 MIN_CLUSTER_SIZE = 2
 
 
@@ -252,7 +252,7 @@ def cluster_report(
     """Groups of functions with identical normalized instruction sequences.
 
     The query function's own group (when *query_va* is given) is marked by
-    ``query_group`` so a caller of ``rebrew similar <VA> --cluster`` can see
+    ``query_group`` so a caller of ``rebrew similarity function <VA> --cluster`` can see
     which of the identical functions it asked about.
     """
     units, skipped = load_function_units(cfg)
@@ -297,11 +297,11 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew similar 0x10001000 · · · · · · · · · Top 10 structural matches\n\n"
-        "  rebrew similar 0x10001000 --top 5 --min-score 50 · · Raise the bar\n\n"
-        "  rebrew similar 0x10001000 --submatch --other 0x10002000 · Common instruction runs\n\n"
-        "  rebrew similar --cluster · · · · · · · · · · Groups of identical functions\n\n"
-        "  rebrew similar 0x10001000 --json · · · · · · · Machine-readable output\n\n"
+        "  rebrew similarity function 0x10001000 · · · · · · · · · Top 10 structural matches\n\n"
+        "  rebrew similarity function 0x10001000 --limit 5 --min-score 50 · · Raise the bar\n\n"
+        "  rebrew similarity function 0x10001000 --submatch --other 0x10002000 · Common instruction runs\n\n"
+        "  rebrew similarity function --cluster · · · · · · · · · · Groups of identical functions\n\n"
+        "  rebrew similarity function 0x10001000 --json · · · · · · · Machine-readable output\n\n"
         "[dim]Scores: 0-100 blend of mnemonic histogram (50%), call count (15%),\n"
         "branch count (15%), size agreement (20%). Use it to find which STUBs likely share the same\n"
         "source and optimisation approach as a solved function.[/dim]\n\n"
@@ -325,7 +325,7 @@ def main(
     size: int | None = typer.Option(
         None, "--size", help="Query function size in bytes (defaults to catalog size)"
     ),
-    top: int = typer.Option(10, "--top", help="Number of results to show"),
+    top: int = typer.Option(10, "--limit", help="Number of results to show"),
     min_score: float = typer.Option(
         0.0, "--min-score", help="Minimum similarity score (0-100) to include"
     ),
@@ -361,7 +361,7 @@ def main(
     target: str | None = TargetOption,
 ) -> None:
     """Find functions structurally similar to the one at VA."""
-    top = require_non_negative(option_default(top, 10), "--top", json_mode=json_output)
+    top = require_non_negative(option_default(top, 10), "--limit", json_mode=json_output)
     if size is not None:
         # A negative size reaches `f.read(-N)` (the rest of the file) and the
         # size-agreement ratio, which then reports a score outside 0-100.

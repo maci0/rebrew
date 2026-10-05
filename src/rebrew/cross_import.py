@@ -26,7 +26,6 @@ from __future__ import annotations
 import heapq
 import re
 import shutil
-import unicodedata
 from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -42,6 +41,7 @@ from rebrew.cli import (
     json_print,
     parse_va,
     require_config,
+    require_non_negative,
 )
 from rebrew.config import ProjectConfig, inventory_path_for
 from rebrew.similar import disasm_signature, similarity_score
@@ -51,7 +51,6 @@ from rebrew.utils import (
     preset_module_key,
     read_source_text,
     rel_display_path,
-    source_newline,
 )
 from rebrew.workspace.status import MATCHED_STATUSES
 
@@ -220,23 +219,30 @@ def matched_source_bytes(cfg_src: ProjectConfig) -> dict[int, bytes]:
 
     Only functions whose metadata STATUS is EXACT/RELOC participate (PROVEN
     bytes differ, so a PROVEN body is not a byte-exact donor) —
-    they are the ones whose source can be trusted to reproduce.  Entries with
-    no registry size fall back to the disassembly-derived extent (ret-ended
+    they are the ones whose source can be trusted to reproduce. Managed
+    source extents override discovery spans that may include trailing padding.
+    Entries with no source or registry size fall back to the disassembly-derived extent (ret-ended
     only); ones the disassembler cannot size are skipped with the
     ``sizeless, use --va`` guidance on the result rows.
     """
+    from rebrew.metadata import load_metadata
+
     statuses = annotations_by_va(cfg_src)
     entries = registry(cfg_src)
-    vas = {
-        va: int(reg["canonical_size"])
+    metadata_dir = getattr(cfg_src, "metadata_dir", None)
+    metadata = load_metadata(metadata_dir) if metadata_dir is not None else {}
+    module = (target_marker(cfg_src) or "") if metadata else ""
+    sizes = {
+        va: int(metadata.get((module, va), {}).get("size") or reg.get("canonical_size") or 0)
         for va, reg in entries.items()
-        if reg.get("canonical_size") and statuses.get(va, ("", ""))[0] in MATCHED_STATUSES
+    }
+    vas = {
+        va: sizes[va]
+        for va, reg in entries.items()
+        if sizes[va] > 0 and statuses.get(va, ("", ""))[0] in MATCHED_STATUSES
     }
     sizeless = [
-        va
-        for va, reg in entries.items()
-        if not int(reg.get("canonical_size") or 0)
-        and statuses.get(va, ("", ""))[0] in MATCHED_STATUSES
+        va for va in entries if sizes[va] <= 0 and statuses.get(va, ("", ""))[0] in MATCHED_STATUSES
     ]
     if sizeless:
         sizes, _refused = disasm_sizes(cfg_src, sizeless)
@@ -486,119 +492,30 @@ def _extract_function_text(text: str, src_va: int) -> str | None:
     return None
 
 
-def _rewrite_marker(text: str, module: str, va: int, size: int) -> str:
-    """Remap the first FUNCTION/LIBRARY/STUB marker to *module*/*va* and set SIZE.
+def _rewrite_marker(text: str, _module: str, _va: int, _size: int) -> str:
+    """Return *text* with marker lines and their key-value comments removed.
 
-    The imported source belongs to the DESTINATION target, so its marker must
-    name the destination module + VA and carry the destination's canonical
-    size — otherwise the destination's scanner would attribute the function
-    to the wrong target/VA and verification would slice the wrong bytes.
-
-    A shared multi-version source stacks one marker per target above a single
-    implementation; the imported copy belongs to the destination only, so the
-    other targets' stacked marker blocks (marker + their key-value lines,
-    before any code) are dropped — they would otherwise carry stale VAs into
-    the destination's reversed_dir.
+    The copy's identity is recorded in the destination store. The arguments
+    stay so existing positional callers keep working. Raises ValueError when
+    the text has no FUNCTION/LIBRARY/STUB marker.
     """
+    from rebrew.marker_migration import strip_marker_blocks
+
     lines = text.splitlines(keepends=True)
-
-    # 1) Rewrite the FIRST marker to the destination.
-    marker_idx = None
-    eol = "\n"
-    for idx, line in enumerate(lines):
-        m = _MARKER_RE.match(line)
-        if m:
-            marker_idx = idx
-            # Preserve the source's line ending: hardcoding "\n" left a CRLF
-            # file with one LF-terminated marker line (mixed endings).
-            eol = "\r\n" if line.endswith("\r\n") else "\n"
-            close = " */" if m.group("open") == "/*" else ""
-            lines[idx] = (
-                f"{m.group('indent')}{m.group('open')} {m.group('type')}: "
-                f"{module} 0x{va:x}{close}{eol}"
-            )
-            break
-    if marker_idx is None:
+    if not any(_MARKER_RE.match(line) for line in lines):
         raise ValueError("no FUNCTION/LIBRARY/STUB marker found in source")
-
-    # 2) Drop stacked leading marker blocks from other targets — only the
-    #    consecutive markers + key-value lines BEFORE any code (the shared
-    #    multi-version pattern).  A marker after code (a genuinely
-    #    multi-function file) is kept only when it belongs to this target:
-    #    another target's marker in the destination tree is a lint error
-    #    (E012), and this import has no destination VA for that function.
-    collapsed: list[str] = lines[: marker_idx + 1]
-    i = marker_idx + 1
-    seen_code = False
-    while i < len(lines):
-        m = _ANY_MARKER_RE.match(lines[i])
-        is_marker = m is not None
-        drop = False
-        if m is not None:
-            if not seen_code:
-                drop = True  # stacked leading block for another version
-            elif m.group("module") != module:
-                drop = True  # a later item that belongs to another target
-        if drop:
-            i += 1
-            while i < len(lines) and _KV_RE.match(lines[i]):
-                i += 1
-            continue
-        if is_marker or not _KV_RE.match(lines[i]):
-            seen_code = True  # code or a non-stacked marker ends the region
-        collapsed.append(lines[i])
-        i += 1
-
-    # 3) SIZE on the (now single) destination block: scan only the marker's own
-    #    key-value run (it ends at the first non-KV line), replace a SIZE line,
-    #    else insert right after the marker.  A scan to EOF would clobber a
-    #    LATER function's SIZE in a genuinely multi-function file.
-    block_end = marker_idx + 1
-    while block_end < len(collapsed) and _KV_RE.match(collapsed[block_end]):
-        block_end += 1
-    for j in range(marker_idx + 1, block_end):
-        if _SIZE_KV_RE.match(collapsed[j]):
-            # keepends left the old ending on the line; strip before appending
-            # *eol* or the rewritten SIZE gets a blank line after it.
-            collapsed[j] = _SIZE_KV_RE.sub(f"// SIZE: {size}", collapsed[j].rstrip("\r\n")) + eol
-            break
-    else:
-        collapsed.insert(marker_idx + 1, f"// SIZE: {size}{eol}")
-    return "".join(collapsed)
+    return "".join(strip_marker_blocks(lines))
 
 
 def _stack_marker(text: str, module: str, va: int, size: int) -> str:
-    """Prepend a destination marker block above the existing marker.
+    """Return *text* unchanged.
 
-    Shared-source import (``--shared``): the source file stays the single
-    home for the function and gains one stacked ``// FUNCTION: <dst> <va>``
-    block per target (ADR-010).  The existing blocks keep their own VAs;
-    only the new block carries the destination VA/SIZE.  Returns the text
-    unchanged when a block for *module*/*va* already exists (idempotent).
+    A shared import records the destination row. It does not insert a marker
+    line. The arguments stay so existing callers keep their shape, and an
+    already-present claim stays idempotent.
     """
-    from rebrew.annotation import NEW_FUNC_CAPTURE_RE
-
-    # NFC on the source's half, as annotation.py does for every marker read:
-    # `module` comes from config already NFC.
-    module_norm = unicodedata.normalize("NFC", module)
-    for line in text.splitlines():
-        m = NEW_FUNC_CAPTURE_RE.match(line.strip())
-        if (
-            m
-            and unicodedata.normalize("NFC", m.group("module")) == module_norm
-            and int(m.group("va"), 16) == va
-        ):
-            return text
-    eol = source_newline(text)
-    marker_idx = next(
-        (i for i, line in enumerate(text.splitlines(keepends=True)) if _MARKER_RE.match(line)),
-        None,
-    )
-    block = f"// FUNCTION: {module} 0x{va:x}{eol}// SIZE: {size}{eol}"
-    if marker_idx is None:
-        return block + text
-    lines = text.splitlines(keepends=True)
-    return "".join(lines[:marker_idx] + [block] + lines[marker_idx:])
+    del module, va, size
+    return text
 
 
 def _block_marker(block: str) -> tuple[str, int] | None:
@@ -640,53 +557,24 @@ def stack_marker_on_block(
     src_va: int,
     drop: tuple[str, int] | None = None,
 ) -> str | None:
-    """Stack the destination marker directly above the source function's block.
+    """Whether *text* already contains the source function's block.
 
     The unified (``shared_dir``) layout puts every target's sources in ONE tree
-    and often in ONE file: ``src/Develop/Units/vfs/vfs.c`` holds the GOLDTL
-    block *and* the SERVER block for the same function.  Importing there is not
-    a copy — the body is already in the file, so the destination marker must
-    move onto it (ADR-010 one body, one marker per target).  ``_stack_marker``
-    cannot do that: it prepends above the file's FIRST marker, so a source
-    block in the middle of a multi-function file would leave the destination
-    marker on an empty block, and a destination block that already claims *va*
-    elsewhere must be dropped or the file has two claims (lint E013).
-
-    Returns the new text, or ``None`` when no block for *src_module*/*src_va*
-    exists (the caller falls back to the plain stack / reports the conflict).
-    *drop* names an existing block to remove (the superseded destination
-    claim).
+    and often in ONE file. Importing there is not a copy: the body is already
+    in the file, and the caller records the destination row. Returns *text*
+    when a block for *src_module*/*src_va* exists, or ``None`` when it does
+    not. The file is not edited. *module*, *va*, *size*, and *drop* stay so
+    callers keep their shape.
     """
     from rebrew.annotation import split_annotation_sections
 
-    preamble, blocks = split_annotation_sections(text)
-    eol = source_newline(text)
-    marker = f"// FUNCTION: {module} 0x{va:x}{eol}// SIZE: {size}{eol}"
-    out: list[str] = []
-    inserted = False
+    del module, va, size, drop
+    _preamble, blocks = split_annotation_sections(text)
     for block in blocks:
-        if drop is not None:
-            block = _strip_claim(block, drop)
-            if _block_marker(block) is None:
-                continue  # the superseded claim owned the block alone
-        owner = _block_marker(block)
-        if owner == (src_module, src_va) and not inserted:
-            # Insert directly above the source MARKER line: a split block
-            # carries the blank lines that preceded its marker (annotation
-            # runs keep their leading blanks), and a marker separated from the
-            # one below by a blank line leaves the destination claim an empty
-            # block — the pattern every shared file in the tree avoids.
-            lines = block.splitlines(keepends=True)
-            cut = next(i for i, line in enumerate(lines) if _block_marker(line) is not None)
-            out.append("".join(lines[:cut]))
-            out.append(marker)
-            out.append("".join(lines[cut:]))
-            inserted = True
-            continue
-        out.append(block)
-    if not inserted:
-        return None
-    return preamble + "".join(out)
+        for line in block.splitlines():
+            if _block_marker(line) == (src_module, src_va):
+                return text
+    return None
 
 
 def promote_to_shared(
@@ -698,13 +586,12 @@ def promote_to_shared(
     """Move a per-target source into ``src/shared`` preserving relative path.
 
     The shared tree only works when the file actually lives under the shared
-    root — stacking a marker onto a file in the SOURCE target's own tree
-    leaves it invisible to other targets' scans.  This moves
-    ``<reversed_dir>/<src_file>`` to ``<shared_dir>/<src_file>`` (creating
-    parent dirs), refusing when the shared dir is disabled, the source is
-    missing, or the destination already exists.  Markers and metadata are
-    untouched: the stacked blocks travel with the file, and the
-    ``(module, va)`` metadata keys are path-independent.
+    root. A file left in the source target's own tree is invisible to other
+    targets' scans. This moves ``<reversed_dir>/<src_file>`` to
+    ``<shared_dir>/<src_file>`` (creating parent dirs), refusing when the
+    shared dir is disabled, the source is missing, or the destination already
+    exists. ``(module, va)`` keys stay put. Rows whose ``file`` named the old
+    path are retargeted at the shared path, in both metadata stores.
 
     Returns a result dict with ``action`` ``promoted`` / ``would-promote`` /
     ``error`` and the shared-relative ``filepath``.
@@ -758,12 +645,60 @@ def promote_to_shared(
             "filepath": src_file,
             "message": str(exc),
         }
+    _retarget_moved_identity(cfg_src, src_path, dst_path)
     return {
         "action": "promoted",
         "status": "",
         "filepath": src_file,
         "message": f"moved {src_path} to {dst_path}",
     }
+
+
+def _retarget_moved_identity(cfg: Any, old_path: Path, new_path: Path) -> None:
+    """Point function and data rows from *old_path* at *new_path*.
+
+    Identity is the row's ``file``, not a marker that travels with the bytes.
+    A path the store refuses (absolute, or a ``..`` segment) is left as it
+    was: the move already landed, and a failed rewrite must not report the
+    promote as a write error.
+    """
+    meta = getattr(cfg, "metadata_dir", None)
+    if meta is None:
+        return
+    from rebrew.data_metadata import load_data_metadata, record_migrated_data_markers
+    from rebrew.metadata import (
+        identity_file,
+        load_metadata,
+        record_migrated_markers,
+        validate_identity_file,
+    )
+
+    try:
+        old_rel = validate_identity_file(identity_file(old_path, meta))
+        new_rel = validate_identity_file(identity_file(new_path, meta))
+    except ValueError:
+        return
+    if old_rel == new_rel:
+        return
+    old_key = old_rel.replace("\\", "/")
+
+    def _matches(entry: dict[str, Any]) -> bool:
+        return str(entry.get("file") or "").replace("\\", "/") == old_key
+
+    rows = [
+        {"module": module, "va": va, "identity": {"file": new_rel}}
+        for (module, va), entry in load_metadata(meta).items()
+        if _matches(entry)
+    ]
+    if rows:
+        record_migrated_markers(meta, rows)
+    data_rows = [
+        {"module": module, "va": va, "identity": {"file": new_rel}}
+        for (module, va), entry in load_data_metadata(meta).items()
+        if _matches(entry)
+    ]
+    if data_rows:
+        record_migrated_data_markers(meta, data_rows)
 
 
 def _import_result(
@@ -791,20 +726,13 @@ def _place_shared_marker(
     *,
     superseded: bool,
 ) -> str:
-    """The file text with the destination marker on the source function's block.
+    """Return *text*. Shared import does not insert a marker line.
 
-    A new claim goes onto the source block too: import verification compiles
-    the function the SOURCE block defines, so a marker placed anywhere else
-    reports a match for a body it is not on.  Only a file with no source block
-    falls back to stacking above its first marker.
+    The destination row is recorded after verification. The arguments stay
+    so callers keep their shape.
     """
-    drop = (module, dst_va) if superseded else None
-    moved = stack_marker_on_block(text, module, dst_va, dst_size, src_module, src_va, drop=drop)
-    if moved is not None:
-        return moved
-    if superseded:
-        return text  # idempotent: marker already on the source block
-    return _stack_marker(text, module, dst_va, dst_size)
+    del module, dst_va, dst_size, src_module, src_va, superseded
+    return text
 
 
 def import_shared_function(
@@ -820,25 +748,26 @@ def import_shared_function(
     cache: CacheBackend | None = None,
     name_to_va: dict[str, int] | None = None,
 ) -> dict[str, Any]:
-    """Import by stacking a destination marker onto the SHARED source file.
+    """Import by recording a destination row for the SHARED source file.
 
     Unlike :func:`import_function` (which copies the source into the
-    destination's ``reversed_dir``), this keeps one file: the stacked marker
-    is prepended in place (in the shared dir when the source already lives
-    there, else in the source target's own tree), then the function is
-    compiled + verified against the destination binary through the standard
-    verify flow.  The destination metadata records the source's flags plus
-    the source directory for relative ``#include``s — the same rule the copy
-    path uses.
+    destination's ``reversed_dir``), this keeps one file (in the shared dir
+    when the source already lives there, else in the source target's own
+    tree). The function is compiled and verified against the destination
+    binary through the standard verify flow. A match records
+    ``MODULE.0xVA`` in the destination store and, when the file still has
+    inline markers, migrates them into the source store first. The
+    destination metadata records the source's flags. The source directory
+    is not added as an include path: the file stays in its own tree.
 
     The import is verified before STATUS promotion exactly like the copy
     path: a mismatch reports ``imported-unverified``, never a false match.
 
     When *dst_file* names the destination's existing stub for *dst_va* (a
-    different file than the shared target), a matched import deletes it —
-    otherwise the old stub and the new stacked block claim the same VA and
-    lint E013 fires.  Deletion happens only on a matched verify; an
-    unverified import leaves the stub in place.
+    different file than the shared target), a matched import deletes it.
+    Otherwise the old stub and the new row claim the same VA and lint E013
+    fires. Deletion happens only on a matched verify; an unverified import
+    leaves the stub in place.
     """
     shared_root = getattr(cfg_src, "shared_dir", None)
     shared_path = contained_path(shared_root, src_file) if shared_root is not None else None
@@ -856,7 +785,7 @@ def import_shared_function(
         shared_path if shared_path is not None and shared_path.is_file() else reversed_path
     )
     try:
-        text, encoding = read_source_text(target_path)
+        text, _encoding = read_source_text(target_path)
     except OSError as exc:
         return _import_result(
             dst_va,
@@ -868,27 +797,45 @@ def import_shared_function(
         )
     module = target_marker(cfg_dst) or cfg_dst.target_name
 
-    from rebrew.annotation import parse_c_file_multi
+    from rebrew.annotation import (
+        FUNCTION_MARKERS,
+        NEW_FUNC_RE,
+        parse_c_file_multi,
+        split_annotation_sections,
+    )
 
-    existing = parse_c_file_multi(target_path, target_name=module)
+    existing = parse_c_file_multi(
+        target_path, target_name=module, metadata_dir=cfg_dst.metadata_dir
+    )
     src_module = target_marker(cfg_src) or cfg_src.target_name
     superseded = any(e.va == dst_va for e in existing)
-    # The destination's own claim can live in THIS file — the unified tree's
-    # normal case, where the source body and the destination marker share one
-    # file.  Move the marker onto the source body (dropping the old claim)
-    # instead of the no-op idempotent stack, which would verify the stale body.
-    stacked = _place_shared_marker(
-        text, module, dst_va, dst_size, src_module, src_va, superseded=superseded
-    )
-    moved = stacked if superseded and stacked != text else None
+    _preamble, blocks = split_annotation_sections(text)
+    already_on_source = False
+    dst_elsewhere = False
+    has_src = False
+    for block in blocks:
+        claims = [
+            found for line in block.splitlines() if (found := _block_marker(line)) is not None
+        ]
+        if (src_module, src_va) in claims:
+            has_src = True
+            if (module, dst_va) in claims:
+                already_on_source = True
+        elif (module, dst_va) in claims:
+            dst_elsewhere = True
+    needs_move = dst_elsewhere and has_src
+    # A VA that is not already in this file, and whose marker is not already
+    # on the source body, is a new claim. A failed new claim must not write
+    # STATUS: the file text no longer changes, so that is not the signal.
+    new_claim = not superseded and not already_on_source
 
     if dry_run:
-        if moved is not None:
-            note = f"would move the {module} marker onto the 0x{src_va:x} body (same file)"
+        if needs_move:
+            note = f"would retarget {module} 0x{dst_va:x} onto the 0x{src_va:x} body"
         elif dst_file:
             note = f"would supersede {dst_file}"
         else:
-            note = ""
+            note = f"would record {module} 0x{dst_va:x}"
         return _import_result(
             dst_va,
             src_va,
@@ -896,18 +843,6 @@ def import_shared_function(
             status="",
             filepath=rel_display_path(target_path, cfg_dst.reversed_dir),
             message=note,
-        )
-
-    try:
-        atomic_write_text(target_path, stacked, encoding=encoding)
-    except OSError as exc:
-        return _import_result(
-            dst_va,
-            src_va,
-            action="error",
-            status="WRITE_ERROR",
-            filepath=str(target_path),
-            message=str(exc),
         )
 
     from rebrew.annotation import Annotation
@@ -946,6 +881,13 @@ def import_shared_function(
     # file's first definition, which is a different function in a
     # multi-function file whose marker moved onto a later block.
     name, symbol = _symbol_for_va(text, src_module, src_va, target_path.stem)
+    if name == target_path.stem:
+        for ann in parse_c_file_multi(
+            target_path, target_name=src_module, metadata_dir=cfg_src.metadata_dir
+        ):
+            if ann.va == src_va and ann.name and ann.marker_type in FUNCTION_MARKERS:
+                name, symbol = ann.name, ann.symbol or ("_" + ann.name)
+                break
     entry = Annotation(
         va=dst_va,
         name=name,
@@ -958,39 +900,16 @@ def import_shared_function(
         cflags=cflags,
     )
     result, body = _verify_import(entry, cfg_dst, cache=cache, name_to_va=name_to_va)
-    if body is not None:
-        stacked = _place_shared_marker(
-            text, module, dst_va, body, src_module, src_va, superseded=superseded
-        )
-        atomic_write_text(target_path, stacked, encoding=encoding)
-        update_field(cfg_dst.metadata_dir, dst_va, "size", body, module, updated_by="cross-import")
-    # The stack is withdrawn when it did not verify AND the destination
-    # already claims this VA from its own file: a rolled-back claim must not
-    # promote/demote STATUS either — the stub's earned status stands.
-    # A marker whose body does not match the destination VA is a false claim:
-    # withdraw every failed stack, not only the ones that collide with an
-    # existing stub (guild-rebrew round 1294 — 12 unverified imports had left
-    # markers asserting that a GOLD body is the GOLDTL function at that VA).
-    revert = not result.matched and stacked != text
-    if not revert:
-        apply_status_updates([(entry, result.status, result.delta)], cfg_dst)
-
+    # A failed new claim, and a failed move of an existing claim onto a
+    # different body, must not promote STATUS. An existing claim that is
+    # already on the source body still records the verify result.
+    reject = (not result.matched) and (new_claim or needs_move)
     action = "imported-shared" if result.matched else "imported-unverified"
     message = result.message
-    if moved is not None and result.matched:
-        message = (f"{message} (moved the {module} marker onto the 0x{src_va:x} body)").strip()
-    if body is not None:
+    if body is not None and not reject:
+        update_field(cfg_dst.metadata_dir, dst_va, "size", body, module, updated_by="cross-import")
         message = f"{message} {_merged_entry_note(body)}".strip()
-    if revert:
-        # The stacked marker did not verify, and the destination already had
-        # its own file for this VA.  Leaving both claims in place is a
-        # duplicate VA (lint E013) for a function nobody has matched yet, so
-        # roll the stack back — the stub stays the sole owner.  The rollback
-        # covers the pre-verify metadata writes too: without restoring the
-        # flags the destination had before this attempt, a withdrawn import
-        # would keep compiling the stub under the SOURCE's cflags (a co-read
-        # contract field) with the original value lost.
-        atomic_write_text(target_path, text, encoding=encoding)
+    if reject:
         if wrote_cflags:
             if prior_cflags:
                 update_field(
@@ -1007,10 +926,55 @@ def import_shared_function(
                 remove_field(cfg_dst.metadata_dir, dst_va, "cflags", module)
         action = "skipped-unverified"
         message = (
-            f"{message} (destination already annotates this VA; stack reverted)"
+            f"{message} (destination already annotates this VA; claim not recorded)"
             if dst_file
-            else f"{message} (stack reverted)"
+            else f"{message} (claim not recorded)"
         )
+    else:
+        if result.matched:
+            from rebrew.marker_migration import migrate_source_file
+            from rebrew.metadata import identity_file, record_function_identity
+
+            if NEW_FUNC_RE.search(text):
+                migrated = migrate_source_file(cfg_src, target_path, None, dry_run=False)
+                if migrated and migrated.get("skipped") == "unrecorded-markers":
+                    if wrote_cflags:
+                        if prior_cflags:
+                            update_field(
+                                cfg_dst.metadata_dir,
+                                dst_va,
+                                "cflags",
+                                prior_cflags,
+                                module,
+                                updated_by="cross-import",
+                            )
+                        elif not prior_entry:
+                            delete_entries_batch(cfg_dst.metadata_dir, [(module, dst_va)])
+                        else:
+                            remove_field(cfg_dst.metadata_dir, dst_va, "cflags", module)
+                    return _import_result(
+                        dst_va,
+                        src_va,
+                        action="error",
+                        status="READ_ERROR",
+                        filepath=rel_dst,
+                        message=f"{target_path.name} has marker lines that were not recorded",
+                    )
+            record_function_identity(
+                cfg_dst.metadata_dir,
+                module=module,
+                va=dst_va,
+                file=identity_file(target_path, cfg_dst.metadata_dir),
+                marker_type="FUNCTION",
+                name=name,
+                symbol=symbol,
+                size=body if body is not None else dst_size,
+            )
+            if needs_move:
+                message = (
+                    f"{message} (retargeted {module} 0x{dst_va:x} onto the 0x{src_va:x} body)"
+                ).strip()
+        apply_status_updates([(entry, result.status, result.delta)], cfg_dst)
     if result.matched and dst_file:
         stub_path = contained_path(source_roots(cfg_dst), dst_file)
         if stub_path is not None and stub_path != target_path and stub_path.is_file():
@@ -1051,9 +1015,9 @@ def import_function(
 ) -> dict[str, Any]:
     """Import the matched source function *src_file* into the destination.
 
-    Writes the .c (marker remapped to the destination VA/SIZE) to the
-    destination's reversed_dir — *dst_file* if given (the destination VA's
-    existing file), else at the source's own relative path — then compiles +
+    Writes pure C to the destination's reversed_dir (*dst_file* if given,
+    else the source's own relative path) and records the destination
+    ``MODULE.0xVA`` row, then compiles and
     verifies it against the destination binary and promotes STATUS via the
     standard verify flow (``verify_entry`` + ``apply_status_updates``).  The
     destination metadata records the flags the copy needs, which include the
@@ -1087,23 +1051,49 @@ def import_function(
         )
 
     module = target_marker(cfg_dst) or cfg_dst.target_name
-    # Emit only the matched function (preamble + its block), re-tagged to the
-    # destination.  Copying the whole multi-function source would carry every
-    # co-resident marker into the destination tree (lint E012) and duplicate
-    # the other functions.
+    src_module = target_marker(cfg_src) or cfg_src.target_name
+    # Emit only the matched function, as pure C. Copying a multi-function
+    # source would duplicate the other functions. A marker-less file can be
+    # copied whole only when it holds this one function.
     extracted = _extract_function_text(text, src_va)
     if extracted is None:
-        # The source annotation and the file disagree (the VA has no marker
-        # block).  A whole-inventory run must not abort on one bad row.
-        return _import_result(
-            dst_va,
-            src_va,
-            action="error",
-            status="NO_MARKER",
-            filepath=src_file,
-            message=f"source {src_file} has no FUNCTION marker for 0x{src_va:x}",
-        )
-    rewritten = _rewrite_marker(extracted, module, dst_va, dst_size)
+        from rebrew.annotation import FUNCTION_MARKERS, parse_c_file_multi
+
+        anns = [
+            ann
+            for ann in parse_c_file_multi(
+                src_path, target_name=src_module, metadata_dir=cfg_src.metadata_dir
+            )
+            if ann.marker_type in FUNCTION_MARKERS
+        ]
+        if len(anns) == 1 and anns[0].va == src_va:
+            copied_name = anns[0].name
+            copied_symbol = anns[0].symbol or (f"_{copied_name}" if copied_name else "")
+            rewritten = text
+        elif len(anns) > 1:
+            return _import_result(
+                dst_va,
+                src_va,
+                action="error",
+                status="NO_MARKER",
+                filepath=src_file,
+                message=(
+                    f"source {src_file} has more than one function and no marker "
+                    f"to split at 0x{src_va:x}"
+                ),
+            )
+        else:
+            return _import_result(
+                dst_va,
+                src_va,
+                action="error",
+                status="NO_MARKER",
+                filepath=src_file,
+                message=f"source {src_file} has no function row for 0x{src_va:x}",
+            )
+    else:
+        copied_name, copied_symbol = _symbol_for_va(extracted, src_module, src_va, src_path.stem)
+        rewritten = _rewrite_marker(extracted, module, dst_va, dst_size)
     if dst_file is None:
         # Keep the source's path relative to its own reversed_dir: it gives
         # one destination file per source file (two imports out of one
@@ -1144,9 +1134,9 @@ def import_function(
         if not own or other or src_in_file:
             if src_in_file:
                 why = (
-                    f"the source body already lives in {rel_dst} — stacking the "
-                    "destination marker onto it (--shared) is a marker move, not "
-                    "a copy; copying would delete the file's other functions and "
+                    f"the source body already lives in {rel_dst}. Recording the "
+                    "destination row on it (--shared) is the shared import, not "
+                    "a copy. Copying would delete the file's other functions and "
                     "duplicate this body"
                 )
             elif other:
@@ -1221,13 +1211,26 @@ def import_function(
     src_flags = _source_flags(cfg_src, src_path)
     include = "-I" if cfg_dst.posix_style else "/I"
     cflags = f"{src_flags} {include}{src_path.parent}".strip()
+    from rebrew.metadata import identity_file, record_function_identity
+
+    # The row has to exist before verify: a marker-less file is invisible
+    # until rebrew-functions.toml names it.
+    record_function_identity(
+        cfg_dst.metadata_dir,
+        module=module,
+        va=dst_va,
+        file=identity_file(dst_path, cfg_dst.metadata_dir),
+        marker_type="FUNCTION",
+        name=copied_name,
+        symbol=copied_symbol,
+        size=dst_size,
+    )
     update_field(cfg_dst.metadata_dir, dst_va, "cflags", cflags, module, updated_by="cross-import")
 
-    name, symbol = _symbol_for_va(rewritten, module, dst_va, src_path.stem)
     entry = Annotation(
         va=dst_va,
-        name=name,
-        symbol=symbol,
+        name=copied_name,
+        symbol=copied_symbol,
         size=dst_size,
         filepath=rel_dst,
         marker_type="FUNCTION",
@@ -1238,8 +1241,6 @@ def import_function(
     result, body = _verify_import(entry, cfg_dst, cache=cache, name_to_va=name_to_va)
     message = result.message
     if body is not None:
-        rewritten = _rewrite_marker(extracted, module, dst_va, body)
-        atomic_write_text(dst_path, rewritten, encoding=dst_encoding)
         update_field(cfg_dst.metadata_dir, dst_va, "size", body, module, updated_by="cross-import")
         message = f"{message} {_merged_entry_note(body)}".strip()
     apply_status_updates([(entry, result.status, result.delta)], cfg_dst)
@@ -1307,9 +1308,9 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew cross-import --from v1.1 · · · · · · · Import v1.1's matched functions\n"
-        "  rebrew cross-import --from game.exe --min-score 90\n"
-        "  rebrew cross-import --from v1.1 --dry-run --json · Preview\n\n"
+        "  rebrew source import-related --from v1.1 · · · · · · · Import v1.1's matched functions\n"
+        "  rebrew source import-related --from game.exe --min-score 90\n"
+        "  rebrew source import-related --from v1.1 --dry-run --json · Preview\n\n"
         "[dim]Matches the source target's EXACT/RELOC functions against this\n"
         "target's unmatched functions structurally (no compile needed to match);\n"
         "imported sources are verified against this target before STATUS promotion.[/dim]"
@@ -1335,13 +1336,18 @@ def main(
     va: str | None = typer.Option(
         None, "--va", help="Restrict to one destination VA (hex, e.g. 0x401000)"
     ),
+    source_va: str | None = typer.Option(
+        None,
+        "--source-va",
+        help="Restrict to one matched source VA (hex); score, gap and verification still apply",
+    ),
     limit: int | None = typer.Option(None, "--limit", help="Import at most N functions"),
     shared: bool = typer.Option(
         False,
         "--shared",
-        help="Stack the destination marker onto the shared source file "
-        "instead of copying into the destination tree (one file, one marker "
-        "per target). Promotes the source into src/shared first when needed",
+        help="Record the destination MODULE.0xVA row on the shared source "
+        "file instead of copying into the destination tree (one file, one "
+        "row per target). Promotes the source into src/shared first when needed",
     ),
     promote: bool = typer.Option(
         False,
@@ -1362,18 +1368,29 @@ def main(
     target: str | None = TargetOption,
 ) -> None:
     """Cross-target function import."""
+    if limit is not None:
+        require_non_negative(limit, "--limit", json_mode=json_output)
     cfg = require_config(target=target, json_mode=json_output)
     cfg_src = require_config(target=from_target, json_mode=json_output)
     if cfg_src.target_name == cfg.target_name:
         error_exit("--from must name a different target", json_mode=json_output)
 
     only_va = parse_va(va, json_mode=json_output) if va else None
+    only_source_va = parse_va(source_va, json_mode=json_output) if source_va else None
 
     try:
         dest_bytes = unmatched_dest_bytes(cfg, only_va)
         src_bytes = matched_source_bytes(cfg_src)
     except (OSError, ValueError) as exc:
         error_exit(f"cannot read target binary: {exc}", json_mode=json_output)
+    if only_source_va is not None:
+        if only_source_va not in src_bytes:
+            error_exit(
+                f"source VA 0x{only_source_va:x} is not an available EXACT/RELOC donor "
+                f"in target {from_target!r}",
+                json_mode=json_output,
+            )
+        src_bytes = {only_source_va: src_bytes[only_source_va]}
     if not dest_bytes:
         error_exit(
             f"no unmatched functions in target {cfg.target_name!r} "
@@ -1443,10 +1460,10 @@ def main(
         and va not in dest_bytes
     ]
     # A source file is ONE function body: importing it at several destination
-    # VAs stacks several markers onto that one body, which only works when the
+    # VAs records several rows on that one body, which only works when the
     # destinations really are byte-identical copies.  When they are not, the
-    # extra markers are guaranteed mismatches on a shared body (guild-rebrew
-    # round 1293: one GOLD function was stacked at GOLDTL 0x659fbf and
+    # extra rows are guaranteed mismatches on a shared body (guild-rebrew
+    # round 1293: one GOLD function was recorded at GOLDTL 0x659fbf and
     # 0x6508a3 with 9- and 11-byte spans).  Import the best-scoring match per
     # source file; further destination VAs need a deliberate twin.
     imported_src_files: dict[str, str] = {}
@@ -1522,8 +1539,8 @@ def main(
             continue
         if shared:
             # The shared tree only works when the file lives under the shared
-            # root — auto-promote a per-target source there first so the
-            # stacked marker lands on the one file every target scans.
+            # root. Auto-promote a per-target source there first so the
+            # recorded row names the one file every target scans.
             shared_root = getattr(cfg_src, "shared_dir", None)
             shared_candidate = (
                 contained_path(shared_root, src_file) if shared_root is not None else None
@@ -1641,7 +1658,7 @@ def main(
         imported = sum(1 for r in results if r["action"] in ("imported", "imported-unverified"))
         if imported:
             console.print(
-                "[dim]Copies drift — re-run with --shared to stack these onto "
+                "[dim]Copies drift. Re-run with --shared to record these on "
                 "one src/shared file instead.[/dim]"
             )
 

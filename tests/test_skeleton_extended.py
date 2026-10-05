@@ -16,6 +16,12 @@ from rebrew.skeleton import (
 )
 
 
+def _assert_pure_c(text: str) -> None:
+    """Generated C carries no inline marker line."""
+    for token in ("// FUNCTION:", "// LIBRARY:", "// SIZE:", "/* FUNCTION:"):
+        assert token not in text
+
+
 def _cfg(tmp_path: Path, **overrides: object) -> SimpleNamespace:
     src = tmp_path / "src" / "SERVER"
     src.mkdir(parents=True, exist_ok=True)
@@ -337,7 +343,52 @@ class TestSkeletonCliModes:
         data = json.loads(result.stdout)
         assert data["action"] == "appended"
         text = target.read_text(encoding="utf-8")
-        assert "0x00001000" in text  # new block appended (8-digit VA format)
+        # The old marker is migrated away; the new function is pure C.
+        _assert_pure_c(text)
+        assert "int other(void)" in text
+        assert "func_a" in text
+        assert "0x00001000" not in text
+        from rebrew.metadata import get_entry
+
+        old = get_entry(cfg.metadata_dir, 0x2000, "SERVER")
+        new = get_entry(cfg.metadata_dir, 0x1000, "SERVER")
+        assert old["marker_type"] == "FUNCTION"
+        assert old["name"] == "other"
+        assert old["symbol"] == "_other"
+        assert old["file"] == "src/SERVER/multi.c"
+        assert "status" not in old
+        assert "size" not in old
+        assert new["marker_type"] == "FUNCTION"
+        assert new["name"] == "func_a"
+        assert new["symbol"] == "_func_a"
+        assert new["size"] == 64
+        assert new["file"] == "src/SERVER/multi.c"
+        assert "status" not in new
+        store = (cfg.metadata_dir / "rebrew-functions.toml").read_text(encoding="utf-8")
+        assert "SERVER.0x00002000" in store
+        assert "SERVER.0x00001000" in store
+
+    def test_append_unrecorded_marker_is_refused(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A marker the stripper would drop but the parser did not record is refused.
+
+        The file is left as it was: no migration, no append, no TOML row.
+        """
+        from rebrew.skeleton import app
+
+        cfg = self._setup(tmp_path, monkeypatch)
+        target = cfg.reversed_dir / "multi.c"
+        original = (
+            "// FUNCTION: SERVER 0x2000\nint other(void) { return 0; }\n"
+            "int kept(void) { return 1; } // FUNCTION: SERVER 0x3000\n"
+        )
+        target.write_text(original, encoding="utf-8")
+        result = CliRunner().invoke(app, ["--append", "multi.c", "--json", "0x1000"])
+        assert result.exit_code != 0
+        assert "not recorded" in result.output
+        assert target.read_text(encoding="utf-8") == original
+        assert not (tmp_path / "rebrew-functions.toml").exists()
 
     def test_append_missing_target_errors(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -368,7 +419,16 @@ class TestSkeletonCliModes:
         text, encoding = read_source_text(target)
         assert encoding == "cp1252"  # encoding survived the append
         assert "\u00e9" in text  # the legacy byte round-tripped
-        assert "0x00001000" in text  # new block appended
+        _assert_pure_c(text)
+        assert "other" in text
+        assert "func_a" in text
+        raw = target.read_bytes()
+        assert b"\xe9" in raw
+        assert b"\xc3\xa9" not in raw  # not rewritten as UTF-8
+        from rebrew.metadata import get_entry
+
+        assert get_entry(cfg.metadata_dir, 0x2000, "SERVER")["name"] == "other"
+        assert get_entry(cfg.metadata_dir, 0x1000, "SERVER")["marker_type"] == "FUNCTION"
 
     def test_append_existing_va_skips(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -430,7 +490,19 @@ class TestSkeletonCliModes:
         assert result.exit_code == 0, result.output
         text = target.read_text(encoding="utf-8")
         assert "hand_written" in text
-        assert "// FUNCTION: SERVER 0x00001000" in text
+        assert "func_a" in text
+        _assert_pure_c(text)
+        from rebrew.metadata import get_entry
+
+        # Migration recorded the hand-written name first. A later identity
+        # write does not replace that name, fills the missing size, and
+        # never writes STATUS.
+        entry = get_entry(cfg.metadata_dir, 0x1000, "SERVER")
+        assert entry["marker_type"] == "FUNCTION"
+        assert entry["name"] == "hand_written"
+        assert entry["symbol"] == "_func_a"
+        assert entry["size"] == 64
+        assert "status" not in entry
 
     def test_batch_existing_skips(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.skeleton import app

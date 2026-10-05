@@ -1,6 +1,6 @@
 """llm_seed.py — optional LLM-assisted GA seed generation.
 
-``rebrew match --seed-llm`` asks a configured LLM endpoint for alternative C
+``rebrew match run --seed-llm`` asks a configured LLM endpoint for alternative C
 implementations of a NEAR_MATCHING function, validates each returned snippet
 with tree-sitter (it must parse and define a function), and injects the
 survivors into the GA's initial population as extra seeds.
@@ -62,7 +62,7 @@ substituted model means different cost and different seeds),
 provider-controlled value (error text, usage fields, model ids) is
 control-character-sanitized before it is logged.  Each billed request records
 its model, prompt version, token counts, and latency in a :class:`SeedUsage`
-that ``rebrew match --seed-llm`` prints in the run summary, because the
+that ``rebrew match run --seed-llm`` prints in the run summary, because the
 INFO log line carrying the same numbers is invisible without ``-v``.  A
 request that left the process and then failed (timeout, 5xx after
 generation) is recorded too, with unreported tokens, so an endpoint that
@@ -75,7 +75,7 @@ header value comes back quoted) is redacted before any log or console line.
 behind its role header) without calling the endpoint, so the preview cannot
 describe a prompt the endpoint never receives.
 Each billed request adds to a running :class:`SeedUsage` total for the thread
-that made it, which ``rebrew match --seed-llm`` prints, so a ``--watch`` run
+that made it, which ``rebrew match run --seed-llm`` prints, so a ``--watch`` run
 reports every call it made rather than the last one, and a parallel batch
 worker does not report a sibling stub's spend.
 """
@@ -278,7 +278,7 @@ def sanitize_log_value(value: Any, *, max_len: int = 256, secrets: Sequence[str]
     Every untrusted string this module emits goes through here: provider
     fields, the text a config error quotes back (``llm_config`` interpolates
     the offending endpoint, model id, and budget value), and anything a parse
-    error echoes.  Callers that print such a value (``rebrew match
+    error echoes.  Callers that print such a value (``rebrew match run
     --seed-llm``) must use this rather than ``str(exc)``, because a Rich
     console also parses ``[...]`` as markup and a terminal interprets the
     escape sequences a control character starts.
@@ -310,7 +310,7 @@ class SeedUsage:
 
     A record holds one request until :func:`merge_usage` folds more in, so
     ``requests`` is 1 for a single call and the run summary reports the whole
-    process: ``rebrew match --seed-llm --watch`` bills once per file edit, and
+    process: ``rebrew match run --seed-llm --watch`` bills once per file edit, and
     printing only the last request made a multi-request run read as one.
 
     ``model`` is the pinned id that was *requested* (already charset-validated

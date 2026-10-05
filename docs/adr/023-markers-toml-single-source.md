@@ -48,9 +48,11 @@ identity and state. A migrated `.c` file is pure C.**
   function's `file` / `symbol` / `name` / `marker_type` into the TOML
   entry, strips the marker block (marker line, attached KV lines, bare
   name hints) from the `.c`, and is idempotent. `--dry-run` previews.
-- **SIZE/CFLAGS become single-source.** Once a file is migrated there is
-  no inline value to co-read and no disagreement to warn about (W019 is
-  moot on marker-less files); `--fix-sizes` has no source to rewrite.
+- **SIZE/CFLAGS are metadata-owned.** An unmigrated file may still carry
+  `// SIZE:` / `// CFLAGS:`. The parser reads them. `rebrew lint --fix`
+  moves an equal copy into the store and strips it. A disagreement warns
+  and the store wins; the inline text is left for the author. W019 is
+  moot on a marker-less file. `--fix-sizes` rewrites the store.
 - **The marker set is unshackled.** `VTABLE` and `STRING` are now legal
   markers (`VALID_MARKERS`, parser regexes, lint E001/E015 exemptions on
   par with `GLOBAL`/`DATA`).
@@ -66,12 +68,23 @@ identity and state. A migrated `.c` file is pure C.**
 
 ## Consequences
 
-- New projects may keep writing inline markers (skeletons, etc.) until
-  migrated: the mixed tree is the steady state, not a bug.
-- Tools that scan `.c` files for their own `// GLOBAL:` / `// DATA:`
-  patterns (e.g. `rebrew data` global discovery) do not yet read migrated
-  data entries from the TOML; migrating data-marker files is deferred
-  until that path reads the TOML too.
+- New writers record `file` and a kind under `MODULE.0xVA` and emit pure C.
+  Skeletons, library headers, import stubs, `asm --inline-c` (except
+  `// SOURCE: naked`), intake stubs, BinSync stubs, data annotate, BSS
+  gaps, layout comments, cross-import, and splat import do not write
+  `// FUNCTION:`, `// LIBRARY:`, `// STUB:`, `// GLOBAL:`, `// DATA:`,
+  `// VTABLE:`, or `// STRING:`. `rebrew source merge` and `rebrew source
+  split` still rearrange a file that already carries those lines.
+  `rebrew source migrate-markers` is how an unmigrated tree drops them.
+- `rebrew source migrate-markers` moves data identity into `rebrew-data.toml`
+  on the same pass as function identity. A data row gains `file` and
+  `marker_type` (`GLOBAL`, `DATA`, `VTABLE`, or `STRING`), and gains `name`,
+  `type`, `size`, and `section` when the row does not already hold them.
+  The two stores stay separate: function STATUS and data STATUS are different
+  vocabularies, and a global is not compiled. The parser still reads an
+  unmigrated data marker. A file with no data-marker line is read from
+  `rebrew-data.toml` rows whose `file` matches. A file that still has a
+  data-marker line is read from that line.
 - `file` matching is by metadata-root-relative path, stored display path,
   or bare filename; a moved metadata root keeps working through the
   trailing-suffix rule.
@@ -87,3 +100,13 @@ is deleted, so `data.json`, the reccmp CSV and `rebrew catalog --csv` /
 [COVERAGE_DOCUMENT.md](../COVERAGE_DOCUMENT.md)). The marker half stands: reccmp-compatible
 inline markers remain the input contract, and community round-trips re-enter
 through the source tree or a re-annotated copy.)*
+
+*(Amended again: the marker-half sentence above no longer holds. Inline
+`// FUNCTION:`, `// LIBRARY:`, `// STUB:`, `// GLOBAL:`, `// DATA:`,
+`// VTABLE:`, and `// STRING:` lines, and co-read `// SIZE:` / `// CFLAGS:`,
+are not the input contract. The parser still reads them, and `rebrew source
+migrate-markers` moves them. New writers record `file` plus a kind under
+`MODULE.0xVA` and emit pure C. A reccmp checkout of a migrated tree sees no
+annotations. `SIZE` and `CFLAGS` are metadata-owned. `// SOURCE: naked` stays
+file-borne. `rebrew source merge` and `rebrew source split` still rearrange
+files that already carry inline markers.)*

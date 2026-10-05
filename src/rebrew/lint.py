@@ -1,18 +1,16 @@
 """lint.py - Annotation linter for rebrew decomp C files.
 
-Check that all .c files in the reversed directory have proper reccmp-style
-annotations (``// FUNCTION: MODULE 0xVA`` markers) and that volatile metadata
-(STATUS, BLOCKER, NOTE, …) lives in ``rebrew-functions.toml``. ``SIZE`` /
-``CFLAGS`` are co-read (inline reccmp contract + TOML override; W019 warns on
-disagreement, does not migrate). Also cross-checks FUNCTION/STUB marker VAs
-against the target's function list (W028), flags redundant per-function /
-preset cflags that only repeat an inherited value (W029), and otherwise
-catches stale annotations at lint time instead of as confusing mismatches in
-``rebrew test``.
+Check that every reversed ``.c`` file is either pure C whose identity lives
+in ``rebrew-functions.toml`` / ``rebrew-data.toml``, or still carries a
+legacy marker line. Volatile metadata (STATUS, BLOCKER, NOTE, SIZE,
+CFLAGS, …) lives in the stores. An equal inline copy is migration debt;
+a disagreement warns and the store wins. Also cross-checks FUNCTION/STUB
+marker VAs against the target's function list (W028), flags redundant
+per-function / preset cflags that only repeat an inherited value (W029),
+and otherwise catches stale annotations at lint time instead of as
+confusing mismatches in ``rebrew test``.
 Supports ``--fix`` to migrate inline metadata keys to the TOML metadata file
 and to drop redundant per-function / preset cflags (W029).
-
-Inspired by reccmp's decomplint tool.
 """
 
 import bisect
@@ -38,6 +36,7 @@ from rebrew.annotation import (
     NEW_FUNC_RE,
     NEW_KV_RE,
     VALID_MARKERS,
+    file_backed_by_metadata,
     min_valid_va_for,
 )
 from rebrew.cli import (
@@ -62,7 +61,6 @@ from rebrew.lint_cflags import (
     RedundantPreset,
     cflags_key,
     check_redundant_cflags,
-    codegen_cflags_key,
     drop_redundant_presets,
     inline_equals_store,
 )
@@ -140,7 +138,7 @@ class LintResult:
     _inline_strips: list[tuple[str, int, str]] = field(default_factory=list)
     # Inline keys that duplicate a metadata-owned field with an equal value:
     # no warning (the store already owns the field) but --fix strips the
-    # dead inline copy.  SIZE is never collected (inline SIZE is the contract).
+    # dead inline copy.  An equal SIZE or CFLAGS is one of these strips.
     _inline_dup_strips: list[tuple[str, int, str]] = field(default_factory=list)
     # Lines of the file for style checks
     _lines: list[str] = field(default_factory=list)
@@ -318,10 +316,10 @@ def count_migratable_files(
     — found by the *same* header parser ``rebrew lint`` itself uses, so
     block attachment cannot drift — and that field is NOT already owned by
     the metadata store.  Markerless occurrences (the ``// CFLAGS:
-    /DREBREW_ALLOW_NAKED`` naked-guard convention), ``// SIZE:`` (the
-    reccmp-native inline contract) and keys already backed by metadata are
-    deliberately not counted, so the "run rebrew lint to migrate" hint is
-    always actionable.
+    /DREBREW_ALLOW_NAKED`` naked-guard convention) and keys already backed
+    by metadata are not counted, so the "run rebrew lint to migrate" hint
+    is always actionable.  Inline ``SIZE`` and ``CFLAGS`` count: they are
+    metadata, and ``lint --fix`` moves them.
 
     Only scans files returned by ``iter_sources`` so that the extension
     filter (``cfg.source_ext``) is respected.  *sources* is that list when the
@@ -356,8 +354,6 @@ def count_migratable_files(
                 continue
             for key, value in found_keys.items():
                 if key not in METADATA_KEYS:
-                    continue
-                if key == "SIZE":
                     continue
                 if key == "SOURCE" and value.strip().lower() == "naked":
                     continue
@@ -542,7 +538,7 @@ def _staleness_fix(cfg: ProjectConfig | None) -> str:
     if binary_newer is True:
         return (
             "The target binary is newer than the function inventory — it likely changed: "
-            "re-run `rebrew intake` / `rebrew discover-functions` to refresh it, then " + annotate
+            "re-run `rebrew intake` / `rebrew binary functions` to refresh it, then " + annotate
         )
     if binary_newer is False:
         return (
@@ -553,7 +549,7 @@ def _staleness_fix(cfg: ProjectConfig | None) -> str:
         )
     return (
         "The function inventory no longer matches these annotations: if the target binary "
-        "changed, re-run `rebrew intake` / `rebrew discover-functions` to refresh it; "
+        "changed, re-run `rebrew intake` / `rebrew binary functions` to refresh it; "
         "otherwise " + annotate + " (or regenerate the inventory if it was built from a "
         "different binary, e.g. a rebuilt artifact)"
     )
@@ -623,7 +619,7 @@ def _check_W028_stale_annotation(
             "W028",
             f"annotation VA 0x{va_int:x} points inside function "
             f"'{host[2] or 'a function'}' (moved/merged) — re-annotate the "
-            "marker VA or refresh the function inventory (`rebrew discover-functions`)" + hint,
+            "marker VA or refresh the function inventory (`rebrew binary functions`)" + hint,
         )
     else:
         result.warning(
@@ -631,7 +627,7 @@ def _check_W028_stale_annotation(
             "W028",
             f"annotation VA 0x{va_int:x} has no function in the current "
             "function inventory (removed or shifted) — re-annotate the marker VA "
-            "or refresh the function inventory (`rebrew discover-functions`)" + hint,
+            "or refresh the function inventory (`rebrew binary functions`)" + hint,
         )
 
 
@@ -975,47 +971,54 @@ def _check_W031_metadata_store(cfg: ProjectConfig) -> list[LintResult]:
 def _check_W034_identity_paths(cfg: ProjectConfig) -> list[LintResult]:
     """W034: a stored ``file`` identity that a consumer cannot safely join.
 
-    ``verify`` compiles ``reversed_dir / file``, ``rename`` rewrites it, and
-    BinSync reads it, so an absolute path or a ``..`` segment names a file the
-    metadata's author chose rather than one in this checkout.  Writers refuse
-    it now (:func:`rebrew.metadata.validate_identity_file`); this reports rows
-    that were written before the gate, or edited by hand.
+    ``verify`` compiles ``reversed_dir / file`` for a function row, data scans
+    match a global to the source that owns it, ``rename`` rewrites the path,
+    and BinSync reads it.  An absolute path or a ``..`` segment names a file
+    the metadata's author chose rather than one in this checkout.  Writers
+    refuse it (:func:`rebrew.metadata.validate_identity_file`); this reports
+    rows that were written before the gate, or edited by hand, in either store.
     """
+    from rebrew.data_metadata import DATA_METADATA_FILENAME
     from rebrew.metadata import validate_identity_file
     from rebrew.utils import load_tomllib
 
-    path = (Path(cfg.metadata_dir) / "rebrew-functions.toml").resolve()
-    if not path.is_file():
-        return []
-    try:
-        doc = load_tomllib(path)
-    except (OSError, ValueError) as exc:
-        # An unreadable store hides every W034 finding in it, which reads as a
-        # clean run over identities this check never saw.
-        res = LintResult(path)
-        res.warning(1, "W034", f"store could not be parsed, identities unchecked: {exc}")
-        return [res]
-    if not isinstance(doc, dict):
-        res = LintResult(path)
-        res.warning(1, "W034", "store is not a TOML table, identities unchecked")
-        return [res]
-    problems: list[str] = []
-    for key, entry in doc.items():
-        if not isinstance(entry, dict):
-            continue
-        value = str(entry.get("file") or "")
-        if not value:
+    results: list[LintResult] = []
+    for filename in ("rebrew-functions.toml", DATA_METADATA_FILENAME):
+        path = (Path(cfg.metadata_dir) / filename).resolve()
+        if not path.is_file():
             continue
         try:
-            validate_identity_file(value)
-        except ValueError as exc:
-            problems.append(f"{key}: {exc}")
-    if not problems:
-        return []
-    res = LintResult(path)
-    for problem in problems:
-        res.warning(1, "W034", problem)
-    return [res]
+            doc = load_tomllib(path)
+        except (OSError, ValueError) as exc:
+            # An unreadable store hides every W034 finding in it, which reads
+            # as a clean run over identities this check never saw.
+            res = LintResult(path)
+            res.warning(1, "W034", f"store could not be parsed, identities unchecked: {exc}")
+            results.append(res)
+            continue
+        if not isinstance(doc, dict):
+            res = LintResult(path)
+            res.warning(1, "W034", "store is not a TOML table, identities unchecked")
+            results.append(res)
+            continue
+        problems: list[str] = []
+        for key, entry in doc.items():
+            if not isinstance(entry, dict):
+                continue
+            value = str(entry.get("file") or "")
+            if not value:
+                continue
+            try:
+                validate_identity_file(value)
+            except ValueError as exc:
+                problems.append(f"{key}: {exc}")
+        if not problems:
+            continue
+        res = LintResult(path)
+        for problem in problems:
+            res.warning(1, "W034", problem)
+        results.append(res)
+    return results
 
 
 def _check_W035_unknown_modules(cfg: ProjectConfig) -> list[LintResult]:
@@ -1062,7 +1065,7 @@ def _check_W035_unknown_modules(cfg: ProjectConfig) -> list[LintResult]:
 _STALE_COVERAGE_ARTIFACTS: dict[str, str] = {
     "coverage.db": (
         "leftover SQLite coverage database — the store is now one clear-text "
-        "db/coverage-<target>.toml per target; re-run rebrew build-db and delete this"
+        "db/coverage-<target>.toml per target; re-run rebrew coverage build and delete this"
     ),
     # The verify cache and its --compare baseline moved from JSON to TOML with
     # the other stores.  A leftover JSON file is not read any more, so the
@@ -1148,7 +1151,7 @@ def _check_W032_coverage_store(cfg: ProjectConfig) -> list[LintResult]:
             message = _STALE_COVERAGE_ARTIFACTS[name]
         elif name.startswith("data_") and path.suffix == ".json":
             message = (
-                "leftover catalog grid JSON — rebrew build-db renders the "
+                "leftover catalog grid JSON — rebrew coverage build renders the "
                 "document in process now; delete this"
             )
         elif path.suffix == ".csv":
@@ -1164,7 +1167,7 @@ def _check_W032_coverage_store(cfg: ProjectConfig) -> list[LintResult]:
             except CoverageTomlError as exc:
                 message = (
                     f"coverage document the dashboards cannot serve ({exc}) — "
-                    "re-run rebrew build-db"
+                    "re-run rebrew coverage build"
                 )
         if message:
             res = LintResult(path)
@@ -1307,70 +1310,22 @@ def _check_W019_inline_metadata(
     module: str = "",
     va_int: int | None = None,
     marker: str = "",
-    metadata_size: str | None = None,
-    metadata_cflags: str | None = None,
 ) -> None:
     """Warn when metadata-owned keys appear as inline // KEY: comments.
 
-    These keys should live exclusively in rebrew-functions.toml (or rebrew-data.toml
-    for DATA/GLOBAL markers).  Inline occurrences are deprecated.
-
-    ``SIZE`` is exempt — ``// SIZE:`` is the reccmp-native contract in the
-    ``.c`` (reccmp reads it there) and the TOML value is an override, not a
-    migration target.  The only SIZE warning is a disagreement between the
-    inline and the metadata value.
-
-    ``CFLAGS`` gets the same treatment for the same reason: an external build
-    reads the ``.c``, so an inline value that disagrees with the metadata is
-    not a stale copy to delete but two different compiles wearing one name.
+    These keys, including ``SIZE`` and ``CFLAGS``, live in
+    rebrew-functions.toml (or rebrew-data.toml for DATA/GLOBAL markers).
+    An inline copy that the store does not already own is migration debt.
+    A copy the store already owns is handled by the overlay: equal values
+    are stripped, and a disagreement warns there without clobbering the store.
     """
     for key, value in found_keys.items():
         if key == "SOURCE" and value.strip().lower() == "naked":
             # The file-borne naked-reconstruction marker written by
-            # `rebrew asm --inline-c`: like the // CFLAGS:
+            # `rebrew binary asm show --inline-c`: like the // CFLAGS:
             # /DREBREW_ALLOW_NAKED naked-guard convention, it must travel
             # with the file (self-clears when the C body replaces it) —
             # not a metadata-migration candidate.
-            continue
-        if key == "CFLAGS":
-            # An inline copy that differs from the metadata is invisible to
-            # every other check: the merge above keeps the inline value in
-            # found_keys, and metadata_sourced_keys then suppresses the
-            # deprecation warning below.  Report the disagreement instead —
-            # `rebrew test`/`verify` compile with the metadata CFLAGS while a
-            # build that reads the .c compiles with this one.
-            inline_cflags = value.strip()
-            if metadata_cflags and codegen_cflags_key(inline_cflags) != codegen_cflags_key(
-                metadata_cflags
-            ):
-                result.warning(
-                    result.marker_line,
-                    "W019",
-                    f"Inline '// CFLAGS: {inline_cflags}' disagrees with metadata "
-                    f"CFLAGS '{metadata_cflags}' — a build that reads the .c and "
-                    "a tool that reads rebrew-functions.toml compile different "
-                    "code; align them",
-                )
-                continue
-        if key == "SIZE":
-            inline_size = value.strip()
-            agrees = True
-            if metadata_size:
-                # Compare numerically when both parse: E008 blesses hex
-                # spellings (`size = "0x20"`), so a textual compare warned
-                # about `// SIZE: 32` vs metadata `0x20` being equal.
-                try:
-                    agrees = int(inline_size, 0) == int(metadata_size, 0)
-                except ValueError:
-                    agrees = inline_size == metadata_size
-            if metadata_size and not agrees:
-                result.warning(
-                    result.marker_line,
-                    "W019",
-                    f"Inline '// SIZE: {value.strip()}' disagrees with "
-                    f"metadata SIZE {metadata_size} — the compile contract is "
-                    "ambiguous; align them",
-                )
             continue
         if key in METADATA_KEYS and key not in metadata_sourced_keys:
             result.warning(
@@ -1541,7 +1496,7 @@ def _check_W020_asm_dump(
             return
     claimed = sorted((claimed_statuses or set()) - _UNCLAIMED_STATUSES)
     for i, code in enumerate(code_lines, start=1):
-        # "_emit", not "__emit": `rebrew asm` writes the bare spelling, so
+        # "_emit", not "__emit": `rebrew binary asm show` writes the bare spelling, so
         # matching only the old prefixed form missed every dump it produced.
         if "_emit" in code:
             if claimed:
@@ -1946,7 +1901,7 @@ def _check_body_rules(result: LintResult, lines: list[str], has_new: bool) -> No
     has_struct = False
     first_struct_line = 1
     struct_has_size = False
-    for i, line in enumerate(lines[1:], start=2):
+    for i, line in enumerate(lines, start=1):
         stripped = line.strip()
         if (
             stripped
@@ -2102,11 +2057,6 @@ def lint_file(
         _check_body_rules(result, lines, True)
         return result
     all_headers = _parse_multi_headers(lines)
-    if not all_headers:
-        # Totally broken file — no recognisable marker format found.
-        # Synthesise a minimal entry so the loop below can report E001.
-        all_headers = [({}, {"has_new": False})]
-    result._headers = all_headers
 
     # Load per-directory metadata (keys: (module, va_int) -> {toml_field: value}).
     # Accept pre-loaded dicts from callers that process many files in the same directory
@@ -2128,6 +2078,19 @@ def lint_file(
         if preloaded_data_metadata is not None
         else load_data_metadata(_metadata_dir)
     )
+    # A pure-C file whose row names this path is annotated. A marker-less
+    # file with no row is still E001.
+    metadata_backed = False
+    if not all_headers:
+        metadata_backed = file_backed_by_metadata(
+            filepath,
+            cfg.metadata_dir if cfg is not None else filepath.parent,
+            function_entries=_metadata_entries,
+            data_entries=_data_metadata_entries,
+        )
+        if not metadata_backed:
+            all_headers = [({}, {"has_new": False})]
+    result._headers = all_headers
 
     # Marker keys this project recognises, folded once per file: the NFC +
     # upper of every marker in cfg.all_markers is per-annotation work below
@@ -2155,16 +2118,11 @@ def lint_file(
 
         # Overlay metadata fields into found_keys for this marker block.
         #
-        # SIZE / CFLAGS are co-read (reccmp contract): keep any inline value in
-        # found_keys so W019 can report disagreement with the store; equal
-        # CFLAGS copies are stripped below, SIZE is never auto-stripped.
-        #
-        # Every other metadata-owned key (STATUS, NOTE, BLOCKER, …) has the
-        # store as sole source of truth — annotation parsing ignores the
-        # inline form — so checks must see the TOML value.  Equal inline
-        # copies are stripped; disagreements warn (W019) and leave the inline
-        # text for the author (never migrate inline → store, which would
-        # clobber a promoted STATUS with a stale // STATUS: STUB).
+        # The store is the source of truth for every metadata-owned key,
+        # including SIZE and CFLAGS.  Equal inline copies are stripped.
+        # Disagreements warn (W019) and leave the inline text for the author
+        # (never migrate inline → store, which would clobber a promoted
+        # STATUS with a stale // STATUS: STUB).
         #
         # Track which keys the store supplied so W019 can tell a key that
         # must be migrated from one that is correctly metadata-only.
@@ -2172,8 +2130,6 @@ def lint_file(
         _va_int: int | None = None
         _metadata_size: str | None = None
         _metadata_override: dict[str, Any] = {}
-        # Keys co-read from the .c (inline kept in found_keys for W019).
-        _coread_keys = frozenset({"SIZE", "CFLAGS"})
         if mod and va_str:
             try:
                 _va_int = int(va_str, 16)
@@ -2185,13 +2141,6 @@ def lint_file(
                     store_val = str(_metadata_override[_toml_key])
                     if _found_key not in found_keys:
                         found_keys[_found_key] = store_val
-                    elif _found_key in _coread_keys:
-                        # Co-read: leave inline in found_keys; W019 handles
-                        # disagreement.  Equal CFLAGS still strip below.
-                        if _found_key == "CFLAGS" and inline_equals_store(
-                            _found_key, found_keys[_found_key], store_val
-                        ):
-                            result._inline_dup_strips.append((mod, _va_int, _found_key))
                     elif inline_equals_store(_found_key, found_keys[_found_key], store_val):
                         # Dead duplicate of the store value — strip on --fix.
                         result._inline_dup_strips.append((mod, _va_int, _found_key))
@@ -2281,8 +2230,7 @@ def lint_file(
                 ):
                     _check_W018_cflags(result, found_keys, cfg)
             # For DATA/GLOBAL: overlay data metadata fields (size, section, note).
-            # SIZE is co-read; SECTION/NOTE follow the same store-wins rule
-            # as function metadata above.
+            # SIZE follows the same store-wins rule as SECTION and NOTE.
             elif va_int is not None and mod:
                 _ds_override = _data_metadata_entries.get((mod, va_int), {})
                 # A data symbol's SIZE lives in rebrew-data.toml, so W019 must
@@ -2300,8 +2248,6 @@ def lint_file(
                     store_val = str(_ds_override[_ds_key])
                     if _ds_found_key not in found_keys:
                         found_keys[_ds_found_key] = store_val
-                    elif _ds_found_key == "SIZE":
-                        pass  # co-read; W019 reports disagreement
                     elif inline_equals_store(_ds_found_key, found_keys[_ds_found_key], store_val):
                         result._inline_dup_strips.append((mod, va_int, _ds_found_key))
                         found_keys[_ds_found_key] = store_val
@@ -2359,8 +2305,6 @@ def lint_file(
                 module=mod,
                 va_int=_va_int if mod else None,
                 marker=marker,
-                metadata_size=_metadata_size,
-                metadata_cflags=str(_metadata_override.get("cflags", "") or "").strip() or None,
             )
 
     result.context_prefix = ""
@@ -2372,7 +2316,11 @@ def lint_file(
     _check_W020_asm_dump(result, code_lines, _file_statuses, _file_has_blocker)
     _check_W021_duplicate_globals(result, lines, filepath, seen_globals)
     _check_W022_zero_init_bss(result, code_lines, _data_section_names)
-    _check_body_rules(result, lines, all_headers[0][1]["has_new"] if all_headers else False)
+    _check_body_rules(
+        result,
+        lines,
+        metadata_backed or (all_headers[0][1]["has_new"] if all_headers else False),
+    )
     _check_W023_default_func_names(result, lines, pedantic)
     _check_W030_va_order(result, all_headers, lines)
     _check_style_rules(result, cfg)
@@ -2417,7 +2365,7 @@ app = typer.Typer(
         "  rebrew lint src/game/foo.c · · · · · Lint specific files only\n\n"
         "  rebrew lint --fix --dry-run · · · · Preview migrations, strips, and backfills before commit\n\n"
         "[bold]Error codes:[/bold]\n\n"
-        "  E001   Missing FUNCTION/LIBRARY/STUB marker (or reason-less // SUPPORT:)\n\n"
+        "  E001   No marker and no metadata row for this file (or reason-less // SUPPORT:)\n\n"
         "  E002   Invalid VA format or range\n\n"
         "  E012   Module doesn't match configured marker\n\n"
         "  E013   Duplicate VA across files\n\n"

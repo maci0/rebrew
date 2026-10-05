@@ -1,10 +1,12 @@
 # Function Status Reference
 
 All function statuses are stored in the `rebrew-functions.toml` metadata, keyed by
-`MODULE.0xVA`; a key without a module is rejected by the writer. An unmigrated `.c`
-file keeps the `// FUNCTION: MODULE 0xVA` marker line (plus co-read `// SIZE:` /
-`// CFLAGS:` when present for reccmp); after `rebrew migrate-markers` (ADR 023) the
-file is pure C and its identity lives in the TOML entry's `file` field.
+`MODULE.0xVA`; a key without a module is rejected by the writer. The row's `file`
+and `marker_type` are the identity. An unmigrated `.c` may still carry
+`// FUNCTION: MODULE 0xVA` plus inline `// SIZE:` / `// CFLAGS:`; the parser
+reads them, and `rebrew source migrate-markers` (ADR 023) leaves pure C.
+New writers emit pure C and record the row. `SIZE` and `CFLAGS` are
+metadata-owned.
 
 Function presence, accounted executable bytes, and matched-function counts are
 different measures. The table below describes byte-match credit; see
@@ -47,7 +49,7 @@ implicit starting state, tracked from the function list rather than the metadata
 there is no entry, so there is no STATUS to hold. Writing `UNDOCUMENTED` as a
 STATUS is rejected by `metadata.update_source_status` and by `rebrew lint` (E004);
 The coverage document carries the row as `UNKNOWN`. Tools like `rebrew todo` and
-`rebrew document-unmatched` surface these as action items.
+`rebrew source document-unmatched` surface these as action items.
 
 ```bash
 rebrew todo --json          # find next undocumented function to start
@@ -84,7 +86,7 @@ not prove equivalent behavior. It can have structural differences
 that persist after relocation masking: different register allocation, different loop
 structure, different branch ordering.
 
-`rebrew near-diag --fix-blocker` auto-classifies the difference type and writes it to the metadata:
+`rebrew diagnose near --fix-blocker` auto-classifies the difference type and writes it to the metadata:
 
 ```toml
 ["SERVER.0x10008880"]
@@ -97,8 +99,8 @@ blocker_delta = 7
 Common blockers: register allocation, loop peeling, branch inversion, code block
 reordering, stack frame choice, operand swaps, small byte deltas.
 
-**Next steps**: Iterate code structure, or run `rebrew match` (GA engine) to explore
-permutations. For near-miss cases (small delta), try `rebrew match --all --near-miss`.
+**Next steps**: Iterate code structure, or run `rebrew match run` (GA engine) to explore
+permutations. For near-miss cases (small delta), try `rebrew match batch --near-miss`.
 Strong candidates for `rebrew prove` when the delta is very small.
 
 ---

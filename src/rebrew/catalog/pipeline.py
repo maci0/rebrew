@@ -1,6 +1,6 @@
 """catalog/pipeline.py — Build catalog scan/registry/coverage data.
 
-Domain orchestration shared by ``rebrew catalog`` and ``rebrew build-db
+Domain orchestration shared by ``rebrew coverage catalog`` and ``rebrew coverage build
 --regen``.  Lives outside ``cli.py`` so library callers do not import the
 Typer entry module.
 """
@@ -21,7 +21,7 @@ def build_catalog_data(cfg: Any, *, with_data: bool = True) -> dict[str, Any]:
     """Scan, registry, and coverage-grid dict for one target (no disk writes).
 
     Shared by ``run_catalog`` (which then writes the requested artifacts)
-    and ``rebrew build-db`` (which renders the dict into
+    and ``rebrew coverage build`` (which renders the dict into
     ``db/coverage-<target>.toml``).  With *with_data* False the (expensive)
     grid generation is skipped — the ``data`` value is None.
     """

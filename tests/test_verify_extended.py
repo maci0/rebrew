@@ -2343,7 +2343,55 @@ class TestLibraryAttributedPasses:
     """verify's passes include library-attributed functions that `rebrew
     status` leaves out of progress; both outputs must say how many."""
 
-    def test_summary_line_names_library_passes(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    @pytest.mark.parametrize(
+        ("total", "passed", "library_total", "library_passed", "headline", "breakdown"),
+        [
+            (
+                262,
+                262,
+                2,
+                2,
+                "262/262 passed",
+                "Game: 260/260 passed; compiled libraries: 2/2 passed",
+            ),
+            (
+                281,
+                277,
+                18,
+                18,
+                "277/281 passed, 4 failed",
+                "Game: 259/263 passed, 4 failed; compiled libraries: 18/18 passed",
+            ),
+            (
+                262,
+                261,
+                2,
+                1,
+                "261/262 passed, 1 failed",
+                "Game: 260/260 passed; compiled libraries: 1/2 passed, 1 failed",
+            ),
+            (
+                262,
+                259,
+                2,
+                1,
+                "259/262 passed, 3 failed",
+                "Game: 258/260 passed, 2 failed; compiled libraries: 1/2 passed, 1 failed",
+            ),
+            (2, 2, 2, 2, "2/2 passed", "Game: 0/0 passed; compiled libraries: 2/2 passed"),
+            (260, 260, 0, 0, "260/260 passed", None),
+        ],
+    )
+    def test_summary_total_matches_progress_and_report(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        total: int,
+        passed: int,
+        library_total: int,
+        library_passed: int,
+        headline: str,
+        breakdown: str | None,
+    ) -> None:
         from io import StringIO
 
         from rich.console import Console
@@ -2358,12 +2406,25 @@ class TestLibraryAttributedPasses:
             Console(file=buf, force_terminal=True, width=120, no_color=True, highlight=False),
         )
         _print_results(
-            [], [], None, None, False, False, 281, 277, 4, library_passed=18, library_total=18
+            [],
+            [],
+            None,
+            None,
+            False,
+            False,
+            total,
+            passed,
+            total - passed,
+            library_passed=library_passed,
+            library_total=library_total,
         )
         out = buf.getvalue()
-        # Game code first, on `rebrew status`'s basis; library code apart.
-        assert "Verification: 259/263 passed, 4 failed" in out
-        assert "library-attributed: 18/18 passed" in out
+        assert f"Verification: {headline}" in out
+        if breakdown is None:
+            assert "Game:" not in out
+            assert "compiled libraries:" not in out
+        else:
+            assert breakdown in out
 
     def test_report_counts_library_passes(self) -> None:
         from rebrew.verify import build_report

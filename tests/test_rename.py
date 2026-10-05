@@ -119,6 +119,125 @@ class TestRenameFunctionEverywhere:
         assert "renamed_fn" in a.read_text()
 
 
+class TestRenameTargetIsolation:
+    def test_migrated_shared_identity_and_file_follow_the_rename(self, tmp_path: Path) -> None:
+        from rebrew.annotation import parse_c_file_multi
+        from rebrew.metadata import get_entry, save_metadata
+
+        src = tmp_path / "src"
+        src.mkdir()
+        primary = _src(src, "old_fn.c", "int old_fn(void) { return 1; }\n")
+        server = _src(src, "server.c", "int old_fn(void) { return 2; }\n")
+        _src(src, "caller.c", "// FUNCTION: TL 0x403000\nint call(void) { return old_fn(); }\n")
+        save_metadata(
+            tmp_path,
+            {
+                (module, va): {
+                    "file": filename,
+                    "name": "old_fn",
+                    "symbol": "_old_fn",
+                    "marker_type": "FUNCTION",
+                    "size": 6,
+                    "status": "EXACT",
+                }
+                for module, va, filename in [
+                    ("TL", 0x401000, "src/old_fn.c"),
+                    ("GOLD", 0x402000, "src/old_fn.c"),
+                    ("SERVER", 0x10001000, "src/server.c"),
+                ]
+            },
+        )
+        original_server = get_entry(tmp_path, 0x10001000, "SERVER")
+        cfg = SimpleNamespace(root=tmp_path, reversed_dir=src, metadata_dir=tmp_path)
+        count = rename_function_everywhere(
+            cfg, primary, "old_fn", "_old_fn", "new_fn", new_filename="new_fn.c"
+        )
+        assert count == 2
+        assert not primary.exists()
+        renamed = src / "new_fn.c"
+        assert "new_fn" in renamed.read_text()
+        assert "old_fn" in server.read_text()
+        assert get_entry(tmp_path, 0x10001000, "SERVER") == original_server
+        parsed = parse_c_file_multi(renamed, metadata_dir=tmp_path)
+        assert {(e.module, e.name, e.symbol) for e in parsed} == {
+            ("TL", "new_fn", "_new_fn"),
+            ("GOLD", "new_fn", "_new_fn"),
+        }
+        for module, va in [("TL", 0x401000), ("GOLD", 0x402000)]:
+            assert get_entry(tmp_path, va, module)["file"] == "src/new_fn.c"
+            assert get_entry(tmp_path, va, module)["status"] == "EXACT"
+
+    @pytest.mark.parametrize("dry_run", [False, True])
+    def test_shared_owner_does_not_rename_independent_server_symbol(
+        self, tmp_path: Path, dry_run: bool
+    ) -> None:
+        primary = _src(
+            tmp_path,
+            "client.c",
+            "// FUNCTION: TL 0x401000\n// FUNCTION: GOLD 0x402000\n"
+            "int old_fn(void) { return 1; }\n",
+        )
+        server = _src(
+            tmp_path,
+            "server.c",
+            "// FUNCTION: SERVER 0x10001000\nint old_fn(void) { return 2; }\n",
+        )
+        server_caller = _src(
+            tmp_path,
+            "server_caller.c",
+            "extern int old_fn(void);\n// FUNCTION: SERVER 0x10002000\n"
+            "int server_call(void) { return old_fn(); }\n",
+        )
+        callers = [
+            _src(
+                tmp_path,
+                f"{module}.c",
+                f"extern int old_fn(void);\n// FUNCTION: {module} 0x403000\n"
+                f"int {module}_call(void) {{ return old_fn(); }}\n",
+            )
+            for module in ["TL", "GOLD"]
+        ]
+        original = {p: p.read_bytes() for p in tmp_path.glob("*.c")}
+        count = rename_function_everywhere(
+            _cfg(tmp_path), primary, "old_fn", "_old_fn", "new_fn", dry_run=dry_run
+        )
+        assert count == 3
+        assert server.read_bytes() == original[server]
+        assert server_caller.read_bytes() == original[server_caller]
+        for p in [primary, *callers]:
+            if dry_run:
+                assert p.read_bytes() == original[p]
+            else:
+                assert "new_fn" in p.read_text()
+                assert "old_fn" not in p.read_text()
+
+    @pytest.mark.parametrize("dry_run", [False, True])
+    @pytest.mark.parametrize("mixed", [False, True])
+    def test_ambiguous_common_reference_fails_before_writing(
+        self, tmp_path: Path, dry_run: bool, mixed: bool
+    ) -> None:
+        primary = _src(
+            tmp_path, "client.c", "// FUNCTION: TL 0x401000\nint old_fn(void) { return 1; }\n"
+        )
+        _src(
+            tmp_path, "server.c", "// FUNCTION: SERVER 0x10001000\nint old_fn(void) { return 2; }\n"
+        )
+        text = "extern int old_fn(void);\n"
+        if mixed:
+            text += (
+                "// FUNCTION: TL 0x402000\nint tl_call(void) { return old_fn(); }\n"
+                "// FUNCTION: SERVER 0x10002000\nint srv_call(void) { return old_fn(); }\n"
+            )
+        ambiguous = _src(tmp_path, "common.c" if mixed else "common.h", text)
+        original = {p: p.read_bytes() for p in tmp_path.iterdir()}
+        with pytest.raises(rename_ops.RenameError, match="ambiguous") as excinfo:
+            rename_function_everywhere(
+                _cfg(tmp_path), primary, "old_fn", "_old_fn", "new_fn", dry_run=dry_run
+            )
+        assert ambiguous in excinfo.value.files
+        assert {p: p.read_bytes() for p in tmp_path.iterdir()} == original
+
+
 class TestRenameEdgeCases:
     def test_dry_run_unreadable_file_fails(self, tmp_path: Path, monkeypatch: Any) -> None:
         """A candidate the scan cannot read fails the dry run.
@@ -181,13 +300,13 @@ class TestRenameEdgeCases:
 
         monkeypatch.setattr(rename_ops, "read_source_text", _read)
         cfg = SimpleNamespace(reversed_dir=src, source_ext=".c")
-        # The definition was renamed, so a call site left behind breaks the
-        # build: the rename must fail loudly instead of reporting success.
+        # The same preflight plan protects both preview and writes: an
+        # unreadable reference aborts before changing the definition.
         with pytest.raises(RenameError) as excinfo:
             rename_function_everywhere(cfg, primary, "old_fn", "_old_fn", "new_fn")
         assert excinfo.value.files == [bad]
-        assert "new_fn" in primary.read_text(encoding="utf-8")
-        assert "new_fn" in (src / "e.c").read_text(encoding="utf-8")
+        assert "old_fn" in primary.read_text(encoding="utf-8")
+        assert "old_fn" in (src / "e.c").read_text(encoding="utf-8")
         assert "old_fn" in bad.read_text(encoding="utf-8")
 
     def test_new_filename_absolute_path(self, tmp_path: Path, monkeypatch: Any) -> None:
@@ -804,7 +923,7 @@ class TestUnderscoreNameDerivation:
 
 class TestProtectedSpans:
     def test_substitution_skips_literals_and_macro_names(self) -> None:
-        """`rebrew rename` documents that macros and string literals are not
+        """`rebrew source rename` documents that macros and string literals are not
         rewritten: a raw-text substitution rewrote `puts("foo")`, changing the
         data a byte-matched function emits."""
         import re

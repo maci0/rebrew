@@ -346,9 +346,6 @@ class TestDoctorCli:
 
         from rebrew.doctor import app
 
-        cfg = SimpleNamespace(root=tmp_path, target_name="SERVER")
-        monkeypatch.setattr("rebrew.doctor.require_config", lambda **kw: cfg)
-
         def _run_doctor(target=None):
             from rebrew.doctor import DoctorReport
 
@@ -377,10 +374,10 @@ class TestDoctorCli:
     ) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.doctor import app
+        from rebrew.toolchain_cli import app
 
         cfg = SimpleNamespace(root=tmp_path, target_name="SERVER")
-        monkeypatch.setattr("rebrew.doctor.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.toolchain_cli.require_config", lambda **kw: cfg)
         monkeypatch.setattr("rebrew.wibo.download_wibo", lambda p: "v1.0")
         toml = tmp_path / "rebrew-project.toml"
         toml.write_text('[compiler]\ncommand = "cl"\n', encoding="utf-8")
@@ -390,14 +387,14 @@ class TestDoctorCli:
                 checks=[]
             ),
         )
-        result = CliRunner().invoke(app, ["--install-wibo"])
+        result = CliRunner().invoke(app, ["install-wibo"])
         assert result.exit_code == 0
         text1 = toml.read_text(encoding="utf-8")
         assert 'runner = "tools/wibo"' in text1
         assert text1.count('runner = "tools/wibo"') == 1
 
         # Re-running must be an idempotent no-op (no duplicate runner keys)
-        result2 = CliRunner().invoke(app, ["--install-wibo"])
+        result2 = CliRunner().invoke(app, ["install-wibo"])
         assert result2.exit_code == 0
         text2 = toml.read_text(encoding="utf-8")
         assert text2 == text1
@@ -411,10 +408,10 @@ class TestDoctorCli:
         'make wine the default' directive)."""
         from typer.testing import CliRunner
 
-        from rebrew.doctor import app
+        from rebrew.toolchain_cli import app
 
         cfg = SimpleNamespace(root=tmp_path, target_name="SERVER", compiler_profile="msvc-6.0")
-        monkeypatch.setattr("rebrew.doctor.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.toolchain_cli.require_config", lambda **kw: cfg)
         monkeypatch.setattr("rebrew.wibo.download_wibo", lambda p: "v1.0")
         toml = tmp_path / "rebrew-project.toml"
         toml.write_text('[compiler]\nrunner = "wine"\ncommand = "cl"\n', encoding="utf-8")
@@ -424,7 +421,7 @@ class TestDoctorCli:
                 checks=[]
             ),
         )
-        result = CliRunner().invoke(app, ["--install-wibo"])
+        result = CliRunner().invoke(app, ["install-wibo"])
         assert result.exit_code == 0
         content = toml.read_text(encoding="utf-8")
         assert 'runner = "wine"' in content
@@ -436,10 +433,11 @@ class TestInstallWiboToml:
     def _invoke(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, args: list[str]) -> object:
         from typer.testing import CliRunner
 
-        from rebrew.doctor import DoctorReport, app
+        from rebrew.doctor import DoctorReport
+        from rebrew.toolchain_cli import app
 
         cfg = SimpleNamespace(root=tmp_path, target_name="SERVER")
-        monkeypatch.setattr("rebrew.doctor.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.toolchain_cli.require_config", lambda **kw: cfg)
         monkeypatch.setattr("rebrew.wibo.download_wibo", lambda p: "v1.0")
         monkeypatch.setattr("rebrew.doctor.run_doctor", lambda target=None: DoctorReport(checks=[]))
         return CliRunner().invoke(app, args)
@@ -449,14 +447,14 @@ class TestInstallWiboToml:
     ) -> None:
         toml = tmp_path / "rebrew-project.toml"
         toml.write_text('[compiler]\nrunner = "wine"\n', encoding="utf-8")
-        result = self._invoke(tmp_path, monkeypatch, ["--install-wibo"])
+        result = self._invoke(tmp_path, monkeypatch, ["install-wibo"])
         assert result.exit_code == 0
         content = toml.read_text(encoding="utf-8")
         assert 'runner = "tools/wibo"' in content
         assert "wine" not in content
 
     def test_no_toml_no_crash(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        result = self._invoke(tmp_path, monkeypatch, ["--install-wibo"])
+        result = self._invoke(tmp_path, monkeypatch, ["install-wibo"])
         assert result.exit_code == 0
         assert "Downloaded wibo" in result.output
         assert not (tmp_path / "rebrew-project.toml").exists()
@@ -840,3 +838,42 @@ class TestCheckCompiler16BitProfiles:
         )
         assert result.status == _WARN
         assert "borland-3.1" in (result.message or "") + (result.fix or "")
+
+
+class TestRunnerSetupContract:
+    @pytest.mark.parametrize("already_installed", [False, True])
+    def test_json_setup_is_idempotent_and_keeps_docker_configuration(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, already_installed: bool
+    ) -> None:
+        import json
+
+        from typer.testing import CliRunner
+
+        from rebrew.main import app
+
+        cfg = SimpleNamespace(root=tmp_path, compiler_profile="msvc-6.0")
+        monkeypatch.setattr("rebrew.toolchain_cli.require_config", lambda **kw: cfg)
+        toml = tmp_path / "rebrew-project.toml"
+        before = '[compiler]\nrunner = "wine"\n'
+        toml.write_text(before)
+        wibo = tmp_path / "tools" / "wibo"
+        downloads: list[Path] = []
+        if already_installed:
+            wibo.parent.mkdir()
+            wibo.write_bytes(b"existing")
+
+        def download(path: Path) -> str:
+            downloads.append(path)
+            path.parent.mkdir(exist_ok=True)
+            path.write_bytes(b"downloaded")
+            return "v1.0"
+
+        monkeypatch.setattr("rebrew.wibo.download_wibo", download)
+        result = CliRunner().invoke(app, ["toolchain", "install-wibo", "--json"])
+        assert result.exit_code == 0, result.output
+        output = json.loads(result.stdout)
+        assert output["downloaded"] is not already_installed
+        assert output["runner_updated"] is False
+        assert downloads == ([] if already_installed else [wibo])
+        assert toml.read_text() == before
+        assert wibo.read_bytes() == (b"existing" if already_installed else b"downloaded")

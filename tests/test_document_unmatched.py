@@ -1,4 +1,4 @@
-"""tests/test_document_unmatched.py — ``rebrew document-unmatched``.
+"""tests/test_document_unmatched.py — ``rebrew source document-unmatched``.
 
 Standalone version of intake's document-unmatched step: STUB .c + blocker
 for every function in the function list that isn't already documented.
@@ -82,11 +82,20 @@ def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 class TestDocumentUnmatched:
     def test_documents_only_unmatched(self, project: Path) -> None:
         """Only func3 (no file, no marker) gets a STUB skeleton + blocker."""
-        result = CliRunner().invoke(app, ["document-unmatched"])
+        result = CliRunner().invoke(app, ["source", "document-unmatched"])
         assert result.exit_code == 0, result.output
         stub = project / "src" / "SERVER" / "fcn_00401020.c"
         assert stub.exists(), "undocumented function must get a stub file"
-        assert "STUB: SERVER 0x00401020" in stub.read_text(encoding="utf-8")
+        from rebrew.annotation import parse_c_file_multi
+
+        text = stub.read_text(encoding="utf-8")
+        assert "// STUB:" not in text
+        annotations = parse_c_file_multi(stub, metadata_dir=project / "src")
+        assert len(annotations) == 1
+        assert annotations[0].va == 0x00401020
+        assert annotations[0].module == "SERVER"
+        assert annotations[0].marker_type == "STUB"
+        assert annotations[0].name == "fcn_00401020"
         # func1/func2 must NOT be re-documented
         assert not (project / "src" / "SERVER" / "fcn_00401000.c").exists()
         assert (project / "src" / "SERVER" / "fcn_00401010.c").read_text(
@@ -98,10 +107,10 @@ class TestDocumentUnmatched:
 
     def test_idempotent_rerun(self, project: Path) -> None:
         """Second run documents nothing (all VAs covered)."""
-        r1 = CliRunner().invoke(app, ["document-unmatched", "--json"])
+        r1 = CliRunner().invoke(app, ["source", "document-unmatched", "--json"])
         assert r1.exit_code == 0, r1.output
         assert json.loads(r1.stdout)["written"] == 1
-        r2 = CliRunner().invoke(app, ["document-unmatched", "--json"])
+        r2 = CliRunner().invoke(app, ["source", "document-unmatched", "--json"])
         assert r2.exit_code == 0, r2.output
         payload = json.loads(r2.stdout)
         assert payload["written"] == 0
@@ -109,7 +118,7 @@ class TestDocumentUnmatched:
 
     def test_dry_run_writes_nothing(self, project: Path) -> None:
         """--dry-run reports the count without creating files or metadata."""
-        result = CliRunner().invoke(app, ["document-unmatched", "--dry-run", "--json"])
+        result = CliRunner().invoke(app, ["source", "document-unmatched", "--dry-run", "--json"])
         assert result.exit_code == 0, result.output
         payload = json.loads(result.stdout)
         assert payload["written"] == 0
@@ -120,7 +129,7 @@ class TestDocumentUnmatched:
 
     def test_json_purity(self, project: Path) -> None:
         """stdout is exactly one JSON document."""
-        result = CliRunner().invoke(app, ["document-unmatched", "--json"])
+        result = CliRunner().invoke(app, ["source", "document-unmatched", "--json"])
         assert result.exit_code == 0, result.output
         payload = json.loads(result.stdout)
         assert isinstance(payload, dict)
@@ -143,7 +152,9 @@ class TestDocumentUnmatched:
         # 0x1000 already has a blocker — must be preserved
         update_field(project / "src", 0x401000, "blocker", "mine: documented", module="SERVER")
 
-        result = CliRunner().invoke(app, ["document-unmatched", "--backfill-blockers", "--json"])
+        result = CliRunner().invoke(
+            app, ["source", "document-unmatched", "--backfill-blockers", "--json"]
+        )
         assert result.exit_code == 0, result.output
         payload = json.loads(result.stdout)
         assert payload["backfilled_blockers"] == 1  # only 0x1010
@@ -170,7 +181,9 @@ class TestDocumentUnmatched:
         # 0x401000 is already documented as non-target — must stay untouched
         update_field(project / "src", 0x401000, "blocker", "mine: documented", module="SERVER")
 
-        result = CliRunner().invoke(app, ["document-unmatched", "--backfill-blockers", "--json"])
+        result = CliRunner().invoke(
+            app, ["source", "document-unmatched", "--backfill-blockers", "--json"]
+        )
         assert result.exit_code == 0, result.output
         payload = json.loads(result.stdout)
         # 0x401010 (no blocker) + 0x401020 (no blocker) both backfilled
@@ -190,7 +203,7 @@ class TestDocumentUnmatched:
 
         update_source_status(project / "src", "STUB", "SERVER", 0x401000)
         result = CliRunner().invoke(
-            app, ["document-unmatched", "--backfill-blockers", "--dry-run", "--json"]
+            app, ["source", "document-unmatched", "--backfill-blockers", "--dry-run", "--json"]
         )
         assert result.exit_code == 0, result.output
         # both fixture stubs (0x401000, 0x401010) lack blockers
@@ -208,7 +221,7 @@ class TestDocumentUnmatched:
             "// STUB: SERVER 0x00401020\nvoid fcn_00401020(void) {}\n",
             encoding="utf-8",
         )
-        result = CliRunner().invoke(app, ["document-unmatched"])
+        result = CliRunner().invoke(app, ["source", "document-unmatched"])
         assert result.exit_code == 0, result.output
         assert not (project / "src" / "SERVER" / "fcn_00401020.c").exists(), (
             "the target-prefixed stub already documents this VA"
@@ -219,7 +232,7 @@ class TestDocumentUnmatched:
         (project / "src" / "SERVER" / "function_structure.json").write_text(
             "{ this is not json", encoding="utf-8"
         )
-        result = CliRunner().invoke(app, ["document-unmatched", "--json"])
+        result = CliRunner().invoke(app, ["source", "document-unmatched", "--json"])
         assert result.exit_code == 2, result.output
         assert "inventory" in result.output
         assert "Documented 0" not in result.output
