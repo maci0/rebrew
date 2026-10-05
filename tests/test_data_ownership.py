@@ -20,7 +20,8 @@ def test_function_pointer_type_keeps_calling_convention_in_inventory(tmp_path: P
     assert entry.type_str == "int (__stdcall *)(void *, unsigned int, void *)"
     assert entry.to_dict()["type"] == entry.type_str
     buf = StringIO()
-    render_globals(Console(file=buf, width=240, color_system=None), scan)
+    # TERM=dumb with FORCE_COLOR set ignores width unless height is set too.
+    render_globals(Console(file=buf, width=240, height=40, color_system=None), scan)
     assert entry.type_str in buf.getvalue()
 
 
