@@ -78,7 +78,7 @@ commands that round-trip TOML.
   ignored for image-backed profiles.
 - Doctor does not attempt to **fix** problems. It diagnoses and exits non-zero;
   fixes are left to the user / `rebrew cfg set ...`. The one exception is
-  `doctor --install-wibo`, which rewrites `runner` in `rebrew-project.toml`
+  `toolchain install-wibo`, which rewrites `runner` in `rebrew-project.toml`
   for a non-image-backed profile.
 - No GUI; CLI only.
 
@@ -182,12 +182,12 @@ commands that round-trip TOML.
    image with `rebrew toolchain build <profile>`.
 3. `rebrew-project.toml`, `AGENTS.md`, `src/mygame/`, `bin/mygame/` appear.
 4. User runs `rebrew doctor` and sees green checkmarks for compiler + binary.
-5. They run `rebrew extract list` to find their first function to reverse.
+5. They run `rebrew binary extract list` to find their first function to reverse.
 
 ### Story 2: Adding a second target
 
 1. User has a project with a `main` target (game DLL) and wants to add the EXE.
-2. Runs `rebrew cfg add-target client --binary original/client.exe`.
+2. Runs `rebrew cfg target add client --binary original/client.exe`.
 3. `rebrew cfg show targets.client` confirms the new entry; format was
    auto-detected as PE/x86_32.
 4. User runs `rebrew doctor --target client` to validate the toolchain.
@@ -195,7 +195,7 @@ commands that round-trip TOML.
 ### Story 3: Tuning per-module CFLAGS
 
 1. User notices their MSVCRT-origin functions need `/O1 /Gd` instead of `/O2`.
-2. Runs `rebrew cfg set-cflags MSVCRT "/O1 /Gd" --target main`.
+2. Runs `rebrew cfg module set-cflags MSVCRT "/O1 /Gd" --target main`.
 3. Re-running `rebrew verify` picks up the new CFLAGS from the config; no
    `.c` file edits needed.
 
@@ -228,24 +228,25 @@ rebrew intake {binary} [OPTIONS]
       --dry-run              Preview changes without writing
       --json                 Output results as JSON
 
+rebrew toolchain install-wibo [--json] [--target TARGET]
+
 rebrew doctor [OPTIONS]
-      --install-wibo         Download wibo to tools/wibo if missing (legacy; no-op for docker-backed profiles)
   -t, --target TEXT          Target name from rebrew-project.toml (default: project default target)
       --json                 Output results as JSON
 
-rebrew cfg list-targets [--json]
+rebrew cfg target list [--json]
 rebrew cfg show [KEY] [--target TARGET] [--json]
 rebrew cfg effective [--target TARGET] [--json]
 rebrew cfg raw [--format json|toml]
 rebrew cfg path
-rebrew cfg add-target NAME --binary FILE [--arch ARCH] [--format FORMAT] [--modules LIST] [--source-ext EXT] [--copy/--no-copy] [--force]
-rebrew cfg remove-target NAME [--force]
+rebrew cfg target add NAME --binary FILE [--arch ARCH] [--format FORMAT] [--modules LIST] [--source-ext EXT] [--copy/--no-copy] [--force]
+rebrew cfg target remove NAME [--force]
 rebrew cfg set KEY VALUE [--dry-run]
-rebrew cfg add-module MODULE [--target TARGET] [--dry-run]
-rebrew cfg remove-module MODULE [--target TARGET] [--force]
-rebrew cfg set-cflags MODULE FLAGS [--target TARGET] [--dry-run]
-rebrew cfg set-compiler TARGET PROFILE
-rebrew cfg detect-crt [--write] [--target TARGET] [--json]
+rebrew cfg module add MODULE [--target TARGET] [--dry-run]
+rebrew cfg module remove MODULE [--target TARGET] [--force]
+rebrew cfg module set-cflags MODULE FLAGS [--target TARGET] [--dry-run]
+rebrew cfg target set-compiler TARGET PROFILE
+rebrew cfg detect-crt show [--write] [--target TARGET] [--json]
 ```
 
 All `cfg` write commands round-trip via `tomlkit` and preserve comments and

@@ -9,8 +9,8 @@ repo".  This command builds it.
 
 Typical flow::
 
-    rebrew binsync-init ./binsync_state
-    rebrew binsync-export ./binsync_state --git
+    rebrew binsync init ./binsync_state
+    rebrew binsync export ./binsync_state --git
 """
 
 from __future__ import annotations
@@ -104,9 +104,9 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew binsync-init ./binsync_state · · · · · · Initialize\n\n"
-        "  rebrew binsync-init ./binsync_state --user alice\n\n"
-        "  rebrew binsync-init ./binsync_state --dry-run --json · Preview\n\n"
+        "  rebrew binsync init ./binsync_state · · · · · · Initialize\n\n"
+        "  rebrew binsync init ./binsync_state --user alice\n\n"
+        "  rebrew binsync init ./binsync_state --dry-run --json · Preview\n\n"
         "[dim]Creates the git envelope upstream BinSync requires: the\n"
         "binsync/__root__ root commit (.gitignore + binary_hash) and a\n"
         "binsync/<user> branch created from it.[/dim]"

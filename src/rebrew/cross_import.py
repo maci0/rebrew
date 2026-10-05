@@ -42,6 +42,7 @@ from rebrew.cli import (
     json_print,
     parse_va,
     require_config,
+    require_non_negative,
 )
 from rebrew.config import ProjectConfig, inventory_path_for
 from rebrew.similar import disasm_signature, similarity_score
@@ -1307,9 +1308,9 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew cross-import --from v1.1 · · · · · · · Import v1.1's matched functions\n"
-        "  rebrew cross-import --from game.exe --min-score 90\n"
-        "  rebrew cross-import --from v1.1 --dry-run --json · Preview\n\n"
+        "  rebrew source import-related --from v1.1 · · · · · · · Import v1.1's matched functions\n"
+        "  rebrew source import-related --from game.exe --min-score 90\n"
+        "  rebrew source import-related --from v1.1 --dry-run --json · Preview\n\n"
         "[dim]Matches the source target's EXACT/RELOC functions against this\n"
         "target's unmatched functions structurally (no compile needed to match);\n"
         "imported sources are verified against this target before STATUS promotion.[/dim]"
@@ -1362,6 +1363,8 @@ def main(
     target: str | None = TargetOption,
 ) -> None:
     """Cross-target function import."""
+    if limit is not None:
+        require_non_negative(limit, "--limit", json_mode=json_output)
     cfg = require_config(target=target, json_mode=json_output)
     cfg_src = require_config(target=from_target, json_mode=json_output)
     if cfg_src.target_name == cfg.target_name:

@@ -80,6 +80,31 @@ class TestTomlSynthesis:
         annos = parse_c_file_multi(src / "g.c", metadata_dir=tmp_path)
         assert [a.va for a in annos] == [0x2000]
 
+    def test_migrated_function_coexists_with_data_marker(self, tmp_path: Path) -> None:
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "g.c").write_text(
+            "// DATA: S 0x5000\nint value;\nint g(void) { return value; }\n",
+            encoding="utf-8",
+        )
+        _write_metadata(tmp_path, {("S", 0x2000): {"file": "src/g.c", "symbol": "g"}})
+        annos = parse_c_file_multi(src / "g.c", metadata_dir=tmp_path)
+        assert [(a.marker_type, a.va) for a in annos] == [
+            ("DATA", 0x5000),
+            ("FUNCTION", 0x2000),
+        ]
+
+    def test_other_target_marker_does_not_hide_migrated_function(self, tmp_path: Path) -> None:
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "g.c").write_text(
+            "// FUNCTION: OTHER 0x6000\nint g(void) { return 1; }\n",
+            encoding="utf-8",
+        )
+        _write_metadata(tmp_path, {("S", 0x2000): {"file": "src/g.c", "symbol": "g"}})
+        annos = parse_c_file_multi(src / "g.c", target_name="S", metadata_dir=tmp_path)
+        assert [(a.module, a.va) for a in annos] == [("S", 0x2000)]
+
     def test_no_metadata_no_crash(self, tmp_path: Path) -> None:
         src = tmp_path / "src"
         src.mkdir()
@@ -200,7 +225,7 @@ class TestStripMarkerBlocks:
 
 class TestMigrateCommandRegistered:
     def test_cli_component_registered(self) -> None:
-        from rebrew.builtins import BUILTIN_COMPONENTS as CLI_COMPONENTS
+        from rebrew.builtins import DOMAIN_COMPONENTS
 
-        names = {c.name for c in CLI_COMPONENTS}
+        names = {c.name for c in DOMAIN_COMPONENTS["source"]}
         assert "migrate-markers" in names

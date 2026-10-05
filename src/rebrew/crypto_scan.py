@@ -16,7 +16,7 @@ that is never called still leaves tables in the image, and a name can be a
 thin forwarding wrapper.  The scan narrows where to look.
 
 Usage:
-    rebrew crypto-scan [binary]
+    rebrew binary crypto [binary]
 """
 
 from __future__ import annotations
@@ -398,9 +398,9 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew crypto-scan · · · · · · · · Scan the project's target binary\n\n"
-        "  rebrew crypto-scan original/game.exe Scan a specific binary\n\n"
-        "  rebrew crypto-scan game.exe --json · Machine-readable findings\n\n"
+        "  rebrew binary crypto · · · · · · · · Scan the project's target binary\n\n"
+        "  rebrew binary crypto original/game.exe Scan a specific binary\n\n"
+        "  rebrew binary crypto game.exe --json · Machine-readable findings\n\n"
         "[bold]What it detects:[/bold]\n\n"
         "  Constant tables · · · · AES S-box / inverse, SHA-256 K and H,\n\n"
         "                          SHA-1 H, MD5 T (both endiannesses)\n\n"

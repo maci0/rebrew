@@ -55,12 +55,16 @@ class TestConventionEnforced:
         from rebrew import match
 
         captured: dict = {}
-        main_params = inspect.signature(match.main).parameters
+        main_params = inspect.signature(match.execute_search).parameters
+        execute_search = match.execute_search
 
         def _fake_main(**kwargs) -> None:  # type: ignore[no-untyped-def]
-            captured.update(kwargs)
+            if kwargs.get("watch"):
+                execute_search(**kwargs)
+            else:
+                captured.update(kwargs)
 
-        monkeypatch.setattr(match, "main", _fake_main)
+        monkeypatch.setattr(match, "execute_search", _fake_main)
         monkeypatch.setattr(
             "rebrew.utils.watch_files",
             lambda paths, retest: retest(),  # fire the re-test immediately
@@ -86,10 +90,10 @@ class TestConventionEnforced:
         )
         monkeypatch.setattr(match, "resolve_build_params", lambda *a, **k: params)
 
-        # Build the watch closure without invoking the CLI.
+        # Exercise the adapter, then capture the watch closure's re-entry.
         from typer.testing import CliRunner
 
-        result = CliRunner().invoke(match.app, ["--watch", "/tmp/f.c"])
+        result = CliRunner().invoke(match.app, ["run", "--watch", "/tmp/f.c"])
         assert result.exit_code == 0, result.output
         missing = set(main_params) - set(captured)
         assert not missing, f"_retest did not forward {sorted(missing)} (OptionInfo leak)"
@@ -103,13 +107,7 @@ class TestConventionEnforced:
 
 
 class TestSweepFilterSelectsTheSweep:
-    """``--sweep-toolchains`` / ``--sweep-exclude-toolchains`` are opt-ins.
-
-    Both only reached ``run_single_toolchain_sweep`` alongside the unrelated
-    ``--flag-sweep-toolchains``, so naming a toolchain on its own parsed and
-    ran the plain GA — ``rebrew match f.c --toolchain msvc-6.0`` silently
-    matched nothing and ignored the profile it was given.
-    """
+    """The explicit toolchains operation applies filters to profile search."""
 
     @staticmethod
     def _dispatch(monkeypatch, argv: list[str]) -> tuple[list[str], list[str]]:
@@ -143,20 +141,28 @@ class TestSweepFilterSelectsTheSweep:
         return calls, filters
 
     def test_sweep_toolchains_alone_runs_the_sweep(self, monkeypatch) -> None:
-        calls, filters = self._dispatch(monkeypatch, ["--sweep-toolchains", "msvc-6.0"])
-        assert calls == ["sweep"], f"--sweep-toolchains did not select the sweep: {calls}"
+        calls, filters = self._dispatch(monkeypatch, ["toolchains", "--toolchains", "msvc-6.0"])
+        assert calls == ["sweep"], f"toolchains did not select the sweep: {calls}"
         assert filters == ["msvc-6.0|"]
 
-    def test_toolchain_alias_alone_runs_the_sweep(self, monkeypatch) -> None:
-        calls, filters = self._dispatch(monkeypatch, ["--toolchain", "msvc-6.0"])
-        assert calls == ["sweep"], f"--toolchain alias did not select the sweep: {calls}"
-        assert filters == ["msvc-6.0|"]
+    def test_removed_toolchain_alias_is_rejected(self) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew import match
+
+        result = CliRunner().invoke(
+            match.app, ["toolchains", "--toolchain", "msvc-6.0", "/tmp/f.c"]
+        )
+        assert result.exit_code == 2
+        assert "No such option: --toolchain" in result.output
 
     def test_sweep_exclude_alone_runs_the_sweep(self, monkeypatch) -> None:
-        calls, filters = self._dispatch(monkeypatch, ["--sweep-exclude-toolchains", "2.0,4.0"])
-        assert calls == ["sweep"], f"--sweep-exclude-toolchains did not select the sweep: {calls}"
+        calls, filters = self._dispatch(
+            monkeypatch, ["toolchains", "--exclude-toolchains", "2.0,4.0"]
+        )
+        assert calls == ["sweep"], f"toolchains did not select the sweep: {calls}"
         assert filters == ["|2.0,4.0"]
 
     def test_no_filter_still_runs_the_ga(self, monkeypatch) -> None:
-        calls, _ = self._dispatch(monkeypatch, [])
+        calls, _ = self._dispatch(monkeypatch, ["run"])
         assert calls == ["ga"], f"an unfiltered run changed dispatch: {calls}"

@@ -1947,7 +1947,7 @@ def _run_all_batch(
     (blocker_delta metadata) is at most the given value — Z3 time goes to
     the closest matches first.  *ceiling_only* restricts the batch to
     GA_CEILING-documented functions (the register- or encoding-only set
-    ``rebrew match`` marked as the prove lane).
+    ``rebrew match run`` marked as the prove lane).
     """
     from rebrew.metadata import GA_CEILING_PREFIX
 

@@ -14,7 +14,7 @@ The target VS defaults to the reference's ``.data`` VirtualSize from the
 project's layout package (``layout/<target>/rebrew-layout.toml``).
 
 Usage:
-    rebrew calibrate-bss [--stub src/link_stubs.c] [--target-vs 0x174059c] [--max-iters 8]
+    rebrew build calibrate-bss [--stub src/link_stubs.c] [--target-vs 0x174059c] [--max-iters 8]
 """
 
 from __future__ import annotations
@@ -43,9 +43,9 @@ from rebrew.workspace import walk_up_to_root
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew calibrate-bss --dry-run · · · · · · · Show the pad search, write nothing\n\n"
-    "  rebrew calibrate-bss --stub src/link_stubs.c · · Target the TU the linker compiles\n\n"
-    "  rebrew calibrate-bss --target-vs 0x1A40 --max-iters 8 · Pin the reference .data size\n"
+    "  rebrew build calibrate-bss --dry-run · · · · · · · Show the pad search, write nothing\n\n"
+    "  rebrew build calibrate-bss --stub src/link_stubs.c · · Target the TU the linker compiles\n\n"
+    "  rebrew build calibrate-bss --target-vs 0x1A40 --max-iters 8 · Pin the reference .data size\n"
 )
 
 
@@ -121,7 +121,7 @@ def main(
     ),
     max_iters: int = typer.Option(8, "--max-iters", help="Max calibration iterations"),
     compile_cmd: str = typer.Option(
-        "rebrew cmake-driver cl --", "--compile-cmd", help="Command to recompile the stub TU"
+        "rebrew build driver cl --", "--compile-cmd", help="Command to recompile the stub TU"
     ),
     cflags: str = typer.Option("/O2 /Gd", "--cflags", help="Flags for the stub compile"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),

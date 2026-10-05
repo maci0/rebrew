@@ -29,7 +29,9 @@ Conventions (CLI review will flag drift):
 
 ## 2. Registration
 
-- `src/rebrew/builtins.py`: append a `CliComponent` (name, module, help,
+- `src/rebrew/builtins.py`: append a `CliComponent` to the appropriate `DOMAIN_COMPONENTS` family
+  for a specialized operation, or `BUILTIN_COMPONENTS` for a root workflow
+  (name, module, help,
   panel, is_group). The `help` string shows in `--help`; keep it one line.
   Default `needs` are `cli` and `console`; `apply()` mounts only while
   those services are provided. See the [Cordis CLI recipe](CORDIS.md#add-a-cli-plugin)
@@ -60,7 +62,7 @@ ignored with a warning: built-ins win.
   otherwise).
 
 The `residue` command (v2.5.0) is the cautionary tale: full Typer app,
-tests, changelog entry, but never registered, so `rebrew residue --help`
+tests, changelog entry, but never registered, so `rebrew build residue --help`
 failed until the registration was added after release.
 
 ## 4. Tests
@@ -70,7 +72,9 @@ failed until the registration was added after release.
   exits 0) so a missing registration fails fast.
 - `tests/test_docs_hygiene.py` covers the rest automatically: every
   `BUILTIN_COMPONENTS` entry must have a CLI.md section, a skill mention
-  (or carve-out), a valid panel, and a callback-decorated `main`.
+  (or carve-out), and a valid panel. Every nested route must appear in the
+  reference; composed help and examples are checked by `test_cli_contract.py`.
+  Command modules retain their callback-decorated apps for module execution.
 
 ## 5. Verify
 
@@ -83,3 +87,16 @@ uv run --frozen mypy src/rebrew/<name>.py
 
 Bare `uv run` (no `--frozen`) can rewrite `uv.lock`.  `make test-one` is the
 edit-test loop (`NO_COLOR` / the pytest ANSI plugin, one or more node ids).
+
+## Domain membership
+
+Packaged families are declared in `builtins.DOMAIN_COMPONENTS`; each member
+uses the existing `CliComponent` activation and scoped registration. Set
+`is_group=True` for a Typer group and `attr` for an exported callable or app.
+A callable component can supply `epilog` with concrete examples. Module-form
+commands inherit their app help and epilog. Do not add a parallel dispatcher
+or a compatibility alias. Third-party root entry points keep the existing
+public registration interface and warn/skip collision policy.
+
+Nested routes are validated recursively. Update their CLI reference, canonical
+skills and rendered copies, generated callers, and migration guidance together.

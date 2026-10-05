@@ -141,7 +141,7 @@ def _suggest_profile(binary: Path) -> tuple[str, str, str, list[str]]:
 def _enumerate_functions(binary: Path) -> list[tuple[int, int, str]]:
     """Function list for a binary via the discoverer plugins.
 
-    The same pipeline ``rebrew discover-functions`` runs (packaged rizin /
+    The same pipeline ``rebrew binary functions`` runs (packaged rizin /
     capstone / NE / MZ providers plus ``rebrew.discoverers`` plugins),
     minus the capstone-refine pass ``discover`` applies — intake writes the
     raw inventory and lets ``rebrew test --fix-sizes`` converge sizes later.

@@ -1,4 +1,4 @@
-"""``rebrew round-trip`` — splice matched function bytes back into the target PE.
+"""``rebrew build round-trip`` — splice matched function bytes back into the target PE.
 
 Pipeline: enumerate every EXACT/RELOC function from rebrew-functions.toml,
 compile each via the existing compile_and_compare path, apply COFF relocations
@@ -77,8 +77,8 @@ from rebrew.workspace.status import MATCHED_STATUSES
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew round-trip · · · · · · · · Splice matches back, verify byte equality\n\n"
-    "  rebrew round-trip --output build/roundtrip.exe --json · Report the result\n"
+    "  rebrew build round-trip · · · · · · · · Splice matches back, verify byte equality\n\n"
+    "  rebrew build round-trip --output build/roundtrip.exe --json · Report the result\n"
 )
 
 

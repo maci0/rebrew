@@ -33,14 +33,14 @@ prover that promotes NEAR_MATCHING → PROVEN.
 - **Solo reverser** finishing the long tail of `NEAR_MATCHING` functions.
 - **AI agent** (`rebrew-matching` skill) attacking near-misses
   programmatically.
-- **CI** running `rebrew match --all --flag-sweep --dry-run` to surface
+- **CI** running `rebrew match batch --dry-run --algorithm flags` to surface
   candidates without committing.
 
 ## Goals
 
-- Single command, GA mode: `rebrew match seed.c` mutates the source and
+- Single command, GA mode: `rebrew match run seed.c` mutates the source and
   rebuilds until an EXACT/RELOC match (or budget exhausted).
-- Single command, flag sweep mode: `rebrew match seed.c --flag-sweep-only
+- Single command, flag sweep mode: `rebrew match flags seed.c
   --tier targeted` tries combinations of MSVC flags.
 - Batch GA / flag-sweep across all `STUB` or `NEAR_MATCHING` functions
   (`--all`, `--near-miss`, `--improve`).
@@ -63,7 +63,7 @@ prover that promotes NEAR_MATCHING → PROVEN.
 
 ## Functional Requirements
 
-### `rebrew match` (GA)
+### `rebrew match run` (GA)
 
 - Default: GA from the seed source over `--generations` (default 100)
   generations with `--pop-size` (default 64) population.
@@ -83,7 +83,7 @@ prover that promotes NEAR_MATCHING → PROVEN.
   `<project_root>/.rebrew/ga_runs.jsonl`.
 - `--ignore-lint` allows running on files with annotation lint errors.
 
-### `rebrew match --flag-sweep-only`
+### `rebrew match flags`
 
 - Skips the GA and runs a tiered MSVC flag sweep (tier reference:
   `docs/FLAG_SWEEP_TIERS.md`).
@@ -92,7 +92,7 @@ prover that promotes NEAR_MATCHING → PROVEN.
 - On success, prints the winning flag combination and (in `--all` mode)
   can write it back to `rebrew-functions.toml`.
 
-### `rebrew match --all` (batch)
+### `rebrew match batch` (batch)
 
 - Runs GA on every STUB function by default.
 - `--improve` runs on every NEAR_MATCHING function (no delta threshold).
@@ -137,22 +137,22 @@ prover that promotes NEAR_MATCHING → PROVEN.
 2. `rebrew diff foo.c --mismatches-only --register-aware` reports two `**`
    lines, classified as
    "register allocation".
-3. `rebrew match foo.c --flag-sweep-only --tier targeted` cycles register
+3. `rebrew match flags foo.c --tier targeted` cycles register
    allocation flags and reports `/O1 /Gd` produces EXACT.
-4. `rebrew cfg set-cflags GAME "/O1 /Gd" --target main` (or a per-function CFLAGS
+4. `rebrew cfg module set-cflags GAME"/O1 /Gd" --target main` (or a per-function CFLAGS
    write) saves the win.
 
 ### Story 2: GA on a STUB
 
 1. `rebrew todo --category improve-match` highlights `bar.c` (STUB, body
    approximated from r2dec).
-2. `rebrew match bar.c --generations 200 --pop-size 96 --seed 42` runs for ~20 minutes;
+2. `rebrew match run bar.c --generations 200 --pop-size 96 --seed 42` runs for ~20 minutes;
    final candidate hits RELOC.
 3. `rebrew test bar.c` promotes STATUS in `rebrew-functions.toml`.
 
 ### Story 3: Batch flag sweep
 
-1. `rebrew match --all --flag-sweep --fix-cflags --dry-run` lists 38
+1. `rebrew match batch --fix-cflags --dry-run --algorithm flags` lists 38
    NEAR_MATCHING functions.
 2. The user removes the `--dry-run`; the sweep runs in parallel with
    `--jobs 8` and writes per-function CFLAGS into `rebrew-functions.toml`.
@@ -169,7 +169,7 @@ prover that promotes NEAR_MATCHING → PROVEN.
 ## CLI Surface
 
 ```
-rebrew match [SOURCE]
+rebrew match run [SOURCE]
   Single-function controls
       --cl TEXT
       --inc TEXT
@@ -279,4 +279,4 @@ rebrew prove [SOURCE]
 - Batch flag sweep with `--fix-cflags` writes CFLAGS per function; this
   can fragment the project's CFLAGS configuration. Periodic
   consolidation (e.g. promoting a common CFLAGS to the module-level
-  preset via `rebrew cfg set-cflags`) is the user's responsibility.
+  preset via `rebrew cfg module set-cflags`) is the user's responsibility.

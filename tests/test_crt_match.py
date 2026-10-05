@@ -1,4 +1,4 @@
-"""Tests for the rebrew crt-match command helpers."""
+"""Tests for the rebrew library crt-match command helpers."""
 
 from pathlib import Path
 from types import SimpleNamespace

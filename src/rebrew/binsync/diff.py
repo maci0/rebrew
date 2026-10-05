@@ -44,9 +44,9 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew binsync-diff ./binsync_state · · · · · · Show divergences\n\n"
-        "  rebrew binsync-diff ./state --json · · · · · · · Machine-readable report\n\n"
-        "  rebrew binsync-diff ./state --module SERVER · · One module only\n\n"
+        "  rebrew binsync diff ./binsync_state · · · · · · Show divergences\n\n"
+        "  rebrew binsync diff ./state --json · · · · · · · Machine-readable report\n\n"
+        "  rebrew binsync diff ./state --module SERVER · · One module only\n\n"
         "[dim]Read-only: never writes. Exits 1 when any divergence exists (CI-friendly). "
         "Same filtering semantics as binsync-import --dry-run.[/dim]"
     ),

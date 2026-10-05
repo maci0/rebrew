@@ -276,7 +276,7 @@ def test_run_fixers_reports_only_valueerror(
 ) -> None:
     """``ValueError`` is the fixers' whole failure vocabulary.
 
-    ``rebrew postlink`` catches ``ValueError`` and turns it into an
+    ``rebrew build postlink`` catches ``ValueError`` and turns it into an
     ``error_exit``; any other exception reaching the CLI is a traceback.  Both
     inputs are forgeable — the built link and the reference binary the user
     points the command at — and a mutated section table deletes a section name

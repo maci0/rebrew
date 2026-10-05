@@ -12,7 +12,7 @@ license: MIT
 ```mermaid
 graph TD
     Pick[Pick a function<br/>rebrew todo --json] --> Skeleton[Generate skeleton<br/>rebrew skeleton 0x&lt;VA&gt;]
-    Skeleton --> Asm[Review disassembly<br/>rebrew asm 0x&lt;VA&gt;]
+    Skeleton --> Asm[Review disassembly<br/>rebrew binary asm show 0x&lt;VA&gt;]
     Asm --> Write[Write C source<br/>edit .c file]
     Write --> Test{Test the match<br/>rebrew test}
     Test -->|EXACT / RELOC| Verify[Verify progress<br/>rebrew verify]
@@ -21,15 +21,15 @@ graph TD
     Diff -->|edit fixes it| Write
     Diff -->|still stuck| Matching[Hand off to<br/>rebrew-matching]
     Verify --> Lint[Lint annotations<br/>rebrew lint]
-    Lint --> RoundTrip[Round-trip validation<br/>rebrew round-trip --json]
+    Lint --> RoundTrip[Round-trip validation<br/>rebrew build round-trip --json]
 ```
 
 # Rebrew Workflow
 
 Invoke tools as `rebrew <command>`. Names such as `rebrew-workflow` identify
 skills, not executables. Build tools also use the umbrella: CMake invokes
-`rebrew cmake-driver <cl|link|lib> -- <arguments>` and objdiff invokes
-`rebrew objdiff-build <target> <base-object>`. Compiler flags follow `--` so
+`rebrew build driver <cl|link|lib> -- <arguments>` and objdiff invokes
+`rebrew build objdiff-driver <target> <base-object>`. Compiler flags follow `--` so
 they pass through unchanged. Regenerate old CMake/objdiff configs after updating.
 
 Project workflow commands find `rebrew-project.toml` by walking up from the
@@ -55,9 +55,9 @@ take `--all-targets` instead. For annotation syntax details, see
 rebrew status --json                    # Quick overview: counts per STATUS, % coverage
 rebrew todo --json                      # Primary: highest ROI action items
 rebrew todo --category start-function --json    # --category: setup | compile-error | extract-error | fix-delta | improve-match | start-function | missing-annotation | identify-library | run-prover | documented (audit-only) | naked-reconstruction | data-drift | start-data | exact-only | postlink-mangled
-rebrew flirt --json                     # FLIRT scan: identify known library functions (fast wins)
-rebrew crt-match --all --json           # CRT sources per LIBRARY function (needs `rebrew cfg detect-crt --write` first)
-rebrew similar 0x10001000 --json        # Find structurally similar functions (same source family)
+rebrew library scan-signatures --json                     # FLIRT scan: identify known library functions (fast wins)
+rebrew library crt-match --all --json           # CRT sources per LIBRARY function (needs `rebrew cfg detect-crt apply` first)
+rebrew similarity function 0x10001000 --json        # Find structurally similar functions (same source family)
 ```
 
 **Default to `rebrew todo --json`.** Each item has a ready `command`: run it.
@@ -77,15 +77,15 @@ function source counts do not measure matched bytes.
 > `.text` looks like target code. Probe first:
 >
 > ```bash
-> rebrew flirt --va 0x<VA> --json
-> rebrew crt-match 0x<VA> --json
-> rebrew lib-match --stock-lib LIBCMT.LIB --va 0x<VA>   # --lib takes a path to a local .lib
+> rebrew library scan-signatures --va 0x<VA> --json
+> rebrew library crt-match 0x<VA> --json
+> rebrew library match --stock-lib LIBCMT.LIB --va 0x<VA>   # --lib takes a path to a local .lib
 > ```
 >
 > A miss is inconclusive. FLIRT can under-match across library builds;
 > `lib-match` settles whole-body identity against the linked archive. Mark hits
 > `// LIBRARY:` and move on. `crt-match` errors with "No crt_sources
-> configured" until they are registered: run `rebrew cfg detect-crt --write`
+> configured" until they are registered: run `rebrew cfg detect-crt apply`
 > once, then retry. `--stock-lib` extracts the archive from the
 > profile's docker image (a pull when it is not cached), so `rebrew toolchain
 > pull <profile>` may be needed first. It also refuses a `.scratch/` cache that
@@ -99,11 +99,14 @@ views against their backing object. For ownership or header consolidation, use
 the global ownership reference in `rebrew-data-analysis`; reverify known
 matches after changing declarations.
 
+Verify compiled library bodies separately from prebuilt providers; see
+`references/verify-and-progress.md` for library source bindings and evidence.
+
 ## 2. Generate Skeleton
 
 ```bash
 rebrew skeleton 0x<VA>                             # generate annotated .c stub
-rebrew skeleton 0x<VA> --decomp --decomp-backend ghidra # embed Ghidra decompilation via MCP
+rebrew skeleton 0x<VA> --decomp --decompiler ghidra # embed Ghidra decompilation via MCP
 rebrew skeleton 0x<VA> --xrefs                     # include caller context from Ghidra xrefs
 rebrew skeleton 0x<VA> --append existing_file.c    # append to multi-function file (path relative to reversed_dir)
 rebrew skeleton --batch 10                         # generate 10 skeletons (smallest first)
@@ -123,9 +126,9 @@ bytes). It prints the exact `rebrew test` command to run next: use it.
 ## 3. Review Disassembly
 
 ```bash
-rebrew asm 0x<VA> --size 128               # hex dump + disassembly
-rebrew asm 0x<VA> --size 128 --format nasm # NASM-reassembleable source
-rebrew asm 0x<VA> --size 128 --json        # structured JSON output
+rebrew binary asm show 0x<VA> --size 128 # hex dump + disassembly
+rebrew binary asm show 0x<VA> --size 128 --format nasm # NASM-reassembleable source
+rebrew binary asm show 0x<VA> --size 128 --json # structured JSON output
 ```
 
 ### Multiple Target Synchronization
@@ -142,7 +145,7 @@ Rebrew filters annotations by the active `--target`. Several `// FUNCTION: <MODU
 > set/clear`, `rebrew lint --fix` for migrations. Files are mode 0444
 > (`atomic_write_locked`). Legacy SIZE/CFLAGS remain co-readable;
 > `// SOURCE: naked` is a source-owned reconstruction marker.
-> `rebrew migrate-markers` moves function identity and inline fields into the
+> `rebrew source migrate-markers` moves function identity and inline fields into the
 > store and leaves pure C; do not restore those markers. Marker rules: `references/annotation-format.md`.
 
 `ORIGINS` records the external source of each imported field; `VERIFICATION`
@@ -166,7 +169,7 @@ rebrew test --all --dir src/<target>/ --json    # restrict to subdir
 rebrew test --all --jobs 8 --json              # parallel compile (default from config)
 rebrew test --all --dry-run                # list candidates without compiling
 rebrew test src/<target>/<file>.c --dry-run  # compile but PREVIEW the STATUS change (no write)
-rebrew probe src/<target>/<file>.c --json    # read-only ruler: strict + generous + aligned, never writes
+rebrew diagnose probe src/<target>/<file>.c --json    # read-only ruler: strict + generous + aligned, never writes
 ```
 
 On a multi-function file, `--va` selects the annotation AT that VA (its symbol
@@ -219,7 +222,7 @@ Splitting/merging source files and reading the call graph:
 against `.rebrew/verify_baseline.toml`, `rebrew lint --json` (with `--fix` to
 migrate leftover inline metadata). Full flag set, `orphans`/`types`/`text-audit`,
 `catalog` / `build-db` refresh, and decomp.me: `references/verify-and-progress.md`.
-`rebrew dashboard` serves the same coverage data read-only at
+`rebrew coverage serve` serves the same coverage data read-only at
 http://127.0.0.1:8000 (`--port` rebinds); start it only when the user asks for
 the UI, and stop it when they are done: it blocks until then.
 
@@ -228,12 +231,12 @@ the UI, and stop it when they are done: it blocks until then.
 When a whole set is matched, splice EXACT/RELOC back into a byte-identical PE:
 
 ```bash
-rebrew round-trip --json                # splice every EXACT/RELOC function back into the PE
-rebrew round-trip --dry-run             # preview without writing <binary>.reasm
+rebrew build round-trip --json                # splice every EXACT/RELOC function back into the PE
+rebrew build round-trip --dry-run             # preview without writing <binary>.reasm
 ```
 
 Round-trip needs canonical SIZE in `rebrew-functions.toml`: backfill it with
-`rebrew catalog --fix-sizes` or migrate legacy headers with `rebrew migrate-markers`.
+`rebrew coverage catalog --fix-sizes` or migrate legacy headers with `rebrew source migrate-markers`.
 PROVEN is skipped. Full fallback/drift rules: `references/round-trip.md`.
 
 ## Toolchains

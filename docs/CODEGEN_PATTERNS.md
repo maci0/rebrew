@@ -69,7 +69,7 @@ int __cdecl my_func(int param_1, char *param_2)
 ## Known MSVC6 Codegen Patterns
 
 These patterns affect whether your source produces matching bytes. Check the target
-disassembly with `rebrew asm` or `rebrew diff` to determine which apply.
+disassembly with `rebrew binary asm show` or `rebrew diff` to determine which apply.
 
 | Pattern | Effect | Solution |
 |---------|--------|----------|
@@ -100,7 +100,7 @@ disassembly with `rebrew asm` or `rebrew diff` to determine which apply.
 ## Compiler Flag Knobs
 
 When the pattern table doesn't explain the mismatch, try these flag combinations
-with `rebrew match`:
+with `rebrew match run`:
 
 | Origin | CFLAGS | Notes |
 |--------|--------|-------|
@@ -189,9 +189,9 @@ expressed in C.
 | CRT source (extended) | github.com/shihyu/learn_c/tree/master/vc_lib_src/src | Missing CRT files |
 | zlib 1.1.3 | `references/zlib-1.1.3/` | All zlib functions |
 
-For library-origin functions, use `rebrew crt-match` to find the reference source:
+For library-origin functions, use `rebrew library crt-match` to find the reference source:
 
 ```bash
-rebrew crt-match 0x<VA>
-rebrew crt-match --all --fix-source
+rebrew library crt-match 0x<VA>
+rebrew library crt-match --all --fix-source
 ```

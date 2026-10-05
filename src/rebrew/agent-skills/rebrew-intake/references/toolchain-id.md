@@ -29,9 +29,9 @@ libcmt signatures). SP-level profiles matter (`msvc-6.0` vs `msvc-6.0-sp6` vs
 
 `file` shows "MS-DOS executable, MZ". **Check packing first**:
 `rebrew toolchain detect <binary>` reports `packed: lzexe 0.91` or `packed: pklite`.
-For LZEXE run `rebrew unpack-lzexe <binary>` first; PKLITE has no built-in unpacker.
+For LZEXE run `rebrew binary unpack-lzexe <binary>` first; PKLITE has no built-in unpacker.
 Profiles: `borland-3.1` (Turbo C++ 3.1), `borland-2.0` (Turbo C 2.0, C89-strict
-`/* */` markers), `watcom-2.0-win16`. `rebrew discover-functions` runs the packaged
+`/* */` markers), `watcom-2.0-win16`. `rebrew binary functions` runs the packaged
 16-bit MZ sweep (rizin cannot analyze MZ). E2E fixture:
 `tests/fixtures/tc16_hello_lzexe.exe`.
 
@@ -42,3 +42,10 @@ Profiles: `borland-3.1` (Turbo C++ 3.1), `borland-2.0` (Turbo C 2.0, C89-strict
 MSVC-style NE byte-matches with `msvc-1.52` (DOSBox CL.EXE → OMF via `rebrew.omf16`).
 Borland *Delphi* NE remains unmatchable (ADR-001): document BLOCKER stubs;
 `rebrew.delphi16.compile_ne` can compile headless. Turbo C/C++ DOS is plain MZ, not NE.
+
+## Optional plugin host runner
+
+Every shipped toolchain runs in Docker. An image-less plugin toolchain that
+requires a host PE runner can use `rebrew toolchain install-wibo`; an existing
+runner is retained, and Docker-backed configurations are unchanged. Run
+`rebrew doctor` separately to check readiness.

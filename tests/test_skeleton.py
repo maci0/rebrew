@@ -837,6 +837,20 @@ class TestConventionStub:
         assert sig is None
         assert note is None
 
+    def test_local_ecx_pool_pointer_keeps_cdecl_default(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """m_pool_free's local ECX must not become a fabricated self argument."""
+        from rebrew.skeleton import _convention_stub
+
+        # mov edx,[esp+8]; push esi; lea ecx,[edx-4]; test ecx,ecx;
+        # je return; mov eax,[ecx]; pop esi; ret
+        code = bytes.fromhex("8b 54 24 08 56 8d 4a fc 85 c9 74 02 8b 01 5e c3")
+        monkeypatch.setattr("rebrew.binary_loader.extract_raw_bytes", lambda p, va, n: code)
+        sig, note = _convention_stub(self._cfg(tmp_path), 0x1000, "m_pool_free")
+        assert sig is None
+        assert note is None
+
     def test_neighbour_ret_does_not_leak_into_convention(
         self, tmp_path: Path, monkeypatch: Any
     ) -> None:

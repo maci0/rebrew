@@ -208,7 +208,8 @@ class TestSubmatchCli:
             },
         )
         result = runner.invoke(
-            rebrew.main.app, ["similar", "0x1000", "--submatch", "--other", "0x2000", "--json"]
+            rebrew.main.app,
+            ["similarity", "function", "0x1000", "--submatch", "--other", "0x2000", "--json"],
         )
         assert result.exit_code == 0
         payload = json.loads(result.stdout)
@@ -221,7 +222,9 @@ class TestSubmatchCli:
             "require_config",
             lambda target=None, json_mode=False: SimpleNamespace(),
         )
-        result = runner.invoke(rebrew.main.app, ["similar", "0x1000", "--submatch", "--json"])
+        result = runner.invoke(
+            rebrew.main.app, ["similarity", "function", "0x1000", "--submatch", "--json"]
+        )
         assert result.exit_code == 2
         assert "--other" in json.loads(result.stdout)["error"]
 
@@ -240,7 +243,7 @@ class TestSubmatchCli:
             },
         )
         result = runner.invoke(
-            rebrew.main.app, ["similar", "0x1000", "--submatch", "--other", "0x2000"]
+            rebrew.main.app, ["similarity", "function", "0x1000", "--submatch", "--other", "0x2000"]
         )
         assert result.exit_code == 0
         assert "No common run" in result.output
@@ -277,7 +280,7 @@ class TestClusterCli:
                 ],
             },
         )
-        result = runner.invoke(rebrew.main.app, ["similar", "--cluster", "--json"])
+        result = runner.invoke(rebrew.main.app, ["similarity", "function", "--cluster", "--json"])
         assert result.exit_code == 0
         payload = json.loads(result.stdout)
         assert payload["duplicate_groups"] == 1
@@ -290,6 +293,6 @@ class TestClusterCli:
             "require_config",
             lambda target=None, json_mode=False: SimpleNamespace(),
         )
-        result = runner.invoke(rebrew.main.app, ["similar", "--json"])
+        result = runner.invoke(rebrew.main.app, ["similarity", "function", "--json"])
         assert result.exit_code == 2
         assert "--cluster" in json.loads(result.stdout)["error"]

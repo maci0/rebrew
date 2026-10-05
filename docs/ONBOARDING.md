@@ -123,17 +123,17 @@ rebrew todo              # prioritized action list (what to work on next)
 rebrew skeleton 0x00401000          # generate a function skeleton (convention-aware)
 rebrew test src/SERVER/fcn_00401000.c   # compile, byte-compare, auto-update STATUS
 rebrew diff src/SERVER/fcn_00401000.c   # see WHY bytes differ (register/reloc/structural)
-rebrew near-diag src/SERVER/fcn_00401000.c  # classify the delta + GA mutation hints
+rebrew diagnose near src/SERVER/fcn_00401000.c  # classify the delta + GA mutation hints
 rebrew verify            # bulk: compile every annotated function, compare, promote STATUS
-rebrew match src/SERVER/fcn_00401000.c    # GA engine: search for the byte-perfect C
+rebrew match run src/SERVER/fcn_00401000.c # GA engine: search for the byte-perfect C
 ```
 
 Before reversing, rule out library code: statically linked CRT sits in
 `.text` looking exactly like target code:
 
 ```bash
-rebrew flirt flirt_sigs/              # identify library functions via FLIRT
-rebrew crt-match --all --fix-source   # auto-annotate MSVCRT functions
+rebrew library scan-signatures flirt_sigs/              # identify library functions via FLIRT
+rebrew library crt-match --all --fix-source   # auto-annotate MSVCRT functions
 ```
 
 The agent skills in `.agents/skills/` (`rebrew-init`, `rebrew-intake`,

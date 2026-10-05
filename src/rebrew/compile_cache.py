@@ -2,8 +2,8 @@
 
 Each docker-backed compile (and any native plugin toolchain without an
 image) costs hundreds of milliseconds of container/subprocess startup.
-During ``rebrew match --all`` (100 gen × 30 pop × N functions) and
-``rebrew match --flag-sweep`` (192 to ~100k flag combinations, since
+During ``rebrew match batch`` (100 gen × 30 pop × N functions) and
+``rebrew match flags`` (192 to ~100k flag combinations, since
 ``_MAX_SWEEP_COMBOS`` caps the Cartesian product), the same
 ``(source + flags)`` combination is frequently compiled multiple times.
 
@@ -68,7 +68,7 @@ from typing import Any, Protocol
 
 import diskcache
 
-from rebrew.utils import BYTES_PER_MIB, split_source_lines
+from rebrew.utils import BYTES_PER_MIB, resolved_path, split_source_lines
 
 logger = logging.getLogger(__name__)
 
@@ -716,7 +716,7 @@ def _find_in_dirs(name: Path, dirs: list[Path]) -> Path | None:
         return None
     for d in dirs:
         try:
-            candidate = (d / name).resolve()
+            candidate = resolved_path(d / name)
             if candidate.is_file():
                 return candidate
         except OSError:
@@ -738,7 +738,7 @@ def _find_in_dirs(name: Path, dirs: list[Path]) -> Path | None:
                     child.is_file()
                     and unicodedata.normalize("NFC", child.name).casefold() == norm_name
                 ):
-                    return child.resolve()
+                    return resolved_path(child)
         except OSError:
             continue
     return None
@@ -782,7 +782,7 @@ def _resolve_escaping_include(name: Path, dirs: Sequence[Path]) -> Path | None:
         try:
             candidate = Path(os.path.normpath(str(d / name)))
             if candidate.is_file():
-                return candidate.resolve()
+                return resolved_path(candidate)
         except OSError:
             continue
     return None
@@ -1053,12 +1053,12 @@ def _header_key_entries(
     """
     anchors: list[Path] = []
     if source_dir:
-        anchors.append(Path(source_dir).resolve())
-    anchors += [Path(d).resolve() for d in include_dirs]
+        anchors.append(resolved_path(Path(source_dir)))
+    anchors += [resolved_path(Path(d)) for d in include_dirs]
 
     entries: list[tuple[int, str, int, int, int]] = []
     for p_str in paths:
-        p = Path(p_str).resolve()
+        p = resolved_path(Path(p_str))
         rel = p.name
         anchor_idx = 0
         for idx, anchor in enumerate(anchors):
@@ -1191,6 +1191,48 @@ _NO_DEPS_HASH = hashlib.sha256(b"").hexdigest()
 FORCE_INCLUDE_PREFIXES = ("/FI", "-FI", "-include", "--include", "-imacros", "-fi=")
 
 
+# ``(header paths, source dir, include dirs, dir lstats, header stats)`` ->
+# digest.  Every translation unit that reaches the same headers asks for the
+# same digest, and building it resolves each anchor.  A hit re-stats those
+# paths with ``os.stat`` instead.  A header edit or a retargeted include-dir
+# symlink changes one of those stats and resolves again.
+_HEADER_DIGEST_MAX = 256
+_HEADER_DIGEST_LOCK = threading.Lock()
+_HEADER_DIGESTS: OrderedDict[tuple[object, ...], str] = OrderedDict()
+
+
+def _path_stat_id(path: str, *, follow: bool) -> tuple[int, int, int]:
+    """``(mtime_ns, size, ino)``, or ``(-1, -1, -1)`` when *path* cannot be stat'ed.
+
+    ``os.stat`` rather than ``Path.stat``: this re-check runs once per
+    translation unit, and building a ``Path`` for it was the digest's cost.
+    """
+    try:
+        st = os.stat(path, follow_symlinks=follow)  # noqa: PTH116
+    except OSError:
+        return (-1, -1, -1)
+    return (st.st_mtime_ns, st.st_size, st.st_ino)
+
+
+def _header_digest_ident(
+    paths: tuple[str, ...], source_dir: str | None, include_dirs: tuple[str, ...]
+) -> tuple[object, ...]:
+    """Identity of one header digest: paths plus the stats that feed it.
+
+    Include dirs are ``lstat``'d so a symlink retarget misses even when the
+    old header file is untouched.  Reached headers are ``stat``'d so an edit
+    of the file the symlink names misses too.
+    """
+    return (
+        paths,
+        source_dir,
+        include_dirs,
+        None if source_dir is None else _path_stat_id(source_dir, follow=False),
+        tuple(_path_stat_id(directory, follow=False) for directory in include_dirs),
+        tuple(_path_stat_id(path, follow=True) for path in paths),
+    )
+
+
 def header_dependency_hash(
     source_content: str, source_dir: str | None, include_dirs: list[str]
 ) -> str:
@@ -1205,6 +1247,9 @@ def header_dependency_hash(
     Returns :data:`_NO_DEPS_HASH` for a unit with no header dependencies
     (never ``""`` — the verify cache reserves ``""`` for legacy entries).
 
+    Repeated calls that resolve the same headers reuse the digest while those
+    headers and the include-dir stats are unchanged.
+
     Shared by the compile-cache key and the verify-cache per-entry guard, so
     both caches invalidate on exactly the same header dependency.
     """
@@ -1213,6 +1258,12 @@ def header_dependency_hash(
         return dir_fingerprint_hash(source_dir, include_dirs)
     if not paths:
         return _NO_DEPS_HASH
+    ident = _header_digest_ident(paths, source_dir, tuple(include_dirs))
+    with _HEADER_DIGEST_LOCK:
+        cached = _HEADER_DIGESTS.get(ident)
+        if cached is not None:
+            _HEADER_DIGESTS.move_to_end(ident)
+            return cached
     h = hashlib.sha256()
     for anchor_idx, rel, size, mtime_ns, ino in _header_key_entries(
         paths, source_dir, include_dirs
@@ -1222,7 +1273,18 @@ def header_dependency_hash(
                 "utf-8", errors="surrogateescape"
             )
         )
-    return h.hexdigest()
+    digest = h.hexdigest()
+    # A stat that moved while the digest was built belongs to the new file.
+    # Storing it under the old identity would replay the new digest after a
+    # restore of the old bytes.
+    if _header_digest_ident(paths, source_dir, tuple(include_dirs)) != ident:
+        return digest
+    with _HEADER_DIGEST_LOCK:
+        _HEADER_DIGESTS[ident] = digest
+        _HEADER_DIGESTS.move_to_end(ident)
+        while len(_HEADER_DIGESTS) > _HEADER_DIGEST_MAX:
+            _HEADER_DIGESTS.popitem(last=False)
+    return digest
 
 
 def compile_cache_key(

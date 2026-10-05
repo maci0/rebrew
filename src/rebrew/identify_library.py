@@ -15,7 +15,7 @@ Candidates are merged by VA with provenance ranking (CRT > FLIRT > import)
 and only VAs with no existing FUNCTION/LIBRARY annotation are written, so the
 command is safe to re-run (idempotent) and never overwrites a decompiled
 function.  High-confidence CRT matches also get their ``SOURCE`` metadata
-written (same rule as ``rebrew crt-match --fix-source``).
+written (same rule as ``rebrew library crt-match --fix-source``).
 """
 
 from __future__ import annotations
@@ -41,9 +41,9 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew identify-library · · · · · · · Identify and write library entries\n\n"
-        "  rebrew identify-library --dry-run · · Preview without writing\n\n"
-        "  rebrew identify-library --json · · · · Machine-readable report\n\n"
+        "  rebrew library identify · · · · · · · Identify and write library entries\n\n"
+        "  rebrew library identify --dry-run · · Preview without writing\n\n"
+        "  rebrew library identify --json · · · · Machine-readable report\n\n"
         "[dim]Writes // LIBRARY: entries to library_<module>.h in the reversed "
         "directory; never touches annotated functions.[/dim]"
     ),
@@ -203,7 +203,7 @@ def _crt_candidates(cfg: Any) -> list[LibCandidate]:
         console.print(f"[yellow]warning:[/yellow] CRT matching skipped: {exc}")
         return []
     out: list[LibCandidate] = []
-    # Same SOURCE spelling as `rebrew crt-match --fix-source` (file:line for a
+    # Same SOURCE spelling as `rebrew library crt-match --fix-source` (file:line for a
     # parsed definition) — the two tools write the same key for the same match.
     from rebrew.crt_match import source_ref
 
@@ -407,7 +407,7 @@ def write_candidates(cfg: Any, candidates: list[LibCandidate], existing: set[int
 
     Only VAs not in *existing* are written (idempotent).  High-confidence CRT
     matches with a parsed definition also get their SOURCE metadata written
-    (same rule as ``rebrew crt-match --fix-source``: filename-only evidence
+    (same rule as ``rebrew library crt-match --fix-source``: filename-only evidence
     never auto-writes).  Returns the count.
     """
     from rebrew.annotation import update_annotation_key

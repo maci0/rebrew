@@ -1,7 +1,7 @@
 """Coverage document contract test.
 
 Recoverage (the sibling dashboard) is a pure consumer of
-``db/coverage-<target>.toml`` written by ``rebrew build-db``, which scans the
+``db/coverage-<target>.toml`` written by ``rebrew coverage build``, which scans the
 project in-process.  This test runs the real pipeline on the
 checked-in fixture binary and asserts the document still carries every fact the
 dashboard reads, through the same reader (``rebrew.coverage_toml``) the
@@ -95,9 +95,9 @@ def _build_fixture_project(tmp_path: Path, monkeypatch) -> Path:
 
 
 def _run_pipeline(tmp_path: Path, monkeypatch) -> Path:
-    """``rebrew build-db`` over a fixture project; returns the root."""
+    """``rebrew coverage build`` over a fixture project; returns the root."""
     root = _build_fixture_project(tmp_path, monkeypatch)
-    result = CliRunner().invoke(app, ["build-db"])
+    result = CliRunner().invoke(app, ["coverage", "build"])
     assert result.exit_code == 0, result.output
     return root
 

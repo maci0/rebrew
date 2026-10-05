@@ -1,4 +1,4 @@
-"""``rebrew resource`` — PE resource (``.rsrc``) comparison for byte-identical work.
+"""``rebrew binary resource`` — PE resource (``.rsrc``) comparison for byte-identical work.
 
 ``rebrew verify``/``diff`` only look at function bytes; a resource byte diff is
 invisible to them.  These commands compare/extract the ``.rsrc`` section so a
@@ -22,9 +22,9 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew resource compare np_recompiled.exe original/notepad.exe\n"
-        "  rebrew resource compare --json np_recompiled.exe original/notepad.exe\n"
-        "  rebrew resource extract np_recompiled.exe --output out/notepad.rsrc\n"
+        "  rebrew binary resource compare np_recompiled.exe original/notepad.exe\n"
+        "  rebrew binary resource compare --json np_recompiled.exe original/notepad.exe\n"
+        "  rebrew binary resource extract np_recompiled.exe --output out/notepad.rsrc\n"
     ),
 )
 
@@ -44,7 +44,10 @@ def _rsrc_bytes(path: Path) -> tuple[bytes | None, dict[str, Any]]:
     }
 
 
-@app.command("compare")
+@app.command(
+    "compare",
+    epilog="Examples:\n\n  rebrew binary resource compare RECOMPILED ORIGINAL --json\n\nInput and output paths are shown above; use --help at the parent group to discover related operations.",
+)
 def compare(
     recompiled: Path = typer.Argument(..., help="Recompiled PE (e.g. np_recompiled.exe)"),
     original: Path = typer.Argument(..., help="Original PE (e.g. original/notepad.exe)"),
@@ -107,7 +110,10 @@ def compare(
         raise typer.Exit(code=EXIT_MISMATCH)
 
 
-@app.command("extract")
+@app.command(
+    "extract",
+    epilog="Examples:\n\n  rebrew binary resource extract PE --json\n\nInput and output paths are shown above; use --help at the parent group to discover related operations.",
+)
 def extract(
     pe: Path = typer.Argument(..., help="PE to extract the .rsrc section from"),
     output: Path = typer.Option(Path("resource.rsrc"), "--output", "-o", help="Output file"),

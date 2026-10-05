@@ -24,9 +24,9 @@ strip removes every marker line, so every function marker in the file is
 recorded, not only the active target's.
 
 Usage:
-    rebrew migrate-markers                     # migrate every source file
-    rebrew migrate-markers --dry-run           # preview, write nothing
-    rebrew migrate-markers --json
+    rebrew source migrate-markers                     # migrate every source file
+    rebrew source migrate-markers --dry-run           # preview, write nothing
+    rebrew source migrate-markers --json
 """
 
 from __future__ import annotations
@@ -58,8 +58,8 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew migrate-markers · · · · · · · · Migrate the whole tree\n\n"
-        "  rebrew migrate-markers --dry-run · · · Preview, write nothing\n\n"
+        "  rebrew source migrate-markers · · · · · · · · Migrate the whole tree\n\n"
+        "  rebrew source migrate-markers --dry-run · · · Preview, write nothing\n\n"
         "[dim]Idempotent. A file migrates every function marker it carries; "
         "GLOBAL/DATA/VTABLE/STRING stay inline.[/dim]"
     ),

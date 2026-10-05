@@ -523,7 +523,7 @@ class TestDataCli:
     def test_json_output(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         cfg = _cfg(tmp_path)
         self._write_global(cfg)
-        result = self._invoke(tmp_path, monkeypatch, ["--json"])
+        result = self._invoke(tmp_path, monkeypatch, ["list", "--json"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert "g_counter" in data["globals"]
@@ -532,7 +532,7 @@ class TestDataCli:
     def test_summary_text(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         cfg = _cfg(tmp_path)
         self._write_global(cfg)
-        result = self._invoke(tmp_path, monkeypatch, ["--summary"])
+        result = self._invoke(tmp_path, monkeypatch, ["list", "--summary"])
         assert result.exit_code == 0
         assert "Global" in result.output
         # PRD 06 --summary: section-level counts, bytes annotated, % coverage.
@@ -542,7 +542,7 @@ class TestDataCli:
         """--summary --json emits a structured section-progress summary."""
         cfg = _cfg(tmp_path)
         self._write_global(cfg)
-        result = self._invoke(tmp_path, monkeypatch, ["--summary", "--json"])
+        result = self._invoke(tmp_path, monkeypatch, ["list", "--summary", "--json"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert "summary" in data
@@ -559,7 +559,7 @@ class TestDataCli:
         (cfg.reversed_dir / "b.c").write_text(
             "// GLOBAL: SERVER 0x1000\nextern float g_x;\n", encoding="utf-8"
         )
-        result = self._invoke(tmp_path, monkeypatch, ["--conflicts"])
+        result = self._invoke(tmp_path, monkeypatch, ["list", "--conflicts"])
         assert result.exit_code == 0
         assert "Type Conflicts" in result.output
         assert "g_x" in result.output
@@ -577,20 +577,20 @@ class TestDataCli:
         (cfg.reversed_dir / "b.c").write_text(
             "// GLOBAL: SERVER 0x2000\nextern float g_x;\n", encoding="utf-8"
         )
-        result = self._invoke(tmp_path, monkeypatch, ["--conflicts", "--json"])
+        result = self._invoke(tmp_path, monkeypatch, ["list", "--conflicts", "--json"])
         assert result.exit_code == 0, result.output
         data = json.loads(result.output)
         assert list(data["globals"]) == ["g_x"]
         assert data["summary"]["total"] == 1
         assert data["summary"]["conflicts"] == 1
         # Control: without --conflicts the full set comes back.
-        result = self._invoke(tmp_path, monkeypatch, ["--json"])
+        result = self._invoke(tmp_path, monkeypatch, ["list", "--json"])
         assert "g_counter" in json.loads(result.output)["globals"]
 
     def test_gen_header_writes_file(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         cfg = _cfg(tmp_path)
         self._write_global(cfg)
-        result = self._invoke(tmp_path, monkeypatch, ["--gen-header"])
+        result = self._invoke(tmp_path, monkeypatch, ["header"])
         assert result.exit_code == 0
         out = cfg.reversed_dir / "rebrew_globals.h"
         assert out.exists()
@@ -602,18 +602,16 @@ class TestDataCli:
         print only to the Rich console and emit nothing on stdout."""
         cfg = _cfg(tmp_path)
         self._write_global(cfg)
-        result = self._invoke(tmp_path, monkeypatch, ["--gen-header", "--json"])
+        result = self._invoke(tmp_path, monkeypatch, ["header", "--json"])
         assert result.exit_code == 0, result.output
         data = json.loads(result.output)
         assert data["written"] is True
         assert data["globals"] >= 1
         assert data["path"] == str(cfg.reversed_dir / "rebrew_globals.h")
         # Re-run with --force: identical body → written=False (nothing rewritten).
-        result = self._invoke(tmp_path, monkeypatch, ["--gen-header", "--force", "--json"])
+        result = self._invoke(tmp_path, monkeypatch, ["header", "--force", "--json"])
         assert json.loads(result.output)["written"] is False
-        result = self._invoke(
-            tmp_path, monkeypatch, ["--gen-header", "--force", "--dry-run", "--json"]
-        )
+        result = self._invoke(tmp_path, monkeypatch, ["header", "--force", "--dry-run", "--json"])
         assert json.loads(result.output)["dry_run"] is True
 
     def test_gen_header_refuses_overwrite_without_force(
@@ -623,7 +621,7 @@ class TestDataCli:
         self._write_global(cfg)
         out = cfg.reversed_dir / "rebrew_globals.h"
         out.write_text("existing", encoding="utf-8")
-        result = self._invoke(tmp_path, monkeypatch, ["--gen-header", "--json"])
+        result = self._invoke(tmp_path, monkeypatch, ["header", "--json"])
         assert result.exit_code == 2, result.output
         assert "already exists" in json.loads(result.output)["error"]
         assert out.read_text(encoding="utf-8") == "existing"
@@ -634,7 +632,7 @@ class TestDataCli:
         cfg = _cfg(tmp_path)
         self._write_global(cfg)
         out = tmp_path / "custom.h"
-        result = self._invoke(tmp_path, monkeypatch, ["--gen-header", "--gen-header-out", str(out)])
+        result = self._invoke(tmp_path, monkeypatch, ["header", "--output", str(out)])
         assert result.exit_code == 0
         assert out.exists()
 
@@ -656,7 +654,7 @@ class TestDataCli:
             ),
         )
         (tmp_path / "fake.dll").write_bytes(b"\x00" * 16)
-        result = self._invoke(tmp_path, monkeypatch, ["--bss", "--json"])
+        result = self._invoke(tmp_path, monkeypatch, ["bss", "--json"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["bss_size"] == 0x100
@@ -670,7 +668,7 @@ class TestDataCli:
             gaps=[BssGap(offset=0x1004, size=16, before="g_counter", after="next")],
         )
         monkeypatch.setattr("rebrew.data.verify_bss_layout", lambda scan, sections: report)
-        result = self._invoke(tmp_path, monkeypatch, ["--fix-bss"])
+        result = self._invoke(tmp_path, monkeypatch, ["fix-bss"])
         assert result.exit_code == 0
         assert (cfg.reversed_dir / "bss_padding.c").exists()
 
@@ -687,14 +685,14 @@ class TestDataCli:
             gaps=[BssGap(offset=0x1004, size=16, before="g_counter", after="next")],
         )
         monkeypatch.setattr("rebrew.data.verify_bss_layout", lambda scan, sections: report)
-        result = self._invoke(tmp_path, monkeypatch, ["--fix-bss"])
+        result = self._invoke(tmp_path, monkeypatch, ["fix-bss"])
         assert result.exit_code == 0
         assert padding.read_text(encoding="utf-8") == "char my_own_pad[8];\n"
 
     def test_dispatch_missing_binary_errors(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        result = self._invoke(tmp_path, monkeypatch, ["--dispatch"])
+        result = self._invoke(tmp_path, monkeypatch, ["dispatch"])
         assert result.exit_code != 0
         assert "target binary not found" in result.output
 
@@ -705,7 +703,7 @@ class TestDataCli:
             lambda p: SimpleNamespace(data=b"\x00" * 16, sections={}),
         )
         monkeypatch.setattr("rebrew.data.find_dispatch_tables", lambda *a, **k: [])
-        result = self._invoke(tmp_path, monkeypatch, ["--dispatch", "--json"])
+        result = self._invoke(tmp_path, monkeypatch, ["dispatch", "--json"])
         assert result.exit_code == 0
         assert json.loads(result.output) == []
 
@@ -725,7 +723,7 @@ class TestDataCli:
 
         monkeypatch.setattr("rebrew.binary_loader.load_binary", _fake_load)
         monkeypatch.setattr("rebrew.data.find_dispatch_tables", lambda *a, **k: [])
-        result = self._invoke(tmp_path, monkeypatch, ["--dispatch", "--json"])
+        result = self._invoke(tmp_path, monkeypatch, ["dispatch", "--json"])
         assert result.exit_code == 0
         assert calls["n"] == 1
 
@@ -1099,7 +1097,7 @@ class TestSetDataSection:
         assert "section" not in self._meta(cfg).read_text(encoding="utf-8")
 
     def test_rejects_an_unknown_section(self, tmp_path: Path) -> None:
-        with pytest.raises(ValueError, match="set-section"):
+        with pytest.raises(ValueError, match="--section"):
             set_data_sections(_cfg(tmp_path), ["0x1000=.text"])
 
     def test_rejects_a_spec_without_an_equals(self, tmp_path: Path) -> None:

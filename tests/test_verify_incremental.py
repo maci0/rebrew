@@ -1139,6 +1139,32 @@ class TestPatchVerifyCacheEntries:
 
 
 class TestIncrementalVerify:
+    def test_changing_native_symbol_invalidates_cached_body(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        cfg = _make_cfg(tmp_path)
+        (cfg.reversed_dir / "vendor.c").write_text(
+            "int first(void) { return 1; }\nint second(void) { return 2; }\n"
+        )
+        entry = Annotation(
+            va=0x10001000,
+            name="vendor",
+            filepath="vendor.c",
+            size=16,
+            symbol="_first",
+            marker_type="LIBRARY",
+            status="STUB",
+        )
+        calls: list[int] = []
+        _patch_verify(monkeypatch, cfg, [entry], calls)
+        assert runner.invoke(app, ["--json", "--no-promote"]).exit_code == 0
+        calls.clear()
+        assert runner.invoke(app, ["--json", "--no-promote"]).exit_code == 0
+        assert calls == []
+        entry.symbol = "_second"
+        assert runner.invoke(app, ["--json", "--no-promote"]).exit_code == 0
+        assert calls == [entry.va]
+
     @pytest.mark.parametrize("preserve_keys", [None, {"0x00001000"}])
     def test_identical_full_save_refreshes_verify_time(
         self, tmp_path: Path, preserve_keys: set[str] | None
@@ -1830,3 +1856,224 @@ class TestEntryFingerprint:
         after = entry_fingerprint(cfg, entry)
         assert before is not None and after is not None
         assert before.headers_fp != after.headers_fp
+
+
+def _write_hit_sources(cfg: ProjectConfig) -> tuple[Path, Path]:
+    """Two functions that reach ``shared.h``, plus a header neither reaches."""
+    shared = cfg.reversed_dir / "shared.h"
+    shared.write_text("typedef int BOOL;\n", encoding="utf-8")
+    other = cfg.reversed_dir / "other.h"
+    other.write_text("typedef int UNUSED;\n", encoding="utf-8")
+    for index, name in enumerate(("fa", "fb")):
+        va = 0x10001000 + index * 16
+        (cfg.reversed_dir / f"{name}.c").write_text(
+            f"// FUNCTION: SERVER 0x{va:08X}\n"
+            f"// SIZE: 16\n"
+            f'#include "shared.h"\n'
+            f"int {name}(void) {{ return {index}; }}\n",
+            encoding="utf-8",
+        )
+    return shared, other
+
+
+def _seed_current_cache(tmp_path: Path) -> tuple[ProjectConfig, Path, Path]:
+    """Write a verify cache with the shipped ``save_verify_cache``."""
+    from rebrew.catalog.loaders import scan_reversed_dir
+    from rebrew.verify_cache import save_verify_cache
+
+    cfg = _make_cfg(tmp_path)
+    shared, other = _write_hit_sources(cfg)
+    found = [
+        entry
+        for entry in scan_reversed_dir(cfg.reversed_dir, cfg=cfg)
+        if not str(getattr(entry, "filepath", "")).endswith(".h")
+    ]
+    assert len(found) == 2
+    rows = [
+        {
+            "status": "EXACT",
+            "va": f"0x{entry.va:08x}",
+            "size": entry.size,
+            "filepath": entry.filepath,
+            "name": entry.name,
+            "symbol": entry.symbol,
+            "module": entry.module,
+            "delta": 0,
+            "match_percent": 100.0,
+            "passed": True,
+            "message": "EXACT MATCH",
+            "similarity": 1.0,
+            "reg_delta": 0,
+            "effective_match": True,
+            "diff_lines": 0,
+            "context_hash": None,
+        }
+        for entry in found
+    ]
+    save_verify_cache(cfg.root / ".rebrew" / "verify_cache.toml", cfg, rows, found)
+    return cfg, shared, other
+
+
+def _prepare_cached(cfg: ProjectConfig, context: Any = None) -> tuple[int, int]:
+    """Return ``(annotation count, cached count)`` from the shipped hit check."""
+    from rebrew.verify import prepare_entries
+
+    entries, _passed, _failed, _details, _results, cached, *_rest = prepare_entries(
+        cfg, False, True, context=context
+    )
+    return len(entries), cached
+
+
+def _bump_mtime(path: Path) -> None:
+    """Move *path*'s mtime by one second and require the stat to change."""
+    before = path.stat().st_mtime_ns
+    updated = before + 1_000_000_000
+    os.utime(path, ns=(updated, updated))
+    assert path.stat().st_mtime_ns != before
+
+
+class TestCurrentWriterCacheIdentity:
+    """Hit and miss through a cache file the current writer produced.
+
+    ``prepare_entries`` is the check ``rebrew verify`` runs.  These tests do
+    not stub the loader.  A stat change is applied in this process, which is
+    the ``verify --watch`` case: a memo that ignored the new stat would still
+    report a hit.
+    """
+
+    def test_unchanged_entries_hit(self, tmp_path: Path) -> None:
+        cfg, shared, other = _seed_current_cache(tmp_path)
+        count, cached = _prepare_cached(cfg)
+        assert count == 2
+        assert cached == count
+        _bump_mtime(other)
+        other.write_text("typedef long UNUSED;\n", encoding="utf-8")
+        count, cached = _prepare_cached(cfg)
+        assert count == 2
+        assert cached == count
+        before = shared.stat().st_mtime_ns
+        _bump_mtime(shared)
+        assert shared.stat().st_mtime_ns != before
+        count, cached = _prepare_cached(cfg)
+        assert count == 2
+        assert cached == 0
+
+    def test_source_edit_misses(self, tmp_path: Path) -> None:
+        cfg, _shared, _other = _seed_current_cache(tmp_path)
+        assert _prepare_cached(cfg) == (2, 2)
+        for path in cfg.reversed_dir.glob("*.c"):
+            path.write_text(path.read_text(encoding="utf-8") + "/* touched */\n", encoding="utf-8")
+        assert _prepare_cached(cfg) == (2, 0)
+
+    def test_cflags_change_misses(self, tmp_path: Path) -> None:
+        cfg, _shared, _other = _seed_current_cache(tmp_path)
+        assert _prepare_cached(cfg) == (2, 2)
+        cfg.cflags = "/O1"
+        assert _prepare_cached(cfg) == (2, 0)
+
+    def test_toolchain_change_misses(self, tmp_path: Path) -> None:
+        cfg, _shared, _other = _seed_current_cache(tmp_path)
+        assert _prepare_cached(cfg) == (2, 2)
+        for path in cfg.reversed_dir.glob("*.c"):
+            text = path.read_text(encoding="utf-8")
+            path.write_text(
+                text.replace("// SIZE: 16\n", "// SIZE: 16\n// TOOLCHAIN: watcom-2.0-win32\n", 1),
+                encoding="utf-8",
+            )
+        assert _prepare_cached(cfg) == (2, 0)
+
+    def test_defines_change_misses(self, tmp_path: Path) -> None:
+        cfg, _shared, _other = _seed_current_cache(tmp_path)
+        assert _prepare_cached(cfg) == (2, 2)
+        cfg.defines = ["FOO"]
+        assert _prepare_cached(cfg) == (2, 0)
+
+    def test_size_change_misses(self, tmp_path: Path) -> None:
+        cfg, _shared, _other = _seed_current_cache(tmp_path)
+        assert _prepare_cached(cfg) == (2, 2)
+        for path in cfg.reversed_dir.glob("*.c"):
+            text = path.read_text(encoding="utf-8")
+            path.write_text(text.replace("// SIZE: 16\n", "// SIZE: 32\n", 1), encoding="utf-8")
+        assert _prepare_cached(cfg) == (2, 0)
+
+    def test_module_change_misses(self, tmp_path: Path) -> None:
+        cfg, _shared, _other = _seed_current_cache(tmp_path)
+        assert _prepare_cached(cfg) == (2, 2)
+        for path in cfg.reversed_dir.glob("*.c"):
+            text = path.read_text(encoding="utf-8")
+            path.write_text(
+                text.replace("// FUNCTION: SERVER ", "// FUNCTION: CLIENT ", 1), encoding="utf-8"
+            )
+        assert _prepare_cached(cfg) == (2, 0)
+
+    def test_context_digest_change_misses(self, tmp_path: Path) -> None:
+        from rebrew.compile_context import CompileContext
+
+        cfg, _shared, _other = _seed_current_cache(tmp_path)
+        assert _prepare_cached(cfg) == (2, 2)
+        context = CompileContext(path=cfg.root / "ctx.c", text="typedef int T;\n", sha256="abc")
+        assert _prepare_cached(cfg, context) == (2, 0)
+
+    def test_comparison_logic_change_misses(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import rebrew.verify_hash as verify_hash
+
+        cfg, _shared, _other = _seed_current_cache(tmp_path)
+        assert _prepare_cached(cfg) == (2, 2)
+        monkeypatch.setattr(verify_hash, "_compare_logic_hash", lambda: "f" * 64)
+        assert _prepare_cached(cfg) == (2, 0)
+
+
+class TestResultRowCopy:
+    def test_cached_row_does_not_deepcopy(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A cache hit rebuilds its report row without copying the entry.
+
+        ``asdict`` deep-copies every field, then the row drops the identity
+        ones. The counter is ``copy.deepcopy`` calls, which stay at zero.
+        """
+        import copy
+
+        from rebrew.verify_cache import VerifyCache, VerifyCacheEntry
+
+        def _boom(*_args: object, **_kwargs: object) -> None:
+            raise AssertionError("deepcopy")
+
+        monkeypatch.setattr(copy, "deepcopy", _boom)
+        entry = VerifyCacheEntry(
+            status="EXACT",
+            va="0x10001000",
+            size=16,
+            filepath="src/f.c",
+            name="f",
+            symbol="f",
+            module="SERVER",
+            delta=0,
+            match_percent=100.0,
+            passed=True,
+            message="EXACT MATCH",
+            similarity=1.0,
+            reg_delta=0,
+            effective_match=True,
+            diff_lines=0,
+            context_hash=None,
+            source_hash="ab",
+            mtime_ns=1,
+            cflags="/O2",
+            headers_fp="cd",
+            toolchain="(default)",
+            defines="(none)",
+        )
+        row = entry.result_row()
+        assert row["status"] == "EXACT"
+        assert row["match_percent"] == 100.0
+        assert "source_hash" not in row
+        cache = VerifyCache(
+            version=2,
+            compiler_hash="ef",
+            target="server",
+            entries={"0x10001000": entry},
+        )
+        document = cache.to_dict()
+        assert document["entries"]["0x10001000"]["source_hash"] == "ab"
+        assert document["entries"]["0x10001000"]["status"] == "EXACT"

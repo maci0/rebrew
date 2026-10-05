@@ -1,6 +1,6 @@
 """rename_ops.py - Cross-reference rename operations.
 
-Reusable rename engine shared by the ``rebrew rename`` CLI and library
+Reusable rename engine shared by the ``rebrew source rename`` CLI and library
 callers (Ghidra sync pull, BinSync import): rewrites the function
 definition, call sites, and ``extern`` declarations across the reversed
 tree, optionally renaming the source file.  Pure filesystem/metadata
@@ -12,7 +12,8 @@ import re
 from collections.abc import Sequence
 from pathlib import Path
 
-from rebrew.annotation import parse_c_file_multi
+from rebrew.annotation import Annotation, parse_c_file_multi
+from rebrew.c_parser import find_c_function_definitions
 from rebrew.config import ProjectConfig
 from rebrew.errors import RebrewError
 from rebrew.sources import iter_sources_and_headers
@@ -124,6 +125,93 @@ def collect_matching_files(
     return matched
 
 
+def _rename_annotations(cfg: ProjectConfig, path: Path) -> list[Annotation]:
+    """Read every target's identities, including mixed migrated/inline files."""
+    from rebrew.metadata import load_metadata
+
+    metadata_dir = getattr(cfg, "metadata_dir", path.parent)
+    parsed = parse_c_file_multi(path, metadata_dir=metadata_dir)
+    by_identity = {(e.module, e.va, e.marker_type): e for e in parsed}
+    for module in {m for m, _va in load_metadata(metadata_dir, deepcopy=False)}:
+        for e in parse_c_file_multi(path, target_name=module, metadata_dir=metadata_dir):
+            by_identity[(e.module, e.va, e.marker_type)] = e
+    return list(by_identity.values())
+
+
+def collect_function_rename_files(
+    cfg: ProjectConfig, filepath: Path, pattern: re.Pattern[str], old_name: str
+) -> list[Path]:
+    """Plan references without joining independent same-name target symbols.
+
+    A shared definition's markers identify every target that owns that body.
+    Independent definitions in other targets retain their own references.
+    Common headers and mixed target files cannot disambiguate such bindings;
+    reject them before writing instead of silently renaming both symbols.
+    Unique symbols keep the ordinary project-wide rename behavior.
+    """
+    from rebrew.utils import preset_module_key
+
+    annotations: dict[Path, list[Annotation]] = {}
+
+    def entries(path: Path) -> list[Annotation]:
+        if path not in annotations:
+            annotations[path] = _rename_annotations(cfg, path)
+        return annotations[path]
+
+    def owner_modules(path: Path) -> set[str]:
+        return {
+            preset_module_key(e.module)
+            for e in entries(path)
+            if e.module
+            and e.marker_type in ("FUNCTION", "LIBRARY")
+            and (
+                e.name == old_name
+                or _AT_DECORATION_RE.sub("", e.symbol.removeprefix("_")) == old_name
+            )
+        }
+
+    owners = owner_modules(filepath)
+    if not owners:
+        return collect_matching_files(cfg, filepath, pattern)
+    matched = collect_matching_files(cfg, filepath, pattern)
+    protected: set[str] = set()
+    ambiguous: list[Path] = []
+    for path in matched:
+        text, _encoding = read_source_text(path)
+        definitions = [
+            name for name, _line in find_c_function_definitions(text) if name == old_name
+        ]
+        if path == filepath:
+            if len(definitions) > 1:
+                ambiguous.append(path)
+            continue
+        if not definitions:
+            continue
+        other_owners = owner_modules(path)
+        if not other_owners or other_owners & owners:
+            ambiguous.append(path)
+        protected.update(other_owners)
+    if not protected and not ambiguous:
+        return matched
+    selected: list[Path] = []
+    for path in matched:
+        if path == filepath:
+            selected.append(path)
+            continue
+        modules = {preset_module_key(e.module) for e in entries(path) if e.module}
+        if not modules or (modules & owners and modules & protected):
+            ambiguous.append(path)
+        elif modules & owners:
+            selected.append(path)
+    if ambiguous:
+        raise RenameError(
+            f"cannot rename {old_name}: ambiguous references to independent target symbols; "
+            "separate or annotate their ownership before renaming; no files were changed",
+            files=sorted(set(ambiguous)),
+        )
+    return selected
+
+
 def rename_function_everywhere(
     cfg: ProjectConfig,
     filepath: Path,
@@ -149,7 +237,7 @@ def rename_function_everywhere(
     # in the C source — strip it or nothing matches.
     actual_old_name = _AT_DECORATION_RE.sub("", actual_old_name)
     if not actual_old_name:
-        # An annotation-only stub with no meaningful name (sync --pull passes
+        # An annotation-only stub with no meaningful name (sync pull passes
         # name=""/symbol="" for these): re.sub with an empty pattern would
         # match at every word boundary and mangle the whole file.
         raise ValueError(
@@ -178,7 +266,7 @@ def rename_function_everywhere(
             )
         except Exception as exc:  # abort before mutating anything
             if dry_run:  # a preview writes nothing; the real run reports this
-                return len(collect_matching_files(cfg, filepath, name_re))
+                return len(collect_function_rename_files(cfg, filepath, name_re, actual_old_name))
             raise ValueError(f"cannot rename {filepath}: annotation parse failed: {exc}") from exc
         if multi_function_file and not new_filename:
             rename_file = False  # auto-rename unsafe for multi-function files
@@ -214,9 +302,40 @@ def rename_function_everywhere(
                     )
                 rename_target = target_file
 
+    if not dry_run:
+        # Keep the primary-file error contract; a missing definition cannot
+        # leave any rewritten references behind.
+        read_source_text(filepath)
+    candidates = collect_function_rename_files(cfg, filepath, name_re, actual_old_name)
     if dry_run:
         # Preview mode: count files that would be modified without writing.
-        return len(collect_matching_files(cfg, filepath, name_re))
+        return len([p for p in candidates if name_re.search(read_source_text(p)[0])])
+
+    from rebrew.metadata import load_metadata, record_migrated_markers
+    from rebrew.utils import rel_display_path
+
+    metadata_dir = getattr(cfg, "metadata_dir", filepath.parent)
+    metadata = load_metadata(metadata_dir, deepcopy=False)
+    identities = []
+    for entry in _rename_annotations(cfg, filepath):
+        if not metadata.get((entry.module, entry.va), {}).get("file"):
+            continue
+        identity = {}
+        if rename_target is not None:
+            identity["file"] = rel_display_path(rename_target, getattr(cfg, "root", metadata_dir))
+        if (
+            entry.name == actual_old_name
+            or _AT_DECORATION_RE.sub("", entry.symbol.removeprefix("_")) == actual_old_name
+        ):
+            suffix = _AT_DECORATION_RE.search(entry.symbol)
+            identity["name"] = target_func
+            identity["symbol"] = (
+                ("_" if entry.symbol.startswith("_") else "")
+                + target_func
+                + (suffix.group(0) if suffix else "")
+            )
+        if identity:
+            identities.append({"module": entry.module, "va": entry.va, "identity": identity})
 
     updated_files = 0
 
@@ -241,7 +360,7 @@ def rename_function_everywhere(
 
     # Find and update externs across all files
     stale: list[Path] = []
-    for src_file in iter_sources_and_headers(cfg.reversed_dir, cfg):
+    for src_file in candidates:
         if src_file == filepath:
             continue
 
@@ -280,4 +399,5 @@ def rename_function_everywhere(
             files=stale,
         )
 
+    record_migrated_markers(metadata_dir, identities, overwrite_name=True)
     return updated_files

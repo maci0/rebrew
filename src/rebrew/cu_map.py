@@ -694,7 +694,7 @@ def main(
     which functions were likely compiled from the same .c/.cpp source file.
 
     Runs with both optional signals off; the only CLI entry to this module is
-    ``rebrew graph --cu-map``, whose forwarder (``rebrew.depgraph``) passes
+    ``rebrew source graph --cu-map``, whose forwarder (``rebrew.depgraph``) passes
     the target and JSON options only.  Enable a signal through
     :func:`cluster_functions` directly.
     """

@@ -427,7 +427,7 @@ def write_coverage(
     *force* is accepted and dropped: :func:`rebrew.coverage_toml.
     write_coverage_toml` replaces each document whole, so there is no stale
     schema to migrate past and no partial state to recover.  It stays in the
-    signature because ``rebrew build-db --force`` is an existing command line
+    signature because ``rebrew coverage build --force`` is an existing command line
     and a script that passes it should not start exiting 2.
     """
     from rebrew.coverage_toml import write_coverage_toml

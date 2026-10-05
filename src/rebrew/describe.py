@@ -16,8 +16,8 @@ Every section is best-effort: a failure in one analysis step degrades that
 section to empty rather than aborting the whole command.
 
 Usage:
-    rebrew describe 0x401000
-    rebrew describe 0x401000 --json
+    rebrew binary function 0x401000
+    rebrew binary function 0x401000 --json
 """
 
 from __future__ import annotations
@@ -397,7 +397,7 @@ def build_dossier(cfg: ProjectConfig, info: BinaryInfo, va: int) -> dict[str, An
     all_refs = _safe_section(lambda: scan_references(info), [])
     import_table = _import_table(cfg)
 
-    # Function-level pattern + calling convention (rebrew asm's inference) —
+    # Function-level pattern + calling convention (rebrew binary asm show's inference) —
     # the skip-vs-decompile decision at a glance.
     pattern: str | None = None
     convention: str | None = None
@@ -500,8 +500,8 @@ def _print_terminal(dossier: dict[str, Any]) -> None:
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew describe 0x401000 · · · · · · Recon dossier for one function\n\n"
-    "  rebrew describe 0x401000 --json · · Machine-readable dossier\n\n"
+    "  rebrew binary function 0x401000 · · · · · · Recon dossier for one function\n\n"
+    "  rebrew binary function 0x401000 --json · · Machine-readable dossier\n\n"
     "[dim]Scans the target binary for cross-references and merges source "
     "annotations to build the dossier.[/dim]"
 )

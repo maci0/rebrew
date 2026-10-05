@@ -75,7 +75,7 @@ def _invoke_import(
     tmp_path: Path, state: Path, monkeypatch: pytest.MonkeyPatch, *extra: str
 ) -> Any:
     monkeypatch.chdir(tmp_path)
-    return runner.invoke(app, ["binsync-import", str(state), *extra])
+    return runner.invoke(app, ["binsync", "import", str(state), *extra])
 
 
 # ---------------------------------------------------------------------------
@@ -306,7 +306,7 @@ class TestBinsyncRoundTrip:
         )
         # Export
         monkeypatch.chdir(tmp_path)
-        out = runner.invoke(app, ["binsync-export", str(tmp_path / "state"), "--json"])
+        out = runner.invoke(app, ["binsync", "export", str(tmp_path / "state"), "--json"])
         assert out.exit_code == 0
 
         # Simulate IDA renaming by editing the exported TOML.  The export is
@@ -338,7 +338,7 @@ class TestBinsyncRoundTrip:
             },
         )
         monkeypatch.chdir(tmp_path)
-        runner.invoke(app, ["binsync-export", str(tmp_path / "state")])
+        runner.invoke(app, ["binsync", "export", str(tmp_path / "state")])
         # Edit prototype in BinSync state (chmod writable first — exports are
         # write-locked 0444).
         p = tmp_path / "state" / "functions" / "10001000.toml"
@@ -372,7 +372,7 @@ class TestBinsyncRoundTrip:
             },
         )
         monkeypatch.chdir(tmp_path)
-        runner.invoke(app, ["binsync-export", str(tmp_path / "state")])
+        runner.invoke(app, ["binsync", "export", str(tmp_path / "state")])
         # Rename global in BinSync state (chmod writable first — exports are
         # write-locked 0444).
         gv = tmp_path / "state" / "global_vars.toml"
@@ -957,7 +957,7 @@ class TestAnalysisMarkers:
 
     def _export(self, tmp_path: Path, monkeypatch: Any, outdir: Path) -> Any:
         monkeypatch.chdir(tmp_path)
-        return runner.invoke(app, ["binsync-export", str(outdir), "--json"])
+        return runner.invoke(app, ["binsync", "export", str(outdir), "--json"])
 
     def test_import_writes_marker_in_owning_file(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1128,7 +1128,7 @@ marker = "V1"
     ) -> None:
         self._shared_project(tmp_path)
         monkeypatch.chdir(tmp_path)
-        out = runner.invoke(app, ["binsync-export", str(tmp_path / "state"), "--json"])
+        out = runner.invoke(app, ["binsync", "export", str(tmp_path / "state"), "--json"])
         assert out.exit_code == 0, out.output
         p = tmp_path / "state" / "functions" / "00401000.toml"
         assert p.is_file(), sorted((tmp_path / "state" / "functions").iterdir())

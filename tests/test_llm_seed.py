@@ -2566,7 +2566,7 @@ class TestLlmSeedDryRun:
         )
         monkeypatch.setattr("rebrew.match.require_config", lambda **kw: cfg)
         monkeypatch.setattr("rebrew.match.resolve_source_arg", lambda cfg, s: s)
-        result = CliRunner().invoke(app, ["--dry-run", "f.c"])
+        result = CliRunner().invoke(app, ["run", "--dry-run", "f.c"])
         assert result.exit_code == 2  # EXIT_ERROR
         assert "batch mode only" in result.output
 

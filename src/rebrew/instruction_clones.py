@@ -13,7 +13,7 @@ about code the project already disassembles:
   makes "these forty functions are the same thunk" visible.
 
 It is **not a second similarity engine**.  Similarity ranking is
-``rebrew similar`` (this target, mnemonic histogram) and the sibling
+``rebrew similarity function`` (this target, mnemonic histogram) and the sibling
 `resembl` project, whose MinHash + LSH index over a persisted cross-project
 corpus answers fragment queries that are "a small fragment of a larger
 function" and already keys every snippet by the SHA256 of its normalized
@@ -34,7 +34,7 @@ thunks that differ only in the address they jump to land in one cluster.
 resembl's ``string_normalize``/``code_tokenize`` normalize too, but they are
 not reused here.  Two reasons: resembl is an optional dependency group
 (``pyproject.toml [dependency-groups].similarity``), and a required import
-would turn ``rebrew similar --cluster`` into a feature that fails on a plain
+would turn ``rebrew similarity function --cluster`` into a feature that fails on a plain
 install; and they produce one flat token stream for a whole snippet, with no
 instruction boundaries, which cannot yield the ``(left_va, right_va)``
 offsets :func:`find_common_runs` exists to report.
@@ -42,7 +42,7 @@ offsets :func:`find_common_runs` exists to report.
 Cost
 ----
 Sub-matching is quadratic in the two functions' instruction counts, which is
-why it is a per-pair operation (``rebrew similar <VA> --other <VA>``) and why
+why it is a per-pair operation (``rebrew similarity function <VA> --other <VA>``) and why
 :data:`MAX_SUBMATCH_INSTRUCTIONS` refuses a pair of very large functions
 instead of grinding through it.  Clustering fingerprints every function once
 (linear in total instructions) and stops after :data:`MAX_CLUSTER_CANDIDATES`

@@ -24,7 +24,7 @@ Three ideas carry the whole tool:
 2. **The compiler is the ground truth.** You are not writing "equivalent" C.
    You are writing the C that makes *that specific compiler version, with
    those specific flags,* emit *those exact bytes*. This is why rebrew runs
-   20+ compiler versions in docker images, and why `rebrew match
+   20+ compiler versions in docker images, and why `rebrew match run
    --flag-sweep` exists: half of matching is finding the flags.
 3. **Work smallest-first.** `rebrew todo` ranks functions by return on
    investment: tiny leaf functions first. A 20-byte function you match in
@@ -39,7 +39,7 @@ Three ideas carry the whole tool:
 | Python 3.13+ and `uv` | runs rebrew | [uv installer](https://docs.astral.sh/uv/getting-started/installation/); `uv python install 3.13` |
 | docker | **every** compiler runs inside an image (wine/DOSBox live there; there is no host-wine path) | your distro's `docker` |
 | rizin | the main function discoverer (capstone sweep / eh_frame / pdata are fallbacks) | `apt install rizin` |
-| rebrew-flirt-sigs (optional) | signature sets for `rebrew flirt --init-matched`; only `flirt` needs them. from a source checkout rebrew looks for a sibling of that checkout, so clone it next to rebrew (not next to the project); a wheel install finds no checkout, so set `REBREW_FLIRT_SIGS_DIR` at the checkout. a value that is not a directory fails `rebrew flirt` outright | `git clone https://github.com/maci0/rebrew-flirt-sigs` next to your rebrew checkout, then `export REBREW_FLIRT_SIGS_DIR=../rebrew-flirt-sigs` if rebrew is installed as a package |
+| rebrew-flirt-sigs (optional) | signature sets for `rebrew library init-signatures --matched-only`; only `flirt` needs them. from a source checkout rebrew looks for a sibling of that checkout, so clone it next to rebrew (not next to the project); a wheel install finds no checkout, so set `REBREW_FLIRT_SIGS_DIR` at the checkout. a value that is not a directory fails `rebrew library scan-signatures` outright | `git clone https://github.com/maci0/rebrew-flirt-sigs` next to your rebrew checkout, then `export REBREW_FLIRT_SIGS_DIR=../rebrew-flirt-sigs` if rebrew is installed as a package |
 | A binary | the thing you are reversing | yours |
 
 Install rebrew itself:
@@ -132,13 +132,13 @@ Before writing a line of C, check whether your function was even written by
 the game authors. Statically linked CRT looks exactly like game code:
 
 ```bash
-rebrew flirt --init-matched   # fetch the signature set matching your CRT linkage
-rebrew flirt                  # identify library functions
+rebrew library init-signatures --matched-only   # fetch the signature set matching your CRT linkage
+rebrew library scan-signatures                  # identify library functions
 ```
 
 `flirt` only reports matches; it writes nothing. To actually annotate them
-and drop them from your queue, run `rebrew identify-library` (or settle them
-by byte comparison against the archives you link with `rebrew lib-match
+and drop them from your queue, run `rebrew library identify` (or settle them
+by byte comparison against the archives you link with `rebrew library match
 --lib <archive>`). On a typical game binary this removes a third of the work
 before you start.
 
@@ -158,7 +158,7 @@ body. Now write the obvious implementation: the disassembly is a click
 away:
 
 ```bash
-rebrew asm 0x00401000                # disassembly of the target
+rebrew binary asm show 0x00401000 # disassembly of the target
 ```
 
 Then compile-and-compare:
@@ -174,7 +174,7 @@ You will get one of three answers:
 - **NEAR_MATCHING (85%)**: close. Ask why:
   ```bash
   rebrew diff src/<target>/fcn_00401000.c        # side-by-side disassembly
-  rebrew near-diag src/<target>/fcn_00401000.c   # classifies the delta
+  rebrew diagnose near src/<target>/fcn_00401000.c   # classifies the delta
   ```
   `near-diag` tells you the *kind* of gap (register allocation, an
   equivalent instruction the compiler prefers, a flag variant) and
@@ -186,13 +186,13 @@ You will get one of three answers:
 When the gap is a flag, not your code:
 
 ```bash
-rebrew match src/<target>/fcn_00401000.c --flag-sweep-only   # try compiler flags
+rebrew match flags src/<target>/fcn_00401000.c # try compiler flags
 ```
 
 And when you are stuck on the last few bytes:
 
 ```bash
-rebrew match src/<target>/fcn_00401000.c   # GA engine searches C variants
+rebrew match run src/<target>/fcn_00401000.c # GA engine searches C variants
 ```
 
 ### 7. Verify the whole project
@@ -236,14 +236,14 @@ rebrew todo → rebrew skeleton → edit C → rebrew test → rebrew diff → �
 | Symptom | Likely cause | Command |
 |---------|--------------|---------|
 | Everything is `COMPILE_ERROR` | wrong toolchain image / profile | `rebrew doctor`, check Toolchain rows |
-| Right logic, ~90%, won't close | wrong flags | `rebrew match <file> --flag-sweep-only` |
-| Right logic, small delta, won't close | compiler idiom (register pick, equivalent encoding) | `rebrew near-diag`, then `rebrew match` (GA) |
-| Right logic, qualifier-shaped delta | declaration qualifiers perturb allocation | `rebrew qual-sweep` |
-| Right logic, statement-order delta | adjacent statements swapped | `rebrew climb` |
-| Gap grows along the function | length drift (short COMDAT, early table) | `rebrew gap-trace` |
-| Function looks like gibberish | it's library code | `rebrew flirt`, `rebrew crt-match --all` |
+| Right logic, ~90%, won't close | wrong flags | `rebrew match flags <file>` |
+| Right logic, small delta, won't close | compiler idiom (register pick, equivalent encoding) | `rebrew diagnose near`, then `rebrew match run` (GA) |
+| Right logic, qualifier-shaped delta | declaration qualifiers perturb allocation | `rebrew match qualifiers` |
+| Right logic, statement-order delta | adjacent statements swapped | `rebrew match climb` |
+| Gap grows along the function | length drift (short COMDAT, early table) | `rebrew diagnose gap` |
+| Function looks like gibberish | it's library code | `rebrew library scan-signatures`, `rebrew library crt-match --all` |
 | `verify` disagrees with your edit | stale STATUS claim | let `verify` rewrite it; `verify --dry-run` shows the pending transition |
-| BSS/layout bytes differ, code matches | data placement, not code | `rebrew data`, `rebrew verify-placement` |
+| BSS/layout bytes differ, code matches | data placement, not code | `rebrew data list`, `rebrew build check-data-placement` |
 
 ## What's next
 

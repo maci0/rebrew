@@ -1,4 +1,4 @@
-"""``rebrew drift`` -- localise byte drift from branch targets, without disassembling.
+"""``rebrew diagnose drift`` -- localise byte drift from branch targets, without disassembling.
 
 Compiles one function, compares its branch targets against the reference's, and
 reports the spans whose byte drift those targets measure.  See
@@ -45,9 +45,9 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew drift src/f.c · · · · · · VA and size from the annotation header\n\n"
-        "  rebrew drift --va 0x401000 --size 512 src/f.c · Explicit geometry\n\n"
-        "  rebrew drift --json src/f.c · · · Machine-readable windows\n"
+        "  rebrew diagnose drift src/f.c · · · · · · VA and size from the annotation header\n\n"
+        "  rebrew diagnose drift --va 0x401000 --size 512 src/f.c · Explicit geometry\n\n"
+        "  rebrew diagnose drift --json src/f.c · · · Machine-readable windows\n"
     ),
 )
 

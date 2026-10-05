@@ -1,4 +1,4 @@
-"""rebrew document-unmatched — document every not-yet-reversed function.
+"""rebrew source document-unmatched — document every not-yet-reversed function.
 
 Standalone version of the "document-unmatched" step that ``rebrew intake``
 runs during onboarding (it used to be a per-project classify script —
@@ -44,8 +44,8 @@ app = typer.Typer(
     help="Document unmatched functions as STUB skeletons + blockers.",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew document-unmatched --dry-run  Preview how many functions are undocumented\n\n"
-        "  rebrew document-unmatched · · · · · · Write STUB .c + blocker for every unmatched function\n\n"
+        "  rebrew source document-unmatched --dry-run  Preview how many functions are undocumented\n\n"
+        "  rebrew source document-unmatched · · · · · · Write STUB .c + blocker for every unmatched function\n\n"
         "[dim]Skips VAs that already have a fcn_<va>.c file or a FUNCTION/STUB marker. "
         "Idempotent — re-running after documenting reports zero unmatched.[/dim]"
     ),
@@ -103,7 +103,7 @@ def main(
         # report success for an unreadable target, so fail the command instead.
         error_exit(
             "No function inventory (unreadable or absent) — run `rebrew intake` or "
-            "`rebrew discover-functions` first",
+            "`rebrew binary functions` first",
             json_mode=json_output,
         )
     src_dir = cfg.reversed_dir

@@ -1,4 +1,4 @@
-"""End-to-end tests for the rebrew round-trip CLI."""
+"""End-to-end tests for the rebrew build round-trip CLI."""
 
 import json
 from pathlib import Path

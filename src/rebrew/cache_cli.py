@@ -46,7 +46,9 @@ app = typer.Typer(
 )
 
 
-@app.command()
+@app.command(
+    epilog="Examples:\n\n  rebrew cache stats --json\n\nCache entries are compiler results keyed by source, flags, and compiler identity."
+)
 def stats(
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
@@ -108,7 +110,9 @@ def stats(
         cache.close()
 
 
-@app.command()
+@app.command(
+    epilog="Examples:\n\n  rebrew cache clear --force\n\nCache entries are compiler results keyed by source, flags, and compiler identity."
+)
 def clear(
     force: bool = typer.Option(False, "--force", help="Skip confirmation prompt"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),

@@ -247,7 +247,7 @@ def test_unpack_lzexe_fixture_mutation_no_crash(noise: bytes, n_flips: int) -> N
 
 
 class TestUnpackCli:
-    """``rebrew unpack-lzexe``'s own contract: where the bytes land, and what
+    """``rebrew binary unpack-lzexe``'s own contract: where the bytes land, and what
     the two error classes say.  The unpacker itself is covered above."""
 
     def _run(self, *args: str):

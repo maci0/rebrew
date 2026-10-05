@@ -10,9 +10,9 @@ Best-effort by design: every section is independently optional.  A binary
 without PDB/flirt_sigs/function list still yields the sections that apply,
 and one broken backend (e.g. diec missing) never aborts the others.
 
-    rebrew analyze                       # project target
-    rebrew analyze other.exe             # any binary on disk
-    rebrew analyze --json                # machine-readable dossier
+    rebrew binary analyze                       # project target
+    rebrew binary analyze other.exe             # any binary on disk
+    rebrew binary analyze --json                # machine-readable dossier
 """
 
 from __future__ import annotations
@@ -36,9 +36,9 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew analyze · · · · · · · · · · · · Analyze the project target\n\n"
-        "  rebrew analyze other.exe · · · · · · · Analyze a specific binary\n\n"
-        "  rebrew analyze --json · · · · · · · · · Machine-readable dossier\n\n"
+        "  rebrew binary analyze · · · · · · · · · · · · Analyze the project target\n\n"
+        "  rebrew binary analyze other.exe · · · · · · · Analyze a specific binary\n\n"
+        "  rebrew binary analyze --json · · · · · · · · · Machine-readable dossier\n\n"
         "[bold]Sections:[/bold]\n\n"
         "  Binary layout (format/sections) · toolchain detection\n"
         "  Strings + references · imports + IAT stubs · reference profile\n"
@@ -326,7 +326,7 @@ def _collect_dispatch(info: Any, cfg: Any) -> list[dict[str, Any]]:
 
     *cfg* supplies the known-function names, so each table reports how many of
     its entries resolve to an annotated/relisted function (the same map
-    ``rebrew data --dispatch`` uses — passing ``{}`` made every ``resolved``
+    ``rebrew data dispatch`` uses — passing ``{}`` made every ``resolved``
     count 0).
     """
     from rebrew.data_scan import build_dispatch_known_functions, find_dispatch_tables
