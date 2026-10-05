@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [2.22.0] - 2026-10-05
+
 ### Breaking
 - **Breaking:** Shared migration routines `migrate_markers.migrate_source_file`
   and `migrate_markers.strip_marker_blocks` move to `marker_migration` so data
