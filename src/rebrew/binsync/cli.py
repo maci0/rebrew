@@ -9,7 +9,7 @@ and adds the git-automation trio (``push`` / ``pull`` wrap export / import):
   imports the state into the project.
 * ``summary`` previews both directions read-only.
 
-The flat ``rebrew binsync-export`` / ``rebrew binsync-import`` commands keep
+The flat ``rebrew binsync export`` / ``rebrew binsync import`` commands keep
 their own option sets, which differ from the ``push`` / ``pull`` wrappers
 above; every other command is mounted here as a subcommand.
 """
@@ -56,7 +56,7 @@ _PULL_COUNTS: tuple[str, ...] = (
 
 
 app = typer.Typer(
-    help="BinSync state sync: push/pull/summary plus the flat commands.",
+    help="Synchronize Git-backed state or exchange raw BinSync artifacts.",
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
@@ -72,11 +72,10 @@ app = typer.Typer(
 )
 
 
-# Register the existing callbacks directly (same mechanism as main.py's
-# _register_single_module): the callbacks carry their own options.
-app.command(name="init")(init.main)
-app.command(name="diff")(diff.main)
-app.command(name="overlay")(overlay.main)
+# Register existing callbacks directly and retain their module examples.
+app.command(name="init", epilog=init.app.info.epilog)(init.main)
+app.command(name="diff", epilog=diff.app.info.epilog)(diff.main)
+app.command(name="overlay", epilog=overlay.app.info.epilog)(overlay.main)
 
 
 def _git_failure(action: str, result: subprocess.CompletedProcess[str]) -> str:
@@ -100,7 +99,9 @@ def _require_state_repo(state_dir: Path, *, json_mode: bool) -> None:
         )
 
 
-@app.command()
+@app.command(
+    epilog="Examples:\n\n  rebrew binsync push --dry-run --json\n\nPreview imports or synchronization with --dry-run; accepted fields retain provenance."
+)
 def push(
     state_dir: Path = typer.Argument(..., help="BinSync state directory to export into"),
     module: str | None = typer.Option(
@@ -140,7 +141,9 @@ def push(
     export.print_export_result(result, json_output=json_output, dry_run=dry_run)
 
 
-@app.command()
+@app.command(
+    epilog="Examples:\n\n  rebrew binsync pull --dry-run --json\n\nPreview imports or synchronization with --dry-run; accepted fields retain provenance."
+)
 def pull(
     state_dir: Path = typer.Argument(..., help="BinSync state directory to import from"),
     no_git: bool = typer.Option(
@@ -196,7 +199,9 @@ def pull(
     importer.print_import_result(result, json_output=json_output, dry_run=dry_run)
 
 
-@app.command()
+@app.command(
+    epilog="Examples:\n\n  rebrew binsync summary --json\n\nPreview imports or synchronization with --dry-run; accepted fields retain provenance."
+)
 def summary(
     state_dir: Path = typer.Argument(..., help="BinSync state directory to preview"),
     module: str | None = typer.Option(None, "--module", help="Only this module (e.g. SERVER)"),

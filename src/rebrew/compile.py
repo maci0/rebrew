@@ -3,7 +3,7 @@
 Provides a single, consistent interface for compiling C source to .obj files
 through the configured toolchain (its docker image — the runtime, be it
 wine, DOSBox or a native Linux binary, lives inside that image). All tools
-(rebrew test, rebrew match, rebrew
+(rebrew test, rebrew match run, rebrew
 verify) use these functions instead of building compile commands
 independently.
 
@@ -255,7 +255,7 @@ class CompareResult:
     #: different registers.  Not byte-identical; PROVEN or register-nudging C
     #: tweaks are the paths forward.
     effective_match: bool = False
-    #: SHA-256 of the supplied compile context (``rebrew context`` output),
+    #: SHA-256 of the supplied compile context (``rebrew export context`` output),
     #: or ``None`` when the compile ran without one.  Pins the verdict to the
     #: declarations it was earned under: a changed context is a different
     #: compile input, so a result recorded under one digest says nothing
@@ -673,7 +673,7 @@ def classify_compare_result(
     elif match_percent >= NEAR_MATCH_THRESHOLD * 100:
         status = "NEAR_MATCHING"
         if msg and not msg.startswith("NEAR_MATCHING"):
-            msg = f"{msg} - run 'rebrew match <file> --flag-sweep-only' to try flag variants"
+            msg = f"{msg} - run 'rebrew match flags <file>' to try flag variants"
     else:
         status = "STUB"
     if msg.startswith(UNCLASSIFIED_DIFF):
@@ -1899,7 +1899,7 @@ _BATCH_OBJ_DIRS: list[Path] = []
 _BATCH_ATEXIT_REGISTERED = False
 _BATCH_OBJ_DIRS_LOCK = threading.Lock()
 #: Cap on :data:`_BATCH_OBJ_DIRS`.  Only ``verify`` drains it per pass, so a
-#: long ``rebrew match --all`` or GA run against a runtime that keeps a bind
+#: long ``rebrew match batch`` or GA run against a runtime that keeps a bind
 #: mount busy past :func:`~rebrew.temp_dirs.remove_temp_dir`'s retry window
 #: re-queued one dir per compile and never retried any of them before exit.
 #: Overflow drains the queue (see :func:`_discard_temp_dir`) and then drops

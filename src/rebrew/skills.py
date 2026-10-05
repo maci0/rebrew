@@ -213,7 +213,10 @@ app = typer.Typer(
 )
 
 
-@app.command("list")
+@app.command(
+    "list",
+    epilog="Examples:\n\n  rebrew skills list --json\n\nPackaged skills are the source of generated project guidance; user skills merge by name.",
+)
 def list_skills(
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
@@ -243,7 +246,10 @@ def list_skills(
     console.print(table)
 
 
-@app.command("show")
+@app.command(
+    "show",
+    epilog="Examples:\n\n  rebrew skills show my-game --json\n\nPackaged skills are the source of generated project guidance; user skills merge by name.",
+)
 def show_skill(
     name: str = typer.Argument(..., help="Skill name (e.g. 'rebrew-workflow')."),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),

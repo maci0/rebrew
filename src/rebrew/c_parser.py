@@ -10,10 +10,12 @@ regex patterns.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 import threading
 from bisect import bisect_left
+from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from itertools import pairwise
@@ -103,6 +105,19 @@ def get_ts_parser() -> tuple[Any, Any] | None:
         return None
 
 
+# One tree per distinct body, per thread.  ``scan_globals`` parses each
+# source twice (externs, then roles).  The map is thread-local because a
+# shared tree is not safe for concurrent walks.  ``parser.parse`` without an
+# old tree does not invalidate a tree already stored here.  Sources above
+# the size cap are parsed and forgotten.
+# ``scan_globals`` parses each source twice. 512 dropped the first half of a
+# 2000-file tree, so the second pass re-parsed it (20 ms vs 1 ms, +8 MB RSS
+# at 2000). 8192 matches the source-text memo. Raise it when a larger scan
+# shows up in a profile.
+_PARSE_MEMO_MAX = 8192
+_PARSE_MEMO_MAX_BYTES = 256 * 1024
+
+
 def parse_c_source(source: str | bytes) -> tuple[Any, bytes]:
     """Parse C source and return (tree, source_bytes) as a tuple."""
     parser, _ = _get_parser()
@@ -114,7 +129,25 @@ def parse_c_source(source: str | bytes) -> tuple[Any, bytes]:
     # UTF-8 errors="replace" re-encode turned each invalid byte into the
     # three-byte U+FFFD sequence and shifted every later node offset — a
     # cp1252 0xE9 before a string literal made protected_spans miss it.
-    return parser.parse(source), source
+    memo: OrderedDict[bytes, tuple[Any, bytes]] | None = None
+    key: bytes | None = None
+    if len(source) <= _PARSE_MEMO_MAX_BYTES:
+        memo = getattr(_tls, "parse_memo", None)
+        if memo is None:
+            memo = OrderedDict()
+            _tls.parse_memo = memo
+        key = hashlib.sha256(source).digest()
+        hit = memo.get(key)
+        if hit is not None:
+            memo.move_to_end(key)
+            return hit
+    parsed = (parser.parse(source), source)
+    if key is not None and memo is not None:
+        memo[key] = parsed
+        memo.move_to_end(key)
+        while len(memo) > _PARSE_MEMO_MAX:
+            memo.popitem(last=False)
+    return parsed
 
 
 # ---------------------------------------------------------------------------
@@ -192,7 +225,7 @@ def array_type_shape(
 def protected_spans(source: str | bytes) -> list[tuple[int, int]]:
     """Byte spans of text a rename must NOT rewrite: literals and macro names.
 
-    ``rebrew rename`` documents that macros and string literals are not
+    ``rebrew source rename`` documents that macros and string literals are not
     rewritten; a plain regex substitution over the raw text rewrote
     ``puts("foo")`` into ``puts("bar")``, changing the data an already
     byte-matched function emits.
@@ -578,6 +611,39 @@ def _file_scope(node: Any) -> bool:
     return parent is not None and parent.type == "translation_unit"
 
 
+# Substrings that make :func:`_variable_tree` rewrite the parser input.
+# Anything else is already a faithful parse, so the token walk is skipped.
+_VARIABLE_TREE_MARKERS: tuple[str, ...] = ("__asm", "_asm", *sorted(_CALLING_CONVENTIONS))
+
+
+def _recall_variable_tree(source: str) -> tuple[Any, bytes] | None:
+    """Return a same-thread normalization of *source*, if one is still cached."""
+    if len(source) > _PARSE_MEMO_MAX_BYTES:
+        return None
+    memo: OrderedDict[str, tuple[Any, bytes]] | None = getattr(_tls, "variable_tree_memo", None)
+    if memo is None:
+        return None
+    hit = memo.get(source)
+    if hit is None:
+        return None
+    memo.move_to_end(source)
+    return hit
+
+
+def _store_variable_tree(source: str, parsed: tuple[Any, bytes]) -> None:
+    """Remember *parsed* for a later scan of the same text on this thread."""
+    if len(source) > _PARSE_MEMO_MAX_BYTES:
+        return
+    memo: OrderedDict[str, tuple[Any, bytes]] | None = getattr(_tls, "variable_tree_memo", None)
+    if memo is None:
+        memo = OrderedDict()
+        _tls.variable_tree_memo = memo
+    memo[source] = parsed
+    memo.move_to_end(source)
+    while len(memo) > _PARSE_MEMO_MAX:
+        memo.popitem(last=False)
+
+
 def _variable_tree(source: str) -> tuple[Any, bytes]:
     """Normalize MSVC syntax using tree-sitter tokens, preserving asm operands.
 
@@ -586,7 +652,18 @@ def _variable_tree(source: str) -> tuple[Any, bytes]:
     its symbolic operands before scanning scopes. Strings/comments/macros remain
     opaque; calling conventions are masked only in the parser input. Returned
     source bytes retain their spelling at the same offsets as the parsed tree.
+
+    A source with no assembly and no calling-convention token is returned from
+    the first parse. A second scan of the same text on this thread reuses that
+    result. The cache is thread-local and capped, same as :func:`parse_c_source`.
     """
+    cached = _recall_variable_tree(source)
+    if cached is not None:
+        return cached
+    if not any(marker in source for marker in _VARIABLE_TREE_MARKERS):
+        parsed = parse_c_source(source)
+        _store_variable_tree(source, parsed)
+        return parsed
     tree, raw = parse_c_source(source)
     tokens: list[tuple[str, int, int, int, str]] = []
     cursor = tree.walk()
@@ -721,7 +798,9 @@ def _variable_tree(source: str) -> tuple[Any, bytes]:
         raw = raw[:start] + replacement + raw[end:]
         parser_bytes = parser_bytes[:start] + replacement + parser_bytes[end:]
     tree, _ = parse_c_source(parser_bytes)
-    return tree, raw
+    parsed = (tree, raw)
+    _store_variable_tree(source, parsed)
+    return parsed
 
 
 def find_extern_variables(

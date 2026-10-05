@@ -1,6 +1,6 @@
 """Property-based fuzz tests for ``rebrew.pe_headers`` on untrusted images.
 
-``pe_headers`` is the hand-rolled PE/COFF walk behind ``rebrew round-trip
+``pe_headers`` is the hand-rolled PE/COFF walk behind ``rebrew build round-trip
 --fix-headers``: ``e_lfanew``, the section table, the optional-header field
 offsets and the checksum all come straight out of a file the user points the
 CLI at, so every count, offset and magic is forgeable.  The harnesses below

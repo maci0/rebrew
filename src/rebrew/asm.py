@@ -21,14 +21,14 @@ assembler-encoding risk) behind the ``REBREW_ALLOW_NAKED`` fence, with a
 plain-C fallback for the comparison build and a ``// SIZE`` annotation so
 the file is self-contained for ``rebrew test`` (iterate with
 ``--cflags /DREBREW_ALLOW_NAKED``; round-trip uses the naked branch via
-``rebrew round-trip --allow-naked``).
+``rebrew build round-trip --allow-naked``).
 
 Usage:
-    rebrew asm 0x10003ca0 --size 77
-    rebrew asm 0x10003ca0 --format cfg
-    rebrew asm 0x10003ca0 --size 77 --format nasm --output func.asm
-    rebrew asm 0x10003ca0 --size 77 --format nasm --inline-c --output func.c
-    rebrew asm --all --out-dir output/asm/ --format nasm
+    rebrew binary asm show 0x10003ca0 --size 77
+    rebrew binary asm show 0x10003ca0 --format cfg
+    rebrew binary asm show 0x10003ca0 --size 77 --format nasm --output func.asm
+    rebrew binary asm show 0x10003ca0 --size 77 --format nasm --inline-c --output func.c
+    rebrew binary asm batch --output output/asm/
 """
 
 from __future__ import annotations
@@ -307,9 +307,9 @@ def _hint_for(insns: list[Any], i: int) -> str | None:
             if prev.mnemonic == "mov" and _BYTE_TABLE_FETCH_RE.search(prev.op_str):
                 return (
                     "byte-compressed switch (two-level dispatch) — decode with "
-                    "`rebrew switch <va>`; a plain C switch may not reproduce this"
+                    "`rebrew binary switches <va>`; a plain C switch may not reproduce this"
                 )
-        return "switch dispatch (jump table) — decode the case table with `rebrew switch <va>`"
+        return "switch dispatch (jump table) — decode the case table with `rebrew binary switches <va>`"
 
     # `cmp reg,1; sbb reg,reg` (+ optional inc) — MSVC's equality-boolean
     # lowering (x == 0 → -1/0, or with inc → 0/1 for `!x`).  Plain C
@@ -407,7 +407,8 @@ def calling_convention(
     - ends in a plain ``ret`` → cdecl (caller cleans).
     - ends in ``ret N`` → stdcall or thiscall; if ECX is used as a pointer
       (``[ecx`` memory access) or saved to a callee-saved register early
-      (``mov esi, ecx``) → thiscall, else stdcall.
+      (``mov esi, ecx``), before ECX is locally defined or clobbered,
+      → thiscall, else stdcall.
     - ends in an unconditional ``jmp`` → tail call / thunk; ``mov ecx, imm``
       opening → thiscall ctor thunk; ``mov ecx, [ebp-X]`` opening → EH-guard
       thunk; otherwise a generic tail-call thunk.
@@ -433,23 +434,28 @@ def calling_convention(
         insns = [i for i in insns if i.address < next_va]
     if not insns:
         return "unknown"
-    first = insns[0]
-    # If the very first instruction loads ecx from memory (`mov ecx,[esp+4]`
-    # passing an argument), ecx is NOT the this pointer — a thiscall keeps
-    # the incoming this in ecx untouched.
-    loads_ecx_from_mem_first = (
-        first.mnemonic == "mov" and first.op_str.startswith("ecx, ") and "[" in first.op_str
-    )
-    ecx_as_this = not loads_ecx_from_mem_first and any(
-        "[ecx" in i.op_str
-        or (
-            i.mnemonic == "mov"
-            and "," in i.op_str
-            and i.op_str.split(",")[1].strip() == "ecx"
-            and i.op_str.split(",")[0].strip() in ("esi", "edi", "ebx")
-        )
-        for i in insns[:10]
-    )
+    # A dereference of a locally computed ECX (e.g. lea ecx,[edx-4]) is
+    # not evidence of an incoming this pointer. Check reads before writes:
+    # mov ecx,[ecx+4] still dereferences the incoming pointer. Once it has
+    # been saved or dereferenced, subsequent clobbers cannot erase that fact.
+    ecx_as_this = False
+    ecx_registers = {"ecx", "cx", "cl", "ch"}
+    for insn in insns[:10]:
+        operands = [op.strip() for op in insn.op_str.split(",")]
+        if "[ecx" in insn.op_str or (
+            insn.mnemonic == "mov"
+            and len(operands) == 2
+            and operands[1] == "ecx"
+            and operands[0] in ("esi", "edi", "ebx")
+        ):
+            ecx_as_this = True
+            break
+        if (
+            insn.mnemonic == "call"
+            or (operands[0] in ecx_registers and insn.mnemonic not in ("cmp", "test", "push"))
+            or (insn.mnemonic == "xchg" and any(op in ecx_registers for op in operands))
+        ):
+            break
     # The extraction can run past the function's end into the next one.  A
     # function ends with its LAST ret inside its own bytes (early returns
     # precede it); if there is no ret at all it is a tail-jmp thunk (which
@@ -558,7 +564,7 @@ def next_function_va(cfg: ProjectConfig, va: int) -> int | None:
 def calling_convention_at(cfg: ProjectConfig, va: int) -> str:
     """Infer the calling convention of the function at *va* (extent-based).
 
-    Shared by ``rebrew describe`` and skeleton generation.  Returns
+    Shared by ``rebrew binary function`` and skeleton generation.  Returns
     ``"unknown"`` on any failure.
     """
     insns, _kind = disassembled_extent_window(cfg, va)
@@ -819,7 +825,7 @@ def _hex_dump_text(data: bytes, va_int: int) -> str:
 def hex_disassembly(cfg: ProjectConfig, va_int: int, size: int) -> str:
     """Disassemble *size* bytes at *va_int* and return the ``--format hex`` text.
 
-    The stdout text ``rebrew asm <va> --size N --format hex`` prints: one
+    The stdout text ``rebrew binary asm show <va> --size N --format hex`` prints: one
     ``  0xADDR:  BYTES  MNEMONIC OPERANDS`` line per instruction with the
     default call annotations, or the raw hex dump when capstone is missing.
     The header and stale-size warning the CLI writes to stderr are not part
@@ -954,7 +960,7 @@ _CFG_NO_EXTENT_NOTE = (
 def build_cfg_payload(cfg: ProjectConfig, va_int: int, size: int = 0) -> dict[str, Any]:
     """Build the basic-block CFG payload for the function at *va_int*.
 
-    The exact object ``rebrew asm <va> --format cfg --json`` prints.  A
+    The exact object ``rebrew binary asm show <va> --format cfg --json`` prints.  A
     positive *size* is the declared extent; otherwise the same function-list
     / disassembly-walk resolution the CLI does is used.  The ``cfg_ged``
     view is rendered with addresses as ``0x...`` text, and a missing extent
@@ -1286,7 +1292,7 @@ def generate_inline_c(
     The function is emitted behind the ``REBREW_ALLOW_NAKED`` fence: the
     ``__declspec(naked)``/``__attribute__((naked))`` + raw-byte branch
     reproduces the target bytes VERBATIM for **round-trip verification**
-    builds (``rebrew round-trip --allow-naked`` defines it), while the
+    builds (``rebrew build round-trip --allow-naked`` defines it), while the
     ``#else`` branch is an idiomatic C fallback that keeps the comparison
     build compiling (``rebrew prove`` can establish it as PROVEN without
     byte equality).
@@ -1327,7 +1333,9 @@ def generate_inline_c(
     lines.append(f"// SIZE: {len(code)}")
     lines.append("// SOURCE: naked")
     lines.append("")
-    lines.append("// Exact-bytes naked reconstruction (generated by `rebrew asm --inline-c`).")
+    lines.append(
+        "// Exact-bytes naked reconstruction (generated by `rebrew binary asm show --inline-c`)."
+    )
     lines.append("// The guarded branch emits the target bytes verbatim (_emit/.byte) —")
     lines.append("// byte-exact by construction; implement the real C in the fallback")
     lines.append("// branch and drop -DREBREW_ALLOW_NAKED once it matches.")
@@ -1459,7 +1467,7 @@ def batch_extract_nasm(
     functions in reversed_dir.
 
     With ``inline_c`` each function is written as a ``// SOURCE: naked``
-    fenced skeleton (``rebrew asm --inline-c`` output) — the whole-binary
+    fenced skeleton (``rebrew binary asm show --inline-c`` output) — the whole-binary
     byte-coverage baseline: every function becomes compileable and iterable
     through ``rebrew test --cflags /DREBREW_ALLOW_NAKED``, and ``rebrew
     status``/``todo`` bucket them as naked reconstructions (byte-exact, not
@@ -1542,14 +1550,14 @@ def batch_extract_nasm(
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew asm 0x10003ca0 --size 77 · · · · · · · · · · · Disassemble (hex format, default)\n\n"
-    "  rebrew asm 0x10003ca0 --no-annotate · · · · · · · · · Skip call/jmp name annotations\n\n"
-    "  rebrew asm 0x10003ca0 --size 77 --format nasm · · NASM output\n\n"
-    "  rebrew asm 0x10003ca0 --size 77 --format nasm --verify  Verify round-trip\n\n"
-    "  rebrew asm 0x10003ca0 --size 77 --format nasm --inline-c --output f.c  Inline C\n\n"
-    "  rebrew asm 0x10003ca0 --format cfg · · · · · · · · Basic-block CFG + edges\n\n"
-    "  rebrew asm --all --out-dir output/asm/ --format nasm · · Batch NASM extract\n\n"
-    "  rebrew asm 0x10003ca0 --size 77 --json · · · · · · · · JSON output\n\n"
+    "  rebrew binary asm show 0x10003ca0 --size 77 · · · · · · · · · · · Disassemble (hex format, default)\n\n"
+    "  rebrew binary asm show 0x10003ca0 --no-annotate · · · · · · · · · Skip call/jmp name annotations\n\n"
+    "  rebrew binary asm show 0x10003ca0 --size 77 --format nasm · · NASM output\n\n"
+    "  rebrew binary asm show 0x10003ca0 --size 77 --format nasm --verify Verify round-trip\n\n"
+    "  rebrew binary asm show 0x10003ca0 --size 77 --format nasm --inline-c --output f.c Inline C\n\n"
+    "  rebrew binary asm show 0x10003ca0 --format cfg · · · · · · · · Basic-block CFG + edges\n\n"
+    "  rebrew binary asm batch --output output/asm/ · · Batch NASM extract\n\n"
+    "  rebrew binary asm show 0x10003ca0 --size 77 --json · · · · · · · · JSON output\n\n"
     "[bold]Formats:[/bold]\n\n"
     "  hex · · Capstone disassembly with hex dump and call annotation (default)\n\n"
     "  nasm · · NASM-reassembleable source with optional round-trip verification\n\n"
@@ -1567,7 +1575,7 @@ app = typer.Typer(
 def _list_size_for(cfg: ProjectConfig, va_int: int) -> int | None:
     """Function-list size for *va_int*, if the list knows it.
 
-    Lets ``rebrew asm <va>`` default to the real function size instead of a
+    Lets ``rebrew binary asm show <va>`` default to the real function size instead of a
     hardcoded 32-byte window (which bleeds into the adjacent function).
     """
     from rebrew.catalog import cached_function_list
@@ -1581,50 +1589,26 @@ def _list_size_for(cfg: ProjectConfig, va_int: int) -> int | None:
     return None
 
 
-@app.callback(invoke_without_command=True)
-def main(
-    va: str | None = typer.Argument(None, help="Function VA in hex"),
-    size: int | None = typer.Option(None, "--size", help="Function size in bytes"),
-    fmt: str = typer.Option("hex", "--format", "-f", help="Output format: hex, nasm, cfg"),
-    annotate: bool = typer.Option(
-        True, "--annotate/--no-annotate", help="(hex) Annotate calls with known function names"
-    ),
-    resolve_imports: bool = typer.Option(
-        False, "--imports", help=r"(hex) Annotate call/jmp \[IAT] with import names"
-    ),
-    resolve_strings: bool = typer.Option(
-        False, "--strings", help="(hex) Annotate push/mov/lea of string addresses with text"
-    ),
-    pattern_hints: bool = typer.Option(
-        False, "--hints", help="(hex) Annotate decompiler-relevant codegen patterns"
-    ),
-    # nasm-specific options
-    bin_file: Path | None = typer.Option(None, "--bin", help="(nasm) Raw .bin file"),
-    label: str | None = typer.Option(None, "--label", help="(nasm) Label name for the function"),
-    output: Path | None = typer.Option(
-        None, "--output", "-o", help="Output file (default: stdout)"
-    ),
-    verify: bool = typer.Option(
-        False, "--verify", help="(nasm) Verify round-trip: assemble and compare"
-    ),
-    stats: bool = typer.Option(False, "--stats", help="(nasm) Print stats only, no ASM output"),
-    inline_c: bool = typer.Option(
-        False,
-        "--inline-c",
-        help=(
-            "(nasm) Output an exact-bytes naked C skeleton: raw _emit/.byte "
-            "emission behind the REBREW_ALLOW_NAKED fence + a plain-C fallback, "
-            "self-contained for `rebrew test` (VA/SIZE/symbol from the file)"
-        ),
-    ),
-    extract_all: bool = typer.Option(False, "--all", help="(nasm) Batch extract all functions"),
-    batch_stubs: bool = typer.Option(
-        False, "--batch-stubs", help="(nasm) Batch: STUB functions only"
-    ),
-    out_dir: Path | None = typer.Option(None, "--out-dir", help="(nasm) Output dir for batch mode"),
-    base_va: str = typer.Option("0", "--base-va", help="(nasm) Base VA for --bin files"),
-    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
-    target: str | None = TargetOption,
+def disassemble(
+    va: str | None = None,
+    size: int | None = None,
+    fmt: str = "hex",
+    annotate: bool = True,
+    resolve_imports: bool = False,
+    resolve_strings: bool = False,
+    pattern_hints: bool = False,
+    bin_file: Path | None = None,
+    label: str | None = None,
+    output: Path | None = None,
+    verify: bool = False,
+    stats: bool = False,
+    inline_c: bool = False,
+    extract_all: bool = False,
+    batch_stubs: bool = False,
+    out_dir: Path | None = None,
+    base_va: str = "0",
+    json_output: bool = False,
+    target: str | None = None,
 ) -> None:
     """Disassemble a function from the target binary."""
     # Flag values are checked before the project is loaded, so a typo in
@@ -1817,11 +1801,111 @@ def main(
         console.print(f"\nRound-trip verification: {untrusted_ident(msg)}")
 
 
+@app.command(
+    "show",
+    epilog="Examples:\n\n  rebrew binary asm show --json\n\nUse --target to select a configured project target.",
+)
+def show(
+    va: str | None = typer.Argument(None, help="Function VA in hex"),
+    size: int | None = typer.Option(None, "--size", help="Function size in bytes"),
+    fmt: str = typer.Option("hex", "--format", "-f", help="Output format: hex, nasm, cfg"),
+    annotate: bool = typer.Option(
+        True, "--annotate/--no-annotate", help="(hex) Annotate calls with known function names"
+    ),
+    resolve_imports: bool = typer.Option(
+        False, "--imports", help=r"(hex) Annotate call/jmp \[IAT] with import names"
+    ),
+    resolve_strings: bool = typer.Option(
+        False, "--strings", help="(hex) Annotate push/mov/lea of string addresses with text"
+    ),
+    pattern_hints: bool = typer.Option(
+        False, "--hints", help="(hex) Annotate decompiler-relevant codegen patterns"
+    ),
+    bin_file: Path | None = typer.Option(None, "--bin", help="(nasm) Raw .bin file"),
+    label: str | None = typer.Option(None, "--label", help="(nasm) Label name for the function"),
+    output: Path | None = typer.Option(
+        None, "--output", "-o", help="Output file (default: stdout)"
+    ),
+    verify: bool = typer.Option(
+        False, "--verify", help="(nasm) Verify round-trip: assemble and compare"
+    ),
+    stats: bool = typer.Option(False, "--stats", help="(nasm) Print stats only, no ASM output"),
+    inline_c: bool = typer.Option(
+        False,
+        "--inline-c",
+        help=(
+            "(nasm) Output an exact-bytes naked C skeleton: raw _emit/.byte "
+            "emission behind the REBREW_ALLOW_NAKED fence + a plain-C fallback, "
+            "self-contained for `rebrew test` (VA/SIZE/symbol from the file)"
+        ),
+    ),
+    base_va: str = typer.Option("0", "--base-va", help="(nasm) Base VA for --bin files"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
+) -> None:
+    """Disassemble one function or a raw byte slice."""
+    disassemble(
+        va=va,
+        size=size,
+        fmt=fmt,
+        annotate=annotate,
+        resolve_imports=resolve_imports,
+        resolve_strings=resolve_strings,
+        pattern_hints=pattern_hints,
+        bin_file=bin_file,
+        label=label,
+        output=output,
+        verify=verify,
+        stats=stats,
+        inline_c=inline_c,
+        base_va=base_va,
+        json_output=json_output,
+        target=target,
+    )
+
+
+@app.command(
+    "batch",
+    epilog="Examples:\n\n  rebrew binary asm batch --json\n\nUse --target to select a configured project target.",
+)
+def batch(
+    batch_stubs: bool = typer.Option(False, "--stubs", help="(nasm) Batch: STUB functions only"),
+    out_dir: Path | None = typer.Option(
+        None, "--output", "-o", help="Output directory for batch assembly"
+    ),
+    verify: bool = typer.Option(
+        False, "--verify", help="(nasm) Verify round-trip: assemble and compare"
+    ),
+    inline_c: bool = typer.Option(
+        False,
+        "--inline-c",
+        help=(
+            "(nasm) Output an exact-bytes naked C skeleton: raw _emit/.byte "
+            "emission behind the REBREW_ALLOW_NAKED fence + a plain-C fallback, "
+            "self-contained for `rebrew test` (VA/SIZE/symbol from the file)"
+        ),
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
+) -> None:
+    """Export assembly for project functions, optionally restricted to stubs."""
+    disassemble(
+        batch_stubs=batch_stubs,
+        out_dir=out_dir,
+        verify=verify,
+        inline_c=inline_c,
+        json_output=json_output,
+        target=target,
+        fmt="nasm",
+        extract_all=True,
+    )
+
+
 def main_entry() -> None:
     """Run the Typer CLI application."""
-    from rebrew.cli import run_standalone
+    from rebrew.cli import run_cli
 
-    run_standalone(main)
+    run_cli(app)
 
 
 if __name__ == "__main__":

@@ -32,7 +32,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from rebrew.cli import EXIT_ERROR, TargetOption, console, json_print, require_config
+from rebrew.cli import EXIT_ERROR, TargetOption, console, json_print
 from rebrew.config import (
     ARCH_PRESETS,
     KNOWN_FORMATS,
@@ -911,7 +911,7 @@ def check_function_list(cfg: ProjectConfig) -> CheckResult:
             status=_WARN,
             message=f"Not found: {inv_path}",
             fix=(
-                "Run `rebrew intake` or `rebrew discover-functions "
+                "Run `rebrew intake` or `rebrew binary functions "
                 "--output src/<target>/function_structure.json`."
             ),
         )
@@ -924,7 +924,7 @@ def check_function_list(cfg: ProjectConfig) -> CheckResult:
                 name="Function inventory",
                 status=_WARN,
                 message=f"{inv_path.name} has no parseable entries",
-                fix="Regenerate it with `rebrew discover-functions`.",
+                fix="Regenerate it with `rebrew binary functions`.",
             )
         return CheckResult(
             name="Function inventory",
@@ -1037,14 +1037,14 @@ def check_shared_sources(cfg: ProjectConfig) -> CheckResult:
             status=_WARN,
             message=f"{len(targets)} targets but shared_dir is disabled",
             fix="Enable with `rebrew cfg set project.shared_dir 'src/shared'` "
-            "and `rebrew cross-import --from <src> --shared` for shared functions.",
+            "and `rebrew source import-related --from <src> --shared` for shared functions.",
         )
     if not Path(shared).is_dir():
         return CheckResult(
             name="Shared sources",
             status=_WARN,
             message=f"{len(targets)} targets sharing one codebase but {shared} is missing",
-            fix=f"Create with: mkdir -p {shlex.quote(str(shared))} — then `rebrew cross-import "
+            fix=f"Create with: mkdir -p {shlex.quote(str(shared))} — then `rebrew source import-related "
             "--from <src> --shared` stacks one marker per target on one file.",
         )
     return CheckResult(
@@ -1058,8 +1058,8 @@ def check_external_libs(cfg: ProjectConfig) -> CheckResult:
     """Check the external ``.lib`` flag (``targets.<name>.external_libs``).
 
     The map flags external library code — "not our work": its modules leave
-    the progress accounting, ``rebrew lib-match`` ingests the archives by
-    default, and ``rebrew cmake-sources`` emits the non-empty specs as
+    the progress accounting, ``rebrew library match`` ingests the archives by
+    default, and ``rebrew build cmake-sources`` emits the non-empty specs as
     ``REBREW_EXTERNAL_LIBS`` so the build links the stock archive at build
     time instead of compiling reversed copies.
     """
@@ -1114,7 +1114,7 @@ def check_layout_package(cfg: ProjectConfig) -> CheckResult:
         name="Layout package",
         status=_WARN,
         message=f"Not found: {pkg}",
-        fix=f"Run `rebrew gen-layout --target {cfg.target_name}`.",
+        fix=f"Run `rebrew build layout --target {cfg.target_name}`.",
     )
 
 
@@ -1205,73 +1205,10 @@ app = typer.Typer(
 
 @app.callback(invoke_without_command=True)
 def main(
-    install_wibo: bool = typer.Option(
-        False,
-        "--install-wibo",
-        help="Download wibo to tools/wibo if missing; no-op if already installed.",
-    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
     """Run diagnostic checks on the rebrew project."""
-    if install_wibo:
-        from rebrew.wibo import download_wibo
-
-        cfg = require_config(target=target, json_mode=json_output)
-        wibo_path = cfg.root / "tools" / "wibo"
-        if wibo_path.exists():
-            console.print(f"wibo already installed at {wibo_path}")
-            return
-        tag_name = download_wibo(wibo_path)
-        console.print(f"Downloaded wibo {tag_name} to {wibo_path}")
-
-        # Docker-backed profiles execute through their image, which runs
-        # WINE by default (REBREW_RUNNER defaults to wine; wibo is opt-in and
-        # fails on some tools).  The config runner is obsolete for them, so
-        # --install-wibo must NOT rewrite runner = "tools/wibo" — that would
-        # silently steer a docker-only project toward the less-compatible
-        # runtime the user just reported failing.  Only legacy host-runner
-        # profiles (native/wine/wibo without an image) get the rewrite.
-        from rebrew.toolchain import TOOLCHAINS
-
-        profile = str(getattr(cfg, "compiler_profile", ""))
-        spec = TOOLCHAINS.get(profile) if profile else None
-        if spec is not None and spec.image is not None:
-            console.print(
-                f"[yellow]note:[/yellow] {profile} is docker-backed — execution "
-                f"runs through image {spec.image}, which uses wine by default; "
-                "the runner config is obsolete and was left untouched (wibo "
-                "is available in tools/ for legacy profiles)"
-            )
-            return
-
-        if (cfg.root / "rebrew-project.toml").exists():
-            import re
-
-            from rebrew.config import project_toml_lock
-            from rebrew.utils import atomic_write_text
-
-            # One locked read-modify-write: the rewrite is a regex over the
-            # whole file, so a concurrent writer of any other key in it would
-            # have its edit dropped by the replace.
-            with project_toml_lock(cfg.root) as toml_path:
-                content = toml_path.read_text(encoding="utf-8-sig")
-                if re.search(r"(?m)^\s*runner\s*=", content):
-                    new_content = re.sub(
-                        r'(?m)^(\s*runner\s*=\s*)"[^"]*"',
-                        r'\1"tools/wibo"',
-                        content,
-                    )
-                else:
-                    new_content = re.sub(
-                        r"(?m)^(\[compiler\]\s*\n)",
-                        r'\1runner = "tools/wibo"\n',
-                        content,
-                    )
-                if new_content != content:
-                    atomic_write_text(toml_path, new_content, encoding="utf-8")
-                    console.print("Auto-enabled wibo in rebrew-project.toml")
-
     report = run_doctor(target=target)
 
     if json_output:
@@ -1410,7 +1347,7 @@ def _flirt_problem_fix(problems: list[str]) -> str:
         )
     if corrupt:
         parts.append(
-            "Regenerate corrupt .pat files with 'rebrew gen-flirt-pat': " + "; ".join(corrupt)
+            "Regenerate corrupt .pat files with 'rebrew library signatures': " + "; ".join(corrupt)
         )
     return " ".join(parts)
 
@@ -1418,7 +1355,7 @@ def _flirt_problem_fix(problems: list[str]) -> str:
 def check_flirt_sigs(cfg: ProjectConfig) -> CheckResult:
     """Check the ``flirt_sigs/`` directory: present, non-empty, and every
     ``.pat``/``.sig`` file actually parses via python-flirt — the exact reader
-    ``rebrew flirt`` uses.
+    ``rebrew library scan-signatures`` uses.
 
     A directory full of corrupt or legacy signatures silently yields zero
     matches; this check surfaces that before the user wastes a scan.
@@ -1430,9 +1367,9 @@ def check_flirt_sigs(cfg: ProjectConfig) -> CheckResult:
             status=_WARN,
             message="flirt_sigs/ directory not found",
             fix=(
-                "Run 'rebrew flirt --init-matched' for the linkage-matched "
+                "Run 'rebrew library init-signatures --matched-only' for the linkage-matched "
                 "set, or generate from a compiler .lib with "
-                "'rebrew gen-flirt-pat /path/to/msvcrt.lib "
+                "'rebrew library signatures /path/to/msvcrt.lib "
                 "--output flirt_sigs/msvcrt_vc6.pat'."
             ),
         )
@@ -1453,7 +1390,7 @@ def check_flirt_sigs(cfg: ProjectConfig) -> CheckResult:
             name="FLIRT signatures",
             status=_SKIP,
             message=f"{len(sig_files)} sig file(s) found, but python-flirt is not installed",
-            fix="Install python-flirt to use 'rebrew flirt': 'uv add python-flirt'.",
+            fix="Install python-flirt to use 'rebrew library scan-signatures': 'uv add python-flirt'.",
         )
 
     total = 0
@@ -1552,7 +1489,7 @@ def check_binsync_state(cfg: ProjectConfig) -> CheckResult:
             message="no BinSync state dir configured — field sync requires "
             "--state-dir or targets.<name>.binsync_state_dir",
             fix="Set targets.<name>.binsync_state_dir in rebrew-project.toml "
-            "(or pass --state-dir to rebrew sync).",
+            "(or pass --state-dir to rebrew sync push).",
         )
     state_path = Path(state).expanduser()
     if not state_path.exists():
@@ -1560,7 +1497,7 @@ def check_binsync_state(cfg: ProjectConfig) -> CheckResult:
             name="BinSync sync",
             status=_WARN,
             message=f"configured BinSync state dir not found: {state}",
-            fix="Export it once with 'rebrew sync --push --state-dir <dir>'.",
+            fix="Export it once with 'rebrew sync push --state-dir <dir>'.",
         )
     if not state_path.is_dir():
         return CheckResult(
@@ -1645,7 +1582,7 @@ def check_binsync_state(cfg: ProjectConfig) -> CheckResult:
             status=_WARN,
             message=f"BinSync state dir {state} has no commits yet — sync state "
             "is unchecked (Ghidra may not see exports)",
-            fix="Export once with 'rebrew sync --push --state-dir <dir>' and "
+            fix="Export once with 'rebrew sync push --state-dir <dir>' and"
             "confirm the BinSync Ghidra plugin is watching this state dir.",
         )
     return CheckResult(
@@ -1899,7 +1836,7 @@ def check_opt_level(cfg: ProjectConfig) -> CheckResult:
                 status=_WARN,
                 message=f"binary shows {info.opt_level} wrapper styles — project cflags "
                 f"'{cflags}' can only match one half; use per-function flag sweeps",
-                fix="rebrew match <file> --flag-sweep-only",
+                fix="rebrew match flags <file>",
             )
         return CheckResult(
             name="Optimization level",

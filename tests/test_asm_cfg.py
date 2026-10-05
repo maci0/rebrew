@@ -36,9 +36,9 @@ STRAIGHT = bytes.fromhex("b8 01 00 00 00 83 c0 01 c3")
 
 
 def _app() -> typer.Typer:
-    """The standalone command app (the wiring ``asm.main_entry`` uses)."""
+    """The standalone command app (the wiring ``asm.show_entry`` uses)."""
     app = typer.Typer()
-    app.command()(asm.main)
+    app.command()(asm.show)
     return app
 
 

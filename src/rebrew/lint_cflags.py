@@ -152,7 +152,7 @@ def drop_redundant_presets(
     # One locked read-modify-write.  This drops whole ``cflags_presets`` keys
     # from a document it parsed before the lock, so a concurrent writer of
     # another key in the same file (a splat import patching
-    # ``[targets.<name>].arch``, ``rebrew cfg add-target``) had its edit
+    # ``[targets.<name>].arch``, ``rebrew cfg target add``) had its edit
     # discarded wholesale by the replace at the end.
     with project_toml_lock(cfg.root) as toml_path:
         try:

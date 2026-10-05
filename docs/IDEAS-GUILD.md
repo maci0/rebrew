@@ -9,7 +9,7 @@ promote scoped proposals to [ROADMAP.md](ROADMAP.md).
 
 ## Measure truth, not proxies
 
-- [ ] **Link-residue as first-class metric (`rebrew residue --json`).**
+- [ ] **Link-residue as first-class metric (`rebrew build residue --json`).**
   Pain: object metrics (`matched`, `aligned`) pointed the wrong way ≥6 times;
   only `scripts/linktest.sh` + `split_link.sh` + `postlink_residual.py` told
   the truth, all out-of-tree. Feature: built-in command that relinks, applies
@@ -43,7 +43,7 @@ promote scoped proposals to [ROADMAP.md](ROADMAP.md).
   probe reads the map, hand-built each time. Feature: auto-generate the
   probe TU, compile, report reference-vs-object slot assignment per local.
   Evidence: codegen-walls §1, allocator Finding 60.
-- [ ] **Volatile fixed-point sweep (`rebrew match --volatile-sweep`).**
+- [ ] **Volatile fixed-point sweep (`rebrew match run --volatile-sweep`).**
   Pain: volatile is per-variable fixed point, per-site wall; manual sweeps
   (1/8/17 sites) cost rounds. Feature: systematic per-variable qualify/
   dequalify sweep with link-residue ranking, respecting composition band.
@@ -60,7 +60,7 @@ promote scoped proposals to [ROADMAP.md](ROADMAP.md).
 
 ## Data round support
 
-- [ ] **`rebrew data` composition awareness.**
+- [ ] **`rebrew data list` composition awareness.**
   Pain: data edits move `.text` cost unpredictably (AcceptConnections:
   local 0 diffs, gate `.text` +180 via COMDAT literal emission). Feature:
   data verify that also reports `.text` delta of the change, warning when a
@@ -72,7 +72,7 @@ promote scoped proposals to [ROADMAP.md](ROADMAP.md).
   pre-link. Evidence: goal.md types section.
 - [ ] **String-to-owner attribution with push verification.**
   Pain: RevEng attribution wrong twice; manual `asm | grep push` confirmation
-  each time. Feature: `rebrew strings --verify-push`; attribute `"<name>():
+  each time. Feature: `rebrew binary strings --verify-push`; attribute `"<name>():
   ..."` strings, confirm each by disassembling the owner for the literal
   push, report unverified ones. Evidence: naming_conventions.md attested
   table method.
@@ -264,10 +264,10 @@ promote scoped proposals to [ROADMAP.md](ROADMAP.md).
   Pain: `build/` is gitignored, so a hand-edited `build.make` (or `flags.make`)
   is invisible to `git status`, to `rebrew lint`, to `rebrew verify --full`, and
   to `cmake --build`, while silently redefining what any consumer's measurement
-  means. `rebrew postlink` and `rebrew cmake-flags` both read that tree. A round
+  means. `rebrew build postlink` and `rebrew build cmake-flags` both read that tree. A round
   sweeping per-file toolchain pins hit this and left a tree reporting 58% residue
   with a 290,816-byte deliverable against the correct 286,720 / 8628.
-  Feature: `rebrew build-check` (and a `rebrew doctor` clause) comparing
+  Feature: `rebrew build check` (and a `rebrew doctor` clause) comparing
   `build.make`'s compile lines against CMake's own `flags.make` records;
   shipped as `src/rebrew/build_check.py`.
   Evidence: guild-rebrew `docs/workflow-traps.md` §20.
@@ -321,7 +321,7 @@ promote scoped proposals to [ROADMAP.md](ROADMAP.md).
   Evidence: guild-rebrew `src/server.dll/DieGildeAddOnServer/server_c/ServerMainThread.c` header,
   "PROVEN is NOT reachable for this function" block (rounds 6-9 probes).
 
-- **`rebrew orphans --prune` deletes metadata for block-comment `/* DATA: SERVER 0x... */` markers.**
+- **`rebrew orphans prune` deletes metadata for block-comment `/* DATA: SERVER 0x... */` markers.**
   Pain: pruned 260 lines from `rebrew-data.toml` + 3 GOLDTL function entries, orphaning live source
   DATA markers (vfs4.c `0x1002944c..0x100294a0` range form, vfs_OpenStream.c `0x100294a4`) and
   tripping W016 ("DATA marker missing // SECTION") + W022. The orphan detector appears to match only
@@ -332,13 +332,13 @@ promote scoped proposals to [ROADMAP.md](ROADMAP.md).
   report (not delete) any entry whose marker form the detector did not recognize.
   Evidence: guild-rebrew `src/Develop/Units/vfs/vfs4.c` line 17 range marker.
 
-- **`rebrew data` needs a `--set-size` (data extent correction).**
+- **`rebrew data list` needs a `--set-size` (data extent correction).**
   Pain: a stale `size` on a data symbol cannot be corrected by any CLI; `--set-type` writes only
   `type` (and preserves existing `size`), `annotation.py` only ever grows size, and `--fix-bss`
   writes sizes only for new gaps. When a range marker overstates an extent (`0x1002944c..0x100294a0`
   = 84 parsed onto a 4-byte `char s_rb[4]`), the extent gate fails and the only fix is calling
   `rebrew.data_metadata.set_data_field(dir, va, "size", n, module)` by hand.
-  Feature: `rebrew data --set-size 0xVA=N` (mirror `--set-type`) so extent corrections go through
+  Feature: `rebrew data set --size 0xVA=N` (mirror `--set-type`) so extent corrections go through
   the sanctioned atomic writer.
   Evidence: guild-rebrew `src/rebrew-data.toml` s_rb_1002944c size 84 vs binary 4 (round 1282).
 

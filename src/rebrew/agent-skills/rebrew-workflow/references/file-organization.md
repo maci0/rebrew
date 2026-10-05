@@ -8,12 +8,12 @@ only read: preview the mutating ones first.
 ## Split / merge / rename
 
 ```bash
-rebrew split src/<target>/multi.c [--dry-run] [--va 0x...]
-rebrew merge a.c b.c --output merged.c
-rebrew merge-sweep --dry-run
-rebrew link-order --check
-rebrew layout-map
-rebrew rename old_func new_func [--dry-run]
+rebrew source split src/<target>/multi.c [--dry-run] [--va 0x...]
+rebrew source merge a.c b.c --output merged.c
+rebrew match partitions --dry-run
+rebrew build link-order --check
+rebrew build layout-map
+rebrew source rename old_func new_func [--dry-run]
 rebrew recommend --json                   # all lanes: TU layout + hygiene + next action
 ```
 
@@ -27,10 +27,10 @@ rebrew recommend --json                   # all lanes: TU layout + hygiene + nex
 ## Dependency graph
 
 ```bash
-rebrew graph --format summary           # stats, leaf functions, top blockers
-rebrew graph --focus <Func> --depth 2   # neighbourhood of a specific function
-rebrew graph                            # full mermaid call graph
-rebrew graph --cu-map --json            # infer compilation unit boundaries
+rebrew source graph --format summary           # stats, leaf functions, top blockers
+rebrew source graph --focus <Func> --depth 2   # neighbourhood of a specific function
+rebrew source graph                            # full mermaid call graph
+rebrew source graph --cu-map --json            # infer compilation unit boundaries
 ```
 
 `--cu-map` clusters functions into inferred translation units from gap

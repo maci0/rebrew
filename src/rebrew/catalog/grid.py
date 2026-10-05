@@ -79,7 +79,7 @@ def covered_bytes(
     """Bytes of *section* claimed by at least one annotated function.
 
     Uses the *sizes* lookup (registry canonical sizes in the CLI, the
-    disassembler inventory in `rebrew build-db`) when the VA is present,
+    disassembler inventory in `rebrew coverage build`) when the VA is present,
     falling back to the annotation's own size.  Both callers previously
     diverged — the CLI counted 0 for registry-missing VAs while the old
     CATALOG.md generator counted the annotation size — so the summary and
@@ -250,7 +250,7 @@ def build_coverage_data(
     metadata_dir: Path | None = None,
     cfg: Any = None,
 ) -> dict[str, Any]:
-    """Build the coverage dict ``rebrew build-db`` renders into a document.
+    """Build the coverage dict ``rebrew coverage build`` renders into a document.
 
     Builds function coverage maps, cell-level grids per section, and gap
     classification from annotations and the target binary.  Includes

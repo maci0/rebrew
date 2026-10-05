@@ -28,22 +28,18 @@ from rebrew.config import load_config
 # Commands that legitimately take no --target, keyed (component, command).
 # Rationale lives on the tuple — keep it next to the exemption.
 TARGETLESS_EXEMPT: set[tuple[str, str]] = {
-    # explicit-path binary tools: the binary/layout/CSV is the argument
-    ("postlink", "main"),
-    ("pdb-info", "main"),
-    ("unpack-lzexe", "main"),
-    ("gen-flirt-pat", "main"),
-    ("discover-functions", "main"),
-    ("order-sources", "main"),
-    ("resource", "compare"),
-    ("resource", "extract"),
-    # generators driven by explicit input/output paths
-    ("gen-stubs", "main"),
-    ("gen-link-stubs", "main"),
-    # toolchain image management (not project-scoped)
-    ("cmake-toolchain", "main"),
-    # compiler driver uses the build's profile and raw tool arguments
-    ("cmake-driver", "main"),
+    ("build", "postlink"),
+    ("binary", "pdb show"),
+    ("binary", "unpack-lzexe"),
+    ("library", "signatures"),
+    ("binary", "functions"),
+    ("build", "order-sources"),
+    ("binary", "resource compare"),
+    ("binary", "resource extract"),
+    ("build", "symbol-stubs"),
+    ("build", "link-stubs"),
+    ("build", "cmake-toolchain"),
+    ("build", "driver"),
     ("toolchain", "list"),
     ("toolchain", "status"),
     ("toolchain", "pull"),
@@ -52,25 +48,23 @@ TARGETLESS_EXEMPT: set[tuple[str, str]] = {
     ("toolchain", "build"),
     ("toolchain", "check-updates"),
     ("toolchain", "update"),
-    # project-global services / self-describing
     ("skills", "list"),
     ("skills", "show"),
     ("library", "show"),
     ("library", "list"),
     ("library", "set"),
-    ("library", "rm"),
+    ("library", "remove"),
     ("cache", "main"),
-    ("dashboard", "main"),
-    # build-check validates the one generated CMake build (server_dll)
-    ("build-check", "main"),
-    # cfg edits the project file itself; some subcommands take the target
-    # NAME as their subject (add-target/remove-target)
-    ("cfg", "list-targets"),
+    ("coverage", "serve"),
+    ("build", "check"),
+    ("cfg", "target list"),
     ("cfg", "raw"),
     ("cfg", "path"),
-    ("cfg", "add-target"),
-    ("cfg", "remove-target"),
+    ("cfg", "target add"),
+    ("cfg", "target remove"),
     ("cfg", "set"),
+    ("binary", "pdb import-cflags"),
+    ("dev", "refactor"),
 }
 
 PROJECT_TOML = """\

@@ -1,4 +1,4 @@
-"""Tests for rebrew analyze — the one-shot intelligence dossier."""
+"""Tests for rebrew binary analyze — the one-shot intelligence dossier."""
 
 from __future__ import annotations
 
@@ -238,7 +238,7 @@ class TestAnalyzeCli:
         """The dossier CLI emits pure JSON with the expected top-level keys."""
         root = _write_project(tmp_path / "proj")
         monkeypatch.chdir(root)
-        result = CliRunner().invoke(app, ["analyze", "--json"])
+        result = CliRunner().invoke(app, ["binary", "analyze", "--json"])
         assert result.exit_code == 0, result.output
         payload = json.loads(result.stdout)  # pure JSON, no preamble
         for key in (
@@ -259,7 +259,7 @@ class TestAnalyzeCli:
     ) -> None:
         root = _write_project(tmp_path / "proj", binary="missing.exe")
         monkeypatch.chdir(root)
-        result = CliRunner().invoke(app, ["analyze", "--json"])
+        result = CliRunner().invoke(app, ["binary", "analyze", "--json"])
         assert result.exit_code == 2  # error_exit convention
         assert json.loads(result.stdout)["error"]
 
@@ -275,7 +275,7 @@ class TestAnalyzeCli:
         """
         monkeypatch.chdir(tmp_path)  # no rebrew-project.toml anywhere
         binary = FIXTURES / "mini_pe.exe"
-        result = CliRunner().invoke(app, ["analyze", str(binary), "--json"])
+        result = CliRunner().invoke(app, ["binary", "analyze", str(binary), "--json"])
         assert result.exit_code == 0, result.output
         payload = json.loads(result.stdout)  # pure JSON
         assert payload["binary"].endswith("mini_pe.exe")
@@ -291,7 +291,7 @@ class TestAnalyzeCli:
         monkeypatch.chdir(tmp_path)
         out = tmp_path / "report.md"
         result = CliRunner().invoke(
-            app, ["analyze", str(FIXTURES / "mini_pe.exe"), "--output", str(out)]
+            app, ["binary", "analyze", str(FIXTURES / "mini_pe.exe"), "--output", str(out)]
         )
         assert result.exit_code == 0, result.output
         assert out.exists()
@@ -303,7 +303,7 @@ class TestAnalyzeCli:
     ) -> None:
         """No project + no binary -> a clear error, not a crash."""
         monkeypatch.chdir(tmp_path)
-        result = CliRunner().invoke(app, ["analyze", "--json"])
+        result = CliRunner().invoke(app, ["binary", "analyze", "--json"])
         assert result.exit_code == 2
         assert "no binary given" in json.loads(result.stdout)["error"]
 
@@ -319,7 +319,7 @@ class TestAnalyzeV2:
     def test_output_writes_markdown(self, tmp_path: Path, monkeypatch) -> None:
         root = self._project(tmp_path, monkeypatch)
         report = root / "report.md"
-        result = CliRunner().invoke(app, ["analyze", "--output", str(report)])
+        result = CliRunner().invoke(app, ["binary", "analyze", "--output", str(report)])
         assert result.exit_code == 0, result.output
         text = report.read_text(encoding="utf-8")
         assert text.startswith("# Rebrew Analysis")
@@ -331,7 +331,7 @@ class TestAnalyzeV2:
         root = self._project(tmp_path, monkeypatch)
         report = root / "report.md"
         result = CliRunner().invoke(
-            app, ["analyze", "--function", "0x401000", "--output", str(report)]
+            app, ["binary", "analyze", "--function", "0x401000", "--output", str(report)]
         )
         assert result.exit_code == 0, result.output
         text = report.read_text(encoding="utf-8")
@@ -341,7 +341,9 @@ class TestAnalyzeV2:
 
     def test_output_conflicts_with_json(self, tmp_path: Path, monkeypatch) -> None:
         root = self._project(tmp_path, monkeypatch)
-        result = CliRunner().invoke(app, ["analyze", "--json", "--output", str(root / "r.md")])
+        result = CliRunner().invoke(
+            app, ["binary", "analyze", "--json", "--output", str(root / "r.md")]
+        )
         assert result.exit_code == 2
         assert "cannot be combined" in result.output
 

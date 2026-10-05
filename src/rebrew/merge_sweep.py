@@ -1,6 +1,6 @@
 """merge_sweep.py - deterministic TU-partition search over cu_map clusters.
 
-``rebrew graph --cu-map`` infers translation units from gap analysis plus call-graph
+``rebrew source graph --cu-map`` infers translation units from gap analysis plus call-graph
 signals, but the inference never compiles anything: a boundary it proposes
 may not reproduce.  This tool closes the loop.  It starts from the
 :func:`rebrew.cu_map.cluster_functions` partition and hill-climbs toward the
@@ -53,9 +53,9 @@ from rebrew.utils import preset_module_key
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew merge-sweep · · · · · · · · · Search the deterministic TU partitions\n\n"
-    "  rebrew merge-sweep --passes 3 --max-compiles 200 · Cap the search budget\n\n"
-    "  rebrew merge-sweep --dry-run --json · · Plan the passes, compile nothing\n"
+    "  rebrew match partitions · · · · · · · · · Search the deterministic TU partitions\n\n"
+    "  rebrew match partitions --passes 3 --max-compiles 200 · Cap the search budget\n\n"
+    "  rebrew match partitions --dry-run --json · · Plan the passes, compile nothing\n"
 )
 
 

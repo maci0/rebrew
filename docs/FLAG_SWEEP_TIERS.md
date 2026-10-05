@@ -1,6 +1,6 @@
 # Flag-Sweep Tiers
 
-`rebrew match --flag-sweep-only` (and the GA engine's `--flag-sweep` mode)
+`rebrew match flags` (and the GA engine's `--flag-sweep` mode)
 exhaustively compiles a function across a grid of MSVC6 flag combinations and
 reports the best-matching variant.  To keep runtimes manageable the grid is
 tiered by coverage vs. speed.
@@ -105,19 +105,19 @@ pass, not an exhaustive one.
 
 ```bash
 # Default tier (targeted, 1,152 combinations)
-rebrew match src/game_dll/my_func.c --flag-sweep-only
+rebrew match flags src/game_dll/my_func.c
 
 # Explicit tier
-rebrew match src/game_dll/my_func.c --flag-sweep-only --tier quick
-rebrew match src/game_dll/my_func.c --flag-sweep-only --tier targeted
-rebrew match src/game_dll/my_func.c --flag-sweep-only --tier thorough
-rebrew match src/game_dll/my_func.c --flag-sweep-only --tier full
+rebrew match flags src/game_dll/my_func.c --tier quick
+rebrew match flags src/game_dll/my_func.c --tier targeted
+rebrew match flags src/game_dll/my_func.c --tier thorough
+rebrew match flags src/game_dll/my_func.c --tier full
 
 # Batch: sweep all NEAR_MATCHING functions and auto-update CFLAGS on hit
-rebrew match --all --flag-sweep --fix-cflags
+rebrew match batch --fix-cflags --algorithm flags
 ```
 
-See also [CLI.md](CLI.md) under `rebrew match` for the full flag reference,
+See also [CLI.md](CLI.md) under `rebrew match run` for the full flag reference,
 and `rebrew-matching/SKILL.md` for the AI-agent workflow that wraps the GA engine.
 
 ## Non-MSVC6 sweep grids
@@ -133,7 +133,7 @@ name or version prefix, e.g. `msvc-6.0,6.0,win16`).
 
 ### MSVC 1.52 (16-bit)
 
-`rebrew match --flag-sweep-only --flag-sweep-toolchains --sweep-toolchains msvc-1.52`
+`rebrew match toolchains --toolchains msvc-1.52 --flags`
 sweeps the 16-bit CL flags (`/Od /O1 /O2 /Ox` opt, `/AS /AM /AC /AL`
 **memory models**, `/G2 /G3` codegen, `/Aw /Au` far-data, `/Gs`/`/Za`
 toggles): quick=25, targeted=75, normal=450, thorough=900 combinations.

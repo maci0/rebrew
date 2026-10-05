@@ -41,7 +41,7 @@ class TestValidateSkillCommands:
         mod = importlib.util.module_from_spec(spec)
         assert spec.loader is not None
         spec.loader.exec_module(mod)
-        return bool(mod.validate(quiet=True, docs=True))
+        return bool(mod.validate(quiet=False, docs=True))
 
     def test_script_is_importable(self) -> None:
         """The script must be importable (no syntax errors)."""

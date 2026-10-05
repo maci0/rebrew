@@ -1,13 +1,13 @@
 """binary_similarity.py — whole-binary structural similarity between two binaries.
 
 The binary-level analog of the per-function diff metrics: instead of scoring
-ONE function against the target (``rebrew similar``, ``near-diag``, ``diff``),
+ONE function against the target (``rebrew similarity function``, ``near-diag``, ``diff``),
 this aggregates the per-function structural signatures across EVERY function
 of two binaries — the current project target vs another binary (a different
 game version, or a DLL+EXE pair sharing code).
 
 For each function in binary A, the best-matching function in binary B is
-found by the same structural signature ``rebrew similar``/``cross-import``
+found by the same structural signature ``rebrew similarity function``/``cross-import``
 use (mnemonic-histogram cosine + call/branch agreement, 0-100), then the
 per-function scores are aggregated:
 
@@ -24,8 +24,8 @@ compare in seconds.
 
 Usage::
 
-    rebrew binary-similarity ../v2/server.dll --other-list ../v2/src/SERVER/function_structure.json
-    rebrew binary-similarity --other-target CLIENT --json
+    rebrew similarity binary ../v2/server.dll --other-list ../v2/src/SERVER/function_structure.json
+    rebrew similarity binary --other-target CLIENT --json
 """
 
 from __future__ import annotations
@@ -353,9 +353,9 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew binary-similarity ../v2/server.dll --other-list ../v2/src/SERVER/function_structure.json\n\n"
-        "  rebrew binary-similarity --other-target CLIENT --json\n\n"
-        "  rebrew binary-similarity other.dll --other-list other.json --low 20\n\n"
+        "  rebrew similarity binary ../v2/server.dll --other-list ../v2/src/SERVER/function_structure.json\n\n"
+        "  rebrew similarity binary --other-target CLIENT --json\n\n"
+        "  rebrew similarity binary other.dll --other-list other.json --limit 20\n\n"
         "[dim]Matches every function of the current target against the other "
         "binary's function list by structural signature (mnemonic histogram + "
         "call/branch agreement) and aggregates the best matches into a "
@@ -380,12 +380,14 @@ def main(
         "--other-target",
         help="Resolve the other binary + function list from a configured target",
     ),
-    low: int = typer.Option(10, "--low", help="How many lowest-scoring functions to list"),
+    low: int = typer.Option(
+        10, "--limit", help="Maximum lowest-scoring functions to list (0 = no rows)"
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
     """Report binary-level structural similarity against another binary."""
-    low = require_non_negative(option_default(low, 10), "--low", json_mode=json_output)
+    low = require_non_negative(option_default(low, 10), "--limit", json_mode=json_output)
     if other_target and other_binary:
         error_exit(
             "--other-target cannot be combined with a positional binary",

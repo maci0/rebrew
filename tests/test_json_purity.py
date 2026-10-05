@@ -27,88 +27,91 @@ FIXTURES = Path(__file__).parent / "fixtures"
 # (argv, allowed exit codes) — commands that need no compiler/toolchain.
 _JSON_COMMANDS: list[tuple[str, set[int]]] = [
     ("status --json", {0}),
-    ("strings --json", {0}),
-    ("imports --json", {0}),
-    ("asm --json 0x401000", {0}),
-    ("switch --json 0x401000", {0}),  # no dispatch in the fixture → empty result
-    ("describe --json 0x401000", {0}),
-    ("xrefs original/mini_pe.exe 0x401000 --json", {0}),
+    ("binary strings --json", {0}),
+    ("binary imports list --json", {0}),
+    ("binary asm show --json 0x401000", {0}),
+    ("binary switches --json 0x401000", {0}),  # no dispatch in the fixture → empty result
+    ("binary function --json 0x401000", {0}),
+    ("binary xrefs original/mini_pe.exe 0x401000 --json", {0}),
     ("verify --dry-run --json", {1}),  # 1 = candidates awaiting verification
-    ("analyze --json", {0}),
+    ("binary analyze --json", {0}),
     ("todo --json", {0}),
     ("lint --json", {0}),
-    ("data --json", {0}),
+    ("data list --json", {0}),
     (
         "doctor --json",
         {0, 2},
     ),  # 2 = a check failed (e.g. compiler absent in CI); stdout stays pure JSON
     ("cache stats --json", {0}),
     ("cfg show --json", {0}),
-    ("flirt --binary original/mini_pe.exe --json", {2}),  # 2 = no signatures loaded
+    (
+        "library scan-signatures --binary original/mini_pe.exe --json",
+        {2},
+    ),  # 2 = no signatures loaded
     # Session-era commands — must keep stdout JSON-pure even on error paths.
-    ("pdb-info original/mini_pe.exe --json", {2}),  # 2 = no sibling .pdb
-    ("analyze --function 0x401000 --json", {0}),
-    ("similar 0x401000 --json", {0}),
-    ("identify-library --dry-run --json", {0}),
-    ("discover-functions original/mini_pe.exe --json", {0, 2}),  # 2 = rizin absent
-    ("binsync-export bsx --dry-run --json", {0}),
-    ("binsync-import bsx --dry-run --json", {2}),  # 2 = no state dir yet
-    ("binsync-diff bsx --json", {2}),  # 2 = no state dir yet
-    ("report --json", {0}),
-    (f"gen-flirt-pat {FIXTURES}/mini.lib --json", {0}),
-    ("document-unmatched --json", {0}),
-    ("catalog --json", {0}),
+    ("binary pdb show original/mini_pe.exe --json", {2}),  # 2 = no sibling .pdb
+    ("binary analyze --function 0x401000 --json", {0}),
+    ("similarity function 0x401000 --json", {0}),
+    ("library identify --dry-run --json", {0}),
+    ("binary functions original/mini_pe.exe --json", {0, 2}),  # 2 = rizin absent
+    ("binsync export bsx --dry-run --json", {0}),
+    ("binsync import bsx --dry-run --json", {2}),  # 2 = no state dir yet
+    ("binsync diff bsx --json", {2}),  # 2 = no state dir yet
+    ("coverage report --json", {0}),
+    (f"library signatures {FIXTURES}/mini.lib --json", {0}),
+    ("source document-unmatched --json", {0}),
+    ("coverage catalog --json", {0}),
     ("skeleton --json 0x401000", {0}),
-    ("verify-placement --json", {2}),  # 2 = no rebrew-data.toml in the fixture
-    ("text-audit --json", {0, 2}),  # 2 = no built binary in the fixture
-    ("calibrate-bss --json", {2}),  # 2 = no link.txt / layout in the fixture
-    ("gen-layout --json", {0, 2}),
-    ("gen-link-stubs --json", {2}),  # 2 = no rebrew-data.toml in the fixture
-    ("link-sweep --json", {2}),  # 2 = no link.txt in the fixture
+    ("build check-data-placement --json", {2}),  # 2 = no rebrew-data.toml in the fixture
+    ("build check-text-placement --json", {0, 2}),  # 2 = no built binary in the fixture
+    ("build calibrate-bss --json", {2}),  # 2 = no link.txt / layout in the fixture
+    ("build layout --json", {0, 2}),
+    ("build link-stubs --json", {2}),  # 2 = no rebrew-data.toml in the fixture
+    ("build sweep-link-flags --json", {2}),  # 2 = no link.txt in the fixture
     ("diff --json src/SERVER/fcn.c", {0, 2}),
-    ("extract list --json", {0}),
-    ("diagnose --json src/SERVER/fcn.c", {0}),
-    ("pe-info --json", {0}),
-    ("context --json", {0}),
-    ("graph --json", {0}),
-    ("crypto-scan --json", {0}),
-    ("fingerprints --json", {0}),
-    ("rename --json 0x401000 newname --dry-run", {0}),
+    ("binary extract list --json", {0}),
+    ("diagnose config --json src/SERVER/fcn.c", {0}),
+    ("binary pe --json", {0}),
+    ("export context --json", {0}),
+    ("source graph --json", {0}),
+    ("binary crypto --json", {0}),
+    ("binary fingerprints --json", {0}),
+    ("source rename --json 0x401000 newname --dry-run", {0}),
     ("blocker show --json 0x401000", {0}),
-    ("refactor --json", {0}),
-    ("layout-map --json", {0}),
-    ("inline-strings --json", {0, 2}),
-    ("lib-match --json", {0, 2}),
-    ("crt-match --json", {0, 2}),
-    ("identify-library --json", {0}),
-    ("switch --json", {0, 2}),
-    ("merge-sweep --json", {0}),
-    ("near-diag --json src/SERVER/fcn.c", {0, 2}),
-    ("orphans --json", {0}),
-    ("solutions --json", {0}),
-    ("symbol-addrs --json", {0}),
-    ("stack-cmp --json src/SERVER/fcn.c", {0, 2}),
-    ("build-db --json", {0, 2}),
-    ("postlink --json build/x.dll original/mini_pe.exe", {0, 2}),
-    ("round-trip --json", {0}),
+    ("dev refactor --json", {0}),
+    ("build layout-map --json", {0}),
+    ("source inline-strings --json", {0, 2}),
+    ("library match --json", {0, 2}),
+    ("library crt-match --json", {0, 2}),
+    ("library identify --json", {0}),
+    ("binary switches --json", {0, 2}),
+    ("match partitions --json", {0}),
+    ("diagnose near --json src/SERVER/fcn.c", {0, 2}),
+    ("orphans list --json", {0}),
+    ("match solutions --json", {0}),
+    ("export symbols --json", {0}),
+    ("diagnose stack --json src/SERVER/fcn.c", {0, 2}),
+    ("coverage build --json", {0, 2}),
+    ("build postlink --json build/x.dll original/mini_pe.exe", {0, 2}),
+    ("build round-trip --json", {0}),
     ("prove --json src/SERVER/fcn.c", {0, 2}),
-    ("match --json src/SERVER/fcn.c --dry-run", {0, 2}),
+    ("match run --json src/SERVER/fcn.c --dry-run", {0, 2}),
     ("decompile --json 0x401000", {0, 2}),
-    ("fix --json src/SERVER/fcn.c --dry-run", {0}),
-    ("climb --json src/SERVER/fcn.c --dry-run", {0, 2}),
-    ("sync --json", {0, 2}),
-    ("gen-stubs --json", {0, 2}),
-    ("link-order --json", {0, 2}),
-    ("order-sources --json src/SERVER/fcn.c", {0}),
-    ("binary-similarity --json original/mini_pe.exe", {0, 2}),
+    ("source fix --json src/SERVER/fcn.c --dry-run", {0}),
+    ("match climb --json src/SERVER/fcn.c --dry-run", {0, 2}),
+    ("sync push --json", {0, 2}),
+    ("build symbol-stubs --json", {0, 2}),
+    ("build link-order --json", {0, 2}),
+    ("build order-sources --json src/SERVER/fcn.c", {0}),
+    ("similarity binary --json original/mini_pe.exe", {0, 2}),
     ("test --json", {0, 1, 2}),
     ("verify --json", {0, 1, 2}),
-    ("types --json", {0}),
-    ("split --json", {0, 2}),
+    ("types check --json", {0}),
+    ("source split --json", {0, 2}),
     ("skills list --json", {0}),
-    ("security-scan --json", {0}),
-    ("recover-structs --json", {0, 2}),
-    ("drift --json src/SERVER/fcn.c", {0, 2}),
+    ("source security --json", {0}),
+    ("types recover --json", {0, 2}),
+    ("diagnose drift --json src/SERVER/fcn.c", {0, 2}),
 ]
 
 _PROJECT_TOML = """\
@@ -200,10 +203,10 @@ def test_gen_layout_config_json(
     (project / "original" / "mini_pe.exe").write_bytes(_make_pe([b".text", b".data", b".rdata"]))
     monkeypatch.setattr("rebrew.gen_layout._import_lib_symbols_from_image", lambda _stem: set())
     runner = CliRunner()
-    plain = runner.invoke(app, ["gen-layout", option])
+    plain = runner.invoke(app, ["build", "layout", option])
     assert plain.exit_code == 0, plain.output
     assert tomllib.loads(plain.stdout)
-    result = runner.invoke(app, ["gen-layout", option, "--json"])
+    result = runner.invoke(app, ["build", "layout", option, "--json"])
     assert result.exit_code == 0, result.output
     payload = json.loads(result.stdout)
     assert payload[key] + "\n" == plain.stdout

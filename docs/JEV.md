@@ -64,7 +64,7 @@ classification; code owns control flow, Jev fills the semantic leftover
 Jev cannot replace anything that must emit C, ASM, or prose:
 
 - Writing or rewriting function bodies (guild-rebrew's actual work).
-- `rebrew match --seed-llm`: [`llm_seed.py`](../src/rebrew/llm_seed.py)
+- `rebrew match run --seed-llm`: [`llm_seed.py`](../src/rebrew/llm_seed.py)
   asks an OpenAI-compatible endpoint for alternative C snippets,
   tree-sitter-validates them, and injects survivors into the GA.
 - `reagent`'s ASM → LLM → compile loop
@@ -89,7 +89,7 @@ note:
 | - | ---- | ------------------ |
 | 1 | Literal reading | Write the exact condition. Split implied "don't LLM this because it's a wall" into two Nouls. |
 | 2 | Math / counting | Residue, ret-count, `matched`, `sizeof`, immediates: all in code. Jev never tallies. |
-| 2b | Numeric / hex / asm | High-level C and English beat assembly and binary. Do **not** send `rebrew asm` listings or hex immediates as the primary state. Convert in code (`near-diag` category, ret-count, English hunk summary) and ask the judgment. |
+| 2b | Numeric / hex / asm | High-level C and English beat assembly and binary. Do **not** send `rebrew binary asm show` listings or hex immediates as the primary state. Convert in code (`near-diag` category, ret-count, English hunk summary) and ask the judgment. |
 | 2c | Score interpolation | Do not reconstruct a byte-delta from a Score. Threshold only. |
 | 4 | Indirection | No "property of a property". Point at named fields in `state`. |
 | 5 | Fat / irrelevant state | Filter first. Not the 167-entry shapes file, not a whole `.c`, not a full `diff --json`. RAG-passage classifier, then 3–5 blurbs. |
@@ -121,7 +121,7 @@ exist. Jev sits *on top of* their JSON, in a guild script or later in
 
 ### 3.1 Next-tool Choice
 
-After `rebrew test --json` + `rebrew near-diag --json` + blocker text,
+After `rebrew test --json` + `rebrew diagnose near --json` + blocker text,
 one Choice names the next command. `reagent` already has this enum:
 `skip` / `ga_only` / `llm_then_ga` / `llm_only` / `flag_sweep_first`.
 Do not re-derive it in markdown.
@@ -143,7 +143,7 @@ Companion questions in the same call (almost free):
 
 Batch Noul over the NEAR_MATCHING pile:
 
-- Is this still CRT / ZLIB / stock lib? (`rebrew lib-match` first;
+- Is this still CRT / ZLIB / stock lib? (`rebrew library match` first;
   Jev is a second opinion on leftovers).
 - Does this blocker still describe the current delta?
 - Is the blocker a measured one-liner or a theory?
@@ -202,7 +202,7 @@ The distribution goes flat and confidence dies. Hierarchical:
 
 State = English `diff --json` hunk summaries (mnemonics as words, not
 hex) + current `.c` outline + the *short* shape blurbs for those
-candidates. **Not** a raw `rebrew asm` listing: jaggedness 2b: Jev
+candidates. **Not** a raw `rebrew binary asm show` listing: jaggedness 2b: Jev
 is weak on assembly and binary; convert in code first. Not the whole
 catalog. Then **code** applies the rewrite or biases GA.
 
@@ -249,7 +249,7 @@ cookbooks + 4 patterns + smart-home demo + agent skill):
 | [Intent routing](https://docs.typesafe.ai/patterns/intent-routing.md) | Choice → handler | which CLI / skill owns this turn |
 | [Hierarchical classification](https://docs.typesafe.ai/cookbooks/hierarchical_classification.md) | beam of Choice down a tree | origin family → CU → function |
 | [Classification + confidence](https://docs.typesafe.ai/cookbooks/classification_using_confidence.md) | Choice, report parent when unsure | origin / CU: GAME vs CRT vs ZLIB; else "unknown" |
-| [Re-ranking](https://docs.typesafe.ai/cookbooks/rerank_typesafe.md) | per-pair Score on a shortlist | `rebrew similar` / FLIRT leftovers / Ghidra name candidates |
+| [Re-ranking](https://docs.typesafe.ai/cookbooks/rerank_typesafe.md) | per-pair Score on a shortlist | `rebrew similarity function` / FLIRT leftovers / Ghidra name candidates |
 | [Semantic find](https://docs.typesafe.ai/cookbooks/semantic_find.md) | one Choice over line ids + exists Noul | "which shape § answers this delta" |
 | [Classifying RAG passages](https://docs.typesafe.ai/cookbooks/classifying_rag_passages.md) | Noul battery per retrieved chunk | inject `msvc6-c-shapes` / allocator findings into an LLM prompt, or drop them |
 | [Function calling](https://docs.typesafe.ai/cookbooks/function_calling.md) | Choice of fn + Literal args | next `rebrew` command + flags (not C) |
@@ -278,10 +278,10 @@ deterministic (`--guess-compiler`, FLIRT, CRT).
   `MSVCRT`/`ZLIB` → skip reversing (`goal.md`: never reverse those).
   Unsure → report the parent (`GAME` vs `library`) rather than a
   wrong leaf. Hierarchical classification's codebase tree is the same
-  shape as `rebrew graph --cu-map`.
+  shape as `rebrew source graph --cu-map`.
 - **FLIRT / `identify-library` leftovers.** Byte match already
   claimed the easy ones. Re-rank a shortlist of remaining names
-  against the function's strings + callers (`rebrew describe --json`).
+  against the function's strings + callers (`rebrew binary function --json`).
   Entity-alignment Score: merge with a known lib symbol / leave
   unmatched / curator (human).
 - **Do not** throw the PE at Jev, or a raw listing of it. Family and
@@ -319,7 +319,7 @@ C. Jev cannot.
 
 1. Cheap/local LLM (or Ghidra) emits a body.
 2. One `system_one` call, Noul battery: C89? undeclared ident?
-  invented VA / offset? looks like CRT? contradicts `rebrew asm`
+  invented VA / offset? looks like CRT? contradicts `rebrew binary asm show`
   call skeleton? violates `goal.md` (asm / naked / library)?
 3. Any fire → drop or escalate to a bigger LLM. None fire →
   `rebrew test`. Schema-valid C that is still wrong is the whole
@@ -334,7 +334,7 @@ Never let Jev emit a hex literal.
 **Structure recovery** (autoformat cookbook) is the closest they
 have to "decompile": Noul "does this line continue the previous
 statement?" + Choice of block kind, then **code** renders. Useful
-as a Ghidra-dump cleaner in front of `rebrew fix`, not as a C
+as a Ghidra-dump cleaner in front of `rebrew source fix`, not as a C
 writer. Words stay from the input.
 
 ### 5.4 Test / diff / near-diag (the loop)
@@ -358,7 +358,7 @@ Jev after those JSON blobs, only when the byte class is ambiguous
   trap, productized.
 - **RAG-passage classifier** on whatever context an LLM is about
   to see: keep the finding, flag a contradiction, drop a
-  prompt-injection-shaped "ignore the catalog". `rebrew similar`
+  prompt-injection-shaped "ignore the catalog". `rebrew similarity function`
   / `describe` chunks are the corpus; BM25/`similar` is the
   shortlist; Jev re-ranks (their legal re-rank: top-1 5% → 18%).
 - **Consistency**. If origin / blocker / family labels flip across
@@ -384,13 +384,13 @@ Optional prior, not a replacement:
 
 ### 5.6 Data / BSS / types / Ghidra
 
-`rebrew data`, `calibrate-bss`, `recover-structs` are layout math.
+`rebrew data list`, `calibrate-bss`, `recover-structs` are layout math.
 Jev does not invent offsets.
 
 Leftovers:
 
 - **Dispatch / vtable vs data** when the byte classifier is unsure
-  (Choice over `rebrew data --dispatch` candidates).
+  (Choice over `rebrew data dispatch` candidates).
 - **Entity alignment** for Ghidra name vs local name vs
   `cross-import` from `server.dll` onto `Europa1400Gold_TL.exe`:
   merge / leave / curator. Merge is the expensive mistake: three
@@ -399,8 +399,8 @@ Leftovers:
 - **Type-conflict triage** (`rebrew lint` W016 etc.): Choice of
   which TU's declaration wins, confidence-gate to a human.
 
-Sync itself (`rebrew sync --push/--pull`) stays BinSync. Apply a
-chosen name with `rebrew rename`, never by editing strings. See
+Sync itself (`rebrew sync push` / `rebrew sync pull`) stays BinSync. Apply a
+chosen name with `rebrew source rename`, never by editing strings. See
 [§5.10](#510-naming-and-folders-llm-proposes-jev-picks).
 
 ### 5.7 Verify / lint / round-trip / link
@@ -457,7 +457,7 @@ guild-rebrew already has the closed sets this needs
 - **Tree** attested from `__FILE__` / PDB: `DieGildeAddOn/{command,game,loadsave,auxillary}/…`, `Units/{Error,m_alloc,net,vfs}/…`.
 - **Module prefixes**: `cm_ gm_ lb_ ahm_ gv_ sim_ amt_ ls_ plt_ m_ vfs_ srv_`.
 - **Shape**: `prefix_VerbNoun`, German nouns (`Objekt`, `Spieler`, `Aemter`), English verbs. `cm_Chk*` / `cm_Ex*` are a two-phase pair.
-- **CU clusters** from `rebrew graph --cu-map` (contiguous `.text` + calls). The map does not name files.
+- **CU clusters** from `rebrew source graph --cu-map` (contiguous `.text` + calls). The map does not name files.
 
 A project without `__FILE__` strings has a weaker tree (CU clusters
 only). Do not invent folders; stop at "this cluster is one TU".
@@ -466,7 +466,7 @@ only). Do not invent folders; stop at "this cluster is one TU".
 
 1. **Candidates from evidence, not from the model.** Debug strings,
    log format strings, PDB, Ghidra labels, already-renamed callees,
-   the prefix table, `rebrew similar` siblings. Regex over those
+   the prefix table, `rebrew similarity function` siblings. Regex over those
    spans (pre-parsed extraction). The small LLM may *add* 3–5
    `prefix_VerbNoun` guesses constrained to attested prefixes and
    the German/English lexicon in that doc: it does not get a blank
@@ -476,15 +476,15 @@ only). Do not invent folders; stop at "this cluster is one TU".
    Does a `cm_ChkX` exist without `cm_ExX` (or the reverse)?
    Entity-alignment Score if Ghidra and local already disagree:
    merge / leave / curator. Merge is the expensive mistake.
-3. **Confidence-gate.** High → `rebrew rename`. Low → leave
+3. **Confidence-gate.** High → `rebrew source rename`. Low → leave
    `FUN_…` / the skeleton name. Classification-with-confidence:
    if the leaf name is unsure, keep the prefix (`gm_*`) and stop.
 4. **Never** let Jev or the LLM write the identifier into a `.c`
-   file. `rebrew rename` is the only mutator (xrefs, metadata,
+   file. `rebrew source rename` is the only mutator (xrefs, metadata,
    filename).
 
 Locals, struct fields, globals: same cascade, smaller lexicon.
-Candidates = debug strings + `rebrew data` labels + field names
+Candidates = debug strings + `rebrew data list` labels + field names
 already used in this CU + Ghidra. Jev picks among those. A
 plausible English local (`playerCount`) that appears in no
 evidence stays `i` / `p` until evidence shows up. German
@@ -496,7 +496,7 @@ attested nouns beat English guesses (`nSpieler` over
 Two layers. Do not mix them.
 
 **Layer A, which functions share a `.c` (deterministic).**
-`rebrew graph --cu-map` + `rebrew merge-sweep`. Jev does not
+`rebrew source graph --cu-map` + `rebrew match partitions`. Jev does not
 split or merge TUs; a wrong merge moves every later symbol.
 
 **Layer B: what to call that TU / which attested directory it
@@ -512,7 +512,7 @@ path this cluster belongs to, plus an `exists` Noul for "no
 string names this TU". Entity-alignment if two clusters both
 want `spiel.c`: merge / leave / curator.
 
-Apply with `rebrew rename` / a move of the `.c` onto the
+Apply with `rebrew source rename` / a move of the `.c` onto the
 attested relative path. Do not create directories that
 `naming_conventions.md` does not list.
 
@@ -520,7 +520,7 @@ attested relative path. Do not create directories that
 
 | LLM writes | Jev decides | Code does |
 | ---------- | ----------- | --------- |
-| 3–5 `prefix_VerbNoun` guesses from strings + prefix table | pick one or `none` | `rebrew rename` |
+| 3–5 `prefix_VerbNoun` guesses from strings + prefix table | pick one or `none` | `rebrew source rename` |
 | "this CU feels like inventory" | Choice among attested files (`spiel.c`, `aemter.c`, …) | move the file |
 | local-name guesses from a Ghidra dump | pick among spans the dump / `data` already contains | edit via rename / a structured locals field |
 | nothing (no evidence) | `none` / human | leave `FUN_` / `i` |
@@ -548,7 +548,7 @@ identifier. Skip any row whose answer is already a number from
 
 #### Clone / family (intake + start-function)
 
-`rebrew similar` ranks STUBs by CFG against a solved function.
+`rebrew similarity function` ranks STUBs by CFG against a solved function.
 That rank is structural, not semantic. Jev re-ranks the top 10
 the way the legal re-rank cookbook re-ranks BM25.
 
@@ -568,7 +568,7 @@ landed. Probes that changed spelling were reverted.
 
 | Question | Options / type | Action |
 | -------- | -------------- | ------ |
-| `edit_kind` | Choice: `move_block` / `change_spelling` / `volatile_site` / `ceiling` | `move_block` → diff top-level block order against `rebrew asm` (shapes §84 method) and move statements; `change_spelling` → only if `near-diag` is `equivalent`; `ceiling` → `blocker set`, stop |
+| `edit_kind` | Choice: `move_block` / `change_spelling` / `volatile_site` / `ceiling` | `move_block` → diff top-level block order against `rebrew binary asm show` (shapes §84 method) and move statements; `change_spelling` → only if `near-diag` is `equivalent`; `ceiling` → `blocker set`, stop |
 | `worth_linktest` | Noul | Queue for serialized `linktest` only if high; object `matched`/`aligned` lie (measure-traps §1–2) |
 
 State = `diff --json` hunk list (block ids, not bytes) + current
@@ -626,21 +626,21 @@ AcceptConnections rounds 518/520: local 0 diffs, gate `.text`
 | `churns_text` | Noul | high → refuse the data-only commit until a link-test slot exists |
 | `edit_scope` | Choice: `safe_data` / `needs_linktest` / `touches_comdat` | queue / skip |
 
-State = `rebrew data --json` diff + which TUs reference the
+State = `rebrew data list --json` diff + which TUs reference the
 symbol. Not a substitute for measuring; a prefilter on the
 serialized link-test queue.
 
 #### Decompiler backend / seed policy
 
 `rebrew decompile` takes `--decompiler` (default `kuna`; also
-`auto`, `r2ghidra`, `r2dec`, `ghidra`, `m2c`). `rebrew match --seed-llm` is
+`auto`, `r2ghidra`, `r2dec`, `ghidra`, `m2c`). `rebrew match run --seed-llm` is
 optional. Pick the expensive path only when the cheap one is
 hopeless.
 
 | Question | Options / type | Action |
 | -------- | -------------- | ------ |
 | `decomp_backend` | Choice: `auto` / `r2ghidra` / `r2dec` / `ghidra` / `kuna` / `m2c` | `rebrew decompile --decompiler …` |
-| `seed_policy` | Choice: `none` / `seed_solved` / `seed_llm` / `both` | flags on `rebrew match` |
+| `seed_policy` | Choice: `none` / `seed_solved` / `seed_llm` / `both` | flags on `rebrew match run` |
 
 State = size, `near-diag`, whether a solved sibling exists,
 whether `[llm]` is configured. Skip `seed_llm` when
@@ -711,7 +711,7 @@ treat as `human_only`.
 
 | Question | Options / type | Action |
 | -------- | -------------- | ------ |
-| `same_function` | Score: `merge` / `leave` / `curator` | `merge` → `rebrew cross-import`; `leave` → independent; curator if calling convention / CU differs |
+| `same_function` | Score: `merge` / `leave` / `curator` | `merge` → `rebrew source import-related`; `leave` → independent; curator if calling convention / CU differs |
 | `prefix_ok` | Noul: client prefixes (`ch_ ai_ he_ d2_ …`) used on a server symbol | high → reject the name (goal.md: never reuse client prefixes) |
 
 Entity-alignment cookbook exactly. Merge is the expensive
@@ -719,11 +719,11 @@ mistake.
 
 #### Switch / calling-convention leftovers
 
-Only when `rebrew switch` / `stack-cmp` did not already label it.
+Only when `rebrew binary switches` / `stack-cmp` did not already label it.
 
 | Question | Options / type | Action |
 | -------- | -------------- | ------ |
-| `dispatch` | Choice: `jump_table` / `if_cascade` / `call_table` / `unknown` | jump_table → `rebrew switch`; unknown → human |
+| `dispatch` | Choice: `jump_table` / `if_cascade` / `call_table` / `unknown` | jump_table → `rebrew binary switches`; unknown → human |
 | `conv` | Choice: `cdecl` / `stdcall` / `fastcall` / `thiscall` / `unknown` | write `CALLING` only on high confidence; stack-cmp remains the check |
 
 ### 5.12 Shared envelope
@@ -793,7 +793,7 @@ This pass *removes* more than it adds.
 
 #### What this pass kills
 
-- Sending `rebrew asm` / hex dumps / opcode listings as Jev
+- Sending `rebrew binary asm show` / hex dumps / opcode listings as Jev
   state. TypeSafe: high-level language and English beat
   assembly and binary. `near-diag` already turned bytes into a
   category; that category is the input.
@@ -944,7 +944,7 @@ What "simple" has to mean, or it is a no:
 | ----- | ---- | --- |
 | PE / ELF bytes | no | not text; and the useful bits are headers `detect` already parsed |
 | `objdump -d` of the binary | no | fat state (jaggedness 5) + counting idioms (jaggedness 2) + asm (2b) |
-| Full `rebrew asm <VA>` listing | no | same; `near-diag` already classified the bytes |
+| Full `rebrew binary asm show <VA>` listing | no | same; `near-diag` already classified the bytes |
 | 8–20 **English idiom lines** code already counted | leftover only | "142 `rep movs/stos`; 94 `push ebp; mov ebp,esp`; 16 `mov edi,edi` 2-byte nops; both `/O1` push-`[mem]` and `/O2` load-first wrappers": that is `toolchain detect` evidence, not a listing |
 | One **English behavior card** for one function ("else stores 0 into slot[9]") | yes | §5.13 verdict; a small LLM wrote the card from C/`asm` |
 

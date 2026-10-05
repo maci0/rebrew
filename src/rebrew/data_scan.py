@@ -1,10 +1,10 @@
-"""data_scan.py – Global data scanning library behind ``rebrew data``.
+"""data_scan.py – Global data scanning library behind ``rebrew data list``.
 
 Scans reversed .c files for ``// GLOBAL: MODULE 0xVA`` and ``// DATA: MODULE 0xVA``
 annotations (reccmp standard) and ``extern`` data declarations, detects dispatch
 tables / vtables in data sections, and verifies ``.bss`` layout.  Holds no CLI
 code, so compile-time callers (``coff_reloc``) and analysis commands import it
-without pulling in the ``rebrew data`` Typer app (``rebrew.data``).
+without pulling in the ``rebrew data list`` Typer app (``rebrew.data``).
 """
 
 import logging
@@ -298,7 +298,9 @@ def _source_visible_to_target(lines: list[str], cfg: ProjectConfig | None) -> bo
     return not saw_marker
 
 
-def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
+def scan_globals(
+    src_dir: Path, cfg: ProjectConfig | None = None, *, record_roles: bool = True
+) -> ScanResult:
     """Scan reversed source files for global declarations.
 
     Collects:
@@ -319,6 +321,9 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
     ``unsigned int g[4]`` in a source is one global. Two headers that
     disagree, with no ``.c`` declaration, still conflict, and so do two
     ``.c`` markers that spell the same global differently.
+
+    *record_roles* fills ``defined_in`` and ``referenced_in``. The reloc
+    name map only reads names and VAs, so it passes False and skips that walk.
     """
     from rebrew.c_parser import array_type_shape, find_extern_variables, find_variable_roles
     from rebrew.sources import iter_sources_and_headers
@@ -434,7 +439,8 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
                 "" if i in foreign_decl_lines else line for i, line in enumerate(lines)
             )
 
-        file_roles[fname] = find_variable_roles(extern_text, function_filter=function_visible)
+        if record_roles:
+            file_roles[fname] = find_variable_roles(extern_text, function_filter=function_visible)
 
         # Pre-compute extern variables from tree-sitter (used for unannotated
         # scan).  Definitions are included: a global's real type lives on its
@@ -773,7 +779,7 @@ def build_dispatch_known_functions(cfg: ProjectConfig, src_dir: Path) -> dict[in
     FLIRT-identified CRT functions).  A "0% resolved" table is misleading
     when the catalog already knows the names.
 
-    Shared by ``rebrew data --dispatch`` and ``rebrew analyze``'s dossier, so
+    Shared by ``rebrew data dispatch`` and ``rebrew binary analyze``'s dossier, so
     both report the same resolution count.
     """
     known_functions = build_source_known_functions(cfg, src_dir)

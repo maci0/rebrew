@@ -178,7 +178,7 @@ because the migration is a wholesale document rewrite (`build-db` replaces each
 file whole) or a cold cache (as with the compile-cache schema `5` -> `6` bump in
 2.7.0 and the Python 3.13 floor in 2.3.0).
 The Python import surface (module paths, functions, classes, `__all__`) and
-the `rebrew dashboard` `/api/*` JSON are not frozen: a removal, move, or
+the `rebrew coverage serve` `/api/*` JSON are not frozen: a removal, move, or
 signature change there ships in a minor with a `**Breaking:**` entry naming
 the old and new import path or shape (as with the helper removals in 2.1.0
 and 2.2.0).  There is no deprecation window; pin the minor version if you

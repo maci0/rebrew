@@ -125,13 +125,13 @@ Byte-exact for N64/PS1/GC requires the actual compilers:
    `<family>/<version>-<arch>/source`.
 2. ~~**m2c as a decompiler backend**~~ *(DONE)*: m2c is MIPS/PPC-native; the `m2c`
    backend is registered in the decompiler registry (`rebrew skeleton
-   --decomp-backend m2c`), feeding it the `rebrew context` output (`--context
+   --decompiler m2c`), feeding it the `rebrew export context` output (`--context
    ctx.c`); the m2c `--valid-syntax`/`--stack-structs` workflow is available
    for MIPS/ARM/SH targets.  PPC is still blocked: capstone 5 has no working
    PPC engine to feed m2c (word-scan extent only), so `fetch_m2c` returns None
    for PPC until a capstone ≥6 or rizin-based disassembler lands.
 3. **FLIRT for console libs**: ~~`gen_flirt_pat` gains ELF archive support~~ *(DONE)*;
-   ``rebrew gen-flirt-pat`` now dispatches on member magic (COFF ``.lib`` vs ELF
+   ``rebrew library signatures`` now dispatches on member magic (COFF ``.lib`` vs ELF
    ``.a``); ELF objects use exact symbol sizes and MIPS fixups mask the whole
    instruction word.  Remaining: signature DBs for libultra / PSX libc / DOL
    runtime and `identify_library` presets (e.g. `n64-libultra`, `psx-libc`).
@@ -247,7 +247,7 @@ Rebrew's value is not "MSVC6": it is the *compiler-in-the-loop workbench*:
 | **Binary format** | **DOL** (GameCube executable; 18 text+data segments, BSS, entry point, load addresses) + **REL** (relocatable modules, used for almost everything beyond the DOL). Shipped inside **GCM ISO** (GC disc format, FST filesystem). DOL = flat; REL = has custom PPC reloc table. |
 | **Object format** | CodeWarrior object = **ELF** (PowerPC, big-endian, DWARF): LIEF-parseable. `mwcc` can also emit `SOM` on older hosts. Modern matching decomp drives `mwcceppc.exe` under Wine (same runner pattern as `CL.EXE` under Wine today). |
 | **Decomp precedents** | Very active: `doldecomp` (Melee, Sunshine, Wind Waker, TTYD, F-Zero GX), `decomp.me` `mwcc_247_92` etc., `cw` Docker images that bundle every CodeWarrior version. `decomp.me/mwcc` flag axes are already curated (opt level, inline, scheduling, interproc). DOL matching is the canonical example of Rebrew's problem on a different ISA. |
-| **Rebrew fit** | Second-best after N64. DOL/REL loader + PPC BE disasm + Wine-wrapped `mwcceppc.exe`. Vtable/dispatch analysis (`rebrew data --dispatch`) directly relevant: GC games are C++ vtable-heavy. |
+| **Rebrew fit** | Second-best after N64. DOL/REL loader + PPC BE disasm + Wine-wrapped `mwcceppc.exe`. Vtable/dispatch analysis (`rebrew data dispatch`) directly relevant: GC games are C++ vtable-heavy. |
 
 ### 3.4 Sega Saturn: Dual Hitachi SH-2 (SH7604), 28.6 MHz ×2
 
@@ -428,7 +428,7 @@ Each phase is shippable independently and ordered by (decreasing payoff) / (incr
 - [ ] **0.5 Toolchain spec stubs** (`rebrew/toolchain.py`, ADR-006): reserve `ToolchainSpec` entries + `<family>/<version>-<arch>/Dockerfile` placeholders in the rebrew-toolchains checkout for `ido53/71`, `cw_gc`, `sh-elf-gcc`, `psyq` (proxy), `ee-gcc` so every later phase is "fill the Dockerfile + flag axes" rather than new runner glue. *Partly landed: `ido-5.3` and `ido-7.1` ship (ADR-017 names); `cw_gc`, `sh-elf-gcc`, `psyq`, `ee-gcc` do not exist yet.* The host-fallback clause this item assumed is **withdrawn**; [ADR-008](adr/008-docker-only-execution.md) makes execution docker-only, so a cross toolchain needs an image, not a PATH binary.
 - [ ] **0.6 Documentation + fixtures-per-format policy** (`docs/CONFIG.md`, `docs/TOOLCHAIN.md`, `AGENTS.md`, `docs/OMF_NOTES.md` template): update arch/profile tables; record the "one tiny hex fixture + one NOTES.md per container" rule (OMF_NOTES.md pattern, see §5.5.2) so reviewers expect `docs/{PSEXE,N64ROM,DOL,REL,GDROM}_NOTES.md` on promotion. Unit-test the registry + capstone mode construction (no binary fixture needed yet).
 
-**Deliverable:** `rebrew cfg add-target` + `rebrew asm --target` work for console arches; disassembly is correct, comparison falls back to explicit relocs; every later container/toolchain has a home per ADR-001/006.
+**Deliverable:** `rebrew cfg target add` + `rebrew binary asm show --target` work for console arches; disassembly is correct, comparison falls back to explicit relocs; every later container/toolchain has a home per ADR-001/006.
 
 ### Phase 1: MIPS Family: PS1 + N64 (+ PS2) (3–5 weeks)
 
@@ -545,9 +545,9 @@ Each phase is shippable independently and ordered by (decreasing payoff) / (incr
 ## 7. How Rebrew Would Be Used (Console Workflows)
 
 The snippets below sketch the console workflow this roadmap is aiming at.
-They are not the shipped CLI: some flags (`rebrew data --scan`,
-`rebrew report --serve`, `rebrew identify-library --all`,
-`rebrew round-trip --format`, `rebrew intake --splat`) belong to phases
+They are not the shipped CLI: some flags (`rebrew data list --scan`,
+`rebrew coverage report --serve`, `rebrew library identify --all`,
+`rebrew build round-trip --format`, `rebrew intake --splat`) belong to phases
 described earlier and do not exist yet. Where a flag does ship under a
 different name, the roadmap uses the shipped name. Verify any flag against
 `rebrew <command> --help`.
@@ -558,27 +558,27 @@ different name, the roadmap uses the shipped name. Verify any flag against
 # 1. Onboard: handles disc images, detects N64 ROM + overlays + toolchain
 rebrew intake original/baserom.z64          # → uses splat.yaml if present
 rebrew doctor                                # → "detected IDO 7.1, profile ido71 fits"
-rebrew cfg set-cflags default "-O2 -G 8"    # per-overlay presets later
-rebrew analyze --output report.md            # toolchain, strings, SDK libs, FLIRT
+rebrew cfg module set-cflags default"-O2 -G 8"    # per-overlay presets later
+rebrew binary analyze --output report.md            # toolchain, strings, SDK libs, FLIRT
 
 # 2. Triage
 rebrew todo --category start-function                # actionable funcs, filtered (skip SDK)
-rebrew similar 0x80001234 --top 5            # find similar funcs to batch
+rebrew similarity function 0x80001234 --limit 5            # find similar funcs to batch
 
 # 3. Skeleton → edit → match
 rebrew skeleton 0x80001234
 $EDITOR src/Target/func_80001234.c
 rebrew test src/Target/func_80001234.c       # ido-7.1 compile + compare (Docker IDO or GCC)
 rebrew diff 0x80001234                        # mnemonic diff (MIPS BE, Capstone)
-rebrew match src/Target/func_80001234.c      # GA + flag sweep (small console flag space)
-rebrew asm 0x80001234 --size --imports        # inspect target bytes
+rebrew match run src/Target/func_80001234.c # GA + flag sweep (small console flag space)
+rebrew binary asm show 0x80001234 --size --imports # inspect target bytes
 
 # 4. Global data
-rebrew data --scan --dispatch --gen-header    # vtable / overlay tables, rebrew_globals.h
+rebrew data dispatch --scan --gen-header # vtable / overlay tables, rebrew_globals.h
 
 # 5. Verify & rebuild
 rebrew verify --jobs 8                   # incremental, cached
-rebrew round-trip --format n64rom --overlay boot --fix-headers
+rebrew build round-trip --format n64rom --overlay boot --fix-headers
 ```
 
 ### 7.2 The platform chameleon (multi-target project)
@@ -605,10 +605,10 @@ profile = "ido71"                 # Docker ido-static-recomp
 
 ```bash
 # Build FLIRT signatures from SDK .a/.lib once, then every project benefits
-rebrew gen-flirt-pat sdk/libultra/libultra.a --output sigs/libultra.pat
-rebrew gen-flirt-pat sdk/libdolphin.a --output sigs/libdolphin.pat
-rebrew flirt sigs/                           # → auto-labels SDK functions as library_*.h
-rebrew identify-library --all --fix-source   # merges FLIRT + imports + toolchain signals
+rebrew library signatures sdk/libultra/libultra.a --output sigs/libultra.pat
+rebrew library signatures sdk/libdolphin.a --output sigs/libdolphin.pat
+rebrew library scan-signatures sigs/                           # → auto-labels SDK functions as library_*.h
+rebrew library identify --all --fix-source   # merges FLIRT + imports + toolchain signals
 ```
 
 ### 7.4 The CI/verify bot
@@ -616,8 +616,8 @@ rebrew identify-library --all --fix-source   # merges FLIRT + imports + toolchai
 ```bash
 rebrew verify --json --all > verify.json
 rebrew verify --compare                       # regression check
-rebrew build-db                               # rewrite coverage-<target>.toml (now overlay-aware)
-rebrew report --serve                         # PR artifact
+rebrew coverage build                               # rewrite coverage-<target>.toml (now overlay-aware)
+rebrew coverage report --serve                         # PR artifact
 ```
 
 ---
@@ -627,19 +627,19 @@ rebrew report --serve                         # PR artifact
 Ideas beyond "port the existing engine": native console strengths that would be *new* capabilities in Rebrew.
 
 ### 8.1 Overlay/REL-Aware Editing
-- `rebrew split` / `merge` already exist: extend to overlay boundaries (one file per overlay, like N64's `src/boot`, `src/ovl_Boss`). `cu_map` should infer CU boundaries *per overlay* (linker script = authoritative partition).
+- `rebrew source split` / `merge` already exist: extend to overlay boundaries (one file per overlay, like N64's `src/boot`, `src/ovl_Boss`). `cu_map` should infer CU boundaries *per overlay* (linker script = authoritative partition).
 
 ### 8.2 Literal-Pool & GP-Relative Tracking
-- N64/PS1/PS2 MIPS use `$gp` to reach small data (`.sdata`/`.sbss`); SH literal pools do similar. `rebrew data` could track `gp`-relative globals and emit `__gp`-anchored `extern`s so C re-declarations produce `gp`-relative `lw` instead of `lui`/`addiu` pairs: a frequent mismatch source. This is console-specific codegen, and Rebrew could *generate* it rather than require hand-tuning.
+- N64/PS1/PS2 MIPS use `$gp` to reach small data (`.sdata`/`.sbss`); SH literal pools do similar. `rebrew data list` could track `gp`-relative globals and emit `__gp`-anchored `extern`s so C re-declarations produce `gp`-relative `lw` instead of `lui`/`addiu` pairs: a frequent mismatch source. This is console-specific codegen, and Rebrew could *generate* it rather than require hand-tuning.
 
 ### 8.3 C++ Demangle & Vtable-First Triage
 - GC/DC are C++ heavy. `rebrew todo --c++` that ranks functions by `is_vtable_entry`, `is_pure_virtual`, or `has_vtable_cross_ref` would let reversers knock out class hierarchies bottom-up. Ghidra's `analyze-vtable` MCP tool already feeds this; expose it in `todo`/`depgraph`.
 
 ### 8.4 Match-Seeding Across Ports
-- Many games shipped on multiple consoles with shared C sources (e.g. Tony Hawk PS1↔N64, Crazy Taxi DC↔PS2). Add `rebrew match --seed-project ../ps1-port` that seeds cflags/mutations from the port where a function was already matched. `solutions_db` already supports cross-project seeding.
+- Many games shipped on multiple consoles with shared C sources (e.g. Tony Hawk PS1↔N64, Crazy Taxi DC↔PS2). Add `rebrew match run --seed-project ../ps1-port` that seeds cflags/mutations from the port where a function was already matched. `solutions_db` already supports cross-project seeding.
 
 ### 8.5 Asset/Filesystem diff helper
-- PS1/GC/Saturn/DC assets live alongside code in the same disc image. A lightweight `rebrew resource --diff-iso` that `diff`s extracted filesystems (FST vs ISO9660 vs GD) after a source rebuild would close the `round-trip` loop at the disc-image level (not just the inner executable).
+- PS1/GC/Saturn/DC assets live alongside code in the same disc image. A lightweight `rebrew binary resource --diff-iso` that `diff`s extracted filesystems (FST vs ISO9660 vs GD) after a source rebuild would close the `round-trip` loop at the disc-image level (not just the inner executable).
 
 ### 8.6 ARM7/AICA world for Dreamcast
 - The ARM7 blob is a separable target (`arch=arm7`, `arm-eabi-gcc`). It is tiny but has its own catalog. Treating it as a second target in the same project (like `server.dll`+`client.exe` today) requires no new code: just config docs + a loader.
@@ -852,14 +852,14 @@ GB-specific encodings (`LDH`, `STOP`) need a post-pass or RGBDS's own disasm.
 |---|------|-------------------|--------|--------|
 | **A1** | **Disassembly workbench with bank-aware `intake`** `rebrew intake mario.nes` → detects iNES header, mapper, PRG banks → `src/NES/bank_00/`… / `src/GB/bank_00/`: exactly N64 `splat.yaml` intake (§1A) but with `ines_loader` / `snes_loader` / `gb_loader`. | `intake.py` + new `*_loader.py` (ADR-001) | ★★★: one command from ROM to browsable source tree; today's toolchains require 3 tools. | S per console |
 | **A2** | **Assembler-in-the-loop verify**: `rebrew verify` repurposed: assemble each `*.asm` (`ca65`/`rgbasm`/`wla`) → extract routine bytes → verbatim compare to PRG bank. No flag sweep, no GA. `verify --watch` is a *live assembler*. | `compile.py` compile path + `ToolchainSpec` (`ca65`/`rgbasm`/`wla`, native, no Wine) | ★★★: the only missing piece for "rebrew for ASM" to feel like "rebrew for C". | S |
-| **A3** | **CHR / tile / palette data pipeline**: `rebrew data --scan` extended for 2bpp CHR banks, OAM, nametables, palette tables; `--gen-header` emits `chr_bank_00.inc` / `tiles.h` with correct `.incbin` offsets. | `data.py --dispatch` (pointer tables already) + new CHR heuristics | ★★★ for GB/NES/PC Engine; the bulk of a disassembly is data, not code. | M |
+| **A3** | **CHR / tile / palette data pipeline**: `rebrew data list --scan` extended for 2bpp CHR banks, OAM, nametables, palette tables; `--gen-header` emits `chr_bank_00.inc` / `tiles.h` with correct `.incbin` offsets. | `data.py --dispatch` (pointer tables already) + new CHR heuristics | ★★★ for GB/NES/PC Engine; the bulk of a disassembly is data, not code. | M |
 | **A4** | **Mapper-aware symbol relocation**: `coff_reloc.py` `smart_reloc_compare` disabled (no relocs); instead `build_db` + `xrefs` understand bankswitch: `JSR $8000` means different things per bank. Catalog stores `(bank, va)` not flat VA: reuse `(overlay, VA)` from §5.5.2 verbatim. | Coverage-document `overlay` field | ★★: correctness; without it, cross-bank xrefs are garbage (same VA, different code). | S (already planned) |
 | **A5** | **Cycle-timed raster / self-modifying code (SMC) awareness**: `todo`/`near_diag` flag routines that self-modify (`STA $addr` where `$addr` is inside `.text`), use `WSYNC`/`HBLANK` (`STA WSYNC`), or depend on exact cycle counts (2600 `RESP0` kernels). Mark as `BLOCKER: cycle-timed` / `BLOCKER: SMC`, like SEH helpers (`CODEGEN_PATTERNS.md`), honest ASM blockers. | `analysis.py` scan + new `BLOCKER` taxonomy | ★★: prevents wasted effort on unmatchable-by-structure routines. | S |
 | **A6** | **Non-matching (C) recompilation assist**: many ASM decomps evolve from "verbatim ASM" → "C reimplementation that is *functionally* equivalent but not byte-identical". Rebrew can track both: `STATUS: ASM_EXACT` (assembler loop) vs `STATUS: C_EQUIVALENT` (`prove.py` angr/vex already lifts 6502/68000/Z80). | `prove.py` (angr VEX lifts M68K/Z80/ARM; add 6502/65816 via `py65` or angr's `mos65xx`) | ★★: bridges the classic "disassembly → decompilation" gap for ASM platforms. | M |
-| **A7** | **Library / mapper / sound-driver FLIRT**: FLIRT for common ASM libraries (Nintendo's `apu`, `ppu` init, Konami mapper, Capcom sound drivers, GB `gbdk` stubs). Same `rebrew flirt` as §5, just different `.pat` packs: `flirt --pack nes-mappers / gbsound / snes-spc700`. | `flirt.py` + `python-flirt` (already) | ★★: filters the 20% of ROM that is stock SDK/mapper boilerplate. | S (per pack) |
+| **A7** | **Library / mapper / sound-driver FLIRT**: FLIRT for common ASM libraries (Nintendo's `apu`, `ppu` init, Konami mapper, Capcom sound drivers, GB `gbdk` stubs). Same `rebrew library scan-signatures` as §5, just different `.pat` packs: `flirt --pack nes-mappers / gbsound / snes-spc700`. | `flirt.py` + `python-flirt` (already) | ★★: filters the 20% of ROM that is stock SDK/mapper boilerplate. | S (per pack) |
 | **A8** | **ToolchainSpec for assemblers** (ADR-006 reuse): `ca65`, `rgbds` (`rgbasm+rgblink+rgbfix`), `wla-*`, `bass`, `asar` as `ToolchainSpec` entries (`docker-first → vendored → PATH`); `rebrew toolchain list` shows them. No Wine (all native). `flag_data.py` not needed: assemblers have ~2 flags (`--cpu`, `-o`). | `toolchain.py` (already) | ★: uniformity; today's ASM toolchains are even more fragmented than C. | S |
 | **A9** | **Splat/bass/GB disassembly import**: `rebrew intake --splat splat.yaml` already in §1A; add `rebrew intake --rgbds symfile.sym` / `--ca65 labels.txt` / `--bass bankmap.asm` to import an *in-progress* community disassembly. Reuse decomp.me import idea (§8.7) for ASM. | `intake.py` importers | ★★: porting `pret/pokeemerald` or `smbdisasm` into Rebrew in minutes. | M |
-| **A10** | **Asset diff + graphics preview**: extend `rebrew resource --diff-iso` (§8.5) to CHR diff: extract nametables/sprites after rebuild and `diff` as images (via `matplotlib`, already an available dep). `rebrew report` embeds CHR preview. | `resource.py` + `report.py` | ★: visible payoff; a byte diff on CHR is unreadable, an image diff is instant. | M |
+| **A10** | **Asset diff + graphics preview**: extend `rebrew binary resource --diff-iso` (§8.5) to CHR diff: extract nametables/sprites after rebuild and `diff` as images (via `matplotlib`, already an available dep). `rebrew coverage report` embeds CHR preview. | `resource.py` + `report.py` | ★: visible payoff; a byte diff on CHR is unreadable, an image diff is instant. | M |
 
 ### A.5 Assembly-specific arch details (what Phase 0 misses)
 
@@ -899,7 +899,7 @@ These are additive: C-era `EXACT`/`RELOC`/`PROVEN`/`STUB`/`BLOCKER` stay. Lint `
 |------|------------|
 | **Capstone not a full 6502/SM83 canon**: GB `LDH`/`STOP`, 65816 `MVN`, HuC6280 `TAM` may decode as `UNDEF`. | Gate each arch preset with a hex-fixture round-trip (`tests/fixtures/{mos6502,z80,m68k,sm83}`) before any sweep: same rule as §9. Vendor a 200-line 65816/SPC700 table if a mode flag is missing. |
 | **Bank aliasing is worse than N64 overlays**: same PRG VA `0x8000` in 16 banks; flat `functions.txt` collapses them. | Reuse the document's `overlay` field as `bank` (already committed for N64/DOL). `todo`/`status` filter by `--bank`. |
-| **No FLIRT packs for mappers**: mappers *are* the SDK but no `.pat` packs ship. | Start from `rebrew gen-flirt-pat` on vendored `mapper/*.asm` → `.pat` (same as `libultra`). One pack per mapper family (MMC3 etc.): S per pack. |
+| **No FLIRT packs for mappers**: mappers *are* the SDK but no `.pat` packs ship. | Start from `rebrew library signatures` on vendored `mapper/*.asm` → `.pat` (same as `libultra`). One pack per mapper family (MMC3 etc.): S per pack. |
 | **RGBDS/ca65 are native (no Docker**) assembling is 10× faster than compiling, so optimization loop is different. | Lean into it: `rebrew verify --watch` is a *live assembler watch* (A2); sub-second feedback, beats C's 60 s timeout. Document as the headline feature. |
 | **Prove/angr for 6502/65816 is immature**: VEX lifts 6502 partially. | Mark `C_EQUIVALENT` as opt-in (`--prove`) and keep `ASM_EXACT` authoritative. Do not block ASM decomps on symbolic proof. |
 
@@ -914,7 +914,7 @@ These are additive: C-era `EXACT`/`RELOC`/`PROVEN`/`STUB`/`BLOCKER` stay. Lint `
 | **A0 Foundation (8-bit ISA)** | Add `mos6502`/`w65816`/`huc6280`/`z80`/`sm83`/`m68k`/`spc700` to `ARCH_PRESETS` + `KNOWN_FORMATS` `ines`/`sfc`/`smc`/`gb`/`gbc`/`pce`/`md` + native loaders (`ines_loader`/`snes_loader`/`gb_loader`/`md_loader`) as one hex fixture + one `docs/*_NOTES.md` each (OMF_NOTES.md template). | 1–2 w | Phase 0 |
 | **A1 NES + GB** | `ca65`/`rgbds` as `ToolchainSpec` (native), `ASM_EXACT` status, `rebrew verify` assembler path, CHR/tile `--gen-header`. Two E2E fixtures: a 32K NROM (`mario` stub) and a tiny GB ROM (`rgbds` `hello`). | 1–2 w | A0, 4 |
 | **A2 Genesis + SNES** | `vasm`/`wla-65816` loaders (LoROM/HiROM detect at `0x7FC0`/`0xFFC0`, Genesis vector table at `0x00`), 68000/65816 Capstone modes, `m68k` FLIRT pack. | 2 w | A0 |
-| **A3 Polish** | Mapper FLIRT packs, SPC700/Z80 co-CPU dual-binary (like DS/Saturn), `rebrew resource --chr-diff` image preview, `import --rgbds`/`--ca65`. | 1–2 w | A1/A2 |
+| **A3 Polish** | Mapper FLIRT packs, SPC700/Z80 co-CPU dual-binary (like DS/Saturn), `rebrew binary resource --chr-diff` image preview, `import --rgbds`/`--ca65`. | 1–2 w | A1/A2 |
 
 ### A.9 How to read this addendum with the main roadmap
 

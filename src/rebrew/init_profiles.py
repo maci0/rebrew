@@ -77,7 +77,7 @@ timeout = {compile_timeout}          # compile subprocess timeout (seconds)
 [compiler.cflags_presets]
 GAME = "{cflags}"
 
-# Optional LLM seeding for `rebrew match --seed-llm`. Prefer env vars for the
+# Optional LLM seeding for `rebrew match run --seed-llm`. Prefer env vars for the
 # key so it is never committed: REBREW_LLM_ENDPOINT / REBREW_LLM_API_KEY.
 # Optional model pin: REBREW_LLM_MODEL or [llm] model (default gpt-4o-mini-2024-07-18).
 # Process call ceiling: REBREW_LLM_MAX_REQUESTS (default 32) stops --watch burn.
@@ -97,7 +97,7 @@ GAME = "{cflags}"
 # backend = "diskcache"
 # size_limit_mib = 500
 
-# PE header values for byte-identical reconstruction; `rebrew round-trip
+# PE header values for byte-identical reconstruction; `rebrew build round-trip
 # --fix-headers` patches them in. stack_commit must not exceed stack_reserve.
 # [link]
 # stack_reserve = 0x100000

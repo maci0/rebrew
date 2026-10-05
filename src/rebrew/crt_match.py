@@ -5,9 +5,9 @@ functions matching reversed binary functions. Uses name matching, function
 extraction from C source, and known ASM-only function detection.
 
 Usage:
-    rebrew crt-match 0x10006c00              Match a single VA
-    rebrew crt-match --all                   Match all LIBRARY-marker functions
-    rebrew crt-match --fix-source --all      Auto-write // SOURCE: annotations
+    rebrew library crt-match 0x10006c00              Match a single VA
+    rebrew library crt-match --all                   Match all LIBRARY-marker functions
+    rebrew library crt-match --fix-source --all      Auto-write // SOURCE: annotations
 """
 
 from __future__ import annotations
@@ -523,11 +523,11 @@ def _render_match_table(matches: list[CrtMatch]) -> None:
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew crt-match 0x10006c00 · · · · · Match a single VA\n\n"
-    "  rebrew crt-match --all · · · · · · · · Match all LIBRARY-marker functions\n\n"
-    "  rebrew crt-match --fix-source --all · · Auto-write // SOURCE: annotations\n\n"
-    "  rebrew crt-match --index · · · · · · · Show CRT source index\n\n"
-    "  rebrew crt-match --json · · · · · · · · JSON output"
+    "  rebrew library crt-match 0x10006c00 · · · · · Match a single VA\n\n"
+    "  rebrew library crt-match --all · · · · · · · · Match all LIBRARY-marker functions\n\n"
+    "  rebrew library crt-match --fix-source --all · · Auto-write // SOURCE: annotations\n\n"
+    "  rebrew library crt-match --index · · · · · · · Show CRT source index\n\n"
+    "  rebrew library crt-match --json · · · · · · · · JSON output"
 )
 
 app = typer.Typer(

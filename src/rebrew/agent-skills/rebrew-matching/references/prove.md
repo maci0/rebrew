@@ -4,9 +4,9 @@ Use when STATUS is NEAR_MATCHING or SIZE_MISMATCH and structural diffs (register
 loop layout) block EXACT/RELOC. Classify first, then prove.
 
 ```bash
-rebrew near-diag src/<target>/<file>.c --json    # classify: register/equivalent/reloc/structural
-rebrew near-diag src/<target>/<file>.c --fix-blocker
-rebrew near-diag --all --fix-blocker --json
+rebrew diagnose near src/<target>/<file>.c --json    # classify: register/equivalent/reloc/structural
+rebrew diagnose near src/<target>/<file>.c --fix-blocker
+rebrew diagnose near --all --fix-blocker --json
 rebrew prove src/<target>/<file>.c --json
 rebrew prove src/<target>/<file>.c --dry-run --json
 rebrew prove src/<target>/<file>.c --timeout 120 --json

@@ -2,8 +2,8 @@
 
 External library code ("not our work" — CRT, DirectX, import libs) is
 flagged per target as ``module = "link-spec"``.  The flag drives three
-things: progress accounting excludes the modules, `rebrew lib-match`
-ingests the archives by default, and `rebrew cmake-sources` emits the
+things: progress accounting excludes the modules, `rebrew library match`
+ingests the archives by default, and `rebrew build cmake-sources` emits the
 specs as ``REBREW_EXTERNAL_LIBS`` so the build links the stock archive
 at build time ("link it at the right place" — config order is link
 order).

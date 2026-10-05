@@ -12,9 +12,9 @@ same tiers and the data/globals/layout pipeline.
 | Tier | Stores | Contract |
 |---|---|---|
 | **Canonical (durable)** | `.c` marker lines, `rebrew-functions.toml`, `rebrew-data.toml`, `rebrew-libraries.toml`, `rebrew-project.toml` | Source/config are editable; function/data metadata are CLI/API-managed and hold non-derivable identity, origins, and verification evidence. Derived views are rebuilt from these plus the binary; recorded history is identified separately below. |
-| **Derived, VCS-intended** | `src/<target>/function_structure.json` (discovery inventory), `<target>.def`, `crt_region/*.c`, `src/link_stubs.c`, `src/<target>/bss_padding.c`, `src/<target>/rebrew_globals.h`, `layout/<target>/`, `[link]` config blocks, `flirt_sigs/*.pat`, `cmake/toolchain-*.cmake` | Build scaffolding generated from the binary / binary-derived facts (gen-layout, discover-functions, catalog, gen-link-stubs, `rebrew data --fix-bss` / `--gen-header`, flirt).  Committed to git so a rebuild never needs `original/` around; regenerable via the generating command.  Never hand-edit. |
-| **Derived, gitignored (build output)** | `db/coverage-<target>.toml`, `bin/<target>/*.bin`, `output/report/` | Rebuildable via `rebrew build-db` / `rebrew verify` / `rebrew extract` / `rebrew report`.  Treat as build output.  `rebrew verify` writes a report file only with an explicit `--output` path; the `--compare` baseline lives in `.rebrew/verify_baseline.toml` (the old `db/verify_results.json` snapshot was unguarded and is no longer written; see `verify_cache.load_baseline`). |
-| **Cache (delete-safe)** | `.rebrew/verify_cache.toml`, `.rebrew/compile_cache/`, `output/ga_runs/*/checkpoints/*.json`, `output/ga_runs/*/best.c`, `output/ga_runs/*/<symbol>.best.c`, `.rebrew/source-backups/*.orig`, in-memory mtime caches | Regenerated on demand.  Deleting costs a recompile/re-verify/resync at most.  The exception: `.rebrew/ga_runs.jsonl` is *history*, not cache; it accumulates GA outcomes (including winning fingerprints) re-running would not reproduce, each record is fsynced before `rebrew match` reports the run so a host that loses power does not take the win with it, and only the non-winning lines are capped (newest `_LOSS_RECORD_RETENTION`, wins kept forever).  `.rebrew/source-backups/` holds a copy of a `.c` that `rebrew climb` / `rebrew qual-sweep` is about to rewrite in place: it exists only while that run is in flight, is removed when the run finishes, and is the way back to the pre-run bytes after a kill that runs no cleanup (SIGKILL, OOM, power cut).  Two one-shot rewrites keep their copy after a clean run instead, because neither has a restore: `rebrew migrate-markers` (`*.pre-migration.*.orig`, the pre-strip bytes) and `rebrew skeleton --force` (`*.pre-skeleton.*.orig`, the replaced file).  They accumulate one file per rewrite; prune the directory when the migration or the overwrite is confirmed good.  There is no per-run build diskcache: same-run compiles memoize in memory, cross-run persistence is the shared compile cache's job. |
+| **Derived, VCS-intended** | `src/<target>/function_structure.json` (discovery inventory), `<target>.def`, `crt_region/*.c`, `src/link_stubs.c`, `src/<target>/bss_padding.c`, `src/<target>/rebrew_globals.h`, `layout/<target>/`, `[link]` config blocks, `flirt_sigs/*.pat`, `cmake/toolchain-*.cmake` | Build scaffolding generated from the binary / binary-derived facts (gen-layout, discover-functions, catalog, gen-link-stubs, `rebrew data fix-bss` / `--gen-header`, flirt).  Committed to git so a rebuild never needs `original/` around; regenerable via the generating command.  Never hand-edit. |
+| **Derived, gitignored (build output)** | `db/coverage-<target>.toml`, `bin/<target>/*.bin`, `output/report/` | Rebuildable via `rebrew coverage build` / `rebrew verify` / `rebrew binary extract` / `rebrew coverage report`.  Treat as build output.  `rebrew verify` writes a report file only with an explicit `--output` path; the `--compare` baseline lives in `.rebrew/verify_baseline.toml` (the old `db/verify_results.json` snapshot was unguarded and is no longer written; see `verify_cache.load_baseline`). |
+| **Cache (delete-safe)** | `.rebrew/verify_cache.toml`, `.rebrew/compile_cache/`, `output/ga_runs/*/checkpoints/*.json`, `output/ga_runs/*/best.c`, `output/ga_runs/*/<symbol>.best.c`, `.rebrew/source-backups/*.orig`, in-memory mtime caches | Regenerated on demand.  Deleting costs a recompile/re-verify/resync at most.  The exception: `.rebrew/ga_runs.jsonl` is *history*, not cache; it accumulates GA outcomes (including winning fingerprints) re-running would not reproduce, each record is fsynced before `rebrew match run` reports the run so a host that loses power does not take the win with it, and only the non-winning lines are capped (newest `_LOSS_RECORD_RETENTION`, wins kept forever).  `.rebrew/source-backups/` holds a copy of a `.c` that `rebrew match climb` / `rebrew match qualifiers` is about to rewrite in place: it exists only while that run is in flight, is removed when the run finishes, and is the way back to the pre-run bytes after a kill that runs no cleanup (SIGKILL, OOM, power cut).  Two one-shot rewrites keep their copy after a clean run instead, because neither has a restore: `rebrew source migrate-markers` (`*.pre-migration.*.orig`, the pre-strip bytes) and `rebrew skeleton --force` (`*.pre-skeleton.*.orig`, the replaced file).  They accumulate one file per rewrite; prune the directory when the migration or the overwrite is confirmed good.  There is no per-run build diskcache: same-run compiles memoize in memory, cross-run persistence is the shared compile cache's job. |
 
 ## Who owns which fact
 
@@ -24,13 +24,13 @@ same tiers and the data/globals/layout pipeline.
 | Function **size** | registry `canonical_size` (`+ size_reason`): the compile contract is annotation/metadata `SIZE` | the coverage document's `functions[].size` |
 | Function **name** | C definition name (or migrated identity / catalog fallback); the MODULE/VA marker carries address identity, not the name | the coverage document's `functions[].name`, plus `list_name`/`ghidra_name` preserving the other authorities |
 | Match **STATUS** | `rebrew-functions.toml`: written **only** via `metadata.update_source_status` / `update_statuses_batch` (promotion gate: SKIP stays parked); triggered by `rebrew test` / `rebrew verify` / `rebrew prove` (also `match`, `lint`, `binsync-import`, `intake`). Every write tags `updated_by` (test/verify/prove/match/lint/binsync-import/intake) + UTC `updated_at` | the coverage document's `functions[].status` + `updated_by`/`updated_at` and its `history[]` change log; `.rebrew/verify_cache.toml` measured-result overlay at report time |
-| **BLOCKER / BLOCKER_DELTA** | `rebrew-functions.toml`: written **only** via `metadata.update_field` / `remove_field` through `rebrew blocker set/clear`, `rebrew diff --fix-blocker`, `rebrew near-diag --fix-blocker`, `rebrew document-unmatched` (never hand-edited) | the coverage document's `functions[].blocker`/`blockerDelta`; `rebrew status`/`todo` counts; `lint` W005 when `STUB` lacks one |
+| **BLOCKER / BLOCKER_DELTA** | `rebrew-functions.toml`: written **only** via `metadata.update_field` / `remove_field` through `rebrew blocker set/clear`, `rebrew diff --fix-blocker`, `rebrew diagnose near --fix-blocker`, `rebrew source document-unmatched` (never hand-edited) | the coverage document's `functions[].blocker`/`blockerDelta`; `rebrew status`/`todo` counts; `lint` W005 when `STUB` lacks one |
 | **cflags / toolchain** | `rebrew-functions.toml` (per-function) → `rebrew-libraries.toml` (per-library, walk-up) → project defaults, resolved by `resolve_compile_overrides` | the coverage document's `functions[].cflags` |
-| **Data symbols (globals)** | `rebrew-data.toml` (`name`/`type`/`size`/`section`/`note`, verify-written data STATUS `VERIFIED`/`DRIFT`/`UNCHECKED`, and the `updated_by`/`updated_at` write stamp) | the coverage document's `globals[]`; `src/<target>/rebrew_globals.h` (`rebrew data --gen-header`; extern declarations for the build); `rebrew status` data counts + `rebrew todo --category data-drift` |
-| Coverage presence | the project tree | the coverage document (`rebrew build-db` renders it in-process) |
-| **Layout / PE normalization** | `layout/<target>/` package: `rebrew-layout.toml` (sections, exports, imports, export_stamp, link_options, image_base), `header.hex` (full PE header block: SizeOfImage/CheckSum/TimeDateStamp/section table), `iat.hex`, `prefix.hex`, `bookkeeping.hex`, `data.hex`, `reloc.hex`, `operands.txt`, `calls.txt` | `[link]` block (`file_align`, `stack_*`, `tsaware`, `timestamp`) consumed by `rebrew round-trip --fix-headers` |
+| **Data symbols (globals)** | `rebrew-data.toml` (`name`/`type`/`size`/`section`/`note`, verify-written data STATUS `VERIFIED`/`DRIFT`/`UNCHECKED`, and the `updated_by`/`updated_at` write stamp) | the coverage document's `globals[]`; `src/<target>/rebrew_globals.h` (`rebrew data header`; extern declarations for the build); `rebrew status` data counts + `rebrew todo --category data-drift` |
+| Coverage presence | the project tree | the coverage document (`rebrew coverage build` renders it in-process) |
+| **Layout / PE normalization** | `layout/<target>/` package: `rebrew-layout.toml` (sections, exports, imports, export_stamp, link_options, image_base), `header.hex` (full PE header block: SizeOfImage/CheckSum/TimeDateStamp/section table), `iat.hex`, `prefix.hex`, `bookkeeping.hex`, `data.hex`, `reloc.hex`, `operands.txt`, `calls.txt` | `[link]` block (`file_align`, `stack_*`, `tsaware`, `timestamp`) consumed by `rebrew build round-trip --fix-headers` |
 | **Import order / IAT** | original binary (IAT order), captured into `layout/<target>/` | `crt_region/crt_imports.c` (`#pragma comment(linker, "/include:__imp_...")`), `layout/<target>/rebrew-layout.toml` `imports[]` |
-| **`.data` / BSS layout** | `rebrew-data.toml` (symbols) + `layout/<target>/data.hex` (reference bytes) | `src/link_stubs.c` (`g_bss_tail` pad, mutated by `rebrew calibrate-bss`), `src/<target>/bss_padding.c` (`rebrew data --fix-bss`; `gap_<va:08x>[N]` dummy arrays for detected gaps), `_dpad_<addr>[N]` pads inserted into `.c` files by `rebrew data --fill-data` (byte-exact from the reference in the raw region, zero-init for BSS), `rebrew-layout.toml` `sections[.data].vs` |
+| **`.data` / BSS layout** | `rebrew-data.toml` (symbols) + `layout/<target>/data.hex` (reference bytes) | `src/link_stubs.c` (`g_bss_tail` pad, mutated by `rebrew build calibrate-bss`), `src/<target>/bss_padding.c` (`rebrew data fix-bss`; `gap_<va:08x>[N]` dummy arrays for detected gaps), `_dpad_<addr>[N]` pads inserted into `.c` files by `rebrew data layout fill` (byte-exact from the reference in the raw region, zero-init for BSS), `rebrew-layout.toml` `sections[.data].vs` |
 | **Export table** | original binary, captured into `layout/<target>/` (`exports`, `export_stamp`, `exp_rva`) | `<target>.def` (`name @ ordinal` for the linker) |
 | **Ghidra provenance** (names/sizes) | `src/<target>/function_structure.json`, `ghidra_data_labels.json` (external exports, provenance-stamped) | registry `list_name`/`ghidra_name`, the coverage document's `functions[].detected_by` / `size_by_tool` / `size_reason` |
 
@@ -85,8 +85,8 @@ supplies its own tag.
 - **Data store.** `set_data_field` / `set_data_fields_batch` stamp the same pair
   alongside whichever field they change, tagged by the writer that ran: `verify`
   from `verify --data` on a
-  `VERIFIED` / `DRIFT` / `UNCHECKED` verdict, `rename` from `rebrew rename` on a
-  renamed global, `data` from `rebrew data`, `lint` on a migrated data marker.
+  `VERIFIED` / `DRIFT` / `UNCHECKED` verdict, `rename` from `rebrew source rename` on a
+  renamed global, `data` from `rebrew data list`, `lint` on a migrated data marker.
   The separate `verification` table keeps the measurement's producer, input
   digest and time alive after deleting `db/` and after later label/note edits.
   The coverage document's `verify_results[]` row
@@ -163,14 +163,14 @@ for inspection. Sync health reports stale measurement evidence independently.
 
 - **BinSync state dir** (the field-level sync interchange): `functions/*.toml`, `global_vars.toml`, `structs/*.toml` carry
   BinSync-native fields (name, prototype, size, notes, globals, structs);
-  rebrew exports via `rebrew sync --push --state-dir D` (binsync-export) and
+  rebrew exports via `rebrew sync push --state-dir D` (binsync-export) and
   imports via `--pull` (binsync-import).  The BinSync Ghidra plugin relays
   the state to/from Ghidra.  STATUS/CFLAGS are NOT in the state: they stay
   local in `rebrew-functions.toml`: STATUS is comparison-earned and CFLAGS
   are compiler inputs. See [BINSYNC_INTEGRATION.md](BINSYNC_INTEGRATION.md)
   for shared field ownership and reconciliation.
 - **Ghidra** (ReVa MCP): only the structural ops the state dir cannot
-  express; `rebrew sync --create-functions`, `--bookmarks`, `--pull-data`.
+  express; `rebrew sync create-functions`, `--bookmarks`, `--pull-data`.
   `src/<target>/function_structure.json` and `ghidra_data_labels.json` are
   Ghidra exports used as **registry inputs** (not sync outputs).
 - **rebrew-flirt-sigs checkout** (sibling repo, `REBREW_FLIRT_SIGS_DIR`
@@ -181,7 +181,7 @@ for inspection. Sync health reports stale measurement evidence independently.
 
 ## Layout package lifecycle
 
-`rebrew gen-layout` derives `layout/<target>/` (text-only: `rebrew-layout.toml` +
+`rebrew build layout` derives `layout/<target>/` (text-only: `rebrew-layout.toml` +
 `*.hex` byte files) and the `[link]` config block
 from the reference binary.  The package is committed to git; `rebrew
 postlink --layout <dir>` consumes it to normalize a built binary onto the
@@ -294,6 +294,6 @@ and remote state changes trigger reconciliation.
 
 Data storage relationships use managed `storage_kind` (`object`, `alias`,
 `literal`, `span`, `import`), `backing` (the allocating global), and `link_symbol`
-(the exact verified native symbol). Write them through `rebrew data --set-storage-kind`,
-`--set-backing`, `--set-link-symbol`, or `set_data_fields_batch`. These describe
+(the exact verified native symbol). Write them through `rebrew data set --storage-kind`,
+`--backing`, `--link-symbol`, or `set_data_fields_batch`. These describe
 provenance rather than a byte verdict; recording them does not verify storage.

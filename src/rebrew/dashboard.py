@@ -119,8 +119,8 @@ wire size stays inside the RFC 6928 initial congestion window minus a
 per-response header reserve, so a cold connection paints without an extra
 round trip; a test pins that budget, and a change that does not fit pays for
 itself in the client's own comment prose rather than in the budget.  As
-measured: 12695 B zstd and 13319 B gzip against a 13320 B budget, so gzip has
-1 B of room and zstd 625 B — a client-side edit budgets against gzip, and gzip
+measured: 12690 B zstd and 13317 B gzip against a 13320 B budget, so gzip has
+3 B of room and zstd 630 B — a client-side edit budgets against gzip, and gzip
 is the binding encoding.  The
 reserve is what makes gzip the tight one, not the encoder: the two responses
 send 560 and 592 B of headers as served, against the 640 B each is given; with
@@ -469,7 +469,7 @@ async function get(path, signal) {
     r = await fetch(path, { signal });
   } catch (error) {
     if (signal && signal.aborted) throw error;
-    throw new Error("the dashboard server did not respond; check that rebrew dashboard is still running");
+    throw new Error("the dashboard server did not respond; check that rebrew coverage serve is still running");
   }
   if (!r.ok) {
     let detail = "";
@@ -539,7 +539,7 @@ function setFunctionsEmptyMessage() {
     }
     bindEmptyClear("empty-clear-fn", "q");
   } else {
-    el.innerHTML = "No functions recorded for this target yet. Run <code>rebrew build-db</code>, then choose Reload.";
+    el.innerHTML = "No functions recorded for this target yet. Run <code>rebrew coverage build</code>, then choose Reload.";
   }
 }
 function bindEmptyClear(btnId, inputId) {
@@ -552,7 +552,7 @@ function setGlobalsEmptyMessage() {
     el.innerHTML = "No globals match this search. <button type='button' id='empty-clear-gq' class='link-button'>Clear search</button> or try another name.";
     bindEmptyClear("empty-clear-gq", "gq");
   } else {
-    el.innerHTML = "No globals recorded for this target. Annotate globals, run <code>rebrew build-db</code>, then choose Reload.";
+    el.innerHTML = "No globals recorded for this target. Annotate globals, run <code>rebrew coverage build</code>, then choose Reload.";
   }
 }
 function syncError() {
@@ -1586,7 +1586,7 @@ __STATUS_FORCED__
 <noscript><p id="no-script">The dashboard needs JavaScript to load coverage data.
   Enable it for this page, then reload.</p></noscript>
 <p id="no-targets" hidden>No targets found in the coverage documents. Run
-  <code>rebrew build-db</code> for this project, then choose Reload.</p>
+  <code>rebrew coverage build</code> for this project, then choose Reload.</p>
 <div id="views" class="views" hidden role="tablist" aria-label="Coverage views">
 <button type="button" role="tab" id="tab-functions" data-view="functions"
   aria-controls="view-functions" class="btn active" aria-selected="true" tabindex="0">Functions</button>
@@ -1654,7 +1654,7 @@ __STATUS_FORCED__
 <h2 class="visually-hidden">Sections</h2>
 <p id="sections-hint" hidden></p>
 <p id="sections-empty" hidden>No section stats for this target. Run
-  <code>rebrew build-db</code> for this project, then choose Reload.</p>
+  <code>rebrew coverage build</code> for this project, then choose Reload.</p>
 <div id="sections-results" class="table-scroll" tabindex="0" role="region"
   aria-label="Section results" aria-busy="false" hidden>
 <table id="sections-rows"><caption class="visually-hidden">Per-section cell stats</caption><thead><tr>
@@ -1685,7 +1685,7 @@ __STATUS_FORCED__
 <h2 class="visually-hidden">Status history</h2>
 <p id="history-hint" hidden></p>
 <p id="history-empty" hidden>No status changes recorded yet. History appears after
-  <code>rebrew build-db</code> when function statuses change.</p>
+  <code>rebrew coverage build</code> when function statuses change.</p>
 <div id="history-results" class="table-scroll" tabindex="0" role="region"
   aria-label="History results" aria-busy="false" hidden>
 <table id="history-rows"><caption class="visually-hidden">Recent status changes</caption><thead><tr>
@@ -1974,6 +1974,11 @@ def _va_query(term: str) -> int | None:
     return value
 
 
+def _fold(text: str) -> str:
+    """ASCII fold of one search field. Empty stays empty (SQL NULL matched nothing)."""
+    return (text or "").translate(_ASCII_FOLD)
+
+
 def _name_match(term: str, va: int, *texts: str) -> bool:
     """Whether one row matches *term*: an exact VA, or a substring of *texts*.
 
@@ -1989,7 +1994,38 @@ def _name_match(term: str, va: int, *texts: str) -> bool:
     if wanted is not None and va == wanted:
         return True
     needle = term.translate(_ASCII_FOLD)
-    return any(needle in (text or "").translate(_ASCII_FOLD) for text in texts)
+    return any(needle in _fold(text) for text in texts)
+
+
+# Folded name/symbol strings for one snapshot object. A reload builds a new
+# snapshot, so the old entry is dropped on the next miss. Search was re-folding
+# every row on every keystroke (~12ms at 8k functions).
+_FOLDED: dict[int, tuple[tuple[str, str], ...]] = {}
+_FOLDED_GLOBALS: dict[int, tuple[str, ...]] = {}
+
+
+def _folded_functions(snapshot: CoverageSnapshot) -> tuple[tuple[str, str], ...]:
+    """Folded ``(name, symbol)`` per function, built once per snapshot object."""
+    hit = _FOLDED.get(id(snapshot))
+    if hit is not None:
+        return hit
+    if len(_FOLDED) > 8:
+        _FOLDED.clear()
+    hit = tuple((_fold(fn.name), _fold(fn.symbol)) for fn in snapshot.functions)
+    _FOLDED[id(snapshot)] = hit
+    return hit
+
+
+def _folded_globals(snapshot: CoverageSnapshot) -> tuple[str, ...]:
+    """Folded global names, built once per snapshot object."""
+    hit = _FOLDED_GLOBALS.get(id(snapshot))
+    if hit is not None:
+        return hit
+    if len(_FOLDED_GLOBALS) > 8:
+        _FOLDED_GLOBALS.clear()
+    hit = tuple(_fold(item.name) for item in snapshot.globals)
+    _FOLDED_GLOBALS[id(snapshot)] = hit
+    return hit
 
 
 #: The mapping one request reads, pinned for its duration.  ``bootstrap`` and
@@ -2009,7 +2045,7 @@ def _readable_snapshots(dashboard: Dashboard) -> Mapping[str, CoverageSnapshot]:
     """The dashboard's snapshots, refusing a directory that yields none.
 
     The one rule behind the two probes that must not answer "ok" over an empty
-    page: ``rebrew dashboard``'s startup check and ``/api/health``.  A project
+    page: ``rebrew coverage serve``'s startup check and ``/api/health``.  A project
     that never ran ``build-db`` has no documents, and a directory whose every
     document is corrupt reads the same way — either way there is nothing to
     serve, and the reader that skips an unreadable document says so on the log
@@ -2018,7 +2054,7 @@ def _readable_snapshots(dashboard: Dashboard) -> Mapping[str, CoverageSnapshot]:
     snapshots = dashboard.snapshots()
     if not snapshots:
         raise CoverageTomlError(
-            f"{dashboard.db_dir}: no readable coverage document (run 'rebrew build-db' first)"
+            f"{dashboard.db_dir}: no readable coverage document (run 'rebrew coverage build' first)"
         )
     return snapshots
 
@@ -2234,7 +2270,10 @@ class Dashboard:
         rows: list[Function] = []
         if snapshot is not None:
             wanted_status = canonical_status(status) if status else None
-            for fn in snapshot.functions:
+            needle = q.translate(_ASCII_FOLD) if q else ""
+            wanted_va = _va_query(q) if q else None
+            folds = _folded_functions(snapshot) if q else ()
+            for index, fn in enumerate(snapshot.functions):
                 # Code rows only, and the filter is the same one the COUNT
                 # total ran over, so the page and the total cannot disagree.
                 if fn.markerType not in FUNCTION_MARKERS:
@@ -2243,7 +2282,11 @@ class Dashboard:
                     continue
                 if module is not None and preset_module_key(fn.module) != module:
                     continue
-                if q and not _name_match(q, fn.va, fn.name, fn.symbol):
+                if q and not (
+                    (wanted_va is not None and fn.va == wanted_va)
+                    or needle in folds[index][0]
+                    or needle in folds[index][1]
+                ):
                     continue
                 rows.append(fn)
         # VA order, which is the file's own order (the writer sorts by VA) and
@@ -2318,10 +2361,15 @@ class Dashboard:
         snapshot = self.snapshots().get(target)
         rows: list[Global] = []
         if snapshot is not None:
-            for item in snapshot.globals:
+            needle = q.translate(_ASCII_FOLD) if q else ""
+            wanted_va = _va_query(q) if q else None
+            folds = _folded_globals(snapshot) if q else ()
+            for index, item in enumerate(snapshot.globals):
                 if module is not None and preset_module_key(item.module) != module:
                     continue
-                if q and not _name_match(q, item.va, item.name):
+                if q and not (
+                    (wanted_va is not None and item.va == wanted_va) or needle in folds[index]
+                ):
                     continue
                 rows.append(item)
         rows.sort(key=lambda item: item.va)
@@ -3296,7 +3344,7 @@ class _Handler(BaseHTTPRequestHandler):
         """Browser hardening shared by every response, including early 403s.
 
         Successful GETs may be stored but must revalidate (ETag → 304) so a
-        ``rebrew build-db`` rebuild is never served as a silent stale page; the
+        ``rebrew coverage build`` rebuild is never served as a silent stale page; the
         content-hashed /app.js URL is immutable.  Errors stay no-store so a
         failed probe is not sticky.
         """
@@ -3683,10 +3731,10 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew build-db · · · · · · · · Write db/coverage-<target>.toml first\n\n"
-        "  rebrew dashboard · · · · · · · Serve on http://127.0.0.1:8000\n\n"
-        "  rebrew dashboard --port 9000 · Custom port\n\n"
-        "  rebrew dashboard --json · · · · Print bind URL + db path, then exit\n\n"
+        "  rebrew coverage build · · · · · · · · Write db/coverage-<target>.toml first\n\n"
+        "  rebrew coverage serve · · · · · · · Serve on http://127.0.0.1:8000\n\n"
+        "  rebrew coverage serve --port 9000 · Custom port\n\n"
+        "  rebrew coverage serve --json · · · · Print bind URL + db path, then exit\n\n"
         "[bold]Endpoints:[/bold]\n\n"
         "  / · · · · · · · · · · · · HTML shell (targets, summary, function search)\n\n"
         "  /app.js · · · · · · · · · Deferred dashboard client\n\n"

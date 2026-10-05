@@ -2302,3 +2302,61 @@ def test_update_annotation_key_rejects_multiline_value(tmp_path: Path) -> None:
 
     assert changed is False
     assert f.read_text(encoding="utf-8") == content
+
+
+@pytest.mark.parametrize(
+    ("first", "second"),
+    [
+        ("FUNCTION", "LIBRARY"),
+        ("LIBRARY", "FUNCTION"),
+        ("LIBRARY", "LIBRARY"),
+        ("STUB", "LIBRARY"),
+        ("FUNCTION", "STUB"),
+    ],
+)
+def test_mixed_code_marker_stack_binds_common_definition(
+    tmp_path: Path, first: str, second: str
+) -> None:
+    """Different target classifications do not erase a common C identity."""
+    source = tmp_path / "gzread.c"
+    source.write_text(
+        f"// {first}: GOLDTL 0x0045f380\n// SIZE: 560\n"
+        f"// {second}: SERVER 0x10003960\n// SIZE: 600\n"
+        "#include <stdio.h>\nvoid helper(void);\n"
+        "int ZEXPORT gzread(int file, void *buf, unsigned len)\n"
+        "{ return file; }\n"
+    )
+    annotations = parse_c_file_multi(source)
+    assert [ann.name for ann in annotations] == ["gzread", "gzread"]
+    assert [ann.symbol for ann in annotations] == ["_gzread", "_gzread"]
+    assert [ann.size for ann in annotations] == [560, 600]
+    assert [ann.marker_type for ann in annotations] == [first, second]
+    assert all("ZEXPORT gzread" in ann.prototype for ann in annotations)
+    for target in ("GOLDTL", "SERVER"):
+        selected = parse_c_file_multi(source, target_name=target)
+        assert len(selected) == 1
+        assert selected[0].name == "gzread"
+
+
+def test_code_marker_stack_stops_at_data_marker(tmp_path: Path) -> None:
+    """A data marker cannot acquire the next code block's function identity."""
+    source = tmp_path / "mixed.c"
+    source.write_text(
+        "// FUNCTION: A 0x1000\n"
+        "// DATA: A 0x2000\nextern int count;\n"
+        "// LIBRARY: B 0x3000\nint later(void) { return 1; }\n"
+    )
+    annotations = parse_c_file_multi(source)
+    assert annotations[0].name == ""
+    assert annotations[1].name != "later"
+    assert annotations[2].name == "later"
+
+
+def test_mixed_code_markers_after_definition_are_separate(tmp_path: Path) -> None:
+    """Code between the markers preserves distinct definitions."""
+    source = tmp_path / "separate.c"
+    source.write_text(
+        "// FUNCTION: A 0x1000\nint first(void) { return 1; }\n"
+        "// LIBRARY: B 0x2000\nint second(void) { return 2; }\n"
+    )
+    assert [ann.name for ann in parse_c_file_multi(source)] == ["first", "second"]

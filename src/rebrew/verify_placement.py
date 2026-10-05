@@ -8,7 +8,7 @@ files (objdump on each obj, in link order), computes every symbol's current
 TU's own layout drifted — the reccmp "0 aligned" symptom.
 
 Usage:
-    rebrew verify-placement [--data-metadata src/rebrew-data.toml] [--json]
+    rebrew build check-data-placement [--data-metadata src/rebrew-data.toml] [--json]
 """
 
 from __future__ import annotations
@@ -33,8 +33,8 @@ from rebrew.data_layout import built_data_va
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew verify-placement · · · · · · Compare .data symbol VAs against the metadata\n\n"
-    "  rebrew verify-placement --target win16 --json · Machine-readable result\n"
+    "  rebrew build check-data-placement · · · · · · Compare .data symbol VAs against the metadata\n\n"
+    "  rebrew build check-data-placement --target win16 --json · Machine-readable result\n"
 )
 
 

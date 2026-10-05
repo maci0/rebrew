@@ -1,4 +1,4 @@
-"""Tests for splat_config.py: reading a splat config and `rebrew import-splat`.
+"""Tests for splat_config.py: reading a splat config and `rebrew source import-splat`.
 
 The fixture under ``fixtures/splat_config/`` is a hand-written splat config for
 a minimal PE built here (``_build_pe``), so these tests exercise the real path:
@@ -505,18 +505,11 @@ class TestPlan:
 
 class TestRegistration:
     def test_registered_in_the_umbrella_manifest(self) -> None:
-        """The command is mounted by ``main.py``'s component list.
+        """The declarative source family mounts the import adapter."""
+        from rebrew.builtins import DOMAIN_COMPONENTS
 
-        A text check (the way ``test_docs_hygiene`` pins the pyproject
-        manifest): importing ``rebrew.main`` composes the whole component
-        graph, which a unit test should not depend on.  The mount itself is
-        exercised by running ``rebrew import-splat`` for real.
-        """
-        source = (Path(__file__).parent.parent / "src" / "rebrew" / "main.py").read_text(
-            encoding="utf-8"
-        )
-        assert 'name="import-splat"' in source
-        assert 'module="rebrew.splat_config"' in source
+        component = next(c for c in DOMAIN_COMPONENTS["source"] if c.name == "import-splat")
+        assert component.module == "rebrew.splat_config"
 
 
 class TestApply:

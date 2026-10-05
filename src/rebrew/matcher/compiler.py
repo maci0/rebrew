@@ -62,7 +62,7 @@ def _sweep_scoring_params(cfg: Any) -> tuple[int, int]:
     GA path uses (``binary_loader.capstone_mode_for_arch``): 16-bit for x86_16,
     64-bit for x86_64, 32-bit otherwise.  The mode used to be hardcoded to
     32-bit for everything but x86_16, so an x86_64 sweep decoded REX-prefixed
-    instructions as 32-bit and ranked flags differently from ``rebrew match``.
+    instructions as 32-bit and ranked flags differently from ``rebrew match run``.
     ``capstone`` and ``rebrew.binary_loader`` import lazily: compiler.py loads
     early, and binary_loader must not be pulled in at import time.
     """

@@ -1,4 +1,4 @@
-"""Tests for rebrew lib-match — byte-compare reversed functions vs .lib archives."""
+"""Tests for rebrew library match — byte-compare reversed functions vs .lib archives."""
 
 import json
 import struct

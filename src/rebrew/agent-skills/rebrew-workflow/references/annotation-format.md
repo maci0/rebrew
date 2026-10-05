@@ -4,7 +4,7 @@
 
 Unmigrated function source carries a stable MODULE/VA marker. Legacy
 SIZE/CFLAGS are co-readable; other volatile fields belong in metadata.
-`rebrew migrate-markers` moves function identity into the store and leaves
+`rebrew source migrate-markers` moves function identity into the store and leaves
 pure C. Do not add markers back to migrated files.
 
 An unmigrated example:
@@ -38,9 +38,9 @@ int stub(void) { return 0; }
 > BLOCKER, NOTE, GHIDRA, …; full key list in the SKILL.md caution) is managed exclusively by Rebrew CLI tools:
 > - `rebrew test` / `rebrew verify` → STATUS (EXACT/RELOC auto-promote; `--no-promote` skips the test write). Those clear BLOCKER unless the file still has `__asm`, `_asm`, or `__emit`
 > - `rebrew blocker set/clear` → BLOCKER / BLOCKER_DELTA (ad-hoc; for STUBs diff cannot classify)
-> - `rebrew diff --fix-blocker` / `rebrew near-diag --fix-blocker` → BLOCKER / BLOCKER_DELTA (auto-classified)
-> - `rebrew document-unmatched` → STUB skeletons + BLOCKER for every unmatched function
-> - `rebrew sync --pull --state-dir <dir>` → NOTE, GHIDRA
+> - `rebrew diff --fix-blocker` / `rebrew diagnose near --fix-blocker` → BLOCKER / BLOCKER_DELTA (auto-classified)
+> - `rebrew source document-unmatched` → STUB skeletons + BLOCKER for every unmatched function
+> - `rebrew sync pull --state-dir <dir>` → NOTE, GHIDRA
 
 ## What goes in `rebrew-functions.toml` metadata file
 
@@ -115,11 +115,11 @@ marker line.
 Shared files live under `src/shared` (one marker per target, per-target
 `STATUS`). Shared headers live there too: a shared source finds them by
 bare name (the shared root is on the include path). Move a per-target file
-there with `rebrew cross-import --from <src> --promote`; import with
+there with `rebrew source import-related --from <src> --promote`; import with
 `--shared` instead of copying.
 
 ## Data Annotations
 
 `// DATA:` and `// GLOBAL:` markers, their `rebrew-data.toml` fields, and the
-`rebrew data` commands that write them are the `rebrew-data-analysis` skill's
+`rebrew data list` commands that write them are the `rebrew-data-analysis` skill's
 subject. Load that skill for a data marker or a global you are about to touch.

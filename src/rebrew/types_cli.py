@@ -1,4 +1,4 @@
-"""types_cli.py - `rebrew types` command: check structs, apply types to signatures."""
+"""types_cli.py - `rebrew types check` command: check structs, apply types to signatures."""
 
 import logging
 from pathlib import Path
@@ -13,10 +13,10 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew types · · · · · · · · · Check declared structs against decompiler evidence\n\n"
-        "  rebrew types --json · · · · · · Same check, machine-readable\n\n"
-        "  rebrew types apply-type src/f.c --param 2 --type MAT4 · Rewrite one parameter type\n\n"
-        "  rebrew types apply-type 0x10009310 --param 0 --type VEC3 --dry-run · Preview the edit\n\n"
+        "  rebrew types check · · · · · · · · · Check declared structs against decompiler evidence\n\n"
+        "  rebrew types check --json · · · · · · Same check, machine-readable\n\n"
+        "  rebrew types apply src/f.c --param 2 --type MAT4 · Rewrite one parameter type\n\n"
+        "  rebrew types apply 0x10009310 --param 0 --type VEC3 --dry-run · Preview the edit\n\n"
         "[dim]A bare invocation reports every declared struct whose field widths disagree "
         "with the majority width seen in decompiler output. apply-type writes the spelling "
         "into the C source, so a recovered type actually reaches the compiler.[/dim]"
@@ -58,15 +58,15 @@ def collect_evidence(files: list[Path]) -> dict[str, dict[int, int]]:
     }
 
 
-@app.callback(invoke_without_command=True)
-def main(
-    ctx: typer.Context,
+@app.command(
+    "check",
+    epilog="Examples:\n\n  rebrew types check --json\n\nDeclarations do not allocate storage. Preview edits and verify affected functions afterwards.",
+)
+def check(
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
     """Check declared structs against decompiler offset evidence."""
-    if ctx.invoked_subcommand is not None:
-        return
     cfg = require_config(target=target, json_mode=json_output)
     from rebrew.sources import iter_sources
     from rebrew.types import check_struct, parse_structs
@@ -111,7 +111,10 @@ def main_entry() -> None:
     run_cli(app)
 
 
-@app.command("apply-type")
+@app.command(
+    "apply",
+    epilog="Examples:\n\n  rebrew types apply 0x401000 --param 0 --type int --dry-run\n\nDeclarations do not allocate storage. Preview edits and verify affected functions afterwards.",
+)
 def apply_type(
     target_ident: str = typer.Argument(..., metavar="source", help="File path, symbol, or hex VA"),
     param: int = typer.Option(..., "--param", help="0-based parameter index"),

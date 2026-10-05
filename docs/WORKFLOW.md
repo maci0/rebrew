@@ -24,11 +24,11 @@ graph TD
     Test -->|COMPILE ERROR| Write
     Done --> Lint[Lint & verify<br/>rebrew lint]
     Diff --> Flags{Unsure about flags?}
-    Sweep[rebrew match &lt;file&gt; --flag-sweep-only<br/>or rebrew match (GA)] --> Write
+    Sweep[rebrew match flags &lt;file&gt;<br/>or rebrew match (GA)] --> Write
     Flags -->|Yes| Sweep
-    Flags -->|No| Diag[Near-diag blocker<br/>rebrew near-diag --fix-blocker]
+    Flags -->|No| Diag[Near-diag blocker<br/>rebrew diagnose near --fix-blocker]
     Diag --> LibMatch{Library code?}
-    LibMatch -->|Yes| Lib[rebrew lib-match<br/>rebrew cross-import]
+    LibMatch -->|Yes| Lib[rebrew library match<br/>rebrew source import-related]
     Lib --> Write
     LibMatch -->|No| Prove{Still NEAR_MATCHING?}
     Prove -->|Yes| Symbolic[Prove equivalence<br/>rebrew prove]
@@ -54,8 +54,8 @@ tasks: compile errors, symbol-extraction errors (EXTRACT_ERROR), near-misses of 
 ```bash
 rebrew skeleton 0x<VA>
 rebrew skeleton 0x<VA> --decomp                         # with inline decompilation
-rebrew skeleton 0x<VA> --decomp --decomp-backend ghidra # Ghidra via MCP
-rebrew skeleton 0x<VA> --decomp --decomp-backend r2dec  # radare2 r2dec
+rebrew skeleton 0x<VA> --decomp --decompiler ghidra # Ghidra via MCP
+rebrew skeleton 0x<VA> --decomp --decompiler r2dec  # radare2 r2dec
 rebrew skeleton 0x<VA> --xrefs                          # with caller context from Ghidra
 ```
 
@@ -76,13 +76,13 @@ get-decompilation programPath="/target.dll" functionNameOrAddress="0x<VA>"
 
 Without Ghidra: use the built-in disassembler:
 ```bash
-rebrew asm 0x<VA> --size <SIZE>
+rebrew binary asm show 0x<VA> --size <SIZE>
 ```
 
 For known library functions, identify via FLIRT or CRT cross-reference:
 ```bash
-rebrew flirt [path_to_sig_directory]
-rebrew crt-match 0x<VA>
+rebrew library scan-signatures [path_to_sig_directory]
+rebrew library crt-match 0x<VA>
 ```
 
 ### 4. Write C89 source
@@ -138,13 +138,13 @@ rebrew diff 0x10009310
 rebrew diff src/target_name/my_func.c
 
 # Run the GA with flag sweep (brute-forces compiler flag combinations)
-rebrew match src/target_name/my_func.c --generations 100 --pop-size 64
+rebrew match run src/target_name/my_func.c --generations 100 --pop-size 64
 
 # Batch flag sweep on all NEAR_MATCHING functions, auto-update CFLAGS on improvement
-rebrew match --all --flag-sweep --fix-cflags
+rebrew match batch --fix-cflags --algorithm flags
 
 # Near-miss batch: focus on NEAR_MATCHING functions with ≤5B delta
-rebrew match --all --near-miss --threshold 5
+rebrew match batch --near-miss --threshold 5
 ```
 
 ### 8. Update metadata
@@ -158,7 +158,7 @@ rebrew test src/target_name/my_func.c --no-promote  # compile without updating S
 ```
 
 Unmigrated source carries a MODULE/VA marker and may co-read legacy SIZE/CFLAGS.
-`rebrew migrate-markers` moves function identity into TOML and leaves pure C;
+`rebrew source migrate-markers` moves function identity into TOML and leaves pure C;
 do not restore the marker block. Volatile fields live in metadata. See
 [METADATA_FORMAT.md](METADATA_FORMAT.md) for ownership and provenance.
 
@@ -166,7 +166,7 @@ For NEAR_MATCHING functions, auto-classify and write the BLOCKER:
 
 ```bash
 rebrew diff --fix-blocker src/target_name/my_func.c   # auto-classified
-rebrew near-diag --fix-blocker src/target_name/my_func.c
+rebrew diagnose near --fix-blocker src/target_name/my_func.c
 ```
 
 For blocked STUBs that diff cannot classify (needs structs, SEH helper,
@@ -190,8 +190,8 @@ blocker_delta = 3
 > SIZE, BLOCKER, NOTE, GHIDRA) is managed exclusively by Rebrew CLI tools.
 > In particular, `BLOCKER`/`BLOCKER_DELTA` must be written via
 > `rebrew blocker set/clear` or the auto-writers
-> (`rebrew diff --fix-blocker`, `rebrew near-diag --fix-blocker`,
-> `rebrew document-unmatched`): never by hand.
+> (`rebrew diff --fix-blocker`, `rebrew diagnose near --fix-blocker`,
+> `rebrew source document-unmatched`): never by hand.
 
 ### 9. If still NEAR_MATCHING: prove semantic equivalence
 
@@ -235,7 +235,7 @@ section 9).  Only parked SKIP is left alone.
 
 ```bash
 rebrew lint              # check for invalid headers, statuses, and origins
-rebrew catalog --summary # view overall RE progress and stats
+rebrew coverage catalog --summary # view overall RE progress and stats
 ```
 
 **DATA/GLOBAL annotation convention:** each global is annotated exactly once
@@ -260,7 +260,7 @@ rebrew test src/target_name/my_func.c --json | jq '.status'
 rebrew todo --stats --json | jq '.coverage.pct_matched'
 
 # List prioritized action items as JSON
-rebrew todo --json --count 10 | jq '.items[] | {category, roi_score, name}'
+rebrew todo --json --limit 10 | jq '.items[] | {category, roi_score, name}'
 
 # List tiny-byte-diff quick wins (fix-delta is ≤20B; this filter narrows to ≤5B)
 rebrew todo --category fix-delta --json | jq '.items[] | select(.byte_delta != null and .byte_delta <= 5)'
@@ -269,7 +269,7 @@ rebrew todo --category fix-delta --json | jq '.items[] | select(.byte_delta != n
 rebrew diff --json src/target_name/my_func.c | jq '.summary'
 
 # Disassembly as JSON
-rebrew asm 0x10003da0 --size 160 --json | jq '.instructions[] | .mnemonic'
+rebrew binary asm show 0x10003da0 --size 160 --json| jq '.instructions[] | .mnemonic'
 ```
 
 **Tools with `--json` support:**
@@ -279,24 +279,24 @@ rebrew asm 0x10003da0 --size 160 --json | jq '.instructions[] | .mnemonic'
 | `rebrew test` | Single and multi-function test results |
 | `rebrew todo` | Prioritized action items |
 | `rebrew diff` | Side-by-side diff output |
-| `rebrew asm` | Disassembly output |
+| `rebrew binary asm show` | Disassembly output |
 | `rebrew verify` | Verification report |
 | `rebrew lint` | Lint results |
-| `rebrew flirt` | FLIRT scan results |
-| `rebrew crt-match` | CRT source matching results |
-| `rebrew data` | Data scan results |
-| `rebrew match --all` | Batch GA results |
-| `rebrew split` | Split results (files created, VAs, symbols) |
-| `rebrew merge` | Merge results (inputs, output, VA list) |
+| `rebrew library scan-signatures` | FLIRT scan results |
+| `rebrew library crt-match` | CRT source matching results |
+| `rebrew data list` | Data scan results |
+| `rebrew match batch` | Batch GA results |
+| `rebrew source split` | Split results (files created, VAs, symbols) |
+| `rebrew source merge` | Merge results (inputs, output, VA list) |
 | `rebrew prove` | Prove results (proven/not, state counts, status update) |
-| `rebrew extract` | Batch extraction results |
-| `rebrew catalog` | Catalog JSON generation (`--json`) |
+| `rebrew binary extract` | Batch extraction results |
+| `rebrew coverage catalog` | Catalog JSON generation (`--json`) |
 | `rebrew doctor` | Project health check results |
-| `rebrew sync` | Ghidra sync operations (`--pull`, `--push`) |
+| `rebrew sync` | Ghidra sync operations (`pull`, `push`, and structural operations) |
 | `rebrew skeleton` | Generated skeleton output |
-| `rebrew rename` | Rename results (old/new names, files updated) |
-| `rebrew graph` | Dependency graph (nodes, edges, by-status) |
-| `rebrew build-db` | Build database results (paths, targets) |
+| `rebrew source rename` | Rename results (old/new names, files updated) |
+| `rebrew source graph` | Dependency graph (nodes, edges, by-status) |
+| `rebrew coverage build` | Build database results (paths, targets) |
 | `rebrew init` | Project initialization results |
 
 ---
@@ -400,7 +400,7 @@ A file may contain **multiple marker blocks** for multi-function compilation. Se
 | [ONBOARDING.md](ONBOARDING.md) | Adding a new binary (incl. manual discovery without `intake`) |
 | [MATCH_TYPES.md](MATCH_TYPES.md) | EXACT / RELOC / NEAR_MATCHING explained with byte-level examples |
 | [ANNOTATIONS.md](ANNOTATIONS.md) | Full marker format reference and linter codes (E000–E023, W003–W036) |
-| [BINSYNC_INTEGRATION.md](BINSYNC_INTEGRATION.md) | BinSync bridge + `rebrew sync` feature matrix and known issues |
+| [BINSYNC_INTEGRATION.md](BINSYNC_INTEGRATION.md) | BinSync bridge + `rebrew sync push` feature matrix and known issues |
 | [FLIRT_SIGNATURES.md](FLIRT_SIGNATURES.md) | Obtaining, creating, and using FLIRT signatures |
 | [CLI.md](CLI.md) | All CLI commands, flags, and examples |
 | [CONFIG.md](CONFIG.md) | `rebrew-project.toml` format, arch presets, compiler profiles |

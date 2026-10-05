@@ -20,9 +20,9 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew build-db · · · · · · · · · · · Scan the project and write "
+        "  rebrew coverage build · · · · · · · · · · · Scan the project and write "
         "db/coverage-<target>.toml\n\n"
-        "  rebrew build-db --root /path/to/project  Specify project root explicitly\n\n"
+        "  rebrew coverage build --root /path/to/project  Specify project root explicitly\n\n"
         "[bold]What it creates:[/bold]\n\n"
         "  db/coverage-<target>.toml · · One clear-text document per target, holding\n"
         "                              functions, globals, sections, cells, verify results\n"

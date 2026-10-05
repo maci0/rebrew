@@ -626,6 +626,33 @@ class TestFunctionExtentFromDisasm:
         text = bytes.fromhex("83 7c 24 04 00 74 02 b8 01 00 00 00 c3")
         assert self._run(monkeypatch, text, tmp_path) == 13
 
+    def test_forward_branch_past_early_return(self, monkeypatch, tmp_path: Path) -> None:
+        # test eax,eax; jne late; xor eax,eax; ret; mov eax,1; ret; padding.
+        text = bytes.fromhex("85 c0 75 03 31 c0 c3 b8 01 00 00 00 c3 90 90")
+        assert self._run(monkeypatch, text, tmp_path) == 13
+
+    def test_nested_forward_branches_past_returns(self, monkeypatch, tmp_path: Path) -> None:
+        # Both later blocks are reachable; the middle return is not the end.
+        text = bytes.fromhex("85 c0 75 01 c3 85 c9 75 01 c3 b8 01 00 00 00 c3 90")
+        assert self._run(monkeypatch, text, tmp_path) == 16
+
+    def test_forward_target_outside_window_refuses(self, monkeypatch, tmp_path: Path) -> None:
+        text = bytes.fromhex("85 c0 75 20 c3 90")
+        assert self._run(monkeypatch, text, tmp_path) is None
+
+    def test_forward_target_after_truncated_block_refuses(
+        self, monkeypatch, tmp_path: Path
+    ) -> None:
+        # The target is in the window, but the later block has no terminator.
+        text = bytes.fromhex("85 c0 75 01 c3 90 90")
+        assert self._run(monkeypatch, text, tmp_path) is None
+
+    def test_backward_conditional_loop_keeps_final_return(
+        self, monkeypatch, tmp_path: Path
+    ) -> None:
+        text = bytes.fromhex("49 75 fd c3 90")
+        assert self._run(monkeypatch, text, tmp_path) == 4
+
     def test_int3_padding_terminates(self, monkeypatch, tmp_path: Path) -> None:
         text = bytes.fromhex("c3 cc cc cc")
         assert self._run(monkeypatch, text, tmp_path) == 1

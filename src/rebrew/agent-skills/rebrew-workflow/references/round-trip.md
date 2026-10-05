@@ -1,20 +1,20 @@
 # Round-trip splice details
 
-`rebrew round-trip` compiles every EXACT/RELOC function, applies COFF relocations
+`rebrew build round-trip` compiles every EXACT/RELOC function, applies COFF relocations
 against the function + data catalogs, splices patched bytes into a byte copy of
 the target PE, SHA-256s the result, and writes `<binary>.reasm` next to the original.
 
 ```bash
-rebrew round-trip --json                # splice every EXACT/RELOC function back into the PE
-rebrew round-trip --dry-run             # preview without writing <binary>.reasm
-rebrew round-trip --strict-catalog      # exit non-zero on unresolved catalog symbols
-rebrew round-trip --filter <substr>     # only splice symbols containing this substring
-rebrew round-trip --output <path>       # override output path
+rebrew build round-trip --json                # splice every EXACT/RELOC function back into the PE
+rebrew build round-trip --dry-run             # preview without writing <binary>.reasm
+rebrew build round-trip --strict-catalog      # exit non-zero on unresolved catalog symbols
+rebrew build round-trip --filter <substr>     # only splice symbols containing this substring
+rebrew build round-trip --output <path>       # override output path
 ```
 
 - **Every EXACT/RELOC function needs SIZE in `rebrew-functions.toml`**: a legacy
   inline-only `// SIZE:` makes round-trip report `oversize (size <= 0 in metadata)`.
-  Use `rebrew catalog --fix-sizes` or `rebrew migrate-markers --dry-run`, then
+  Use `rebrew coverage catalog --fix-sizes` or `rebrew source migrate-markers --dry-run`, then
   apply the migration when it is within the task scope.
 - **`catalog_resolution_drift` with CRT names** (e.g. `_fread`): the library header
   can list both `fread` (wrapper) and `_fread` (real impl) at different VAs.

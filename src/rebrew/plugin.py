@@ -933,6 +933,7 @@ class CliComponent(Component):
     # dependents instead of leaving them mounted on a stale app.
     needs: tuple[str, ...] = (CLI_SERVICE, CONSOLE_SERVICE)
     provides: tuple[str, ...] = ()
+    epilog: str | None = None
 
     @property
     def group(self) -> str:
@@ -997,7 +998,7 @@ class CliComponent(Component):
             command = obj
             doc = self._plugin_attribute(obj, "__doc__")
             help_text = (doc if isinstance(doc, str) and doc else self.help).strip()
-            epilog = None
+            epilog = self.epilog
         else:
             command = self._plugin_attribute(obj, "main")
             module_app = self._plugin_attribute(obj, "app")

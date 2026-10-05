@@ -1,6 +1,6 @@
 """Property-based fuzz tests for ``rebrew.layout_meta`` on untrusted images.
 
-``extract_layout`` is the whole of ``rebrew gen-layout``: it walks a reference
+``extract_layout`` is the whole of ``rebrew build layout``: it walks a reference
 PE the user points the CLI at and pulls the import directory, the export
 directory, the ``.reloc`` block chain and two sparse ``.text`` maps out of it.
 Every count, RVA, offset and string length in that walk is read straight out

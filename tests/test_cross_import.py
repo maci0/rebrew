@@ -663,6 +663,7 @@ class TestSizelessMatching:
         return SimpleNamespace(
             root=tmp_path,
             target_name=target,
+            marker=target,
             reversed_dir=rev,
             metadata_dir=tmp_path,
             target_binary=binary,
@@ -725,6 +726,32 @@ class TestSizelessMatching:
         out = ci.unmatched_dest_bytes(cfg, only_va=A_F1)
         assert out[A_F1] == F1
 
+    def test_matched_donor_uses_managed_body_extent(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.metadata import update_field
+
+        pa = tmp_path / "a.exe"
+        pa.write_bytes(_pe_a())
+        cfg = self._cfg(tmp_path, "SRC", pa)
+        monkeypatch.setattr(ci, "annotations_by_va", lambda _c: {A_F1: ("EXACT", "f1.c")})
+        monkeypatch.setattr(ci, "registry", lambda _c: {A_F1: {"canonical_size": len(F1) + 4}})
+        update_field(cfg.metadata_dir, A_F1, "size", len(F1), module="SRC")
+        assert ci.matched_source_bytes(cfg)[A_F1] == F1
+
+    def test_donor_extent_is_target_scoped(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.metadata import update_field
+
+        pa = tmp_path / "a.exe"
+        pa.write_bytes(_pe_a())
+        cfg = self._cfg(tmp_path, "SRC", pa)
+        monkeypatch.setattr(ci, "annotations_by_va", lambda _c: {A_F1: ("EXACT", "f1.c")})
+        monkeypatch.setattr(ci, "registry", lambda _c: {A_F1: {"canonical_size": len(F1)}})
+        update_field(cfg.metadata_dir, A_F1, "size", 1, module="DST")
+        assert ci.matched_source_bytes(cfg)[A_F1] == F1
+
     def test_matched_source_bytes_sizeless_matches(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -762,7 +789,7 @@ class TestCLI:
         self._project(tmp_path)
         monkeypatch.chdir(tmp_path)
         runner = CliRunner()
-        result = runner.invoke(umbrella, ["cross-import", "--from", "DST"])
+        result = runner.invoke(umbrella, ["source", "import-related", "--from", "DST"])
         assert result.exit_code != 0
         assert "--from must name a different target" in result.output
 
@@ -806,7 +833,7 @@ class TestCLI:
         runner = CliRunner()
         result = runner.invoke(
             umbrella,
-            ["cross-import", "--from", "SRC", "--json", "--dry-run"],
+            ["source", "import-related", "--from", "SRC", "--json", "--dry-run"],
         )
         assert result.exit_code == 0, result.output
         payload = json_mod.loads(result.output)
@@ -855,7 +882,7 @@ class TestCLI:
         monkeypatch.setattr("rebrew.cross_import.import_function", _fake_import)
         runner = CliRunner()
         result = runner.invoke(
-            umbrella, ["cross-import", "--from", "SRC", "--json", "--limit", "0"]
+            umbrella, ["source", "import-related", "--from", "SRC", "--json", "--limit", "0"]
         )
         assert result.exit_code == 0, result.output
         assert calls == []
@@ -905,7 +932,7 @@ class TestCLI:
         runner = CliRunner()
         result = runner.invoke(
             umbrella,
-            ["cross-import", "--from", "SRC", "--json", "--dry-run"],
+            ["source", "import-related", "--from", "SRC", "--json", "--dry-run"],
         )
         assert result.exit_code == 0, result.output
         payload = json_mod.loads(result.output)
@@ -1263,7 +1290,7 @@ class TestPromoteToShared:
 
         runner = CliRunner()
         result = runner.invoke(
-            umbrella, ["cross-import", "--from", "SRC", "--shared", "--target", "DST"]
+            umbrella, ["source", "import-related", "--from", "SRC", "--shared", "--target", "DST"]
         )
         assert result.exit_code == 0, result.output
         assert (tmp_path / "src" / "shared" / "f1.c").is_file()
@@ -1822,7 +1849,15 @@ class TestCandidatesOnly:
         runner = CliRunner()
         result = runner.invoke(
             umbrella,
-            ["cross-import", "--from", "SRC", "--json", "--dry-run", "--candidates-only"],
+            [
+                "source",
+                "import-related",
+                "--from",
+                "SRC",
+                "--json",
+                "--dry-run",
+                "--candidates-only",
+            ],
         )
         assert result.exit_code == 0, result.output
         payload = json_mod.loads(result.output)
@@ -1858,7 +1893,9 @@ class TestCandidatesOnly:
         )
 
         runner = CliRunner()
-        result = runner.invoke(umbrella, ["cross-import", "--from", "SRC", "--json", "--dry-run"])
+        result = runner.invoke(
+            umbrella, ["source", "import-related", "--from", "SRC", "--json", "--dry-run"]
+        )
         assert result.exit_code == 0, result.output
         payload = json_mod.loads(result.output)
         assert len(payload["results"]) == 2
@@ -2250,3 +2287,121 @@ class TestMergedInventoryEntry:
         assert "62-byte body" in res["message"]
         assert sizes == [_MERGED_ENTRY, _MERGED_BODY]
         assert self._dst_sizes(cfg_dst, cfg_dst.reversed_dir / "f.c") == (62, 62)
+
+
+class TestSourceVA:
+    """An evidenced donor disambiguates twins without bypassing matching."""
+
+    def _setup(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        TestCLI()._project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        from rebrew.config import load_config
+
+        source = load_config(tmp_path, target="SRC").reversed_dir
+        source.mkdir(parents=True, exist_ok=True)
+        for name, va in [("f1.c", A_F1), ("f2.c", A_F2)]:
+            (source / name).write_text(f"// FUNCTION: SRC 0x{va:x}\nint f(void) {{ return 0; }}\n")
+        monkeypatch.setattr(ci, "matched_source_bytes", lambda cfg: {A_F1: F1, A_F2: F1})
+        monkeypatch.setattr(ci, "unmatched_dest_bytes", lambda cfg, only_va=None: {B_F1: F1})
+        monkeypatch.setattr(ci, "registry", lambda cfg: {})
+        monkeypatch.setattr(ci, "sizeless_dest_vas", lambda cfg: ({}, []))
+        monkeypatch.setattr(
+            ci,
+            "annotations_by_va",
+            lambda cfg: {A_F1: ("EXACT", "f1.c"), A_F2: ("RELOC", "f2.c")},
+        )
+
+        def preview(*args: Any, **kwargs: Any) -> dict[str, Any]:
+            assert kwargs["dry_run"] is True
+            return {
+                "dst_va": f"0x{args[2]:08x}",
+                "src_va": f"0x{args[3]:08x}",
+                "score": None,
+                "action": "would-import",
+                "status": "",
+                "filepath": args[4],
+                "message": "",
+            }
+
+        monkeypatch.setattr(ci, "import_function", preview)
+        monkeypatch.setattr(ci, "import_shared_function", preview)
+
+    @pytest.mark.parametrize("shared", [False, True])
+    @pytest.mark.parametrize("donor", [A_F1, A_F2])
+    def test_selects_evidenced_twin_at_default_gap(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, shared: bool, donor: int
+    ) -> None:
+        import json
+
+        from typer.testing import CliRunner
+
+        from rebrew.main import app as umbrella
+
+        self._setup(tmp_path, monkeypatch)
+        args = ["source", "import-related", "--from", "SRC", "--dry-run", "--json"]
+        if shared:
+            args.append("--shared")
+        runner = CliRunner()
+        ambiguous = runner.invoke(umbrella, args)
+        assert ambiguous.exit_code == 0, ambiguous.output
+        assert json.loads(ambiguous.output)["results"][0]["action"] == "skipped"
+        selected = runner.invoke(umbrella, [*args, "--source-va", hex(donor)])
+        assert selected.exit_code == 0, selected.output
+        row = json.loads(selected.output)["results"][0]
+        assert row["src_va"] == f"0x{donor:08x}"
+        assert row["score"] == 100.0
+        assert row["action"] == "would-import"
+        assert row["src_file"] == ("f1.c" if donor == A_F1 else "f2.c")
+
+    @pytest.mark.parametrize("source_va", ["bad-address", "0x409999"])
+    def test_invalid_or_unmatched_donor_is_an_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, source_va: str
+    ) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.main import app as umbrella
+
+        self._setup(tmp_path, monkeypatch)
+        result = CliRunner().invoke(
+            umbrella,
+            [
+                "source",
+                "import-related",
+                "--from",
+                "SRC",
+                "--source-va",
+                source_va,
+                "--dry-run",
+                "--json",
+            ],
+        )
+        assert result.exit_code == 2, result.output
+        assert "error" in result.output
+
+    def test_explicit_donor_still_obeys_score_threshold(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import json
+
+        from typer.testing import CliRunner
+
+        from rebrew.main import app as umbrella
+
+        self._setup(tmp_path, monkeypatch)
+        result = CliRunner().invoke(
+            umbrella,
+            [
+                "source",
+                "import-related",
+                "--from",
+                "SRC",
+                "--source-va",
+                hex(A_F1),
+                "--min-score",
+                "101",
+                "--dry-run",
+                "--json",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.output)["results"][0]["action"] == "skipped"

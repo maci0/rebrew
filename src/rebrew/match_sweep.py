@@ -118,7 +118,7 @@ class BuildParams:
 def select_annotation(annos: list[Annotation], symbol: str | None) -> Annotation | None:
     """Pick the annotation whose symbol or name matches *symbol*.
 
-    ``rebrew match`` on a multi-function file with ``--symbol`` must target
+    ``rebrew match run`` on a multi-function file with ``--symbol`` must target
     THAT function; falling back to the first annotation silently compares
     the wrong bytes (false EXACT + wrong solution records).
     """
@@ -728,7 +728,7 @@ def run_single_toolchain_flag_sweep(
 
     Answers "which MSVC version AND which flags built this function" in one
     run — the two-dimension question a decompiler faces when the configured
-    profile does not byte-match (``--flag-sweep-toolchains`` alone only tries the
+    profile does not byte-match (``match toolchains`` without ``--flags`` only tries the
     project's cflags; ``--flag-sweep`` alone only tries the project's
     compiler).
     """

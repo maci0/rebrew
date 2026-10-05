@@ -1,4 +1,4 @@
-"""Tests for rebrew link-order — enforce VA order into CMakeLists.txt SOURCES."""
+"""Tests for rebrew build link-order — enforce VA order into CMakeLists.txt SOURCES."""
 
 from __future__ import annotations
 
