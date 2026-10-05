@@ -1,6 +1,6 @@
 """qual_sweep.py — sweep declaration qualifiers/types for one function.
 
-``rebrew climb`` moves whole statements.  Functions that converge there do
+``rebrew match climb`` moves whole statements.  Functions that converge there do
 so because their residue is register *naming* rather than order: the target
 keeps a loop counter in ``ebx`` where we keep it in ``edi``, the same
 instruction kinds in the same sequence.  The allocator is driven by live
@@ -9,7 +9,7 @@ is to change a local's qualifying type.
 
 This runs that idea over every declaration in a function, one at a time,
 keeping only moves that improve the score.  It complements the GA's random
-``mut_toggle_volatile`` (``rebrew match``): this is the exhaustive,
+``mut_toggle_volatile`` (``rebrew match run``): this is the exhaustive,
 deterministic, one-variable-at-a-time sweep for when the GA stalls on an
 allocator wall.
 
@@ -56,10 +56,10 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew qual-sweep src/f.c · · · · · · · · Try every qualifier set, keep winners\n\n"
-        "  rebrew qual-sweep src/f.c --rounds 5 · · · Re-sweep until the result stops changing\n\n"
-        "  rebrew qual-sweep src/f.c --dry-run · · · Report the winning declaration, write nothing\n\n"
-        "  rebrew qual-sweep src/f.c --json · · · · · · Machine-readable winner table to stdout\n\n"
+        "  rebrew match qualifiers src/f.c · · · · · · · · Try every qualifier set, keep winners\n\n"
+        "  rebrew match qualifiers src/f.c --rounds 5 · · · Re-sweep until the result stops changing\n\n"
+        "  rebrew match qualifiers src/f.c --dry-run · · · Report the winning declaration, write nothing\n\n"
+        "  rebrew match qualifiers src/f.c --json · · · · · · Machine-readable winner table to stdout\n\n"
         "[bold]Exit codes:[/bold]\n\n"
         "  0   The sweep finished (report the winner on stderr)\n\n"
         "  2   Build or config error (also a usage error: unknown flag, missing argument)\n\n"
@@ -158,7 +158,7 @@ def main(
         None, "--symbol", help="COFF symbol (default: from annotation)"
     ),
     rounds: int = typer.Option(4, "--rounds", help="Sweep rounds (stops early on convergence)"),
-    jobs: int = typer.Option(4, "--jobs", help="Parallel compile workers"),
+    jobs: int = typer.Option(4, "--jobs", "-j", help="Parallel compile workers"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,

@@ -245,7 +245,7 @@ def derive_link_options(pe: dict[str, Any]) -> tuple[list[str], str]:
 
     Returns ``(link_options, link_toml)`` — the option strings for the link
     line, and a ``[link]`` block for ``rebrew-project.toml`` (the fields
-    ``rebrew round-trip --fix-headers`` consumes).
+    ``rebrew build round-trip --fix-headers`` consumes).
 
     The options are emitted as *deltas from the VC6 linker defaults*: adding
     an option that equals the default can change fields the default leaves
@@ -301,7 +301,7 @@ def derive_link_options(pe: dict[str, Any]) -> tuple[list[str], str]:
 
     link = []
     link.append("[link]")
-    link.append("# Derived by 'rebrew gen-layout' from the original binary.")
+    link.append("# Derived by 'rebrew build layout' from the original binary.")
     if pe.get("file_alignment"):
         link.append(f'file_align = "0x{pe["file_alignment"]:x}"')
     if stack_reserve != DEF_STACK_RESERVE:

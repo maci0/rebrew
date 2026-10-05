@@ -1,7 +1,7 @@
 """ghidra/cli.py — Sync rebrew annotations with Ghidra via the BinSync state dir.
 
 Field-level sync (names, comments/notes, prototypes, structs, globals) is
-**BinSync-primary**: ``rebrew sync --push --state-dir D``
+**BinSync-primary**: ``rebrew sync push --state-dir D``
 exports the annotations to the shared state dir and ``--pull`` imports it
 back; the BinSync Ghidra plugin (or a collaborator's tool) relays the state
 to and from Ghidra.  Structural Ghidra operations BinSync cannot express stay
@@ -18,7 +18,7 @@ from typing import Any
 
 import typer
 
-from rebrew.cli import TargetOption, console, error_exit, json_print, require_config, run_standalone
+from rebrew.cli import TargetOption, console, error_exit, json_print, require_config, run_cli
 from rebrew.config import ConfigError, inventory_path_for, validate_http_url
 from rebrew.ghidra.client import DEFAULT_MCP_ENDPOINT
 from rebrew.ghidra.commands import (
@@ -38,13 +38,13 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew sync --push --state-dir ./state · · · · · · Export to the BinSync state\n\n"
-        "  rebrew sync --pull --state-dir ./state · · · · · · Import the state into rebrew\n\n"
-        "  rebrew sync --pull --state-dir ./state --create-functions\n"
+        "  rebrew sync push --state-dir ./state · · · · · · Export to the BinSync state\n\n"
+        "  rebrew sync pull --state-dir ./state · · · · · · Import the state into rebrew\n\n"
+        "  rebrew sync pull --state-dir ./state --create-functions\n"
         "                                            · · · Import + create functions in Ghidra\n\n"
-        "  rebrew sync --create-functions · · · · · · · · · Create missing functions (MCP)\n\n"
-        "  rebrew sync --bookmarks · · · · · · · · · · · · · Set status bookmarks (MCP)\n\n"
-        "  rebrew sync --pull-data · · · · · · · · · · · · · Pull data labels (MCP)\n\n"
+        "  rebrew sync create-functions · · · · · · · · · Create missing functions (MCP)\n\n"
+        "  rebrew sync bookmarks · · · · · · · · · · · · · Set status bookmarks (MCP)\n\n"
+        "  rebrew sync pull-data · · · · · · · · · · · · · Pull data labels (MCP)\n\n"
         "[dim]Field sync (names/comments/prototypes/structs/globals) is BinSync-primary;\n"
         "the BinSync Ghidra plugin relays the state to Ghidra.  MCP remains for the\n"
         "structural ops (function creation, bookmarks, data pulls).[/dim]"
@@ -55,7 +55,7 @@ app = typer.Typer(
 def _require_state_dir(state_dir: Path | None, json_output: bool) -> Path:
     if state_dir is None:
         error_exit(
-            "--push/--pull require --state-dir <dir> (the BinSync state directory)",
+            "sync push/pull require --state-dir <dir> (the BinSync state directory)",
             json_mode=json_output,
         )
     return state_dir
@@ -159,47 +159,28 @@ def _preview_ops(ops: list[dict[str, Any]], json_output: bool) -> None:
     console.print(f"[dim]Would apply {len(ops)} operation(s).[/dim]")
 
 
-@app.callback(invoke_without_command=True)
-def main(
-    state_dir: Path | None = typer.Option(
-        None, "--state-dir", help="BinSync state directory (for --push/--pull)"
-    ),
-    push: bool = typer.Option(False, "--push", help="Export annotations to the BinSync state dir"),
-    pull: bool = typer.Option(False, "--pull", help="Import the BinSync state dir into rebrew"),
-    create_functions: bool = typer.Option(
-        False,
-        "--create-functions",
-        help="Create functions in Ghidra (MCP); with --pull, creates the imported VAs",
-    ),
-    bookmarks: bool = typer.Option(
-        False, "--bookmarks", help="Set status bookmarks in Ghidra (MCP)"
-    ),
-    pull_data: bool = typer.Option(
-        False, "--pull-data", help="Pull data labels from Ghidra into rebrew_globals.h (MCP)"
-    ),
-    summary: bool = typer.Option(False, "--summary", help="Show push summary without writing"),
-    watch: bool = typer.Option(
-        False, "--watch", help="Watch sources and re-push to the state dir on change"
-    ),
-    accept_binsync: bool = typer.Option(
-        False, "--accept-binsync", help="Accept BinSync names on pull conflicts"
-    ),
-    accept_local: bool = typer.Option(
-        False, "--accept-local", help="Keep local names on pull conflicts (records provenance)"
-    ),
-    create_missing: bool = typer.Option(
-        False, "--create-missing", help="Create STUB files for BinSync functions not in the catalog"
-    ),
-    endpoint: str = typer.Option(DEFAULT_MCP_ENDPOINT, "--endpoint", help="ReVa MCP endpoint URL"),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
-    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
-    target: str | None = TargetOption,
+def execute_sync(
+    state_dir: Path | None = None,
+    push: bool = False,
+    pull: bool = False,
+    create_functions: bool = False,
+    bookmarks: bool = False,
+    pull_data: bool = False,
+    summary: bool = False,
+    watch: bool = False,
+    accept_binsync: bool = False,
+    accept_local: bool = False,
+    create_missing: bool = False,
+    endpoint: str = DEFAULT_MCP_ENDPOINT,
+    dry_run: bool = False,
+    json_output: bool = False,
+    target: str | None = None,
 ) -> None:
     """Sync annotations with Ghidra via the BinSync state dir (+ MCP structural ops)."""
     if not (push or pull or create_functions or bookmarks or pull_data or summary or watch):
         error_exit(
-            "No action specified. Available: --push/--pull (with --state-dir), "
-            "--create-functions, --bookmarks, --pull-data, --summary",
+            "No operation specified. Use sync push/pull (with --state-dir), "
+            "create-functions, bookmarks, pull-data, summary or watch",
             json_mode=json_output,
         )
     if accept_binsync and accept_local:
@@ -207,7 +188,7 @@ def main(
             "--accept-binsync and --accept-local are mutually exclusive", json_mode=json_output
         )
     if push and pull:
-        error_exit("--push and --pull are mutually exclusive", json_mode=json_output)
+        error_exit("sync push and sync pull are mutually exclusive", json_mode=json_output)
     if watch and not (push and state_dir is not None):
         error_exit("--watch requires --push --state-dir <dir>", json_mode=json_output)
 
@@ -331,9 +312,143 @@ def main(
         return
 
 
+@app.command(
+    "push",
+    epilog="Examples:\n\n  rebrew sync push --dry-run --json\n\nField synchronization uses BinSync state. Structural operations use the configured Ghidra transport.",
+)
+def push(
+    state_dir: Path | None = typer.Option(None, "--state-dir", help="BinSync state directory"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
+) -> None:
+    """Export fields to a local BinSync state directory."""
+    execute_sync(
+        state_dir=state_dir, dry_run=dry_run, json_output=json_output, target=target, push=True
+    )
+
+
+@app.command(
+    "pull",
+    epilog="Examples:\n\n  rebrew sync pull --dry-run --json\n\nField synchronization uses BinSync state. Structural operations use the configured Ghidra transport.",
+)
+def pull(
+    state_dir: Path | None = typer.Option(None, "--state-dir", help="BinSync state directory"),
+    accept_binsync: bool = typer.Option(
+        False, "--accept-binsync", help="Accept BinSync names on pull conflicts"
+    ),
+    accept_local: bool = typer.Option(
+        False, "--accept-local", help="Keep local names on pull conflicts (records provenance)"
+    ),
+    create_missing: bool = typer.Option(
+        False, "--create-missing", help="Create STUB files for BinSync functions not in the catalog"
+    ),
+    create_functions: bool = typer.Option(
+        False,
+        "--create-functions",
+        help="Create the imported functions in Ghidra through MCP",
+    ),
+    endpoint: str = typer.Option(DEFAULT_MCP_ENDPOINT, "--endpoint", help="ReVa MCP endpoint URL"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
+) -> None:
+    """Import fields and optionally create the accepted functions."""
+    execute_sync(
+        state_dir=state_dir,
+        accept_binsync=accept_binsync,
+        accept_local=accept_local,
+        create_missing=create_missing,
+        create_functions=create_functions,
+        endpoint=endpoint,
+        dry_run=dry_run,
+        json_output=json_output,
+        target=target,
+        pull=True,
+    )
+
+
+@app.command(
+    "summary",
+    epilog="Examples:\n\n  rebrew sync summary --json\n\nField synchronization uses BinSync state. Structural operations use the configured Ghidra transport.",
+)
+def summary(
+    state_dir: Path | None = typer.Option(None, "--state-dir", help="BinSync state directory"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
+) -> None:
+    """Preview local field export without writing."""
+    execute_sync(state_dir=state_dir, json_output=json_output, target=target, summary=True)
+
+
+@app.command(
+    "watch",
+    epilog="Examples:\n\n  rebrew sync watch --json\n\nField synchronization uses BinSync state. Structural operations use the configured Ghidra transport.",
+)
+def watch(
+    state_dir: Path | None = typer.Option(None, "--state-dir", help="BinSync state directory"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
+) -> None:
+    """Watch sources and export changes until interrupted."""
+    execute_sync(state_dir=state_dir, json_output=json_output, target=target, push=True, watch=True)
+
+
+@app.command(
+    "create-functions",
+    epilog="Examples:\n\n  rebrew sync create-functions --dry-run --json\n\nField synchronization uses BinSync state. Structural operations use the configured Ghidra transport.",
+)
+def create_functions(
+    endpoint: str = typer.Option(DEFAULT_MCP_ENDPOINT, "--endpoint", help="ReVa MCP endpoint URL"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
+) -> None:
+    """Create missing functions through the configured structural backend."""
+    execute_sync(
+        endpoint=endpoint,
+        dry_run=dry_run,
+        json_output=json_output,
+        target=target,
+        create_functions=True,
+    )
+
+
+@app.command(
+    "bookmarks",
+    epilog="Examples:\n\n  rebrew sync bookmarks --dry-run --json\n\nField synchronization uses BinSync state. Structural operations use the configured Ghidra transport.",
+)
+def bookmarks(
+    endpoint: str = typer.Option(DEFAULT_MCP_ENDPOINT, "--endpoint", help="ReVa MCP endpoint URL"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
+) -> None:
+    """Apply status bookmarks through the structural backend."""
+    execute_sync(
+        endpoint=endpoint, dry_run=dry_run, json_output=json_output, target=target, bookmarks=True
+    )
+
+
+@app.command(
+    "pull-data",
+    epilog="Examples:\n\n  rebrew sync pull-data --dry-run --json\n\nField synchronization uses BinSync state. Structural operations use the configured Ghidra transport.",
+)
+def pull_data(
+    endpoint: str = typer.Option(DEFAULT_MCP_ENDPOINT, "--endpoint", help="ReVa MCP endpoint URL"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
+) -> None:
+    """Import Ghidra data labels through MCP."""
+    execute_sync(
+        endpoint=endpoint, dry_run=dry_run, json_output=json_output, target=target, pull_data=True
+    )
+
+
 def main_entry() -> None:
     """Run the Typer CLI application."""
-    run_standalone(main)
+    run_cli(app)
 
 
 if __name__ == "__main__":

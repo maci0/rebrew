@@ -1,4 +1,4 @@
-"""rebrew pdb-info — extract compiler version, flags, and function names from a PDB.
+"""rebrew binary pdb show — extract compiler version, flags, and function names from a PDB.
 
 When a target binary ships a sibling ``.pdb``, the PDB's debug info is the
 most authoritative offline source of the *exact* build configuration:
@@ -20,8 +20,8 @@ both are handled gracefully (reported as unsupported, never an exception).
 
 Usage::
 
-    rebrew pdb-info original/game.exe
-    rebrew pdb-info game.exe --write-cflags   # set [compiler] cflags from S_COMPILE3
+    rebrew binary pdb show original/game.exe
+    rebrew binary pdb import-cflags game.exe # set [compiler] cflags from S_COMPILE3
 """
 
 from __future__ import annotations
@@ -42,9 +42,9 @@ log = logging.getLogger(__name__)
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew pdb-info game.pdb · · · · · · Report compiler version, flags, names\n\n"
-    "  rebrew pdb-info game.pdb --write-cflags · Record the flags in the metadata\n\n"
-    "  rebrew pdb-info game.pdb --dry-run --json · Plan the write, change nothing\n"
+    "  rebrew binary pdb show game.pdb · · · · · · Report compiler version, flags, names\n\n"
+    "  rebrew binary pdb import-cflags game.pdb · Record the flags in the metadata\n\n"
+    "  rebrew binary pdb import-cflags game.exe --dry-run --json · Plan the write, change nothing\n"
 )
 
 
@@ -202,14 +202,8 @@ def extract_pdb_info(binary: Path) -> PdbInfo | None:
     return info
 
 
-@app.callback(invoke_without_command=True)
-def main(
-    binary: str = typer.Argument(..., help="Path to the binary whose sibling .pdb to read."),
-    write_cflags: bool = typer.Option(
-        False, "--write-cflags", help=r"Write the S_COMPILE3 flags into \[compiler] cflags."
-    ),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
-    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+def inspect_pdb(
+    binary: str, write_cflags: bool = False, dry_run: bool = False, json_output: bool = False
 ) -> None:
     """Report compiler version, flags, and function names from the PDB."""
     bin_path = Path(binary)
@@ -286,11 +280,36 @@ def main(
             console.print(f"  cflags write: {untrusted_ident(payload['cflags_write'])}")
 
 
+@app.command(
+    "show",
+    epilog="Examples:\n\n  rebrew binary pdb show original/game.exe --json\n\nInput and output paths are shown above; use --help at the parent group to discover related operations.",
+)
+def show(
+    binary: str = typer.Argument(..., help="Path to the binary whose sibling .pdb to read."),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+) -> None:
+    """Show PDB compiler evidence and function names."""
+    inspect_pdb(binary=binary, json_output=json_output)
+
+
+@app.command(
+    "import-cflags",
+    epilog="Examples:\n\n  rebrew binary pdb import-cflags original/game.exe --dry-run --json\n\nInput and output paths are shown above; use --help at the parent group to discover related operations.",
+)
+def import_cflags(
+    binary: str = typer.Argument(..., help="Path to the binary whose sibling .pdb to read."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+) -> None:
+    """Import verified command-line flags from PDB evidence."""
+    inspect_pdb(binary=binary, dry_run=dry_run, json_output=json_output, write_cflags=True)
+
+
 def main_entry() -> None:
     """Run the Typer CLI application."""
-    from rebrew.cli import run_standalone
+    from rebrew.cli import run_cli
 
-    run_standalone(main)
+    run_cli(app)
 
 
 if __name__ == "__main__":

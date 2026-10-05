@@ -42,6 +42,7 @@ from rebrew.cli import (
     json_print,
     parse_va,
     require_config,
+    require_non_negative,
 )
 from rebrew.config import ProjectConfig, inventory_path_for
 from rebrew.similar import disasm_signature, similarity_score
@@ -220,23 +221,30 @@ def matched_source_bytes(cfg_src: ProjectConfig) -> dict[int, bytes]:
 
     Only functions whose metadata STATUS is EXACT/RELOC participate (PROVEN
     bytes differ, so a PROVEN body is not a byte-exact donor) —
-    they are the ones whose source can be trusted to reproduce.  Entries with
-    no registry size fall back to the disassembly-derived extent (ret-ended
+    they are the ones whose source can be trusted to reproduce. Managed
+    source extents override discovery spans that may include trailing padding.
+    Entries with no source or registry size fall back to the disassembly-derived extent (ret-ended
     only); ones the disassembler cannot size are skipped with the
     ``sizeless, use --va`` guidance on the result rows.
     """
+    from rebrew.metadata import load_metadata
+
     statuses = annotations_by_va(cfg_src)
     entries = registry(cfg_src)
-    vas = {
-        va: int(reg["canonical_size"])
+    metadata_dir = getattr(cfg_src, "metadata_dir", None)
+    metadata = load_metadata(metadata_dir) if metadata_dir is not None else {}
+    module = (target_marker(cfg_src) or "") if metadata else ""
+    sizes = {
+        va: int(metadata.get((module, va), {}).get("size") or reg.get("canonical_size") or 0)
         for va, reg in entries.items()
-        if reg.get("canonical_size") and statuses.get(va, ("", ""))[0] in MATCHED_STATUSES
+    }
+    vas = {
+        va: sizes[va]
+        for va, reg in entries.items()
+        if sizes[va] > 0 and statuses.get(va, ("", ""))[0] in MATCHED_STATUSES
     }
     sizeless = [
-        va
-        for va, reg in entries.items()
-        if not int(reg.get("canonical_size") or 0)
-        and statuses.get(va, ("", ""))[0] in MATCHED_STATUSES
+        va for va in entries if sizes[va] <= 0 and statuses.get(va, ("", ""))[0] in MATCHED_STATUSES
     ]
     if sizeless:
         sizes, _refused = disasm_sizes(cfg_src, sizeless)
@@ -1307,9 +1315,9 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew cross-import --from v1.1 · · · · · · · Import v1.1's matched functions\n"
-        "  rebrew cross-import --from game.exe --min-score 90\n"
-        "  rebrew cross-import --from v1.1 --dry-run --json · Preview\n\n"
+        "  rebrew source import-related --from v1.1 · · · · · · · Import v1.1's matched functions\n"
+        "  rebrew source import-related --from game.exe --min-score 90\n"
+        "  rebrew source import-related --from v1.1 --dry-run --json · Preview\n\n"
         "[dim]Matches the source target's EXACT/RELOC functions against this\n"
         "target's unmatched functions structurally (no compile needed to match);\n"
         "imported sources are verified against this target before STATUS promotion.[/dim]"
@@ -1362,6 +1370,8 @@ def main(
     target: str | None = TargetOption,
 ) -> None:
     """Cross-target function import."""
+    if limit is not None:
+        require_non_negative(limit, "--limit", json_mode=json_output)
     cfg = require_config(target=target, json_mode=json_output)
     cfg_src = require_config(target=from_target, json_mode=json_output)
     if cfg_src.target_name == cfg.target_name:

@@ -1,4 +1,4 @@
-"""`rebrew cmake-flags` — the build must compile what the tools measure.
+"""`rebrew build cmake-flags` — the build must compile what the tools measure.
 
 The command exists because a CMake build that reads the `.c`'s inline
 ``// CFLAGS:`` compiles a different translation unit than every rebrew tool,

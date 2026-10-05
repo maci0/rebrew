@@ -1240,8 +1240,8 @@ def parse_new_format_multi(lines: list[str]) -> list[Annotation]:
             _flush()
             if (
                 seen_code_after_marker
-                or current_marker_type != "FUNCTION"
-                or m.group("type") != "FUNCTION"
+                or current_marker_type not in FUNCTION_MARKERS
+                or m.group("type") not in FUNCTION_MARKERS
             ):
                 stack_start = len(results)
             current_marker_type = m.group("type")
@@ -1299,11 +1299,12 @@ def parse_new_format_multi(lines: list[str]) -> list[Annotation]:
             if func_result:
                 current_kv["_C_FUNC_NAME"] = func_result[0]
                 current_kv["_C_FUNC_PROTO"] = func_result[1]
-                if current_marker_type == "FUNCTION":
-                    for ann in results[stack_start:]:
-                        if not ann.name:
-                            ann.name, ann.prototype = func_result
-                            ann.symbol = _derive_c_symbol(ann.name, ann.prototype)
+                # Every code-bearing marker in the stack names this same
+                # definition, including a library/function pair across targets.
+                for ann in results[stack_start:]:
+                    if not ann.name:
+                        ann.name, ann.prototype = func_result
+                        ann.symbol = _derive_c_symbol(ann.name, ann.prototype)
 
         # Non-annotation line: mark that we've seen code, but keep pending_kv
         # so annotations survive through #include/extern/typedef lines until
@@ -1329,7 +1330,7 @@ _METADATA_FILE_INDEX_MAX = 4
 #: live cache key.
 _METADATA_FILE_INDEX_OWNER: dict[int, dict[tuple[str, int], dict[str, Any]]] = {}
 #: The owner hit, the two eviction clears, and the two stores are one
-#: check-then-act over two parallel dicts; ``rebrew match --all --jobs N`` reaches
+#: check-then-act over two parallel dicts; ``rebrew match batch --jobs N`` reaches
 #: this from pool threads.  Held only for the dict work — the index build below
 #: walks the whole entry table and stays outside.
 _METADATA_FILE_INDEX_LOCK = threading.Lock()
@@ -1607,6 +1608,19 @@ def _finalize_entries(
             meta = entries_by_key.get((entry.module, entry.va))
             if meta:
                 apply_metadata_entry(entry, meta)
+        # Migrated function identities coexist with DATA/GLOBAL markers.
+        # A remaining data marker must not hide a marker-less function body.
+        # Live function markers for this target still take precedence over
+        # stale TOML identities; those files have not migrated yet.
+        if not any(entry.marker_type in ("FUNCTION", "LIBRARY") for entry in filtered_entries):
+            existing = {(preset_module_key(entry.module), entry.va) for entry in filtered_entries}
+            filtered_entries.extend(
+                entry
+                for entry in _annotations_from_metadata(
+                    filepath, target_name, base_dir, metadata_dir
+                )
+                if (preset_module_key(entry.module), entry.va) not in existing
+            )
     return filtered_entries
 
 

@@ -144,7 +144,7 @@ class TestObjdiffProject:
         assert r.exit_code == 0
         doc = json.loads(out.read_text(encoding="utf-8"))
         assert doc["custom_make"] == "rebrew"
-        assert doc["custom_args"] == ["objdiff-build", "T"]
+        assert doc["custom_args"] == ["build", "objdiff-driver", "T"]
         assert len(doc["units"]) == 1
         unit = doc["units"][0]
         assert unit["name"] == "funcs/a.c"
@@ -214,7 +214,7 @@ class TestObjdiffProject:
         )
         from rebrew.main import app
 
-        result = runner.invoke(app, ["objdiff-build", "T", str(base)])
+        result = runner.invoke(app, ["build", "objdiff-driver", "T", str(base)])
         assert result.exit_code == 0, result.output
         assert len(calls) == 1
         assert calls[0][0] == src_file
@@ -244,7 +244,7 @@ class TestObjdiffProject:
         from rebrew.main import app
 
         result = runner.invoke(
-            app, ["objdiff-build", "T", "build/objdiff/current/../../outside.c.o"]
+            app, ["build", "objdiff-driver", "T", "build/objdiff/current/../../outside.c.o"]
         )
         assert result.exit_code == 2, result.output
         assert calls == []
@@ -267,7 +267,9 @@ class TestObjdiffProject:
         )
         from rebrew.main import app
 
-        result = runner.invoke(app, ["objdiff-build", "T", str(outside.with_suffix(".c.o"))])
+        result = runner.invoke(
+            app, ["build", "objdiff-driver", "T", str(outside.with_suffix(".c.o"))]
+        )
         assert result.exit_code == 2, result.output
         assert calls == []
 
@@ -275,16 +277,16 @@ class TestObjdiffProject:
         """Help succeeds through the installed umbrella command."""
         from rebrew.main import app
 
-        result = runner.invoke(app, ["objdiff-build", "--help"])
+        result = runner.invoke(app, ["build", "objdiff-driver", "--help"])
         assert result.exit_code == 0
-        assert "objdiff-build" in result.output
+        assert "objdiff-driver" in result.output
 
     @pytest.mark.parametrize("argv", [["-x"], ["-x", "base.o"]])
     def test_build_entry_names_an_unknown_option(self, argv: list[str]) -> None:
         """Stray flags are usage errors rather than target names."""
         from rebrew.main import app
 
-        result = runner.invoke(app, ["objdiff-build", *argv])
+        result = runner.invoke(app, ["build", "objdiff-driver", *argv])
         assert result.exit_code == 2
         assert "No such option: -x" in result.output
 
@@ -321,7 +323,7 @@ class TestObjdiffProject:
         )
         from rebrew.main import app
 
-        result = runner.invoke(app, ["objdiff-build", "T", str(base)])
+        result = runner.invoke(app, ["build", "objdiff-driver", "T", str(base)])
         assert result.exit_code == 0, result.output
         assert seen == {"tool": "msvc-5.0", "cflags": "/O1", "module": "T"}
 

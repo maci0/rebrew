@@ -73,7 +73,7 @@ for t in find_vtordisps(code, base_addr):
 ```
 
 Byte-pattern scan (no disassembly): thunks are 8-14 byte islands the
-linker may place between functions. Exposed in the `rebrew analyze` dossier
+linker may place between functions. Exposed in the `rebrew binary analyze` dossier
 as the `vtordisp` section (VA, target, disp, addend, size).
 
 ## float_const: float constant pool
@@ -96,8 +96,8 @@ consts = find_float_consts(
 # -> FloatConstant(address, size=4|8, value)
 ```
 
-Complements `rebrew inline-strings` (strings, not floats) for data
-annotation. Exposed in the `rebrew analyze` dossier as `float_consts`.
+Complements `rebrew source inline-strings` (strings, not floats) for data
+annotation. Exposed in the `rebrew binary analyze` dossier as `float_consts`.
 
 ---
 

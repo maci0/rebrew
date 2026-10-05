@@ -12,12 +12,12 @@
 > fact, precedence, and why none of these TOMLs are hand-edited) see
 > [METADATA.md](METADATA.md); every write goes through `rebrew.metadata` /
 > `rebrew.data_metadata` (locked + atomic), or the CLI gates
-> (`rebrew blocker`, `rebrew test`/`verify`/`prove`, `rebrew library`, `rebrew data`).
+> (`rebrew blocker`, `rebrew test`/`verify`/`prove`, `rebrew library`, `rebrew data list`).
 
 ## Layer 1: Inline reccmp Markers (in `.c` files)
 
 Unmigrated function source carries a reccmp-compatible identity marker.
-`rebrew migrate-markers` moves function identity and inline fields into TOML
+`rebrew source migrate-markers` moves function identity and inline fields into TOML
 and leaves pure C. Do not restore markers in migrated files. Data markers
 remain source-owned. An unmigrated function example:
 
@@ -104,7 +104,7 @@ note = "register allocation differs in inner loop"
 | `update_source_status()` / `update_statuses_batch()` | Set STATUS through the promotion gate (SKIP stays parked): via `rebrew test` / `rebrew verify` / `rebrew prove` (also `match`, `lint`, `binsync-import`, `intake` tag their writes) |
 | `update_field(directory, va, key, value, module)` / `remove_field(directory, va, key, module)` | Set / delete any non-STATUS field (e.g. BLOCKER): via `rebrew blocker set` / `clear` |
 | `get_entry(directory, va, module)` | Read an entry: via `rebrew blocker show` |
-| `rebrew diff --fix-blocker` / `rebrew near-diag --fix-blocker` / `rebrew document-unmatched` | Auto-classified BLOCKER writers (same gated API underneath) |
+| `rebrew diff --fix-blocker` / `rebrew diagnose near --fix-blocker` / `rebrew source document-unmatched` | Auto-classified BLOCKER writers (same gated API underneath) |
 
 #### Owned fields
 
@@ -114,12 +114,12 @@ shapes that matter for a hand-written script or a review:
 | Field | Value | Written by |
 |---|---|---|
 | `STATUS` | one of the twelve `rebrew.metadata.KNOWN_STATUSES` values: the six ladder values below plus the six machine verdicts | the STATUS writers only, through the promotion gate |
-| `SIZE` | non-negative integer | annotation migration, `rebrew verify --fix-sizes`, `rebrew catalog --fix-sizes`; co-read with `// SIZE:` (an override, not a move) |
-| `CFLAGS`, `TOOLCHAIN` | string | `rebrew cfg set-cflags` / `set-compiler`, library-override resolution, lint `--fix`; `CFLAGS` co-read with `// CFLAGS:` |
-| `BLOCKER`, `BLOCKER_DELTA` | string / integer | `rebrew blocker set/clear`, `rebrew diff --fix-blocker`, `rebrew near-diag --fix-blocker`, `rebrew document-unmatched`; cleared on a byte match |
+| `SIZE` | non-negative integer | annotation migration, `rebrew verify --fix-sizes`, `rebrew coverage catalog --fix-sizes`; co-read with `// SIZE:` (an override, not a move) |
+| `CFLAGS`, `TOOLCHAIN` | string | `rebrew cfg module set-cflags` / `set-compiler`, library-override resolution, lint `--fix`; `CFLAGS` co-read with `// CFLAGS:` |
+| `BLOCKER`, `BLOCKER_DELTA` | string / integer | `rebrew blocker set/clear`, `rebrew diff --fix-blocker`, `rebrew diagnose near --fix-blocker`, `rebrew source document-unmatched`; cleared on a byte match |
 | `NOTE`, `GHIDRA`, `ANALYSIS` | string | `update_field` (`rebrew blocker`/lint migrations, BinSync pull) |
 | `SKIP` | boolean | a manual park through `update_field`; the promotion gate then keeps the row parked (no status write silently unparks it) |
-| `GLOBALS`, `LOCALS`, `COMMENTS`, `PROVE_CONSTRAINTS` | `GLOBALS` a list of strings, the other three tables | `GLOBALS` from `rebrew sync --pull`, the rest from analysis and prove writers; an inline scalar for the three table fields warns (W019) but cannot migrate, while an inline `GLOBALS` migrates as a list |
+| `GLOBALS`, `LOCALS`, `COMMENTS`, `PROVE_CONSTRAINTS` | `GLOBALS` a list of strings, the other three tables | `GLOBALS` from `rebrew sync pull`, the rest from analysis and prove writers; an inline scalar for the three table fields warns (W019) but cannot migrate, while an inline `GLOBALS` migrates as a list |
 | `SOURCE` | string | stays in the `.c` as `// SOURCE: naked`: file-borne, W019-exempt, and self-clearing when the real C body replaces it; a non-naked value is migration debt that `lint --fix` moves into the TOML |
 | `ORIGINS` | table keyed by native integration field | successful BinSync pulls; retains tool/user/snapshot and the accepted value digest |
 | `VERIFICATION` | table with status, writer, input_hash and measured_at | comparison writers; retained independently of ordinary edits |
@@ -147,7 +147,7 @@ on data rows, and it names the tool that wrote the row most recently, so a
 standing on the row.  A writer that passes no tag keeps the stored stamp.
 `rebrew-data.toml` carries the same pair, tagged by whichever data writer ran:
 `verify` from `verify --data` on each verdict, `rename` on a renamed global,
-`data` from `rebrew data`, `lint` on a migrated data marker; see
+`data` from `rebrew data list`, `lint` on a migrated data marker; see
 [Write provenance](METADATA.md#write-provenance).
 
 > **Never write `rebrew-functions.toml` manually**: every BLOCKER, STATUS,
@@ -190,9 +190,9 @@ equal truncated buffers cannot earn `VERIFIED`. Other targets stay outside
 the report's denominator and write-back.
 
 Managed exclusively by `rebrew.data_metadata` (locked + atomic): via
-`rebrew data` (the bare command scans; `--annotate`, `--set-type`,
-`--set-section`, `--fix-bss`), `rebrew verify --data`, and `rebrew rename`.
-`rebrew sync --pull-data` does not touch it: that writes the derived
+`rebrew data list` (the bare command scans; `--annotate`, `--set-type`,
+`--set-section`, `--fix-bss`), `rebrew verify --data`, and `rebrew source rename`.
+`rebrew sync pull-data` does not touch it: that writes the derived
 `rebrew_globals.h`.  Never hand-edit `rebrew-data.toml` either.
 
 ## Status Lifecycle

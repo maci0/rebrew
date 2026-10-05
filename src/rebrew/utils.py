@@ -1,6 +1,6 @@
 """utils.py — the leaf helpers every other rebrew module can depend on.
 
-This module has no rebrew imports, so anything here may be called from
+This module has no rebrew binary imports list, so anything here may be called from
 anywhere without a cycle.  That freedom is also its cost: the name says
 nothing about what it owns, so the map below is the index.  Helpers are
 grouped by concern and stay in that group; a new helper joins the group
@@ -15,6 +15,7 @@ it belongs to rather than starting a sixth.
   ``untrusted_ident``
 - **Source and config reading**: ``read_source_text`` / ``read_compile_source``
   (with the LRU memo and its ``clear_source_text_memo`` reset),
+  ``resolved_path`` (a stat-keyed ``Path.resolve`` memo),
   ``split_source_lines`` / ``join_source_lines``,
   ``detect_source_encoding``, ``read_toml_text``, ``load_tomllib``,
   ``load_toml_for_write`` / ``load_toml_for_write_strict``, ``read_json_text``
@@ -335,7 +336,7 @@ def pe_name_token(name: str | None) -> str:
     A PE name is attacker-controlled whenever the target binary is: it comes
     from the import descriptor or the hint/name table, so a crafted binary
     can carry a newline, quote, or brace.  Those reach generated C, which
-    ``rebrew gen-layout`` compiles and links, so a newline would end the
+    ``rebrew build layout`` compiles and links, so a newline would end the
     enclosing comment and compile its remainder as top-level C.  Substituting
     every byte outside the token set keeps the import present (the IAT slot
     ordering the scaffolding exists to force is preserved) while making the
@@ -359,7 +360,11 @@ SOURCE_CHECKOUT: Path | None = _CHECKOUT if (_CHECKOUT / "pyproject.toml").is_fi
 # LRU collapses those duplicate syscalls without pinning unbounded content.
 # Guarded: verify -j N reads the same sources from worker threads.
 _SOURCE_TEXT_MEMO: OrderedDict[tuple[str, int, int, int], tuple[str, str]] = OrderedDict()
-_SOURCE_TEXT_MEMO_MAX = 512
+# A game tree is thousands of sources, and verify/status re-read each one.
+# 512 evicted the head of a 4000-file scan before the scan finished, so the
+# second pass re-read every file (78 ms vs 31 ms). 8192 small bodies is the
+# ceiling; raise it when a scan larger than that shows up in a profile.
+_SOURCE_TEXT_MEMO_MAX = 8192
 _SOURCE_TEXT_MEMO_LOCK = threading.Lock()
 # resolved path -> its live memo keys, so a write invalidates in O(1)
 # instead of scanning the whole LRU.
@@ -388,6 +393,44 @@ def _resolved_source_path(filepath: Path) -> Path:
         _RESOLVED_SOURCE_PATHS.move_to_end(key)
         while len(_RESOLVED_SOURCE_PATHS) > _RESOLVED_SOURCE_PATHS_MAX:
             _RESOLVED_SOURCE_PATHS.popitem(last=False)
+    return resolved
+
+
+# ``(spelling, mtime_ns, size, ino)`` -> resolved path.  The stat is from
+# ``lstat``, so a content edit or a symlink retarget misses and resolves
+# again.  Unlike :func:`_resolved_source_path`, this key notices a changed
+# final component, which is what header and source identity need.
+_RESOLVED_PATHS: OrderedDict[tuple[str, int, int, int], Path] = OrderedDict()
+_RESOLVED_PATHS_MAX = 2048
+_RESOLVED_PATHS_LOCK = threading.Lock()
+
+
+def resolved_path(path: Path) -> Path:
+    """Return *path* resolved, memoized on its spelling and ``lstat`` identity.
+
+    The key is ``(spelling, mtime_ns, size, ino)``.  A relative spelling
+    includes the current directory.  ``OSError`` from ``lstat`` falls through
+    to ``Path.resolve()`` and is not memoized.  The memo stores the resolved
+    path, not file bytes: callers that need to notice a content edit still
+    ``stat`` the result.
+    """
+    try:
+        st = path.lstat()
+    except OSError:
+        return path.resolve()
+    spelling = str(path) if path.is_absolute() else f"{Path.cwd()}\0{path}"
+    key = (spelling, st.st_mtime_ns, st.st_size, st.st_ino)
+    with _RESOLVED_PATHS_LOCK:
+        hit = _RESOLVED_PATHS.get(key)
+        if hit is not None:
+            _RESOLVED_PATHS.move_to_end(key)
+            return hit
+    resolved = path.resolve()
+    with _RESOLVED_PATHS_LOCK:
+        _RESOLVED_PATHS[key] = resolved
+        _RESOLVED_PATHS.move_to_end(key)
+        while len(_RESOLVED_PATHS) > _RESOLVED_PATHS_MAX:
+            _RESOLVED_PATHS.popitem(last=False)
     return resolved
 
 

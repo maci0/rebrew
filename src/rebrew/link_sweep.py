@@ -19,9 +19,9 @@ appended before the library list), or from ``--link-cmd`` (a template with
 
 Usage::
 
-    rebrew link-sweep --target server.dll
-    rebrew link-sweep --target server.dll --link-cmd "link.exe @objs.rsp /out:{out} {options}"
-    rebrew link-sweep --target server.dll --json
+    rebrew build sweep-link-flags --target server.dll
+    rebrew build sweep-link-flags --target server.dll --link-cmd "link.exe @objs.rsp /out:{out} {options}"
+    rebrew build sweep-link-flags --target server.dll --json
 """
 
 from __future__ import annotations
@@ -46,9 +46,9 @@ from rebrew.utils import run_process_group, untrusted_ident
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew link-sweep · · · · · · · · · Sweep LINK options against the reference\n\n"
-    '  rebrew link-sweep --link-cmd "link build\\out.exe *.obj" · · Use a custom link line\n\n'
-    "  rebrew link-sweep --keep --json · · · · Keep the candidate binaries for inspection\n"
+    "  rebrew build sweep-link-flags · · · · · · · · · Sweep LINK options against the reference\n\n"
+    '  rebrew build sweep-link-flags --link-cmd "link build\\out.exe *.obj" · · Use a custom link line\n\n'
+    "  rebrew build sweep-link-flags --keep --json · · · · Keep the candidate binaries for inspection\n"
 )
 
 

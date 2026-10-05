@@ -4,7 +4,7 @@ Byte-identical output needs more than matched function bytes: the PE header
 carries linker/OS/subsystem versions, DLL characteristics (TSAWARE), stack/
 heap sizes, timestamp, and checksum that MSVC6's default link does not
 reproduce.  This module reads those fields from a PE, patches a byte copy
-(the ``rebrew round-trip --fix-headers`` path), and reports parity between
+(the ``rebrew build round-trip --fix-headers`` path), and reports parity between
 the original and the patched copy.
 
 File alignment / section merge are NOT patched here — they require a relink

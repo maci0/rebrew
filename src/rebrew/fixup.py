@@ -21,8 +21,8 @@ hand-written C.
 
 Usage::
 
-    rebrew fix src/ghidra_out.c            # sanitize + report what changed
-    rebrew fix src/ghidra_out.c --json     # machine-readable change list
+    rebrew source fix src/ghidra_out.c            # sanitize + report what changed
+    rebrew source fix src/ghidra_out.c --json     # machine-readable change list
 """
 
 from __future__ import annotations
@@ -153,10 +153,10 @@ def fixup_source(source: str, compile_errors: str | None = None) -> FixupResult:
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew fix raw.c · · · · · · · · · · Write raw.fixed.c, print a diff summary\n\n"
-    "  rebrew fix raw.c --dry-run · · · · · · Report the fixes without writing\n\n"
-    "  rebrew fix raw.c --output cleaned.c --compile-check · · Write elsewhere and compile it\n\n"
-    "  rebrew fix raw.c --json · · · · · · · Machine-readable report\n"
+    "  rebrew source fix raw.c · · · · · · · · · · Write raw.fixed.c, print a diff summary\n\n"
+    "  rebrew source fix raw.c --dry-run · · · · · · Report the fixes without writing\n\n"
+    "  rebrew source fix raw.c --output cleaned.c --compile-check · · Write elsewhere and compile it\n\n"
+    "  rebrew source fix raw.c --json · · · · · · · Machine-readable report\n"
 )
 
 

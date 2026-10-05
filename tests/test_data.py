@@ -977,7 +977,7 @@ def test_data_rejects_combined_metadata_mutations(monkeypatch):
     monkeypatch.setattr("rebrew.data.require_config", unexpected_config)
     result = CliRunner().invoke(
         app,
-        ["--json", "--set-type", "0x10001000=char[260]", "--set-size", "0x10001000=260"],
+        ["set", "--json", "--type", "0x10001000=char[260]", "--size", "0x10001000=260"],
     )
     assert result.exit_code != 0
     assert "Use only one" in json.loads(result.stdout)["error"]

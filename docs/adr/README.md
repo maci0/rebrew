@@ -51,4 +51,5 @@ itself, and the consequences (including trade-offs accepted).
 | 024 | PROVEN is not matched and not sticky |
 | 025 | Remove the todo blocked lens |
 | 026 | One installed CLI for routine commands *(amended by 027)* |
-| 027 | Build hooks under the umbrella CLI |
+| 027 | Build hooks under the umbrella CLI *(amended by 028)* |
+| 028 | [CLI domains and explicit operations](028-cli-domains-and-explicit-operations.md) |

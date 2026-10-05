@@ -103,7 +103,7 @@ def sections_from_info(info: "BinaryInfo") -> dict[str, dict[str, int]]:
 
 
 def get_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> dict[int, dict[str, Any]]:
-    """Coverage globals from the same source/header inventory as ``rebrew data``.
+    """Coverage globals from the same source/header inventory as ``rebrew data list``.
 
     Declaration sites, storage owners and users remain distinct. Durable data
     extents override type estimates; headers and migrated metadata are included.

@@ -50,7 +50,7 @@ def test_bytes_to_pat_line_reloc_masking(code: bytes, reloc_byte: int) -> None:
 
 
 # ---------------------------------------------------------------------------
-# FLIRT .pat round-trip through python-flirt (the reader `rebrew flirt` uses)
+# FLIRT .pat round-trip through python-flirt (the reader `rebrew library scan-signatures` uses)
 # ---------------------------------------------------------------------------
 
 

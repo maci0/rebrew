@@ -1,4 +1,4 @@
-"""diagnose.py — `rebrew diagnose`: explain the compile-config resolution.
+"""diagnose.py — `rebrew diagnose config`: explain the compile-config resolution.
 
 For each function in a source file, prints the declared-dependency chain
 that determined its toolchain + CFLAGS:
@@ -45,9 +45,9 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew diagnose src/f.c · · · · · · · · · Trace toolchain, flags, and library overrides\n\n"
-        "  rebrew diagnose src/f.c --json · · · · · Machine-readable resolution steps to stdout\n\n"
-        "  rebrew diagnose src/f.c -t mygame · · · Trace a specific target's resolution\n\n"
+        "  rebrew diagnose config src/f.c · · · · · · · · · Trace toolchain, flags, and library overrides\n\n"
+        "  rebrew diagnose config src/f.c --json · · · · · Machine-readable resolution steps to stdout\n\n"
+        "  rebrew diagnose config src/f.c -t mygame · · · Trace a specific target's resolution\n\n"
         "[dim]The trace names every step in order: project default, per-function TOOLCHAIN/CFLAGS, "
         "the nearest rebrew-libraries.toml, then the preset that filled the gaps.[/dim]"
     ),

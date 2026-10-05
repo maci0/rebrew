@@ -16,7 +16,7 @@ mismatching instruction span into a category of compiler choice:
 The verdict maps the dominant category to an actionable suggestion
 (e.g. "register allocation — likely solvable via C-level tweaks").
 
-The library half of the ``rebrew near-diag`` command: it holds no Typer app
+The library half of the ``rebrew diagnose near`` command: it holds no Typer app
 and writes nothing to a console, so the GA engine, ``probe`` and the command
 itself all import it.  ``rebrew.near_diag`` owns the CLI.
 """
@@ -443,7 +443,7 @@ def catalog_markdown() -> str:
     rows.append("| `match` | Bytes are identical — nothing to fix | — |")
     return (
         "# near-diag symptom index\n\n"
-        "Generated from the verdict registry (`rebrew near-diag --catalog`).  "
+        "Generated from the verdict registry (`rebrew diagnose near --catalog`).  "
         "When a function is NEAR_MATCHING, the verdict names the dominant "
         "delta category; the row below gives the actionable suggestion and "
         "the GA mutation operators most likely to close the gap.\n\n"

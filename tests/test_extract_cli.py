@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import typer
 from typer.testing import CliRunner
 
 import rebrew.extract as extract_mod
@@ -139,6 +140,20 @@ class TestCmdExtract:
 class TestCmdBatch:
     def _info(self) -> SimpleNamespace:
         return SimpleNamespace()
+
+    @pytest.mark.parametrize("count,start", [(-1, 0), (1, -1)])
+    def test_negative_batch_bounds_do_not_create_artifacts(
+        self, tmp_path: Path, count: int, start: int
+    ) -> None:
+        import rebrew.extract as extract_mod
+
+        output = tmp_path / "bins"
+        with pytest.raises(typer.Exit) as caught:
+            extract_mod.cmd_batch(
+                self._info(), [(0x1000, 4, "f")], count=count, start=start, bin_dir=output
+            )
+        assert caught.value.exit_code == 2
+        assert not output.exists()
 
     def test_batch_json_items(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: object

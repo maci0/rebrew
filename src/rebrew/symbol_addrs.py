@@ -31,10 +31,10 @@ annotation wins: the PE symbol is dropped and the collision is reported in the
 different name or the same name at a different VA.
 
 Usage:
-    rebrew symbol-addrs --output symbol_addrs.csv
-    rebrew symbol-addrs --pe-symbols --output symbol_addrs.csv
-    rebrew symbol-addrs --references --output symbols.csv
-    rebrew symbol-addrs --csv --target mygame --output build/symbol_addrs.csv
+    rebrew export symbols --output symbol_addrs.csv
+    rebrew export symbols --pe-symbols --output symbol_addrs.csv
+    rebrew export symbols --references --output symbols.csv
+    rebrew export symbols --csv --target mygame --output build/symbol_addrs.csv
 """
 
 from __future__ import annotations
@@ -74,10 +74,10 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew symbol-addrs · · · · · · · Annotations only\n\n"
-        "  rebrew symbol-addrs --pe-symbols · IAT slots, exports, TLS callbacks, ...\n\n"
-        "  rebrew symbol-addrs --references · Symbols dump with referenced_by\n\n"
-        "  rebrew symbol-addrs --csv · · · · · The bare 0xVA,name CSV\n\n"
+        "  rebrew export symbols · · · · · · · Annotations only\n\n"
+        "  rebrew export symbols --pe-symbols · IAT slots, exports, TLS callbacks, ...\n\n"
+        "  rebrew export symbols --references · Symbols dump with referenced_by\n\n"
+        "  rebrew export symbols --csv · · · · · The bare 0xVA,name CSV\n\n"
         "[dim]Output is sorted by VA and idempotent: re-running produces the\n"
         "same bytes.  An annotation always wins a collision with a symbol\n"
         "named from the PE, and the collision is reported.[/dim]"

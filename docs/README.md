@@ -27,12 +27,12 @@
 | [GA_MUTATIONS.md](GA_MUTATIONS.md) | All 128 GA mutation operators: categories, rationale, discovery origins |
 | [FLAG_SWEEP_TIERS.md](FLAG_SWEEP_TIERS.md) | MSVC6 flag-sweep tiers (quick/targeted/normal/thorough/full): axes and combination counts |
 | [COVERAGE_DOCUMENT.md](COVERAGE_DOCUMENT.md) | Clear-text coverage document format (`db/coverage-<target>.toml`) and the dashboard REST API |
-| [dashboard-api.yaml](dashboard-api.yaml) | OpenAPI 3.1 contract for the `rebrew dashboard` HTTP API, checked against the code by `tests/test_dashboard.py` |
+| [dashboard-api.yaml](dashboard-api.yaml) | OpenAPI 3.1 contract for the `rebrew coverage serve` HTTP API, checked against the code by `tests/test_dashboard.py` |
 | [NAME_NORMALIZATION.md](NAME_NORMALIZATION.md) | Cross-tool function name normalization (Ghidra/r2/IDA → canonical `func_` form) |
 | [TOOLCHAIN.md](TOOLCHAIN.md) | The toolchain zoo: compilers (MSVC 1.0–11.0, Borland C++ 5.5, Turbo C 2.0/3.1, Open Watcom, Delphi 1.0, GCC, Clang, MinGW), docker images, reproducible builds (`rebrew toolchain vendor`/`smoke`), external tools, Python deps |
 | [SDK_MEDIA.md](SDK_MEDIA.md) | DirectX and Platform SDK media provenance: verified archive.org checksums, gaps, official and license-clean sources |
 | [OMF_NOTES.md](OMF_NOTES.md) | OMF object format research (Watcom wcc386 32-bit + MSVC 1.52 16-bit dialects, reloc decoding) |
-| [POSTLINK.md](POSTLINK.md) | `rebrew postlink`: post-link layout normalization of a built binary onto a reference, text-only layout package from `rebrew gen-layout` |
+| [POSTLINK.md](POSTLINK.md) | `rebrew build postlink`: post-link layout normalization of a built binary onto a reference, text-only layout package from `rebrew build layout` |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Module map, data flow, metadata routing rules, architectural conventions |
 | [CI.md](CI.md) | CI pipeline: lint/test/package/cli-contract jobs, gates, reproducibility |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | Developer workflow |
@@ -46,7 +46,7 @@
 
 | Document | Description |
 |----------|-------------|
-| [BINSYNC_INTEGRATION.md](BINSYNC_INTEGRATION.md) | `rebrew binsync-init/export/import/diff/overlay`: declib-backed state bridge (names, prototypes, globals, structs, enums, typedefs, locals, comments) + `rebrew sync` feature matrix |
+| [BINSYNC_INTEGRATION.md](BINSYNC_INTEGRATION.md) | `rebrew binsync init/export/import/diff/overlay`: declib-backed state bridge (names, prototypes, globals, structs, enums, typedefs, locals, comments) + `rebrew sync push` feature matrix |
 | [DECOMPME_COMPILERS.md](DECOMPME_COMPILERS.md) | decomp.me compiler fleet research + snippet-scrape guide |
 | [JEV.md](JEV.md) | TypeSafe Jev (System One) research: typed decisions over rebrew JSON, not codegen |
 | [ROADMAP.md](ROADMAP.md) | RFC: multi-arch proposals and consoles dossier; proposed commands are not shipped contracts |

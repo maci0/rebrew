@@ -1,7 +1,7 @@
 """compression.py — the max-effort precompress the build-once output paths share.
 
 Two commands emit static assets that are compressed once and then served or
-shipped as-is: ``rebrew report`` writes ``.gz`` / ``.zst`` sidecars next to its
+shipped as-is: ``rebrew coverage report`` writes ``.gz`` / ``.zst`` sidecars next to its
 HTML, and the dashboard precompresses its shell and ``/app.js`` at import.  Both want maximum effort (the body is built once, so the CPU is
 spent once) and both drop the result when it does not shrink the payload, so
 one function serves both instead of each keeping its own levels and its own

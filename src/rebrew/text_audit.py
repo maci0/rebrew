@@ -10,7 +10,7 @@ When objects are unavailable, actual VAs fall back to exported-symbol lookup
 on the built binary.
 
 Usage:
-    rebrew text-audit [--built build/<target>] [--limit 15] [--json]
+    rebrew build check-text-placement [--built build/<target>] [--limit 15] [--json]
 """
 
 from __future__ import annotations
@@ -35,8 +35,8 @@ from rebrew.verify_hash import expected_text_functions as _expected_functions
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew text-audit · · · · · · · · Compare built .text VAs against the markers\n\n"
-    "  rebrew text-audit --json · · · · · · Machine-readable mismatch list\n"
+    "  rebrew build check-text-placement · · · · · · · · Compare built .text VAs against the markers\n\n"
+    "  rebrew build check-text-placement --json · · · · · · Machine-readable mismatch list\n"
 )
 
 

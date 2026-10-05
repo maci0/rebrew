@@ -196,7 +196,7 @@ class TestFlagValidation:
         from rebrew.asm import app
 
         monkeypatch.chdir(tmp_path)
-        result = CliRunner().invoke(app, ["--format", "bogus", "0x1000"])
+        result = CliRunner().invoke(app, ["show", "--format", "bogus", "0x1000"])
         assert result.exit_code == 2
         assert "--format" in result.output
 
@@ -206,7 +206,7 @@ class TestFlagValidation:
         from rebrew.asm import app
 
         monkeypatch.chdir(tmp_path)
-        result = CliRunner().invoke(app, ["--size", "0", "0x1000"])
+        result = CliRunner().invoke(app, ["show", "--size", "0", "0x1000"])
         assert result.exit_code == 2
         assert "--size" in result.output
 
@@ -218,7 +218,7 @@ class TestFlagValidation:
         from rebrew.asm import app
 
         monkeypatch.chdir(tmp_path)
-        result = CliRunner().invoke(app, ["--format", "bogus", "--json", "0x1000"])
+        result = CliRunner().invoke(app, ["show", "--format", "bogus", "--json", "0x1000"])
         assert result.exit_code == 2
         assert json.loads(result.output) == {
             "error": "--format must be 'hex', 'nasm' or 'cfg'",

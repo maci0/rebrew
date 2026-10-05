@@ -8,7 +8,7 @@ is an import-table slot, the imported API name is resolved and shown
 prominently.
 
 Usage:
-    rebrew xrefs <va> [binary]
+    rebrew binary xrefs <va> [binary]
 """
 
 from __future__ import annotations
@@ -56,7 +56,7 @@ _MIN_BARE_HEX_LETTERS = 8
 def _looks_like_va(arg: str) -> bool:
     """True when *arg* reads as a hex/int address rather than a file path.
 
-    Used to disambiguate ``rebrew xrefs <va> [binary]`` positionals — a VA
+    Used to disambiguate ``rebrew binary xrefs <va> [binary]`` positionals — a VA
     is ``0x...`` hex or a prefix-less number with at least one digit
     (``401000``, ``1dead``), never a path or a bare word.  A bare word
     like ``dead`` parses as hex but is far likelier a name/path, so only
@@ -201,7 +201,7 @@ def build_xrefs_payload(
 ) -> dict[str, Any]:
     """Build the cross-reference payload for *target_va* in *binary*.
 
-    The same object the ``rebrew xrefs`` callback prints under ``--json``:
+    The same object the ``rebrew binary xrefs`` callback prints under ``--json``:
     the target VA, the import-table name when the target is an IAT slot, and
     one ``{kind, from_va, instruction}`` record per reference, optionally
     narrowed to *kinds*.  An empty reference list is a valid result.
@@ -232,9 +232,9 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew xrefs 0x401000 · · · · · · Who references 0x00401000\n\n"
-        "  rebrew xrefs 0x401000 --kind call · Only direct calls\n\n"
-        "  rebrew xrefs 0x401000 --json · · · · Machine-readable output\n"
+        "  rebrew binary xrefs 0x401000 · · · · · · Who references 0x00401000\n\n"
+        "  rebrew binary xrefs 0x401000 --kind call · Only direct calls\n\n"
+        "  rebrew binary xrefs 0x401000 --json · · · · Machine-readable output\n"
     ),
 )
 
@@ -255,7 +255,7 @@ def main(
 ) -> None:
     """Show every reference to *va* in the binary's code sections."""
     # Typer binds positionals in declaration order, so `va` comes first for
-    # `rebrew xrefs <va>`.  A binary-first call (`rebrew xrefs game.exe
+    # `rebrew binary xrefs <va>`.  A binary-first call (`rebrew binary xrefs game.exe
     # 0x1000`) is detected by the leading arg not looking like a VA and
     # swapped.
     if not _looks_like_va(va) and binary is not None and _looks_like_va(str(binary)):

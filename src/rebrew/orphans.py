@@ -7,7 +7,7 @@ another file without its marker, or re-discovered at a new VA.  Verify,
 status, and todo all read the source annotations, so orphans are invisible
 there and accumulate silently.
 
-``rebrew orphans`` lists them (default) or deletes them (``--prune``);
+``rebrew orphans list`` lists them; ``rebrew orphans prune`` deletes them;
 ``rebrew orphans drop`` removes one VA's block on demand.
 """
 
@@ -34,9 +34,9 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew orphans · · · · · · · · List orphaned metadata blocks\n\n"
-        "  rebrew orphans --dry-run · · · · Preview what --prune would delete\n\n"
-        "  rebrew orphans --prune · · · · · Delete every orphaned block\n\n"
+        "  rebrew orphans list · · · · · · · · List orphaned metadata blocks\n\n"
+        "  rebrew orphans prune --dry-run · · · · Preview what would delete\n\n"
+        "  rebrew orphans prune · · · · · Delete every orphaned block\n\n"
         "  rebrew orphans drop 0x10009310 · Delete one VA's block\n\n"
         "[dim]A block is an orphan when no // FUNCTION: / // DATA: / // GLOBAL: marker "
         "claims its (module, VA): left behind by a deleted or re-discovered function. "
@@ -118,7 +118,7 @@ def find_orphans(cfg: Any) -> tuple[list[tuple[str, int, str]], list[tuple[str, 
         and va not in known_vas
         # Import slots (.idata/.edata) never have source markers by design —
         # they are inventory, not annotations.  Pruning them would delete the
-        # import inventory `rebrew data` maintains.
+        # import inventory `rebrew data list` maintains.
         and str(data_entries[(module, va)].get("section") or "") not in (".idata", ".edata")
     ]
     return fn_orphans, data_orphans
@@ -133,7 +133,7 @@ def split_prunable(
 ) -> list[dict[str, Any]]:
     """Split orphans into the prunable subset (held-back matched excluded).
 
-    Shared by the ``orphans --prune`` path and ``verify --prune-orphans`` so
+    Shared by the ``orphans prune`` path and ``verify --prune-orphans`` so
     both hold back :data:`EARNED_STATUSES` blocks unless *include_matched*.
     """
     orphans = orphan_dicts(cfg, fn_orphans, data_orphans)
@@ -167,22 +167,14 @@ def orphan_dicts(
     return dicts
 
 
-@app.callback(invoke_without_command=True)
-def main(
-    ctx: typer.Context,
-    prune: bool = typer.Option(False, "--prune", help="Delete the orphaned blocks"),
-    include_matched: bool = typer.Option(
-        False,
-        "--include-matched",
-        help="Also prune orphans whose block claims EXACT/RELOC/PROVEN",
-    ),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
-    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
-    target: str | None = TargetOption,
+def manage_orphans(
+    prune: bool = False,
+    include_matched: bool = False,
+    dry_run: bool = False,
+    json_output: bool = False,
+    target: str | None = None,
 ) -> None:
     """List orphaned metadata blocks (VA with no source marker); --prune deletes them."""
-    if ctx.invoked_subcommand is not None:
-        return
     cfg = require_config(target=target, json_mode=json_output)
     try:
         fn_orphans, data_orphans = find_orphans(cfg)
@@ -252,7 +244,46 @@ def main(
     console.print(f"\n[green]Pruned:[/green] deleted {pruned} orphaned block(s)")
 
 
-@app.command("drop")
+@app.command(
+    "list",
+    epilog="Examples:\n\n  rebrew orphans list --json\n\nInspect orphaned records before pruning; --dry-run previews removals.",
+)
+def list_orphans(
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
+) -> None:
+    """List metadata entries without a source identity."""
+    manage_orphans(json_output=json_output, target=target)
+
+
+@app.command(
+    "prune",
+    epilog="Examples:\n\n  rebrew orphans prune --dry-run --json\n\nInspect orphaned records before pruning; --dry-run previews removals.",
+)
+def prune(
+    include_matched: bool = typer.Option(
+        False,
+        "--include-matched",
+        help="Also prune orphans whose block claims EXACT/RELOC/PROVEN",
+    ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
+) -> None:
+    """Remove orphaned entries, preserving earned results by default."""
+    manage_orphans(
+        include_matched=include_matched,
+        dry_run=dry_run,
+        json_output=json_output,
+        target=target,
+        prune=True,
+    )
+
+
+@app.command(
+    "drop",
+    epilog="Examples:\n\n  rebrew orphans drop 0x401000 --dry-run --json\n\nInspect orphaned records before pruning; --dry-run previews removals.",
+)
 def drop(
     function: str = typer.Argument(..., help="Hex VA (0x...), file path, or symbol"),
     va_override: str | None = typer.Option(

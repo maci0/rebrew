@@ -5,11 +5,11 @@ then outputs it as Mermaid or DOT for visualization. Highlights reversed vs.
 unreversed nodes and their match status.
 
 Usage:
-    rebrew graph                          # Mermaid output to stdout
-    rebrew graph --format dot             # DOT output
-    rebrew graph --focus FuncName         # Show only neighbours of FuncName
-    rebrew graph --output graph.md        # Write to file
-    rebrew graph --include-dispatch       # Fold dispatch-table edges into the graph
+    rebrew source graph                          # Mermaid output to stdout
+    rebrew source graph --format dot             # DOT output
+    rebrew source graph --focus FuncName         # Show only neighbours of FuncName
+    rebrew source graph --output graph.md        # Write to file
+    rebrew source graph --include-dispatch       # Fold dispatch-table edges into the graph
 """
 
 import bisect
@@ -716,14 +716,14 @@ def render_summary(
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew graph · · · · · · · · · · · · · · Mermaid diagram of all functions\n\n"
-    "  rebrew graph --format dot · · · · · · · · Graphviz DOT format\n\n"
-    "  rebrew graph --format summary · · · · · · Text summary only\n\n"
-    "  rebrew graph --focus _my_func --depth 2 · · Neighbourhood around one function\n\n"
-    "  rebrew graph --output graph.md · · · · · · · · · Write output to file\n\n"
-    "  rebrew graph --cu-map · · · · · · · · · · Compilation unit boundary map\n\n"
-    "  rebrew graph --include-dispatch · · · · · Fold dispatch-table edges into the graph\n\n"
-    "  rebrew graph --include-dispatch --min-table-len 5 · Require ≥5 entries per table\n\n"
+    "  rebrew source graph · · · · · · · · · · · · · · Mermaid diagram of all functions\n\n"
+    "  rebrew source graph --format dot · · · · · · · · Graphviz DOT format\n\n"
+    "  rebrew source graph --format summary · · · · · · Text summary only\n\n"
+    "  rebrew source graph --focus _my_func --depth 2 · · Neighbourhood around one function\n\n"
+    "  rebrew source graph --output graph.md · · · · · · · · · Write output to file\n\n"
+    "  rebrew source graph --cu-map · · · · · · · · · · Compilation unit boundary map\n\n"
+    "  rebrew source graph --include-dispatch · · · · · Fold dispatch-table edges into the graph\n\n"
+    "  rebrew source graph --include-dispatch --min-table-len 5 · Require ≥5 entries per table\n\n"
     "[bold]Output formats:[/bold]\n\n"
     "  mermaid · · Mermaid flowchart (default; paste into docs)\n\n"
     "  dot · · · · Graphviz DOT (pipe to 'dot -Tpng')\n\n"
@@ -733,7 +733,7 @@ _EPILOG = (
     "  table and connects it to every function-pointer target. Edges are rendered as\n"
     "  dashed lines (Mermaid: '..>', DOT: style=dashed) to distinguish indirect calls.\n"
     "  --min-table-len and --max-pointer-stride mirror the matching options in\n"
-    "  'rebrew data --dispatch' and control which tables are included.\n\n"
+    "  'rebrew data dispatch' and control which tables are included.\n\n"
     "[dim]Scans reversed .c files for call targets to build the dependency graph. "
     "Uses annotations to determine function origins and status.[/dim]"
 )

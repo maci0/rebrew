@@ -1,6 +1,6 @@
-# Post-Link Layout Normalization (`rebrew postlink`)
+# Post-Link Layout Normalization (`rebrew build postlink`)
 
-`rebrew postlink` converges a *built* binary's layout onto a *reference*
+`rebrew build postlink` converges a *built* binary's layout onto a *reference*
 binary, byte-for-byte, after linking.  It exists because linkers (MSVC6's
 `LINK.EXE` in particular) are **not source-order-preserving assemblers for
 every section**: several parts of the output layout are determined by the
@@ -11,8 +11,8 @@ tool normalizes them away so a byte diff measures only real code/data
 differences.
 
 ```
-rebrew postlink <built.dll> <reference.dll> [--fix imports|data|pe-metadata|all] [--output out.dll]
-rebrew postlink <built.dll> --layout layout/<target> [--fix ...]
+rebrew build postlink <built.dll> <reference.dll> [--fix imports|data|pe-metadata|all] [--output out.dll]
+rebrew build postlink <built.dll> --layout layout/<target> [--fix ...]
 ```
 
 Fixers run in dependency order (`imports` → `data` → `pe-metadata`); each is
@@ -23,7 +23,7 @@ what it changed (`--json` for machine-readable output).
 
 The fixers never need the original DLL (or any binary snapshot): they
 reconstruct the reference from a **text-only layout package** written by
-`rebrew gen-layout` into `layout/<target>/` and committed to git:
+`rebrew build layout` into `layout/<target>/` and committed to git:
 
 - `rebrew-layout.toml`: structured metadata (image base, sections with raw
   pointers, exports, imports with their reference IAT-slot VAs, export
@@ -38,7 +38,7 @@ Everything is plain text (zero binary bytes at rest) so a public checkout
 reproduces the byte-identical DLL without the original binary.  A reference
 DLL may still be passed directly; it is reduced to the same metadata in
 memory.  Regenerate the package whenever the original changes
-(`rebrew gen-layout --target <t>`).
+(`rebrew build layout --target <t>`).
 
 ---
 
@@ -129,13 +129,13 @@ reusable across any decompilation that hits the same wall:
 
 ## Integration
 
-`rebrew postlink` is designed to run as a post-link step, e.g. a CMake
+`rebrew build postlink` is designed to run as a post-link step, e.g. a CMake
 `POST_BUILD` command: against the committed text layout package, so the
 build needs neither the original DLL nor any binary blob:
 
 ```cmake
 add_custom_command(TARGET server_dll POST_BUILD
-  COMMAND rebrew postlink "$<TARGET_FILE:server_dll>"
+  COMMAND rebrew build postlink "$<TARGET_FILE:server_dll>"
           --layout "${PROJECT_SOURCE_DIR}/layout/server.dll"
   VERBATIM)
 ```
@@ -149,17 +149,17 @@ Postlink fixes placement the linker stamps, but the link itself must already
 be close: objects in original order, functions at their reference VAs, TU
 splits matching the original build. Five commands close that loop:
 
-1. `rebrew layout-map`: measures the reference (section geometry, .text
+1. `rebrew build layout-map`: measures the reference (section geometry, .text
    gap/alignment histograms, .reloc density, IAT slot order, exports,
    toolchain guess). The diagnostic starting point when layout diverges.
-2. `rebrew link-order [--apply] [--check]`: enforce VA-ordered sources
+2. `rebrew build link-order [--apply] [--check]`: enforce VA-ordered sources
    into `CMakeLists.txt` SOURCES (`--check` is the CI drift gate). MSVC6
    LINK emits objects in command-line order, so this fixes function order
    for non-`/Gy` links.
-3. `rebrew text-audit`: verify built .text function VAs against the
+3. `rebrew build check-text-placement`: verify built .text function VAs against the
    markers. This is the position-alignment gate postlink assumes; run it
    before postlink, or use `rebrew verify --text` to fold it into verify.
-4. `rebrew merge-sweep`: deterministic TU-partition search over
+4. `rebrew match partitions`: deterministic TU-partition search over
    `cu-map` clusters (merge adjacent clusters sharing call/string
    evidence, split at large non-padding gaps; accept on matched bytes).
    The move when per-file flags cannot close a gap because the original
@@ -173,5 +173,5 @@ Pipeline order: layout-map (measure) → link-order (order) → text-audit
 
 ## See also
 
-- `rebrew postlink --help`: CLI reference
+- `rebrew build postlink --help`: CLI reference
 - `docs/TOOLCHAIN.md`: the MSVC6 compile/link backend

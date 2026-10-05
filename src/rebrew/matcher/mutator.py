@@ -334,7 +334,7 @@ def _merge_entry_point_mutations() -> list[Callable[..., str | None]]:
 
     An optional registry: a broken or conflicting plugin mutation is
     skipped with a warning (the GA keeps the packaged operators) instead of
-    bricking ``rebrew match``."""
+    bricking ``rebrew match run``."""
     from rebrew.registry import RegistryError, iter_optional_callables, merge_into
 
     merged: dict[str, Callable[..., str | None]] = {m.__name__: m for m in _BUILTIN_MUTATIONS}

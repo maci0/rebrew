@@ -16,19 +16,19 @@ rebrew lint --fix                       # migrate inline metadata; drop W029-red
 rebrew lint --fix --dry-run
 rebrew lint --summary
 rebrew lint --quiet                     # errors only
-rebrew orphans                          # metadata blocks with no source marker
-rebrew orphans --prune --dry-run        # preview prune (EXACT/RELOC/PROVEN held back)
+rebrew orphans list # metadata blocks with no source marker
+rebrew orphans prune --dry-run # preview prune (EXACT/RELOC/PROVEN held back)
 rebrew verify --prune-orphans --dry-run # preview the same prune inside a verify pass
 rebrew verify --prune-orphans           # deletes orphan blocks; --dry-run / --no-promote only counts
-rebrew orphans drop 0x<VA> --dry-run    # preview one VA's block (functions + data)
-rebrew orphans drop 0x<VA>              # delete only when this removal is explicitly authorized; no undo
-rebrew types                            # struct layouts vs decompiler evidence
-rebrew types apply-type <file> --param N --type T
+rebrew orphans drop 0x<VA> --dry-run # preview one VA's block (functions + data)
+rebrew orphans drop 0x<VA> # delete only when this removal is explicitly authorized; no undo
+rebrew types check # struct layouts vs decompiler evidence
+rebrew types apply <file> --param N --type T
 rebrew verify --data --built build/<target>
 rebrew verify --whole-binary --built build/<target>
 rebrew verify --text --built build/<target>
-rebrew text-audit --built build/<target>
-rebrew verify-placement --built build/<target>
+rebrew build check-text-placement --built build/<target>
+rebrew build check-data-placement --built build/<target>
 ```
 
 `rebrew verify` syncs STATUS (SKIP preserved, PROVEN replaced by the byte result).
@@ -44,12 +44,12 @@ acknowledgment. Compare the raw link to avoid counting postlink-copied bytes.
 ## Coverage / interchange
 
 ```bash
-rebrew build-db                          # write db/coverage-<target>.toml (one per target)
-rebrew symbol-addrs --output symbol_addrs.csv
-rebrew context --output ctx.c
-rebrew report --decomp-dev report.json
-rebrew decompme <file>.c --dry-run     # payload summary, no upload
-rebrew decompme <file>.c                # uploads the function + context to decomp.me; prints claim URL
+rebrew coverage build                          # write db/coverage-<target>.toml (one per target)
+rebrew export symbols --output symbol_addrs.csv
+rebrew export context --output ctx.c
+rebrew coverage report --decomp-dev report.json
+rebrew export decompme <file>.c --dry-run     # payload summary, no upload
+rebrew export decompme <file>.c                # uploads the function + context to decomp.me; prints claim URL
 ```
 
 `decompme` sends the function body, its context, and the target object bytes to a
@@ -62,10 +62,25 @@ regression). First run warns and skips the diff.
 `db/coverage-<target>.toml` is the progress document the dashboards and the
 sibling `recovery` UI read: functions with their `updated_by` / `updated_at`
 stamp, globals, `verify_results` rows and the `history` change log. It is
-gitignored build output: regenerate it with `rebrew build-db`, never edit it,
+gitignored build output: regenerate it with `rebrew coverage build`, never edit it,
 and delete any older `db/coverage.db`, `db/data_<target>.json` or `db/*.csv`
 (`rebrew lint` reports them, W032). The canonical provenance lives in the
 TOML stores: `UPDATED_BY` / `UPDATED_AT` describe ordinary changes, `ORIGINS`
 records accepted external fields, and `VERIFICATION` records comparison inputs
 and measurement time. The coverage document does not mirror those nested
 provenance tables. Deleting derived coverage/cache files does not delete them.
+
+## Compiled and prebuilt library providers
+
+Separate library origin from build provider. A `LIBRARY` marker identifies
+library-derived code, not necessarily a prebuilt archive. Vendored or adapted
+library bodies compiled by the project belong in the verification batch, even
+when their source lives outside `reversed_dir`. Bind an identified header entry
+with `rebrew library bind-source 0x<VA> references/library/file.c --symbol _native`;
+this records the source/native-symbol identity through the managed metadata API.
+`rebrew verify` and `rebrew test --all` then compile and compare it normally.
+Never count an identified-only header's default EXACT as a source verification.
+Prebuilt archive providers require a configured external archive and unique
+native-symbol link-map evidence, and stay outside the
+compile batch; unmatched providers remain unresolved. `--nolib` explicitly scopes
+verification to game code. Compiled-library results do not count as game reversing.

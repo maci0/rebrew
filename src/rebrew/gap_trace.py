@@ -3,7 +3,7 @@
 Aligns the two instruction streams and prints our offset minus the
 reference's at the start of each equal block.  The running gap is the
 instrument for a LENGTH hypothesis, which neither ``rebrew test`` nor
-``rebrew near-diag`` can see: a function whose real COMDAT body is N bytes
+``rebrew diagnose near`` can see: a function whose real COMDAT body is N bytes
 short has its out-of-line jump table / case map N bytes early, moving every
 4-byte relocated entry in it, while the object score stays flat.
 
@@ -34,9 +34,9 @@ from rebrew.compile import compile_to_obj
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew gap-trace src/game_dll/my_func.c · · · · Trace the gap between streams\n\n"
-    "  rebrew gap-trace f.c --va 0x10009310 --size 42 · · Override VA and size\n\n"
-    '  rebrew gap-trace f.c --cflags "/O1 /Gd" --json · Machine-readable gap report\n'
+    "  rebrew diagnose gap src/game_dll/my_func.c · · · · Trace the gap between streams\n\n"
+    "  rebrew diagnose gap f.c --va 0x10009310 --size 42 · · Override VA and size\n\n"
+    '  rebrew diagnose gap f.c --cflags "/O1 /Gd" --json · Machine-readable gap report\n'
 )
 
 

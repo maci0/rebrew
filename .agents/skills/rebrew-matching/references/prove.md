@@ -4,13 +4,13 @@ Use when STATUS is NEAR_MATCHING or SIZE_MISMATCH and structural diffs (register
 loop layout) block EXACT/RELOC. Classify first, then prove.
 
 ```bash
-rebrew near-diag src/bench/<file>.c --json    # classify: register/equivalent/reloc/structural
-rebrew near-diag src/bench/<file>.c --fix-blocker
-rebrew near-diag --all --fix-blocker --json
-rebrew prove src/bench/<file>.c --json
-rebrew prove src/bench/<file>.c --dry-run --json
-rebrew prove src/bench/<file>.c --timeout 120 --json
-rebrew prove src/bench/<file>.c --loop-bound 50
+rebrew diagnose near src/test/<file>.c --json    # classify: register/equivalent/reloc/structural
+rebrew diagnose near src/test/<file>.c --fix-blocker
+rebrew diagnose near --all --fix-blocker --json
+rebrew prove src/test/<file>.c --json
+rebrew prove src/test/<file>.c --dry-run --json
+rebrew prove src/test/<file>.c --timeout 120 --json
+rebrew prove src/test/<file>.c --loop-bound 50
 rebrew prove my_func --start-offset 0 --end-offset 48
 rebrew prove --all --json
 rebrew prove my_func --check-edx --json
@@ -22,7 +22,7 @@ means bytes differ only by register allocation: prove EAX equivalence and promot
 without fighting the bytes. `rebrew prove --all` first; "no terminal states" on a
 loop → retry with `--loop-bound 50 --timeout 120`.
 
-`near-diag --json` → `categories` + `verdict`. Invalid relocs surface as `structural`.
+`rebrew diagnose near --json` → `categories` + `verdict`. Invalid relocs surface as `structural`.
 `--fix-blocker` writes each verdict as BLOCKER (including suggested GA mutations).
 
 How it works: extract target bytes + compile source → angr symbolic exec both →

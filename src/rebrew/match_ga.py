@@ -131,7 +131,7 @@ def ga_runs_dir(cfg: ProjectConfig, rel: Path | None = None) -> Path:
     ``cfg.output_dir`` defaults to ``output`` (config.py), so the default
     path is unchanged — but a project setting ``output_dir = "artifacts"``
     must route GA runs there too.  The old code hardcoded ``cfg.root /
-    "output"`` while ``rebrew report`` used the config value, so the same
+    "output"`` while ``rebrew coverage report`` used the config value, so the same
     documented option behaved differently per tool.
     """
     base = getattr(cfg, "output_dir", None) or (cfg.root / "output")

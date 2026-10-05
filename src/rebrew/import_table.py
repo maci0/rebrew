@@ -4,7 +4,7 @@ Parses an import table via LIEF — a PE's DLL name → API name → IAT slot VA
 an ELF's DT_NEEDED libraries and undefined dynamic symbols — and detects the
 classic MSVC import stubs in ``.text``: ``jmp [iat]`` sequences (``FF 25``,
 an absolute slot VA on PE32 and a RIP-relative displacement on PE32+).
-Library layer under the ``rebrew imports`` command
+Library layer under the ``rebrew binary imports list`` command
 (:mod:`rebrew.imports`) and every analysis pass that names imported APIs.
 """
 

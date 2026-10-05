@@ -111,7 +111,7 @@ class TestFileHashes:
         assert len(res["sha1"]) == 40
 
     def test_tmp_file_matches_hashlib(self, tmp_path: Path) -> None:
-        payload = b"rebrew fingerprints test payload\n" * 97
+        payload = b"rebrew binary fingerprints test payload\n" * 97
         path = tmp_path / "blob.bin"
         path.write_bytes(payload)
         digest = file_hashes(path)
@@ -361,14 +361,14 @@ class TestFingerprintBundle:
 
 class TestFingerprintsCli:
     def test_json_output(self) -> None:
-        result = runner.invoke(rebrew.main.app, ["fingerprints", str(MINI_PE), "--json"])
+        result = runner.invoke(rebrew.main.app, ["binary", "fingerprints", str(MINI_PE), "--json"])
         assert result.exit_code == 0
         payload = json.loads(result.stdout)
         assert payload["sha256"] == MINI_PE_SHA256
         assert payload["imphash"] == MINI_PE_IMPHASH
 
     def test_human_output(self) -> None:
-        result = runner.invoke(rebrew.main.app, ["fingerprints", str(MINI_PE)])
+        result = runner.invoke(rebrew.main.app, ["binary", "fingerprints", str(MINI_PE)])
         assert result.exit_code == 0
         assert "sha256" in result.output
         assert "imphash" in result.output
@@ -377,7 +377,7 @@ class TestFingerprintsCli:
     def test_missing_binary_exits_error(self, tmp_path: Path) -> None:
         result = runner.invoke(
             rebrew.main.app,
-            ["fingerprints", str(tmp_path / "absent.exe"), "--json"],
+            ["binary", "fingerprints", str(tmp_path / "absent.exe"), "--json"],
         )
         assert result.exit_code == 2
         payload = json.loads(result.stdout)
@@ -430,7 +430,7 @@ class TestUnparseablePE:
             fingerprint_bundle(corrupt)
 
     def test_cli_exits_error_with_cause(self, corrupt: Path) -> None:
-        result = runner.invoke(rebrew.main.app, ["fingerprints", str(corrupt), "--json"])
+        result = runner.invoke(rebrew.main.app, ["binary", "fingerprints", str(corrupt), "--json"])
         assert result.exit_code == 2
         payload = json.loads(result.stdout)
         assert "truncated.exe" in payload["error"]

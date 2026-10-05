@@ -1,4 +1,4 @@
-"""Tests for the rebrew similar CLI command (via the umbrella app)."""
+"""Tests for the rebrew similarity function CLI command (via the umbrella app)."""
 
 import json
 from types import SimpleNamespace
@@ -25,7 +25,7 @@ class TestSimilarCli:
             monkeypatch,
             [{"va": "0x00002000", "size": 6, "name": "_twin", "score": 100.0}],
         )
-        r = runner.invoke(rebrew.main.app, ["similar", "0x1000", "--json"])
+        r = runner.invoke(rebrew.main.app, ["similarity", "function", "0x1000", "--json"])
         assert r.exit_code == 0
         payload = json.loads(r.stdout)
         assert payload["query_va"] == "0x1000"
@@ -33,7 +33,7 @@ class TestSimilarCli:
 
     def test_json_no_results(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _patch(monkeypatch, [])
-        r = runner.invoke(rebrew.main.app, ["similar", "0x1000", "--json"])
+        r = runner.invoke(rebrew.main.app, ["similarity", "function", "0x1000", "--json"])
         assert r.exit_code == 0
         payload = json.loads(r.stdout)
         assert payload["results"] == []
@@ -43,7 +43,7 @@ class TestSimilarCli:
             monkeypatch,
             [{"va": "0x00002000", "size": 6, "name": "_twin", "score": 100.0}],
         )
-        r = runner.invoke(rebrew.main.app, ["similar", "0x1000"])
+        r = runner.invoke(rebrew.main.app, ["similarity", "function", "0x1000"])
         assert r.exit_code == 0
         # The table must render the actual result row, not just an empty frame.
         assert "Functions similar to 0x1000" in r.output
@@ -52,7 +52,7 @@ class TestSimilarCli:
 
     def test_invalid_va_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _patch(monkeypatch, [])
-        r = runner.invoke(rebrew.main.app, ["similar", "not-a-va"])
+        r = runner.invoke(rebrew.main.app, ["similarity", "function", "not-a-va"])
         assert r.exit_code != 0
         assert "Invalid hex VA" in r.output
         assert "not-a-va" in r.output
@@ -67,7 +67,7 @@ class TestSimilarCli:
             similar_mod, "require_config", lambda target=None, json_mode=False: SimpleNamespace()
         )
         monkeypatch.setattr(similar_mod, "find_similar", _raise)
-        r = runner.invoke(rebrew.main.app, ["similar", "0x99999999", "--json"])
+        r = runner.invoke(rebrew.main.app, ["similarity", "function", "0x99999999", "--json"])
         assert r.exit_code == 2
         payload = json.loads(r.stdout)
         assert "No function found" in payload["error"]

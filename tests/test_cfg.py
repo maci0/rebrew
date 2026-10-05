@@ -481,7 +481,7 @@ class TestCLIListTargets:
     def test_list_targets_output(self, tmp_path: Path, monkeypatch) -> None:
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
-        result = runner.invoke(cfg_app, ["list-targets"])
+        result = runner.invoke(cfg_app, ["target", "list"])
         assert result.exit_code == 0
         assert "server.dll" in result.output
 
@@ -490,14 +490,14 @@ class TestCLIListTargets:
             "[compiler]\nprofile = 'msvc-6.0'\n", encoding="utf-8"
         )
         monkeypatch.chdir(tmp_path)
-        result = runner.invoke(cfg_app, ["list-targets"])
+        result = runner.invoke(cfg_app, ["target", "list"])
         assert result.exit_code == 0
         assert "No targets defined" in result.output
 
     def test_list_targets_marks_project_default(self, tmp_path: Path, monkeypatch) -> None:
         _make_project(tmp_path, TOML_WITH_DEFAULT_TARGET)
         monkeypatch.chdir(tmp_path)
-        result = runner.invoke(cfg_app, ["list-targets", "--json"])
+        result = runner.invoke(cfg_app, ["target", "list", "--json"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         defaults = [item["name"] for item in data["targets"] if item["default"]]
@@ -535,7 +535,8 @@ class TestCLIAddRemoveTarget:
         result = runner.invoke(
             cfg_app,
             [
-                "add-target",
+                "target",
+                "add",
                 "client.exe",
                 "--binary",
                 "original/client.exe",
@@ -558,12 +559,7 @@ class TestCLIAddRemoveTarget:
         # server.dll already exists in SAMPLE_TOML
         result = runner.invoke(
             cfg_app,
-            [
-                "add-target",
-                "server.dll",
-                "--binary",
-                "original/server.dll",
-            ],
+            ["target", "add", "server.dll", "--binary", "original/server.dll"],
         )
         assert result.exit_code == 0
         assert "already exists" in result.output
@@ -574,7 +570,8 @@ class TestCLIAddRemoveTarget:
         result = runner.invoke(
             cfg_app,
             [
-                "add-target",
+                "target",
+                "add",
                 "client.exe",
                 "--binary",
                 "original/client.exe",
@@ -592,7 +589,7 @@ class TestCLIAddRemoveTarget:
     def test_remove_target(self, tmp_path: Path, monkeypatch) -> None:
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
-        result = runner.invoke(cfg_app, ["remove-target", "server.dll", "--force"])
+        result = runner.invoke(cfg_app, ["target", "remove", "server.dll", "--force"])
         assert result.exit_code == 0
         assert "Removed" in result.output
         doc, _ = load_toml(tmp_path)
@@ -601,7 +598,7 @@ class TestCLIAddRemoveTarget:
     def test_remove_target_dry_run(self, tmp_path: Path, monkeypatch) -> None:
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
-        result = runner.invoke(cfg_app, ["remove-target", "server.dll", "--dry-run"])
+        result = runner.invoke(cfg_app, ["target", "remove", "server.dll", "--dry-run"])
         assert result.exit_code == 0
         assert "dry-run" in result.output
         doc, _ = load_toml(tmp_path)
@@ -611,7 +608,7 @@ class TestCLIAddRemoveTarget:
         """The confirm prompt must not pollute stdout; declining keeps the target."""
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
-        result = runner.invoke(cfg_app, ["remove-target", "server.dll"], input="n\n")
+        result = runner.invoke(cfg_app, ["target", "remove", "server.dll"], input="n\n")
         # Declining is a usage error (2), not the mismatch code (1).
         assert result.exit_code == 2
         assert "Remove target 'server.dll'" in result.stderr
@@ -622,7 +619,7 @@ class TestCLIAddRemoveTarget:
     def test_remove_target_idempotent(self, tmp_path: Path, monkeypatch) -> None:
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
-        result = runner.invoke(cfg_app, ["remove-target", "nonexistent"])
+        result = runner.invoke(cfg_app, ["target", "remove", "nonexistent"])
         assert result.exit_code == 0
         assert "already removed" in result.output
 
@@ -632,7 +629,7 @@ class TestCLIAddRemoveTarget:
         monkeypatch.chdir(tmp_path)
         result = runner.invoke(
             cfg_app,
-            ["add-target", "ghost", "--binary", "original/ghost.exe", "--json"],
+            ["target", "add", "ghost", "--binary", "original/ghost.exe", "--json"],
         )
         assert result.exit_code == 2
         data = json.loads(result.stdout)
@@ -646,7 +643,8 @@ class TestCLIAddRemoveTarget:
         result = runner.invoke(
             cfg_app,
             [
-                "add-target",
+                "target",
+                "add",
                 "client.exe",
                 "--binary",
                 "original/client.exe",
@@ -669,13 +667,7 @@ class TestCLIAddRemoveTarget:
         monkeypatch.chdir(tmp_path)
         result = runner.invoke(
             cfg_app,
-            [
-                "add-target",
-                "server.dll",
-                "--binary",
-                "original/server.dll",
-                "--json",
-            ],
+            ["target", "add", "server.dll", "--binary", "original/server.dll", "--json"],
         )
         assert result.exit_code == 0
         data = json.loads(result.stdout)
@@ -685,7 +677,7 @@ class TestCLIAddRemoveTarget:
         """--json without --force must not hang on an interactive confirm."""
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
-        result = runner.invoke(cfg_app, ["remove-target", "server.dll", "--json"])
+        result = runner.invoke(cfg_app, ["target", "remove", "server.dll", "--json"])
         assert result.exit_code == 2
         data = json.loads(result.stdout)
         assert "--force" in data["error"]
@@ -693,7 +685,7 @@ class TestCLIAddRemoveTarget:
     def test_remove_target_json_success(self, tmp_path: Path, monkeypatch) -> None:
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
-        result = runner.invoke(cfg_app, ["remove-target", "server.dll", "--force", "--json"])
+        result = runner.invoke(cfg_app, ["target", "remove", "server.dll", "--force", "--json"])
         assert result.exit_code == 0
         data = json.loads(result.stdout)
         assert data == {"removed": True, "target": "server.dll"}
@@ -705,7 +697,7 @@ class TestCLIAddRemoveTarget:
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
         result = runner.invoke(
-            cfg_app, ["remove-module", "ZLIB", "--target", "server.dll", "--json"]
+            cfg_app, ["module", "remove", "ZLIB", "--target", "server.dll", "--json"]
         )
         assert result.exit_code == 2
         data = json.loads(result.stdout)
@@ -716,7 +708,7 @@ class TestCLIAddRemoveTarget:
         monkeypatch.chdir(tmp_path)
         result = runner.invoke(
             cfg_app,
-            ["remove-module", "ZLIB", "--target", "server.dll", "--force", "--json"],
+            ["module", "remove", "ZLIB", "--target", "server.dll", "--force", "--json"],
         )
         assert result.exit_code == 0
         data = json.loads(result.stdout)
@@ -732,7 +724,7 @@ class TestCLIAddRemoveTarget:
         monkeypatch.chdir(tmp_path)
         result = runner.invoke(
             cfg_app,
-            ["remove-module", "MISSING", "--target", "server.dll", "--json"],
+            ["module", "remove", "MISSING", "--target", "server.dll", "--json"],
         )
         assert result.exit_code == 0
         data = json.loads(result.stdout)
@@ -747,7 +739,7 @@ class TestCLIAddRemoveTarget:
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
         result = runner.invoke(
-            cfg_app, ["add-module", "CRYPTO", "--target", "server.dll", "--json"]
+            cfg_app, ["module", "add", "CRYPTO", "--target", "server.dll", "--json"]
         )
         assert result.exit_code == 0
         data = json.loads(result.stdout)
@@ -1001,7 +993,7 @@ class TestCLIModules:
     def test_add_module(self, tmp_path: Path, monkeypatch) -> None:
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
-        result = runner.invoke(cfg_app, ["add-module", "ENGINE"])
+        result = runner.invoke(cfg_app, ["module", "add", "ENGINE"])
         assert result.exit_code == 0
         assert "Added" in result.output
         doc, _ = load_toml(tmp_path)
@@ -1010,14 +1002,14 @@ class TestCLIModules:
     def test_add_module_idempotent(self, tmp_path: Path, monkeypatch) -> None:
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
-        result = runner.invoke(cfg_app, ["add-module", "GAME"])
+        result = runner.invoke(cfg_app, ["module", "add", "GAME"])
         assert result.exit_code == 0
         assert "already exists" in result.output
 
     def test_remove_module(self, tmp_path: Path, monkeypatch) -> None:
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
-        result = runner.invoke(cfg_app, ["remove-module", "ZLIB", "--force"])
+        result = runner.invoke(cfg_app, ["module", "remove", "ZLIB", "--force"])
         assert result.exit_code == 0
         assert "Removed" in result.output
         doc, _ = load_toml(tmp_path)
@@ -1026,7 +1018,7 @@ class TestCLIModules:
     def test_remove_module_dry_run(self, tmp_path: Path, monkeypatch) -> None:
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
-        result = runner.invoke(cfg_app, ["remove-module", "ZLIB", "--dry-run"])
+        result = runner.invoke(cfg_app, ["module", "remove", "ZLIB", "--dry-run"])
         assert result.exit_code == 0
         assert "dry-run" in result.output
         doc, _ = load_toml(tmp_path)
@@ -1035,7 +1027,7 @@ class TestCLIModules:
     def test_remove_module_idempotent(self, tmp_path: Path, monkeypatch) -> None:
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
-        result = runner.invoke(cfg_app, ["remove-module", "NONEXISTENT"])
+        result = runner.invoke(cfg_app, ["module", "remove", "NONEXISTENT"])
         assert result.exit_code == 0
         assert "already removed" in result.output
 
@@ -1044,7 +1036,9 @@ class TestCLISetCflags:
     def test_set_target_cflags(self, tmp_path: Path, monkeypatch) -> None:
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
-        result = runner.invoke(cfg_app, ["set-cflags", "GAME", "/O1 /Gd", "--target", "server.dll"])
+        result = runner.invoke(
+            cfg_app, ["module", "set-cflags", "GAME", "/O1 /Gd", "--target", "server.dll"]
+        )
         assert result.exit_code == 0
         # Written under the target's COMPILER sub-table — the location
         # _merge_cflags_presets reads (the old [targets.X.cflags_presets]
@@ -1055,7 +1049,7 @@ class TestCLISetCflags:
     def test_set_global_cflags(self, tmp_path: Path, monkeypatch) -> None:
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
-        result = runner.invoke(cfg_app, ["set-cflags", "ZLIB", "/O3"])
+        result = runner.invoke(cfg_app, ["module", "set-cflags", "ZLIB", "/O3"])
         assert result.exit_code == 0
         doc, _ = load_toml(tmp_path)
         assert doc["compiler"]["cflags_presets"]["ZLIB"] == "/O3"
@@ -1235,7 +1229,7 @@ class TestCLIDetectCrt:
     def test_detect_crt_no_tools(self, tmp_path: Path, monkeypatch) -> None:
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
-        result = runner.invoke(cfg_app, ["detect-crt"])
+        result = runner.invoke(cfg_app, ["detect-crt", "show"])
         assert result.exit_code == 0
         assert "No CRT source directories found" in result.output
 
@@ -1244,7 +1238,7 @@ class TestCLIDetectCrt:
         crt_dir = tmp_path / "toolchain" / "msvc" / "6.0-win32" / "VC98" / "CRT" / "SRC"
         crt_dir.mkdir(parents=True)
         monkeypatch.chdir(tmp_path)
-        result = runner.invoke(cfg_app, ["detect-crt"])
+        result = runner.invoke(cfg_app, ["detect-crt", "show"])
         assert result.exit_code == 0
         assert "MSVCRT" in result.output
 
@@ -1253,7 +1247,7 @@ class TestCLIDetectCrt:
         crt_dir = tmp_path / "toolchain" / "msvc" / "6.0-win32" / "VC98" / "CRT" / "SRC"
         crt_dir.mkdir(parents=True)
         monkeypatch.chdir(tmp_path)
-        result = runner.invoke(cfg_app, ["detect-crt", "--write"])
+        result = runner.invoke(cfg_app, ["detect-crt", "apply"])
         assert result.exit_code == 0
         assert "Wrote" in result.output
         doc, _ = load_toml(tmp_path)
@@ -1268,7 +1262,7 @@ class TestCLIDetectCrt:
         crt_dir = tmp_path / "toolchain" / "msvc" / "6.0-win32" / "VC98" / "CRT" / "SRC"
         crt_dir.mkdir(parents=True)
         monkeypatch.chdir(tmp_path)
-        result = runner.invoke(cfg_app, ["detect-crt", "--write", "--dry-run"])
+        result = runner.invoke(cfg_app, ["detect-crt", "apply", "--dry-run"])
         assert result.exit_code == 0
         assert "dry-run" in result.output
         doc, _ = load_toml(tmp_path)
@@ -1278,7 +1272,7 @@ class TestCLIDetectCrt:
         """--json emits a structured empty result when nothing is found."""
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
-        result = runner.invoke(cfg_app, ["detect-crt", "--json"])
+        result = runner.invoke(cfg_app, ["detect-crt", "show", "--json"])
         assert result.exit_code == 0
         import json as _json
 
@@ -1291,7 +1285,7 @@ class TestCLIDetectCrt:
         crt_dir = tmp_path / "toolchain" / "msvc" / "6.0-win32" / "VC98" / "CRT" / "SRC"
         crt_dir.mkdir(parents=True)
         monkeypatch.chdir(tmp_path)
-        result = runner.invoke(cfg_app, ["detect-crt", "--json"])
+        result = runner.invoke(cfg_app, ["detect-crt", "show", "--json"])
         assert result.exit_code == 0
         import json as _json
 
@@ -1316,7 +1310,7 @@ class TestCLIAddTargetMissingBinary:
         monkeypatch.chdir(tmp_path)
         result = runner.invoke(
             cfg_app,
-            ["add-target", "ghost", "--binary", "original/ghost.exe"],
+            ["target", "add", "ghost", "--binary", "original/ghost.exe"],
         )
         assert result.exit_code != 0
         combined = result.output + (result.stderr or "")
@@ -1330,7 +1324,7 @@ class TestCLIAddTargetMissingBinary:
         monkeypatch.chdir(tmp_path)
         result = runner.invoke(
             cfg_app,
-            ["add-target", "ghost", "--binary", "original/ghost.exe", "--force"],
+            ["target", "add", "ghost", "--binary", "original/ghost.exe", "--force"],
         )
         assert result.exit_code == 0
         # A warning must be emitted
@@ -1352,7 +1346,7 @@ class TestCLIAddTargetMissingBinary:
         (orig_dir / "client.exe").write_bytes(b"MZ" + b"\x00" * 254)
         result = runner.invoke(
             cfg_app,
-            ["add-target", "client", "--binary", "original/client.exe", "--arch", "x86_32"],
+            ["target", "add", "client", "--binary", "original/client.exe", "--arch", "x86_32"],
         )
         assert result.exit_code == 0
         doc, _ = load_toml(tmp_path)
@@ -1373,7 +1367,7 @@ class TestCLISetCompiler:
         """
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
-        result = runner.invoke(cfg_app, ["set-compiler", "server.dll", "msvc-6.0"])
+        result = runner.invoke(cfg_app, ["target", "set-compiler", "server.dll", "msvc-6.0"])
         assert result.exit_code == 0
         doc, _ = load_toml(tmp_path)
         compiler_tbl = doc["targets"]["server.dll"]["compiler"]
@@ -1389,7 +1383,7 @@ class TestCLISetCompiler:
         """set-compiler writes correct gcc profile."""
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
-        result = runner.invoke(cfg_app, ["set-compiler", "server.dll", "gcc-14.2.0"])
+        result = runner.invoke(cfg_app, ["target", "set-compiler", "server.dll", "gcc-14.2.0"])
         assert result.exit_code == 0
         doc, _ = load_toml(tmp_path)
         compiler_tbl = doc["targets"]["server.dll"]["compiler"]
@@ -1400,7 +1394,9 @@ class TestCLISetCompiler:
         """set-compiler --dry-run previews without writing."""
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
-        result = runner.invoke(cfg_app, ["set-compiler", "server.dll", "msvc-6.0", "--dry-run"])
+        result = runner.invoke(
+            cfg_app, ["target", "set-compiler", "server.dll", "msvc-6.0", "--dry-run"]
+        )
         assert result.exit_code == 0
         assert "dry-run" in result.output
         doc, _ = load_toml(tmp_path)
@@ -1410,7 +1406,7 @@ class TestCLISetCompiler:
         """set-compiler rejects unknown profiles with a list of valid choices."""
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
-        result = runner.invoke(cfg_app, ["set-compiler", "server.dll", "boguscompiler"])
+        result = runner.invoke(cfg_app, ["target", "set-compiler", "server.dll", "boguscompiler"])
         assert result.exit_code != 0
         combined = result.output + (result.stderr or "")
         assert "unknown" in combined.lower()
@@ -1421,7 +1417,7 @@ class TestCLISetCompiler:
         """set-compiler on a non-existent target must fail."""
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
-        result = runner.invoke(cfg_app, ["set-compiler", "nonexistent", "msvc-6.0"])
+        result = runner.invoke(cfg_app, ["target", "set-compiler", "nonexistent", "msvc-6.0"])
         assert result.exit_code == 2
         assert "Target 'nonexistent' not found" in result.output
 
@@ -1429,8 +1425,8 @@ class TestCLISetCompiler:
         """set-compiler replaces a previously set compiler stanza."""
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
-        runner.invoke(cfg_app, ["set-compiler", "server.dll", "gcc-14.2.0"])
-        result = runner.invoke(cfg_app, ["set-compiler", "server.dll", "msvc-6.0"])
+        runner.invoke(cfg_app, ["target", "set-compiler", "server.dll", "gcc-14.2.0"])
+        result = runner.invoke(cfg_app, ["target", "set-compiler", "server.dll", "msvc-6.0"])
         assert result.exit_code == 0
         compiler_tbl = load_toml(tmp_path)[0]["targets"]["server.dll"]["compiler"]
         assert compiler_tbl["profile"] == "msvc-6.0"
@@ -1453,7 +1449,7 @@ class TestCLISetCompiler:
         )
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
-        result = runner.invoke(cfg_app, ["set-compiler", "server.dll", "nativecc"])
+        result = runner.invoke(cfg_app, ["target", "set-compiler", "server.dll", "nativecc"])
         assert result.exit_code == 0
         compiler_tbl = load_toml(tmp_path)[0]["targets"]["server.dll"]["compiler"]
         assert compiler_tbl["profile"] == "nativecc"
@@ -1518,7 +1514,7 @@ class TestCfgCli:
     def test_list_targets(self, tmp_path: Path, monkeypatch: object) -> None:
         import json
 
-        result = self._invoke(tmp_path, monkeypatch, ["list-targets", "--json"])
+        result = self._invoke(tmp_path, monkeypatch, ["target", "list", "--json"])
         assert result.exit_code == 0
         data = json.loads(result.stdout)
         assert data["targets"][0]["name"] == "main"
@@ -1526,7 +1522,9 @@ class TestCfgCli:
     def test_list_targets_empty(self, tmp_path: Path, monkeypatch: object) -> None:
         import json
 
-        result = self._invoke(tmp_path, monkeypatch, ["list-targets", "--json"], toml="[project]\n")
+        result = self._invoke(
+            tmp_path, monkeypatch, ["target", "list", "--json"], toml="[project]\n"
+        )
         assert result.exit_code == 0
         assert json.loads(result.stdout) == {"targets": []}
 
@@ -1567,7 +1565,7 @@ class TestCfgCli:
         assert str(tmp_path / "rebrew-project.toml") in result.stdout
 
     def test_remove_target_cli(self, tmp_path: Path, monkeypatch: object) -> None:
-        result = self._invoke(tmp_path, monkeypatch, ["remove-target", "main", "--force"])
+        result = self._invoke(tmp_path, monkeypatch, ["target", "remove", "main", "--force"])
         assert result.exit_code == 0
         assert "targets.main" not in (tmp_path / "rebrew-project.toml").read_text(encoding="utf-8")
 
@@ -1579,7 +1577,7 @@ class TestCfgCli:
         )
 
     def test_add_module_cli(self, tmp_path: Path, monkeypatch: object) -> None:
-        result = self._invoke(tmp_path, monkeypatch, ["add-module", "ZLIB", "--target", "main"])
+        result = self._invoke(tmp_path, monkeypatch, ["module", "add", "ZLIB", "--target", "main"])
         assert result.exit_code == 0
         assert "ZLIB" in (tmp_path / "rebrew-project.toml").read_text(encoding="utf-8")
 
@@ -1588,14 +1586,14 @@ class TestCfgCli:
         result = self._invoke(
             tmp_path,
             monkeypatch,
-            ["remove-module", "ZLIB", "--target", "main", "--force"],
+            ["module", "remove", "ZLIB", "--target", "main", "--force"],
             toml=toml,
         )
         assert result.exit_code == 0
         assert "ZLIB" not in (tmp_path / "rebrew-project.toml").read_text(encoding="utf-8")
 
     def test_set_cflags_cli(self, tmp_path: Path, monkeypatch: object) -> None:
-        result = self._invoke(tmp_path, monkeypatch, ["set-cflags", "main", "/O1 /Gy"])
+        result = self._invoke(tmp_path, monkeypatch, ["module", "set-cflags", "main", "/O1 /Gy"])
         assert result.exit_code == 0
         assert "/O1 /Gy" in (tmp_path / "rebrew-project.toml").read_text(encoding="utf-8")
 
@@ -1603,7 +1601,7 @@ class TestCfgCli:
         tools = tmp_path / "toolchain" / "msvc" / "6.0-win32" / "VC98" / "CRT" / "SRC"
         tools.mkdir(parents=True)
         (tools / "MALLOC.C").write_text("int malloc(void);\n", encoding="utf-8")
-        result = self._invoke(tmp_path, monkeypatch, ["detect-crt"])
+        result = self._invoke(tmp_path, monkeypatch, ["detect-crt", "show"])
         assert result.exit_code == 0
         assert "MSVCRT" in result.output
         assert "toolchain/msvc/6.0-win32/VC98/CRT/SRC" in result.output
@@ -1659,7 +1657,9 @@ class TestCfgWriteCommandsJson:
         assert "z80" in data["error"]
 
     def test_set_cflags_json(self, tmp_path: Path, monkeypatch: object) -> None:
-        result = self._invoke(tmp_path, monkeypatch, ["set-cflags", "ZLIB", "/O2", "--json"])
+        result = self._invoke(
+            tmp_path, monkeypatch, ["module", "set-cflags", "ZLIB", "/O2", "--json"]
+        )
         assert result.exit_code == 0
         data = json.loads(result.stdout)
         assert data == {
@@ -1673,7 +1673,7 @@ class TestCfgWriteCommandsJson:
         self, tmp_path: Path, monkeypatch: object
     ) -> None:
         result = self._invoke(
-            tmp_path, monkeypatch, ["set-cflags", "ZLIB", "/O2", "--dry-run", "--json"]
+            tmp_path, monkeypatch, ["module", "set-cflags", "ZLIB", "/O2", "--dry-run", "--json"]
         )
         assert result.exit_code == 0
         data = json.loads(result.stdout)
@@ -1683,7 +1683,9 @@ class TestCfgWriteCommandsJson:
         )
 
     def test_set_compiler_json(self, tmp_path: Path, monkeypatch: object) -> None:
-        result = self._invoke(tmp_path, monkeypatch, ["set-compiler", "main", "msvc-6.0", "--json"])
+        result = self._invoke(
+            tmp_path, monkeypatch, ["target", "set-compiler", "main", "msvc-6.0", "--json"]
+        )
         assert result.exit_code == 0
         data = json.loads(result.stdout)
         assert data["target"] == "main"
@@ -1695,7 +1697,9 @@ class TestCfgWriteCommandsJson:
         self, tmp_path: Path, monkeypatch: object
     ) -> None:
         result = self._invoke(
-            tmp_path, monkeypatch, ["set-compiler", "main", "msvc-6.0", "--dry-run", "--json"]
+            tmp_path,
+            monkeypatch,
+            ["target", "set-compiler", "main", "msvc-6.0", "--dry-run", "--json"],
         )
         assert result.exit_code == 0
         data = json.loads(result.stdout)
@@ -1704,7 +1708,7 @@ class TestCfgWriteCommandsJson:
 
     def test_set_compiler_unknown_profile_json(self, tmp_path: Path, monkeypatch: object) -> None:
         result = self._invoke(
-            tmp_path, monkeypatch, ["set-compiler", "main", "boguscompiler", "--json"]
+            tmp_path, monkeypatch, ["target", "set-compiler", "main", "boguscompiler", "--json"]
         )
         assert result.exit_code == 2
         data = json.loads(result.stdout)
@@ -1717,7 +1721,7 @@ class TestCLISetCflagsDryRun:
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
         result = runner.invoke(
-            cfg_app, ["set-cflags", "GAME", "/O1", "--target", "server.dll", "--dry-run"]
+            cfg_app, ["module", "set-cflags", "GAME", "/O1", "--target", "server.dll", "--dry-run"]
         )
         assert result.exit_code == 0
         doc, _ = load_toml(tmp_path)
@@ -1749,7 +1753,8 @@ class TestAddTargetSharedScaffold:
         result = runner.invoke(
             cfg_app,
             [
-                "add-target",
+                "target",
+                "add",
                 "client.exe",
                 "--binary",
                 "original/client.exe",
@@ -1772,7 +1777,8 @@ class TestAddTargetSharedScaffold:
         result = runner.invoke(
             cfg_app,
             [
-                "add-target",
+                "target",
+                "add",
                 "client.exe",
                 "--binary",
                 "original/client.exe",
@@ -1790,7 +1796,8 @@ class TestAddTargetSharedScaffold:
         result = runner.invoke(
             cfg_app,
             [
-                "add-target",
+                "target",
+                "add",
                 "client.exe",
                 "--binary",
                 "original/client.exe",

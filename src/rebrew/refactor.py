@@ -19,13 +19,13 @@ from typing import Any
 import typer
 from rich.table import Table
 
-from rebrew.cli import RootOption, TargetOption, console, json_print, require_config
+from rebrew.cli import console, json_print
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew refactor · · · · · · · · · · Suggest refactoring opportunities\n\n"
-    "  rebrew refactor --min-lines 400 --json · · Only large files, machine-readable\n\n"
-    "  rebrew refactor --root src/reversed · · · Point at a different tree\n"
+    "  rebrew dev refactor · · · · · · · · · · Suggest refactoring opportunities\n\n"
+    "  rebrew dev refactor --min-lines 400 --json · · Only large files, machine-readable\n\n"
+    "  rebrew dev refactor --repository ../rebrew · · · Point at a different tree\n"
 )
 
 
@@ -111,22 +111,27 @@ def _make_suggestions(
 
 @app.callback(invoke_without_command=True)
 def main(
-    root: Path | None = RootOption,
+    root: Path = typer.Option(
+        Path("."),
+        "--repository",
+        exists=True,
+        file_okay=False,
+        help="Python repository root to scan",
+    ),
     min_lines: int = typer.Option(
         200,
         "--min-lines",
-        help="Only report files longer than this many lines",
+        min=0,
+        help="Minimum file length in lines (0 reports every file)",
     ),
     json_output: bool = typer.Option(
         False,
         "--json",
         help="Output results as JSON",
     ),
-    target: str | None = TargetOption,
 ) -> None:
     """Scan the source tree and print refactoring recommendations."""
-    cfg = require_config(target=target, json_mode=json_output, root=root)
-    root = cfg.root
+    root = root.resolve()
 
     files = _collect_python_files(root)
     results: list[dict[str, Any]] = []

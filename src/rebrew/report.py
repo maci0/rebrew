@@ -30,9 +30,9 @@ missing data sections, or call-graph failures produce a note inside the page
 instead of aborting the whole report.
 
 Usage:
-    rebrew report                       # Write site to <output_dir>/report
-    rebrew report --output site         # Write site to ./site
-    rebrew report --json                # Machine-readable summary
+    rebrew coverage report                       # Write site to <output_dir>/report
+    rebrew coverage report --output site         # Write site to ./site
+    rebrew coverage report --json                # Machine-readable summary
 """
 
 import html
@@ -690,7 +690,7 @@ def _render_index(
             over_text_html = (
                 f"<p class='note'>Byte coverage counts {counted}, more than the "
                 f"{report.total_text_bytes}-byte .text section, so byte coverage "
-                "is shown as 100%+. Re-run <code>rebrew build-db</code> if the "
+                "is shown as 100%+. Re-run <code>rebrew coverage build</code> if the "
                 "SIZE fields are stale.</p>"
             )
         else:
@@ -1605,11 +1605,11 @@ def generate_decomp_dev_report(cfg: ProjectConfig, out_path: Path) -> dict[str, 
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew report · · · · · · · · · · · · · · Write site to <output_dir>/report\n\n"
-    "  rebrew report --output site · · · · · · · · Write site to ./site\n\n"
-    "  rebrew report --decomp-dev report.json · · Write an objdiff-format\n"
+    "  rebrew coverage report · · · · · · · · · · · · · · Write site to <output_dir>/report\n\n"
+    "  rebrew coverage report --output site · · · · · · · · Write site to ./site\n\n"
+    "  rebrew coverage report --decomp-dev report.json · · Write an objdiff-format\n"
     "                                            report.json for decomp.dev\n\n"
-    "  rebrew report --json · · · · · · · · · · · Machine-readable summary\n\n"
+    "  rebrew coverage report --json · · · · · · · · · · · Machine-readable summary\n\n"
     "[dim]Generates a self-contained static HTML site (function index, strings, "
     "imports, call graph) with all styling inlined — no external assets.  "
     "Long tables paginate; a call graph over 32 KB of Mermaid moves to "

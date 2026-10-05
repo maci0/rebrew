@@ -52,7 +52,7 @@ consolidation, inventory and lint again, reverify affected functions, and compar
 the raw link/import table if definitions or link inputs changed. Distinguish an
 unknown source owner from a library owner established by map/archive evidence.
 
-`rebrew data` separates source `defined_in` from `library_owners`. Its default
+`rebrew data list` separates source `defined_in` from `library_owners`. Its default
 library evidence is the MSVC map beside configured `raw_link`; select another with
 `--link-map`. Library owners name the archive member and actual link symbol,
 with map hash and linked VA. Resolve `<common>` only from a unique definition in
@@ -62,9 +62,9 @@ DLL import slot is not a static library storage owner. If several selected membe
 supply COMMON storage, leave its provider unresolved. Do not match descriptive
 aliases to a library merely because their reference VA coincides with a map VA.
 
-Record verified relationships with `rebrew data --set-storage-kind 0xVA=KIND`
-(`object`, `alias`, `literal`, `span`, or `import`), `--set-backing 0xVA=GLOBAL`,
-and `--set-link-symbol 0xVA=SYMBOL`. A backing view inherits its object's owner
+Record verified relationships with `rebrew data set --storage-kind 0xVA=KIND`
+(`object`, `alias`, `literal`, `span`, or `import`), `--backing 0xVA=GLOBAL`,
+and `--link-symbol 0xVA=SYMBOL`. A backing view inherits its object's owner
 without becoming another definition. Native symbol mappings need reference
 evidence, such as a validated library-function relocation or an exact compiler
 literal comparison; never infer them from matching addresses alone. Explicit

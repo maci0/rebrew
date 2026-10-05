@@ -211,7 +211,7 @@ class TestImportsCli:
     def test_terminal_output(self, pe_path: Path) -> None:
         from rebrew.imports import app
 
-        result = CliRunner().invoke(app, [str(pe_path)])
+        result = CliRunner().invoke(app, ["list", str(pe_path)])
         assert result.exit_code == 0
         assert "MessageBoxA" in result.output
         assert "KERNEL32.dll" in result.output
@@ -219,7 +219,7 @@ class TestImportsCli:
     def test_json_output(self, pe_path: Path) -> None:
         from rebrew.imports import app
 
-        result = CliRunner().invoke(app, ["--json", str(pe_path)])
+        result = CliRunner().invoke(app, ["list", "--json", str(pe_path)])
         assert result.exit_code == 0
         payload = json.loads(result.output)
         assert any(i["name"] == "MessageBoxA" for i in payload["imports"])
@@ -231,14 +231,14 @@ class TestImportsCli:
     def test_missing_binary_errors(self, tmp_path: Path) -> None:
         from rebrew.imports import app
 
-        result = CliRunner().invoke(app, [str(tmp_path / "nope.exe")])
+        result = CliRunner().invoke(app, ["list", str(tmp_path / "nope.exe")])
         assert result.exit_code != 0
         assert "not found" in result.output
 
     def test_registered_in_umbrella(self) -> None:
         from rebrew.main import app as umbrella
 
-        result = CliRunner().invoke(umbrella, ["--help"])
+        result = CliRunner().invoke(umbrella, ["binary", "--help"])
         assert result.exit_code == 0
         assert "imports" in result.output
 
@@ -306,7 +306,7 @@ class TestElfImports:
     def test_json_output_lists_elf_imports(self, tmp_path: Path) -> None:
         from rebrew.imports import app
 
-        result = CliRunner().invoke(app, ["--json", str(_elf_with_imports(tmp_path))])
+        result = CliRunner().invoke(app, ["list", "--json", str(_elf_with_imports(tmp_path))])
         assert result.exit_code == 0
         payload = json.loads(result.stdout)
         names = {i["name"] for i in payload["imports"]}
@@ -316,7 +316,7 @@ class TestElfImports:
     def test_terminal_output_lists_elf_imports(self, tmp_path: Path) -> None:
         from rebrew.imports import app
 
-        result = CliRunner().invoke(app, [str(_elf_with_imports(tmp_path))])
+        result = CliRunner().invoke(app, ["list", str(_elf_with_imports(tmp_path))])
         assert result.exit_code == 0
         assert "sqrt" in result.output
         assert "libm.so.6" in result.output
@@ -464,7 +464,7 @@ class TestImportsPayload:
         from rebrew.imports import app
 
         payload = imports_payload(pe_path)
-        result = CliRunner().invoke(app, ["--json", str(pe_path)])
+        result = CliRunner().invoke(app, ["list", "--json", str(pe_path)])
         assert result.exit_code == 0
         assert payload == json.loads(result.output)
         assert any(i["name"] == "MessageBoxA" for i in payload["imports"])

@@ -1,4 +1,4 @@
-"""Tests for rebrew gen-stubs (unresolved linker symbol stub TU generation)."""
+"""Tests for rebrew build symbol-stubs (unresolved linker symbol stub TU generation)."""
 
 import sys
 from pathlib import Path

@@ -1847,7 +1847,7 @@ class TestGaCeiling:
             100,
         )
         assert text is not None and text.startswith("GA_CEILING: encoding-only")
-        assert "flag-sweep-toolchains" in text
+        assert "rebrew match toolchains" in text
         entry = get_entry(tmp_path, 0x10001000, "SERVER")
         assert (entry or {}).get("blocker", "").startswith("GA_CEILING:")
 

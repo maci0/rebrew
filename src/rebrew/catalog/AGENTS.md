@@ -13,11 +13,11 @@ Merges function sources (discovery inventory, Ghidra JSON, binary exports) into 
 | `pipeline.py` | `build_catalog_data` (scan/registry/grid dict; no disk writes) |
 | `cli.py` | `run_catalog` + Typer entry |
 
-Externals (the only packages this one may import): `annotation`, `cli`, `config`, `data_metadata`, `present`, `sections`, `sources`, `status`, `utils`, `workspace`, `binary_loader` (lazy, inside functions), and `binary_model` (`BinaryInfo`). PE section helpers live in `rebrew.sections`; `preset_module_key` / `atomic_write_text` in `rebrew.utils`.
+Externals (the only packages this one may import): `annotation`, `cli`, `config`, `data_metadata`, `function_providers`, `metadata`, `present`, `sections`, `sources`, `status`, `utils`, `workspace`, `binary_loader` (lazy, inside functions), and `binary_model` (`BinaryInfo`). PE section helpers live in `rebrew.sections`; `preset_module_key` / `atomic_write_text` in `rebrew.utils`.
 
 ## Data flow
 
-Reversed `.c` + `library_*.h` → `scan_reversed_dir` → annotations; discovery/Ghidra JSON → `load_function_structure`; binary → `load_binary`. Then `build_function_registry` (merge by VA, canonical size) → `build_coverage_data` → the dict `rebrew build-db` renders into `db/coverage-{target}.toml`.
+Reversed `.c` + `library_*.h` → `scan_reversed_dir` → annotations; discovery/Ghidra JSON → `load_function_structure`; binary → `load_binary`. Then `build_function_registry` (merge by VA, canonical size) → `build_coverage_data` → the dict `rebrew coverage build` renders into `db/coverage-{target}.toml`.
 
 ## Invariants
 

@@ -154,6 +154,65 @@ class TestCallingConvention:
         ]
         assert calling_convention(insns) == "stdcall"
 
+    @pytest.mark.parametrize(
+        ("definition", "operands"),
+        [
+            ("lea", "ecx, [edx - 4]"),
+            ("mov", "ecx, [esp + 8]"),
+            ("xor", "ecx, ecx"),
+            ("pop", "ecx"),
+            ("mov", "cl, 4"),
+            ("xchg", "eax, ecx"),
+        ],
+    )
+    def test_locally_defined_ecx_is_not_thiscall(self, definition: str, operands: str) -> None:
+        """A local pointer or partial register write cannot prove incoming this."""
+        from rebrew.asm import calling_convention
+
+        insns = [
+            self._i("push", "esi"),
+            self._i(definition, operands),
+            self._i("mov", "eax, [ecx]"),
+            self._i("mov", "esi, ecx"),
+            self._i("ret"),
+        ]
+        assert calling_convention(insns) == "cdecl"
+
+    def test_call_clobbers_unsaved_incoming_ecx(self) -> None:
+        from rebrew.asm import calling_convention
+
+        insns = [self._i("call", "0x2000"), self._i("mov", "eax, [ecx]"), self._i("ret")]
+        assert calling_convention(insns) == "cdecl"
+
+    def test_read_only_ecx_use_preserves_this_pointer(self) -> None:
+        from rebrew.asm import calling_convention
+
+        insns = [
+            self._i("test", "ecx, ecx"),
+            self._i("cmp", "ecx, 0"),
+            self._i("push", "ecx"),
+            self._i("mov", "eax, [ecx]"),
+            self._i("ret", "4"),
+        ]
+        assert calling_convention(insns) == "thiscall"
+
+    def test_saved_this_pointer_survives_later_clobber(self) -> None:
+        from rebrew.asm import calling_convention
+
+        insns = [
+            self._i("mov", "esi, ecx"),
+            self._i("mov", "ecx, [esp + 4]"),
+            self._i("call", "0x2000"),
+            self._i("ret", "4"),
+        ]
+        assert calling_convention(insns) == "thiscall"
+
+    def test_dereference_before_ecx_reassignment_is_thiscall(self) -> None:
+        from rebrew.asm import calling_convention
+
+        insns = [self._i("mov", "ecx, [ecx + 4]"), self._i("ret", "4")]
+        assert calling_convention(insns) == "thiscall"
+
     def test_ctor_thunk(self) -> None:
         from rebrew.asm import calling_convention
 

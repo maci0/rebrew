@@ -9,7 +9,7 @@ a difference there means a pipeline bug, while the ``.text`` residue is
 the code that still has to be made to match.
 
 This is the linked truth that object scores (``rebrew test``'s
-``match_count``, ``rebrew probe``'s ``aligned``) only proxy — a size change
+``match_count``, ``rebrew diagnose probe``'s ``aligned``) only proxy — a size change
 anywhere moves every byte after it, so only this number decides whether a
 candidate lands.
 
@@ -64,9 +64,9 @@ def _name_column(name: str, width: int = _NAME_COLUMN) -> str:
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew residue build/game.exe · · · Measure residue against the baseline\n\n"
-    "  rebrew residue build/game.exe --new-baseline · · Record today's bytes as baseline\n\n"
-    "  rebrew residue build/game.exe --baseline old.json --json · Compare against a file\n"
+    "  rebrew build residue build/game.exe · · · Measure residue against the baseline\n\n"
+    "  rebrew build residue build/game.exe --new-baseline · · Record today's bytes as baseline\n\n"
+    "  rebrew build residue build/game.exe --baseline old.json --json · Compare against a file\n"
 )
 
 
@@ -274,7 +274,7 @@ def main(
     else:
         console.print(
             f"WARNING: no layout package at {untrusted_ident(layout_dir)}; postlink fixers skipped "
-            "(run 'rebrew gen-layout')"
+            "(run 'rebrew build layout')"
         )
     info_b = load_binary(built_path)
     try:

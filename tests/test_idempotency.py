@@ -156,7 +156,7 @@ class TestMatchAllDryRunIdempotent:
                 default_jobs=2,
             ),
         )
-        args = ["--all", "--dry-run"]
+        args = ["batch", "--dry-run"]
         r1 = runner.invoke(app, args)
         r2 = runner.invoke(app, args)
         assert r1.exit_code == r2.exit_code == 0

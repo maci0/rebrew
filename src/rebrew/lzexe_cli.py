@@ -1,13 +1,13 @@
 """lzexe_cli.py — Unpack LZEXE 0.90/0.91 compressed DOS executables.
 
 Many DOS games shipped LZEXE-packed (the header's CS:IP points at a
-decompressor stub appended to the file).  ``rebrew unpack-lzexe`` restores
+decompressor stub appended to the file).  ``rebrew binary unpack-lzexe`` restores
 the original MZ executable: rebuilt header, standard relocation table, and
 the decompressed image — the first step for any static analysis of a packed
 DOS binary.
 
 Usage:
-    rebrew unpack-lzexe packed.exe [--output original.exe] [--json]
+    rebrew binary unpack-lzexe packed.exe [--output original.exe] [--json]
 """
 
 from __future__ import annotations
@@ -26,9 +26,9 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew unpack-lzexe packed.exe · · · · · · · · Unpack in place (packed.exe.unpacked.exe)\n\n"
-        "  rebrew unpack-lzexe packed.exe --output original.exe · Write to a specific path\n\n"
-        "  rebrew unpack-lzexe packed.exe --json · · · · · Machine-readable result\n\n"
+        "  rebrew binary unpack-lzexe packed.exe · · · · · · · · Unpack in place (packed.exe.unpacked.exe)\n\n"
+        "  rebrew binary unpack-lzexe packed.exe --output original.exe · Write to a specific path\n\n"
+        "  rebrew binary unpack-lzexe packed.exe --json · · · · · Machine-readable result\n\n"
         "[dim]LZEXE (Fabrice Bellard, 1989-91) compressed many DOS games; the "
         "format is documented only by its own decompressor stub.  Detection "
         "matches the stub byte-for-byte, so merely patching the 'LZ91' magic "
