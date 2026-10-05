@@ -38,9 +38,9 @@ class TestExtractCommands:
         assert ("diff", ["--mm"]) in results
 
     def test_multi_subcommand_absorbed(self, tmp_path: Path) -> None:
-        md = _md("```bash\nrebrew cfg add-target --binary x.dll\n```\n", tmp_path)
+        md = _md("```bash\nrebrew cfg target add --binary x.dll\n```\n", tmp_path)
         results = vsc._extract_commands(md)
-        assert ("cfg add-target", ["--binary"]) in results
+        assert ("cfg target add", ["--binary"]) in results
 
     def test_multi_subcommand_flag_second_token(self, tmp_path: Path) -> None:
         md = _md("```bash\nrebrew cache stats --json\n```\n", tmp_path)

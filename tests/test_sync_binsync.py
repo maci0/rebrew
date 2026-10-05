@@ -156,32 +156,36 @@ class TestTypeImport:
 
 
 class TestSyncCli:
-    def test_no_action_errors(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        _patch_cfg(tmp_path, monkeypatch)
-        r = runner.invoke(sync_cli.app, [])
-        assert r.exit_code == 2
-        assert "No action specified" in r.output
-
-    def test_push_requires_state_dir(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        _patch_cfg(tmp_path, monkeypatch)
-        r = runner.invoke(sync_cli.app, ["--push"])
-        assert r.exit_code == 2
-        assert "--state-dir" in r.output
-
-    def test_push_and_pull_mutually_exclusive(
+    def test_missing_operation_suggests_help(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         _patch_cfg(tmp_path, monkeypatch)
-        r = runner.invoke(sync_cli.app, ["--push", "--pull", "--state-dir", "x"])
+        r = runner.invoke(sync_cli.app, [])
         assert r.exit_code == 2
-        assert "mutually exclusive" in r.output
+        assert "Usage:" in r.output
+        assert "Missing command" in r.output
+        assert "--help" in r.output
+
+    def test_push_requires_state_dir(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        _patch_cfg(tmp_path, monkeypatch)
+        r = runner.invoke(sync_cli.app, ["push"])
+        assert r.exit_code == 2
+        assert "--state-dir" in r.output
+
+    def test_removed_pull_mode_flag_is_rejected(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _patch_cfg(tmp_path, monkeypatch)
+        r = runner.invoke(sync_cli.app, ["push", "--pull", "--state-dir", "x"])
+        assert r.exit_code == 2
+        assert "No such option: --pull" in r.output
 
     def test_accept_flags_mutually_exclusive(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         _patch_cfg(tmp_path, monkeypatch)
         r = runner.invoke(
-            sync_cli.app, ["--pull", "--state-dir", "x", "--accept-binsync", "--accept-local"]
+            sync_cli.app, ["pull", "--state-dir", "x", "--accept-binsync", "--accept-local"]
         )
         assert r.exit_code == 2
         assert "mutually exclusive" in r.output
@@ -203,7 +207,7 @@ class TestSyncCli:
         monkeypatch.setattr("rebrew.binsync.export.export_state", _fake_export)
         monkeypatch.setattr("rebrew.binsync.export.print_export_result", _fake_print)
         state = tmp_path / "state"
-        r = runner.invoke(sync_cli.app, ["--push", "--state-dir", str(state)])
+        r = runner.invoke(sync_cli.app, ["push", "--state-dir", str(state)])
         assert r.exit_code == 0
         assert calls["out"] == state
         assert calls["kw"]["dry_run"] is False
@@ -213,7 +217,7 @@ class TestSyncCli:
         _patch_cfg(tmp_path, monkeypatch)
         r = runner.invoke(
             sync_cli.app,
-            ["--create-functions", "--endpoint", "not-a-url"],
+            ["create-functions", "--endpoint", "not-a-url"],
         )
         assert r.exit_code != 0
         assert "--endpoint must be an http(s) URL" in r.output
@@ -235,7 +239,7 @@ class TestSyncCli:
         monkeypatch.setattr("rebrew.binsync.importer.import_state", _fake_import)
         monkeypatch.setattr("rebrew.binsync.importer.print_import_result", _fake_print)
         state = tmp_path / "state"
-        r = runner.invoke(sync_cli.app, ["--pull", "--state-dir", str(state), "--create-missing"])
+        r = runner.invoke(sync_cli.app, ["pull", "--state-dir", str(state), "--create-missing"])
         assert r.exit_code == 0
         assert calls["src"] == state
         assert calls["kw"]["create_missing"] is True
@@ -262,7 +266,7 @@ class TestSyncCli:
 
         monkeypatch.setattr("rebrew.ghidra.client.apply_commands_via_mcp", _fake_apply)
         state = tmp_path / "state"
-        r = runner.invoke(sync_cli.app, ["--pull", "--state-dir", str(state), "--create-functions"])
+        r = runner.invoke(sync_cli.app, ["pull", "--state-dir", str(state), "--create-functions"])
         assert r.exit_code == 0
         assert len(applied) == 2
         assert all(o["tool"] == "create-function" for o in applied)
@@ -287,7 +291,7 @@ class TestSyncCli:
             return len(ops), 0
 
         monkeypatch.setattr("rebrew.ghidra.client.apply_commands_via_mcp", _fake_apply)
-        r = runner.invoke(sync_cli.app, ["--create-functions"])
+        r = runner.invoke(sync_cli.app, ["create-functions"])
         assert r.exit_code == 0
         assert len(applied) == 1
         assert applied[0]["tool"] == "create-function"
@@ -318,7 +322,7 @@ class TestSyncCli:
             "rebrew.ghidra.cli_backend.apply_commands_via_cli",
             lambda ops, **kw: applied.append(ops) or (len(ops), 0),
         )
-        r = runner.invoke(sync_cli.app, ["--create-functions"])
+        r = runner.invoke(sync_cli.app, ["create-functions"])
         assert r.exit_code == 0
         assert len(applied) == 1
         assert applied[0][0]["tool"] == "create-function"
@@ -347,7 +351,7 @@ class TestSyncCli:
             return len(ops), 0
 
         monkeypatch.setattr("rebrew.ghidra.client.apply_commands_via_mcp", _fake_apply)
-        r = runner.invoke(sync_cli.app, ["--create-functions", "--dry-run"])
+        r = runner.invoke(sync_cli.app, ["create-functions", "--dry-run"])
         assert r.exit_code == 0
         assert applied == []
         assert "Would apply 1 operation(s)" in r.output
@@ -373,7 +377,7 @@ class TestSyncCli:
             return len(ops), 0
 
         monkeypatch.setattr("rebrew.ghidra.client.apply_commands_via_mcp", _fake_apply)
-        r = runner.invoke(sync_cli.app, ["--bookmarks", "--dry-run"])
+        r = runner.invoke(sync_cli.app, ["bookmarks", "--dry-run"])
         assert r.exit_code == 0
         assert applied == []
         assert "Would apply 1 operation(s)" in r.output
@@ -392,7 +396,7 @@ class TestSyncCli:
             lambda result, **kw: (_ for _ in ()).throw(SystemExit(0)),
         )
         state = tmp_path / "state"
-        r = runner.invoke(sync_cli.app, ["--summary", "--state-dir", str(state)])
+        r = runner.invoke(sync_cli.app, ["summary", "--state-dir", str(state)])
         assert calls["dry_run"] is True  # summary is a dry-run preview
         assert r.exit_code == 0
 

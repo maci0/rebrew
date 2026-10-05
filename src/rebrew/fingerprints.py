@@ -14,7 +14,7 @@ from the DOS stub and re-encoded through :func:`rich_header_bytes_from_parts`
 to pin the byte layout the hash covers.
 
 Usage:
-    rebrew fingerprints [binary]
+    rebrew binary fingerprints [binary]
 """
 
 from __future__ import annotations
@@ -494,9 +494,9 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew fingerprints · · · · · · · · · Fingerprint the project's target binary\n\n"
-        "  rebrew fingerprints original/game.exe · Fingerprint a specific binary\n\n"
-        "  rebrew fingerprints game.exe --json · · Machine-readable bundle\n\n"
+        "  rebrew binary fingerprints · · · · · · · · · Fingerprint the project's target binary\n\n"
+        "  rebrew binary fingerprints original/game.exe · Fingerprint a specific binary\n\n"
+        "  rebrew binary fingerprints game.exe --json · · Machine-readable bundle\n\n"
         "[bold]What it shows:[/bold]\n\n"
         "  File hashes · · · · · · · · MD5 / SHA1 / SHA256 / SHA512 / SHA3-224/256/384/512 / CRC32\n\n"
         "  imphash · · · · · · · · · · Mandiant import hash (DLL.API order)\n\n"

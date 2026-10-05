@@ -2,7 +2,7 @@
 
 The ``rebrew`` app is composed from components.  Every built-in tool is a
 :class:`rebrew.plugin.CliComponent` in :data:`rebrew.builtins.BUILTIN_COMPONENTS`
-(plus ``import-splat`` in ``_EXTRA_COMPONENTS``);
+;
 third-party components come from the ``rebrew.commands`` and
 ``rebrew.multicommands`` entry-point groups.  Both mount through the same
 :func:`rebrew.plugin.activate` call, so built-ins hold no privileged path and a
@@ -22,7 +22,6 @@ from rebrew.plugin import (
     CliComponent,
     CoeffectScope,
     Context,
-    Panel,
     activate,
     entry_point_components,
 )
@@ -44,7 +43,7 @@ app = typer.Typer(
         "rebrew test <file> · · · · · Single function — compile, compare, auto-promote STATUS\n\n"
         "rebrew test --all · · · · ·  Batch — verify's engine, always recompiles\n\n"
         "rebrew verify · · · · · · ·  Batch — incremental verify with caching (--compare for CI)\n\n"
-        "rebrew match <file> · · · ·  GA engine — iteratively mutate source to find byte match\n\n"
+        "rebrew match run <file> · · · · GA engine — iteratively mutate source to find byte match\n\n"
         "[bold]Status ladder (byte match, best → worst):[/bold]\n\n"
         "EXACT · · · · · · 100% byte match\n\n"
         "RELOC · · · · · · Match after masking relocation records\n\n"
@@ -115,25 +114,6 @@ def _global_options(
 # ---------------------------------------------------------------------------
 
 
-#: Tools mounted on the umbrella app beside the packaged manifest.
-#:
-#: ``import-splat`` registers here rather than in ``builtins.BUILTIN_COMPONENTS``
-#: because that manifest is pinned to the bundled agent skills
-#: (``tests/test_docs_hygiene.py`` asserts every packaged component is named in
-#: one), and this importer has no skill yet.  The component is otherwise
-#: identical: fold this entry into ``builtins.py`` alongside a SKILL.md mention
-#: when it gets one.
-_EXTRA_COMPONENTS: tuple[CliComponent, ...] = (
-    CliComponent(
-        name="import-splat",
-        module="rebrew.splat_config",
-        help="Seed a rebrew project from a splat config (dry run by default).",
-        panel=Panel.PROJECT_SETUP,
-        is_group=False,
-    ),
-)
-
-
 def cli_components() -> tuple[list[CliComponent], list[str]]:
     """The packaged components plus every third-party CLI plugin.
 
@@ -144,7 +124,6 @@ def cli_components() -> tuple[list[CliComponent], list[str]]:
     prints them through CONSOLE_SERVICE.
     """
     components = list(BUILTIN_COMPONENTS)
-    components.extend(_EXTRA_COMPONENTS)
     discovered, warnings = entry_point_components({c.name for c in components})
     components.extend(discovered)
     return components, warnings

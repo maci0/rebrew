@@ -1,6 +1,6 @@
 # ADR-027: Build hooks under the umbrella CLI
 
-- **Status**: Accepted
+- **Status**: Amended by 028
 - **Date**: 2026-10
 
 ## Context

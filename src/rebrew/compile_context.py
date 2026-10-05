@@ -2,7 +2,7 @@
 
 Model and loader for ``--context``: :class:`CompileContext` carries the text
 ``compile`` prepends to a unit and its digest, which ``test``/``verify``
-record beside a verdict.  ``rebrew context`` (``rebrew.context``) produces
+record beside a verdict.  ``rebrew export context`` (``rebrew.context``) produces
 the document.
 """
 

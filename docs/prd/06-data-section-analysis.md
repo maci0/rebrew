@@ -23,7 +23,7 @@ problem becomes a relocation problem:
 - Header files describing globals must be hand-maintained, or generated
   from Ghidra, which is overkill when offline.
 
-PRD 06 ships `rebrew data` for the data-section side of the workbench:
+PRD 06 ships `rebrew data list` for the data-section side of the workbench:
 inventory, conflict detection, dispatch-table identification, BSS
 verification, and `rebrew_globals.h` generation.
 
@@ -38,7 +38,7 @@ verification, and `rebrew_globals.h` generation.
 
 ## Goals
 
-- One command (`rebrew data`) with mode flags for the recurring data
+- One command (`rebrew data list`) with mode flags for the recurring data
   questions:
   - What globals do we know about?
   - Which globals have type conflicts across files?
@@ -55,7 +55,7 @@ verification, and `rebrew_globals.h` generation.
 
 ## Non-Goals
 
-- `rebrew data` does not push to Ghidra; that's PRD 07.
+- `rebrew data list` does not push to Ghidra; that's PRD 07.
 - It does not infer types from byte patterns alone; type discovery is a
   human/agent task (the tool surfaces evidence).
 - It does not rewrite the original `.c` source bodies (only generates
@@ -121,7 +121,7 @@ verification, and `rebrew_globals.h` generation.
   `--gen-header-out` redirects it. Refuses to overwrite an existing file
   unless `--force` is passed; regeneration is idempotent (the write is
   skipped when only the timestamp would differ).
-- Safe to invoke offline; `rebrew sync --pull-data` writes the same file
+- Safe to invoke offline; `rebrew sync pull-data` writes the same file
   with Ghidra-sourced types when available.
 
 ### `.data` placement family
@@ -155,23 +155,23 @@ order across all translation units at once.
 ### Story 1: Chasing a `~~` diff to a missing extern
 
 1. `rebrew diff foo.c -m` shows two `~~` lines on a memory load.
-2. `rebrew data --conflicts --json` reports that `_g_state` is `int` in
+2. `rebrew data list --conflicts --json` reports that `_g_state` is `int` in
    `foo.c` but `struct State*` in `state.c`.
 3. User fixes the type, reruns `rebrew test`, and the diff promotes to
    EXACT.
 
 ### Story 2: Filling a BSS gap
 
-1. `rebrew data --bss --json` reports a 24-byte gap between `_buffer`
+1. `rebrew data bss --json` reports a 24-byte gap between `_buffer`
    (0x10100000) and `_counter` (0x10100020).
-2. `rebrew data --fix-bss` generates `bss_padding.c` with a 24-byte
+2. `rebrew data fix-bss` generates `bss_padding.c` with a 24-byte
    placeholder and updates metadata.
 3. Subsequent verify runs see no further BSS-induced relocation noise.
 
 ### Story 3: Generating a global header offline
 
 1. The user is working without Ghidra. They run
-   `rebrew data --gen-header`.
+   `rebrew data header`.
 2. `src/<target>/rebrew_globals.h` is written with grouped extern
    declarations by section.
 3. They `#include "rebrew_globals.h"` in functions that needed them.
@@ -180,7 +180,7 @@ order across all translation units at once.
 
 1. A function calls indirectly through a memory location near
    `0x10300100` in `.rdata`.
-2. `rebrew data --dispatch --json` flags a 28-entry table starting at
+2. `rebrew data dispatch --json` flags a 28-entry table starting at
    that VA with each entry pointing into `.text`.
 3. User annotates the table and writes wrappers, unblocking 28 STUB
    functions at once.
@@ -188,7 +188,7 @@ order across all translation units at once.
 ## CLI Surface
 
 ```
-rebrew data [OPTIONS]
+rebrew data list [OPTIONS]
       --conflicts
       --summary
       --dispatch
@@ -225,13 +225,13 @@ previewable with `--dry-run`.)
 
 ## Success Metrics
 
-- After running `rebrew data --fix-bss` and then `rebrew data
+- After running `rebrew data fix-bss` and then `rebrew data list
   --gen-header`, no relocation-diff (`~~`) lines remain in `rebrew diff`
   runs that are attributable to missing/mistyped globals.
-- `rebrew data --conflicts` returns an empty list on a clean project.
+- `rebrew data list --conflicts` returns an empty list on a clean project.
 - `rebrew_globals.h` is deterministic across runs (no spurious
   reordering).
-- `rebrew data --dispatch` recovers known vtables on the reference
+- `rebrew data dispatch` recovers known vtables on the reference
   project with no false positives.
 
 ## Open Questions / Known Limitations
@@ -251,5 +251,5 @@ previewable with `--dry-run`.)
 - Section detection comes from LIEF and covers PE, ELF, NE (16-bit),
   Mach-O and fat binaries; for a fat binary the first slice is used, so
   selecting a slice by architecture is not supported.
-- `rebrew data` does not handle data-flow analysis (e.g. which functions
+- `rebrew data list` does not handle data-flow analysis (e.g. which functions
   read which globals). That's left to Ghidra.

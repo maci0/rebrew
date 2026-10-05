@@ -16,18 +16,17 @@ import copy
 import hashlib
 import logging
 import math
+import re
 import threading
 import tomllib
-from dataclasses import asdict, dataclass, fields
+from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-
-import tomlkit
 
 from rebrew.utils import atomic_write_text, file_lock, read_toml_text
 from rebrew.verify_hash import (
     compiler_config_hash,
-    entry_fingerprint,
+    fresh_entry_fingerprint,
     headers_hash,
 )
 from rebrew.workspace.status import MATCHED_STATUSES
@@ -84,6 +83,148 @@ def toml_document(payload: Any) -> Any:
     if isinstance(payload, list):
         return [toml_document(item) for item in payload]
     return payload
+
+
+# Bare keys are the TOML subset that needs no quotes.  Anything else (spaces,
+# dots, quotes) is emitted as a basic string so the header still parses.
+_BARE_TOML_KEY = re.compile(r"[A-Za-z0-9_-]+")
+_TOML_STRING_ESCAPE = re.compile(r"[\x00-\x1f\x7f\"\\]")
+
+
+def _toml_string(value: str) -> str:
+    """A TOML basic string for *value*.
+
+    Controls are ``\\u`` escapes.  tomlkit writes some of them as ``\\e``,
+    which the next ``tomllib`` load rejects.  A surrogate is U+FFFD: a raw
+    surrogate cannot be encoded as UTF-8, and ``\\uD800`` is not a Unicode
+    scalar, so ``tomllib`` rejects that escape too.
+    """
+    if value.isascii() and _TOML_STRING_ESCAPE.search(value) is None:
+        return f'"{value}"'
+    out = ['"']
+    for char in value:
+        code = ord(char)
+        if char == "\\":
+            out.append("\\\\")
+        elif char == '"':
+            out.append('\\"')
+        elif char == "\b":
+            out.append("\\b")
+        elif char == "\t":
+            out.append("\\t")
+        elif char == "\n":
+            out.append("\\n")
+        elif char == "\f":
+            out.append("\\f")
+        elif char == "\r":
+            out.append("\\r")
+        elif code < 0x20 or code == 0x7F or 0x80 <= code <= 0x9F or 0xD800 <= code <= 0xDFFF:
+            escaped = 0xFFFD if 0xD800 <= code <= 0xDFFF else code
+            out.append(f"\\u{escaped:04X}")
+        else:
+            out.append(char)
+    out.append('"')
+    return "".join(out)
+
+
+def _toml_key(name: str) -> str:
+    """*name* as a TOML key, quoted when it is not a bare key."""
+    if _BARE_TOML_KEY.fullmatch(name):
+        return name
+    return _toml_string(name)
+
+
+def _toml_float(value: float) -> str:
+    """*value* as a TOML float.
+
+    A whole number keeps a decimal point so ``tomllib`` does not read it
+    back as an int.  Non-finite values use the tokens this interpreter's
+    ``tomllib`` already accepts.
+    """
+    if math.isnan(value):
+        return "nan"
+    if math.isinf(value):
+        return "inf" if value > 0 else "-inf"
+    text = repr(value)
+    if "." not in text and "e" not in text and "E" not in text:
+        text += ".0"
+    return text
+
+
+def _toml_value(value: Any) -> str:
+    """An inline TOML value.  Tables and arrays of tables are not inline."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float):
+        return _toml_float(value)
+    if isinstance(value, str):
+        return _toml_string(value)
+    if isinstance(value, list):
+        return "[" + ", ".join(_toml_value(item) for item in value) + "]"
+    if isinstance(value, dict):
+        body = ", ".join(
+            f"{_toml_key(str(key))} = {_toml_value(item)}" for key, item in value.items()
+        )
+        return "{" + body + "}"
+    raise TypeError(f"cannot emit {type(value).__name__} as TOML")
+
+
+def _toml_array_of_tables(value: Any) -> bool:
+    """True when *value* is a non-empty list of tables."""
+    return isinstance(value, list) and bool(value) and all(isinstance(item, dict) for item in value)
+
+
+def _emit_toml_table(
+    parts: list[str],
+    table: dict[str, Any],
+    prefix: str,
+    *,
+    array: bool,
+) -> None:
+    """Append *table* as a TOML table.  Scalars first, then nested tables.
+
+    A table that only holds subtables does not get an empty header: the
+    children are dotted (``[entries.0x10000000]``), which is what a reader
+    of the verify cache already expects.  An array element always gets its
+    ``[[name]]`` header so a later subtable attaches to that element.
+    """
+    simples: list[tuple[str, Any]] = []
+    nested: list[tuple[str, Any]] = []
+    for key, value in table.items():
+        rendered = _toml_key(str(key))
+        if isinstance(value, dict) or _toml_array_of_tables(value):
+            nested.append((rendered, value))
+        else:
+            simples.append((rendered, value))
+    if prefix and (array or simples or not nested):
+        opener, closer = ("[[", "]]") if array else ("[", "]")
+        parts.append(f"{opener}{prefix}{closer}\n")
+    for key, value in simples:
+        parts.append(f"{key} = {_toml_value(value)}\n")
+    for key, value in nested:
+        child = f"{prefix}.{key}" if prefix else key
+        if _toml_array_of_tables(value):
+            for item in value:
+                _emit_toml_table(parts, item, child, array=True)
+        else:
+            _emit_toml_table(parts, value, child, array=False)
+
+
+def _dump_toml(document: dict[str, Any]) -> str:
+    """Serialize *document* to TOML text.
+
+    ``tomlkit.dumps`` builds a full document model per call.  An all-hit
+    ``rebrew verify`` rewrites the cache and the baseline every run, and that
+    model dominated the run.  Callers pass the result of :func:`toml_document`
+    so ``None`` handling stays in one place.  The stored fields do not change;
+    a document written by either emitter loads through ``tomllib`` as the
+    same values.
+    """
+    parts: list[str] = []
+    _emit_toml_table(parts, document, "", array=False)
+    return "".join(parts)
 
 
 def _decode_nulls(document: dict[str, Any]) -> dict[str, Any]:
@@ -313,7 +454,7 @@ class VerifyCacheEntry:
     """Per-function CFLAGS used for the cached run.
 
     CFLAGS live in ``rebrew-functions.toml``, not in the ``.c`` file, so the
-    source hash alone cannot detect a flag change (``rebrew match
+    source hash alone cannot detect a flag change (``rebrew match run
     --fix-cflags`` rewrites metadata and leaves the source untouched).
     Entries written before this field existed carry ``""`` and are re-verified
     once."""
@@ -353,8 +494,13 @@ class VerifyCacheEntry:
         return cls(**{f.name: d[f.name] for f in fields(cls) if f.name in d})
 
     def result_row(self) -> dict[str, Any]:
-        """The report row: verdict fields only, no cache-identity inputs."""
-        return order_result_row(asdict(self))
+        """The report row: verdict fields only, no cache-identity inputs.
+
+        Field values are scalars, so this copies them directly. ``asdict``
+        deep-copies the whole entry, including the identity fields this row
+        drops, once per cached function.
+        """
+        return {name: getattr(self, name) for name in RESULT_FIELDS}
 
 
 @dataclass
@@ -388,8 +534,23 @@ class VerifyCache:
         )
 
     def to_dict(self) -> dict[str, Any]:
-        """Convert this VerifyCache to a JSON-serializable dictionary."""
-        return asdict(self)
+        """Convert this VerifyCache to a JSON-serializable dictionary.
+
+        Same shape ``dataclasses.asdict`` produced. Entry fields are scalars,
+        so each row is a plain attribute copy instead of a deep copy.
+        """
+        names = tuple(field.name for field in fields(VerifyCacheEntry))
+        return {
+            "version": self.version,
+            "compiler_hash": self.compiler_hash,
+            "target": self.target,
+            "entries": {
+                key: {name: getattr(entry, name) for name in names}
+                for key, entry in self.entries.items()
+            },
+            "headers_hash": self.headers_hash,
+            "binary_id": self.binary_id,
+        }
 
 
 def binary_id(cfg: ProjectConfig) -> str:
@@ -499,7 +660,7 @@ def verify_cache_matches_cfg(cache_path: Path, cfg: ProjectConfig) -> bool:
 def patch_verify_cache_entries(cfg: ProjectConfig, patches: list[dict[str, Any]]) -> None:
     """Apply verify-cache patches with ONE read + ONE write, guarded.
 
-    Shared by every STATUS promotion site (``rebrew test``, ``rebrew match``
+    Shared by every STATUS promotion site (``rebrew test``, ``rebrew match run``
     GA splice, batch flag sweep) so ``rebrew status``/``rebrew todo`` agree
     with the freshly-promoted metadata immediately — previously only test
     patched the cache, so a match run's ``STUB → RELOC`` promotion left
@@ -667,7 +828,7 @@ def patch_verify_cache_entries(cfg: ProjectConfig, patches: list[dict[str, Any]]
             entries[va_key] = entry
 
         try:
-            atomic_write_text(cache_path, tomlkit.dumps(toml_document(raw)), encoding="utf-8")
+            atomic_write_text(cache_path, _dump_toml(toml_document(raw)), encoding="utf-8")
             _invalidate_verify_cache_memo(cache_path)
         except (OSError, TypeError) as exc:
             logging.warning(
@@ -743,7 +904,7 @@ def save_verify_cache(
         # One shared computation of every identity input (resolved flags,
         # toolchain, defines, size, header closure, source hash) — the hit
         # check in prepare_entries compares against these same values.
-        fp = entry_fingerprint(cfg, entry)
+        fp = fresh_entry_fingerprint(cfg, entry)
         if fp is None:
             continue
         relative_path = getattr(entry, "filepath", "")
@@ -856,7 +1017,7 @@ def save_verify_cache(
             entries={str(k): VerifyCacheEntry.from_dict(v) for k, v in cache_entries.items()},
         )
         atomic_write_text(
-            cache_path, tomlkit.dumps(toml_document(cache_data.to_dict())), encoding="utf-8"
+            cache_path, _dump_toml(toml_document(cache_data.to_dict())), encoding="utf-8"
         )
         # Status uses this mtime as the full verification instant. The atomic
         # writer preserves it for identical bytes; a completed full run must
@@ -914,4 +1075,4 @@ def save_baseline(cfg: ProjectConfig, report: dict[str, Any]) -> None:
     path = baseline_path(cfg)
     path.parent.mkdir(parents=True, exist_ok=True)
     with _verify_cache_write_lock(path):
-        atomic_write_text(path, tomlkit.dumps(toml_document(baseline)), encoding="utf-8")
+        atomic_write_text(path, _dump_toml(toml_document(baseline)), encoding="utf-8")

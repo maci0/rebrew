@@ -109,7 +109,7 @@ def _invalidate_data_cache(path: Path) -> None:
 DATA_METADATA_FILENAME = "rebrew-data.toml"
 
 #: Fields owned by the data metadata.  Must match ``_CANONICAL_ORDER``: `type`
-#: is written by `rebrew data --set-type` and the binsync import/overlay paths.
+#: is written by `rebrew data set --type` and the binsync import/overlay paths.
 #: ``UPDATED_BY`` / ``UPDATED_AT`` are the write provenance pair the gated
 #: writers stamp on every change, so "who decided this symbol is DRIFT, and
 #: when" is answerable from the canonical store — the coverage document's

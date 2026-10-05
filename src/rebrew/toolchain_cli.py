@@ -30,6 +30,7 @@ from rebrew.cli import (
     console,
     error_exit,
     json_print,
+    require_config,
 )
 from rebrew.toolchain import (
     ToolchainError,
@@ -117,7 +118,10 @@ app = typer.Typer(
 )
 
 
-@app.command("list")
+@app.command(
+    "list",
+    epilog="Examples:\n\n  rebrew toolchain list --json\n\nShipped toolchains run in Docker; install the selected image before compiling.",
+)
 def list_cmd(
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
@@ -149,7 +153,10 @@ def list_cmd(
     console.print(f"[dim]docker: {'available' if docker_available() else 'NOT available'}[/dim]")
 
 
-@app.command("status")
+@app.command(
+    "status",
+    epilog="Examples:\n\n  rebrew toolchain status my-game --json\n\nShipped toolchains run in Docker; install the selected image before compiling.",
+)
 def status_cmd(
     name: str = typer.Argument(..., help="Toolchain name (e.g. msvc-6.0, delphi-1.0)"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
@@ -242,7 +249,10 @@ def external_ranges(cfg: Any) -> list[tuple[int, int]]:
     return out
 
 
-@app.command("detect")
+@app.command(
+    "detect",
+    epilog="Examples:\n\n  rebrew toolchain detect original/game.exe --json\n\nShipped toolchains run in Docker; install the selected image before compiling.",
+)
 def detect_cmd(
     binary: str = typer.Argument(..., help="Path to the target binary (PE/NE/ELF/Mach-O)"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
@@ -355,7 +365,10 @@ def detect_cmd(
             )
 
 
-@app.command("pull")
+@app.command(
+    "pull",
+    epilog="Examples:\n\n  rebrew toolchain pull my-game --json\n\nShipped toolchains run in Docker; install the selected image before compiling.",
+)
 def pull_cmd(
     name: str = typer.Argument(..., help="Toolchain name (e.g. delphi-1.0)"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
@@ -582,7 +595,10 @@ def _abort_incomplete_vendor(extract_dir: Path, msg: str, *, json_mode: bool) ->
     error_exit(msg, json_mode=json_mode)
 
 
-@app.command("vendor")
+@app.command(
+    "vendor",
+    epilog="Examples:\n\n  rebrew toolchain vendor my-game --json\n\nShipped toolchains run in Docker; install the selected image before compiling.",
+)
 def vendor_cmd(
     name: str = typer.Argument(..., help="Toolchain name (e.g. msvc-1.52, borland-5.5)"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
@@ -1132,7 +1148,10 @@ _SMOKE_GOLDEN: dict[
 }
 
 
-@app.command("smoke")
+@app.command(
+    "smoke",
+    epilog="Examples:\n\n  rebrew toolchain smoke --json\n\nShipped toolchains run in Docker; install the selected image before compiling.",
+)
 def smoke_cmd(
     name: str | None = typer.Argument(None, help="Toolchain name; all image-backed by default"),
     print_goldens: bool = typer.Option(
@@ -1280,7 +1299,10 @@ def smoke_cmd(
         remove_temp_dir(workdir)
 
 
-@app.command("build")
+@app.command(
+    "build",
+    epilog="Examples:\n\n  rebrew toolchain build my-game --json\n\nShipped toolchains run in Docker; install the selected image before compiling.",
+)
 def build_cmd(
     name: str = typer.Argument(..., help="Toolchain name (e.g. watcom-2.0-win32, msvc-6.0)"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
@@ -1586,7 +1608,10 @@ def _live_commit_sha(
     raise ToolchainError(f"unreachable: no attempt made for {url!r}")
 
 
-@app.command("check-updates")
+@app.command(
+    "check-updates",
+    epilog="Examples:\n\n  rebrew toolchain check-updates --json\n\nShipped toolchains run in Docker; install the selected image before compiling.",
+)
 def check_updates_cmd(
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
@@ -1751,7 +1776,10 @@ def _rewrite_dockerfile_sha(name: str, sha256: str) -> None:
     atomic_write_text(df, text, encoding="utf-8")
 
 
-@app.command("update")
+@app.command(
+    "update",
+    epilog="Examples:\n\n  rebrew toolchain update my-game --json\n\nShipped toolchains run in Docker; install the selected image before compiling.",
+)
 def update_cmd(
     name: str = typer.Argument(..., help="Toolchain name (e.g. msvc-6.0, watcom-2.0-win32)"),
     apply: bool = typer.Option(
@@ -1908,6 +1936,96 @@ def update_cmd(
                     console.print("[dim]  no smoke golden for this toolchain[/dim]")
         finally:
             remove_temp_dir(workdir)
+
+
+@app.command(
+    "install-wibo",
+    epilog="Examples:\n\n  rebrew toolchain install-wibo\n\n  rebrew toolchain install-wibo --json\n\nDownloads the optional host runner. Docker-backed profiles retain their runner configuration.",
+)
+def install_wibo(
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
+) -> None:
+    """Download wibo into tools/wibo if missing; keep existing installations."""
+    from rebrew.wibo import download_wibo
+
+    cfg = require_config(target=target, json_mode=json_output)
+    wibo_path = cfg.root / "tools" / "wibo"
+    if wibo_path.exists():
+        console.print(f"wibo already installed at {wibo_path}")
+        if json_output:
+            json_print({"path": str(wibo_path), "downloaded": False, "runner_updated": False})
+        return
+    tag_name = download_wibo(wibo_path)
+    console.print(f"Downloaded wibo {tag_name} to {wibo_path}")
+
+    # Docker-backed profiles execute through their image, which runs
+    # WINE by default (REBREW_RUNNER defaults to wine; wibo is opt-in and
+    # fails on some tools).  The config runner is obsolete for them, so
+    # install-wibo must NOT rewrite runner = "tools/wibo" — that would
+    # silently steer a docker-only project toward the less-compatible
+    # runtime the user just reported failing.  Only legacy host-runner
+    # profiles (native/wine/wibo without an image) get the rewrite.
+    from rebrew.toolchain import TOOLCHAINS
+
+    profile = str(getattr(cfg, "compiler_profile", ""))
+    spec = TOOLCHAINS.get(profile) if profile else None
+    if spec is not None and spec.image is not None:
+        console.print(
+            f"[yellow]note:[/yellow] {profile} is docker-backed — execution "
+            f"runs through image {spec.image}, which uses wine by default; "
+            "the runner config is obsolete and was left untouched (wibo "
+            "is available in tools/ for legacy profiles)"
+        )
+        if json_output:
+            json_print(
+                {
+                    "path": str(wibo_path),
+                    "downloaded": True,
+                    "version": tag_name,
+                    "runner_updated": False,
+                }
+            )
+        return
+
+    runner_updated = False
+    if (cfg.root / "rebrew-project.toml").exists():
+        import re
+
+        from rebrew.config import project_toml_lock
+        from rebrew.utils import atomic_write_text
+
+        # One locked read-modify-write: the rewrite is a regex over the
+        # whole file, so a concurrent writer of any other key in it would
+        # have its edit dropped by the replace.
+        with project_toml_lock(cfg.root) as toml_path:
+            content = toml_path.read_text(encoding="utf-8-sig")
+            if re.search(r"(?m)^\s*runner\s*=", content):
+                new_content = re.sub(
+                    r'(?m)^(\s*runner\s*=\s*)"[^"]*"',
+                    r'\1"tools/wibo"',
+                    content,
+                )
+            else:
+                new_content = re.sub(
+                    r"(?m)^(\[compiler\]\s*\n)",
+                    r'\1runner = "tools/wibo"\n',
+                    content,
+                )
+            if new_content != content:
+                atomic_write_text(toml_path, new_content, encoding="utf-8")
+                runner_updated = True
+                console.print("Auto-enabled wibo in rebrew-project.toml")
+
+    if json_output:
+        json_print(
+            {
+                "path": str(wibo_path),
+                "downloaded": True,
+                "version": tag_name,
+                "runner_updated": runner_updated,
+            }
+        )
 
 
 def main_entry() -> None:

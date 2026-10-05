@@ -1,4 +1,4 @@
-"""Tests for the rebrew flirt module -- pure-function helpers."""
+"""Tests for the rebrew library scan-signatures module -- pure-function helpers."""
 
 from pathlib import Path
 

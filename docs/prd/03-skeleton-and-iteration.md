@@ -84,7 +84,7 @@ you what to attack next.
 - `--force` overwrites an existing file.
 - `--append PATH` appends the marker block to an existing multi-function
   `.c` file rather than creating a new one.
-- `--decomp [--decomp-backend auto|r2ghidra|r2dec|ghidra|kuna|m2c]` embeds a
+- `--decomp [--decompiler auto|r2ghidra|r2dec|ghidra|kuna|m2c]` embeds a
   decompilation as a starting point; `--decomp-body` writes the decompiled C
   as the function body (a real GA seed) instead of a comment block.
 - `--xrefs --endpoint URL` fetches cross-references from Ghidra and
@@ -152,14 +152,14 @@ you what to attack next.
 - `--summary` prints a STATUS/origin breakdown table.
 - `--quiet` errors-only, `--json` machine-readable.
 
-### `rebrew migrate-markers`
+### `rebrew source migrate-markers`
 
 - Moves inline markers into `rebrew-functions.toml` and strips `.c` files
   to pure C (ADR-023).
 - Idempotent; `--dry-run` previews without modifying files.
 - Operates per-file across the project source tree.
 
-### `rebrew split` / `rebrew merge` / `rebrew rename`
+### `rebrew source split` / `rebrew source merge` / `rebrew source rename`
 
 - `split SRC` produces one `<name>.c` per function. `--va` extracts a
   single function and leaves the rest. `--out-dir` overrides the output
@@ -214,14 +214,14 @@ you what to attack next.
 4. `rebrew test src/main/sub_10003da0.c` reports `NEAR_MATCHING (delta 6)`.
 5. `rebrew diff src/main/sub_10003da0.c --mismatches-only` shows three `**` lines all
    tagged "register allocation".
-6. User flips `/Os` to `/O1` in CFLAGS via `rebrew cfg set-cflags`, reruns
+6. User flips `/Os` to `/O1` in CFLAGS via `rebrew cfg module set-cflags`, reruns
    `rebrew test`: STATUS promotes to EXACT.
 
 ### Story 2: Cleaning up a multi-function file
 
-1. `rebrew split src/main/crt_env.c` splits all functions into individual
+1. `rebrew source split src/main/crt_env.c` splits all functions into individual
    `.c` files under `src/main/`.
-2. `rebrew rename old_helper new_helper --file new_helper.c` renames the
+2. `rebrew source rename old_helper new_helper --file new_helper.c` renames the
    function across files.
 3. `rebrew lint --fix` migrates any leftover inline metadata to
    `rebrew-functions.toml`.
@@ -253,7 +253,7 @@ rebrew skeleton [VA]
       --append PATH
       --decomp
       --decomp-body
-      --decomp-backend auto|r2ghidra|r2dec|ghidra|kuna|m2c (default auto)
+      --decompiler auto|r2ghidra|r2dec|ghidra|kuna|m2c (default auto)
       --xrefs
       --endpoint URL  (default http://localhost:8080/mcp/message)
       --dry-run
@@ -303,12 +303,12 @@ rebrew lint [FILES...]
   -t, --target TEXT
       --all-targets
 
-rebrew migrate-markers
+rebrew source migrate-markers
       --dry-run
       --json
   -t, --target TEXT
 
-rebrew split [SOURCE]
+rebrew source split [SOURCE]
       --va TEXT
       --out-dir TEXT
       --dry-run
@@ -316,7 +316,7 @@ rebrew split [SOURCE]
       --json
   -t, --target TEXT
 
-rebrew merge [SOURCES...]
+rebrew source merge [SOURCES...]
   -o, --output TEXT (required)
       --consolidate
       --shared
@@ -326,7 +326,7 @@ rebrew merge [SOURCES...]
       --json
   -t, --target TEXT
 
-rebrew rename TARGET_IDENT NEW_NAME
+rebrew source rename TARGET_IDENT NEW_NAME
       --file TEXT
       --data
       --dry-run
@@ -364,9 +364,9 @@ rebrew todo
 - `rebrew skeleton --decomp` requires r2 + r2ghidra/r2dec/ghidra to be
   installed on the host; failure modes degrade to a bare skeleton with a
   warning.
-- `rebrew rename` does best-effort cross-reference updates by scanning the
+- `rebrew source rename` does best-effort cross-reference updates by scanning the
   reversed directory; it deliberately does not rewrite macros or string
   literals: `grep` for the old name afterwards if you suspect any.
-- `rebrew split` and `rebrew merge` are textual operations driven by
+- `rebrew source split` and `rebrew source merge` are textual operations driven by
   `// FUNCTION:` markers; arbitrary C constructs between functions (e.g.
   file-scope statics that span declarations) may need manual fix-up.

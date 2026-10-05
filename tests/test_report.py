@@ -1,4 +1,4 @@
-"""Tests for rebrew report — static HTML documentation site generation."""
+"""Tests for rebrew coverage report — static HTML documentation site generation."""
 
 import json
 import struct
@@ -1061,7 +1061,7 @@ def _strings_page() -> str:
     """A strings page carrying every cell shape the table can render.
 
     The stub PE a CLI test builds carries no data section, so
-    ``rebrew report`` writes the "nothing to report" note instead of the
+    ``rebrew coverage report`` writes the "nothing to report" note instead of the
     table.  This is the table, with a plain cell, a cell that escapes its
     text, a long cell collapsed into a ``<details>`` disclosure, a ref list
     long enough to collapse, and the ``n/a`` the failed ref scan emits.

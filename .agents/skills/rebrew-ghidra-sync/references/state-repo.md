@@ -2,7 +2,7 @@
 
 Load this when the BinSync state dir is a shared git repo, or when borrowing
 names and prototypes from a related target's state dir. Plain
-`rebrew sync --push/--pull --state-dir` is in the SKILL.md.
+`rebrew sync push / rebrew sync pull --state-dir` is in the SKILL.md.
 
 ## Git-backed state repo (`rebrew binsync push/pull`)
 

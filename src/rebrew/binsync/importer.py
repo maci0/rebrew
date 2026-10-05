@@ -1,6 +1,6 @@
 """importer.py — Import a BinSync state directory into rebrew metadata.
 
-Reads a BinSync state directory (as produced by ``rebrew binsync-export`` or
+Reads a BinSync state directory (as produced by ``rebrew binsync export`` or
 any BinSync-aware decompiler) and offers to apply function renames,
 prototype updates, and global names back into the rebrew project.
 
@@ -11,9 +11,9 @@ extra).  Conflict handling mirrors :mod:`rebrew.ghidra.commands`
 
 Typical flow::
 
-    rebrew binsync-export ./state          # team member renames in IDA
-    rebrew binsync-import ./state --dry-run
-    rebrew binsync-import ./state --accept-binsync
+    rebrew binsync export ./state          # team member renames in IDA
+    rebrew binsync import ./state --dry-run
+    rebrew binsync import ./state --accept-binsync
 
 Functions whose local name is generic (``func_…``, ``FUN_…``) are updated
 without conflict; when both sides have meaningful names a conflict is reported
@@ -93,10 +93,10 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew binsync-import ./state --dry-run · · · Preview without writing\n\n"
-        "  rebrew binsync-import ./state --accept-binsync · Accept BinSync names\n\n"
-        "  rebrew binsync-import ./state --accept-local · · Keep local, record provenance\n\n"
-        "  rebrew binsync-import ./state --module SERVER · Only import one module\n\n"
+        "  rebrew binsync import ./state --dry-run · · · Preview without writing\n\n"
+        "  rebrew binsync import ./state --accept-binsync · Accept BinSync names\n\n"
+        "  rebrew binsync import ./state --accept-local · · Keep local, record provenance\n\n"
+        "  rebrew binsync import ./state --module SERVER · Only import one module\n\n"
         "[dim]Reads functions/*.toml, global_vars.toml, and structs/*.toml from a BinSync\n"
         "state directory and applies names/prototypes/globals back to rebrew metadata.[/dim]"
     ),
@@ -464,7 +464,7 @@ def import_state(
 
     Returns the result dict (counts plus ``touched_vas`` — the VAs the import
     applied names/prototypes/globals to or created stubs for, so callers like
-    ``rebrew sync --pull --create-functions`` can push them to Ghidra).
+    ``rebrew sync pull --create-functions`` can push them to Ghidra).
     """
     wanted_module = preset_module_key(module) if module else None
     module_selected = module_predicate(wanted_module)
@@ -1402,7 +1402,7 @@ def import_type_definitions(
     blocks = [
         existing
         or "/* binsync_types.h - type definitions imported from BinSync.\n"
-        " * Regenerate/extend via: rebrew binsync-import\n */\n\n"
+        " * Regenerate/extend via: rebrew binsync import\n */\n\n"
     ]
     written = 0
     # ``landed`` includes blocks appended in this call so two keys that emit

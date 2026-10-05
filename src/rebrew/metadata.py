@@ -56,7 +56,7 @@ BLOCKER writes
 --------------
 ``BLOCKER`` / ``BLOCKER_DELTA`` are equally programmatic — use
 ``rebrew blocker set/clear`` (or ``rebrew diff --fix-blocker`` /
-``rebrew near-diag --fix-blocker`` / ``rebrew document-unmatched`` for
+``rebrew diagnose near --fix-blocker`` / ``rebrew source document-unmatched`` for
 auto-classified cases).  The Python gate is :func:`update_field` /
 :func:`remove_field` with *key* ``"blocker"`` / ``"blocker_delta"``.
 No hand-edits to ``rebrew-functions.toml`` — every write goes through the
@@ -99,6 +99,7 @@ import contextlib
 import copy
 import logging
 import math
+import os
 import threading
 import tomllib
 import typing
@@ -129,6 +130,7 @@ from rebrew.utils import (
     load_toml_for_write,
     load_toml_for_write_strict,
     read_toml_text,
+    resolved_path,
     toml_safe,
 )
 from rebrew.workspace.status import EARNED_STATUSES as EARNED_STATUSES
@@ -859,7 +861,7 @@ def set_fields_batch(
     return changed_entries
 
 
-#: ADR 023 identity keys that ``rebrew migrate-markers`` moves out of ``.c``
+#: ADR 023 identity keys that ``rebrew source migrate-markers`` moves out of ``.c``
 #: markers.  Deliberately outside :data:`METADATA_FIELDS`: inline KV routing
 #: and the typed writers never touch them; only :func:`record_migrated_markers`
 #: writes them.
@@ -874,12 +876,15 @@ _KNOWN_METADATA_FIELDS: frozenset[str] = METADATA_FIELDS | {
 }
 
 
-def record_migrated_markers(metadata_dir: Path | str | Any, rows: list[dict[str, Any]]) -> None:
+def record_migrated_markers(
+    metadata_dir: Path | str | Any, rows: list[dict[str, Any]], *, overwrite_name: bool = False
+) -> None:
     """Write ``migrate-markers`` rows into ``rebrew-functions.toml`` in one edit.
 
     Each row carries ``module``, ``va``, ``identity`` (keys from
     :data:`MARKER_IDENTITY_FIELDS`; empty values are skipped and ``name`` is
-    only set when absent) and ``fields`` (metadata fields validated like
+    only set when absent unless an explicit rename sets ``overwrite_name``)
+    and ``fields`` (metadata fields validated like
     :func:`set_fields`; STATUS is rejected).  The document is edited in place,
     so comments and entries the loader skips survive.
 
@@ -911,7 +916,7 @@ def record_migrated_markers(metadata_dir: Path | str | Any, rows: list[dict[str,
             for key, value in (row.get("identity") or {}).items():
                 if key not in MARKER_IDENTITY_FIELDS:
                     raise ValueError(f"unknown marker identity field {key!r}")
-                if value and not (key == "name" and entry.get("name")):
+                if value and not (key == "name" and entry.get("name") and not overwrite_name):
                     stored = validate_identity_file(str(value)) if key == "file" else str(value)
                     if stored:
                         updates[key] = toml_safe(stored)
@@ -1594,7 +1599,7 @@ def apply_metadata_entry(ann: Annotation, entry: dict[str, Any]) -> None:
 
 #: Blocker prefix marking a function whose residual byte delta is
 #: register-only ("effective match") — the GA ceiling.  Written by
-#: ``rebrew match`` after the GA exhausts on such a delta; GA batch
+#: ``rebrew match run`` after the GA exhausts on such a delta; GA batch
 #: selectors skip these entries while ``rebrew prove --all --ceiling``
 #: targets exactly them (the sanctioned next step to PROVEN).
 GA_CEILING_PREFIX = "GA_CEILING:"
@@ -1898,6 +1903,7 @@ def clear_library_override_cache() -> None:
     """Forget cached ``rebrew-libraries.toml`` parse results (call after writes)."""
     with _LIBRARY_CACHE_LOCK:
         _LIBRARY_META_CACHE.clear()
+        _LIBRARY_FP_MEMO.clear()
 
 
 def nearest_library_metadata_path(
@@ -1907,8 +1913,8 @@ def nearest_library_metadata_path(
 
     Stops at *root* (project root — ``cfg.root``) inclusive.
     """
-    cur = Path(start_dir).resolve()
-    root_p = Path(root).resolve() if root is not None else None
+    cur = resolved_path(Path(start_dir))
+    root_p = resolved_path(Path(root)) if root is not None else None
 
     walk = cur
     while True:
@@ -1923,6 +1929,90 @@ def nearest_library_metadata_path(
     return None
 
 
+#: ``(start spelling, root spelling)`` -> watched directory stats, the
+#: caller's own lstat, and the fingerprint.  Annotation is not the key:
+#: every function under one directory asks the same question, and the walk
+#: is pathlib resolution.  A hit re-stats those directories and the file.
+#: A new ``rebrew-libraries.toml`` bumps a parent directory; an in-place
+#: edit bumps the file.  Either misses.  ``clear_library_override_cache``
+#: drops the map after a tool write that can land in the same timestamp.
+_LIBRARY_FP_MEMO: OrderedDict[
+    tuple[str, str],
+    tuple[
+        tuple[tuple[str, int, int], ...],
+        tuple[str, int, int],
+        tuple[str, int, int, int] | None,
+    ],
+] = OrderedDict()
+_LIBRARY_FP_MEMO_MAX = 256
+
+
+def _library_stat_id(path: str, *, follow: bool) -> tuple[int, int] | None:
+    """``(mtime_ns, ino)`` for *path*, or None when it cannot be stat'ed.
+
+    ``os.stat`` rather than ``Path.stat``: this re-check runs once per
+    function, and building a ``Path`` for it was the walk's cost.
+    """
+    try:
+        st = os.stat(path, follow_symlinks=follow)  # noqa: PTH116
+    except OSError:
+        return None
+    return (st.st_mtime_ns, st.st_ino)
+
+
+def _library_watch_ids(
+    start_dir: str | Path, root: str | Path | None
+) -> tuple[tuple[tuple[str, int, int], ...], tuple[str, int, int]] | None:
+    """Directory chain a later call re-stats instead of resolving again.
+
+    The first row is the caller's path via ``lstat``, so a symlink retarget
+    misses.  The rest are the resolved directories from *start_dir* through
+    *root*: creating a library file bumps one of those directories.
+    """
+    start_spelling = str(Path(start_dir))
+    link = _library_stat_id(start_spelling, follow=False)
+    if link is None:
+        return None
+    try:
+        cur = resolved_path(Path(start_dir))
+        root_p = resolved_path(Path(root)) if root is not None else None
+    except OSError:
+        return None
+    dirs: list[tuple[str, int, int]] = []
+    walk = cur
+    while True:
+        ident = _library_stat_id(str(walk), follow=True)
+        if ident is None:
+            return None
+        dirs.append((str(walk), ident[0], ident[1]))
+        if root_p is not None and walk == root_p:
+            break
+        if walk.parent == walk:
+            break
+        walk = walk.parent
+    return tuple(dirs), (start_spelling, link[0], link[1])
+
+
+def _library_watch_unchanged(
+    dirs: tuple[tuple[str, int, int], ...],
+    link: tuple[str, int, int],
+    found: tuple[str, int, int, int] | None,
+) -> bool:
+    """True while the watched directories, the start path, and the file match."""
+    if _library_stat_id(link[0], follow=False) != (link[1], link[2]):
+        return False
+    for path, mtime_ns, ino in dirs:
+        if _library_stat_id(path, follow=True) != (mtime_ns, ino):
+            return False
+    if found is None:
+        return True
+    try:
+        st = os.stat(found[0])  # noqa: PTH116
+    except OSError:
+        return False
+    return (st.st_mtime_ns, st.st_size, st.st_ino) == found[1:]
+
+
 def library_override_fingerprint(
     start_dir: str | Path, root: str | Path | None = None
 ) -> tuple[str, int, int, int] | None:
@@ -1932,19 +2022,42 @@ def library_override_fingerprint(
     no parse, so a caller that memoizes the resolution still notices a
     ``rebrew library set`` write (new mtime/inode) without re-reading the
     TOML on every function.  ``None`` when no file applies.
+
+    Repeated calls for one directory re-stat the walked directories and the
+    file instead of resolving the walk again.  A new file, a removed file,
+    or an in-place edit still returns the fresh fingerprint.
     """
+    key = (os.fspath(start_dir), "" if root is None else os.fspath(root))
+    with _LIBRARY_CACHE_LOCK:
+        cached = _LIBRARY_FP_MEMO.get(key)
+    if cached is not None and _library_watch_unchanged(cached[0], cached[1], cached[2]):
+        with _LIBRARY_CACHE_LOCK:
+            if key in _LIBRARY_FP_MEMO:
+                _LIBRARY_FP_MEMO.move_to_end(key)
+        return cached[2]
     found = nearest_library_metadata_path(start_dir, root)
+    result: tuple[str, int, int, int] | None
     if found is None:
-        return None
-    try:
-        st = found.stat()
-    except OSError as exc:
-        # The memo key must still name the file that applies: returning None
-        # reads as "no override file here", so a `rebrew library set` write
-        # stays invisible for the rest of the process.
-        logger.warning("cannot stat library override %s, key is stale: %s", found, exc)
-        return None
-    return (str(found), st.st_mtime_ns, st.st_size, st.st_ino)
+        result = None
+    else:
+        try:
+            st = found.stat()
+        except OSError as exc:
+            # The memo key must still name the file that applies: returning None
+            # reads as "no override file here", so a `rebrew library set` write
+            # stays invisible for the rest of the process.
+            logger.warning("cannot stat library override %s, key is stale: %s", found, exc)
+            return None
+        result = (str(found), st.st_mtime_ns, st.st_size, st.st_ino)
+    watched = _library_watch_ids(start_dir, root)
+    if watched is None:
+        return result
+    with _LIBRARY_CACHE_LOCK:
+        _LIBRARY_FP_MEMO[key] = (watched[0], watched[1], result)
+        _LIBRARY_FP_MEMO.move_to_end(key)
+        while len(_LIBRARY_FP_MEMO) > _LIBRARY_FP_MEMO_MAX:
+            _LIBRARY_FP_MEMO.popitem(last=False)
+    return result
 
 
 def find_library_override(

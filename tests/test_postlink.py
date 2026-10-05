@@ -1,4 +1,4 @@
-"""Tests for rebrew.postlink — the ``rebrew postlink`` layout normalizer.
+"""Tests for rebrew.postlink — the ``rebrew build postlink`` layout normalizer.
 
 The fixers converge a built binary onto a reference by copying linker-derived
 regions (import bookkeeping, ``.data``, ``.reloc``, PE headers).  ``make_pe``
@@ -343,7 +343,7 @@ class TestDataFixer:
         -- a stub DllMain plus ~100 `ff 25` IAT thunks -- because its link
         overshoots the reference's .text by 0x282.
         `scripts/postlink_residual.py` normalized that span for its own
-        measurement, so the residue number looked clean while `rebrew postlink`
+        measurement, so the residue number looked clean while `rebrew build postlink`
         shipped the bytes: a measure-vs-ship divergence.
 
         The guard matters as much as the fix: when the built .text does NOT

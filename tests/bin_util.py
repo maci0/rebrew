@@ -749,7 +749,7 @@ def append_pe_section(pe: bytes, name: str, data: bytes) -> bytes:
     """Append a section (*name*, *data*) to a minimal PE built by :func:`make_pe`.
 
     Used by tests that need a second section (e.g. a ``.rsrc`` resource
-    section for ``rebrew resource``).  Appends one section header, bumps
+    section for ``rebrew binary resource``).  Appends one section header, bumps
     NumberOfSections, and places the raw data at the next file-aligned
     offset.  Returns the patched PE bytes.
     """

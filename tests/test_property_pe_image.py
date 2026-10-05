@@ -1,7 +1,7 @@
 """Property-based fuzz tests for ``rebrew.pe_image.parse_pe`` on corrupted images.
 
-``parse_pe`` is the hand-rolled PE32 walk behind ``rebrew gen-layout`` and
-``rebrew link-sweep``: it reads a reference binary the user points the CLI at,
+``parse_pe`` is the hand-rolled PE32 walk behind ``rebrew build layout`` and
+``rebrew build sweep-link-flags``: it reads a reference binary the user points the CLI at,
 so every offset, count, and RVA in it is untrusted.  These tests mutate the
 committed PE fixture (headers, section table, export/import directories,
 truncation) and pin the documented outcomes: a self-consistent parse, or a

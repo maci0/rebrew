@@ -1,4 +1,4 @@
-"""End-to-end test for `rebrew migrate-markers`: inline markers → TOML,
+"""End-to-end test for `rebrew source migrate-markers`: inline markers → TOML,
 stripped pure-C sources, and post-migration parsing."""
 
 import threading

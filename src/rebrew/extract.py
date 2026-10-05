@@ -5,10 +5,10 @@ already-reversed VAs from the project's src directory, and lets you
 list/extract/batch the remaining candidates.
 
 Usage:
-    rebrew extract list                # List un-reversed candidates
-    rebrew extract show 0x10001860     # Extract + disasm one VA
-    rebrew extract batch 20            # Extract first 20 smallest
-    rebrew extract batch 20 --start 10 # Offset into sorted list
+    rebrew binary extract list                # List un-reversed candidates
+    rebrew binary extract show 0x10001860     # Extract + disasm one VA
+    rebrew binary extract batch 20            # Extract first 20 smallest
+    rebrew binary extract batch 20 --start 10 # Offset into sorted list
 """
 
 import logging
@@ -29,6 +29,7 @@ from rebrew.cli import (
     json_print,
     parse_va,
     require_config,
+    require_non_negative,
     untrusted_ident,
 )
 from rebrew.config import ProjectConfig, inventory_path_for
@@ -67,7 +68,7 @@ def load_functions(cfg: ProjectConfig) -> list[dict[str, int | str]]:
     if not inv.exists():
         raise FileNotFoundError(
             f"No function inventory at {inv} — run `rebrew intake` or "
-            "`rebrew discover-functions` first"
+            "`rebrew binary functions` first"
         )
     return [
         {"va": int(fn["va"]), "size": int(fn["size"]), "name": str(fn["name"])}
@@ -161,6 +162,8 @@ def cmd_batch(
     dry_run: bool = False,
 ) -> None:
     """Extract and disassemble a batch of functions."""
+    require_non_negative(count, "COUNT", json_mode=json_output)
+    require_non_negative(start, "--start", json_mode=json_output)
     if not dry_run:
         bin_dir.mkdir(parents=True, exist_ok=True)
     batch = candidates[start : start + count]
@@ -307,10 +310,10 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew extract list · · · · · · · · List un-reversed candidates\n\n"
-        "  rebrew extract show 0x10001860 · · · Extract + disassemble one VA\n\n"
-        "  rebrew extract batch 20 · · · · · · Extract first 20 smallest\n\n"
-        "  rebrew extract batch 20 --start 10 · Offset into sorted list\n\n"
+        "  rebrew binary extract list · · · · · · · · List un-reversed candidates\n\n"
+        "  rebrew binary extract show 0x10001860 · · · Extract + disassemble one VA\n\n"
+        "  rebrew binary extract batch 20 · · · · · · Extract first 20 smallest\n\n"
+        "  rebrew binary extract batch 20 --start 10 · Offset into sorted list\n\n"
         "[dim]Reads the discovery inventory (function_structure.json) and auto-detects "
         "already-reversed VAs. Outputs .bin files to the configured bin_dir.[/dim]"
     ),
@@ -322,7 +325,10 @@ def main() -> None:
     """Extract and disassemble functions from the target binary."""
 
 
-@app.command("list")
+@app.command(
+    "list",
+    epilog="Examples:\n\n  rebrew binary extract list --json\n\nUse --target to select a configured project target.",
+)
 def list_candidates(
     binary: Path | None = typer.Option(
         None, "--binary", help="Path to DLL/EXE (default: from config)"
@@ -341,7 +347,10 @@ def list_candidates(
     cmd_list(candidates)
 
 
-@app.command("show")
+@app.command(
+    "show",
+    epilog="Examples:\n\n  rebrew binary extract show 0x401000 --json\n\nUse --target to select a configured project target.",
+)
 def show_candidate(
     va: str = typer.Argument(..., help="VA (hex) to extract and disassemble"),
     size: int | None = typer.Option(
@@ -369,7 +378,10 @@ def show_candidate(
     cmd_extract(binary_info, candidates, target_va, cfg.bin_dir, cfg=cfg, json_output=json_output)
 
 
-@app.command("batch")
+@app.command(
+    "batch",
+    epilog="Examples:\n\n  rebrew binary extract batch --dry-run --json\n\nUse --target to select a configured project target.",
+)
 def batch_candidates(
     count: int = typer.Argument(20, help="Number of functions to extract"),
     start: int = typer.Option(0, "--start", help="Start offset for batch mode"),

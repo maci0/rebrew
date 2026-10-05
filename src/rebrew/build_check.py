@@ -7,7 +7,7 @@ That matters because ``build/`` is load-bearing for the reconstruction:
 * ``scripts/linktest.sh`` recompiles with the exact command ``build.make``
   records -- that is what makes its deltas comparable to the real build;
 * ``scripts/split_link.sh`` links the objects those commands produced;
-* ``rebrew postlink`` rewrites the image they link into.
+* ``rebrew build postlink`` rewrites the image they link into.
 
 All three therefore treat ``build.make`` as ground truth.  That trust is only
 sound while ``build.make`` still says what CMake wrote.  A round that hand-edits
@@ -29,7 +29,7 @@ corresponding ``Custom`` comment.  A token in one and not the other was added by
 hand.  Objects with no ``Custom`` comment have no per-file flags -- they compile
 with the global ``C_FLAGS`` -- and are not drift.
 
-**A flag comparison cannot see a wrong object list.**  ``rebrew rename`` rewrites
+**A flag comparison cannot see a wrong object list.**  ``rebrew source rename`` rewrites
 the source and its cross-references but not the gitignored ``build/``, so
 ``build.make`` keeps naming the old ``.obj``.  Every flag still agrees, because
 the stale objects are simply never looked at: the loop skips any object without a
@@ -382,9 +382,9 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew build-check · · · · · · · Inspect the default build/ tree\n\n"
-        "  rebrew build-check --json · · · · Machine-readable result\n\n"
-        "  rebrew build-check --build-dir out/x64 · Check a non-default tree\n\n"
+        "  rebrew build check · · · · · · · Inspect the default build/ tree\n\n"
+        "  rebrew build check --json · · · · Machine-readable result\n\n"
+        "  rebrew build check --build-dir out/x64 · Check a non-default tree\n\n"
         "[bold]Exit codes:[/bold] 0 in sync · 1 drift · 2 nothing to check "
         "(missing or mistyped --build-dir)\n\n"
         "[dim]build/ is gitignored, so no tracked-file check can see a hand-edited "

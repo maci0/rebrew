@@ -11,7 +11,7 @@ are not re-derived by hand.
 Rebrew is not a splat re-implementation: its loop is compiler-in-the-loop C,
 while splat's reassembly path needs GNU ``as``/``ld``/``objcopy``.  What this
 module provides is interop in one direction, the one that helps: splat ->
-rebrew.  Nothing here writes a splat file back out (``rebrew symbol-addrs``
+rebrew.  Nothing here writes a splat file back out (``rebrew export symbols``
 already exports the symbol side).
 
 What it delegates to (no second mechanism):
@@ -22,7 +22,7 @@ What it delegates to (no second mechanism):
   outside it is a hard error, never a silent misread.
 - Symbols: :func:`rebrew.symbol_addrs.parse_symbol_addrs` reads every
   ``symbol_addrs_path`` file, including the rich ``// type:``/``// size:``
-  trailing comments the ``rebrew symbol-addrs`` writer emits.
+  trailing comments the ``rebrew export symbols`` writer emits.
 - Binary identity and layout: :func:`rebrew.binary_loader.load_binary`
   supplies format, arch, and image base; the configured binary is copied by
   the same convention ``rebrew intake`` uses (``original/<target>``).
@@ -38,7 +38,7 @@ What it delegates to (no second mechanism):
   :func:`rebrew.data_metadata.set_data_field` for ``size``/``section``.
 - Layout entries: :class:`rebrew.layout_meta.SectionMeta` records, written
   into ``layout/<target>/rebrew-layout.toml`` in the same shape
-  ``rebrew gen-layout`` writes, so ``rebrew data``/``calibrate-bss`` read them
+  ``rebrew build layout`` writes, so ``rebrew data list``/``calibrate-bss`` read them
   unchanged.
 
 What a splat config cannot give rebrew (skipped on purpose, reported by
@@ -62,9 +62,9 @@ What a splat config cannot give rebrew (skipped on purpose, reported by
 
 Usage::
 
-    rebrew import-splat splat.yaml            # dry run: what it would write
-    rebrew import-splat splat.yaml --write    # apply
-    rebrew import-splat splat.yaml --write --force --target win32_app.exe
+    rebrew source import-splat splat.yaml            # dry run: what it would write
+    rebrew source import-splat splat.yaml --write    # apply
+    rebrew source import-splat splat.yaml --write --force --target win32_app.exe
 
 Config subset
 -------------
@@ -153,7 +153,7 @@ _IGNORED_OPTION_REASONS: dict[str, str] = {
     "create_c_files": "splat generates .c files from ranges; rebrew has no generator",
     "data_string_encoding": "splat's assembly emitter option",
     "disassemble_all": "splat's split path",
-    "dump_symbols": "splat's own symbols dump; use `rebrew symbol-addrs --references`",
+    "dump_symbols": "splat's own symbols dump; use `rebrew export symbols --references`",
     "dump_symbols_references": "splat's own symbols dump",
     "emit_subalign": "GNU ld directive (splat's linker script)",
     "elf_path": "splat's reassembly output (rebrew compiles sources directly; parsed, not read)",
@@ -206,7 +206,7 @@ _IGNORED_OPTION_REASONS: dict[str, str] = {
 
 UNKNOWN_OPTION_REASON = (
     "not a splat option this importer consumes; rebrew has no equivalent "
-    "(see the rebrew repo's docs/CLI.md `rebrew import-splat`)"
+    "(see the rebrew repo's docs/CLI.md `rebrew source import-splat`)"
 )
 
 #: Top-level keys (outside ``options``) splat writes or accepts.
@@ -263,7 +263,7 @@ _IGNORED_SUBSEGMENT_REASONS: dict[str, str] = {
     "c": "splat's C-file split range (rebrew's sources are hand-written, not "
     "generated from ranges)",
     "hasm": "splat's handwritten-asm split range",
-    "jtbl": "splat's jump-table split (rebrew decodes switches with `rebrew switch`)",
+    "jtbl": "splat's jump-table split (rebrew decodes switches with `rebrew binary switches`)",
     "jtbl_label": "splat's jump-table labels",
     "label": "splat's bare label marker (no bytes, no rebrew annotation)",
     "alabel": "splat's asm label marker",
@@ -314,7 +314,7 @@ FUNC_TYPE = "func"
 #: The provenance splat's ``create_config`` writes for an IAT-slot symbol
 #: (``// type:u32 -- import from KERNEL32.dll``).  A row carrying it names an
 #: imported library API, so a code-section row becomes a ``LIBRARY`` entry (the
-#: same classification ``rebrew identify-library``'s import backend makes).
+#: same classification ``rebrew library identify``'s import backend makes).
 _IMPORT_DETAIL_RE = re.compile(r"import from\s+(?P<dll>[^\s,;]+)")
 
 #: Bytes per :data:`_DATA_C_TYPES` element, for sizing an array declaration.
@@ -377,9 +377,9 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew import-splat splat.yaml · · · · · · Dry run: what would be written\n\n"
-        "  rebrew import-splat splat.yaml --write · · · Apply\n\n"
-        "  rebrew import-splat splat.yaml --json · · · · Machine-readable plan\n\n"
+        "  rebrew source import-splat splat.yaml · · · · · · Dry run: what would be written\n\n"
+        "  rebrew source import-splat splat.yaml --write · · · Apply\n\n"
+        "  rebrew source import-splat splat.yaml --json · · · · Machine-readable plan\n\n"
         "[dim]Reads the config surface rebrew consumes (target_path, platform, "
         "compiler, segments/subsegments, symbol_addrs, undefined_* lists).\n"
         "Ignored keys are reported by name with the reason, never dropped "
@@ -670,7 +670,7 @@ def parse_splat_config(path: Path) -> SplatConfig:
             f"{path}: platform {platform!r} is not supported: rebrew seeds only "
             f"from a {SUPPORTED_PLATFORM!r} (PE) config: other platforms carry "
             "segment vocabularies and assets rebrew cannot compile "
-            "(see `rebrew import-splat --help`)"
+            "(see `rebrew source import-splat --help`)"
         )
 
     compiler = str(options.get("compiler") or "")
@@ -787,7 +787,7 @@ def load_symbols(cfg_splat: SplatConfig) -> SymbolSet:
 
     Every row goes through :func:`rebrew.symbol_addrs.parse_symbol_addrs`, the
     reader for the rich ``name = 0xVA; // type:… size:…`` form that
-    ``rebrew symbol-addrs`` writes.  ``undefined_funcs_auto``/``undefined_syms_auto``
+    ``rebrew export symbols`` writes.  ``undefined_funcs_auto``/``undefined_syms_auto``
     use the plain ``name = 0xVA;`` form splat writes (splat's
     ``write_undefined_auto``); the same reader covers both.
 
@@ -1009,8 +1009,8 @@ def _layout_sections(
     numbers are reported when they disagree); a segment with no PE counterpart
     falls back to the splat span and the characteristics implied by its
     subsegment kind.  Either way the record is the same shape
-    ``rebrew gen-layout`` writes, so ``rebrew data`` and
-    ``rebrew calibrate-bss`` read it unchanged.
+    ``rebrew build layout`` writes, so ``rebrew data list`` and
+    ``rebrew build calibrate-bss`` read it unchanged.
     """
     from rebrew.pe_headers import pe_layout
 
@@ -1323,7 +1323,7 @@ def _plan_library_annotations(
                     row.name,
                     f"undefined symbol at 0x{row.va:08X} lies outside the image; splat "
                     "records no bytes for it, so there is no address to annotate "
-                    "(link it with `rebrew gen-stubs` instead)",
+                    "(link it with `rebrew build symbol-stubs` instead)",
                 )
             )
             continue
@@ -1363,7 +1363,7 @@ def _import_module(detail: str) -> str:
 
     A generated win32 symbol file writes ``// type:u32 -- import from
     KERNEL32.dll`` for an IAT slot; the module is that DLL's stem uppercased,
-    the spelling ``rebrew identify-library`` gives import candidates.
+    the spelling ``rebrew library identify`` gives import candidates.
     """
     match = _IMPORT_DETAIL_RE.search(detail or "")
     if match is None:
@@ -1476,7 +1476,7 @@ def _write_target_metadata(plan: ImportPlan, root: Path) -> bool:
     """Patch the target's binary/format/arch/profile and write its layout package.
 
     Layout sections + image base go to ``layout/<target>/rebrew-layout.toml`` (the
-    same package ``rebrew gen-layout`` writes, minus the hex blobs a splat
+    same package ``rebrew build layout`` writes, minus the hex blobs a splat
     import has no binary to derive) so ``data``/``calibrate-bss`` read one
     source.  Uses a tomlkit round trip for the project config so comments
     and unrelated keys survive.  Returns whether anything changed, so a

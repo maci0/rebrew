@@ -762,7 +762,7 @@ class TestCLI:
         self._project(tmp_path)
         monkeypatch.chdir(tmp_path)
         runner = CliRunner()
-        result = runner.invoke(umbrella, ["cross-import", "--from", "DST"])
+        result = runner.invoke(umbrella, ["source", "import-related", "--from", "DST"])
         assert result.exit_code != 0
         assert "--from must name a different target" in result.output
 
@@ -806,7 +806,7 @@ class TestCLI:
         runner = CliRunner()
         result = runner.invoke(
             umbrella,
-            ["cross-import", "--from", "SRC", "--json", "--dry-run"],
+            ["source", "import-related", "--from", "SRC", "--json", "--dry-run"],
         )
         assert result.exit_code == 0, result.output
         payload = json_mod.loads(result.output)
@@ -855,7 +855,7 @@ class TestCLI:
         monkeypatch.setattr("rebrew.cross_import.import_function", _fake_import)
         runner = CliRunner()
         result = runner.invoke(
-            umbrella, ["cross-import", "--from", "SRC", "--json", "--limit", "0"]
+            umbrella, ["source", "import-related", "--from", "SRC", "--json", "--limit", "0"]
         )
         assert result.exit_code == 0, result.output
         assert calls == []
@@ -905,7 +905,7 @@ class TestCLI:
         runner = CliRunner()
         result = runner.invoke(
             umbrella,
-            ["cross-import", "--from", "SRC", "--json", "--dry-run"],
+            ["source", "import-related", "--from", "SRC", "--json", "--dry-run"],
         )
         assert result.exit_code == 0, result.output
         payload = json_mod.loads(result.output)
@@ -1263,7 +1263,7 @@ class TestPromoteToShared:
 
         runner = CliRunner()
         result = runner.invoke(
-            umbrella, ["cross-import", "--from", "SRC", "--shared", "--target", "DST"]
+            umbrella, ["source", "import-related", "--from", "SRC", "--shared", "--target", "DST"]
         )
         assert result.exit_code == 0, result.output
         assert (tmp_path / "src" / "shared" / "f1.c").is_file()
@@ -1822,7 +1822,15 @@ class TestCandidatesOnly:
         runner = CliRunner()
         result = runner.invoke(
             umbrella,
-            ["cross-import", "--from", "SRC", "--json", "--dry-run", "--candidates-only"],
+            [
+                "source",
+                "import-related",
+                "--from",
+                "SRC",
+                "--json",
+                "--dry-run",
+                "--candidates-only",
+            ],
         )
         assert result.exit_code == 0, result.output
         payload = json_mod.loads(result.output)
@@ -1858,7 +1866,9 @@ class TestCandidatesOnly:
         )
 
         runner = CliRunner()
-        result = runner.invoke(umbrella, ["cross-import", "--from", "SRC", "--json", "--dry-run"])
+        result = runner.invoke(
+            umbrella, ["source", "import-related", "--from", "SRC", "--json", "--dry-run"]
+        )
         assert result.exit_code == 0, result.output
         payload = json_mod.loads(result.output)
         assert len(payload["results"]) == 2

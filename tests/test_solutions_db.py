@@ -1,4 +1,4 @@
-"""Tests for rebrew solutions — the GA solutions database CLI."""
+"""Tests for rebrew match solutions — the GA solutions database CLI."""
 
 from __future__ import annotations
 
@@ -108,7 +108,7 @@ class TestCollect:
 
 
 class TestSolutionsCli:
-    @pytest.mark.parametrize("args", [["solutions"], ["solutions", "--best"]])
+    @pytest.mark.parametrize("args", [["match", "solutions"], ["match", "solutions", "--best"]])
     def test_display_preserves_timestamp_offsets(
         self,
         tmp_path: Path,
@@ -117,7 +117,7 @@ class TestSolutionsCli:
     ) -> None:
         """The solutions table shows the instant exactly as it was recorded.
 
-        ``rebrew match --ga-history`` deliberately re-zones to the reader's
+        ``rebrew match history`` deliberately re-zones to the reader's
         host (see ``test_ga.TestGaHistory``); this table is a record to read
         back, so the recorded offset, sub-second digits included, survives.
         """
@@ -165,7 +165,7 @@ class TestSolutionsCli:
             "rebrew.solutions_db.require_config",
             lambda target=None, json_mode=False: _cfg(tmp_path),
         )
-        result = CliRunner().invoke(app, ["solutions", "--json"])
+        result = CliRunner().invoke(app, ["match", "solutions", "--json"])
         assert result.exit_code == 0, result.output
         payload = json.loads(result.stdout)
         assert payload["count"] == 2
@@ -177,7 +177,7 @@ class TestSolutionsCli:
             "rebrew.solutions_db.require_config",
             lambda target=None, json_mode=False: _cfg(tmp_path),
         )
-        result = CliRunner().invoke(app, ["solutions", "--symbol", "malloc", "--json"])
+        result = CliRunner().invoke(app, ["match", "solutions", "--symbol", "malloc", "--json"])
         payload = json.loads(result.stdout)
         assert payload["count"] == 1
         assert payload["rows"][0]["symbol"] == "_malloc"
@@ -206,7 +206,7 @@ class TestSolutionsCli:
             lambda target=None, json_mode=False: _cfg(tmp_path),
         )
         # Query with NFD: e + combining acute
-        result = CliRunner().invoke(app, ["solutions", "--symbol", "F\u0065\u0301", "--json"])
+        result = CliRunner().invoke(app, ["match", "solutions", "--symbol", "Fé", "--json"])
         payload = json.loads(result.stdout)
         assert payload["count"] == 1
         assert payload["rows"][0]["symbol"] == "_f\u00e9"
@@ -221,7 +221,7 @@ class TestSolutionsCli:
             "rebrew.solutions_db.require_config",
             lambda target=None, json_mode=False: _cfg(tmp_path),
         )
-        result = CliRunner().invoke(app, ["solutions", "--best", "--json"])
+        result = CliRunner().invoke(app, ["match", "solutions", "--best", "--json"])
         payload = json.loads(result.stdout)
         assert payload["best"] is True
         assert payload["rows"][0]["va"] == "0x1000"

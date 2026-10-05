@@ -1,4 +1,4 @@
-"""Tests for the binary similarity search (`rebrew similar`)."""
+"""Tests for the binary similarity search (`rebrew similarity function`)."""
 
 from pathlib import Path
 from typing import Any

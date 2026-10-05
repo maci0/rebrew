@@ -186,7 +186,7 @@ class TestCmdExtractErrors:
 
 
 class TestSetupCandidatesStructureMerge:
-    """`rebrew extract list` returned 0 candidates on projects whose
+    """`rebrew binary extract list` returned 0 candidates on projects whose
     functions.txt is stale relative to the Ghidra/RE-tool structure cache
     (function_structure.json) — the universe `rebrew status` counts.
     Uncovered structure-cache VAs must surface as candidates."""

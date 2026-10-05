@@ -66,7 +66,7 @@ rebrew test src/server/func_10003da0.c --json
 rebrew diff src/server/func_10003da0.c --json
 rebrew verify --compare --json
 rebrew lint --json
-rebrew build-db                          # refresh the coverage dashboard's documents
+rebrew coverage build                          # refresh the coverage dashboard's documents
 ```
 
 Check library attribution before implementing a function. `test` and `verify`
@@ -76,13 +76,13 @@ byte-match credit. See [match types](https://github.com/maci0/rebrew/blob/main/d
 
 Function/data metadata are CLI/API-managed. Never hand-edit their TOMLs or write
 STATUS in C. Function identity may be an inline marker or migrated TOML identity;
-do not restore marker blocks after `rebrew migrate-markers`. See
+do not restore marker blocks after `rebrew source migrate-markers`. See
 [metadata ownership](https://github.com/maci0/rebrew/blob/main/docs/METADATA.md).
 
 For integration sync, preview a concrete state directory first:
 
 ```bash
-rebrew sync --pull --state-dir ./binsync-state --dry-run --json
+rebrew sync pull --state-dir ./binsync-state --dry-run --json
 rebrew binsync diff ./binsync-state --json
 ```
 

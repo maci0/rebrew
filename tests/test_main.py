@@ -26,7 +26,16 @@ class TestUmbrellaCli:
     def test_help_lists_command_panels(self) -> None:
         r = runner.invoke(app, ["--help"])
         assert r.exit_code == 0
-        for cmd in ("test", "verify", "similar", "near-diag", "catalog", "cfg", "cache", "skills"):
+        for cmd in (
+            "test",
+            "verify",
+            "similarity",
+            "diagnose",
+            "coverage",
+            "cfg",
+            "cache",
+            "skills",
+        ):
             assert cmd in r.output
 
     def test_quiet_help_describes_log_level(self) -> None:

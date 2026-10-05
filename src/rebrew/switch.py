@@ -8,7 +8,7 @@ indirect jump::
     jmp  dword ptr [edx*4 + 0x1031240]   ; dispatch table
 
 The 32-bit entries at ``0x1031240 + index*4`` are the case-handler
-addresses.  ``rebrew switch <va>`` locates these dispatches inside a
+addresses.  ``rebrew binary switches <va>`` locates these dispatches inside a
 function and prints the case table — index → handler VA → known function
 name — so a jump-table function's structure is visible before writing a
 single line of C (the "jump-table switch" category of functions that
@@ -312,10 +312,10 @@ app = typer.Typer(
     help="Decode jump-table switch dispatches in a function (case → handler map).",
     rich_markup_mode="rich",
     epilog=(
-        "[bold]Example:[/bold]\n\n"
-        "  rebrew switch 0x10311e0 · · · · · · · · · Show all switch dispatches\n\n"
-        "  rebrew switch 0x10311e0 --json · · · · · · Machine-readable case tables\n\n"
-        "  rebrew switch 0x10311e0 --window 1024 · · Wider disassembly window\n"
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew binary switches 0x10311e0 · · · · · · · · · Show all switch dispatches\n\n"
+        "  rebrew binary switches 0x10311e0 --json · · · · · · Machine-readable case tables\n\n"
+        "  rebrew binary switches 0x10311e0 --window 1024 · · Wider disassembly window\n"
     ),
 )
 
@@ -340,7 +340,7 @@ def main(
 
     if va is None:
         error_exit(
-            "Specify a function VA (e.g. rebrew switch 0x10311e0) or --all to scan every function.",
+            "Specify a function VA (e.g. rebrew binary switches 0x10311e0) or --all to scan every function.",
             json_mode=json_output,
         )
     va_int = parse_va(va, json_mode=json_output)
@@ -403,7 +403,7 @@ def _scan_all(cfg: Any, window: int, json_output: bool) -> None:
     if not funcs:
         error_exit(
             "No function inventory (needed for --all) — run `rebrew intake` or "
-            "`rebrew discover-functions` first",
+            "`rebrew binary functions` first",
             json_mode=json_output,
         )
 
@@ -443,7 +443,7 @@ def _scan_all(cfg: Any, window: int, json_output: bool) -> None:
         console.print(
             f"  [cyan]{f['va']}[/] {untrusted_ident(f['name']):<24s} "
             f"{f['dispatches']} dispatch(es), {f['cases']} case(s) — "
-            f"rebrew switch {f['va']}"
+            f"rebrew binary switches {f['va']}"
         )
 
 

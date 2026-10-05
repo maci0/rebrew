@@ -86,13 +86,13 @@ def load_function_structure(path: Path) -> list[FunctionEntry]:
 
     try:
         data = _structure_json(path)
-        # Entries stamped `_generated_by: "rebrew catalog"` are the catalog's
+        # Entries stamped `_generated_by: "rebrew coverage catalog"` are the catalog's
         # OWN compatibility export — consuming them as Ghidra evidence on the
         # next run would inflate detection stats with our own output.
         return [
             FunctionEntry.from_dict(d)
             for d in data
-            if isinstance(d, dict) and d.get("_generated_by") != "rebrew catalog"
+            if isinstance(d, dict) and d.get("_generated_by") != "rebrew coverage catalog"
         ]
     except json.JSONDecodeError as e:
         raise ValueError(f"Corrupt structure JSON at {path}: {e}") from e
@@ -378,8 +378,18 @@ def scan_reversed_dir(reversed_dir: Path, cfg: ProjectConfig | None = None) -> l
     # Headers carry no target affinity in their path, so keep only rows of
     # this target's module (sources are scoped by parse_c_file_multi above).
     marker = preset_module_key(module_marker(cfg)) if cfg else ""
+    from rebrew.function_providers import bind_library_source
+    from rebrew.metadata import load_metadata
+
+    metadata = load_metadata(cfg.metadata_dir, deepcopy=False) if cfg else {}
     for hfile in iter_library_headers(reversed_dir, cfg, scanned=tree):
         parsed = parse_library_header(hfile, metadata_dir=metadata_root)
+        if cfg:
+            parsed = [
+                bind_library_source(cfg, entry, metadata.get((entry.module, entry.va), {}))
+                for entry in parsed
+                if not marker or preset_module_key(entry.module or "") in ("", marker)
+            ]
         entries.extend(
             e for e in parsed if not marker or preset_module_key(e.module or "") in ("", marker)
         )

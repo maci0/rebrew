@@ -26,7 +26,11 @@ import argparse
 import re
 import subprocess
 import sys
+from functools import cache
 from pathlib import Path
+
+from typer._click.core import Command as TyperBaseCommand
+from typer.core import TyperGroup
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -68,23 +72,6 @@ _SKIP_FLAGS: frozenset[str] = frozenset(
 )
 
 
-def _multi_subcommands() -> frozenset[str]:
-    """CLI groups whose top-level --help does not list subcommand flags.
-
-    For these we validate ``<group> <subcommand>`` pairs instead.  Derived from
-    the component registry so a newly added group is validated without editing
-    this file — a hand-maintained list silently skipped ``binsync``/``library``/
-    ``toolchain``/``resource`` after they were added.
-    """
-    from rebrew.builtins import BUILTIN_COMPONENTS
-
-    return frozenset(c.name for c in BUILTIN_COMPONENTS if c.is_group)
-
-
-#: Resolved once at import; see :func:`_multi_subcommands`.
-_MULTI_SUBCOMMANDS: frozenset[str] = _multi_subcommands()
-
-
 def _is_placeholder(word: str) -> bool:
     """True for ``<va>``-style placeholders and ``a/b`` slash alternations.
 
@@ -95,12 +82,21 @@ def _is_placeholder(word: str) -> bool:
     return any(c in word for c in "<>/{}[]*…") or word == "..."
 
 
+@cache
+def _command_tree() -> TyperBaseCommand:
+    """Use the composed command tree to resolve arbitrarily nested routes."""
+    import typer
+
+    from rebrew.main import app
+
+    return typer.main.get_command(app)
+
+
 def _parse_command(line: str) -> tuple[str, list[str]] | None:
     """Return ``(subcommand, flags)`` for one ``rebrew …`` invocation, or None.
 
-    For multi-command groups (e.g. ``rebrew cfg add-target``), the subcommand
-    is taken as ``cfg add-target`` so we invoke ``rebrew cfg add-target --help``
-    instead of ``rebrew cfg --help`` (which would not list subcommand flags).
+    Resolve every nested operation (for example ``cfg target add``) before
+    inspecting its flags; group help does not list leaf options.
     """
     line = line.split("#", maxsplit=1)[0].strip()
     if not line.startswith("rebrew "):
@@ -112,11 +108,23 @@ def _parse_command(line: str) -> tuple[str, list[str]] | None:
     if not re.fullmatch(r"[a-z][a-z0-9-]*", subcommand):
         return None
 
-    # For multi-command groups, absorb the subsubcommand if present
-    if subcommand in _MULTI_SUBCOMMANDS and len(tokens) >= 3:
-        second_sub = tokens[2].strip("\"'")
-        if not second_sub.startswith("-") and not _is_placeholder(second_sub):
-            subcommand = f"{subcommand} {second_sub}"
+    import typer
+
+    command = _command_tree()
+    path: list[str] = []
+    for token in tokens[1:]:
+        token = token.strip("\"'")
+        if token.startswith("-") or _is_placeholder(token):
+            break
+        if not isinstance(command, TyperGroup):
+            break
+        context = typer._click.core.Context(command)
+        child = command.get_command(context, token)
+        path.append(token)
+        if child is None:
+            break  # retain an unknown route so its help probe reports the error
+        command = child
+    subcommand = " ".join(path) or subcommand
 
     return subcommand, [f for f in _FLAG_RE.findall(line) if f not in _SKIP_FLAGS]
 

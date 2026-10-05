@@ -1,4 +1,4 @@
-"""Tests for the `rebrew refactor` heuristic scanner.
+"""Tests for the `rebrew dev refactor` heuristic scanner.
 
 Methodology: `_make_suggestions` and `_analyse_file` are pure functions over
 text, so they are exercised directly against hand-built sources at each
@@ -11,10 +11,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from types import SimpleNamespace
-from typing import Any
 
-import pytest
 from typer.testing import CliRunner, Result
 
 from rebrew import refactor
@@ -146,14 +143,10 @@ def test_collect_is_sorted_and_spans_both_trees(tmp_path: Path) -> None:
 # --- command ----------------------------------------------------------------
 
 
-def _cfg(root: Path) -> Any:
-    return SimpleNamespace(root=root)
-
-
 class TestRefactorCommand:
     @staticmethod
     def _run(root: Path, *args: str) -> Result:
-        return CliRunner().invoke(refactor.app, ["--root", str(root), *args])
+        return CliRunner().invoke(refactor.app, ["--repository", str(root), *args])
 
     def _tree(self, tmp_path: Path) -> Path:
         src = tmp_path / "src"
@@ -162,53 +155,39 @@ class TestRefactorCommand:
         (src / "big.py").write_text("x = 1\n" * 300, encoding="utf-8")
         return tmp_path
 
-    def test_min_lines_filter_drops_short_files(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_min_lines_filter_drops_short_files(self, tmp_path: Path) -> None:
         root = self._tree(tmp_path)
-        monkeypatch.setattr(refactor, "require_config", lambda **_kw: _cfg(root))
         result = self._run(root, "--min-lines", "200", "--json")
         assert result.exit_code == 0
         files = json.loads(result.stdout)["files"]
         assert [f["file"] for f in files] == ["src/big.py"]
         assert files[0]["lines"] == 300
 
-    def test_json_applies_the_default_min_lines(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_json_applies_the_default_min_lines(self, tmp_path: Path) -> None:
         """The default floor is 200 lines, so a 10-line module is not reported."""
         root = self._tree(tmp_path)
-        monkeypatch.setattr(refactor, "require_config", lambda **_kw: _cfg(root))
         result = self._run(root, "--json")
         assert result.exit_code == 0
         files = json.loads(result.stdout)["files"]
         assert [f["file"] for f in files] == ["src/big.py"]
 
-    def test_min_lines_zero_reports_every_file(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_min_lines_zero_reports_every_file(self, tmp_path: Path) -> None:
         root = self._tree(tmp_path)
-        monkeypatch.setattr(refactor, "require_config", lambda **_kw: _cfg(root))
         result = self._run(root, "--min-lines", "0", "--json")
         assert result.exit_code == 0
         files = json.loads(result.stdout)["files"]
         assert {f["file"] for f in files} == {"src/big.py", "src/small.py"}
 
-    def test_table_output_names_the_files(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_table_output_names_the_files(self, tmp_path: Path) -> None:
         root = self._tree(tmp_path)
-        monkeypatch.setattr(refactor, "require_config", lambda **_kw: _cfg(root))
         result = self._run(root, "--min-lines", "200")
         assert result.exit_code == 0
         assert "big.py" in result.output
         assert "small.py" not in result.output
 
 
-def test_missing_root_is_reported() -> None:
-    """require_config owns root discovery; a root with no project config
-    fails loudly rather than scanning an empty tree."""
-    result = CliRunner().invoke(
-        refactor.app, ["--root", "/nonexistent/rebrew-refactor-root", "--json"]
-    )
-    assert result.exit_code != 0
+def test_missing_repository_is_reported(tmp_path: Path) -> None:
+    """A missing Python checkout fails before scanning, without project config."""
+    result = CliRunner().invoke(refactor.app, ["--repository", str(tmp_path / "missing"), "--json"])
+    assert result.exit_code == 2
+    assert "does not exist" in result.output

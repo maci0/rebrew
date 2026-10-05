@@ -29,8 +29,8 @@ from rebrew.config import (
 _REPO = Path(__file__).resolve().parents[1]
 _EXAMPLE = _REPO / "rebrew-project.toml.example"
 
-#: Keys written by a command rather than a human (``rebrew cfg set-cflags`` /
-#: ``rebrew cfg add-module`` / ``rebrew gen-layout --layout-config``).  The
+#: Keys written by a command rather than a human (``rebrew cfg module set-cflags`` /
+#: ``rebrew cfg module add`` / ``rebrew build layout --layout-config``).  The
 #: template names all three as comments, so they read as documented; they are
 #: excluded from the key sets a hand-edited file is expected to carry.
 _MACHINE_WRITTEN = frozenset({"cflags_presets", "origins", "layout"})

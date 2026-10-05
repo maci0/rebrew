@@ -19,9 +19,9 @@ Two modes (both default on):
   one owner definition (file with the most uses); the rest keep extern.
 
 Usage:
-    rebrew inline-strings                    # inline + define
-    rebrew inline-strings --inline-only      # only the use-site rewrite
-    rebrew inline-strings --files a.c b.c
+    rebrew source inline-strings                    # inline + define
+    rebrew source inline-strings --inline-only      # only the use-site rewrite
+    rebrew source inline-strings --files a.c b.c
 """
 
 from __future__ import annotations
@@ -43,9 +43,9 @@ from rebrew.utils import (
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew inline-strings --dry-run · · · · · Preview the globals, write nothing\n\n"
-    "  rebrew inline-strings --files src/a.c src/b.c · · Only these source files\n\n"
-    "  rebrew inline-strings --inline-only · · · · · Replace uses, add no new globals\n"
+    "  rebrew source inline-strings --dry-run · · · · · Preview the globals, write nothing\n\n"
+    "  rebrew source inline-strings --files src/a.c src/b.c · · Only these source files\n\n"
+    "  rebrew source inline-strings --inline-only · · · · · Replace uses, add no new globals\n"
 )
 
 
@@ -235,7 +235,7 @@ def define_remaining_strings(
     # One pass over every file's real-use lines: count token hits per file.
     # The previous loop compiled a fresh ``\\b{tok}\\b`` regex per token and
     # rescanned every file (O(tokens × files × lines)); projects with hundreds
-    # of string placeholders paid that on every ``rebrew inline-strings`` run.
+    # of string placeholders paid that on every ``rebrew source inline-strings`` run.
     tok_counts: dict[str, dict[Path, int]] = defaultdict(lambda: defaultdict(int))
     for f, lines in use_lines.items():
         for ln in lines:

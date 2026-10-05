@@ -259,7 +259,7 @@ def generate_skeleton(
     func_name = sanitize_name(custom_name if custom_name else ghidra_name)
 
     # Calling-convention-aware stub: the skeleton signature should match the
-    # target's convention (rebrew asm's inference), not always `int __cdecl
+    # target's convention (rebrew binary asm show's inference), not always `int __cdecl
     # f(void)` — for MFC-heavy binaries most functions are thiscall, and a
     # wrong starting signature costs a rewrite per function.
     signature, conv_note = _convention_stub(cfg, va, func_name, func_lookup)
@@ -708,7 +708,7 @@ def _stale_size_note(cfg: ProjectConfig, va: int, size: int) -> str | None:
     if extent is not None and size < extent:
         return (
             f"declared size {size}B is stale — code continues to at least {extent}B; "
-            "run `rebrew asm --size <extent>` to see the real function, or "
+            "run `rebrew binary asm show --size <extent>` to see the real function, or "
             "`rebrew test --fix-sizes` once the body is written"
         )
     return None
@@ -1479,7 +1479,7 @@ def main(
     ),
     decomp_backend: str = typer.Option(
         "auto",
-        "--decomp-backend",
+        "--decompiler",
         help=f"Decompiler backend: {BACKEND_HELP_CHOICES}",
     ),
     xrefs: bool = typer.Option(

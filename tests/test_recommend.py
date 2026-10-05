@@ -6,6 +6,8 @@ import logging
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
+
 from rebrew.recommend import (
     FIXABLE_LINT,
     flag_conflicts,
@@ -51,7 +53,7 @@ class TestMerge:
         assert len(recs) == 1
         assert recs[0].kind == "merge"
         assert recs[0].files == ["a.c", "b.c"]
-        assert "rebrew merge" in recs[0].command
+        assert "rebrew source merge" in recs[0].command
 
     def test_single_file_cluster_is_silent(self) -> None:
         recs = recommend_layout(
@@ -119,7 +121,7 @@ class TestFlagConflicts:
             {0x1000: "a.c", 0x1100: "a.c", 0x1200: "b.c", 0x1300: "b.c"},
         )
         flag_conflicts(recs, {})
-        assert recs[0].command.startswith("rebrew merge")
+        assert recs[0].command.startswith("rebrew source merge")
 
 
 class TestHygieneLanes:
@@ -131,7 +133,7 @@ class TestHygieneLanes:
         assert rec is not None
         assert rec.kind == "link-order"
         assert rec.applyable
-        assert rec.command == "rebrew link-order --apply"
+        assert rec.command == "rebrew build link-order --apply"
 
     def test_orphans_empty_is_silent(self) -> None:
         assert recommend_orphans([]) is None
@@ -139,7 +141,7 @@ class TestHygieneLanes:
     def test_orphans_lists_prunable(self) -> None:
         rec = recommend_orphans([{"module": "m", "va": "0x1000"}])
         assert rec is not None
-        assert rec.command == "rebrew orphans --prune"
+        assert rec.command == "rebrew orphans prune"
         assert rec.applyable
 
     def test_lint_only_fixable_codes_fire(self) -> None:
@@ -171,7 +173,7 @@ class TestHygieneLanes:
         assert recommend_merge_sweep_hint(1) is None
         rec = recommend_merge_sweep_hint(2)
         assert rec is not None
-        assert rec.command == "rebrew merge-sweep --dry-run"
+        assert rec.command == "rebrew match partitions --dry-run"
 
 
 class TestRound1Lanes:
@@ -190,7 +192,7 @@ class TestRound1Lanes:
         assert len(recs) == 1
         assert recs[0].kind == "flag-split"
         assert recs[0].files == ["a.c"]
-        assert recs[0].command == "rebrew split a.c"
+        assert recs[0].command == "rebrew source split a.c"
 
     def test_flag_split_ignores_functions_without_overrides(self) -> None:
         recs = recommend_flag_split({0x1000: "a.c"}, {})
@@ -287,7 +289,7 @@ class TestRound2Lanes:
     def test_build_check_points_at_command(self) -> None:
         rec = recommend_build_check([{"obj": "a.obj", "flag": "/O2"}])
         assert rec is not None
-        assert rec.command == "rebrew build-check"
+        assert rec.command == "rebrew build check"
 
     def test_build_check_empty_is_silent(self) -> None:
         assert recommend_build_check([]) is None
@@ -380,7 +382,7 @@ class TestRound4Lanes:
     def test_backfill_blockers_counts_bare_stubs(self) -> None:
         rec = recommend_backfill_blockers(3)
         assert rec is not None
-        assert rec.command == "rebrew document-unmatched --backfill-blockers"
+        assert rec.command == "rebrew source document-unmatched --backfill-blockers"
 
     def test_backfill_blockers_zero_is_silent(self) -> None:
         assert recommend_backfill_blockers(0) is None
@@ -404,3 +406,54 @@ class TestLaneIsolation:
         assert "default-names lane failed" in caplog.text
         assert "boom" in caplog.text
         assert isinstance(recs, list)
+
+
+class TestApplyDispatch:
+    @pytest.mark.parametrize(
+        ("kind", "route"),
+        [
+            ("lint-fixable", "lint"),
+            ("link-order", "build link-order"),
+            ("orphans", "orphans prune"),
+            ("shared-twins", "source merge"),
+        ],
+    )
+    def test_safe_apply_uses_a_registered_operation(
+        self, tmp_path: Any, monkeypatch: pytest.MonkeyPatch, kind: str, route: str
+    ) -> None:
+        """An apply lane must resolve its operation before reporting a result."""
+        import typer
+        from typer.core import TyperGroup
+        from typer.testing import CliRunner
+
+        from rebrew.recommend import Recommendation, _apply_safe
+
+        calls: list[list[str]] = []
+
+        def invoke(self: Any, application: Any, args: list[str]) -> SimpleNamespace:
+            command = typer.main.get_command(application)
+            for name in route.split():
+                assert isinstance(command, TyperGroup)
+                child = command.get_command(typer.Context(command), name)
+                assert child is not None, f"Unregistered apply operation: {args}"
+                command = child
+            assert args[: len(route.split())] == route.split()
+            assert "--prune" not in args
+            calls.append(args)
+            return SimpleNamespace(exit_code=0)
+
+        monkeypatch.setattr(CliRunner, "invoke", invoke)
+        cfg = SimpleNamespace(root=tmp_path, target_name="SERVER")
+        rec = Recommendation(
+            kind=kind,
+            cluster_id=0,
+            functions=[],
+            confidence=1.0,
+            command=f"rebrew {route}",
+            files=["a.c", "b.c"],
+            applyable=True,
+        )
+        _apply_safe(cfg, [rec], json_mode=True)
+        assert len(calls) == 1
+        if kind != "shared-twins":
+            assert calls[0][-2:] == ["--target", "SERVER"]

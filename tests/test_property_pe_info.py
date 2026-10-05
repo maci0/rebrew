@@ -1,6 +1,6 @@
 """Property-based fuzz tests for ``rebrew.pe_info.pe_info`` on corrupted images.
 
-``rebrew pe-info`` dumps whatever binary the user points it at, so every byte
+``rebrew binary pe`` dumps whatever binary the user points it at, so every byte
 of the file is untrusted.  These tests mutate the committed PE and ELF
 fixtures (header bytes, section table, truncation) and hold ``pe_info`` to its
 documented outcomes: a JSON-serializable, run-to-run identical payload, or a

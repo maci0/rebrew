@@ -1,6 +1,6 @@
 """Run FLIRT signature matching against functions in the target binary.
 
-Usage: rebrew flirt [sig_dir]
+Usage: rebrew library scan-signatures [sig_dir]
 """
 
 import json
@@ -233,7 +233,7 @@ def load_signatures(sig_dir: str) -> list[Any]:
 
 
 #: BinaryInfo.arch -> the signature index's architecture vocabulary.  Public: `analyze`
-#: filters the dossier's FLIRT scan the same way `rebrew flirt` does.
+#: filters the dossier's FLIRT scan the same way `rebrew library scan-signatures` does.
 ARCH_FAMILIES: dict[str, str] = {
     "x86_16": "x86",
     "x86_32": "x86",
@@ -447,8 +447,8 @@ def match_text(
     Returns one dict per unambiguous match: ``{"va", "size", "name"}`` where
     *va* is ``base_va + offset``.  Broad signatures (more than
     *max_ambiguous* candidate names at one offset) are skipped so library
-    identification never guesses.  Shared by ``rebrew flirt``, ``rebrew
-    analyze``, and ``rebrew identify-library``.
+    identification never guesses.  Shared by ``rebrew library scan-signatures``, ``rebrew
+    analyze``, and ``rebrew library identify``.
 
     *stride* defaults to :func:`arch_stride` for *arch* (2 for SH2, 4 for the
     other RISC arches, 16 for x86); function sizes are decoded with the same
@@ -498,10 +498,10 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew flirt · · · · · · · · · · Scan with default .sig files\n\n"
-        "  rebrew flirt sigs/ · · · · · · · Use custom signature directory\n\n"
-        "  rebrew flirt --json · · · · · · · Output matches as JSON\n\n"
-        "  rebrew flirt --min-size 32 · · · · Only report functions ≥32 bytes\n\n"
+        "  rebrew library scan-signatures · · · · · · · · · · Scan with default .sig files\n\n"
+        "  rebrew library scan-signatures sigs/ · · · · · · · Use custom signature directory\n\n"
+        "  rebrew library scan-signatures --json · · · · · · · Output matches as JSON\n\n"
+        "  rebrew library scan-signatures --min-size 32 · · · · Only report functions ≥32 bytes\n\n"
         "[bold]How it works:[/bold]\n\n"
         "  Scans the target binary using FLIRT (Fast Library Identification and "
         "Recognition Technology) signatures to identify known library functions "
@@ -528,29 +528,11 @@ def main(
         "--show-ambiguous",
         help=(f"Report ambiguous matches (offsets with >{_MAX_AMBIGUOUS} candidate names) as well"),
     ),
-    init: bool = typer.Option(
-        False,
-        "--init",
-        help="Copy the rebrew-flirt-sigs checkout into the project's flirt_sigs/ and exit",
-    ),
-    init_matched: bool = typer.Option(
-        False,
-        "--init-matched",
-        help="Copy only the sigs matching the target's detected CRT linkage "
-        "(static→libcmt*, dynamic→msvcrt*/crtdll*) plus WinAPI imports, and exit",
-    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
     """FLIRT signature scanner for binaries."""
     cfg = require_config(target=target, json_mode=json_output)
-
-    if init:
-        _init_project_sigs(cfg, json_output)
-        return
-    if init_matched:
-        _init_project_sigs(cfg, json_output, matched_only=True)
-        return
 
     final_exe = binary or cfg.target_binary
 
@@ -746,6 +728,20 @@ def main(
         console.print(f"\nTotal matches found: {found}")
         if skipped:
             console.print(f"Skipped {skipped} ambiguous matches (>{max_ambiguous} candidate names)")
+
+
+def init_signatures(
+    matched_only: bool = typer.Option(
+        False,
+        "--matched-only",
+        help="Copy only signatures for the detected CRT linkage plus WinAPI imports",
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
+) -> None:
+    """Copy the shared signatures into flirt_sigs/; keep existing project files."""
+    cfg = require_config(target=target, json_mode=json_output)
+    _init_project_sigs(cfg, json_output, matched_only=matched_only)
 
 
 def main_entry() -> None:

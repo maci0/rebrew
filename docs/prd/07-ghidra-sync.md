@@ -4,7 +4,7 @@
 - **Date**: 2026-05 (updated 2026-09)
 - **Owner**: rebrew team
 
-> **Architecture note (2026-09):** `rebrew sync` is BinSync-primary; field sync
+> **Architecture note (2026-09):** `rebrew sync push` is BinSync-primary; field sync
 > (names, comments, prototypes, structs, globals) flows through a shared state
 > dir (`--push`/`--pull --state-dir`, conflicts via `--accept-binsync` /
 > `--accept-local`); ReVa MCP is used for structural ops
@@ -28,7 +28,7 @@ a text editor. Without sync:
 - Pushing rebrew's annotations back to Ghidra (so the analyst can browse
   with proper names) requires manual data entry.
 
-PRD 07 ships `rebrew sync`, a single command for push + pull of names,
+PRD 07 ships `rebrew sync push`, a single command for push + pull of names,
 labels, structs, prototypes, comments, and boundary corrections, using a
 BinSync state directory for field-level sync and the ReVa MCP server
 (or `ghidra-cli` bridge) for structural operations in Ghidra.
@@ -42,7 +42,7 @@ BinSync state directory for field-level sync and the ReVa MCP server
 
 ## Goals
 
-- Single command (`rebrew sync`) with explicit push, pull, and inspect
+- Single command (`rebrew sync push`) with explicit push, pull, and inspect
   modes.
 - Safe defaults:
   - Generic names (`FUN_`, `DAT_`, `func_`, `switchdata`, `thunk_`, `g_<hex>`)
@@ -119,8 +119,8 @@ BinSync state directory for field-level sync and the ReVa MCP server
 
 ### Peer BinSync commands
 
-- `rebrew binsync-export`, `rebrew binsync-import`, `rebrew binsync-diff`,
-  `rebrew binsync-init`, `rebrew binsync-overlay` and the `rebrew binsync`
+- `rebrew binsync export`, `rebrew binsync import`, `rebrew binsync diff`,
+  `rebrew binsync init`, `rebrew binsync overlay` and the `rebrew binsync`
   umbrella command (`push`, `pull`, `summary`, `init`, `diff`, `overlay`)
   share the same underlying state directory format (see PRD 09).
 
@@ -128,11 +128,11 @@ BinSync state directory for field-level sync and the ReVa MCP server
 
 ### Story 1: Onboarding push
 
-1. After `rebrew catalog` + initial annotations, the user runs
-   `rebrew sync --summary --state-dir ./state` and reviews the planned push.
-2. `rebrew sync --push --state-dir ./state` exports names/comments/prototypes/
+1. After `rebrew coverage catalog` + initial annotations, the user runs
+   `rebrew sync summary --state-dir ./state` and reviews the planned push.
+2. `rebrew sync push --state-dir ./state` exports names/comments/prototypes/
    structs/globals into the BinSync state dir;
-   `rebrew sync --create-functions --bookmarks` applies both sets of structural
+   `rebrew sync bookmarks` applies both sets of structural
    ops via ReVa MCP in one run (a `--dry-run` on the same flags previews both
    sets together).
 3. Ghidra (via BinSync + MCP) shows meaningful names; further analysis is much
@@ -141,15 +141,15 @@ BinSync state directory for field-level sync and the ReVa MCP server
 ### Story 2: Pulling Ghidra renames
 
 1. After a Ghidra analysis pass the user renamed 30 functions (state dir updated).
-2. `rebrew sync --pull --state-dir ./state --dry-run` lists the proposed renames.
-3. `rebrew sync --pull --state-dir ./state --accept-binsync` rewrites local source files and
+2. `rebrew sync pull --state-dir ./state --dry-run` lists the proposed renames.
+3. `rebrew sync pull --state-dir ./state --accept-binsync` rewrites local source files and
    updates cross-refs (conflicts resolve in BinSync's favor); with
    `--accept-local` instead, provenance notes record BinSync names where
    local names were kept.
 
 ### Story 3: Working offline
 
-1. The user travels with no Ghidra running. `rebrew sync --pull --state-dir
+1. The user travels with no Ghidra running. `rebrew sync pull --state-dir
    ./state` imports names, comments, prototypes, structs and globals from the
    BinSync state dir; no MCP connection is involved.
 2. `--create-functions`, `--bookmarks` and `--pull-data` fail with an
@@ -159,7 +159,7 @@ BinSync state directory for field-level sync and the ReVa MCP server
 ### Story 4: BinSync exchange with a teammate
 
 1. A teammate uses BinSync. The lead runs
-   `rebrew binsync-export ./binsync_state --dry-run` to preview, then
+   `rebrew binsync export ./binsync_state --dry-run` to preview, then
    without `--dry-run` to write.
 2. The teammate consumes the state directory in their own decompiler;
    STATUS / CFLAGS stay local in `rebrew-functions.toml`.
@@ -167,7 +167,7 @@ BinSync state directory for field-level sync and the ReVa MCP server
 ## CLI Surface
 
 ```
-rebrew sync [OPTIONS]
+rebrew sync push [OPTIONS]
   Field sync (BinSync state dir)
       --state-dir PATH
       --push
@@ -187,7 +187,7 @@ rebrew sync [OPTIONS]
       --json
   -t, --target TEXT
 
-rebrew binsync-export OUTDIR
+rebrew binsync export OUTDIR
       --module TEXT
       --git
       --clean
@@ -195,7 +195,7 @@ rebrew binsync-export OUTDIR
       --json
   -t, --target TEXT
 
-rebrew binsync-import STATE_DIR
+rebrew binsync import STATE_DIR
       --module TEXT
       --accept-binsync
       --accept-local
@@ -209,7 +209,7 @@ rebrew binsync {init,diff,overlay,push,pull,summary}
 
 ## Success Metrics
 
-- `rebrew sync --push --state-dir D --dry-run` followed by `--push --state-dir D`
+- `rebrew sync push --state-dir D --dry-run` followed by `rebrew sync push --state-dir D`
   produces zero net diff on a second `--push` (idempotent).
 - Generic names from Ghidra never overwrite meaningful local names.
 - Pulled names from the BinSync state always update every cross-reference in
@@ -228,7 +228,7 @@ rebrew binsync {init,diff,overlay,push,pull,summary}
   `--pull-data` is ReVa MCP-only.
 - The MCP endpoint default is `http://localhost:8080/mcp/message` everywhere
   (code, skills, examples). Override with `--endpoint`.
-- `rebrew sync` does not currently support pulling Ghidra *bookmarks*
+- `rebrew sync push` does not currently support pulling Ghidra *bookmarks*
   back into source; the push direction is one-way for bookmarks.
 - Conflict reporting in `--pull` uses the same JSON schema for "Ghidra/BinSync
   has X, local has Y" entries; tooling consumers should treat it as

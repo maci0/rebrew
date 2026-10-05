@@ -279,7 +279,7 @@ class TestCryptoScan:
 
 class TestCryptoScanCli:
     def test_json_output(self) -> None:
-        result = runner.invoke(rebrew.main.app, ["crypto-scan", str(MINI_PE), "--json"])
+        result = runner.invoke(rebrew.main.app, ["binary", "crypto", str(MINI_PE), "--json"])
         assert result.exit_code == 0
         payload = json.loads(result.stdout)
         assert set(payload) == {"binary", "findings", "count", "by_confidence"}
@@ -288,14 +288,14 @@ class TestCryptoScanCli:
         assert set(payload["by_confidence"]) == {"high", "medium"}
 
     def test_human_output(self) -> None:
-        result = runner.invoke(rebrew.main.app, ["crypto-scan", str(MINI_PE)])
+        result = runner.invoke(rebrew.main.app, ["binary", "crypto", str(MINI_PE)])
         assert result.exit_code == 0
         assert "crypto" in result.output.lower()
 
     def test_missing_binary_exits_error(self, tmp_path: Path) -> None:
         result = runner.invoke(
             rebrew.main.app,
-            ["crypto-scan", str(tmp_path / "absent.exe"), "--json"],
+            ["binary", "crypto", str(tmp_path / "absent.exe"), "--json"],
         )
         assert result.exit_code == 2
         payload = json.loads(result.stdout)

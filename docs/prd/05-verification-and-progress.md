@@ -39,7 +39,7 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
   `.rebrew/verify_baseline.toml` baseline to fail on regressions.
   (>2026-09: was `db/verify_results.json`; the baseline is now a local
   gitignored `.rebrew/` file.)
-- **Team lead** generating `rebrew graph --format mermaid` for design
+- **Team lead** generating `rebrew source graph --format mermaid` for design
   reviews.
 
 ## Goals
@@ -49,7 +49,7 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
 - Read-only project overview (`rebrew status`) that summarises STATUS
   counts, source/target coverage, and progress against the canonical
   function list.
-- Function dependency graph (`rebrew graph`) in Mermaid / Graphviz / text
+- Function dependency graph (`rebrew source graph`) in Mermaid / Graphviz / text
   formats, optionally focused on a neighbourhood around one function.
 - Persistent compile cache (`rebrew cache`) that the user can introspect
   and clear when needed.
@@ -119,7 +119,7 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
   - Pointer to next action (`rebrew todo`).
 - `--json` machine-readable.
 
-### `rebrew graph`
+### `rebrew source graph`
 
 - Scans reversed `.c` files for call targets; uses annotations to label
   origin/status of each node.
@@ -147,7 +147,7 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
 - Cache lives in `<project_root>/.rebrew/compile_cache/`.
 - Keyed by SHA-256 of (source + flags + compiler signature).
 
-### `rebrew round-trip`
+### `rebrew build round-trip`
 
 - Splice every function marked EXACT or RELOC (from `rebrew-functions.toml`
   metadata) back into a copy of the original PE binary.
@@ -185,12 +185,12 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
 
 ### Story 3: Visualising progress
 
-1. User runs `rebrew graph --format mermaid --output docs/graph.md`.
+1. User runs `rebrew source graph --format mermaid --output docs/graph.md`.
 2. The Mermaid diagram colors nodes by STATUS from `status_style.STATUS_HEX`
    (EXACT green, RELOC blue, NEAR_MATCHING amber, STUB slate, machine
    verdicts such as COMPILE_ERROR red) and shows call edges, making the
    missing pieces visually obvious.
-3. They focus on a specific subtree: `rebrew graph --focus _Init --depth 2`.
+3. They focus on a specific subtree: `rebrew source graph --focus _Init --depth 2`.
 
 ### Story 4: Cleaning a stale cache
 
@@ -201,7 +201,7 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
 
 ### Story 5: End-to-end reassembly check before shipping
 
-1. CI bot runs `rebrew round-trip --json` after `rebrew verify` passes.
+1. CI bot runs `rebrew build round-trip --json` after `rebrew verify` passes.
 2. The round-trip splices every matched function back into the PE binary
    and compares the full binary hash against the original.
 3. If any unexpected byte mismatch is found (relocation errors, padding
@@ -243,7 +243,7 @@ rebrew status [OPTIONS]
   --target, --target TEXT
       --all-targets
 
-rebrew graph [OPTIONS]
+rebrew source graph [OPTIONS]
   -f, --format mermaid|dot|summary (default mermaid)
       --focus FUNC
       --depth N (default 1)
@@ -259,7 +259,7 @@ rebrew graph [OPTIONS]
 rebrew cache stats [--json] [-t TARGET]
 rebrew cache clear [--force] [--json] [-t TARGET]
 
-rebrew round-trip [OPTIONS]
+rebrew build round-trip [OPTIONS]
   -o, --output PATH
       --dry-run
       --filter SUBSTR
@@ -278,13 +278,13 @@ rebrew round-trip [OPTIONS]
   the previous report and never falsely reports a promotion as a
   regression.
 - `rebrew status` runs in <1 s on a 5000-function project.
-- `rebrew graph --format mermaid` output pastes cleanly into any
+- `rebrew source graph --format mermaid` output pastes cleanly into any
   GitHub/GitLab Markdown viewer.
 - `rebrew cache clear` is safe to run at any time and leaves
   `rebrew-project.toml` and source files untouched.
-- `rebrew round-trip` on a warm compile cache completes in <30 s for a
+- `rebrew build round-trip` on a warm compile cache completes in <30 s for a
   2000-function project (bottleneck: relocation application + PE write).
-- `rebrew round-trip --json` output is valid JSON with all fields present
+- `rebrew build round-trip --json` output is valid JSON with all fields present
   (target, binary, sha256 hashes, match status, spliced/skipped counts,
   mismatch list).
 

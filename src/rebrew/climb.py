@@ -1,6 +1,6 @@
 """climb -- deterministic single-statement hill-climb over one function body.
 
-``rebrew match`` searches with a genetic algorithm.  When a residual is statement
+``rebrew match run`` searches with a genetic algorithm.  When a residual is statement
 *order* rather than expression shape, the GA can stall: on
 gm_CreateEntityFromParents (3689 B) it ran 100 generations without improving,
 while this climb found five moves worth +21 matched bytes in one sweep.  The two
@@ -72,10 +72,10 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew climb src/f.c · · · · · · · · · · Hill-climb one function in place\n\n"
-        "  rebrew climb src/f.c --dry-run · · · · · Report the winning edits, write nothing\n\n"
-        "  rebrew climb src/f.c --passes 200 · · · · Longer search before giving up\n\n"
-        "  rebrew climb src/f.c --json · · · · · · · Machine-readable pass log to stdout\n\n"
+        "  rebrew match climb src/f.c · · · · · · · · · · Hill-climb one function in place\n\n"
+        "  rebrew match climb src/f.c --dry-run · · · · · Report the winning edits, write nothing\n\n"
+        "  rebrew match climb src/f.c --passes 200 · · · · Longer search before giving up\n\n"
+        "  rebrew match climb src/f.c --json · · · · · · · Machine-readable pass log to stdout\n\n"
         "[bold]Exit codes:[/bold]\n\n"
         "  0   The climb finished (report the matched-byte delta on stderr)\n\n"
         "  2   Build or config error (also a usage error: unknown flag, missing argument)\n\n"

@@ -1412,7 +1412,7 @@ def _detect_toolchain_core(
         lz_ver = None
     if lz_ver is not None:
         info.packed = f"lzexe 0.{lz_ver}"
-        info.add(f"packed with LZEXE 0.{lz_ver} — run `rebrew unpack-lzexe` before analysis")
+        info.add(f"packed with LZEXE 0.{lz_ver} — run `rebrew binary unpack-lzexe` before analysis")
 
     # PKLITE (PKWARE, 1990s): the stub carries its copyright banner near
     # the header; the visible strings are the packer's (or compressed

@@ -57,7 +57,7 @@ class TestApplyType:
         from rebrew.main import app
 
         monkeypatch.chdir(tmp_path)
-        return CliRunner().invoke(app, ["types", "apply-type", *args])
+        return CliRunner().invoke(app, ["types", "apply", *args])
 
     def test_json_still_writes(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         import json

@@ -4,8 +4,8 @@ Every BLOCKER/BLOCKER_DELTA write must go through the metadata store
 (``rebrew.metadata``) under ``metadata_write_lock`` + ``atomic_write_locked`` —
 never by hand-editing the TOML.  This CLI is that gate.
 
-Other writers exist: ``rebrew diff --fix-blocker``, ``rebrew near-diag
---fix-blocker``, and ``rebrew document-unmatched``.  This command covers the
+Other writers exist: ``rebrew diff --fix-blocker``, ``rebrew diagnose near
+--fix-blocker``, and ``rebrew source document-unmatched``.  This command covers the
 ad-hoc case: a human documenting a STUB/NEAR_MATCHING function whose block
 is not auto-classifiable (needs RE structs, SEH helper, reference-source
 library, etc.).
@@ -38,7 +38,7 @@ _EPILOG = (
     "  rebrew blocker show 0x401000 --json · · · · · · · · Show BLOCKER metadata\n\n"
     "[dim]Writes go through rebrew.metadata (locked + atomic). "
     "Auto-classified blockers use `rebrew diff --fix-blocker` or "
-    "`rebrew near-diag --fix-blocker` instead.[/dim]"
+    "`rebrew diagnose near --fix-blocker` instead.[/dim]"
 )
 
 app = typer.Typer(
@@ -142,7 +142,10 @@ def resolve_function(
     return ann.module, int(ann.va)
 
 
-@app.command("set")
+@app.command(
+    "set",
+    epilog='Examples:\n\n  rebrew blocker set 0x401000 "compiler mismatch" --dry-run\n\nUse --target to select a configured project target.',
+)
 def blocker_set(
     function: str = typer.Argument(
         ..., help="Function to act on: C source file, symbol, or hex VA (0x...)"
@@ -218,7 +221,10 @@ def blocker_set(
         console.print(f"[green]{msg}[/green]")
 
 
-@app.command("clear")
+@app.command(
+    "clear",
+    epilog="Examples:\n\n  rebrew blocker clear 0x401000 --dry-run\n\nUse --target to select a configured project target.",
+)
 def blocker_clear(
     function: str = typer.Argument(
         ..., help="Function to act on: C source file, symbol, or hex VA (0x...)"
@@ -263,7 +269,10 @@ def blocker_clear(
         console.print(f"[dim]No BLOCKER to clear for {module} 0x{va_int:08x}[/dim]")
 
 
-@app.command("show")
+@app.command(
+    "show",
+    epilog="Examples:\n\n  rebrew blocker show 0x401000 --json\n\nUse --target to select a configured project target.",
+)
 def blocker_show(
     function: str = typer.Argument(
         ..., help="Function to act on: C source file, symbol, or hex VA (0x...)"
