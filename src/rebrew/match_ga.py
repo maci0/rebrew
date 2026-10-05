@@ -268,13 +268,14 @@ def _find_function_range(source: str, symbol: str) -> tuple[int, int] | None:
     """Byte range of the function matching *symbol* in *source*, or None.
 
     Used to scope GA mutation queries to the target function (only its
-    compiled bytes are scored).  Matches the first ``function_definition``
-    whose declarator name equals the symbol with or without a leading
-    underscore (the MSVC decoration).  Returns None when the symbol cannot
-    be located — the caller then leaves mutations unscoped.
+    compiled bytes are scored).  The symbol may be cdecl ``_name``,
+    stdcall ``_name@N``, vectorcall ``name@@N``, or fastcall ``@name@N``.
+    ``__foo`` is the function ``_foo``, not ``foo``.  Returns None when
+    the symbol cannot be located — the caller then leaves mutations unscoped.
     """
     try:
         from rebrew.matcher import parse_c_ast
+        from rebrew.rename_ops import c_name_from_symbol
     except Exception as exc:  # tree-sitter unavailable: no scoping
         log.warning(
             "tree-sitter unavailable (%s); GA mutations are scored against the whole file",
@@ -283,7 +284,7 @@ def _find_function_range(source: str, symbol: str) -> tuple[int, int] | None:
         return None
     try:
         tree = parse_c_ast(source)
-        wanted = symbol.lstrip("_")
+        wanted = c_name_from_symbol(symbol)
         for node in tree.root_node.children:
             if node.type != "function_definition":
                 continue
@@ -294,12 +295,15 @@ def _find_function_range(source: str, symbol: str) -> tuple[int, int] | None:
             # function_declarator -> declarator -> identifier
             while name_node is not None and name_node.type != "identifier":
                 name_node = name_node.child_by_field_name("declarator") or name_node.named_child(0)
-            if (
-                name_node is not None
-                and name_node.type == "identifier"
-                and (name_node.text or b"").decode("utf-8", "replace").lstrip("_") == wanted
-                and name_node.start_byte != name_node.end_byte
-            ):
+            if name_node is None or name_node.type != "identifier":
+                continue
+            if name_node.start_byte == name_node.end_byte:
+                continue
+            ident = (name_node.text or b"").decode("utf-8", "replace")
+            # One optional cdecl underscore on the definition. A second
+            # underscore is part of the name (``__foo`` is not ``foo``).
+            bare = ident[1:] if ident.startswith("_") and not ident.startswith("__") else ident
+            if wanted in (ident, bare):
                 return node.start_byte, node.end_byte
     except Exception as exc:
         # An unscoped range scores the whole file, so a mutated sibling can

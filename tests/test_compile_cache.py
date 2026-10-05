@@ -1039,6 +1039,44 @@ class TestGetCompileCache:
         finally:
             close_all_caches()
 
+    def test_failed_eviction_close_stays_tracked(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A close that fails during eviction stays reachable for shutdown."""
+        import rebrew.compile_cache as cc
+
+        made: list[CompileCache] = []
+
+        def _factory(path: Path, cap: int) -> CompileCache:
+            cache = CompileCache(path, cap)
+            made.append(cache)
+            if len(made) == 1:
+                real_close = cache.close
+                calls = 0
+
+                def _close() -> None:
+                    nonlocal calls
+                    calls += 1
+                    if calls == 1:
+                        raise OSError("busy")
+                    real_close()
+
+                monkeypatch.setattr(cache, "close", _close)
+            return cache
+
+        close_all_caches()
+        monkeypatch.setattr(cc, "_CACHE_BACKENDS", {"plugin": _factory})
+        monkeypatch.setattr(cc, "_CACHES_MAX", 1)
+        try:
+            first = get_compile_cache(tmp_path / "first", "plugin")
+            second = get_compile_cache(tmp_path / "second", "plugin")
+            assert first.is_open() and second.is_open()
+            assert first in cc._unclosed_caches
+        finally:
+            close_all_caches()
+        assert not first.is_open() and not second.is_open()
+        assert cc._unclosed_caches == []
+
     @pytest.mark.parametrize("shared", [False, True])
     def test_racing_factories_publish_once_and_close_the_loser(
         self, shared: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

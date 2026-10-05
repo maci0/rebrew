@@ -97,6 +97,29 @@ class TestBinsyncImportHelpers:
         with pytest.raises(ValueError, match="module marker"):
             _stub_text(blank, 0x1000, "foo", "")
 
+    def test_decorated_symbol_stubs_the_c_name(self, tmp_path: Path) -> None:
+        """A vectorcall symbol stubs ``hook``, not ``func_<va>``.
+
+        ``strip_cdecl_prefix`` left ``hook@@12`` and ``@keeps@4``
+        decorated, so neither was a C identifier. ``__foo`` is ``_foo``.
+        A cdecl ``_bar`` is still ``bar``.
+        """
+        from types import SimpleNamespace
+
+        from rebrew.binsync.importer import _stub_text
+
+        cfg = SimpleNamespace(marker="GAME", target_name="game", reversed_dir=tmp_path)
+        _path, text, _mod = _stub_text(cfg, 0x2000, "hook@@12", "")
+        assert text == "void hook(void) {}\n"
+        assert _path.name == "hook.c"
+        _path, text, _mod = _stub_text(cfg, 0x2100, "@keeps@4", "")
+        assert text == "void keeps(void) {}\n"
+        _path, text, _mod = _stub_text(cfg, 0x3000, "__foo", "")
+        assert text == "void _foo(void) {}\n"
+        assert _path.name == "_foo.c"
+        _path, text, _mod = _stub_text(cfg, 0x4000, "_bar", "")
+        assert text == "void bar(void) {}\n"
+
     def test_is_meaningful(self) -> None:
         from rebrew.binsync.importer import is_meaningful
 
@@ -105,6 +128,20 @@ class TestBinsyncImportHelpers:
         assert not is_meaningful("FUN_00401000")
         assert not is_meaningful("")
         assert not is_meaningful("DAT_10002000")
+
+    def test_decorated_generic_is_not_meaningful(self) -> None:
+        """A decorated auto-label is still an auto-label.
+
+        ``func_10001000@@12`` and ``@func_10001000@4`` missed the
+        ``@N`` suffix, so import treated them as user names.
+        """
+        from rebrew.binsync.importer import is_meaningful
+
+        assert not is_meaningful("func_10001000@@12")
+        assert not is_meaningful("FUN_00401000@@0")
+        assert not is_meaningful("@func_10001000@4")
+        assert not is_meaningful("_func_10001000@8")
+        assert is_meaningful("func_hook")
 
     def test_load_binsync_state(self, tmp_path: Path) -> None:
         from rebrew.binsync.state import load_binsync_state
@@ -540,7 +577,7 @@ reversed_dir = "src/server"
         assert text == "void FromBinSync(void) {}\n"
         assert "// FUNCTION:" not in text
         assert "// STATUS:" not in text and "// SIZE:" not in text and "// NOTE:" not in text
-        meta = (tmp_path / "src" / "rebrew-functions.toml").read_text(encoding="utf-8")
+        meta = (tmp_path / "rebrew-functions.toml").read_text(encoding="utf-8")
         assert "SERVER.0x10002000" in meta
         assert 'status = "STUB"' in meta
         assert "imported from BinSync" in meta
@@ -556,7 +593,7 @@ reversed_dir = "src/server"
             assert entry["marker_type"] == "FUNCTION"
             assert entry["name"] == c_name
             assert entry["symbol"] == f"_{c_name}"
-            assert entry["file"] == f"server/{c_name}.c"
+            assert entry["file"] == f"src/server/{c_name}.c"
 
     def test_create_missing_finishes_metadata_when_stub_already_exists(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

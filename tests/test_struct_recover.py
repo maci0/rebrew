@@ -83,6 +83,68 @@ class TestParseDecomp:
         # the same ``&a0[10]`` is not double-counted by the bare form
         assert offsets[0x14] == {4: 1}
 
+    def test_hex_array_index_scale(self) -> None:
+        # Ghidra prints the index in hex. ``a0[0x10]`` on a ``short *`` is
+        # byte offset 0x20. A leading-zero decimal stays ten, not octal.
+        text = "short *a0;\nchar *b0;\nx = *(int *)&a0[0xA];\ny = a0[0x10];\nz = b0[010];\n"
+        ev = parse_decomp_for_structs(text)
+        offsets = ev.anonymous["a0"].offsets
+        assert offsets[0x14] == {4: 1}  # 0xA * 2, int access
+        assert offsets[0x20] == {2: 1}  # 0x10 * 2, short access
+        assert ev.anonymous["b0"].offsets[10] == {1: 1}  # 010 is ten, not eight
+        assert 8 not in ev.anonymous["b0"].offsets
+
+    def test_long_long_pointer_index_is_eight(self) -> None:
+        # The declaration regex used to keep only the last word, so
+        # ``long long *`` was a 4-byte ``long`` and ``a0[1]`` landed at 4.
+        text = (
+            "long long *a0;\n"
+            "unsigned long long *b0;\n"
+            "signed long *c0;\n"
+            "y = a0[1];\n"
+            "z = b0[1];\n"
+            "w = c0[1];\n"
+        )
+        ev = parse_decomp_for_structs(text)
+        assert ev.anonymous["a0"].offsets[8] == {8: 1}
+        assert ev.anonymous["b0"].offsets[8] == {8: 1}
+        assert ev.anonymous["c0"].offsets[4] == {4: 1}
+        cast = "int raw;\nraw = (long long *)raw;\ny = raw[1];\n"
+        assert parse_decomp_for_structs(cast).anonymous["raw"].offsets[8] == {8: 1}
+
+    def test_wchar_pointer_index_is_two(self) -> None:
+        """``wchar_t *`` indexes by 2 and is not a struct named ``wchar_t``."""
+        from rebrew.struct_recover import pointer_element_widths
+
+        assert pointer_element_widths("wchar_t *text;") == {"text": 2}
+        ev = parse_decomp_for_structs("wchar_t *text;\ny = text[2];\ntext->field_0;\n")
+        assert ev.named == {}
+        assert ev.anonymous["text"].offsets[4] == {2: 1}
+        assert ev.anonymous["text"].offsets[0] == {4: 1}
+
+    def test_bool_pointer_index_is_one(self) -> None:
+        """``bool *`` indexes by 1. ``bool`` is not a struct name."""
+        from rebrew.struct_recover import pointer_element_widths
+
+        assert pointer_element_widths("bool *flag;") == {"flag": 1}
+        ev = parse_decomp_for_structs("bool *flag;\ny = flag[3];\n")
+        assert ev.named == {}
+        assert ev.anonymous["flag"].offsets[3] == {1: 1}
+
+    def test_array_of_pointers_is_not_indexed_as_chars(self) -> None:
+        """``char *rows[4]`` is an array of pointers, not ``char *rows``.
+
+        The declaration matched the pointer form, so ``rows[1]`` was a
+        byte at offset 1. A real ``short *a0`` still indexes by 2.
+        """
+        from rebrew.struct_recover import pointer_element_widths
+
+        assert pointer_element_widths("char *rows[4]; short *a0;") == {"a0": 2}
+        ev = parse_decomp_for_structs("void f(char *rows[4]) {\n rows[1] = 0;\n}\n")
+        assert "rows" not in ev.anonymous
+        kept = parse_decomp_for_structs("void f(short *a0) {\n a0[1] = 0;\n}\n")
+        assert kept.anonymous["a0"].offsets[2] == {2: 1}
+
     def test_cast_deref_ampersand_form(self) -> None:
         text = "PlayerInfo *p;\nx = *(int *)&p + 0x8;\n"
         ev = parse_decomp_for_structs(text)

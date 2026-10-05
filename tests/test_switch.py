@@ -95,6 +95,16 @@ class TestFindSwitches:
         assert sw["entries"] == 4
         assert sw["cases"] == [(i, h) for i, h in enumerate(handlers)]
 
+    def test_bounded_zero_slot_is_not_the_end_of_the_table(self, tmp_path: Path) -> None:
+        """A known bound skips a zero slot the way it skips any other
+        out-of-image entry. A zero dword used to end the 32-bit read."""
+        handlers = [0, TEXT_VA + 0x20, TEXT_VA + 0x21]
+        pe = tmp_path / "zero.exe"
+        pe.write_bytes(_switch_pe(handlers, 2))
+        sw = find_switches(_cfg(pe), TEXT_VA)[0]
+        assert sw["bounds"] == 2
+        assert sw["cases"] == [(1, TEXT_VA + 0x20), (2, TEXT_VA + 0x21)]
+
     def test_bounds_limits_entry_count(self, tmp_path: Path) -> None:
         """The bounds check caps the table read even when more data follows."""
         handlers = [0x401020, 0x401025]
@@ -249,6 +259,27 @@ class TestMaskBoundedDispatch:
         sw = find_switches(_cfg(pe), TEXT_VA)[0]
         assert sw["bounds"] is None
         assert sw["entries"] == 0
+
+    def test_64bit_rax_mask_bounds_the_table(self, tmp_path: Path) -> None:
+        """``and rax, 3`` is the same index mask on a qword dispatch."""
+        code = bytearray()
+        code += bytes([0x48, 0x83, 0xE0, 0x03])  # and rax, 3
+        table_va = TEXT_VA + len(code) + 7
+        code += bytes([0xFF, 0x24, 0xC5]) + struct.pack("<I", table_va)
+        handlers = [TEXT_VA + 0x30, TEXT_VA + 0x31, TEXT_VA + 0x32]
+        code += struct.pack("<Q", 0x900100D1)  # dead slot 0, outside the image
+        for handler in handlers:
+            code += struct.pack("<Q", handler)
+        pad_to = max(handler - TEXT_VA + 1 for handler in handlers)
+        if len(code) < pad_to:
+            code += bytes([0xC3]) * (pad_to - len(code))
+        blob = bytearray(make_pe(bytes(code)))
+        struct.pack_into("<H", blob, 0x80 + 4, 0x8664)
+        pe = tmp_path / "mask64.exe"
+        pe.write_bytes(blob)
+        sw = find_switches(_cfg64(pe), TEXT_VA)[0]
+        assert sw["bounds"] == 3
+        assert sw["cases"] == [(index, handler) for index, handler in enumerate(handlers, start=1)]
 
 
 class TestArchDerivedMode:

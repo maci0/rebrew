@@ -89,7 +89,7 @@ commands that round-trip TOML.
 - Creates `rebrew-project.toml` in the current working directory; refuses to run
   when one already exists ("A rebrew-project.toml already exists").
 - Creates `original/`, `src/<target>/`, and `bin/<target>/` subdirectories, and
-  `src/rebrew-functions.toml` + `src/rebrew-data.toml` metadata files.
+  `rebrew-functions.toml` + `rebrew-data.toml` metadata files, at the project root.
   (`function_structure.json` is written later by `rebrew intake` /
   `discover-functions`; there is no `functions.txt` scaffold.)
 - Writes an `AGENTS.md` from the bundled template so AI agents have project

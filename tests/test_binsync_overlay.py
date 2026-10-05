@@ -232,6 +232,58 @@ class TestConflict:
         assert get_entry(tmp_path / "src", B_F1, "B").get("ghidra") == "_RemoteName"
 
 
+class TestDecoratedOverlayName:
+    def test_same_c_name_is_not_a_conflict(self, tmp_path: Path, monkeypatch) -> None:
+        """``hook@@12`` is ``hook``, and ``@keeps@4`` is ``keeps``.
+
+        Overlay stripped a leading ``_`` only, so a vectorcall or
+        fastcall symbol conflicted with the C name already in the
+        destination.
+        """
+        _make_project(tmp_path)
+        dest = _write_dest(tmp_path, local_name="hook")
+        state = _make_state(tmp_path, name="hook@@12")
+        monkeypatch.chdir(tmp_path)
+
+        result = _invoke(tmp_path, state, "--json")
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.output)
+        assert payload["conflicts"] == []
+        assert payload["applied_names"] == 0
+        assert "void hook(void)" in dest.read_text(encoding="utf-8")
+
+    def test_fastcall_c_name_is_not_a_conflict(self, tmp_path: Path, monkeypatch) -> None:
+        _make_project(tmp_path)
+        dest = _write_dest(tmp_path, local_name="keeps")
+        state = _make_state(tmp_path, name="@keeps@4")
+        monkeypatch.chdir(tmp_path)
+
+        result = _invoke(tmp_path, state, "--json")
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.output)
+        assert payload["conflicts"] == []
+        assert "void keeps(void)" in dest.read_text(encoding="utf-8")
+
+    def test_generic_local_takes_the_c_name(self, tmp_path: Path, monkeypatch) -> None:
+        """A generic local is renamed to ``hook``, not left as ``func_<va>``.
+
+        ``hook@@12`` is not a C identifier, so the overlay skipped the
+        rename instead of writing ``hook``.
+        """
+        _make_project(tmp_path)
+        _write_dest(tmp_path, local_name="func_401040")
+        state = _make_state(tmp_path, name="hook@@12")
+        monkeypatch.chdir(tmp_path)
+
+        result = _invoke(tmp_path, state, "--json")
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.output)
+        assert payload["applied_names"] == 1
+        text = _dest_text(tmp_path)
+        assert "void hook(void)" in text
+        assert "func_401040" not in text
+
+
 class TestResolutionErrors:
     def test_empty_state_dir_errors(self, tmp_path: Path, monkeypatch) -> None:
         _make_project(tmp_path)

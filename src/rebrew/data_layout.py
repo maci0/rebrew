@@ -34,6 +34,7 @@ from threading import Lock
 from typing import Any
 
 from rebrew.binary_loader import load_binary
+from rebrew.c_parser import CALLING_CONVENTION
 from rebrew.data_metadata import iter_data_symbols
 from rebrew.sources import files_with_ext
 from rebrew.utils import atomic_write_text as atomic_write_text
@@ -71,14 +72,60 @@ def scan_files(src_dir: Path, shared_dir: Path | None = None) -> list[Path]:
 # ---------------------------------------------------------------------------
 
 _OBJ_RE = re.compile(r'"([^"]+\.obj)"|(?:^|\s)(\S+\.obj)(?=\s|$)')
-_DEF_LINE_RE = re.compile(r"^[ \t]*[\w\s\*]+\s+(\w+)(?:\[\d+\])?\s*=")
+# Brackets may be hex, an expression, several dimensions, or one nested
+# pair. A decimal-only ``[4]`` missed ``g[0x10]``. Stopping at the first
+# ``]`` missed ``g[sizeof(wchar_t[3])]``.
+# The name may sit inside ``(*name[N])[M]``. A word after whitespace
+# missed that definition, so the symbol was not owned and a move left
+# the original line in place. ``const`` or ``volatile`` may sit between
+# the star and the name. ``(__cdecl *name[N])`` keeps the calling
+# convention off the name.
+_DEF_BRACKETS = r"(?:\[(?:[^\[\]]|\[[^\]]*\])*\])"
+_DEF_QUALIFIER = r"(?:(?:const|volatile)\b\s*)*"
+# ``(*name[N])(params)`` is still that definition. One nested pair covers
+# a function-pointer parameter. The list is not the object's size.
+_DEF_PARAMS = r"(?:\((?:[^()]|\([^()]*\))*\))?"
+_DEF_LINE_RE = re.compile(
+    r"^[ \t]*"
+    r"(?:[\w\s\*]*\(\s*"
+    + CALLING_CONVENTION
+    + r"\**\s*"
+    + _DEF_QUALIFIER
+    + r"([A-Za-z_]\w*)|[\w\s\*]*?\s*\**\s*"
+    + _DEF_QUALIFIER
+    + r"([A-Za-z_]\w*))"
+    r"\s*(?:" + _DEF_BRACKETS + r"\s*)*"
+    r"\s*\)?\s*"
+    r"(?:" + _DEF_BRACKETS + r"\s*)*"
+    r"\s*" + _DEF_PARAMS + r"\s*="
+)
 #: Global name out of a generated definition line, e.g. ``"int g_table[4] = "``.
 _ADDED_NAME_RE = re.compile(r"\s(\w+)(?:\[|\s*=)")
 
 
 @functools.lru_cache(maxsize=256)
 def _def_patterns(name: str) -> tuple[re.Pattern[str], re.Pattern[str]]:
-    pat = re.compile(r"^[ \t]*([\w\s\*]+)\s+" + re.escape(name) + r"(\[\d+\])?\s*=\s*\{")
+    # ``(*name)[N] = {`` and ``(*name[N]) = {`` are still that definition.
+    # A bare word left ``char (*g_row)[4] = {0};`` in place, and
+    # ``int (*table[4]) = {0};`` and ``int *table[4] = {0};`` too.
+    # ``(*name[N])[M] = {`` has another bracket run after the closing
+    # parenthesis. Those brackets are the pointee, not the object's size.
+    # ``(* const name[N])`` keeps the qualifier off the name.
+    # ``(__cdecl *name[N])`` keeps the calling convention off the name.
+    # A scalar ``= 0`` is still that definition. Requiring ``{`` left
+    # ``void (*cb)(int) = 0`` in place when the symbol moved.
+    brackets = r"(?:\[(?:[^\[\]]|\[[^\]]*\])*\])"
+    pat = re.compile(
+        r"^[ \t]*([\w\s\*]+)(?:\s+|\(\s*"
+        + CALLING_CONVENTION
+        + r"\**\s*"
+        + _DEF_QUALIFIER
+        + r"|\*+\s*"
+        + _DEF_QUALIFIER
+        + ")"
+        + re.escape(name)
+        + rf"(?:\s*\))?((?:{brackets})*)(?:\s*\)\s*{brackets}+)*\s*\)?\s*{_DEF_PARAMS}\s*="
+    )
     pat2 = re.compile(r"^[ \t]*([\w\s\*]+\s*\*?)\s+" + re.escape(name) + r"\s*=\s*[^;]+;\s*$")
     return pat, pat2
 
@@ -230,42 +277,57 @@ def obj_section_symbols(obj: Path, *sections: str) -> tuple[dict[str, int], dict
     """``({section: size}, {section: symbols})`` of one object file.
 
     Generalization of :func:`obj_data_symbols` for extra sections (``.rdata``).
-    Only the requested sections are inventoried.
+    Only the requested sections are inventoried. Each symbol is the C name:
+    ``__g_foo`` stays ``_g_foo`` and ``hook@@12`` is ``hook``.
     """
+    from rebrew.rename_ops import c_name_from_symbol
+
     secname, sizes = _obj_section_sizes(obj)
     buckets: dict[str, set[str]] = {s: set() for s in sections}
     for sec_idx, _value, raw_sym in _iter_obj_symbols(obj):
-        sym = raw_sym.lstrip("_")
-        if not sym or sym.startswith((".", "@")):
+        # Section and fastcall-shaped locals stay out. ``lstrip`` then
+        # stored both ``__g_foo`` and ``_g_foo`` as ``g_foo``.
+        bare = raw_sym.lstrip("_")
+        if not bare or bare.startswith((".", "@")):
             continue
         sname = secname.get(sec_idx - 1)
         if sname in buckets:
-            buckets[sname].add(sym)
+            buckets[sname].add(c_name_from_symbol(raw_sym))
     return {s: sizes.get(s, 0) for s in sections}, buckets
 
 
 def obj_data_symbol_offsets(obj: Path) -> tuple[int, dict[str, int]]:
-    """(obj .data size, {symbol: offset within the obj's .data})."""
+    """(obj .data size, {symbol: offset within the obj's .data}).
+
+    The key is the C name. ``__g_foo`` is ``_g_foo`` and ``hook@@12`` is
+    ``hook``; ``lstrip("_")`` stored both underscore symbols as ``g_foo``.
+    """
+    from rebrew.rename_ops import c_name_from_symbol
+
     secname, sizes = _obj_section_sizes(obj)
     dsize = sizes.get(".data", 0)
     syms: dict[str, int] = {}
     for sec_idx, value, raw_sym in _iter_obj_symbols(obj):
         if secname.get(sec_idx - 1) == ".data":
-            syms[raw_sym.lstrip("_")] = value
+            syms[c_name_from_symbol(raw_sym)] = value
     return dsize, syms
 
 
 def obj_text_symbol_offsets(obj: Path) -> tuple[int, dict[str, int]]:
     """(obj .text size, {symbol: offset within the obj's .text}).
 
+    The key is the C name. ``__foo`` is ``_foo`` and ``hook@@12`` is
+    ``hook``; ``lstrip("_")`` stored both ``__foo`` and ``_foo`` as ``foo``.
     Same shape as :func:`obj_data_symbol_offsets`, for the ``.text`` side —
     the primitive ``rebrew build check-text-placement`` walks per TU in link order.
     """
+    from rebrew.rename_ops import c_name_from_symbol
+
     secname, sizes = _obj_section_sizes(obj)
     syms: dict[str, int] = {}
     for sec_idx, value, raw_sym in _iter_obj_symbols(obj):
         if secname.get(sec_idx - 1) == ".text":
-            syms[raw_sym.lstrip("_")] = value
+            syms[c_name_from_symbol(raw_sym)] = value
     return sizes.get(".text", 0), syms
 
 
@@ -478,9 +540,22 @@ def _name_line_re(name: str, *, is_array: bool, extern: bool) -> re.Pattern[str]
     compile a fresh pattern (``re.escape(name)`` defeats the module-level
     pattern cache), so a fill pass recompiled every regex per symbol.
     """
-    suffix = r"\s*(?:\[\s*\d*\s*\])\s*;\s*$" if is_array else r"\s*;\s*$"
+    # One or more brackets, including one nested pair. ``extern T g[0x10];``
+    # and ``extern T g[sizeof(wchar_t[3])];`` used to miss, and the insert
+    # appended a second definition. ``(*name)[N]``, ``(*name[N])``,
+    # ``(name[N])``, and ``*name[N]`` put the name next to a star or inside
+    # parentheses; a bare word left those lines in place.
+    # ``(*name[N])[M]`` has another bracket run after the closing parenthesis.
+    brackets = r"(?:\[(?:[^\[\]]|\[[^\]]*\])*\])"
+    suffix = (
+        rf"(?:\s*\))?\s*{brackets}+(?:\s*\)\s*{brackets}+)*\s*\)?\s*;\s*$"
+        if is_array
+        else r"\s*;\s*$"
+    )
     prefix = r"^(\s*)extern\s+" if extern else r"^(\s*)(?!extern\b)"
-    return re.compile(prefix + r"([A-Za-z_][\w\s]*\**)\s+" + re.escape(name) + suffix)
+    return re.compile(
+        prefix + r"([A-Za-z_][\w\s]*\**)" + r"(?:\s+|\(\s*\**\s*|\*+\s*)" + re.escape(name) + suffix
+    )
 
 
 def insert_definition(
@@ -734,8 +809,12 @@ def fill_data(
 # data --own: materialize stub-file globals as real definitions
 # ---------------------------------------------------------------------------
 
+# One nested pair inside a bound. Stopping at the first ``]`` dropped
+# ``char g[sizeof(wchar_t[3])] = {0};`` from the stub inventory.
 _STUB_DEF_RE = re.compile(
-    r"^\s*([\w\s\*]+?)\s+(\w+)((?:\[[^\]]*\])*)\s*=\s*(?:\{[^;]*\}|[^;]+);\s*$"
+    r"^\s*([\w\s\*]+?)\s+(\w+)"
+    r"((?:\[(?:[^\[\]]|\[[^\]]*\])*\])*)"
+    r"\s*=\s*(?:\{[^;]*\}|[^;]+);\s*$"
 )
 
 
@@ -809,24 +888,39 @@ _TYPE_SIZES: dict[str, int] = {
 _ARRAY_SUFFIX_RE = re.compile(r"\[\s*((?:0[xX][0-9a-fA-F]+|\d+)[uUlL]*)\s*\]")
 
 
+def _bound_value(bound: int | str | None) -> int | None:
+    """One array dimension as a nonnegative count, or None when it is not constant."""
+    if isinstance(bound, int):
+        value = bound
+    elif isinstance(bound, str):
+        try:
+            value = parse_c_integer_literal(bound)
+        except ValueError:
+            return None
+    else:
+        return None
+    return value if value >= 0 else None
+
+
 def _element_count_or_none(brackets: str) -> int | None:
     """Element count of a C array declarator, or None when *brackets* is empty.
 
     Every ``[N]`` counts: ``[2][4]`` is 8 elements, not 2.  ``010`` is octal
-    (8).  A bound that is not a constant (``[N]``) leaves the count unknown.
+    (8).  A complete constant expression (``[2 + 2]``, ``[0x300 * 0x21c]``)
+    folds the same way :func:`estimate_type_size` does.  A bound that is not
+    a constant (``[N]``) leaves the count unknown.
     """
     if not brackets:
         return None
-    raw_bounds = re.findall(r"\[([^\]]*)\]", brackets)
-    if not raw_bounds:
+    from rebrew.c_parser import array_type_shape
+
+    _base, dimensions = array_type_shape(f"char _{brackets}")
+    if not dimensions:
         return None
     total = 1
-    for bound in raw_bounds:
-        try:
-            n = parse_c_integer_literal(bound)
-        except ValueError:
-            return None
-        if n < 0:
+    for bound in dimensions:
+        n = _bound_value(bound)
+        if n is None:
             return None
         # ``T[0]`` is a flexible-array extension; count it as one element, the
         # same rule estimate_type_size applies, so the two size models agree
@@ -890,7 +984,11 @@ def data_symbol_size(fields: dict[str, Any], *, arch: str = "x86_32") -> int:
     Zero is an unspecified size. Type inference uses the existing x86_32
     model; other architectures need explicit SIZE.
     """
-    from rebrew.c_parser import array_type_shape
+    from rebrew.c_parser import (
+        abstract_pointer_array_dimensions,
+        array_type_shape,
+        is_pointer_to_array,
+    )
     from rebrew.metadata import as_metadata_int
 
     try:
@@ -906,9 +1004,36 @@ def data_symbol_size(fields: dict[str, Any], *, arch: str = "x86_32") -> int:
     type_str = fields.get("type")
     if not isinstance(type_str, str) or not type_str:
         return 0
+    # ``T (*)[N]`` is one pointer. Parentheses used to make the extent
+    # unknown, and reading ``[N]`` as a dimension would make it N pointers.
+    # A ``(*)`` inside the bound, as in ``int[sizeof(char (*)[4])]``, is not
+    # this symbol's declarator.
+    if is_pointer_to_array(type_str):
+        return 4
+    # ``T (*[N])`` is N pointers. Parentheses hid the brackets, so the
+    # extent stayed unknown instead of N * 4.
+    abstract = abstract_pointer_array_dimensions(type_str)
+    if abstract is not None:
+        width = 4
+        for bound in abstract:
+            if not isinstance(bound, int) or bound <= 0:
+                return 0
+            width *= bound
+        return width
     base, dimensions = array_type_shape(type_str)
     if "[" in type_str and not dimensions:
         return 0
+    # ``T (*name[N])[M]`` shapes as N pointers to ``T (*)[M]``. The
+    # parentheses are the element, not an unknown type. A function
+    # pointer (``void (*)(int)``) has no array dimension and stays
+    # unknown.
+    if is_pointer_to_array(base):
+        width = 4
+        for bound in dimensions:
+            if not isinstance(bound, int) or bound <= 0:
+                return 0
+            width *= bound
+        return width
     base = " ".join(word for word in base.split() if word not in _NON_TYPE_WORDS)
     if "(" in base or ")" in base:
         return 0
@@ -923,9 +1048,29 @@ def data_symbol_size(fields: dict[str, Any], *, arch: str = "x86_32") -> int:
 
 def estimate_type_size(type_str: str) -> int:
     """Byte size of a declared C type string (pointer- and array-aware)."""
-    from rebrew.c_parser import array_type_shape
+    from rebrew.c_parser import (
+        abstract_pointer_array_dimensions,
+        array_type_shape,
+        is_pointer_to_array,
+    )
 
-    base, dimensions = array_type_shape(type_str.rstrip().rstrip(";").strip())
+    text = type_str.rstrip().rstrip(";").strip()
+    # ``T (*)[N]`` and ``T (**)[N]`` are one pointer. The bracket names the
+    # array that pointer addresses. Reading it as a dimension sized
+    # ``char (*)[4]`` as 16. ``T *[N]`` has no ``(*)`` and stays an array.
+    # A ``(*)`` inside the bound is not this object's declarator.
+    if is_pointer_to_array(text):
+        return 4
+    # ``T (*[N])`` and ``T (*[N])(params)`` are N pointers. The brackets
+    # sit inside the parentheses, so this used to report one pointer.
+    abstract = abstract_pointer_array_dimensions(text)
+    if abstract:
+        count = 1
+        for bound in abstract:
+            if isinstance(bound, int) and bound > 0:
+                count *= bound
+        return 4 * count
+    base, dimensions = array_type_shape(text)
     count = 1
     for bound in dimensions:
         if isinstance(bound, int) and bound > 0:
@@ -1172,6 +1317,33 @@ def _find_definition(text: str, name: str) -> tuple[int, int, str, str] | None:
     return start, len(text), typ, sz
 
 
+def _definition_to_extern(span: str) -> str:
+    """The ``extern`` left behind when a definition moves to another file.
+
+    The declarator is the text before the initializer. Rebuilding
+    ``extern {type} {name}{brackets}`` from the type word and the first
+    bracket run turned ``int (*table[2])[3] = {0};`` into
+    ``extern int table[2];``.
+    """
+    body = span.strip()
+    if body.endswith(";"):
+        body = body[:-1].rstrip()
+    depth = 0
+    cut = len(body)
+    for index, ch in enumerate(body):
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}" and depth:
+            depth -= 1
+        elif ch == "=" and depth == 0:
+            cut = index
+            break
+    body = body[:cut].rstrip()
+    if re.match(r"extern\b", body) is None:
+        body = f"extern {body}"
+    return f"{body};"
+
+
 @functools.lru_cache(maxsize=512)
 def _decl_re(name: str) -> re.Pattern[str]:
     """Declaration matcher for *name*; cached per symbol name.
@@ -1180,12 +1352,61 @@ def _decl_re(name: str) -> re.Pattern[str]:
     ``re.escape(name)`` defeats the module-level pattern cache, so an uncached
     pattern recompiled a fresh regex per symbol.
     """
-    return re.compile(
-        r"^[ \t]*([\w\s\*]+?)\s+" + re.escape(name) + r"(\[\s*\d*\s*\])?\s*(?:=|;)", re.M
+    # ``(*name)[N]`` is one pointer. The brackets are the pointee, so they
+    # are not an element count. ``(*name[N])``, ``(name[N])``, and
+    # ``*name[N]`` are arrays: the brackets are the element count, and a
+    # star stays on the type. ``(*name[N])[M]`` has another pointee bound
+    # after the closing parenthesis; that bound is not the element count.
+    # ``const`` or ``volatile`` may sit between the star and the name.
+    # ``(__cdecl *name[N])`` keeps the calling convention on the pointer.
+    # ``(*name[N])(params)`` is still an array of pointers. The parameter
+    # list is not an element count. A bare ``name[N]`` still is.
+    brackets = r"((?:\[(?:[^\[\]]|\[[^\]]*\])*\])*)"
+    qualifier = r"(?:\s*(?:const|volatile)\b)*"
+    pointer = (
+        r"^[ \t]*([\w\s\*]+?)\(\s*"
+        + CALLING_CONVENTION
+        + r"\*+"
+        + qualifier
+        + r"\s*"
+        + re.escape(name)
+        + r"\s*\)(?:\[(?:[^\[\]]|\[[^\]]*\])*\])*\s*(?:=|;)"
     )
+    paren = (
+        r"^[ \t]*([\w\s]+?)\(\s*("
+        + CALLING_CONVENTION
+        + r"\**"
+        + qualifier
+        + r")\s*"
+        + re.escape(name)
+        + r"\s*((?:\[(?:[^\[\]]|\[[^\]]*\])*\])+)\s*\)\s*"
+        + _DEF_PARAMS
+        + r"(?:\[(?:[^\[\]]|\[[^\]]*\])*\])*\s*(?:=|;)"
+    )
+    glued = r"^[ \t]*([\w\s]+?)\s*(\*+)\s*" + re.escape(name) + brackets + r"\s*(?:=|;)"
+    bare = r"^[ \t]*([\w\s\*]+?)\s+" + re.escape(name) + brackets + r"\s*(?:=|;)"
+    return re.compile("|".join((pointer, paren, glued, bare)), re.M)
 
 
-_ARRAY_SIZE_RE = re.compile(r"\[(\d+)\]")
+def _declared_element_count(suffix: str) -> int | None:
+    """Element count of a declaration's brackets, or None when it is not constant.
+
+    ``[0x10]`` is 16 and ``[2][4]`` is 8. ``[0]`` stays 0. A name stays unknown.
+    """
+    if not suffix:
+        return None
+    from rebrew.c_parser import array_type_shape
+
+    _base, dimensions = array_type_shape(f"char _{suffix}")
+    if not dimensions:
+        return None
+    total = 1
+    for bound in dimensions:
+        count = _bound_value(bound)
+        if count is None:
+            return None
+        total *= count
+    return total
 
 
 def _decl_info(text: str, name: str) -> tuple[str, int | None] | None:
@@ -1193,8 +1414,21 @@ def _decl_info(text: str, name: str) -> tuple[str, int | None] | None:
     m = _decl_re(name).search(text)
     if not m:
         return None
-    size_m = _ARRAY_SIZE_RE.search(m.group(2) or "")
-    return m.group(1).strip(), (int(size_m.group(1)) if size_m else None)
+    # Group 1 is the pointer-to-array form. Its brackets are the pointee.
+    if m.group(1) is not None:
+        return m.group(1).strip(), None
+    # Groups 2-4 are ``(*name[N])`` / ``(name[N])``. Groups 5-7 glue the
+    # star to the name. Groups 8-9 are a bare name.
+    if m.group(2) is not None:
+        base = m.group(2).strip()
+        stars = m.group(3) or ""
+        typ = f"{base} {stars}".strip() if stars else base
+        return typ, _declared_element_count(m.group(4) or "")
+    if m.group(5) is not None:
+        base = m.group(5).strip()
+        stars = m.group(6) or ""
+        return f"{base} {stars}".strip(), _declared_element_count(m.group(7) or "")
+    return m.group(8).strip(), _declared_element_count(m.group(9) or "")
 
 
 def _merged_definition_line(dtyp: str, dsize: int | None, name: str, def_line: str) -> str:
@@ -1258,8 +1492,9 @@ def fix_ownership(
     for f, text in _read_sources_or_fail(files):
         for ln in text.splitlines():
             m = _DEF_LINE_RE.match(ln.strip())
-            if m and m.group(1) in toml and m.group(1) not in owner:
-                owner[m.group(1)] = f
+            defined = (m.group(1) or m.group(2)) if m else None
+            if defined and defined in toml and defined not in owner:
+                owner[defined] = f
     original_owner = dict(owner)
 
     tu_files: list[Path | None] = [_obj_to_source(obj, root, src_dir) for obj in link_objects(root)]
@@ -1344,8 +1579,8 @@ def fix_ownership(
             for name in names:
                 r = _find_definition(text, name)
                 if r:
-                    s, e, typ, sz = r
-                    spans.append((s, e, f"extern {typ} {name}{sz};"))
+                    s, e, _, _ = r
+                    spans.append((s, e, _definition_to_extern(text[s:e])))
                     n_edit += 1
             for s, e, repl in sorted(spans, reverse=True):
                 text = text[:s] + repl + text[e:]

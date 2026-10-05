@@ -19,13 +19,24 @@ from rebrew.c_parser import get_ts_parser
 from rebrew.utils import detect_source_encoding
 
 _PTR_NOSPACE_RE = re.compile(r"([a-zA-Z0-9_])\*")
-_CALLING_CONV_RE = re.compile(r"\b__(?:cdecl|stdcall|fastcall|thiscall)\b\s*")
+# Word conventions (``WINAPI``) and the longer ``__`` forms. ``__vectorcall``
+# is not a prefix of the four short names, and ``WINAPI`` has no underscores.
+_CALLING_CONV_RE = re.compile(
+    r"\b(?:__vectorcall|__thiscall|__fastcall|__clrcall|__stdcall|__cdecl"
+    r"|REBREW_NAKED|APIENTRY|CALLBACK|_CRTIMP|WINAPI)\b\s*"
+)
 _DECLSPEC_RE = re.compile(r"__declspec\s*\(\s*\w+\s*\)\s*")
 _MULTI_SPACE_RE = re.compile(r"  +")
 _RBW_RE = re.compile(r"\bRBW_\w+\b\s*")
 _CONST_RE = re.compile(r"\bconst\b\s*")
 _VOLATILE_RE = re.compile(r"\bvolatile\b\s*")
-_FUNCPTR_RE = re.compile(r"\w[\w\s\*]*\(\*\s*(\w+)\)\s*\([^)]*\)")
+# ``(*cbs[4])(int)`` is an array of function pointers. The brackets sit
+# between the name and the closing parenthesis, and ``(**cb)(int)`` has
+# a second star, so a pattern that required ``(*name)`` left the
+# parameter in the signature.
+_FUNCPTR_RE = re.compile(
+    r"\w[\w\s\*]*\(\*+\s*(\w+)\s*((?:\[(?:[^\[\]]|\[[^\]]*\])*\])*)\)\s*\([^)]*\)"
+)
 
 
 def _normalize_signature(sig: str) -> str:
@@ -37,7 +48,7 @@ def _normalize_signature(sig: str) -> str:
     sig = _CONST_RE.sub("", sig)
     sig = _VOLATILE_RE.sub("", sig)
     # Inline function-pointer params -> void * (CParser doesn't handle them)
-    sig = _FUNCPTR_RE.sub(r"void * \1", sig)
+    sig = _FUNCPTR_RE.sub(r"void * \1\2", sig)
     sig = _PTR_NOSPACE_RE.sub(r"\1 *", sig)
     sig = sig.rstrip("; ")
     sig = sig.replace("\n", " ").replace("\r", "")

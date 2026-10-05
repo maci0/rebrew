@@ -27,6 +27,7 @@ from rebrew.cli import console
 from rebrew.config import ProjectConfig
 from rebrew.limits import NO_DELTA
 from rebrew.metadata import canonical_status, get_entry, update_source_status
+from rebrew.rename_ops import c_name_from_symbol
 from rebrew.sources import iter_sources
 from rebrew.utils import atomic_write_text, read_source_text
 
@@ -118,7 +119,9 @@ def _parse_annotations(
             continue
 
         symbol = resolve_symbol(ann, filepath)
-        if symbol in ignored or symbol.lstrip("_") in ignored:
+        # ``hook@@12`` is ignored as ``hook``. ``__foo`` is ``_foo``, not ``foo``.
+        bare = c_name_from_symbol(symbol)
+        if symbol in ignored or bare in ignored:
             continue
 
         if ann.size < (min_size if min_size > 0 else _MIN_STUB_SIZE_FLOOR):

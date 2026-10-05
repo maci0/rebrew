@@ -57,6 +57,27 @@ class FloatInstruction:
     address: int  # VA of the instruction
     opcode: tuple[int, int]
     pointer: int  # absolute address of the operand
+    disp_offset: int = 2  # byte offset of that disp32 within the instruction
+
+
+#: Bytes that may precede an x87 opcode without changing the ModRM form.
+#: ``67`` (address size) is included so the opcode is still recognized, then
+#: rejected: it turns ``D9 05`` into ``[di]``, which is not an absolute address.
+_X87_PREFIXES = frozenset({0x26, 0x2E, 0x36, 0x3E, 0x64, 0x65, 0x66, 0x67, 0xF0, 0xF2, 0xF3})
+
+
+def _x87_opcode_at(raw: bytes) -> tuple[tuple[int, int], int] | None:
+    """``(opcode, disp_offset)`` after leading prefixes, or None.
+
+    ``disp_offset`` is where the disp32 starts. A segment or operand-size
+    prefix shifts it past the usual ``address + 2``.
+    """
+    index = 0
+    while index < len(raw) and raw[index] in _X87_PREFIXES:
+        index += 1
+    if index + 1 >= len(raw):
+        return None
+    return (raw[index], raw[index + 1]), index + 2
 
 
 @dataclass(frozen=True)
@@ -74,7 +95,9 @@ def find_float_instructions_in_buffer(buf: bytes, base_addr: int = 0) -> Iterato
     Capstone (x86-32) decides which bytes are an instruction. A ``D9 05``
     pattern inside another instruction's immediate is not a reference.
     Undecodable bytes are skipped, so a real instruction later in *buf*
-    is still seen. The operand address is the instruction's disp32.
+    is still seen. The operand address is the instruction's disp32. A
+    segment or operand-size prefix (``fld dword ptr ds:[abs]``) stays a
+    reference; the opcode is the two bytes after those prefixes.
     """
     if not buf:
         return
@@ -83,17 +106,18 @@ def find_float_instructions_in_buffer(buf: bytes, base_addr: int = 0) -> Iterato
     from rebrew.analysis import capstone_for
 
     for insn in capstone_for().disasm(buf, base_addr):
-        raw = insn.bytes
-        if len(raw) < 2:
+        raw = bytes(insn.bytes)
+        located = _x87_opcode_at(raw)
+        if located is None:
             continue
-        opcode = (raw[0], raw[1])
+        opcode, disp_offset = located
         if opcode not in FLOAT_OPCODES:
             continue
         for op in insn.operands:
             mem = op.mem
             if op.type != X86_OP_MEM or mem.base != X86_REG_INVALID or mem.index != X86_REG_INVALID:
                 continue
-            yield FloatInstruction(insn.address, opcode, mem.disp & _DISP32_MASK)
+            yield FloatInstruction(insn.address, opcode, mem.disp & _DISP32_MASK, disp_offset)
             break
 
 
@@ -123,7 +147,7 @@ def find_float_consts(
             pointer = inst.pointer
             if pointer in seen:
                 continue
-            if reloc_sites is not None and inst.address + 2 not in reloc_sites:
+            if reloc_sites is not None and inst.address + inst.disp_offset not in reloc_sites:
                 continue
             single = inst.opcode in SINGLE_PRECISION_OPCODES
             size = 4 if single else 8

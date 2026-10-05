@@ -240,8 +240,17 @@ binary = "test.exe"
         assert cfg.target_name == "client_exe"
         assert cfg.arch == "x86_64"
 
-    def test_metadata_dir_prefers_parent(self, tmp_path: Path) -> None:
+    def test_metadata_dir_sits_above_the_source_tree(self, tmp_path: Path) -> None:
+        """No store yet: the TOMLs belong one level above src/, at the project root."""
         root = _make_project(tmp_path, self.MULTI_TOML)
+        cfg = load_config(root)
+        assert cfg.metadata_dir == root.resolve()
+
+    def test_metadata_dir_keeps_an_existing_source_tree_store(self, tmp_path: Path) -> None:
+        """A project that has not moved its TOMLs out of src/ still reads them there."""
+        root = _make_project(tmp_path, self.MULTI_TOML)
+        (root / "src").mkdir()
+        (root / "src" / "rebrew-functions.toml").write_text("", encoding="utf-8")
         cfg = load_config(root)
         assert cfg.metadata_dir == (root / "src").resolve()
 

@@ -1,5 +1,674 @@
 ## [Unreleased]
 
+## [2.23.0] - 2026-10-05
+
+### Fixed
+- Incremental verify misses the verify cache when the native symbol changes.
+- Jump-table detection keeps an MSVC `mov edi, edi` hotpatch in front of a
+  32-bit or 64-bit pointer table. The length check used to reject that slice
+  before the prefix skip, so the catalog kept the shorter size.
+- Near-diag pins a byte-identical instruction on that instruction. The pin
+  is `(target index, compiled index)` and the matcher reads the first number
+  as a compiled index, so a shared instruction later in the target was
+  anchored to a different opcode and counted as structural.
+- Near-diag treats an x87 stack slot (`st(i)`) and an MMX register (`mm0`–`mm7`)
+  as registers. Those names stayed in the operand text, so a different stack
+  slot or MMX register was reported as a structural change.
+- Gap classification reads jump tables at the image's pointer width and byte
+  order. A 64-bit or big-endian pointer pair was checked as little-endian
+  x86-32, so the gap was labeled a small non-padding run.
+- The in-function jump-table scan keeps a 64-bit table that has a short tail,
+  and it honors a little-endian image on a big-endian architecture. The
+  window used to be a multiple of 4 bytes, and the slots were always read in
+  the architecture's default byte order.
+- Call-graph clustering records a 16-bit near call, and an ARM, MIPS, or
+  PPC direct call (`bl`/`blx`, `jal`, `bsr`). Without a project config the
+  scan used 32-bit x86, and it only treated the mnemonic `call` with an
+  operand that already started with `0x` as a call, so those callees never
+  raised the static-function score.
+- Function discovery records an ARM or AArch64 `bl`/`blx #0x…` target and an
+  SH2 `bsr` target as a function start. The non-x86 sweep ignored the `#`
+  prefix and every mnemonic other than `call`, `jal`, and `bl`.
+- Reference scans record an ARM `bl`/`b`, a MIPS `jal`/`j`, a PPC `bl`/`b`,
+  and an SH2 `bsr`/`bra` as a call or an unconditional jump. Those
+  mnemonics were ignored, SH2 `bsr` was not an immediate operand so its
+  displacement was never the address, and an SH memory operand aborted the
+  scan because it has no x86 `base` field.
+- Hex disassembly annotates an ARM or AArch64 `bl`/`b #0x…` with the known
+  function name. The note was added only when the mnemonic was `call` or
+  `jmp` and the operand already started with `0x`.
+- A 64-bit `and rax, 3` bounds a jump-table dispatch the way `and eax, 3`
+  does. The mask was recognized only for the 32-bit register names, so the
+  qword table was read as unbounded and stopped on the unused first slot.
+- Naked-C comments disassemble with the target architecture. An ARM `bl`
+  was commented as x86 because the comment pass always used 32-bit mode.
+- Hex-mode hints label an x86-64 `jmp qword ptr [reg*8 + table]` as a
+  jump-table switch. The hint only matched a 32-bit `dword ptr [reg*4]`.
+- Float-constant scans keep `fld dword ptr ds:[addr]` (and the same load
+  with an operand-size prefix). The opcode check used the first two bytes,
+  so a prefix hid the `D9 05`, and the relocation check looked at byte 2
+  (the ModRM) instead of the displacement.
+- Stub-file array bounds fold the same constant expressions as
+  `estimate_type_size`. `unsigned char g[0x300 * 0x21c]` was dropped, so
+  the symbol was never materialized as a definition. A name (`g[N]`) stays
+  unknown.
+- Hex-mode hints label a 16-bit `jmp word ptr [reg + disp]` as a jump-table
+  switch. The hint matched only a scaled `dword` or `qword` operand, so the
+  form `find_switches` reads on a 16-bit target stayed unlabeled. A
+  register-only `jmp word ptr [reg]` stays unlabeled.
+- Hex-mode hints label `jmp dword ptr [base + index*4]` and
+  `jmp qword ptr [base + index*8]` as jump tables. Capstone prints the base
+  register first, and the hint only matched a scale at the start of the
+  brackets.
+- Hex annotations name a PE32+ import or string reached by `[rip + disp]`.
+  The displacement is added to the next instruction. A bracket containing
+  `+` used to be treated as a register-relative offset, so the slot stayed
+  unnamed. `[eax + disp]` is still not an address.
+- `rebrew build symbol-stubs` sizes a constant-expression array bound.
+  `extern unsigned char g[0x300 * 0x21c]` became `[1]`, so every later
+  `.data` symbol was placed too early. A name (`g[N]`) stays one element.
+- Struct layout sizes a C array bound. `char gap[0x10]` was unknown,
+  `char oct[010]` was ten bytes, and `char expr[2 + 2]` stopped the
+  struct, so later fields were dropped. A name (`buf[N]`) is still unknown.
+  A packed decompiler struct keeps that layout when the bound is not a
+  plain decimal, so `int field_6` stays at offset 6. `char a; int b` still
+  uses natural alignment.
+- The line-parser struct layout folds `char expr[2 + 2]` to four bytes
+  and keeps the following field. It used to mark the struct incomplete
+  and leave the next field at offset 0. A symbolic `[N]` stays incomplete.
+- A bounded jump table keeps the cases after a zero slot. A 32-bit zero
+  entry used to end the read, so the later handlers were dropped. An
+  unbounded table still stops at the first target outside the image.
+- Struct recovery and the naming pass read a hex array index (`a0[0x10]`,
+  `*(int *)&a0[0xA]`). The index pattern was decimal digits only, so the
+  access was dropped and the naming pass left `v2[0xA]` unrewritten.
+  A leading zero stays decimal (`010` is ten).
+- The naming pass keeps a bare array index as a value and an `&p[i]`
+  index as an address. `y = p[1]` had become `y =p->field`, and
+  `z = &p[1]` had become a load of that field.
+- Struct layout sizes a 32-bit MSVC `long long`, `long long int`, and
+  `__int64` as 8 bytes and aligns them to 8. The size was unknown, so
+  the struct stopped at that field, and a `char` before `long long`
+  did not pad the 64-bit field out to offset 8.
+- A `long long *` or `unsigned long long *` array index counts by 8.
+  The declaration kept only the last word, so the pointer was a 4-byte
+  `long` and `p[1]` landed at offset 4. `signed long *` stays 4.
+  `long long` is still a primitive, not a struct name.
+- Struct layout sizes `long double` as 8 bytes, aligned to 8, and sizes
+  `short int` / `long int` as `short` / `long`. Those spellings were
+  unknown, so `char c; long double x; int tail` stopped after `c`.
+- The line-parser struct layout accepts `long long`, `long long int`,
+  `long double`, `short int`, and `long int` as one field type. A
+  single-word base took the second word as the field name, so the
+  struct was incomplete. A `long long *` stays a pointer. The line
+  parser stays packed.
+- An array bound folds integer `/` and `%` (`char[8 / 2]` is 4,
+  `char[10 % 3]` is 1). `1 / 0` stays unknown. A packed decompiler
+  struct keeps that layout when the bound uses those operators, so
+  `int field_3` after `char gap[7 / 2]` stays at offset 3.
+- An array bound folds `<<` and `>>` (`char[1 << 4]` is 16). A shift
+  count of 31 or more stays unknown. `int field_2` after
+  `char gap[1 << 1]` stays at offset 2.
+- An array bound keeps a negative constant inside a nonnegative result
+  (`char[4 + -2]` is 2, `char[-(1 - 3)]` is 2). Division and remainder
+  are toward zero, so `(-5) / 2 + 3` is 1. A negative final bound and a
+  shift of a negative stay unknown. `int field_2` after
+  `char gap[4 + -2]` stays at offset 2.
+- An array bound folds nonnegative `&`, `|`, and `^` (`char[15 & 7]` is
+  7, `char[1 | 2 & 4]` is 1). A negative operand and `~` stay unknown.
+  `int field_7` after `char gap[15 & 7]` stays at offset 7.
+- A parenthesized array bound keeps the packed decompiler layout.
+  `char gap[(2)]` is 2 bytes, and natural alignment had moved
+  `int field_2` to offset 4. Parentheses are not a plain decimal, so
+  the field stays at offset 2. `char a; int b` still uses natural
+  alignment.
+- An array bound folds an integer cast that does not change the value
+  (`(int)(2 + 2)` is 4, `4 + (int)-2` is 2). A cast that would truncate
+  (`(char)256`), a cast of a negative to unsigned, and a pointer cast
+  stay unknown. `int field_2` after `char gap[(int)2]` stays at offset 2.
+- An array bound folds a constant `?:` (`1 ? 4 : 2` is 4, `0 ? 8 : 2`
+  is 2). Both arms must fold, so a name in the unused arm stays unknown.
+  `int field_2` after `char gap[0 ? 8 : 2]` stays at offset 2.
+- An array bound folds a comma expression to its rightmost operand
+  (`(2, 3)` is 3, `(2, 3, 4)` is 4). A name or `1 / 0` in any operand
+  stays unknown. `int field_3` after `char gap[(2, 3)]` stays at offset 3.
+- An array bound folds `sizeof` of a known 32-bit type (`sizeof(int)`
+  is 4, `sizeof(char) * 4` is 4, `sizeof(int[2])` is 8, `sizeof(int *)`
+  is 4). An unknown type and `sizeof` of an expression stay unknown.
+  `int field_2` after `char gap[sizeof(short)]` stays at offset 2.
+- An array bound folds a constant comparison to 0 or 1 (`1 < 2` is 1,
+  `2 == 2` is 1, `1 < 2 ? 4 : 8` is 4). `int field_1` after
+  `char gap[2 == 2]` stays at offset 1.
+- An array bound folds `&&`, `||`, and `!` to 0 or 1 (`1 && 2` is 1,
+  `0 || 3` is 1, `!0` is 1). The result is not the operand. An unknown
+  operand stays unknown. `int field_1` after `char gap[0 || 1]` stays
+  at offset 1.
+- Ownership lookup recognizes a definition whose array bound is not a
+  plain decimal. `int g[0x10] = {1};`, `int g[2 + 2] = {1};`, and
+  `int g[2][4] = {1};` were missed, so a move could not replace the
+  definition. A declaration `extern unsigned char g[0x10];` counts as
+  16 elements, and `extern int g[2][4];` counts as 8.
+- `insert_definition` replaces an extern or pad whose bound is not a
+  decimal. `extern unsigned char g[0x10];` stayed in the file and a
+  second `g[16]` was appended. The existing line is replaced.
+- Data-row binding sees a declaration whose array bound is not a
+  decimal. `extern unsigned char g[0x10];`, `extern int g[2 + 2];`, and
+  `extern int g[2][4];` were skipped, so those rows never got a file.
+- An array bound folds a character constant (`'A'` is 65, `'\n'` is 10,
+  `'\x10'` is 16, `L'A'` is 65). A multi-character literal stays
+  unknown. `int field_A` after `char gap['\n']` stays at offset 10.
+- An array bound folds `sizeof` of a string, counting the bytes plus
+  the terminating NUL (`sizeof("hi")` is 3, `sizeof("")` is 1,
+  `sizeof("a" "b")` is 3). `int field_3` after `char gap[sizeof("hi")]`
+  stays at offset 3.
+- An array bound folds `sizeof` of a wide string at the 32-bit MSVC
+  unit width (`sizeof(L"hi")` is 6, `sizeof(L"")` is 2, `sizeof(u"hi")`
+  is 6, `sizeof(U"hi")` is 12, `sizeof(u8"hi")` is 3). Adjacent
+  literals of different widths stay unknown.
+- `wchar_t` is 2 bytes on the 32-bit MSVC model. `sizeof(wchar_t)` is
+  2, `wchar_t[3]` is 6, and a `wchar_t` field keeps the following
+  `int` at offset 4. A `wchar_t *` index strides by 2.
+- An array bound folds `sizeof` of a character constant as the size of
+  its C type (`sizeof('A')` is 4, `sizeof(L'A')` is 2, `sizeof(u'A')`
+  is 2, `sizeof(U'A')` is 4, `sizeof(u8'A')` is 1). `int field_2` after
+  `char gap[sizeof(L'A')]` stays at offset 2.
+- `bool` is 1 byte on the 32-bit MSVC model. `sizeof(bool)` is 1,
+  `bool[4]` is 4, and a `bool` field keeps the following `int` at
+  offset 4. A `bool *` index strides by 1. `int field_1` after
+  `char gap[sizeof(bool)]` stays at offset 1.
+- An array bound folds `sizeof` of an array whose element name is not
+  a C keyword (`sizeof(wchar_t[3])` is 6, `sizeof(wchar_t[2][3])` is
+  12). `int field_6` after `char gap[sizeof(wchar_t[3])]` stays at
+  offset 6. An unknown name (`sizeof(n[3])`) stays unknown.
+- `rebrew build symbol-stubs` reads `extern char g[sizeof(int)]` as an
+  array of 4. The parenthesis used to make a function named `sizeof`.
+  `g[sizeof(wchar_t[3])]` is 6 elements, and `g[sizeof(L"hi")]` is 6.
+- Data-row binding sees a declaration whose array bound contains a
+  nested bracket. `extern char g[sizeof(wchar_t[3])]` and
+  `extern int g[sizeof(int[2])]` were skipped, so those rows never
+  got a file.
+- Ownership lookup finds a definition whose array bound contains a
+  nested bracket. `int g[sizeof(wchar_t[3])] = {1}` was missed, so a
+  move could not replace it. The declaration counts as 6 elements.
+  `extern int g[sizeof(int[2])]` counts as 8.
+- `insert_definition` replaces an extern whose bound contains a nested
+  bracket. `extern char g[sizeof(wchar_t[3])]` stayed in the file and a
+  second `g[6]` was appended. The existing line is replaced.
+- Header generation keeps a nested array bound on the name.
+  `char[sizeof(wchar_t[3])]` was emitted as
+  `extern char[sizeof(wchar_t[3])] g`, which is not a declaration.
+  `char[2][4]` is `extern char g[2][4]`.
+- Stub-file inventory keeps a definition whose bound contains a nested
+  bracket. `char g[sizeof(wchar_t[3])] = {0}` was dropped, so the symbol
+  was never materialized. It counts as 6 elements. `int g[sizeof(int[2])]`
+  counts as 8.
+- Lint sees a file-scope zero initializer whose bound contains a
+  bracket. `char g[sizeof(wchar_t[3])] = {0}` and `char g[2][4] = {0}`
+  were skipped, so W022 did not warn and W021 did not name the global.
+  A recorded `.data` name stays exempt.
+- Qualifier sweep treats `char g[sizeof(wchar_t[3])];` and `char g[2][4];`
+  as declarations. The bracket pattern stopped at the first `]`, so those
+  locals were never candidates. A function body stays excluded.
+- Header generation keeps a pointer to an array as a pointer.
+  `char (*)[4]` was emitted as `extern char (*) g[4]`. It is now
+  `extern char (*g)[4]`. `unsigned char (*)[sizeof(wchar_t[3])]` keeps
+  the bound on the array.
+- `estimate_type_size` sizes `char (*)[4]` as one pointer (4 bytes).
+  The bound was treated as a dimension, so the object was 16 bytes.
+  `char (**)[4]` is 4. `char *[4]` stays 16.
+- Struct layout keeps an array of pointers and a pointer to an array
+  apart. `char *rows[4]` was one pointer named `rows[4]`, so the next
+  field sat at offset 4; it is now 16 bytes and the next field is at
+  20. `char (*row)[4]` used to end the struct; it is one pointer and
+  the following field is kept. `char buf[8]` and `float m[4][4]` are
+  unchanged.
+- Struct evidence does not treat `char *rows[4]` as a pointer to char.
+  `rows[1]` was recorded at offset 1. An array of pointers is not
+  indexed that way. `short *a0` still indexes by 2.
+- `data_symbol_size` sizes `char (*)[4]` as one pointer (4 bytes).
+  The parentheses used to make the extent unknown. `char (**)[4]` is
+  4. `char *[4]` stays 16. A function pointer stays unknown, and an
+  explicit size still wins.
+- `sizeof(char (*)[4])` is 4 and `sizeof(char *[2])` is 8. A `(*)`
+  inside the bound sized `int[sizeof(char (*)[4])]` as one pointer
+  (4 bytes instead of 16). `char[sizeof(char *[2])]` stayed unknown,
+  so the following struct field was dropped. `char (*)[4]` is still
+  one pointer.
+- Header generation leaves a `(*)` inside an array bound alone.
+  `char[sizeof(char (*)[4])]` was emitted as
+  `extern char[sizeof(char (*g)[4])];`. It is now
+  `extern char g[sizeof(char (*)[4])];`. `char (**)[4]` is
+  `extern char (**g)[4]`, not `extern char (**) g[4]`.
+- Struct layout treats `int (*table[4])` as four pointers. The
+  parentheses do not change `int *table[4]`. The field was unknown, so
+  the following field was dropped. `int (*row)[4]` stays one pointer.
+- Qualifier sweep treats `char (*g)[4];` and `char (**g)[4];` as
+  declarations. The name sits inside parentheses, so those locals were
+  never candidates. A function body stays excluded.
+- Header generation keeps a `sizeof` of a string or character
+  constant. `char[sizeof(L"hi")]` and `char[sizeof(L'A')]` were
+  omitted because the quote was not a declarator character. A `;`
+  inside the type is still rejected.
+- Data annotate binds `extern char (*g_row)[4]` and
+  `extern char (**g_ptrs)[4]`. The name sits inside parentheses, so
+  those rows were left without a file.
+- `insert_definition` replaces `extern char (*g_row)[4]` in place.
+  The name sits inside parentheses, so the extern stayed and a second
+  definition was appended.
+- `insert_definition` replaces `char (*g_row)[4] = {0}` in place. A
+  re-run appended a second definition of the same name.
+- `_decl_info` sees `extern char (*g_row)[4]` and
+  `extern char (**g_ptrs)[4]` as one pointer. The name sits inside
+  parentheses, so the declaration was invisible. `[4]` is the array
+  that pointer addresses, not four elements. `extern int g_2d[2][4]`
+  stays eight elements.
+- Symbol stubs for `extern int (*table[4])` compile. The opening
+  parenthesis stayed in the type, so the stub was
+  `int (* table[4] = {0};`. It is four pointers,
+  `int * table[4] = {0};`. `(table[4])` is the array without a star.
+  `extern char (*row)[4]` stays one pointer and is not this form.
+- `insert_definition` replaces `extern int (*table[4])`,
+  `int (*table[4]) = {0}`, `extern int *table[4]`, and
+  `extern int (table[4])` in place. The name sits next to a star or
+  inside parentheses, so each line stayed and a second definition was
+  appended.
+- `_decl_info` counts `extern int *table[4]` and
+  `extern int (*table[4])` as four pointers. The star is glued to the
+  name, or the brackets sit inside the parentheses, so the declaration
+  was invisible. `extern char (*g_row)[4]` stays one pointer.
+- Qualifier sweep treats `int *table[4];` and `int (*table[4]);` as
+  declarations. The star is glued to the name, or the brackets sit
+  inside the parentheses, so those locals were never candidates. A
+  function body stays excluded.
+- Data annotate binds `extern int *table[4]`, `extern int (*rows[4])`,
+  and `extern int (counts[4])`. The star is glued to the name, or the
+  brackets sit inside the parentheses, so those rows were left without
+  a file.
+- Lint W022 flags `int *table[4] = {0}` and `int (*rows[4]) = {0}`.
+  The star is glued to the name, or the brackets sit inside the
+  parentheses, so the file-scope zero initializer was silent. A
+  recorded `.data` name stays exempt.
+- Header generation puts the name inside `int (*[4])`. The line was
+  `extern int (*[4]) g`, which is not C. It is `extern int (*g[4]);`.
+  `int (**[2])` and `int (*[4])(int)` keep the name in the same place.
+  `int *[4]` and `int (*)[4]` stay as they are.
+- `int (*[4])` is four pointers (16 bytes). The brackets sit inside
+  the parentheses, so the object was sized as one pointer, and a
+  stored symbol of that type had no extent. `int (**[2])` is 8.
+  `int (*[4])(int)` is 16. `sizeof` of that array is the whole
+  object. `int (*)[4]` stays one pointer.
+- `int (*table[4]);` inside a struct is four pointers, and the next
+  field stays. The name sat inside parentheses, so the line was not a
+  field and the struct was incomplete. `char (*row)[4];` stays one
+  pointer.
+- `int (*table[4]);` is already a declaration of `table`. The
+  parentheses hid the name, so a `'table' undeclared` diagnostic
+  injected `typedef int table;` on top of the array. `char (*row)[4];`
+  stays declared too.
+- `extern char (*g_row)[4]` is one pointer to four chars. The brackets
+  outside the parentheses were the object's array, so the type was
+  `char[4]`. `extern char (**ptrs)[2][3]` is one pointer.
+  `extern int (*table[4])` is four pointers. `extern int (counts[4])`
+  is four ints.
+- A bare `char (*g_row)[4];` keeps that type in the generated header.
+  The name sat inside parentheses and the line had no `extern`, so the
+  declaration was skipped and the header kept the metadata type.
+  `int (*table[4]);` is four pointers.
+- A bare `char (*g_row)[4];` after a data marker is that pointer. The
+  name sat inside parentheses, so the line was skipped and the next
+  declaration was reported for the marker. `int (*table[4]);` is four
+  pointers.
+- `char (*row)[4]` is a pointer to four chars. The name sat inside
+  parentheses, so the type stopped at `char (*` and the `[4]` was
+  dropped. `char (**ptrs)[4]` is one pointer. `int (counts[4])` is
+  four ints.
+- `void (*cbs[4])(int)` in a signature becomes `void * cbs[4]`. The
+  brackets sat between the name and the parameter list, so an array of
+  function pointers stayed in the signature. `void (*cb)(int)` is
+  unchanged. `void (*row)[4]` is a pointer to an array and stays.
+- `int (*table[4]) = {0}` is a defined stub symbol. The parentheses hid
+  the name, so regenerating the stub TU dropped it without the
+  overwrite warning. `char (*row)[4] = {0}` is named too.
+- `void (**cb)(int)` in a signature becomes `void * cb`. The extra
+  star hid the function pointer, so the parameter stayed in the
+  signature. `void (**cbs[4])(int)` becomes `void * cbs[4]`.
+  `void (**row)[4]` is a pointer to an array and stays.
+- `extern int (*table[2])[3]` is two pointers to three ints. The
+  brackets outside the parentheses were the object's array, so the
+  type was `int[3]`. `extern char (**rows[2])[4]` is two pointers.
+  `extern char (*row)[4]` stays one pointer.
+- `int (*table[2])[3]` inside a struct is two pointers, and the next
+  field stays. The parentheses were dropped, so the field was a 2-by-3
+  grid of pointers and `tail` sat 16 bytes later. `char (*row)[4]`
+  stays one pointer. `int (*table[4])` stays four pointers.
+- `int (*table[2])[3]` is the global `table`. The pointee brackets sat
+  after the closing parenthesis, so a second annotation was not a
+  duplicate and a recorded `.data` `= {0}` was not exempt.
+- `int (*g[2])[3]` and `int (*g[1 + 1])[03]` are the same type. The
+  brackets inside the parentheses were not folded, so the two spellings
+  compared as a conflict. `int (*g[2])[4]` stays a different pointee.
+- `extern int (*table[2])[3]` is two pointers. The pointee brackets sat
+  after the closing parenthesis, so the declaration was invisible and
+  its element count was lost. `extern char (*g_row)[4]` stays one pointer.
+- `extern int (*table[2])[3];` is replaced in place when a definition is
+  inserted. The pointee brackets sat after the closing parenthesis, so
+  the extern stayed and a second definition was appended.
+- `int (*table[2])[3] = {0}` is replaced in place on a re-run. The
+  pointee brackets sat after the closing parenthesis, so the definition
+  stayed and a second one was appended.
+- `extern int (*table[2])[3]` is two pointers in a symbol stub. The
+  pointee brackets sat after the closing parenthesis, so the stub was
+  `int (* table[2] = {0};`. `extern char (*row)[4]` stays unstubbed.
+- `int (*table[2])[3]` is eight bytes. The name sat inside the
+  parentheses, so the declaration was sized as one pointer.
+  `int (*table[4])` is four pointers. `char (*)[4]` stays one pointer.
+- `char (*row)[4]` is one pointer. The name sat inside the parentheses,
+  so the pointee bound was counted and the declaration was 16 bytes.
+  `int (*table[2])[3]` stays two pointers.
+- `int (*table[2])[3]` covers eight bytes as a data symbol. The element
+  type kept its parentheses, so the extent stayed unknown.
+  `char (*row)[4]` stays four bytes. A function pointer stays unknown.
+- `int (table[4])` is four ints. The parentheses hid the bound, so the
+  declaration was sized as one int. `int (table[2][3])` is six ints.
+  `int (*table[4])` stays four pointers.
+- `int (*table[2])[3] = {0}` is owned by the file that defines it. The
+  name sat inside the parentheses, so a move left that definition in
+  place and wrote a second one.
+- Moving `int (*table[2])[3] = {0}` leaves `extern int (*table[2])[3];`.
+  The extern was rebuilt from the type word and the first bracket run,
+  so it became `extern int table[2];`.
+- `int (* const table[2])[3]` is eight bytes. `const` sat between the
+  star and the name, so the brackets were not a dimension and the
+  declaration was one pointer. `char (* const row)[4]` stays one
+  pointer. `int (* const [2])[3]` keeps `const` on the pointer.
+- `int[sizeof(int (*table[2])[3])]` is 32 bytes. The name sat inside
+  the sizeof type, so the bound did not fold and the declaration was
+  one int. `int[sizeof(int (*[2])[3])]` stays 32 bytes.
+- `extern int (* const table[2])[3]` is two const pointers. `const` sat
+  between the star and the name, so the declaration was invisible.
+  `extern char (* const row)[4]` stays one pointer.
+- Moving `int (* const table[2])[3] = {0}` leaves
+  `extern int (* const table[2])[3];`. `const` sat between the star
+  and the name, so the definition was not owned and stayed in place.
+- `int[sizeof(char (*row)[4])]` is 16 bytes. The name sat inside the
+  sizeof type, so the bound did not fold and the declaration was one
+  int. `char (*row)[4]` stays one pointer.
+- `void (*cbs[4])(int) = {0}` is the definition of `cbs`. The parameter
+  list sat after the brackets, so the symbol was not owned.
+  `int (*table[2])[3] = {0}` stays that definition.
+- `extern void (*cbs[4])(int)` is four function pointers. The parameter
+  list sat after the brackets, so the declaration was invisible.
+  `extern int (*table[2])[3]` stays two pointers.
+- `int (__cdecl *table[2])[3]` is eight bytes. `__cdecl` sat before
+  the star, so the brackets were not a dimension and the declaration
+  was one pointer. `char (__cdecl *row)[4]` stays one pointer.
+  `void (__cdecl *cbs[4])(int)` is sixteen bytes.
+- `extern int (__cdecl *table[2])[3]` is two pointers. `__cdecl` sat
+  before the star, so the declaration was invisible.
+  `extern char (__cdecl *row)[4]` stays one pointer.
+  `extern void (__cdecl *cbs[4])(int)` is four function pointers.
+- `int (__cdecl *table[2])[3] = {0}` is the definition of `table`.
+  `__cdecl` sat before the star, so the symbol was not owned.
+  `void (__cdecl *cbs[4])(int) = {0}` is the definition of `cbs`.
+  `int (*table[2])[3] = {0}` stays that definition.
+- `void (*cb)(int) = 0` is the definition of `cb`. The initializer was
+  not a brace list, so a move could not find the definition it already
+  owned. `void (__cdecl *cb)(int) = NULL` is the same definition.
+  `int g_a = 1` stays that definition.
+- `int (__cdecl *table[2])[3] = {0}` warns that the zero initializer
+  is file scope. `__cdecl` sat before the star, so the warning never
+  fired. `char (__cdecl *row)[4] = {0}` warns too. A recorded `.data`
+  name stays exempt.
+- `int (* const table[2])[3] = {0}` warns that the zero initializer
+  is file scope. `const` sat between the star and the name, so the
+  warning never fired. `char (* const row)[4] = {0}` warns too.
+  A recorded `.data` name stays exempt.
+- `void (*cbs[4])(int)` is the global `cbs`. The parameter list
+  `(int)` was the name, so a duplicate warned about `int`.
+  `void (__cdecl * const hooks[4])(int)` is the global `hooks`.
+- `void (*cbs[4])(int) = {0}` warns that the zero initializer is
+  file scope. The parameter list sat before `=`, so the warning never
+  fired. `void (*cb)(int) = 0` warns too. A recorded `.data` name
+  stays exempt.
+- `extern int (* const table[2])[3]` stubs as `int * const table[2]`.
+  `const` sat between the star and the name, so the stub was
+  `int (* const table[2] = {0};`. `extern int (WINAPI *table[2])[3]`
+  stubs as `int * table[2]`. `extern char (* const row)[4]` stays
+  unstubbed.
+- `int (__cdecl *table[2])[3]` is a declaration the qualifier sweep
+  can see. `__cdecl` sat before the star, so the sweep skipped it.
+  `int (* const table[2])[3]`, `char (__cdecl *row)[4]`, and
+  `void (*cbs[4])(int)` are declarations too. A function body stays
+  excluded.
+- `extern int (__cdecl *table[2])[3]` binds the data row `table`.
+  `__cdecl` sat before the star, so the declaration was invisible.
+  `extern int (* const rows[2])[4]`, `extern char (__cdecl *g_row)[4]`,
+  `extern void (*cbs[4])(int)`, and `extern int * const plain[2]`
+  bind too.
+- `char (__cdecl *)[4]` is emitted as `extern char (__cdecl *g_row)[4]`.
+  `__cdecl` sat before the star, so the header peeled the brackets onto
+  the name. `char (* const)[4]` keeps `const` on the pointer.
+  `int (__cdecl *[2])[3]` and `int (* const [2])[3]` keep both bounds.
+- `int (__cdecl *table[2])[3]` already names `table`. `__cdecl` sat
+  before the star, so an undeclared-identifier diagnostic injected
+  `typedef int table` on top of the array. `char (__cdecl *row)[4]`
+  and `void (__cdecl *cb)(int)` stay declared too.
+- `extern int (* const rows[2])[4]` and `extern char (* const buf[3])[4]`
+  stay two declarations. `const` sat after the star, so both collapsed
+  to one symbol. `extern char (__cdecl *row)[4]` and
+  `extern void (__cdecl *cb)(int)` name `row` and `cb`.
+- `extern char (__cdecl *row)[4]` keeps the type `char (__cdecl *)[4]`.
+  `__cdecl` sat inside the parentheses, so the type stopped at the star
+  and dropped `[4]`. `char (* const row)[4]` and
+  `void (__cdecl *cb)(int)` keep the pointee too.
+- `extern char (__cdecl *row)[4]` is reported as `char (__cdecl *)[4]`.
+  The type was rebuilt from the star count, so `__cdecl` disappeared.
+  `extern int (__cdecl *table[2])[3]` keeps both bounds and the
+  convention. `const` on the pointer stays off the reported type.
+- A signature `int h(void (WINAPI *cb)(int))` is `int h(void * cb)`.
+  `WINAPI` and `__vectorcall` stayed in the text, so the function
+  pointer was not rewritten. `int WINAPI k(int a)` is `int k(int a)`.
+  `void (CALLBACK *cbs[4])(int)` is `void * cbs[4]`.
+- `int (__cdecl *table[2])[3] = {0}` is a definition named `table`.
+  `__cdecl` sat before the star, so regenerating stubs dropped it
+  without the overwrite warning. `int (* const rows[2])[3] = {0}` and
+  `void (__cdecl *cb)(int) = 0` are named too.
+- A Kuna definition `char (__cdecl *dat_00401100)[4]` stays that
+  definition. The name sat inside parentheses, so the seed added
+  `extern int dat_00401100` beside it. `int (*dat_00401100[2])[3]`,
+  `int (* const dat_00401100[2])[3]`, and
+  `void (__cdecl *sub_00401200)(int)` stay declared too.
+- `int WINAPI hand_carried(void)` is a definition the stub overwrite
+  warning names. The warning only treated `__cdecl` and `__stdcall`
+  as functions, so `WINAPI` and `__vectorcall` were dropped silently.
+- `extern int WINAPI foo(int)` is stubbed as `int WINAPI foo`. The
+  parser only treated `__cdecl` and `__stdcall` as calling conventions,
+  so the stub was `int __cdecl foo`. `__vectorcall` stays on the stub too.
+- `void WINAPI foo(void)` stays a void function in the prover. The
+  prototype parser only treated `__cdecl`, `__stdcall`, `__thiscall`,
+  and `__fastcall` as conventions, so `WINAPI` and `__vectorcall` were
+  part of the return type and EAX was compared. A pointer return
+  (`void * WINAPI`) still has a value.
+- `void __vectorcall hook(int a, int b, int c)` is decorated `hook@@12`.
+  The symbol was `_hook`, the cdecl form. `none(void)` is `none@@0` and
+  `wide(double)` is `wide@@8`. A `__vectorcall` on a parameter does not
+  change the function's own decoration.
+- `void __stdcall uses_fast(void (__fastcall *cb)(int))` is decorated
+  `_uses_fast@4`. The fastcall on the parameter was treated as the
+  function's convention, so the symbol was `@uses_fast@4`. A cdecl
+  function with a stdcall or fastcall parameter stays `_name`.
+- `hook@@12` and `@keeps@4` normalize to `hook` and `keeps`. One `@N`
+  strip left `hook@` and `@keeps`, so a vectorcall or fastcall symbol
+  did not match its C name. `foo@bar` stays `foo@bar`.
+- `hook@@12` and `@keeps@4` demangle to `hook` and `keeps`. The stub
+  name was `hook@` and `@keeps`. `none@@0` is `none`.
+- Renaming `hook@@12` reports `new_hook@@12`, and renaming `@keeps@4`
+  reports `@new_keeps@4`. The new symbol kept one `@N` and gained a
+  leading `_`, so the vectorcall name was `_new_hook@12`.
+- A climb finds `void __vectorcall hook(...)` from the symbol `hook@@12`,
+  and `void __fastcall keeps(...)` from `@keeps@4`. One `@N` strip
+  looked for `hook@`. `_demo@4` still finds `demo`.
+- Renaming the symbol `hook@@12` rewrites `hook` when the stored C name
+  is empty. The same for `@keeps@4`. The rename only read a symbol that
+  started with `_`, so these were refused as an empty name.
+- `func_10001000@@12` and `@func_10001000@4` stay auto-labels. The
+  generic-name check only allowed one `@N`, so a vectorcall or fastcall
+  decoration was imported as a user name. `func_hook` is still a user name.
+- An import library's `__imp_hook@@12` and `__imp_@keeps@4` become
+  `/include` thunks. The scan only accepted `__imp__Name@N`, so a
+  vectorcall or fastcall import was left out. `__imp__Sleep@4` is unchanged.
+- Renaming onto `taken2@@12` or `@taken2@4` is refused when that
+  symbol's stored label is different. The duplicate check only looked
+  for `_name@`. Renaming onto `taken` still leaves `taken2` alone.
+- Renaming a global onto `hook@@12`, `@hook@4`, or `_hook@8` is refused
+  when that function's stored label is different. The data collision
+  check only compared the symbol to `hook` and `_hook`. `hoo` still
+  leaves `hook` alone.
+- Renaming a marker-less global onto `_hook`, `_hook@8`, `hook@@12`, or
+  `@hook@4` is refused. That path compared labels only, so the function
+  symbol did not count. `hoo` still leaves `hook` alone.
+- The GA scopes `hook@@12`, `@keeps@4`, and `_sleepish@4` to those C
+  functions. `lstrip("_")` left the decoration on the name, so the
+  search covered the whole file. `__foo` scopes `_foo`, and `_foo`
+  still scopes `foo`.
+- A library header symbol `hook@@12` is named `hook`, and `@keeps@4` is
+  named `keeps`. `lstrip("_")` left the decoration in the name.
+  `__chkstk` is named `_chkstk`. `_fflush` is still `fflush`, and a C++
+  `?` symbol is unchanged.
+- An empty annotation name displays `hook@@12` as `hook` and `@keeps@4`
+  as `keeps`. `lstrip("_")` left the decoration on the report. `__foo`
+  displays as `_foo`. A stored name still wins, and a missing symbol
+  still uses the file stem.
+- A function dossier names `hook@@12` as `hook` and `@keeps@4` as
+  `keeps`. `lstrip("_")` left the decoration in the describe lookup.
+  `__foo` is named `_foo`. A stored name still wins.
+- The asm VA map names a `__vectorcall` function `hook`, not `hook@@12`,
+  and a `__fastcall` function `keeps`, not `@keeps@4`. The symbol of
+  `_foo` stayed `foo`. A cdecl `foo` is still `foo`.
+- A decomp.me scratch with no C name isolates `hook` from the symbol
+  `hook@@12`, and `keeps` from `@keeps@4`. `lstrip("_")` uploaded the
+  whole file. `__foo` isolates `_foo`. The disassembly label stays the
+  linker symbol. A cdecl `_foo` still isolates `foo`.
+- A naked inline-C skeleton for `hook@@12` is `void hook(void)`, and
+  `@keeps@4` is `void keeps(void)`. `lstrip("_")` emitted the decoration
+  as the C name. `__foo` is `void _foo(void)`. The recorded row keeps
+  the linker symbol. A cdecl `_foo` is still `foo`.
+- An import stub `hook@@12` is recorded as `hook`, and `@keeps@4` as
+  `keeps`. `lstrip("_")` stored the decoration as the row name. `__foo`
+  is `_foo`. The symbol stays the import token. `_foo` is still `foo`,
+  and `MessageBoxA` is unchanged.
+- A library candidate `hook@@12` is recorded as `hook`, and `@keeps@4`
+  as `keeps`. `lstrip("_")` stored the decoration as the row name.
+  `__foo` is `_foo`. The symbol stays the candidate token. `_foo` is
+  still `foo`.
+- A call to `hook` reaches the graph node for `hook@@12`, and a call
+  to `keeps` reaches `@keeps@4`. `lstrip("_")` registered the
+  decoration, so the call missed the node. `__foo` answers `_foo`
+  rather than `foo`. A cdecl `_bar` still answers `bar`.
+- A NASM label for `hook@@12` is `hook`, and `@keeps@4` is `keeps`.
+  `lstrip("_")` left `hook__12` and `keeps_4`. `__foo` is `_foo`.
+  A cdecl `_bar` is still `bar`.
+- A defined `hook@@12` is not reported as a missing extern `hook`, and
+  `@keeps@4` is not a missing `keeps`. `lstrip("_")` did not connect
+  the call to the symbol. `__foo` covers `_foo` and leaves `foo`
+  missing. A cdecl `_bar` still covers `bar`.
+- Ignoring `hook` skips the stub `hook@@12`, and ignoring `foo` no
+  longer skips `__foo` (the symbol of `_foo`). `lstrip("_")` did the
+  opposite. Ignoring `_foo` skips that stub. A cdecl `bar` still skips
+  `_bar`.
+- Asking for `foo` selects `foo` when `_foo` is defined first.
+  `lstrip("_")` turned the symbol `__foo` into `foo` and returned that
+  earlier function. Asking `_foo` still selects it. A file named
+  `hook.c` still selects `__vectorcall hook` rather than the earlier
+  `other`.
+- `rebrew match run --symbol foo` selects `foo` when `_foo` is earlier.
+  `lstrip("_")` turned the symbol `__foo` into `foo`. An empty name
+  still answers `hook` for `hook@@12` and `keeps` for `@keeps@4`.
+  Asking `_foo` still selects that function. A cdecl `_bar` still
+  answers `bar` and `_bar`.
+- `rebrew diagnose near foo` diagnoses `foo` when `_foo` is earlier in
+  the file. `lstrip("_")` turned the symbol `__foo` into `foo`. Asking
+  `_foo` still diagnoses that function. A file named `hook.c` still
+  diagnoses `__vectorcall hook` rather than the earlier `other`.
+- `rebrew prove foo` proves `foo` when `_foo` is earlier in the file.
+  `lstrip("_")` turned the symbol `__foo` into `foo` and refused that
+  function's status. Asking `_foo` still selects that function. A file
+  named `hook.c` still selects `__vectorcall hook` rather than the
+  earlier `other`.
+- Project advice no longer treats a defined `__foo` as the function
+  `foo`. The hygiene lane stripped every leading underscore before the
+  C-name check, so an extern `foo` was silent. `hook@@12` still covers
+  `hook`, and `__foo` still covers `_foo`.
+- Text placement keeps `__foo` and `_foo` as different symbols, and
+  names `hook@@12` as `hook`. `lstrip("_")` stored both underscore
+  symbols as `foo` and left the vectorcall decoration in the key. The
+  object map, the export table, and the marker map use that C name.
+  A cdecl `_alpha` is still `alpha`.
+- A BinSync stub of `hook@@12` is `void hook(void)`, and `@keeps@4`
+  is `void keeps(void)`. Stripping one leading `_` left both
+  decorations in place, so the stub was `func_<va>`. `__foo` is still
+  `_foo`. A cdecl `_bar` is still `bar`.
+- BinSync overlay treats `hook@@12` as `hook` and `@keeps@4` as
+  `keeps`. A name that did not start with `_` stayed decorated, so it
+  conflicted with the C name already in the destination and was not
+  applied to a generic local. `__foo` stays `_foo`. A cdecl
+  `_Meaningful` still becomes `Meaningful`.
+- `rebrew binsync diff` treats `hook@@12` as `hook` and `@keeps@4` as
+  `keeps`. One leading `_` reported both as a different name from the
+  local symbol. `__foo` still differs from `foo`. A cdecl `_bar` still
+  matches `bar`.
+- Data-symbol maps keep `__g_foo` and `_g_foo` apart, and name
+  `hook@@12` as `hook`. `lstrip("_")` stored both underscore symbols
+  as `g_foo` and left the vectorcall decoration in the key. A cdecl
+  `_g_plain` is still `g_plain`. Section and `@`-prefixed locals stay
+  out of the section buckets.
+- A symbol stub for `__foo` is `int _foo`, not the type of the cdecl
+  global `foo`. After demangle, `lstrip("_")` looked `_foo` up as
+  `foo`. A cdecl `_bar` still uses `bar`.
+- A relocation of `hook@@12` patches the address of `hook`, and
+  `@keeps@4` patches `keeps`. One leading `_` left both unresolved.
+  `__foo` still resolves as `_foo`, not `foo`. A cdecl `_bar` still
+  resolves as `bar`.
+- A split of C function `_foo` writes `_foo.c`, and `__foo` writes
+  `__foo.c`. `lstrip("_")` stored both as `foo.c`, the same file as
+  `foo`.
+- A markerless split of `hook@@12` extracts `hook`. One leading `_`
+  left that symbol unmatched. `__foo` extracts `_foo` and leaves the
+  cdecl function `foo` in the original file.
+- Renaming `hook@@12` when the stored name is empty leaves another
+  target's cdecl `hook` alone. One `@N` strip left `hook@`, so the
+  owner set was empty and that other function was renamed too.
+- A watched relocation of `hook@@12` uses the address of `hook`, and
+  `@keeps@4` uses `keeps`. One leading `_` left both unwatched.
+  `__foo` still watches `_foo`, not `foo`. A cdecl `_bar` still
+  watches `bar`.
+- Catalog lookup resolves `hook@@12` to `hook` and `__foo` to `_foo`
+  before a full underscore strip can bind `__foo` to `foo`.
+  `___ftol` still resolves to `__ftol`. A cdecl `_bar` still
+  resolves to `bar`.
+- An empty symbol on `__vectorcall hook(int)` is `hook@@4`, and
+  `__fastcall keeps(int)` is `@keeps@4`. The fallback was always
+  `_name`. A cdecl name that already starts with `_` is still not
+  given a second one. `__stdcall bar(int)` is still `_bar@4`.
+- A merge-sweep cluster extracts `__vectorcall hook(int)` as
+  `hook@@4` and `__fastcall keeps(int)` as `@keeps@4`. The fallback
+  was `_name`, and a name that already started with `_` was skipped.
+  A stored symbol is kept. `__stdcall bar(int)` is still `_bar@4`.
+
+### Added
+- `rebrew diagnose gap` reports the first instruction that disagrees, not only the length gap.
+- `rebrew build check-data-placement --cut` scores `.data` size shifts after a cut and vetoes an edit when shift 0 already matches best.
+
+### Breaking
+- **Breaking:** `TYPE_WIDTHS` in `struct_recover` and `name_decomp` adds
+  primitive type widths for `bool`, `wchar_t`, `long long int`, `long double`,
+  `short int`, and `long int`.
+- **Breaking:** `rebrew-functions.toml` and `rebrew-data.toml` now live one
+  level above the source tree, at the project root, instead of inside `src/`.
+  `rebrew init` creates them there. A project that still has the files inside
+  `src/` keeps resolving them there, so move both files (and their `.lock`
+  siblings) up one directory. The stored `file` paths stay as they are.
+
 ## [2.22.0] - 2026-10-05
 
 ### Breaking
@@ -213,7 +882,7 @@
 - Incremental `rebrew verify` rewrites an all-hit cache and baseline without
   the tomlkit document model, and reuses a same-run fingerprint when the
   source stat is unchanged. Verdicts, cache identity, and stored fingerprint
-  fields stay the same. A changed native symbol misses the cache.
+  fields stay the same.
 - `rebrew data` highlights C types in terminal inventories and conflict tables;
   JSON remains plain structured data.
 - CLI contract checks cover every runtime callback, including group default

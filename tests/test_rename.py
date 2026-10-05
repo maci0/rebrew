@@ -25,6 +25,43 @@ def _patch_sources(monkeypatch: pytest.MonkeyPatch, files: list[Path]) -> None:
 
 
 class TestRenameFunctionEverywhere:
+    def test_decorated_symbol_renames_when_the_name_is_empty(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A vectorcall or fastcall symbol still names the C function.
+
+        The name was taken from the symbol only when it started with ``_``,
+        so ``hook@@12`` and ``@keeps@4`` were an empty name and the rename
+        refused.
+        """
+        hook = _src(
+            tmp_path,
+            "hook.c",
+            "void __vectorcall hook(int a) { return; }\n",
+        )
+        _patch_sources(monkeypatch, [hook])
+        count = rename_function_everywhere(
+            _cfg(tmp_path), hook, "", "hook@@12", "new_hook", rename_file=False
+        )
+        assert count == 1
+        assert hook.read_text(encoding="utf-8") == (
+            "void __vectorcall new_hook(int a) { return; }\n"
+        )
+
+        keeps = _src(
+            tmp_path,
+            "keeps.c",
+            "void __fastcall keeps(int a) { return; }\n",
+        )
+        _patch_sources(monkeypatch, [keeps])
+        count = rename_function_everywhere(
+            _cfg(tmp_path), keeps, "", "@keeps@4", "new_keeps", rename_file=False
+        )
+        assert count == 1
+        assert keeps.read_text(encoding="utf-8") == (
+            "void __fastcall new_keeps(int a) { return; }\n"
+        )
+
     def test_dry_run_counts_without_writing(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -237,6 +274,42 @@ class TestRenameTargetIsolation:
         assert ambiguous in excinfo.value.files
         assert {p: p.read_bytes() for p in tmp_path.iterdir()} == original
 
+    def test_empty_vectorcall_name_does_not_rename_another_target(self, tmp_path: Path) -> None:
+        """``hook@@12`` with an empty name owns only its module.
+
+        Stripping one ``@N`` left ``hook@``, so the owner set was empty and
+        the rename also rewrote the other target's cdecl ``hook``.
+        """
+        from rebrew.metadata import save_metadata
+
+        primary = _src(tmp_path, "hook.c", "void __vectorcall hook(int a) { return; }\n")
+        other = _src(tmp_path, "other.c", "int hook(void) { return 2; }\n")
+        save_metadata(
+            tmp_path,
+            {
+                ("TL", 0x401000): {
+                    "file": "hook.c",
+                    "name": "",
+                    "symbol": "hook@@12",
+                    "marker_type": "FUNCTION",
+                },
+                ("SERVER", 0x10001000): {
+                    "file": "other.c",
+                    "name": "hook",
+                    "symbol": "_hook",
+                    "marker_type": "FUNCTION",
+                },
+            },
+        )
+        count = rename_function_everywhere(
+            _cfg(tmp_path), primary, "", "hook@@12", "new_hook", rename_file=False
+        )
+        assert count == 1
+        assert primary.read_text(encoding="utf-8") == (
+            "void __vectorcall new_hook(int a) { return; }\n"
+        )
+        assert other.read_text(encoding="utf-8") == "int hook(void) { return 2; }\n"
+
 
 class TestRenameEdgeCases:
     def test_dry_run_unreadable_file_fails(self, tmp_path: Path, monkeypatch: Any) -> None:
@@ -360,6 +433,51 @@ class TestRenameCli:
         )
         assert result.exit_code == 0, result.output
         assert json.loads(result.stdout)["new_symbol"] == "_new_fn@12"
+
+    def test_json_preserves_vectorcall_and_fastcall(self, tmp_path: Path, monkeypatch: Any) -> None:
+        """``name@@N`` and ``@name@N`` stay decorated after a rename.
+
+        The reported symbol kept only one ``@N`` and always added ``_``,
+        so ``hook@@12`` became ``_new_hook@12``.
+        """
+        import json
+
+        source = tmp_path / "src" / "SERVER" / "hook.c"
+        source.parent.mkdir(parents=True)
+        source.write_text(
+            "// FUNCTION: SERVER 0x1000\nvoid __vectorcall hook(int a, int b, int c) { return; }\n",
+            encoding="utf-8",
+        )
+        result = self._invoke(
+            tmp_path,
+            monkeypatch,
+            "--dry-run",
+            "--json",
+            "hook",
+            "new_hook",
+            entries=[SimpleNamespace(name="hook", symbol="hook@@12", filepath="hook.c", va=0x1000)],
+        )
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.stdout)["new_symbol"] == "new_hook@@12"
+
+        fast = tmp_path / "src" / "SERVER" / "keeps.c"
+        fast.write_text(
+            "// FUNCTION: SERVER 0x1004\nvoid __fastcall keeps(int a) { return; }\n",
+            encoding="utf-8",
+        )
+        result = self._invoke(
+            tmp_path,
+            monkeypatch,
+            "--dry-run",
+            "--json",
+            "keeps",
+            "new_keeps",
+            entries=[
+                SimpleNamespace(name="keeps", symbol="@keeps@4", filepath="keeps.c", va=0x1004)
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.stdout)["new_symbol"] == "@new_keeps@4"
 
     def _invoke(
         self, tmp_path: Path, monkeypatch: Any, *args: str, entries: list[Any] | None = None
@@ -582,6 +700,46 @@ class TestRenameCli:
         result = CliRunner().invoke(app, ["--json", "old_fn", "taken2"])
         assert result.exit_code != 0
         assert "duplicate symbol" in result.output
+
+    def test_rename_onto_vectorcall_or_fastcall_symbol_errors(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """``name@@N`` and ``@name@N`` are the C function ``name``.
+
+        The stored label can differ. The collision check only looked for
+        ``_name@``, so these decorated symbols were not duplicates.
+        ``taken`` is not ``taken2``.
+        """
+        from typer.testing import CliRunner
+
+        from rebrew.rename import app
+
+        src = tmp_path / "src" / "SERVER"
+        src.mkdir(parents=True)
+        cfg = SimpleNamespace(
+            root=tmp_path,
+            reversed_dir=src,
+            marker="SERVER",
+            metadata_dir=tmp_path,
+            source_ext=".c",
+        )
+        monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: cfg)
+
+        def scan_for(symbol: str):
+            return lambda d, cfg=None: [
+                SimpleNamespace(name="old_fn", symbol="_old_fn", filepath="old_fn.c", va=0x1000),
+                SimpleNamespace(name="ghidra_taken", symbol=symbol, filepath="taken.c", va=0x2000),
+            ]
+
+        for symbol in ("taken2@@12", "@taken2@4"):
+            monkeypatch.setattr("rebrew.rename.scan_reversed_dir", scan_for(symbol))
+            result = CliRunner().invoke(app, ["--json", "old_fn", "taken2"])
+            assert result.exit_code != 0
+            assert "duplicate symbol" in result.output
+
+        monkeypatch.setattr("rebrew.rename.scan_reversed_dir", scan_for("taken2@@12"))
+        result = CliRunner().invoke(app, ["--json", "old_fn", "taken"])
+        assert "duplicate symbol" not in result.output
 
     def test_invalid_identifier_rejected(self, tmp_path: Path, monkeypatch: Any) -> None:
         # C keyword and non-identifier names must fail before any rename.
@@ -900,6 +1058,110 @@ class TestRenameData:
         assert res.exit_code == 2
         assert "would create a duplicate symbol" in res.output
         assert get_data_entry(tmp_path, 0x2000, "SERVER").get("name") == "g_old"
+
+    def test_rename_data_onto_decorated_function_symbol_errors(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """A function symbol ``hook@@12`` is the C name ``hook``.
+
+        The data collision check compared the symbol to ``hook`` and
+        ``_hook`` only, so a different stored label hid the decoration.
+        ``hoo`` is not ``hook``.
+        """
+        import typer as _typer
+        from typer.testing import CliRunner
+
+        from rebrew.data_metadata import get_data_entry
+        from rebrew.rename import main as _rename_main
+
+        app = _typer.Typer()
+        app.command()(_rename_main)
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "g.c").write_text("int g_old;\n", encoding="utf-8")
+        (tmp_path / "rebrew-data.toml").write_text(
+            '["SERVER.0x2000"]\nname = "g_old"\nsize = 4\nsection = ".data"\n',
+            encoding="utf-8",
+        )
+        monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: self._cfg(tmp_path))
+        data = SimpleNamespace(
+            name="g_old", symbol="g_old", filepath="g.c", va=0x2000, module="SERVER", is_data=True
+        )
+
+        def scan_for(symbol: str):
+            return lambda d, cfg=None: [
+                data,
+                SimpleNamespace(
+                    name="ghidra_hook",
+                    symbol=symbol,
+                    filepath="h.c",
+                    va=0x1000,
+                    module="SERVER",
+                    is_data=False,
+                ),
+            ]
+
+        for symbol in ("_hook@8", "hook@@12", "@hook@4"):
+            monkeypatch.setattr("rebrew.rename.scan_reversed_dir", scan_for(symbol))
+            res = CliRunner().invoke(app, ["g_old", "hook", "--data"])
+            assert res.exit_code == 2
+            assert "would create a duplicate symbol" in res.output
+            assert get_data_entry(tmp_path, 0x2000, "SERVER").get("name") == "g_old"
+
+        monkeypatch.setattr("rebrew.rename.scan_reversed_dir", scan_for("hook@@12"))
+        res = CliRunner().invoke(app, ["g_old", "hoo", "--data", "--dry-run"])
+        assert res.exit_code == 0
+        assert "duplicate symbol" not in res.output
+
+    def test_metadata_only_rename_onto_decorated_symbol_errors(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """A global with no marker still shares the linker's namespace.
+
+        The metadata-only collision check compared labels, so a function
+        symbol ``_hook``, ``_hook@8``, ``hook@@12``, or ``@hook@4`` did
+        not block the rename. ``hoo`` is not ``hook``.
+        """
+        import typer as _typer
+        from typer.testing import CliRunner
+
+        from rebrew.data_metadata import get_data_entry
+        from rebrew.rename import main as _rename_main
+
+        app = _typer.Typer()
+        app.command()(_rename_main)
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "g.c").write_text("int g_old;\n", encoding="utf-8")
+        (tmp_path / "rebrew-data.toml").write_text(
+            '["SERVER.0x2000"]\nname = "g_old"\nsize = 4\nsection = ".data"\n',
+            encoding="utf-8",
+        )
+        monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: self._cfg(tmp_path))
+
+        def scan_for(symbol: str):
+            return lambda d, cfg=None: [
+                SimpleNamespace(
+                    name="ghidra_hook",
+                    symbol=symbol,
+                    filepath="h.c",
+                    va=0x1000,
+                    module="SERVER",
+                    is_data=False,
+                ),
+            ]
+
+        for symbol in ("_hook", "_hook@8", "hook@@12", "@hook@4"):
+            monkeypatch.setattr("rebrew.rename.scan_reversed_dir", scan_for(symbol))
+            res = CliRunner().invoke(app, ["g_old", "hook", "--data"])
+            assert res.exit_code == 2, symbol
+            assert "would create a duplicate symbol" in res.output
+            assert get_data_entry(tmp_path, 0x2000, "SERVER").get("name") == "g_old"
+
+        monkeypatch.setattr("rebrew.rename.scan_reversed_dir", scan_for("hook@@12"))
+        res = CliRunner().invoke(app, ["g_old", "hoo", "--data", "--dry-run"])
+        assert res.exit_code == 0
+        assert "duplicate symbol" not in res.output
 
 
 class TestUnderscoreNameDerivation:

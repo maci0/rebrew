@@ -746,23 +746,20 @@ class ProjectConfig:
     def metadata_dir(self) -> Path:
         """Directory for rebrew-functions.toml and rebrew-data.toml.
 
-        This is the parent of ``reversed_dir`` — e.g. ``src/`` when
-        ``reversed_dir`` is ``src/NP``.  When the whole tree is the source
-        root (``reversed_dir`` is ``src`` itself) projects may keep the
-        TOMLs inside it; fall back to ``reversed_dir`` in that case.  The
-        search walks every ancestor up to ``root``, so a project whose
-        store sits at the root still resolves there for a nested target
-        instead of silently picking a per-target directory.  All metadata
-        reads/writes must go through this property so the location is
-        centralized.
+        The store sits one level above the source tree — the project root
+        when ``reversed_dir`` is ``src/<target>`` or ``src`` itself.  A
+        project that still keeps the TOMLs inside ``src/`` resolves there
+        until they move.  The search walks every ancestor up to ``root``,
+        so a project whose store sits at the root still resolves there for
+        a nested target instead of silently picking a per-target directory.
+        All metadata reads/writes must go through this property so the
+        location is centralized.
         """
         parent = self.reversed_dir.parent
-        if (parent / METADATA_FILENAME).exists():
-            return parent
-        # No store beside the source root: the project may keep its TOMLs
-        # further up (root) or, in the whole-tree layout, inside
-        # reversed_dir itself.  The outermost store found wins, so every
-        # target of a multi-target project reads and writes the same file.
+        # No store one level above the source tree: the project may still
+        # keep its TOMLs inside the source tree, or further up at ``root``.
+        # The outermost store found wins, so every target of a multi-target
+        # project reads and writes the same file.
         outermost: Path | None = None
         if (self.reversed_dir / METADATA_FILENAME).exists():
             outermost = self.reversed_dir
@@ -781,7 +778,11 @@ class ProjectConfig:
                     # unrelated store from outside the project.
                     break
             candidate = candidate.parent
-        return outermost if outermost is not None else parent
+        if outermost is not None:
+            return outermost
+        if self.root is not None and self.root in self.reversed_dir.parents:
+            return self.root
+        return parent.parent if parent.name == "src" else parent
 
     def __post_init__(self) -> None:
         """Coerce string path arguments to :class:`pathlib.Path` instances."""

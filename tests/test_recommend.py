@@ -333,6 +333,64 @@ class TestRound3Lanes:
     def test_missing_externs_silent_when_defined(self) -> None:
         assert recommend_missing_externs([("a.c", "helper")], {"helper", "_helper"}) == []
 
+    def test_decorated_known_name_is_not_missing(self) -> None:
+        """A defined decorated symbol is not a missing extern.
+
+        ``lstrip("_")`` left ``hook@@12`` and ``@keeps@4`` unknown to a
+        call of ``hook`` or ``keeps``, and it treated ``__foo`` as
+        ``foo``. ``foo`` stays missing. A cdecl ``_bar`` still covers
+        ``bar``. ``other`` stays missing.
+        """
+        recs = recommend_missing_externs(
+            [
+                ("a.c", "hook"),
+                ("a.c", "keeps"),
+                ("a.c", "sleepish"),
+                ("a.c", "_foo"),
+                ("a.c", "foo"),
+                ("a.c", "bar"),
+                ("a.c", "other"),
+            ],
+            {"hook@@12", "@keeps@4", "_sleepish@4", "__foo", "_bar"},
+        )
+        missing = {rec.command for rec in recs}
+        assert missing == {
+            "rebrew skeleton <va> --name foo",
+            "rebrew skeleton <va> --name other",
+        }
+
+    def test_hygiene_lane_does_not_strip_a_double_underscore(self, tmp_path: Any) -> None:
+        """The hygiene lane must not mark ``foo`` known because ``__foo`` exists.
+
+        ``lstrip("_")`` on the symbol added ``foo`` before the C-name
+        expansion, so an extern ``foo`` was silent. ``hook@@12`` still
+        covers ``hook``. ``__foo`` still covers ``_foo``.
+        """
+        import rebrew.recommend as rec
+
+        (tmp_path / "caller.c").write_text(
+            "extern int foo(void);\n"
+            "extern int other(void);\n"
+            "extern int hook(void);\n"
+            "extern int _foo(void);\n",
+            encoding="utf-8",
+        )
+        cfg = SimpleNamespace(
+            root=tmp_path,
+            reversed_dir=tmp_path,
+            metadata_dir=tmp_path,
+            source_ext=".c",
+            marker="GAME",
+            target_name="GAME",
+            ignored_symbols=(),
+        )
+        recs = rec._collect_hygiene(cfg, set(), {0x2000: "hook@@12", 0x3000: "__foo"})
+        missing = {r.command for r in recs if r.kind == "missing-externs"}
+        assert "rebrew skeleton <va> --name foo" in missing
+        assert "rebrew skeleton <va> --name other" in missing
+        assert "rebrew skeleton <va> --name hook" not in missing
+        assert "rebrew skeleton <va> --name _foo" not in missing
+
     def test_default_names_flagged(self) -> None:
         recs = recommend_default_names([(0x1000, "FUN_00001000"), (0x1100, "real_name")])
         assert len(recs) == 1

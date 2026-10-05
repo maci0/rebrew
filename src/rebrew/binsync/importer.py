@@ -104,7 +104,9 @@ app = typer.Typer(
 
 
 # Generic auto-names that should not overwrite a meaningful rename.
-_GENERIC_NAME_RE = re.compile(r"^_?(func_|FUN_)[0-9a-fA-F]+(@\d+)?$")
+# ``@@N`` is vectorcall and ``@name@N`` is fastcall; one ``@N`` left
+# those decorated labels looking like user names.
+_GENERIC_NAME_RE = re.compile(r"^@?_?(?:func_|FUN_)[0-9a-fA-F]+(?:@@?\d+)?$")
 _GHIDRA_GENERIC_RE = re.compile(r"^(FUN_|DAT_|switchdata|thunk_)")
 # Our own synthetic placeholder for DATA/GLOBAL entries with missing declarations
 _PLACEHOLDER_GLOBAL_RE = re.compile(r"^g_[0-9a-fA-F]{4,8}$")
@@ -207,8 +209,16 @@ def _apply_global_type_size(
 
 
 def strip_cdecl_prefix(name: str) -> str:
-    """Drop the MSVC ``_`` decoration BinSync records (``_Foo`` -> ``Foo``)."""
-    return name[1:] if name.startswith("_") else name
+    """C name inside an MSVC symbol.
+
+    ``_Foo`` is ``Foo``. ``__foo`` is ``_foo``. ``hook@@12`` is ``hook``.
+    ``@keeps@4`` is ``keeps``. Stripping one leading ``_`` left the
+    ``@@N`` and ``@name@N`` decorations in place, so a stub of either
+    was not a C identifier.
+    """
+    from rebrew.rename_ops import c_name_from_symbol
+
+    return c_name_from_symbol(name)
 
 
 def _inside_project(fp: Path, cfg: Any) -> bool:

@@ -354,6 +354,8 @@ def apply_coff_relocations(
     :raises UnresolvedSymbolError: Symbol not in the catalog.
     :raises NotImplementedError: Unsupported relocation type.
     """
+    from rebrew.rename_ops import c_name_from_symbol
+
     buf = bytearray(text)
     table = _RELOC_TABLES.get(reloc_table, _RELOC_TABLES["coff-i386"])
     fmt = _reloc_fmt(reloc_table)
@@ -364,8 +366,10 @@ def apply_coff_relocations(
         if kind is None:
             raise NotImplementedError(f"reloc type 0x{r.type:04x} not supported ({reloc_table})")
 
-        sym = r.symbol.removeprefix("_") if r.symbol.startswith("_") else r.symbol
-        target_va = resolve_va(r.symbol) or resolve_va(sym)
+        # Exact spelling first. ``hook@@12`` is ``hook``; one leading
+        # ``_`` left that relocation unresolved. ``__foo`` is ``_foo``.
+        c_name = c_name_from_symbol(r.symbol)
+        target_va = resolve_va(r.symbol) or resolve_va(c_name)
         if target_va is None:
             raise UnresolvedSymbolError(r.symbol)
         if r.offset < 0 or r.offset + 4 > len(buf):
@@ -401,15 +405,20 @@ def _resolve_exact_then_stripped(name_to_va: dict[str, int], sym_name: str) -> i
     """Look up *sym_name* in a name→VA map, exact spelling first.
 
     Single documented precedence shared by every tolerant lookup: the exact
-    spelling wins over its leading-underscore-stripped form (``_foo`` before
-    ``foo``). MSVC mangles __cdecl names with a leading ``_`` in the COFF
-    symbol table, so the exact spelling is the authoritative one; the stripped
-    form is only a fallback for source-level references. Keeping one helper
-    means ``rebrew test`` and ``rebrew build round-trip`` agree on the same VA when
-    both spellings exist in the catalog.
+    spelling wins, then the C name (``hook@@12`` is ``hook``, ``__foo`` is
+    ``_foo``, ``___ftol`` is ``__ftol``), then a full leading-underscore
+    strip. The strip stays so a catalog key that is already fully stripped
+    still matches. Keeping one helper means ``rebrew test`` and
+    ``rebrew build round-trip`` agree on the same VA when both spellings
+    exist in the catalog.
     """
     if sym_name in name_to_va:
         return name_to_va[sym_name]
+    from rebrew.rename_ops import c_name_from_symbol
+
+    c_name = c_name_from_symbol(sym_name)
+    if c_name and c_name != sym_name and c_name in name_to_va:
+        return name_to_va[c_name]
     # Guard against empty/bare-underscore queries — lstrip("_") on "__" yields ""
     # which may collide with a data label named "" or cause confusion in the caller.
     stripped = sym_name.lstrip("_")

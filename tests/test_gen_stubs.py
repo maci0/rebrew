@@ -52,6 +52,15 @@ class TestDemangle:
     def test_stdcall(self) -> None:
         assert demangle_cdecl("_thread_proc@4") == "thread_proc"
 
+    def test_vectorcall_and_fastcall(self) -> None:
+        """``name@@N`` and ``@name@N`` demangle to the C name.
+
+        One ``@N`` strip left ``hook@`` and ``@keeps``.
+        """
+        assert demangle_cdecl("hook@@12") == "hook"
+        assert demangle_cdecl("none@@0") == "none"
+        assert demangle_cdecl("@keeps@4") == "keeps"
+
     def test_plain(self) -> None:
         assert demangle_cdecl("g_counter") == "g_counter"
 
@@ -70,6 +79,27 @@ class TestExternParsing:
         assert info is not None
         assert info["name"] == "bar"
         assert info["calling_conv"] is None
+
+    def test_winapi_function_keeps_its_convention(self) -> None:
+        """``extern int WINAPI foo(int)`` is a stdcall-shaped function.
+
+        The parser only treated ``__cdecl`` and ``__stdcall`` as calling
+        conventions, so the stub was ``int __cdecl foo``.
+        ``__vectorcall`` stays on the stub too.
+        """
+        info = parse_extern_decl("extern int WINAPI foo(int);")
+        assert info is not None
+        assert info["name"] == "foo"
+        assert info["is_func"] is True
+        assert info["calling_conv"] == "WINAPI"
+        assert info["type"] == "int"
+        vector = parse_extern_decl("extern void __vectorcall bar(int);")
+        assert vector is not None
+        assert vector["calling_conv"] == "__vectorcall"
+        assert vector["type"] == "void"
+        content = generate_stubs(["_foo@4"], {"foo": info})
+        assert "int WINAPI foo(int a)" in content
+        assert "__cdecl" not in content
 
     def test_array(self) -> None:
         info = parse_extern_decl("extern char g_buf[256];")
@@ -240,6 +270,41 @@ class TestGenerate:
         assert "int __cdecl free_node(void)" in content
         assert "int mystery_global = 0;" in content
 
+    def test_double_underscore_does_not_take_another_globals_type(self) -> None:
+        """``__foo`` is ``_foo``, not the cdecl global ``foo``.
+
+        After demangle, ``lstrip("_")`` looked ``_foo`` up as ``foo`` and
+        copied that global's type. A cdecl ``_bar`` still uses ``bar``.
+        """
+        content = generate_stubs(
+            ["__foo", "_bar"],
+            {
+                "foo": {
+                    "name": "foo",
+                    "type": "char",
+                    "is_func": False,
+                    "calling_conv": None,
+                    "params": "",
+                    "full_decl": "char foo",
+                    "is_array": False,
+                    "array_size": None,
+                },
+                "bar": {
+                    "name": "bar",
+                    "type": "short",
+                    "is_func": False,
+                    "calling_conv": None,
+                    "params": "",
+                    "full_decl": "short bar",
+                    "is_array": False,
+                    "array_size": None,
+                },
+            },
+        )
+        assert "int _foo = 0;" in content
+        assert "char _foo" not in content
+        assert "short bar = 0;" in content
+
 
 class TestLibraryFilter:
     def test_skips_library_symbols(self, tmp_path: Path) -> None:
@@ -327,6 +392,81 @@ class TestCli:
         result = CliRunner().invoke(app, ["--output", str(out)], input=LNK_OUTPUT)
         assert result.exit_code == 0, result.output
         assert "hand_carried" in result.output
+
+    def test_warns_before_dropping_winapi_function(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``int WINAPI hand_carried(void)`` is a hand-carried definition.
+
+        The warning only treated ``__cdecl`` and ``__stdcall`` as
+        functions, so ``WINAPI`` and ``__vectorcall`` were dropped
+        without a trace.
+        """
+        from rebrew.gen_stubs import app
+
+        monkeypatch.chdir(tmp_path)
+        _write_src(tmp_path, "extern int g_counter;\n")
+        out = tmp_path / "stubs.c"
+        out.write_text(
+            "int WINAPI hand_carried(void)\n{\n\treturn 0;\n}\n"
+            "int __vectorcall other_carried(int a)\n{\n\treturn a;\n}\n",
+            encoding="utf-8",
+        )
+        result = CliRunner().invoke(app, ["--output", str(out)], input=LNK_OUTPUT)
+        assert result.exit_code == 0, result.output
+        assert "hand_carried" in result.output
+        assert "other_carried" in result.output
+
+    def test_warns_before_dropping_parenthesized_pointer_array(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``int (*table[4]) = {0}`` is a hand-carried definition.
+
+        The parentheses hid the name, so regenerating the stub TU dropped
+        it without the overwrite warning. ``char (*row)[4]`` is one
+        pointer and is named too.
+        """
+        from rebrew.gen_stubs import app
+
+        monkeypatch.chdir(tmp_path)
+        _write_src(tmp_path, "extern int g_counter;\n")
+        out = tmp_path / "stubs.c"
+        out.write_text(
+            "int (*table[4]) = {0};\nchar (*row)[4] = {0};\n",
+            encoding="utf-8",
+        )
+        result = CliRunner().invoke(app, ["--output", str(out)], input=LNK_OUTPUT)
+        assert result.exit_code == 0, result.output
+        assert "table" in result.output
+        assert "row" in result.output
+
+    def test_warns_before_dropping_cdecl_pointer_array(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``int (__cdecl *table[2])[3] = {0}`` is a hand-carried definition.
+
+        ``__cdecl`` sat before the star, so the name was not a definition
+        and the overwrite warning skipped it. ``(* const rows[2])[3]`` and
+        ``void (__cdecl *cb)(int) = 0`` are named too.
+        """
+        from rebrew.gen_stubs import app
+
+        monkeypatch.chdir(tmp_path)
+        _write_src(tmp_path, "extern int g_counter;\n")
+        out = tmp_path / "stubs.c"
+        out.write_text(
+            "int (__cdecl *table[2])[3] = {0};\n"
+            "int (* const rows[2])[3] = {0};\n"
+            "void (__cdecl *cb)(int) = 0;\n",
+            encoding="utf-8",
+        )
+        result = CliRunner().invoke(app, ["--output", str(out)], input=LNK_OUTPUT)
+        assert result.exit_code == 0, result.output
+        assert "table" in result.output
+        assert "rows" in result.output
+        assert "cb" in result.output
+        assert "__cdecl" not in result.output
+        assert "const" not in result.output
 
     def test_no_unresolved_is_error(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.gen_stubs import app
@@ -514,6 +654,162 @@ class TestHexArrayBound:
         octal = parse_extern_decl("extern char pad[010];")
         assert octal is not None
         assert int(octal["array_size"], 0) == 8
+
+    def test_constant_expression_bound_is_the_element_count(self) -> None:
+        """``[0x300 * 0x21c]`` is a constant. Collapsing it to 1 places every
+        later .data symbol too early. A name stays one element."""
+        info = parse_extern_decl("extern unsigned char g_map[0x300 * 0x21c];")
+        assert info is not None
+        assert int(info["array_size"], 0) == 0x300 * 0x21C
+        rows = parse_extern_decl("extern unsigned short g_rows[(2 + 1) * 4][2];")
+        assert rows is not None
+        assert int(rows["array_size"], 0) == 24
+        named = parse_extern_decl("extern int g_named[N];")
+        assert named is not None
+        assert named["array_size"] == "1"
+
+    def test_sizeof_bound_is_an_array(self) -> None:
+        """``g[sizeof(int)]`` is an array of 4, not a function named ``sizeof``.
+
+        A nested ``wchar_t[3]`` is 6 elements. ``sizeof(L"hi")`` is 6.
+        """
+        info = parse_extern_decl("extern char g[sizeof(int)];")
+        assert info is not None
+        assert info["name"] == "g"
+        assert info["is_array"] is True
+        assert int(info["array_size"], 0) == 4
+        nested = parse_extern_decl("extern char g[sizeof(wchar_t[3])];")
+        assert nested is not None
+        assert nested["name"] == "g"
+        assert int(nested["array_size"], 0) == 6
+        wide = parse_extern_decl('extern char g[sizeof(L"hi")];')
+        assert wide is not None
+        assert wide["name"] == "g"
+        assert int(wide["array_size"], 0) == 6
+
+
+def test_parenthesized_pointer_array_stub_is_valid_c() -> None:
+    """``extern int (*table[4]);`` is four pointers, and the stub must compile.
+
+    The opening parenthesis stayed in the type, so the stub was
+    ``int (* table[4] = {0};``. ``(name[N])`` is the same array without
+    a star. A pointer to an array is not this form.
+    """
+    info = parse_extern_decl("extern int (*table[4]);")
+    assert info is not None
+    assert info["name"] == "table"
+    assert info["is_func"] is False
+    assert info["is_array"] is True
+    assert int(info["array_size"], 0) == 4
+    content = generate_stubs(["table"], {"table": info})
+    assert "int * table[4] = {0};" in content
+
+    ptrs = parse_extern_decl("extern char (**ptrs[2]);")
+    assert ptrs is not None
+    assert int(ptrs["array_size"], 0) == 2
+    assert "char ** ptrs[2] = {0};" in generate_stubs(["ptrs"], {"ptrs": ptrs})
+
+    plain = parse_extern_decl("extern int (table[4]);")
+    assert plain is not None
+    assert plain["is_array"] is True
+    assert int(plain["array_size"], 0) == 4
+    assert "int table[4] = {0};" in generate_stubs(["table"], {"table": plain})
+
+    handlers = parse_extern_decl("extern int (__cdecl *handlers[4])(int);")
+    assert handlers is not None
+    assert handlers["is_func"] is False
+    assert int(handlers["array_size"], 0) == 4
+    assert "int * handlers[4] = {0};" in generate_stubs(["handlers"], {"handlers": handlers})
+
+    rows = parse_extern_decl("extern unsigned char (*rows[2][3]);")
+    assert rows is not None
+    assert int(rows["array_size"], 0) == 6
+    assert "unsigned char * rows[6] = {0};" in generate_stubs(["rows"], {"rows": rows})
+
+    assert parse_extern_decl("extern char (*row)[4];") is None
+    bare = parse_extern_decl("extern int *table[4];")
+    assert bare is not None
+    assert "int * table[4] = {0};" in generate_stubs(["table"], {"table": bare})
+
+
+def test_array_of_pointers_to_array_stub_counts_the_pointers() -> None:
+    """``extern int (*table[2])[3];`` is two pointers, and the stub must compile.
+
+    The brackets after the closing parenthesis are the pointee. The array
+    matcher kept the opening parenthesis, so the stub was
+    ``int (* table[2] = {0};``. ``extern char (*row)[4];`` stays one pointer.
+    """
+    info = parse_extern_decl("extern int (*table[2])[3];")
+    assert info is not None
+    assert info["name"] == "table"
+    assert info["is_func"] is False
+    assert info["is_array"] is True
+    assert int(info["array_size"], 0) == 2
+    content = generate_stubs(["table"], {"table": info})
+    assert "int * table[2] = {0};" in content
+
+    rows = parse_extern_decl("extern char (**rows[2])[4];")
+    assert rows is not None
+    assert rows["is_array"] is True
+    assert int(rows["array_size"], 0) == 2
+    assert "char ** rows[2] = {0};" in generate_stubs(["rows"], {"rows": rows})
+
+    grid = parse_extern_decl("extern int (*grid[2][3])[4];")
+    assert grid is not None
+    assert int(grid["array_size"], 0) == 6
+    assert "int * grid[6] = {0};" in generate_stubs(["grid"], {"grid": grid})
+
+    assert parse_extern_decl("extern char (*row)[4];") is None
+
+
+def test_const_pointer_array_stub_counts_the_pointers() -> None:
+    """``extern int (* const table[2])[3]`` is two pointers, and the stub must compile.
+
+    ``const`` sat between the star and the name, so the type kept the
+    opening parenthesis and the stub was ``int (* const table[2] = {0};``.
+    ``WINAPI`` before the star did the same. A pointer to an array stays
+    unstubbed.
+    """
+    info = parse_extern_decl("extern int (* const table[2])[3];")
+    assert info is not None
+    assert info["name"] == "table"
+    assert info["is_func"] is False
+    assert info["is_array"] is True
+    assert int(info["array_size"], 0) == 2
+    content = generate_stubs(["table"], {"table": info})
+    assert "int * const table[2] = {0};" in content
+
+    volatile = parse_extern_decl("extern int (* volatile rows[2])[4];")
+    assert volatile is not None
+    assert int(volatile["array_size"], 0) == 2
+    assert "int * volatile rows[2] = {0};" in generate_stubs(["rows"], {"rows": volatile})
+
+    cdecl = parse_extern_decl("extern int (__cdecl * const hooks[2])[3];")
+    assert cdecl is not None
+    assert int(cdecl["array_size"], 0) == 2
+    cdecl_text = generate_stubs(["hooks"], {"hooks": cdecl})
+    assert "int * const hooks[2] = {0};" in cdecl_text
+    assert "__cdecl" not in cdecl_text
+
+    calls = parse_extern_decl("extern void (* const cbs[4])(int);")
+    assert calls is not None
+    assert calls["is_func"] is False
+    assert int(calls["array_size"], 0) == 4
+    assert "void * const cbs[4] = {0};" in generate_stubs(["cbs"], {"cbs": calls})
+
+    stars = parse_extern_decl("extern char (** const ptrs[2])[4];")
+    assert stars is not None
+    assert int(stars["array_size"], 0) == 2
+    assert "char ** const ptrs[2] = {0};" in generate_stubs(["ptrs"], {"ptrs": stars})
+
+    win = parse_extern_decl("extern int (WINAPI *table[2])[3];")
+    assert win is not None
+    assert int(win["array_size"], 0) == 2
+    win_text = generate_stubs(["table"], {"table": win})
+    assert "int * table[2] = {0};" in win_text
+    assert "WINAPI" not in win_text
+
+    assert parse_extern_decl("extern char (* const row)[4];") is None
 
 
 # ---------------------------------------------------------------------------

@@ -124,11 +124,21 @@ def select_annotation(annos: list[Annotation], symbol: str | None) -> Annotation
     """
     if not symbol:
         return None
-    want = fold_ident(symbol.strip()).lstrip("_")
+    from rebrew.rename_ops import c_name_from_symbol
+
+    # The C name and the symbol both count. ``hook@@12`` answers ``hook``.
+    # ``__foo`` answers ``_foo``, not ``foo``.
+    want = fold_ident(symbol.strip())
     for a in annos:
-        for candidate in (a.symbol or "", a.name or ""):
-            if fold_ident(candidate.strip()).lstrip("_") == want:
-                return a
+        candidates: list[str] = []
+        if a.name:
+            candidates.append(fold_ident(a.name.strip()))
+        if a.symbol and a.symbol.strip():
+            raw = a.symbol.strip()
+            candidates.append(fold_ident(raw))
+            candidates.append(fold_ident(c_name_from_symbol(raw)))
+        if want in candidates:
+            return a
     return None
 
 

@@ -1316,14 +1316,13 @@ def main(
     # 4. Discovery inventory is written by intake/discover as
     # src/<target>/function_structure.json — no functions.txt scaffold.
 
-    # 5. Create metadata TOML files (in src/, not src/<target>/)
-    metadata_parent = src_dir.parent  # src/
-    func_toml = metadata_parent / "rebrew-functions.toml"
+    # 5. Create metadata TOML files one level above src/, at the project root.
+    func_toml = cwd / "rebrew-functions.toml"
     func_toml.touch(exist_ok=True)
-    data_toml = metadata_parent / "rebrew-data.toml"
+    data_toml = cwd / "rebrew-data.toml"
     data_toml.touch(exist_ok=True)
-    console.print("[green]Created src/rebrew-functions.toml[/]")
-    console.print("[green]Created src/rebrew-data.toml[/]")
+    console.print("[green]Created rebrew-functions.toml[/]")
+    console.print("[green]Created rebrew-data.toml[/]")
 
     # 6. Copy agent-skills directory (bundled with the package)
     _copy_agent_skills(cwd, target_name)

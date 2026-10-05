@@ -505,11 +505,17 @@ def _target_name(cfg: ProjectConfig) -> str:
 
 
 def _display_name(ann: Annotation, src: Path) -> str:
-    """Best display name for an annotation: C name, symbol, or file stem."""
+    """Best display name for an annotation: C name, symbol, or file stem.
+
+    A missing C name uses the symbol. ``hook@@12`` is ``hook``,
+    ``@keeps@4`` is ``keeps``, and ``__foo`` is ``_foo``.
+    """
     if ann.name:
         return ann.name
     if ann.symbol:
-        return ann.symbol.lstrip("_")
+        from rebrew.rename_ops import c_name_from_symbol
+
+        return c_name_from_symbol(ann.symbol)
     return src.stem
 
 

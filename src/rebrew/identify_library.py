@@ -28,6 +28,7 @@ from typing import Any
 import typer
 
 from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
+from rebrew.rename_ops import c_name_from_symbol
 from rebrew.utils import (
     atomic_write_text,
     library_header_name,
@@ -411,7 +412,8 @@ def _record_library_candidate(cfg: Any, header: Path, cand: LibCandidate, source
         va=cand.va,
         file=identity_file(header, cfg.metadata_dir),
         marker_type="LIBRARY",
-        name=token.lstrip("_"),
+        # ``hook@@12`` is ``hook`` and ``__foo`` is ``_foo``.
+        name=c_name_from_symbol(token),
         symbol=token,
         source=source,
     )

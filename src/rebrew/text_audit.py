@@ -60,6 +60,8 @@ def exported_symbol_vas(binary: Path) -> dict[str, int]:
     """
     import lief
 
+    from rebrew.rename_ops import c_name_from_symbol
+
     try:
         pe = lief.PE.parse(str(binary))
     except Exception as exc:  # re-raised: the caller cannot audit what was never parsed
@@ -74,7 +76,7 @@ def exported_symbol_vas(binary: Path) -> dict[str, int]:
     for func in getattr(pe, "exported_functions", []):
         name = getattr(func, "name", "")
         if name:
-            out.setdefault(str(name).lstrip("_"), image_base + int(func.address))
+            out.setdefault(c_name_from_symbol(str(name)), image_base + int(func.address))
     return out
 
 
@@ -99,7 +101,9 @@ def collect_actual_vas(root: Path, binary: Path) -> dict[str, int]:
     for obj in objects:
         tsize, syms = obj_text_symbol_offsets(obj)
         for sym, off in syms.items():
-            here.setdefault(sym.lstrip("_"), text_base + tot + off)
+            # ``obj_text_symbol_offsets`` already returns the C name.
+            # Stripping again turned ``_foo`` (from ``__foo``) into ``foo``.
+            here.setdefault(sym, text_base + tot + off)
         tot += tsize
     return here
 

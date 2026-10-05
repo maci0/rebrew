@@ -95,6 +95,25 @@ class TestClassifyGap:
         ptrs = struct.pack("<III", text_va + 0x100, text_va + 0x200, text_va + 0x300)
         assert classify_gap(ptrs, text_va, text_size) == "jump_table"
 
+    def test_x86_64_pointer_table(self) -> None:
+        """A 64-bit pointer pair is a jump table when the image is x86-64.
+
+        The classifier used to call ``is_jump_table`` with the x86-32 default,
+        so the high half of each pointer broke the run and the gap was
+        ``small_nonpadding``.
+        """
+        text_va = 0x1000
+        text_size = 0x1000
+        ptrs = struct.pack("<QQ", text_va, text_va + 0x20)
+        assert classify_gap(ptrs, text_va, text_size, arch="x86_64") == "jump_table"
+
+    def test_big_endian_pointer_table(self) -> None:
+        """A big-endian MIPS pointer pair is a jump table for that arch."""
+        text_va = 0x1000
+        text_size = 0x1000
+        ptrs = struct.pack(">II", text_va + 0x100, text_va + 0x200)
+        assert classify_gap(ptrs, text_va, text_size, arch="mips32") == "jump_table"
+
     def test_small_nonpadding(self) -> None:
         data = bytes([0x55, 0x8B, 0xEC] * 5)  # 15 bytes of non-padding
         assert classify_gap(data, 0x10000000, 0x10000) == "small_nonpadding"
@@ -192,6 +211,58 @@ class TestScanCallTargets:
         assert 0x1000 in result
         assert 0x100A in result[0x1000]
 
+    def test_x86_16_near_call_uses_image_arch_without_config(self) -> None:
+        """A 16-bit near call is 3 bytes. 32-bit mode swallows the next two and misses the callee."""
+        pytest.importorskip("capstone")
+        # E8 03 00 at 0x1000: target = 0x1000 + 3 + 3 = 0x1006. Then ret, two NOPs, callee ret.
+        code = bytes.fromhex("e80300c39090c3")
+        info = _make_binary_info(0x1000, len(code), code)
+        info.arch = "x86_16"
+        info.endian = "little"
+        info.format = "ne"
+        registry = {
+            0x1000: _make_entry(0x1000, 6, "caller"),
+            0x1006: _make_entry(0x1006, 1, "callee"),
+        }
+        result = scan_call_targets(info, registry, None)  # type: ignore[arg-type]
+        assert result == {0x1000: {0x1006}}
+
+    def test_arm_bl_immediate_is_a_direct_call(self) -> None:
+        """ARM BL encodes the target as ``#0x…`` and the mnemonic is ``bl``, not ``call``."""
+        pytest.importorskip("capstone")
+        from capstone import CS_ARCH_ARM, CS_MODE_ARM
+
+        # BL at 0x1000 with imm 0: target = 0x1000 + 8 = 0x1008. Callee is ``bx lr``.
+        code = (0xEB000000).to_bytes(4, "little") + bytes.fromhex("1eff2fe1")
+        info = _make_binary_info(0x1000, len(code), code)
+        registry = {
+            0x1000: _make_entry(0x1000, 4, "caller"),
+            0x1008: _make_entry(0x1008, 4, "callee"),
+        }
+        cfg = SimpleNamespace(capstone_arch=CS_ARCH_ARM, capstone_mode=CS_MODE_ARM)
+        result = scan_call_targets(info, registry, cfg)  # type: ignore[arg-type]
+        assert result == {0x1000: {0x1008}}
+
+    def test_mips_jal_immediate_is_a_direct_call(self) -> None:
+        """MIPS JAL is a direct call. The mnemonic is ``jal``, not ``call``."""
+        pytest.importorskip("capstone")
+        from capstone import CS_ARCH_MIPS, CS_MODE_BIG_ENDIAN, CS_MODE_MIPS32
+
+        # jal 0x1008; nop delay slot. Target index is the address shifted right by 2.
+        jal = (3 << 26) | (0x1008 >> 2)
+        code = jal.to_bytes(4, "big") + b"\x00\x00\x00\x00" + b"\x03\xe0\x00\x08"
+        info = _make_binary_info(0x1000, len(code), code)
+        registry = {
+            0x1000: _make_entry(0x1000, 8, "caller"),
+            0x1008: _make_entry(0x1008, 4, "callee"),
+        }
+        cfg = SimpleNamespace(
+            capstone_arch=CS_ARCH_MIPS,
+            capstone_mode=CS_MODE_MIPS32 | CS_MODE_BIG_ENDIAN,
+        )
+        result = scan_call_targets(info, registry, cfg)  # type: ignore[arg-type]
+        assert result == {0x1000: {0x1008}}
+
     def test_no_capstone_returns_empty(self) -> None:
         """Empty registry (and None cfg defaults) yields an empty call map."""
         info = _make_binary_info(0x1000, 0, b"")
@@ -266,6 +337,24 @@ class TestClusterFunctions:
         clusters = cluster_functions(registry, info, None)  # type: ignore[arg-type]
         assert len(clusters) == 1
         assert clusters[0].functions == [0x1000, 0x1008]
+
+    def test_image_arch_classifies_64bit_jump_table_gap(self) -> None:
+        """``info.arch`` selects the pointer width for a gap between functions."""
+        text_va = 0x1000
+        func_a = b"\xc3" * 4
+        ptrs = struct.pack("<QQ", text_va, text_va + 4)
+        func_b = b"\xc3" * 4
+        data = func_a + ptrs + func_b
+        info = _make_binary_info(text_va, len(data), data)
+        info.arch = "x86_64"
+        func_b_va = text_va + len(func_a) + len(ptrs)
+        registry = {
+            text_va: _make_entry(text_va, len(func_a)),
+            func_b_va: _make_entry(func_b_va, len(func_b)),
+        }
+        clusters = cluster_functions(registry, info, None)  # type: ignore[arg-type]
+        assert len(clusters) == 1
+        assert clusters[0].gap_classes == ["jump_table"]
 
     def test_large_gap_two_clusters(self) -> None:
         """Functions separated by >64 bytes of non-padding → two clusters."""

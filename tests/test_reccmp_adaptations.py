@@ -130,6 +130,45 @@ class TestFloatConst:
         found = list(find_float_instructions_in_buffer(code, 0x401000))
         assert [i.pointer for i in found] == [0xFF000000]
 
+    def test_segment_override_fld_is_a_reference(self) -> None:
+        """``fld dword ptr ds:[abs]`` is still an absolute float load.
+
+        An address-size override is not: ``67 D9 05`` is ``fld dword ptr [di]``.
+        """
+        code = b"\x3e\xd9\x05" + struct.pack("<I", 0x403000)
+        found = list(find_float_instructions_in_buffer(code, 0x401000))
+        assert [(i.address, i.pointer, i.disp_offset) for i in found] == [(0x401000, 0x403000, 3)]
+        overridden = b"\x67\xd9\x05" + struct.pack("<I", 0x403000)
+        assert list(find_float_instructions_in_buffer(overridden, 0x401000)) == []
+
+    def test_prefixed_reloc_covers_the_displacement(self) -> None:
+        """The reloc sits on the disp32, after the segment prefix and the opcode."""
+        code = b"\x3e\xd9\x05" + struct.pack("<I", 0x403000)
+        image = struct.pack("<f", 1.25)
+
+        def read_at(va: int, size: int) -> bytes:
+            return image[:size]
+
+        real = list(
+            find_float_consts(
+                [(0x401000, code)],
+                [(0x403000, 0x403100)],
+                read_at,
+                reloc_sites={0x401003},
+            )
+        )
+        modrm_only = list(
+            find_float_consts(
+                [(0x401000, code)],
+                [(0x403000, 0x403100)],
+                read_at,
+                reloc_sites={0x401002},
+            )
+        )
+        assert len(real) == 1
+        assert real[0].value == pytest.approx(1.25)
+        assert modrm_only == []
+
     def test_find_float_consts(self) -> None:
         image = struct.pack("<f", 3.5)  # the constant at 0x403000
         # fld [0x403000] from code at 0x401000

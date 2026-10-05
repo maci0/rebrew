@@ -40,7 +40,7 @@ from typing import Any
 
 import typer
 
-from rebrew.analysis import iter_instructions
+from rebrew.analysis import direct_call_target, iter_instructions
 from rebrew.binary_loader import load_binary
 from rebrew.cli import console, error_exit, json_print
 from rebrew.utils import atomic_write_text, run_process_group
@@ -395,13 +395,22 @@ def refresh_discoverers() -> dict[str, Discoverer]:
 _DISCOVERER_MAP = discoverer_map()
 
 
+def _call_target_in_text(insn: Any, text_va: int, text_end: int) -> int | None:
+    """Immediate call target that lands inside ``[text_va, text_end)``."""
+    target = direct_call_target(insn.mnemonic, insn.op_str)
+    if target is None or not (text_va <= target < text_end):
+        return None
+    return target
+
+
 def _capstone_sweep(binary: Path) -> list[tuple[int, int, str]]:
     """Linear-sweep candidates from .text: post-padding starts, frame prologues, call targets.
 
     x86-32/64 uses the full heuristic set (int3/nop padding runs, ``push
     ebp; mov ebp,esp`` prologues, ``e8 rel32`` call targets).  Other arches
     (multi-arch P0) use a minimal sweep — the .text base plus direct call
-    targets via the arch-aware disassembler — until arch-specific padding
+    targets (``bl``/``blx``, ``jal``, ``bsr``, including Capstone's ``#0x``
+    form) via the arch-aware disassembler — until arch-specific padding
     and prologue patterns land with the first real target.
     """
     try:
@@ -423,14 +432,11 @@ def _capstone_sweep(binary: Path) -> list[tuple[int, int, str]]:
     if arch and not arch.startswith("x86"):
         # Minimal non-x86 sweep: .text base + direct call targets.
         nstarts: set[int] = {va_base}
+        text_end = text.va + text.size
         for insn in iter_instructions(info, text.va, text.size):
-            if insn.mnemonic in ("call", "jal", "bl") and insn.op_str.startswith("0x"):
-                try:
-                    tgt = int(insn.op_str, 16)
-                except ValueError:
-                    continue
-                if text.va <= tgt < text.va + text.size:
-                    nstarts.add(tgt)
+            target = _call_target_in_text(insn, text.va, text_end)
+            if target is not None:
+                nstarts.add(target)
         return [(va, 0, f"fcn.{va:08x}") for va in sorted(nstarts)]
 
     starts: set[int] = set()
@@ -463,14 +469,11 @@ def _capstone_sweep(binary: Path) -> list[tuple[int, int, str]]:
     for m in re.finditer(rb"\x55\x8b\xec", raw):
         starts.add(va_base + m.start())
     # 4. direct-call targets (e8 rel32) via capstone
+    text_end = text.va + text.size
     for insn in iter_instructions(info, text.va, text.size):
-        if insn.mnemonic == "call" and insn.op_str.startswith("0x"):
-            try:
-                tgt = int(insn.op_str, 16)
-            except ValueError:
-                continue
-            if text.va <= tgt < text.va + text.size:
-                starts.add(tgt)
+        target = _call_target_in_text(insn, text.va, text_end)
+        if target is not None:
+            starts.add(target)
 
     funcs: list[tuple[int, int, str]] = []
     for va in sorted(starts):

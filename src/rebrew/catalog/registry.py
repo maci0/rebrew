@@ -114,24 +114,25 @@ def is_jump_table(
     fmt = f"{order}{'H' if ptr_size == 2 else 'I' if ptr_size == 4 else 'Q'}"
     if len(data) < 2 * ptr_size:
         return False
-    # The table is a whole number of pointer-sized entries.
-    if len(data) % ptr_size != 0:
-        return False
-    # Skip alignment prefix (x86-only: NOP 0x90 / INT3 0xCC).
+    # Skip alignment prefix (x86-only: NOP 0x90 / INT3 0xCC), then the MSVC
+    # hotpatch ``mov edi, edi`` (8B FF).  The length check used to run first
+    # and reject any slice that was not a whole number of pointers, so a
+    # 2-byte hotpatch (length == 2 mod 4 on x86-32, 2 mod 8 on x86-64) never
+    # reached this skip.
     off = 0
     if is_x86:
         while off < len(data) and data[off] in (0x90, 0xCC):
             off += 1
-    # The prefix must keep the remaining pointer array pointer-aligned —
-    # 1..ptr_size-1 NOP/INT3 bytes before the table would misalign every read.
-    if (len(data) - off) % ptr_size != 0:
-        return False
-    # Also skip ``mov edi, edi`` (8B FF) — common MSVC hotpatch 2-byte NOP
-    if is_x86 and off + 1 < len(data) and data[off] == 0x8B and data[off + 1] == 0xFF:
-        off += 2
-        # Re-check alignment after skipping hotpatch bytes
-        if (len(data) - off) % ptr_size != 0:
+        # NOP/INT3 padding must itself be a whole number of pointers.  One to
+        # ptr_size-1 of those bytes would start every slot off a pointer boundary.
+        hotpatch = off + 1 < len(data) and data[off] == 0x8B and data[off + 1] == 0xFF
+        if off % ptr_size != 0:
             return False
+        if hotpatch:
+            off += 2
+    # The bytes after the prefix are a whole number of pointer-sized entries.
+    if (len(data) - off) < 2 * ptr_size or (len(data) - off) % ptr_size != 0:
+        return False
     remaining = data[off:]
     if len(remaining) < 2 * ptr_size:
         return False

@@ -3023,13 +3023,8 @@ def _attach_server_log_handler() -> Callable[[], None]:
     handler.setFormatter(handler_formatter)
     handler.set_name(_DASHBOARD_HANDLER_NAME)
     replaced = [existing for existing in log.handlers if existing.get_name() == handler.get_name()]
-    for existing in replaced:
-        log.removeHandler(existing)
     previous_level = log.level
     previous_propagate = log.propagate
-    log.addHandler(handler)
-    log.setLevel(logging.INFO)
-    log.propagate = False
 
     package_log = logging.getLogger(_PACKAGE_LOGGER_NAME)
     package_handler = logging.StreamHandler(console.file)
@@ -3044,29 +3039,46 @@ def _attach_server_log_handler() -> Callable[[], None]:
         for existing in package_log.handlers
         if existing.get_name() == _PACKAGE_HANDLER_NAME
     ]
-    for existing in package_replaced:
-        package_log.removeHandler(existing)
     package_previous_propagate = package_log.propagate
-    package_log.addHandler(package_handler)
-    package_log.propagate = False
 
+    log_swapped = False
+    package_swapped = False
     disposed = False
 
     def restore() -> None:
-        nonlocal disposed
+        nonlocal disposed, log_swapped, package_swapped
         if disposed:
             return
         disposed = True
-        _remove_identity(log.handlers, handler)
-        for existing in replaced:
-            log.addHandler(existing)
-        log.setLevel(previous_level)
-        log.propagate = previous_propagate
-        _remove_identity(package_log.handlers, package_handler)
-        for existing in package_replaced:
-            package_log.addHandler(existing)
-        package_log.propagate = package_previous_propagate
+        if log_swapped:
+            _remove_identity(log.handlers, handler)
+            for existing in replaced:
+                log.addHandler(existing)
+            log.setLevel(previous_level)
+            log.propagate = previous_propagate
+            log_swapped = False
+        if package_swapped:
+            _remove_identity(package_log.handlers, package_handler)
+            for existing in package_replaced:
+                package_log.addHandler(existing)
+            package_log.propagate = package_previous_propagate
+            package_swapped = False
 
+    try:
+        for existing in replaced:
+            log.removeHandler(existing)
+        log_swapped = True
+        log.addHandler(handler)
+        log.setLevel(logging.INFO)
+        log.propagate = False
+        for existing in package_replaced:
+            package_log.removeHandler(existing)
+        package_swapped = True
+        package_log.addHandler(package_handler)
+        package_log.propagate = False
+    except BaseException:
+        restore()
+        raise
     return restore
 
 
@@ -3824,8 +3836,9 @@ def main(
         f"[green]Rebrew dashboard on http://{escape(host)}:{port}[/] — "
         f"[dim]serving {escape(str(db_dir))} (Ctrl+C to stop)[/dim]",
     )
-    restore_log = _attach_server_log_handler()
+    restore_log: Callable[[], None] | None = None
     try:
+        restore_log = _attach_server_log_handler()
         server.serve_forever()
     except KeyboardInterrupt:
         _server_notice("INFO", "[dim]Dashboard stopped.[/dim]")
@@ -3855,7 +3868,8 @@ def main(
         )
         # Last: the totals line is the run's own output, so the log stream it
         # shares is restored only once the run has said everything.
-        restore_log()
+        if restore_log is not None:
+            restore_log()
 
 
 def main_entry() -> None:

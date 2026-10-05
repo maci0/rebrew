@@ -34,6 +34,32 @@ from rebrew.binary_loader import load_binary
 # ---------------------------------------------------------------------------
 
 
+def _code_image(code: bytes, *, arch: str, endian: str = "little") -> object:
+    """A one-section image large enough that an in-section target stays inside."""
+    from types import SimpleNamespace
+
+    section = SimpleNamespace(
+        name=".text",
+        va=0x1000,
+        size=len(code),
+        file_offset=0,
+        raw_size=len(code),
+    )
+    return SimpleNamespace(
+        path=None,
+        format="elf",
+        arch=arch,
+        endian=endian,
+        image_base=0x1000,
+        text_va=0x1000,
+        text_size=len(code),
+        text_raw_offset=0,
+        sections={".text": section},
+        data=code,
+        ne_segments=[],
+    )
+
+
 class TestScanReferences:
     def test_finds_all_abs_refs(self, tmp_path: Path) -> None:
         path, syms = make_xref_probe(tmp_path)
@@ -98,6 +124,33 @@ class TestScanReferences:
         path = tmp_path / "rel.exe"
         path.write_bytes(make_pe(code))
         info = load_binary(path)
+        assert scan_references(info) == []
+
+    def test_arm_bl_and_b_are_references(self) -> None:
+        """ARM BL is a call and ARM B is a jump. Both print the target as ``#0x``."""
+        # bl #0x1010 at 0x1000 (imm 2); b #0x1010 at 0x1004 (imm 1). Pad so 0x1010
+        # is still inside .text — a target outside every section is dropped.
+        code = (
+            (0xEB000002).to_bytes(4, "little") + (0xEA000001).to_bytes(4, "little") + b"\x00" * 12
+        )
+        info = _code_image(code, arch="arm32")
+        refs = scan_references(info)
+        assert refs == [
+            Xref("call", 0x1000, 0x1010),
+            Xref("jmp", 0x1004, 0x1010),
+        ]
+
+    def test_sh2_bsr_target_is_the_address_not_the_displacement(self) -> None:
+        """SH2 BSR's operand type is not an immediate. The address is in the text."""
+        # bsr 0x1008 from 0x1000. The displacement field is 2, not the address.
+        code = bytes.fromhex("b0020000000000000900")
+        info = _code_image(code, arch="sh2", endian="big")
+        refs = scan_references(info)
+        assert refs == [Xref("call", 0x1000, 0x1008)]
+
+    def test_sh2_register_memory_does_not_abort_the_scan(self) -> None:
+        """``mov.l @r1, r0`` is register-relative. Its operand has no x86 base field."""
+        info = _code_image(bytes.fromhex("6012"), arch="sh2", endian="big")
         assert scan_references(info) == []
 
 

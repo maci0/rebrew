@@ -281,3 +281,42 @@ class TestMultiwordBases:
         src = "unsigned long big(void);\nvoid f(void) { big(); }\n"
         result = fixup_source(src, compile_errors="implicit declaration of function 'big'")
         assert result.injected == []
+
+    def test_parenthesized_declarator_is_not_redefined(self) -> None:
+        """``int (*table[4]);`` already names ``table``.
+
+        The parentheses hid the name, so ``'table' undeclared`` injected
+        ``typedef int table;`` on top of the array. ``char (*row)[4];``
+        is one pointer and stays declared too.
+        """
+        src = "int (*table[4]);\nvoid f(void) { table[0] = 0; }\n"
+        result = fixup_source(src, compile_errors="'table' undeclared")
+        assert result.injected == []
+        assert "typedef int table;" not in result.source
+
+        row = "char (*row)[4];\nvoid f(void) { row[0] = 0; }\n"
+        result = fixup_source(row, compile_errors="'row' undeclared")
+        assert result.injected == []
+        assert "typedef int row;" not in result.source
+
+    def test_cdecl_pointer_array_is_not_redefined(self) -> None:
+        """``int (__cdecl *table[2])[3]`` already names ``table``.
+
+        ``__cdecl`` sat before the star, so ``'table' undeclared`` injected
+        ``typedef int table;``. ``char (__cdecl *row)[4]`` and
+        ``void (__cdecl *cb)(int)`` stay declared too.
+        """
+        src = "int (__cdecl *table[2])[3];\nvoid f(void) { table[0] = 0; }\n"
+        result = fixup_source(src, compile_errors="'table' undeclared")
+        assert result.injected == []
+        assert "typedef int table;" not in result.source
+
+        row = "char (__cdecl *row)[4];\nvoid f(void) { row[0] = 0; }\n"
+        result = fixup_source(row, compile_errors="'row' undeclared")
+        assert result.injected == []
+        assert "typedef int row;" not in result.source
+
+        cb = "void (__cdecl *cb)(int);\nvoid f(void) { cb(1); }\n"
+        result = fixup_source(cb, compile_errors="'cb' undeclared")
+        assert result.injected == []
+        assert "typedef int cb;" not in result.source

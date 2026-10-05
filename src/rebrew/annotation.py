@@ -85,6 +85,7 @@ __all__ = [
     "module_for_va",
     "parse_c_file_multi",
     "parse_c_file_text",
+    "library_annotations_from_metadata",
     "parse_library_header",
     "clear_parse_memo",
     "parse_new_format",
@@ -199,6 +200,7 @@ _VA_ONLY_RE = re.compile(
 )
 _STDCALL_RE = re.compile(r"\b(?:__stdcall|WINAPI|CALLBACK|APIENTRY)\b")
 _FASTCALL_RE = re.compile(r"\b__fastcall\b")
+_VECTORCALL_RE = re.compile(r"\b__vectorcall\b")
 
 # Pre-compiled patterns for CFLAGS validation and template stripping.
 _CFLAGS_GLUED_RE = re.compile(r"^/\w+/\w+")
@@ -984,19 +986,38 @@ def _calc_stdcall_param_size(proto: str) -> int | None:
     return total
 
 
+def _convention_head(proto: str) -> str:
+    """Return the text before the parameter list, without ``__declspec``.
+
+    A convention inside a parameter (``void (__vectorcall *cb)(int)``) is
+    not the function's own convention.
+    """
+    cleaned = _DECLSPEC_STRIP_RE.sub("", proto)
+    paren = cleaned.find("(")
+    return cleaned if paren < 0 else cleaned[:paren]
+
+
 def derive_c_symbol(name: str, c_func_proto: str) -> str:
     """MSVC symbol decoration for *name* from its prototype.
 
     ``"_" + name`` for __cdecl (default), ``"_" + name + "@N"`` for
     __stdcall/WINAPI, ``"@" + name + "@N"`` for __fastcall (ecx/edx args
-    are still counted in the decoration's N on MSVC).
+    are still counted in the decoration's N on MSVC), ``name + "@@N"`` for
+    __vectorcall (the whole parameter list, including register arguments).
     """
     symbol = "_" + name if name else ""
-    if name and c_func_proto and _FASTCALL_RE.search(c_func_proto):
+    # Only the convention before the parameter list. A ``__fastcall`` on a
+    # parameter used to decorate a stdcall function as ``@name@N``.
+    head = _convention_head(c_func_proto) if c_func_proto else ""
+    if name and head and _VECTORCALL_RE.search(head):
+        param_size = _calc_stdcall_param_size(c_func_proto)
+        if param_size is not None:
+            symbol = f"{name}@@{param_size}"
+    elif name and head and _FASTCALL_RE.search(head):
         param_size = _calc_stdcall_param_size(c_func_proto)
         if param_size is not None:
             symbol = f"@{name}@{param_size}"
-    elif name and c_func_proto and _STDCALL_RE.search(c_func_proto):
+    elif name and head and _STDCALL_RE.search(head):
         # Calculate parameter stack size from prototype for decorated name
         param_size = _calc_stdcall_param_size(c_func_proto)
         if param_size is not None:
@@ -1017,9 +1038,9 @@ def _kv_to_annotation(
     2. ``_FUNC_NAME_HINT`` — bare ``// FunctionName`` comment after the marker
     3. Empty string (downstream code will fall back to filename stem)
 
-    Symbol is derived as ``"_" + name`` for __cdecl (default), or
-    ``"_" + name + "@N"`` for __stdcall/WINAPI functions where N is the
-    parameter stack size.
+    Symbol is derived as ``"_" + name`` for __cdecl (default),
+    ``"_" + name + "@N"`` for __stdcall/WINAPI, ``"@" + name + "@N"`` for
+    __fastcall, or ``name + "@@N"`` for __vectorcall.
     Prototype is extracted from the actual C function definition line when
     available.
 
@@ -1045,9 +1066,8 @@ def _kv_to_annotation(
 
     name = c_func_name or func_name_hint
 
-    # Derive symbol: "_" + name for __cdecl (default), "_" + name + "@N" for
-    # __stdcall/WINAPI, "@" + name + "@N" for __fastcall (ecx/edx args are
-    # still counted in the decoration's N on MSVC).
+    # "_" + name for __cdecl, "_" + name + "@N" for __stdcall/WINAPI,
+    # "@" + name + "@N" for __fastcall, "name@@N" for __vectorcall.
     symbol = derive_c_symbol(name, c_func_proto)
 
     size_str = kv.get("SIZE", "0")
@@ -2089,6 +2109,69 @@ def _library_rows_from_metadata(filepath: Path, metadata_dir: Path) -> list[Anno
     return _function_annotations_from_metadata(filepath, None, filepath.parent, metadata_dir)
 
 
+def library_annotations_from_metadata(metadata_dir: Path, base_dir: Path) -> list[Annotation]:
+    """LIBRARY rows whose ``file`` is a ``library_*.h`` header.
+
+    The header is an index, not content.  A migrated project stores the
+    identity in ``rebrew-functions.toml`` and does not need the file on disk.
+    A row whose header still exists is left to :func:`parse_library_header`,
+    so a legacy marker file is not read twice.
+    """
+    from rebrew.metadata import apply_metadata_entry, load_metadata
+
+    try:
+        entries_by_key = load_metadata(metadata_dir, deepcopy=False)
+    except Exception as exc:
+        logger.warning(
+            "metadata load failed for %s: %s; library functions are omitted",
+            metadata_dir,
+            exc,
+        )
+        return []
+    results: list[Annotation] = []
+    for (module, va), entry in entries_by_key.items():
+        if str(entry.get("marker_type", "")) != "LIBRARY":
+            continue
+        stored = str(entry.get("file", "")).replace("\\", "/")
+        name = Path(stored).name
+        if not name.startswith("library_") or not name.endswith(".h"):
+            continue
+        if (base_dir / stored).is_file() or (base_dir / name).is_file():
+            continue
+        ann = Annotation(
+            va=va,
+            module=module,
+            marker_type="LIBRARY",
+            symbol=str(entry.get("symbol", "")),
+            name=str(entry.get("name", "")),
+            filepath=stored,
+        )
+        apply_metadata_entry(ann, entry)
+        results.append(ann)
+    return results
+
+
+# One ``@N``. Vectorcall ``name@@N`` leaves a trailing ``@``; fastcall
+# ``@name@N`` leaves a leading ``@``.
+_LIBRARY_AT_RE = re.compile(r"@\d+$")
+
+
+def _library_c_name(symbol: str) -> str:
+    """C name inside a library symbol line.
+
+    The line is the linker symbol. ``_fflush`` is ``fflush``. ``__chkstk``
+    is ``_chkstk`` (one leading underscore is cdecl). ``hook@@12`` is
+    ``hook``. ``@keeps@4`` is ``keeps``. A C++ ``?`` symbol is unchanged.
+    """
+    name = symbol[1:] if symbol.startswith("_") else symbol
+    name = _LIBRARY_AT_RE.sub("", name)
+    if name.endswith("@"):
+        name = name[:-1]
+    elif name.startswith("@") and not name.startswith("@@"):
+        name = name[1:]
+    return name
+
+
 def parse_library_header(filepath: Path, metadata_dir: Path | None = None) -> list[Annotation]:
     """Parse a ``library_*.h`` file for LIBRARY markers.
 
@@ -2181,7 +2264,7 @@ def parse_library_header(filepath: Path, metadata_dir: Path | None = None) -> li
                 Annotation(
                     va=va,
                     size=size,
-                    name=symbol.lstrip("_") if symbol else "",
+                    name=_library_c_name(symbol) if symbol else "",
                     symbol=symbol,
                     module=module,
                     status=canonical_status(kv.get("STATUS", "EXACT")),

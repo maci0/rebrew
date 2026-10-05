@@ -347,6 +347,45 @@ int other(void) { return 2; }
         assert r is not None
         assert "foo" in src[r[0] : r[1]]
 
+    def test_decorated_symbol_scopes_the_c_function(self) -> None:
+        """``name@@N``, ``@name@N``, and ``_name@N`` are the C function ``name``.
+
+        ``lstrip("_")`` left the decoration in the name, so the GA scored
+        the whole file.
+        """
+        from rebrew.match_ga import _find_function_range
+
+        src = """int other(void) { return 0; }
+int __stdcall sleepish(int a) { return a; }
+int __vectorcall hook(int a, int b, int c) { return a; }
+int __fastcall keeps(int a) { return a; }
+"""
+        for symbol, name in (
+            ("_sleepish@4", "sleepish"),
+            ("hook@@12", "hook"),
+            ("@keeps@4", "keeps"),
+        ):
+            found = _find_function_range(src, symbol)
+            assert found is not None, symbol
+            body = src[found[0] : found[1]]
+            assert name in body
+            assert "other" not in body
+
+    def test_double_underscore_scopes_the_underscored_name(self) -> None:
+        """``__foo`` is the function ``_foo``. ``lstrip`` made it ``foo``."""
+        from rebrew.match_ga import _find_function_range
+
+        src = "int foo(void) { return 1; }\nint _foo(void) { return 2; }\n"
+        found = _find_function_range(src, "__foo")
+        assert found is not None
+        body = src[found[0] : found[1]]
+        assert "_foo" in body
+        assert "return 1" not in body
+        # ``_foo`` is still the cdecl symbol of ``foo``.
+        cdecl = _find_function_range(src, "_foo")
+        assert cdecl is not None
+        assert "return 1" in src[cdecl[0] : cdecl[1]]
+
     def test_missing_symbol_returns_none(self) -> None:
         from rebrew.match_ga import _find_function_range
 

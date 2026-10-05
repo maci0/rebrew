@@ -250,6 +250,76 @@ class TestExternVariableDeclarators:
 
         assert find_extern_variables("extern int f(void);") == []
 
+    def test_parenthesized_pointer_keeps_its_shape(self) -> None:
+        """``(*g_row)[4]`` is one pointer to four chars.
+
+        The brackets outside the parentheses were the object's array, so
+        the type was ``char[4]``. ``(*table[4])`` was skipped, so the
+        four pointers never appeared. ``(counts[4])`` is still four ints.
+        """
+        row = find_extern_variables("extern char (*g_row)[4];")
+        assert [(item.name, item.type_str, item.array_suffix) for item in row] == [
+            ("g_row", "char (*)[4]", "")
+        ]
+        ptrs = find_extern_variables("extern char (**ptrs)[2][3];")
+        assert [(item.name, item.type_str, item.array_suffix) for item in ptrs] == [
+            ("ptrs", "char (**)[2][3]", "")
+        ]
+        table = find_extern_variables("extern int (*table[4]);")
+        assert [(item.name, item.type_str, item.array_suffix) for item in table] == [
+            ("table", "int *[4]", "[4]")
+        ]
+        counts = find_extern_variables("extern int (counts[4]);")
+        assert [(item.name, item.type_str, item.array_suffix) for item in counts] == [
+            ("counts", "int[4]", "[4]")
+        ]
+
+    def test_array_of_pointers_to_array_keeps_both_bounds(self) -> None:
+        """``(*table[2])[3]`` is two pointers to three ints.
+
+        The brackets outside the parentheses were the object's array, so
+        the type was ``int[3]`` and the two pointers disappeared.
+        ``(**rows[2])[4]`` is two pointers. ``(*row)[4]`` stays one pointer.
+        """
+        table = find_extern_variables("extern int (*table[2])[3];")
+        assert [(item.name, item.type_str, item.array_suffix) for item in table] == [
+            ("table", "int (*[2])[3]", "[2]")
+        ]
+        rows = find_extern_variables("extern char (**rows[2])[4];")
+        assert [(item.name, item.type_str, item.array_suffix) for item in rows] == [
+            ("rows", "char (**[2])[4]", "[2]")
+        ]
+        row = find_extern_variables("extern char (*row)[4];")
+        assert [(item.name, item.type_str, item.array_suffix) for item in row] == [
+            ("row", "char (*)[4]", "")
+        ]
+
+    def test_cdecl_pointer_array_keeps_the_convention(self) -> None:
+        """``(__cdecl *row)[4]`` is still one pointer to four chars.
+
+        The type was rebuilt from the star count, so ``__cdecl`` disappeared.
+        ``const`` on the pointer stays off the type, as it does for
+        ``int * const p[3]``.
+        """
+        from rebrew.c_parser import find_extern_variables
+
+        row = find_extern_variables("extern char (__cdecl *row)[4];")
+        assert [(item.name, item.type_str, item.array_suffix) for item in row] == [
+            ("row", "char (__cdecl *)[4]", "")
+        ]
+        table = find_extern_variables("extern int (__cdecl *table[2])[3];")
+        assert [(item.name, item.type_str, item.array_suffix) for item in table] == [
+            ("table", "int (__cdecl *[2])[3]", "[2]")
+        ]
+        hooks = find_extern_variables("extern int (__stdcall *hooks[4]);")
+        assert [(item.name, item.type_str, item.array_suffix) for item in hooks] == [
+            ("hooks", "int __stdcall *[4]", "[4]")
+        ]
+        win = find_extern_variables("extern char (WINAPI *row)[4];")
+        assert [(item.name, item.type_str) for item in win] == [("row", "char (WINAPI *)[4]")]
+        qualified = find_extern_variables("extern char (* const row)[4];")
+        assert [(item.name, item.type_str) for item in qualified] == [("row", "char (*)[4]")]
+
 
 class TestPointerAndArrayTypes:
     @pytest.mark.parametrize(
@@ -443,6 +513,44 @@ class TestTypeFromDeclaration:
 
     def test_empty_decl_returns_none(self) -> None:
         assert type_from_declaration("", "x") is None
+
+    def test_pointer_to_array_keeps_the_pointee(self) -> None:
+        """``char (*row)[4]`` is a pointer to four chars.
+
+        The name sat inside parentheses, so the type stopped at
+        ``char (*`` and the ``[4]`` was dropped. ``int (counts[4])`` is
+        four ints. ``int (*table[4])`` stays an array of pointers.
+        """
+        assert type_from_declaration("char (*row)[4];", "row") == "char (*)[4]"
+        assert type_from_declaration("extern char (**ptrs)[4];", "ptrs") == "char (**)[4]"
+        assert type_from_declaration("int (*table[4]);", "table") == "int (*[4])"
+        assert type_from_declaration("int (counts[4]);", "counts") == "int[4]"
+        assert type_from_declaration("int *table[4];", "table") == "int *[4]"
+
+    def test_cdecl_and_const_pointer_keeps_the_pointee(self) -> None:
+        """``char (__cdecl *row)[4]`` is still a pointer to four chars.
+
+        ``__cdecl`` or ``const`` sat inside the parentheses, so the type
+        stopped at the star and dropped ``[4]`` or ``(int)``.
+        """
+        assert (
+            type_from_declaration("extern char (__cdecl *row)[4];", "row") == "char (__cdecl *)[4]"
+        )
+        assert type_from_declaration("extern char (* const row)[4];", "row") == "char (* const)[4]"
+        assert (
+            type_from_declaration("extern char (* volatile row)[4];", "row")
+            == "char (* volatile)[4]"
+        )
+        assert (
+            type_from_declaration("extern void (__cdecl *cb)(int);", "cb")
+            == "void (__cdecl *)(int)"
+        )
+        assert (
+            type_from_declaration("extern void (* const cb)(int);", "cb") == "void (* const)(int)"
+        )
+        assert (
+            type_from_declaration("extern void (WINAPI *cb)(int);", "cb") == "void (WINAPI *)(int)"
+        )
 
 
 class TestVariableInventory:

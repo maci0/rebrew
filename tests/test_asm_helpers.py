@@ -36,6 +36,26 @@ class TestDisassembleToNasm:
         src, _stats = disassemble_to_nasm(b"\xc3", 0x1000, label="1bad")
         assert "func_1bad" in src
 
+    def test_decorated_label_is_the_c_name(self) -> None:
+        """A decorated symbol is a NASM label of the C name.
+
+        ``lstrip("_")`` then turned ``@`` into ``_``, so ``hook@@12``
+        was ``hook__12`` and ``@keeps@4`` was ``keeps_4``. ``__foo``
+        was ``foo``. A cdecl ``_bar`` is still ``bar``.
+        """
+        src, _stats = disassemble_to_nasm(b"\xc3", 0x1000, label="hook@@12")
+        assert "hook:" in src
+        assert "hook__12:" not in src
+        src, _stats = disassemble_to_nasm(b"\xc3", 0x1000, label="@keeps@4")
+        assert "keeps:" in src
+        assert "keeps_4:" not in src
+        src, _stats = disassemble_to_nasm(b"\xc3", 0x1000, label="_sleepish@4")
+        assert "sleepish:" in src
+        src, _stats = disassemble_to_nasm(b"\xc3", 0x1000, label="__foo")
+        assert "_foo:" in src
+        src, _stats = disassemble_to_nasm(b"\xc3", 0x1000, label="_bar")
+        assert "bar:" in src
+
     def test_no_label(self) -> None:
         src, _stats = disassemble_to_nasm(b"\xc3", 0x1000)
         assert "ret" in src

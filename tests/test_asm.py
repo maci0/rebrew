@@ -109,6 +109,48 @@ class TestBuildFunctionLookup:
         assert name == "my_func"
         assert not name.startswith("_")
 
+    def test_decorated_symbol_uses_the_c_name(self, tmp_path: Path) -> None:
+        """A decorated symbol is not the VA-map name.
+
+        The map used ``lstrip("_")`` on the linker symbol and ignored the
+        C name. ``hook@@12`` and ``@keeps@4`` stayed decorated, and the
+        symbol of ``_foo`` (``__foo``) became ``foo``. ``foo`` stays
+        ``foo``.
+        """
+        (tmp_path / "function_structure.json").write_text("[]", encoding="utf-8")
+        sources = {
+            "hook.c": (
+                "// FUNCTION: SERVER 0x10001000\n"
+                "// SIZE: 16\n"
+                "int __vectorcall hook(int a, int b, int c) { return 0; }\n"
+            ),
+            "keeps.c": (
+                "// FUNCTION: SERVER 0x10002000\n"
+                "// SIZE: 16\n"
+                "int __fastcall keeps(int a) { return a; }\n"
+            ),
+            "sleepish.c": (
+                "// FUNCTION: SERVER 0x10003000\n"
+                "// SIZE: 16\n"
+                "int __stdcall sleepish(int a) { return a; }\n"
+            ),
+            "under.c": (
+                "// FUNCTION: SERVER 0x10004000\n// SIZE: 16\nint _foo(void) { return 0; }\n"
+            ),
+            "plain.c": (
+                "// FUNCTION: SERVER 0x10005000\n// SIZE: 16\nint foo(void) { return 0; }\n"
+            ),
+        }
+        for filename, text in sources.items():
+            (tmp_path / filename).write_text(text, encoding="utf-8")
+        cfg = ProjectConfig(root=tmp_path, reversed_dir=tmp_path)
+        result = build_function_lookup(cfg)
+        assert result[0x10001000][0] == "hook"
+        assert result[0x10002000][0] == "keeps"
+        assert result[0x10003000][0] == "sleepish"
+        assert result[0x10004000][0] == "_foo"
+        assert result[0x10005000][0] == "foo"
+
     def test_ghidra_entry_without_name_skipped(self, tmp_path: Path) -> None:
         """Ghidra entries with empty name are skipped."""
         ghidra_json = tmp_path / "function_structure.json"

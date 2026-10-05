@@ -10,6 +10,8 @@ naming pass rewrites the decompilation to use it::
     *(char *)(a0 + 0x10) == 1                  ->  a0->field_10 == 1
     sub_1000b1c0(a0 + 0x10)                    ->  sub_1000b1c0(&a0->field_10)
     *(unsigned int *)&v2[10]  (v2 = a0, short*) ->  v2->field_14   (array-index form)
+    *(unsigned int *)&v2[0xA] (same offset)    ->  v2->field_14
+    y = p[1] / z = &p[1]      (short *p)       ->  y = p->field / z = &p->field
 
 This is the "feed the recovered structs back in" loop: ``rebrew
 recover-structs`` recovers the layout as an anonymous candidate, the user
@@ -57,32 +59,51 @@ from rebrew.utils import (
 
 #: One field inside a typedef body: ``int flags;`` / ``char gap_0004[0x264260];``
 #: / ``char field_0[0xc];`` / ``unsigned short tbl[2][4];`` / ``int *p;``.
+# Longer bases first.  A single word would take ``long`` as the type and
+# the next word (``long``, ``double``, ``int``) as the field name.
+_FIELD_BASE = r"long\s+long(?:\s+int)?|long\s+double|long\s+int|short\s+int|[A-Za-z_]\w*"
+# ``(*name[N])`` is an array of pointers. ``(*name)[N]`` is one pointer;
+# the brackets after the closing parenthesis are the pointee. A bare
+# ``*name[N]`` stays an array of pointers. The two parenthesis groups
+# have to match, or the line is not a field.
+_FIELD_BRACKETS = r"(?:\[(?:[^\[\]]|\[[^\]]*\])*\])*"
 _FIELD_LINE_RE = re.compile(
-    r"^\s*(?P<mod>(?:unsigned|signed|const)\s+)?(?P<base>[A-Za-z_]\w*)\s*(?P<ptr>\*+)?\s*"
-    r"(?P<name>[A-Za-z_]\w*)\s*(?P<arr>(?:\[[^\]]*\])*)\s*;"
+    rf"^\s*(?P<mod>(?:unsigned|signed|const)\s+)?(?P<base>{_FIELD_BASE})\s*"
+    rf"(?P<open>\(\s*)?(?P<ptr>\*+)?\s*(?P<name>[A-Za-z_]\w*)\s*"
+    rf"(?P<inner>{_FIELD_BRACKETS})\s*(?P<close>\))?\s*(?P<arr>{_FIELD_BRACKETS})\s*;"
 )
 #: Strips ``/* */`` and ``//`` from a single line (for layout scanning only).
 _LINE_COMMENT_RE = re.compile(r"//.*$")
 _BLOCK_COMMENT_RE = re.compile(r"/\*.*?\*/", re.S)
 
-#: Multi-dimensional array dims: ``[0x10]`` or ``[4]``.
-_DIM_RE = re.compile(r"\[([^\]]*)\]")
+#: Multi-dimensional array dims: ``[0x10]``, ``[4]``, or ``[sizeof(wchar_t[3])]``.
+#: One nested pair is part of the same bound. A deeper nest stays unknown.
+_DIM_RE = re.compile(r"\[((?:[^\[\]]|\[[^\]]*\])*)\]")
 
 
 def _dim_value(s: str) -> int | None:
     """Parse a C array dimension (hex ``0x10``, octal ``010``, decimal ``4``).
 
-    A ``u``/``l`` suffix is part of the constant (``0x10u`` is 16).  Returns
-    ``None`` for a non-numeric dimension (``[]`` or a symbolic ``[N]``) or a
-    negative bound, which the caller treats as unsized rather than crashing.
+    A ``u``/``l`` suffix is part of the constant (``0x10u`` is 16).  A
+    complete constant expression (``2 + 2``, ``0x300 * 0x21c``) folds the
+    same way ``estimate_type_size`` does.  Returns ``None`` for a
+    non-constant dimension (``[]`` or a symbolic ``[N]``) or a negative
+    bound, which the caller treats as unsized rather than crashing.
     """
-    try:
-        value = parse_c_integer_literal(s)
-    except ValueError:
+    from rebrew.c_parser import array_type_shape
+
+    _base, dimensions = array_type_shape(f"char[{s}]")
+    if len(dimensions) != 1:
         return None
-    if value < 0:
+    bound = dimensions[0]
+    if isinstance(bound, str):
+        try:
+            bound = parse_c_integer_literal(bound)
+        except ValueError:
+            return None
+    if not isinstance(bound, int) or bound < 0:
         return None
-    return value
+    return bound
 
 
 @dataclass
@@ -120,10 +141,10 @@ def struct_field_layout(definition: str, pointer_width: int = 4) -> FieldLayout:
         if line.startswith(("typedef struct", "}")):
             continue
         m = _FIELD_LINE_RE.match(line)
-        if m is None:
+        if m is None or bool(m.group("open")) != bool(m.group("close")):
             lay.complete = False
             continue
-        base = m.group("base")
+        base = " ".join(m.group("base").split())
         width: int | None
         if m.group("ptr"):
             width = pointer_width
@@ -134,10 +155,18 @@ def struct_field_layout(definition: str, pointer_width: int = 4) -> FieldLayout:
         if width is None:
             lay.complete = False
             continue
-        if m.group("arr"):
+        # Brackets inside ``(*name[N])`` are the element count. Brackets
+        # after ``(*name)`` are the pointee, so the field stays one pointer.
+        if m.group("close") and m.group("ptr") and not m.group("inner"):
+            dims = ""
+        elif m.group("close"):
+            dims = m.group("inner") or ""
+        else:
+            dims = (m.group("inner") or "") + (m.group("arr") or "")
+        if dims:
             count = 1
             unsized = False
-            for dim in _DIM_RE.findall(m.group("arr")):
+            for dim in _DIM_RE.findall(dims):
                 dim_value = _dim_value(dim)
                 if dim_value is None:
                     unsized = True
@@ -156,6 +185,14 @@ def struct_field_layout(definition: str, pointer_width: int = 4) -> FieldLayout:
     return lay
 
 
+# A bound ``int()`` cannot size: hex, a constant expression, or a suffix.
+# ``010`` stays on the aligned path; ``int()`` already accepted it.
+# ``&``, ``|``, ``^``, ``(``, ``?``, ``=``, and ``'`` are in the class so
+# ``gap[15 & 7]``, ``gap[(2)]``, ``gap[0 ? 8 : 2]``, ``gap[2 == 2]``, and
+# ``gap['\\n']`` stay packed.  A plain ``char a; int b`` has none of these.
+_C_BOUND_RE = re.compile(r"\[[^\]]*(?:0[xX]|[+*/%\-<>&|^(?=']|[uUlL])")
+
+
 def struct_definitions_to_layouts(
     definitions: dict[str, str], pointer_width: int = 4
 ) -> dict[str, FieldLayout]:
@@ -163,13 +200,17 @@ def struct_definitions_to_layouts(
 
     Parses via the shared :mod:`rebrew.types` model (tree-sitter offsets
     with MSVC alignment); falls back to the legacy line parser for bodies
-    the shared model cannot size, so existing behavior is preserved.
+    the shared model cannot size.  A packed decompiler struct whose bounds
+    the old decimal ``int()`` count could not size (``char gap[0x3]``,
+    ``int field_6`` at offset 6) keeps that packed layout: natural alignment
+    would move the field off the offset its name and the decompiler both use.
     *pointer_width* sizes pointer fields in the legacy fallback.
     """
     from rebrew.types import parse_structs, type_size
 
     layouts: dict[str, FieldLayout] = {}
     for name, definition in definitions.items():
+        packed = struct_field_layout(definition, pointer_width=pointer_width)
         parsed = parse_structs(definition)
         struct = parsed.get(name) or next(iter(parsed.values()), None)
         if struct is not None and struct.fields:
@@ -181,9 +222,13 @@ def struct_definitions_to_layouts(
                 width = type_size(spelling) or max(0, end - off)
                 lay.fields[off] = (field_name, width)
             lay.size = struct.size
-            layouts[name] = lay
+            disagree = lay.complete and packed.complete and lay.fields != packed.fields
+            if disagree and _C_BOUND_RE.search(definition):
+                layouts[name] = packed
+            else:
+                layouts[name] = lay
         else:
-            layouts[name] = struct_field_layout(definition, pointer_width=pointer_width)
+            layouts[name] = packed
     return layouts
 
 
@@ -219,10 +264,12 @@ def _match_struct(var_offsets: set[int], layouts: dict[str, FieldLayout]) -> str
 _ACCESS_RE = re.compile(
     # *(T *)(var + N)
     r"\*\s*\(\s*(?P<cast>[A-Za-z_]\w*(?:\s+\w+)*?)\s*\*\s*\)\s*\(\s*(?P<cvar>[A-Za-z_]\w*)\s*\+\s*(?P<coff>0x[0-9a-fA-F]+|\d+)\s*\)"
-    # *(T *)&var[i] / *(T *)var[i]
-    r"|\*\s*\(\s*(?P<cast2>[A-Za-z_]\w*(?:\s+\w+)*?)\s*\*\s*\)\s*&?\s*(?P<avar>[A-Za-z_]\w*)\s*\[\s*(?P<aidx>\d+)\s*\]"
-    # &var[i] / var[i]
-    r"|&?\s*(?P<bvar>[A-Za-z_]\w*)\s*\[\s*(?P<bidx>\d+)\s*\]"
+    # *(T *)&var[i] / *(T *)var[i]  (decimal or 0x hex; hex before \d+)
+    r"|\*\s*\(\s*(?P<cast2>[A-Za-z_]\w*(?:\s+\w+)*?)\s*\*\s*\)\s*&?\s*(?P<avar>[A-Za-z_]\w*)\s*\[\s*(?P<aidx>0x[0-9a-fA-F]+|\d+)\s*\]"
+    # &var[i] / var[i].  Whitespace before a bare variable stays outside
+    # the match, so ``y = p[i]`` does not collapse to ``y =p->field``.
+    # The ampersand is the address of the element, not part of a load.
+    r"|(?P<bamp>&\s*)?(?P<bvar>[A-Za-z_]\w*)\s*\[\s*(?P<bidx>0x[0-9a-fA-F]+|\d+)\s*\]"
     # var + N (address arithmetic, e.g. passed to a call)
     r"|\b(?P<pvar>[A-Za-z_]\w*)\s*\+\s*(?P<poff>0x[0-9a-fA-F]+|\d+)\b"
 )
@@ -240,7 +287,7 @@ _ALIAS_RE = re.compile(r"\b(?P<alias>[A-Za-z_]\w*)\s*=\s*(?P<src>[A-Za-z_]\w*)\s
 _CAST_PTR_RE = re.compile(r"\(\s*[A-Za-z_]\w*(?:\s+\w+)*?\s*\*\s*\)\s*(?P<var>[A-Za-z_]\w*)")
 
 #: ``var[i]`` / ``&var[i]`` uses — pointer evidence for item 15's gate.
-_INDEX_USE_RE = re.compile(r"&?\s*(?P<var>[A-Za-z_]\w*)\s*\[\s*\d+\s*\]")
+_INDEX_USE_RE = re.compile(r"&?\s*(?P<var>[A-Za-z_]\w*)\s*\[\s*(?:0x[0-9a-fA-F]+|\d+)\s*\]")
 
 
 def _pointer_vars(text: str) -> set[str]:
@@ -375,6 +422,7 @@ def _rewrite_access(
     pointer_vars: set[str] | None = None,
 ) -> str:
     cast: str | None = None  # set only by the cast-deref forms
+    addressed = False  # bare ``&var[i]`` is an address, ``var[i]`` is a load
     if m.group("cvar") is not None:
         var, off, cast = m.group("cvar"), parse_int_literal(m.group("coff")), m.group("cast")
         form = "deref"
@@ -383,14 +431,23 @@ def _rewrite_access(
         elem = elem_widths.get(var)
         if elem is None:
             return m.group(0)
-        off = int(m.group("aidx")) * elem
+        try:
+            index = parse_int_literal(m.group("aidx"))
+        except ValueError:
+            return m.group(0)
+        off = index * elem
         form = "deref"
     elif m.group("bvar") is not None:
         var = m.group("bvar")
         elem = elem_widths.get(var)
         if elem is None:
             return m.group(0)
-        off = int(m.group("bidx")) * elem
+        try:
+            index = parse_int_literal(m.group("bidx"))
+        except ValueError:
+            return m.group(0)
+        off = index * elem
+        addressed = m.group("bamp") is not None
         form = "bare_index"
     else:
         var, off = m.group("pvar"), parse_int_literal(m.group("poff"))
@@ -417,6 +474,10 @@ def _rewrite_access(
         return f"*({cast} *)&{var}->{name}"
     if form == "bare_index":
         elem = elem_widths.get(var) or 1
+        if addressed:
+            if elem == width:
+                return f"&{var}->{name}"
+            return f"({_elem_type(elem)} *)&{var}->{name}"
         if elem == width:
             return f"{var}->{name}"
         return f"*({_elem_type(elem)} *)&{var}->{name}"

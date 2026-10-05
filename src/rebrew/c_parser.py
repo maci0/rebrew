@@ -160,16 +160,571 @@ def node_text(node: Any, source_bytes: bytes) -> str:
     return source_bytes[node.start_byte : node.end_byte].decode("utf-8", errors="surrogateescape")
 
 
+def _c_escape_value(text: str) -> int | None:
+    """Value of one C character escape, or None.
+
+    *text* includes the leading backslash (``\\n``, ``\\x10``, ``\\0``).
+    A value above 255 is not a bound.
+    """
+    if not text.startswith("\\") or len(text) < 2:
+        return None
+    body = text[1:]
+    simple = {
+        "a": 7,
+        "b": 8,
+        "f": 12,
+        "n": 10,
+        "r": 13,
+        "t": 9,
+        "v": 11,
+        "\\": 92,
+        "'": 39,
+        '"': 34,
+        "?": 63,
+    }
+    if body in simple:
+        return simple[body]
+    if body.startswith("x"):
+        digits = body[1:]
+        if digits and all(ch in "0123456789abcdefABCDEF" for ch in digits):
+            value = int(digits, 16)
+            return value if value <= 255 else None
+        return None
+    if all(ch in "01234567" for ch in body) and len(body) <= 3:
+        value = int(body, 8)
+        return value if value <= 255 else None
+    return None
+
+
+def _c_quot(left: int, right: int) -> int:
+    """C toward-zero quotient. *right* is not zero."""
+    sign = -1 if (left < 0) ^ (right < 0) else 1
+    return sign * (abs(left) // abs(right))
+
+
+#: 32-bit MSVC scalar widths. The same numbers as ``types._PRIMITIVE_SIZES``.
+_SIZEOF_PRIMITIVES: dict[str, int] = {
+    "char": 1,
+    "bool": 1,
+    "short": 2,
+    "short int": 2,
+    "int": 4,
+    "long": 4,
+    "long int": 4,
+    "float": 4,
+    "double": 8,
+    "long long": 8,
+    "long long int": 8,
+    "__int64": 8,
+    "long double": 8,
+    "wchar_t": 2,
+}
+
+
+def _char_literal_size(literal_text: str) -> int | None:
+    """Byte size of a character constant on the 32-bit MSVC C model.
+
+    A narrow constant has type ``int`` (4), including ``'AB'``. ``L`` and
+    ``u`` are 2. ``U`` is 4. ``u8`` is 1.
+    """
+    quote = literal_text.find("'")
+    if quote < 0:
+        return None
+    prefix = literal_text[:quote]
+    if prefix == "":
+        return 4
+    if prefix in {"L", "u"}:
+        return 2
+    if prefix == "U":
+        return 4
+    if prefix == "u8":
+        return 1
+    return None
+
+
+def _string_prefix_width(literal_text: str) -> int | None:
+    """Bytes per code unit for a string prefix on the 32-bit MSVC model.
+
+    ``L`` and ``u`` are 2 (``wchar_t`` and ``char16_t``). ``U`` is 4.
+    ``u8`` and a bare string are 1.
+    """
+    quote = literal_text.find('"')
+    if quote < 0:
+        return None
+    prefix = literal_text[:quote]
+    if prefix in {"", "u8"}:
+        return 1
+    if prefix in {"L", "u"}:
+        return 2
+    if prefix == "U":
+        return 4
+    return None
+
+
+def _string_units(node: Any, source: bytes) -> tuple[int, int] | None:
+    """(code units, unit width) of a string literal, without the NUL.
+
+    Adjacent literals add and must share a width. A non-ASCII source
+    character stays unknown.
+    """
+    if node.type == "concatenated_string":
+        total = 0
+        width: int | None = None
+        for child in node.named_children:
+            part = _string_units(child, source)
+            if part is None:
+                return None
+            units, this_width = part
+            if width is None:
+                width = this_width
+            elif width != this_width:
+                return None
+            total += units
+        if width is None:
+            return None
+        return total, width
+    if node.type != "string_literal":
+        return None
+    width = _string_prefix_width(node_text(node, source))
+    if width is None:
+        return None
+    total = 0
+    for child in node.named_children:
+        if child.type == "string_content":
+            text = node_text(child, source)
+            if not text.isascii():
+                return None
+            total += len(text)
+        elif child.type == "escape_sequence":
+            if _c_escape_value(node_text(child, source)) is None:
+                return None
+            total += 1
+        else:
+            return None
+    return total, width
+
+
+def _without_calling_convention(text: str) -> str:
+    """Drop one leading MSVC calling convention, or return *text*.
+
+    ``__cdecl*row`` is ``*row``. The convention is not the name, and a
+    name that only starts with the same letters stays a name.
+    """
+    for convention in sorted(_CALLING_CONVENTIONS, key=len, reverse=True):
+        if not text.startswith(convention):
+            continue
+        rest = text[len(convention) :]
+        if rest[:1].isalnum() or rest[:1] == "_":
+            continue
+        return rest
+    return text
+
+
+def _spell_pointer_stars(stars: str) -> str:
+    """Put a space back between a calling convention and its star.
+
+    Normalization glues ``__cdecl *`` into ``__cdecl*``. The convention
+    stays on the pointer.
+    """
+    for convention in sorted(_CALLING_CONVENTIONS, key=len, reverse=True):
+        rest = stars[len(convention) :]
+        if stars.startswith(convention) and rest.startswith("*"):
+            return f"{convention} {rest}"
+    return stars
+
+
+def is_pointer_to_array(text: str) -> bool:
+    """True when *text* is ``T (*)[N]`` or ``T (*name)[N]``, not ``T *[N]``.
+
+    A ``(*)`` inside brackets is the bound's type.
+    ``int[sizeof(char (*)[4])]`` is an array of int, not a pointer.
+    ``T (*name[N])`` keeps its brackets inside the parentheses, so it is
+    an array of pointers, not one pointer to an array.
+    ``T (__cdecl *name)[N]`` is still one pointer. The calling convention
+    sits before the star and is not a dimension.
+    """
+    depth = 0
+    index = 0
+    length = len(text)
+    while index < length:
+        char = text[index]
+        if char == "[":
+            depth += 1
+        elif char == "]" and depth:
+            depth -= 1
+        elif char == "(" and depth == 0:
+            close = text.find(")", index + 1)
+            if close == -1:
+                return False
+            inside = "".join(text[index + 1 : close].split())
+            after = text[close + 1 :].lstrip()
+            # Stars, then an optional name. Brackets inside are
+            # ``(*name[N])``. A qualifier glued on by stripping spaces
+            # (``*const``) is still this one pointer. ``__cdecl`` before
+            # the star is the same pointer.
+            if inside and "[" not in inside and "(" not in inside and after.startswith("["):
+                body = _without_calling_convention(inside)
+                stars = len(body) - len(body.lstrip("*"))
+                ident = body[stars:]
+                if stars and (not ident or ident.isidentifier()):
+                    return True
+        index += 1
+    return False
+
+
+# ``const`` or ``volatile`` may qualify the pointer (``* const [N]``).
+# The qualifier is not a bound and not the element type.
+# A calling convention may sit before the star (``__cdecl *[N]``).
+# It is not the name and it does not change the pointer count.
+_POINTER_QUALIFIER = r"(?:\s*(?:const|volatile)\b)*"
+CALLING_CONVENTION = (
+    r"(?:(?:"
+    + "|".join(re.escape(cc) for cc in sorted(_CALLING_CONVENTIONS, key=len, reverse=True))
+    + r")\b\s*)?"
+)
+_ABSTRACT_POINTER_ARRAY_INNER_RE = re.compile(
+    r"\A\s*("
+    + CALLING_CONVENTION
+    + r"\*+"
+    + _POINTER_QUALIFIER
+    + r")\s*((?:\[(?:[^\[\]]|\[[^\]]*\])*\])+)\s*\Z"
+)
+# ``(*name[N])`` is the same type as ``(*[N])``. The identifier is not a
+# bound. ``(* const name[N])`` keeps the qualifier on the pointer.
+# ``(__cdecl *name[N])`` keeps the calling convention on the pointer.
+# ``(*name)[N]`` has no brackets inside and does not match.
+_NAMED_POINTER_ARRAY_INNER_RE = re.compile(
+    r"\A\s*("
+    + CALLING_CONVENTION
+    + r"\*+"
+    + _POINTER_QUALIFIER
+    + r")\s*(?!const\b|volatile\b)[A-Za-z_]\w*\s*"
+    + r"((?:\[(?:[^\[\]]|\[[^\]]*\])*\])+)\s*\Z"
+)
+# ``(name[N])`` is ``name[N]``. No star: this is not ``(*name[N])``.
+_PAREN_ARRAY_NAME_RE = re.compile(r"\A\s*([A-Za-z_]\w*)\s*((?:\[(?:[^\[\]]|\[[^\]]*\])*\])+)\s*\Z")
+# ``(*name)`` inside a bound. No brackets inside. The name is not a qualifier.
+# ``(__cdecl *name)`` keeps the calling convention on the star.
+_NESTED_POINTER_NAME_RE = re.compile(
+    r"\A\s*("
+    + CALLING_CONVENTION
+    + r"\*+"
+    + _POINTER_QUALIFIER
+    + r")\s*(?!const\b|volatile\b)[A-Za-z_]\w*\s*\Z"
+)
+
+
+def abstract_pointer_array_dimensions(text: str) -> tuple[int | str | None, ...] | None:
+    """Dimensions of ``T (*[N])``, ``T (**[N])``, or ``T (*[N])(params)``.
+
+    None when *text* is not that form. ``T (*)[N]`` keeps its brackets
+    outside the parentheses, so it is one pointer, not an array of them.
+    Each element is one pointer.
+    """
+    depth = 0
+    start = -1
+    for index, char in enumerate(text):
+        if char == "(":
+            if depth == 0:
+                start = index
+            depth += 1
+        elif char == ")" and depth:
+            depth -= 1
+            if depth == 0 and start >= 0:
+                matched = _ABSTRACT_POINTER_ARRAY_INNER_RE.match(text[start + 1 : index])
+                if matched:
+                    _base, dimensions = array_type_shape(f"char _{matched.group(2)}")
+                    return dimensions or None
+                start = -1
+    return None
+
+
+def _sizeof_type_size(type_text: str) -> int | None:
+    """Byte size of a ``sizeof`` type on the 32-bit MSVC model, or None.
+
+    Pointers are 4, including ``T (*)[N]``. ``T *[N]`` is an array of
+    pointers. An unknown typedef and ``sizeof`` of an expression other
+    than a string are unknown.
+    """
+    spelling = " ".join(type_text.split())
+    while spelling.startswith(("const ", "volatile ")):
+        spelling = spelling.split(None, 1)[1]
+    # ``T (*)[N]`` is one pointer. Reading ``[N]`` as its dimension sized
+    # ``sizeof(char (*)[4])`` as 16. ``T *[N]`` has no ``(*)`` and is an array.
+    if is_pointer_to_array(spelling):
+        return 4
+    # ``T (*[N])`` is N pointers. The brackets sit inside the parentheses,
+    # so the array shape never saw them and the object stayed one pointer.
+    abstract = abstract_pointer_array_dimensions(spelling)
+    if abstract:
+        total = 4
+        for bound in abstract:
+            if not isinstance(bound, int) or bound < 0:
+                return None
+            total *= bound
+        return total
+    if "[" in spelling:
+        base, dimensions = array_type_shape(spelling)
+        if not dimensions:
+            return None
+        base_size = _sizeof_type_size(base)
+        if base_size is None:
+            return None
+        total = base_size
+        for bound in dimensions:
+            if not isinstance(bound, int) or bound < 0:
+                return None
+            total *= bound
+        return total
+    if "*" in spelling:
+        return 4
+    if spelling in {"unsigned", "signed"}:
+        return 4
+    spelling = spelling.removeprefix("unsigned ").removeprefix("signed ")
+    return _SIZEOF_PRIMITIVES.get(spelling)
+
+
+def _sizeof_identifier_array(
+    node: Any, source: bytes, fold: Callable[..., int | None]
+) -> int | None:
+    """Size of ``name[N]...`` when the element name is not a C keyword.
+
+    Tree-sitter parses ``sizeof(wchar_t[3])`` as a subscript. ``int[2]``
+    is a type and does not come here. A negative bound and an unknown
+    name stay unknown.
+    """
+    bounds: list[int] = []
+    current = node
+    while current is not None and current.type == "subscript_expression":
+        index = fold(current.child_by_field_name("index"))
+        if index is None or index < 0:
+            return None
+        bounds.append(index)
+        current = current.child_by_field_name("argument")
+    if current is None or current.type != "identifier":
+        return None
+    element = _SIZEOF_PRIMITIVES.get(node_text(current, source))
+    if element is None:
+        return None
+    total = element
+    for bound in bounds:
+        total *= bound
+    return total
+
+
+def _c_rem(left: int, right: int) -> int:
+    """C remainder. The sign follows the dividend. *right* is not zero."""
+    return left - _c_quot(left, right) * right
+
+
+def _integer_cast_range(type_text: str, limit: int) -> tuple[int, int] | None:
+    """Inclusive range of an integer cast that keeps the value unchanged.
+
+    Widths are the 32-bit MSVC model (``long`` is 4, plain ``char`` is
+    signed). A cast that would truncate or turn a negative into an unsigned
+    bit pattern is not a range here. Pointer casts are unknown.
+    """
+    words = [word for word in type_text.split() if word not in {"const", "volatile"}]
+    spelling = " ".join(words)
+    if not spelling or "*" in spelling:
+        return None
+    signed = (-(limit + 1), limit)
+    # An unsigned result above the signed maximum does not fit an intermediate.
+    unsigned = (0, limit)
+    ranges = {
+        "char": (-128, 127),
+        "signed char": (-128, 127),
+        "unsigned char": (0, 255),
+        "short": (-32768, 32767),
+        "signed short": (-32768, 32767),
+        "short int": (-32768, 32767),
+        "signed short int": (-32768, 32767),
+        "unsigned short": (0, 65535),
+        "unsigned short int": (0, 65535),
+        "int": signed,
+        "signed": signed,
+        "signed int": signed,
+        "long": signed,
+        "signed long": signed,
+        "long int": signed,
+        "signed long int": signed,
+        "unsigned": unsigned,
+        "unsigned int": unsigned,
+        "unsigned long": unsigned,
+        "unsigned long int": unsigned,
+        "long long": signed,
+        "signed long long": signed,
+        "long long int": signed,
+        "signed long long int": signed,
+        "__int64": signed,
+        "signed __int64": signed,
+        "unsigned long long": unsigned,
+        "unsigned long long int": unsigned,
+        "unsigned __int64": unsigned,
+    }
+    return ranges.get(spelling)
+
+
+def _pointer_array_element(
+    normalized: str, *, int_bits: int = 32
+) -> tuple[str, tuple[int | str | None, ...]] | None:
+    """Element type and object dimensions of ``T (*[N])`` or ``T (*[N])[M]``.
+
+    None when *normalized* is not that form. ``T (*)[N]`` keeps its brackets
+    outside the parentheses. ``T (*[N])`` is the same array as ``T *[N]``.
+    A pointee bound is folded the same way as an object bound, so ``[03]``
+    and ``[3]`` name one element type.
+    """
+    dimensions = abstract_pointer_array_dimensions(normalized)
+    if not dimensions:
+        return None
+    depth = 0
+    start = -1
+    for index, char in enumerate(normalized):
+        if char == "(":
+            if depth == 0:
+                start = index
+            depth += 1
+        elif char == ")" and depth:
+            depth -= 1
+            if depth == 0 and start >= 0:
+                matched = _ABSTRACT_POINTER_ARRAY_INNER_RE.match(normalized[start + 1 : index])
+                if matched:
+                    prefix = normalized[:start].rstrip()
+                    stars = _spell_pointer_stars(matched.group(1))
+                    pointee = normalized[index + 1 :].lstrip()
+                    if not pointee:
+                        gap = "" if stars.startswith("*") else " "
+                        return f"{prefix}{gap}{stars}", dimensions
+                    _base, pointee_dims = array_type_shape(f"char _{pointee}", int_bits=int_bits)
+                    if not pointee_dims:
+                        return f"{prefix} ({stars}){pointee}", dimensions
+                    folded = "".join("[]" if dim is None else f"[{dim}]" for dim in pointee_dims)
+                    return f"{prefix} ({stars}){folded}", dimensions
+                start = -1
+    return None
+
+
+def _drop_one_pointer_array_name(text: str) -> str:
+    """Rewrite one named pointer declarator, or return *text*.
+
+    ``(*name[N])`` becomes ``(*[N])`` at any depth. ``(*name)[N]`` keeps
+    its name at the top level. Inside a bound the name hides ``(*)[N]``,
+    so ``sizeof(char (*row)[4])`` becomes ``sizeof(char (*)[4])``.
+    """
+    stack: list[tuple[int, int]] = []
+    brackets = 0
+    for index, char in enumerate(text):
+        if char == "[":
+            brackets += 1
+        elif char == "]" and brackets:
+            brackets -= 1
+        elif char == "(":
+            stack.append((index, brackets))
+        elif char == ")" and stack:
+            start, opened = stack.pop()
+            inside = text[start + 1 : index]
+            matched = _NAMED_POINTER_ARRAY_INNER_RE.match(inside)
+            if matched:
+                return text[: start + 1] + matched.group(1) + matched.group(2) + text[index:]
+            if opened and text[index + 1 :].lstrip().startswith("["):
+                named = _NESTED_POINTER_NAME_RE.match(inside)
+                if named:
+                    return text[: start + 1] + named.group(1) + text[index:]
+    return text
+
+
+def _drop_pointer_array_name(text: str) -> str:
+    """Rewrite ``T (*name[N])`` to ``T (*[N])``.
+
+    The identifier hid the brackets, so a named declaration was not the
+    abstract array of pointers. A pointer qualifier stays
+    (``(* const name[N])`` becomes ``(* const [N])``). ``T (*name)[N]``
+    is one pointer and keeps its name. A name nested inside a bound,
+    as in ``sizeof(char (*row)[4])`` or ``sizeof(int (*table[2])[3])``,
+    is removed so the bound can fold.
+    """
+    while True:
+        rewritten = _drop_one_pointer_array_name(text)
+        if rewritten == text:
+            return text
+        text = rewritten
+
+
+def _drop_parenthesized_array_name(text: str) -> str:
+    """Rewrite ``T (name[N])`` to ``T name[N]``.
+
+    The parentheses hid the bound, so the declaration was one element.
+    A ``(*)`` form is not this. A parenthesis inside brackets, as in
+    ``sizeof(wchar_t[3])``, is the bound and is left unchanged.
+    """
+    depth = 0
+    brackets = 0
+    start = -1
+    for index, char in enumerate(text):
+        if char == "[":
+            brackets += 1
+        elif char == "]" and brackets:
+            brackets -= 1
+        elif char == "(" and brackets == 0:
+            if depth == 0:
+                start = index
+            depth += 1
+        elif char == ")" and depth:
+            depth -= 1
+            if depth == 0 and brackets == 0 and start >= 0:
+                matched = _PAREN_ARRAY_NAME_RE.match(text[start + 1 : index])
+                if matched:
+                    prefix = text[:start]
+                    insert = matched.group(1) + matched.group(2)
+                    if prefix and (prefix[-1].isalnum() or prefix[-1] == "_"):
+                        insert = " " + insert
+                    return prefix + insert + text[index + 1 :]
+                start = -1
+    return text
+
+
 def array_type_shape(
     type_str: str, *, int_bits: int = 32
 ) -> tuple[str, tuple[int | str | None, ...]]:
     """Normalize a type's array bounds without changing its source spelling.
 
     Unknown expressions stay strings; only an omitted bound becomes None.
-    Folding stays within nonnegative signed-int values to avoid assuming C
-    overflow, unsigned conversions or target-specific long widths.
+    Folding stays inside signed-int values so a negative intermediate can
+    still produce a nonnegative bound (``4 + -2``). Nonnegative ``&``,
+    ``|``, and ``^`` fold too. An integer cast that does not change the
+    value folds (``(int)(2 + 2)``). A constant ``?:`` folds when both
+    arms do. A comma expression folds to its rightmost operand.
+    ``sizeof`` of a known 32-bit type folds (``sizeof(int)`` is 4),
+    and ``sizeof`` of a string counts its code units plus one NUL at
+    the literal's width (``sizeof("hi")`` is 3, ``sizeof(L"hi")`` is 6).
+    A comparison of constants is 0 or 1. ``&&``, ``||``, and ``!`` are
+    0 or 1, not the operand. A character constant folds (``'A'`` is 65).
+    ``sizeof`` of a character constant is the size of its type
+    (``sizeof('A')`` is 4, ``sizeof(L'A')`` is 2).
+    ``sizeof(wchar_t[3])`` is 6. An unknown subscript stays unknown.
+    ``sizeof(char (*)[4])`` is 4. ``sizeof(char *[2])`` is 8.
+    ``int (*[2])[3]`` is two pointers to ``int[3]``, the same shape as
+    ``int (*[1 + 1])[03]`` and ``int (*table[2])[3]``. ``int (*)[4]``
+    stays one pointer. ``int (*row)[4]`` keeps its name.
+    ``int (__cdecl *table[2])[3]`` is the same two pointers.
+    ``char (__cdecl *row)[4]`` stays one pointer.
+    A negative final bound is returned as that integer; callers
+    reject it. Overflow, a negative shift, a shift count of 31 or more,
+    bitwise on a negative, and a cast that would truncate stay unknown.
     """
     normalized = " ".join(type_str.split()).replace(" *", "*")
+    # ``T (*name[N])[M]`` is ``T (*[N])[M]``. The name hid both bounds,
+    # so the first ``[`` was not the object's dimension.
+    normalized = _drop_pointer_array_name(normalized)
+    # ``T (name[N])`` is ``T name[N]``. The parentheses hid the bound.
+    normalized = _drop_parenthesized_array_name(normalized)
+    # ``T (*[N])[M]`` hides both bounds inside and after the parentheses.
+    # The first ``[`` is not the object's outermost dimension, so the
+    # shape used to be the raw spelling and ``[2]`` disagreed with ``[1 + 1]``.
+    shaped = _pointer_array_element(normalized, int_bits=int_bits)
+    if shaped is not None:
+        return shaped
     base, bracket, suffix = normalized.partition("[")
     if not bracket:
         return normalized, ()
@@ -188,8 +743,110 @@ def array_type_shape(
                 value = parse_c_integer_literal(node_text(node, source))
             except ValueError:
                 return None
+        elif node.type == "char_literal":
+            # One character or one escape. ``'AB'`` is not a bound.
+            pieces = [
+                child
+                for child in node.named_children
+                if child.type in {"character", "escape_sequence"}
+            ]
+            if len(pieces) != 1:
+                return None
+            piece = pieces[0]
+            if piece.type == "character":
+                text = node_text(piece, source)
+                if len(text) != 1:
+                    return None
+                value = ord(text)
+            else:
+                value = _c_escape_value(node_text(piece, source))
+                if value is None:
+                    return None
         elif node.type == "parenthesized_expression":
             return fold(node.named_children[0], depth + 1)
+        elif node.type == "unary_expression":
+            argument = fold(node.child_by_field_name("argument"), depth + 1)
+            operator = node.child_by_field_name("operator")
+            if argument is None or operator is None:
+                return None
+            match node_text(operator, source):
+                case "+":
+                    value = argument
+                case "-":
+                    value = -argument
+                case "!":
+                    value = int(argument == 0)
+                case _:
+                    # ``~`` is unsigned-or-sign-bit; leave it symbolic.
+                    return None
+        elif node.type == "cast_expression":
+            inner = fold(node.child_by_field_name("value"), depth + 1)
+            type_node = node.child_by_field_name("type")
+            if inner is None or type_node is None:
+                return None
+            span = _integer_cast_range(node_text(type_node, source), limit)
+            if span is None or not span[0] <= inner <= span[1]:
+                return None
+            value = inner
+        elif node.type == "conditional_expression":
+            # Both arms must be constant.  A name in the unused arm is
+            # still not an integer constant expression.
+            condition = fold(node.child_by_field_name("condition"), depth + 1)
+            consequence = fold(node.child_by_field_name("consequence"), depth + 1)
+            alternative = fold(node.child_by_field_name("alternative"), depth + 1)
+            if condition is None or consequence is None or alternative is None:
+                return None
+            value = consequence if condition != 0 else alternative
+        elif node.type == "comma_expression":
+            # The value is the rightmost operand. Every operand must fold.
+            parts = node.named_children
+            if not parts:
+                return None
+            folded = [fold(part, depth + 1) for part in parts]
+            if any(item is None for item in folded):
+                return None
+            value = folded[-1]
+        elif node.type == "sizeof_expression":
+            described = node.named_children[0] if node.named_children else None
+            if described is not None and described.type == "parenthesized_expression":
+                described = described.named_children[0] if described.named_children else None
+            if described is None:
+                return None
+            if described.type == "char_literal":
+                # ``sizeof('A')`` is 4. The value fold is a different number.
+                size = _char_literal_size(node_text(described, source))
+                if size is None:
+                    return None
+                value = size
+            elif described.type == "identifier":
+                # ``wchar_t`` is not a tree-sitter keyword, so
+                # ``sizeof(wchar_t)`` is an identifier, not a type.
+                size = _SIZEOF_PRIMITIVES.get(node_text(described, source))
+                if size is None:
+                    return None
+                value = size
+            elif described.type == "subscript_expression":
+                # ``sizeof(wchar_t[3])`` is a subscript of that identifier.
+                size = _sizeof_identifier_array(described, source, fold)
+                if size is None:
+                    return None
+                value = size
+            elif described.type == "type_descriptor":
+                size = _sizeof_type_size(node_text(described, source))
+                if size is None:
+                    return None
+                value = size
+            elif described.type in {"string_literal", "concatenated_string"}:
+                # The count includes one NUL of the literal's unit width.
+                # ``sizeof("hi")`` is 3. ``sizeof(L"hi")`` is 6.
+                sized = _string_units(described, source)
+                if sized is None:
+                    return None
+                units, width = sized
+                value = (units + 1) * width
+            else:
+                # ``sizeof(2)`` is the size of an expression's type, not 2.
+                return None
         elif node.type == "binary_expression":
             left = fold(node.child_by_field_name("left"), depth + 1)
             right = fold(node.child_by_field_name("right"), depth + 1)
@@ -204,10 +861,60 @@ def array_type_shape(
                         value = left - right
                     case "*":
                         value = left * right
+                    case "/":
+                        # Toward zero, including a negative operand.
+                        # ``1 / 0`` is not a bound.  Python ``//`` floors.
+                        if right == 0:
+                            return None
+                        value = _c_quot(left, right)
+                    case "%":
+                        if right == 0:
+                            return None
+                        value = _c_rem(left, right)
+                    case "<<" | ">>":
+                        # A negative operand or a count outside 0..30 is
+                        # undefined for a signed 32-bit int.
+                        if left < 0 or right < 0 or right >= 31:
+                            return None
+                        value = (
+                            left << right if node_text(operator, source) == "<<" else left >> right
+                        )
+                    case "&" | "|" | "^":
+                        # Signed bitwise is not assumed to be two's complement.
+                        if left < 0 or right < 0:
+                            return None
+                        match node_text(operator, source):
+                            case "&":
+                                value = left & right
+                            case "|":
+                                value = left | right
+                            case "^":
+                                value = left ^ right
+                            case _:
+                                return None
+                    case "<":
+                        value = int(left < right)
+                    case ">":
+                        value = int(left > right)
+                    case "<=":
+                        value = int(left <= right)
+                    case ">=":
+                        value = int(left >= right)
+                    case "==":
+                        value = int(left == right)
+                    case "!=":
+                        value = int(left != right)
+                    case "&&":
+                        # 0 or 1, not the operand. Both sides must fold.
+                        value = int(left != 0 and right != 0)
+                    case "||":
+                        value = int(left != 0 or right != 0)
                     case _:
                         return None
-        # ponytail: other operators/macros stay symbolic; fold them when needed.
-        return value if value is not None and 0 <= value <= limit else None
+        # ponytail: ``~`` and macros stay symbolic.
+        if value is None or value < -(limit + 1) or value > limit:
+            return None
+        return value
 
     dimensions: list[int | str | None] = []
     while declarator is not None and declarator.type == "array_declarator":
@@ -354,6 +1061,103 @@ def _count_pointer_depth(declarator: Any) -> int:
         depth += 1
         node = _find_child(node, "pointer_declarator")
     return depth
+
+
+def _unwrap_grouping(node: Any) -> Any:
+    """Drop parentheses that do not change the declarator.
+
+    ``(*name[N])`` and ``(name[N])`` are the same objects as ``*name[N]``
+    and ``name[N]``. ``(*name)[N]`` is not unwrapped here: the array sits
+    outside the parentheses.
+    """
+    if node.type != "parenthesized_declarator":
+        return node
+    inner = node.child_by_field_name("declarator")
+    if inner is None:
+        inner = next((child for child in node.named_children), None)
+    return inner if inner is not None else node
+
+
+def _paren_pointer_stars(node: Any) -> int | None:
+    """Star count of ``(*name)`` or ``(**name)``.
+
+    None when *node* is not that form. Brackets inside the parentheses
+    are ``(*name[N])``, an array of pointers, not one pointer.
+    """
+    if node is None or node.type != "parenthesized_declarator":
+        return None
+    inner = _unwrap_grouping(node)
+    if inner.type != "pointer_declarator":
+        return None
+    depth = _count_pointer_depth(inner)
+    cursor = inner
+    while cursor is not None and cursor.type == "pointer_declarator":
+        nxt = _find_child(cursor, "pointer_declarator", "array_declarator", "identifier")
+        if nxt is not None and nxt.type == "array_declarator":
+            return None
+        cursor = nxt
+    if cursor is None or cursor.type != "identifier" or not depth:
+        return None
+    return depth
+
+
+def _pointee_array_stars(node: Any) -> int | None:
+    """Stars of ``(*name)[N]`` or ``(**name)[N][M]``, else None."""
+    cursor = node
+    while cursor is not None and cursor.type == "array_declarator":
+        stars = _paren_pointer_stars(cursor.child_by_field_name("declarator"))
+        if stars:
+            return stars
+        cursor = cursor.child_by_field_name("declarator")
+    return None
+
+
+def _pointer_array_to_array(node: Any) -> tuple[int, Any] | None:
+    """Stars and object array of ``(*name[N])[M]``.
+
+    The brackets outside the parentheses are the pointee. None for
+    ``(*name)[M]`` (no array inside the parentheses) and for a plain array.
+    """
+    if node is None or node.type != "array_declarator":
+        return None
+    cursor = node
+    while cursor is not None and cursor.type == "array_declarator":
+        inner = cursor.child_by_field_name("declarator")
+        if inner is not None and inner.type == "parenthesized_declarator":
+            unwrapped = _unwrap_grouping(inner)
+            if unwrapped.type != "pointer_declarator":
+                return None
+            depth = _count_pointer_depth(unwrapped)
+            scan = unwrapped
+            array = None
+            while scan is not None and scan.type == "pointer_declarator":
+                nxt = _find_child(scan, "pointer_declarator", "array_declarator", "identifier")
+                if nxt is not None and nxt.type == "array_declarator":
+                    array = nxt
+                    break
+                scan = nxt
+            if array is None or not depth:
+                return None
+            return depth, array
+        cursor = inner
+    return None
+
+
+def _grouped_calling_convention(node: Any, source_bytes: bytes) -> str:
+    """``__cdecl `` when a parenthesized pointer spells a calling convention.
+
+    The convention is blanked for the grammar, so a star count cannot see
+    it. ``const`` after the star is not this prefix. An empty string when
+    the declarator has no calling convention.
+    """
+    matched = re.search(
+        r"\(\s*(" + CALLING_CONVENTION + r")\*+",
+        node_text(node, source_bytes),
+    )
+    if matched is None:
+        return ""
+    convention = matched.group(1).strip()
+    return f"{convention} " if convention else ""
 
 
 def _extract_array_suffix(declarator: Any, source_bytes: bytes) -> str:
@@ -937,23 +1741,65 @@ def find_extern_variables(
                     "pointer_declarator",
                     "array_declarator",
                     "identifier",
+                    "parenthesized_declarator",
                 ):
-                    ptr_depth = (
-                        _count_pointer_depth(child) if child.type == "pointer_declarator" else 0
-                    )
-
-                    decl = child
-                    if child.type == "init_declarator":
+                    # ``(*name[N])`` is ``*name[N]``. ``(*name)[N]`` stays a
+                    # pointer: the brackets are the pointee, not the object.
+                    # ``__cdecl`` is blanked in the grammar, so read it from
+                    # the original parentheses before the star count.
+                    convention = _grouped_calling_convention(child, src_bytes)
+                    decl = _unwrap_grouping(child)
+                    if decl.type == "init_declarator":
                         inner = _find_child(
-                            child, "pointer_declarator", "array_declarator", "identifier"
+                            decl,
+                            "pointer_declarator",
+                            "array_declarator",
+                            "identifier",
+                            "parenthesized_declarator",
                         )
                         if inner:
-                            decl = inner
-                            ptr_depth = (
-                                _count_pointer_depth(decl)
-                                if decl.type == "pointer_declarator"
-                                else 0
+                            decl = _unwrap_grouping(inner)
+                    stars = _pointee_array_stars(decl)
+                    if stars:
+                        name = _variable_name(decl, src_bytes)
+                        if name is None:
+                            continue
+                        results.append(
+                            ExternVar(
+                                name=name,
+                                type_str=(
+                                    f"{type_str} ({convention}{'*' * stars})"
+                                    f"{_extract_array_suffix(decl, src_bytes)}"
+                                ),
+                                array_suffix="",
                             )
+                        )
+                        continue
+                    # ``(*name[N])[M]`` is N pointers to M elements. The
+                    # outer brackets are the pointee, so reading them as
+                    # the object's array dropped the pointers.
+                    grouped = _pointer_array_to_array(decl)
+                    if grouped:
+                        depth, object_array = grouped
+                        name = _variable_name(decl, src_bytes)
+                        if name is None:
+                            continue
+                        object_suffix = _extract_array_suffix(object_array, src_bytes)
+                        pointee_suffix = _extract_array_suffix(decl, src_bytes)
+                        results.append(
+                            ExternVar(
+                                name=name,
+                                type_str=(
+                                    f"{type_str} ({convention}{'*' * depth}{object_suffix})"
+                                    f"{pointee_suffix}"
+                                ),
+                                array_suffix=object_suffix,
+                            )
+                        )
+                        continue
+                    ptr_depth = (
+                        _count_pointer_depth(decl) if decl.type == "pointer_declarator" else 0
+                    )
 
                     array_suffix = ""
                     arr_node = decl
@@ -966,7 +1812,7 @@ def find_extern_variables(
                     if name:
                         full_type = type_str
                         if ptr_depth:
-                            full_type += " " + "*" * ptr_depth
+                            full_type += f" {convention}{'*' * ptr_depth}"
                         if array_suffix:
                             full_type += array_suffix
                         results.append(
@@ -1080,6 +1926,14 @@ def find_variable_roles(
 _DECL_TYPE_RE = re.compile(
     r"^(?:extern\s+)?(?P<type>.+?)\s+\b(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*(?P<arr>\[.*\])?\s*;?\s*$"
 )
+# The name sits inside parentheses: ``(*row)[4]`` or ``(*table[4])``.
+# ``(__cdecl *row)`` and ``(* const row)`` are the same parentheses. The
+# convention and the qualifier are not the name.
+_GROUPED_POINTER_RE = re.compile(
+    r"\((" + CALLING_CONVENTION + r"\*+(?:\s*(?:const|volatile)\b)*)\s*$"
+)
+_GROUPED_DECL_RE = re.compile(r"\((\s*\**\s*)$")
+_GROUPED_BRACKETS_RE = re.compile(r"((?:\[(?:[^\[\]]|\[[^\]]*\])*\])+)\s*\)(.*)$")
 
 
 def type_from_declaration(decl: str, var_name: str) -> str | None:
@@ -1104,6 +1958,33 @@ def type_from_declaration(decl: str, var_name: str) -> str | None:
         if prefix.startswith("extern "):
             prefix = prefix[7:].strip()
         suffix = decl[idx + len(var_name) :].strip()
+        # ``(*row)[4]`` is one pointer. Concatenating at the name left
+        # ``char (*`` and dropped the pointee. ``(__cdecl *row)[4]`` and
+        # ``(* const row)[4]`` are the same pointer. ``(counts[4])`` is an array.
+        pointer = _GROUPED_POINTER_RE.search(prefix)
+        if pointer is not None and suffix.startswith(")"):
+            interior = pointer.group(1).strip()
+            rest = suffix[1:].strip()
+            base = prefix[: pointer.start()].rstrip()
+            if interior and rest.startswith(("[", "(")):
+                return f"{base} ({interior}){rest}" if base else None
+        grouped = _GROUPED_DECL_RE.search(prefix)
+        if grouped:
+            stars = "".join(grouped.group(1).split())
+            base = prefix[: grouped.start()].rstrip()
+            if suffix.startswith(")"):
+                rest = suffix[1:].strip()
+                if stars and rest.startswith(("[", "(")):
+                    return f"{base} ({stars}){rest}"
+                if stars:
+                    return f"{base} {stars}" if base else None
+                return f"{base}{rest}" if base else None
+            brackets = _GROUPED_BRACKETS_RE.match(suffix)
+            if brackets:
+                tail = brackets.group(2).strip()
+                if stars:
+                    return f"{base} ({stars}{brackets.group(1)}){tail}"
+                return f"{base}{brackets.group(1)}{tail}" if base else None
         if suffix.startswith("["):
             prefix = f"{prefix}{suffix}"
         if prefix:

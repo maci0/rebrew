@@ -367,7 +367,7 @@ def _library_vas(cfg: ProjectConfig) -> set[int]:
     bodies in GOLDTL's ``0x5e0000-0x64ffff`` band against GOLD's copies before
     this filter existed.
     """
-    from rebrew.annotation import parse_c_file_multi
+    from rebrew.annotation import library_annotations_from_metadata, parse_c_file_multi
     from rebrew.sources import iter_library_headers
 
     reversed_dir = getattr(cfg, "reversed_dir", None)
@@ -381,6 +381,9 @@ def _library_vas(cfg: ProjectConfig) -> set[int]:
             module = preset_module_key(str(getattr(ann, "module", "") or ""))
             if ann.va and (kind == "LIBRARY" or (module and module in modules)):
                 out.add(int(ann.va))
+    for ann in library_annotations_from_metadata(cfg.metadata_dir, reversed_dir):
+        if ann.va:
+            out.add(int(ann.va))
     return out
 
 

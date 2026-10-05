@@ -60,6 +60,32 @@ class TestClassifyPair:
         b = _insn("movd", "r8d, xmm1", b"\x02")
         assert nd.classify_pair(a, b) == "register"
 
+    def test_x87_stack_slot_is_register(self) -> None:
+        """An x87 stack slot is a register, including the explicit ``st(0)`` form.
+
+        MSVC 6 keeps floats in ``st(i)``. The normalizer left those names in
+        the operand text, so ``fadd st(1)`` versus ``fadd st(2)`` was
+        structural.
+        """
+        one = nd.disasm_insns(b"\xd8\xc1", 0x1000, "CS_ARCH_X86", "CS_MODE_32")[0]
+        two = nd.disasm_insns(b"\xd8\xc2", 0x1000, "CS_ARCH_X86", "CS_MODE_32")[0]
+        pair_a = nd.disasm_insns(b"\xdc\xc2", 0x1000, "CS_ARCH_X86", "CS_MODE_32")[0]
+        pair_b = nd.disasm_insns(b"\xdc\xc3", 0x1000, "CS_ARCH_X86", "CS_MODE_32")[0]
+        assert (one.mnemonic, one.op_str) == ("fadd", "st(1)")
+        assert (two.mnemonic, two.op_str) == ("fadd", "st(2)")
+        assert nd.classify_pair(one, two) == "register"
+        assert (pair_a.op_str, pair_b.op_str) == ("st(2), st(0)", "st(3), st(0)")
+        assert nd.classify_pair(pair_a, pair_b) == "register"
+
+    def test_mmx_register_difference(self) -> None:
+        """MMX ``mm0``–``mm7`` are registers. ``movq mm0, mm1`` versus
+        ``movq mm2, mm3`` was structural because the normalizer skipped them."""
+        a = nd.disasm_insns(b"\x0f\x6f\xc1", 0x1000, "CS_ARCH_X86", "CS_MODE_32")[0]
+        b = nd.disasm_insns(b"\x0f\x6f\xd3", 0x1000, "CS_ARCH_X86", "CS_MODE_32")[0]
+        assert (a.mnemonic, a.op_str) == ("movq", "mm0, mm1")
+        assert (b.mnemonic, b.op_str) == ("movq", "mm2, mm3")
+        assert nd.classify_pair(a, b) == "register"
+
     def test_encoding_difference(self) -> None:
         # Same instruction, same operands, different opcode bytes: mov esi,eax
         # as 89 c6 (mov r/m32, r32) vs 8b f0 (mov r32, r/m32).
@@ -130,11 +156,24 @@ class TestAlignAndClassify:
     def test_reorder_hunks_produce_a_verdict(self) -> None:
         # Same instructions, different order: the byte-identical anchors
         # cross and must not abort the diagnosis (was: ValueError
-        # "Pins are not monotonous").  The swapped movs cross-align and
-        # count structural; the realigned pair and the ret still match.
+        # "Pins are not monotonous").  The crossing mov is the reorder
+        # hunk; the other mov and the ret stay pinned and match.
         counts = self._run(MOV_EAX_EBX + MOV_EAX_1 + RET, MOV_EAX_1 + MOV_EAX_EBX + RET)
-        assert counts["match"] == 3
-        assert counts["structural"] == 10
+        assert counts["match"] == len(MOV_EAX_1) + len(RET)
+        assert counts["structural"] == 2 * len(MOV_EAX_EBX)
+        assert counts["register"] == counts["equivalent"] == counts["encoding"] == 0
+
+    def test_pin_uses_compiled_index_for_the_compiled_stream(self) -> None:
+        """A unique instruction later in the target is still that instruction's pin.
+
+        ``_auto_pins`` yields ``(target index, compiled index)``. The matcher
+        reads the first component as an index into the compiled stream, so
+        passing the pair through anchored the compiled ``ret`` on the target
+        ``add`` and counted the identical ``mov`` as structural.
+        """
+        counts = self._run(ADD_EAX_1 + MOV_EAX_1 + RET, MOV_EAX_1 + RET)
+        assert counts["match"] == len(MOV_EAX_1) + len(RET)
+        assert counts["structural"] == len(ADD_EAX_1)
         assert counts["register"] == counts["equivalent"] == counts["encoding"] == 0
 
     def test_register_alloc_detected(self) -> None:
@@ -1157,3 +1196,57 @@ class TestFixBlockerPreservesGaCeiling:
         result = CliRunner().invoke(app, ["--fix-blocker", str(src)])
         assert result.exit_code == 0, result.output
         assert writes == []  # GA_CEILING marker preserved
+
+
+class TestDecoratedNameSelection:
+    """A C name on a multi-function file diagnoses that function."""
+
+    def test_decorated_symbol_selects_the_c_name(self, tmp_path: Path, monkeypatch: Any) -> None:
+        """Asking for ``foo`` diagnoses ``foo``, not the earlier ``_foo``.
+
+        ``lstrip("_")`` turned the symbol ``__foo`` into ``foo``. Asking
+        ``_foo`` still diagnoses that function. A file named ``hook.c``
+        still diagnoses ``__vectorcall hook`` rather than ``other``.
+        """
+        from types import SimpleNamespace
+
+        from typer.testing import CliRunner
+
+        from rebrew.near_diag import _DiagnoseError, app
+
+        cfg = SimpleNamespace(
+            root=tmp_path,
+            reversed_dir=tmp_path,
+            metadata_dir=tmp_path,
+            source_ext=".c",
+            marker="GAME",
+        )
+        monkeypatch.setattr(
+            "rebrew.near_diag.require_config", lambda target=None, json_mode=False: cfg
+        )
+        (tmp_path / "_foo.c").write_text(
+            "// FUNCTION: GAME 0x3000\nint _foo(void) { return 0; }\n\n"
+            "// FUNCTION: GAME 0x4000\nint foo(void) { return 1; }\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "hook.c").write_text(
+            "// FUNCTION: GAME 0x1000\nint other(void) { return 1; }\n\n"
+            "// FUNCTION: GAME 0x2000\n"
+            "int __vectorcall hook(int a, int b, int c) { return 0; }\n",
+            encoding="utf-8",
+        )
+        seen: dict[str, int] = {}
+
+        def _stop(*_args: Any, **_kwargs: Any) -> None:
+            ann = _args[2]
+            seen["va"] = ann.va
+            raise _DiagnoseError("stop")
+
+        monkeypatch.setattr("rebrew.near_diag._diagnose_one", _stop)
+        runner = CliRunner()
+        runner.invoke(app, ["--size", "4", "--json", "foo"])
+        assert seen["va"] == 0x4000
+        runner.invoke(app, ["--size", "4", "--json", "_foo"])
+        assert seen["va"] == 0x3000
+        runner.invoke(app, ["--size", "4", "--json", "hook"])
+        assert seen["va"] == 0x2000

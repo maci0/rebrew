@@ -94,6 +94,42 @@ class TestFindAllStubs:
         _stub_file(tmp_path)  # created inside tmp_path (the reversed dir)
         assert [s.symbol for s in find_all_stubs(tmp_path)] == ["_func"]
 
+    def test_decorated_symbol_honors_the_c_name(self, tmp_path: Path) -> None:
+        """Ignoring a C name skips the decorated symbol.
+
+        ``lstrip("_")`` left ``hook@@12`` in the batch when ``hook`` was
+        ignored, and ignoring ``foo`` dropped ``__foo`` (the symbol of
+        ``_foo``). ``_foo`` is the name that skips it. A cdecl ``bar``
+        still skips ``_bar``.
+        """
+        from rebrew.metadata import save_metadata
+
+        bodies = (
+            (0x10001000, "hook.c", "int __vectorcall hook(int a, int b, int c) { return 0; }\n"),
+            (0x10002000, "keeps.c", "int __fastcall keeps(int a) { return a; }\n"),
+            (0x10003000, "under.c", "int _foo(void) { return 0; }\n"),
+            (0x10004000, "plain.c", "int bar(void) { return 0; }\n"),
+        )
+        entries: dict[tuple[str, int], dict[str, str]] = {}
+        for va, filename, body in bodies:
+            _write_stub(
+                tmp_path,
+                filename,
+                f"// FUNCTION: SERVER 0x{va:x}\n// SIZE: 32\n{body}",
+            )
+            entries[("SERVER", va)] = {"status": "STUB"}
+        save_metadata(tmp_path, entries)
+
+        def symbols(ignored: set[str]) -> set[str]:
+            return {stub.symbol for stub in find_all_stubs(tmp_path, ignored=ignored)}
+
+        assert symbols(set()) == {"hook@@12", "@keeps@4", "__foo", "_bar"}
+        assert "hook@@12" not in symbols({"hook"})
+        assert "@keeps@4" in symbols({"hook"})
+        assert "__foo" in symbols({"foo"})
+        assert "__foo" not in symbols({"_foo"})
+        assert "_bar" not in symbols({"bar"})
+
 
 class TestFindNearMiss:
     def test_finds_near_matching(self, tmp_path: Path) -> None:

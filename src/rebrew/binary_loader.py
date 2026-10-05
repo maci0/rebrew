@@ -60,6 +60,8 @@ def __getattr__(name: str) -> Any:
             already = "lief" in globals()
             globals()["lief"] = _lief
             if not already:
+                # cordis-boundary: process lifetime — LIEF's logger is a native
+                # global. One disable for the process, no restore.
                 with contextlib.suppress(Exception):
                     _lief.logging.disable()
         return _lief

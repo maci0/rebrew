@@ -106,3 +106,25 @@ class TestLoadBinsyncState:
             funcs, _globals = load_binsync_state(tmp_path)
         assert funcs == {}
         assert "no functions" in caplog.text
+
+
+class TestGlobalNameAndType:
+    def test_bare_pointer_to_array(self, tmp_path: Path) -> None:
+        """``char (*g_row)[4]`` is one pointer, and it has no ``extern``.
+
+        The name sits inside parentheses, so the declaration after the
+        marker was skipped. ``int (*table[4])`` is four pointers.
+        """
+        from types import SimpleNamespace
+
+        from rebrew.binsync.state import global_name_and_type
+
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "g.c").write_text(
+            "// DATA: SERVER 0x1000\nchar (*g_row)[4];\n// DATA: SERVER 0x2000\nint (*table[4]);\n",
+            encoding="utf-8",
+        )
+        cfg = SimpleNamespace(reversed_dir=src)
+        assert global_name_and_type(cfg, 0x1000, "g.c") == ("g_row", "char (*)[4]")
+        assert global_name_and_type(cfg, 0x2000, "g.c") == ("table", "int *[4]")

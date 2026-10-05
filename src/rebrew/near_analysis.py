@@ -198,10 +198,13 @@ def align_and_classify(
     the target/compiled text, or ``None`` when everything matches.
     """
     base = target_insns[0].va if target_insns else (compiled_insns[0].va if compiled_insns else 0)
+    # ``_auto_pins`` yields (target index, compiled index). The matcher reads
+    # the first component as an index into ``a``, which is the compiled stream.
+    pinned_lines = [(ci, ti) for ti, ci in _auto_pins(target_insns, compiled_insns)]
     matcher = SequenceMatcherWithPins(
         a=[i.mnemonic for i in compiled_insns],
         b=[i.mnemonic for i in target_insns],
-        pinned_lines=_auto_pins(target_insns, compiled_insns),
+        pinned_lines=pinned_lines,
     )
     byte_counts: dict[str, int] = {
         "match": 0,

@@ -106,7 +106,7 @@ class TestCoverageReporting:
 
 class TestVerifyDataBytes:
     @pytest.mark.parametrize(
-        "type_str", ["char[COUNT]", "char[]", "char[0]", "struct Large", "int (*)[16]"]
+        "type_str", ["char[COUNT]", "char[]", "char[0]", "struct Large", "void (*)(int)"]
     )
     def test_unresolved_extent_cannot_verify_a_matching_prefix(
         self, tmp_path: Path, type_str: str

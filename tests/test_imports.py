@@ -481,8 +481,41 @@ class TestImportsMark:
         assert mark_import_stubs(cfg, {0x401000: "MessageBoxA"}, dry_run=False) == 0
         assert out.read_bytes() == original
 
+    def test_decorated_stub_name_is_the_c_name(self, tmp_path: Path) -> None:
+        """A decorated import stub is named as C, and the symbol stays.
 
-class TestImportsPayload:
+        ``lstrip("_")`` stored ``hook@@12`` and ``@keeps@4`` as the row
+        name, and it stored ``__foo`` as ``foo``. ``_foo`` is still
+        ``foo``. ``MessageBoxA`` is unchanged.
+        """
+        from rebrew.imports import mark_import_stubs
+        from rebrew.metadata import get_entry
+
+        cfg = self._cfg(tmp_path)
+        cfg.reversed_dir.mkdir(parents=True)
+        stubs = {
+            0x401000: "hook@@12",
+            0x401010: "@keeps@4",
+            0x401020: "_sleepish@4",
+            0x401030: "__foo",
+            0x401040: "_foo",
+            0x401050: "MessageBoxA",
+        }
+        assert mark_import_stubs(cfg, stubs, dry_run=False) == 6
+        expect = {
+            0x401000: ("hook@@12", "hook"),
+            0x401010: ("@keeps@4", "keeps"),
+            0x401020: ("_sleepish@4", "sleepish"),
+            0x401030: ("__foo", "_foo"),
+            0x401040: ("_foo", "foo"),
+            0x401050: ("MessageBoxA", "MessageBoxA"),
+        }
+        for va, (symbol, name) in expect.items():
+            entry = get_entry(cfg.metadata_dir, va, "SERVER")
+            assert entry is not None
+            assert entry["symbol"] == symbol
+            assert entry["name"] == name, symbol
+
     """``imports_payload()`` is the importable form of ``rebrew imports --json``."""
 
     def test_matches_cli_json(self, pe_path: Path) -> None:

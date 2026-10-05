@@ -28,6 +28,7 @@ from rebrew.cli import (
 )
 from rebrew.config import module_marker
 from rebrew.import_table import find_import_stubs, parse_imports
+from rebrew.rename_ops import c_name_from_symbol
 from rebrew.utils import pe_name_token, read_source_text, untrusted_text
 
 
@@ -135,7 +136,8 @@ def mark_import_stubs(
             va=va,
             file=file_rel,
             marker_type="LIBRARY",
-            name=token.lstrip("_"),
+            # ``hook@@12`` is ``hook`` and ``__foo`` is ``_foo``.
+            name=c_name_from_symbol(token),
             symbol=token,
         )
     console.print(f"[green]Recorded {len(new_vas)} import stub(s) in {out_file.name}[/green]")

@@ -54,6 +54,7 @@ from rebrew.cli import (
 )
 from rebrew.config import ProjectConfig
 from rebrew.import_table import parse_import_table
+from rebrew.rename_ops import c_name_from_symbol
 from rebrew.sources import (
     iter_sources,
     target_marker,
@@ -128,7 +129,9 @@ def _build_lookup(
     ranges: list[tuple[int, int, str]] = []
     for ann in _collect_annotations(cfg):
         annotations[ann.va] = ann
-        name = ann.name or (ann.symbol or "").lstrip("_")
+        # A missing C name uses the symbol. ``hook@@12`` is ``hook``,
+        # ``@keeps@4`` is ``keeps``, and ``__foo`` is ``_foo``.
+        name = ann.name or c_name_from_symbol(ann.symbol)
         if name:
             names[ann.va] = name
             if ann.size > 0:

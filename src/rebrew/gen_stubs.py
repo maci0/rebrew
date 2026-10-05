@@ -47,6 +47,7 @@ from pathlib import Path
 
 import typer
 
+from rebrew.c_parser import CALLING_CONVENTION
 from rebrew.cli import console, error_exit, json_print
 from rebrew.utils import (
     atomic_write_text,
@@ -89,11 +90,21 @@ _CALL_RE = re.compile(r"\b([A-Za-z_]\w*)\s*\(")
 
 
 def demangle_cdecl(mangled: str) -> str:
-    """Strip MSVC cdecl/stdcall mangling: ``_name`` -> ``name``, ``_name@N`` -> ``name``."""
+    """Strip MSVC decoration to the C name.
+
+    ``_name`` and ``_name@N`` (cdecl, stdcall), ``@name@N`` (fastcall),
+    and ``name@@N`` (vectorcall). One ``@N`` strip used to leave ``hook@``
+    and ``@keeps``.
+    """
     name = mangled
     if name.startswith("_"):
         name = name[1:]
-    return _DEMANGLE_RE.sub("", name)
+    name = _DEMANGLE_RE.sub("", name)
+    if name.endswith("@"):
+        name = name[:-1]
+    elif name.startswith("@") and not name.startswith("@@"):
+        name = name[1:]
+    return name
 
 
 # --- linker output parsing ---------------------------------------------------
@@ -132,22 +143,34 @@ def load_library_symbols(csv_path: Path) -> set[str]:
 def _array_size_text(brackets: str) -> str:
     """Decimal element count of every ``[N]`` in *brackets*.
 
-    ``[2][4]`` is ``"8"`` and ``[010]`` (octal) is ``"8"``.  A bound that is
-    not a positive constant makes the whole declarator ``"1"``: a partial
-    product would still shift the following symbols.
+    ``[2][4]`` is ``"8"`` and ``[010]`` (octal) is ``"8"``.  A complete
+    constant expression folds the same way ``estimate_type_size`` does
+    (``[0x300 * 0x21c]``).  A bound that is not a positive constant makes
+    the whole declarator ``"1"``: a partial product would still shift the
+    following symbols.
     """
+    if not brackets:
+        return "1"
+    from rebrew.c_parser import array_type_shape
+
+    _base, dimensions = array_type_shape(f"char _{brackets}")
+    if not dimensions:
+        return "1"
     total = 1
-    found = False
-    for bound in re.findall(r"\[([^\]]*)\]", brackets):
-        try:
-            n = parse_c_integer_literal(bound)
-        except ValueError:
+    for bound in dimensions:
+        if isinstance(bound, int):
+            n = bound
+        elif isinstance(bound, str):
+            try:
+                n = parse_c_integer_literal(bound)
+            except ValueError:
+                return "1"
+        else:
             return "1"
         if n <= 0:
             return "1"
-        found = True
         total *= n
-    return str(total) if found else "1"
+    return str(total)
 
 
 #: A type or parameter list copied out of a reviewed source file, which the
@@ -177,8 +200,16 @@ def parse_extern_decl(decl: str) -> dict[str, typing.Any] | None:
     """
     rest = decl[len("extern") :].strip().rstrip(";").strip()
 
-    # Function with calling convention: TYPE __cdecl NAME(PARAMS)
-    m = re.match(r"(.*?)\b(__cdecl|__stdcall)\s+(\w+)\s*(\(.*)", rest)
+    # Function with calling convention: TYPE __cdecl NAME(PARAMS).
+    # ``WINAPI`` and ``__vectorcall`` are conventions too. Leaving them
+    # in the type made the stub ``int __cdecl``.
+    m = re.match(
+        r"(.*?)\b("
+        r"__vectorcall|__thiscall|__fastcall|__clrcall|__stdcall|__cdecl"
+        r"|REBREW_NAKED|APIENTRY|CALLBACK|_CRTIMP|WINAPI"
+        r")\s+(\w+)\s*(\(.*)",
+        rest,
+    )
     if m:
         ret_type = m.group(1).strip()
         cc = m.group(2)
@@ -199,9 +230,11 @@ def parse_extern_decl(decl: str) -> dict[str, typing.Any] | None:
             "array_size": None,
         }
 
-    # Function without calling convention: TYPE NAME(PARAMS)
+    # Function without calling convention: TYPE NAME(PARAMS).
+    # ``g[sizeof(int)]`` puts a parenthesis inside the brackets. That is an
+    # array bound, not a function named sizeof.
     m = re.match(r"(.*?)\b(\w+)\s*(\(.*)", rest)
-    if m and "(" in m.group(3):
+    if m and "(" in m.group(3) and rest[: m.start(3)].count("[") == rest[: m.start(3)].count("]"):
         ret_type = m.group(1).strip()
         name = m.group(2)
         params = m.group(3)
@@ -221,8 +254,54 @@ def parse_extern_decl(decl: str) -> dict[str, typing.Any] | None:
                 "array_size": None,
             }
 
-    # Variable with array: TYPE NAME[SIZE]
-    m = re.match(r"(.*?)\b(\w+)\s*((?:\[[^\]]*\])+)", rest)
+    # ``(*name[N])`` is ``*name[N]``, and ``(name[N])`` is ``name[N]``.
+    # The array matcher kept the opening parenthesis in the type, so the
+    # stub was ``int (* table[4] = {0};``. A calling convention and a
+    # function-parameter list still name that array of pointers.
+    # ``(*name[N])[M]`` is still N pointers: the brackets after the
+    # closing parenthesis are the pointee. Leaving them for the array
+    # matcher kept the parenthesis, so the stub was ``int (* table[2] = {0};``.
+    # ``(* const name[N])`` keeps the qualifier on the pointer type.
+    # ``(*name)[N]`` is a pointer to an array and does not match: the
+    # brackets sit outside the parentheses, and none sit inside.
+    from rebrew.c_parser import CALLING_CONVENTION
+
+    m = re.match(
+        r"(.*?)\(\s*" + CALLING_CONVENTION + r"(\**)\s*((?:(?:const|volatile)\b\s*)*)(\w+)\s*"
+        r"((?:\[(?:[^\[\]]|\[[^\]]*\])*\])+)\)"
+        r"(?:\s*(?:\[(?:[^\[\]]|\[[^\]]*\])*\])+)?\s*(?:\(.*\))?\s*$",
+        rest,
+    )
+    if m:
+        var_type = m.group(1).strip()
+        stars = m.group(2)
+        qualifier = (m.group(3) or "").strip()
+        name = m.group(4)
+        if stars:
+            var_type = f"{var_type} {stars}".strip() if var_type else stars
+        if qualifier:
+            var_type = f"{var_type} {qualifier}".strip()
+        if (
+            var_type
+            and any(ch.isalnum() for ch in var_type)
+            and name
+            not in ("int", "char", "void", "short", "float", "double", "unsigned", "struct")
+            and _is_pasteable_declaration(var_type, None)
+        ):
+            return {
+                "name": name,
+                "type": var_type,
+                "is_func": False,
+                "calling_conv": None,
+                "params": None,
+                "full_decl": decl,
+                "is_array": True,
+                "array_size": _array_size_text(m.group(5)),
+            }
+
+    # Variable with array: TYPE NAME[SIZE]. One nested ``[]`` stays in the
+    # bound, so ``[sizeof(wchar_t[3])]`` is not cut at the inner bracket.
+    m = re.match(r"(.*?)\b(\w+)\s*((?:\[(?:[^\[\]]|\[[^\]]*\])*\])+)", rest)
     if m:
         var_type = m.group(1).strip()
         name = m.group(2)
@@ -592,10 +671,13 @@ def generate_stubs(
     functions_list: list[str] = []
     string_globals: list[str] = []
 
-    def _variants(name: str) -> tuple[str, str, str]:
-        """Spellings a name may appear under: the demangled form may lack (or
-        keep) the leading underscore the source used."""
-        return (name, "_" + name, name.lstrip("_"))
+    def _variants(name: str) -> tuple[str, str]:
+        """Spellings a demangled name may appear under.
+
+        The source may store the C name or one cdecl ``_``. Stripping
+        every ``_`` looked ``_foo`` (from ``__foo``) up as ``foo``.
+        """
+        return (name, "_" + name)
 
     def _lookup(container: dict[str, typing.Any], name: str) -> typing.Any:
         for key in _variants(name):
@@ -727,8 +809,24 @@ def generate_stubs(
 
 
 #: Definition names in a generated stub TU, for the overwrite warning.
-_DEFINED_FUNC_RE = re.compile(r"(?:__cdecl|__stdcall)\s+(\w+)")
-_DEFINED_DATA_RE = re.compile(r"(?m)^[A-Za-z_][\w\s\*]*?\b(\w+)\s*(?:=|\[)")
+# ``WINAPI`` and ``__vectorcall`` are definitions too. The warning used
+# to see only ``__cdecl`` and ``__stdcall``.
+_DEFINED_FUNC_RE = re.compile(
+    r"\b(?:__vectorcall|__thiscall|__fastcall|__clrcall|__stdcall|__cdecl"
+    r"|REBREW_NAKED|APIENTRY|CALLBACK|_CRTIMP|WINAPI)\s+(\w+)"
+)
+# ``(*table[4])`` and ``(*row)[4]`` still define a name. The opening
+# parenthesis used to hide it, so a hand-carried stub was dropped with
+# no overwrite warning. ``__cdecl`` before the star and ``const`` after
+# it are not the name. ``(int)`` before ``=`` is a function-pointer
+# parameter list, not a different symbol.
+_DEFINED_DATA_RE = re.compile(
+    r"(?m)^[A-Za-z_][\w\s\*]*?(?:\(\s*"
+    + CALLING_CONVENTION
+    + r")?\**\s*(?:(?:const|volatile)\b\s*)*\b(\w+)\s*"
+    r"(?:\[(?:[^\[\]]|\[[^\]]*\])*\])*\s*\)?\s*"
+    r"(?:\((?:[^()]|\([^()]*\))*\))?\s*(?:=|\[)"
+)
 
 
 def _defined_symbols(text: str) -> set[str]:

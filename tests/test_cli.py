@@ -536,6 +536,36 @@ class TestSelectAnnotation:
         assert exc_info.value.exit_code == EXIT_ERROR
         assert "No // FUNCTION annotation found" in capsys.readouterr().err
 
+    def test_decorated_symbol_selects_the_c_name(self, tmp_path: Path) -> None:
+        """Asking for ``foo`` selects ``foo``, not the earlier ``_foo``.
+
+        ``lstrip("_")`` turned the symbol ``__foo`` into ``foo``, so the
+        earlier function was returned. Asking ``_foo`` still selects that
+        function. A file named ``hook.c`` still selects ``__vectorcall
+        hook`` rather than the earlier ``other``.
+        """
+        hook = tmp_path / "hook.c"
+        hook.write_text(
+            "// FUNCTION: GAME 0x1000\nint other(void) { return 1; }\n\n"
+            "// FUNCTION: GAME 0x2000\n"
+            "int __vectorcall hook(int a, int b, int c) { return 0; }\n",
+            encoding="utf-8",
+        )
+        _path, anno, va_int = select_annotation(self._cfg(tmp_path), "hook", None)
+        assert anno.va == 0x2000
+        assert va_int == 0x2000
+
+        under = tmp_path / "_foo.c"
+        under.write_text(
+            "// FUNCTION: GAME 0x3000\nint _foo(void) { return 0; }\n\n"
+            "// FUNCTION: GAME 0x4000\nint foo(void) { return 1; }\n",
+            encoding="utf-8",
+        )
+        _path, asked_foo, _va = select_annotation(self._cfg(tmp_path), "foo", None)
+        assert asked_foo.va == 0x4000
+        _path, asked_under, _va = select_annotation(self._cfg(tmp_path), "_foo", None)
+        assert asked_under.va == 0x3000
+
 
 class TestResolveCflags:
     """resolve_cflags — the shared per-function CFLAGS fallback chain."""

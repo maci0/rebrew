@@ -97,6 +97,58 @@ class TestParsePrototype:
         _cc, _n, _w, is_void = _parse_prototype("static int f(void)")
         assert not is_void
 
+    def test_winapi_and_vectorcall_stay_void(self) -> None:
+        """A convention outside the four ``__`` names is part of the return
+        type today, so ``void WINAPI foo(void)`` looks like it returns a
+        value and the prover compares EAX."""
+        cc, n, w, is_void = _parse_prototype("void WINAPI foo(void)")
+        assert cc == "winapi"
+        assert n == 0
+        assert w == 32
+        assert is_void
+
+        cc, n, w, is_void = _parse_prototype("void __vectorcall foo(int a)")
+        assert cc == "vectorcall"
+        assert n == 1
+        assert w == 32
+        assert is_void
+
+        cc, n, _w, is_void = _parse_prototype("static void CALLBACK foo(int a)")
+        assert cc == "callback"
+        assert n == 1
+        assert is_void
+
+        cc, n, _w, is_void = _parse_prototype("void APIENTRY foo(void)")
+        assert cc == "apientry"
+        assert n == 0
+        assert is_void
+
+        cc, n, _w, is_void = _parse_prototype("void __clrcall foo(void)")
+        assert cc == "clrcall"
+        assert is_void
+
+        cc, n, _w, is_void = _parse_prototype("void REBREW_NAKED foo(void)")
+        assert cc == "rebrew_naked"
+        assert is_void
+
+        cc, _n, _w, is_void = _parse_prototype("void _CRTIMP foo(void)")
+        assert cc == "crtimp"
+        assert is_void
+
+        cc, n, _w, is_void = _parse_prototype("int WINAPI foo(int a)")
+        assert cc == "winapi"
+        assert n == 1
+        assert not is_void
+
+        cc, _n, _w, is_void = _parse_prototype("void * WINAPI foo(void)")
+        assert cc == "winapi"
+        assert is_void is False
+
+        cc, _n, w, is_void = _parse_prototype("__int64 __vectorcall foo(void)")
+        assert cc == "vectorcall"
+        assert w == 64
+        assert is_void is False
+
     def test_pointer_args_counted_correctly(self) -> None:
         cc, n, w, is_void = _parse_prototype("int __cdecl baz(int *p, char *q)")
         assert cc == "cdecl"
@@ -1633,3 +1685,64 @@ class TestPromoteAlreadyMatched:
 
         assert load_metadata(tmp_path)[("GAME", va)]["status"] == "SKIP"
         assert tomllib.loads(cache_path.read_text(encoding="utf-8")) == original
+
+
+class TestDecoratedNameSelection:
+    """A C name proves that function, not the earlier decorated one."""
+
+    def test_decorated_symbol_selects_the_c_name(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Asking for ``foo`` refuses ``foo``'s STUB, not ``_foo``'s EXACT.
+
+        ``lstrip("_")`` turned the symbol ``__foo`` into ``foo``. Asking
+        ``_foo`` still selects that function. A file named ``hook.c`` still
+        selects ``__vectorcall hook`` rather than the earlier ``other``.
+        """
+        import shutil
+
+        from typer.testing import CliRunner
+
+        from rebrew.prove import app
+
+        (tmp_path / "rebrew-project.toml").write_text(
+            '[targets.GAME]\nbinary = "game.exe"\nreversed_dir = "src"\n'
+            'source_ext = ".c"\nmarker = "GAME"\n',
+            encoding="utf-8",
+        )
+        shutil.copy(FIXTURES / "mini_pe.exe", tmp_path / "game.exe")
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "_foo.c").write_text(
+            "// FUNCTION: GAME 0x00003000\nint _foo(void) { return 0; }\n\n"
+            "// FUNCTION: GAME 0x00004000\nint foo(void) { return 1; }\n",
+            encoding="utf-8",
+        )
+        (src / "hook.c").write_text(
+            "// FUNCTION: GAME 0x00001000\nint other(void) { return 1; }\n\n"
+            "// FUNCTION: GAME 0x00002000\n"
+            "int __vectorcall hook(int a, int b, int c) { return 0; }\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "rebrew-functions.toml").write_text(
+            '["GAME.0x00003000"]\nstatus = "EXACT"\n'
+            '["GAME.0x00004000"]\nstatus = "STUB"\n'
+            '["GAME.0x00001000"]\nstatus = "EXACT"\n'
+            '["GAME.0x00002000"]\nstatus = "STUB"\n',
+            encoding="utf-8",
+        )
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr("rebrew.prove._require_angr", lambda: None)
+        runner = CliRunner()
+        asked_foo = runner.invoke(
+            app, ["--json", "--target", "GAME", "foo"], catch_exceptions=False
+        )
+        assert "Status is 'STUB'" in asked_foo.output, asked_foo.output
+        asked_under = runner.invoke(
+            app, ["--json", "--target", "GAME", "_foo"], catch_exceptions=False
+        )
+        assert "Status is 'EXACT'" in asked_under.output, asked_under.output
+        asked_hook = runner.invoke(
+            app, ["--json", "--target", "GAME", "hook"], catch_exceptions=False
+        )
+        assert "Status is 'STUB'" in asked_hook.output, asked_hook.output

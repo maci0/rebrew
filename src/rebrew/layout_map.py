@@ -190,7 +190,13 @@ def _gap_rows(
             cls = (
                 "large_nonpadding"
                 if data is None
-                else classify_gap(data, info.text_va, info.text_size)
+                else classify_gap(
+                    data,
+                    info.text_va,
+                    info.text_size,
+                    arch=getattr(info, "arch", "") or "x86_32",
+                    endian=getattr(info, "endian", "") or "",
+                )
             )
         hist[cls] += 1
         rows.append({"start": start, "end": next_va, "length": length, "class": cls})

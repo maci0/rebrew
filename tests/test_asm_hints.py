@@ -54,6 +54,44 @@ class TestHintFor:
         assert "switch dispatch" in hint
         assert "rebrew binary switches" in hint
 
+    def test_64bit_qword_switch_dispatch(self) -> None:
+        """``jmp qword ptr [rax*8 + disp]`` is a jump table, not a plain jump."""
+        from capstone import CS_ARCH_X86, CS_MODE_64, Cs
+
+        md = Cs(CS_ARCH_X86, CS_MODE_64)
+        insns = list(md.disasm(bytes.fromhex("ff24c5d0130301"), TEXT_VA))
+        hint = _hint_for(insns, 0) or ""
+        assert "switch dispatch" in hint
+
+    def test_16bit_word_switch_dispatch(self) -> None:
+        """``jmp word ptr [bx + disp]`` is a 16-bit jump table.
+
+        16-bit targets have no SIB byte. ``find_switches`` reads this form;
+        a register-only ``jmp word ptr [bx]`` is not a table.
+        """
+        from capstone import CS_ARCH_X86, CS_MODE_16, Cs
+
+        md = Cs(CS_ARCH_X86, CS_MODE_16)
+        table = list(md.disasm(bytes.fromhex("ffa72010"), TEXT_VA))
+        hint = _hint_for(table, 0) or ""
+        assert "switch dispatch" in hint
+        register = list(md.disasm(bytes.fromhex("ff27"), TEXT_VA))
+        assert _hint_for(register, 0) is None
+
+    def test_base_plus_scaled_index_is_a_switch(self) -> None:
+        """``jmp [base + index*scale]`` is a jump table.
+
+        Capstone prints the base register before the scaled index. The hint
+        used to require the scale at the start of the brackets.
+        """
+        insns = _insns("ff2490")
+        assert "switch dispatch" in (_hint_for(insns, 0) or "")
+        from capstone import CS_ARCH_X86, CS_MODE_64, Cs
+
+        md = Cs(CS_ARCH_X86, CS_MODE_64)
+        wide = list(md.disasm(bytes.fromhex("48ff24d0"), TEXT_VA))
+        assert "switch dispatch" in (_hint_for(wide, 0) or "")
+
     def test_plain_jmp_no_hint(self) -> None:
         # jmp 0x1009c76 — direct tail call, not a dispatch
         insns = _insns("e9 76 9c 01 00")
@@ -194,6 +232,28 @@ class TestAnnotationForOperand:
     def test_missing_key(self) -> None:
         assert _annotation_for_operand("0x99999999", {0x4130C8: "HeapCreate"}) is None
 
+    def test_rip_relative_displacement_uses_the_next_instruction(self) -> None:
+        """``[rip + disp]`` is the address of the next instruction plus disp."""
+        assert (
+            _annotation_for_operand(
+                "qword ptr [rip + 0x10]",
+                {0x401016: "HeapCreate"},
+                address=0x401000,
+                size=6,
+            )
+            == "HeapCreate"
+        )
+        assert (
+            _annotation_for_operand(
+                "qword ptr [rip - 0x10]",
+                {0x400FF6: "note"},
+                address=0x401000,
+                size=6,
+            )
+            == "note"
+        )
+        assert _annotation_for_operand("qword ptr [rip + 0x10]", {0x401016: "HeapCreate"}) is None
+
 
 class TestRunHexModeAnnotations:
     def _make_probe(self, tmp_path: Path) -> Path:
@@ -268,3 +328,38 @@ class TestRunHexModeAnnotations:
         assert "import" not in entry
         assert "string" not in entry
         assert "hint" not in entry
+
+    def test_rip_relative_iat_call_is_named(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """A PE32+ ``call qword ptr [rip + disp]`` names the IAT slot.
+
+        The displacement is relative to the next instruction. Reading it as
+        an absolute address, or refusing every bracket that contains ``+``,
+        leaves the import unnamed.
+        """
+        import lief
+        from capstone import CS_MODE_64
+
+        code = bytearray(bytes.fromhex("ff1500000000c3"))
+        imports = [("KERNEL32.dll", ["HeapCreate"])]
+        proto = make_pe(bytes(code), imports=imports, pe32_plus=True)
+        pe = lief.PE.parse(bytes(proto))
+        slot = None
+        for imp in pe.imports:
+            for entry in imp.entries:
+                if entry.name == "HeapCreate":
+                    slot = IMAGE_BASE + entry.iat_address
+        assert slot is not None
+        disp = (slot - (TEXT_VA + 6)) & 0xFFFFFFFF
+        code[2:6] = struct.pack("<I", disp)
+        binary = tmp_path / "probe64.exe"
+        binary.write_bytes(make_pe(bytes(code), imports=imports, pe32_plus=True))
+
+        cfg = _cfg(tmp_path, binary)
+        cfg.capstone_mode = CS_MODE_64
+        _run_hex_mode(TEXT_VA, 16, cfg, False, True, resolve_imports=True)
+        payload = json.loads(capsys.readouterr().out)
+        call = next(i for i in payload["instructions"] if i["mnemonic"] == "call")
+        assert "rip" in call["operands"]
+        assert call["import"] == "HeapCreate"

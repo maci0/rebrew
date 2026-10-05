@@ -22,6 +22,78 @@ class TestParseStructs:
         assert bar.fields == [("p", "int *", 0), ("buf", "char[8]", 4)]
         assert bar.size == 12
 
+    def test_array_of_pointers_keeps_every_element(self) -> None:
+        """``char *rows[4]`` is four pointers.
+
+        The ``[4]`` was glued onto the name and the field was sized as one
+        pointer, so ``tail`` sat at offset 4.
+        """
+        s = parse_structs("typedef struct { char c; char *rows[4]; int tail; } S;")["S"]
+        assert s.complete
+        assert s.fields == [
+            ("c", "char", 0),
+            ("rows", "char *[4]", 4),
+            ("tail", "int", 20),
+        ]
+        assert s.size == 24
+
+    def test_parenthesized_array_of_pointers_keeps_every_element(self) -> None:
+        """``int (*table[4])`` is four pointers. The parentheses do not change it.
+
+        Wrapping the suffix as ``(*[4])`` made the type unknown, so ``tail``
+        was dropped. ``int (*row)[4]`` stays one pointer.
+        """
+        s = parse_structs("typedef struct { char c; int (*table[4]); int tail; } S;")["S"]
+        assert s.complete
+        assert s.fields == [
+            ("c", "char", 0),
+            ("table", "int *[4]", 4),
+            ("tail", "int", 20),
+        ]
+        assert s.size == 24
+
+    def test_pointer_to_array_field_is_one_pointer(self) -> None:
+        """``char (*row)[4]`` is a pointer. The bound is the array it addresses.
+
+        The field used to end the struct, so ``tail`` was dropped.
+        """
+        from rebrew.types import type_size
+
+        assert type_size("char (*)[4]") == 4
+        assert type_size("char (**)[4]") == 4
+        s = parse_structs("typedef struct { char c; char (*row)[4]; int tail; } S;")["S"]
+        assert s.complete
+        assert s.fields == [
+            ("c", "char", 0),
+            ("row", "char (*)[4]", 4),
+            ("tail", "int", 8),
+        ]
+        assert s.size == 12
+
+    def test_array_of_pointers_to_array_is_not_a_grid(self) -> None:
+        """``int (*table[2])[3]`` is two pointers. The outer bound is the pointee.
+
+        The parentheses were dropped, so the field was ``int *[2][3]``
+        (24 bytes) and ``tail`` sat at offset 28. ``char (*row)[4]`` stays
+        one pointer. ``int (*plain[4])`` stays four pointers.
+        """
+        s = parse_structs("typedef struct { char c; int (*table[2])[3]; int tail; } S;")["S"]
+        assert s.complete
+        assert s.fields == [
+            ("c", "char", 0),
+            ("table", "int (*[2])[3]", 4),
+            ("tail", "int", 12),
+        ]
+        assert s.size == 16
+        rows = parse_structs("typedef struct { char c; char (**rows[2])[4]; int tail; } R;")["R"]
+        assert rows.complete
+        assert rows.fields == [
+            ("c", "char", 0),
+            ("rows", "char (**[2])[4]", 4),
+            ("tail", "int", 12),
+        ]
+        assert rows.size == 16
+
     def test_multidimensional_array_fields(self) -> None:
         structs = parse_structs(
             "typedef struct { char tag; float m[4][4]; double grid[2][3][4]; int tail; } Matrix;"
@@ -179,10 +251,386 @@ class TestStructSizes:
         assert [f[2] for f in s.fields] == [0, 8]
         assert s.size == 24
 
+    def test_long_long_is_eight_and_aligned(self) -> None:
+        """MSVC ``long long`` and ``__int64`` are 8 bytes, aligned to 8.
+
+        An unknown size used to stop the struct, so the following field
+        was dropped and ``char c; long long x;`` did not pad ``x`` to 8.
+        """
+        from rebrew.types import type_size
+
+        assert type_size("long long") == 8
+        assert type_size("unsigned long long") == 8
+        assert type_size("long long int") == 8
+        assert type_size("__int64") == 8
+        assert type_size("unsigned __int64") == 8
+        s = parse_structs("typedef struct { char c; long long x; int tail; } S;")["S"]
+        assert s.complete
+        assert [(name, off) for name, _spelling, off in s.fields] == [
+            ("c", 0),
+            ("x", 8),
+            ("tail", 16),
+        ]
+        assert s.size == 24
+        wide = parse_structs("typedef struct { char c; __int64 x; } W;")["W"]
+        assert wide.complete
+        assert [(name, off) for name, _spelling, off in wide.fields] == [("c", 0), ("x", 8)]
+        assert wide.size == 16
+
+    def test_long_double_and_multiword_ints(self) -> None:
+        """``long double`` is 8 and aligned like ``double``. ``short int`` is
+        ``short`` and ``long int`` is ``long``. An unknown size stopped the
+        struct on the ``char``."""
+        from rebrew.types import type_size
+
+        assert type_size("long double") == 8
+        assert type_size("short int") == 2
+        assert type_size("unsigned short int") == 2
+        assert type_size("long int") == 4
+        s = parse_structs("typedef struct { char c; long double x; int tail; } S;")["S"]
+        assert s.complete
+        assert [(name, off) for name, _spelling, off in s.fields] == [
+            ("c", 0),
+            ("x", 8),
+            ("tail", 16),
+        ]
+        assert s.size == 24
+
+    def test_div_and_mod_array_bounds(self) -> None:
+        """Integer ``/`` and ``%`` fold in an array bound. ``1 / 0`` is not a bound."""
+        from rebrew.types import type_size
+
+        assert type_size("char[8 / 2]") == 4
+        assert type_size("int[7 / 2]") == 12
+        assert type_size("char[10 % 3]") == 1
+        assert type_size("char[1 / 0]") is None
+        assert type_size("char[1 << 4]") == 16
+        assert type_size("char[8 >> 1]") == 4
+        assert type_size("char[1 << 31]") is None
+        s = parse_structs("typedef struct { char expr[8 / 2]; int tail; } S;")["S"]
+        assert s.complete
+        assert [(name, off) for name, _spelling, off in s.fields] == [("expr", 0), ("tail", 4)]
+        assert s.size == 8
+
+    def test_signed_intermediate_array_bounds(self) -> None:
+        """A negative constant may appear inside a nonnegative bound.
+
+        ``4 + -2`` is a plus of the literals ``4`` and ``-2``. Dropping the
+        negative before the addition made the bound unknown, so the struct
+        stopped. Division and remainder are toward zero, so ``(-5) / 2 + 3``
+        is 1. A negative final bound and a shift of a negative stay unknown.
+        """
+        from rebrew.types import type_size
+
+        assert type_size("char[4 + -2]") == 2
+        assert type_size("char[2 * -1 + 4]") == 2
+        assert type_size("char[-(1 - 3)]") == 2
+        assert type_size("char[(-2) * (-2)]") == 4
+        assert type_size("char[(-5) / 2 + 3]") == 1
+        assert type_size("char[(-5) % 2 + 2]") == 1
+        assert type_size("char[+(1 + 1)]") == 2
+        assert type_size("char[(-1) << 1]") is None
+        assert type_size("char[1 << -1]") is None
+        assert type_size("char[1 - 3]") is None
+        assert type_size("char[-2]") is None
+        s = parse_structs("typedef struct { char expr[4 + -2]; int tail; } S;")["S"]
+        assert s.complete
+        assert [(name, off) for name, _spelling, off in s.fields] == [("expr", 0), ("tail", 4)]
+        assert s.size == 8
+
+    def test_bitwise_array_bounds(self) -> None:
+        """Nonnegative ``&``, ``|``, and ``^`` fold in an array bound.
+
+        ``15 & 7`` is 7. A negative operand and ``~`` stay unknown: signed
+        bitwise is not two's complement here.
+        """
+        from rebrew.types import type_size
+
+        assert type_size("char[15 & 7]") == 7
+        assert type_size("char[15 | 16]") == 31
+        assert type_size("char[255 ^ 15]") == 240
+        assert type_size("int[15 & 7]") == 28
+        assert type_size("char[1 | 2 & 4]") == 1
+        assert type_size("char[(-1) & 7]") is None
+        assert type_size("char[~0]") is None
+        s = parse_structs("typedef struct { char expr[15 & 7]; int tail; } S;")["S"]
+        assert s.complete
+        assert [(name, off) for name, _spelling, off in s.fields] == [("expr", 0), ("tail", 8)]
+        assert s.size == 12
+
+    def test_integer_cast_array_bounds(self) -> None:
+        """A cast that does not change the value is the bound.
+
+        ``(int)(2 + 2)`` is 4 and ``4 + (int)-2`` is 2. A cast that would
+        truncate (``(char)256``) or reinterpret a negative as unsigned
+        (``(unsigned)-1``) stays unknown.
+        """
+        from rebrew.types import type_size
+
+        assert type_size("char[(int)(2 + 2)]") == 4
+        assert type_size("char[(unsigned)4]") == 4
+        assert type_size("char[4 + (int)-2]") == 2
+        assert type_size("char[(char)4]") == 4
+        assert type_size("char[(signed char)4]") == 4
+        assert type_size("char[(unsigned char)200]") == 200
+        assert type_size("char[(char)256]") is None
+        assert type_size("char[(unsigned)-1]") is None
+        assert type_size("char[(const int)4]") == 4
+        assert type_size("char[(int *)4]") is None
+        s = parse_structs("typedef struct { char expr[(int)(2 + 2)]; int tail; } S;")["S"]
+        assert s.complete
+        assert [(name, off) for name, _spelling, off in s.fields] == [("expr", 0), ("tail", 4)]
+        assert s.size == 8
+
+    def test_ternary_array_bounds(self) -> None:
+        """A constant ``?:`` picks the live arm. Both arms must fold.
+
+        ``1 ? 4 : 2`` is 4 and ``0 ? 8 : 2`` is 2. A name in either arm
+        stays unknown, including the arm that C would not evaluate.
+        """
+        from rebrew.types import type_size
+
+        assert type_size("char[1 ? 4 : 2]") == 4
+        assert type_size("char[0 ? 8 : 2]") == 2
+        assert type_size("char[-1 ? 3 : 9]") == 3
+        assert type_size("char[1 ? 4 : n]") is None
+        assert type_size("char[0 ? n : 2]") is None
+        s = parse_structs("typedef struct { char expr[0 ? 8 : 2]; int tail; } S;")["S"]
+        assert s.complete
+        assert [(name, off) for name, _spelling, off in s.fields] == [("expr", 0), ("tail", 4)]
+        assert s.size == 8
+
+    def test_comma_operator_array_bounds(self) -> None:
+        """The comma operator's value is its rightmost operand.
+
+        ``(2, 3)`` is 3 and ``(2, 3, 4)`` is 4. Every operand must fold,
+        so a name or ``1 / 0`` on the left stays unknown.
+        """
+        from rebrew.types import type_size
+
+        assert type_size("char[(2, 3)]") == 3
+        assert type_size("char[(2, 3, 4)]") == 4
+        assert type_size("char[(2, n)]") is None
+        assert type_size("char[(1 / 0, 4)]") is None
+        s = parse_structs("typedef struct { char expr[(0, 2)]; int tail; } S;")["S"]
+        assert s.complete
+        assert [(name, off) for name, _spelling, off in s.fields] == [("expr", 0), ("tail", 4)]
+        assert s.size == 8
+
+    def test_sizeof_array_bounds(self) -> None:
+        """``sizeof`` of a known 32-bit type is a bound.
+
+        ``sizeof(int)`` is 4 and ``sizeof(char) * 4`` is 4. An unknown
+        type and ``sizeof`` of an expression stay unknown.
+        """
+        from rebrew.types import type_size
+
+        assert type_size("char[sizeof(int)]") == 4
+        assert type_size("char[sizeof(char) * 4]") == 4
+        assert type_size("char[sizeof(long long)]") == 8
+        assert type_size("char[sizeof(long double)]") == 8
+        assert type_size("char[sizeof(unsigned short)]") == 2
+        assert type_size("char[sizeof(const int)]") == 4
+        assert type_size("char[sizeof(int *)]") == 4
+        assert type_size("char[sizeof(int[2])]") == 8
+        assert type_size("char[sizeof(Foo)]") is None
+        assert type_size("char[sizeof(2)]") is None
+        s = parse_structs("typedef struct { char expr[sizeof(short)]; int tail; } S;")["S"]
+        assert s.complete
+        assert [(name, off) for name, _spelling, off in s.fields] == [("expr", 0), ("tail", 4)]
+        assert s.size == 8
+
+    def test_comparison_array_bounds(self) -> None:
+        """A constant comparison is 0 or 1, so it can choose a ternary arm.
+
+        ``1 < 2 ? 4 : 8`` is 4. ``2 > 1`` is 1.
+        """
+        from rebrew.types import type_size
+
+        assert type_size("char[1 < 2]") == 1
+        assert type_size("char[1 > 2]") == 0
+        assert type_size("char[2 <= 2]") == 1
+        assert type_size("char[2 >= 3]") == 0
+        assert type_size("char[2 == 2]") == 1
+        assert type_size("char[2 != 2]") == 0
+        assert type_size("char[-1 < 0]") == 1
+        assert type_size("char[1 < 2 ? 4 : 8]") == 4
+        assert type_size("char[1 > 2 ? 4 : 8]") == 8
+        s = parse_structs("typedef struct { char expr[2 > 1]; int tail; } S;")["S"]
+        assert s.complete
+        assert [(name, off) for name, _spelling, off in s.fields] == [("expr", 0), ("tail", 4)]
+        assert s.size == 8
+
+    def test_logical_array_bounds(self) -> None:
+        """``&&``, ``||``, and ``!`` fold to 0 or 1, not to the operand.
+
+        ``1 && 2`` is 1. ``0 || 3`` is 1. ``!0`` is 1. An unknown operand
+        stays unknown.
+        """
+        from rebrew.types import type_size
+
+        assert type_size("char[1 && 2]") == 1
+        assert type_size("char[1 && 0]") == 0
+        assert type_size("char[0 || 3]") == 1
+        assert type_size("char[0 || 0]") == 0
+        assert type_size("char[!0]") == 1
+        assert type_size("char[!2]") == 0
+        assert type_size("char[!-1]") == 0
+        assert type_size("char[1 && 2 ? 4 : 8]") == 4
+        assert type_size("char[0 && n]") is None
+        s = parse_structs("typedef struct { char expr[0 || 1]; int tail; } S;")["S"]
+        assert s.complete
+        assert [(name, off) for name, _spelling, off in s.fields] == [("expr", 0), ("tail", 4)]
+        assert s.size == 8
+
+    def test_character_constant_array_bounds(self) -> None:
+        """A character constant is an integer bound.
+
+        ``'A'`` is 65, ``'\\n'`` is 10, and ``'\\x10'`` is 16. A
+        multi-character literal stays unknown.
+        """
+        from rebrew.types import type_size
+
+        assert type_size("char['A']") == 65
+        assert type_size("char['\\n']") == 10
+        assert type_size("char['\\x10']") == 16
+        assert type_size("char['\\0']") == 0
+        assert type_size("char[L'A']") == 65
+        assert type_size("char['AB']") is None
+        s = parse_structs("typedef struct { char expr['\\n']; int tail; } S;")["S"]
+        assert s.complete
+        assert [(name, off) for name, _spelling, off in s.fields] == [("expr", 0), ("tail", 12)]
+        assert s.size == 16
+
+    def test_sizeof_string_array_bounds(self) -> None:
+        """``sizeof`` of a string counts the bytes plus the terminating NUL.
+
+        ``sizeof("hi")`` is 3 and ``sizeof("")`` is 1. Adjacent strings
+        are one literal.
+        """
+        from rebrew.types import type_size
+
+        assert type_size('char[sizeof("hi")]') == 3
+        assert type_size('char[sizeof("")]') == 1
+        assert type_size('char[sizeof("hi\\n")]') == 4
+        assert type_size('char[sizeof("a" "b")]') == 3
+        assert type_size('char[sizeof "hi"]') == 3
+        # 32-bit MSVC wchar_t is 2. The L prefix used to be ignored, so this was 3.
+        assert type_size('char[sizeof(L"hi")]') == 6
+        assert type_size('char[sizeof(L"")]') == 2
+        assert type_size('char[sizeof(u"hi")]') == 6
+        assert type_size('char[sizeof(U"hi")]') == 12
+        assert type_size('char[sizeof(u8"hi")]') == 3
+        assert type_size('char[sizeof("a" L"b")]') is None
+        s = parse_structs('typedef struct { char expr[sizeof("hi")]; int tail; } S;')["S"]
+        assert s.complete
+        assert [(name, off) for name, _spelling, off in s.fields] == [("expr", 0), ("tail", 4)]
+        assert s.size == 8
+
+    def test_wchar_t_is_two_bytes(self) -> None:
+        """32-bit MSVC ``wchar_t`` is 2 bytes, the same width as ``L""``.
+
+        ``sizeof(wchar_t)`` and a ``wchar_t`` field used to be unknown, so
+        the struct stopped and the following ``int`` was dropped.
+        """
+        from rebrew.types import type_size
+
+        assert type_size("wchar_t") == 2
+        assert type_size("char[sizeof(wchar_t)]") == 2
+        assert type_size("wchar_t[3]") == 6
+        s = parse_structs("typedef struct { wchar_t c; int tail; } S;")["S"]
+        assert s.complete
+        assert [(name, off) for name, _spelling, off in s.fields] == [("c", 0), ("tail", 4)]
+        assert s.size == 8
+
+    def test_sizeof_character_constant(self) -> None:
+        """A C character constant has type ``int`` on 32-bit MSVC.
+
+        ``sizeof('A')`` is 4. ``sizeof(L'A')`` is 2 (``wchar_t``),
+        ``sizeof(u'A')`` is 2, and ``sizeof(U'A')`` is 4. A
+        multi-character literal is still an ``int``.
+        """
+        from rebrew.types import type_size
+
+        assert type_size("char[sizeof('A')]") == 4
+        assert type_size("char[sizeof 'A']") == 4
+        assert type_size("char[sizeof(L'A')]") == 2
+        assert type_size("char[sizeof(u'A')]") == 2
+        assert type_size("char[sizeof(U'A')]") == 4
+        assert type_size("char[sizeof(u8'A')]") == 1
+        assert type_size("char[sizeof('AB')]") == 4
+
+    def test_bool_is_one_byte(self) -> None:
+        """32-bit MSVC ``bool`` is 1 byte.
+
+        ``sizeof(bool)`` and a ``bool`` field used to be unknown, so the
+        struct stopped and the following ``int`` was dropped.
+        """
+        from rebrew.types import type_size
+
+        assert type_size("bool") == 1
+        assert type_size("char[sizeof(bool)]") == 1
+        assert type_size("bool[4]") == 4
+        s = parse_structs("typedef struct { bool flag; int tail; } S;")["S"]
+        assert s.complete
+        assert [(name, off) for name, _spelling, off in s.fields] == [("flag", 0), ("tail", 4)]
+        assert s.size == 8
+
+    def test_sizeof_identifier_array(self) -> None:
+        """``sizeof(wchar_t[3])`` is 6.
+
+        ``wchar_t`` is not a tree-sitter keyword, so ``wchar_t[3]`` was a
+        subscript and the bound stayed unknown. ``const wchar_t[3]`` already
+        parsed as a type. An unknown name stays unknown.
+        """
+        from rebrew.types import type_size
+
+        assert type_size("char[sizeof(wchar_t[3])]") == 6
+        assert type_size("char[sizeof(wchar_t[2][3])]") == 12
+        assert type_size("char[sizeof(wchar_t[2 + 1])]") == 6
+        assert type_size("char[sizeof(n[3])]") is None
+
+    def test_sizeof_pointer_to_array_is_not_the_object(self) -> None:
+        """``sizeof(char (*)[4])`` is 4. ``sizeof(char *[2])`` is 8.
+
+        ``(*)`` inside the bound sized ``int[sizeof(char (*)[4])]`` as one
+        pointer. ``char *[2]`` stayed unknown, so the next field was dropped.
+        """
+        from rebrew.types import type_size
+
+        assert type_size("int[sizeof(char (*)[4])]") == 16
+        assert type_size("char[sizeof(char (**)[4])]") == 4
+        assert type_size("char[sizeof(char *[2])]") == 8
+        assert type_size("short[sizeof(int *[2][3])]") == 48
+        assert type_size("char (*)[4]") == 4
+        s = parse_structs("typedef struct { char gap[sizeof(char *[2])]; int tail; } Rows;")["Rows"]
+        assert s.complete
+        assert s.fields == [("gap", "char[sizeof(char *[2])]", 0), ("tail", "int", 8)]
+        assert s.size == 12
+
     def test_array_of_int_still_aligns_to_four(self) -> None:
         s = parse_structs("typedef struct { char c; int arr[2]; } S;")["S"]
         assert [f[2] for f in s.fields] == [0, 4]
         assert s.size == 12
+
+    def test_c_constant_array_bounds(self) -> None:
+        """Hex, octal, and a constant expression are C bounds.
+
+        ``int()`` read ``0x10`` as not a number, ``010`` as ten, and
+        ``2 + 2`` as not a number, so the struct stopped at that field.
+        """
+        from rebrew.types import type_size
+
+        assert type_size("char[0x10]") == 16
+        assert type_size("char[010]") == 8
+        assert type_size("char[2 + 2]") == 4
+        foo = parse_structs(
+            "typedef struct { char gap[0x10]; char oct[010]; char expr[2 + 2]; int tail; } Foo;"
+        )["Foo"]
+        assert foo.complete
+        assert [f[0] for f in foo.fields] == ["gap", "oct", "expr", "tail"]
+        assert [f[2] for f in foo.fields] == [0, 16, 24, 28]
+        assert foo.size == 32
 
 
 class TestCheckStruct:

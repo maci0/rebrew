@@ -160,16 +160,26 @@ def _fenced_naked_note(cfile: Path) -> str:
 def _entry_symbol(entry: Any) -> str:
     """COFF symbol for *entry*, synthesizing it for legacy marker-only entries.
 
-    Mangling must stay consistent with the COFF symbol lookup in
-    parsers._parse_coff (which handles _/name_/_name variants).  Keep the
-    annotation symbol as-is when present; only synthesize "_" + name for
-    legacy entries lacking a symbol field.  Do not double-prefix.
+    A stored symbol is kept. An empty symbol uses the prototype when that
+    is vectorcall (``hook@@4``), fastcall (``@keeps@4``), or stdcall
+    (``_bar@4``). Cdecl stays ``_name``. A name that already starts with
+    ``_`` is not given a second one.
     """
     if entry.symbol:
         return str(entry.symbol)
-    if entry.name and not entry.name.startswith("_"):
-        return "_" + str(entry.name)
-    return str(entry.name or entry.symbol or "")
+    name = str(entry.name or "")
+    proto = str(getattr(entry, "prototype", "") or "")
+    if name and proto:
+        from rebrew.annotation import derive_c_symbol
+
+        derived = derive_c_symbol(name, proto)
+        # ``derive_c_symbol`` adds one cdecl ``_``. That would turn a legacy
+        # name ``_foo`` into ``__foo``. A real decoration differs from that.
+        if derived and derived != f"_{name}":
+            return derived
+    if name and not name.startswith("_"):
+        return "_" + name
+    return name or str(entry.symbol or "")
 
 
 def verify_entry(
@@ -2113,7 +2123,7 @@ def _library_header_rows(cfg: Any) -> dict[int, dict[str, str]]:
     The parse runs outside the lock and the publish inside it, so two
     workers racing on the same key both parse but only one entry survives.
     """
-    from rebrew.annotation import parse_library_header
+    from rebrew.annotation import library_annotations_from_metadata, parse_library_header
     from rebrew.function_providers import compiled_library_annotations
     from rebrew.metadata import METADATA_FILENAME
     from rebrew.sources import iter_library_headers
@@ -2142,6 +2152,15 @@ def _library_header_rows(cfg: Any) -> dict[int, dict[str, str]]:
             if preset_module_key(e.module or "") in ("", marker):
                 rows[e.va] = {
                     "marker_type": e.marker_type or "LIBRARY",
+                    "module": e.module or "",
+                    "name": e.name,
+                    "symbol": e.symbol,
+                }
+    if metadata_dir is not None:
+        for e in library_annotations_from_metadata(metadata_dir, cfg.reversed_dir):
+            if e.va not in rows and preset_module_key(e.module or "") in ("", marker):
+                rows[e.va] = {
+                    "marker_type": "LIBRARY",
                     "module": e.module or "",
                     "name": e.name,
                     "symbol": e.symbol,

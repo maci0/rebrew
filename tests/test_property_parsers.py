@@ -1389,7 +1389,7 @@ def test_find_float_consts_invariants(data: tuple[bytes, bytes, int, set[int] | 
         assert any(
             i.pointer == c.address
             and (4 if i.opcode in SINGLE_PRECISION_OPCODES else 8) == c.size
-            and (relocs is None or i.address + 2 in relocs)
+            and (relocs is None or i.address + i.disp_offset in relocs)
             for i in insts
         )
 
@@ -1398,7 +1398,7 @@ def test_find_float_consts_invariants(data: tuple[bytes, bytes, int, set[int] | 
     for i in insts:
         size = 4 if i.opcode in SINGLE_PRECISION_OPCODES else 8
         if (
-            (relocs is None or i.address + 2 in relocs)
+            (relocs is None or i.address + i.disp_offset in relocs)
             and i.pointer >= _FC_DATA_VA
             and i.pointer + size <= region_end
             and len(read_at(i.pointer, size)) == size

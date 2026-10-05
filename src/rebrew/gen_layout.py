@@ -33,7 +33,7 @@ What it emits (into the target's ``reversed_dir`` unless overridden):
   ``crt_region/data_restore.c``
       The .data restore translation unit (globals declared in original VA
       order, initial values copied from the binary) — generated only when
-      ``src/rebrew-data.toml`` has entries for this target's marker.
+      ``rebrew-data.toml`` has entries for this target's marker.
 
 This command covers everything readable from the binary itself, so it can
 run immediately after ``rebrew intake``; it never reads a catalog artifact.
@@ -158,14 +158,25 @@ _WS2_32_ARGS: dict[str, int] = {
 }
 
 
-def _import_lib_symbols(lib_path: Path) -> set[str]:
-    """Collect ``__imp__...@N`` decorated symbol names from a COFF import library.
+# ``__imp_`` plus the decorated symbol.  Stdcall ``_Sleep@4`` is stored as
+# ``__imp__Sleep@4``.  Vectorcall ``hook@@12`` is ``__imp_hook@@12``.
+# Fastcall ``@keeps@4`` is ``__imp_@keeps@4``.  A cdecl ``__imp__printf``
+# has no ``@N`` and stays out.  The image grep below matches the same three.
+_IMP_LIB_SYMBOL_RE = re.compile(
+    rb"__imp_(?:_[A-Za-z_][A-Za-z0-9_]*@\d+"
+    rb"|[A-Za-z_][A-Za-z0-9_]*@@\d+"
+    rb"|@[A-Za-z_][A-Za-z0-9_]*@\d+)"
+)
 
-    MSVC6 import libraries store the decorated thunk symbols
-    (``__imp__GetLocalTime@4``) as plain NUL-terminated strings inside the
-    archive members (the archive's linker-member layout is the Microsoft
-    variant with an index table — simpler to regex the whole file than to
-    walk it).  The decorated name is exactly what ``/include:`` needs.
+
+def _import_lib_symbols(lib_path: Path) -> set[str]:
+    """Collect decorated ``__imp_`` thunk names from a COFF import library.
+
+    MSVC import libraries store the thunk symbols (``__imp__GetLocalTime@4``,
+    ``__imp_hook@@12``, ``__imp_@keeps@4``) as plain NUL-terminated strings
+    inside the archive members (the archive's linker-member layout is the
+    Microsoft variant with an index table — simpler to regex the whole file
+    than to walk it).  The thunk name is exactly what ``/include:`` needs.
     """
     out: set[str] = set()
     try:
@@ -177,17 +188,20 @@ def _import_lib_symbols(lib_path: Path) -> set[str]:
         return out
     if d[:8] != b"!<arch>\n":
         return out
-    for m in re.finditer(rb"__imp__[A-Za-z0-9_]+@\d+", d):
+    for m in _IMP_LIB_SYMBOL_RE.finditer(d):
         out.add(m.group(0).decode("latin1"))
     return out
 
 
-#: POSIX sh run in the toolchain image: grep the ``__imp__`` symbols out of
+#: POSIX sh run in the toolchain image: grep the ``__imp_`` symbols out of
 #: the file in dir ``$1`` whose upper-cased name equals ``$2``.
+#: Same three spellings as ``_IMP_LIB_SYMBOL_RE``.
 _IMAGE_LIB_GREP_SCRIPT = (
     'for f in "$1"/*; do '
     'if [ "$(basename "$f" | tr \'[:lower:]\' \'[:upper:]\')" = "$2" ]; then '
-    "exec grep -ao '__imp__[A-Za-z0-9_]*@[0-9]*' \"$f\"; fi; "
+    "exec grep -aoE '__imp_(_[A-Za-z_][A-Za-z0-9_]*@[0-9]+"
+    "|[A-Za-z_][A-Za-z0-9_]*@@[0-9]+"
+    '|@[A-Za-z_][A-Za-z0-9_]*@[0-9]+)\' "$f"; fi; '
     "done; exit 1"
 )
 
@@ -197,7 +211,7 @@ def _import_lib_symbols_from_image(dll_stem: str) -> set[str]:
 
     The project config's ``libs`` dir (host MSVC tree) is gone on docker-only
     setups — the import libraries now live inside the toolchain image.  Grep
-    the same ``__imp__...@N`` strings out of the image's ``Lib/<DLL>.LIB``.
+    the same ``__imp_`` thunk strings out of the image's ``Lib/<DLL>.LIB``.
     """
     from rebrew.toolchain import TOOLCHAINS
 
@@ -261,18 +275,27 @@ def _import_lib_symbols_from_image(dll_stem: str) -> set[str]:
 
 
 def _imp_suffix(name: str, lib_symbols: set[str], ordinal_map: dict[str, int]) -> str | None:
-    """Find the decorated suffix (``@N``) for an import name.
+    """Return the ``__imp_...`` thunk ``/include`` should name.
 
     ``sorted`` because a lib can carry more than one decorated variant of the
     same name.  Iterating the set directly makes the winner a function of
     ``PYTHONHASHSEED``, so two runs of ``gen-layout`` in different processes
     can emit different ``/include`` decorations for the same input.
+
+    The thunk is ``__imp_`` plus the decorated symbol.  Stdcall ``_Sleep@4``
+    is ``__imp__Sleep@4``.  Vectorcall ``hook@@12`` is ``__imp_hook@@12``.
+    Fastcall ``@keeps@4`` is ``__imp_@keeps@4``.
     """
+    imp = "__imp_"
+    heads = (f"_{name}@", f"{name}@@", f"@{name}@")
     for sym in sorted(lib_symbols):
-        if sym.startswith(f"__imp__{name}@"):
-            return sym[len("__imp__") :]
+        if not sym.startswith(imp):
+            continue
+        decorated = sym[len(imp) :]
+        if any(decorated.startswith(head) for head in heads):
+            return sym
     if name in ordinal_map:
-        return f"{name}@{ordinal_map[name]}"
+        return f"__imp__{name}@{ordinal_map[name]}"
     return None
 
 
@@ -291,8 +314,7 @@ def _resolve_imports(imports: list[PeImport], lib_symbols: set[str]) -> list[dic
             "include": None,
         }
         if name:
-            suffix = _imp_suffix(name, lib_symbols, _WS2_32_ARGS)
-            entry["include"] = f"__imp__{suffix}" if suffix else None
+            entry["include"] = _imp_suffix(name, lib_symbols, _WS2_32_ARGS)
         out.append(entry)
     return out
 

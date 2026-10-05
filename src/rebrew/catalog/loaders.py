@@ -10,7 +10,12 @@ import warnings
 from pathlib import Path
 from typing import Any
 
-from rebrew.annotation import Annotation, parse_c_file_multi, parse_library_header
+from rebrew.annotation import (
+    Annotation,
+    library_annotations_from_metadata,
+    parse_c_file_multi,
+    parse_library_header,
+)
 from rebrew.catalog.models import FunctionEntry, GhidraDataLabel
 from rebrew.config import ProjectConfig, inventory_path_for, module_marker
 from rebrew.sources import iter_library_headers, iter_sources, scan_files, target_marker
@@ -394,8 +399,17 @@ def scan_reversed_dir(reversed_dir: Path, cfg: ProjectConfig | None = None) -> l
             e for e in parsed if not marker or preset_module_key(e.module or "") in ("", marker)
         )
 
-    if cfg:
-        seen = {(entry.module, entry.va) for entry in entries}
+    seen = {(entry.module, entry.va) for entry in entries}
+    if cfg and metadata_root is not None:
+        for entry in library_annotations_from_metadata(metadata_root, reversed_dir):
+            if (not marker or preset_module_key(entry.module or "") in ("", marker)) and (
+                entry.module,
+                entry.va,
+            ) not in seen:
+                entries.append(
+                    bind_library_source(cfg, entry, metadata.get((entry.module, entry.va), {}))
+                )
+                seen.add((entry.module, entry.va))
         for entry in compiled_library_annotations(cfg, metadata=metadata):
             if (entry.module, entry.va) not in seen:
                 entries.append(entry)

@@ -894,13 +894,22 @@ def select_annotation(
         error_exit("No // FUNCTION annotation found in the source", json_mode=json_mode)
     if not va:
         if not source_arg.strip().lower().startswith("0x") and not Path(source_arg).exists():
+            from rebrew.rename_ops import c_name_from_symbol
             from rebrew.utils import fold_ident
 
-            want_sym = fold_ident(source_arg.strip()).lstrip("_")
+            # The C name and the symbol both count. ``hook@@12`` answers
+            # ``hook``. ``__foo`` answers ``_foo``, not ``foo``.
+            want_sym = fold_ident(source_arg.strip())
             for a in annos:
-                for candidate in (a.symbol or "", a.name or ""):
-                    if fold_ident(candidate.strip()).lstrip("_") == want_sym:
-                        return path, a, a.va
+                candidates = []
+                if a.name:
+                    candidates.append(fold_ident(a.name.strip()))
+                if a.symbol:
+                    symbol = a.symbol.strip()
+                    candidates.append(fold_ident(symbol))
+                    candidates.append(fold_ident(c_name_from_symbol(symbol)))
+                if want_sym in candidates:
+                    return path, a, a.va
         return path, annos[0], annos[0].va
     want = parse_va(va, json_mode=json_mode)
     return path, next((a for a in annos if a.va == want), annos[0]), want

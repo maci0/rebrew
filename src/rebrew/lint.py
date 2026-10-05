@@ -39,6 +39,7 @@ from rebrew.annotation import (
     file_backed_by_metadata,
     min_valid_va_for,
 )
+from rebrew.c_parser import CALLING_CONVENTION
 from rebrew.cli import (
     EXIT_MISMATCH,
     AllTargetsOption,
@@ -1026,8 +1027,10 @@ def _check_W035_unknown_modules(cfg: ProjectConfig) -> list[LintResult]:
 
     ``status`` / ``todo`` / the dashboards filter rows by module, so a row left
     behind by a renamed target is invisible everywhere while still sitting in
-    the store.  Known modules are the project marker, every target marker, and
-    the declared library modules.
+    the store.  Known modules are the project marker, every target marker, the
+    active target's library modules, and every target's external libraries —
+    a D3DX8 row is read while server.dll is the default, but only the TL client
+    links d3dx8.lib, so that row is live, not stale.
     """
     from rebrew.metadata import load_metadata
 
@@ -1035,6 +1038,9 @@ def _check_W035_unknown_modules(cfg: ProjectConfig) -> list[LintResult]:
     known |= {preset_module_key(str(name)) for name in (getattr(cfg, "all_markers", None) or ())}
     known |= {
         preset_module_key(str(name)) for name in (getattr(cfg, "library_modules", None) or ())
+    }
+    known |= {
+        preset_module_key(str(name)) for name in (getattr(cfg, "all_library_modules", None) or ())
     }
     known.discard("")
     if not known:
@@ -1092,7 +1098,7 @@ def _check_W036_stray_metadata_store(cfg: ProjectConfig) -> list[LintResult]:
     a directory if a tool is pointed at it, and is invisible otherwise.
 
     Measured on guild-rebrew (round 162): a stray ``./rebrew-data.toml`` at the
-    project root held **1** entry while ``src/rebrew-data.toml`` held **1170**,
+    project root held **1** entry while the store in ``src/`` held **1170**,
     and `rebrew lint` reported 0 warnings.  Loaded against the root, the store
     resolves and returns the 1 entry with no complaint.
 
@@ -1575,7 +1581,7 @@ def _check_W021_duplicate_globals(
         pending = False
         m = _GLOBAL_NAME_RE.search(s)
         if m:
-            name = m.group(1)
+            name = _declared_global_name(m)
             key = f"{module}:{name}"
             defines = _block_defines(lines, i - 1)
             prev = seen_globals.get(key)
@@ -1594,12 +1600,66 @@ def _check_W021_duplicate_globals(
                 seen_globals[key] = (str(filepath), va, defines)
 
 
+# Brackets may repeat, and one bound may contain one nested pair.
+# Stopping at the first ``]`` skipped ``g[sizeof(wchar_t[3])] = {0}``
+# and ``g[2][4] = {0}``, so W022 never saw them and W021 never named them.
+# ``*name[N]`` glues the star to the name. ``(*name[N])`` and ``(*name)[N]``
+# put the name inside parentheses. ``(*name[N])[M]`` has another bracket
+# run after the closing parenthesis. ``(__cdecl *name[N])`` keeps the
+# calling convention off the name. ``(* const name[N])`` keeps the
+# qualifier off the name. ``(*name[N])(int)`` keeps the parameter list
+# between the declarator and ``=``.
+_POINTER_NAME_QUALIFIER = r"(?:(?:const|volatile)\b\s*)*"
+_FN_PARAMS = r"(?:\((?:[^()]|\([^()]*\))*\))?"
 _ZERO_INIT_RE = re.compile(
     r"^\s*(?:extern\s+|static\s+)?(?:unsigned\s+|signed\s+|const\s+)?"
-    r"[A-Za-z_][\w\s\*]*?\s+[A-Za-z_]\w*\s*(?:\[[^\]]*\])?\s*=\s*\{?\s*0\s*\}?\s*;"
+    r"[A-Za-z_][\w\s\*]*?"
+    r"(?:\s+[A-Za-z_]\w+"
+    r"|\s*\*+\s*[A-Za-z_]\w+"
+    r"|\(\s*"
+    + CALLING_CONVENTION
+    + r"\*+\s*"
+    + _POINTER_NAME_QUALIFIER
+    + r"[A-Za-z_]\w+\s*\)"
+    + _FN_PARAMS
+    + r"|\(\s*"
+    + CALLING_CONVENTION
+    + r"\**\s*"
+    + _POINTER_NAME_QUALIFIER
+    + r"[A-Za-z_]\w+\s*(?:\[(?:[^\[\]]|\[[^\]]*\])*\])+\s*\)"
+    + _FN_PARAMS
+    + r")"
+    r"(?:\[(?:[^\[\]]|\[[^\]]*\])*\]\s*)*"
+    r"\s*=\s*\{?\s*0\s*\}?\s*;"
 )
 
-_GLOBAL_NAME_RE = re.compile(r"\b([A-Za-z_]\w*)\s*(?:\[[^\]]*\]\s*)?[;=]")
+# ``(int)`` after a function-pointer declarator also looks like a name
+# followed by ``[;=]``. Match ``(*name)`` first, so the parameter type is
+# not the global. ``__cdecl`` and ``const`` stay off that name.
+_GLOBAL_NAME_RE = re.compile(
+    r"(?:"
+    r"\(\s*"
+    + CALLING_CONVENTION
+    + r"\*+\s*"
+    + _POINTER_NAME_QUALIFIER
+    + r"(?P<pointer>[A-Za-z_]\w*)"
+    r"\s*(?:\[(?:[^\[\]]|\[[^\]]*\])*\])*\s*\)"
+    r"(?:\[(?:[^\[\]]|\[[^\]]*\])*\]\s*)*"
+    r"(?:\((?:[^()]|\([^()]*\))*\))?"
+    r"|"
+    r"(?:\(\s*\**\s*)?\b(?P<name>[A-Za-z_]\w*)\s*\)?"
+    r"\s*(?:\[(?:[^\[\]]|\[[^\]]*\])*\]\s*)*"
+    r"\s*\)?\s*"
+    r"(?:\[(?:[^\[\]]|\[[^\]]*\])*\]\s*)*"
+    r")"
+    r"\s*[;=]"
+)
+
+
+def _declared_global_name(match: re.Match[str]) -> str:
+    """Return the declarator name from a global-name match."""
+    found = match.group("pointer") or match.group("name")
+    return found if isinstance(found, str) else ""
 
 
 # Event scanning for _strip_c_comments_strings: the characters that can change
@@ -1725,7 +1785,7 @@ def _check_W022_zero_init_bss(
         if depth == 0 and _ZERO_INIT_RE.match(cleaned.strip()):
             if data_section_names:
                 name_match = _GLOBAL_NAME_RE.search(cleaned)
-                if name_match and name_match.group(1) in data_section_names:
+                if name_match and _declared_global_name(name_match) in data_section_names:
                     continue
             result.warning(
                 i,

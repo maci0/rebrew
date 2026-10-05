@@ -52,6 +52,30 @@ class TestExtractFunctionSignatures:
         result = list(extract_function_signatures(f))
         assert result == []
 
+    def test_strips_winapi_and_vectorcall(self, tmp_path: Path) -> None:
+        """WINAPI and ``__vectorcall`` are calling conventions.
+
+        They stayed in the signature, and a function-pointer parameter
+        that used them was not rewritten to ``void *``.
+        """
+        f = tmp_path / "cb.c"
+        f.write_text(
+            "int h(void (WINAPI *cb)(int)) { return 0; }\n"
+            "int g(void (__vectorcall *hook)(int)) { return 1; }\n"
+            "int WINAPI k(int a) { return a; }\n"
+            "int m(void (CALLBACK *cbs[4])(int)) { return 2; }\n",
+            encoding="utf-8",
+        )
+        result = dict(extract_function_signatures(f))
+        assert "WINAPI" not in result["h"]
+        assert "void * cb" in result["h"]
+        assert "(*cb" not in result["h"]
+        assert "__vectorcall" not in result["g"]
+        assert "void * hook" in result["g"]
+        assert result["k"] == "int k(int a)"
+        assert "CALLBACK" not in result["m"]
+        assert "void * cbs[4]" in result["m"]
+
 
 class TestNormalizeSignature:
     def test_strips_declspec(self) -> None:
@@ -70,6 +94,39 @@ class TestNormalizeSignature:
         out = _normalize_signature("int h(void (*cb)(int));")
         assert "void *" in out
         assert "cb" in out
+
+    def test_function_pointer_array_param_to_void(self) -> None:
+        """``void (*cbs[4])(int)`` is an array of function pointers.
+
+        The brackets sat between the name and the parameter list, so the
+        parameter stayed in the signature. Ghidra's CParser gets
+        ``void * cbs[4]``. A pointer to an array is not a function
+        pointer and stays.
+        """
+        from rebrew.signature_parser import _normalize_signature
+
+        out = _normalize_signature("int h(void (*cbs[4])(int));")
+        assert "void * cbs[4]" in out
+        assert "(*cbs" not in out
+        row = _normalize_signature("int h(void (*row)[4]);")
+        assert "(*row)[4]" in row
+
+    def test_pointer_to_function_pointer_param_to_void(self) -> None:
+        """``void (**cb)(int)`` is a pointer to a function pointer.
+
+        The extra star hid it, so the parameter stayed in the signature.
+        ``void (**cbs[4])(int)`` is an array of those pointers.
+        ``void (**row)[4]`` is a pointer to an array and stays.
+        """
+        from rebrew.signature_parser import _normalize_signature
+
+        out = _normalize_signature("int h(void (**cb)(int));")
+        assert "void * cb" in out
+        assert "(**cb" not in out
+        nested = _normalize_signature("int h(void (**cbs[4])(int));")
+        assert "void * cbs[4]" in nested
+        row = _normalize_signature("int h(void (**row)[4]);")
+        assert "(**row)[4]" in row
 
     def test_pointer_space_normalized(self) -> None:
         from rebrew.signature_parser import _normalize_signature

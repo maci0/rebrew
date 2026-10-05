@@ -30,6 +30,7 @@ from rebrew.annotation import (
     parse_c_file_text,
     split_annotation_sections,
 )
+from rebrew.c_parser import CALLING_CONVENTION
 from rebrew.cli import (
     TargetOption,
     confirm_abort,
@@ -99,9 +100,13 @@ def _extract_extern_name(decl: str) -> str | None:
     """The symbol name from an extern declaration."""
     d = decl.strip().rstrip(";").strip()
     d = re.sub(r"/\*.*?\*/", "", d).strip()
-    # function pointer: ``int (*fp)(void)`` — must be tested before the plain
-    # declarator rule or the base type matches instead of the symbol
-    m = re.search(r"\(\s*\*\s*(\w+)", d)
+    # ``int (*fp)(void)``, ``int (* const rows[2])[4]``, ``char (__cdecl *row)[4]``.
+    # The convention and qualifier are not the symbol. Tested before the plain
+    # declarator rule or the base type matches instead of the symbol.
+    m = re.search(
+        r"\(\s*" + CALLING_CONVENTION + r"\*+\s*(?:(?:const|volatile)\b\s*)*(\w+)",
+        d,
+    )
     if m:
         return m.group(1)
     m = re.search(r"(\w+)\s*[\[(]", d)
@@ -217,8 +222,23 @@ def consolidate_declarations(text: str) -> tuple[str, ExternReport]:
             if i > 0 and _GLOBAL_COMMENT_RE.match(lines[i - 1].strip()):
                 i += 1
                 continue
-            externs.append(stripped)
-            lines_to_remove.add(i)
+            # An extern can span lines (`extern int f(int a,` / `int b);`).
+            # Taking only the first line drops its newline, so the next
+            # declaration glues onto it. Consume through the semicolon.
+            chunk = [lines[i]]
+            j = i
+            while not _ends_declaration(chunk[-1]):
+                j += 1
+                if j >= len(lines) or lines[j].lstrip().startswith("#"):
+                    break
+                chunk.append(lines[j])
+            if _ends_declaration(chunk[-1]):
+                externs.append(" ".join(part.strip() for part in chunk))
+                lines_to_remove.update(range(i, j + 1))
+                i = j
+            else:
+                externs.append(stripped)
+                lines_to_remove.add(i)
         elif _TYPEDEF_RE.match(stripped):
             # hoist multi-line typedefs (``typedef struct {...} X_t;``) whole:
             # consume until braces balance and the closing semicolon appears,
@@ -253,7 +273,7 @@ def consolidate_declarations(text: str) -> tuple[str, ExternReport]:
         header.append("#pragma intrinsic(" + ", ".join(sorted(funcs)) + ")\n\n")
     report = _resolve_externs(externs)
     if report.resolved:
-        header += [ext if ext.endswith(";") else ext + ";" for ext in report.resolved]
+        header += [(ext if ext.endswith(";") else ext + ";") + "\n" for ext in report.resolved]
         header.append("\n")
 
     body_lines: list[str] = []

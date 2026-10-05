@@ -22,7 +22,7 @@ between them by copying the `.c` per target.  But two scenarios need the
 rebrew already has most of the primitives: per-target config with
 `reversed_dir = src/<TARGET>`, per-target compiler flags, the same
 `// FUNCTION: <target> <va>` marker syntax, and per-target metadata keyed by
-`module.va` in one `src/rebrew-functions.toml`.  What was missing was a way
+`module.va` in one `rebrew-functions.toml`.  What was missing was a way
 for one source file to be discovered and compiled for every target, plus a
 per-target compile-time define.
 

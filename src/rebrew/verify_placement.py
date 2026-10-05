@@ -18,6 +18,7 @@ from typing import Any
 
 import typer
 
+from rebrew.binary_loader import load_binary
 from rebrew.cli import (
     EXIT_MISMATCH,
     TargetOption,
@@ -34,8 +35,33 @@ from rebrew.data_layout import built_data_va
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
     "  rebrew build check-data-placement · · · · · · Compare .data symbol VAs against the metadata\n\n"
+    "  rebrew build check-data-placement --cut 0x100273e0 · · · Veto a size edit at this VA\n\n"
     "  rebrew build check-data-placement --target win16 --json · Machine-readable result\n"
 )
+
+
+def data_shift_scores(
+    reference: bytes, built: bytes, *, step: int, shifts: int
+) -> list[dict[str, int]]:
+    """Matching bytes after each candidate shift of *built* against *reference*.
+
+    A size edit moves every byte after its cut. Score each shift on the tail
+    and let the caller decide whether shift 0 already wins.
+    """
+    if step < 1:
+        raise ValueError("step must be positive")
+    width = len(reference)
+    scores = []
+    for delta in range(-shifts * step, shifts * step + 1, step):
+        if delta < 0:
+            ref = reference[-delta:]
+            cand = built[: width + delta]
+        else:
+            ref = reference[: width - delta]
+            cand = built[delta : delta + len(ref)]
+        limit = min(len(ref), len(cand))
+        scores.append({"shift": delta, "matches": sum(ref[i] == cand[i] for i in range(limit))})
+    return scores
 
 
 app = typer.Typer(
@@ -56,6 +82,11 @@ def main(
         help="Built binary to inspect (default: build/<target>)",
     ),
     limit: int = typer.Option(15, "--limit", help="Max misplaced symbols to print"),
+    cut: str | None = typer.Option(
+        None, "--cut", help="VA of a .data cut. Score size shifts of the bytes after it"
+    ),
+    shift_step: int = typer.Option(8, "--shift-step", help="Bytes between candidate size shifts"),
+    shifts: int = typer.Option(4, "--shifts", help="Candidate shifts to try on each side of zero"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
@@ -119,6 +150,8 @@ def main(
                 bads.append((sym, expected[sym], addr))
     bads.sort(key=lambda t: -abs(t[1] - t[2]))
 
+    shift_report = _shift_report(cfg, dll, cut, shift_step, shifts, json_output)
+
     # Only objects with at least one misplaced symbol, worst delta first.
     drifted: list[dict[str, Any]] = sorted(
         (
@@ -148,6 +181,7 @@ def main(
                     for s, e, a in bads[:limit]
                 ],
                 "per_object": drifted,
+                "shift": shift_report,
             }
         )
     else:
@@ -158,6 +192,15 @@ def main(
             console.print(
                 f"  {untrusted_ident(sym):32} exp {exp:#010x}  our {act:#010x}  d {act - exp:+#x}"
             )
+        if shift_report is not None:
+            best = shift_report["best_shift"]
+            verdict = (
+                "size edit can only lose" if best == 0 else f"tail matches best at shift {best:+d}"
+            )
+            console.print(f"  shift veto at {shift_report['cut']}: {verdict}")
+            for row in shift_report["scores"]:
+                mark = "  <-- current" if row["shift"] == 0 else ""
+                console.print(f"    shift {row['shift']:+d}  {row['matches']} matches{mark}")
         if drifted:
             console.print("  [dim]placement drift by object (roadmap-style):[/dim]")
             for stats in drifted[:limit]:
@@ -168,6 +211,38 @@ def main(
                 )
     if bad:
         raise typer.Exit(code=EXIT_MISMATCH)
+
+
+def _shift_report(
+    cfg: Any, dll: Path, cut: str | None, step: int, shifts: int, json_output: bool
+) -> dict[str, Any] | None:
+    """Score the `.data` tail after *cut*. None when the caller did not ask."""
+    if cut is None:
+        return None
+    from rebrew.cli import parse_va
+
+    step = require_non_negative(option_default(step, 8), "--shift-step", json_mode=json_output)
+    shifts = require_non_negative(option_default(shifts, 4), "--shifts", json_mode=json_output)
+    if step < 1 or shifts < 1:
+        error_exit("--shift-step and --shifts must be positive", json_mode=json_output)
+        return None
+    cut_va = parse_va(cut, json_mode=json_output)
+    ref = load_binary(Path(cfg.target_binary))
+    built = load_binary(dll)
+    ref_data = ref.sections.get(".data")
+    built_data = built.sections.get(".data")
+    if ref_data is None or built_data is None:
+        error_exit("reference or build has no .data section", json_mode=json_output)
+        return None
+    if not ref_data.va <= cut_va < ref_data.va + ref_data.raw_size:
+        error_exit(f"--cut {cut} is outside the reference .data section", json_mode=json_output)
+    ref_off = ref_data.file_offset + (cut_va - ref_data.va)
+    built_off = built_data.file_offset + (cut_va - ref_data.va)
+    ref_tail = ref.data[ref_off : ref_data.file_offset + ref_data.raw_size]
+    built_tail = built.data[built_off : built_data.file_offset + built_data.raw_size]
+    scores = data_shift_scores(ref_tail, built_tail, step=step, shifts=shifts)
+    best = max(scores, key=lambda row: (row["matches"], -abs(row["shift"])))
+    return {"cut": hex(cut_va), "best_shift": best["shift"], "scores": scores}
 
 
 def main_entry() -> None:

@@ -190,6 +190,33 @@ class TestResolveWatchedDir32:
         assert out == {}
         assert any("watched-VA name resolution failed" in r.message for r in caplog.records)
 
+    def test_decorated_symbol_resolves_to_the_c_name(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """``hook@@12`` watches ``hook``. ``__foo`` watches ``_foo``, not ``foo``."""
+
+        def fake_relocs(_path: str | Path, _symbol: str) -> list[Any]:
+            return [
+                SimpleNamespace(offset=10, type=0x06, symbol="hook@@12"),
+                SimpleNamespace(offset=14, type=0x06, symbol="@keeps@4"),
+                SimpleNamespace(offset=18, type=0x06, symbol="__foo"),
+                SimpleNamespace(offset=22, type=0x06, symbol="_bar"),
+            ]
+
+        monkeypatch.setattr(prove_mod, "parse_obj_relocs_full", fake_relocs)
+        out = prove_mod._resolve_watched_dir32(
+            "f.obj",
+            "_f",
+            object(),
+            {0x2000, 0x2100, 0x3000, 0x4000, 0x5000},
+            {
+                "hook": 0x2000,
+                "keeps": 0x2100,
+                "_foo": 0x3000,
+                "foo": 0x4000,
+                "bar": 0x5000,
+            },
+        )
+        assert out == {10: 0x2000, 14: 0x2100, 18: 0x3000, 22: 0x5000}
+
 
 @pytest.mark.skipif(not has_claripy, reason="claripy not installed")
 class TestCompareStatePairsRealClaripy:

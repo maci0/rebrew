@@ -154,9 +154,14 @@ def _definition_re(name: str) -> re.Pattern[str]:
 def _span_of(code: list[str], symbol: str) -> tuple[int, int]:
     """function_span over an already comment-stripped copy of the source."""
     name = symbol[1:] if symbol.startswith("_") else symbol
-    # A __stdcall/__fastcall definition carries an "@<bytes>" decoration, which
-    # the compiler adds and the source never writes: `_foo@8` defines `foo`.
+    # The compiler adds the decoration and the source never writes it:
+    # `_foo@8` defines `foo`, `hook@@12` defines `hook`, `@keeps@4`
+    # defines `keeps`. One ``@N`` strip left ``hook@``.
     name = _AT_DECORATION_RE.sub("", name)
+    if name.endswith("@"):
+        name = name[:-1]
+    elif name.startswith("@") and not name.startswith("@@"):
+        name = name[1:]
     head = _definition_re(name)
     # A file may declare the symbol before defining it; a definition is the
     # match that does not end in ';'.  Taking the first match would climb the
@@ -465,14 +470,22 @@ def _install_restore_handler(path: Path, original: str, encoding: str) -> dict[i
     previous: dict[int, Any] = {}
 
     def handler(signum: int, _frame: object) -> None:
-        atomic_write_text(path, original, encoding=encoding)
-        signal.signal(signum, previous.get(signum, signal.SIG_DFL))
-        os.kill(os.getpid(), signum)
+        try:
+            atomic_write_text(path, original, encoding=encoding)
+        finally:
+            # A failed restore must still put the previous handler back and
+            # re-raise the signal. Otherwise the climb swallows SIGTERM.
+            signal.signal(signum, previous.get(signum, signal.SIG_DFL))
+            os.kill(os.getpid(), signum)
 
-    for name in ("SIGTERM", "SIGINT", "SIGHUP"):
-        number = getattr(signal, name, None)
-        if number is not None:
-            previous[number] = signal.signal(number, handler)
+    try:
+        for name in ("SIGTERM", "SIGINT", "SIGHUP"):
+            number = getattr(signal, name, None)
+            if number is not None:
+                previous[number] = signal.signal(number, handler)
+    except BaseException:
+        _remove_restore_handler(previous)
+        raise
     return previous
 
 
@@ -657,12 +670,11 @@ def main(
         # stderr, so --json output on stdout stays parseable
         console.print(f"  pass {move['pass']} statement {move['index']}: {move['after']:.0f} bytes")
 
-    # Installed only now: nothing above writes the source, and every path
-    # from here on runs the inverse in the finally below — an earlier
-    # install leaked the handler on the span/chunks error_exit paths.
-    # Under --dry-run the real file is never written (score_path is a scratch
-    # copy), so there is nothing to restore or back up.
-    previous_handlers = _install_restore_handler(path, original, encoding) if not dry_run else None
+    # Installed inside the try below. source_backup can fail before any
+    # scoring write, and that failure must still reach the finally that
+    # removes the handler. Span and chunks error_exit paths stay above.
+    # Under --dry-run the real file is never written, so there is no handler.
+    previous_handlers: dict[int, Any] | None = None
     # The handler above and the restore below both need Python to run.  A
     # SIGKILL, an OOM kill, a power cut, or a stopped container runs neither,
     # leaving the last candidate scored in the file, so the pre-run bytes go
@@ -679,6 +691,8 @@ def main(
         else contextlib.nullcontext(None)
     )
     try:
+        if not dry_run:
+            previous_handlers = _install_restore_handler(path, original, encoding)
         with backup as backup_path:
             if backup_path is not None:
                 console.print(f"  [dim]pre-run copy: {untrusted_ident(backup_path)}[/dim]")

@@ -315,6 +315,71 @@ class TestFunctionIsolation:
         assert "func_a" not in code.replace("func_b", "")
         assert '#include "types.h"' in code
 
+    def test_decorated_symbol_isolates_the_c_function(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An empty C name still isolates the function, not the decoration.
+
+        ``lstrip("_")`` searched for ``hook@@12`` and ``@keeps@4``, so a
+        file with a second function uploaded both. ``__foo`` searched for
+        ``foo``. The disassembly label stays the linker symbol. A cdecl
+        ``_foo`` still isolates ``foo``.
+        """
+        cfg = _cfg(tmp_path)
+        cfg.reversed_dir.mkdir(exist_ok=True)
+        src = cfg.reversed_dir / "two.c"
+        monkeypatch.setattr(
+            "rebrew.binary_loader.extract_raw_bytes", lambda p, va, size: b"\x90" * 16
+        )
+        cases = (
+            (
+                "int other(void){return 1;}\n\n"
+                "int __vectorcall hook(int a, int b, int c){return 0;}\n",
+                "hook@@12",
+                "hook",
+                "other",
+            ),
+            (
+                "int other(void){return 1;}\n\nint __fastcall keeps(int a){return a;}\n",
+                "@keeps@4",
+                "keeps",
+                "other",
+            ),
+            (
+                "int foo(void){return 1;}\n\nint _foo(void){return 0;}\n",
+                "__foo",
+                "_foo",
+                "foo",
+            ),
+            (
+                "int other(void){return 1;}\n\nint foo(void){return 0;}\n",
+                "_foo",
+                "foo",
+                "other",
+            ),
+        )
+        for text, symbol, want, other in cases:
+            src.write_text(text, encoding="utf-8")
+            payload = decompme.build_scratch_payload(
+                cfg,
+                src,
+                va=0x401000,
+                size=16,
+                symbol=symbol,
+                name="",
+                compiler="msvc6.0",
+                platform="win32",
+                compiler_flags="/O1",
+                context="",
+            )
+            code = payload["data"]["source_code"]
+            assert want in code, symbol
+            if want == "_foo":
+                assert "int foo" not in code, symbol
+            else:
+                assert other not in code, symbol
+            assert payload["data"]["diff_label"] == symbol
+
 
 class TestUpload:
     def test_success(self, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -35,6 +35,7 @@ from typing import Any
 
 import typer
 
+from rebrew.c_parser import CALLING_CONVENTION
 from rebrew.cli import EXIT_ERROR, TargetOption, console, error_exit, json_print, require_config
 from rebrew.pseudo_c import sanitize_tokens
 from rebrew.utils import atomic_write_text, read_source_text
@@ -83,9 +84,19 @@ _PRIMITIVE_BASES = (
 #: ``unsigned int size;`` / ``long long foo(void);`` — multiword-base
 #: declarations: the identifier after the base is already declared and must
 #: never be redefined by injection.
+# ``(*name[N])`` and ``(*name)[N]`` still declare *name*. The opening
+# parenthesis used to hide it, so a diagnostic for that name injected a
+# second typedef. ``(__cdecl *name)`` keeps the calling convention off
+# the name. The two parentheses are optional on their own; a call
+# ``name(...)`` still needs the semicolon form below, so a function
+# definition is not a declaration.
 _MULTWORD_DECL_RE = re.compile(
-    rf"\b(?:{_PRIMITIVE_BASES})(?:\s+(?:{_PRIMITIVE_BASES}|\*))*\s*\**\s*"
-    r"([A-Za-z_]\w*)\s*(?:[;(=\[]|\([^;]*\)\s*;)"
+    rf"\b(?:{_PRIMITIVE_BASES})(?:\s+(?:{_PRIMITIVE_BASES}|\*))*"
+    r"\s*(?:\(\s*" + CALLING_CONVENTION + r")?\**\s*"
+    r"([A-Za-z_]\w*)\s*"
+    r"(?:\[(?:[^\[\]]|\[[^\]]*\])*\])*\s*"
+    r"\)?\s*"
+    r"(?:[;(=\[]|\([^;]*\)\s*;)"
 )
 
 

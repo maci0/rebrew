@@ -54,9 +54,12 @@ _INDIRECT_JMP_BASE_RE = re.compile(r"word ptr \[([a-z]+)\s*\+\s*0x([0-9a-fA-F]+)
 #: pulling unrelated handler addresses into the case list.
 _CMP_IMM_RE = re.compile(r"([a-z0-9]+),\s*(0x[0-9a-fA-F]+|\d+)\s*$")
 
-#: ``and eax, 3`` — a register-index mask used as a bounds check by MSVC's
-#: memcpy/memmove byte-tail dispatches (``and reg, N; jmp [reg*4 + table]``).
-_MASK_RE = re.compile(r"^(eax|ecx|edx|esi|edi|ebx),\s*(?:0x)?([0-9a-fA-F]+)$")
+#: ``and eax, 3`` / ``and rax, 3`` — a register-index mask used as a bounds
+#: check by MSVC's memcpy/memmove byte-tail dispatches
+#: (``and reg, N; jmp [reg*scale + table]``).  The register is checked
+#: against the table index afterwards, so the name is any register, not only
+#: the 32-bit set: a 64-bit ``and rax, 3`` is the same bound.
+_MASK_RE = re.compile(r"^([a-z0-9]+),\s*(?:0x)?([0-9a-fA-F]+)$")
 
 
 def _is_index_mask(value: int) -> bool:
@@ -260,8 +263,6 @@ def _read_table(
         if off + entry_width > len(raw):
             break
         target = struct.unpack_from(fmt, raw, off)[0]
-        if target == 0 and entry_width == 4:
-            break
         # Every dispatch entry points into the image (a case handler) —
         # stop at the first that doesn't.  The bounds check is an upper
         # bound; the real table may be shorter (sparse/misread bounds).

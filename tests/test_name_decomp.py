@@ -1,6 +1,10 @@
 """Tests for name_decomp.py — applying known struct names to decompiler output."""
 
-from rebrew.name_decomp import apply_known_names, struct_field_layout
+from rebrew.name_decomp import (
+    apply_known_names,
+    struct_definitions_to_layouts,
+    struct_field_layout,
+)
 
 
 class TestFieldLayout:
@@ -49,6 +53,303 @@ class TestFieldLayout:
     def test_symbolic_dim_marks_incomplete(self) -> None:
         lay = struct_field_layout("typedef struct s {\n\tchar buf[N];\n} s;\n")
         assert not lay.complete
+
+    def test_parenthesized_pointer_array_keeps_the_next_field(self) -> None:
+        """``int (*table[4])`` is four pointers, and the next field stays.
+
+        The name sits inside parentheses, so the line was not a field and
+        the struct was incomplete. ``char (*row)[4]`` stays one pointer.
+        """
+        lay = struct_field_layout("typedef struct s {\n\tint (*table[4]);\n\tint tail;\n} s;\n")
+        assert lay.complete
+        assert lay.fields[0] == ("table", 16)
+        assert lay.fields[16] == ("tail", 4)
+        assert lay.size == 20
+
+        row = struct_field_layout("typedef struct r {\n\tchar (*row)[4];\n\tint tail;\n} r;\n")
+        assert row.complete
+        assert row.fields[0] == ("row", 4)
+        assert row.fields[4] == ("tail", 4)
+        assert row.size == 8
+
+        bare = struct_field_layout("typedef struct b {\n\tint *rows[4];\n} b;\n")
+        assert bare.complete
+        assert bare.fields[0] == ("rows", 16)
+
+    def test_constant_expression_dimension(self) -> None:
+        """``[2 + 2]`` is four bytes. The line parser used to mark the
+        struct incomplete and drop the following field."""
+        lay = struct_field_layout("typedef struct e {\n\tchar expr[2 + 2];\n\tint tail;\n} e;\n")
+        assert lay.complete
+        assert lay.fields[0] == ("expr", 4)
+        assert lay.fields[4] == ("tail", 4)
+        assert lay.size == 8
+
+    def test_multiword_scalar_fields(self) -> None:
+        """The line parser keeps ``long long`` and ``long double`` as one type.
+
+        A single-word base treated ``long`` as the type and ``long`` as the
+        field name, so the struct was incomplete and the real field was
+        dropped.  The layout stays packed: no alignment padding.
+        """
+        lay = struct_field_layout(
+            "typedef struct w {\n"
+            "\tlong long *p;\n"
+            "\tlong long x;\n"
+            "\tunsigned long long y;\n"
+            "\tlong double z;\n"
+            "\tshort int s;\n"
+            "\tlong int n;\n"
+            "\tlong long int q;\n"
+            "} w;\n"
+        )
+        assert lay.complete
+        assert lay.fields[0] == ("p", 4)
+        assert lay.fields[4] == ("x", 8)
+        assert lay.fields[12] == ("y", 8)
+        assert lay.fields[20] == ("z", 8)
+        assert lay.fields[28] == ("s", 2)
+        assert lay.fields[30] == ("n", 4)
+        assert lay.fields[34] == ("q", 8)
+        assert lay.size == 42
+
+    def test_div_bound_keeps_packed_field(self) -> None:
+        """``[7 / 2]`` is 3. A packed ``int field_3`` stays at offset 3.
+
+        Natural alignment would move it to 4.  The bound is not a plain
+        decimal, so the decompiler layout wins.
+        """
+        defs = {
+            "pack_s": (
+                "typedef struct pack_s {\n\tchar gap_0000[7 / 2];\n\tint field_3;\n} pack_s;\n"
+            ),
+        }
+        lay = struct_definitions_to_layouts(defs)["pack_s"]
+        assert lay.complete
+        assert lay.fields[0] == ("gap_0000", 3)
+        assert lay.fields[3] == ("field_3", 4)
+
+    def test_shift_bound_keeps_packed_field(self) -> None:
+        """``[1 << 1]`` is 2. A packed ``int field_2`` stays at offset 2."""
+        defs = {
+            "pack_s": (
+                "typedef struct pack_s {\n\tchar gap_0000[1 << 1];\n\tint field_2;\n} pack_s;\n"
+            ),
+        }
+        lay = struct_definitions_to_layouts(defs)["pack_s"]
+        assert lay.complete
+        assert lay.fields[0] == ("gap_0000", 2)
+        assert lay.fields[2] == ("field_2", 4)
+
+    def test_signed_intermediate_keeps_packed_field(self) -> None:
+        """``[4 + -2]`` is 2. A packed ``int field_2`` stays at offset 2.
+
+        Natural alignment would move it to 4.  The bound is not a plain
+        decimal, so the decompiler layout wins.
+        """
+        defs = {
+            "pack_s": (
+                "typedef struct pack_s {\n\tchar gap_0000[4 + -2];\n\tint field_2;\n} pack_s;\n"
+            ),
+        }
+        lay = struct_definitions_to_layouts(defs)["pack_s"]
+        assert lay.complete
+        assert lay.fields[0] == ("gap_0000", 2)
+        assert lay.fields[2] == ("field_2", 4)
+
+    def test_bitwise_bound_keeps_packed_field(self) -> None:
+        """``[15 & 7]`` is 7. A packed ``int field_7`` stays at offset 7.
+
+        Natural alignment would move it to 8.  The bound is not a plain
+        decimal, so the decompiler layout wins.
+        """
+        defs = {
+            "pack_s": (
+                "typedef struct pack_s {\n\tchar gap_0000[15 & 7];\n\tint field_7;\n} pack_s;\n"
+            ),
+        }
+        lay = struct_definitions_to_layouts(defs)["pack_s"]
+        assert lay.complete
+        assert lay.fields[0] == ("gap_0000", 7)
+        assert lay.fields[7] == ("field_7", 4)
+
+    def test_parenthesized_bound_keeps_packed_field(self) -> None:
+        """``[(2)]`` is 2. A packed ``int field_2`` stays at offset 2.
+
+        Natural alignment would move it to 4.  Parentheses are not a plain
+        decimal, so the decompiler layout wins.
+        """
+        defs = {
+            "pack_s": (
+                "typedef struct pack_s {\n\tchar gap_0000[(2)];\n\tint field_2;\n} pack_s;\n"
+            ),
+        }
+        lay = struct_definitions_to_layouts(defs)["pack_s"]
+        assert lay.complete
+        assert lay.fields[0] == ("gap_0000", 2)
+        assert lay.fields[2] == ("field_2", 4)
+
+    def test_cast_bound_keeps_packed_field(self) -> None:
+        """``[(int)2]`` is 2. A packed ``int field_2`` stays at offset 2."""
+        defs = {
+            "pack_s": (
+                "typedef struct pack_s {\n\tchar gap_0000[(int)2];\n\tint field_2;\n} pack_s;\n"
+            ),
+        }
+        lay = struct_definitions_to_layouts(defs)["pack_s"]
+        assert lay.complete
+        assert lay.fields[0] == ("gap_0000", 2)
+        assert lay.fields[2] == ("field_2", 4)
+
+    def test_ternary_bound_keeps_packed_field(self) -> None:
+        """``[0 ? 8 : 2]`` is 2. A packed ``int field_2`` stays at offset 2."""
+        defs = {
+            "pack_s": (
+                "typedef struct pack_s {\n\tchar gap_0000[0 ? 8 : 2];\n\tint field_2;\n} pack_s;\n"
+            ),
+        }
+        lay = struct_definitions_to_layouts(defs)["pack_s"]
+        assert lay.complete
+        assert lay.fields[0] == ("gap_0000", 2)
+        assert lay.fields[2] == ("field_2", 4)
+
+    def test_comma_bound_keeps_packed_field(self) -> None:
+        """``[(2, 3)]`` is 3. A packed ``int field_3`` stays at offset 3."""
+        defs = {
+            "pack_s": (
+                "typedef struct pack_s {\n\tchar gap_0000[(2, 3)];\n\tint field_3;\n} pack_s;\n"
+            ),
+        }
+        lay = struct_definitions_to_layouts(defs)["pack_s"]
+        assert lay.complete
+        assert lay.fields[0] == ("gap_0000", 3)
+        assert lay.fields[3] == ("field_3", 4)
+
+    def test_sizeof_bound_keeps_packed_field(self) -> None:
+        """``[sizeof(short)]`` is 2. A packed ``int field_2`` stays at offset 2."""
+        defs = {
+            "pack_s": (
+                "typedef struct pack_s {\n"
+                "\tchar gap_0000[sizeof(short)];\n"
+                "\tint field_2;\n"
+                "} pack_s;\n"
+            ),
+        }
+        lay = struct_definitions_to_layouts(defs)["pack_s"]
+        assert lay.complete
+        assert lay.fields[0] == ("gap_0000", 2)
+        assert lay.fields[2] == ("field_2", 4)
+
+    def test_comparison_bound_keeps_packed_field(self) -> None:
+        """``[2 == 2]`` is 1. A packed ``int field_1`` stays at offset 1.
+
+        Natural alignment would move it to 4.  ``==`` is not a plain decimal.
+        """
+        defs = {
+            "pack_s": (
+                "typedef struct pack_s {\n\tchar gap_0000[2 == 2];\n\tint field_1;\n} pack_s;\n"
+            ),
+        }
+        lay = struct_definitions_to_layouts(defs)["pack_s"]
+        assert lay.complete
+        assert lay.fields[0] == ("gap_0000", 1)
+        assert lay.fields[1] == ("field_1", 4)
+
+    def test_logical_bound_keeps_packed_field(self) -> None:
+        """``[0 || 1]`` is 1. A packed ``int field_1`` stays at offset 1."""
+        defs = {
+            "pack_s": (
+                "typedef struct pack_s {\n\tchar gap_0000[0 || 1];\n\tint field_1;\n} pack_s;\n"
+            ),
+        }
+        lay = struct_definitions_to_layouts(defs)["pack_s"]
+        assert lay.complete
+        assert lay.fields[0] == ("gap_0000", 1)
+        assert lay.fields[1] == ("field_1", 4)
+
+    def test_char_constant_keeps_packed_field(self) -> None:
+        """``['\\n']`` is 10. A packed ``int field_A`` stays at offset 10."""
+        defs = {
+            "pack_s": (
+                "typedef struct pack_s {\n\tchar gap_0000['\\n'];\n\tint field_A;\n} pack_s;\n"
+            ),
+        }
+        lay = struct_definitions_to_layouts(defs)["pack_s"]
+        assert lay.complete
+        assert lay.fields[0] == ("gap_0000", 10)
+        assert lay.fields[10] == ("field_A", 4)
+
+    def test_sizeof_string_keeps_packed_field(self) -> None:
+        """``[sizeof("hi")]`` is 3. A packed ``int field_3`` stays at offset 3."""
+        defs = {
+            "pack_s": (
+                'typedef struct pack_s {\n\tchar gap_0000[sizeof("hi")];\n\tint field_3;\n} pack_s;\n'
+            ),
+        }
+        lay = struct_definitions_to_layouts(defs)["pack_s"]
+        assert lay.complete
+        assert lay.fields[0] == ("gap_0000", 3)
+        assert lay.fields[3] == ("field_3", 4)
+
+    def test_sizeof_wchar_keeps_packed_field(self) -> None:
+        """``[sizeof(wchar_t)]`` is 2. A packed ``int field_2`` stays at offset 2."""
+        defs = {
+            "pack_s": (
+                "typedef struct pack_s {\n"
+                "\tchar gap_0000[sizeof(wchar_t)];\n"
+                "\tint field_2;\n"
+                "} pack_s;\n"
+            ),
+        }
+        lay = struct_definitions_to_layouts(defs)["pack_s"]
+        assert lay.complete
+        assert lay.fields[0] == ("gap_0000", 2)
+        assert lay.fields[2] == ("field_2", 4)
+
+    def test_sizeof_wide_char_keeps_packed_field(self) -> None:
+        """``[sizeof(L'A')]`` is 2. A packed ``int field_2`` stays at offset 2."""
+        defs = {
+            "pack_s": (
+                "typedef struct pack_s {\n"
+                "\tchar gap_0000[sizeof(L'A')];\n"
+                "\tint field_2;\n"
+                "} pack_s;\n"
+            ),
+        }
+        lay = struct_definitions_to_layouts(defs)["pack_s"]
+        assert lay.complete
+        assert lay.fields[0] == ("gap_0000", 2)
+        assert lay.fields[2] == ("field_2", 4)
+
+    def test_sizeof_bool_keeps_packed_field(self) -> None:
+        """``[sizeof(bool)]`` is 1. A packed ``int field_1`` stays at offset 1."""
+        defs = {
+            "pack_s": (
+                "typedef struct pack_s {\n"
+                "\tchar gap_0000[sizeof(bool)];\n"
+                "\tint field_1;\n"
+                "} pack_s;\n"
+            ),
+        }
+        lay = struct_definitions_to_layouts(defs)["pack_s"]
+        assert lay.complete
+        assert lay.fields[0] == ("gap_0000", 1)
+        assert lay.fields[1] == ("field_1", 4)
+
+    def test_sizeof_wchar_array_keeps_packed_field(self) -> None:
+        """``[sizeof(wchar_t[3])]`` is 6. A packed ``int field_6`` stays at offset 6."""
+        defs = {
+            "pack_s": (
+                "typedef struct pack_s {\n"
+                "\tchar gap_0000[sizeof(wchar_t[3])];\n"
+                "\tint field_6;\n"
+                "} pack_s;\n"
+            ),
+        }
+        lay = struct_definitions_to_layouts(defs)["pack_s"]
+        assert lay.complete
+        assert lay.fields[0] == ("gap_0000", 6)
+        assert lay.fields[6] == ("field_6", 4)
 
 
 class TestApplyKnownNames:
@@ -103,6 +404,48 @@ class TestApplyKnownNames:
         assert len(a0_applied) == 1
         assert a0_applied[0]["struct"] == "command_s"
         assert set(a0_applied[0]["offsets"]) == {"0x10", "0x12", "0x18"}
+
+    def test_hex_array_index_rewritten(self) -> None:
+        """``v2[0xA]`` is the same offset as ``v2[10]`` on a ``short *``."""
+        text = (
+            "unsigned int sub_1000d350(int a0)\n"
+            "{\n"
+            "  short *v2;\n"
+            "  v2 = a0;\n"
+            "  *(char *)(a0 + 0x10) = 1;\n"
+            "  x = *(unsigned int *)&v2[0xA];\n"
+            "  return 0;\n"
+            "}\n"
+        )
+        out = apply_known_names(text, self._DEFS)
+        assert "x = v2->field_14;" in out.code
+
+    def test_bare_index_keeps_value_and_address(self) -> None:
+        """``p[i]`` is a load and ``&p[i]`` is an address. The space before
+        the variable stays. A matching element width drops the cast."""
+        defs = {
+            "slot_s": ("typedef struct slot_s {\n\tshort field_0;\n\tshort field_2;\n} slot_s;\n"),
+        }
+        text = "int a0;\nshort *p;\np = a0;\n*(short *)(a0 + 0) = 1;\ny = p[1];\nz = &p[0x1];\n"
+        out = apply_known_names(text, defs)
+        assert "y = p->field_2;" in out.code
+        assert "z = &p->field_2;" in out.code
+
+        wide = "int a0;\nshort *p;\np = a0;\n*(char *)(a0 + 0x10) = 1;\ny = p[0x8];\nz = &p[0x8];\n"
+        out = apply_known_names(wide, self._DEFS)
+        assert "y = *(short *)&p->field_10;" in out.code
+        assert "z = (short *)&p->field_10;" in out.code
+
+    def test_long_long_index_stride(self) -> None:
+        """``long long *p`` indexes by 8, not by the trailing word ``long``."""
+        defs = {
+            "wide_s": (
+                "typedef struct wide_s {\n\tchar gap_0000[0x8];\n\tdouble field_8;\n} wide_s;\n"
+            ),
+        }
+        text = "int a0;\nlong long *p;\np = a0;\ny = p[1];\n"
+        out = apply_known_names(text, defs)
+        assert "y = p->field_8;" in out.code
 
     def test_width_mismatch_keeps_cast(self) -> None:
         text = "int a0;\n*(short *)(a0 + 0x18) = 1;\n"

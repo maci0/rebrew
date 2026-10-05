@@ -191,6 +191,7 @@ def classify_all(
     *src_dir* prevent duplicate stubs after a source is renamed or moved.
     """
     from rebrew.metadata import (
+        METADATA_FILENAME,
         identity_file,
         load_metadata,
         record_migrated_markers,
@@ -198,7 +199,14 @@ def classify_all(
         update_statuses_batch,
     )
 
-    meta_base = metadata_dir if metadata_dir is not None else project / "src"
+    if metadata_dir is not None:
+        meta_base = metadata_dir
+    elif (project / "src" / METADATA_FILENAME).exists() and not (
+        project / METADATA_FILENAME
+    ).exists():
+        meta_base = project / "src"
+    else:
+        meta_base = project
     # A migrated source has no marker line. Its VA is visible only through
     # the row whose ``file`` matches, so the duplicate check has to read the
     # store. Without that, renaming a pure-C stub looks like a delete and

@@ -1237,6 +1237,232 @@ class TestW021W022:
         result = lint_file(f)
         assert any(c == "W022" for _, c, _ in result.warnings)
 
+    def test_zero_init_nested_bracket_bound_warns(self, tmp_path: Path) -> None:
+        """A bound that contains brackets is still a file-scope zero initializer.
+
+        ``char g[sizeof(wchar_t[3])] = {0};`` and ``char g[2][4] = {0};``
+        stopped at the first ``]``, so W022 never fired. A recorded ``.data``
+        name with the nested bound stays exempt.
+        """
+        content = (
+            "// FUNCTION: SERVER 0x1000\n"
+            "char g_wide[sizeof(wchar_t[3])] = {0};\n"
+            "char g_rows[2][4] = {0};\n"
+            "void f(void) {}\n"
+        )
+        f = _write_c(tmp_path, "w.c", content)
+        result = lint_file(f)
+        w022 = [line for line, c, _ in result.warnings if c == "W022"]
+        assert w022 == [2, 3]
+
+        exempt = lint_file(
+            f,
+            preloaded_metadata={},
+            preloaded_data_metadata={
+                ("SERVER", 0x10034628): {"name": "g_wide", "section": ".data"}
+            },
+        )
+        kept = [line for line, c, _ in exempt.warnings if c == "W022"]
+        assert kept == [3]
+
+    def test_duplicate_nested_bracket_global(self, tmp_path: Path) -> None:
+        """W021 names the global when its bound contains a bracket."""
+        seen: dict[str, tuple[str, int, bool]] = {}
+        body = "char g_wide[sizeof(wchar_t[3])] = {0};\n"
+        first = lint_file(
+            _write_c(tmp_path, "one.c", "// DATA: SERVER 0x10001000\n" + body),
+            seen_globals=seen,
+        )
+        assert not any(c == "W021" for _, c, _ in first.warnings)
+        second = lint_file(
+            _write_c(tmp_path, "two.c", "// DATA: SERVER 0x10002000\n" + body),
+            seen_globals=seen,
+        )
+        assert any(c == "W021" for _, c, _ in second.warnings)
+
+    def test_zero_init_pointer_array_warns(self, tmp_path: Path) -> None:
+        """A pointer array's ``= {0}`` is still a file-scope zero initializer.
+
+        ``int *table[4] = {0}`` glues the star to the name, and
+        ``int (*rows[4]) = {0}`` puts the brackets inside the parentheses,
+        so W022 never fired. A recorded ``.data`` name stays exempt.
+        """
+        content = (
+            "// FUNCTION: SERVER 0x1000\n"
+            "int *table[4] = {0};\n"
+            "int (*rows[4]) = {0};\n"
+            "void f(void) {}\n"
+        )
+        f = _write_c(tmp_path, "p.c", content)
+        result = lint_file(f)
+        w022 = [line for line, c, _ in result.warnings if c == "W022"]
+        assert w022 == [2, 3]
+
+        exempt = lint_file(
+            f,
+            preloaded_metadata={},
+            preloaded_data_metadata={("SERVER", 0x10034628): {"name": "table", "section": ".data"}},
+        )
+        kept = [line for line, c, _ in exempt.warnings if c == "W022"]
+        assert kept == [3]
+
+    def test_zero_init_cdecl_pointer_array_warns(self, tmp_path: Path) -> None:
+        """``int (__cdecl *table[2])[3] = {0}`` is a file-scope zero initializer.
+
+        ``__cdecl`` sat before the star, so W022 never fired.
+        ``char (__cdecl *row)[4]`` is one pointer and still warns.
+        A recorded ``.data`` name stays exempt. ``int (*plain[2])[3]``
+        stays a warning.
+        """
+        content = (
+            "// FUNCTION: SERVER 0x1000\n"
+            "int (__cdecl *table[2])[3] = {0};\n"
+            "int (__stdcall *rows[2])[3] = {0};\n"
+            "char (__cdecl *row)[4] = {0};\n"
+            "int (*plain[2])[3] = {0};\n"
+            "int g_a = 0;\n"
+            "void f(void) {}\n"
+        )
+        f = _write_c(tmp_path, "cdecl.c", content)
+        result = lint_file(f)
+        w022 = [line for line, c, _ in result.warnings if c == "W022"]
+        assert w022 == [2, 3, 4, 5, 6]
+
+        exempt = lint_file(
+            f,
+            preloaded_metadata={},
+            preloaded_data_metadata={("SERVER", 0x10034628): {"name": "table", "section": ".data"}},
+        )
+        kept = [line for line, c, _ in exempt.warnings if c == "W022"]
+        assert kept == [3, 4, 5, 6]
+
+    def test_zero_init_const_pointer_array_warns(self, tmp_path: Path) -> None:
+        """``int (* const table[2])[3] = {0}`` is a file-scope zero initializer.
+
+        ``const`` sat between the star and the name, so W022 never fired.
+        ``char (* const row)[4]`` is one pointer and still warns.
+        A recorded ``.data`` name stays exempt.
+        """
+        content = (
+            "// FUNCTION: SERVER 0x1000\n"
+            "int (* const table[2])[3] = {0};\n"
+            "int (* volatile rows[2])[4] = {0};\n"
+            "char (* const row)[4] = {0};\n"
+            "int (__cdecl * const hooks[2])[3] = {0};\n"
+            "int (*plain[2])[3] = {0};\n"
+            "void f(void) {}\n"
+        )
+        f = _write_c(tmp_path, "const.c", content)
+        result = lint_file(f)
+        w022 = [line for line, c, _ in result.warnings if c == "W022"]
+        assert w022 == [2, 3, 4, 5, 6]
+
+        exempt = lint_file(
+            f,
+            preloaded_metadata={},
+            preloaded_data_metadata={("SERVER", 0x10034628): {"name": "table", "section": ".data"}},
+        )
+        kept = [line for line, c, _ in exempt.warnings if c == "W022"]
+        assert kept == [3, 4, 5, 6]
+
+    def test_array_of_pointers_to_array_is_named(self, tmp_path: Path) -> None:
+        """``int (*table[2])[3]`` is the global ``table``.
+
+        The pointee brackets sat after the closing parenthesis, so W021
+        never named it and a recorded ``.data`` ``= {0}`` was not exempt.
+        """
+        seen: dict[str, tuple[str, int, bool]] = {}
+        body = "int (*table[2])[3];\n"
+        first = lint_file(
+            _write_c(tmp_path, "one.c", "// DATA: SERVER 0x10001000\n" + body),
+            seen_globals=seen,
+        )
+        assert not any(c == "W021" for _, c, _ in first.warnings)
+        second = lint_file(
+            _write_c(tmp_path, "two.c", "// DATA: SERVER 0x10002000\n" + body),
+            seen_globals=seen,
+        )
+        assert any(c == "W021" for _, c, _ in second.warnings)
+        msg = next(m for _, c, m in second.warnings if c == "W021")
+        assert "table" in msg
+
+        zero = lint_file(
+            _write_c(
+                tmp_path,
+                "z.c",
+                "// FUNCTION: SERVER 0x1000\nint (*table[2])[3] = {0};\nvoid f(void) {}\n",
+            ),
+            preloaded_metadata={},
+            preloaded_data_metadata={("SERVER", 0x10034628): {"name": "table", "section": ".data"}},
+        )
+        assert not any(c == "W022" for _, c, _ in zero.warnings)
+
+    def test_function_pointer_array_is_named(self, tmp_path: Path) -> None:
+        """``void (*cbs[4])(int)`` is the global ``cbs``.
+
+        The parameter list ``(int)`` matched the name pattern before the
+        declarator did, so W021 reported ``int``. ``__cdecl`` and ``const``
+        before the name are the same global.
+        """
+        seen: dict[str, tuple[str, int, bool]] = {}
+        body = "void (*cbs[4])(int);\n"
+        first = lint_file(
+            _write_c(tmp_path, "cbs-one.c", "// DATA: SERVER 0x10001000\n" + body),
+            seen_globals=seen,
+        )
+        assert not any(c == "W021" for _, c, _ in first.warnings)
+        second = lint_file(
+            _write_c(tmp_path, "cbs-two.c", "// DATA: SERVER 0x10002000\n" + body),
+            seen_globals=seen,
+        )
+        msg = next(m for _, c, m in second.warnings if c == "W021")
+        assert "'cbs'" in msg
+        assert "'int'" not in msg
+
+        seen_hooks: dict[str, tuple[str, int, bool]] = {}
+        hooks = "void (__cdecl * const hooks[4])(int);\n"
+        lint_file(
+            _write_c(tmp_path, "hooks-one.c", "// DATA: SERVER 0x10003000\n" + hooks),
+            seen_globals=seen_hooks,
+        )
+        hooked = lint_file(
+            _write_c(tmp_path, "hooks-two.c", "// DATA: SERVER 0x10004000\n" + hooks),
+            seen_globals=seen_hooks,
+        )
+        hook_msg = next(m for _, c, m in hooked.warnings if c == "W021")
+        assert "'hooks'" in hook_msg
+        assert "'int'" not in hook_msg
+
+    def test_zero_init_function_pointer_array_warns(self, tmp_path: Path) -> None:
+        """``void (*cbs[4])(int) = {0}`` is a file-scope zero initializer.
+
+        The parameter list sat before ``=``, so W022 never fired.
+        ``void (*cb)(int) = 0`` is one function pointer and still warns.
+        A recorded ``.data`` name stays exempt. ``int g_a = 0`` stays a warning.
+        """
+        content = (
+            "// FUNCTION: SERVER 0x1000\n"
+            "void (*cbs[4])(int) = {0};\n"
+            "void (__cdecl *hooks[4])(int) = {0};\n"
+            "void (* const slots[2])(int) = {0};\n"
+            "int (*fns[4])(int) = {0};\n"
+            "void (*cb)(int) = 0;\n"
+            "int g_a = 0;\n"
+            "void f(void) {}\n"
+        )
+        f = _write_c(tmp_path, "fn.c", content)
+        result = lint_file(f)
+        w022 = [line for line, c, _ in result.warnings if c == "W022"]
+        assert w022 == [2, 3, 4, 5, 6, 7]
+
+        exempt = lint_file(
+            f,
+            preloaded_metadata={},
+            preloaded_data_metadata={("SERVER", 0x10034628): {"name": "cbs", "section": ".data"}},
+        )
+        kept = [line for line, c, _ in exempt.warnings if c == "W022"]
+        assert kept == [3, 4, 5, 6, 7]
+
     def test_zero_init_inside_function_no_warning(self, tmp_path: Path) -> None:
         from rebrew.lint import lint_file
 
@@ -3181,6 +3407,18 @@ class TestW035UnknownModules:
         (tmp_path / "rebrew-functions.toml").write_text(
             'format = 1\n\n["CLIENT.0x1000"]\nstatus = "STUB"\n', encoding="utf-8"
         )
+        assert "matches no target marker" in self._warnings(self._cfg(tmp_path))
+
+    def test_module_another_target_links_is_silent(self, tmp_path: Path) -> None:
+        """D3DX8 rows are read while server.dll is the default target, but only
+        the TL client links d3dx8.lib. Every target's external libraries are
+        known, not just the active one's library_modules."""
+        (tmp_path / "rebrew-functions.toml").write_text(
+            'format = 1\n\n["D3DX8.0x45d3f0"]\nstatus = "EXACT"\n', encoding="utf-8"
+        )
+        cfg = self._cfg(tmp_path, all_library_modules=["D3DX8"])
+        assert self._warnings(cfg) == ""
+        # Without the cross-target view it would still be flagged.
         assert "matches no target marker" in self._warnings(self._cfg(tmp_path))
 
 

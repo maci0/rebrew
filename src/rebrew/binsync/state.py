@@ -435,7 +435,7 @@ def _result_list(result: dict[str, object], key: str) -> list[Any]:
 
 
 def global_name_and_type(
-    cfg: ProjectConfig,
+    cfg: Any,
     va: int,
     filepath: str,
 ) -> tuple[str | None, str | None]:
@@ -490,6 +490,12 @@ def global_name_and_type(
                         # fabricating a name/type from the directive.
                         continue
                     ext_vars = _find_extern(cand_decl)
+                    if not ext_vars:
+                        # ``char (*g_row)[4];`` is a file-scope definition.
+                        # The name is inside parentheses, so the regex below
+                        # skips the line and the next declaration is reported
+                        # for this marker.
+                        ext_vars = _find_extern(cand_decl, include_definitions=True)
                     if ext_vars:
                         return ext_vars[0].name, ext_vars[0].type_str
                     # Bare declaration (no extern) — try regex extraction.
@@ -705,7 +711,13 @@ def normalize_sync_value(field: str, value: Any, *, kind: str = "function") -> A
 
     if field == "name":
         text = str(value or "").strip()
-        return fold_ident(text[1:] if kind == "function" and text.startswith("_") else text)
+        if kind == "function":
+            # The sync name is the linker symbol. ``hook@@12`` and ``_hook``
+            # are one C function; stripping one ``_`` left the decoration.
+            from rebrew.rename_ops import c_name_from_symbol
+
+            text = c_name_from_symbol(text)
+        return fold_ident(text)
     if field == "prototype":
         return normalize_prototype(str(value or ""))
     if field == "size":

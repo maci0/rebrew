@@ -115,6 +115,41 @@ class TestJumpTableAlignmentSignal:
         )
         assert tables == [TABLE_A_VA, TABLE_B_VA]
 
+    def test_finds_64bit_table_before_a_short_tail(self) -> None:
+        """A 16-byte table plus 4 trailing bytes is still that table.
+
+        The scan used to keep a window whose length was a multiple of 4.
+        Twenty bytes is not a multiple of 8, so the 64-bit pointer check
+        rejected the window before reading the two pointers at its start.
+        """
+        text_va = 0x1000
+        table = struct.pack("<QQ", text_va, text_va + 8)
+        data = table + b"\xc3" * 4
+        info = _text_only(text_va, data)
+        tables = _find_jump_tables(
+            info,  # type: ignore[arg-type]
+            [(text_va, len(data))],
+            arch="x86_64",
+        )
+        assert tables == [text_va]
+
+    def test_finds_little_endian_table_on_a_big_endian_arch(self) -> None:
+        """Image endian wins over the architecture default.
+
+        MIPS is big-endian unless the image says otherwise. The scan used to
+        drop that argument, so a little-endian pointer pair was not a table.
+        """
+        text_va = 0x1000
+        table = struct.pack("<II", text_va, text_va + 4)
+        info = _text_only(text_va, table)
+        tables = _find_jump_tables(
+            info,  # type: ignore[arg-type]
+            [(text_va, len(table))],
+            arch="mips32",
+            endian="little",
+        )
+        assert tables == [text_va]
+
     def test_off_by_default(self) -> None:
         """Without the signal the padding gap keeps one cluster."""
         info = _jump_table_binary()

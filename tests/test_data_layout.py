@@ -146,6 +146,146 @@ def test_insert_definition_rerun_does_not_duplicate(tmp_path: Path) -> None:
     assert f.read_text(encoding="utf-8").count("unsigned char g_a[4]") == 1
 
 
+def test_insert_definition_replaces_hex_bound(tmp_path: Path) -> None:
+    """An extern or pad whose bound is not decimal is still that symbol.
+
+    ``[0x10]`` did not match the digit bracket, so the insert appended a
+    second line and left the extern in place.
+    """
+    extern = tmp_path / "mod.c"
+    extern.write_text("extern unsigned char g_hex[0x10];\n", encoding="utf-8")
+    assert insert_definition(extern, "g_hex", "unsigned char", 16, "{0}", dry_run=False)
+    text = extern.read_text(encoding="utf-8")
+    assert text.count("g_hex") == 1
+    assert "unsigned char g_hex[16] = {0};" in text
+    assert "extern" not in text
+
+    pad = tmp_path / "pad.c"
+    pad.write_text("unsigned char _dpad_1000[0x10];\n", encoding="utf-8")
+    assert insert_definition(pad, "_dpad_1000", "unsigned char", 16, None, dry_run=False)
+    pad_text = pad.read_text(encoding="utf-8")
+    assert pad_text.count("_dpad_1000") == 1
+    assert "unsigned char _dpad_1000[16];" in pad_text
+
+
+def test_insert_definition_replaces_nested_bracket_bound(tmp_path: Path) -> None:
+    """An extern whose bound contains a nested bracket is still that symbol.
+
+    ``[sizeof(wchar_t[3])]`` stopped at the inner ``]``, so the insert
+    appended a second line and left the extern in place.
+    """
+    extern = tmp_path / "mod.c"
+    extern.write_text("extern char g_wide[sizeof(wchar_t[3])];\n", encoding="utf-8")
+    assert insert_definition(extern, "g_wide", "char", 6, "{0}", dry_run=False)
+    text = extern.read_text(encoding="utf-8")
+    assert text.count("g_wide") == 1
+    assert "char g_wide[6] = {0};" in text
+    assert "extern" not in text
+
+
+def test_insert_definition_replaces_pointer_to_array_extern(tmp_path: Path) -> None:
+    """``extern char (*g_row)[4];`` is still the declaration of ``g_row``.
+
+    The name sits inside parentheses, so the insert appended a second line
+    and left the extern in place.
+    """
+    extern = tmp_path / "mod.c"
+    extern.write_text("extern char (*g_row)[4];\n", encoding="utf-8")
+    assert insert_definition(extern, "g_row", "char", 4, "{0}", dry_run=False)
+    text = extern.read_text(encoding="utf-8")
+    assert text.count("g_row") == 1
+    assert "char g_row[4] = {0};" in text
+    assert "extern" not in text
+
+
+def test_insert_definition_replaces_pointer_to_array_definition(tmp_path: Path) -> None:
+    """``char (*g_row)[4] = {0};`` is still the definition of ``g_row``.
+
+    The name sits inside parentheses, so a re-run appended a second line.
+    """
+    f = tmp_path / "mod.c"
+    f.write_text("char (*g_row)[4] = {0};\n", encoding="utf-8")
+    assert insert_definition(f, "g_row", "char", 4, "{0}", dry_run=False)
+    text = f.read_text(encoding="utf-8")
+    assert text.count("g_row") == 1
+    assert "char g_row[4] = {0};" in text
+
+
+def test_insert_definition_replaces_parenthesized_pointer_array(tmp_path: Path) -> None:
+    """``extern int (*table[4]);`` is still the declaration of ``table``.
+
+    The brackets sit inside the parentheses, and ``int *table[4]`` glues the
+    star to the name. Either spelling was left in place and a second
+    definition was appended. ``(table[4])`` is the same array.
+    """
+    extern = tmp_path / "extern.c"
+    extern.write_text("extern int (*table[4]);\n", encoding="utf-8")
+    assert insert_definition(extern, "table", "int", 4, "{0}", dry_run=False)
+    text = extern.read_text(encoding="utf-8")
+    assert text.count("table") == 1
+    assert "int table[4] = {0};" in text
+    assert "extern" not in text
+
+    defined = tmp_path / "defined.c"
+    defined.write_text("int (*table[4]) = {0};\n", encoding="utf-8")
+    assert insert_definition(defined, "table", "int", 4, "{0}", dry_run=False)
+    def_text = defined.read_text(encoding="utf-8")
+    assert def_text.count("table") == 1
+    assert "int table[4] = {0};" in def_text
+
+    bare = tmp_path / "bare.c"
+    bare.write_text("extern int *table[4];\n", encoding="utf-8")
+    assert insert_definition(bare, "table", "int", 4, "{0}", dry_run=False)
+    bare_text = bare.read_text(encoding="utf-8")
+    assert bare_text.count("table") == 1
+    assert "int table[4] = {0};" in bare_text
+    assert "extern" not in bare_text
+
+    wrapped = tmp_path / "wrapped.c"
+    wrapped.write_text("extern int (table[4]);\n", encoding="utf-8")
+    assert insert_definition(wrapped, "table", "int", 4, "{0}", dry_run=False)
+    wrapped_text = wrapped.read_text(encoding="utf-8")
+    assert wrapped_text.count("table") == 1
+    assert "int table[4] = {0};" in wrapped_text
+    assert "extern" not in wrapped_text
+
+
+def test_insert_definition_replaces_array_of_pointers_to_array(tmp_path: Path) -> None:
+    """``extern int (*table[2])[3];`` is still the declaration of ``table``.
+
+    The pointee brackets sat after the closing parenthesis, so the insert
+    appended a second line and left the extern in place.
+    """
+    extern = tmp_path / "extern.c"
+    extern.write_text("extern int (*table[2])[3];\n", encoding="utf-8")
+    assert insert_definition(extern, "table", "int", 2, "{0}", dry_run=False)
+    text = extern.read_text(encoding="utf-8")
+    assert text.count("table") == 1
+    assert "int table[2] = {0};" in text
+    assert "extern" not in text
+
+    bare = tmp_path / "bare.c"
+    bare.write_text("int (*table[2])[3];\n", encoding="utf-8")
+    assert insert_definition(bare, "table", "int", 2, "{0}", dry_run=False)
+    bare_text = bare.read_text(encoding="utf-8")
+    assert bare_text.count("table") == 1
+    assert "int table[2] = {0};" in bare_text
+
+
+def test_insert_definition_replaces_pointer_array_initializer(tmp_path: Path) -> None:
+    """``int (*table[2])[3] = {0};`` is still the definition of ``table``.
+
+    The pointee brackets sat after the closing parenthesis, so a re-run
+    appended a second line.
+    """
+    defined = tmp_path / "mod.c"
+    defined.write_text("int (*table[2])[3] = {0};\n", encoding="utf-8")
+    assert insert_definition(defined, "table", "int", 2, "{0}", dry_run=False)
+    text = defined.read_text(encoding="utf-8")
+    assert text.count("table") == 1
+    assert "int table[2] = {0};" in text
+
+
 def test_insert_definition_rerun_no_init_pad(tmp_path: Path) -> None:
     """BSS/pad defs without ``=`` must not accumulate on re-run either."""
     f = tmp_path / "pad.c"
@@ -270,6 +410,52 @@ def test_parse_stub_globals_counts_zero_length_array_as_one(tmp_path: Path) -> N
     stub = tmp_path / "link_stubs.c"
     stub.write_text("int g_flex[0] = {0};\n", encoding="utf-8")
     assert _parse_stub_globals(stub)["g_flex"] == ("int", 1)
+
+
+def test_parse_stub_globals_folds_constant_expression_bounds(tmp_path: Path) -> None:
+    """A constant expression is a bound. ``estimate_type_size`` folds it; the
+    stub parser must report the same element count, or ``data --own`` drops
+    the symbol. A name (``[N]``) stays unknown."""
+    from rebrew.data_layout import _parse_stub_globals, c_type_size, estimate_type_size
+
+    stub = tmp_path / "link_stubs.c"
+    stub.write_text(
+        "unsigned char g_map[0x300 * 0x21c] = {0};\n"
+        "unsigned short g_rows[(2 + 1) * 4][2] = {0};\n"
+        "int g_named[N] = {0};\n",
+        encoding="utf-8",
+    )
+    parsed = _parse_stub_globals(stub)
+
+    def elements(type_str: str) -> int:
+        base = type_str.split("[", 1)[0].strip()
+        return estimate_type_size(type_str) // c_type_size(base)
+
+    assert parsed["g_map"] == ("unsigned char", elements("unsigned char[0x300 * 0x21c]"))
+    assert parsed["g_rows"] == (
+        "unsigned short",
+        elements("unsigned short[(2 + 1) * 4][2]"),
+    )
+    assert "g_named" not in parsed
+
+
+def test_parse_stub_globals_accepts_nested_bracket_bound(tmp_path: Path) -> None:
+    """A bound that contains brackets is still a definition.
+
+    ``char g[sizeof(wchar_t[3])] = {0};`` stopped at the inner ``]``, so
+    the symbol was dropped. ``int g[sizeof(int[2])]`` was dropped the same
+    way.
+    """
+    from rebrew.data_layout import _parse_stub_globals
+
+    stub = tmp_path / "link_stubs.c"
+    stub.write_text(
+        "char g_wide[sizeof(wchar_t[3])] = {0};\nint g_ints[sizeof(int[2])] = {0};\n",
+        encoding="utf-8",
+    )
+    parsed = _parse_stub_globals(stub)
+    assert parsed["g_wide"] == ("char", 6)
+    assert parsed["g_ints"] == ("int", 8)
 
 
 # ---------------------------------------------------------------------------
@@ -496,6 +682,118 @@ def test_fix_ownership_partitions_across_tus(tmp_path: Path) -> None:
     assert "int g_a = 1;" in (src / "a.c").read_text()
 
 
+def test_fix_ownership_sees_array_of_pointers_to_array(tmp_path: Path) -> None:
+    """``int (*table[2])[3] = {0}`` is the definition of ``table``.
+
+    The name sat inside the parentheses, so the scan did not own it.
+    The symbol moved and the original definition stayed, leaving two
+    definitions.
+    """
+    from rebrew.data_layout import fix_ownership
+
+    data_base = 0x10027000
+    # CMake names the object after the source (``a.c.obj``). A bare
+    # ``a.obj`` does not map back to ``src/a.c``, so nothing is moved.
+    obj_a = _mingw_obj(tmp_path, "a.c", "int g_a = 1;\n")
+    obj_b = _mingw_obj(tmp_path, "b.c", "int g_b = 3;\n")
+    _write_rsp(tmp_path, [obj_a, obj_b])
+    _write_layout(tmp_path, data_base, 0x2000, 0x2000)
+    (tmp_path / "original").mkdir(exist_ok=True)
+    binp = tmp_path / "original" / "x.dll"
+    binp.write_bytes(_make_pe(b"\x00" * 0x2000))
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "a.c").write_text(
+        "int g_a = 1;\nint (*table[2])[3] = {0};\n",
+        encoding="utf-8",
+    )
+    (src / "b.c").write_text("int g_b = 3;\n", encoding="utf-8")
+    meta = tmp_path / "rebrew-data.toml"
+    meta.write_text(
+        f'["SERVER.0x{data_base:x}"]\nname = "g_a"\nsection = ".data"\ntype = "int"\n'
+        f'["SERVER.0x{data_base + 0x1000:x}"]\nname = "table"\nsection = ".data"\ntype = "int"\n'
+        f'["SERVER.0x{data_base + 0x1004:x}"]\nname = "g_b"\nsection = ".data"\ntype = "int"\n',
+        encoding="utf-8",
+    )
+    fix_ownership(tmp_path, meta, binp, src, dry_run=False)
+    a_text = (src / "a.c").read_text(encoding="utf-8")
+    b_text = (src / "b.c").read_text(encoding="utf-8")
+    assert "(*table[2])[3] =" not in a_text
+    assert "table" in b_text
+    assert b_text.count("table") == 1
+
+
+def test_fix_ownership_keeps_pointer_array_extern(tmp_path: Path) -> None:
+    """Moving ``int (*table[2])[3] = {0}`` leaves that declarator as an extern.
+
+    The removal rebuilt ``extern int table[2];``. The pointer and the
+    pointee ``[3]`` were gone, so the original file no longer declared
+    an array of pointers to an array.
+    """
+    from rebrew.data_layout import fix_ownership
+
+    data_base = 0x10027000
+    obj_a = _mingw_obj(tmp_path, "a.c", "int g_a = 1;\n")
+    obj_b = _mingw_obj(tmp_path, "b.c", "int g_b = 3;\n")
+    _write_rsp(tmp_path, [obj_a, obj_b])
+    _write_layout(tmp_path, data_base, 0x2000, 0x2000)
+    (tmp_path / "original").mkdir(exist_ok=True)
+    binp = tmp_path / "original" / "x.dll"
+    binp.write_bytes(_make_pe(b"\x00" * 0x2000))
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "a.c").write_text(
+        "int g_a = 1;\nint (*table[2])[3] = {0};\n",
+        encoding="utf-8",
+    )
+    (src / "b.c").write_text("int g_b = 3;\n", encoding="utf-8")
+    meta = tmp_path / "rebrew-data.toml"
+    meta.write_text(
+        f'["SERVER.0x{data_base:x}"]\nname = "g_a"\nsection = ".data"\ntype = "int"\n'
+        f'["SERVER.0x{data_base + 0x1000:x}"]\nname = "table"\nsection = ".data"\ntype = "int"\n'
+        f'["SERVER.0x{data_base + 0x1004:x}"]\nname = "g_b"\nsection = ".data"\ntype = "int"\n',
+        encoding="utf-8",
+    )
+    fix_ownership(tmp_path, meta, binp, src, dry_run=False)
+    a_text = (src / "a.c").read_text(encoding="utf-8")
+    assert "extern int (*table[2])[3];" in a_text
+
+
+def test_fix_ownership_keeps_const_pointer_array_extern(tmp_path: Path) -> None:
+    """Moving ``int (* const table[2])[3] = {0}`` leaves that declarator.
+
+    ``const`` sat between the star and the name, so the scan did not own
+    ``table`` and the definition stayed in the original file.
+    """
+    from rebrew.data_layout import fix_ownership
+
+    data_base = 0x10027000
+    obj_a = _mingw_obj(tmp_path, "a.c", "int g_a = 1;\n")
+    obj_b = _mingw_obj(tmp_path, "b.c", "int g_b = 3;\n")
+    _write_rsp(tmp_path, [obj_a, obj_b])
+    _write_layout(tmp_path, data_base, 0x2000, 0x2000)
+    (tmp_path / "original").mkdir(exist_ok=True)
+    binp = tmp_path / "original" / "x.dll"
+    binp.write_bytes(_make_pe(b"\x00" * 0x2000))
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "a.c").write_text(
+        "int g_a = 1;\nint (* const table[2])[3] = {0};\n",
+        encoding="utf-8",
+    )
+    (src / "b.c").write_text("int g_b = 3;\n", encoding="utf-8")
+    meta = tmp_path / "rebrew-data.toml"
+    meta.write_text(
+        f'["SERVER.0x{data_base:x}"]\nname = "g_a"\nsection = ".data"\ntype = "int"\n'
+        f'["SERVER.0x{data_base + 0x1000:x}"]\nname = "table"\nsection = ".data"\ntype = "int"\n'
+        f'["SERVER.0x{data_base + 0x1004:x}"]\nname = "g_b"\nsection = ".data"\ntype = "int"\n',
+        encoding="utf-8",
+    )
+    fix_ownership(tmp_path, meta, binp, src, dry_run=False)
+    a_text = (src / "a.c").read_text(encoding="utf-8")
+    assert "extern int (* const table[2])[3];" in a_text
+
+
 # ---------------------------------------------------------------------------
 # data --converge / built_data_va
 # ---------------------------------------------------------------------------
@@ -671,6 +969,263 @@ def test_find_definition_crlf_scalar_form() -> None:
     assert text[r[0] : r[1]] == "int g_z = 7;"
 
 
+def test_find_definition_accepts_constant_bounds() -> None:
+    """A hex, expression, or second dimension is still the definition.
+
+    The bracket pattern was decimal digits only, so ``g[0x10]`` was not a
+    definition and an ownership move could not find it to replace.
+    """
+    from rebrew.data_layout import _DEF_LINE_RE, _decl_info, _find_definition
+
+    text = "int g_hex[0x10] = {1};\nint g_expr[2 + 2] = {1};\nint g_2d[2][4] = {1};\n"
+    hex_def = _find_definition(text, "g_hex")
+    assert hex_def is not None
+    assert text[hex_def[0] : hex_def[1]] == "int g_hex[0x10] = {1};"
+    assert hex_def[3] == "[0x10]"
+    expr = _find_definition(text, "g_expr")
+    assert expr is not None
+    assert expr[3] == "[2 + 2]"
+    two = _find_definition(text, "g_2d")
+    assert two is not None
+    assert two[3] == "[2][4]"
+    assert _DEF_LINE_RE.match("int g_hex[0x10] = {1};") is not None
+    assert _decl_info("extern unsigned char g_hex[0x10];\n", "g_hex") == (
+        "extern unsigned char",
+        16,
+    )
+    assert _decl_info("extern int g_2d[2][4];\n", "g_2d") == ("extern int", 8)
+    assert _decl_info("extern int g_expr[2 + 2];\n", "g_expr") == ("extern int", 4)
+
+
+def test_find_definition_accepts_nested_bracket_bound() -> None:
+    """``g[sizeof(wchar_t[3])]`` is still that definition.
+
+    The bracket pattern stopped at the inner ``]``, so an ownership move
+    could not find the line. ``sizeof(int[2])`` is 8 elements.
+    """
+    from rebrew.data_layout import _DEF_LINE_RE, _decl_info, _find_definition
+
+    text = "int g_wide[sizeof(wchar_t[3])] = {1};\nint g_ints[sizeof(int[2])] = {1};\n"
+    wide = _find_definition(text, "g_wide")
+    assert wide is not None
+    assert wide[3] == "[sizeof(wchar_t[3])]"
+    ints = _find_definition(text, "g_ints")
+    assert ints is not None
+    assert ints[3] == "[sizeof(int[2])]"
+    assert _DEF_LINE_RE.match("int g_wide[sizeof(wchar_t[3])] = {1};") is not None
+    assert _decl_info("extern char g_wide[sizeof(wchar_t[3])];\n", "g_wide") == (
+        "extern char",
+        6,
+    )
+    assert _decl_info("extern int g_ints[sizeof(int[2])];\n", "g_ints") == ("extern int", 8)
+
+
+def test_decl_info_pointer_array_counts_every_element() -> None:
+    """``extern int (*table[4])`` and ``extern int *table[4]`` are four pointers.
+
+    The star is glued to the name, or the brackets sit inside the
+    parentheses, so the declaration was invisible. ``[4]`` is the element
+    count. ``extern char (*g_row)[4]`` stays one pointer.
+    """
+    from rebrew.data_layout import _decl_info
+
+    assert _decl_info("extern int *table[4];\n", "table") == ("extern int *", 4)
+    assert _decl_info("extern int (*table[4]);\n", "table") == ("extern int *", 4)
+    assert _decl_info("extern char **ptrs[2];\n", "ptrs") == ("extern char **", 2)
+    assert _decl_info("extern int (table[4]);\n", "table") == ("extern int", 4)
+    assert _decl_info("extern char (*g_row)[4];\n", "g_row") == ("extern char", None)
+
+
+def test_decl_info_pointer_to_array_is_not_an_array() -> None:
+    """``extern char (*g_row)[4]`` declares one pointer.
+
+    The name sits inside parentheses, so the declaration was invisible.
+    ``[4]`` is the array that pointer addresses, not four elements.
+    """
+    from rebrew.data_layout import _decl_info
+
+    assert _decl_info("extern char (*g_row)[4];\n", "g_row") == ("extern char", None)
+    assert _decl_info("extern char (**g_ptrs)[4];\n", "g_ptrs") == ("extern char", None)
+    assert _decl_info("extern int g_2d[2][4];\n", "g_2d") == ("extern int", 8)
+
+
+def test_decl_info_array_of_pointers_to_array_counts_the_pointers() -> None:
+    """``extern int (*table[2])[3]`` is two pointers.
+
+    The pointee brackets sat after the closing parenthesis, so the
+    declaration was invisible. ``[3]`` is the array each pointer addresses.
+    ``extern char (*g_row)[4]`` stays one pointer.
+    """
+    from rebrew.data_layout import _decl_info
+
+    assert _decl_info("extern int (*table[2])[3];\n", "table") == ("extern int *", 2)
+    assert _decl_info("extern char (**rows[2])[4];\n", "rows") == ("extern char **", 2)
+    assert _decl_info("extern char (*g_row)[4];\n", "g_row") == ("extern char", None)
+
+
+def test_find_definition_sees_function_pointer_array() -> None:
+    """``void (*cbs[4])(int) = {0}`` defines ``cbs``.
+
+    The parameter list sat after the brackets, so the scan did not own
+    the symbol. ``int (*table[2])[3] = {0}`` stays that definition.
+    """
+    from rebrew.data_layout import _DEF_LINE_RE, _find_definition
+
+    line = "void (*cbs[4])(int) = {0};"
+    matched = _DEF_LINE_RE.match(line)
+    assert matched is not None
+    assert (matched.group(1) or matched.group(2)) == "cbs"
+    found = _find_definition(line + "\n", "cbs")
+    assert found is not None
+    assert line[found[0] : found[1]] == line
+    calls = _DEF_LINE_RE.match("int (*table[4])(int) = {0};")
+    assert calls is not None
+    assert (calls.group(1) or calls.group(2)) == "table"
+    plain = _DEF_LINE_RE.match("int (*table[2])[3] = {0};")
+    assert plain is not None
+    assert (plain.group(1) or plain.group(2)) == "table"
+    scalar = _DEF_LINE_RE.match("int g_a = 1;")
+    assert scalar is not None
+    assert (scalar.group(1) or scalar.group(2)) == "g_a"
+
+
+def test_find_definition_sees_cdecl_pointer_array() -> None:
+    """``int (__cdecl *table[2])[3] = {0}`` defines ``table``.
+
+    ``__cdecl`` sat before the star, so the symbol was not owned.
+    ``void (__cdecl *cbs[4])(int) = {0}`` defines ``cbs``.
+    ``int (*table[2])[3] = {0}`` stays that definition.
+    """
+    from rebrew.data_layout import _DEF_LINE_RE, _find_definition
+
+    line = "int (__cdecl *table[2])[3] = {0};"
+    matched = _DEF_LINE_RE.match(line)
+    assert matched is not None
+    assert (matched.group(1) or matched.group(2)) == "table"
+    found = _find_definition(line + "\n", "table")
+    assert found is not None
+    assert line[found[0] : found[1]] == line
+    calls = _DEF_LINE_RE.match("void (__cdecl *cbs[4])(int) = {0};")
+    assert calls is not None
+    assert (calls.group(1) or calls.group(2)) == "cbs"
+    const = _DEF_LINE_RE.match("int (__cdecl * const table[2])[3] = {0};")
+    assert const is not None
+    assert (const.group(1) or const.group(2)) == "table"
+    plain = _DEF_LINE_RE.match("int (*table[2])[3] = {0};")
+    assert plain is not None
+    assert (plain.group(1) or plain.group(2)) == "table"
+    scalar = _DEF_LINE_RE.match("int g_a = 1;")
+    assert scalar is not None
+    assert (scalar.group(1) or scalar.group(2)) == "g_a"
+
+
+def test_find_definition_sees_scalar_function_pointer() -> None:
+    """``void (*cb)(int) = 0`` defines ``cb``.
+
+    The initializer was not a brace list, so a move could not find the
+    definition it already owned. ``void (__cdecl *cb)(int) = NULL`` is
+    the same definition. ``int g_a = 1`` stays that definition.
+    """
+    from rebrew.data_layout import _find_definition
+
+    line = "void (*cb)(int) = 0;"
+    found = _find_definition(line + "\n", "cb")
+    assert found is not None
+    assert line[found[0] : found[1]] == line
+    cdecl = "void (__cdecl *cb)(int) = NULL;"
+    found_cc = _find_definition(cdecl + "\n", "cb")
+    assert found_cc is not None
+    assert cdecl[found_cc[0] : found_cc[1]] == cdecl
+    braced = "void (*cb)(int) = {0};"
+    found_br = _find_definition(braced + "\n", "cb")
+    assert found_br is not None
+    assert braced[found_br[0] : found_br[1]] == braced
+    scalar_text = "int g_a = 1;\n"
+    scalar = _find_definition(scalar_text, "g_a")
+    assert scalar is not None
+    assert scalar[2] == "int"
+    assert scalar_text[scalar[0] : scalar[1]] == "int g_a = 1;"
+
+
+def test_decl_info_function_pointer_array_counts_the_pointers() -> None:
+    """``extern void (*cbs[4])(int)`` is four function pointers.
+
+    The parameter list sat after the brackets, so the declaration was
+    invisible. ``extern int (*table[2])[3]`` stays two pointers.
+    """
+    from rebrew.data_layout import _decl_info
+
+    assert _decl_info("extern void (*cbs[4])(int);\n", "cbs") == ("extern void *", 4)
+    assert _decl_info("extern int (*table[4])(int);\n", "table") == ("extern int *", 4)
+    assert _decl_info("extern int (*table[2])[3];\n", "table") == ("extern int *", 2)
+    assert _decl_info("extern char (*row)[4];\n", "row") == ("extern char", None)
+
+
+def test_decl_info_cdecl_pointer_array_counts_the_pointers() -> None:
+    """``extern int (__cdecl *table[2])[3]`` is two pointers.
+
+    ``__cdecl`` sat before the star, so the declaration was invisible.
+    ``extern char (__cdecl *row)[4]`` stays one pointer.
+    ``extern void (__cdecl *cbs[4])(int)`` is four function pointers.
+    """
+    from rebrew.data_layout import _decl_info
+
+    assert _decl_info("extern int (__cdecl *table[2])[3];\n", "table") == (
+        "extern int __cdecl *",
+        2,
+    )
+    assert _decl_info("extern int (__stdcall *table[2])[3];\n", "table") == (
+        "extern int __stdcall *",
+        2,
+    )
+    assert _decl_info("extern int (__cdecl * const table[2])[3];\n", "table") == (
+        "extern int __cdecl * const",
+        2,
+    )
+    assert _decl_info("extern void (__cdecl *cbs[4])(int);\n", "cbs") == (
+        "extern void __cdecl *",
+        4,
+    )
+    assert _decl_info("extern char (__cdecl *row)[4];\n", "row") == ("extern char", None)
+    assert _decl_info("extern char (__cdecl * const row)[4];\n", "row") == (
+        "extern char",
+        None,
+    )
+    assert _decl_info("extern int (*table[2])[3];\n", "table") == ("extern int *", 2)
+    assert _decl_info("extern int (* const table[2])[3];\n", "table") == (
+        "extern int * const",
+        2,
+    )
+    assert _decl_info("extern void (*cbs[4])(int);\n", "cbs") == ("extern void *", 4)
+    assert _decl_info("extern char (*row)[4];\n", "row") == ("extern char", None)
+    assert _decl_info("extern int (table[4]);\n", "table") == ("extern int", 4)
+
+
+def test_decl_info_const_pointer_array_counts_the_pointers() -> None:
+    """``extern int (* const table[2])[3]`` is two const pointers.
+
+    ``const`` sat between the star and the name, so the declaration was
+    invisible. ``extern char (* const row)[4]`` stays one pointer.
+    """
+    from rebrew.data_layout import _decl_info
+
+    assert _decl_info("extern int (* const table[2])[3];\n", "table") == (
+        "extern int * const",
+        2,
+    )
+    assert _decl_info("extern int (* volatile table[2])[3];\n", "table") == (
+        "extern int * volatile",
+        2,
+    )
+    assert _decl_info("extern char (** const rows[2])[4];\n", "rows") == (
+        "extern char ** const",
+        2,
+    )
+    assert _decl_info("extern char (* const row)[4];\n", "row") == ("extern char", None)
+    assert _decl_info("extern int (*table[2])[3];\n", "table") == ("extern int *", 2)
+    assert _decl_info("extern int (table[4]);\n", "table") == ("extern int", 4)
+
+
 def test_link_objects_cmake_rsp(tmp_path: Path) -> None:
     """CMake builds keep link order via build/CMakeFiles/*/objects*.rsp."""
     from rebrew.data_layout import link_objects
@@ -794,6 +1349,33 @@ class TestObjSectionSymbols:
 
         monkeypatch.setattr("rebrew.data_layout._run_objdump", fake_run)
         assert obj_data_symbols(tmp_path / "f.obj") == (0x10, 0x04, {"g_data"}, set())
+
+    def test_decorated_data_symbols_stay_distinct(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``lstrip("_")`` stored ``__g_foo`` and ``_g_foo`` as ``g_foo``.
+
+        The C names are ``_g_foo`` and ``g_foo``. ``hook@@12`` is ``hook``.
+        A cdecl ``_g_plain`` is still ``g_plain``.
+        """
+        from rebrew.data_layout import obj_data_symbol_offsets, obj_section_symbols
+
+        def fake_run(obj: Path, flag: str) -> str:
+            if flag == "-h":
+                return "  1 .data  0000000c\n"
+            assert flag == "-t"
+            return (
+                "[  1](sec  2)(fl 0x00)(ty 0)(scl 2) (nx 0) 0x00000000 __g_foo\n"
+                "[  2](sec  2)(fl 0x00)(ty 0)(scl 2) (nx 0) 0x00000004 _g_foo\n"
+                "[  3](sec  2)(fl 0x00)(ty 0)(scl 2) (nx 0) 0x00000008 hook@@12\n"
+                "[  4](sec  2)(fl 0x00)(ty 0)(scl 2) (nx 0) 0x0000000c _g_plain\n"
+            )
+
+        monkeypatch.setattr("rebrew.data_layout._run_objdump", fake_run)
+        _size, syms = obj_data_symbol_offsets(tmp_path / "f.obj")
+        assert syms == {"_g_foo": 0, "g_foo": 4, "hook": 8, "g_plain": 12}
+        _sizes, buckets = obj_section_symbols(tmp_path / "f.obj", ".data")
+        assert buckets[".data"] == {"_g_foo", "g_foo", "hook", "g_plain"}
 
 
 class TestObjdumpMemoBound:
@@ -1310,6 +1892,33 @@ class TestLongLongSize:
         assert data_symbol_size({"type": "const unsigned long int[3]"}) == 12
         assert data_symbol_size({"type": "void*"}, arch="x86_64") == 0
         assert data_symbol_size({"type": "void*", "size": 8}, arch="x86_64") == 8
+
+
+def test_data_symbol_size_pointer_to_array_is_a_pointer() -> None:
+    """``char (*)[4]`` is one pointer. The bound is not a dimension.
+
+    The parentheses made the extent unknown. An array of pointers stays
+    16 bytes. A function pointer stays unknown. An explicit size wins.
+    """
+    from rebrew.data_layout import data_symbol_size
+
+    assert data_symbol_size({"type": "char (*)[4]"}) == 4
+    assert data_symbol_size({"type": "char (**)[4]"}) == 4
+    assert data_symbol_size({"type": "char *[4]"}) == 16
+    assert data_symbol_size({"type": "void (*)(int)"}) == 0
+    assert data_symbol_size({"type": "char (*)[4]", "size": 8}) == 8
+
+
+def test_data_symbol_size_sizeof_pointer_in_bound() -> None:
+    """``(*)`` inside a bound is not the symbol's declarator.
+
+    ``int[sizeof(char (*)[4])]`` was 4. ``char[sizeof(char *[2])]`` was 0.
+    """
+    from rebrew.data_layout import data_symbol_size
+
+    assert data_symbol_size({"type": "int[sizeof(char (*)[4])]"}) == 16
+    assert data_symbol_size({"type": "char[sizeof(char *[2])]"}) == 8
+    assert data_symbol_size({"type": "char (*)[4]"}) == 4
 
 
 def test_fix_ownership_rolls_back_when_a_write_fails(

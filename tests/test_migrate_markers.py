@@ -352,9 +352,18 @@ class TestMigrateMarkersEndToEnd:
 
 class TestLibraryInventoryMigration:
     @pytest.mark.parametrize(
-        "symbol", ["_fclose", "__fclose_lk", "_Close@4", "@Fast@8", "?WithinEpsilon@@YAHMM@Z"]
+        ("symbol", "name"),
+        [
+            ("_fclose", "fclose"),
+            ("__fclose_lk", "_fclose_lk"),
+            ("_Close@4", "Close"),
+            ("@Fast@8", "Fast"),
+            ("?WithinEpsilon@@YAHMM@Z", "?WithinEpsilon@@YAHMM@Z"),
+        ],
     )
-    def test_native_symbols_survive_marker_removal(self, tmp_path: Path, symbol: str) -> None:
+    def test_native_symbols_survive_marker_removal(
+        self, tmp_path: Path, symbol: str, name: str
+    ) -> None:
         from rebrew.annotation import parse_library_header
         from rebrew.marker_migration import migrate_source_file
         from rebrew.metadata import get_entry
@@ -373,7 +382,7 @@ class TestLibraryInventoryMigration:
         assert migrate_source_file(cfg, header, "S", dry_run=False) is not None
         entry = get_entry(src, 0x1000, "S")
         assert entry["symbol"] == symbol
-        assert entry["name"] == symbol.lstrip("_")
+        assert entry["name"] == name
         assert entry["size"] == 0x20
         assert header.read_text().strip() == ""
         assert parse_library_header(header, metadata_dir=src)[0].symbol == symbol

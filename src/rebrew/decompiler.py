@@ -38,6 +38,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from rebrew.c_parser import CALLING_CONVENTION
 from rebrew.config import KUNA_SPECS_ENV, expand_env_path, warn_env_dir
 from rebrew.registry import RegistryError
 from rebrew.utils import binary_fingerprint, console, run_process_group, untrusted_literal
@@ -139,6 +140,30 @@ def _re_analysis_key(tool: str) -> str:
     return digest
 
 
+_re_unremoved: list[str] = []
+_re_unremoved_lock = threading.Lock()
+
+
+def _re_remove_project_dir(proj_dir: str | None) -> None:
+    """Delete a project dir, or keep it queued when the tree is still busy."""
+    if not proj_dir:
+        return
+    shutil.rmtree(proj_dir, ignore_errors=True)
+    if Path(proj_dir).is_dir():
+        with _re_unremoved_lock:
+            if proj_dir not in _re_unremoved:
+                _re_unremoved.append(proj_dir)
+
+
+def _re_flush_unremoved() -> None:
+    """Retry project dirs a previous delete left behind."""
+    with _re_unremoved_lock:
+        pending = _re_unremoved[:]
+        _re_unremoved.clear()
+    for proj_dir in pending:
+        _re_remove_project_dir(proj_dir)
+
+
 def _re_init_project(binary: Path, tool: str, root: Path) -> str | None:
     """Run full ``aaa`` analysis once and persist the project; return its dir."""
     digest = _re_analysis_key(tool)
@@ -152,7 +177,7 @@ def _re_init_project(binary: Path, tool: str, root: Path) -> str | None:
     # reach a further shell.  It comes from TMPDIR, so it is untrusted text even
     # though mkdtemp picked the name.
     if any(ch in proj_dir for ch in "; \t\n!\"'`$&|<>()"):
-        shutil.rmtree(proj_dir, ignore_errors=True)
+        _re_remove_project_dir(proj_dir)
         warnings.warn(
             f"{tool} skipped project reuse: TMPDIR path has unsafe characters", stacklevel=3
         )
@@ -175,14 +200,14 @@ def _re_init_project(binary: Path, tool: str, root: Path) -> str | None:
         )
     except subprocess.TimeoutExpired:
         warnings.warn(f"{tool} timed out analyzing {binary.name}", stacklevel=3)
-        shutil.rmtree(proj_dir, ignore_errors=True)
+        _re_remove_project_dir(proj_dir)
         return None
     except (OSError, subprocess.SubprocessError) as e:
         warnings.warn(f"{tool} failed analyzing {binary.name}: {e}", stacklevel=3)
-        shutil.rmtree(proj_dir, ignore_errors=True)
+        _re_remove_project_dir(proj_dir)
         return None
     except BaseException:
-        shutil.rmtree(proj_dir, ignore_errors=True)
+        _re_remove_project_dir(proj_dir)
         raise
     if result.returncode != 0:
         warnings.warn(
@@ -190,7 +215,7 @@ def _re_init_project(binary: Path, tool: str, root: Path) -> str | None:
             f"{result.stderr.strip()[-500:]}",
             stacklevel=3,
         )
-        shutil.rmtree(proj_dir, ignore_errors=True)
+        _re_remove_project_dir(proj_dir)
         return None
     try:
         bin_fp = binary_fingerprint(binary)
@@ -199,7 +224,7 @@ def _re_init_project(binary: Path, tool: str, root: Path) -> str | None:
         )
     except OSError as e:
         warnings.warn(f"{tool} could not stamp project dir {proj_dir}: {e}", stacklevel=3)
-        shutil.rmtree(proj_dir, ignore_errors=True)
+        _re_remove_project_dir(proj_dir)
         return None
     return proj_dir
 
@@ -259,7 +284,7 @@ def _re_release_project(proj_dir: str) -> None:
         retired = proj_dir in _RE_PROJECT_RETIRED
         _RE_PROJECT_RETIRED.discard(proj_dir)
     if retired:
-        shutil.rmtree(proj_dir, ignore_errors=True)
+        _re_remove_project_dir(proj_dir)
 
 
 def _re_evictable_key_locked() -> tuple[str, str] | None:
@@ -309,7 +334,7 @@ def _re_cached_project(binary: Path, tool: str, root: Path) -> str | None:
         # other binary's decompile serializes on that lock.  A dir a peer is
         # still querying is left for its own release.
         if stale is not None:
-            shutil.rmtree(stale, ignore_errors=True)
+            _re_remove_project_dir(stale)
 
         if not leader:
             # A leader is already running ``aaa`` for this key.  Wait for it
@@ -361,9 +386,10 @@ def _re_cached_project(binary: Path, tool: str, root: Path) -> str | None:
             # Same reason as the stale drop above: the removals are already
             # unlinked from the map, and rmtree-ing a database under the lock
             # stalls every other binary's decompile for its duration.
+            _re_flush_unremoved()
             for path in superseded:
                 if path is not None:
-                    shutil.rmtree(path, ignore_errors=True)
+                    _re_remove_project_dir(path)
             return published
         finally:
             with _RE_PROJECT_DIRS_LOCK:
@@ -393,10 +419,8 @@ def _re_drop_project(binary: Path, tool: str, proj_dir: str | None = None) -> No
         del _RE_PROJECT_DIRS[key]
         dropped = _re_discard_locked(current)
     if dropped is not None:
-        # The dir was created by mkdtemp and is not tracked anywhere else once
-        # popped, so it must be removed here or it leaks for the process
-        # lifetime (every decompile of a failing project would add one).
-        shutil.rmtree(dropped, ignore_errors=True)
+        # A busy tree stays queued. Forgetting it here leaks the dir until exit.
+        _re_remove_project_dir(dropped)
 
 
 def _clear_re_projects() -> None:
@@ -407,6 +431,7 @@ def _clear_re_projects() -> None:
     timeout on a project that no longer exists.  A dir a caller is still
     querying survives until that caller releases it.
     """
+    _re_flush_unremoved()
     with _RE_PROJECT_DIRS_LOCK:
         dirs = [_re_discard_locked(d) for d in _RE_PROJECT_DIRS.values()]
         _RE_PROJECT_DIRS.clear()
@@ -418,7 +443,7 @@ def _clear_re_projects() -> None:
         event.set()
     for proj_dir in dirs:
         if proj_dir is not None:
-            shutil.rmtree(proj_dir, ignore_errors=True)
+            _re_remove_project_dir(proj_dir)
 
 
 def _run_re(binary: Path, va: int, cmd: str, root: Path) -> str | None:
@@ -779,9 +804,14 @@ _KUNA_LABEL_RE = re.compile(r"\b((?:s|dat|sub)_[0-9a-f]{6,})\b")
 #: alternation of every name reports only the last name on the line.
 _KUNA_STORAGE_RE = re.compile(r"\b(?:extern|static|typedef)\b[^;\n]*")
 #: A definition or prototype whose declarator is an address label.
+# A parenthesized pointer (``(*dat_…)``, ``(__cdecl *dat_…)``,
+# ``(* const dat_…)``) already declares the label. The name is not
+# a fresh ``extern int``.
 _KUNA_DECL_LINE_RE = re.compile(
     r"^[ \t]*(?!(?:return|if|else|while|for|do|switch|goto|case|sizeof|break|continue)\b)"
-    r"(?:[A-Za-z_]\w*[ \t]+)+\**[ \t]*((?:s|dat|sub)_[0-9a-f]{6,})\b",
+    r"(?:[A-Za-z_]\w*[ \t]+)+"
+    r"(?:\**[ \t]*|\(\s*" + CALLING_CONVENTION + r"\*+\s*(?:(?:const|volatile)\b\s*)*)"
+    r"((?:s|dat|sub)_[0-9a-f]{6,})\b",
     re.MULTILINE,
 )
 _KUNA_DECL_FOR = {

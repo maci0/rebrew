@@ -90,7 +90,7 @@ class TestDocumentUnmatched:
 
         text = stub.read_text(encoding="utf-8")
         assert "// STUB:" not in text
-        annotations = parse_c_file_multi(stub, metadata_dir=project / "src")
+        annotations = parse_c_file_multi(stub, metadata_dir=project)
         assert len(annotations) == 1
         assert annotations[0].va == 0x00401020
         assert annotations[0].module == "SERVER"
@@ -101,8 +101,8 @@ class TestDocumentUnmatched:
         assert (project / "src" / "SERVER" / "fcn_00401010.c").read_text(
             encoding="utf-8"
         ) == "// STUB: SERVER 0x00401010\nvoid fcn_00401010(void) {}\n"
-        # blocker metadata written for the new function (metadata root = src/)
-        meta = project / "src" / "rebrew-functions.toml"
+        # blocker metadata written for the new function (metadata root = project root)
+        meta = project / "rebrew-functions.toml"
         assert "0x00401020" in meta.read_text(encoding="utf-8")
 
     def test_idempotent_rerun(self, project: Path) -> None:
@@ -125,7 +125,7 @@ class TestDocumentUnmatched:
         assert payload["unmatched"] == 1
         assert payload["dry_run"] is True
         assert not (project / "src" / "SERVER" / "fcn_00401020.c").exists()
-        assert not (project / "src" / "rebrew-functions.toml").exists()
+        assert not (project / "rebrew-functions.toml").exists()
 
     def test_json_purity(self, project: Path) -> None:
         """stdout is exactly one JSON document."""

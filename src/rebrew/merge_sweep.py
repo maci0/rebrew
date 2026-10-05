@@ -32,7 +32,7 @@ from typing import Any
 
 import typer
 
-from rebrew.annotation import parse_c_file_multi
+from rebrew.annotation import derive_c_symbol, parse_c_file_multi
 from rebrew.binary_loader import extract_raw_bytes, load_binary
 from rebrew.catalog import (
     build_function_registry,
@@ -288,6 +288,29 @@ def search_partitions(
     return current, best, moves, compiles
 
 
+def _member_symbol(ann: Any) -> str:
+    """COFF symbol a cluster member is extracted under.
+
+    A stored symbol is kept. An empty symbol uses the prototype when that
+    is vectorcall (``hook@@4``), fastcall (``@keeps@4``), or stdcall
+    (``_bar@4``). Cdecl stays ``_name``. A name that already starts with
+    ``_`` is kept, not dropped and not given a second underscore.
+    """
+    if ann.symbol:
+        return str(ann.symbol)
+    name = str(ann.name or "")
+    proto = str(getattr(ann, "prototype", "") or "")
+    if name and proto:
+        derived = derive_c_symbol(name, proto)
+        # Cdecl derivation adds one ``_``. A legacy name ``_foo`` must stay
+        # ``_foo``. A real decoration differs from that cdecl spelling.
+        if derived and derived != f"_{name}":
+            return derived
+    if name and not name.startswith("_"):
+        return "_" + name
+    return name
+
+
 class _BudgetExhausted(Exception):
     """Internal signal: the compile budget ran out mid-search."""
 
@@ -335,6 +358,9 @@ def _gap_classes(
     from rebrew.cu_map import classify_gap
 
     padding = tuple(cfg.padding_bytes) if cfg else (0xCC, 0x90)
+    configured = getattr(cfg, "arch", "") if cfg is not None else ""
+    arch = configured or getattr(info, "arch", "") or "x86_32"
+    endian = getattr(info, "endian", "") or ""
     text_va = info.text_va
     text_size = info.text_size
     out: dict[tuple[int, int], str] = {}
@@ -351,7 +377,9 @@ def _gap_classes(
         if gap_data is None:
             out[(prev_va, curr_va)] = "unknown"
         else:
-            out[(prev_va, curr_va)] = classify_gap(gap_data, text_va, text_size, padding)
+            out[(prev_va, curr_va)] = classify_gap(
+                gap_data, text_va, text_size, padding, arch, endian
+            )
     return out
 
 
@@ -529,7 +557,7 @@ class _PartitionScorer:
         total = 0
         for va in members:
             ann = self._annotations[va]
-            symbol = ann.symbol or ("" if ann.name.startswith("_") else "_" + ann.name)
+            symbol = _member_symbol(ann)
             if not symbol:
                 continue
             target_bytes = extract_raw_bytes(self._cfg.target_binary, va, ann.size)

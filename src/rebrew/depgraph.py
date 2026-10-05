@@ -33,6 +33,7 @@ from rebrew.cli import (
     require_non_negative,
 )
 from rebrew.config import ProjectConfig
+from rebrew.rename_ops import c_name_from_symbol
 from rebrew.sources import (
     iter_sources,
     target_marker,
@@ -178,10 +179,11 @@ def _register_spellings(name_lookup: dict[str, str], label: str, key: str) -> No
     Keys are ``fold_ident`` (NFC + casefold), matching every other symbol-name
     lookup in the tree: a symbol stored NFD and declared NFC in a library
     header resolves to one node, and ``STRASSE`` reaches ``straße``.  The
-    underscore variants are kept because a C extern can spell the leading
-    underscore differently from the annotation.
+    C name is registered too: ``hook@@12`` answers a call to ``hook``, and
+    ``__foo`` answers ``_foo`` rather than ``foo``.
     """
-    for spelling in (label, label.lstrip("_"), f"_{label}"):
+    bare = c_name_from_symbol(label)
+    for spelling in (label, bare, f"_{bare}"):
         name_lookup.setdefault(fold_ident(spelling), key)
 
 
@@ -355,7 +357,11 @@ def build_graph(
     # must show them too.  The minimal marker format needs parse_library_header
     # (parse_c_file_multi does not read it) and headers carry no bodies, so only
     # nodes are added.
-    from rebrew.annotation import min_valid_va_for, parse_library_header
+    from rebrew.annotation import (
+        library_annotations_from_metadata,
+        min_valid_va_for,
+        parse_library_header,
+    )
     from rebrew.sources import iter_library_headers
 
     for header in iter_library_headers(reversed_dir, cfg):
@@ -370,6 +376,23 @@ def build_graph(
                 "va": entry.va,
                 "size": entry.size,
                 "file": header_rel,
+                "symbol": label,
+            }
+            _register_spellings(name_lookup, label, key)
+
+    if cfg is not None and getattr(cfg, "metadata_dir", None) is not None:
+        for entry in library_annotations_from_metadata(cfg.metadata_dir, reversed_dir):
+            if entry.va < min_valid_va_for(cfg):
+                continue
+            key = _func_key(entry, Path(entry.filepath).stem or "library")
+            if key in nodes:
+                continue
+            label = _func_label(entry, Path(entry.filepath).stem or "library")
+            nodes[key] = {
+                "status": entry.status,
+                "va": entry.va,
+                "size": entry.size,
+                "file": entry.filepath,
                 "symbol": label,
             }
             _register_spellings(name_lookup, label, key)

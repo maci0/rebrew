@@ -181,6 +181,65 @@ class TestMergeBasic:
         assert result.exit_code == 0
         assert "helper" in payloads[0]["extern_conflicts"]
 
+    def test_consolidate_keeps_a_multiline_extern_whole(self) -> None:
+        """A parameter list split across lines must not glue onto the next extern."""
+        from rebrew.merge import consolidate_declarations
+
+        merged, report = consolidate_declarations(
+            "extern int read(void* out, int size,\n"
+            "                 int count);\n"
+            "extern int helper(void);\n"
+            "int f(void) { return 0; }\n"
+        )
+        assert report.dropped == []
+        assert "extern int read(void* out, int size, int count);\n" in merged
+        assert "extern int helper(void);\n" in merged
+        assert merged.index("read") < merged.index("helper")
+        assert ";extern" not in merged
+
+        merged, report = consolidate_declarations(
+            "extern const float g_const_0_0;\n"
+            "#ifdef __clang__\n"
+            "#pragma clang diagnostic pop\n"
+            "#endif\n"
+            "extern void* __cdecl gm_Search(int);\n"
+            "int f(void) { return 0; }\n"
+        )
+        assert report.dropped == []
+        assert "#ifdef __clang__\n" in merged
+        assert "; #ifdef" not in merged
+        assert ";#ifdef" not in merged
+
+    def test_consolidate_names_cdecl_and_const_pointer_externs(self) -> None:
+        """A qualifier or calling convention is not the symbol name."""
+        from rebrew.merge import consolidate_declarations
+
+        merged, report = consolidate_declarations(
+            "extern int (* const rows[2])[4];\n"
+            "extern char (* const buf[3])[4];\n"
+            "int f(void) { return 0; }\n"
+        )
+        assert "(* const rows" in merged
+        assert "(* const buf" in merged
+        assert "const" not in report.conflicts
+        assert report.dropped == []
+
+        merged, report = consolidate_declarations(
+            "extern char (__cdecl *row)[4];\n"
+            "extern char (__cdecl *row)[8];\n"
+            "int f(void) { return 0; }\n"
+        )
+        assert "row" in report.conflicts
+        assert report.dropped == []
+
+        merged, report = consolidate_declarations(
+            "extern void (__cdecl *cb)(int);\n"
+            "extern void (__cdecl *cb)(char *);\n"
+            "int f(void) { return 0; }\n"
+        )
+        assert "cb" in report.conflicts
+        assert report.dropped == []
+
     def test_dry_run_does_not_create_output(self, tmp_path: Path, monkeypatch: Any) -> None:
         a = _write(tmp_path / "a.c", _single(0x10001000, "_a"))
         b = _write(tmp_path / "b.c", _single(0x10002000, "_b"))

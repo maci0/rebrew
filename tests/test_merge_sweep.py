@@ -16,9 +16,11 @@ from typing import Any
 
 from typer.testing import CliRunner
 
+from rebrew.annotation import Annotation
 from rebrew.merge_sweep import (
     _apply_merge,
     _apply_split,
+    _member_symbol,
     _merge_candidates,
     _partition_key,
     _rank_key,
@@ -28,6 +30,59 @@ from rebrew.merge_sweep import (
 )
 
 runner = CliRunner()
+
+
+def test_member_symbol_keeps_a_decorated_convention() -> None:
+    """An empty symbol uses the prototype's decoration.
+
+    The fallback was ``_name``, and a name that already started with ``_``
+    was dropped, so that member was never extracted.
+    """
+    hook = Annotation(
+        va=0x1000,
+        name="hook",
+        symbol="",
+        prototype="void __vectorcall hook(int a)",
+        module="SERVER",
+        marker_type="FUNCTION",
+    )
+    assert _member_symbol(hook) == "hook@@4"
+    keeps = Annotation(
+        va=0x2000,
+        name="keeps",
+        symbol="",
+        prototype="void __fastcall keeps(int a)",
+        module="SERVER",
+        marker_type="FUNCTION",
+    )
+    assert _member_symbol(keeps) == "@keeps@4"
+    underlined = Annotation(
+        va=0x3000,
+        name="_foo",
+        symbol="",
+        prototype="int _foo(void)",
+        module="SERVER",
+        marker_type="FUNCTION",
+    )
+    assert _member_symbol(underlined) == "_foo"
+    stdcall = Annotation(
+        va=0x4000,
+        name="bar",
+        symbol="",
+        prototype="int __stdcall bar(int a)",
+        module="SERVER",
+        marker_type="FUNCTION",
+    )
+    assert _member_symbol(stdcall) == "_bar@4"
+    stored = Annotation(
+        va=0x5000,
+        name="hook",
+        symbol="hook@@12",
+        module="SERVER",
+        marker_type="FUNCTION",
+    )
+    assert _member_symbol(stored) == "hook@@12"
+
 
 A = 0x10001000
 B = 0x10002000

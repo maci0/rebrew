@@ -2,8 +2,8 @@
 
 Volatile annotation fields (STATUS, SIZE, CFLAGS, BLOCKER, NOTE, GHIDRA, …)
 are stored in a single ``rebrew-functions.toml`` metadata file at the
-``metadata_dir`` root (``cfg.metadata_dir``; the parent of ``reversed_dir``,
-or ``reversed_dir`` itself when only it holds the TOML),
+``metadata_dir`` root (``cfg.metadata_dir``; one level above the source
+tree, or the directory that already holds the TOML),
 rather than as comment annotations inside ``.c`` source files.
 
 Location
@@ -268,8 +268,19 @@ def resolve_metadata_dir(directory: Path | str | Any) -> Path:
     if hasattr(directory, "metadata_dir"):
         return Path(directory.metadata_dir)
     if hasattr(directory, "reversed_dir"):
-        return Path(directory.reversed_dir).parent
-    return Path(directory)
+        if hasattr(directory, "root") and directory.root is not None:
+            return Path(directory.root)
+        rev = Path(directory.reversed_dir)
+        return rev.parent.parent if rev.parent.name == "src" else rev.parent
+    p = Path(directory)
+    if (
+        p.name == "src"
+        and not (p / METADATA_FILENAME).exists()
+        and not (p / "rebrew-data.toml").exists()
+        and ((p.parent / METADATA_FILENAME).exists() or (p.parent / "rebrew-data.toml").exists())
+    ):
+        return p.parent
+    return p
 
 
 def is_metadata_key(key: str) -> bool:

@@ -136,8 +136,13 @@ def _block_metadata(block: str) -> _BlockMeta | None:
 
 
 def _build_output_name(symbol: str, va: int, ext: str) -> str:
-    """Generate output filename from symbol or fallback VA."""
-    stem = unicodedata.normalize("NFC", symbol).lstrip("_").strip()
+    """Generate output filename from the C name or a fallback VA.
+
+    Callers pass the definition's identifier, so a leading ``_`` is part of
+    the name. Stripping every ``_`` stored both ``_foo`` and ``__foo`` as
+    ``foo.c``.
+    """
+    stem = unicodedata.normalize("NFC", symbol).strip()
     if not stem:
         stem = f"func_{va:08x}"
     # Sanitize: keep only ASCII filename-safe characters so a hostile symbol
@@ -206,6 +211,32 @@ def _outer_is_function(declarator: Any) -> bool:
     while node is not None:
         if node.type == "function_declarator" and not saw_object:
             return True
+        # tree-sitter parses a bare `__cdecl` as ms_call_modifier and does
+        # not link the function through the declarator field. The function
+        # is the next named sibling.
+        if node.type == "ms_call_modifier" and node.parent is not None:
+            sibs = list(node.parent.named_children)
+            idx = next((i for i, child in enumerate(sibs) if child.id == node.id), -1)
+            nxt_fn = (
+                next(
+                    (child for child in sibs[idx + 1 :] if child.type == "function_declarator"),
+                    None,
+                )
+                if idx >= 0
+                else None
+            )
+            if nxt_fn is not None and not saw_object:
+                return True
+        # A calling convention between `*` and the name is an ERROR node.
+        # tree-sitter then parses the return type as a pointer and the
+        # function as its declarator. That pointer is not a pointer to a
+        # function, so the function still wins.
+        if (
+            node.type == "pointer_declarator"
+            and any(child.type == "ERROR" for child in node.named_children)
+            and any(child.type == "function_declarator" for child in node.named_children)
+        ):
+            return True
         if node.type in {"pointer_declarator", "array_declarator"}:
             saw_object = True
         nxt = node.child_by_field_name("declarator")
@@ -225,6 +256,8 @@ def _declarator_name(declarator: Any, raw: bytes) -> str | None:
         nxt = node.child_by_field_name("declarator")
         if nxt is None and node.type == "parenthesized_declarator":
             nxt = next((child for child in node.named_children), None)
+        if nxt is None and node.type == "ERROR":
+            nxt = next((child for child in node.named_children if child.type != "identifier"), None)
         node = nxt
     return None
 
@@ -387,15 +420,24 @@ def _extent(raw: bytes, span: SourceSpan, spans: list[SourceSpan]) -> tuple[int,
 
 
 def row_labels(entry: dict[str, Any]) -> set[str]:
-    """Symbol and name spellings on one row, plus the spelling with one leading underscore removed."""
+    """Linker symbols and C names on one row.
+
+    The symbol is also stored as its C name. ``hook@@12`` matches
+    ``hook``, and ``__foo`` matches ``_foo``. Stripping one ``_`` from
+    the name turned the C function ``_foo`` into ``foo``.
+    """
+    from rebrew.rename_ops import c_name_from_symbol
+
     names: set[str] = set()
     for key in ("symbol", "name"):
         value = str(entry.get(key) or "").strip()
-        if not value:
-            continue
-        names.add(value)
-        if value.startswith("_"):
-            names.add(value[1:])
+        if value:
+            names.add(value)
+    symbol = str(entry.get("symbol") or "").strip()
+    if symbol:
+        c_name = c_name_from_symbol(symbol)
+        if c_name:
+            names.add(c_name)
     return names
 
 
@@ -1048,8 +1090,8 @@ def main(
         out_name = _build_output_name(symbol, block_va, out_ext)
         out_path = out_dir / out_name
 
-        # Two blocks can sanitize to the same filename (same C symbol after
-        # lstrip/sanitization); writing both would silently destroy the first.
+        # Two blocks can sanitize to the same filename (same C name after
+        # sanitization); writing both would silently destroy the first.
         prior_va = planned_paths.get(out_path)
         if prior_va is not None:
             error_exit(

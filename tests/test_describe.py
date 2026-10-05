@@ -389,3 +389,40 @@ class TestMalformedInventoryEntry:
         assert "never_reached" not in names
         # The entry before the bad one is kept, not discarded with the rest.
         assert names[0x1000] == "good"
+
+
+class TestDecoratedLookupName:
+    def test_decorated_symbol_uses_the_c_name(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """An empty C name still names the function, not the decoration.
+
+        ``lstrip("_")`` left ``hook@@12`` and ``@keeps@4`` in the dossier,
+        and it turned ``__foo`` into ``foo``. A stored name wins. The
+        range label is the same C name.
+        """
+        import rebrew.describe as describe_mod
+        from rebrew.annotation import Annotation
+        from rebrew.describe import _build_lookup
+
+        anns = [
+            Annotation(va=0x1000, size=0x10, name="", symbol="hook@@12"),
+            Annotation(va=0x1100, size=0x10, name="", symbol="@keeps@4"),
+            Annotation(va=0x1200, size=0x10, name="", symbol="_sleepish@4"),
+            Annotation(va=0x1300, size=0x10, name="", symbol="__foo"),
+            Annotation(va=0x1400, size=0x10, name="", symbol="_foo"),
+            Annotation(va=0x1500, size=0x10, name="kept", symbol="hook@@12"),
+        ]
+        monkeypatch.setattr(describe_mod, "_collect_annotations", lambda cfg: anns)
+        monkeypatch.setattr(describe_mod, "cached_function_list", lambda cfg: [])
+
+        _annotations, names, ranges = _build_lookup(None)
+
+        assert names[0x1000] == "hook"
+        assert names[0x1100] == "keeps"
+        assert names[0x1200] == "sleepish"
+        assert names[0x1300] == "_foo"
+        assert names[0x1400] == "foo"
+        assert names[0x1500] == "kept"
+        by_va = {start: label for start, _end, label in ranges}
+        assert by_va[0x1000] == "hook"
+        assert by_va[0x1100] == "keeps"
+        assert by_va[0x1300] == "_foo"

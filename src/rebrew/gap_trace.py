@@ -98,6 +98,39 @@ def _masked_key(raw: bytes, reloc: bool, mnemonic: str) -> bytes:
     return bytes(raw)
 
 
+def first_fault(
+    ref_insns: list[tuple[int, bytes, str, str]],
+    obj_insns: list[tuple[int, bytes, str, str]],
+) -> dict[str, Any] | None:
+    """First instruction that disagrees, aligned by address.
+
+    The first differing byte is often a relocated operand. The fault is the
+    first instruction whose mnemonic, operand text, or length differs. Both
+    sides are walked in address order and paired while their offsets match.
+    """
+    ref_at = {off: (raw, mnemonic, op) for off, raw, mnemonic, op in ref_insns}
+    obj_at = {off: (raw, mnemonic, op) for off, raw, mnemonic, op in obj_insns}
+    for off in sorted(set(ref_at) | set(obj_at)):
+        ref = ref_at.get(off)
+        obj = obj_at.get(off)
+        if (
+            ref is None
+            or obj is None
+            or (ref[1], ref[2], len(ref[0])) != (obj[1], obj[2], len(obj[0]))
+        ):
+            return {
+                "ref_off": off if ref is not None else None,
+                "obj_off": off if obj is not None else None,
+                "reference": None
+                if ref is None
+                else {"mnemonic": ref[1], "op_str": ref[2], "size": len(ref[0])},
+                "object": None
+                if obj is None
+                else {"mnemonic": obj[1], "op_str": obj[2], "size": len(obj[0])},
+            }
+    return None
+
+
 def trace_gaps(
     ref_insns: list[tuple[int, bytes, str, str]],
     obj_insns: list[tuple[int, bytes, str, str]],
@@ -244,9 +277,11 @@ def main(
         )
 
     events = trace_gaps(ref_seq, obj_seq)
+    fault = first_fault(ref_seq, obj_seq)
     payload = {
         "va": hex(va_int),
         "size": size,
+        "fault": fault,
         "reference_insns": len(ref_seq),
         "object_insns": len(obj_seq),
         "reference_code_end": _real_end(ref_seq),
@@ -261,6 +296,16 @@ def main(
         "(COUNTS INCLUDE TRAILING ALIGNMENT FILL -- do not use them for length);"
     )
     console.print(f"  real code ends:  reference {_real_end(ref_seq)}, ours {_real_end(obj_seq)}")
+    if fault is None:
+        console.print("  fault: none (instruction streams agree)")
+    else:
+        ref_side = fault["reference"]
+        obj_side = fault["object"]
+        ref_text = "absent" if ref_side is None else f"{ref_side['mnemonic']} {ref_side['op_str']}"
+        obj_text = "absent" if obj_side is None else f"{obj_side['mnemonic']} {obj_side['op_str']}"
+        console.print(
+            f"  fault at refoff {fault['ref_off']}: reference `{ref_text}`, ours `{obj_text}`"
+        )
     for ev in events:
         if ev["type"] == "gap":
             console.print(

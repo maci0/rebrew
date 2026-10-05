@@ -229,6 +229,35 @@ class TestScanReversedDirLibraryHeaders:
         entries = scan_reversed_dir(src, cfg=cfg)
         assert any(e.va == 0x1000 and e.marker_type == "LIBRARY" for e in entries)
 
+    def test_library_rows_load_without_header(self, tmp_path: Path) -> None:
+        """A migrated library row names a header that no longer exists."""
+        from types import SimpleNamespace
+
+        from rebrew.catalog.loaders import scan_reversed_dir
+        from rebrew.metadata import save_metadata
+
+        src = tmp_path / "src"
+        src.mkdir()
+        save_metadata(
+            tmp_path,
+            {
+                ("SERVER", 0x1000): {
+                    "file": "library_msvc.h",
+                    "symbol": "_fflush",
+                    "marker_type": "LIBRARY",
+                    "name": "fflush",
+                }
+            },
+        )
+        cfg = SimpleNamespace(
+            metadata_dir=tmp_path, marker="SERVER", source_ext=".c", root=tmp_path
+        )
+        entries = scan_reversed_dir(src, cfg=cfg)
+        got = [e for e in entries if e.va == 0x1000]
+        assert len(got) == 1
+        assert got[0].marker_type == "LIBRARY"
+        assert got[0].symbol == "_fflush"
+
     def test_library_header_merges_metadata_status(self, tmp_path: Path) -> None:
         """verify/test STATUS in TOML must win over the EXACT library default."""
         from types import SimpleNamespace

@@ -14,7 +14,7 @@ from pathlib import Path
 import typer
 from rich.table import Table
 
-from rebrew.binsync.importer import is_meaningful, resolve_state_dir
+from rebrew.binsync.importer import is_meaningful, resolve_state_dir, strip_cdecl_prefix
 from rebrew.binsync.state import (
     index_local_and_catalog,
     load_binsync_state,
@@ -141,11 +141,11 @@ def main(
 
         if not bs_name or not is_meaningful(bs_name):
             continue
-        # same name ignoring cdecl prefix, and same name under NFC + casefold
-        # (importer.py): a state file written on Windows and a source checked
-        # out on macOS spell one symbol two ways, and that is not a divergence.
-        bs_stripped = bs_name[1:] if bs_name.startswith("_") else bs_name
-        local_stripped = local_name[1:] if local_name.startswith("_") else local_name
+        # Same C name, including vectorcall ``name@@N`` and fastcall
+        # ``@name@N``, then NFC + casefold. One leading ``_`` left
+        # ``hook@@12`` looking different from ``_hook``.
+        bs_stripped = strip_cdecl_prefix(bs_name)
+        local_stripped = strip_cdecl_prefix(local_name)
         if fold_ident(bs_stripped) == fold_ident(local_stripped):
             continue
         if not is_meaningful(local_name):

@@ -327,9 +327,13 @@ def _apply_arg_constraints(
 #   int __cdecl func(int, char*)
 #   void __thiscall CClass::Method(int a, float b)
 #   int func(void)
+# ``WINAPI`` and ``__vectorcall`` are conventions too. Leaving them in
+# the return type made ``void WINAPI foo(void)`` look like it returns a
+# value, so the prover compared EAX.
 _PROTO_RE = re.compile(
     r"^\s*(?P<ret>\w[\w\s\*]*?)\s+"
-    r"(?:(?P<cc>__cdecl|__stdcall|__thiscall|__fastcall)\s+)?"
+    r"(?:(?P<cc>__vectorcall|__thiscall|__fastcall|__clrcall|__stdcall|__cdecl"
+    r"|REBREW_NAKED|APIENTRY|CALLBACK|_CRTIMP|WINAPI)\s+)?"
     r"(?:[\w:]+)\s*"  # function name (may include class::)
     r"\((?P<args>[^)]*)\)"
 )
@@ -1319,15 +1323,22 @@ def main(
                     json_mode=json_output,
                 )
     if ann is None and not was_va_arg and not Path(source).exists():
+        from rebrew.rename_ops import c_name_from_symbol
         from rebrew.utils import fold_ident
 
-        want_sym = fold_ident(source.strip()).lstrip("_")
+        # The C name and the symbol both count. ``hook@@12`` answers
+        # ``hook``. ``__foo`` answers ``_foo``, not ``foo``.
+        want_sym = fold_ident(source.strip())
         for a in annotations:
-            for candidate in (a.symbol or "", a.name or ""):
-                if fold_ident(candidate.strip()).lstrip("_") == want_sym:
-                    ann = a
-                    break
-            if ann is not None:
+            candidates: list[str] = []
+            if a.name:
+                candidates.append(fold_ident(a.name.strip()))
+            if a.symbol and a.symbol.strip():
+                raw = a.symbol.strip()
+                candidates.append(fold_ident(raw))
+                candidates.append(fold_ident(c_name_from_symbol(raw)))
+            if want_sym in candidates:
+                ann = a
                 break
     if ann is None:
         for a in annotations:
@@ -1548,7 +1559,8 @@ def _resolve_watched_dir32(
     """Map DIR32 reloc offsets whose symbol resolves into *watched_set* → that VA.
 
     Only DIR32 (IMAGE_REL_I386_DIR32, 0x06) absolute data references can point
-    at watched globals.  Symbol lookup tolerates the MSVC leading underscore.
+    at watched globals.  Symbol lookup uses the C name: ``hook@@12`` is
+    ``hook`` and ``__foo`` is ``_foo``.
     The caller patches each offset with ``VA + addend`` (the obj operand is
     the addend), and the original blob needs no patch — its linked operand
     already holds the absolute address.  Best-effort: any failure yields
@@ -1581,12 +1593,18 @@ def _resolve_watched_dir32(
             exc_info=True,
         )
         return {}
+    from rebrew.rename_ops import c_name_from_symbol
+
     for rec in records:
         if rec.type != 0x06:  # IMAGE_REL_I386_DIR32
             continue
+        # Exact spelling first. ``hook@@12`` is ``hook``. One leading ``_``
+        # left that relocation unwatched. ``__foo`` is ``_foo``, not ``foo``.
         va = name_to_va.get(rec.symbol)
-        if va is None and rec.symbol.startswith("_"):
-            va = name_to_va.get(rec.symbol[1:])
+        if va is None:
+            c_name = c_name_from_symbol(rec.symbol)
+            if c_name:
+                va = name_to_va.get(c_name)
         if va in watched_set:
             out[rec.offset] = va
     return out

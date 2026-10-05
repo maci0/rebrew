@@ -38,17 +38,21 @@ from rebrew.binary_model import BinaryInfo
 DEFAULT_CS_ARCH = "CS_ARCH_X86"
 DEFAULT_CS_MODE = "CS_MODE_32"
 
-# x86 register names (32-bit and 64-bit GPRs, r8-r15 variants, vector regs),
-# collapsed to ``R`` when comparing operands.
+# x86 register names collapsed to ``R`` when comparing operands: GPRs,
+# r8–r15, vector regs, MMX, and the x87 stack. ``st(i)`` ends on ``)``, so
+# the bounds are "not a word char" rather than ``\b`` (there is no word
+# boundary between ``)`` and a following comma).
 _REGISTER_RE = re.compile(
-    r"\b(?:"
+    r"(?<!\w)(?:"
     r"r(?:ax|bx|cx|dx|si|di|bp|sp)|"
     r"r(?:8|9|1[0-5])(?:d|w|b)?|"
     r"[xyz]mm\d+|"
+    r"mm\d+|"
     r"eax|ebx|ecx|edx|esi|edi|ebp|esp|"
     r"ax|bx|cx|dx|si|di|bp|sp|"
-    r"al|bl|cl|dl|ah|bh|ch|dh|sil|dil|spl|bpl"
-    r")\b",
+    r"al|bl|cl|dl|ah|bh|ch|dh|sil|dil|spl|bpl|"
+    r"st\(\d+\)"
+    r")(?!\w)",
 )
 
 # ---------------------------------------------------------------------------
@@ -226,6 +230,53 @@ def normalized_operands(insn: _OperandCarrier) -> str:
     return _REGISTER_RE.sub("R", insn.op_str)
 
 
+#: Direct calls whose target operand is an immediate address.  x86 uses
+#: ``call``.  ARM, AArch64, and PPC use ``bl``/``blx``; MIPS uses ``jal``;
+#: SH uses ``bsr``.  A register-indirect form (``jalr $t9``, ``blx lr``)
+#: has no ``0x`` immediate, so :func:`direct_call_target` drops it.
+DIRECT_CALL_MNEMONICS = frozenset(
+    {"call", "jal", "jalrc", "bl", "blx", "bsr", "jsr", "bcl", "bctrl"}
+)
+
+#: Unconditional branches with an immediate address.  Conditional branches
+#: (``je``, ``beq``) stay out: an x86 ``jmp`` is the only jump the reference
+#: scan already recorded, and a conditional is not that edge.
+DIRECT_JUMP_MNEMONICS = frozenset({"jmp", "b", "j", "bra"})
+
+
+def _immediate_address(op_str: str) -> int | None:
+    """Absolute address printed as ``0xNNNN`` or ``#0xNNNN``, or None."""
+    op = op_str.strip()
+    if op.startswith("#"):
+        op = op[1:].strip()
+    token = op.split(",", 1)[0].strip()
+    if not token.startswith("0x"):
+        return None
+    try:
+        return int(token, 16)
+    except ValueError:
+        return None
+
+
+def direct_call_target(mnemonic: str, op_str: str) -> int | None:
+    """Immediate target of a direct call, or None for anything else.
+
+    ARM and AArch64 print the target as ``#0xNNNN``.  x86, MIPS, PPC, and
+    SH print ``0xNNNN``.  A comma-separated operand is not an immediate
+    address.
+    """
+    if mnemonic not in DIRECT_CALL_MNEMONICS:
+        return None
+    return _immediate_address(op_str)
+
+
+def direct_jump_target(mnemonic: str, op_str: str) -> int | None:
+    """Immediate target of an unconditional branch, or None."""
+    if mnemonic not in DIRECT_JUMP_MNEMONICS:
+        return None
+    return _immediate_address(op_str)
+
+
 _OP_CONSTANTS: tuple[Any, Any, Any] | None = None
 _OP_CONSTANTS_LOCK = threading.Lock()
 
@@ -330,7 +381,9 @@ def _mem_absolute(mem: Any, insn: Any = None) -> int | None:
     RIP-relative operand (``[rip+disp]``) is absolute too: its target is
     ``insn.address + insn.size + disp``, so *insn* is required for that form.
     """
-    if mem is None:
+    if mem is None or not hasattr(mem, "base"):
+        # SH (and any non-x86 mem operand) has no ``base``/``index``.  Reading
+        # them raised AttributeError and aborted the whole reference scan.
         return None
     if mem.base != 0 or mem.index != 0:
         if insn is not None and mem.index == 0:
@@ -485,6 +538,17 @@ def _classify_insn(info: BinaryInfo, insn: Any) -> tuple[str, int, int] | None:
                     kind = "mov_mem" if mnemonic == "mov" else f"{mnemonic}_mem"
                     return kind, from_va, to_va
         return None
+
+    # Non-x86 direct calls and unconditional branches.  The address is in
+    # the operand text: SH ``bsr`` is not an immediate operand (its ``imm``
+    # is the displacement), and ARM prints ``#0x``.  Kind stays ``call`` /
+    # ``jmp`` so call-graph consumers do not grow a per-arch set.
+    call_target = direct_call_target(mnemonic, insn.op_str)
+    if call_target is not None:
+        return "call", from_va, call_target
+    jump_target = direct_jump_target(mnemonic, insn.op_str)
+    if jump_target is not None:
+        return "jmp", from_va, jump_target
 
     if mnemonic in ("call", "jmp"):
         op = ops[0]

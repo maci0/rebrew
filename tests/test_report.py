@@ -1151,3 +1151,24 @@ class TestGeneratedMarkup:
         assert "aria-label='Next page of functions'" in index
         (site / "strings-disclosure.html").write_text(_strings_page(), encoding="utf-8")
         assert_valid([*pages, site / "strings-disclosure.html"])
+
+
+class TestDisplayName:
+    def test_decorated_symbol_uses_the_c_name(self) -> None:
+        """An empty C name still displays the function, not the decoration.
+
+        ``lstrip("_")`` left ``hook@@12`` and ``@keeps@4`` on the report,
+        and it turned ``__foo`` into ``foo``. A stored name wins. A missing
+        symbol still uses the file stem.
+        """
+        from rebrew.annotation import Annotation
+        from rebrew.report import _display_name
+
+        src = Path("hook.c")
+        assert _display_name(Annotation(name="", symbol="hook@@12"), src) == "hook"
+        assert _display_name(Annotation(name="", symbol="@keeps@4"), src) == "keeps"
+        assert _display_name(Annotation(name="", symbol="_sleepish@4"), src) == "sleepish"
+        assert _display_name(Annotation(name="", symbol="__foo"), src) == "_foo"
+        assert _display_name(Annotation(name="", symbol="_foo"), src) == "foo"
+        assert _display_name(Annotation(name="kept", symbol="hook@@12"), src) == "kept"
+        assert _display_name(Annotation(name="", symbol=""), src) == "hook"

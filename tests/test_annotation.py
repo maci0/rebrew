@@ -723,6 +723,118 @@ int func_b(void) { return 1; }
         assert result is not None
         assert result.symbol == "_NoArgsFunc@0"
 
+    def test_vectorcall_decorated_symbol(self) -> None:
+        """``__vectorcall`` is ``name@@N`` for the whole parameter list.
+
+        The decoration only knew stdcall and fastcall, so this was ``_hook``.
+        A convention on a parameter is not the function's own convention.
+        """
+        lines = [
+            "// FUNCTION: SERVER 0x1000a100",
+            "",
+            "void __vectorcall hook(int a, int b, int c)",
+            "{",
+        ]
+        result = parse_new_format(lines)
+        assert result is not None
+        assert result.name == "hook"
+        assert result.symbol == "hook@@12"
+
+        none = parse_new_format(
+            [
+                "// FUNCTION: SERVER 0x1000a110",
+                "",
+                "void __vectorcall none(void)",
+                "{",
+            ]
+        )
+        assert none is not None
+        assert none.symbol == "none@@0"
+
+        wide = parse_new_format(
+            [
+                "// FUNCTION: SERVER 0x1000a120",
+                "",
+                "int __vectorcall wide(double d)",
+                "{",
+            ]
+        )
+        assert wide is not None
+        assert wide.symbol == "wide@@8"
+
+        stdcall = parse_new_format(
+            [
+                "// FUNCTION: SERVER 0x1000a130",
+                "",
+                "void __stdcall uses_hook(void (__vectorcall *cb)(int))",
+                "{",
+            ]
+        )
+        assert stdcall is not None
+        assert stdcall.symbol == "_uses_hook@4"
+
+    def test_parameter_convention_does_not_decorate_the_function(self) -> None:
+        """A convention on a parameter is not the function's convention.
+
+        ``__fastcall`` was searched across the whole prototype, so a
+        stdcall function of one function-pointer argument was ``@name@4``.
+        """
+        stdcall = parse_new_format(
+            [
+                "// FUNCTION: SERVER 0x1000b000",
+                "",
+                "void __stdcall uses_fast(void (__fastcall *cb)(int))",
+                "{",
+            ]
+        )
+        assert stdcall is not None
+        assert stdcall.name == "uses_fast"
+        assert stdcall.symbol == "_uses_fast@4"
+
+        cdecl = parse_new_format(
+            [
+                "// FUNCTION: SERVER 0x1000b010",
+                "",
+                "int named(void (__fastcall *cb)(int))",
+                "{",
+            ]
+        )
+        assert cdecl is not None
+        assert cdecl.symbol == "_named"
+
+        takes = parse_new_format(
+            [
+                "// FUNCTION: SERVER 0x1000b020",
+                "",
+                "int takes(void (__stdcall *cb)(int))",
+                "{",
+            ]
+        )
+        assert takes is not None
+        assert takes.symbol == "_takes"
+
+        win = parse_new_format(
+            [
+                "// FUNCTION: SERVER 0x1000b030",
+                "",
+                "int WINAPI filter(void (__fastcall *cb)(int, int))",
+                "{",
+            ]
+        )
+        assert win is not None
+        assert win.symbol == "_filter@4"
+
+        fast = parse_new_format(
+            [
+                "// FUNCTION: SERVER 0x1000b040",
+                "",
+                "void __fastcall keeps(void (__stdcall *cb)(int))",
+                "{",
+            ]
+        )
+        assert fast is not None
+        assert fast.symbol == "@keeps@4"
+
     def test_empty_file_returns_empty_list(self, tmp_path: Path) -> None:
         from rebrew.annotation import parse_c_file_multi
 
@@ -922,6 +1034,29 @@ class TestParseLibraryHeader:
         assert results[1].va == 0x1001A1BB
         assert results[1].symbol == "__fclose_lk"
         assert results[1].module == "SERVER"
+
+    def test_decorated_symbol_name_is_the_c_name(self, tmp_path: Path) -> None:
+        """The header line is the linker symbol. The name is the C function.
+
+        ``lstrip("_")`` left ``hook@@12`` and ``@keeps@4`` as the name, and
+        it turned ``__chkstk`` into ``chkstk``. ``_fflush`` is still ``fflush``.
+        """
+        hfile = tmp_path / "library_msvc.h"
+        hfile.write_text(
+            "// LIBRARY: SERVER 0x1000\n// hook@@12\n"
+            "// LIBRARY: SERVER 0x1004\n// @keeps@4\n"
+            "// LIBRARY: SERVER 0x1008\n// __chkstk\n"
+            "// LIBRARY: SERVER 0x100C\n// _fflush\n"
+            "// LIBRARY: SERVER 0x1010\n// ?WithinEpsilon@@YAHMM@Z\n"
+        )
+        results = parse_library_header(hfile)
+        assert [(row.symbol, row.name) for row in results] == [
+            ("hook@@12", "hook"),
+            ("@keeps@4", "keeps"),
+            ("__chkstk", "_chkstk"),
+            ("_fflush", "fflush"),
+            ("?WithinEpsilon@@YAHMM@Z", "?WithinEpsilon@@YAHMM@Z"),
+        ]
 
     def test_parse_zlib_header(self, tmp_path: Path) -> None:
         hfile = tmp_path / "library_zlib.h"

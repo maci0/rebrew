@@ -26,8 +26,60 @@ class TestQualSweepVariants:
 
         assert _is_decl("int x;")
         assert _is_decl("int x = 1;")
+        assert _is_decl("char g[sizeof(wchar_t[3])];")
+        assert _is_decl("char g[2][4];")
         assert not _is_decl("x = 1;")
         assert not _is_decl("int f(void) { return 1; }")
+
+    def test_pointer_to_array_is_a_declaration(self) -> None:
+        """``char (*g)[4];`` is a declaration. The name sits inside parentheses.
+
+        The sweep skipped it, so no qualifier was tried on that local.
+        A function body stays excluded.
+        """
+        from rebrew.qual_sweep import _is_decl
+
+        assert _is_decl("char (*g)[4];")
+        assert _is_decl("char (**g)[4];")
+        assert _is_decl("unsigned char (*g_wide)[sizeof(wchar_t[3])];")
+        assert _is_decl("static char (*row)[4];")
+        assert not _is_decl("int f(void) { return 1; }")
+
+    def test_pointer_array_is_a_declaration(self) -> None:
+        """``int *table[4];`` and ``int (*table[4]);`` are declarations.
+
+        The star is glued to the name, or the brackets sit inside the
+        parentheses, so the sweep skipped them. A function body stays
+        excluded.
+        """
+        from rebrew.qual_sweep import _is_decl
+
+        assert _is_decl("int *table[4];")
+        assert _is_decl("int **ptrs[2];")
+        assert _is_decl("int (*table[4]);")
+        assert _is_decl("int (table[4]);")
+        assert _is_decl("const int *table[4] = {0};")
+        assert not _is_decl("int f(void) { return 1; }")
+        assert not _is_decl("x = 1;")
+
+    def test_cdecl_pointer_array_is_a_declaration(self) -> None:
+        """``int (__cdecl *table[2])[3];`` is a declaration.
+
+        ``__cdecl`` sat before the star, and ``const`` sat between the
+        star and the name, so the sweep skipped them. A parameter list
+        sat before the semicolon. A function body stays excluded.
+        """
+        from rebrew.qual_sweep import _is_decl
+
+        assert _is_decl("int (__cdecl *table[2])[3];")
+        assert _is_decl("int (* const table[2])[3];")
+        assert _is_decl("char (__cdecl *row)[4];")
+        assert _is_decl("void (*cbs[4])(int);")
+        assert _is_decl("void (__cdecl * const hooks[4])(int);")
+        assert _is_decl("void (*cb)(int);")
+        assert _is_decl("int (*table[2])[3];")
+        assert not _is_decl("int f(void) { return 1; }")
+        assert not _is_decl("x = 1;")
 
     def test_function_span(self) -> None:
         from rebrew.qual_sweep import function_span
@@ -122,6 +174,22 @@ class TestGapTraceHelpers:
 
         branch = next(iter(_BRANCHES))
         assert _masked_key(b"\x74\x05", False, branch) == b"\x74\x00"
+
+    def test_first_fault_skips_equal_prefix(self) -> None:
+        from rebrew.gap_trace import first_fault
+
+        ref = [(0, b"\x90", "nop", ""), (1, b"\x40", "inc", "eax")]
+        obj = [(0, b"\x90", "nop", ""), (1, b"\x48", "dec", "eax")]
+        fault = first_fault(ref, obj)
+        assert fault is not None and fault["ref_off"] == 1
+        assert fault["reference"]["mnemonic"] == "inc"
+        assert fault["object"]["mnemonic"] == "dec"
+
+    def test_first_fault_none_when_streams_agree(self) -> None:
+        from rebrew.gap_trace import first_fault
+
+        same = [(0, b"\xc3", "ret", "")]
+        assert first_fault(same, same) is None
 
     def test_masked_key_plain(self) -> None:
         from rebrew.gap_trace import _masked_key

@@ -125,6 +125,42 @@ class TestWriteCandidates:
         assert entry["file"] == "src/library_zlib.h"
         assert not (cfg.reversed_dir / "library_msvcrt.h").exists()
 
+    def test_decorated_candidate_name_is_the_c_name(self, tmp_path: Path) -> None:
+        """A decorated library candidate is named as C, and the symbol stays.
+
+        ``lstrip("_")`` stored ``hook@@12`` and ``@keeps@4`` as the row
+        name, and it stored ``__foo`` as ``foo``. ``_foo`` is still
+        ``foo``.
+        """
+        cfg = _cfg(tmp_path)
+        cfg.reversed_dir.mkdir()
+        cands = [
+            LibCandidate(
+                va=0x1000, name="hook@@12", module="SERVER", kind="import", confidence=0.5
+            ),
+            LibCandidate(
+                va=0x1010, name="@keeps@4", module="SERVER", kind="import", confidence=0.5
+            ),
+            LibCandidate(
+                va=0x1020, name="_sleepish@4", module="SERVER", kind="import", confidence=0.5
+            ),
+            LibCandidate(va=0x1030, name="__foo", module="SERVER", kind="import", confidence=0.5),
+            LibCandidate(va=0x1040, name="_foo", module="SERVER", kind="import", confidence=0.5),
+        ]
+        assert write_candidates(cfg, cands, existing=set()) == 5
+        expect = {
+            0x1000: ("hook@@12", "hook"),
+            0x1010: ("@keeps@4", "keeps"),
+            0x1020: ("_sleepish@4", "sleepish"),
+            0x1030: ("__foo", "_foo"),
+            0x1040: ("_foo", "foo"),
+        }
+        for va, (symbol, name) in expect.items():
+            entry = get_entry(cfg.metadata_dir, va, "SERVER")
+            assert entry is not None
+            assert entry["symbol"] == symbol
+            assert entry["name"] == name, symbol
+
     def test_idempotent_second_run_writes_nothing(self, tmp_path: Path) -> None:
         cfg = _cfg(tmp_path)
         (cfg.reversed_dir).mkdir()

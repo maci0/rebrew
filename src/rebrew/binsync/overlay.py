@@ -394,10 +394,11 @@ def overlay_state(
         if "name" in fields:
             bs_name = remote.get("name", "")
             local_name = getattr(local, "symbol", "") or getattr(local, "name", "") or ""
-            bs_stripped = strip_cdecl_prefix(bs_name) if bs_name.startswith("_") else bs_name
-            local_stripped = (
-                strip_cdecl_prefix(local_name) if local_name.startswith("_") else local_name
-            )
+            # ``hook@@12`` and ``@keeps@4`` do not start with ``_``. Stripping
+            # only that prefix left them decorated, so they conflicted with
+            # the C name and could not be written onto a generic local.
+            bs_stripped = strip_cdecl_prefix(bs_name)
+            local_stripped = strip_cdecl_prefix(local_name)
             if (
                 bs_name
                 and is_meaningful(bs_name)

@@ -46,6 +46,7 @@ from typing import Any, NamedTuple
 import typer
 from rich.markup import escape
 
+from rebrew.analysis import direct_call_target, direct_jump_target
 from rebrew.annotation import parse_c_file_multi
 from rebrew.catalog import load_function_structure
 from rebrew.cli import (
@@ -58,6 +59,7 @@ from rebrew.cli import (
     require_config,
 )
 from rebrew.config import ProjectConfig, inventory_path_for
+from rebrew.rename_ops import c_name_from_symbol
 from rebrew.sources import (
     iter_sources,
     target_marker,
@@ -108,7 +110,13 @@ def _count_forwarded_pushes(run: list[tuple[str, str]]) -> int:
     return pushes
 
 
-_JMP_TABLE_RE = re.compile(r"dword ptr \[[a-z0-9]+\s*\*\s*4")
+_JMP_TABLE_RE = re.compile(
+    r"(?:dword ptr \[[a-z0-9]+\s*\*\s*4"
+    r"|dword ptr \[[a-z0-9]+\s*\+\s*[a-z0-9]+\s*\*\s*4"
+    r"|qword ptr \[[a-z0-9]+\s*\*\s*8"
+    r"|qword ptr \[[a-z0-9]+\s*\+\s*[a-z0-9]+\s*\*\s*8"
+    r"|word ptr \[[a-z0-9]+\s*\+\s*0x)"
+)
 _BYTE_TABLE_FETCH_RE = re.compile(r"byte ptr \[[a-z0-9]+\s*\+\s*0x")
 
 # ---------------------------------------------------------------------------
@@ -165,8 +173,9 @@ def build_function_lookup(cfg: ProjectConfig) -> dict[int, tuple[str, str]]:
                     cfile, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir
                 )
                 for entry in entries:
-                    symbol = (entry.symbol or "").lstrip("_")
-                    display = symbol or cfile.stem
+                    # The C name wins. A missing name uses the symbol:
+                    # ``hook@@12`` is ``hook`` and ``__foo`` is ``_foo``.
+                    display = entry.name or c_name_from_symbol(entry.symbol) or cfile.stem
                     lookup[entry.va] = (display, entry.status)
             except (OSError, KeyError, ValueError, TypeError):
                 # The file drops out of the VA map, so calls to it resolve to
@@ -294,7 +303,10 @@ def _hint_for(insns: list[Any], i: int) -> str | None:
                 "pointer for the call (the callee cleans; the forwarder is cdecl)"
             )
 
-    # Jump-table switch dispatch: jmp dword ptr [reg*4 + 0x...]
+    # Jump-table switch dispatch: jmp dword ptr [reg*4 + 0x...] or
+    # [base + index*4], x86-64 jmp qword ptr [reg*8 + 0x...] or
+    # [base + index*8], or 16-bit jmp word ptr [reg + 0x...] (no SIB byte;
+    # a bare [reg] is not a table). Capstone prints the base first.
     if m == "jmp" and _JMP_TABLE_RE.search(ops):
         # Two-level (byte-compressed) form: the index is fetched from a
         # byte table first (mov dl, byte ptr [reg + 0x...]) — MSVC uses
@@ -574,6 +586,7 @@ def calling_convention_at(cfg: ProjectConfig, va: int) -> str:
 
 
 _HEX_OPERAND_RE = re.compile(r"0x([0-9a-fA-F]+)")
+_RIP_DISP_RE = re.compile(r"^rip\s*([+-])\s*0x([0-9a-fA-F]+)$")
 
 
 def _extract_hex_operand(op_str: str) -> int | None:
@@ -582,16 +595,25 @@ def _extract_hex_operand(op_str: str) -> int | None:
     return int(m.group(1), 16) if m else None
 
 
-def _annotation_for_operand(op_str: str, lookup: dict[int, str]) -> str | None:
+def _annotation_for_operand(
+    op_str: str,
+    lookup: dict[int, str],
+    *,
+    address: int | None = None,
+    size: int = 0,
+) -> str | None:
     """Resolve an absolute operand in *op_str* against *lookup*.
 
-    Only absolute (non-bracketed) immediates match — ``call [0x4130c8]`` and
-    ``push 0x4130c8`` both resolve, but ``[eax+0xc]`` does not (the hex is a
-    register-relative displacement, not an address).
+    Absolute immediates match: ``call [0x4130c8]`` and ``push 0x4130c8``.
+    ``[eax+0xc]`` does not (the hex is a register-relative displacement).
+    ``[rip + disp]`` is an address when *address* and *size* are the
+    instruction's VA and length: the target is the next instruction plus the
+    signed displacement. Without those, the RIP form stays unresolved.
     """
     if "0x" not in op_str:
         return None
-    # Skip register-relative forms: any '[' that is not a bare [0x...].
+    # Skip register-relative forms: any '[' that is not a bare [0x...] or
+    # a RIP-relative displacement.
     if "[" in op_str:
         try:
             inner = op_str[op_str.index("[") + 1 : op_str.index("]")]
@@ -600,6 +622,14 @@ def _annotation_for_operand(op_str: str, lookup: dict[int, str]) -> str | None:
         if inner.startswith("0x") and "+" not in inner and "-" not in inner:
             addr = _extract_hex_operand(inner)
             return lookup.get(addr) if addr is not None else None
+        if address is not None:
+            rip = _RIP_DISP_RE.match(inner.strip())
+            if rip is not None:
+                disp = int(rip.group(2), 16)
+                if rip.group(1) == "-":
+                    disp = -disp
+                target = (address + size + disp) & 0xFFFFFFFFFFFFFFFF
+                return lookup.get(target)
         return None
     addr = _extract_hex_operand(op_str)
     return lookup.get(addr) if addr is not None else None
@@ -770,15 +800,16 @@ def _hex_text(
     for idx, insn in enumerate(view.shown):
         hex_bytes = insn.bytes.hex()
         line = f"  0x{insn.address:08x}:  {hex_bytes:<20s}  {insn.mnemonic:<8s} {insn.op_str}"
-        if annotate and insn.mnemonic in ("call", "jmp") and insn.op_str.startswith("0x"):
-            try:
-                target_va = int(insn.op_str, 16)
-                if target_va in view.func_lookup:
-                    name, status = view.func_lookup[target_va]
-                    tag = f" ({status})" if status else ""
-                    line += f"  ; {name}{tag}"
-            except ValueError:
-                pass
+        if annotate:
+            # ``call``/``jmp`` print ``0xNNNN``.  ARM and AArch64 print
+            # ``bl``/``b #0xNNNN``.  Both are the same name annotation.
+            target_va = direct_call_target(insn.mnemonic, insn.op_str)
+            if target_va is None:
+                target_va = direct_jump_target(insn.mnemonic, insn.op_str)
+            if target_va is not None and target_va in view.func_lookup:
+                name, status = view.func_lookup[target_va]
+                tag = f" ({status})" if status else ""
+                line += f"  ; {name}{tag}"
         if annotate and insn.mnemonic == "lcall":
             # 16-bit far call: annotate the target segment.  Borland index
             # convention: selectors at or below the segment count equal the
@@ -796,11 +827,15 @@ def _hex_text(
             except ValueError:
                 pass
         if resolve_imports and insn.mnemonic in ("call", "jmp"):
-            imp = _annotation_for_operand(insn.op_str, view.import_map)
+            imp = _annotation_for_operand(
+                insn.op_str, view.import_map, address=insn.address, size=insn.size
+            )
             if imp:
                 line += f"  ; {imp}"
         if resolve_strings and insn.mnemonic in ("push", "mov", "lea", "cmp"):
-            s = _annotation_for_operand(insn.op_str, view.string_map)
+            s = _annotation_for_operand(
+                insn.op_str, view.string_map, address=insn.address, size=insn.size
+            )
             if s:
                 line += f'  ; "{s}"'
         if pattern_hints:
@@ -905,9 +940,13 @@ def _run_hex_mode(
                 "operands": insn.op_str,
             }
             if resolve_imports:
-                entry["import"] = _annotation_for_operand(insn.op_str, view.import_map)
+                entry["import"] = _annotation_for_operand(
+                    insn.op_str, view.import_map, address=insn.address, size=insn.size
+                )
             if resolve_strings:
-                entry["string"] = _annotation_for_operand(insn.op_str, view.string_map)
+                entry["string"] = _annotation_for_operand(
+                    insn.op_str, view.string_map, address=insn.address, size=insn.size
+                )
             if pattern_hints:
                 entry["hint"] = _hint_for(view.insn_list, view.shown_offset + idx)
             instr_json.append(entry)
@@ -1160,8 +1199,10 @@ def disassemble_to_nasm(
 
     safe_label = None
     if label:
-        safe_label = _NASM_LABEL_RE.sub("_", label.lstrip("_"))
-        if not safe_label or not safe_label[0].isalpha():
+        # ``hook@@12`` is ``hook`` before the NASM sanitizer turns the
+        # rest into underscores. ``__foo`` stays ``_foo``.
+        safe_label = _NASM_LABEL_RE.sub("_", c_name_from_symbol(label))
+        if not safe_label or not (safe_label[0].isalpha() or safe_label[0] == "_"):
             safe_label = "func_" + safe_label
 
     insn_data = []
@@ -1311,7 +1352,9 @@ def generate_inline_c(
     """
     marker = cfg.marker if cfg.marker else "TARGET"
     sym = symbol or f"_func_{va:08x}"
-    func_name = sym.lstrip("_")
+    # ``hook@@12`` is ``hook`` and ``__foo`` is ``_foo``. One cdecl
+    # underscore still comes off (``_foo`` is ``foo``).
+    func_name = c_name_from_symbol(sym)
 
     from rebrew.toolchain import profile_family
 
@@ -1320,9 +1363,20 @@ def generate_inline_c(
 
     # Disassemble *code* for the per-instruction mnemonic comments (any
     # trailing bytes capstone cannot decode are emitted as bare data).
+    # The comment follows the target arch: an ARM BL is not an x86 add.
     import capstone
 
-    md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
+    from rebrew.binary_loader import capstone_config_for
+    from rebrew.binary_model import BinaryInfo
+
+    image = BinaryInfo(
+        path=Path(getattr(cfg, "target_binary", "") or ""),
+        format=getattr(cfg, "format", "") or "",
+        arch=getattr(cfg, "arch", "") or "",
+        endian=getattr(cfg, "endian", "") or "",
+    )
+    cs_arch, cs_mode = capstone_config_for(image)
+    md = capstone.Cs(cs_arch, cs_mode)
     md.detail = False
     insns = list(md.disasm(code, va))
     covered = sum(len(i.bytes) for i in insns)
@@ -1390,7 +1444,7 @@ def _record_inline_c_identity(
         va=va,
         file=identity_file(path, cfg.metadata_dir),
         marker_type="FUNCTION",
-        name=sym.lstrip("_"),
+        name=c_name_from_symbol(sym),
         symbol=sym,
         size=len(code),
     )

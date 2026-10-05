@@ -287,6 +287,25 @@ class TestScanGlobals:
         if conflicts:
             assert len(result.type_conflicts[0]["types"]) == len(declarations)
 
+    def test_pointer_array_equivalent_bounds_agree(self, tmp_path: Path) -> None:
+        """``int (*g[2])[3]`` and ``int (*g[1 + 1])[03]`` are the same type.
+
+        The brackets inside the parentheses were not folded, so the two
+        spellings compared as different types. ``int (*g[2])[4]`` stays
+        a different pointee.
+        """
+        _write_c(tmp_path, "a.c", "extern int (*g[2])[3];\n")
+        _write_c(tmp_path, "b.c", "extern int (*g[1 + 1])[03];\n")
+        assert scan_globals(tmp_path).type_conflicts == []
+
+        other = tmp_path / "other"
+        other.mkdir()
+        _write_c(other, "a.c", "extern int (*g[2])[3];\n")
+        _write_c(other, "b.c", "extern int (*g[2])[4];\n")
+        disagreed = scan_globals(other)
+        assert disagreed.type_conflicts
+        assert disagreed.type_conflicts[0]["name"] == "g"
+
     def test_multiple_files_same_global(self, tmp_path: Path) -> None:
         """Same global declared in multiple files should appear once with all files listed."""
         content_a = TYPE_CONFLICT_A  # extern int g_shared;
@@ -712,6 +731,229 @@ class TestEstimateTypeSize:
         assert estimate_type_size("char[32]") == 32
         assert estimate_type_size("int *") == 4
         assert estimate_type_size("char *[10]") == 40
+
+    def test_pointer_to_array_is_a_pointer(self) -> None:
+        """``T (*)[N]`` is one pointer. The bound is the array it addresses.
+
+        ``char (*)[4]`` was sized as 16. An array of pointers stays an array.
+        """
+        from rebrew.data_layout import estimate_type_size
+
+        assert estimate_type_size("char (*)[4]") == 4
+        assert estimate_type_size("char (**)[4]") == 4
+        assert estimate_type_size("unsigned char (*)[sizeof(wchar_t[3])]") == 4
+        assert estimate_type_size("char *[4]") == 16
+        assert estimate_type_size("void (*)(int)") == 4
+
+    def test_sizeof_inside_bound_is_not_a_pointer_to_array(self) -> None:
+        """A ``(*)`` in the bound is not this object's declarator.
+
+        ``int[sizeof(char (*)[4])]`` was 4. ``char[sizeof(char *[2])]`` was 1.
+        """
+        from rebrew.data_layout import estimate_type_size
+
+        assert estimate_type_size("int[sizeof(char (*)[4])]") == 16
+        assert estimate_type_size("char[sizeof(char *[2])]") == 8
+        assert estimate_type_size("char (*)[4]") == 4
+        assert estimate_type_size("char *[4]") == 16
+
+    def test_abstract_pointer_array_counts_every_pointer(self) -> None:
+        """``int (*[4])`` is four pointers, not one.
+
+        The brackets sit inside the parentheses, so the object was sized
+        as a single pointer. ``int (*)[4]`` stays one pointer.
+        ``sizeof`` of the abstract form is the whole array.
+        """
+        from rebrew.data_layout import data_symbol_size, estimate_type_size
+        from rebrew.types import type_size
+
+        assert estimate_type_size("int (*[4])") == 16
+        assert estimate_type_size("int (**[2])") == 8
+        assert estimate_type_size("int (*[4])(int)") == 16
+        assert estimate_type_size("int (*)[4]") == 4
+        assert estimate_type_size("int *[4]") == 16
+        assert data_symbol_size({"type": "int (*[4])"}) == 16
+        assert data_symbol_size({"type": "int (*[4])(int)"}) == 16
+        assert data_symbol_size({"type": "int (*)[4]"}) == 4
+        assert type_size("int (*[4])") == 16
+        assert type_size("char[sizeof(int (*[4]))]") == 16
+
+    def test_named_array_of_pointers_to_array_counts_the_pointers(self) -> None:
+        """``int (*table[2])[3]`` is two pointers. The name sits in the parentheses.
+
+        The first bracket was read as a broken bound, so the declaration
+        was sized as one pointer. ``int (*table[4])`` is four pointers.
+        ``int (*[2])[3]`` stays two, and ``char (*)[4]`` stays one.
+        """
+        from rebrew.data_layout import estimate_type_size
+        from rebrew.types import type_size
+
+        assert estimate_type_size("extern int (*table[2])[3];") == 8
+        assert estimate_type_size("int (*table[2])[3]") == 8
+        assert estimate_type_size("char (**rows[2])[4]") == 8
+        assert estimate_type_size("int (*grid[2][3])[4]") == 24
+        assert estimate_type_size("int (*table[4])") == 16
+        assert estimate_type_size("int (*[2])[3]") == 8
+        assert estimate_type_size("char (*)[4]") == 4
+        assert estimate_type_size("int *table[4]") == 16
+        assert type_size("int (*table[2])[3]") == 8
+        assert type_size("int (*table[4])") == 16
+
+    def test_named_pointer_to_array_is_one_pointer(self) -> None:
+        """``char (*row)[4]`` is one pointer. The name sits in the parentheses.
+
+        The pointee bound was the object's dimension, so the declaration
+        was 16 bytes. ``int (*table[2])[3]`` stays two pointers, and a
+        ``(*)`` inside a bound stays that bound.
+        """
+        from rebrew.data_layout import data_symbol_size, estimate_type_size
+        from rebrew.types import type_size
+
+        assert estimate_type_size("extern char (*row)[4];") == 4
+        assert estimate_type_size("char (*row)[4]") == 4
+        assert estimate_type_size("unsigned char (**row)[4]") == 4
+        assert data_symbol_size({"type": "char (*row)[4]"}) == 4
+        assert type_size("char (*row)[4]") == 4
+        assert estimate_type_size("int (*table[2])[3]") == 8
+        assert estimate_type_size("int (*table[4])") == 16
+        assert estimate_type_size("int[sizeof(char (*)[4])]") == 16
+        assert estimate_type_size("char *[4]") == 16
+
+    def test_named_pointer_array_symbol_extent_counts_the_pointers(self) -> None:
+        """``int (*table[2])[3]`` covers eight bytes.
+
+        The element type kept its parentheses, so the extent stayed
+        unknown. ``char (*row)[4]`` stays one pointer. A function
+        pointer stays unknown. An explicit size still wins.
+        """
+        from rebrew.data_layout import data_symbol_size
+
+        assert data_symbol_size({"type": "int (*table[2])[3]"}) == 8
+        assert data_symbol_size({"type": "char (**rows[2])[4]"}) == 8
+        assert data_symbol_size({"type": "int (*grid[2][3])[4]"}) == 24
+        assert data_symbol_size({"type": "int (*table[4])"}) == 16
+        assert data_symbol_size({"type": "char (*row)[4]"}) == 4
+        assert data_symbol_size({"type": "int (*[2])[3]"}) == 8
+        assert data_symbol_size({"type": "void (*)(int)"}) == 0
+        assert data_symbol_size({"type": "int (*table[2])[3]", "size": 12}) == 12
+
+    def test_parenthesized_array_name_keeps_its_bound(self) -> None:
+        """``int (table[4])`` is four ints. The name sits in parentheses.
+
+        The brackets were not a dimension, so the declaration was one
+        int. ``int (table[2][3])`` is six ints. ``int (*table[4])`` stays
+        four pointers, and a ``sizeof`` bound stays that bound.
+        """
+        from rebrew.data_layout import estimate_type_size
+
+        assert estimate_type_size("extern int (table[4]);") == 16
+        assert estimate_type_size("int (table[2][3])") == 24
+        assert estimate_type_size("int (table[4])[3]") == 48
+        assert estimate_type_size("int (*table[4])") == 16
+        assert estimate_type_size("extern int (*table[2])[3];") == 8
+        assert estimate_type_size("char[sizeof(wchar_t[3])]") == 6
+
+    def test_const_pointer_array_counts_the_pointers(self) -> None:
+        """``int (* const table[2])[3]`` is two pointers.
+
+        ``const`` sat between the star and the name, so the brackets were
+        not a dimension and the declaration was one pointer.
+        ``char (* const row)[4]`` stays one pointer.
+        """
+        from rebrew.c_parser import array_type_shape
+        from rebrew.data_layout import data_symbol_size, estimate_type_size
+        from rebrew.types import type_size
+
+        assert estimate_type_size("int (* const table[2])[3]") == 8
+        assert estimate_type_size("int (*const table[2])[3]") == 8
+        assert estimate_type_size("int (* volatile table[2])[3]") == 8
+        assert estimate_type_size("int (** const rows[2])[4]") == 8
+        assert estimate_type_size("int (* const [2])[3]") == 8
+        assert estimate_type_size("char (* const row)[4]") == 4
+        assert estimate_type_size("int (*table[2])[3]") == 8
+        assert data_symbol_size({"type": "int (* const table[2])[3]"}) == 8
+        assert data_symbol_size({"type": "char (* const row)[4]"}) == 4
+        assert type_size("int (* const table[2])[3]") == 8
+        assert type_size("int (* const [2])[3]") == 8
+        assert type_size("char (* const row)[4]") == 4
+        assert array_type_shape("int (* const [2])[3]") == ("int (* const)[3]", (2,))
+        assert array_type_shape("int (* const table[2])[3]") == ("int (* const)[3]", (2,))
+
+    def test_sizeof_named_pointer_array_keeps_the_bound(self) -> None:
+        """``int[sizeof(int (*table[2])[3])]`` is eight ints.
+
+        The name sat inside the sizeof type, so the bound did not fold
+        and the declaration was one int. ``int[sizeof(int (*[2])[3])]``
+        stays eight ints.
+        """
+        from rebrew.data_layout import data_symbol_size, estimate_type_size
+        from rebrew.types import type_size
+
+        assert estimate_type_size("int[sizeof(int (*table[2])[3])]") == 32
+        assert estimate_type_size("int[sizeof(int (* const table[2])[3])]") == 32
+        assert estimate_type_size("int[sizeof(int (*[2])[3])]") == 32
+        assert estimate_type_size("int[sizeof(char (*)[4])]") == 16
+        assert estimate_type_size("char[sizeof(wchar_t[3])]") == 6
+        assert data_symbol_size({"type": "int[sizeof(int (*table[2])[3])]"}) == 32
+        assert type_size("int[sizeof(int (*table[2])[3])]") == 32
+
+    def test_sizeof_named_pointer_to_array_is_one_pointer(self) -> None:
+        """``int[sizeof(char (*row)[4])]`` is four ints.
+
+        The name sat inside the sizeof type, so the bound did not fold
+        and the declaration was one int. ``char (*row)[4]`` stays one
+        pointer. ``int[sizeof(char (*)[4])]`` stays four ints.
+        """
+        from rebrew.data_layout import data_symbol_size, estimate_type_size
+        from rebrew.types import type_size
+
+        assert estimate_type_size("int[sizeof(char (*row)[4])]") == 16
+        assert estimate_type_size("int[sizeof(char (* const row)[4])]") == 16
+        assert estimate_type_size("int[sizeof(char (*)[4])]") == 16
+        assert estimate_type_size("char (*row)[4]") == 4
+        assert estimate_type_size("int[sizeof(int (*table[2])[3])]") == 32
+        assert data_symbol_size({"type": "int[sizeof(char (*row)[4])]"}) == 16
+        assert type_size("int[sizeof(char (*row)[4])]") == 16
+
+    def test_cdecl_pointer_array_counts_the_pointers(self) -> None:
+        """``int (__cdecl *table[2])[3]`` is two pointers.
+
+        ``__cdecl`` sat before the star, so the brackets were not a
+        dimension and the declaration was one pointer.
+        ``char (__cdecl *row)[4]`` stays one pointer.
+        ``void (__cdecl *cbs[4])(int)`` is four function pointers.
+        """
+        from rebrew.c_parser import array_type_shape
+        from rebrew.data_layout import data_symbol_size, estimate_type_size
+        from rebrew.types import type_size
+
+        assert estimate_type_size("int (__cdecl *table[2])[3]") == 8
+        assert estimate_type_size("int (__cdecl *[2])[3]") == 8
+        assert estimate_type_size("int (__stdcall *table[2])[3]") == 8
+        assert estimate_type_size("int (__cdecl *[4])") == 16
+        assert estimate_type_size("char (__cdecl *row)[4]") == 4
+        assert estimate_type_size("char (__cdecl *)[4]") == 4
+        assert estimate_type_size("char (__cdecl * const row)[4]") == 4
+        assert estimate_type_size("char (* __cdecl row)[4]") == 4
+        assert estimate_type_size("void (__cdecl *cbs[4])(int)") == 16
+        assert estimate_type_size("void (WINAPI *cbs[4])(int)") == 16
+        assert estimate_type_size("void (__cdecl *cb)(int)") == 4
+        assert estimate_type_size("int (*table[2])[3]") == 8
+        assert estimate_type_size("char (*row)[4]") == 4
+        assert estimate_type_size("int[sizeof(char (__cdecl *row)[4])]") == 16
+        assert estimate_type_size("int[sizeof(char (__cdecl *)[4])]") == 16
+        assert estimate_type_size("int[sizeof(int (__cdecl *table[2])[3])]") == 32
+        assert data_symbol_size({"type": "int (__cdecl *table[2])[3]"}) == 8
+        assert data_symbol_size({"type": "char (__cdecl *row)[4]"}) == 4
+        assert data_symbol_size({"type": "void (__cdecl *cbs[4])(int)"}) == 0
+        assert type_size("int (__cdecl *table[2])[3]") == 8
+        assert type_size("int (__cdecl *[2])[3]") == 8
+        assert type_size("char (__cdecl *row)[4]") == 4
+        assert type_size("char (__cdecl *)[4]") == 4
+        assert type_size("void (__cdecl *cbs[4])(int)") is None
+        assert array_type_shape("int (__cdecl *[2])[3]") == ("int (__cdecl *)[3]", (2,))
+        assert array_type_shape("int (__cdecl *table[2])[3]") == ("int (__cdecl *)[3]", (2,))
+        assert array_type_shape("int (__cdecl *[4])") == ("int __cdecl *", (4,))
 
     def test_zero_array_counts_as_one_element(self) -> None:
         from rebrew.data_layout import estimate_type_size

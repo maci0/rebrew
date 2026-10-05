@@ -488,10 +488,11 @@ def expected_text_functions(cfg: ProjectConfig) -> dict[str, int]:
     """``{symbol: marker VA}`` for every annotated function.
 
     Shared by verify and ``text-audit`` so both classify the same binary.
-    Marker symbols use the per-target ``// FUNCTION:`` name; ``lstrip("_")``
-    normalizes leading underscores for export-table comparison.
+    Marker symbols use the per-target ``// FUNCTION:`` name. The key is
+    the C name, so ``__foo`` stays ``_foo`` and ``hook@@12`` is ``hook``.
     """
     from rebrew.annotation import iter_annotations
+    from rebrew.rename_ops import c_name_from_symbol
     from rebrew.sources import iter_sources, target_marker
 
     marker = target_marker(cfg)
@@ -501,7 +502,7 @@ def expected_text_functions(cfg: ProjectConfig) -> dict[str, int]:
     ):
         for ann in annos:
             sym = ann.symbol if ann.symbol and ann.symbol != "?" else "_" + path.stem
-            out.setdefault(sym.lstrip("_"), ann.va)
+            out.setdefault(c_name_from_symbol(sym), ann.va)
     return out
 
 

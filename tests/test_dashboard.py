@@ -3271,6 +3271,38 @@ class TestHostValidation:
         assert server_log.handlers == before_handlers
         assert package_log.handlers == before_package_handlers
 
+    def test_log_handler_attach_rolls_back_when_package_install_fails(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A failure after the module logger is swapped must not leave that swap."""
+        from rebrew.dashboard import _attach_server_log_handler
+
+        server_log = logging.getLogger("rebrew.dashboard")
+        package_log = logging.getLogger("rebrew")
+        before_level, before_propagate = server_log.level, server_log.propagate
+        before_handlers = list(server_log.handlers)
+        before_package = list(package_log.handlers)
+        before_package_propagate = package_log.propagate
+        real_add = logging.Logger.addHandler
+        calls = 0
+
+        def add_handler(self: logging.Logger, handler: logging.Handler) -> None:
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise RuntimeError("package handler failed")
+            real_add(self, handler)
+
+        monkeypatch.setattr(logging.Logger, "addHandler", add_handler)
+        with pytest.raises(RuntimeError, match="package handler failed"):
+            _attach_server_log_handler()
+
+        assert server_log.level == before_level
+        assert server_log.propagate == before_propagate
+        assert server_log.handlers == before_handlers
+        assert package_log.handlers == before_package
+        assert package_log.propagate == before_package_propagate
+
     def test_package_warning_joins_the_stamped_stream(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:

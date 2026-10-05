@@ -29,6 +29,7 @@ from typing import Any
 
 import typer
 
+from rebrew.c_parser import CALLING_CONVENTION
 from rebrew.cli import (
     TargetOption,
     console,
@@ -99,11 +100,42 @@ def function_span(lines: list[str], symbol: str) -> tuple[int, int]:
     return lo, last + 1
 
 
+# ``(__cdecl *name)`` keeps the calling convention off the name.
+# ``(* const name)`` keeps the qualifier off the name. ``(*name)(int)``
+# keeps the parameter list off the semicolon.
+_POINTER_NAME_QUALIFIER = r"(?:(?:const|volatile)\b\s*)*"
+_FN_PARAMS = r"(?:\((?:[^()]|\([^()]*\))*\))?"
+
+
 def _is_decl(unit: str) -> bool:
     s = _strip_literals(unit).strip()
+    # Brackets may repeat, and one bound may contain one nested pair.
+    # Stopping at the first ``]`` left ``char g[sizeof(wchar_t[3])];`` and
+    # ``char g[2][4];`` out of the sweep. A parenthesized pointer
+    # (``char (*g)[4]``) is still a declaration; the name is not a bare word.
+    # ``*name[N]`` glues the star to the name, and ``(*name[N])`` /
+    # ``(name[N])`` put the brackets inside the parentheses.
     return bool(
         re.match(
-            r"^(?:volatile\s+|const\s+|static\s+|register\s+)?(?:\w[\w\s\*]*?)\s+\w+\s*(?:\[[^\]]*\])?\s*(?:=[^;]*)?;",
+            r"^(?:volatile\s+|const\s+|static\s+|register\s+)?"
+            r"(?:\w[\w\s\*]*?)"
+            r"(?:\s+\w+"
+            r"|\s*\*+\s*\w+"
+            r"|\(\s*"
+            + CALLING_CONVENTION
+            + r"\*+\s*"
+            + _POINTER_NAME_QUALIFIER
+            + r"\w+\s*\)"
+            + _FN_PARAMS
+            + r"|\(\s*"
+            + CALLING_CONVENTION
+            + r"\**\s*"
+            + _POINTER_NAME_QUALIFIER
+            + r"\w+\s*(?:\[(?:[^\[\]]|\[[^\]]*\])*\])+\s*\)"
+            + _FN_PARAMS
+            + r")"
+            r"(?:\[(?:[^\[\]]|\[[^\]]*\])*\]\s*)*"
+            r"\s*(?:=[^;]*)?;",
             s,
         )
     )

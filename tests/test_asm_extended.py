@@ -104,6 +104,13 @@ class TestGenerateInlineC:
         assert "/* push ebp */" in out
         assert not (tmp_path / "rebrew-functions.toml").exists()
 
+    def test_comment_uses_the_target_arch(self, tmp_path: Path) -> None:
+        """ARM bytes are not commented as x86. BL at 0x1000 targets 0x1010."""
+        cfg = _cfg(tmp_path, arch="arm32")
+        code = (0xEB000002).to_bytes(4, "little")
+        out = generate_inline_c(code, cfg, 0x1000, "_f")
+        assert "/* bl #0x1010 */" in out
+
     def test_gcc_clang(self) -> None:
         cfg = _cfg(Path("/tmp"), compiler_profile="clang-18.1.8")
         out = generate_inline_c(b"\xb8\x01\x00\x00\x00", cfg, 0x1000, None)
@@ -136,6 +143,38 @@ class TestGenerateInlineC:
         cfg = _cfg(Path("/tmp"), compiler_profile="mingw-16.2.0")
         out = generate_inline_c(b"\xb8\x01\x00\x00\x00", cfg, 0x1000, None)
         assert "__attribute__((naked))" in out
+
+    def test_decorated_symbol_is_a_c_name(self, tmp_path: Path) -> None:
+        """A decorated symbol is emitted and recorded as the C name.
+
+        ``lstrip("_")`` wrote ``void hook@@12(void)`` and stored that as
+        the row name. ``@keeps@4`` and ``_sleepish@4`` kept their
+        decoration. ``__foo`` became ``foo``. The stored symbol stays
+        the linker spelling. A cdecl ``_foo`` is still ``foo``.
+        """
+        from rebrew.asm import _record_inline_c_identity
+        from rebrew.metadata import get_entry
+
+        cfg = _cfg(tmp_path, compiler_profile="msvc")
+        code = b"\xc3"
+        cases = (
+            ("hook@@12", "hook"),
+            ("@keeps@4", "keeps"),
+            ("_sleepish@4", "sleepish"),
+            ("__foo", "_foo"),
+            ("_foo", "foo"),
+        )
+        for index, (symbol, want) in enumerate(cases):
+            va = 0x1000 + index
+            out = generate_inline_c(code, cfg, va, symbol)
+            assert f"void {want}(void)" in out, symbol
+            path = tmp_path / f"{want}_{index}.c"
+            path.write_text(out, encoding="utf-8")
+            _record_inline_c_identity(cfg, path, va, code, symbol)
+            entry = get_entry(tmp_path, va, "SERVER")
+            assert entry is not None
+            assert entry["name"] == want, symbol
+            assert entry["symbol"] == symbol
 
     def test_size_matches_emitted_bytes(self, tmp_path: Path) -> None:
         """The naked branch emits one byte per ``_emit``, and a file write
@@ -693,6 +732,37 @@ class TestHexDisassembly:
         assert "mov" in lines[0]
         assert lines[-1].strip().endswith("ret")
         assert text.endswith("\n")
+
+    def test_arm_bl_annotates_the_callee(self, tmp_path: Path) -> None:
+        """An ARM BL prints ``#0x``. The callee name still has to be annotated."""
+        import json
+
+        from bin_util import make_pe
+
+        from rebrew.asm import hex_disassembly
+        from rebrew.config import ProjectConfig
+
+        # BL at 0x401000, imm 2: target = 0x401000 + 8 + 8 = 0x401010.
+        code = (0xEB000002).to_bytes(4, "little")
+        binary = tmp_path / "original" / "target.exe"
+        binary.parent.mkdir(parents=True)
+        binary.write_bytes(make_pe(code, text_va=0x1000))
+        src = tmp_path / "src" / "SERVER"
+        src.mkdir(parents=True)
+        (src / "function_structure.json").write_text(
+            json.dumps([{"va": 0x401010, "size": 4, "name": "callee"}]),
+            encoding="utf-8",
+        )
+        cfg = ProjectConfig(
+            root=tmp_path,
+            target_binary=binary,
+            reversed_dir=src,
+            marker="SERVER",
+            arch="arm32",
+        )
+        text = hex_disassembly(cfg, 0x401000, len(code))
+        assert "bl" in text
+        assert "; callee" in text
 
     def test_missing_binary_raises(self, tmp_path: Path) -> None:
         from rebrew.asm import hex_disassembly

@@ -421,15 +421,22 @@ def main(
         # The positional argument itself was a hex VA.
         va_int = parse_va(raw_source, json_mode=json_output)
     if va_int is None and not Path(raw_source).exists():
+        from rebrew.rename_ops import c_name_from_symbol
         from rebrew.utils import fold_ident
 
-        want_sym = fold_ident(raw_source.strip()).lstrip("_")
+        # The C name and the symbol both count. ``hook@@12`` answers
+        # ``hook``. ``__foo`` answers ``_foo``, not ``foo``.
+        want_sym = fold_ident(raw_source.strip())
         for a in annos:
-            for ident in (a.symbol or "", a.name or ""):
-                if fold_ident(ident.strip()).lstrip("_") == want_sym:
-                    va_int = a.va
-                    break
-            if va_int is not None:
+            candidates: list[str] = []
+            if a.name:
+                candidates.append(fold_ident(a.name.strip()))
+            if a.symbol and a.symbol.strip():
+                raw = a.symbol.strip()
+                candidates.append(fold_ident(raw))
+                candidates.append(fold_ident(c_name_from_symbol(raw)))
+            if want_sym in candidates:
+                va_int = a.va
                 break
     if va_int is None:
         va_int = annos[0].va

@@ -44,6 +44,7 @@ from rich.table import Table
 
 from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
 from rebrew.config import ProjectConfig, inventory_path_for
+from rebrew.rename_ops import c_name_from_symbol
 from rebrew.utils import untrusted_ident
 from rebrew.workspace.status import EARNED_STATUSES
 
@@ -660,12 +661,19 @@ def recommend_missing_externs(
 
     *extern_refs* are ``(caller_file, callee)`` pairs from
     :func:`rebrew.c_parser.find_extern_function_names`; *known_names* holds
-    every defined symbol spelling (raw, stripped, underscore-prefixed).
+    defined symbol spellings. A raw ``hook@@12`` covers a call to ``hook``,
+    and ``__foo`` covers ``_foo`` rather than ``foo``.
     One rec per missing callee, callers listed as evidence.
     """
+    known = set(known_names)
+    for name in known_names:
+        bare = c_name_from_symbol(name)
+        known.add(bare)
+        if bare:
+            known.add(f"_{bare}")
     by_callee: dict[str, set[str]] = {}
     for caller, callee in extern_refs:
-        if callee in known_names or callee.lstrip("_") in known_names:
+        if callee in known or c_name_from_symbol(callee) in known:
             continue
         by_callee.setdefault(callee, set()).add(caller)
     return [
@@ -1030,9 +1038,9 @@ def _collect_hygiene(
         from rebrew.utils import read_source_text, rel_display_path
 
         refs: list[tuple[str, str]] = []
-        known: set[str] = set(names.values())
-        known.update(n.lstrip("_") for n in names.values())
-        known.update("_" + n.lstrip("_") for n in names.values())
+        # ``recommend_missing_externs`` expands the C name. Stripping every
+        # underscore here treated ``__foo`` as ``foo``.
+        known = set(names.values())
         for cfile in iter_sources(cfg.reversed_dir, cfg):
             rel = rel_display_path(cfile, cfg.reversed_dir)
             try:

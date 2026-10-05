@@ -148,6 +148,116 @@ class TestEmitExternDecl:
     def test_plain_pointer_type_unchanged(self) -> None:
         assert _emit_extern_decl({"name": "p", "type": "void *"}) == "extern void * p;"
 
+    def test_nested_bracket_array_type(self) -> None:
+        """A bound that contains brackets stays attached to the name.
+
+        ``char[sizeof(wchar_t[3])]`` was emitted as
+        ``extern char[sizeof(wchar_t[3])] g;``, which is not a declaration.
+        ``char[2][4]`` kept only the last dimension on the name.
+        """
+        assert (
+            _emit_extern_decl({"name": "g_wide", "type": "char[sizeof(wchar_t[3])]"})
+            == "extern char g_wide[sizeof(wchar_t[3])];"
+        )
+        assert (
+            _emit_extern_decl({"name": "g_rows", "type": "char[2][4]"})
+            == "extern char g_rows[2][4];"
+        )
+
+    def test_pointer_to_array_type(self) -> None:
+        """A pointer to an array keeps the brackets on the array, not the name.
+
+        ``char (*)[4]`` was emitted as ``extern char (*) g[4];``. The
+        brackets name the array the pointer addresses.
+        """
+        assert (
+            _emit_extern_decl({"name": "g_row", "type": "char (*)[4]"})
+            == "extern char (*g_row)[4];"
+        )
+        assert (
+            _emit_extern_decl({"name": "g_wide", "type": "unsigned char (*)[sizeof(wchar_t[3])]"})
+            == "extern unsigned char (*g_wide)[sizeof(wchar_t[3])];"
+        )
+
+    def test_sizeof_pointer_in_bound_keeps_the_name(self) -> None:
+        """A ``(*)`` inside the bound is not where the name goes.
+
+        ``char[sizeof(char (*)[4])]`` was emitted as
+        ``extern char[sizeof(char (*g)[4])];``. ``char (**)[4]`` was
+        ``extern char (**) g[4]``.
+        """
+        assert (
+            _emit_extern_decl({"name": "g_row", "type": "char[sizeof(char (*)[4])]"})
+            == "extern char g_row[sizeof(char (*)[4])];"
+        )
+        assert (
+            _emit_extern_decl({"name": "g_row", "type": "char (**)[4]"})
+            == "extern char (**g_row)[4];"
+        )
+
+    def test_sizeof_literal_bound_keeps_quotes(self) -> None:
+        """A literal inside ``sizeof`` is still a declarator.
+
+        The quote was rejected, so the header omitted the symbol.
+        """
+        assert (
+            _emit_extern_decl({"name": "g_wide", "type": 'char[sizeof(L"hi")]'})
+            == 'extern char g_wide[sizeof(L"hi")];'
+        )
+        assert (
+            _emit_extern_decl({"name": "g_ch", "type": "char[sizeof(L'A')]"})
+            == "extern char g_ch[sizeof(L'A')];"
+        )
+        assert _emit_extern_decl({"name": "g", "type": 'char[sizeof(";")];'}) is None
+
+    def test_abstract_pointer_array_keeps_the_name_inside(self) -> None:
+        """``int (*[4])`` is four pointers, and the name goes inside.
+
+        The name was placed after the type, so the header line was
+        ``extern int (*[4]) g``, which is not C. ``int *[4]`` and a
+        pointer to an array stay as they are.
+        """
+        assert _emit_extern_decl({"name": "g", "type": "int (*[4])"}) == "extern int (*g[4]);"
+        assert _emit_extern_decl({"name": "g", "type": "int (**[2])"}) == "extern int (**g[2]);"
+        assert (
+            _emit_extern_decl({"name": "g", "type": "unsigned char (*[sizeof(int)])"})
+            == "extern unsigned char (*g[sizeof(int)]);"
+        )
+        assert (
+            _emit_extern_decl({"name": "g", "type": "int (*[4])(int)"})
+            == "extern int (*g[4])(int);"
+        )
+        assert _emit_extern_decl({"name": "g", "type": "int *[4]"}) == "extern int * g[4];"
+        assert _emit_extern_decl({"name": "g", "type": "int (*)[4]"}) == "extern int (*g)[4];"
+
+    def test_cdecl_pointer_array_keeps_the_name_inside(self) -> None:
+        """``char (__cdecl *)[4]`` keeps the name on the pointer.
+
+        ``__cdecl`` sat before the star, so the brackets were peeled onto
+        the name (``extern char (__cdecl *) g_row[4]``). ``const`` did the
+        same. An array of those pointers keeps both bounds.
+        """
+        assert (
+            _emit_extern_decl({"name": "g_row", "type": "char (__cdecl *)[4]"})
+            == "extern char (__cdecl *g_row)[4];"
+        )
+        assert (
+            _emit_extern_decl({"name": "g_row", "type": "char (* const)[4]"})
+            == "extern char (* const g_row)[4];"
+        )
+        assert (
+            _emit_extern_decl({"name": "table", "type": "int (__cdecl *[2])[3]"})
+            == "extern int (__cdecl *table[2])[3];"
+        )
+        assert (
+            _emit_extern_decl({"name": "table", "type": "int (* const [2])[3]"})
+            == "extern int (* const table[2])[3];"
+        )
+        assert (
+            _emit_extern_decl({"name": "hooks", "type": "int (__cdecl * const [2])[3]"})
+            == "extern int (__cdecl * const hooks[2])[3];"
+        )
+
 
 class TestSetDataType:
     """`rebrew data --set-type`: fix a declared global type through the tool.
@@ -333,6 +443,33 @@ class TestGenGlobalsHeader:
         text = (cfg.reversed_dir / "rebrew_globals.h").read_text(encoding="utf-8")
         assert "extern double g_dbl_const_6d0;" in text
         assert "extern float g_dbl_const_f88;" in text
+        assert "WRONG" not in text
+
+    def test_bare_pointer_to_array_beats_metadata(self, tmp_path: Path) -> None:
+        """``char (*g_row)[4]`` is one pointer, and it has no ``extern``.
+
+        The name sits inside parentheses, so the line was not a source
+        declaration. The header kept the metadata type ``int``.
+        ``int (*table[4])`` is four pointers.
+        """
+        from rebrew.data_metadata import set_data_field
+
+        cfg = _cfg(tmp_path)
+        (cfg.reversed_dir / "globals.c").write_text(
+            "// DATA: SERVER 0x1000\n"
+            "char (*g_row)[4]; /* 0x1000 */\n"
+            "// DATA: SERVER 0x2000\n"
+            "int (*table[4]); /* 0x2000 */\n",
+            encoding="utf-8",
+        )
+        set_data_field(cfg.metadata_dir, 0x1000, "type", "int", "SERVER")
+        set_data_field(cfg.metadata_dir, 0x1000, "name", "WRONG", "SERVER")
+        set_data_field(cfg.metadata_dir, 0x2000, "type", "int", "SERVER")
+        set_data_field(cfg.metadata_dir, 0x2000, "name", "WRONG", "SERVER")
+        gen_globals_header(cfg, cfg.reversed_dir)
+        text = (cfg.reversed_dir / "rebrew_globals.h").read_text(encoding="utf-8")
+        assert "extern char (*g_row)[4];" in text
+        assert "extern int * table[4];" in text
         assert "WRONG" not in text
 
     def test_stub_tu_markers_covered(self, tmp_path: Path) -> None:

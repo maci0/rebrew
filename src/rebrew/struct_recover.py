@@ -16,8 +16,9 @@ Evidence sources parsed from decompiled C:
   width comes from *T* (int/undefined4/pointer → 4, short → 2, char → 1,
   double → 8, ...).  Offsets may be hex (``0x10``) or decimal (``3``) —
   decompilers disagree.
-- ``*(T *)&p[10]`` / ``p[10]`` — Kuna indexes pointer params as arrays;
-  the byte offset is index × element width of the declared base type.
+- ``*(T *)&p[10]`` / ``p[0x10]`` — Kuna and Ghidra index pointer params
+  as arrays; the byte offset is index × element width of the declared
+  base type.  The index is hex (``0x10``) or decimal (``010`` is ten).
 - ``(T *)p`` casts and ``T *var`` declarations — they give the BASE TYPE a
   pointer is accessed through.
 
@@ -90,20 +91,33 @@ CAST_DEREF_RE = re.compile(
     r"(?:&?\s*(?P<var1>[A-Za-z_]\w*)\s*\+\s*(?P<off1>0x[0-9a-fA-F]+|\d+)"
     r"|\(\s*(?P<var2>[A-Za-z_]\w*)\s*\+\s*(?P<off2>0x[0-9a-fA-F]+|\d+)\s*\))"
 )
+#: One C type specifier in front of ``*``.  ``long`` repeats so
+#: ``long long`` and ``unsigned long long`` stay one type.  A single word
+#: (``int``, ``PlayerInfo``, ``uint32_t``) still matches.
+_DECL_TYPE = r"(?:(?:unsigned|signed|long)\s+)*[A-Za-z_]\w*"
 #: ``(T *)p`` casts — base-type evidence; the variable is captured so
 #: ``(PlayerInfo *)raw`` types later accesses through ``raw``.
-CAST_RE = re.compile(r"\(\s*(?P<type>[A-Za-z_]\w*)\s*\*\s*\)\s*(?P<var>[A-Za-z_]\w*)")
+CAST_RE = re.compile(rf"\(\s*(?P<type>{_DECL_TYPE})\s*\*\s*\)\s*(?P<var>[A-Za-z_]\w*)")
 #: ``T *var`` declarations (incl. params) — base-type evidence.
-DECL_RE = re.compile(r"\b(?P<type>[A-Za-z_]\w*)\s*\*\s*(?P<var>[A-Za-z_]\w*)\b")
-#: ``*(int *)&a0[10]`` — Kuna indexes pointer params as arrays; the byte
-#: offset is index × element width of the declared base type.
+#: ``T *var[N]`` is an array of pointers. Matching it as ``T *var`` made
+#: ``rows[1]`` a byte at offset 1.
+DECL_RE = re.compile(rf"\b(?P<type>{_DECL_TYPE})\s*\*\s*(?P<var>[A-Za-z_]\w*)\b(?!\s*\[)")
+#: Array index as Ghidra/Kuna print it: hex ``0x10`` or decimal ``10``.
+#: A leading zero stays decimal (``010`` is ten), the same rule as
+#: :func:`rebrew.utils.parse_int_literal`.  Hex has to come first or
+#: ``\d+`` consumes the leading zero of ``0x10``.
+_ARRAY_INDEX = r"0x[0-9a-fA-F]+|\d+"
+#: ``*(int *)&a0[10]`` / ``*(int *)&a0[0xA]`` — decompilers index pointer
+#: params as arrays; the byte offset is index × element width of the
+#: declared base type.
 ARRAY_DEREF_RE = re.compile(
     r"\*\s*\(\s*(?P<type>[A-Za-z_]\w*(?:\s+\w+)*?)\s*\*\s*\)\s*&?\s*"
-    r"(?P<var>[A-Za-z_]\w*)\s*\[\s*(?P<idx>\d+)\s*\]"
+    rf"(?P<var>[A-Za-z_]\w*)\s*\[\s*(?P<idx>{_ARRAY_INDEX})\s*\]"
 )
-#: Bare ``a0[10]`` (no cast) — same evidence, element width only.  The
-#: lookbehind keeps the ``&a0[10]`` cast-deref form from double-counting.
-ARRAY_IDX_RE = re.compile(r"(?<![\w&])(?P<var>[A-Za-z_]\w*)\s*\[\s*(?P<idx>\d+)\s*\]")
+#: Bare ``a0[10]`` / ``a0[0x10]`` (no cast) — same evidence, element width
+#: only.  The lookbehind keeps the ``&a0[10]`` cast-deref form from
+#: double-counting.
+ARRAY_IDX_RE = re.compile(rf"(?<![\w&])(?P<var>[A-Za-z_]\w*)\s*\[\s*(?P<idx>{_ARRAY_INDEX})\s*\]")
 
 #: Pseudo-types that never name a recoverable struct.
 PSEUDO_TYPES = frozenset(
@@ -143,6 +157,7 @@ PSEUDO_TYPES = frozenset(
         "WORD",
         "BYTE",
         "LONG",
+        "wchar_t",
         "UINT",
         "ULONG",
     }
@@ -151,12 +166,14 @@ PSEUDO_TYPES = frozenset(
 #: Cast type → access width in bytes.
 TYPE_WIDTHS: dict[str, int] = {
     "char": 1,
+    "bool": 1,
     "uchar": 1,
     "unsigned char": 1,
     "byte": 1,
     "uint8": 1,
     "uint8_t": 1,
     "short": 2,
+    "wchar_t": 2,
     "ushort": 2,
     "unsigned short": 2,
     "word": 2,
@@ -190,8 +207,47 @@ TYPE_WIDTHS: dict[str, int] = {
     "int64": 8,
     "int64_t": 8,
     "long long": 8,
+    "long long int": 8,
     "unsigned long long": 8,
+    "long double": 8,
+    "short int": 2,
+    "long int": 4,
 }
+
+
+#: Words that make a multi-word spelling a primitive (``long long``,
+#: ``unsigned int``) rather than a struct name.
+_PRIMITIVE_WORDS = frozenset(
+    {"unsigned", "signed", "long", "short", "int", "char", "float", "double", "void", "bool"}
+)
+
+
+def _is_primitive_type(type_name: str) -> bool:
+    """True when *type_name* is a primitive, not a recoverable struct base.
+
+    A single word uses :data:`PSEUDO_TYPES`.  ``long long`` and
+    ``unsigned int`` are primitive too: the declaration parser keeps those
+    words together, and they must not become a struct named ``long long``.
+    """
+    if type_name in PSEUDO_TYPES:
+        return True
+    words = type_name.split()
+    return len(words) > 1 and all(word in _PRIMITIVE_WORDS for word in words)
+
+
+def _declared_width(type_name: str) -> int | None:
+    """Element width of a pointer base, or None when it is not a known primitive.
+
+    ``signed long`` is not its own row; stripping ``signed`` / ``unsigned``
+    once reaches ``long`` (4) or ``long long`` (8).
+    """
+    width = TYPE_WIDTHS.get(type_name)
+    if width is not None:
+        return width
+    rest = type_name.removeprefix("unsigned ").removeprefix("signed ")
+    if rest != type_name:
+        return TYPE_WIDTHS.get(rest)
+    return None
 
 
 def type_width(cast_type: str) -> int | None:
@@ -220,18 +276,30 @@ _TEMP_VAR_RE = re.compile(r"^(?:v\d+|(?:local|var)_[0-9a-fA-F_]+h?|[A-Za-z]{1,3}
 #: ``global_base + index`` into ``var + 0xADDR``), not struct members.
 _MAX_MEMBER_OFFSET = 0x1000000  # 16 MiB — far above any real x86-32 struct
 
-#: Longest array index converted to evidence.  A nine-digit index is already
-#: past ``_MAX_MEMBER_OFFSET`` at every element width, so the extra digits
-#: only reach ``int()`` — which rejects a decimal run past CPython's
+#: Longest array-index token converted to evidence.  A nine-digit index is
+#: already past ``_MAX_MEMBER_OFFSET`` at every element width, so the extra
+#: digits only reach the literal parser — which rejects a run past CPython's
 #: conversion limit with a bare ``ValueError``.
 _MAX_INDEX_DIGITS = 8
 
 
 def _parse_index(text: str) -> int | None:
-    """An array index as evidence, or ``None`` when it cannot be a member offset."""
+    """An array index as evidence, or ``None`` when it cannot be a member offset.
+
+    Hex (``0x10``) and decimal (``16``, ``010``) follow
+    :func:`rebrew.utils.parse_int_literal`: a leading zero is ten, matching
+    the cast-deref offset parser.  ``int()`` rejected ``0x10``.  A token
+    longer than ``_MAX_INDEX_DIGITS`` is not a member index.
+    """
     if len(text) > _MAX_INDEX_DIGITS:
         return None
-    return int(text)
+    try:
+        value = parse_int_literal(text)
+    except ValueError:
+        return None
+    if value < 0:
+        return None
+    return value
 
 
 def _member_offset_cap(cfg: Any) -> int:
@@ -268,7 +336,7 @@ def pointer_element_widths(text: str) -> dict[str, int]:
     """
     out: dict[str, int] = {}
     for m in DECL_RE.finditer(text):
-        w = TYPE_WIDTHS.get(m.group("type"))
+        w = _declared_width(m.group("type"))
         if w is not None:
             out[m.group("var")] = w
     return out
@@ -332,7 +400,7 @@ def parse_decomp_for_structs(text: str, max_offset: int = _MAX_MEMBER_OFFSET) ->
     var_types: dict[str, str] = {}
 
     def _set_var_type(var: str, t: str) -> None:
-        if t in PSEUDO_TYPES:
+        if _is_primitive_type(t):
             var_types.setdefault(var, t)
         else:
             var_types[var] = t
@@ -342,7 +410,7 @@ def parse_decomp_for_structs(text: str, max_offset: int = _MAX_MEMBER_OFFSET) ->
     for m in CAST_RE.finditer(text):
         _set_var_type(m.group("var"), m.group("type"))
 
-    bases_with_pointers = {t for t in var_types.values() if t not in PSEUDO_TYPES}
+    bases_with_pointers = {t for t in var_types.values() if not _is_primitive_type(t)}
 
     def _bump(container: dict[str, StructEvidence], base: str, offset: int, width: int) -> None:
         if offset >= max_offset:
@@ -355,7 +423,7 @@ def parse_decomp_for_structs(text: str, max_offset: int = _MAX_MEMBER_OFFSET) ->
         """Attribute one access: to a named base type, or an anonymous var."""
         if var:
             base = var_types.get(var)
-            if base is not None and base not in PSEUDO_TYPES:
+            if base is not None and not _is_primitive_type(base):
                 _bump(named, base, offset, width)
                 return
             if not _TEMP_VAR_RE.match(var):
@@ -388,14 +456,14 @@ def parse_decomp_for_structs(text: str, max_offset: int = _MAX_MEMBER_OFFSET) ->
     for m in ARRAY_DEREF_RE.finditer(text):
         width = type_width(m.group("type"))
         var = m.group("var")
-        elem = TYPE_WIDTHS.get(var_types.get(var, ""))
+        elem = _declared_width(var_types.get(var, ""))
         index = _parse_index(m.group("idx"))
         if width is None or elem is None or index is None:
             continue
         _record(var, index * elem, width)
     for m in ARRAY_IDX_RE.finditer(text):
         var = m.group("var")
-        elem = TYPE_WIDTHS.get(var_types.get(var, ""))
+        elem = _declared_width(var_types.get(var, ""))
         index = _parse_index(m.group("idx"))
         if elem is None or index is None:
             continue

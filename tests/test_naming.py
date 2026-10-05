@@ -21,6 +21,17 @@ class TestNormalizeName:
     def test_stdcall_suffix(self) -> None:
         assert normalize_name("_func@8") == "func"
 
+    def test_vectorcall_and_fastcall_decoration(self) -> None:
+        """``name@@N`` and ``@name@N`` are the same C name.
+
+        One ``@N`` strip left ``hook@`` and ``@keeps``, so they did not
+        match ``hook`` and ``keeps``.
+        """
+        assert normalize_name("hook@@12") == "hook"
+        assert normalize_name("__imp__hook@@0") == "hook"
+        assert normalize_name("@keeps@4") == "keeps"
+        assert normalize_name("foo@bar") == "foo@bar"
+
     def test_double_underscore_untouched(self) -> None:
         # "__imp" lacks the trailing underscore, so the __imp_ prefix doesn't match.
         assert normalize_name("__imp") == "__imp"

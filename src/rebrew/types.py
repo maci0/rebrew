@@ -12,12 +12,30 @@ from typing import Any
 
 _PRIMITIVE_SIZES: dict[str, int] = {
     "char": 1,
+    # 32-bit MSVC ``bool`` is 1 byte, the same width as ``char``.
+    "bool": 1,
     "short": 2,
     "int": 4,
     "long": 4,
     "float": 4,
     "double": 8,
+    # 32-bit MSVC: ``long long`` and ``__int64`` are 8 bytes.  ``unsigned``
+    # and ``signed`` are stripped before this lookup.
+    "long long": 8,
+    "long long int": 8,
+    "__int64": 8,
+    # ``long double`` is 8 on 32-bit MSVC, the same width as ``double``.
+    # ``short int`` / ``long int`` are the long forms of ``short`` / ``long``.
+    "long double": 8,
+    "short int": 2,
+    "long int": 4,
+    # 32-bit MSVC ``wchar_t`` is 2 bytes, the same width as an ``L`` string unit.
+    "wchar_t": 2,
 }
+
+#: Scalars whose natural alignment is 8 on 32-bit MSVC (the same rule as
+#: ``double``).  A 4-byte cap put ``long long`` at offset 4 after a ``char``.
+_EIGHT_BYTE_ALIGNED = frozenset({"double", "long double", "long long", "long long int", "__int64"})
 
 
 def _align_up(offset: int, align: int) -> int:
@@ -63,52 +81,160 @@ def type_size(spelling: str, known_structs: dict[str, StructDef] | None = None) 
         return None
     if text in _PRIMITIVE_SIZES:
         return _PRIMITIVE_SIZES[text]
-    if text.endswith("]"):
-        base, _, count_text = text[:-1].rpartition("[")
-        try:
-            count = int(count_text.strip())
-        except ValueError:
+    # ``T (*)[N]`` is one pointer. The bracket is the array it addresses,
+    # not a dimension of this object. ``T *[N]`` has no ``(*)``.
+    if _is_pointer_to_array(text):
+        return 4
+    if "[" in text or "(*" in text:
+        from rebrew.c_parser import abstract_pointer_array_dimensions, array_type_shape
+
+        # ``T (*[N])`` is N pointers. The brackets sit inside the
+        # parentheses, so the array shape never saw a dimension.
+        abstract = abstract_pointer_array_dimensions(text)
+        if abstract:
+            count = 1
+            for bound in abstract:
+                if not isinstance(bound, int) or bound < 0:
+                    return None
+                count *= bound
+            return 4 * count
+        if "[" not in text:
+            return None
+        base, dimensions = array_type_shape(text)
+        if not dimensions:
             return None
         # Negative bounds are not valid C array sizes; accepting them made
-        # ``char pad[-2]; int x;`` lay both fields at offset 0.
-        if count < 0:
-            return None
-        base_size = type_size(base.strip(), known_structs)
+        # ``char pad[-2]; int x;`` lay both fields at offset 0.  A hex, octal,
+        # or constant-expression bound folds the same way estimate_type_size
+        # does; ``int()`` read ``0x10`` as unknown and ``010`` as ten.
+        count = 1
+        for bound in dimensions:
+            if not isinstance(bound, int) or bound < 0:
+                return None
+            count *= bound
+        base_size = type_size(base, known_structs)
         return None if base_size is None else base_size * count
     if known_structs and text in known_structs:
         return known_structs[text].size
     return None
 
 
+def _is_pointer_to_array(text: str) -> bool:
+    """True when *text* is ``T (*)[N]`` or ``T (**)[N]``, not ``T *[N]``.
+
+    A ``(*)`` inside a bound is not this object's declarator.
+    """
+    from rebrew.c_parser import is_pointer_to_array
+
+    return is_pointer_to_array(text)
+
+
 def _field_text(node: Any, source: bytes) -> str:
     return source[node.start_byte : node.end_byte].decode("utf-8", errors="surrogateescape")
+
+
+_DECLARATOR_TYPES = frozenset(
+    {
+        "field_identifier",
+        "pointer_declarator",
+        "array_declarator",
+        "parenthesized_declarator",
+        "function_declarator",
+    }
+)
+
+
+def _declarator_child(node: Any) -> Any | None:
+    for child in node.children:
+        if child.type in _DECLARATOR_TYPES:
+            return child
+    return None
+
+
+def _array_bracket(node: Any, source: bytes) -> str | None:
+    """The ``[N]`` that belongs to this array node, including a nested bound."""
+    start = None
+    end = None
+    for child in node.children:
+        if child.type == "[":
+            start = child.start_byte
+        elif child.type == "]" and start is not None and child.end_byte > start:
+            end = child.end_byte
+    if start is None or end is None:
+        return None
+    return source[start:end].decode("utf-8", errors="surrogateescape")
+
+
+def _abstract_declarator(node: Any, source: bytes) -> tuple[str, str] | None:
+    """``(name, suffix)`` so the field type is the base spelling plus *suffix*.
+
+    Postfix ``[]`` binds tighter than prefix ``*``, unless parentheses say
+    otherwise. ``*rows[4]`` is `` *[4]`` (an array of pointers). ``(*row)[4]``
+    is `` (*)[4]`` (a pointer to an array). A function declarator stays unknown.
+    """
+    if node.type == "field_identifier":
+        return _field_text(node, source), ""
+    if node.type == "function_declarator":
+        return None
+    inner = _declarator_child(node)
+    if inner is None:
+        return None
+    parsed = _abstract_declarator(inner, source)
+    if parsed is None:
+        return None
+    name, suffix = parsed
+    if node.type == "parenthesized_declarator":
+        # ``(*row)[4]`` groups a pointer. ``(*table[4])`` does not: the
+        # brackets are already inside, and wrapping them made ``int (*[4])``,
+        # which has no size, so the following field was dropped.
+        stars = suffix.replace(" ", "")
+        if stars and set(stars) == {"*"}:
+            return name, f" ({stars})"
+        return name, suffix
+    if node.type == "pointer_declarator":
+        return name, " *" + suffix
+    if node.type == "array_declarator":
+        bracket = _array_bracket(node, source)
+        if bracket is None:
+            return None
+        # ``(*table[2])[3]`` groups an array of pointers. Appending the
+        # pointee bracket to `` *[2]`` spelled `` *[2][3]``, a grid of
+        # pointers. ``(*row)[4]`` has no bracket inside the parentheses.
+        inner = _declarator_child(node)
+        grouped = suffix.replace(" ", "")
+        if (
+            inner is not None
+            and inner.type == "parenthesized_declarator"
+            and grouped.startswith("*")
+            and "[" in grouped
+        ):
+            return name, f" ({grouped}){bracket}"
+        # The node closest to the name holds the first source dimension.
+        # ``grid[2][3][4]`` must stay ``[2][3][4]``, and ``(*)[4]`` keeps
+        # the bracket after the parenthesized pointer.
+        return name, suffix + bracket
+    return None
 
 
 def _parse_field(decl: Any, source: bytes) -> tuple[str, str] | None:
     """Return ``(field name, type spelling)`` for a field_declaration node."""
     base_parts: list[str] = []
-    name = ""
-    suffix = ""
+    declarator = None
     for child in decl.children:
-        if child.type == "field_identifier":
-            name = _field_text(child, source)
-        elif child.type == "pointer_declarator":
-            inner = _field_text(child, source).lstrip("*").strip()
-            name = inner
-            suffix = " *"
-        elif child.type == "array_declarator":
-            raw = _field_text(child, source)
-            ident = child
-            while ident.type == "array_declarator":
-                ident = ident.child_by_field_name("declarator")
-                if ident is None:
-                    return None
-            if ident.type != "field_identifier":
-                return None
-            name = _field_text(ident, source)
-            suffix = raw[len(name) :].strip()
+        if child.type in _DECLARATOR_TYPES:
+            declarator = child
         elif child.type not in (";", ","):
             base_parts.append(_field_text(child, source))
+    if declarator is None:
+        return None
+    if declarator.type == "field_identifier":
+        name = _field_text(declarator, source)
+        suffix = ""
+    else:
+        parsed = _abstract_declarator(declarator, source)
+        if parsed is None:
+            return None
+        name, suffix = parsed
     if not name:
         return None
     spelling = " ".join(" ".join(base_parts).split()) + suffix
@@ -215,8 +341,21 @@ def _build_struct(name: str, body: Any, source: bytes, known: dict[str, StructDe
 
 
 def _field_align(spelling: str, size: int, known: dict[str, StructDef] | None) -> int:
-    """Natural alignment: arrays align by element, scalars by size (cap 4, double 8)."""
-    text = spelling.strip()
+    """Natural alignment: arrays align by element, scalars by size (cap 4).
+
+    ``double``, ``long double``, ``long long``, and ``__int64`` align to 8
+    on 32-bit MSVC.
+    """
+    text = " ".join(spelling.split())
+    # A pointer to an array aligns as a pointer. The ``]`` is the pointee.
+    if _is_pointer_to_array(text):
+        return 4
+    # ``T (*[N])`` and ``T (*[N])[M]`` are pointers. Peeling the pointee
+    # bracket left ``T (*``, which has no size, so the field aligned to 1.
+    from rebrew.c_parser import abstract_pointer_array_dimensions
+
+    if abstract_pointer_array_dimensions(text):
+        return 4
     if text.endswith("]"):
         base, _, _count = text[:-1].rpartition("[")
         base = base.strip()
@@ -226,7 +365,8 @@ def _field_align(spelling: str, size: int, known: dict[str, StructDef] | None) -
         # An array aligns by its element: ``double arr[2]`` is 8-aligned, not
         # capped at 4 like a scalar 8-byte type would be.
         return _field_align(base, base_size, known)
-    if text == "double":
+    canon = text.removeprefix("unsigned ").removeprefix("signed ")
+    if canon in _EIGHT_BYTE_ALIGNED:
         return 8
     # size <= 0 (flexible ``T[0]``, or a caller that slipped past type_size)
     # must not yield a negative align for ``_align_up``.

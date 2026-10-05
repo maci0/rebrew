@@ -63,6 +63,21 @@ class TestBackendDispatch:
         yield
         dc._clear_re_projects()
 
+    def test_busy_project_dir_stays_queued(self, tmp_path, monkeypatch) -> None:
+        """A failed project delete stays queued for the next clear."""
+        import rebrew.decompiler as dc
+
+        proj = tmp_path / "proj"
+        proj.mkdir()
+        monkeypatch.setattr(dc.shutil, "rmtree", lambda path, ignore_errors=True: None)
+        dc._re_remove_project_dir(str(proj))
+        assert dc._re_unremoved == [str(proj)]
+        assert proj.is_dir()
+        monkeypatch.undo()
+        dc._re_flush_unremoved()
+        assert not proj.exists()
+        assert dc._re_unremoved == []
+
     def test_backends_list(self) -> None:
         assert "r2ghidra" in BACKENDS
         assert "r2dec" in BACKENDS
@@ -1080,6 +1095,31 @@ class TestKunaBackend:
         seed = dc.kuna_seed_source(tmp_path / "x.exe", 0x401000, tmp_path)
         assert seed is not None
         assert seed.count("extern int dat_401100;") == 1
+
+    def test_kuna_seed_keeps_a_pointer_array_definition(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """A pointer array named ``dat_`` is already a declaration.
+
+        The name sat inside parentheses, so the seed added
+        ``extern int dat_00401100`` beside the definition.
+        ``__cdecl`` and ``const`` stay declared too.
+        """
+        import rebrew.decompiler as dc
+
+        samples = [
+            "char (__cdecl *dat_00401100)[4];\nint sub_401000(void) { return dat_00401100[0][0]; }\n",
+            "int (*dat_00401100[2])[3];\nint sub_401000(void) { return dat_00401100[0][0]; }\n",
+            "int (* const dat_00401100[2])[3];\nint sub_401000(void) { return 0; }\n",
+            "void (__cdecl *sub_00401200)(int);\nint sub_401000(void) { return 0; }\n",
+        ]
+        for source in samples:
+            monkeypatch.setattr(dc, "fetch_kuna", lambda b, va, root, source=source: source)
+            seed = dc.kuna_seed_source(tmp_path / "x.exe", 0x401000, tmp_path)
+            assert seed is not None
+            assert "extern int dat_00401100;" not in seed
+            assert "int sub_00401200();" not in seed
+            assert source.split(";", 1)[0] in seed
 
     def test_kuna_declarations_ignore_a_use_on_a_static_line(self) -> None:
         """A one-line static body does not declare the labels it uses."""

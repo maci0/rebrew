@@ -14,6 +14,130 @@ def _mk(src: Path) -> None:
     )
 
 
+def test_annotate_binds_nondecimal_array(tmp_path: Path) -> None:
+    """``g[0x10]`` and ``g[2 + 2]`` are declarations of those names.
+
+    The bracket pattern was decimal digits only, so the row was never bound.
+    """
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "mod.c").write_text(
+        "extern unsigned char g_hex[0x10];\nextern int g_expr[2 + 2];\nextern int g_2d[2][4];\n",
+        encoding="utf-8",
+    )
+    meta = tmp_path / "rebrew-data.toml"
+    meta.write_text(
+        '["SERVER.0x10027000"]\nname = "g_hex"\nsection = ".data"\n'
+        '["SERVER.0x10027010"]\nname = "g_expr"\nsection = ".data"\n'
+        '["SERVER.0x10027020"]\nname = "g_2d"\nsection = ".data"\n',
+        encoding="utf-8",
+    )
+    per_file, skipped = annotate_globals(src, meta, "SERVER", dry_run=True)
+    assert per_file == {"mod.c": 3}
+    assert skipped == 0
+
+
+def test_annotate_binds_nested_bracket_bound(tmp_path: Path) -> None:
+    """``g[sizeof(wchar_t[3])]`` is still a declaration of that name.
+
+    The bracket pattern stopped at the inner ``]``, so the row was never bound.
+    """
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "mod.c").write_text(
+        "extern char g_wide[sizeof(wchar_t[3])];\nextern int g_ints[sizeof(int[2])];\n",
+        encoding="utf-8",
+    )
+    meta = tmp_path / "rebrew-data.toml"
+    meta.write_text(
+        '["SERVER.0x10027000"]\nname = "g_wide"\nsection = ".data"\n'
+        '["SERVER.0x10027010"]\nname = "g_ints"\nsection = ".data"\n',
+        encoding="utf-8",
+    )
+    per_file, skipped = annotate_globals(src, meta, "SERVER", dry_run=True)
+    assert per_file == {"mod.c": 2}
+    assert skipped == 0
+
+
+def test_annotate_binds_pointer_to_array(tmp_path: Path) -> None:
+    """``extern char (*g_row)[4];`` declares ``g_row``.
+
+    The name sits inside parentheses, so the row was never bound.
+    ``(**g_ptrs)`` is the same kind of declarator.
+    """
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "mod.c").write_text(
+        "extern char (*g_row)[4];\nextern char (**g_ptrs)[4];\n",
+        encoding="utf-8",
+    )
+    meta = tmp_path / "rebrew-data.toml"
+    meta.write_text(
+        '["SERVER.0x10027000"]\nname = "g_row"\nsection = ".data"\n'
+        '["SERVER.0x10027004"]\nname = "g_ptrs"\nsection = ".data"\n',
+        encoding="utf-8",
+    )
+    per_file, skipped = annotate_globals(src, meta, "SERVER", dry_run=True)
+    assert per_file == {"mod.c": 2}
+    assert skipped == 0
+
+
+def test_annotate_binds_pointer_array(tmp_path: Path) -> None:
+    """``extern int *table[4]`` and ``extern int (*rows[4])`` declare those names.
+
+    The star is glued to the name, or the brackets sit inside the
+    parentheses, so neither row was bound. ``(counts[4])`` is the same
+    array without a star.
+    """
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "mod.c").write_text(
+        "extern int *table[4];\nextern int (*rows[4]);\nextern int (counts[4]);\n",
+        encoding="utf-8",
+    )
+    meta = tmp_path / "rebrew-data.toml"
+    meta.write_text(
+        '["SERVER.0x10027000"]\nname = "table"\nsection = ".data"\n'
+        '["SERVER.0x10027010"]\nname = "rows"\nsection = ".data"\n'
+        '["SERVER.0x10027020"]\nname = "counts"\nsection = ".data"\n',
+        encoding="utf-8",
+    )
+    per_file, skipped = annotate_globals(src, meta, "SERVER", dry_run=True)
+    assert per_file == {"mod.c": 3}
+    assert skipped == 0
+
+
+def test_annotate_binds_cdecl_pointer_array(tmp_path: Path) -> None:
+    """``extern int (__cdecl *table[2])[3]`` declares ``table``.
+
+    ``__cdecl`` sat before the star, so the row was never bound.
+    ``const`` between the star and the name is the same declaration.
+    ``void (*cbs[4])(int)`` declares ``cbs``.
+    """
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "mod.c").write_text(
+        "extern int (__cdecl *table[2])[3];\n"
+        "extern int (* const rows[2])[4];\n"
+        "extern char (__cdecl *g_row)[4];\n"
+        "extern void (*cbs[4])(int);\n"
+        "extern int * const plain[2];\n",
+        encoding="utf-8",
+    )
+    meta = tmp_path / "rebrew-data.toml"
+    meta.write_text(
+        '["SERVER.0x10027000"]\nname = "table"\nsection = ".data"\n'
+        '["SERVER.0x10027010"]\nname = "rows"\nsection = ".data"\n'
+        '["SERVER.0x10027014"]\nname = "g_row"\nsection = ".data"\n'
+        '["SERVER.0x10027020"]\nname = "cbs"\nsection = ".data"\n'
+        '["SERVER.0x10027030"]\nname = "plain"\nsection = ".data"\n',
+        encoding="utf-8",
+    )
+    per_file, skipped = annotate_globals(src, meta, "SERVER", dry_run=True)
+    assert per_file == {"mod.c": 5}
+    assert skipped == 0
+
+
 def test_annotate_inserts_markers(tmp_path: Path) -> None:
     src = tmp_path / "src"
     src.mkdir()

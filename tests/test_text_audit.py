@@ -143,7 +143,7 @@ class TestTextAuditCli:
 
         monkeypatch.chdir(_project(tmp_path))
         (tmp_path / "build" / "other.dll").write_bytes(b"MZ")
-        _patch_layout(monkeypatch, objects=[(16, {"_alpha": 0})])
+        _patch_layout(monkeypatch, objects=[(16, {"alpha": 0})])
         seen: list[Path] = []
 
         def _capture(root: Path, binary: Path) -> dict[str, int]:
@@ -163,7 +163,7 @@ class TestTextAuditCli:
         monkeypatch.chdir(_project(tmp_path, {"a.c": _TWO_FUNCS_C, "b.c": _TWO_FILES_B}))
         (tmp_path / "build" / "game").write_bytes(b"MZ")
         # alpha at base+0 of TU#1; beta at offset 0 of TU#2 → base + 0x20.
-        _patch_layout(monkeypatch, objects=[(0x20, {"_alpha": 0}), (0x20, {"_beta": 0})])
+        _patch_layout(monkeypatch, objects=[(0x20, {"alpha": 0}), (0x20, {"beta": 0})])
         result = CliRunner().invoke(app, ["--json"])
         assert result.exit_code == 0, result.output
         payload = json.loads(result.stdout)
@@ -181,7 +181,7 @@ class TestTextAuditCli:
         monkeypatch.chdir(_project(tmp_path, {"a.c": _TWO_FUNCS_C, "b.c": _TWO_FILES_B}))
         (tmp_path / "build" / "game").write_bytes(b"MZ")
         # beta lands at base+0x10 instead of the marked 0x1020.
-        _patch_layout(monkeypatch, objects=[(0x10, {"_alpha": 0}), (0x20, {"_beta": 0})])
+        _patch_layout(monkeypatch, objects=[(0x10, {"alpha": 0}), (0x20, {"beta": 0})])
         result = CliRunner().invoke(app, ["--json"])
         assert result.exit_code == 1
         payload = json.loads(result.stdout)
@@ -205,7 +205,7 @@ class TestTextAuditCli:
 
         monkeypatch.chdir(_project(tmp_path, {"a.c": _TWO_FUNCS_C, "b.c": _TWO_FILES_B}))
         (tmp_path / "build" / "game").write_bytes(b"MZ")
-        _patch_layout(monkeypatch, objects=[(0x10, {"_alpha": 0}), (0x20, {"_beta": 0})])
+        _patch_layout(monkeypatch, objects=[(0x10, {"alpha": 0}), (0x20, {"beta": 0})])
         result = CliRunner().invoke(app, [])
         assert result.exit_code == 1
         assert "correct-VA: 1" in result.output
@@ -222,7 +222,7 @@ class TestTextAuditCli:
         monkeypatch.chdir(_project(tmp_path, {"a.c": _TWO_FUNCS_C, "b.c": _TWO_FILES_B}))
         (tmp_path / "build" / "game").write_bytes(b"MZ")
         # beta has no .text symbol in the build — MISSING, not misplaced.
-        _patch_layout(monkeypatch, objects=[(0x20, {"_alpha": 0})])
+        _patch_layout(monkeypatch, objects=[(0x20, {"alpha": 0})])
         result = CliRunner().invoke(app, ["--json"])
         assert result.exit_code == 0
         payload = json.loads(result.stdout)
@@ -315,3 +315,58 @@ class TestExportFallback:
         )
         assert (n_ok, n_bad, n_missing) == (1, 1, 1)
         assert [r["status"] for r in rows] == ["MISPLACED", "MISSING", "OK"]
+
+
+class TestDecoratedTextSymbols:
+    """``__foo`` and ``_foo`` are different .text symbols."""
+
+    def test_decorated_symbols_keep_distinct_c_names(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``lstrip("_")`` stored ``__foo`` and ``_foo`` as ``foo``.
+
+        ``hook@@12`` stayed decorated. The C names are ``_foo``, ``foo``,
+        and ``hook``, in the object, the export table, and the marker map.
+        """
+        import rebrew.data_layout as dl
+        import rebrew.text_audit as ta
+        from rebrew.config import load_config
+        from rebrew.data_layout import obj_text_symbol_offsets
+        from rebrew.verify_hash import expected_text_functions
+
+        obj = tmp_path / "a.obj"
+        obj.write_bytes(
+            make_coff_obj(
+                b"\xc3" * 12,
+                func_symbol="__foo",
+                extra_funcs=[("_foo", 4), ("hook@@12", 8)],
+            )
+        )
+        _size, syms = obj_text_symbol_offsets(obj)
+        assert syms == {"_foo": 0, "foo": 4, "hook": 8}
+
+        monkeypatch.setattr(dl, "link_objects", lambda _root: [obj])
+        monkeypatch.setattr(ta, "built_text_va", lambda _binary: 0x1000)
+        actual = ta.collect_actual_vas(tmp_path, tmp_path / "game.exe")
+        assert actual == {"_foo": 0x1000, "foo": 0x1004, "hook": 0x1008}
+
+        pe = _export_pe(tmp_path / "game.dll", ["__foo", "_foo", "hook@@12"])
+        assert ta.exported_symbol_vas(pe) == {"_foo": 0x401000, "foo": 0x401004, "hook": 0x401008}
+
+        monkeypatch.chdir(
+            _project(
+                tmp_path,
+                {
+                    "decorated.c": (
+                        "// FUNCTION: GAME 0x00003000\n"
+                        "int _foo(void) { return 0; }\n\n"
+                        "// FUNCTION: GAME 0x00004000\n"
+                        "int foo(void) { return 1; }\n\n"
+                        "// FUNCTION: GAME 0x00002000\n"
+                        "int __vectorcall hook(int a, int b, int c) { return 0; }\n"
+                    )
+                },
+            )
+        )
+        expected = expected_text_functions(load_config(tmp_path))
+        assert expected == {"_foo": 0x3000, "foo": 0x4000, "hook": 0x2000}

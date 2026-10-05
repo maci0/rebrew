@@ -222,16 +222,18 @@ def make_sandbox_dir(prefix: str) -> Path:
 def release_sandbox(path: Path) -> None:
     """Remove a sandbox previously returned by :func:`make_sandbox_dir`.
 
-    Idempotent: unknown or already-removed paths are ignored.  Prefer this
-    over waiting for atexit when the caller no longer needs the staged tree.
+    Idempotent: unknown or already-removed paths are ignored.  A directory
+    that is still busy stays tracked so a later release or atexit can retry.
     """
+    shutil.rmtree(path, ignore_errors=True)
+    if path.exists():
+        return
     resolved = path.resolve()
     with _SANDBOX_LOCK:
         stale_prefixes = [p for p, s in _SANDBOX_BY_PREFIX.items() if s.resolve() == resolved]
         for p in stale_prefixes:
             _SANDBOX_BY_PREFIX.pop(p, None)
         _untrack_sandbox(path)
-    shutil.rmtree(path, ignore_errors=True)
 
 
 def _cleanup_sandboxes() -> None:

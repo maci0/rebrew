@@ -153,8 +153,9 @@ def ignored_symbols(cfg: ProjectConfig) -> set[str]:
 def normalize_name(name: str) -> str:
     """Normalize a symbol name for cross-source matching.
 
-    Strips import prefixes (``__imp_``), cdecl leading underscore,
-    and stdcall ``@N`` stack-size suffixes to produce a canonical form.
+    Strips import prefixes (``__imp_``), a cdecl leading underscore,
+    a stdcall ``@N`` suffix, a fastcall ``@name@N`` spelling, and a
+    vectorcall ``name@@N`` spelling.
 
     Matches the stripping logic used in ``crt_match.py``.
     """
@@ -168,6 +169,11 @@ def normalize_name(name: str) -> str:
     at_pos = normalized.rfind("@")
     if at_pos > 0 and normalized[at_pos + 1 :].isdigit():
         normalized = normalized[:at_pos]
+        # ``name@@N`` leaves a trailing ``@``. ``@name@N`` leaves a leading one.
+        if normalized.endswith("@"):
+            normalized = normalized[:-1]
+        elif normalized.startswith("@") and not normalized.startswith("@@"):
+            normalized = normalized[1:]
     return normalized
 
 

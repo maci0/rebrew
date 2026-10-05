@@ -82,6 +82,46 @@ class TestCompileCflags:
         assert compile_cflags("/c /O2", "/MT") == "/MT /c /O2"
 
 
+class TestSweepSelectAnnotation:
+    """``--symbol`` on a multi-function file must name that function."""
+
+    def test_decorated_symbol_selects_the_c_name(self) -> None:
+        """Asking for ``foo`` selects ``foo``, not the earlier ``_foo``.
+
+        ``lstrip("_")`` turned the symbol ``__foo`` into ``foo``. An empty
+        name left ``hook@@12`` and ``@keeps@4`` unmatched. Asking ``_foo``
+        still selects that function, and a cdecl ``_bar`` still selects
+        ``bar``.
+        """
+        from rebrew.annotation import Annotation
+        from rebrew.match_sweep import select_annotation
+
+        annos = [
+            Annotation(va=0x1000, name="other", symbol="_other"),
+            Annotation(va=0x2000, name="", symbol="hook@@12"),
+            Annotation(va=0x2100, name="", symbol="@keeps@4"),
+            Annotation(va=0x3000, name="_foo", symbol="__foo"),
+            Annotation(va=0x4000, name="foo", symbol="_foo"),
+        ]
+        asked_foo = select_annotation(annos, "foo")
+        assert asked_foo is not None
+        assert asked_foo.va == 0x4000
+        hook = select_annotation(annos, "hook")
+        assert hook is not None
+        assert hook.va == 0x2000
+        keeps = select_annotation(annos, "keeps")
+        assert keeps is not None
+        assert keeps.va == 0x2100
+        asked_under = select_annotation(annos, "_foo")
+        assert asked_under is not None
+        assert asked_under.va == 0x3000
+        bar = Annotation(va=0x5000, name="bar", symbol="_bar")
+        by_name = select_annotation([bar], "bar")
+        by_symbol = select_annotation([bar], "_bar")
+        assert by_name is not None and by_name.va == 0x5000
+        assert by_symbol is not None and by_symbol.va == 0x5000
+
+
 class TestFlagSweepBaseCflags:
     """The in-process sweep must use the same effective flags as
     test/verify/batch-GA: a resolved CFLAGS containing /c must not skip the

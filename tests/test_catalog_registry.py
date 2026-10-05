@@ -165,6 +165,31 @@ class TestIsJumpTable:
         # The same bytes under the arch default are not a table.
         assert is_jump_table(data, 0x1000, 0x1000, arch="mips32") is False
 
+    def test_hotpatch_prefix_before_32bit_table(self) -> None:
+        """``mov edi, edi`` before a 32-bit pointer pair is still a jump table.
+
+        The two-byte hotpatch makes the slice length 2 mod 4. Rejecting any
+        slice whose length is not a multiple of the pointer width dropped the
+        table before the prefix skip ran.
+        """
+        pointers = b"".join(struct.pack("<I", 0x1000 + i * 4) for i in range(2))
+        assert is_jump_table(b"\x8b\xff" + pointers, 0x1000, 0x1000) is True
+
+    def test_one_nop_does_not_align_a_table(self) -> None:
+        """A single NOP leaves the pointer slots off a 4-byte boundary."""
+        pointers = b"".join(struct.pack("<I", 0x1000 + i * 4) for i in range(2))
+        assert is_jump_table(b"\x90" + pointers, 0x1000, 0x1000) is False
+
+    def test_hotpatch_jump_table_extends_canonical_size(self) -> None:
+        """The size resolver counts a hotpatch-prefixed table in the list size."""
+        extra = b"\x8b\xff" + b"".join(struct.pack("<I", 0x1000 + i * 4) for i in range(2))
+        data = b"\xc3" * 32 + extra
+        sizes = {"ghidra": 32, "list": 32 + len(extra)}
+        assert _resolve_canonical_size(sizes, 0x1000, data, 0x1000, 0x1000) == (
+            32 + len(extra),
+            "list (includes jump table)",
+        )
+
     def test_big_endian_image_header_on_little_endian_arch(self) -> None:
         """A BE image of a normally-LE arch reads big-endian, not reversed."""
         data = b"".join(struct.pack(">I", 0x1000 + i * 4) for i in range(4))

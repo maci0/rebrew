@@ -52,3 +52,25 @@ def test_callee_spelling_folds_case() -> None:
     lookup: dict[str, str] = {}
     _register_spellings(lookup, "straße", "node-key")
     assert lookup.get(fold_ident("STRASSE")) == "node-key"
+
+
+def test_decorated_symbol_reaches_the_c_call() -> None:
+    """A C call reaches a decorated symbol.
+
+    ``lstrip("_")`` registered ``hook@@12`` and ``@keeps@4`` as
+    themselves, so a call to ``hook`` or ``keeps`` missed the node.
+    ``__foo`` was registered as ``foo``. A cdecl ``_bar`` still reaches
+    ``bar``.
+    """
+    lookup: dict[str, str] = {}
+    _register_spellings(lookup, "hook@@12", "hook-key")
+    _register_spellings(lookup, "@keeps@4", "keeps-key")
+    _register_spellings(lookup, "_sleepish@4", "sleep-key")
+    _register_spellings(lookup, "__foo", "under-key")
+    _register_spellings(lookup, "_bar", "bar-key")
+    assert lookup.get(fold_ident("hook")) == "hook-key"
+    assert lookup.get(fold_ident("keeps")) == "keeps-key"
+    assert lookup.get(fold_ident("sleepish")) == "sleep-key"
+    assert lookup.get(fold_ident("_foo")) == "under-key"
+    assert lookup.get(fold_ident("foo")) != "under-key"
+    assert lookup.get(fold_ident("bar")) == "bar-key"

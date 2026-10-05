@@ -52,8 +52,8 @@ from typing import Any
 import typer
 from rich.table import Table
 
-from rebrew.analysis import data_references, section_range
-from rebrew.binary_loader import extract_bytes_at_va, load_binary
+from rebrew.analysis import data_references, direct_call_target, section_range
+from rebrew.binary_loader import capstone_config_for, extract_bytes_at_va, load_binary
 from rebrew.binary_model import BinaryInfo
 from rebrew.catalog import (
     RegistryEntry,
@@ -61,7 +61,7 @@ from rebrew.catalog import (
     is_jump_table,
 )
 from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
-from rebrew.config import ProjectConfig, inventory_path_for
+from rebrew.config import ProjectConfig, arch_pointer_size, inventory_path_for
 
 # ---------------------------------------------------------------------------
 # Optional-signal constants
@@ -125,11 +125,17 @@ def classify_gap(
     text_va: int,
     text_size: int,
     padding_bytes: tuple[int, ...] = (0xCC, 0x90),
+    arch: str = "x86_32",
+    endian: str = "",
 ) -> str:
     """Classify a gap between two consecutive functions.
 
     Returns one of: ``"padding"``, ``"jump_table"``, ``"small_nonpadding"``,
     ``"large_nonpadding"``.
+
+    *arch* and *endian* are the image's, forwarded to
+    :func:`rebrew.catalog.is_jump_table`. A 64-bit or big-endian pointer
+    table is not a table when those stay at the x86-32 default.
     """
     if len(data) == 0:
         return "padding"
@@ -139,7 +145,7 @@ def classify_gap(
         return "padding"
 
     # Jump table?
-    if is_jump_table(data, text_va, text_size):
+    if is_jump_table(data, text_va, text_size, arch, endian):
         return "jump_table"
 
     # Size-based threshold
@@ -213,17 +219,25 @@ def scan_call_targets(
     registry: dict[int, RegistryEntry],
     cfg: ProjectConfig | None,
 ) -> dict[int, set[int]]:
-    """Disassemble each function and extract direct CALL targets.
+    """Disassemble each function and extract direct call targets.
+
+    A project config supplies the capstone arch and mode.  Without one, the
+    image's own arch, endianness, and container (NE/MZ is 16-bit) do.
+    ``call``, ``bl``/``blx``, ``jal``, and ``bsr`` with an immediate address
+    count; register-indirect calls do not.
 
     Returns ``{caller_va: {callee_vas}}`` for callees present in the registry.
     """
     try:
-        from capstone import CS_ARCH_X86, CS_MODE_32, Cs
+        from capstone import Cs
     except ImportError:
         return {}
 
-    arch = cfg.capstone_arch if cfg else CS_ARCH_X86
-    mode = cfg.capstone_mode if cfg else CS_MODE_32
+    if cfg is not None:
+        arch = cfg.capstone_arch
+        mode = cfg.capstone_mode
+    else:
+        arch, mode = capstone_config_for(info)
     md = Cs(arch, mode)
 
     registry_vas = set(registry.keys())
@@ -239,13 +253,9 @@ def scan_call_targets(
 
         targets: set[int] = set()
         for insn in md.disasm(code, va):
-            if insn.mnemonic == "call" and insn.op_str.startswith("0x"):
-                try:
-                    target = int(insn.op_str, 16)
-                except ValueError:
-                    continue
-                if target in registry_vas and target != va:
-                    targets.add(target)
+            target = direct_call_target(insn.mnemonic, insn.op_str)
+            if target is not None and target in registry_vas and target != va:
+                targets.add(target)
         if targets:
             call_map[va] = targets
 
@@ -308,16 +318,19 @@ def _find_jump_tables(
     info: BinaryInfo,
     functions: list[tuple[int, int]],
     arch: str = "x86_32",
+    endian: str = "",
 ) -> list[int]:
     """VAs of jump-table starts found inside *functions* (``(va, size)`` pairs).
 
     A jump table is an aligned run of at least two pointers into ``.text``
     (the same test :func:`rebrew.catalog.is_jump_table` applies to gaps).  It
     is located by testing a :data:`_JUMP_TABLE_WINDOW`-byte window (capped to
-    the function's size) at every 4-byte-ALIGNED absolute address of each
+    the function's size) at every pointer-aligned absolute address of each
     function's extent and keeping the first offset of each run of consecutive
     detections: inside a table every step starts on an entry, so one table
-    contributes one run.  Because :func:`~rebrew.catalog.is_jump_table` skips
+    contributes one run.  The window length is a multiple of the pointer
+    width, so a 64-bit table followed by a 4-byte tail is not rejected for
+    being 4 bytes short of the next slot.  Because :func:`~rebrew.catalog.is_jump_table` skips
     a leading NOP/``INT3`` alignment prefix, a reported start is the first
     skippable byte before the table when one is present.  Best-effort: a code
     region whose bytes happen to be pointer-shaped is reported as a table.
@@ -329,13 +342,20 @@ def _find_jump_tables(
         code = extract_bytes_at_va(info, va, size, trim_padding=False)
         if code is None or len(code) < _JUMP_TABLE_MIN_WINDOW:
             continue
-        # Tables hold 32-bit pointers, so candidate starts are 4-byte aligned
-        # in absolute VA even when the function itself is not.
+        # Slots are one pointer wide, so candidate starts are aligned to that
+        # width in absolute VA even when the function itself is not.  The
+        # tested slice is a whole number of slots: a 4-byte tail after a
+        # 64-bit table used to leave a 20-byte window, which is not a
+        # multiple of 8, and the pointer check rejected it unopened.
+        ptr = arch_pointer_size(arch)
         run_start: int | None = None
-        for offset in range((-va) % 4, len(code) - _JUMP_TABLE_MIN_WINDOW + 1, 4):
+        for offset in range((-va) % ptr, len(code) - _JUMP_TABLE_MIN_WINDOW + 1, ptr):
             tail = min(_JUMP_TABLE_WINDOW, len(code) - offset)
-            window = code[offset : offset + tail - tail % 4]
-            if is_jump_table(window, info.text_va, info.text_size, arch):
+            usable = tail - (tail % ptr)
+            if usable < _JUMP_TABLE_MIN_WINDOW:
+                continue
+            window = code[offset : offset + usable]
+            if is_jump_table(window, info.text_va, info.text_size, arch, endian):
                 if run_start is None:
                     run_start = offset
             elif run_start is not None:
@@ -532,13 +552,15 @@ def cluster_functions(
         return []
 
     extents = [(va, int(entry.get("canonical_size", 0))) for va, entry in eligible]
-    arch = (getattr(cfg, "arch", "") or "x86_32") if cfg is not None else "x86_32"
+    configured = getattr(cfg, "arch", "") if cfg is not None else ""
+    arch = configured or getattr(info, "arch", "") or "x86_32"
+    endian = getattr(info, "endian", "") or ""
 
     # Optional signals, each computed only when asked for.
     signal_splits: dict[int, str] = {}
     if alignment is not None:
         signal_splits = _jump_table_split_vas(
-            _find_jump_tables(info, extents, arch), alignment, extents
+            _find_jump_tables(info, extents, arch, endian), alignment, extents
         )
     bonds: dict[int, int] = _single_ref_data_bonds(info, extents) if single_ref_data else {}
 
@@ -575,7 +597,7 @@ def cluster_functions(
             if not gap_data:
                 gc = "unknown"
             else:
-                gc = classify_gap(gap_data, text_va, text_size, padding_bytes)
+                gc = classify_gap(gap_data, text_va, text_size, padding_bytes, arch, endian)
 
         if gc == "large_nonpadding" and curr_va in bonds:
             # Single-reference data says this function's objects and its

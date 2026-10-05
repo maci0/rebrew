@@ -13,6 +13,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 import rebrew.climb
 from rebrew.climb import _climb, _statements, _swap, _within_size_budget, function_span
 from rebrew.utils import SOURCE_BACKUP_DIRNAME
@@ -57,6 +59,24 @@ class TestFunctionSpan:
         lines = _lines()
         lo, hi = function_span(lines, "_demo@4")
         assert lines[lo].startswith("int demo(int arg)")
+        assert lines[hi].strip() == "}"
+
+    def test_vectorcall_and_fastcall_decoration_is_stripped(self) -> None:
+        """``hook@@12`` and ``@keeps@4`` name the C functions ``hook`` and ``keeps``.
+
+        One ``@N`` strip looked for ``hook@`` and ``@keeps``, so the
+        definition was not found.
+        """
+        lines = ("void __vectorcall hook(int a, int b, int c)\n{\n\treturn;\n}\n").splitlines(
+            keepends=True
+        )
+        lo, hi = function_span(lines, "hook@@12")
+        assert lines[lo].startswith("void __vectorcall hook(")
+        assert lines[hi].strip() == "}"
+
+        lines = ("void __fastcall keeps(int a)\n{\n\treturn;\n}\n").splitlines(keepends=True)
+        lo, hi = function_span(lines, "@keeps@4")
+        assert lines[lo].startswith("void __fastcall keeps(")
         assert lines[hi].strip() == "}"
 
     def test_prototype_before_definition_is_skipped(self) -> None:
@@ -327,6 +347,36 @@ class TestCommentAndLiteralSafety:
 class TestRestoreOnSignal:
     """Scoring writes candidates into the real source, so a signal that skips
     the normal and exception paths must still put the original back."""
+
+    def test_partial_signal_install_restores_the_first(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import signal
+
+        from rebrew.climb import _install_restore_handler
+
+        watched = (signal.SIGTERM, signal.SIGINT, signal.SIGHUP)
+        before = {number: signal.getsignal(number) for number in watched}
+        real = signal.signal
+        installs = 0
+
+        def wrapped(number: int, handler: object) -> object:
+            nonlocal installs
+            if callable(handler):
+                installs += 1
+                if installs == 2:
+                    raise RuntimeError("second signal failed")
+            return real(number, handler)
+
+        monkeypatch.setattr(signal, "signal", wrapped)
+        try:
+            with pytest.raises(RuntimeError, match="second signal failed"):
+                _install_restore_handler(tmp_path / "probe.c", "int demo;\n", "utf-8")
+            assert {number: signal.getsignal(number) for number in watched} == before
+        finally:
+            monkeypatch.undo()
+            for number, handler in before.items():
+                real(number, handler)
 
     def test_sigterm_restores_the_source(self, tmp_path: Path) -> None:
         source = tmp_path / "probe.c"

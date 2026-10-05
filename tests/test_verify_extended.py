@@ -2280,6 +2280,52 @@ class TestVerifySymbolField:
         )
         assert results[0]["symbol"] == "_my_func"
 
+    def test_empty_symbol_keeps_a_decorated_convention(self) -> None:
+        """An empty symbol still uses the prototype's decoration.
+
+        The fallback was always ``_name``. ``__vectorcall hook(int)`` is
+        ``hook@@4``, and ``__fastcall keeps(int)`` is ``@keeps@4``. A cdecl
+        name that already starts with ``_`` is not given a second one.
+        """
+        import rebrew.verify as verify_mod
+
+        hook = Annotation(
+            va=0x1000,
+            name="hook",
+            symbol="",
+            prototype="void __vectorcall hook(int a)",
+            module="SERVER",
+            marker_type="FUNCTION",
+        )
+        assert verify_mod._entry_symbol(hook) == "hook@@4"
+        keeps = Annotation(
+            va=0x2000,
+            name="keeps",
+            symbol="",
+            prototype="void __fastcall keeps(int a)",
+            module="SERVER",
+            marker_type="FUNCTION",
+        )
+        assert verify_mod._entry_symbol(keeps) == "@keeps@4"
+        underlined = Annotation(
+            va=0x3000,
+            name="_foo",
+            symbol="",
+            prototype="int _foo(void)",
+            module="SERVER",
+            marker_type="FUNCTION",
+        )
+        assert verify_mod._entry_symbol(underlined) == "_foo"
+        stdcall = Annotation(
+            va=0x4000,
+            name="bar",
+            symbol="",
+            prototype="int __stdcall bar(int a)",
+            module="SERVER",
+            marker_type="FUNCTION",
+        )
+        assert verify_mod._entry_symbol(stdcall) == "_bar@4"
+
 
 class TestReportInventory:
     @pytest.mark.parametrize("inventory_count", [9, 0])

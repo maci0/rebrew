@@ -61,6 +61,23 @@ class TestSandboxLifecycle:
         assert dosbox._SANDBOXES == []
         assert dosbox._SANDBOX_BY_PREFIX == {}
 
+    def test_busy_release_keeps_the_sandbox_tracked(self, monkeypatch, tmp_path: Path) -> None:
+        """A failed delete must not forget the directory atexit still has to remove."""
+        import rebrew.dosbox as dosbox
+        from rebrew.dosbox import release_sandbox
+
+        monkeypatch.setattr(dosbox, "_SANDBOX_ATEXIT_REGISTERED", True)
+        sandbox = tmp_path / "busy"
+        sandbox.mkdir()
+        monkeypatch.setattr(dosbox, "_SANDBOXES", [sandbox])
+        monkeypatch.setattr(dosbox, "_SANDBOX_BY_PREFIX", {"k": sandbox})
+        monkeypatch.setattr(dosbox.shutil, "rmtree", lambda path, ignore_errors=True: None)
+
+        release_sandbox(sandbox)
+        assert sandbox.is_dir()
+        assert [sandbox] == dosbox._SANDBOXES
+        assert {"k": sandbox} == dosbox._SANDBOX_BY_PREFIX
+
     def test_concurrent_same_prefix_isolates_per_thread(self, monkeypatch) -> None:
         """Parallel 16-bit compiles must not share one staged tree.
 

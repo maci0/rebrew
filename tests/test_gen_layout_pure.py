@@ -270,6 +270,26 @@ class TestImportLibSymbolsFromImage:
         self._run_locally(monkeypatch, tmp_path)
         assert _import_lib_symbols_from_image("kernel32") == {"__imp__Sleep@4"}
 
+    def test_vectorcall_and_fastcall_thunks_are_symbols(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``__imp_`` plus the decorated name, not only stdcall ``__imp__Name@N``.
+
+        Vectorcall ``hook@@12`` is ``__imp_hook@@12``. Fastcall ``@keeps@4``
+        is ``__imp_@keeps@4``. A cdecl ``__imp__printf`` has no ``@N``.
+        """
+        from rebrew.gen_layout import (
+            _import_lib_symbols,
+            _import_lib_symbols_from_image,
+        )
+
+        blob = b"!<arch>\n\0__imp__Sleep@4\0__imp_hook@@12\0__imp_@keeps@4\0__imp__printf\0junk"
+        (tmp_path / "User32.Lib").write_bytes(blob)
+        want = {"__imp__Sleep@4", "__imp_hook@@12", "__imp_@keeps@4"}
+        assert _import_lib_symbols(tmp_path / "User32.Lib") == want
+        self._run_locally(monkeypatch, tmp_path)
+        assert _import_lib_symbols_from_image("user32") == want
+
     def test_hostile_stem_is_data_not_script(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -547,15 +567,38 @@ class TestImpSuffix:
         """
         lib_symbols = {f"__imp__Api{i}@{4 * (i % 13) + 4}" for i in range(300)}
         lib_symbols |= {"__imp__CloseHandle@8", "__imp__CloseHandle@12"}
-        assert _imp_suffix("CloseHandle", lib_symbols, {}) == "CloseHandle@12"
+        assert _imp_suffix("CloseHandle", lib_symbols, {}) == "__imp__CloseHandle@12"
 
     def test_ignores_other_names_in_the_lib(self) -> None:
         lib_symbols = {"__imp__CreateFileA@12", "__imp__CloseHandle@8"}
-        assert _imp_suffix("CloseHandle", lib_symbols, {}) == "CloseHandle@8"
-        assert _imp_suffix("CreateFileA", lib_symbols, {}) == "CreateFileA@12"
+        assert _imp_suffix("CloseHandle", lib_symbols, {}) == "__imp__CloseHandle@8"
+        assert _imp_suffix("CreateFileA", lib_symbols, {}) == "__imp__CreateFileA@12"
 
     def test_falls_back_to_the_ordinal_map_when_the_lib_has_no_match(self) -> None:
-        assert _imp_suffix("send", set(), {"send": 16}) == "send@16"
+        assert _imp_suffix("send", set(), {"send": 16}) == "__imp__send@16"
 
     def test_returns_none_without_a_decoration(self) -> None:
         assert _imp_suffix("CloseHandle", {"__imp__CreateFileA@12"}, {}) is None
+
+    def test_vectorcall_and_fastcall_thunks_are_included(self) -> None:
+        """The ``/include`` name is the thunk the import library actually has."""
+        from rebrew.pe_image import PeImport
+
+        symbols = {"__imp__Sleep@4", "__imp_hook@@12", "__imp_@keeps@4"}
+        resolved = _resolve_imports(
+            [
+                PeImport("USER32.dll", "Sleep", None),
+                PeImport("USER32.dll", "hook", None),
+                PeImport("USER32.dll", "keeps", None),
+            ],
+            symbols,
+        )
+        assert [row["include"] for row in resolved] == [
+            "__imp__Sleep@4",
+            "__imp_hook@@12",
+            "__imp_@keeps@4",
+        ]
+        text = gen_crt_imports("T", resolved, 0x2000)
+        assert "/include:__imp__Sleep@4" in text
+        assert "/include:__imp_hook@@12" in text
+        assert "/include:__imp_@keeps@4" in text

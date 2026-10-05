@@ -36,6 +36,16 @@ libs = ""
 """
 
 
+def test_data_shift_scores_prefers_zero_on_equal_tails() -> None:
+    from rebrew.verify_placement import data_shift_scores
+
+    tail = b"\x01\x02\x03\x04" * 4
+    scores = data_shift_scores(tail, tail, step=4, shifts=1)
+    best = max(scores, key=lambda row: (row["matches"], -abs(row["shift"])))
+    assert best["shift"] == 0
+    assert best["matches"] == len(tail)
+
+
 def _project(tmp_path: Path) -> Path:
     """A project whose active target's build output is ``build/server``."""
     root = tmp_path

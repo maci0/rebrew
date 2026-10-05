@@ -565,37 +565,37 @@ class TestApply:
         from rebrew.data_metadata import get_data_entry
         from rebrew.metadata import get_entry
 
-        functions = (project / "src" / "rebrew-functions.toml").read_text(encoding="utf-8")
+        functions = (project / "rebrew-functions.toml").read_text(encoding="utf-8")
         assert 'status = "STUB"' in functions
         assert "size = 19" in functions
         assert "seeded from a splat config" in functions
-        fn = get_entry(project / "src", 0x00401000, "FIXTURE")
+        fn = get_entry(project, 0x00401000, "FIXTURE")
         assert fn["marker_type"] == "FUNCTION"
         assert fn["symbol"] == "_entrypoint"
         assert fn["name"] == "entrypoint"
-        assert fn["file"] == "fixture.exe/entrypoint.c"
+        assert fn["file"] == "src/fixture.exe/entrypoint.c"
         assert fn["status"] == "STUB"
         assert fn["size"] == 19
-        other = get_entry(project / "src", 0x00401020, "OTHER")
+        other = get_entry(project, 0x00401020, "OTHER")
         assert other["marker_type"] == "LIBRARY"
         assert other["symbol"] == "imp_OTHER_dll_FarProc"
         assert other["name"] == "imp_OTHER_dll_FarProc"
-        assert other["file"] == "fixture.exe/library_other.h"
-        crt_row = get_entry(project / "src", 0x00401030, "MSVCRT")
+        assert other["file"] == "src/fixture.exe/library_other.h"
+        crt_row = get_entry(project, 0x00401030, "MSVCRT")
         assert crt_row["marker_type"] == "LIBRARY"
         assert crt_row["symbol"] == "printf"
         assert crt_row["name"] == "printf"
-        assert crt_row["file"] == "fixture.exe/library_msvcrt.h"
+        assert crt_row["file"] == "src/fixture.exe/library_msvcrt.h"
 
-        data_meta = (project / "src" / "rebrew-data.toml").read_text(encoding="utf-8")
+        data_meta = (project / "rebrew-data.toml").read_text(encoding="utf-8")
         assert 'section = ".data"' in data_meta
         assert "size = 16" in data_meta
-        table = get_data_entry(project / "src", 0x00402000, "FIXTURE")
+        table = get_data_entry(project, 0x00402000, "FIXTURE")
         assert table["marker_type"] == "DATA"
         assert table["name"] == "g_table"
         assert table["section"] == ".data"
         assert table["size"] == 16
-        assert table["file"] == "fixture.exe/data_g_table.c"
+        assert table["file"] == "src/fixture.exe/data_g_table.c"
         imported = get_data_entry(project / "src", 0x00402010, "FIXTURE")
         assert imported["marker_type"] == "DATA"
         assert imported["name"] == "imp_KERNEL32_dll_GetTickCount"

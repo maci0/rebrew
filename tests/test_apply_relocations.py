@@ -33,6 +33,40 @@ def test_rel32_writes_pc_relative_displacement() -> None:
     assert disp == 0x10001500 - (0x10001000 + 1 + 4)
 
 
+def test_decorated_reloc_resolves_the_c_name() -> None:
+    """``hook@@12`` patches as ``hook``. ``@keeps@4`` patches as ``keeps``.
+
+    One leading ``_`` left both unresolved. ``__foo`` still resolves as
+    ``_foo``, not ``foo``. A cdecl ``_bar`` still resolves as ``bar``.
+    """
+    known = {
+        "hook": 0x10002000,
+        "keeps": 0x10002100,
+        "_foo": 0x10003000,
+        "foo": 0x10004000,
+        "bar": 0x10005000,
+    }
+
+    def resolve(sym: str) -> int | None:
+        return known.get(sym)
+
+    text = b"\xa1\x00\x00\x00\x00\xc3"
+
+    def patched(symbol: str) -> int:
+        out = apply_coff_relocations(
+            text,
+            [CoffRelocRecord(offset=1, type=0x0006, symbol=symbol)],
+            resolve,
+            section_va=0x10001000,
+        )
+        return int(struct.unpack("<I", out[1:5])[0])
+
+    assert patched("hook@@12") == 0x10002000
+    assert patched("@keeps@4") == 0x10002100
+    assert patched("__foo") == 0x10003000
+    assert patched("_bar") == 0x10005000
+
+
 def test_unresolved_symbol_raises() -> None:
     text = bytearray(b"\xa1\x00\x00\x00\x00\xc3")
     relocs = [CoffRelocRecord(offset=1, type=0x0006, symbol="_undefined_thing")]
@@ -89,6 +123,42 @@ def test_resolve_exact_then_stripped_prefers_exact_spelling() -> None:
     # Tolerant lookup still works when only the stripped form exists.
     assert _resolve_exact_then_stripped({"bar": 0x10003000}, "_bar") == 0x10003000
     assert _resolve_exact_then_stripped({}, "nope") is None
+
+
+def test_resolve_exact_then_stripped_uses_the_c_name() -> None:
+    """``hook@@12`` is ``hook``. ``__foo`` is ``_foo``, not ``foo``.
+
+    ``___ftol`` is still ``__ftol``. A cdecl ``_bar`` is still ``bar``.
+    """
+    from rebrew.coff_reloc import _resolve_exact_then_stripped
+
+    names = {
+        "hook": 0x10002000,
+        "keeps": 0x10002100,
+        "_foo": 0x10003000,
+        "foo": 0x10004000,
+        "bar": 0x10005000,
+        "__ftol": 0x10006000,
+    }
+    assert _resolve_exact_then_stripped(names, "hook@@12") == 0x10002000
+    assert _resolve_exact_then_stripped(names, "@keeps@4") == 0x10002100
+    assert _resolve_exact_then_stripped(names, "__foo") == 0x10003000
+    assert _resolve_exact_then_stripped(names, "_bar") == 0x10005000
+    assert _resolve_exact_then_stripped(names, "___ftol") == 0x10006000
+    resolve = build_symbol_resolver(
+        {
+            0x10002000: "hook",
+            0x10002100: "keeps",
+            0x10003000: "_foo",
+            0x10004000: "foo",
+            0x10005000: "bar",
+            0x10006000: "__ftol",
+        },
+        {},
+    )
+    assert resolve("hook@@12") == 0x10002000
+    assert resolve("__foo") == 0x10003000
+    assert resolve("___ftol") == 0x10006000
 
 
 def test_absolute_reloc_is_skipped_in_patch() -> None:

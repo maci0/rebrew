@@ -58,6 +58,7 @@ from rebrew.cli import (
 )
 from rebrew.config import DECOMPME_API_ENV, validate_http_url
 from rebrew.errors import RebrewError
+from rebrew.rename_ops import c_name_from_symbol
 from rebrew.utils import (
     RETRYABLE_HTTP_STATUS,
     atomic_write_text,
@@ -233,7 +234,9 @@ def build_scratch_payload(
 
     diff_label = symbol or name or f"func_{va:08x}"
     full_text, _encoding = read_source_text(source)
-    c_name = name or (symbol.lstrip("_") if symbol else "") or diff_label
+    # The disassembly label stays the linker symbol. The C search name
+    # does not: ``hook@@12`` is ``hook`` and ``__foo`` is ``_foo``.
+    c_name = name or (c_name_from_symbol(symbol) if symbol else "") or diff_label
     source_code = extract_function_text(full_text, c_name) or full_text
     data = {
         "compiler": compiler,

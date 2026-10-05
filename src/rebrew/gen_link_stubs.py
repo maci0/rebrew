@@ -3,7 +3,7 @@
 A byte-identity build needs the raw link's ``.data`` VirtualSize to reach
 the reference's (the BSS tail lives beyond the raw size).  This command
 emits a ``link_stubs.c``-style TU: a non-tentative zero-init placeholder for
-every ``.data`` symbol in the data metadata (``src/rebrew-data.toml``), so
+every ``.data`` symbol in the data metadata (``rebrew-data.toml``), so
 the linker emits them into ``.data``'s BSS (raw=0, VS grows), plus a
 calibratable ``g_bss_tail`` pad.
 
@@ -11,7 +11,7 @@ Run ``rebrew build calibrate-bss`` afterwards to size the tail so the raw link's
 ``.data`` VirtualSize matches the reference exactly.
 
 Usage:
-    rebrew build link-stubs [--data-metadata src/rebrew-data.toml] [--output src/link_stubs.c]
+    rebrew build link-stubs [--data-metadata rebrew-data.toml] [--output src/link_stubs.c]
 """
 
 from __future__ import annotations
@@ -135,7 +135,7 @@ def gen_link_stubs(metadata: Path, tail: int = _TAIL_DEFAULT) -> str:
 @app.callback(invoke_without_command=True)
 def main(
     data_metadata: Path = typer.Option(
-        Path("src/rebrew-data.toml"), "--data-metadata", help="Data metadata toml path"
+        Path("rebrew-data.toml"), "--data-metadata", help="Data metadata toml path"
     ),
     output: Path = typer.Option(Path("src/link_stubs.c"), "--output", "-o", help="Output TU path"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
@@ -145,7 +145,13 @@ def main(
     root = Path.cwd()
     metadata = data_metadata if data_metadata.is_absolute() else root / data_metadata
     if not metadata.exists():
-        error_exit(f"data metadata not found: {metadata}", json_mode=json_output)
+        if (
+            data_metadata == Path("rebrew-data.toml")
+            and (root / "src" / "rebrew-data.toml").exists()
+        ):
+            metadata = root / "src" / "rebrew-data.toml"
+        else:
+            error_exit(f"data metadata not found: {metadata}", json_mode=json_output)
     target = output if output.is_absolute() else root / output
     # Regeneration is the common case (a new data symbol), and it must not
     # throw away the tail size calibrate-bss converged on.

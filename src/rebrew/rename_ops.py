@@ -21,8 +21,59 @@ from rebrew.utils import atomic_write_text, is_safe_c_ident, read_source_text
 
 logger = logging.getLogger(__name__)
 
-# MSVC stdcall decoration (`foo@8`) — strip once per rename, not recompile.
+# MSVC ``@N`` suffix. Vectorcall is ``name@@N`` and fastcall is ``@name@N``;
+# stripping one ``@N`` is not enough to rebuild either spelling.
 _AT_DECORATION_RE = re.compile(r"@\d+$")
+
+
+def redecorated_symbol(old_sym: str, new_name: str, *, underscore: bool | None = None) -> str:
+    """Keep MSVC decoration when the C name changes.
+
+    ``_old@12`` stays ``_new@12``. ``old@@12`` stays ``new@@12``.
+    ``@old@4`` stays ``@new@4``. One ``@N`` strip used to report
+    ``_new@12`` for a vectorcall symbol.
+
+    ``underscore=True`` is the cdecl ``_`` the rename JSON has always
+    added. Leaving it None copies whether *old_sym* already had one.
+    """
+    suffix = _AT_DECORATION_RE.search(old_sym)
+    tail = suffix.group(0) if suffix else ""
+    body = old_sym[: suffix.start()] if suffix else old_sym
+    if body.endswith("@"):
+        return f"{new_name}@{tail}"
+    if body.startswith("@") and not body.startswith("@@"):
+        return f"@{new_name}{tail}"
+    if underscore is None:
+        underscore = old_sym.startswith("_")
+    return f"{'_' if underscore else ''}{new_name}{tail}"
+
+
+def c_name_from_symbol(symbol: str) -> str:
+    """C identifier inside an MSVC decorated symbol.
+
+    ``_foo`` and ``_foo@8`` are ``foo``. ``foo@@12`` is ``foo``.
+    ``@foo@4`` is ``foo``. One leading underscore is the cdecl
+    decoration; ``__foo`` is the function ``_foo``.
+    """
+    name = symbol[1:] if symbol.startswith("_") else symbol
+    name = _AT_DECORATION_RE.sub("", name)
+    if name.endswith("@"):
+        name = name[:-1]
+    elif name.startswith("@") and not name.startswith("@@"):
+        name = name[1:]
+    return name
+
+
+def rename_source_name(old_name: str, old_sym: str) -> str:
+    """C name a rename searches for.
+
+    A leading ``_`` is cdecl or stdcall decoration. ``hook@@12`` and
+    ``@keeps@4`` have none, so an empty stored name used to refuse the
+    rename.
+    """
+    if old_sym and (old_sym.startswith("_") or not old_name):
+        return c_name_from_symbol(old_sym)
+    return c_name_from_symbol(old_name) if old_name else old_name
 
 
 class RenameError(RebrewError, RuntimeError):
@@ -164,9 +215,11 @@ def collect_function_rename_files(
             for e in entries(path)
             if e.module
             and e.marker_type in ("FUNCTION", "LIBRARY")
+            # ``hook@@12`` is ``hook``. One ``@N`` strip left ``hook@``,
+            # so this set was empty and another target's ``hook`` was renamed.
             and (
                 e.name == old_name
-                or _AT_DECORATION_RE.sub("", e.symbol.removeprefix("_")) == old_name
+                or (e.symbol.strip() and c_name_from_symbol(e.symbol) == old_name)
             )
         }
 
@@ -228,14 +281,10 @@ def rename_function_everywhere(
     could not be rewritten; the definition rename is left in place, so the
     caller must surface the failure rather than report success.
     """
-    # Strip exactly ONE leading underscore: MSVC decorates a cdecl name with
-    # one (`_foo` for foo), so a function genuinely named `_foo` carries the
-    # symbol `__foo` — `lstrip("_")` turned that into `foo` and renamed an
-    # unrelated function instead.
-    actual_old_name = old_sym.removeprefix("_") if old_sym.startswith("_") else old_name
-    # __stdcall symbols carry a decorated suffix (foo@8) that never appears
-    # in the C source — strip it or nothing matches.
-    actual_old_name = _AT_DECORATION_RE.sub("", actual_old_name)
+    # One leading underscore is cdecl/stdcall decoration (`__foo` is the
+    # function `_foo`). ``hook@@12`` and ``@keeps@4`` carry no leading
+    # underscore; an empty stored name still names the C function.
+    actual_old_name = rename_source_name(old_name, old_sym)
     if not actual_old_name:
         # An annotation-only stub with no meaningful name (sync pull passes
         # name=""/symbol="" for these): re.sub with an empty pattern would
@@ -323,17 +372,9 @@ def rename_function_everywhere(
         identity = {}
         if rename_target is not None:
             identity["file"] = rel_display_path(rename_target, getattr(cfg, "root", metadata_dir))
-        if (
-            entry.name == actual_old_name
-            or _AT_DECORATION_RE.sub("", entry.symbol.removeprefix("_")) == actual_old_name
-        ):
-            suffix = _AT_DECORATION_RE.search(entry.symbol)
+        if entry.name == actual_old_name or c_name_from_symbol(entry.symbol) == actual_old_name:
             identity["name"] = target_func
-            identity["symbol"] = (
-                ("_" if entry.symbol.startswith("_") else "")
-                + target_func
-                + (suffix.group(0) if suffix else "")
-            )
+            identity["symbol"] = redecorated_symbol(entry.symbol, target_func)
         if identity:
             identities.append({"module": entry.module, "va": entry.va, "identity": identity})
 

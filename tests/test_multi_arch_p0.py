@@ -339,6 +339,60 @@ class TestNonX86Gates:
         funcs = d._capstone_sweep(tmp_path / "x.elf")
         assert funcs == [(0x1000, 0, "fcn.00001000")]  # .text base only
 
+    def test_arm_blx_target_is_a_function_start(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An ARM BLX immediate is a direct call. Capstone prints it as ``blx #0xNNNN``."""
+        import rebrew.discover as d
+
+        # BLX at 0x1000, H=0, imm=2: target = 0x1000 + 8 + 8 = 0x1010. Then a callee.
+        code = (
+            (0xFA000002).to_bytes(4, "little") + b"\x00\x00\xa0\xe1" * 3 + bytes.fromhex("1eff2fe1")
+        )
+        info = SimpleNamespace(
+            arch="arm32",
+            endian="little",
+            format="elf",
+            data=code,
+            sections={
+                ".text": SimpleNamespace(
+                    name=".text", size=len(code), file_offset=0, raw_size=len(code), va=0x1000
+                )
+            },
+            text_va=0x1000,
+            text_size=len(code),
+            text_raw_offset=0,
+        )
+        monkeypatch.setattr(d, "load_binary", lambda _path: info)
+        funcs = d._capstone_sweep(tmp_path / "arm.elf")
+        assert 0x1010 in [va for va, _size, _name in funcs]
+
+    def test_sh2_bsr_target_is_a_function_start(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """SH2 BSR is a direct call. The mnemonic is ``bsr``, not ``bl`` or ``jal``."""
+        import rebrew.discover as d
+
+        # bsr from 0x1000 to 0x1008: disp = (0x1008 - (0x1000+4)) / 2 = 2. Opcode B002.
+        code = bytes.fromhex("b0020000000000000900")
+        info = SimpleNamespace(
+            arch="sh2",
+            endian="big",
+            format="elf",
+            data=code,
+            sections={
+                ".text": SimpleNamespace(
+                    name=".text", size=len(code), file_offset=0, raw_size=len(code), va=0x1000
+                )
+            },
+            text_va=0x1000,
+            text_size=len(code),
+            text_raw_offset=0,
+        )
+        monkeypatch.setattr(d, "load_binary", lambda _path: info)
+        funcs = d._capstone_sweep(tmp_path / "sh.elf")
+        assert 0x1008 in [va for va, _size, _name in funcs]
+
     def test_is_jump_table_non_x86_no_prefix_skip(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A MIPS-style table whose first bytes look like x86 padding must NOT
         have them skipped as an alignment prefix (multi-arch gate)."""

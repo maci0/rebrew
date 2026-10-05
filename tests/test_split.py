@@ -23,6 +23,23 @@ def _write(path: Path, content: str) -> Path:
     return path
 
 
+def test_cdecl_function_declaration_is_not_storage() -> None:
+    """`__cdecl` between the type and the name is still a function declaration."""
+    from rebrew.split import source_layout
+
+    raw, spans = source_layout(
+        "void __cdecl gm_KillSpieler(unsigned int, int);\n"
+        "int __cdecl amt_ValidateCommand(char*);\n"
+        "void* __cdecl gm_Lookup(int);\n"
+        "int value;\n"
+    )
+    kinds = {(span.kind, span.name) for span in spans}
+    assert ("storage", "gm_KillSpieler") not in kinds
+    assert ("storage", "amt_ValidateCommand") not in kinds
+    assert ("storage", "gm_Lookup") not in kinds
+    assert ("storage", "value") in kinds
+
+
 def _multi_two() -> str:
     return (
         "#include <stdio.h>\n"
@@ -496,7 +513,18 @@ class TestSplitHelpers:
     def test_output_name_from_symbol(self) -> None:
         from rebrew.split import _build_output_name
 
-        assert _build_output_name("_my_func", 0x1000, ".c") == "my_func.c"
+        assert _build_output_name("_my_func", 0x1000, ".c") == "_my_func.c"
+
+    def test_c_name_keeps_its_leading_underscore(self) -> None:
+        """A C function ``_foo`` is ``_foo.c``. ``__foo`` is ``__foo.c``.
+
+        ``lstrip("_")`` stored both as ``foo.c``, the same file as ``foo``.
+        """
+        from rebrew.split import _build_output_name
+
+        assert _build_output_name("_foo", 0x1000, ".c") == "_foo.c"
+        assert _build_output_name("__foo", 0x2000, ".c") == "__foo.c"
+        assert _build_output_name("foo", 0x3000, ".c") == "foo.c"
 
     def test_output_name_non_ascii_symbol_is_ascii(self) -> None:
         from rebrew.split import _build_output_name
@@ -1002,3 +1030,54 @@ class TestMarkerlessSplit:
         out = (tmp_path / "multi_c" / "func_a.c").read_text(encoding="utf-8")
         assert "SOURCE: naked" not in out
         assert "SOURCE: naked" in src.read_text(encoding="utf-8")
+
+    def test_decorated_row_matches_the_c_definition(self, tmp_path: Path, monkeypatch: Any) -> None:
+        """``hook@@12`` extracts ``hook``. ``__foo`` extracts ``_foo``, not ``foo``."""
+        from rebrew.metadata import record_function_identity
+
+        _write(
+            tmp_path / "multi.c",
+            "int other(void) { return 0; }\n\n"
+            "int hook(void) { return 1; }\n\n"
+            "int _foo(void) { return 2; }\n\n"
+            "int foo(void) { return 3; }\n",
+        )
+        record_function_identity(
+            tmp_path,
+            module="SERVER",
+            va=0x10002000,
+            file="multi.c",
+            marker_type="FUNCTION",
+            symbol="hook@@12",
+        )
+        record_function_identity(
+            tmp_path,
+            module="SERVER",
+            va=0x10003000,
+            file="multi.c",
+            marker_type="FUNCTION",
+            symbol="__foo",
+            name="_foo",
+        )
+        record_function_identity(
+            tmp_path,
+            module="SERVER",
+            va=0x10004000,
+            file="multi.c",
+            marker_type="FUNCTION",
+            symbol="_foo",
+            name="foo",
+        )
+
+        result, _src = _invoke_meta(tmp_path, monkeypatch, "--va", "0x10002000", "--force")
+        assert result.exit_code == 0, result.output
+        hook = (tmp_path / "multi_c" / "hook.c").read_text(encoding="utf-8")
+        assert "int hook(void) { return 1; }" in hook
+        assert "int _foo" not in hook
+
+        result, src = _invoke_meta(tmp_path, monkeypatch, "--va", "0x10003000", "--force")
+        assert result.exit_code == 0, result.output
+        body = (tmp_path / "multi_c" / "_foo.c").read_text(encoding="utf-8")
+        assert "int _foo(void) { return 2; }" in body
+        assert "int foo(void)" not in body
+        assert "int foo(void) { return 3; }" in src.read_text(encoding="utf-8")

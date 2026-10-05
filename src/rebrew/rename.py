@@ -25,14 +25,13 @@ from rebrew.rename_ops import (
     RenameError,
     collect_function_rename_files,
     collect_matching_files,
+    redecorated_symbol,
     rename_function_everywhere,
+    rename_source_name,
     substitute_name,
 )
 from rebrew.sources import contained_path, source_roots
 from rebrew.utils import is_safe_c_ident, rel_display_path
-
-# MSVC stdcall decoration (`foo@8`) — strip before matching C identifiers.
-_AT_DECORATION_RE = re.compile(r"@\d+$")
 
 #: Offending sources named in a rename failure, one line each.
 _RENAME_FAILURE_FILE_LIMIT = 10
@@ -209,11 +208,9 @@ def main(
     if not old_sym:
         old_sym = old_name
 
-    # Exactly one leading underscore (MSVC's cdecl decoration): a function
-    # genuinely named `_foo` carries `__foo`, and `lstrip("_")` searched for
-    # `foo` — renaming an unrelated function instead of this one.
-    actual_old_name = old_sym.removeprefix("_") if old_sym.startswith("_") else old_name
-    actual_old_name = _AT_DECORATION_RE.sub("", actual_old_name)
+    # One leading underscore is cdecl/stdcall decoration. ``hook@@12`` and
+    # ``@keeps@4`` have none; an empty stored name still names the function.
+    actual_old_name = rename_source_name(old_name, old_sym)
 
     target_func = new_name
     if not is_safe_c_ident(target_func) or target_func in _C_KEYWORDS:
@@ -235,7 +232,8 @@ def main(
         if (
             e_name == target_func
             or e_sym in target_sym_variants
-            or e_sym.startswith(f"_{target_func}@")  # __stdcall decoration
+            # stdcall `_name@N`, vectorcall `name@@N`, fastcall `@name@N`.
+            or e_sym.startswith((f"_{target_func}@", f"{target_func}@@", f"@{target_func}@"))
         ):
             error_exit(
                 f"'{target_func}' is already used by {getattr(e, 'filepath', '?')} — "
@@ -284,12 +282,11 @@ def main(
         error_exit(_rename_failure(exc), json_mode=json_output)
 
     if json_output:
-        decoration = _AT_DECORATION_RE.search(old_sym)
         json_print(
             {
                 "old_name": actual_old_name,
                 "new_name": target_func,
-                "new_symbol": f"_{new_name}{decoration.group(0) if decoration else ''}",
+                "new_symbol": redecorated_symbol(old_sym, new_name, underscore=True),
                 "va": f"0x{va:08x}",
                 "files_updated": updated,
                 "dry_run": dry_run,
@@ -401,9 +398,12 @@ def _rename_data(
     for e in entries:
         if e is match:
             continue
-        if getattr(e, "name", "") == new_name or getattr(e, "symbol", "") in (
-            new_name,
-            f"_{new_name}",
+        symbol = getattr(e, "symbol", "") or ""
+        if (
+            getattr(e, "name", "") == new_name
+            or symbol in (new_name, f"_{new_name}")
+            # stdcall `_name@N`, vectorcall `name@@N`, fastcall `@name@N`.
+            or symbol.startswith((f"_{new_name}@", f"{new_name}@@", f"@{new_name}@"))
         ):
             error_exit(
                 f"'{new_name}' is already used by {getattr(e, 'filepath', '?')} — "
@@ -523,7 +523,17 @@ def _rename_metadata_only(
 
     entries = scan_reversed_dir(cfg.reversed_dir, cfg=cfg)
     for e in entries:
-        if e is not None and getattr(e, "name", "") == new_name:
+        if e is None:
+            continue
+        name = getattr(e, "name", "") or ""
+        symbol = getattr(e, "symbol", "") or ""
+        # Same namespace as the marker path: cdecl `_name`, stdcall
+        # `_name@N`, vectorcall `name@@N`, fastcall `@name@N`.
+        if (
+            name == new_name
+            or symbol in (new_name, f"_{new_name}")
+            or symbol.startswith((f"_{new_name}@", f"{new_name}@@", f"@{new_name}@"))
+        ):
             error_exit(
                 f"'{new_name}' is already used by {getattr(e, 'filepath', '?')} — "
                 "renaming would create a duplicate symbol. Pick a different name.",

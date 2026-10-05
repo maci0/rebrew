@@ -1383,6 +1383,7 @@ _caches: dict[
     tuple[str, str, int, int], tuple[Callable[[Path, int], CacheBackend], CacheBackend]
 ] = {}
 _caches_lock = threading.Lock()
+_unclosed_caches: list[CacheBackend] = []
 #: Cap open backends so a long-lived process that touches many project roots
 #: does not retain every diskcache SQLite handle until atexit.
 _CACHES_MAX = 8
@@ -1467,9 +1468,22 @@ def get_compile_cache(
                 # cordis-boundary: process lifetime — handles outlive components.
                 atexit.register(close_all_caches)
                 _CACHES_ATEXIT_REGISTERED = True
-        with contextlib.suppress(Exception), contextlib.ExitStack() as retirement:
-            for old in retired:
-                retirement.callback(old.close)
+        failed: list[CacheBackend] = []
+        try:
+            while retired:
+                old = retired.pop(0)
+                try:
+                    old.close()
+                except Exception:
+                    failed.append(old)
+                except BaseException:
+                    failed.append(old)
+                    failed.extend(retired)
+                    raise
+        finally:
+            if failed:
+                with _caches_lock:
+                    _unclosed_caches.extend(failed)
         return candidate
 
 
@@ -1490,8 +1504,10 @@ def get_project_cache(cfg: Any) -> CacheBackend:
 def close_all_caches() -> None:
     """Close all open cache instances (for clean shutdown)."""
     with _caches_lock:
-        entries = list(_caches.values())
+        entries = [cache for _, cache in _caches.values()]
+        entries.extend(_unclosed_caches)
         _caches.clear()
+        _unclosed_caches.clear()
     with contextlib.ExitStack() as cleanup:
-        for _, cache in entries:
+        for cache in entries:
             cleanup.callback(cache.close)

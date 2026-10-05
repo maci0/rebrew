@@ -913,7 +913,7 @@ instead of silently reusing stale flags:
 
 ```cmake
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
-             ${CMAKE_CURRENT_SOURCE_DIR}/src/rebrew-functions.toml)
+             ${CMAKE_CURRENT_SOURCE_DIR}/rebrew-functions.toml)
 execute_process(COMMAND ${REBREW} cmake-flags -o ${CMAKE_BINARY_DIR}/rebrew-cflags.cmake
                 WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
 include(${CMAKE_BINARY_DIR}/rebrew-cflags.cmake)
@@ -974,7 +974,7 @@ from `build/CMakeFiles/*/link.txt` when present, or passed as
 
 ### `rebrew build link-stubs`
 
-`rebrew build link-stubs [--data-metadata src/rebrew-data.toml] [--output src/link_stubs.c] [--dry-run] [--json]`
+`rebrew build link-stubs [--data-metadata rebrew-data.toml] [--output src/link_stubs.c] [--dry-run] [--json]`
 
 Generate a `link_stubs.c`-style BSS placeholder TU: a `char <sym>[1] = {0};`
 stub per `.data` symbol in the data metadata plus a `g_bss_tail[0x400000]`
@@ -1108,7 +1108,7 @@ make. See
 
 ### `rebrew build check-data-placement`
 
-`rebrew build check-data-placement [--data-metadata src/rebrew-data.toml] [--built PATH] [--limit 15] [--json]`
+`rebrew build check-data-placement [--data-metadata rebrew-data.toml] [--built PATH] [--limit 15] [--json]`
 
 Post-edit check: walk the link's object files (objdump, link order), compute
 each symbol's current `.data` VA, and compare against the data metadata.
