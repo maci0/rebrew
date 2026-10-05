@@ -213,7 +213,7 @@
 - Incremental `rebrew verify` rewrites an all-hit cache and baseline without
   the tomlkit document model, and reuses a same-run fingerprint when the
   source stat is unchanged. Verdicts, cache identity, and stored fingerprint
-  fields stay the same.
+  fields stay the same. A changed native symbol misses the cache.
 - `rebrew data` highlights C types in terminal inventories and conflict tables;
   JSON remains plain structured data.
 - CLI contract checks cover every runtime callback, including group default
