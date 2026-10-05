@@ -1,6 +1,6 @@
 """rename_ops.py - Cross-reference rename operations.
 
-Reusable rename engine shared by the ``rebrew rename`` CLI and library
+Reusable rename engine shared by the ``rebrew source rename`` CLI and library
 callers (Ghidra sync pull, BinSync import): rewrites the function
 definition, call sites, and ``extern`` declarations across the reversed
 tree, optionally renaming the source file.  Pure filesystem/metadata
@@ -149,7 +149,7 @@ def rename_function_everywhere(
     # in the C source — strip it or nothing matches.
     actual_old_name = _AT_DECORATION_RE.sub("", actual_old_name)
     if not actual_old_name:
-        # An annotation-only stub with no meaningful name (sync --pull passes
+        # An annotation-only stub with no meaningful name (sync pull passes
         # name=""/symbol="" for these): re.sub with an empty pattern would
         # match at every word boundary and mangle the whole file.
         raise ValueError(

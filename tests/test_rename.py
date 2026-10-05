@@ -804,7 +804,7 @@ class TestUnderscoreNameDerivation:
 
 class TestProtectedSpans:
     def test_substitution_skips_literals_and_macro_names(self) -> None:
-        """`rebrew rename` documents that macros and string literals are not
+        """`rebrew source rename` documents that macros and string literals are not
         rewritten: a raw-text substitution rewrote `puts("foo")`, changing the
         data a byte-matched function emits."""
         import re

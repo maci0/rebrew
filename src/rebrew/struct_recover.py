@@ -43,9 +43,9 @@ the existing layout — never rewrites what is already declared.
 
 Usage::
 
-    rebrew recover-structs --all                      # every annotated function
-    rebrew recover-structs --functions 0x401000,0x401100 --decompiler kuna
-    rebrew recover-structs --all --apply src/common.h  # append new typedefs
+    rebrew types recover --all                      # every annotated function
+    rebrew types recover --functions 0x401000,0x401100 --decompiler kuna
+    rebrew types recover --all --apply src/common.h  # append new typedefs
 """
 
 from __future__ import annotations
@@ -553,9 +553,9 @@ def recover_structs(
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew recover-structs --dry-run · · · · · Show the recovered typedefs, write nothing\n\n"
-    "  rebrew recover-structs --functions 0x10009310 0x10009400 · Only these functions\n\n"
-    "  rebrew recover-structs --apply --json · · · · · Write the headers, machine-readable"
+    "  rebrew types recover --dry-run · · · · · Show the recovered typedefs, write nothing\n\n"
+    "  rebrew types recover --functions 0x10009310 0x10009400 · Only these functions\n\n"
+    "  rebrew types recover --apply --json · · · · · Write the headers, machine-readable"
 )
 
 app = typer.Typer(
@@ -629,7 +629,7 @@ def recover_project_structs(
 ) -> dict[str, Any]:
     """Decompile the selected functions and recover struct definitions.
 
-    The same pipeline the ``rebrew recover-structs`` callback runs: resolve
+    The same pipeline the ``rebrew types recover`` callback runs: resolve
     the function set (*functions* / *all_funcs* / *filter_substr*, capped by
     *limit*), decompile each via *decompiler*, aggregate the member-offset
     evidence against the project's existing structs, and — with *apply* and

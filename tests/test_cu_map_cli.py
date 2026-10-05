@@ -67,7 +67,7 @@ class TestCuMapCli:
             evidence=["contiguous"],
         )
         _setup(tmp_path, monkeypatch, registry=registry, clusters=[cluster])
-        main(json_output=True)  # shared impl used by `rebrew graph --cu-map`
+        main(json_output=True)  # shared impl used by `rebrew source graph --cu-map`
         data = json.loads(capsys.readouterr().out)
         assert data["total_functions"] == 2
         assert data["clustered_functions"] == 2

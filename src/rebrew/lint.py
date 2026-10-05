@@ -542,7 +542,7 @@ def _staleness_fix(cfg: ProjectConfig | None) -> str:
     if binary_newer is True:
         return (
             "The target binary is newer than the function inventory — it likely changed: "
-            "re-run `rebrew intake` / `rebrew discover-functions` to refresh it, then " + annotate
+            "re-run `rebrew intake` / `rebrew binary functions` to refresh it, then " + annotate
         )
     if binary_newer is False:
         return (
@@ -553,7 +553,7 @@ def _staleness_fix(cfg: ProjectConfig | None) -> str:
         )
     return (
         "The function inventory no longer matches these annotations: if the target binary "
-        "changed, re-run `rebrew intake` / `rebrew discover-functions` to refresh it; "
+        "changed, re-run `rebrew intake` / `rebrew binary functions` to refresh it; "
         "otherwise " + annotate + " (or regenerate the inventory if it was built from a "
         "different binary, e.g. a rebuilt artifact)"
     )
@@ -623,7 +623,7 @@ def _check_W028_stale_annotation(
             "W028",
             f"annotation VA 0x{va_int:x} points inside function "
             f"'{host[2] or 'a function'}' (moved/merged) — re-annotate the "
-            "marker VA or refresh the function inventory (`rebrew discover-functions`)" + hint,
+            "marker VA or refresh the function inventory (`rebrew binary functions`)" + hint,
         )
     else:
         result.warning(
@@ -631,7 +631,7 @@ def _check_W028_stale_annotation(
             "W028",
             f"annotation VA 0x{va_int:x} has no function in the current "
             "function inventory (removed or shifted) — re-annotate the marker VA "
-            "or refresh the function inventory (`rebrew discover-functions`)" + hint,
+            "or refresh the function inventory (`rebrew binary functions`)" + hint,
         )
 
 
@@ -1062,7 +1062,7 @@ def _check_W035_unknown_modules(cfg: ProjectConfig) -> list[LintResult]:
 _STALE_COVERAGE_ARTIFACTS: dict[str, str] = {
     "coverage.db": (
         "leftover SQLite coverage database — the store is now one clear-text "
-        "db/coverage-<target>.toml per target; re-run rebrew build-db and delete this"
+        "db/coverage-<target>.toml per target; re-run rebrew coverage build and delete this"
     ),
     # The verify cache and its --compare baseline moved from JSON to TOML with
     # the other stores.  A leftover JSON file is not read any more, so the
@@ -1148,7 +1148,7 @@ def _check_W032_coverage_store(cfg: ProjectConfig) -> list[LintResult]:
             message = _STALE_COVERAGE_ARTIFACTS[name]
         elif name.startswith("data_") and path.suffix == ".json":
             message = (
-                "leftover catalog grid JSON — rebrew build-db renders the "
+                "leftover catalog grid JSON — rebrew coverage build renders the "
                 "document in process now; delete this"
             )
         elif path.suffix == ".csv":
@@ -1164,7 +1164,7 @@ def _check_W032_coverage_store(cfg: ProjectConfig) -> list[LintResult]:
             except CoverageTomlError as exc:
                 message = (
                     f"coverage document the dashboards cannot serve ({exc}) — "
-                    "re-run rebrew build-db"
+                    "re-run rebrew coverage build"
                 )
         if message:
             res = LintResult(path)
@@ -1327,7 +1327,7 @@ def _check_W019_inline_metadata(
     for key, value in found_keys.items():
         if key == "SOURCE" and value.strip().lower() == "naked":
             # The file-borne naked-reconstruction marker written by
-            # `rebrew asm --inline-c`: like the // CFLAGS:
+            # `rebrew binary asm show --inline-c`: like the // CFLAGS:
             # /DREBREW_ALLOW_NAKED naked-guard convention, it must travel
             # with the file (self-clears when the C body replaces it) —
             # not a metadata-migration candidate.
@@ -1541,7 +1541,7 @@ def _check_W020_asm_dump(
             return
     claimed = sorted((claimed_statuses or set()) - _UNCLAIMED_STATUSES)
     for i, code in enumerate(code_lines, start=1):
-        # "_emit", not "__emit": `rebrew asm` writes the bare spelling, so
+        # "_emit", not "__emit": `rebrew binary asm show` writes the bare spelling, so
         # matching only the old prefixed form missed every dump it produced.
         if "_emit" in code:
             if claimed:

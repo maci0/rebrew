@@ -263,7 +263,7 @@ def build_name_to_va(
         # 1292: GOLDTL's log tables resolved to the SERVER VAs 0x10027078...).
         active_marker = module_marker(cfg)
 
-        scan = scan_globals(cfg.reversed_dir, cfg)
+        scan = scan_globals(cfg.reversed_dir, cfg, record_roles=False)
         for name, glob in scan.globals.items():
             if glob.va:
                 name_to_va[name] = glob.va
@@ -405,7 +405,7 @@ def _resolve_exact_then_stripped(name_to_va: dict[str, int], sym_name: str) -> i
     ``foo``). MSVC mangles __cdecl names with a leading ``_`` in the COFF
     symbol table, so the exact spelling is the authoritative one; the stripped
     form is only a fallback for source-level references. Keeping one helper
-    means ``rebrew test`` and ``rebrew round-trip`` agree on the same VA when
+    means ``rebrew test`` and ``rebrew build round-trip`` agree on the same VA when
     both spellings exist in the catalog.
     """
     if sym_name in name_to_va:

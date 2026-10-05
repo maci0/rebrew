@@ -1,6 +1,6 @@
-"""Tests for ``rebrew build-db`` — the typer front over the TOML writer.
+"""Tests for ``rebrew coverage build`` — the typer front over the TOML writer.
 
-``rebrew build-db`` reads ``db/data_*.json`` (or regenerates the catalog
+``rebrew coverage build`` reads ``db/data_*.json`` (or regenerates the catalog
 in-process with ``--regen``) and writes one clear-text document per target,
 ``db/coverage-<target>.toml``.  The writer itself is
 :func:`rebrew.coverage_toml.write_coverage_toml` and is tested in
@@ -33,7 +33,7 @@ from rebrew.coverage_db import _KNOWN_CELL_STATES
 # Fixtures
 # ---------------------------------------------------------------------------
 
-#: One catalog snapshot, in the shape ``rebrew catalog --data-json`` writes.
+#: One catalog snapshot, in the shape ``rebrew coverage catalog --data-json`` writes.
 #: The section carries one cell in every state a bucket is served for, so a
 #: state the writer drops or re-spells shows up as a missing key.
 _CELL_STATES = ("exact", "none", "stub", "reloc", "near_match", "near_matching")

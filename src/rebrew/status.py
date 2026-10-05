@@ -1421,7 +1421,11 @@ def _render_terminal(report: StatusReport) -> None:
             f"Last verify  [{verify_color}]{v.passed - v.library_passed}/"
             f"{v.total - v.library_total} byte-matched[/{verify_color}]"
             f", [red]{v.failed - (v.library_total - v.library_passed)} failed[/red]"
-            + (f", {v.library_passed}/{v.library_total} library" if v.library_total else "")
+            + (
+                f", {v.library_passed}/{v.library_total} compiled libraries"
+                if v.library_total
+                else ""
+            )
             + f"  [dim]{v.timestamp}[/dim]{stale_suffix}"
         )
         # Effective-status overlay: verify results override metadata statuses.
@@ -1506,7 +1510,7 @@ _EPILOG = (
     "  rebrew status --json · · · · Machine-readable JSON output\n\n"
     "  rebrew status --target client_exe · Status for a specific target\n\n"
     "[dim]Reads source markers, metadata, and function structure (no compilation needed). "
-    "Run 'rebrew verify' first for verify stats, or 'rebrew catalog' for function data.[/dim]"
+    "Run 'rebrew verify' first for verify stats, or 'rebrew coverage catalog' for function data.[/dim]"
 )
 
 app = typer.Typer(

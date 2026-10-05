@@ -1,4 +1,4 @@
-"""Tests for the rebrew merge command."""
+"""Tests for the rebrew source merge command."""
 
 from pathlib import Path
 from types import SimpleNamespace

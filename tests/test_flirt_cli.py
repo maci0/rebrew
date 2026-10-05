@@ -1,4 +1,4 @@
-"""CLI tests for rebrew flirt — main() with stubbed signature loading."""
+"""CLI tests for rebrew library scan-signatures — main() with stubbed signature loading."""
 
 import json
 from pathlib import Path
@@ -155,3 +155,36 @@ class TestFlirtInit:
         monkeypatch.setenv("REBREW_FLIRT_SIGS_DIR", str(tmp_path / "nope"))
         with pytest.raises(typer.Exit):
             _init_project_sigs(_cfg(tmp_path), False)
+
+
+class TestSignatureSetup:
+    @pytest.mark.parametrize("matched_only", [False, True])
+    def test_explicit_setup_copies_signatures_and_preserves_project_files(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, matched_only: bool
+    ) -> None:
+        import json
+
+        from rebrew import flirt as module
+        from rebrew.main import app as umbrella
+
+        repo = tmp_path / "shared"
+        repo.mkdir()
+        (repo / "crt.sig").write_bytes(b"shared-crt")
+        (repo / "other.sig").write_bytes(b"shared-other")
+        dest = tmp_path / "flirt_sigs"
+        dest.mkdir()
+        (dest / "crt.sig").write_bytes(b"project-crt")
+        monkeypatch.setattr(module, "require_config", lambda **kw: SimpleNamespace(root=tmp_path))
+        monkeypatch.setattr(module, "_flirt_sigs_repo", lambda: repo)
+        monkeypatch.setattr(module, "_detect_crt_linkage", lambda cfg: "static")
+        monkeypatch.setattr(module, "_matched_sig_names", lambda linkage: {"crt.sig"})
+        args = ["library", "init-signatures", "--json"]
+        if matched_only:
+            args.append("--matched-only")
+        result = CliRunner().invoke(umbrella, args)
+        assert result.exit_code == 0, result.output
+        assert (dest / "crt.sig").read_bytes() == b"project-crt"
+        assert (dest / "other.sig").exists() is not matched_only
+        data = json.loads(result.stdout)
+        assert data["copied"] == (0 if matched_only else 1)
+        assert data["linkage"] == ("static" if matched_only else "")

@@ -24,10 +24,10 @@ def resolve_cflags(
     """Resolve the effective CFLAGS for a function.
 
     Fallback chain: per-function metadata CFLAGS → per-module
-    ``cflags_presets`` (``rebrew cfg set-cflags``) → ``[compiler].cflags``
+    ``cflags_presets`` (``rebrew cfg module set-cflags``) → ``[compiler].cflags``
     → ``"/O2 /Gd"``.  Single source of truth so match/diff/verify/test/
     prove/probe/gap-trace agree on the flags a function compiles with — a per-module preset
-    must not make ``rebrew match`` report EXACT while ``rebrew verify``
+    must not make ``rebrew match run`` report EXACT while ``rebrew verify``
     recompiles with different flags and demotes it.
     """
     cflags = (per_function_cflags or "").strip()
@@ -58,7 +58,7 @@ def resolve_overrides_steps(
     """Resolve the effective (toolchain, cflags) and record the decision chain.
 
     Core of :func:`resolve_compile_overrides` — same fallback chain, plus a
-    list of *steps* documenting every decision point so ``rebrew diagnose``
+    list of *steps* documenting every decision point so ``rebrew diagnose config``
     can explain *why* a function compiles with the compiler+flags it does.
     Each step is a dict with a ``source`` key: ``"function"`` (per-function
     metadata), ``"library"`` (nearest ``rebrew-libraries.toml`` + presets), or

@@ -1,4 +1,4 @@
-"""Tests for the rebrew split command."""
+"""Tests for the rebrew source split command."""
 
 from pathlib import Path
 from types import SimpleNamespace
@@ -458,7 +458,7 @@ class TestSplitExtractVA:
         custom_dir = tmp_path / "custom_out"
 
         result, src = _invoke(
-            tmp_path, monkeypatch, "--va", "0x10001000", "--force", "--out-dir", str(custom_dir)
+            tmp_path, monkeypatch, "--va", "0x10001000", "--force", "--output", str(custom_dir)
         )
         assert result.exit_code == 0
         assert (custom_dir / "func_a.c").exists()

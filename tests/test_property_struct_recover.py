@@ -1,4 +1,4 @@
-"""Hypothesis fuzz for the decompiler-text parser behind ``rebrew recover-structs``.
+"""Hypothesis fuzz for the decompiler-text parser behind ``rebrew types recover``.
 
 ``rebrew.struct_recover`` reads a whole decompilation (Kuna, Ghidra, r2ghidra)
 as text: six regexes extract member offsets, array indexes and pointer base

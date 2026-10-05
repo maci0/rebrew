@@ -253,7 +253,7 @@ rebrew verify --compare --json
 # --strict-catalog also fails when any splice-set entry lands in
 # skipped_catalog (unresolved symbol, size mismatch, ...). No separate
 # zero-splice rule.
-rebrew round-trip --strict-catalog --json
+rebrew build round-trip --strict-catalog --json
 ```
 
 ### Exit codes
@@ -276,5 +276,5 @@ rebrew round-trip --strict-catalog --json
 Reports carry a `schema_version` for:
 
 - `rebrew verify --json` → `2`, plus a `provenance` field
-- `rebrew round-trip --json` → `1`
+- `rebrew build round-trip --json` → `1`
 - `rebrew prove --json` / `rebrew prove --all --json` → `1`

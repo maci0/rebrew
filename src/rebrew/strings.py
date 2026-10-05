@@ -16,7 +16,7 @@ Architecture notes:
   mirrored here so the "nothing to scan" note can be detected locally.
 
 Usage:
-    rebrew strings [binary] [--min-len N] [--section NAME] [--filter RE] [--xref] [--json]
+    rebrew binary strings [binary] [--min-len N] [--section NAME] [--filter RE] [--xref] [--json]
 """
 
 from __future__ import annotations
@@ -81,7 +81,7 @@ def collect_strings(
     Loads the binary once, scans *section_names* (or the data-ish default
     set), applies the case-insensitive *filter_regex*, and, with *xref*,
     resolves each string's referencing code addresses.  Returns
-    ``{"binary", "count", "strings"}`` — the exact object ``rebrew strings
+    ``{"binary", "count", "strings"}`` — the exact object ``rebrew binary strings
     --json`` prints, with one record per string (``va`` / ``section`` /
     ``kind`` / ``size`` / ``text`` / ``xrefs``).
 
@@ -142,12 +142,12 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew strings · · · · · · · · · · · Extract from the project's target binary\n\n"
-        "  rebrew strings other.dll · · · · · · Extract from a specific binary\n\n"
-        "  rebrew strings --min-len 8 --section .rdata · · Longer strings, one section\n\n"
-        "  rebrew strings --xref 0x1000 · · · · Show code that references each string\n\n"
-        "  rebrew strings --json · · · · · · · · Machine-readable string list to stdout\n\n"
-        "[dim]Human output goes to stderr, so `rebrew strings --json | jq` is the scriptable form.[/dim]"
+        "  rebrew binary strings · · · · · · · · · · · Extract from the project's target binary\n\n"
+        "  rebrew binary strings other.dll · · · · · · Extract from a specific binary\n\n"
+        "  rebrew binary strings --min-len 8 --section .rdata · · Longer strings, one section\n\n"
+        "  rebrew binary strings --xref 0x1000 · · · · Show code that references each string\n\n"
+        "  rebrew binary strings --json · · · · · · · · Machine-readable string list to stdout\n\n"
+        "[dim]Human output goes to stderr, so `rebrew binary strings --json | jq` is the scriptable form.[/dim]"
     ),
 )
 

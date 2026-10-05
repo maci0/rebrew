@@ -12,7 +12,7 @@ reuses the module that owns the check, never reimplements it):
 * **lint-fixable**: ``rebrew lint --fix`` would change files (W019 inline
   metadata, W029 redundant cflags, W016 backfillable SECTION).
 * **shared-twins**: per-target twin copies collapsible via
-  ``rebrew merge --shared`` (:mod:`rebrew.merge` normalization).
+  ``rebrew source merge --shared`` (:mod:`rebrew.merge` normalization).
 * **next-action**: highest-ROI item from :mod:`rebrew.todo` (pointer only,
   so ``recommend`` never duplicates the todo ranking logic).
 * **flag-split**: one file holds functions with divergent per-function
@@ -24,7 +24,7 @@ reuses the module that owns the check, never reimplements it):
   from the build (:func:`rebrew.cmake_sources.collect`).
 
 ``--apply`` executes only the safe mechanical fixes (``lint --fix``,
-``link-order --apply``, ``orphans --prune`` of the prunable subset,
+``build link-order --apply``, ``orphans prune`` of the prunable subset,
 ``merge --shared`` twins). TU merge/split/move stay advisory — they change
 build semantics and need a human.
 """
@@ -70,7 +70,7 @@ app = typer.Typer(
 )
 
 #: Lanes ``--apply`` may execute.  Mechanical and revertible (lint --fix,
-#: link-order --apply, orphans --prune of the prunable subset, merge
+#: build link-order --apply, orphans prune of the prunable subset, merge
 #: --shared of identical bodies).  TU merge/split/move change build
 #: semantics and stay advisory.
 APPLYABLE = frozenset({"link-order", "orphans", "lint-fixable", "shared-twins"})
@@ -122,8 +122,8 @@ class Recommendation:
 
 
 def _merge_command(files: list[str], out: str) -> str:
-    """`rebrew merge` invocation for *files* into *out*."""
-    return f"rebrew merge {' '.join(files)} --output {out} --consolidate"
+    """`rebrew source merge` invocation for *files* into *out*."""
+    return f"rebrew source merge {' '.join(files)} --output {out} --consolidate"
 
 
 def recommend_layout(
@@ -208,7 +208,7 @@ def recommend_layout(
                     functions=[],
                     files=[name],
                     evidence=[f"spans clusters {sorted(cids)}"],
-                    command=f"rebrew split {name}",
+                    command=f"rebrew source split {name}",
                 )
             )
     order = {"merge": 0, "move": 1, "split": 2}
@@ -245,7 +245,7 @@ def recommend_link_order(
     current: list[str],
     ordered: list[str],
 ) -> Recommendation | None:
-    """Advise ``rebrew link-order --apply`` when CMake order drifts.
+    """Advise ``rebrew build link-order --apply`` when CMake order drifts.
 
     Both lists are the CMake SOURCES entries in current vs VA-sorted order.
     """
@@ -258,7 +258,7 @@ def recommend_link_order(
         functions=[],
         files=[],
         evidence=[f"{len(current)} sources out of VA order"],
-        command="rebrew link-order --apply",
+        command="rebrew build link-order --apply",
         applyable=True,
     )
 
@@ -266,7 +266,7 @@ def recommend_link_order(
 def recommend_orphans(
     prunable: list[dict[str, Any]],
 ) -> Recommendation | None:
-    """Advise ``rebrew orphans --prune`` for the prunable subset.
+    """Advise ``rebrew orphans prune`` for the prunable subset.
 
     Takes :func:`rebrew.orphans.split_prunable` output (matched STATUS held
     back), so earned STATUS is never at risk.
@@ -280,7 +280,7 @@ def recommend_orphans(
         functions=[],
         files=[],
         evidence=[f"{len(prunable)} orphaned metadata blocks (earned held back)"],
-        command="rebrew orphans --prune",
+        command="rebrew orphans prune",
         applyable=True,
     )
 
@@ -316,7 +316,7 @@ def recommend_lint_fixable(
 def recommend_shared_twins(
     groups: list[list[str]],
 ) -> list[Recommendation]:
-    """Advise ``rebrew merge --shared`` per twin group.
+    """Advise ``rebrew source merge --shared`` per twin group.
 
     *groups* are file lists with identical normalized bodies (grouped by
     :func:`rebrew.merge.normalize_body`); singletons never arrive here.
@@ -332,7 +332,7 @@ def recommend_shared_twins(
                 functions=[],
                 files=ordered,
                 evidence=["identical bodies across per-target copies"],
-                command=f"rebrew merge {' '.join(ordered)} --output <shared> --shared",
+                command=f"rebrew source merge {' '.join(ordered)} --output <shared> --shared",
                 applyable=True,
             )
         )
@@ -370,7 +370,7 @@ def recommend_merge_sweep_hint(
         functions=[],
         files=[],
         evidence=[f"{unmatched_clusters} clusters without a proven partition"],
-        command="rebrew merge-sweep --dry-run",
+        command="rebrew match partitions --dry-run",
     )
 
 
@@ -405,7 +405,7 @@ def recommend_flag_split(
                 functions=sorted(va for vs in groups.values() for va in vs),
                 files=[name],
                 evidence=[f"mixed flag sets — {'; '.join(parts)}"],
-                command=f"rebrew split {name}",
+                command=f"rebrew source split {name}",
             )
         )
     return recs
@@ -471,7 +471,7 @@ def recommend_foreign_sources(
         functions=[],
         files=sorted(foreign),
         evidence=[f"{len(foreign)} files carry no {marker} marker — excluded from build"],
-        command="rebrew cmake-sources --json",
+        command="rebrew build cmake-sources --json",
     )
 
 
@@ -585,7 +585,7 @@ def recommend_stub_sort(
         functions=missing[:10],
         files=[],
         evidence=[f"{len(missing)} inventory functions without annotations"],
-        command="rebrew document-unmatched --json",
+        command="rebrew source document-unmatched --json",
     )
 
 
@@ -605,7 +605,7 @@ def recommend_build_check(
         functions=[],
         files=[],
         evidence=[f"{len(drift)} unrecorded flag token(s) in build.make (first: {first})"],
-        command="rebrew build-check",
+        command="rebrew build check",
     )
 
 
@@ -701,7 +701,7 @@ def recommend_default_names(
             functions=hits[:10],
             files=[],
             evidence=[f"{len(hits)} functions with default names"],
-            command="; ".join(f"rebrew rename 0x{va:08x} <name>" for va in hits[:3])
+            command="; ".join(f"rebrew source rename 0x{va:08x} <name>" for va in hits[:3])
             + ("; …" if len(hits) > 3 else ""),
         )
     ]
@@ -814,7 +814,7 @@ def recommend_backfill_blockers(
         functions=[],
         files=[],
         evidence=[f"{stubs_without_blocker} STUBs without BLOCKER text"],
-        command="rebrew document-unmatched --backfill-blockers",
+        command="rebrew source document-unmatched --backfill-blockers",
     )
 
 
@@ -1247,21 +1247,22 @@ def _apply_safe(cfg: ProjectConfig, recs: list[Recommendation], json_mode: bool)
             result = runner.invoke(
                 umbrella,
                 [
+                    "build",
                     "link-order",
                     "--apply",
                     *(["--target", cfg.target_name] if cfg.target_name else []),
                 ],
             )
-            applied.append(f"link-order --apply ({result.exit_code})")
+            applied.append(f"build link-order --apply ({result.exit_code})")
         elif rec.kind == "orphans":
             result = runner.invoke(
                 umbrella,
-                ["orphans", "--prune", *(["--target", cfg.target_name] if cfg.target_name else [])],
+                ["orphans", "prune", *(["--target", cfg.target_name] if cfg.target_name else [])],
             )
-            applied.append(f"orphans --prune ({result.exit_code})")
+            applied.append(f"orphans prune ({result.exit_code})")
         elif rec.kind == "shared-twins":
             out = cfg.root / "src" / "shared" / "twins.c"
-            cmd = ["merge", *rec.files, "-o", str(out), "--shared"]
+            cmd = ["source", "merge", *rec.files, "-o", str(out), "--shared"]
             result = runner.invoke(umbrella, cmd)
             applied.append(f"rebrew {' '.join(cmd)} ({result.exit_code})")
     if json_mode:

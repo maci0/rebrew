@@ -336,7 +336,7 @@ class TestBatchOutDirResolution:
         from rebrew.asm import app
 
         captured = self._setup(tmp_path, monkeypatch)
-        result = CliRunner().invoke(app, ["--format", "nasm", "--all", "--out-dir", "output/asm"])
+        result = CliRunner().invoke(app, ["batch", "--output", "output/asm"])
         assert result.exit_code == 0
         assert captured["out_dir"] == tmp_path / "output" / "asm"
 
@@ -348,7 +348,7 @@ class TestBatchOutDirResolution:
         from rebrew.asm import app
 
         captured = self._setup(tmp_path, monkeypatch)
-        result = CliRunner().invoke(app, ["--format", "nasm", "--all"])
+        result = CliRunner().invoke(app, ["batch"])
         assert result.exit_code == 0
         assert captured["out_dir"] == tmp_path / "output" / "asm"
 
@@ -361,7 +361,7 @@ class TestBatchOutDirResolution:
 
         captured = self._setup(tmp_path, monkeypatch)
         out_dir = tmp_path / "elsewhere" / "nasm"
-        result = CliRunner().invoke(app, ["--format", "nasm", "--all", "--out-dir", str(out_dir)])
+        result = CliRunner().invoke(app, ["batch", "--output", str(out_dir)])
         assert result.exit_code == 0
         assert captured["out_dir"] == out_dir
 
@@ -458,7 +458,7 @@ timeout = 60
             lambda *a, **k: (60, "ret") if k.get("with_kind") else 60,
         )
         monkeypatch.chdir(root)
-        result = CliRunner().invoke(app, ["asm", "0x401000", "--json"])
+        result = CliRunner().invoke(app, ["binary", "asm", "show", "0x401000", "--json"])
         assert result.exit_code == 0, result.stdout
         payload = json.loads(result.stdout)
         assert payload["stale_size"] is True
@@ -482,7 +482,9 @@ timeout = 60
             lambda *a, **k: (60, "ret") if k.get("with_kind") else 60,
         )
         monkeypatch.chdir(root)
-        result = CliRunner().invoke(app, ["asm", "0x401000", "--size", "10", "--json"])
+        result = CliRunner().invoke(
+            app, ["binary", "asm", "show", "0x401000", "--size", "10", "--json"]
+        )
         assert result.exit_code == 0, result.stdout
         payload = json.loads(result.stdout)
         assert payload["stale_size"] is False  # explicit --size honored
@@ -502,7 +504,9 @@ timeout = 60
 
         root = self._project(tmp_path)
         monkeypatch.chdir(root)
-        result = CliRunner().invoke(app, ["asm", "0x401000", "--size", "-5", "--json"])
+        result = CliRunner().invoke(
+            app, ["binary", "asm", "show", "0x401000", "--size", "-5", "--json"]
+        )
         assert result.exit_code == 2
         assert "--size must be a positive integer" in result.output
         assert "outside the binary image" not in result.output
@@ -523,7 +527,7 @@ timeout = 60
             lambda *a, **k: (32, "ret") if k.get("with_kind") else 32,
         )
         monkeypatch.chdir(root)
-        result = CliRunner().invoke(app, ["asm", "0x401000", "--json"])
+        result = CliRunner().invoke(app, ["binary", "asm", "show", "0x401000", "--json"])
         assert result.exit_code == 0, result.stdout
         payload = json.loads(result.stdout)
         assert payload["stale_size"] is False
@@ -554,7 +558,7 @@ timeout = 60
             lambda *a, **k: (16, "ret") if k.get("with_kind") else 16,
         )
         monkeypatch.chdir(root)
-        result = CliRunner().invoke(app, ["asm", "0x401000", "--json"])
+        result = CliRunner().invoke(app, ["binary", "asm", "show", "0x401000", "--json"])
         assert result.exit_code == 0, result.stdout
         payload = json.loads(result.stdout)
         assert payload["size"] == 16
@@ -581,7 +585,7 @@ timeout = 60
             lambda *a, **k: (16, "jmp") if k.get("with_kind") else 16,
         )
         monkeypatch.chdir(root)
-        result = CliRunner().invoke(app, ["asm", "0x401000", "--json"])
+        result = CliRunner().invoke(app, ["binary", "asm", "show", "0x401000", "--json"])
         assert result.exit_code == 0, result.stdout
         payload = json.loads(result.stdout)
         assert payload["size"] == 32  # declared size kept
@@ -606,7 +610,7 @@ timeout = 60
 
         monkeypatch.setattr("rebrew.binary_loader.function_extent_from_disasm", _boom)
         monkeypatch.chdir(root)
-        result = CliRunner().invoke(app, ["asm", "0x401000", "--json"])
+        result = CliRunner().invoke(app, ["binary", "asm", "show", "0x401000", "--json"])
         assert result.exit_code == 0, result.stdout
         payload = json.loads(result.stdout)
         assert payload["stale_size"] is False

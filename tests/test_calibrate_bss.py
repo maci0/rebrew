@@ -80,7 +80,7 @@ class TestCalibrateLoop:
         from rebrew.main import app
 
         monkeypatch.chdir(tmp_path)
-        return CliRunner().invoke(app, ["calibrate-bss", *args])
+        return CliRunner().invoke(app, ["build", "calibrate-bss", *args])
 
     def test_failed_compile_restores_stub(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

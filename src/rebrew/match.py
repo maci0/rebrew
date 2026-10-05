@@ -4,15 +4,15 @@ Compile C source, compare object bytes against a target function, and
 iteratively mutate to find a byte-perfect or relocation-normalized match.
 
 Single-function usage:
-    rebrew match <source.c> [--generations N --pop-size N]
-    rebrew match <source.c> --flag-sweep-only
+    rebrew match run <source.c> [--generations N --pop-size N]
+    rebrew match flags <source.c>
 
-Batch usage (``rebrew match --all``)::
-    rebrew match --all                       Run GA on all STUB functions
-    rebrew match --all --improve             GA on all NEAR_MATCHING functions
-    rebrew match --all --near-miss           Near-miss NEAR_MATCHING functions
-    rebrew match --all --flag-sweep          Batch flag sweep on NEAR_MATCHING
-    rebrew match --all --dry-run             List targets without running
+Batch usage (``rebrew match batch``)::
+    rebrew match batch Run GA on all STUB functions
+    rebrew match batch --improve GA on all NEAR_MATCHING functions
+    rebrew match batch --near-miss Near-miss NEAR_MATCHING functions
+    rebrew match batch Batch flag sweep on NEAR_MATCHING --algorithm flags
+    rebrew match batch --dry-run List targets without running
 """
 
 from __future__ import annotations
@@ -64,12 +64,12 @@ _EPILOG = (
     "Symbol is derived from the C function definition. "
     "Requires rebrew-project.toml with valid compiler paths.[/dim]\n\n"
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew match src/f.c · · · · · · · · · GA on one function\n\n"
-    "  rebrew match --all · · · · · · · · · GA on all STUB functions\n\n"
-    "  rebrew match --all --improve · · · · · GA on all NEAR_MATCHING functions\n\n"
-    "  rebrew match --all --near-miss · · · · GA on near-miss NEAR_MATCHING (Δ ≤ threshold)\n\n"
-    "  rebrew match --all --flag-sweep · · · · Batch flag sweep on NEAR_MATCHING functions\n\n"
-    "  rebrew match --all --dry-run · · · · · List targets without running\n\n"
+    "  rebrew match run src/f.c · · · · · · · · · GA on one function\n\n"
+    "  rebrew match batch · · · · · · · · · GA on all STUB functions\n\n"
+    "  rebrew match batch --improve · · · · · GA on all NEAR_MATCHING functions\n\n"
+    "  rebrew match batch --near-miss · · · · GA on near-miss NEAR_MATCHING (Δ ≤ threshold)\n\n"
+    "  rebrew match batch · · · · Batch flag sweep on NEAR_MATCHING functions\n\n --algorithm flags"
+    "  rebrew match batch --dry-run · · · · · List targets without running\n\n"
     "[bold]Exit codes:[/bold]\n\n"
     "  0   Match found (EXACT or RELOC)\n\n"
     "  1   No match found (structural diffs remain)\n\n"
@@ -84,282 +84,58 @@ app = typer.Typer(
 )
 
 
-@app.callback(invoke_without_command=True)
-def main(
-    seed_c: str | None = typer.Argument(
-        None, metavar="source", help="Seed source file (.c) — omit for --all mode"
-    ),
-    # Single-function options
-    cl: str | None = typer.Option(
-        None,
-        help="CL.EXE command (auto from rebrew-project.toml)",
-        rich_help_panel="Single-Function",
-    ),
-    inc: str | None = typer.Option(
-        None, help="Include dir (auto from rebrew-project.toml)", rich_help_panel="Single-Function"
-    ),
-    cflags: str | None = typer.Option(
-        None, help="Compiler flags (auto from source)", rich_help_panel="Single-Function"
-    ),
-    symbol: str | None = typer.Option(
-        None,
-        "--symbol",
-        help="Symbol to match (auto from source)",
-        rich_help_panel="Single-Function",
-    ),
-    target_va: str | None = typer.Option(
-        None,
-        "--va",
-        help="Target VA in hex (default: from annotation)",
-        rich_help_panel="Single-Function",
-    ),
-    target_size: int | None = typer.Option(
-        None, "--size", help="Target size (auto from source)", rich_help_panel="Single-Function"
-    ),
-    out_dir: str = typer.Option(
-        "output/ga_runs", help="Output dir", rich_help_panel="Single-Function"
-    ),
-    compare_obj: bool = typer.Option(
-        True, help="Use object comparison instead of full link", rich_help_panel="Single-Function"
-    ),
-    lib: str | None = typer.Option(
-        None, "--lib", help="Lib dir", rich_help_panel="Single-Function"
-    ),
-    link: str | None = typer.Option(
-        None,
-        "--link",
-        help="Linker command (auto from rebrew-project.toml)",
-        rich_help_panel="Single-Function",
-    ),
-    ldflags: str | None = typer.Option(
-        None, help="Linker flags", rich_help_panel="Single-Function"
-    ),
-    flag_sweep_only: bool = typer.Option(
-        False,
-        "--flag-sweep-only",
-        help="Run MSVC compiler flag sweep instead of GA (tries flag combos to find exact match)",
-        rich_help_panel="Single-Function",
-    ),
-    tier: str = typer.Option(
-        "targeted",
-        help="Flag sweep tier: quick, targeted, normal, thorough, or full",
-        rich_help_panel="Single-Function",
-    ),
-    ignore_lint: bool = typer.Option(
-        False,
-        "--ignore-lint",
-        help="Continue even if source marker lint errors exist",
-        rich_help_panel="Single-Function",
-    ),
-    seed: int | None = typer.Option(
-        None, "--seed", help="RNG seed for reproducible GA runs", rich_help_panel="GA Tuning"
-    ),
-    extra_seed: list[str] | None = typer.Option(
-        None,
-        "--seed-file",
-        help="Extra .c file(s) to seed GA population from solved functions. Ignored if --no-seeds is also passed.",
-        rich_help_panel="Single-Function",
-    ),
-    no_seed: bool = typer.Option(
-        False,
-        "--no-seeds",
-        help="Disable cross-function solution seeding (takes precedence over --seed-file)",
-        rich_help_panel="Single-Function",
-    ),
-    mutation_focus: str | None = typer.Option(
-        None,
-        "--mutation-focus",
-        help=(
-            "Bias GA mutation selection toward a near-diag category: "
-            "register | equivalent | structural, or auto (read the function's "
-            "BLOCKER metadata). Suggested operators get 6x selection weight."
-        ),
-        rich_help_panel="GA Tuning",
-    ),
-    # GA tuning (shared single/batch)
-    generations: int = typer.Option(
-        100, "--generations", "-g", help="Number of GA generations", rich_help_panel="GA Tuning"
-    ),
-    pop_size: int = typer.Option(
-        64, "--pop-size", "-p", help="Population size per generation", rich_help_panel="GA Tuning"
-    ),
-    jobs: int | None = typer.Option(
-        None,
-        "--jobs",
-        "-j",
-        help="Parallel jobs (default: from config)",
-        rich_help_panel="GA Tuning",
-    ),
-    # Batch-only options
-    all_mode: bool = typer.Option(
-        False,
-        "--all",
-        help="Batch mode: run GA on all STUB functions (use --near-miss for NEAR_MATCHING)",
-        rich_help_panel="Batch Mode",
-    ),
-    all_targets: bool = typer.Option(
-        False,
-        "--all-targets",
-        help="Batch mode: run GA across STUB functions in EVERY configured target",
-        rich_help_panel="Batch Mode",
-    ),
-    flag_sweep_toolchains: bool = typer.Option(
-        False,
-        "--flag-sweep-toolchains",
-        help="Try each vendored MSVC toolchain (SP versions) instead of GA and report the best; combine with --flag-sweep-only to flag-sweep with each toolchain",
-        rich_help_panel="Single-Function",
-    ),
-    sweep_toolchains: str = typer.Option(
-        "",
-        "--sweep-toolchains",
-        "--toolchain",
-        help="Compile with each of these toolchains and report the best (implies --flag-sweep-toolchains); comma-separated profile names or version prefixes, e.g. msvc-6.0,6.0,win16 (a Y2K binary likely rules out 2.0/4.x — exclude them with --sweep-exclude-toolchains 2.0,4.0)",
-        rich_help_panel="Single-Function",
-    ),
-    sweep_exclude_toolchains: str = typer.Option(
-        "",
-        "--sweep-exclude-toolchains",
-        help="Compile with each toolchain except these and report the best (implies --flag-sweep-toolchains); comma-separated profile names or version prefixes, e.g. 2.0,4.0,win16",
-        rich_help_panel="Single-Function",
-    ),
-    flag_sweep_then_ga: bool = typer.Option(
-        False,
-        "--flag-sweep-then-ga",
-        help="Batch: flag-sweep each stub first, then run the GA with the best flags",
-        rich_help_panel="Batch Mode",
-    ),
-    skip_recent_hours: int = typer.Option(
-        0,
-        "--skip-recent",
-        help="Batch: skip stubs with a GA run record within the last N hours",
-        rich_help_panel="Batch Mode",
-    ),
-    seed_solutions: Path | None = typer.Option(
-        None,
-        "--seed-solutions-file",
-        help=(
-            "Batch: extra GA run log to seed from (cross-project cflags/"
-            "source transfer).  E.g. ../makehm-rebrew/.rebrew/ga_runs.jsonl"
-        ),
-        rich_help_panel="Batch Mode",
-    ),
-    llm_seed: bool = typer.Option(
-        False,
-        "--seed-llm",
-        help=(
-            "Ask a configured LLM endpoint for alternative C implementations "
-            "and inject them into the GA's initial population (see \\[llm] "
-            "config / REBREW_LLM_ENDPOINT)."
-        ),
-        rich_help_panel="Single-Function",
-    ),
-    kuna_seed: bool = typer.Option(
-        False,
-        "--seed-kuna",
-        help=(
-            "Seed the GA's initial population with Kuna's decompilation of "
-            "the target function (github.com/Noelo-Lab/kuna — requires the "
-            "`kuna` binary on PATH).  The output is compilability-fixed "
-            "(rebrew fix) before injection."
-        ),
-        rich_help_panel="Single-Function",
-    ),
-    resume: bool = typer.Option(
-        False,
-        "--resume",
-        help="Batch: resume interrupted GA runs from their per-function checkpoints.",
-        rich_help_panel="Batch Mode",
-    ),
-    near_miss: bool = typer.Option(
-        False,
-        "--near-miss",
-        help="--all: target NEAR_MATCHING near-misses instead of STUBs",
-        rich_help_panel="Batch Mode",
-    ),
-    improve: bool = typer.Option(
-        False,
-        "--improve",
-        help="--all: target all NEAR_MATCHING functions (no delta threshold)",
-        rich_help_panel="Batch Mode",
-    ),
-    size_mismatch: bool = typer.Option(
-        False,
-        "--size-mismatch",
-        help="--all: target SIZE_MISMATCH functions (length differs) with the GA",
-        rich_help_panel="Batch Mode",
-    ),
-    threshold: int = typer.Option(
-        10,
-        "--threshold",
-        help="--all: max byte delta for --near-miss mode",
-        rich_help_panel="Batch Mode",
-    ),
-    flag_sweep: bool = typer.Option(
-        False,
-        "--flag-sweep",
-        help="--all: batch flag sweep on NEAR_MATCHING functions (finds optimal CFLAGS)",
-        rich_help_panel="Batch Mode",
-    ),
-    fix_cflags: bool = typer.Option(
-        False,
-        "--fix-cflags",
-        help="--all --flag-sweep: auto-update CFLAGS metadata on exact match",
-        rich_help_panel="Batch Mode",
-    ),
-    max_stubs: int = typer.Option(
-        0,
-        "--max-stubs",
-        help="--all: max functions to process (0=all)",
-        rich_help_panel="Batch Mode",
-    ),
-    min_size: int = typer.Option(
-        10,
-        "--min-size",
-        help="--all: min target size to attempt",
-        rich_help_panel="Batch Mode",
-    ),
-    max_size: int = typer.Option(
-        NO_MAX_SIZE,
-        "--max-size",
-        help="--all: max target size to attempt",
-        rich_help_panel="Batch Mode",
-    ),
-    filter_str: str = typer.Option(
-        "",
-        "--filter",
-        help="--all: only process functions matching substring",
-        rich_help_panel="Batch Mode",
-    ),
-    timeout_min: int = typer.Option(
-        30,
-        "--timeout-min",
-        help="--all: per-function GA timeout (minutes)",
-        rich_help_panel="Batch Mode",
-    ),
-    ga_history: bool = typer.Option(
-        False,
-        "--ga-history",
-        help="Show GA run history summary (from .rebrew/ga_runs.jsonl)",
-        rich_help_panel="Batch Mode",
-    ),
-    seed_from_solved: bool = typer.Option(
-        True,
-        "--seed-solved/--no-seed-solved",
-        help="Seed GA population from similar solved functions",
-        rich_help_panel="Batch Mode",
-    ),
-    collect_pairs: str | None = typer.Option(
-        None,
-        "--collect-pairs",
-        help="Save source-binary pairs to JSONL file for ML training",
-        rich_help_panel="Batch Mode",
-    ),
-    watch: bool = typer.Option(
-        False, "--watch", help="Watch the seed source and re-run the GA on every change"
-    ),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
-    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
-    target: str | None = TargetOption,
+def execute_search(
+    seed_c: str | None = None,
+    cl: str | None = None,
+    inc: str | None = None,
+    cflags: str | None = None,
+    symbol: str | None = None,
+    target_va: str | None = None,
+    target_size: int | None = None,
+    out_dir: str = "output/ga_runs",
+    compare_obj: bool = True,
+    lib: str | None = None,
+    link: str | None = None,
+    ldflags: str | None = None,
+    flag_sweep_only: bool = False,
+    tier: str = "targeted",
+    ignore_lint: bool = False,
+    seed: int | None = None,
+    extra_seed: list[str] | None = None,
+    no_seed: bool = False,
+    mutation_focus: str | None = None,
+    generations: int = 100,
+    pop_size: int = 64,
+    jobs: int | None = None,
+    all_mode: bool = False,
+    all_targets: bool = False,
+    flag_sweep_toolchains: bool = False,
+    sweep_toolchains: str = "",
+    sweep_exclude_toolchains: str = "",
+    flag_sweep_then_ga: bool = False,
+    skip_recent_hours: int = 0,
+    seed_solutions: Path | None = None,
+    llm_seed: bool = False,
+    kuna_seed: bool = False,
+    resume: bool = False,
+    near_miss: bool = False,
+    improve: bool = False,
+    size_mismatch: bool = False,
+    threshold: int = 10,
+    flag_sweep: bool = False,
+    fix_cflags: bool = False,
+    max_stubs: int = 0,
+    min_size: int = 10,
+    max_size: int = NO_MAX_SIZE,
+    filter_str: str = "",
+    timeout_min: int = 30,
+    ga_history: bool = False,
+    seed_from_solved: bool = True,
+    collect_pairs: str | None = None,
+    watch: bool = False,
+    dry_run: bool = False,
+    json_output: bool = False,
+    target: str | None = None,
 ) -> None:
     """GA matching engine — single file or batch (--all)."""
     all_targets = option_default(all_targets, False)
@@ -391,7 +167,7 @@ def main(
 
     # Validate --tier up front: generate_flag_combinations raises a bare
     # ValueError that would otherwise escape as a traceback mid-sweep.
-    # Checked unconditionally — `rebrew match f.c --tier nonsense` silently
+    # Checked unconditionally — `rebrew match run f.c --tier nonsense` silently
     # succeeded before (tier is only consulted in sweep paths, so the typo
     # went unnoticed instead of erroring at invocation time).
     from rebrew.flag_data import MSVC_SWEEP_TIERS
@@ -411,7 +187,7 @@ def main(
         error_exit("--watch cannot be combined with --all-targets", json_mode=json_output)
     if (all_mode or all_targets) and out_dir != "output/ga_runs":
         # Batch mode hardcodes cfg.root/output/ga_runs — reject a silent no-op.
-        error_exit("--out-dir only applies to single-function mode", json_mode=json_output)
+        error_exit("--output only applies to single-function mode", json_mode=json_output)
     if llm_seed and (all_mode or all_targets):
         # Batch mode seeds from the run log and extra files only, so the flag
         # would be dropped without a word.  An operator who asked for a paid
@@ -551,7 +327,7 @@ def main(
                 f"\n[bold]All targets: {total_matched} matched, {total_failed} failed "
                 f"across {len(names)} target(s)[/]"
             )
-        # Same exit contract as --all: 1 = no match found (any failed stub).
+        # Same exit contract as Batch: 1 = no match found (any failed stub).
         if total_failed > 0 and not dry_run:
             raise typer.Exit(code=EXIT_MISMATCH)
         return
@@ -559,14 +335,14 @@ def main(
     # Single-function mode requires seed_c
     if seed_c is None:
         error_exit(
-            "Provide a source file (rebrew match <file.c>) or use --all for batch mode.",
+            "Provide a source file, symbol, or VA; use rebrew match batch for project selection.",
             json_mode=json_output,
         )
 
     if dry_run and not llm_seed:
         error_exit(
-            "--dry-run is batch mode only — 'rebrew match --all --dry-run' lists "
-            "candidates without running. Single-function match always runs the GA.",
+            "--dry-run is batch mode only — 'rebrew match batch --dry-run' lists"
+            "candidates without running. Single-function searches compile; only match run --seed-llm supports a request preview.",
             json_mode=json_output,
             code=EXIT_ERROR,
         )
@@ -638,7 +414,7 @@ def main(
             # Re-run the full single-function match path; --watch must not nest.
             # Forward every CLI param — an omitted one leaks as a truthy
             # OptionInfo on direct main() re-entry (see docs/DEVELOPMENT.md).
-            main(
+            execute_search(
                 seed_c=seed_c,
                 cl=cl,
                 inc=inc,
@@ -706,11 +482,11 @@ def main(
         run_single_flag_sweep(params, tier, jobs, json_output, timeout_min=timeout_min)
         return
 
-    # `--sweep-toolchains` / `--sweep-exclude-toolchains` name the profiles to
+    # `--toolchains` / `--exclude-toolchains` name the profiles to
     # sweep and to skip, so naming one IS the opt-in: each selects the sweep
     # exactly as `--flag-sweep-toolchains` does, just filtered.  Both were
     # checked only alongside that unrelated flag, so
-    # `rebrew match f.c --toolchain msvc-6.0` parsed, filtered nothing and ran
+    # `rebrew match toolchains f.c --toolchains msvc-6.0` parsed, filtered nothing and ran
     # the plain GA — a silently ignored filter, on the long spelling every
     # other command uses to pin a compiler.
     if flag_sweep_toolchains or sweep_toolchains or sweep_exclude_toolchains:
@@ -739,6 +515,638 @@ def main(
     )
 
 
+@app.command(
+    "run",
+    epilog="Examples:\n\n  rebrew match run src/game/f.c --seed 7 --json\n\nSingle-function searches compile. Batch --dry-run lists candidates; run --seed-llm --dry-run previews the LLM request.",
+)
+def run(
+    seed_c: str | None = typer.Argument(
+        ..., metavar="source", help="Source file, symbol, or VA for one function"
+    ),
+    cl: str | None = typer.Option(
+        None,
+        help="CL.EXE command (auto from rebrew-project.toml)",
+        rich_help_panel="Single-Function",
+    ),
+    inc: str | None = typer.Option(
+        None, help="Include dir (auto from rebrew-project.toml)", rich_help_panel="Single-Function"
+    ),
+    cflags: str | None = typer.Option(
+        None, help="Compiler flags (auto from source)", rich_help_panel="Single-Function"
+    ),
+    symbol: str | None = typer.Option(
+        None,
+        "--symbol",
+        help="Symbol to match (auto from source)",
+        rich_help_panel="Single-Function",
+    ),
+    target_va: str | None = typer.Option(
+        None,
+        "--va",
+        help="Target VA in hex (default: from annotation)",
+        rich_help_panel="Single-Function",
+    ),
+    target_size: int | None = typer.Option(
+        None, "--size", help="Target size (auto from source)", rich_help_panel="Single-Function"
+    ),
+    out_dir: str = typer.Option(
+        "output/ga_runs",
+        "--output",
+        "-o",
+        help="Directory for search results",
+        rich_help_panel="Single-Function",
+    ),
+    compare_obj: bool = typer.Option(
+        True, help="Use object comparison instead of full link", rich_help_panel="Single-Function"
+    ),
+    lib: str | None = typer.Option(
+        None, "--lib", help="Lib dir", rich_help_panel="Single-Function"
+    ),
+    link: str | None = typer.Option(
+        None,
+        "--link",
+        help="Linker command (auto from rebrew-project.toml)",
+        rich_help_panel="Single-Function",
+    ),
+    ldflags: str | None = typer.Option(
+        None, help="Linker flags", rich_help_panel="Single-Function"
+    ),
+    jobs: int | None = typer.Option(
+        None,
+        "--jobs",
+        "-j",
+        help="Parallel jobs (default: from config)",
+        rich_help_panel="GA Tuning",
+    ),
+    ignore_lint: bool = typer.Option(
+        False,
+        "--ignore-lint",
+        help="Continue even if source marker lint errors exist",
+        rich_help_panel="Single-Function",
+    ),
+    seed: int | None = typer.Option(
+        None, "--seed", help="RNG seed for reproducible GA runs", rich_help_panel="GA Tuning"
+    ),
+    extra_seed: list[str] | None = typer.Option(
+        None,
+        "--seed-file",
+        help="Extra .c file(s) to seed GA population from solved functions. Ignored if --no-seeds is also passed.",
+        rich_help_panel="Single-Function",
+    ),
+    no_seed: bool = typer.Option(
+        False,
+        "--no-seeds",
+        help="Disable cross-function solution seeding (takes precedence over --seed-file)",
+        rich_help_panel="Single-Function",
+    ),
+    mutation_focus: str | None = typer.Option(
+        None,
+        "--mutation-focus",
+        help=(
+            "Bias GA mutation selection toward a near-diag category: "
+            "register | equivalent | structural, or auto (read the function's "
+            "BLOCKER metadata). Suggested operators get 6x selection weight."
+        ),
+        rich_help_panel="GA Tuning",
+    ),
+    generations: int = typer.Option(
+        100, "--generations", "-g", help="Number of GA generations", rich_help_panel="GA Tuning"
+    ),
+    pop_size: int = typer.Option(
+        64, "--pop-size", "-p", help="Population size per generation", rich_help_panel="GA Tuning"
+    ),
+    seed_solutions: Path | None = typer.Option(
+        None,
+        "--seed-solutions-file",
+        help=(
+            "Batch: extra GA run log to seed from (cross-project cflags/"
+            "source transfer).  E.g. ../makehm-rebrew/.rebrew/ga_runs.jsonl"
+        ),
+        rich_help_panel="Batch Mode",
+    ),
+    llm_seed: bool = typer.Option(
+        False,
+        "--seed-llm",
+        help=(
+            "Ask a configured LLM endpoint for alternative C implementations "
+            "and inject them into the GA's initial population (see \\[llm] "
+            "config / REBREW_LLM_ENDPOINT)."
+        ),
+        rich_help_panel="Single-Function",
+    ),
+    kuna_seed: bool = typer.Option(
+        False,
+        "--seed-kuna",
+        help=(
+            "Seed the GA's initial population with Kuna's decompilation of "
+            "the target function (github.com/Noelo-Lab/kuna — requires the "
+            "`kuna` binary on PATH).  The output is compilability-fixed "
+            "(rebrew source fix) before injection."
+        ),
+        rich_help_panel="Single-Function",
+    ),
+    resume: bool = typer.Option(
+        False,
+        "--resume",
+        help="Batch: resume interrupted GA runs from their per-function checkpoints.",
+        rich_help_panel="Batch Mode",
+    ),
+    seed_from_solved: bool = typer.Option(
+        True,
+        "--seed-solved/--no-seed-solved",
+        help="Seed GA population from similar solved functions",
+        rich_help_panel="Batch Mode",
+    ),
+    collect_pairs: str | None = typer.Option(
+        None,
+        "--collect-pairs",
+        help="Save source-binary pairs to JSONL file for ML training",
+        rich_help_panel="Batch Mode",
+    ),
+    watch: bool = typer.Option(
+        False, "--watch", help="Watch the seed source and re-run the GA on every change"
+    ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
+) -> None:
+    """Run genetic matching for one source function."""
+    execute_search(
+        seed_c=seed_c,
+        cl=cl,
+        inc=inc,
+        cflags=cflags,
+        symbol=symbol,
+        target_va=target_va,
+        target_size=target_size,
+        out_dir=out_dir,
+        compare_obj=compare_obj,
+        lib=lib,
+        link=link,
+        ldflags=ldflags,
+        jobs=jobs,
+        ignore_lint=ignore_lint,
+        seed=seed,
+        extra_seed=extra_seed,
+        no_seed=no_seed,
+        mutation_focus=mutation_focus,
+        generations=generations,
+        pop_size=pop_size,
+        seed_solutions=seed_solutions,
+        llm_seed=llm_seed,
+        kuna_seed=kuna_seed,
+        resume=resume,
+        seed_from_solved=seed_from_solved,
+        collect_pairs=collect_pairs,
+        watch=watch,
+        dry_run=dry_run,
+        json_output=json_output,
+        target=target,
+    )
+
+
+@app.command(
+    "batch",
+    epilog="Examples:\n\n  rebrew match batch --dry-run --json\n\nSingle-function searches compile. Batch --dry-run lists candidates; run --seed-llm --dry-run previews the LLM request.",
+)
+def batch(
+    algorithm: str = typer.Option("ga", "--algorithm", help="Search: ga, flags, flags-then-ga"),
+    tier: str = typer.Option(
+        "targeted",
+        help="Flag sweep tier: quick, targeted, normal, thorough, or full",
+        rich_help_panel="Single-Function",
+    ),
+    ignore_lint: bool = typer.Option(
+        False,
+        "--ignore-lint",
+        help="Continue even if source marker lint errors exist",
+        rich_help_panel="Single-Function",
+    ),
+    seed: int | None = typer.Option(
+        None, "--seed", help="RNG seed for reproducible GA runs", rich_help_panel="GA Tuning"
+    ),
+    extra_seed: list[str] | None = typer.Option(
+        None,
+        "--seed-file",
+        help="Extra .c file(s) to seed GA population from solved functions. Ignored if --no-seeds is also passed.",
+        rich_help_panel="Single-Function",
+    ),
+    no_seed: bool = typer.Option(
+        False,
+        "--no-seeds",
+        help="Disable cross-function solution seeding (takes precedence over --seed-file)",
+        rich_help_panel="Single-Function",
+    ),
+    mutation_focus: str | None = typer.Option(
+        None,
+        "--mutation-focus",
+        help=(
+            "Bias GA mutation selection toward a near-diag category: "
+            "register | equivalent | structural, or auto (read the function's "
+            "BLOCKER metadata). Suggested operators get 6x selection weight."
+        ),
+        rich_help_panel="GA Tuning",
+    ),
+    generations: int = typer.Option(
+        100, "--generations", "-g", help="Number of GA generations", rich_help_panel="GA Tuning"
+    ),
+    pop_size: int = typer.Option(
+        64, "--pop-size", "-p", help="Population size per generation", rich_help_panel="GA Tuning"
+    ),
+    jobs: int | None = typer.Option(
+        None,
+        "--jobs",
+        "-j",
+        help="Parallel jobs (default: from config)",
+        rich_help_panel="GA Tuning",
+    ),
+    skip_recent_hours: int = typer.Option(
+        0,
+        "--skip-recent",
+        help="Batch: skip stubs with a GA run record within the last N hours",
+        rich_help_panel="Batch Mode",
+    ),
+    seed_solutions: Path | None = typer.Option(
+        None,
+        "--seed-solutions-file",
+        help=(
+            "Batch: extra GA run log to seed from (cross-project cflags/"
+            "source transfer).  E.g. ../makehm-rebrew/.rebrew/ga_runs.jsonl"
+        ),
+        rich_help_panel="Batch Mode",
+    ),
+    kuna_seed: bool = typer.Option(
+        False,
+        "--seed-kuna",
+        help=(
+            "Seed the GA's initial population with Kuna's decompilation of "
+            "the target function (github.com/Noelo-Lab/kuna — requires the "
+            "`kuna` binary on PATH).  The output is compilability-fixed "
+            "(rebrew source fix) before injection."
+        ),
+        rich_help_panel="Single-Function",
+    ),
+    resume: bool = typer.Option(
+        False,
+        "--resume",
+        help="Batch: resume interrupted GA runs from their per-function checkpoints.",
+        rich_help_panel="Batch Mode",
+    ),
+    near_miss: bool = typer.Option(
+        False,
+        "--near-miss",
+        help="Batch: target NEAR_MATCHING near-misses instead of STUBs",
+        rich_help_panel="Batch Mode",
+    ),
+    improve: bool = typer.Option(
+        False,
+        "--improve",
+        help="Batch: target all NEAR_MATCHING functions (no delta threshold)",
+        rich_help_panel="Batch Mode",
+    ),
+    size_mismatch: bool = typer.Option(
+        False,
+        "--size-mismatch",
+        help="Batch: target SIZE_MISMATCH functions (length differs) with the GA",
+        rich_help_panel="Batch Mode",
+    ),
+    threshold: int = typer.Option(
+        10,
+        "--threshold",
+        help="Batch: max byte delta for --near-miss mode",
+        rich_help_panel="Batch Mode",
+    ),
+    fix_cflags: bool = typer.Option(
+        False,
+        "--fix-cflags",
+        help="With --algorithm flags: auto-update CFLAGS metadata on exact match",
+        rich_help_panel="Batch Mode",
+    ),
+    max_stubs: int = typer.Option(
+        0,
+        "--max-stubs",
+        help="Batch: max functions to process (0=all)",
+        rich_help_panel="Batch Mode",
+    ),
+    min_size: int = typer.Option(
+        10,
+        "--min-size",
+        help="Batch: min target size to attempt",
+        rich_help_panel="Batch Mode",
+    ),
+    max_size: int = typer.Option(
+        NO_MAX_SIZE,
+        "--max-size",
+        help="Batch: max target size to attempt",
+        rich_help_panel="Batch Mode",
+    ),
+    filter_str: str = typer.Option(
+        "",
+        "--filter",
+        help="Batch: only process functions matching substring",
+        rich_help_panel="Batch Mode",
+    ),
+    timeout_min: int = typer.Option(
+        30,
+        "--timeout-min",
+        help="Batch: per-function GA timeout (minutes)",
+        rich_help_panel="Batch Mode",
+    ),
+    seed_from_solved: bool = typer.Option(
+        True,
+        "--seed-solved/--no-seed-solved",
+        help="Seed GA population from similar solved functions",
+        rich_help_panel="Batch Mode",
+    ),
+    collect_pairs: str | None = typer.Option(
+        None,
+        "--collect-pairs",
+        help="Save source-binary pairs to JSONL file for ML training",
+        rich_help_panel="Batch Mode",
+    ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
+    all_targets: bool = typer.Option(
+        False,
+        "--all-targets",
+        help="Batch mode: run GA across STUB functions in EVERY configured target",
+        rich_help_panel="Batch Mode",
+    ),
+) -> None:
+    """Run matching over selected project functions."""
+    if algorithm not in ("ga", "flags", "flags-then-ga"):
+        error_exit("--algorithm must be ga, flags or flags-then-ga", json_mode=json_output)
+    execute_search(
+        tier=tier,
+        ignore_lint=ignore_lint,
+        seed=seed,
+        extra_seed=extra_seed,
+        no_seed=no_seed,
+        mutation_focus=mutation_focus,
+        generations=generations,
+        pop_size=pop_size,
+        jobs=jobs,
+        skip_recent_hours=skip_recent_hours,
+        seed_solutions=seed_solutions,
+        kuna_seed=kuna_seed,
+        resume=resume,
+        near_miss=near_miss,
+        improve=improve,
+        size_mismatch=size_mismatch,
+        threshold=threshold,
+        flag_sweep=algorithm == "flags",
+        flag_sweep_then_ga=algorithm == "flags-then-ga",
+        fix_cflags=fix_cflags,
+        max_stubs=max_stubs,
+        min_size=min_size,
+        max_size=max_size,
+        filter_str=filter_str,
+        timeout_min=timeout_min,
+        seed_from_solved=seed_from_solved,
+        collect_pairs=collect_pairs,
+        dry_run=dry_run,
+        json_output=json_output,
+        target=target,
+        all_targets=all_targets,
+        all_mode=not all_targets,
+    )
+
+
+@app.command(
+    "flags",
+    epilog="Examples:\n\n  rebrew match flags src/game/f.c --tier quick --json\n\nSingle-function searches compile. Batch --dry-run lists candidates; run --seed-llm --dry-run previews the LLM request.",
+)
+def flags(
+    seed_c: str | None = typer.Argument(
+        ..., metavar="source", help="Source file, symbol, or VA for one function"
+    ),
+    cl: str | None = typer.Option(
+        None,
+        help="CL.EXE command (auto from rebrew-project.toml)",
+        rich_help_panel="Single-Function",
+    ),
+    inc: str | None = typer.Option(
+        None, help="Include dir (auto from rebrew-project.toml)", rich_help_panel="Single-Function"
+    ),
+    cflags: str | None = typer.Option(
+        None, help="Compiler flags (auto from source)", rich_help_panel="Single-Function"
+    ),
+    symbol: str | None = typer.Option(
+        None,
+        "--symbol",
+        help="Symbol to match (auto from source)",
+        rich_help_panel="Single-Function",
+    ),
+    target_va: str | None = typer.Option(
+        None,
+        "--va",
+        help="Target VA in hex (default: from annotation)",
+        rich_help_panel="Single-Function",
+    ),
+    target_size: int | None = typer.Option(
+        None, "--size", help="Target size (auto from source)", rich_help_panel="Single-Function"
+    ),
+    out_dir: str = typer.Option(
+        "output/ga_runs",
+        "--output",
+        "-o",
+        help="Directory for search results",
+        rich_help_panel="Single-Function",
+    ),
+    compare_obj: bool = typer.Option(
+        True, help="Use object comparison instead of full link", rich_help_panel="Single-Function"
+    ),
+    lib: str | None = typer.Option(
+        None, "--lib", help="Lib dir", rich_help_panel="Single-Function"
+    ),
+    link: str | None = typer.Option(
+        None,
+        "--link",
+        help="Linker command (auto from rebrew-project.toml)",
+        rich_help_panel="Single-Function",
+    ),
+    ldflags: str | None = typer.Option(
+        None, help="Linker flags", rich_help_panel="Single-Function"
+    ),
+    jobs: int | None = typer.Option(
+        None,
+        "--jobs",
+        "-j",
+        help="Parallel jobs (default: from config)",
+        rich_help_panel="GA Tuning",
+    ),
+    tier: str = typer.Option(
+        "targeted",
+        help="Flag sweep tier: quick, targeted, normal, thorough, or full",
+        rich_help_panel="Single-Function",
+    ),
+    ignore_lint: bool = typer.Option(
+        False,
+        "--ignore-lint",
+        help="Continue even if source marker lint errors exist",
+        rich_help_panel="Single-Function",
+    ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
+) -> None:
+    """Search compiler flags for one source function."""
+    execute_search(
+        seed_c=seed_c,
+        cl=cl,
+        inc=inc,
+        cflags=cflags,
+        symbol=symbol,
+        target_va=target_va,
+        target_size=target_size,
+        out_dir=out_dir,
+        compare_obj=compare_obj,
+        lib=lib,
+        link=link,
+        ldflags=ldflags,
+        jobs=jobs,
+        tier=tier,
+        ignore_lint=ignore_lint,
+        dry_run=dry_run,
+        json_output=json_output,
+        target=target,
+        flag_sweep_only=True,
+    )
+
+
+@app.command(
+    "toolchains",
+    epilog="Examples:\n\n  rebrew match toolchains src/game/f.c --toolchains msvc-6.0,msvc-7.0 --json\n\nSingle-function searches compile. Batch --dry-run lists candidates; run --seed-llm --dry-run previews the LLM request.",
+)
+def toolchains(
+    seed_c: str | None = typer.Argument(
+        ..., metavar="source", help="Source file, symbol, or VA for one function"
+    ),
+    cl: str | None = typer.Option(
+        None,
+        help="CL.EXE command (auto from rebrew-project.toml)",
+        rich_help_panel="Single-Function",
+    ),
+    inc: str | None = typer.Option(
+        None, help="Include dir (auto from rebrew-project.toml)", rich_help_panel="Single-Function"
+    ),
+    cflags: str | None = typer.Option(
+        None, help="Compiler flags (auto from source)", rich_help_panel="Single-Function"
+    ),
+    symbol: str | None = typer.Option(
+        None,
+        "--symbol",
+        help="Symbol to match (auto from source)",
+        rich_help_panel="Single-Function",
+    ),
+    target_va: str | None = typer.Option(
+        None,
+        "--va",
+        help="Target VA in hex (default: from annotation)",
+        rich_help_panel="Single-Function",
+    ),
+    target_size: int | None = typer.Option(
+        None, "--size", help="Target size (auto from source)", rich_help_panel="Single-Function"
+    ),
+    out_dir: str = typer.Option(
+        "output/ga_runs",
+        "--output",
+        "-o",
+        help="Directory for search results",
+        rich_help_panel="Single-Function",
+    ),
+    compare_obj: bool = typer.Option(
+        True, help="Use object comparison instead of full link", rich_help_panel="Single-Function"
+    ),
+    lib: str | None = typer.Option(
+        None, "--lib", help="Lib dir", rich_help_panel="Single-Function"
+    ),
+    link: str | None = typer.Option(
+        None,
+        "--link",
+        help="Linker command (auto from rebrew-project.toml)",
+        rich_help_panel="Single-Function",
+    ),
+    ldflags: str | None = typer.Option(
+        None, help="Linker flags", rich_help_panel="Single-Function"
+    ),
+    jobs: int | None = typer.Option(
+        None,
+        "--jobs",
+        "-j",
+        help="Parallel jobs (default: from config)",
+        rich_help_panel="GA Tuning",
+    ),
+    tier: str = typer.Option(
+        "targeted",
+        help="Flag sweep tier: quick, targeted, normal, thorough, or full",
+        rich_help_panel="Single-Function",
+    ),
+    with_flags: bool = typer.Option(
+        False, "--flags", help="Search flags for each compiler profile"
+    ),
+    sweep_toolchains: str = typer.Option(
+        "",
+        "--toolchains",
+        help="Compile with each of these toolchains and report the best comma-separated profile names or version prefixes, e.g. msvc-6.0,6.0,win16 (a Y2K binary likely rules out 2.0/4.x — exclude them with --exclude-toolchains 2.0,4.0)",
+        rich_help_panel="Single-Function",
+    ),
+    sweep_exclude_toolchains: str = typer.Option(
+        "",
+        "--exclude-toolchains",
+        help="Compile with each toolchain except these and report the best comma-separated profile names or version prefixes, e.g. 2.0,4.0,win16",
+        rich_help_panel="Single-Function",
+    ),
+    ignore_lint: bool = typer.Option(
+        False,
+        "--ignore-lint",
+        help="Continue even if source marker lint errors exist",
+        rich_help_panel="Single-Function",
+    ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
+) -> None:
+    """Compare compiler profiles, optionally searching flags per profile."""
+    execute_search(
+        seed_c=seed_c,
+        cl=cl,
+        inc=inc,
+        cflags=cflags,
+        symbol=symbol,
+        target_va=target_va,
+        target_size=target_size,
+        out_dir=out_dir,
+        compare_obj=compare_obj,
+        lib=lib,
+        link=link,
+        ldflags=ldflags,
+        jobs=jobs,
+        tier=tier,
+        flag_sweep_toolchains=True,
+        flag_sweep_only=with_flags,
+        sweep_toolchains=sweep_toolchains,
+        sweep_exclude_toolchains=sweep_exclude_toolchains,
+        ignore_lint=ignore_lint,
+        dry_run=dry_run,
+        json_output=json_output,
+        target=target,
+    )
+
+
+@app.command(
+    "history",
+    epilog="Examples:\n\n  rebrew match history --json\n\nSingle-function searches compile. Batch --dry-run lists candidates; run --seed-llm --dry-run previews the LLM request.",
+)
+def history(
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
+) -> None:
+    """Show recorded GA run history without compiling."""
+    execute_search(json_output=json_output, target=target, ga_history=True)
+
+
 # ---------------------------------------------------------------------------
 # Build parameter resolution
 # ---------------------------------------------------------------------------
@@ -746,9 +1154,9 @@ def main(
 
 def main_entry() -> None:
     """Run the Typer CLI application."""
-    from rebrew.cli import run_standalone
+    from rebrew.cli import run_cli
 
-    run_standalone(main)
+    run_cli(app)
 
 
 if __name__ == "__main__":

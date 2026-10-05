@@ -244,8 +244,8 @@ class TestCommandWiring:
 
         from rebrew.main import app
 
-        for cmd in ("probe", "qual-sweep", "gap-trace"):
-            r = CliRunner().invoke(app, [cmd, "--help"])
+        for cmd in ("diagnose probe", "match qualifiers", "diagnose gap"):
+            r = CliRunner().invoke(app, [*cmd.split(), "--help"])
             assert r.exit_code == 0, cmd
 
     def test_residue_defaults_to_target_build_output(

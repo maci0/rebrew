@@ -2,7 +2,7 @@
 
 Edit the source, re-run, compare: the fast read-only measurement a source
 or flag probe needs.  For *why* two functions differ, use ``rebrew
-near-diag``; for *where length drifts*, ``rebrew gap-trace``.
+near-diag``; for *where length drifts*, ``rebrew diagnose gap``.
 
 Unlike ``rebrew test`` this never writes STATUS metadata — it is the
 no-side-effect ruler.  Reports the strict masked match, the generous
@@ -38,9 +38,9 @@ from rebrew.utils import floor_pct
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew probe src/game_dll/my_func.c · · Measure one function, write no metadata\n\n"
-    "  rebrew probe f.c --va 0x10009310 --size 42 · · Override VA and size\n\n"
-    '  rebrew probe f.c --cflags "/O1 /Gd" --json · Machine-readable measurements\n'
+    "  rebrew diagnose probe src/game_dll/my_func.c · · Measure one function, write no metadata\n\n"
+    "  rebrew diagnose probe f.c --va 0x10009310 --size 42 · · Override VA and size\n\n"
+    '  rebrew diagnose probe f.c --cflags "/O1 /Gd" --json · Machine-readable measurements\n'
 )
 
 

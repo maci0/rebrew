@@ -1329,7 +1329,7 @@ _METADATA_FILE_INDEX_MAX = 4
 #: live cache key.
 _METADATA_FILE_INDEX_OWNER: dict[int, dict[tuple[str, int], dict[str, Any]]] = {}
 #: The owner hit, the two eviction clears, and the two stores are one
-#: check-then-act over two parallel dicts; ``rebrew match --all --jobs N`` reaches
+#: check-then-act over two parallel dicts; ``rebrew match batch --jobs N`` reaches
 #: this from pool threads.  Held only for the dict work — the index build below
 #: walks the whole entry table and stays outside.
 _METADATA_FILE_INDEX_LOCK = threading.Lock()
@@ -1607,6 +1607,19 @@ def _finalize_entries(
             meta = entries_by_key.get((entry.module, entry.va))
             if meta:
                 apply_metadata_entry(entry, meta)
+        # Migrated function identities coexist with DATA/GLOBAL markers.
+        # A remaining data marker must not hide a marker-less function body.
+        # Live function markers for this target still take precedence over
+        # stale TOML identities; those files have not migrated yet.
+        if not any(entry.marker_type in ("FUNCTION", "LIBRARY") for entry in filtered_entries):
+            existing = {(preset_module_key(entry.module), entry.va) for entry in filtered_entries}
+            filtered_entries.extend(
+                entry
+                for entry in _annotations_from_metadata(
+                    filepath, target_name, base_dir, metadata_dir
+                )
+                if (preset_module_key(entry.module), entry.va) not in existing
+            )
     return filtered_entries
 
 

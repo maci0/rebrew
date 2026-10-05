@@ -211,7 +211,7 @@ def check_layout_freshness(pkg_dir: Path, binary_path: Path) -> dict[str, Any]:
     """Compare the stored layout fingerprint against the reference binary.
 
     The fingerprint lives in ``<pkg_dir>/layout.fingerprint`` (written by
-    ``rebrew gen-layout``); absence means the package predates fingerprints
+    ``rebrew build layout``); absence means the package predates fingerprints
     and freshness is unknown (not a failure).  A mismatch means the reference
     binary changed since the scaffolding was generated — the layout package
     must be regenerated.  A fingerprint that exists but cannot be read is a

@@ -4,8 +4,8 @@ The linked ``.data`` section is the concatenation of per-TU contributions in
 link order.  For the layout to converge to the original (byte-identity), the
 raw region must be filled byte-exact and the BSS tail must reach the
 reference's VirtualSize.  This module provides the shared machinery used by
-``rebrew data --layout-audit`` and ``rebrew data --fill-data`` (and
-``rebrew verify-placement``):
+``rebrew data layout audit`` and ``rebrew data layout fill`` (and
+``rebrew build check-data-placement``):
 
 - ``link_objects`` — the link's object files in link order (objects*.rsp);
 - ``obj_data_symbols`` — a TU's .data/.bss size + owned symbol offsets;
@@ -259,7 +259,7 @@ def obj_text_symbol_offsets(obj: Path) -> tuple[int, dict[str, int]]:
     """(obj .text size, {symbol: offset within the obj's .text}).
 
     Same shape as :func:`obj_data_symbol_offsets`, for the ``.text`` side —
-    the primitive ``rebrew text-audit`` walks per TU in link order.
+    the primitive ``rebrew build check-text-placement`` walks per TU in link order.
     """
     secname, sizes = _obj_section_sizes(obj)
     syms: dict[str, int] = {}
@@ -280,7 +280,7 @@ def data_symbols(metadata: Path, section: str | Sequence[str] | None = ".data") 
     *section* is one name, a set of names, or ``None`` for every section.  The
     default (``.data``) is the historical contract; callers that model the
     section tail pass ``(".data", ".bss")`` — BSS globals carry
-    ``section=".bss"`` (``rebrew data --set-type`` / the Ghidra import), so a
+    ``section=".bss"`` (``rebrew data set --type`` / the Ghidra import), so a
     ``.data``-only read silently drops them.
     """
     db = load_tomllib(metadata)
@@ -318,7 +318,7 @@ def layout_geometry(project_toml: Path, target: str | None = None) -> tuple[int,
     )
     if pkgs:
         return read_layout_geometry(root, pkgs[0].parent.name)
-    raise ValueError(f"no layout package under {root / 'layout'} (run rebrew gen-layout first)")
+    raise ValueError(f"no layout package under {root / 'layout'} (run rebrew build layout first)")
 
 
 def data_raw_from_binary(bin_path: Path) -> bytes:
@@ -1022,7 +1022,7 @@ def own_data_globals(
     count, else the gap to the next metadata symbol (capped at the raw end).
 
     *stub_file*'s symbols then drop out of the unresolved set on regeneration
-    (``rebrew gen-stubs``).
+    (``rebrew build symbol-stubs``).
     """
     data_base, raw_end, _section_end = layout_geometry(root / "rebrew-project.toml", target=target)
     orig = data_raw_from_binary(bin_path)

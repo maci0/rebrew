@@ -3,7 +3,7 @@
 The rules every tool in the Rebrew suite is held to.
 
 ## 1. Idempotency First
-Every tool in the Rebrew suite (`rebrew catalog`, `rebrew verify`, `rebrew init`, etc.) must be safely repeatable. Running a command twice should not yield a different outcome than running it once. There must be no destructive side-effects when re-running workflows, ensuring that humans and AI agents can safely retry operations.
+Every tool in the Rebrew suite (`rebrew coverage catalog`, `rebrew verify`, `rebrew init`, etc.) must be safely repeatable. Running a command twice should not yield a different outcome than running it once. There must be no destructive side-effects when re-running workflows, ensuring that humans and AI agents can safely retry operations.
 
 ## 2. Config-Driven Execution
 Global and project-specific settings live in `rebrew-project.toml`. Tools must rely on this central configuration rather than requiring complex, manual CLI path arguments. This creates a unified entry point and guarantees that any agent or contributor is working with the exact same context (paths, compiler flags, target binaries).
@@ -49,17 +49,17 @@ When dealing with older compilers (like MSVC6), code must map directly to compil
 Run `rebrew lint` after source/metadata changes and `rebrew test` / `rebrew verify` after changes to compilation inputs. Identity may be an inline MODULE/VA marker or migrated TOML identity; do not restore markers to pure-C migrated files. STATUS and other volatile fields are metadata-owned. Legacy SIZE/CFLAGS remain co-readable with TOML overrides; `// SOURCE: naked` stays source-owned. See the annotation and metadata references for the exact field rules.
 
 ## 15. Full-Binary Scope (Beyond `.text`)
-A faithful decompilation requires coverage of the *entire* binary, not just executable code. The `.data`, `.rdata`, and `.bss` sections contain globals, dispatch tables, vtables, string tables, and const arrays that are equally critical for correctness. Tools must inventory and cross-reference data-section artifacts (`rebrew data`), detect dispatch tables / vtables by scanning for contiguous function-pointer arrays, and flag type conflicts across files. Report file agreement, accounted `.text`, and initialized-data verdict bytes with their own denominators. Data buckets must be disjoint even for overlapping symbols. `.bss` has no file-backed bytes; show its symbol/virtual-layout progress separately.
+A faithful decompilation requires coverage of the *entire* binary, not just executable code. The `.data`, `.rdata`, and `.bss` sections contain globals, dispatch tables, vtables, string tables, and const arrays that are equally critical for correctness. Tools must inventory and cross-reference data-section artifacts (`rebrew data list`), detect dispatch tables / vtables by scanning for contiguous function-pointer arrays, and flag type conflicts across files. Report file agreement, accounted `.text`, and initialized-data verdict bytes with their own denominators. Data buckets must be disjoint even for overlapping symbols. `.bss` has no file-backed bytes; show its symbol/virtual-layout progress separately.
 
 ## 16. Automated Near-Miss Promotion
-Many `NEAR_MATCHING` functions differ from the target by only a handful of bytes: an operand swap, branch inversion, or register allocation jitter. The system must be able to batch-process these near-miss cases unattended (`rebrew match --all --near-miss --threshold N`), sorted by byte delta so the easiest wins come first. Trivial NEAR_MATCHING→RELOC promotions then happen without a person, who works only on the functions that need one.
+Many `NEAR_MATCHING` functions differ from the target by only a handful of bytes: an operand swap, branch inversion, or register allocation jitter. The system must be able to batch-process these near-miss cases unattended (`rebrew match batch --near-miss --threshold N`), sorted by byte delta so the easiest wins come first. Trivial NEAR_MATCHING→RELOC promotions then happen without a person, who works only on the functions that need one.
 
 ## 17. Source / Metadata Separation
-Volatile metadata lives in `rebrew-functions.toml` and `rebrew-data.toml` at `cfg.metadata_dir`, shared across targets. CLI writers preserve stable `(module, VA)` identity and validate against the shared schemas. Never manually edit these managed stores or write STATUS in C. Legacy function SIZE/CFLAGS remain co-readable; `rebrew migrate-markers` moves function identity and fields into TOML and leaves pure C. External field origins and verification inputs/measurement time are durable canonical facts, separate from ordinary edit stamps and regenerable coverage/cache files.
+Volatile metadata lives in `rebrew-functions.toml` and `rebrew-data.toml` at `cfg.metadata_dir`, shared across targets. CLI writers preserve stable `(module, VA)` identity and validate against the shared schemas. Never manually edit these managed stores or write STATUS in C. Legacy function SIZE/CFLAGS remain co-readable; `rebrew source migrate-markers` moves function identity and fields into TOML and leaves pure C. External field origins and verification inputs/measurement time are durable canonical facts, separate from ordinary edit stamps and regenerable coverage/cache files.
 
 ## Atomicity
 
-Source-file rewrites (`rebrew lint --fix`, `rebrew skeleton`, `rebrew rename`,
+Source-file rewrites (`rebrew lint --fix`, `rebrew skeleton`, `rebrew source rename`,
 …) use atomic file replacement (`atomic_write_text`). Tool-owned metadata
 (`rebrew-functions.toml`, `rebrew-data.toml`, BinSync state TOML) uses
 `atomic_write_locked` (chmod writable, atomic replace, then mode 0444), so a

@@ -113,7 +113,7 @@ def project_toml_lock(root: Path | str) -> Iterator[Path]:
     """Hold the ``rebrew-project.toml`` read-modify-write lock; yield its path.
 
     The project document is a store like any other, and its writers edit one
-    key each: ``rebrew cfg add-target`` adds a ``[targets]`` table, a splat
+    key each: ``rebrew cfg target add`` adds a ``[targets]`` table, a splat
     import patches ``[targets.<name>].arch``, ``lint --fix`` drops a redundant
     ``cflags_presets`` entry.  Each parses the whole document, mutates its own
     keys, and writes the file back.  Two of those interleaving (an import in one
@@ -535,11 +535,11 @@ class ProjectConfig:
     # (`cflags = ""` silently compiled with /O2 /Gd.)
     cflags_explicit: bool = False
     cflags_presets: dict[str, str] = field(default_factory=dict)
-    """Per-module compiler flag overrides (``rebrew cfg set-cflags``).
+    """Per-module compiler flag overrides (``rebrew cfg module set-cflags``).
 
     ``[compiler.cflags_presets]`` (global) merged with
     ``[targets.X.compiler.cflags_presets]`` (per-key, target wins).  Used by
-    ``rebrew match``/``diff`` as the CFLAGS fallback for functions whose
+    ``rebrew match run``/``diff`` as the CFLAGS fallback for functions whose
     module has a preset and whose per-function metadata has no CFLAGS.
     """
     base_cflags: str = "/nologo /c /MT"  # Always-on flags prepended to every compile
@@ -676,8 +676,8 @@ class ProjectConfig:
     # link spec (the archive to link, e.g. "LIBCMT.lib",
     # "references/dxsdk8/lib/d3dx8.lib"; "" = identified external code with
     # no separate archive).  Rows attributed to these modules leave the
-    # progress accounting, `rebrew lib-match` ingests the archives by
-    # default, and `rebrew cmake-sources` emits them as REBREW_EXTERNAL_LIBS
+    # progress accounting, `rebrew library match` ingests the archives by
+    # default, and `rebrew build cmake-sources` emits them as REBREW_EXTERNAL_LIBS
     # so the build links the stock archive.
     external_libs: dict[str, str] = field(default_factory=dict)
     #: Inclusive ``(lo, hi)`` address bands the target's binary fills from a
@@ -1983,7 +1983,7 @@ def _merge_cflags_presets(
 ) -> dict[str, str]:
     """Merge per-module cflags presets: global, overridden per-key by target.
 
-    ``rebrew cfg set-cflags MODULE FLAGS`` writes a global
+    ``rebrew cfg module set-cflags MODULE FLAGS`` writes a global
     ``[compiler.cflags_presets]``; ``--target X`` writes
     ``[targets.X.compiler.cflags_presets]``.  The target's presets win for
     the same module key, matching the documented "per-target presets
@@ -2012,7 +2012,7 @@ def _merge_cflags_presets(
             _config_warn(
                 f"[{where}].cflags_presets is misplaced — move it to "
                 f"[{where}.compiler.cflags_presets] (honoured for now; "
-                "`rebrew cfg set-cflags --target` writes the canonical path)"
+                "`rebrew cfg module set-cflags --target` writes the canonical path)"
             )
     return merged
 
@@ -2180,7 +2180,7 @@ KNOWN_TARGET_KEYS = {
     "ghidra_backend",
     "binsync_state_dir",
     "inventory_file",
-    "origins",  # written by `rebrew cfg add-target`; editor/UI only — NOT
+    "origins",  # written by `rebrew cfg target add`; editor/UI only — NOT
     # used for annotation filtering (module filters come from the
     # annotations themselves).
     "cflags_presets",  # LEGACY misplaced table — loader still merges it with a
@@ -2189,7 +2189,7 @@ KNOWN_TARGET_KEYS = {
     # "unrecognized keys" warning (and so a rewriter does not drop it).
     "raw_link",  # pre-postlink image. A missing file must not fall back to
     # the postlinked build/<target>. An unrecognised key is one a rewriter drops.
-    "layout",  # printed by `rebrew gen-layout --layout-config`: the position-alignment
+    "layout",  # printed by `rebrew build layout --layout-config`: the position-alignment
     # package (image base, section geometry, exports, imports).  Not read by
     # this loader -- the layout tooling parses it directly -- but it must be
     # recognised here: a target carrying it warned "unrecognized keys:
@@ -2210,7 +2210,7 @@ _KNOWN_COMPILER_KEYS = {
     "recompile_url",  # remote compile backend (or REBREW_RECOMPILE_URL env)
     "recompile_emit_assembly",  # training-data tap for remote compiles
     "recompile_retries",  # re-attempts of a retryable remote-compile failure
-    "cflags_presets",  # written by `rebrew cfg set-cflags` without --target (per-origin compiler flag overrides)
+    "cflags_presets",  # written by `rebrew cfg module set-cflags` without --target (per-origin compiler flag overrides)
 }
 
 KNOWN_PROJECT_KEYS = {
@@ -2410,7 +2410,7 @@ def load_config(
     # A typo'd profile fails too: substituting msvc-6.0 would compile with the
     # wrong toolchain and let `rebrew test` demote earned STATUS.  A name is
     # valid when it is a registered toolchain (plugins add toolchains via
-    # rebrew.registry without editing config.py).  `rebrew cfg set-compiler`
+    # rebrew.registry without editing config.py).  `rebrew cfg target set-compiler`
     # edits the TOML without loading it, so a bad profile stays repairable.
     from rebrew.toolchain import TOOLCHAINS
 

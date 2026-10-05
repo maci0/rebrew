@@ -52,7 +52,7 @@ class TestHintFor:
         insns = _insns("ff 24 85 d0 13 03 01")
         hint = _hint_for(insns, 0) or ""
         assert "switch dispatch" in hint
-        assert "rebrew switch" in hint
+        assert "rebrew binary switches" in hint
 
     def test_plain_jmp_no_hint(self) -> None:
         # jmp 0x1009c76 — direct tail call, not a dispatch

@@ -24,7 +24,7 @@ reference's layout, byte-for-byte, without re-linking:
 
 The reference is supplied as **text-only layout metadata** (see
 ``rebrew.layout_meta`` — the ``layout/<target>/`` package written by
-``rebrew gen-layout``), never as a binary snapshot or the original DLL, so
+``rebrew build layout``), never as a binary snapshot or the original DLL, so
 the fixers run on a public checkout with zero binary blobs at rest.  A raw
 reference binary may still be passed directly for development/tests; it is
 reduced to the same metadata in memory.
@@ -47,7 +47,7 @@ Architecture notes:
   call rewrite.
 
 Usage:
-    rebrew postlink <built.dll> [<reference.dll> | --layout layout/<target>]
+    rebrew build postlink <built.dll> [<reference.dll> | --layout layout/<target>]
                    [--fix imports|data|pe-metadata|all]
 """
 
@@ -481,7 +481,7 @@ def _fix_data(built: bytearray, meta: LayoutMetadata, info_b: BinaryInfo) -> Fix
     # bytes (a stub DllMain `6a 01 58 c2 0c 00` plus ~100 `ff 25` IAT thunks
     # the original build dead-stripped) because its link overshoots by 0x282.
     # guild-rebrew's scripts/postlink_residual.py normalized that span for its
-    # own measurement while `rebrew postlink` shipped it -- a measure-vs-ship
+    # own measurement while `rebrew build postlink` shipped it -- a measure-vs-ship
     # divergence.
     #
     # Guarded three ways, because a correct build must not be touched: the
@@ -858,9 +858,9 @@ def run_fixers(
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew postlink build/game.exe ref/game.exe · Normalize the built layout\n\n"
-    "  rebrew postlink build/game.exe --dry-run · · Report the fixes, apply none\n\n"
-    "  rebrew postlink build/game.exe --fix headers,iat · · Run only these fixers\n"
+    "  rebrew build postlink build/game.exe ref/game.exe · Normalize the built layout\n\n"
+    "  rebrew build postlink build/game.exe --dry-run · · Report the fixes, apply none\n\n"
+    "  rebrew build postlink build/game.exe --fix headers,iat · · Run only these fixers\n"
 )
 
 
@@ -885,7 +885,7 @@ def main(
         None,
         "--layout",
         help="Text-only layout package directory (layout/<target>/) from "
-        "'rebrew gen-layout' — reconstruct the reference from metadata instead "
+        "'rebrew build layout' — reconstruct the reference from metadata instead "
         "of a reference binary",
     ),
     fix: str = typer.Option(
@@ -903,7 +903,7 @@ def main(
 
     Run after linking, when the decompiled content is correct but the
     linker's placement (import records, .data COMDATs, PE stamps) differs
-    from the original build.  See ``rebrew postlink --help`` and
+    from the original build.  See ``rebrew build postlink --help`` and
     ``docs/POSTLINK.md`` for what each fixer touches.
 
     The reference comes from ``--layout`` (a text-only layout package — no
@@ -915,7 +915,7 @@ def main(
         if not layout.exists() or not layout.is_dir():
             error_exit(
                 f"layout package not found: {layout} (expected layout/<target>/ "
-                "with header.hex, data.hex, ... — run 'rebrew gen-layout')",
+                "with header.hex, data.hex, ... — run 'rebrew build layout')",
                 json_mode=json_output,
                 code=EXIT_ERROR,
             )

@@ -8,7 +8,7 @@ Typer callback is a thin wrapper that resolves config, validates CLI-only
 option combinations, and prints the result.  Scan/registry/grid data comes
 from :func:`rebrew.catalog.pipeline.build_catalog_data`.
 
-The catalog writes no coverage document itself: ``rebrew build-db`` calls
+The catalog writes no coverage document itself: ``rebrew coverage build`` calls
 :func:`rebrew.catalog.pipeline.build_catalog_data` and renders
 ``db/coverage-<target>.toml`` from the returned dict.
 ``--json`` emits a machine-readable summary to stdout, like all other tools.
@@ -44,16 +44,16 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew catalog · · · · · · · · · · · · Validate and summarize (default)\n\n"
-        "  rebrew catalog --json · · · · · · · · · Machine-readable summary to stdout\n\n"
-        "  rebrew catalog -t mygame · · · · · · · · Catalog a specific target\n\n"
+        "  rebrew coverage catalog · · · · · · · · · · · · Validate and summarize (default)\n\n"
+        "  rebrew coverage catalog --json · · · · · · · · · Machine-readable summary to stdout\n\n"
+        "  rebrew coverage catalog -t mygame · · · · · · · · Catalog a specific target\n\n"
         "[bold]What it does:[/bold]\n\n"
         "  1. Scans reversed_dir for .c files with FUNCTION annotations\n\n"
         "  2. Cross-references with function_structure.json\n\n"
         "  3. Builds function registry merging all detection sources\n\n"
         "  4. Generates cell-level coverage data for the .text section\n\n"
         "  5. Outputs structured data\n\n"
-        "[dim]Run 'rebrew build-db' to write db/coverage-<target>.toml.[/dim]"
+        "[dim]Run 'rebrew coverage build' to write db/coverage-<target>.toml.[/dim]"
     ),
 )
 
@@ -68,12 +68,12 @@ def run_catalog(
 ) -> dict[str, Any]:
     """Parse annotations, build the catalog and coverage data, and write the artifacts.
 
-    The same pipeline the ``rebrew catalog`` callback runs: scan
+    The same pipeline the ``rebrew coverage catalog`` callback runs: scan
     ``reversed_dir``, build the function registry, print the human summary,
     and write the requested artifacts (``ghidra_data_labels.json``,
     ``--fix-sizes`` metadata updates).  With every flag left false the
     default action set applies (summary), matching a bare
-    ``rebrew catalog`` invocation.
+    ``rebrew coverage catalog`` invocation.
 
     Returns the object the CLI prints under ``--json``.
 

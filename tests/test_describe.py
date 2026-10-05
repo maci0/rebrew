@@ -1,4 +1,4 @@
-"""Tests for rebrew describe — per-function recon dossier.
+"""Tests for rebrew binary function — per-function recon dossier.
 
 Builds a synthetic PE (via ``bin_util.make_pe``) whose .text contains a probe
 function with a direct call, a string push, a string mov, and an IAT call,
@@ -180,10 +180,10 @@ def _make_binary(tmp_path: Path) -> int:
 
 
 class TestDescribeCli:
-    """End-to-end ``rebrew describe`` over a synthetic project."""
+    """End-to-end ``rebrew binary function`` over a synthetic project."""
 
     def _invoke(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *args: str) -> Any:
-        """Build the project + binary and run ``rebrew describe`` from tmp_path."""
+        """Build the project + binary and run ``rebrew binary function`` from tmp_path."""
         _make_project(tmp_path)
         _make_binary(tmp_path)
         monkeypatch.chdir(tmp_path)

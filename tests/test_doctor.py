@@ -445,7 +445,7 @@ class TestCheckFlirtSigs:
         result = check_flirt_sigs(self._cfg(tmp_path))
         assert result.status == _WARN
         assert "not found" in result.message
-        assert "gen-flirt-pat" in result.fix
+        assert "rebrew library signatures" in result.fix
 
     def test_empty_dir_warns(self, tmp_path: Path) -> None:
         from rebrew.doctor import check_flirt_sigs
@@ -477,7 +477,7 @@ class TestCheckFlirtSigs:
         assert result.status == _WARN
         assert "problem file(s)" in result.message
         assert "broken.pat" in result.fix
-        assert "gen-flirt-pat" in result.fix
+        assert "rebrew library signatures" in result.fix
 
     def test_non_utf8_pat_warns(self, tmp_path: Path) -> None:
         from rebrew.doctor import check_flirt_sigs
@@ -789,7 +789,7 @@ class TestOptLevel:
         cfg = self._cfg(tmp_path, cflags="/O2 /Gd")
         res = self.check(cfg)
         assert res.status == _WARN
-        assert "flag-sweep" in (res.fix or "")
+        assert "rebrew match flags" in (res.fix or "")
 
     def test_static_libcmt_does_not_make_an_o2_program_mixed(
         self, tmp_path: Path, monkeypatch: object
@@ -1077,7 +1077,7 @@ class TestCheckLayoutPackage:
         result = check_layout_package(_make_cfg(tmp_path))  # type: ignore[arg-type]
         assert result.status == "warn"
         assert "rebrew-layout.toml" in result.message
-        assert "rebrew gen-layout" in (result.fix or "")
+        assert "rebrew build layout" in (result.fix or "")
 
     def test_present_passes(self, tmp_path: Path) -> None:
         from rebrew.doctor import check_layout_package

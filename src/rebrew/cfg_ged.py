@@ -21,7 +21,7 @@ capstone, no angr dependency.  Best-effort: garbage/undecodable input yields
 
 ``build_cfg_view`` exposes the same segmentation for rendering: absolute
 block VAs, byte spans, first/last instruction text and back-edge flags,
-capped at ``MAX_CFG_BLOCKS_PER_FUNCTION`` (consumed by ``rebrew asm
+capped at ``MAX_CFG_BLOCKS_PER_FUNCTION`` (consumed by ``rebrew binary asm show
 --format cfg``).
 """
 

@@ -96,10 +96,10 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew rename old_func new_func · · · · · · Rename function\n\n"
-        "  rebrew rename src/game/old.c new_func · · · Rename by file path\n\n"
-        "  rebrew rename 0x10003da0 new_func · · · · · Rename by VA\n\n"
-        "  rebrew rename old_func new_func --file new.c  Custom filename\n\n"
+        "  rebrew source rename old_func new_func · · · · · · Rename function\n\n"
+        "  rebrew source rename src/game/old.c new_func · · · Rename by file path\n\n"
+        "  rebrew source rename 0x10003da0 new_func · · · · · Rename by VA\n\n"
+        "  rebrew source rename old_func new_func --file new.c  Custom filename\n\n"
         "[dim]Updates FUNCTION markers, function definitions, extern "
         "declarations, and optionally renames the source file.[/dim]\n\n"
         "[dim]Note: macros and string literals are NOT rewritten — "
@@ -390,7 +390,7 @@ def _rename_data(
     if not old_name:
         error_exit(
             f"DATA/GLOBAL 0x{va:x} has no name in rebrew-data.toml — "
-            "name it first (rebrew data --json), then rename.",
+            "name it first (rebrew data list --json), then rename.",
             json_mode=json_output,
         )
 

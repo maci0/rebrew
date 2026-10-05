@@ -1,4 +1,4 @@
-"""Tests for rebrew identify-library — the combined library-identification pass."""
+"""Tests for rebrew library identify — the combined library-identification pass."""
 
 from __future__ import annotations
 
@@ -333,7 +333,7 @@ timeout = 60
             encoding="utf-8",
         )
         monkeypatch.chdir(root)
-        result = CliRunner().invoke(app, ["identify-library", "--json"])
+        result = CliRunner().invoke(app, ["library", "identify", "--json"])
         assert result.exit_code == 0, result.output
         payload = json.loads(result.stdout)  # pure JSON
         assert payload["identified"] == 0
@@ -356,7 +356,7 @@ timeout = 60
             ],
         )
         monkeypatch.setattr("rebrew.identify_library._existing_vas", lambda cfg: set())
-        result = CliRunner().invoke(app, ["identify-library", "--json"])
+        result = CliRunner().invoke(app, ["library", "identify", "--json"])
         assert result.exit_code == 0, result.output
         payload = json.loads(result.stdout)  # pure JSON, even after a write
         assert payload["to_write"] == 1
@@ -379,7 +379,7 @@ timeout = 60
             ],
         )
         monkeypatch.setattr("rebrew.identify_library._existing_vas", lambda cfg: set())
-        result = CliRunner().invoke(app, ["identify-library", "--dry-run"])
+        result = CliRunner().invoke(app, ["library", "identify", "--dry-run"])
         assert result.exit_code == 0
         assert "_malloc" in result.output
         assert "to write" in result.output

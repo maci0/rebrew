@@ -3,7 +3,7 @@
 Regression for the tooling-sweep round: ``extract_layout`` used bare
 ``next()`` over the section table, so a PE missing one of
 .text/.data/.rdata/.reloc (e.g. notepad.exe — relocations stripped, only
-.text/.data/.rsrc present) crashed ``rebrew gen-layout`` with an
+.text/.data/.rsrc present) crashed ``rebrew build layout`` with an
 unhandled ``StopIteration`` traceback instead of a clean error.
 """
 

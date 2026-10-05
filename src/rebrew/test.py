@@ -106,7 +106,7 @@ def _cmake_pin_for(source: str | Path, cfg: ProjectConfig) -> tuple[str | None, 
 def _pin_overrides_metadata(pin_flags: str, metadata_flags: str) -> bool:
     """True when the build compiles the file with flags the metadata did not produce.
 
-    ``rebrew cmake-flags`` writes the metadata's per-file flags into the CMake
+    ``rebrew build cmake-flags`` writes the metadata's per-file flags into the CMake
     build, so a pin equal to the metadata-resolved flags is the metadata's own
     value and a new ``--cflags`` reaches the build on the next configure.
     Defines are compared out: ``cmake-flags`` drops them from the flags it
@@ -337,7 +337,7 @@ def main(
         None,
         "--context",
         help=(
-            "C declarations to compile with the source (e.g. 'rebrew context' output); "
+            "C declarations to compile with the source (e.g. 'rebrew export context' output); "
             "the result records the context hash it was earned under"
         ),
     ),
@@ -438,7 +438,7 @@ def main(
     cfg = require_config(target=target, json_mode=json_output)
 
     # The optional compile context: a file of types/prototypes compiled with
-    # the source (typically `rebrew context --output ctx.c`).  It is a compile
+    # the source (typically `rebrew export context --output ctx.c`).  It is a compile
     # input (merged into the compile unit and hashed into the result), so a
     # missing file fails loud instead of silently compiling without it.
     from rebrew.compile_context import load_compile_context
@@ -452,6 +452,13 @@ def main(
     # `rebrew diff`/`rebrew prove`.  An unresolvable argument exits here with
     # one wording instead of the downstream "Could not derive symbol".
     if source is not None:
+        if va is None and source.lower().startswith("0x"):
+            try:
+                int(source, 16)
+            except ValueError:
+                pass
+            else:
+                va = source
         source = str(require_source_arg(cfg, source, json_mode=json_output))
 
     if watch and all_sources:
@@ -812,7 +819,7 @@ def _print_compare_result(cmp: CompareResult, target_bytes: bytes) -> None:
 
     color = STATUS_COLORS.get(cmp.status, "red")
     near_hint = (
-        " — run 'rebrew match <file> --flag-sweep-only' to try flag variants"
+        " — run 'rebrew match flags <file>' to try flag variants"
         if cmp.status == "NEAR_MATCHING"
         else ""
     )
@@ -859,13 +866,20 @@ def _print_compare_result(cmp: CompareResult, target_bytes: bytes) -> None:
 def _status_skip_for_source(cfg: ProjectConfig, source: str, no_promote: bool) -> tuple[bool, str]:
     """Return ``(no_promote, reason)`` for a source path.
 
-    A source outside the project's metadata tree is never promoted: a
-    metadata write would land outside the project, so ``no_promote`` is
-    forced and the reason is reported in the JSON payload.
+    Sources outside the metadata tree are promoted only when an explicit
+    compiled-library identity binds them inside the project. Unbound external
+    files remain measure-only, and the reason is reported in JSON.
     """
     source_path = Path(source).resolve()
     if not source_path.is_relative_to(cfg.metadata_dir.resolve()):
-        return True, "file outside project"
+        bound_library = source_path.is_relative_to(cfg.root.resolve()) and any(
+            entry.marker_type == "LIBRARY" and not entry.is_data
+            for entry in parse_c_file_multi(
+                source_path, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir
+            )
+        )
+        if not bound_library:
+            return True, "file outside project"
     return no_promote, ""
 
 
@@ -899,6 +913,7 @@ def _lint_preamble(
     lint_annos = parse_c_file_multi(
         Path(source), target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir
     )
+    lint_annos = [anno for anno in lint_annos if not anno.is_data]
     if size is not None:
         for anno in lint_annos:
             anno.size = size
@@ -1064,7 +1079,7 @@ def _run_test_impl(
                     if int(f["va"]) == va_int and int(f.get("size") or 0) > 0:
                         hint = (
                             f" (the inventory has SIZE {int(f['size'])} for this VA — "
-                            "pass `--size`, or backfill with `rebrew catalog --fix-sizes`)"
+                            "pass `--size`, or backfill with `rebrew coverage catalog --fix-sizes`)"
                         )
                         break
             except (ValueError, OSError, KeyError, TypeError) as exc:
@@ -2075,6 +2090,7 @@ def emit_test_batch(
                     dry_run=False,
                     compile_context=context,
                     provenance="test",
+                    library_providers=batch.library_providers,
                 )
             )
         else:
@@ -2102,6 +2118,12 @@ def emit_test_batch(
                 dry_run=False,
                 compile_context=context,
                 provenance="test",
+                library_providers=batch.library_providers,
+                library_total=sum(int(r["va"], 16) in batch.library_vas for r in batch.results),
+                library_passed=sum(
+                    r.get("passed", False) and int(r["va"], 16) in batch.library_vas
+                    for r in batch.results
+                ),
             )
         )
     else:

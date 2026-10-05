@@ -73,7 +73,7 @@ All rebrew-specific keys use unique names that reccmp's parser safely ignores, s
 ## Function Annotations
 
 Unmigrated `.c` files containing reversed functions carry a MODULE/VA marker.
-`rebrew migrate-markers` moves function identity and fields into TOML and leaves
+`rebrew source migrate-markers` moves function identity and fields into TOML and leaves
 pure C; migrated files must not regain marker blocks. The examples below show
 the unmigrated format:
 
@@ -160,10 +160,10 @@ support TU only when nothing in the reversed tree can carry it.
 | `STATUS` | Metadata-owned | n/a | Match quality (see below); lives in rebrew-functions.toml, never parsed inline |
 | `SIZE` | Co-read (inline + override) | n/a | Function size in bytes from the original binary; `// SIZE:` is the reccmp contract in the `.c`, TOML `SIZE` is an override (W019 warns only on disagreement) |
 | `CFLAGS` | Co-read (inline + override) | W018 | Per-function compiler flag override, read both inline and from metadata. Falls back to the module's `[compiler].cflags_presets` entry, then `[compiler].cflags` (`/O2 /Gd` for MSVC profiles when unset); `base_cflags` is always prepended, never the fallback. Only needed for functions compiled with non-default flags (e.g. a static lib linked with `/O1` into an `/O2` binary). |
-| `SOURCE` | Conditional | W006 | **Required for library modules**: reference file (e.g. `SBHEAP.C:195`, `deflate.c`). Use `rebrew crt-match --fix-source` to auto-populate. |
+| `SOURCE` | Conditional | W006 | **Required for library modules**: reference file (e.g. `SBHEAP.C:195`, `deflate.c`). Use `rebrew library crt-match --fix-source` to auto-populate. |
 | `BLOCKER` | Conditional | W005 | **Required for STUB**: explain why the function doesn't match yet. Lives in `rebrew-functions.toml` metadata; set via `rebrew blocker set <file|0xVA> "<reason>"` or auto-written by `rebrew diff --fix-blocker`: never hand-edit the TOML. |
 | `NOTE` | Optional | n/a | Freeform notes (e.g. `NOTE: uses SSE2 intrinsics`): lives in metadata |
-| `GHIDRA` | Optional | n/a | The Ghidra name, added by `rebrew sync --pull --accept-local` to prevent conflict loops: lives in metadata |
+| `GHIDRA` | Optional | n/a | The Ghidra name, added by `rebrew sync pull --accept-local` to prevent conflict loops: lives in metadata |
 | `STRUCT` | Optional | n/a | Linked structs for this file |
 | `CALLERS` | Optional | n/a | Incoming cross-references |
 | `GLOBALS` | Optional | n/a | Comma-separated list of globals referenced (e.g. `g_counter, g_state`) |
@@ -174,7 +174,7 @@ support TU only when nothing in the reversed tree can carry it.
 > [!CAUTION]
 > **Never manually edit `rebrew-functions.toml`.** This metadata file stores volatile metadata
 > (STATUS, CFLAGS, SIZE, BLOCKER, NOTE, GHIDRA, etc.) and is managed exclusively by
-> Rebrew CLI tools (`rebrew blocker`, `rebrew test`, `rebrew match`, `rebrew diff --fix-blocker`, `rebrew near-diag --fix-blocker`, `rebrew document-unmatched`, `rebrew sync`, etc.).
+> Rebrew CLI tools (`rebrew blocker`, `rebrew test`, `rebrew match run`, `rebrew diff --fix-blocker`, `rebrew diagnose near --fix-blocker`, `rebrew source document-unmatched`, `rebrew sync push`, etc.).
 > Every BLOCKER/BLOCKER_DELTA write must go through those CLIs (or the `rebrew.metadata` API).
 > Manual edits bypass the write-lock/atomicity and will be silently lost or may corrupt the file.
 
@@ -222,7 +222,7 @@ status.
 
 A `NEAR_MATCHING` whose **entire** byte delta is register allocation is
 labeled an *effective match* (reccmp's 100% effective-match case): `rebrew
-verify` appends the note to the function's message, and `rebrew near-diag`
+verify` appends the note to the function's message, and `rebrew diagnose near`
 returns the `EFFECTIVE` verdict.  Same instructions, different registers,
 **not byte-identical**; `rebrew prove` establishes PROVEN, or register-nudging
 C tweaks (reorder expressions, swap loop counters) chase byte-identity.
@@ -250,7 +250,7 @@ overlay rules, in order:
 `rebrew status` surfaces this explicitly: the terminal output prints how many
 functions the cache overrode, and how many are stuck on `MISSING_SIZE`
 (metadata `SIZE` missing → verify could not extract the function; set `SIZE`
-via `rebrew catalog --fix-sizes` or the inline `// SIZE:` marker and
+via `rebrew coverage catalog --fix-sizes` or the inline `// SIZE:` marker and
 re-verify).  JSON output carries the same numbers
 under `verify_cache: {overrides, missing_size, effective_matches}` (present
 only when a verify cache exists).
@@ -376,7 +376,7 @@ section = ".bss"
 | `note` | `rebrew-data.toml` | Optional | Description of the data item's purpose |
 
 > [!NOTE]
-> `DATA` markers are recognized and tracked as first-class citizens by `rebrew data` and `rebrew catalog`.
+> `DATA` markers are recognized and tracked as first-class citizens by `rebrew data list` and `rebrew coverage catalog`.
 > The `rebrew-data.toml` metadata file is created and updated automatically by rebrew tools.
 > **Never edit it manually.**
 
@@ -490,11 +490,11 @@ Warnings indicate style issues, missing optional fields, or format migration opp
 | W025 | Opening brace style | Opening brace style does not match project configuration (`lint_brace_style` in config) |
 | W026 | Line indent style | Line indent style does not match project configuration (`lint_indent_style` in config) |
 | W027 | Line too long | Line exceeds `lint_max_line_length` characters |
-| W028 | Stale annotation VA | FUNCTION/STUB marker VA has no function in the current discovery inventory (`function_structure.json`, removed/shifted) or points inside another function's span (moved/merged): re-annotate or refresh with `rebrew discover-functions`; LIBRARY/DATA/GLOBAL markers excluded |
+| W028 | Stale annotation VA | FUNCTION/STUB marker VA has no function in the current discovery inventory (`function_structure.json`, removed/shifted) or points inside another function's span (moved/merged): re-annotate or refresh with `rebrew binary functions`; LIBRARY/DATA/GLOBAL markers excluded |
 | W029 | Redundant cflags | Per-function `cflags` in `rebrew-functions.toml` or `compiler.cflags_presets.<MODULE>` that only repeat the inherited value (`resolve_cflags` ladder: function → module preset → project `compiler.cflags`); flagged by `rebrew lint` (project-level `check_redundant_cflags` moved from `rebrew doctor`). `rebrew lint --fix` drops the redundant field; the fallback chain already supplies the same flags |
 | W030 | Markers out of VA order | A file's FUNCTION/STUB markers for one module do not ascend by VA. The linker lays out a translation unit's functions in source order, so a definition above a lower-VA one links at the wrong address and displaces every function between them. Move the definition; keep any `#pragma optimize` pair around the function it scopes. Markers stacked above one body (identical copies at several VAs) count as one definition at their lowest VA. Each module is checked on its own |
 | W031 | Metadata store problem | A `rebrew-functions.toml` / `rebrew-data.toml` entry a reader will not honour: an unknown field (dropped silently, so a typo'd `blocked` looks like a blocker that never applied), a STATUS outside the store's vocabulary, half an `updated_by`/`updated_at` pair, a provenance tag outside `rebrew.metadata.PROVENANCE_TAGS`, a stray top-level key that is neither `format` nor a `MODULE.0xVA` entry, or a missing / foreign top-level `format` stamp |
-| W032 | Coverage store hygiene | An artifact from a store rebrew no longer writes: `db/coverage.db` (SQLite), `db/data_<target>.json` (catalog grid), `db/*.csv`, or a `db/coverage-<target>.toml` the dashboards cannot serve: unreadable to the loader (foreign `version`, malformed TOML) or one whose `target` key disagrees with its filename, so that target answers with another's data. Re-run `rebrew build-db` and delete the old artifacts |
+| W032 | Coverage store hygiene | An artifact from a store rebrew no longer writes: `db/coverage.db` (SQLite), `db/data_<target>.json` (catalog grid), `db/*.csv`, or a `db/coverage-<target>.toml` the dashboards cannot serve: unreadable to the loader (foreign `version`, malformed TOML) or one whose `target` key disagrees with its filename, so that target answers with another's data. Re-run `rebrew coverage build` and delete the old artifacts |
 | W033 | Agent scaffold drift | `AGENTS.md`, `PRINCIPLES.md` or `.agents/skills/**` no longer matches the installed rebrew's packaged sources, so an agent follows workflow instructions for a version that is not running. Warn-only; fix with `rebrew init --refresh-agents` (it writes only differing files and prunes a skill the packaged tree no longer ships). `AGENTS.md`'s own comparison is profile-rendered: `rebrew init --refresh-agents --check` reports it in full |
 | W034 | `file` identity is not joinable | A stored `file` in `rebrew-functions.toml` is absolute or contains a `..` segment, so `verify`/`rename`/BinSync would join it to a path outside the checkout. Writers refuse it (`rebrew.metadata.validate_identity_file`); this reports rows written before the gate |
 | W035 | Module belongs to no target | A metadata row's `module` matches no project marker, target marker, or declared library module, so `status`, `todo` and the dashboards (all of which filter by module) cannot show it. Typical after a target rename left rows behind |
@@ -705,7 +705,7 @@ Running `rebrew test --target SERVER_V2 getenv.c` will compile and diff against 
 
 A single `.c` file may contain **multiple `// FUNCTION:` annotation blocks**, each anchored to its own VA. Per-block STATUS etc. live in `rebrew-functions.toml` (inline `// STATUS:` is not parsed): the block's identity is the marker line. This enables grouping related functions together (e.g., all CRT environment functions in one file).
 
-Use `rebrew split` to break a multi-function file into individual files, or `rebrew merge` to combine single-function files into one. Use `rebrew split --va 0xVA` to extract a single function for focused iteration (creates `<stem>_c/name.c`; e.g. `sim.c` → `sim_c/`, and removes the block from the original). Both tools preserve annotation blocks and shared preamble.
+Use `rebrew source split` to break a multi-function file into individual files, or `rebrew source merge` to combine single-function files into one. Use `rebrew source split --va 0xVA` to extract a single function for focused iteration (creates `<stem>_c/name.c`; e.g. `sim.c` → `sim_c/`, and removes the block from the original). Both tools preserve annotation blocks and shared preamble.
 
 ### Format
 

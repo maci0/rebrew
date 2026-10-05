@@ -84,10 +84,10 @@ def _make_project(tmp_path: Path, files: dict[str, str]) -> Path:
 
 
 def _invoke(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *extra_args: str) -> Any:
-    """Run `rebrew binsync-export <outdir> [extra_args]` from tmp_path."""
+    """Run `rebrew binsync export <outdir> [extra_args]` from tmp_path."""
     outdir = tmp_path / "binsync_out"
     monkeypatch.chdir(tmp_path)
-    result = runner.invoke(app, ["binsync-export", str(outdir), *extra_args])
+    result = runner.invoke(app, ["binsync", "export", str(outdir), *extra_args])
     return result, outdir
 
 
@@ -584,7 +584,7 @@ reversed_dir = "src/server"
         )
         outdir = tmp_path / "binsync_out"
         monkeypatch.chdir(tmp_path)
-        result = runner.invoke(app, ["binsync-export", str(outdir), "--json"])
+        result = runner.invoke(app, ["binsync", "export", str(outdir), "--json"])
         assert result.exit_code == 0, result.output
         assert (outdir / "functions" / "10001000.toml").exists()
         assert (outdir / "functions" / "10002000.toml").exists()
@@ -639,7 +639,7 @@ reversed_dir = "src/server"
         )
         outdir = tmp_path / "binsync_out"
         monkeypatch.chdir(tmp_path)
-        result = runner.invoke(app, ["binsync-export", str(outdir), "--json"])
+        result = runner.invoke(app, ["binsync", "export", str(outdir), "--json"])
         assert result.exit_code == 0, result.output
         assert (outdir / "functions" / "10001000.toml").exists()
         assert (outdir / "functions" / "10001100.toml").exists()
@@ -678,7 +678,7 @@ reversed_dir = "src/server"
         )
         outdir = tmp_path / "binsync_out_clean"
         monkeypatch.chdir(tmp_path)
-        r = runner.invoke(app, ["binsync-export", str(outdir), "--json"])
+        r = runner.invoke(app, ["binsync", "export", str(outdir), "--json"])
         assert r.exit_code == 0, r.output
         # Orphan a file
         (outdir / "functions" / "99999999.toml").write_text('[info]\nname = "orphan"\naddr = 1\n')
@@ -687,7 +687,7 @@ reversed_dir = "src/server"
             _json.dumps([{"va": 0x10001000, "size": 10, "name": "foo"}]),
             encoding="utf-8",
         )
-        r2 = runner.invoke(app, ["binsync-export", str(outdir), "--clean", "--json"])
+        r2 = runner.invoke(app, ["binsync", "export", str(outdir), "--clean", "--json"])
         assert r2.exit_code == 0, r2.output
         import json as _j
 
@@ -719,7 +719,7 @@ reversed_dir = "src/server"
         )
         outdir = tmp_path / "binsync_out2"
         monkeypatch.chdir(tmp_path)
-        result = runner.invoke(app, ["binsync-export", str(outdir), "--json"])
+        result = runner.invoke(app, ["binsync", "export", str(outdir), "--json"])
         # No annotations, but catalog has a function — should still export (not "No annotations found")
         assert result.exit_code == 0, result.output
         assert (outdir / "functions" / "10002000.toml").exists()
@@ -1062,7 +1062,7 @@ class TestDeclibParse:
         )
         state_a = tmp_path / "state_a"
         monkeypatch.chdir(proj_a)
-        result = runner.invoke(app, ["binsync-export", str(state_a), "--json"])
+        result = runner.invoke(app, ["binsync", "export", str(state_a), "--json"])
         assert result.exit_code == 0, result.output
         func = _load_func(state_a / "functions" / "10001000.toml")
         assert func.stack_vars[-4].name == "ret"
@@ -1074,14 +1074,14 @@ class TestDeclibParse:
         proj_b.mkdir()
         _make_project(proj_b, {"foo.c": foo})
         monkeypatch.chdir(proj_b)
-        result = runner.invoke(app, ["binsync-import", str(state_a), "--json"])
+        result = runner.invoke(app, ["binsync", "import", str(state_a), "--json"])
         assert result.exit_code == 0, result.output
         entry = get_entry(proj_b, 0x10001000, "SERVER")
         assert entry.get("locals") == {"-4": {"name": "ret", "type": "int", "size": 4}}
         assert entry.get("comments")
 
         state_b = tmp_path / "state_b"
-        result = runner.invoke(app, ["binsync-export", str(state_b), "--json"])
+        result = runner.invoke(app, ["binsync", "export", str(state_b), "--json"])
         assert result.exit_code == 0, result.output
         func_b = _load_func(state_b / "functions" / "10001000.toml")
         assert func_b.stack_vars[-4].name == "ret"

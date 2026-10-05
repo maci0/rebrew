@@ -11,6 +11,7 @@ everything else (data rows, exports, FUNCTION names) must stay in.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -61,6 +62,41 @@ def test_library_rows_stay_out_of_the_catalog(tmp_path: Path) -> None:
     assert "fclose" not in m
 
 
+def test_name_map_does_not_walk_variable_roles(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Reloc validation reads names and VAs, not use sets.
+
+    ``find_variable_roles`` walks every statement of every source. The name
+    map must not call it. The counter is the call, and the annotated global
+    still lands in the map.
+    """
+    import rebrew.c_parser as c_parser
+
+    (tmp_path / "rebrew-project.toml").write_text(PROJECT_TOML, encoding="utf-8")
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "g.c").write_text(
+        "// GLOBAL: GAME 0x401000\n"
+        "int shared_value;\n"
+        "// FUNCTION: GAME 0x1000\n"
+        "int f(void) { return shared_value; }\n",
+        encoding="utf-8",
+    )
+    cfg = load_config(root=tmp_path)
+    calls = {"n": 0}
+    real = c_parser.find_variable_roles
+
+    def _counting(*args: Any, **kwargs: Any) -> Any:
+        calls["n"] += 1
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(c_parser, "find_variable_roles", _counting)
+    names = build_name_to_va(cfg, annotations=[])
+    assert calls["n"] == 0
+    assert names.get("shared_value") == 0x401000
+
+
 def test_function_catalog_scan_is_marker_scoped(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -101,7 +137,7 @@ def test_function_catalog_scan_is_marker_scoped(
     monkeypatch.setattr(
         data_mod,
         "scan_globals",
-        lambda _dir, _cfg: SimpleNamespace(data_annotations=[], globals={}),
+        lambda _dir, _cfg, *, record_roles: SimpleNamespace(data_annotations=[], globals={}),
     )
     monkeypatch.setattr(dm_mod, "load_data_metadata", lambda _dir: {})
 

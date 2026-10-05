@@ -286,7 +286,7 @@ class TestApplyTypeCli:
         f = src / "foo.c"
         f.write_text("int __cdecl foo(int a, void *p) { return a; }\n", encoding="utf-8")
         monkeypatch.setattr("rebrew.types_cli.require_config", lambda **kw: self._cfg(tmp_path))
-        res = CliRunner().invoke(app, ["apply-type", "foo", "--param", "1", "--type", "Player *"])
+        res = CliRunner().invoke(app, ["apply", "foo", "--param", "1", "--type", "Player *"])
         assert res.exit_code == 0, res.output
         assert "Player *p" in f.read_text(encoding="utf-8")
 
@@ -302,7 +302,7 @@ class TestApplyTypeCli:
         f.write_text(before, encoding="utf-8")
         monkeypatch.setattr("rebrew.types_cli.require_config", lambda **kw: self._cfg(tmp_path))
         res = CliRunner().invoke(
-            app, ["apply-type", "foo", "--param", "1", "--type", "Player *", "--dry-run"]
+            app, ["apply", "foo", "--param", "1", "--type", "Player *", "--dry-run"]
         )
         assert res.exit_code == 0, res.output
         assert f.read_text(encoding="utf-8") == before
