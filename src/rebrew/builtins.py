@@ -82,6 +82,12 @@ DOMAIN_COMPONENTS: dict[str, tuple[CliComponent, ...]] = {
             panel=Panel.DEVELOPMENT,
         ),
         CliComponent(
+            name="rehome",
+            module="rebrew.rehome",
+            help="Point function rows at the source file that now defines them.",
+            panel=Panel.DEVELOPMENT,
+        ),
+        CliComponent(
             name="import-related",
             module="rebrew.cross_import",
             help="Import matched functions from another target (same code, different VAs).",

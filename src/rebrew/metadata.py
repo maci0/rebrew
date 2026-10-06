@@ -689,6 +689,7 @@ PROVENANCE_TAGS: frozenset[str] = frozenset(
         "match",
         "near-diag",
         "prove",
+        "rehome",
         "rename",
         "skeleton",
         "test",

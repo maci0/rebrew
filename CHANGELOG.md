@@ -1,6 +1,10 @@
 ## [Unreleased]
 
 ### Added
+- `rebrew source rehome 0xVA=PATH` points a function row at the file that now
+  defines it, after a definition moved by hand between multi-function files.
+  `rebrew test` looked for the symbol in the old file's object and reported
+  `EXTRACT_ERROR`. PATH must define the row's function.
 - `rebrew data set --file 0xVA=PATH` points a global at the source file that
   defines it. A merge retargets rows through function rows, so the globals of
   a data-only file had no writer once they needed to move.

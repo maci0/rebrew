@@ -120,6 +120,7 @@ exit is 120, and click's is 1; `run_cli` overrides both.
 | `rebrew cfg` | `cfg.py` | Read and edit `rebrew-project.toml` programmatically (see [CONFIG.md](CONFIG.md)) |
 | `rebrew source split` | `split.py` | Split multi-function C files into individual files |
 | `rebrew source merge` | `merge.py` | Merge single-function C files into multi-function file |
+| `rebrew source rehome` | `rehome.py` | Point function rows at the source file that now defines them |
 | `rebrew match partitions` | `merge_sweep.py` | Deterministic TU-partition search over cu-map clusters |
 | `rebrew prove` | `prove.py` | Prove semantic equivalence via angr symbolic execution (optional dep) |
 | `rebrew library scan-signatures` | `flirt.py` | FLIRT signature scanning (see [FLIRT_SIGNATURES.md](FLIRT_SIGNATURES.md)) |
@@ -1360,6 +1361,12 @@ Merge multiple single-function `.c` files into one multi-function file. Preamble
 | `--consolidate` | Hoist unique includes/externs/typedefs/`#pragma intrinsic` to the top of the merged TU, resolving conflicting extern signatures by specificity (companion cleanup for multi-function merges) |
 | `--shared` | Keep one copy when the bodies match and retarget every row that names an input. An unmigrated file still stacks one marker per target. Bodies that differ are refused |
 | `--json` | Structured JSON output |
+
+### `rebrew source rehome`
+
+`rebrew source rehome 0xVA=PATH ... [--dry-run] [--json]`
+
+Set a function row's `file` to PATH after a definition moved by hand between multi-function files. PATH must define the row's function (tree-sitter definition scan); the source text is not edited. `merge` and `split` retarget the rows they move themselves.
 
 ### `rebrew recommend`
 
