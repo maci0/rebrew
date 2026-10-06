@@ -1883,6 +1883,19 @@ class TestDataDrift:
         assert items[0].name == "g_a"
         assert items[0].va == 0x1000
 
+    def test_displaced_symbol_surfaces(self, tmp_path: Path) -> None:
+        from rebrew.data_metadata import set_data_field
+        from rebrew.todo import _collect_data_drift
+
+        cfg = _make_cfg(tmp_path)
+        set_data_field(tmp_path, 0x1000, "name", "g_moved", "TEST")
+        set_data_field(tmp_path, 0x1000, "status", "DISPLACED", "TEST")
+        set_data_field(tmp_path, 0x2000, "name", "g_here", "TEST")
+        set_data_field(tmp_path, 0x2000, "status", "EXACT", "TEST")
+        items = _collect_data_drift(cfg)
+        assert [(i.name, i.status) for i in items] == [("g_moved", "DISPLACED")]
+        assert "away from its reference address" in items[0].description
+
     def test_other_target_drift_is_omitted(self, tmp_path: Path) -> None:
         from rebrew.data_metadata import set_data_field
         from rebrew.todo import _collect_data_drift

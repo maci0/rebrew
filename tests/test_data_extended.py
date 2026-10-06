@@ -1303,3 +1303,37 @@ class TestSetDataSection:
     def test_rejects_a_spec_without_an_equals(self, tmp_path: Path) -> None:
         with pytest.raises(ValueError, match="0xVA=SECTION"):
             set_data_sections(_cfg(tmp_path), ["0x1000"])
+
+
+class TestSetDataFile:
+    """`rebrew data set --file`: move a global to the source file that defines it.
+
+    A merge retargets rows through function rows; a data-only file has none, so
+    splitting its globals back out of a merged file had no writer.
+    """
+
+    def test_points_a_row_at_an_existing_source(self, tmp_path: Path) -> None:
+        import tomllib
+
+        from rebrew.data_annotate import set_data_files
+
+        cfg = _cfg(tmp_path)
+        meta = cfg.metadata_dir / "rebrew-data.toml"
+        meta.write_text('["SERVER.0x1000"]\nname = "g_x"\nfile = "src/a.c"\n', encoding="utf-8")
+        src = cfg.root / "src" / "data_only.c"
+        src.parent.mkdir(parents=True, exist_ok=True)
+        src.write_text("int g_x = 1;\n", encoding="utf-8")
+        rows = set_data_files(cfg, ["0x1000=src/data_only.c"], dry_run=True)
+        assert rows[0]["file"].endswith("data_only.c")
+        assert 'file = "src/a.c"' in meta.read_text(encoding="utf-8")
+        set_data_files(cfg, ["0x1000=src/data_only.c"])
+        fields = tomllib.loads(meta.read_text(encoding="utf-8"))["SERVER.0x1000"]
+        assert fields["file"] == rows[0]["file"]
+        assert fields["name"] == "g_x"
+
+    def test_rejects_a_missing_source(self, tmp_path: Path) -> None:
+        from rebrew.data_annotate import set_data_files
+
+        cfg = _cfg(tmp_path)
+        with pytest.raises(ValueError, match="missing source"):
+            set_data_files(cfg, ["0x1000=src/nope.c"])

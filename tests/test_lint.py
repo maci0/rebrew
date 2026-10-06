@@ -867,14 +867,14 @@ class TestLintFix:
         src.mkdir()
         f = src / "g.c"
         f.write_text(
-            "// DATA: SERVER 0x2000\n// STATUS: EXACT\n// BLOCKER: pending\nint g;\n",
+            "// DATA: SERVER 0x2000\n// STATUS: RELOC\n// BLOCKER: pending\nint g;\n",
             encoding="utf-8",
         )
         monkeypatch.setattr("rebrew.lint.load_config", lambda root=None, **kw: cfg)
         result = CliRunner().invoke(app, ["--fix", str(f)])
         assert result.exit_code == 0, result.output
         text = f.read_text(encoding="utf-8")
-        assert "// STATUS: EXACT" in text
+        assert "// STATUS: RELOC" in text
         assert "// BLOCKER: pending" in text
         assert get_data_entry(tmp_path, 0x2000, "SERVER") == {}
 
@@ -1004,6 +1004,34 @@ class TestW020AsmDump:
         body = "int f(void) { return 42; }\n"
         result = self._lint(tmp_path, body)
         assert not any(c == "W020" for _, c, _ in result.warnings)
+
+    def _pure_c(self, tmp_path: Path, blocker: str | None) -> LintResult:
+        """A pure-C file: its blocker lives only in the function store."""
+        from rebrew.metadata import record_function_identity, set_fields
+
+        record_function_identity(
+            tmp_path,
+            module="SERVER",
+            va=0x10008880,
+            file="foo.c",
+            marker_type="FUNCTION",
+            symbol="_f",
+            name="f",
+        )
+        if blocker:
+            set_fields(tmp_path, 0x10008880, {"blocker": blocker}, "SERVER")
+        f = _write_c(
+            tmp_path, "foo.c", "int f(void) {\n    __asm { mov eax, 1 }\n    return 0;\n}\n"
+        )
+        return lint_file(f)
+
+    def test_pure_c_asm_under_a_store_blocker_does_not_warn(self, tmp_path: Path) -> None:
+        result = self._pure_c(tmp_path, "inline asm kept by decision")
+        assert not any(c == "W020" for _, c, _ in result.warnings)
+
+    def test_pure_c_asm_without_a_blocker_warns(self, tmp_path: Path) -> None:
+        result = self._pure_c(tmp_path, None)
+        assert any(c == "W020" for _, c, _ in result.warnings)
 
     def test_bare_emit_spelling_warns(self, tmp_path: Path) -> None:
         """`rebrew asm` writes the bare `_emit 0xNN` form, so W020 must match it."""
@@ -1264,6 +1292,23 @@ class TestW021W022:
         )
         kept = [line for line, c, _ in exempt.warnings if c == "W022"]
         assert kept == [3]
+
+    def test_zero_init_link_symbol_exempt(self, tmp_path: Path) -> None:
+        """A ``.bss`` row whose source defines it under ``link_symbol`` is a placement pin."""
+        content = "char g_entity_end[4] = {0};\nint g_other = 0;\n"
+        f = _write_c(tmp_path, "pin.c", content)
+        result = lint_file(
+            f,
+            preloaded_metadata={},
+            preloaded_data_metadata={
+                ("SERVER", 0x1009B760): {
+                    "name": "g_town_records",
+                    "section": ".bss",
+                    "link_symbol": "_g_entity_end",
+                }
+            },
+        )
+        assert [line for line, c, _ in result.warnings if c == "W022"] == [2]
 
     def test_duplicate_nested_bracket_global(self, tmp_path: Path) -> None:
         """W021 names the global when its bound contains a bracket."""
@@ -3037,9 +3082,11 @@ class TestW031MetadataStore:
 
     def test_non_verdict_status_is_reported(self, tmp_path: Path) -> None:
         (tmp_path / "rebrew-data.toml").write_text(
-            'format = 1\n\n["SERVER.0x1000"]\nstatus = "EXACT"\n', encoding="utf-8"
+            'format = 1\n\n["SERVER.0x1000"]\nstatus = "RELOC"\n', encoding="utf-8"
         )
-        assert "not one of DRIFT, UNCHECKED, VERIFIED" in self._warnings(self._cfg(tmp_path))
+        assert "not one of DISPLACED, DRIFT, EXACT, UNCHECKED, VERIFIED" in self._warnings(
+            self._cfg(tmp_path)
+        )
 
     def test_half_a_provenance_pair_is_reported(self, tmp_path: Path) -> None:
         (tmp_path / "rebrew-data.toml").write_text(
@@ -3221,7 +3268,7 @@ class TestW031W032Cli:
 
         cfg = self._cfg(tmp_path)
         (tmp_path / "rebrew-data.toml").write_text(
-            '["SERVER.0x1000"]\nstatus = "EXACT"\n', encoding="utf-8"
+            '["SERVER.0x1000"]\nstatus = "RELOC"\n', encoding="utf-8"
         )
         (tmp_path / "db" / "coverage.db").write_bytes(b"SQLite format 3\x00")
         with patch("rebrew.lint.load_config", return_value=cfg):

@@ -13,6 +13,7 @@ retarget every row that shares it.  File-scope storage stays in the original.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import unicodedata
 from dataclasses import dataclass, field
@@ -237,6 +238,13 @@ def _outer_is_function(declarator: Any) -> bool:
             and any(child.type == "function_declarator" for child in node.named_children)
         ):
             return True
+        # `T* f(int)` is a function returning a pointer: the pointer wraps the
+        # function declarator directly.  A pointer to a function needs the
+        # parentheses of `T (*f)(int)`, which this check does not match.
+        if node.type == "pointer_declarator" and not saw_object:
+            inner = node.child_by_field_name("declarator")
+            if inner is not None and inner.type == "function_declarator":
+                return True
         if node.type in {"pointer_declarator", "array_declarator"}:
             saw_object = True
         nxt = node.child_by_field_name("declarator")
@@ -377,13 +385,70 @@ def _collect_spans(node: Any, raw: bytes, *, inside_pp: bool, acc: list[SourceSp
         return
     if node.type in _PREAMBLE_TYPES or node.type == "comment":
         kind = "comment" if node.type == "comment" else "preamble"
-        acc.append(SourceSpan(kind, node.start_byte, node.end_byte))
+        end = node.end_byte
+        # `struct t {...};` parses as a bare specifier followed by an anonymous
+        # `;`.  The named-children walk never sees the `;`, so the span ended
+        # at `}` and every merged preamble lost it.
+        follower = node.next_sibling
+        if kind == "preamble" and follower is not None and follower.type == ";":
+            end = follower.end_byte
+        acc.append(SourceSpan(kind, node.start_byte, end))
         return
+
+
+#: MSVC calling-convention keywords.  The C grammar does not know them, so
+#: ``Type* __cdecl f(void) {...}`` with a typedef'd return type parses as an
+#: error and the function is lost; blanking them keeps every byte offset.
+_CALLING_CONVENTION_RE = re.compile(rb"\b__(?:cdecl|stdcall|fastcall|thiscall)\b")
+
+
+_ASM_RE = re.compile(rb"\b__asm\b[ \t]*(\{)?")
+
+
+def _blank(raw: bytearray, start: int, end: int) -> None:
+    """Overwrite raw[start:end] with spaces, keeping newlines so line numbers hold."""
+    for i in range(start, end):
+        if raw[i] not in b"\r\n":
+            raw[i] = 0x20
+
+
+def _mask_for_parse(raw: bytes) -> bytes:
+    """*raw* with the constructs the C grammar cannot parse blanked, same length.
+
+    Calling-convention keywords and ``__asm`` bodies.  ``__asm { ... }`` becomes an
+    empty block and a brace-less ``__asm ...`` runs to the end of its line.
+    """
+    out = bytearray(_CALLING_CONVENTION_RE.sub(lambda m: b" " * len(m.group(0)), raw))
+    pos = 0
+    while (m := _ASM_RE.search(out, pos)) is not None:
+        if m.group(1) is None:
+            end = out.find(b"\n", m.end())
+            end = len(out) if end < 0 else end
+            _blank(out, m.start(), end)
+            out[m.start()] = 0x3B  # `;` keeps the statement well formed
+            pos = end
+            continue
+        depth = 0
+        end = m.end()
+        for i in range(m.end() - 1, len(out)):
+            if out[i] == 0x7B:
+                depth += 1
+            elif out[i] == 0x7D:
+                depth -= 1
+                if depth == 0:
+                    end = i
+                    break
+        else:
+            return bytes(out)
+        _blank(out, m.start(), m.end() - 1)
+        _blank(out, m.end(), end)
+        pos = end + 1
+    return bytes(out)
 
 
 def _source_spans(text: str) -> tuple[bytes, list[SourceSpan]]:
     raw = text.encode("utf-8", errors="surrogateescape")
-    tree, _ = parse_c_source(raw)
+    tree, _ = parse_c_source(_mask_for_parse(raw))
     spans: list[SourceSpan] = []
     for child in tree.root_node.named_children:
         _collect_spans(child, raw, inside_pp=False, acc=spans)

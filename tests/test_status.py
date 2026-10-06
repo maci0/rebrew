@@ -1916,7 +1916,9 @@ class TestDataVerdicts:
         assert report.data_drift == 1
         assert report.data_unchecked == 1
         assert report.to_dict()["data"] == {
+            "exact": 0,
             "verified": 1,
+            "displaced": 0,
             "drift": 1,
             "unchecked": 1,
             "total": 3,
@@ -1925,6 +1927,20 @@ class TestDataVerdicts:
                 ".bss": {"verified": 0, "drift": 0, "unchecked": 1},
             },
         }
+
+    def test_placement_verdicts_count_inside_their_byte_buckets(self, tmp_path: Path) -> None:
+        """EXACT is a verified symbol at its reference VA; DISPLACED is drift the bytes cannot see."""
+        from rebrew.data_metadata import set_data_field
+        from rebrew.status import collect_status
+
+        cfg = _make_cfg(tmp_path)
+        for va, status in ((0x1000, "EXACT"), (0x2000, "VERIFIED"), (0x3000, "DISPLACED")):
+            set_data_field(tmp_path, va, "name", f"g_{va:x}", "TEST")
+            set_data_field(tmp_path, va, "section", ".bss", "TEST")
+            set_data_field(tmp_path, va, "status", status, "TEST")
+        data = collect_status(cfg).to_dict()["data"]
+        assert (data["exact"], data["verified"], data["displaced"], data["drift"]) == (1, 2, 1, 1)
+        assert data["total"] == 3
 
     def test_other_target_data_is_not_counted(self, tmp_path: Path) -> None:
         from rebrew.data_metadata import set_data_field

@@ -1644,6 +1644,11 @@ def find_extern_variables(
             and not function_filter(src_bytes.count(b"\n", 0, node.start_byte) + 1)
         ):
             return
+        if node.type == "declaration" and node.has_error:
+            # Error recovery splices tokens from neighbouring lines into the
+            # declaration (`a];` became a type with an unmatched `]`), so
+            # neither its name nor its type can be trusted.
+            return
         if node.type == "declaration":
             has_extern = False
             has_dllimport = False

@@ -40,7 +40,9 @@ from rebrew.cli import (
 )
 from rebrew.config import load_config
 from rebrew.data_metadata import (
+    DATA_STATUS_DISPLACED,
     DATA_STATUS_DRIFT,
+    DATA_STATUS_EXACT,
     DATA_STATUS_UNCHECKED,
     DATA_STATUS_VERIFIED,
 )
@@ -55,13 +57,15 @@ log = logging.getLogger(__name__)
 FUNCTION_DB_STATUSES: frozenset[str] = COVERAGE_DB_STATUSES
 
 #: Statuses allowed in ``globals.status``.  Empty string (no verdict yet)
-#: plus the three data-metadata verdicts — derived from the same constants
+#: plus the data-metadata verdicts — derived from the same constants
 #: ``data_metadata`` / the grid emit so the two writers cannot drift from the
 #: annotation vocabulary.
 GLOBAL_DB_STATUSES: frozenset[str] = frozenset(
     {
         "",
+        DATA_STATUS_EXACT,
         DATA_STATUS_VERIFIED,
+        DATA_STATUS_DISPLACED,
         DATA_STATUS_DRIFT,
         DATA_STATUS_UNCHECKED,
     }
@@ -233,7 +237,9 @@ _GAP_AND_DATA_CELL_STATES: frozenset[str] = frozenset(
         "padding",
         "data",
         "thunk",
+        DATA_STATUS_EXACT.lower(),
         DATA_STATUS_VERIFIED.lower(),
+        DATA_STATUS_DISPLACED.lower(),
         DATA_STATUS_DRIFT.lower(),
         DATA_STATUS_UNCHECKED.lower(),
     }

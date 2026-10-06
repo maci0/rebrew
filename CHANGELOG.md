@@ -1,5 +1,59 @@
 ## [Unreleased]
 
+### Added
+- `rebrew data set --file 0xVA=PATH` points a global at the source file that
+  defines it. A merge retargets rows through function rows, so the globals of
+  a data-only file had no writer once they needed to move.
+- `rebrew verify --data` checks where the link put each data symbol. It reads
+  the MSVC link map beside the built image (or `--link-map`) and writes two new
+  verdicts: `EXACT` when the symbol sits at its reference VA and its bytes
+  match, `DISPLACED` (with `built_va` and `delta` in the JSON row) when the map
+  places it elsewhere. Bytes compared at the reference VA could not see a moved
+  symbol: two zero-filled BSS spans compare equal, so a layout hundreds of KB
+  off still reported every BSS row `VERIFIED`. `VERIFIED` now means "bytes
+  match, placement unchecked". `rebrew status` reports exact and displaced
+  counts inside the verified and drift totals, and `rebrew todo` lists
+  displaced symbols as data work.
+
+### Fixed
+- `rebrew lint` W022 exempts a zero-initialized global defined under a
+  `.data`/`.bss` row's `link_symbol` (leading underscore dropped), not only
+  under the row's `name`. A placement pin whose source name differs from the
+  analysis label was reported as `.data` bloat.
+- `rebrew source merge` keeps an explicitly named input that is also the
+  output, so fragments can be merged into an existing file in place. The
+  output was dropped from the inputs and the merge stopped with "No function
+  row matches the input files".
+- `find_extern_variables` (behind `rebrew data list` conflicts) skips a
+  declaration that tree-sitter could not parse. Error recovery spliced tokens
+  from the next line into it, so a malformed `extern unsigned long a];` was
+  reported as a variable named `long` with an unbalanced type.
+- `rebrew build check-data-placement` finds `rebrew-data.toml` in the metadata
+  directory when `src/rebrew-data.toml` does not exist, and compares only the
+  active target's rows. In a project that holds several binaries the last row
+  with a name won, usually another target's address.
+- `rebrew source merge` of a pure-C file keeps the `;` after a bare `struct`
+  or `union` definition in the shared preamble. The span ended at the closing
+  brace and the merged file no longer compiled.
+- `rebrew source merge` keeps a block whose target marker is not the first
+  marker above its body. A shared function stacks one marker per target, and a
+  block that opened with another target's marker lost its body silently.
+- `rebrew source merge` of pure-C files carries a data row that no object in
+  its file defines (an extern declaration, a compiler literal) to the output
+  instead of refusing the whole merge. The row never anchored a definition, so
+  nothing is dropped.
+- `rebrew source merge` rewrites a relative quoted include (`"../x.h"`) when
+  the output file sits in another directory, and orders pure-C inputs by the
+  active target's own VA. A shared body that also carries a lower client VA
+  used to sort ahead of server code that precedes it in the linked order.
+- The C source parser behind `split` and `merge` recognizes `Type* __cdecl f()`
+  definitions with a typedef'd return type and functions that contain an
+  inline `__asm` block. Both parsed as errors and the function was invisible.
+  A prototype that returns a pointer is no longer reported as storage.
+- Lint reads blockers and statuses for a pure-C file from the function store.
+  W020 fired on an inline-asm body that carries a recorded BLOCKER once its
+  file was migrated, because only marker blocks were consulted.
+
 ## [2.23.0] - 2026-10-05
 
 ### Fixed

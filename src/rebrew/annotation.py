@@ -76,6 +76,7 @@ __all__ = [
     "VALID_MARKERS",
     "derive_c_symbol",
     "file_backed_by_metadata",
+    "function_rows_for_file",
     "block_markers",
     "has_skip_annotation",
     "iter_annotations",
@@ -1450,6 +1451,25 @@ def _path_suffixes(rel_path: str) -> list[str]:
     """
     parts = rel_path.split("/")
     return ["/".join(parts[i:]) for i in range(len(parts))]
+
+
+def function_rows_for_file(
+    filepath: Path,
+    metadata_dir: Path,
+    function_entries: dict[tuple[str, int], dict[str, Any]],
+) -> list[tuple[str, int, dict[str, Any]]]:
+    """Function-store rows whose ``file`` names *filepath*.
+
+    A pure-C file has no marker blocks, so its blockers and statuses live only
+    in these rows.
+    """
+    rel = os.path.relpath(filepath, metadata_dir).replace(os.sep, "/")
+    index = _metadata_file_index(function_entries)
+    seen: dict[tuple[str, int], tuple[str, int, dict[str, Any]]] = {}
+    for suffix in _path_suffixes(rel):
+        for row in index.get(suffix, []):
+            seen[(row[0], row[1])] = row
+    return list(seen.values())
 
 
 def file_backed_by_metadata(

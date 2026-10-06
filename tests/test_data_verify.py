@@ -562,3 +562,82 @@ class TestUncoveredZeroFill:
         )
         assert report["matched"] == 1
         assert report["missing"] == ["outside"]
+
+
+class TestPlacement:
+    """Bytes at the reference VA cannot see a symbol the link put elsewhere.
+
+    Regression for the guild-rebrew BSS case: every zero-filled symbol compared
+    equal to the reference while the link map placed them 0x13ac bytes late.
+    """
+
+    META = (
+        '["SERVER.0x1000"]\nname = "g_init"\nsize = 4\nsection = ".data"\n'
+        '["SERVER.0x2000"]\nname = "g_zero"\nsize = 4\nsection = ".bss"\n'
+        '["SERVER.0x3000"]\nname = "g_unmapped"\nsize = 4\nsection = ".data"\n'
+    )
+
+    def _run(self, tmp_path: Path, built_symbols: dict[str, int] | None) -> dict:
+        from rebrew.data_verify import verify_data_bytes
+
+        meta = tmp_path / "rebrew-data.toml"
+        _write(meta, self.META)
+        same = {0x1000: b"\x01\x02\x03\x04", 0x2000: bytes(4), 0x3000: b"\x05\x06\x07\x08"}
+        return verify_data_bytes(
+            metadata_path=meta,
+            expected=same,
+            actual=dict(same),
+            sizes={0x1000: 4, 0x2000: 4, 0x3000: 4},
+            built_symbols=built_symbols,
+        )
+
+    def test_without_a_map_bytes_alone_give_verified(self, tmp_path: Path) -> None:
+        res = self._run(tmp_path, None)
+        assert {r["name"]: r["status"] for r in res["results"]} == {
+            "g_init": "VERIFIED",
+            "g_zero": "VERIFIED",
+            "g_unmapped": "VERIFIED",
+        }
+        assert (res["exact"], res["displaced"], res["unplaced"]) == (0, [], 0)
+
+    def test_map_separates_exact_displaced_and_unplaced(self, tmp_path: Path) -> None:
+        res = self._run(tmp_path, {"_g_init": 0x1000, "_g_zero": 0x33AC})
+        rows = {r["name"]: r for r in res["results"]}
+        assert rows["g_init"]["status"] == "EXACT"
+        assert rows["g_zero"]["status"] == "DISPLACED"
+        assert (rows["g_zero"]["built_va"], rows["g_zero"]["delta"]) == ("0x33ac", 0x13AC)
+        assert rows["g_unmapped"]["status"] == "VERIFIED"
+        assert res["exact"] == 1
+        assert [d["name"] for d in res["displaced"]] == ["g_zero"]
+        assert res["unplaced"] == 1
+        assert res["matched"] == 3
+
+    def test_recorded_link_symbol_wins_over_the_cdecl_name(self, tmp_path: Path) -> None:
+        from rebrew.data_verify import verify_data_bytes
+
+        meta = tmp_path / "rebrew-data.toml"
+        _write(
+            meta,
+            '["SERVER.0x1000"]\nname = "argc"\nlink_symbol = "___argc"\nsize = 4\nsection = ".data"\n',
+        )
+        res = verify_data_bytes(
+            metadata_path=meta,
+            expected={0x1000: bytes(4)},
+            actual={0x1000: bytes(4)},
+            sizes={0x1000: 4},
+            built_symbols={"_argc": 0x9000, "___argc": 0x1000},
+        )
+        assert res["results"][0]["status"] == "EXACT"
+
+    def test_link_map_symbols_skips_functions_and_imports(self) -> None:
+        from rebrew.data_verify import link_map_symbols
+
+        text = (
+            "  Address         Publics by Value              Rva+Base     Lib:Object\n"
+            " 0001:00000000       _gm_Open                   10001000 f   spiel.obj\n"
+            " 0002:0000012c       __imp__FlushFileBuffers@4  1002412c     KERNEL32:KERNEL32.dll\n"
+            " 0003:00000010       _g_zero                    10003010     bss_late:bss_late.obj\n"
+            " 0003:00000014       _g_common                  10003014     <common>\n"
+            " 0003:00000018       _g_zero                    10003018     other.obj\n"
+        )
+        assert link_map_symbols(text) == {"_g_zero": 0x10003010, "_g_common": 0x10003014}

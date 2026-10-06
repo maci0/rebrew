@@ -72,6 +72,26 @@ class TestMergeBasic:
         assert "_func_a" in text
         assert "_func_b" in text
 
+    def test_stacked_block_keeps_body_when_target_marker_is_not_first(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """A shared body stacks GOLD above SERVER; the SERVER merge must keep it."""
+        stacked = (
+            "// FUNCTION: GOLD 0x00421ed0\n"
+            "// FUNCTION: SERVER 0x10003140\n"
+            "\n"
+            "int stacked_body(void) { return 7; }\n"
+        )
+        a = _write(tmp_path / "a.c", stacked)
+        b = _write(tmp_path / "b.c", _single(0x10004000, "_func_b"))
+
+        result, out = _invoke(tmp_path, monkeypatch, str(a), str(b))
+        assert result.exit_code == 0, result.output
+        text = out.read_text(encoding="utf-8")
+        assert "int stacked_body(void) { return 7; }" in text
+        assert "// FUNCTION: SERVER 0x10003140" in text
+        assert "// FUNCTION: GOLD 0x00421ed0" in text
+
     def test_duplicate_va_across_inputs_errors(self, tmp_path: Path, monkeypatch: Any) -> None:
         """Merging files that both annotate the same VA would create duplicate
         FUNCTION markers (lint E013) — reject before writing."""
@@ -370,6 +390,25 @@ class TestMergeHelpers:
         _write(tmp_path / "b.h", "")
         files = _collect_input_files([str(a), str(tmp_path / "b.h")], _make_cfg(tmp_path))
         assert files == [a]  # .h filtered out, .c kept, deduped
+
+    def test_collect_input_files_keeps_an_explicit_output(self, tmp_path: Path) -> None:
+        """Merging fragments into an existing file names that file as input and output."""
+        from rebrew.merge import _collect_input_files
+
+        a = _write(tmp_path / "a.c", "")
+        b = _write(tmp_path / "b.c", "")
+        files = _collect_input_files([str(a), str(b)], _make_cfg(tmp_path), exclude=a)
+        assert files == [a, b]
+
+    def test_collect_input_files_skips_the_output_found_in_a_directory(
+        self, tmp_path: Path
+    ) -> None:
+        from rebrew.merge import _collect_input_files
+
+        a = _write(tmp_path / "a.c", "")
+        b = _write(tmp_path / "b.c", "")
+        files = _collect_input_files([str(tmp_path)], _make_cfg(tmp_path), exclude=a)
+        assert files == [b]
 
     def test_resolve_externs_reports_dropped_and_conflicts(self) -> None:
         from rebrew.merge import _resolve_externs
@@ -804,8 +843,71 @@ def _invoke_meta(tmp_path: Path, monkeypatch: Any, *args: str) -> tuple[Any, Pat
     return runner.invoke(app, ["--output", str(out), *args]), out
 
 
+class TestRebaseIncludes:
+    def test_respells_relative_include_for_a_new_directory(self, tmp_path: Path) -> None:
+        from rebrew.merge import rebase_includes
+
+        (tmp_path / "cmd").mkdir()
+        (tmp_path / "cmd" / "sub").mkdir()
+        (tmp_path / "cmd" / "internal.h").write_text("")
+        text = '#include "../internal.h"\n#include "../missing.h"\n#include <stdio.h>\n'
+
+        out = rebase_includes(text, tmp_path / "cmd" / "sub", tmp_path / "cmd")
+
+        assert out == '#include "internal.h"\n#include "../missing.h"\n#include <stdio.h>\n'
+
+    def test_markerless_merge_rebases_includes(self, tmp_path: Path, monkeypatch: Any) -> None:
+        (tmp_path / "cmd" / "sub").mkdir(parents=True)
+        (tmp_path / "cmd" / "internal.h").write_text("")
+        _write(
+            tmp_path / "cmd" / "sub" / "a.c",
+            '#include "../internal.h"\nint func_a(void) { return 0; }\n',
+        )
+        _write(tmp_path / "cmd" / "sub" / "b.c", "int func_b(void) { return 1; }\n")
+        _seed(tmp_path, [("SERVER", 0x10001000, "_func_a")], file="cmd/sub/a.c")
+        _seed(tmp_path, [("SERVER", 0x10002000, "_func_b")], file="cmd/sub/b.c")
+        monkeypatch.setattr(
+            "rebrew.merge.require_config",
+            lambda target=None, json_mode=False: _meta_cfg(tmp_path),
+        )
+        out = tmp_path / "cmd" / "merged.c"
+
+        result = runner.invoke(
+            app,
+            [
+                "--output",
+                str(out),
+                "--force",
+                str(tmp_path / "cmd/sub/a.c"),
+                str(tmp_path / "cmd/sub/b.c"),
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert '#include "internal.h"' in out.read_text(encoding="utf-8")
+
+
 class TestMarkerlessMerge:
     """A migrated file is merged from its function rows, not from a marker line."""
+
+    def test_files_sort_by_the_active_targets_va(self, tmp_path: Path, monkeypatch: Any) -> None:
+        """A shared body's lower client VA must not sort it ahead of earlier server code."""
+        _write(tmp_path / "a.c", "int func_a(void) { return 0; }\n")
+        _write(tmp_path / "b.c", "int func_b(void) { return 1; }\n")
+        _seed(
+            tmp_path,
+            [("SERVER", 0x10002000, "_func_a"), ("GOLDTL", 0x400000, "_func_a")],
+            file="a.c",
+        )
+        _seed(tmp_path, [("SERVER", 0x10001000, "_func_b")], file="b.c")
+
+        result, out = _invoke_meta(
+            tmp_path, monkeypatch, "--force", str(tmp_path / "a.c"), str(tmp_path / "b.c")
+        )
+
+        assert result.exit_code == 0, result.output
+        text = out.read_text(encoding="utf-8")
+        assert text.index("func_b") < text.index("func_a")
 
     def test_rows_move_with_the_definitions(self, tmp_path: Path, monkeypatch: Any) -> None:
         from rebrew.data_metadata import load_data_metadata, record_migrated_data_markers
@@ -1086,9 +1188,10 @@ class TestMarkerlessMerge:
 
         assert load_metadata(tmp_path)[("SERVER", 0x10003000)]["file"] == "a.c"
 
-    def test_data_row_without_an_object_writes_nothing(
+    def test_data_row_without_an_object_follows_the_merge(
         self, tmp_path: Path, monkeypatch: Any
     ) -> None:
+        """An extern declaration or compiler literal has a row but no definition to copy."""
         from rebrew.data_metadata import load_data_metadata, record_migrated_data_markers
 
         _write(tmp_path / "a.c", "int func_a(void) { return 0; }\n")
@@ -1109,10 +1212,9 @@ class TestMarkerlessMerge:
         result, out = _invoke_meta(
             tmp_path, monkeypatch, "--force", str(tmp_path / "a.c"), str(tmp_path / "b.c")
         )
-        assert result.exit_code != 0
-        assert "no object" in result.output
-        assert not out.exists()
-        assert load_data_metadata(tmp_path)[("SERVER", 0x10025000)]["file"] == "a.c"
+        assert result.exit_code == 0, result.output
+        assert out.exists()
+        assert load_data_metadata(tmp_path)[("SERVER", 0x10025000)]["file"] == "merged.c"
 
     def test_one_row_claimed_by_two_definitions_writes_nothing(
         self, tmp_path: Path, monkeypatch: Any

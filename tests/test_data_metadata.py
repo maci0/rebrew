@@ -190,9 +190,9 @@ class TestSetDataField:
         assert not (tmp_path / DATA_METADATA_FILENAME).exists()
 
     def test_rejects_function_status_value(self, tmp_path: Path) -> None:
-        """Data STATUS is a verify --data verdict; EXACT/RELOC are function statuses."""
+        """Data STATUS is a verify --data verdict; RELOC and NEAR_MATCHING are function statuses."""
         with pytest.raises(ValueError, match="invalid data STATUS"):
-            set_data_field(tmp_path, 0x10025000, "status", "EXACT", "SERVER")
+            set_data_field(tmp_path, 0x10025000, "status", "RELOC", "SERVER")
 
 
 class TestSetDataFieldsBatch:

@@ -532,3 +532,37 @@ Pain: the current catalog-limited DIR32 contract masks a mapped-symbol mismatch 
 Proposed feature: an explicit strict operand-proof mode, distinct from the current tolerant agreement contract, that requires every supplied mapped DIR32 identity to satisfy native_word == bound_va + COFF_addend, even when the competing native address is not catalogued. Report unbound references separately so a fully bound proof cannot silently claim them. Preserve explicit IAT policy and compiler-local jump-table resolution; compare complete code/table extents. Include a regression where the wrong actual address is deliberately absent from the catalog, a wrong array-end addend, and positive compiler-local/IAT controls. Do not silently change the documented tolerant contract without reviewing existing callers and fixtures.
 
 Evidence: guild-rebrew/.scratch/goal-tl-callee-identities/{resolver-binding-conflicts-before,Gold-list-audit,Gold-list-applied}.json. The game repair uses its genuine target-specific C body (32 records, correct array), binds all six operands independently, and rejects every wrong-plus-four control with a correct-native-address sentinel. This is source/data proof and does not establish whole-file equality.
+
+## Translation-unit consolidation (2026-10-06)
+
+- [ ] **`source merge` should keep data pieces in source order.**
+  Pain: the merge emits every storage piece before every function. A tentative
+  definition ahead of its first use changes how the compiler treats the object
+  in the functions that follow, and `#pragma optimize` / `#pragma intrinsic`
+  lines that sat beside one function end up in the shared preamble, where they
+  apply to every function. Feature: keep pragma lines attached to the piece
+  they precede and leave data where its input put it. Evidence: guild
+  `game/spiel.c` (gm_AllocGebaeude, gm_CalculateProductionValue, intrinsic
+  placement).
+- [ ] **Report codegen that depends on the translation unit.**
+  Pain: a function that matches alone can stop matching once its callee is
+  defined earlier in the same file (VC6 uses the callee; the reference does
+  not). The merge reports every function as fine until `test` runs per
+  function. Feature: after a merge, re-test each moved function and list the
+  ones that changed status. Evidence: guild `gm_Open` (calling
+  `gm_InitObjektHersteller` through a pointer restores the bytes).
+- [ ] **`build order-sources --exclude` matches a basename.**
+  Pain: `--exclude gzio.c` meant the zlib reference file and also dropped a
+  game file named `gzio.c` in another directory. Feature: match the path.
+- [ ] **`migrate-markers` refuses a file for a comment that looks like a marker.**
+  Pain: `/* DATA: SERVER 0x1002944c..0x100294a0` inside a block comment counts
+  as a marker line, so the file is skipped as `unrecorded-markers` with no line
+  number. Feature: name the line, and ignore marker text inside comments.
+- [ ] **Generated CMake should depend on the real store path.**
+  Pain: `CMAKE_CONFIGURE_DEPENDS` named `src/rebrew-functions.toml` after the
+  store moved to the project root, so a row change did not re-run the source
+  selection. Feature: emit the path from the loaded config.
+- [ ] **`/OPT:REF` reorders COMDATs, `/OPT:NOREF` keeps dead library code.**
+  Pain: a position-aligned raw link needs every game function kept and every
+  unreferenced library function dropped. Feature: generate the `/INCLUDE`
+  list for all game rows in VA order (guild `layout/server.dll/game-includes.rsp`).

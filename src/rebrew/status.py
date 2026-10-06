@@ -134,9 +134,13 @@ class StatusReport:
     inline_metadata_warning: int = 0
 
     # Data verification verdicts from rebrew-data.toml STATUS (written by
-    # `verify --data`): verified / drift / unchecked symbol counts, and the
-    # same counts per section. This target's module and library modules only.
+    # `verify --data`): symbol counts per verdict, and the same counts per
+    # section. This target's module and library modules only. EXACT also counts
+    # in data_verified (its bytes match); DISPLACED also counts in data_drift
+    # (the link put it elsewhere), so the byte buckets keep their meaning.
+    data_exact: int = 0
     data_verified: int = 0
+    data_displaced: int = 0
     data_drift: int = 0
     data_unchecked: int = 0
     data_sections: dict[str, dict[str, int]] = field(default_factory=dict)
@@ -252,7 +256,9 @@ class StatusReport:
             "naked_bytes": self.naked_bytes,
             "source_files": self.source_files,
             "data": {
+                "exact": self.data_exact,
                 "verified": self.data_verified,
+                "displaced": self.data_displaced,
                 "drift": self.data_drift,
                 "unchecked": self.data_unchecked,
                 "total": self.data_total,
@@ -892,12 +898,14 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
         if span_is_copied(va, size, copied):
             continue
         verdict = str(fields.get("status") or "UNCHECKED").upper()
-        if verdict == "VERIFIED":
+        if verdict in ("EXACT", "VERIFIED"):
             bucket = "verified"
             report.data_verified += 1
-        elif verdict == "DRIFT":
+            report.data_exact += verdict == "EXACT"
+        elif verdict in ("DISPLACED", "DRIFT"):
             bucket = "drift"
             report.data_drift += 1
+            report.data_displaced += verdict == "DISPLACED"
         else:
             bucket = "unchecked"
             report.data_unchecked += 1
@@ -1174,8 +1182,12 @@ def _data_block(report: StatusReport) -> list[Any]:
     header = Text()
     header.append("Data", style="bold")
     header.append(f"  {report.data_verified}/{total} verified")
+    if report.data_exact:
+        header.append(f" ({report.data_exact} at the reference VA)", style="green")
     if report.data_drift:
         header.append(f", {report.data_drift} drift", style="red")
+    if report.data_displaced:
+        header.append(f" ({report.data_displaced} displaced)", style="red")
 
     # The byte headline is the data percentage. A symbol-count percent beside
     # it names a wider population (it includes BSS) and reads as a disagreement.
@@ -1183,8 +1195,10 @@ def _data_block(report: StatusReport) -> list[Any]:
     table = _breakdown_table(percent=show_symbol_pct)
     table.columns[0].header = "Data"
     rows = (
-        ("VERIFIED", report.data_verified, "green"),
-        ("DRIFT", report.data_drift, "red"),
+        ("EXACT", report.data_exact, "green"),
+        ("VERIFIED", report.data_verified - report.data_exact, "green"),
+        ("DISPLACED", report.data_displaced, "red"),
+        ("DRIFT", report.data_drift - report.data_displaced, "red"),
         ("UNCHECKED", report.data_unchecked, "yellow"),
     )
     for label, count, color in rows:
