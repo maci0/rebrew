@@ -414,6 +414,12 @@ DOMAIN_COMPONENTS: dict[str, tuple[CliComponent, ...]] = {
             help="Generate FLIRT .pat files from COFF .lib and ELF .a archives.",
             panel=Panel.ANALYSIS,
         ),
+        CliComponent(
+            name="inspect",
+            module="rebrew.lib_inspect",
+            help="List COFF archive members: sections, defined/COMMON/undefined symbols, imports.",
+            panel=Panel.ANALYSIS,
+        ),
     ),
     "coverage": (
         CliComponent(

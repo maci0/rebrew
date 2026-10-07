@@ -192,6 +192,7 @@ exit is 120, and click's is 1; `run_cli` overrides both.
 | `rebrew source inline-strings` | `inline_strings.py` | Materialize string-literal globals from the original binary |
 | `rebrew intake` | `intake.py` | One-shot binary onboarding (FLIRT scan, catalog, triage) |
 | `rebrew library match` | `lib_match.py` | Byte-compare reversed functions against linked static-library archives |
+| `rebrew library inspect` | `lib_inspect.py` | List COFF archive members: sections, defined/COMMON/undefined symbols, short imports; `--refs`/`--defines` per symbol |
 | `rebrew build sweep-link-flags` | `link_sweep.py` | Find which LINK options reproduce the reference PE header |
 | `rebrew build link-order` | `link_order.py` | Enforce VA-ordered sources into CMakeLists.txt SOURCES (drift gate) |
 | `rebrew export objdiff` | `objdiff_project.py` | Synthesized target objects + objdiff GUI project |
@@ -1286,6 +1287,53 @@ A masked wrapper pair can match several library bodies, so a JSON finding
 carries `symbol` and `object` (each `null` when the bytes do not resolve one)
 beside a `candidates` array of every `{symbol, object}` pair; `--va` answers
 the same shape plus `library`.
+
+### `rebrew library inspect`
+
+`rebrew library inspect LIBRARY [--member NAME]... [--refs SYMBOL | --defines SYMBOL] [--json] [--target NAME]`
+
+List what each member of a COFF archive allocates, defines, and references.
+LINK loads a member for the first unresolved symbol it defines; `/OPT:REF`
+then drops its unreferenced COMDAT code, so a member can be loaded only for its
+data. Its `.data`/`.bss` and COMMON symbols still take space in the image, and
+its undefined symbols still pull further members, `__imp_*` references among
+them pulling import-library members. Use this when reproducing link order:
+`--defines` names the member that supplies a symbol, `--refs` the members that
+pull it, and the member listing shows the data each one brings.
+
+`LIBRARY` is a path, or a `targets.<name>.external_libs` key or spec. A spec
+with a directory is project-relative; a bare spec (`LIBCMT.lib`) is the stock
+archive cached under `.scratch/`, extracted from the toolchain image when absent.
+
+| Flag / Arg | Description |
+|------------|-------------|
+| `LIBRARY` | Archive path, or an `external_libs` key/spec |
+| `--member NAME` / `-m` | Only this member: full archive name or basename, case-insensitive (repeatable) |
+| `--refs SYMBOL` | List the COFF members with an undefined reference to `SYMBOL` |
+| `--defines SYMBOL` | List the members defining `SYMBOL`, with how: `section:<name>`, `common`, `alias` (weak search alias), or `import` |
+| `--json` | Output results as JSON |
+| `--target NAME` | Target whose `external_libs` resolves `LIBRARY` |
+
+A COFF member row (`kind: "coff"`) has `sections` (`index`, `name`, `size`
+= SizeOfRawData, `align` or `null` when unspecified, `comdat`, `uninitialized`,
+`characteristics`), `defined` (external symbols with `section` and the 1-based
+`section_index`; an absolute symbol has a negative index and `section: null`),
+`common` (communal data with its `size`), `aliases` (weak search aliases with
+their `target`), and `undefined`. A short import member (`kind: "import"`) has
+`dll`, `symbol`, `type` (`code`, `data`, `const`), `import_name` (`null` for an
+import by ordinal), `ordinal`, `hint`, and the symbols it `defines`
+(`__imp_<symbol>`, plus the thunk `<symbol>` for code). A member LIEF cannot
+parse is listed as `kind: "unparsed"`. `--refs` answers
+`{archive, refs, members, count}` and `--defines` answers
+`{archive, defines, members: [{member, how}], count}`.
+
+```text
+$ rebrew library inspect LIBCMT.LIB --refs __imp__GetCPInfo@8
+build\intel\mt_obj\mbctype.obj
+build\intel\mt_obj\a_cmp.obj
+build\intel\mt_obj\initctyp.obj
+3 member(s) reference __imp__GetCPInfo@8
+```
 
 ### `rebrew binary extract`
 
