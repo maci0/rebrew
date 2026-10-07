@@ -1027,7 +1027,8 @@ def _collect_data_drift(cfg: ProjectConfig) -> list[TodoItem]:
     for (module, va), fields in load_data_metadata(cfg.metadata_dir).items():
         if not module_visible_to_target(module, cfg):
             continue
-        if str(fields.get("status") or "").upper() != "DRIFT":
+        verdict = str(fields.get("status") or "").upper()
+        if verdict not in ("DRIFT", "DISPLACED"):
             continue
         name = str(fields.get("name") or f"DAT_{va:08x}")
         size = data_symbol_size(fields, arch=getattr(cfg, "arch", "x86_32"))
@@ -1041,9 +1042,13 @@ def _collect_data_drift(cfg: ProjectConfig) -> list[TodoItem]:
                 name=name,
                 size=size,
                 filename="",
-                description=f"data symbol {name} differs from reference bytes ({module} 0x{va:x})",
+                description=(
+                    f"data symbol {name} is linked away from its reference address ({module} 0x{va:x})"
+                    if verdict == "DISPLACED"
+                    else f"data symbol {name} differs from reference bytes ({module} 0x{va:x})"
+                ),
                 command="rebrew verify --data",
-                status="DRIFT",
+                status=verdict,
                 blocker=str(fields.get("note") or ""),
             )
         )

@@ -308,6 +308,7 @@ def execute_data(
     set_name: list[str] | None = None,
     set_size: list[str] | None = None,
     set_section: list[str] | None = None,
+    set_file: list[str] | None = None,
     gen_header_out: Path | None = None,
     force: bool = False,
     dry_run: bool = False,
@@ -331,6 +332,7 @@ def execute_data(
     set_name = set_name or []
     set_size = set_size or []
     set_section = set_section or []
+    set_file = set_file or []
     if (
         sum(
             bool(value)
@@ -339,6 +341,7 @@ def execute_data(
                 set_name,
                 set_size,
                 set_section,
+                set_file,
                 set_storage_kind,
                 set_backing,
                 set_link_symbol,
@@ -348,7 +351,7 @@ def execute_data(
     ):
         error_exit(
             "Use only one data setter per call: --type, --name, --size, "
-            "--section, --storage-kind, --backing, or --link-symbol.",
+            "--section, --file, --storage-kind, --backing, or --link-symbol.",
             json_mode=json_output,
         )
     cfg = require_config(target=target, json_mode=json_output)
@@ -421,6 +424,23 @@ def execute_data(
             for row in rows:
                 console.print(
                     f"set size {row['size']} for {row['va']} ({untrusted_ident(row['module'])})"
+                )
+        return
+
+    if set_file:
+        from rebrew.data_annotate import set_data_files
+
+        try:
+            rows = set_data_files(cfg, set_file, dry_run=dry_run)
+        except ValueError as exc:
+            error_exit(str(exc), json_mode=json_output)
+        if json_output:
+            json_print({"dry_run": dry_run, "set": rows})
+        else:
+            for row in rows:
+                console.print(
+                    f"set file {untrusted_ident(row['file'])} for {row['va']} "
+                    f"({untrusted_ident(row['module'])})"
                 )
         return
 
@@ -891,6 +911,11 @@ def set_data(
         "--section",
         help="Set a global's PE section in rebrew-data.toml: 0xVA=.data (repeatable)",
     ),
+    set_file: list[str] = typer.Option(
+        [],
+        "--file",
+        help="Set the source file that defines a global: 0xVA=PATH (repeatable)",
+    ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
@@ -907,6 +932,7 @@ def set_data(
                 set_name,
                 set_size,
                 set_section,
+                set_file,
             ]
         )
         == 0
@@ -920,6 +946,7 @@ def set_data(
         set_name=set_name,
         set_size=set_size,
         set_section=set_section,
+        set_file=set_file,
         dry_run=dry_run,
         json_output=json_output,
         target=target,

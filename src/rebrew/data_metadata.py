@@ -233,12 +233,26 @@ DATA_METADATA_FIELD_TYPES: dict[str, type | tuple[type, ...]] = {
 }
 DATA_METADATA_FIELDS = frozenset(key.upper() for key in DATA_METADATA_FIELD_TYPES)
 
-#: Data verification verdicts written by ``verify --data``.
+#: Data verification verdicts written by ``verify --data``, strongest first.
+#: EXACT: the link map puts the symbol at its reference VA and its bytes match.
+#: VERIFIED: the bytes at the reference VA match; placement was not checked
+#: (no link map, or the map does not name the symbol).
+#: DISPLACED: the link map puts the symbol at another VA. A zero-filled symbol
+#: compares equal anywhere in BSS, so only the map can tell.
+#: DRIFT: the bytes at the reference VA differ or are missing.
+DATA_STATUS_EXACT = "EXACT"
 DATA_STATUS_VERIFIED = "VERIFIED"
+DATA_STATUS_DISPLACED = "DISPLACED"
 DATA_STATUS_DRIFT = "DRIFT"
 DATA_STATUS_UNCHECKED = "UNCHECKED"
 DATA_STATUSES: frozenset[str] = frozenset(
-    {DATA_STATUS_VERIFIED, DATA_STATUS_DRIFT, DATA_STATUS_UNCHECKED}
+    {
+        DATA_STATUS_EXACT,
+        DATA_STATUS_VERIFIED,
+        DATA_STATUS_DISPLACED,
+        DATA_STATUS_DRIFT,
+        DATA_STATUS_UNCHECKED,
+    }
 )
 
 # Canonical TOML key order when writing.  Identity first, then the fields

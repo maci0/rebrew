@@ -350,6 +350,46 @@ def _set_global_field(
     return rows
 
 
+def set_data_files(
+    cfg: ProjectConfig, specs: list[str], *, dry_run: bool = False
+) -> list[dict[str, Any]]:
+    """Point globals at the source file that defines them, from ``0xVA=PATH`` specs.
+
+    A merge or split moves definitions between files and retargets the rows it
+    knows about; a data-only file has no function row, so moving its globals
+    back out had no writer. The path must exist and is stored in the same
+    identity form a merge writes.
+    """
+    from rebrew.data_metadata import set_data_fields_batch
+    from rebrew.metadata import identity_file, validate_identity_file
+    from rebrew.sources import target_marker
+
+    module = target_marker(cfg) or ""
+    if not module:
+        raise ValueError("no target marker configured to address the data metadata")
+    rows: list[dict[str, Any]] = []
+    updates: list[dict[str, Any]] = []
+    for spec in specs:
+        va_s, sep, value = spec.partition("=")
+        value = value.strip()
+        if not sep or not value:
+            raise ValueError(f"--file wants 0xVA=PATH, got {spec!r}")
+        path = Path(value)
+        if not path.is_absolute():
+            path = cfg.root / path
+        if not path.is_file():
+            raise ValueError(f"--file names a missing source: {value}")
+        identity = validate_identity_file(identity_file(path, cfg.metadata_dir))
+        va = int(va_s, 16)
+        rows.append({"va": f"0x{va:x}", "file": identity, "module": module})
+        updates.append(
+            {"module": module, "va": va, "fields": {"file": identity}, "updated_by": "data"}
+        )
+    if not dry_run:
+        set_data_fields_batch(cfg.metadata_dir, updates)
+    return rows
+
+
 def set_data_relation(
     cfg: ProjectConfig, specs: list[str], field: str, *, dry_run: bool = False
 ) -> list[dict[str, Any]]:

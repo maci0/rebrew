@@ -37,6 +37,7 @@ from rebrew.annotation import (
     NEW_KV_RE,
     VALID_MARKERS,
     file_backed_by_metadata,
+    function_rows_for_file,
     min_valid_va_for,
 )
 from rebrew.c_parser import CALLING_CONVENTION
@@ -1772,7 +1773,8 @@ def _check_W022_zero_init_bss(
     is exactly the np-rebrew .data bloat (41K of zero-init arrays).  Leave
     the global uninitialized for .bss.
 
-    Exception: a global whose name appears in ``rebrew-data.toml`` with
+    Exception: a global whose name, or ``link_symbol`` without its leading
+    underscore, appears in ``rebrew-data.toml`` with
     ``section = ".data"`` or ``section = ".bss"`` (passed via
     *data_section_names*). A recorded ``.data`` zero-init is in the original
     image. A recorded ``.bss`` ``= 0`` is a placement pin: dropping it moves
@@ -2026,9 +2028,15 @@ def _data_section_names_for(entries: dict[tuple[str, int], dict[str, Any]]) -> f
             if cached is not None:
                 return cached
     names = frozenset(
-        str(entry["name"])
+        name
         for entry in entries.values()
-        if entry.get("section") in (".data", ".bss") and entry.get("name")
+        if entry.get("section") in (".data", ".bss")
+        for name in (
+            str(entry.get("name") or ""),
+            # A C data definition links as ``_name``; the source spells ``name``.
+            str(entry.get("link_symbol") or "").removeprefix("_"),
+        )
+        if name
     )
     with _DATA_SECTION_NAMES_LOCK:
         if len(_DATA_SECTION_NAMES) >= _DATA_SECTION_NAMES_MAX:
@@ -2170,6 +2178,22 @@ def lint_file(
     # CFLAGS from metadata/inline annotations (for the E023 REBREW_ALLOW_NAKED
     # guard — the flag lives in rebrew-functions.toml, not in source lines).
     _file_cflags: set[str] = set()
+
+    if metadata_backed:
+        # A pure-C file carries no marker blocks: its blockers and statuses are
+        # the store rows that name it, for this target only.
+        for _row_module, _row_va, _row in function_rows_for_file(
+            filepath,
+            cfg.metadata_dir if cfg is not None else filepath.parent,
+            _metadata_entries,
+        ):
+            if _own_marker and preset_module_key(_row_module) != preset_module_key(_own_marker):
+                continue
+            if _row.get("blocker"):
+                _file_has_blocker = True
+            _row_status = canonical_status(str(_row.get("status") or ""))
+            if _row_status:
+                _file_statuses.add(_row_status)
 
     for found_keys, flags in all_headers:
         result.marker_line = int(found_keys.get("_LINE", "1"))

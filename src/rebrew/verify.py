@@ -756,6 +756,12 @@ def main(
         "Without it or a matching configured raw_link, --data suppresses DRIFT status write-backs (a raw link's "
         ".data divergence is postlink-supplied and would flip wrong statuses)",
     ),
+    link_map: Path | None = typer.Option(
+        None,
+        "--link-map",
+        help="MSVC link map of --built for --data placement (default: the built image's .map "
+        "beside it). Symbols the map puts at their reference VA become EXACT, others DISPLACED",
+    ),
     text: bool = typer.Option(
         False,
         "--text",
@@ -821,6 +827,7 @@ def main(
             data=data,
             built=None,
             raw_link=raw_link,
+            link_map=None,
             text=text,
             whole_binary=whole_binary,
             context=context,
@@ -932,6 +939,7 @@ def main(
                 data=data,
                 built=built,
                 raw_link=raw_link,
+                link_map=link_map,
                 text=text,
                 whole_binary=whole_binary,
                 context=context,
@@ -1020,13 +1028,23 @@ def main(
         built_bytes, built_sizes = section_symbol_bytes(
             metadata_path=metadata_path, binary_path=built_path, cfg=cfg
         )
+        map_path = link_map or built_path.with_suffix(".map")
+        built_symbols = None
+        if map_path.is_file():
+            from rebrew.data_verify import link_map_symbols
+
+            built_symbols = link_map_symbols(map_path.read_text(encoding="utf-8", errors="replace"))
+        elif link_map is not None:
+            error_exit(f"link map not found: {link_map}", json_mode=json_output)
         data_report = verify_data_bytes(
             metadata_path=metadata_path,
             expected=ref_bytes,
             actual=built_bytes,
             sizes={va: ref_sizes.get(va, built_sizes.get(va, 0)) for va in ref_sizes | built_sizes},
             cfg=cfg,
+            built_symbols=built_symbols,
         )
+        data_report["link_map"] = str(map_path) if built_symbols is not None else None
         # A postlinked binary is not evidence.  Where a project's postlink step
         # copies whole sections from the reference (rebrew's own `data` fixer
         # does exactly that), every symbol in them matches by construction and
@@ -1107,6 +1125,17 @@ def main(
         if not json_output:
             from rebrew.present import ratio_bar
 
+            if built_symbols is not None:
+                console.print(
+                    f"placement: {data_report['exact']} exact, "
+                    f"{len(data_report['displaced'])} displaced, "
+                    f"{data_report['unplaced']} not in the link map"
+                )
+            else:
+                console.print(
+                    "[yellow]placement unchecked:[/yellow] no link map beside the built image "
+                    "(pass --link-map); VERIFIED means the bytes at the reference VA match"
+                )
             console.print(
                 f"data: {data_report['matched']} matched, "
                 f"{len(data_report['mismatched'])} mismatched, "

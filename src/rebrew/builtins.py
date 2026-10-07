@@ -93,6 +93,12 @@ DOMAIN_COMPONENTS: dict[str, tuple[CliComponent, ...]] = {
             help="Seed a project from splat configuration (preview by default).",
             panel=Panel.PROJECT_SETUP,
         ),
+        CliComponent(
+            name="rehome",
+            module="rebrew.rehome",
+            help="Point function rows at the source file that now defines them.",
+            panel=Panel.DEVELOPMENT,
+        ),
     ),
     "types": (
         CliComponent(

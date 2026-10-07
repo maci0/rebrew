@@ -635,3 +635,12 @@ class TestVariableInventory:
 def test_function_returning_function_pointer_is_not_variable_storage() -> None:
     source = "extern int (*factory(void))(int); extern int (*callback)(int);"
     assert [v.name for v in find_extern_variables(source)] == ["callback"]
+
+
+def test_find_extern_variables_skips_a_declaration_with_a_parse_error() -> None:
+    """Hypothesis found this: error recovery handed back name 'long' and an unbalanced type."""
+    from rebrew.c_parser import find_extern_variables
+
+    source = "extern unsigned long a];\nint __cdecl __declspec(unsigned long, int) { return 0; }"
+    assert find_extern_variables(source) == []
+    assert [v.name for v in find_extern_variables("extern unsigned long a[2];\n")] == ["a"]

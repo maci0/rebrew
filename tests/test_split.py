@@ -40,6 +40,51 @@ def test_cdecl_function_declaration_is_not_storage() -> None:
     assert ("storage", "value") in kinds
 
 
+def test_cdecl_definition_with_a_typedef_return_type_is_a_function() -> None:
+    """`Record* __cdecl f(...) {...}` parsed as an error and the function was lost."""
+    from rebrew.split import source_layout
+
+    _raw, spans = source_layout(
+        "typedef struct Record Record;\n"
+        "Record* __cdecl gm_FindRecordById(int id)\n{\n\treturn 0;\n}\n"
+        "int __stdcall plain(void)\n{\n\treturn 1;\n}\n"
+        "Record* proto_only(int);\n"
+    )
+    functions = [span.name for span in spans if span.kind == "function"]
+    assert functions == ["gm_FindRecordById", "plain"]
+    assert ("storage", "proto_only") not in {(span.kind, span.name) for span in spans}
+
+
+def test_inline_asm_does_not_hide_a_function() -> None:
+    """MSVC `__asm` bodies are not C; the function around them is still a function."""
+    from rebrew.split import source_layout
+
+    _raw, spans = source_layout(
+        "int __cdecl with_block(int a)\n{\n\t__asm {\n\t\tmov eax, a\n\t\tL1:\n\t\tjmp L1\n\t}\n\treturn a;\n}\n"
+        "int __cdecl one_line(int a)\n{\n\t__asm mov eax, a\n\treturn a;\n}\n"
+        "int after(void)\n{\n\treturn 0;\n}\n"
+    )
+    assert [span.name for span in spans if span.kind == "function"] == [
+        "with_block",
+        "one_line",
+        "after",
+    ]
+
+
+def test_preamble_struct_keeps_its_semicolon() -> None:
+    """`struct t {...};` is a bare specifier plus a `;` token the named walk never visits."""
+    from rebrew.split import shared_preamble, source_layout
+
+    raw, spans = source_layout(
+        "struct t {\n\tint a;\n};\n#pragma pack(push, 1)\nstruct u {\n\tint b;\n};\n"
+        "#pragma pack(pop)\n\nint f(void)\n{\n\treturn 0;\n}\n"
+    )
+    text = shared_preamble(raw, spans, [], sole=False)
+    assert "};\n#pragma pack(pop)" in text
+    assert "}\n#pragma" not in text
+    assert text.count("};") == 2
+
+
 def _multi_two() -> str:
     return (
         "#include <stdio.h>\n"

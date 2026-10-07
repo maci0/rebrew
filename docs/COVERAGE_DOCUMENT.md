@@ -262,7 +262,7 @@ apart.
 | State | Description | Bucket | Mark in the report |
 |-------|-------------|--------|-------------------|
 | `none` | Uncovered / unmatched region | `none` | none (count only) |
-| `exact` | Byte-identical match | `exact` | EXACT `#1a6b3c` |
+| `exact` | Byte-identical match (a function, or a data symbol the link map places at its reference VA) | `exact` | EXACT `#1a6b3c` |
 | `verified` | Data verdict `VERIFIED` (`rebrew verify --data`) | `exact` | none (count only) |
 | `reloc` | Match after relocation normalization | `reloc` | RELOC `#0f6a5f` |
 | `near_matching` / `near_match` | Byte-similar, not byte-identical; semantics unproven | `near_match` | NEAR_MATCHING `#8f5105` |
@@ -280,6 +280,7 @@ apart.
 | `missing_file` | Source file missing | `other` | error `#a3221f` |
 | `invalid_va` | VA below the arch-aware floor | `other` | error `#a3221f` |
 | `drift` | Data verdict `DRIFT`: the recompiled bytes no longer match | `other` | none (count only) |
+| `displaced` | Data verdict `DISPLACED`: the link map places the symbol away from its reference VA | `other` | none (count only) |
 | `unchecked` | Data verdict `UNCHECKED` | `other` | none (count only) |
 
 A state gets a mark only when it is a function `STATUS`: the report and the
