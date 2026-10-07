@@ -1,5 +1,16 @@
 ## [Unreleased]
 
+### Added
+- `rebrew binary relocs` compares the PE base relocation sites of the reference
+  binary and a built image (`--built`, default `build/<target>`). It counts the
+  missing and extra sites per section and lists each with its containing symbol
+  from the build's MSVC link map (or `--link-map`), the pointer it holds, that
+  target's section and nearest symbol, and the `rebrew-data.toml` row covering
+  it. `--pairs START:END` pairs reference and built pointers at shared sites
+  whose reference target is in the range, which shows displaced globals.
+  `rebrew.relocations.pe_relocation_sites` returns the site table with type
+  names.
+
 ## [2.24.0] - 2026-10-07
 
 ### Added

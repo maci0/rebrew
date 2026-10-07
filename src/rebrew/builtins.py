@@ -368,6 +368,12 @@ DOMAIN_COMPONENTS: dict[str, tuple[CliComponent, ...]] = {
             panel=Panel.ANALYSIS,
             is_group=True,
         ),
+        CliComponent(
+            name="relocs",
+            module="rebrew.reloc_diff",
+            help="Compare PE base relocation sites of the reference and a built image.",
+            panel=Panel.ANALYSIS,
+        ),
     ),
     "library": (
         CliComponent(

@@ -201,6 +201,7 @@ exit is 120, and click's is 1; `run_cli` overrides both.
 | `rebrew types recover` | `struct_recover.py` | Struct typedefs from decompiler offset evidence |
 | `rebrew dev refactor` | `refactor.py` | Refactoring recommendations for the rebrew codebase (dev tool) |
 | `rebrew binary resource` | `resource.py` | PE resource comparison |
+| `rebrew binary relocs` | `reloc_diff.py` | Base relocation sites the build lacks or adds, per section, with each site's symbol, pointer target, target section, link-map symbol and data row; `--pairs` maps reference to built targets in a VA range |
 | `rebrew match solutions` | `solutions_db.py` | GA solutions DB (cross-function cflags seeding) |
 | `rebrew export symbols` | `symbol_addrs.py` | Splat-style symbol export: the rich `name = 0xVA; // type:... size:...` format by default, the bare `0xVA,name` CSV with `--csv`, a symbols dump with a `referenced_by` column with `--references`, and PE-derived symbols (IAT slots, exports, delay imports, TLS callbacks, SafeSEH/CFG tables, security cookie) with `--pe-symbols` |
 | `rebrew export pdb` | `pdb_export.py` | Synthetic PDB for the target: function publics + sized procedures, data labels with C scalar/pointer/array types, optional PE symbols, stamped with the target's RSDS GUID/age or NB10 signature/age (`llvm-pdbutil yaml2pdb`) |
@@ -1731,6 +1732,45 @@ section: `compare` reports byte-identity plus first-diff offset/diff-byte
 count/size delta and exits `EXIT_MISMATCH` (1) when the sections differ, so a
 resource byte diff in the recompiled PE is caught instead of staying invisible
 to function-only verify/diff.
+
+### `rebrew binary relocs`
+
+`rebrew binary relocs [--built PATH] [--link-map PATH] [--pairs START:END] [--limit N] [--json] [--target NAME]`
+
+Compare the PE base relocation sites (every type but `ABSOLUTE`) of the
+target's reference binary with a built image. A site is the absolute VA a
+fixup patches; `missing` sites are in the reference only, `extra` sites in
+the build only. Each is counted per section and listed with:
+
+| Field | Meaning |
+|---|---|
+| `site`, `type`, `section` | Site VA, relocation type name (`HIGHLOW`, `DIR64`, ...), containing section |
+| `symbol` | Nearest link-map symbol at or below the site, as `name+0xN` |
+| `target` | Pointer the site holds (reference image for `missing`, build for `extra`); `null` for a type that is not a full pointer |
+| `target_section`, `target_symbol` | Section and nearest link-map symbol of `target` |
+| `target_data` | The `rebrew-data.toml` row whose `size` covers `target` |
+
+Symbol names come from the MSVC link map beside the built image (`.map`) or
+`--link-map`, so they describe the build's layout: exact for `extra` sites,
+and right for a `missing` site only where the build matches the reference.
+Without a map the symbol fields are `null`. Data rows carry reference VAs.
+
+`--pairs START:END` adds `pairs`: for every site both images relocate whose
+reference pointer lies in `[START, END)`, one row per distinct
+`(reference, built)` pointer pair with the `delta` (built minus reference),
+the number of `sites`, the `reference_data` row and the `built_symbol`. A
+displaced global shows as a non-zero delta.
+
+| Option | Meaning |
+|---|---|
+| `--built PATH` | Built image to compare (default: `build/<target>`) |
+| `--link-map PATH` | MSVC link map of `--built` (default: the built image's `.map` beside it) |
+| `--pairs START:END` | Hex VA range for the operand pairing |
+| `--limit N` | Sites printed per list (default 50, 0 = all); `--json` lists every site |
+
+Exits `EXIT_MISMATCH` (1) when any site is missing or extra, `EXIT_ERROR` (2)
+when an image is not a PE, the image bases differ, or a named input is
+missing.
 
 ### `rebrew status`
 
@@ -3285,6 +3325,7 @@ Inspect executable structure, discover functions, or extract artifacts. Whole ex
 | `rebrew binary imports` | List import-table symbols (PE IAT, ELF dynamic imports, or 16-bit NE modules) and detect import stubs. |
 | `rebrew binary extract` | Extract and disassemble functions from the target binary. |
 | `rebrew binary resource` | Compare / extract PE resource (.rsrc) sections. |
+| `rebrew binary relocs` | Compare PE base relocation sites of the reference and a built image. |
 
 Use `rebrew binary <operation> --help` for exact arguments and examples.
 
