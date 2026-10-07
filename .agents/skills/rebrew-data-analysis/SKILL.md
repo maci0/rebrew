@@ -183,6 +183,11 @@ Two diff signals point at globals:
 5. Re-run `rebrew data list --json`, `rebrew lint --json`, and affected function tests;
    rebuild and verify raw linked data when storage or link inputs changed.
 
+Across the whole image, `rebrew binary relocs --json` lists the base relocation
+sites the build lacks or adds, with each site's symbol and pointer target.
+`--pairs START:END` maps reference targets in a range to the built targets at
+the same sites, which shows displaced globals.
+
 ## Dispatch Tables and Vtables
 
 `rebrew data dispatch` scans `.data` and `.rdata` sections for arrays of
