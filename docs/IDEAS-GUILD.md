@@ -566,3 +566,20 @@ Evidence: guild-rebrew/.scratch/goal-tl-callee-identities/{resolver-binding-conf
   Pain: a position-aligned raw link needs every game function kept and every
   unreferenced library function dropped. Feature: generate the `/INCLUDE`
   list for all game rows in VA order (guild `layout/server.dll/game-includes.rsp`).
+- [ ] **Reclassify a reversed function as stock library code.**
+  Pain: a decompiled copy of a stock source (guild `gz_stream.c`, zlib 1.1.3
+  `gzio.c` with game names) turned out to compile byte for byte from the stock
+  file, but `library bind-source` refuses its FUNCTION rows ("No library
+  declaration"), so renaming the symbols (`_vfs_GetByte` to `_get_byte`) and
+  setting `marker_type = "LIBRARY"` and the new `file` took a script over
+  `rebrew.metadata.record_migrated_markers`. Feature: `library bind-source
+  --adopt` (or `library adopt <va> <source> --symbol`) that converts a FUNCTION
+  row in place, for every module that shares the file. Evidence: guild
+  round 18, `.scratch/r18/rebind_zlib.py`.
+- [ ] **Count the relocation records discarded code contributes.**
+  Pain: LINK reserves `.reloc` space for every input DIR32 record, discarded
+  COMDATs included, so closing the reservation means counting DIR32 per object
+  and per discarded COMDAT from the `/VERBOSE` log; no command does it.
+  Feature: `rebrew binary relocs --reservation` reporting kept, discarded and
+  import-thunk records per input against the reference's `12 * N`. Evidence:
+  guild `.scratch/measure/dir32_count.py`, `discarded_dir32.py`.

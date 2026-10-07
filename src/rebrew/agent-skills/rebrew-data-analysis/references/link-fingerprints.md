@@ -78,6 +78,31 @@ those decisions stay in the output:
   adding discarded code or loading a member in another pass can flip it and
   move all code after it.
 
+- **Third-party sources are compiled whole.** A vendored library (zlib, minizip)
+  was built from its complete files; functions the target never calls are
+  discarded but still count. A copy trimmed to the kept functions misses their
+  DIR32 records and the archive members their CRT calls load (zlib 1.1.3's
+  `gzio.c` loads `fprintf`, `_fdopen`, `vsprintf` and `rewind` that way).
+  Static data of a discarded function is plain `.rdata`/`.data` and stays.
+- **Each object's DIR32 total is measurable.** N is the sum of DIR32 records
+  over every input object's sections plus one per import member (its thunk),
+  dropped imports included; the discarded part per object follows from the
+  `/VERBOSE` "Discarded" lines and the COMDAT symbols.
+- **A sibling build may compile code away.** A logging macro that expands to a
+  call in one binary and to nothing in another leaves the second without the
+  call, its strings and its DIR32 records. A formatted message survives as an
+  unused `sprintf` into a local buffer; a literal message leaves no trace.
+  Discarded code reconstructed from the sibling then undercounts the target's
+  reservation by an amount no image records.
+- **Pair storage through functions both images contain.** Align the
+  instruction streams of a target function and its sibling copy and pair their
+  absolute operands; equal offsets over a range map the sibling's storage onto
+  the target's. Function correspondence also works across differently named
+  globals: a loader that reads a count and reallocates a buffer to count * 0x60
+  identifies the sibling's count and buffer even when the two builds place them
+  apart. A bracket between two anchors with one offset is not proof alone: the
+  target may hold a different object there.
+
 ## Workflow
 
 1. Confirm the gap is whole-image: `rebrew binary relocs --json` reports no
