@@ -1037,7 +1037,7 @@ restoring, the next run puts back that file and the `.off` TU before building.
 
 ### `rebrew source inline-strings`
 
-`rebrew source inline-strings [--files a.c b.c] [--source-dir ...] [--binary ...] [--token-prefix s_] [--inline-only] [--dry-run] [--json]`
+`rebrew source inline-strings [--files a.c b.c] [--source-dir ...] [--binary ...] [--token-prefix s_] [--inline-only | --named] [--dry-run] [--json]`
 
 Materialize `s_<hint>_<0xADDR>` string-literal globals from the reference
 binary: rewrites C-level uses to inline literals (never inside comments or
@@ -1045,6 +1045,34 @@ binary: rewrites C-level uses to inline literals (never inside comments or
 asm-referenced `extern char s_x[];` into real `char s_x[N] = "...";`
 definitions in the owning TU (most-referencing file), so the string gets
 content AND lands in the owning translation unit's `.data` slot.
+
+`--named` reads no binary. For each file-scope `[static] [const] char
+<prefix>name[] = "...";` in a selected file, it replaces every use in that
+file with the initializer, copied byte-for-byte so escapes and concatenated
+literals survive, and removes the definition and every `extern char
+<prefix>name[];` in the file. MSVC6 emits a TU's string literals as `??_C@`
+COMDATs after the TU's plain `.data`, so a literal pool spelled as named arrays
+regains its original placement once inlined. A name is skipped, with its reason
+in the output (`files[].skipped` under `--json`), when any other scanned `.c`
+or a `.h` under the source directories mentions it outside comments and
+literals, when a use sits in `__asm` or other unparsed code or a macro body,
+when the file redeclares it in any other form, when it is defined twice, or
+when it has no use. Arrays with an explicit size are left alone. Data rows
+for an inlined name in that file get `storage_kind = "literal"`
+(`updated_by = "inline-strings"`); their `link_symbol` and verdict stay, so
+re-run `rebrew verify --data` and record the literal's `??_C@` symbol with
+`rebrew data set --link-symbol 0xVA=SYMBOL` from the link map.
+
+| Option | Meaning |
+| --- | --- |
+| `--files` | Rewrite only these files (matched by name); `--named` still scans every source for other-file uses |
+| `--source-dir` | Directory of reversed sources (default: config `reversed_dir` plus the shared tree) |
+| `--binary` | Reference binary (default: config `target_binary`); unused by `--named` |
+| `--token-prefix` | Global name prefix (default `s_`) |
+| `--inline-only` | Skip the asm-referenced definition step |
+| `--named` | Inline same-file named string arrays instead of binary-backed placeholders |
+| `--dry-run` | Preview changes without writing |
+| `--json` | Output results as JSON |
 
 ### `rebrew build order-sources`
 
