@@ -48,6 +48,11 @@
   rewritten. `--dry-run` previews.
 - `rebrew.data_ownership.LinkSymbol` carries the map section of each symbol
   (`section`), resolved from the map's segment table.
+- The rebrew-data-analysis skill covers whole-image gaps left by discarded
+  code (`references/link-fingerprints.md`): how MSVC 6 LINK's load order, IAT
+  sort, hint/name table, `.reloc` reservation and Rich header record functions
+  that `/OPT:REF` dropped, and how to reconstruct them from sibling binaries
+  built from the same sources.
 
 ### Changed
 - **Breaking:** `rehome.main` takes `from_file` and `to_file` after `specs`,

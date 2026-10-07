@@ -200,6 +200,17 @@ sites the build lacks or adds, with each site's symbol and pointer target.
 `--pairs START:END` maps reference targets in a range to the built targets at
 the same sites, which shows displaced globals.
 
+## Whole-Image Gaps From Discarded Code
+
+When every function and data row matches but the IAT slot order, the hint/name
+order, library `.bss` order, or `.reloc` size still differ, the original link
+probably had inputs the build lacks: functions from source files shared with
+sibling binaries that `/OPT:REF` discarded. Discarded code still loads CRT and
+import members (which reorder the IAT) and its DIR32 records count into the
+`.reloc` reservation. Read `references/link-fingerprints.md` for the measured
+LINK rules, using the Rich header and hint/name table as evidence, and for
+reconstructing the discarded functions instead of inventing stand-ins.
+
 ## Dispatch Tables and Vtables
 
 `rebrew data dispatch` scans `.data` and `.rdata` sections for arrays of
