@@ -255,6 +255,7 @@ __all__ = [
     "update_field",
     "update_source_status",
     "update_statuses_batch",
+    "stored_file_matches",
 ]
 
 
@@ -964,6 +965,15 @@ def identity_file(filepath: Path | str, metadata_dir: Path | str) -> str:
     ``..`` prefix when the source sits outside the metadata root.
     """
     return Path(os.path.relpath(filepath, metadata_dir)).as_posix()
+
+
+def stored_file_matches(stored: str, rel: str) -> bool:
+    """True when *stored* is *rel* or a path suffix of it."""
+    stored = stored.replace("\\", "/")
+    if not stored:
+        return False
+    parts = rel.split("/")
+    return stored in {"/".join(parts[i:]) for i in range(len(parts))}
 
 
 def record_function_identity(

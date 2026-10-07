@@ -46,6 +46,7 @@ from rebrew.metadata import (
     identity_file,
     load_metadata,
     record_migrated_markers,
+    stored_file_matches,
     validate_identity_file,
 )
 from rebrew.sources import (
@@ -59,7 +60,6 @@ from rebrew.split import (
     shared_preamble,
     source_layout,
     span_extent,
-    stored_file_matches,
 )
 from rebrew.utils import (
     atomic_write_text,

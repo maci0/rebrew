@@ -17,6 +17,18 @@
   `--defines SYMBOL` answer which members pull or supply a symbol, for working
   out which members LINK loads only for their data when reproducing link
   order. `LIBRARY` may name a configured `external_libs` archive.
+- `rebrew source rehome --from OLD --to NEW` retargets every function and data
+  row naming a renamed or moved file, in one locked write per store. It took
+  one `rehome 0xVA=PATH` per function and one `data set --file` per global.
+  NEW must define each moved function.
+
+### Changed
+- **Breaking:** `rehome.main` takes `from_file` and `to_file` after `specs`,
+  and `specs` defaults to `None`. The CLI keeps its `0xVA=PATH` form.
+
+### Fixed
+- `rebrew source rename --file` moves the data rows of the renamed file with
+  its function rows. They kept naming the old path.
 
 ## [2.24.0] - 2026-10-07
 
