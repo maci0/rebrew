@@ -49,6 +49,7 @@ from rebrew.metadata import (
     identity_file,
     load_metadata,
     record_migrated_markers,
+    stored_file_matches,
     validate_identity_file,
 )
 from rebrew.sources import (
@@ -504,15 +505,6 @@ def row_labels(entry: dict[str, Any]) -> set[str]:
         if c_name:
             names.add(c_name)
     return names
-
-
-def stored_file_matches(stored: str, rel: str) -> bool:
-    """True when *stored* is *rel* or a path suffix of it."""
-    stored = stored.replace("\\", "/")
-    if not stored:
-        return False
-    parts = rel.split("/")
-    return stored in {"/".join(parts[i:]) for i in range(len(parts))}
 
 
 def _uses_at(text: str, line: int) -> tuple[set[str], set[str]]:

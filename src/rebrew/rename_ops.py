@@ -360,18 +360,36 @@ def rename_function_everywhere(
         # Preview mode: count files that would be modified without writing.
         return len([p for p in candidates if name_re.search(read_source_text(p)[0])])
 
-    from rebrew.metadata import load_metadata, record_migrated_markers
+    from rebrew.data_metadata import load_data_metadata, set_data_fields_batch
+    from rebrew.metadata import (
+        identity_file,
+        load_metadata,
+        record_migrated_markers,
+        stored_file_matches,
+    )
     from rebrew.utils import rel_display_path
 
     metadata_dir = getattr(cfg, "metadata_dir", filepath.parent)
     metadata = load_metadata(metadata_dir, deepcopy=False)
+    new_file = (
+        rel_display_path(rename_target, getattr(cfg, "root", metadata_dir))
+        if rename_target is not None
+        else ""
+    )
+    # Globals defined in the renamed file follow it like its function rows.
+    old_file = identity_file(filepath, metadata_dir)
+    data_moves = [
+        {"module": module, "va": va, "fields": {"file": new_file}, "updated_by": "rename"}
+        for (module, va), entry in load_data_metadata(metadata_dir).items()
+        if new_file and stored_file_matches(str(entry.get("file") or ""), old_file)
+    ]
     identities = []
     for entry in _rename_annotations(cfg, filepath):
         if not metadata.get((entry.module, entry.va), {}).get("file"):
             continue
         identity = {}
-        if rename_target is not None:
-            identity["file"] = rel_display_path(rename_target, getattr(cfg, "root", metadata_dir))
+        if new_file:
+            identity["file"] = new_file
         if entry.name == actual_old_name or c_name_from_symbol(entry.symbol) == actual_old_name:
             identity["name"] = target_func
             identity["symbol"] = redecorated_symbol(entry.symbol, target_func)
@@ -441,4 +459,5 @@ def rename_function_everywhere(
         )
 
     record_migrated_markers(metadata_dir, identities, overwrite_name=True)
+    set_data_fields_batch(metadata_dir, data_moves)
     return updated_files

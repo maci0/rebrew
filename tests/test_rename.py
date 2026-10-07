@@ -204,6 +204,43 @@ class TestRenameTargetIsolation:
             assert get_entry(tmp_path, va, module)["file"] == "src/new_fn.c"
             assert get_entry(tmp_path, va, module)["status"] == "EXACT"
 
+    def test_globals_follow_the_renamed_file(self, tmp_path: Path) -> None:
+        import tomllib
+
+        from rebrew.metadata import save_metadata
+
+        src = tmp_path / "src"
+        src.mkdir()
+        primary = _src(src, "old_fn.c", "int g_hits;\nint old_fn(void) { return g_hits; }\n")
+        save_metadata(
+            tmp_path,
+            {
+                ("TL", 0x401000): {
+                    "file": "src/old_fn.c",
+                    "name": "old_fn",
+                    "symbol": "_old_fn",
+                    "marker_type": "FUNCTION",
+                }
+            },
+        )
+        data_toml = (
+            '["TL.0x500000"]\nname = "g_hits"\nfile = "src/old_fn.c"\n\n'
+            '["TL.0x500004"]\nname = "g_else"\nfile = "src/else.c"\n'
+        )
+        (tmp_path / "rebrew-data.toml").write_text(data_toml, encoding="utf-8")
+        cfg = SimpleNamespace(root=tmp_path, reversed_dir=src, metadata_dir=tmp_path)
+        rename_function_everywhere(
+            cfg, primary, "old_fn", "_old_fn", "new_fn", new_filename="new_fn.c", dry_run=True
+        )
+        assert (tmp_path / "rebrew-data.toml").read_text(encoding="utf-8") == data_toml
+        rename_function_everywhere(
+            cfg, primary, "old_fn", "_old_fn", "new_fn", new_filename="new_fn.c"
+        )
+        data = tomllib.loads((tmp_path / "rebrew-data.toml").read_text(encoding="utf-8"))
+        assert data["TL.0x500000"]["file"] == "src/new_fn.c"
+        assert data["TL.0x500000"]["updated_by"] == "rename"
+        assert data["TL.0x500004"]["file"] == "src/else.c"
+
     @pytest.mark.parametrize("dry_run", [False, True])
     def test_shared_owner_does_not_rename_independent_server_symbol(
         self, tmp_path: Path, dry_run: bool

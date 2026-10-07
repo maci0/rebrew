@@ -487,7 +487,9 @@ Behavior:
 - Symbol is derived automatically from the C function definition as `_<new_name>`
 - Updates the C function definition name
 - Replaces `extern` cross-references across all `.c` files
-- Renames the file itself if the stem matches the old name
+- Renames the file itself if the stem matches the old name; a file that data
+  rows also name is renamed only with `--file`. A renamed file takes its
+  function and data rows with it
 - A file that cannot be read or written fails the whole rename with a
   non-zero exit and names the files that still hold the old symbol; the
   definition rename is left in place, so the tree needs a manual fix
@@ -1367,7 +1369,18 @@ Merge multiple single-function `.c` files into one multi-function file. Preamble
 
 `rebrew source rehome 0xVA=PATH ... [--dry-run] [--json]`
 
+`rebrew source rehome --from OLD --to NEW [--dry-run] [--json]`
+
 Set a function row's `file` to PATH after a definition moved by hand between multi-function files. PATH must define the row's function (tree-sitter definition scan); the source text is not edited. `merge` and `split` retarget the rows they move themselves.
+
+`--from OLD --to NEW` follows a renamed or moved file (`git mv`): every function row and data row, in every module, whose stored `file` is OLD or a trailing part of it (the match `merge` uses) moves to NEW. OLD may already be gone. NEW must exist and define every moved function by name; data rows need only NEW to exist. Nothing is written unless every row passes. Each store takes one locked write, functions first; a failed data write leaves the function rows moved, and re-running the same command moves the rest. A path no row names is an error. `--json` prints `rows` (function rows) and `data` (data rows), each with `module`, `va`, `name`, `old_file`, `file`.
+
+| Flag | Effect |
+|------|--------|
+| `--from OLD` | Old source path; needs `--to`, excludes `0xVA=PATH` specs |
+| `--to NEW` | New source path for `--from` |
+| `--dry-run` | Preview changes without writing |
+| `--json` | Output results as JSON |
 
 ### `rebrew recommend`
 
