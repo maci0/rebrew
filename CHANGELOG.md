@@ -1,5 +1,14 @@
 ## [Unreleased]
 
+### Added
+- `rebrew library inspect LIBRARY` lists a COFF archive's members: sections
+  with size, alignment and COMDAT flag, external definitions with their
+  section, COMMON data sizes, weak aliases, undefined references, and the DLL
+  and imported name of each short import member. `--refs SYMBOL` and
+  `--defines SYMBOL` answer which members pull or supply a symbol, for working
+  out which members LINK loads only for their data when reproducing link
+  order. `LIBRARY` may name a configured `external_libs` archive.
+
 ## [2.24.0] - 2026-10-07
 
 ### Added

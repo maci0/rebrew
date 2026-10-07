@@ -16,13 +16,16 @@ import logging
 import struct
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import typer
 
 from rebrew.archives import parse_archive as parse_archive
 from rebrew.cli import console, error_exit, json_print
 from rebrew.utils import atomic_write_text
+
+if TYPE_CHECKING:
+    import lief
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +67,36 @@ def _coff_symbol_names(data: bytes) -> list[str]:
     return names
 
 
+def load_coff(
+    obj_data: bytes,
+) -> "tuple[lief.COFF.Binary, list[lief.COFF.Symbol], list[str]] | None":
+    """Parse a COFF object with LIEF; return the binary, its symbols, and their names.
+
+    ``None`` when the bytes are too short or LIEF rejects them.  A name LIEF
+    leaves empty (a suffix shared in the string table) is read from the raw
+    symbol table.  Stock MSVC tcmap members have machine=0 and one empty
+    ``.text`` section; LIEF rejects that machine, so only the in-memory parser
+    input is normalized.  The library on disk and the linker's inputs remain
+    untouched.  The symbols are views into the binary: keep the binary
+    referenced while they are used, or LIEF frees them under the caller.
+    """
+    import lief
+
+    if len(obj_data) < 20:
+        return None
+    parse_data = b"\x4c\x01" + obj_data[2:] if obj_data[:4] == b"\0\0\x01\0" else obj_data
+    coff = lief.COFF.parse(list(parse_data))
+    if coff is None:
+        return None
+    symbols = list(coff.symbols)
+    raw_names = _coff_symbol_names(obj_data)
+    names = [
+        str(sym.name) or (raw_names[i] if len(raw_names) == len(symbols) else "")
+        for i, sym in enumerate(symbols)
+    ]
+    return coff, symbols, names
+
+
 def parse_coff_obj(obj_data: bytes) -> Iterator[tuple[str, bytes, set[int]]]:
     """Parse a COFF .obj and yield (symbol_name, code_bytes, reloc_offsets).
 
@@ -71,28 +104,12 @@ def parse_coff_obj(obj_data: bytes) -> Iterator[tuple[str, bytes, set[int]]]:
     ``reloc_offsets`` is a set of individual *byte* positions that are
     covered by relocations (expanded to cover the full fixup width).
     """
-    import tempfile
-
     import lief
 
-    if len(obj_data) < 20:
+    loaded = load_coff(obj_data)
+    if loaded is None:
         return
-
-    # LIEF needs a file path, so write to a temp file
-    with tempfile.TemporaryDirectory(prefix="flirt_obj_") as td:
-        tmp_path = Path(td) / "temp.obj"
-        tmp_path.write_bytes(obj_data)
-        coff = lief.COFF.parse(str(tmp_path))
-
-    if coff is None:
-        return
-
-    symbols = list(coff.symbols)
-    raw_names = _coff_symbol_names(obj_data)
-    names = [
-        str(sym.name) or (raw_names[i] if len(raw_names) == len(symbols) else "")
-        for i, sym in enumerate(symbols)
-    ]
+    coff, symbols, names = loaded
     # Pre-build per-section sorted symbol offsets to avoid O(n^2) scans
     section_sym_offsets: dict[str, list[int]] = {}
     for sym, sym_name in zip(symbols, names, strict=True):
@@ -157,21 +174,10 @@ def parse_coff_aliases(obj_data: bytes) -> Iterator[tuple[str, str]]:
     """Yield weak SEARCH_ALIAS names and their targets, including MSVC tcmap objects."""
     import lief
 
-    if len(obj_data) < 20:
+    loaded = load_coff(obj_data)
+    if loaded is None:
         return
-    # Stock MSVC tcmap members have machine=0 and one empty .text section.
-    # LIEF rejects that machine: normalize only the in-memory parser input.
-    # The library on disk and the linker's inputs remain untouched.
-    parse_data = b"\x4c\x01" + obj_data[2:] if obj_data[:4] == b"\0\0\x01\0" else obj_data
-    coff = lief.COFF.parse(list(parse_data))
-    if coff is None:
-        return
-    symbols = list(coff.symbols)
-    raw_names = _coff_symbol_names(obj_data)
-    names = [
-        str(sym.name) or (raw_names[i] if len(raw_names) == len(symbols) else "")
-        for i, sym in enumerate(symbols)
-    ]
+    coff, symbols, names = loaded
     # Weak auxiliary records use raw symbol indices, which count other AUX records.
     by_index: dict[int, str] = {}
     index = 0

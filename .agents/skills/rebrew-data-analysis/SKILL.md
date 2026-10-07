@@ -176,7 +176,9 @@ Two diff signals point at globals:
 
 1. `rebrew diff --json src/bench/<file>.c`: note `XX` rows and `missing_globals`
 2. Add the missing `extern` declarations, then `rebrew data annotate` to record the row. Do not add a new marker line
-3. Check the backing object and stock-library provenance before adding storage.
+3. Check the backing object and stock-library provenance before adding storage:
+   `rebrew library inspect <lib> --defines <symbol>` names the archive member, and
+   listing that member shows its `.bss` size and alignment and its COMMON extents.
 4. Use `rebrew data bss --json` to inspect gaps. A gap can be an incomplete
    extent, alignment, an interior view, or library storage; it is not proof that
    another allocation is missing. Emit padding only after establishing the cause.

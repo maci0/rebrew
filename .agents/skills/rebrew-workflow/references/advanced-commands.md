@@ -16,6 +16,7 @@ Manual inspection and linkage tools outside the main reverse loop. Run
 | `rebrew build check-exports` | Verify the recompiled binary's export table matches the original target. |
 | `rebrew build order-sources` | Order source files by their first function's original VA (position-aligned `.text`). |
 | `rebrew build calibrate-bss` | Calibrate a BSS tail pad so the raw link's `.data` VirtualSize matches the reference. |
+| `rebrew library inspect` | List a `.lib`'s members: sections (size, alignment, COMDAT), defined, COMMON and undefined symbols, short imports; `--refs`/`--defines SYMBOL` find who pulls or supplies a symbol when reproducing link order. |
 | `rebrew build symbol-stubs` | Generate a stub TU for unresolved linker symbols (LNK2001/LNK2019). |
 | `rebrew build link-stubs` | Generate a `link_stubs.c`-style BSS placeholder TU from the data metadata. |
 | `rebrew source inline-strings` | Inline string-literal globals (`s_<hint>_<0xADDR>`) from the reference binary. |
