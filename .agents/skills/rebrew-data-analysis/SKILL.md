@@ -58,6 +58,8 @@ rebrew data dispatch --max-pointer-stride 8 # allow 8-byte stride between slots 
 rebrew data bss --json # verify .bss layout, detect gaps from missing externs
 rebrew data fix-bss --dry-run # preview bss_padding.c + metadata changes, write nothing
 rebrew data fix-bss # generate bss_padding.c + write SIZE/SECTION/NOTE to metadata
+rebrew data mark-literals --dry-run --json # rows at ??_C@/__real@ map VAs -> storage_kind=literal + link_symbol
+rebrew build check-tu-data --json # per-object [data][literals] order: TU boundaries, s_* literal pools
 rebrew data header --dry-run # preview rebrew_globals.h contents
 rebrew data header # write rebrew_globals.h from scanned globals (inline markers or rebrew-data.toml rows)
 rebrew data header --output /path/to/my_globals.h # override output path

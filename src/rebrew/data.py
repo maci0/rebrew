@@ -56,6 +56,7 @@ app = typer.Typer(
         "  rebrew data bss · · · · · · · · · · · Verify .bss layout and gaps\n\n"
         "  rebrew data fix-bss · · · · · · · · · Generate bss_padding.c for gaps\n\n"
         "  rebrew data header · · · · · · · · Generate rebrew_globals.h\n\n"
+        "  rebrew data mark-literals --dry-run · Mark rows the link map shows are literals\n\n"
         "  rebrew data list --json · · · · · · · · · · · Output as JSON\n\n"
         "[dim]Scans reversed .c files for GLOBAL:/DATA: annotations and extern "
         "declarations, cross-references with binary data sections, and detects "
@@ -951,6 +952,52 @@ def set_data(
         json_output=json_output,
         target=target,
     )
+
+
+@app.command(
+    "mark-literals",
+    epilog="Examples:\n\n  rebrew data mark-literals --dry-run --json\n\nMetadata writes use locked writers. Storage ownership and byte verification remain separate.",
+)
+def mark_literals(
+    link_map: Path | None = typer.Option(
+        None,
+        "--link-map",
+        help="MSVC link map of a reference-aligned build (default: raw_link's .map)",
+    ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
+) -> None:
+    """Mark rows the link map shows to be compiler literals (storage_kind=literal)."""
+    from rebrew.data_annotate import mark_literal_rows
+    from rebrew.data_ownership import parse_link_map
+
+    cfg = require_config(target=target, json_mode=json_output)
+    if link_map is None:
+        raw = getattr(cfg, "raw_link", None)
+        if raw is None:
+            error_exit("no link map: pass --link-map or configure raw_link", json_mode=json_output)
+            return
+        link_map = Path(raw).with_suffix(".map")
+    try:
+        text = link_map.read_bytes().decode("utf-8", errors="surrogateescape")
+        report = mark_literal_rows(cfg, parse_link_map(text), dry_run=dry_run)
+    except OSError as exc:
+        error_exit(f"cannot read link map: {exc}", json_mode=json_output)
+        return
+    except ValueError as exc:
+        error_exit(str(exc), json_mode=json_output)
+        return
+    if json_output:
+        json_print({"dry_run": dry_run, "link_map": str(link_map), **report})
+        return
+    verb = "Would mark" if dry_run else "Marked"
+    console.print(
+        f"{verb} {len(report['marked'])} literal row(s); "
+        f"{report['unchanged']} already marked, {len(report['conflicts'])} conflict(s)."
+    )
+    for row in report["conflicts"]:
+        console.print(f"  [yellow]conflict[/] {row['va']}: {untrusted_ident(row['reason'])}")
 
 
 @app.command(

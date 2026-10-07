@@ -409,6 +409,79 @@ def set_data_relation(
     )
 
 
+#: Recorded storage kinds a compiler literal at the same VA may replace. A
+#: named object is refined to the literal the build emits there; an alias,
+#: span, or import slot describes a different relationship and is reported.
+_LITERAL_REPLACEABLE_KINDS = ("", "object", "literal")
+
+
+def mark_literal_rows(
+    cfg: ProjectConfig, symbols: list[Any], *, dry_run: bool = False
+) -> dict[str, Any]:
+    """Mark data rows at a compiler literal's linked VA as ``storage_kind = "literal"``.
+
+    *symbols* are :class:`rebrew.data_ownership.LinkSymbol` rows of a link
+    whose layout matches the reference, so a map VA names a reference row.
+    Each marked row also records the literal's ``link_symbol``. A VA holding
+    two different literal symbols, or a row whose storage kind is not
+    replaceable, is returned under ``conflicts`` and left unchanged.
+    """
+    from rebrew.data_metadata import load_data_metadata, set_data_fields_batch
+    from rebrew.data_ownership import is_compiler_literal
+    from rebrew.sources import target_marker
+
+    module = target_marker(cfg) or ""
+    if not module:
+        raise ValueError("no target marker configured to address the data metadata")
+    literals: dict[int, set[str]] = {}
+    for sym in symbols:
+        if not sym.is_function and is_compiler_literal(sym.name):
+            literals.setdefault(sym.va, set()).add(sym.name)
+    marked: list[dict[str, Any]] = []
+    conflicts: list[dict[str, Any]] = []
+    unchanged = 0
+    updates: list[dict[str, Any]] = []
+    for (row_module, va), row in sorted(load_data_metadata(cfg.metadata_dir).items()):
+        names = literals.get(va)
+        if row_module != module or not names:
+            continue
+        if len(names) > 1:
+            conflicts.append(
+                {"va": f"0x{va:x}", "symbols": sorted(names), "reason": "several literal symbols"}
+            )
+            continue
+        symbol = next(iter(names))
+        kind = str(row.get("storage_kind") or "")
+        link = str(row.get("link_symbol") or "")
+        if kind not in _LITERAL_REPLACEABLE_KINDS:
+            conflicts.append(
+                {"va": f"0x{va:x}", "symbol": symbol, "reason": f"storage_kind is {kind}"}
+            )
+            continue
+        if kind == "literal" and link == symbol:
+            unchanged += 1
+            continue
+        marked.append(
+            {
+                "va": f"0x{va:x}",
+                "symbol": symbol,
+                "storage_kind_was": kind or None,
+                "link_symbol_was": link or None,
+            }
+        )
+        updates.append(
+            {
+                "module": module,
+                "va": va,
+                "fields": {"storage_kind": "literal", "link_symbol": symbol},
+                "updated_by": "data",
+            }
+        )
+    if not dry_run:
+        set_data_fields_batch(cfg.metadata_dir, updates)
+    return {"module": module, "marked": marked, "unchanged": unchanged, "conflicts": conflicts}
+
+
 def set_data_types(
     cfg: ProjectConfig, specs: list[str], *, dry_run: bool = False
 ) -> list[dict[str, str]]:

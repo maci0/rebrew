@@ -21,13 +21,31 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 _MAP_ROW = re.compile(
-    r"^\s*[0-9a-fA-F]{4}:[0-9a-fA-F]{8,16}\s+(\S+)\s+([0-9a-fA-F]{8,16})\s+(.+?)\s*$"
+    r"^\s*([0-9a-fA-F]{4}):([0-9a-fA-F]{8,16})\s+(\S+)\s+([0-9a-fA-F]{8,16})\s+(.+?)\s*$"
 )
+# Segment table row: ` 0003:00000030 0000d5dcH .data  DATA`.
+_MAP_SEGMENT_ROW = re.compile(
+    r"^\s*([0-9a-fA-F]{4}):([0-9a-fA-F]{8,16})\s+([0-9a-fA-F]+)H\s+(\S+)\s+\S+\s*$"
+)
+
+#: Name prefixes of MSVC compiler-generated literal COMDATs: ``??_C@`` string
+#: literals and ``__real@`` floating-point constants.
+COMPILER_LITERAL_PREFIXES = ("??_C@", "__real@")
+
+
+def is_compiler_literal(name: str) -> bool:
+    """True for a linker symbol MSVC emits for a string or floating-point literal."""
+    return name.startswith(COMPILER_LITERAL_PREFIXES)
 
 
 @dataclass(frozen=True)
 class LinkSymbol:
-    """One public or static data/code symbol in an MSVC map."""
+    """One public or static data/code symbol in an MSVC map.
+
+    ``section`` is the map segment-table contribution holding the symbol,
+    without its ``$`` grouping suffix (``.data``, ``.rdata``, ``.bss``), or ""
+    when the map has no segment table row covering it.
+    """
 
     name: str
     va: int
@@ -36,16 +54,42 @@ class LinkSymbol:
     common: bool = False
     is_function: bool = False
     object: str = ""
+    section: str = ""
+
+
+def _map_sections(text: str) -> dict[int, list[tuple[int, int, str]]]:
+    """Segment number -> ``(start, end, section)`` rows from the map's segment table."""
+    segments: dict[int, list[tuple[int, int, str]]] = {}
+    for line in text.splitlines():
+        match = _MAP_SEGMENT_ROW.match(line)
+        if match is None:
+            continue
+        segment, start, length, name = match.groups()
+        begin = int(start, 16)
+        segments.setdefault(int(segment, 16), []).append(
+            (begin, begin + int(length, 16), name.split("$", 1)[0])
+        )
+    return segments
 
 
 def parse_link_map(text: str) -> list[LinkSymbol]:
     """Read MSVC Publics/Static symbols, excluding import-address-table entries."""
+    segments = _map_sections(text)
     symbols: list[LinkSymbol] = []
     for line in text.splitlines():
         match = _MAP_ROW.match(line)
         if match is None:
             continue
-        name, address, origin = match.groups()
+        segment, offset, name, address, origin = match.groups()
+        offset_value = int(offset, 16)
+        section = next(
+            (
+                section_name
+                for start, end, section_name in segments.get(int(segment, 16), [])
+                if start <= offset_value < end
+            ),
+            "",
+        )
         words = origin.split()
         flags: set[str] = set()
         while words and words[0] in {"f", "i"}:
@@ -72,6 +116,7 @@ def parse_link_map(text: str) -> list[LinkSymbol]:
                 origin == "<common>",
                 "f" in flags,
                 origin if not library and origin != "<common>" else "",
+                section,
             )
         )
     return symbols

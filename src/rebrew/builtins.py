@@ -233,6 +233,12 @@ DOMAIN_COMPONENTS: dict[str, tuple[CliComponent, ...]] = {
             help="Dump reference-side layout measurements (sections, gaps, IAT, exports).",
             panel=Panel.ANALYSIS,
         ),
+        CliComponent(
+            name="check-tu-data",
+            module="rebrew.tu_data_check",
+            help="Flag linked objects whose .data/.rdata breaks the MSVC6 one-TU shape.",
+            panel=Panel.MATCHING,
+        ),
     ),
     "diagnose": (
         CliComponent(
