@@ -166,7 +166,8 @@ def main(
             console.print(
                 f"{row['first_va']} {row['section']:6} "
                 f"{untrusted_ident(Path(row['object']).name):32} {row['shape']:24} "
-                + "; ".join(_describe(issue) for issue in row["issues"])
+                + "; ".join(_describe(issue) for issue in row["issues"]),
+                soft_wrap=True,
             )
         console.print(f"checked {len(rows)} object section(s), {len(flagged)} flagged")
     if flagged:
