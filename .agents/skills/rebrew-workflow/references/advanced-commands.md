@@ -18,7 +18,7 @@ Manual inspection and linkage tools outside the main reverse loop. Run
 | `rebrew build calibrate-bss` | Calibrate a BSS tail pad so the raw link's `.data` VirtualSize matches the reference. |
 | `rebrew build symbol-stubs` | Generate a stub TU for unresolved linker symbols (LNK2001/LNK2019). |
 | `rebrew build link-stubs` | Generate a `link_stubs.c`-style BSS placeholder TU from the data metadata. |
-| `rebrew source inline-strings` | Inline string-literal globals (`s_<hint>_<0xADDR>`) from the reference binary. |
+| `rebrew source inline-strings` | Inline string-literal globals (`s_<hint>_<0xADDR>`) from the reference binary; `--named` inlines a file's own `char s_x[] = "..."` pool. |
 | `rebrew build sweep-link-flags` | Sweep LINK options to reproduce the reference PE header (find stamp-only fields). |
 | `rebrew build cmake-toolchain` | Write a CMake toolchain file that drives a docker toolchain via `rebrew build driver`. |
 | `rebrew build cmake-flags` | Write per-file CFLAGS from `rebrew-functions.toml` as a CMake include. |

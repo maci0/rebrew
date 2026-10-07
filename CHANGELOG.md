@@ -1,5 +1,15 @@
 ## [Unreleased]
 
+### Added
+- `rebrew source inline-strings --named` inlines a file's own
+  `char s_name[] = "...";` definitions at their uses and removes the definition
+  and the file's `extern char s_name[];` lines. MSVC6 emits a TU's string
+  literals as `??_C@` COMDATs after its plain `.data`, so a literal pool spelled
+  as named arrays regains its original placement. A name used from another
+  file, from `__asm`, or from a macro body is skipped with the reason.
+  Matching data rows get `storage_kind = "literal"` under the new
+  `inline-strings` provenance tag.
+
 ## [2.24.0] - 2026-10-07
 
 ### Added

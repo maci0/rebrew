@@ -150,7 +150,7 @@ that would merge distinct keys is rejected rather than discarding a value.
 **Provenance names the last write of any kind.** `UPDATED_BY` is one of
 `test`, `verify`, `prove`, `match`, `diff`, `near-diag`, `blocker`, `skeleton`,
 `lint`, `cross-import`, `binsync-import`, `fix-sizes`, `intake`, plus `rename`
-on data rows, and it names the tool that wrote the row most recently, so a
+and `inline-strings` on data rows, and it names the tool that wrote the row most recently, so a
 `BLOCKER` edit through
 `update_field` stamps itself instead of leaving a months-old `verify` tag
 standing on the row.  A writer that passes no tag keeps the stored stamp.

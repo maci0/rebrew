@@ -48,10 +48,10 @@ supplies its own tag.
   leaves the stored stamp alone, so an un-tagged programmatic write is never
   mistaken for a tool's work.
 - **The tag vocabulary is closed.**
-  `rebrew.metadata.PROVENANCE_TAGS` lists the eighteen writers (`binsync-import`,
-  `blocker`, `cross-import`, `crt-match`, `data`, `diff`, `document-unmatched`,
-  `fix-sizes`, `identify-library`, `intake`, `lint`, `match`, `near-diag`,
-  `prove`, `rename`, `skeleton`, `test`, `verify`).  A tag outside it is a typo
+  `rebrew.metadata.PROVENANCE_TAGS` lists the nineteen writers (`binsync-import`,
+  `blocker`, `cross-import`, `data`, `diff`, `document-unmatched`, `fix-sizes`,
+  `import-splat`, `inline-strings`, `intake`, `lint`, `match`, `near-diag`,
+  `prove`, `rehome`, `rename`, `skeleton`, `test`, `verify`).  A tag outside it is a typo
   or a tool nobody updated the list for; `rebrew lint` reports both (W031)
   rather than letting "who wrote this" be answerable only by grepping the
   writers.

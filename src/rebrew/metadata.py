@@ -684,6 +684,7 @@ PROVENANCE_TAGS: frozenset[str] = frozenset(
         "document-unmatched",
         "fix-sizes",
         "import-splat",
+        "inline-strings",
         "intake",
         "lint",
         "match",
