@@ -14,6 +14,7 @@ Rebrew recompiles your C with the compiler that built the target and compares th
 - Library identification, globals/types, data layout, and whole-binary verification.
 - Prioritized work and separate file, executable-byte, and stored data-verdict accounting.
 - BinSync field reconciliation and provenance, plus live Ghidra structural operations.
+- Symbol exports: splat `symbol_addrs`, and a synthetic PDB stamped with the target's own debug-record GUID/age (`rebrew export pdb`, needs `llvm-pdbutil`).
 - Config-driven toolchains, compile caching, and six packaged agent workflows.
 
 See the [documentation index](https://github.com/maci0/rebrew/blob/main/docs/README.md)

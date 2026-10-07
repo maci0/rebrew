@@ -17,6 +17,9 @@ from pathlib import Path
 
 _TEXT_CHARS = 0x60000020  # CODE | EXECUTE | READ | CNT_CODE
 
+_DEBUG_TYPE_CODEVIEW = 2  # IMAGE_DEBUG_TYPE_CODEVIEW
+_DEBUG_DIR_SIZE = 28  # sizeof(IMAGE_DEBUG_DIRECTORY)
+
 _EXTERNAL = 2  # IMAGE_SYM_CLASS_EXTERNAL
 _STATIC = 3  # IMAGE_SYM_CLASS_STATIC
 
@@ -47,6 +50,7 @@ def make_pe(
     imports: list[tuple[str, list[str]]] | None = None,
     pe32_plus: bool = False,
     section_name: str = ".text",
+    codeview: bytes | None = None,
 ) -> bytes:
     """Build a minimal PE with one real ``.text`` section containing *code*.
 
@@ -66,6 +70,10 @@ def make_pe(
 
     *section_name* renames that code section (``CODE`` for the Borland and
     Watcom spelling), keeping the CODE|EXECUTE|READ characteristics.
+
+    With *codeview* (a raw CodeView record such as ``RSDS`` + GUID + age +
+    name), one ``IMAGE_DEBUG_DIRECTORY`` entry of type CODEVIEW and the
+    record are appended to the section and wired into data directory 6.
     """
     sec_align, file_align, sizeof_headers = 0x1000, 0x200, 0x200
     thunk_size = 8 if pe32_plus else 4
@@ -77,6 +85,22 @@ def make_pe(
         text_va, len(code), imports, thunk_size
     )
     section_data = code + import_blob
+    debug_dir_rva = 0
+    if codeview is not None:
+        debug_dir_rva = text_va + len(section_data)
+        record_offset = len(section_data) + _DEBUG_DIR_SIZE
+        section_data += struct.pack(
+            "<IIHHIIII",
+            0,  # Characteristics
+            0,  # TimeDateStamp
+            0,
+            0,  # Major/MinorVersion
+            _DEBUG_TYPE_CODEVIEW,
+            len(codeview),
+            text_va + record_offset,  # AddressOfRawData
+            sizeof_headers + record_offset,  # PointerToRawData
+        )
+        section_data += codeview
     raw_size = ((len(section_data) + file_align - 1) // file_align) * file_align
     raw = section_data + b"\x00" * (raw_size - len(section_data))
     size_of_image = ((text_va + len(section_data) + sec_align - 1) // sec_align) * sec_align
@@ -119,6 +143,9 @@ def make_pe(
         # Data directory 1 = import table (RVA, size); its offset shifts by
         # the extra ImageBase word in the PE32+ header.
         struct.pack_into("<II", opt, dir_offset, import_dir_rva, import_dir_size)
+    if codeview is not None:
+        # Data directory 6 = debug directory, five entries after the import one.
+        struct.pack_into("<II", opt, dir_offset + 5 * 8, debug_dir_rva, _DEBUG_DIR_SIZE)
     assert len(opt) == opt_size
 
     sec = struct.pack(

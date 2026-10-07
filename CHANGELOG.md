@@ -18,6 +18,10 @@
   match, placement unchecked". `rebrew status` reports exact and displaced
   counts inside the verified and drift totals, and `rebrew todo` lists
   displaced symbols as data work.
+- `rebrew export pdb` writes a synthetic PDB for the target (function publics
+  and sized procedures, typed data labels, optional PE symbols, section
+  headers), stamped with the target's RSDS GUID/age or NB10 signature/age.
+  Needs `llvm-pdbutil`.
 
 ### Fixed
 - The public-surface gate reads a tuple, list or dict constant that only
