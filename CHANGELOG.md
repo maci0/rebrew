@@ -37,6 +37,13 @@
   file, from `__asm`, or from a macro body is skipped with the reason.
   Matching data rows get `storage_kind = "literal"` under the new
   `inline-strings` provenance tag.
+- `rebrew source symbolize <file>` rewrites raw `(T *) 0xVA` casts to `&name`
+  or `((char *) &name + 0xOFF)` where the reference has a base relocation the
+  raw link lacks, inside the file's functions as the link map places them,
+  for named data rows the link defines (`link_symbol` over `name`; spans and
+  import slots skipped). `--skip FUNC` leaves a definition's body alone,
+  `--declare NAME` appends `extern char NAME[];` to an existing top-level
+  extern line so no line numbers shift. Re-test the file afterwards.
 
 ## [2.24.0] - 2026-10-07
 

@@ -121,6 +121,7 @@ exit is 120, and click's is 1; `run_cli` overrides both.
 | `rebrew source split` | `split.py` | Split multi-function C files into individual files |
 | `rebrew source merge` | `merge.py` | Merge single-function C files into multi-function file |
 | `rebrew source rehome` | `rehome.py` | Point function rows at the source file that now defines them |
+| `rebrew source symbolize` | `symbolize.py` | Rewrite raw `(T *) 0xVA` casts to the data symbols the reference relocates |
 | `rebrew match partitions` | `merge_sweep.py` | Deterministic TU-partition search over cu-map clusters |
 | `rebrew prove` | `prove.py` | Prove semantic equivalence via angr symbolic execution (optional dep) |
 | `rebrew library scan-signatures` | `flirt.py` | FLIRT signature scanning (see [FLIRT_SIGNATURES.md](FLIRT_SIGNATURES.md)) |
@@ -1458,6 +1459,23 @@ Set a function row's `file` to PATH after a definition moved by hand between mul
 | `--to NEW` | New source path for `--from` |
 | `--dry-run` | Preview changes without writing |
 | `--json` | Output results as JSON |
+
+### `rebrew source symbolize`
+
+`rebrew source symbolize <file> [--skip FUNC]... [--declare NAME]... [--dry-run] [--json] [--target NAME]`
+
+Rewrite raw absolute addresses in a C source to the globals the original code named. A cast such as `*(int *) 0x10034618` can match the instruction bytes while the image lacks the base relocation the reference has at that operand. For each function whose row names the file and whose symbol the link map places in the file's object (`net.c.obj` or `net.obj`), the reference's base relocations are compared with the raw link's at the same offsets from the function start, so a build whose layout drifted still compares. A fixup the build lacks becomes a rewrite when its target lies inside a named `rebrew-data.toml` row whose native symbol (`link_symbol`, else `_` + `name`) the map defines: `&name` at the row's start, `((char *) &name + 0xOFF)` inside it. Layout spans (`storage_kind = "span"`) and import slots are never targets. Only `(T *) <integer>` casts inside that function's own body change.
+
+Reads the target's `raw_link` and the `.map` beside it, so build first. Function sites whose target has no defined row are listed as unresolved; functions the map links from another object are listed as unlinked.
+
+Re-test the file afterwards (`rebrew test <file>`). A symbol can change register allocation in a few functions; pass `--skip` for each one the test reports. A loop that walks a global needs both bounds symbolized, each keeping the original cast type and so the comparison's signedness: with one raw bound, or a bound whose signedness changed, MSVC strength-reduces the loop differently.
+
+| Flag | Effect |
+|------|--------|
+| `--skip FUNC` | Leave this function definition's body unchanged (repeatable). A call to FUNC elsewhere is not affected. An unknown name fails |
+| `--declare NAME` | Append `extern char NAME[];` to the file's first one-line top-level `extern` declaration (repeatable) for a name the file does not declare, as the compiler reports. A new line would shift later line numbers, which was measured to change MSVC6 code generation in some translation units. A file with no such line fails |
+| `--dry-run` | Preview changes without writing |
+| `--json` | Output results as JSON (`rewrites`, `unresolved`, `unlinked`, `declared`, `changed`) |
 
 ### `rebrew recommend`
 

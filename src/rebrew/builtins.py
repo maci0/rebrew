@@ -99,6 +99,12 @@ DOMAIN_COMPONENTS: dict[str, tuple[CliComponent, ...]] = {
             help="Point function rows at the source file that now defines them.",
             panel=Panel.DEVELOPMENT,
         ),
+        CliComponent(
+            name="symbolize",
+            module="rebrew.symbolize",
+            help="Rewrite raw (T *) 0xVA casts to the data symbols the reference relocates.",
+            panel=Panel.MATCHING,
+        ),
     ),
     "types": (
         CliComponent(

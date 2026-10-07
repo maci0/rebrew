@@ -2056,3 +2056,66 @@ def replace_function_prototype(source: str, name: str, prototype: str) -> str:
         elif node.type != "ERROR":
             pending.extend(reversed(node.children))
     raise ValueError(f"no function definition for {name!r}")
+
+
+@dataclass(frozen=True)
+class PointerCastLiteral:
+    """An integer constant cast straight to a pointer inside a function body: ``(T *) 0x1000``.
+
+    *start* and *end* are byte offsets of the constant in the UTF-8 source.
+    """
+
+    function: str
+    start: int
+    end: int
+    value: int
+
+
+def pointer_cast_literals(source: str) -> list[PointerCastLiteral]:
+    """Every ``(T *) <integer constant>`` inside a function definition, in source order.
+
+    Only the definition's own body is searched, so a call site or prototype
+    of the same name never matches. Casts to non-pointer types, function
+    pointer casts, and parenthesized operands are not reported.
+
+    :raises ImportError: tree-sitter is unavailable.
+    """
+    tree, parsed = parse_c_source(_mask_cc(source))
+    found: list[PointerCastLiteral] = []
+
+    def casts(node: Any, function: str) -> None:
+        if node.type == "cast_expression":
+            kind = node.child_by_field_name("type")
+            value = node.child_by_field_name("value")
+            declarator = kind.child_by_field_name("declarator") if kind is not None else None
+            if (
+                declarator is not None
+                and declarator.type == "abstract_pointer_declarator"
+                and value is not None
+                and value.type == "number_literal"
+            ):
+                try:
+                    number = parse_c_integer_literal(node_text(value, parsed))
+                except ValueError:
+                    number = None
+                if number is not None:
+                    found.append(
+                        PointerCastLiteral(
+                            function, int(value.start_byte), int(value.end_byte), number
+                        )
+                    )
+        for child in node.children:
+            casts(child, function)
+
+    pending = [tree.root_node]
+    while pending:
+        node = pending.pop()
+        if node.type == "function_definition":
+            declarator = node.child_by_field_name("declarator")
+            body = node.child_by_field_name("body")
+            name = find_function_name_in_node(declarator, parsed) if declarator else None
+            if name and body is not None:
+                casts(body, name)
+        else:
+            pending.extend(reversed(node.children))
+    return found
