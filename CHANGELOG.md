@@ -1,5 +1,15 @@
 ## [Unreleased]
 
+### Added
+- `rebrew export pdb` writes a synthetic PDB for the target (function publics
+  and sized procedures, typed data labels, optional PE symbols, section
+  headers), stamped with the target's RSDS GUID/age or NB10 signature/age.
+  Needs `llvm-pdbutil`.
+
+### Breaking
+- **Breaking:** `builtins.DOMAIN_COMPONENTS` gains the `export pdb` component;
+  no name is removed, but the constant's value changed.
+
 ## [2.23.0] - 2026-10-05
 
 ### Fixed

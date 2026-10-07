@@ -499,6 +499,12 @@ DOMAIN_COMPONENTS: dict[str, tuple[CliComponent, ...]] = {
             panel=Panel.EXPORT_SYNC,
         ),
         CliComponent(
+            name="pdb",
+            module="rebrew.pdb_export",
+            help="Write a synthetic PDB for the target, stamped with its debug-record GUID/age.",
+            panel=Panel.EXPORT_SYNC,
+        ),
+        CliComponent(
             name="context",
             module="rebrew.context",
             help="Emit a universal C context file (types + signatures) for decompiler backends.",

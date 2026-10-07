@@ -45,6 +45,7 @@ import io
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import typer
 
@@ -97,7 +98,9 @@ class SymbolRow:
     ``va`` is absolute, or ``None`` for a forwarded export (which lives in
     another module).  ``kind`` is the splat type name, ``size`` the byte size
     when one is known, and ``detail`` optional provenance text appended to the
-    rich format's trailing comment.
+    rich format's trailing comment.  ``display_name`` is the C name when it
+    differs from the link symbol ``name`` (``UpdatePlayer`` for
+    ``_UpdatePlayer``), else empty.
     """
 
     va: int | None
@@ -107,6 +110,7 @@ class SymbolRow:
     detail: str = ""
     forwarder: str | None = None
     origin: str = ""
+    display_name: str = ""
 
 
 def format_symbol(row: SymbolRow) -> str:
@@ -197,6 +201,38 @@ def format_csv(rows: list[SymbolRow], references: dict[int, list[str]]) -> str:
 # ---------------------------------------------------------------------------
 # Symbol sources
 # ---------------------------------------------------------------------------
+
+
+def function_symbol_rows(cfg: Any) -> tuple[list[SymbolRow], int, int]:
+    """The target's annotated functions as rows, unsorted.
+
+    Returns ``(rows, skipped_unnamed, skipped_below_va_floor)``.  A row's name
+    is the annotation's link symbol, else its C name; data annotations are
+    not functions and are left out.
+    """
+    from rebrew.annotation import min_valid_va_for
+
+    va_floor = min_valid_va_for(cfg)
+    sources = list(iter_sources(cfg.reversed_dir, cfg))
+    rows: list[SymbolRow] = []
+    skipped = 0
+    skipped_va = 0
+    for _path, annos in iter_annotations(
+        sources, target=target_marker(cfg), metadata_dir=cfg.metadata_dir
+    ):
+        for a in annos:
+            if a.is_data:
+                continue
+            name = a.symbol or a.name or ""
+            if not name:
+                skipped += 1
+                continue
+            if int(a.va) < va_floor:
+                skipped_va += 1
+                continue
+            display = a.name if a.name and a.name != name else ""
+            rows.append(SymbolRow(va=a.va, name=name, size=a.size or None, display_name=display))
+    return rows, skipped, skipped_va
 
 
 def merge_pe_symbols(
@@ -322,7 +358,6 @@ def main(
 ) -> None:
     """Write the annotated functions (and optionally the PE's own) as symbols."""
     cfg = require_config(target=target, json_mode=json_output)
-    from rebrew.annotation import min_valid_va_for
 
     if csv_output and references:
         error_exit(
@@ -331,24 +366,7 @@ def main(
             code=EXIT_ERROR,
         )
 
-    va_floor = min_valid_va_for(cfg)
-    sources = list(iter_sources(cfg.reversed_dir, cfg))
-    marker = target_marker(cfg)
-    rows: list[SymbolRow] = []
-    skipped = 0
-    skipped_va = 0
-    for _path, annos in iter_annotations(sources, target=marker, metadata_dir=cfg.metadata_dir):
-        for a in annos:
-            if a.is_data:
-                continue
-            name = a.symbol or a.name or ""
-            if not name:
-                skipped += 1
-                continue
-            if int(a.va) < va_floor:
-                skipped_va += 1
-                continue
-            rows.append(SymbolRow(va=a.va, name=name, size=a.size or None))
+    rows, skipped, skipped_va = function_symbol_rows(cfg)
 
     notes: list[str] = []
     collisions: list[str] = []

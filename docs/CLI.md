@@ -202,6 +202,7 @@ exit is 120, and click's is 1; `run_cli` overrides both.
 | `rebrew binary resource` | `resource.py` | PE resource comparison |
 | `rebrew match solutions` | `solutions_db.py` | GA solutions DB (cross-function cflags seeding) |
 | `rebrew export symbols` | `symbol_addrs.py` | Splat-style symbol export: the rich `name = 0xVA; // type:... size:...` format by default, the bare `0xVA,name` CSV with `--csv`, a symbols dump with a `referenced_by` column with `--references`, and PE-derived symbols (IAT slots, exports, delay imports, TLS callbacks, SafeSEH/CFG tables, security cookie) with `--pe-symbols` |
+| `rebrew export pdb` | `pdb_export.py` | Synthetic PDB for the target: function publics + sized procedures, data labels with C scalar/pointer/array types, optional PE symbols, stamped with the target's RSDS GUID/age or NB10 signature/age (`llvm-pdbutil yaml2pdb`) |
 | `rebrew build check-text-placement` | `text_audit.py` | Post-edit check: `.text` function VAs vs the markers |
 | `rebrew binary unpack-lzexe` | `lzexe_cli.py` | Unpack LZEXE 0.90/0.91 DOS executables |
 | `rebrew build check-data-placement` | `verify_placement.py` | Post-edit check: `.data` symbol VAs vs the metadata |
@@ -2664,6 +2665,47 @@ When a PE symbol collides with an annotation, the annotation wins (both the
 same-VA and the same-name cases) and the dropped symbol is reported on stderr
 and under `pe_collisions` in `--json`.
 
+### `rebrew export pdb`
+
+`rebrew export pdb [--output PATH] [--pe-symbols] [--unmatched] [--json]`
+
+Write a PDB for the original target binary from what rebrew has recovered,
+so WinDbg, x64dbg, Ghidra, or IDA can load it as that build's symbols.
+Requires `llvm-pdbutil` on `PATH` (LLVM); it assembles the PDB
+(`yaml2pdb`) and reads the identity back (`dump -summary`). A missing
+tool, a failed write, or an identity that does not read back is an error.
+
+Contents:
+
+- every annotated function as an `S_PUB32` public under its link symbol
+  (`_foo`), plus an `S_GPROC32` under its C name with `CodeSize` and a
+  section contribution when the annotation has a size;
+- every annotated global and every named `rebrew-data.toml` row visible to
+  the target as `S_PUB32` + `S_GDATA32` (layout spans are skipped). A type
+  that is a C base type, a pointer to one at any depth, or an array of
+  either becomes a CodeView type; an omitted bound (`char[]`) is filled from
+  the stored size when it divides evenly. Structs, typedefs (`DWORD`), and
+  function pointers stay untyped, and `const`/`volatile` are dropped;
+- with `--pe-symbols`, the same PE-derived symbols as `export symbols`;
+- the target's section headers.
+
+A function wins a VA or name clash with data, and an annotation wins one
+with a PE symbol; every dropped symbol is listed under `collisions`, and a
+symbol outside every section under `outside_sections`.
+
+Identity comes from the target's first CODEVIEW debug-directory record:
+
+| Record | PDB identity | Tool behavior |
+| --- | --- | --- |
+| `RSDS` (VC7+) | GUID and age copied; signature is the image timestamp | Matches by GUID + age. Verified: Ghidra headless pairs it automatically and applies names and data types |
+| `NB10` (VC6 and older) | 32-bit signature and age copied; GUID zero | `llvm-pdbutil` writes only PDB 7.0, and a 7.0 file always has a GUID. Ghidra matches a 7.0 file by GUID, so it reports a mismatch; load it with Ghidra's force-load option. DbgHelp (WinDbg, x64dbg) and IDA acceptance is unverified |
+| none | refused; `--unmatched` writes zero identifiers | Nothing identifies a matching PDB. Ghidra and IDA can load one on request; DbgHelp has no record to match |
+
+The default output path is the file name the record names (the file a
+debugger searches for), else `<binary stem>.pdb`, in the current directory.
+Not exported: function types and prototypes, struct/enum types, locals,
+line numbers, and MSVC RTTI class names.
+
 ### `rebrew export context`
 
 `rebrew export context [--output ctx.c] [--sources-only] [--json]`
@@ -3309,11 +3351,12 @@ Use `rebrew similarity <operation> --help` for exact arguments and examples.
 
 ### `rebrew export`
 
-Export local symbol/context/objdiff artifacts or create a remote decomp.me scratch. Each operation retains its own output destination and side effects; a remote upload requires its explicit command.
+Export local symbol/PDB/context/objdiff artifacts or create a remote decomp.me scratch. Each operation retains its own output destination and side effects; a remote upload requires its explicit command.
 
 | Operation | Purpose |
 | --- | --- |
 | `rebrew export symbols` | Export annotations as a splat-style symbol_addrs file. |
+| `rebrew export pdb` | Write a synthetic PDB for the target, stamped with its debug-record GUID/age. |
 | `rebrew export context` | Emit a universal C context file (types + signatures) for decompiler backends. |
 | `rebrew export objdiff` | Generate an objdiff project (target objects + objdiff.json) for GUI diffing. |
 | `rebrew export decompme` | Upload a function to decomp.me as a collaborative scratch. |
