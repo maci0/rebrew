@@ -20,6 +20,11 @@
   displaced symbols as data work.
 
 ### Fixed
+- The public-surface gate reads a tuple, list or dict constant that only
+  appended entries as a feature. Adding a command the documented way (a
+  `CliComponent` at the end of its `DOMAIN_COMPONENTS` family) failed
+  `TestSurfaceGate` and demanded a `**Breaking:**` note for a change no caller
+  can observe; an inserted, dropped or edited entry still reads as a break.
 - `rebrew lint` W022 exempts a zero-initialized global defined under a
   `.data`/`.bss` row's `link_symbol` (leading underscore dropped), not only
   under the row's `name`. A placement pin whose source name differs from the
