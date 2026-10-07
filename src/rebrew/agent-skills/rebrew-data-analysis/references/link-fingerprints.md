@@ -50,6 +50,34 @@ those decisions stay in the output:
   weak-alias objects, import members. Comparing the reference's counts with the
   build's gives the exact number of missing objects, members, and imports.
 
+- **Inverting the IAT.** Because the sort compares only the DLL name, the slot
+  permutation depends only on the DLL-key sequence of the array, not on which
+  entries are dropped. Model the array as blocks (each DLL's live imports in
+  hint/name order plus h, w, ... dropped entries per block, and the null
+  thunks), compute the permutation per block-count split, and let a constraint
+  solver pick which positions are dropped so every DLL's live imports land in
+  the reference's slots. The splits that admit a solution bound how many
+  dropped imports each library pass had; a named candidate array (real code's
+  imports at their load positions) can then be checked exactly.
+- **`/INCLUDE` keeps an import.** An `/INCLUDE:__imp__X` is an `/OPT:REF` root,
+  so it cannot force the load position of an import the reference drops; stop
+  the forced list before it and let the object that references the import
+  load it in object order.
+- **Old POSIX names are alias objects.** `OLDNAMES.LIB` members (`mkdir`,
+  `getcwd`, `stricmp`, `strcmpi`, `itoa`, ...) are weak-alias objects with the
+  same Rich `@comp.id` as LIBCMT's `tcmap` members. OLDNAMES is searched after
+  LIBCMT, so code that calls `mkdir` instead of `_mkdir` loads the LIBCMT member
+  one library pass later (its imports go after the CRT's), unless a CRT member
+  already loaded it. A late alias object also changes the final alignment of
+  the import thunks. Each distinct old name counts once.
+- **ICF survivor.** LINK sorts every executable COMDAT it resolves (in
+  resolution order, before `/OPT:REF`, so discarded code included) with the
+  same `qsort` by section size and relocation count, and folds each identical
+  section into the first of its run. Which copy of two identical library
+  functions survives therefore depends on every executable COMDAT in the link;
+  adding discarded code or loading a member in another pass can flip it and
+  move all code after it.
+
 ## Workflow
 
 1. Confirm the gap is whole-image: `rebrew binary relocs --json` reports no
