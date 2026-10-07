@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [2.24.0] - 2026-10-07
+
 ### Added
 - `rebrew source rehome 0xVA=PATH` points a function row at the file that now
   defines it, after a definition moved by hand between multi-function files.
