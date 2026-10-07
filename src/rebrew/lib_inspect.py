@@ -31,7 +31,6 @@ import typer
 
 from rebrew.archives import parse_archive, stock_lib_cache
 from rebrew.cli import EXIT_ERROR, TargetOption, console, error_exit, json_print, require_config
-from rebrew.gen_flirt_pat import load_coff, parse_coff_aliases
 from rebrew.utils import container_runtime
 
 # IMAGE_FILE_HEADER is 20 bytes; a short import header starts with Sig1=0, Sig2=0xFFFF.
@@ -123,6 +122,8 @@ def _section_row(index: int, section: Any) -> dict[str, Any]:
 def inspect_coff(member: str, body: bytes) -> dict[str, Any]:
     """Describe a COFF object member: sections and external symbols."""
     import lief
+
+    from rebrew.gen_flirt_pat import load_coff, parse_coff_aliases
 
     loaded = load_coff(body)
     if loaded is None:

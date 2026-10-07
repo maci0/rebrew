@@ -44,7 +44,6 @@ from rebrew.cli import (
     require_non_negative,
 )
 from rebrew.data_scan import classify_section
-from rebrew.relocations import PE_RELOCATION_WIDTHS, pe_relocation_sites
 
 _DEFAULT_LIMIT = 50
 
@@ -117,6 +116,8 @@ def data_row_index(cfg: Any) -> NameIndex:
 
 def operand(info: BinaryInfo, site: int, kind: str) -> int | None:
     """The pointer a HIGHLOW/DIR64 site holds; None for other types or unread bytes."""
+    from rebrew.relocations import PE_RELOCATION_WIDTHS  # lazy: rebrew.relocations imports lief
+
     width = PE_RELOCATION_WIDTHS.get(kind)
     if width is None:
         return None
@@ -208,6 +209,8 @@ def _parse_range(text: str, *, json_mode: bool) -> tuple[int, int]:
 
 
 def _load_pe(path: Path, *, json_mode: bool) -> tuple[BinaryInfo, dict[int, str]]:
+    from rebrew.relocations import pe_relocation_sites  # lazy: rebrew.relocations imports lief
+
     try:
         info = load_binary(path)
     except (OSError, ValueError) as exc:
