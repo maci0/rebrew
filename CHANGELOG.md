@@ -21,14 +21,6 @@
   row naming a renamed or moved file, in one locked write per store. It took
   one `rehome 0xVA=PATH` per function and one `data set --file` per global.
   NEW must define each moved function.
-
-### Changed
-- **Breaking:** `rehome.main` takes `from_file` and `to_file` after `specs`,
-  and `specs` defaults to `None`. The CLI keeps its `0xVA=PATH` form.
-
-### Fixed
-- `rebrew source rename --file` moves the data rows of the renamed file with
-  its function rows. They kept naming the old path.
 - `rebrew source inline-strings --named` inlines a file's own
   `char s_name[] = "...";` definitions at their uses and removes the definition
   and the file's `extern char s_name[];` lines. MSVC6 emits a TU's string
@@ -44,6 +36,26 @@
   import slots skipped). `--skip FUNC` leaves a definition's body alone,
   `--declare NAME` appends `extern char NAME[];` to an existing top-level
   extern line so no line numbers shift. Re-test the file afterwards.
+- `rebrew build check-tu-data` reads the build's link map and, per object,
+  orders its `.data`/`.rdata` symbols by VA against the MSVC6 one-TU shape
+  (plain data, then its `??_C@`/`__real@` literals). Plain data after a
+  literal marks a TU boundary inside the object; trailing `s_*` named strings
+  look like a literal pool spelled as globals. Exits 1 when an object is
+  flagged.
+- `rebrew data mark-literals` marks `rebrew-data.toml` rows whose VA the link
+  map shows to be a compiler literal as `storage_kind = "literal"` with the
+  literal's `link_symbol`. Alias, span, and import rows are reported, not
+  rewritten. `--dry-run` previews.
+- `rebrew.data_ownership.LinkSymbol` carries the map section of each symbol
+  (`section`), resolved from the map's segment table.
+
+### Changed
+- **Breaking:** `rehome.main` takes `from_file` and `to_file` after `specs`,
+  and `specs` defaults to `None`. The CLI keeps its `0xVA=PATH` form.
+
+### Fixed
+- `rebrew source rename --file` moves the data rows of the renamed file with
+  its function rows. They kept naming the old path.
 
 ## [2.24.0] - 2026-10-07
 

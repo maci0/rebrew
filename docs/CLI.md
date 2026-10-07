@@ -210,6 +210,8 @@ exit is 120, and click's is 1; `run_cli` overrides both.
 | `rebrew build check-text-placement` | `text_audit.py` | Post-edit check: `.text` function VAs vs the markers |
 | `rebrew binary unpack-lzexe` | `lzexe_cli.py` | Unpack LZEXE 0.90/0.91 DOS executables |
 | `rebrew build check-data-placement` | `verify_placement.py` | Post-edit check: `.data` symbol VAs vs the metadata |
+| `rebrew build check-tu-data` | `tu_data_check.py` | Per-object `.data`/`.rdata` order from the link map vs the MSVC6 one-TU shape |
+| `rebrew data mark-literals` | `data.py` | Mark data rows at linked compiler literals as `storage_kind = "literal"` |
 
 ## Component Registration (Plugins)
 
@@ -764,6 +766,7 @@ Metadata changes use `data set`: choose exactly one field (`--type`, `--name`, `
 | `rebrew data header` | Generate canonical global declarations. |
 | `rebrew data annotate` | Write accepted discovered data annotations. |
 | `rebrew data layout` | Audit and repair linked data layout. |
+| `rebrew data mark-literals` | Mark rows the link map shows to be compiler literals. |
 
 Use `rebrew data <operation> --help` for exact arguments and examples.
 
@@ -1171,6 +1174,36 @@ each function's current `.text` VA, and compare against the annotated VA
 deltas; exits 1 on any misplaced function. When no build objects are found,
 actual VAs fall back to exported-symbol lookup on the built binary. The
 position-alignment gate `postlink` assumes but never checks.
+
+### `rebrew build check-tu-data`
+
+`rebrew build check-tu-data [--link-map build/<target>.map] [--json]`
+
+MSVC 6 lays out one translation unit's initialized data as its plain
+`.data`/`.rdata` contribution followed by the literal COMDATs it references
+(`??_C@` strings, `__real@` floating-point constants). The check reads the
+link map's segment table and Publics/Static rows, groups each project
+object's data symbols by section in VA order (library members, COMMON
+storage, functions and `.bss` are left out), and flags two breaks:
+
+- `data_after_literals`: plain data after a literal. The object holds a TU
+  boundary there; that datum and what follows belong to the next TU.
+- `named_strings`: named string arrays (`_s_*`) after the object's last plain
+  datum, a literal pool spelled as globals (`rebrew source inline-strings`).
+
+`shape` spells each object section's run-length order (`D` data, `L`
+literal, `S` named string), e.g. `D3L12D2`. JSON carries every object
+section under `objects` with `object`, `section`, `first_va`, `symbols`,
+`shape`, and `issues`, plus `checked` and `flagged` counts; terminal mode
+prints only flagged rows. Exits 1 when any object is flagged, 2 when the map
+cannot be read. `--link-map` defaults to the active target's
+`build/<target>` with a `.map` suffix.
+
+| Option | Meaning |
+| --- | --- |
+| `--link-map` | MSVC link map of the build (default: build/<target>.map) |
+| `--json` | Output results as JSON |
+| `--target` / `-t` | Target name from rebrew-project.toml (default: project default target). |
 
 ### `rebrew dev refactor`
 
@@ -3462,6 +3495,7 @@ Generate build configuration, drive external build tools, and measure linked art
 | `rebrew build round-trip` | Splice every matched function back into the target PE and verify byte equality. |
 | `rebrew build residue` | Measure linked byte-identity residue after postlink fixers. |
 | `rebrew build layout-map` | Dump reference-side layout measurements (sections, gaps, IAT, exports). |
+| `rebrew build check-tu-data` | Flag linked objects whose .data/.rdata breaks the MSVC6 one-TU shape. |
 
 Use `rebrew build <operation> --help` for exact arguments and examples.
 
@@ -3704,6 +3738,30 @@ Set one metadata field through the locked data writers.
 
 ```bash
 rebrew data set --type 0x401000=int --dry-run --json
+```
+
+### `rebrew data mark-literals`
+
+Mark rows the link map shows to be compiler literals (storage_kind=literal).
+
+A row whose VA holds a `??_C@` string or `__real@` constant in the map gets
+`storage_kind = "literal"` and `link_symbol` set to that symbol in one locked
+write (`updated_by = "data"`). The map must come from a link whose layout
+matches the reference (`rebrew build check-data-placement` clean), since rows
+are matched by VA. A row with no kind or `object` is replaced; `alias`,
+`span`, and `import` rows, and a VA holding two literal symbols, are listed
+under `conflicts` and left alone. JSON carries `marked` (with
+`storage_kind_was` / `link_symbol_was`), `unchanged`, and `conflicts`.
+
+| Argument or option | Meaning |
+| --- | --- |
+| `--link-map` | MSVC link map of a reference-aligned build (default: raw_link's .map) |
+| `--dry-run` | Preview changes without writing |
+| `--json` | Output results as JSON |
+| `--target` / `-t` | Target name from rebrew-project.toml (default: project default target). |
+
+```bash
+rebrew data mark-literals --dry-run --json
 ```
 
 ### `rebrew data dispatch`

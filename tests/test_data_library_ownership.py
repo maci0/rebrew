@@ -40,6 +40,26 @@ def test_map_distinguishes_archives_common_objects_functions_and_imports() -> No
     ]
 
 
+def test_map_resolves_each_symbol_section_from_the_segment_table() -> None:
+    rows = parse_link_map(
+        " 0002:00000000 000001a0H .idata$5                DATA\r\n"
+        " 0002:000001a0 00002468H .rdata                  DATA\r\n"
+        " 0003:00000000 00000004H .CRT$XCA                DATA\r\n"
+        " 0003:00000030 0000d5dcH .data                   DATA\r\n"
+        " 0003:0000d610 01732f8cH .bss                    DATA\r\n"
+        " 0002:00000200 __real@4@4008fa00000000000000 10025200 a.c.obj\r\n"
+        " 0003:00000030 _g 10027030 a.c.obj\r\n"
+        " 0003:0000d610 _b 10034610 a.c.obj\r\n"
+        " 0004:00000000 _orphan 10040000 a.c.obj\r\n"
+    )
+    assert [(r.name, r.section, r.object) for r in rows] == [
+        ("__real@4@4008fa00000000000000", ".rdata", "a.c.obj"),
+        ("_g", ".data", "a.c.obj"),
+        ("_b", ".bss", "a.c.obj"),
+        ("_orphan", "", "a.c.obj"),
+    ]
+
+
 def test_map_matches_symbol_name_even_if_reference_va_drifted(tmp_path: Path) -> None:
     link_map = tmp_path / "server.map"
     link_map.write_text(" 0003:00000000 ___argc 117663d4 LIBCMT:crt0dat.obj\n")
