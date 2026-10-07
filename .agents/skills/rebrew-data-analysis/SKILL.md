@@ -172,6 +172,14 @@ Two diff signals point at globals:
 | `XX` rows (`summary` counts them as mismatches) | Relocation resolves to a catalogued global at the wrong VA: wrong name or a type conflict | Check the name in `rebrew-data.toml`; run `--conflicts` and unify the type |
 | `missing_globals` hints (`[0]` operand on a `**` row) | Reference never resolved: no definition for the target address | Add `extern`, then `rebrew data annotate` so the row records `file`. Do not add a new marker line |
 
+A file that spells globals as raw `(T *) 0xVA` casts matches bytes but lacks
+the reference's relocations. `rebrew source symbolize <file> --dry-run` lists
+the casts it would rewrite to `&name` (named rows the link defines), then
+run it without `--dry-run` and re-test the file. Pass `--skip FUNC` for a
+function whose test regresses, and `--declare NAME` for a name the compiler
+reports undeclared. Symbolize both bounds of a loop over a global, keeping
+their cast types.
+
 ### Workflow
 
 1. `rebrew diff --json src/bench/<file>.c`: note `XX` rows and `missing_globals`
