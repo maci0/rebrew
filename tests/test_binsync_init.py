@@ -109,8 +109,9 @@ class TestInit:
         assert "binsync/__root__" in branches
         assert "binsync/tester" in branches
         assert _git(state, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip() == "binsync/tester"
-        # Same 0444 lock as the export writes onto this tool-owned file.
-        assert (state / "binary_hash").stat().st_mode & 0o777 == 0o444
+        # Writable: BinSync's own commits rewrite the state files on this tree.
+        assert (state / "binary_hash").stat().st_mode & 0o200
+        assert _git(state, "config", "--local", "rebrew.user").stdout.strip() == "tester"
 
     def test_running_twice_converges(self, tmp_path: Path, monkeypatch) -> None:
         _make_project(tmp_path)
@@ -202,6 +203,55 @@ class TestInit:
         assert "functions/foo.toml" not in tree
         assert ".gitignore" in tree
         assert "binary_hash" in tree
+
+
+class TestInitUser:
+    """One validated BinSync user names both ``metadata.toml`` and the branch."""
+
+    def test_user_with_spaces_is_refused_before_any_git(self, tmp_path: Path, monkeypatch) -> None:
+        _make_project(tmp_path)
+        state = tmp_path / "state"
+        monkeypatch.chdir(tmp_path)
+        result = _invoke(state, "--user", "Marcel W. Wysocki", "--json")
+        assert result.exit_code == 2, result.output
+        assert "invalid BinSync user 'Marcel W. Wysocki'" in json.loads(result.output)["error"]
+        assert not (state / ".git").exists()
+
+    @pytest.mark.parametrize("user", ["a/b", "__root__", "x..y", "bad~name"])
+    def test_names_binsync_cannot_branch_are_refused(
+        self, tmp_path: Path, monkeypatch, user: str
+    ) -> None:
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        result = _invoke(tmp_path / "state", "--user", user, "--json")
+        assert result.exit_code == 2, result.output
+        assert "invalid BinSync user" in json.loads(result.output)["error"]
+
+    def test_default_ignores_git_user_name(self, tmp_path: Path, monkeypatch) -> None:
+        """A person's ``git config user.name`` has spaces; the default is ``rebrew``."""
+        _make_project(tmp_path)
+        gitconfig = tmp_path / "gitconfig"
+        gitconfig.write_text("[user]\n\tname = Marcel W. Wysocki\n", encoding="utf-8")
+        monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(gitconfig))
+        state = tmp_path / "state"
+        state.mkdir()
+        monkeypatch.chdir(tmp_path)
+        result = _invoke(state, "--json")
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.output)["user_branch"] == "binsync/rebrew"
+        assert _git(state, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip() == "binsync/rebrew"
+
+    def test_configured_user_is_the_default(self, tmp_path: Path, monkeypatch) -> None:
+        _make_project(tmp_path)
+        cfg = tmp_path / "rebrew-project.toml"
+        cfg.write_text(
+            cfg.read_text(encoding="utf-8") + "binsync_user = 'decomp'\n", encoding="utf-8"
+        )
+        state = tmp_path / "state"
+        monkeypatch.chdir(tmp_path)
+        result = _invoke(state, "--json")
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.output)["user"] == "decomp"
 
 
 class TestGitExecOverrides:

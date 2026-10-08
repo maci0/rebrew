@@ -15,6 +15,7 @@ import typer
 from rich.table import Table
 
 from rebrew.binsync.importer import is_meaningful, resolve_state_dir, strip_cdecl_prefix
+from rebrew.binsync.serial import require_declib
 from rebrew.binsync.state import (
     index_local_and_catalog,
     load_binsync_state,
@@ -61,6 +62,7 @@ def main(
     target: str | None = TargetOption,
 ) -> None:
     """Show where rebrew and a BinSync state diverge (read-only, no writes)."""
+    require_declib(json_mode=json_output)
     state_dir = resolve_state_dir(state_dir, json_mode=json_output)
 
     cfg = require_config(target=target, json_mode=json_output)

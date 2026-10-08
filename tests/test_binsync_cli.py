@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -180,3 +181,206 @@ class TestBinsyncUmbrella:
         # And the ancestor repo gained no commits or branches from the attempt.
         log = _git(tmp_path, "rev-list", "--all", "--count")
         assert log.stdout.strip() in ("0", "")
+
+
+def _set_function(state: Path, va: int, **fields: str) -> None:
+    """Edit one function artifact in the working tree (name and/or prototype)."""
+    from rebrew.binsync import serial
+
+    path = state / "functions" / f"{va:08x}.toml"
+    func = serial.load_artifact(path, "function")
+    if "name" in fields:
+        func.name = fields["name"]
+        func.header.name = fields["name"]
+    if "prototype" in fields:
+        func.header.type = fields["prototype"]
+    serial.dump_artifact(path, func)
+
+
+def _commit_as_peer(state: Path, peer: str, edit: Callable[[Path], None]) -> str:
+    """Commit rebrew's exported state as BinSync user *peer*, after *edit*.
+
+    Mirrors BinSync's Client: check out ``binsync/<peer>`` (from the root the
+    first time), dump the user's whole state there (``metadata.toml`` names
+    the peer), and commit, leaving the working tree on that branch.
+    """
+    from rebrew.binsync import serial
+
+    exported = {
+        path.relative_to(state): path.read_bytes()
+        for path in state.rglob("*.toml")
+        if ".git" not in path.relative_to(state).parts and path.name != "manifest.toml"
+    }
+    branch = f"binsync/{peer}"
+    exists = _git(state, "rev-parse", "--verify", "--quiet", branch).returncode == 0
+    args = (branch,) if exists else ("-b", branch, "binsync/__root__")
+    assert _git(state, "checkout", "-q", *args).returncode == 0
+    if not exists:
+        for relative, body in exported.items():
+            (state / relative).parent.mkdir(parents=True, exist_ok=True)
+            (state / relative).write_bytes(body)
+        serial.write_metadata(state, user=peer)
+    edit(state)
+    assert _git(state, "add", "-A").returncode == 0
+    commit = _git(state, "-c", "user.name=g", "-c", "user.email=g@x", "commit", "-qm", "edit")
+    assert commit.returncode == 0, commit.stderr
+    return _git(state, "rev-parse", branch).stdout.strip()
+
+
+def _rename_foo(state: Path) -> None:
+    _set_function(state, 0x401000, name="_bar")
+
+
+class TestUserBranches:
+    """rebrew writes only binsync/<its user>; other users' branches are read."""
+
+    def _pushed(self, tmp_path: Path, monkeypatch: Any) -> Path:
+        _make_project(tmp_path)
+        state = tmp_path / "state"
+        init_result = _invoke(tmp_path, monkeypatch, "init", str(state), "--user", "tester")
+        assert init_result.exit_code == 0, init_result.output
+        assert _invoke(tmp_path, monkeypatch, "push", str(state), "--json").exit_code == 0
+        return state
+
+    def test_metadata_user_matches_branch(self, tmp_path: Path, monkeypatch) -> None:
+        state = self._pushed(tmp_path, monkeypatch)
+        assert _git(state, "show", "binsync/tester:metadata.toml").stdout.startswith(
+            'user = "tester"'
+        )
+
+    def test_push_never_writes_another_users_branch(self, tmp_path: Path, monkeypatch) -> None:
+        state = self._pushed(tmp_path, monkeypatch)
+        peer_head = _commit_as_peer(state, "ghidra", _rename_foo)
+        (tmp_path / "src" / "a" / "foo.c").write_text(_FOO + "// local edit\n", encoding="utf-8")
+
+        result = _invoke(tmp_path, monkeypatch, "push", str(state), "--json")
+        assert result.exit_code == 0, result.output
+        assert _git(state, "rev-parse", "binsync/ghidra").stdout.strip() == peer_head
+        assert _git(state, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip() == "binsync/tester"
+        assert 'user = "tester"' in (state / "metadata.toml").read_text(encoding="utf-8")
+
+    def test_push_refuses_dirty_tree_on_another_branch(self, tmp_path: Path, monkeypatch) -> None:
+        state = self._pushed(tmp_path, monkeypatch)
+        _commit_as_peer(state, "ghidra", _rename_foo)
+        (state / "metadata.toml").write_text('user = "ghidra"\nversion = "x"\n', encoding="utf-8")
+
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(app, ["binsync", "push", str(state), "--json"])
+        assert result.exit_code != 0
+        assert "uncommitted changes on binsync/ghidra" in str(result.exception)
+
+    def test_pull_applies_peer_branch_once(self, tmp_path: Path, monkeypatch) -> None:
+        state = self._pushed(tmp_path, monkeypatch)
+        peer_head = _commit_as_peer(state, "ghidra", _rename_foo)
+        _git(state, "checkout", "-q", "binsync/tester")
+
+        first = _invoke(tmp_path, monkeypatch, "pull", str(state), "--json")
+        assert first.exit_code == 0, first.output
+        payload = json.loads(first.output)
+        assert payload["peers"] == ["ghidra"]
+        assert payload["applied_names"] == 1
+        assert "int bar(void)" in (tmp_path / "src" / "a" / "bar.c").read_text(encoding="utf-8")
+
+        second = _invoke(tmp_path, monkeypatch, "pull", str(state), "--json")
+        assert second.exit_code == 0, second.output
+        again = json.loads(second.output)
+        applied = {k: v for k, v in again.items() if k.startswith("applied_") and v}
+        assert applied == {}
+        assert _git(state, "rev-parse", "binsync/ghidra").stdout.strip() == peer_head
+        assert _git(state, "status", "--porcelain").stdout == ""
+
+
+_INIT = "typedef void *LPVOID;\nint __cdecl Init(LPVOID param)\n{\n    return 0;\n}\n"
+
+
+class TestPrototypePull:
+    """A pulled prototype changes the source only when the types differ."""
+
+    def _pushed(self, tmp_path: Path, monkeypatch: Any) -> tuple[Path, Path]:
+        _make_project(tmp_path)
+        source = tmp_path / "src" / "a" / "foo.c"
+        source.write_text("// FUNCTION: A 0x401000\n// SIZE: 11\n" + _INIT, encoding="utf-8")
+        monkeypatch.chdir(tmp_path)
+        migrated = runner.invoke(app, ["source", "migrate-markers"], catch_exceptions=False)
+        assert migrated.exit_code == 0, migrated.output
+        state = tmp_path / "state"
+        assert _invoke(tmp_path, monkeypatch, "init", str(state), "--user", "tester").exit_code == 0
+        pushed = _invoke(tmp_path, monkeypatch, "push", str(state), "--json")
+        assert pushed.exit_code == 0, pushed.output
+        func = (state / "functions" / "00401000.toml").read_text(encoding="utf-8")
+        assert 'type = "int __cdecl Init(LPVOID param)"' in func
+        return state, source
+
+    def _pull(self, tmp_path: Path, monkeypatch: Any, state: Path) -> dict[str, Any]:
+        result = _invoke(tmp_path, monkeypatch, "pull", str(state), "--json")
+        assert result.exit_code == 0, result.output
+        return dict(json.loads(result.output))
+
+    def test_equivalent_spelling_leaves_source_alone(self, tmp_path: Path, monkeypatch) -> None:
+        state, source = self._pushed(tmp_path, monkeypatch)
+        before = source.read_text(encoding="utf-8")
+        _commit_as_peer(
+            state,
+            "ghidra",
+            lambda s: _set_function(s, 0x401000, prototype="int __cdecl Init(void * ctx)"),
+        )
+        assert self._pull(tmp_path, monkeypatch, state)["applied_prototypes"] == 0
+        assert source.read_text(encoding="utf-8") == before
+        again = self._pull(tmp_path, monkeypatch, state)
+        assert again["applied_prototypes"] == 0
+        assert again["health"]["pending"]["pull"] == 0
+
+    def test_ghidra_placeholder_types_are_not_applied(self, tmp_path: Path, monkeypatch) -> None:
+        state, source = self._pushed(tmp_path, monkeypatch)
+        before = source.read_text(encoding="utf-8")
+        _commit_as_peer(
+            state,
+            "ghidra",
+            lambda s: _set_function(s, 0x401000, prototype="undefined4 Init(undefined4 param_1)"),
+        )
+        assert self._pull(tmp_path, monkeypatch, state)["applied_prototypes"] == 0
+        assert source.read_text(encoding="utf-8") == before
+
+    def test_type_change_keeps_layout(self, tmp_path: Path, monkeypatch) -> None:
+        state, source = self._pushed(tmp_path, monkeypatch)
+        _commit_as_peer(
+            state,
+            "ghidra",
+            lambda s: _set_function(s, 0x401000, prototype="int __cdecl Init(char * param)"),
+        )
+        assert self._pull(tmp_path, monkeypatch, state)["applied_prototypes"] == 1
+        assert source.read_text(encoding="utf-8") == _INIT.replace("LPVOID param", "char * param")
+        again = self._pull(tmp_path, monkeypatch, state)
+        assert again["applied_prototypes"] == 0
+
+
+class TestMissingDeclib:
+    """Without the binsync extra every sync command exits 2 before writing."""
+
+    @pytest.mark.parametrize(
+        "argv",
+        [
+            ("binsync", "push"),
+            ("binsync", "pull"),
+            ("binsync", "summary"),
+            ("binsync", "export"),
+            ("binsync", "import"),
+            ("binsync", "diff"),
+            ("sync", "push", "--state-dir"),
+            ("sync", "pull", "--state-dir"),
+        ],
+    )
+    def test_exits_2_with_install_hint(
+        self, tmp_path: Path, monkeypatch: Any, argv: tuple[str, ...]
+    ) -> None:
+        import sys
+
+        _make_project(tmp_path)
+        state = tmp_path / "state"
+        state.mkdir()
+        monkeypatch.setitem(sys.modules, "declib", None)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(app, [*argv, str(state), "--json"])
+        assert result.exit_code == 2, result.output
+        assert "declib is required" in json.loads(result.output)["error"]
+        assert list(state.iterdir()) == []

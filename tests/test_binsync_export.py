@@ -416,25 +416,33 @@ class TestBinsyncGhidraComment:
         assert comments[0].func_addr == 0x1000
         assert comments[0].comment == "[rebrew:ghidra] ghidra_name"
 
-    def test_export_toml_left_readonly(self, tmp_path: Path) -> None:
-        """binsync exports (functions/*.toml, global_vars.toml, structs/*.toml)
-        are write-locked 0444 — direct edits fail, tools chmod+update+re-lock."""
-        from rebrew.binsync.export import (
-            _write_function_toml,
-            _write_global_vars_toml,
-            _write_struct_toml,
+    def test_export_leaves_state_files_writable(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """BinSync's own State.dump rewrites these files on the same tree, so
+        an export leaves every state file writable, and an identical re-export
+        unlocks a file an older rebrew left 0444."""
+        _make_project(
+            tmp_path,
+            {
+                "foo.c": "// FUNCTION: SERVER 0x10001000\n// SIZE: 11\n// NOTE: n\n"
+                "int foo(void) { return 1; }\n"
+                "// GLOBAL: SERVER 0x10003000\nint g_count;\n",
+            },
         )
+        result, outdir = _invoke(tmp_path, monkeypatch)
+        assert result.exit_code == 0, result.output
+        written = [p for p in outdir.rglob("*") if p.is_file()]
+        assert any(p.name == "metadata.toml" for p in written)
+        assert any(p.name == "manifest.toml" for p in written)
+        for path in written:
+            assert path.stat().st_mode & 0o200, path
 
-        fn = tmp_path / "functions" / "1000.toml"
-        fn.parent.mkdir(parents=True)
-        _write_function_toml(fn, name="f", va=0x1000, size=4, prototype="")
-        gv = tmp_path / "global_vars.toml"
-        _write_global_vars_toml(gv, [(0x2000, "g_var", 4, "char", None)])
-        st = tmp_path / "structs" / "S.toml"
-        st.parent.mkdir(parents=True)
-        _write_struct_toml(st, "S", fields=[{"name": "x", "type": "int"}])
-        for path in (fn, gv, st):
-            assert (path.stat().st_mode & 0o777) == 0o444, path
+        legacy = outdir / "metadata.toml"
+        legacy.chmod(0o444)
+        result, _ = _invoke(tmp_path, monkeypatch)
+        assert result.exit_code == 0, result.output
+        assert legacy.stat().st_mode & 0o200
 
     def test_ghidra_name_matching_symbol_omitted(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1085,3 +1093,39 @@ class TestDeclibParse:
         assert result.exit_code == 0, result.output
         func_b = _load_func(state_b / "functions" / "10001000.toml")
         assert func_b.stack_vars[-4].name == "ret"
+
+
+class TestMigratedPrototypes:
+    """A marker-free source exports the prototype of its C definition."""
+
+    def test_migrated_function_exports_its_signature(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _make_project(
+            tmp_path,
+            {
+                "server.c": "typedef void *LPVOID;\n"
+                "// FUNCTION: SERVER 0x10001000\n// SIZE: 16\n"
+                "int __cdecl Init(LPVOID param)\n{\n    return 0;\n}\n"
+                "// FUNCTION: SERVER 0x10001010\n// SIZE: 16\n"
+                "static void __stdcall Pump(int a, int b)\n{\n}\n",
+            },
+        )
+        monkeypatch.chdir(tmp_path)
+        migrated = runner.invoke(app, ["source", "migrate-markers"], catch_exceptions=False)
+        assert migrated.exit_code == 0, migrated.output
+        source = tmp_path / "src" / "server.c"
+        text = source.read_text(encoding="utf-8")
+        assert "// FUNCTION" not in text
+        # Reformatted after migration: the signature now spans two lines.
+        source.write_text(
+            text.replace("Pump(int a, int b)", "Pump(int a,\n                           int b)"),
+            encoding="utf-8",
+        )
+
+        result, outdir = _invoke(tmp_path, monkeypatch)
+        assert result.exit_code == 0, result.output
+        init = _load_func(outdir / "functions" / "10001000.toml")
+        assert init.header.type == "int __cdecl Init(LPVOID param)"
+        pump = _load_func(outdir / "functions" / "10001010.toml")
+        assert pump.header.type == "static void __stdcall Pump(int a, int b)"

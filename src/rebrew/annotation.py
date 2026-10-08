@@ -1584,6 +1584,7 @@ def _function_annotations_from_metadata(
 
     rel = rel_display_path(filepath, base_dir)
     results: list[Annotation] = []
+    prototypes: dict[str, str] | None = None
     for module, va, entry in matches:
         if target_name and module and preset_module_key(module) != preset_module_key(target_name):
             continue
@@ -1596,8 +1597,34 @@ def _function_annotations_from_metadata(
             filepath=rel,
         )
         apply_metadata_entry(ann, entry)
+        if prototypes is None:
+            prototypes = _definition_prototypes(filepath)
+        ann.prototype = prototypes.get(ann.name, "")
         results.append(ann)
     return results
+
+
+def _definition_prototypes(filepath: Path) -> dict[str, str]:
+    """``{name: signature}`` for each C function definition in *filepath*.
+
+    A migrated file carries no marker, so the signature an inline-marker parse
+    takes from the line after the marker comes from the definition itself:
+    return type, calling convention, name and parameters, without the body,
+    with whitespace runs folded so a signature split across lines reads as
+    one.  The first definition of a name wins.  An unreadable file yields
+    ``{}``: the identities still load, without prototypes.
+    """
+    from rebrew.c_parser import iter_function_name_and_proto
+
+    try:
+        text, _ = read_source_text(filepath)
+    except OSError as exc:
+        logger.warning("cannot read %s for its function prototypes: %s", filepath, exc)
+        return {}
+    prototypes: dict[str, str] = {}
+    for name, proto in iter_function_name_and_proto(text):
+        prototypes.setdefault(name, " ".join(proto.split()))
+    return prototypes
 
 
 def _data_annotations_from_metadata(

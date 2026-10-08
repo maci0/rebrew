@@ -26,8 +26,6 @@ from typing import Any
 
 import tomlkit
 
-from rebrew.binsync.git import run_git
-
 log = logging.getLogger(__name__)
 
 _DECLIB_MISSING_MSG = (
@@ -64,6 +62,21 @@ def _declib() -> Any:
     except ImportError as exc:
         raise ImportError(_DECLIB_MISSING_MSG) from exc
     return artifacts
+
+
+def declib_available() -> bool:
+    """True when declib (the ``binsync`` extra) imports."""
+    import importlib.util
+
+    return importlib.util.find_spec("declib") is not None
+
+
+def require_declib(*, json_mode: bool) -> None:
+    """Exit with the install hint (exit 2) before a command touches any state."""
+    if not declib_available():
+        from rebrew.cli import error_exit
+
+        error_exit(_DECLIB_MISSING_MSG, json_mode=json_mode)
 
 
 def _class_for(kind: str) -> Any:
@@ -154,20 +167,36 @@ def new_comment(addr: int, func_addr: int, comment: str) -> Any:
 # ---------------------------------------------------------------------------
 
 
+#: Permission bits of a state file: BinSync's ``State.dump`` rewrites every
+#: artifact in place on the same working tree, so state files stay writable.
+STATE_FILE_MODE = 0o644
+
+
 def write_state_text(path: Path, text: str) -> None:
-    """Write a changed artifact only, preserving mtimes on identical re-exports."""
-    from rebrew.utils import atomic_write_locked
+    """Write a changed artifact only, preserving mtimes on identical re-exports.
+
+    State files are left writable (:data:`STATE_FILE_MODE`), unlike rebrew's
+    own metadata stores: the state directory is shared with BinSync, which
+    writes the same files.  An identical file left read-only by an older
+    rebrew is made writable without rewriting it.
+    """
+    import os
+    import stat
+
+    from rebrew.utils import atomic_write_text
 
     try:
         if path.read_text(encoding="utf-8-sig") == text:
+            if not path.stat().st_mode & stat.S_IWUSR:
+                os.chmod(path, STATE_FILE_MODE)
             return
     except FileNotFoundError:
         pass
-    atomic_write_locked(path, text, encoding="utf-8")
+    atomic_write_text(path, text, encoding="utf-8", mode=STATE_FILE_MODE)
 
 
 def dump_artifact(path: Path, artifact: Any) -> None:
-    """Write one artifact as a TOML file (write-locked 0444)."""
+    """Write one artifact as a TOML file."""
     write_state_text(path, artifact.dumps())
 
 
@@ -224,10 +253,3 @@ def write_metadata(state_dir: Path, *, user: str, version: str = REBREW_STATE_VE
     doc["user"] = user
     doc["version"] = version
     write_state_text(state_dir / METADATA_FILE, tomlkit.dumps(doc))
-
-
-def state_user(state_dir: Path) -> str:
-    """``git config user.name`` for *state_dir*, else ``"rebrew"``."""
-    result = run_git(state_dir, "config", "user.name", timeout=10)
-    name = result.stdout.strip()
-    return name if result.returncode == 0 and name else "rebrew"

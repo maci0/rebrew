@@ -22,14 +22,17 @@ from pathlib import Path
 import typer
 
 from rebrew.binsync.git import one_line, run_git
+from rebrew.binsync.repo import (
+    ROOT_BRANCH,
+    USER_CONFIG_KEY,
+    is_binsync_repo,
+    resolve_user,
+    user_branch,
+)
 from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
-from rebrew.utils import atomic_write_locked, atomic_write_text, md5_file
+from rebrew.utils import atomic_write_text, md5_file
 
 log = logging.getLogger(__name__)
-
-
-#: The BinSync root branch (upstream resolves the state root from it).
-_ROOT_BRANCH = "binsync/__root__"
 
 #: The root commit's ignore file: exactly the pattern upstream writes.
 _GITIGNORE_CONTENT = ".git/*\n"
@@ -42,25 +45,10 @@ def _checked(result: subprocess.CompletedProcess[str], *, json_mode: bool) -> No
         error_exit(f"git failed: {detail}", json_mode=json_mode)
 
 
-def _is_binsync_repo(directory: Path) -> bool:
-    """True when *directory* already has a ``binsync/__root__`` branch."""
-    if not (directory / ".git").exists():
-        return False
-    probe = run_git(directory, "rev-parse", "--verify", "--quiet", _ROOT_BRANCH)
-    return probe.returncode == 0
-
-
-def _default_user(directory: Path) -> str:
-    """``git config user.name`` when set, else ``"rebrew"``."""
-    result = run_git(directory, "config", "user.name")
-    name = result.stdout.strip()
-    return name if result.returncode == 0 and name else "rebrew"
-
-
 def _write_root_files(directory: Path, digest: str) -> None:
-    """Write the two files the root commit must carry."""
+    """Write the two files the root commit must carry (writable: BinSync rewrites them)."""
     atomic_write_text(directory / ".gitignore", _GITIGNORE_CONTENT, encoding="utf-8")
-    atomic_write_locked(directory / "binary_hash", digest, encoding="utf-8")
+    atomic_write_text(directory / "binary_hash", digest, encoding="utf-8")
 
 
 def _report(
@@ -73,7 +61,7 @@ def _report(
     json_output: bool,
 ) -> None:
     """Emit the result (JSON payload or one-line human summary)."""
-    user_branch = f"binsync/{user_name}"
+    branch = user_branch(user_name)
     if json_output:
         json_print(
             {
@@ -81,8 +69,8 @@ def _report(
                 "target": target,
                 "user": user_name,
                 "binary_hash": digest,
-                "root_branch": _ROOT_BRANCH,
-                "user_branch": user_branch,
+                "root_branch": ROOT_BRANCH,
+                "user_branch": branch,
                 "dry_run": dry_run,
             }
         )
@@ -90,12 +78,12 @@ def _report(
     if dry_run:
         console.print(
             f"[dim]dry-run: would initialize BinSync repo at {directory} "
-            f"(root {_ROOT_BRANCH}, user {user_branch})[/dim]"
+            f"(root {ROOT_BRANCH}, user {branch})[/dim]"
         )
     else:
         console.print(
             f"[green]Initialized[/green] BinSync repo at {directory} "
-            f"(root {_ROOT_BRANCH}, user [cyan]{user_branch}[/cyan])"
+            f"(root {ROOT_BRANCH}, user [cyan]{branch}[/cyan])"
         )
 
 
@@ -118,7 +106,10 @@ app = typer.Typer(
 def main(
     state_dir: Path = typer.Argument(..., help="BinSync state directory to initialize"),
     user: str | None = typer.Option(
-        None, "--user", help="BinSync user name (branch binsync/<user>)"
+        None,
+        "--user",
+        help="BinSync user rebrew writes as (branch binsync/<user>; default: "
+        "targets.<name>.binsync_user, else rebrew)",
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
@@ -137,24 +128,29 @@ def main(
     except OSError as exc:
         error_exit(f"Cannot resolve state directory {state_dir}: {exc}", json_mode=json_output)
 
-    user_name = user or _default_user(resolved)
-    user_branch = f"binsync/{user_name}"
+    try:
+        user_name = resolve_user(cfg, resolved, user)
+    except ValueError as exc:
+        error_exit(str(exc), json_mode=json_output)
+    branch = user_branch(user_name)
 
-    if _is_binsync_repo(resolved):
+    if is_binsync_repo(resolved):
         # Converge instead of erroring: a rerun after a crash past the root
         # commit, or a second user joining, only needs the user branch.
-        root_hash = run_git(resolved, "show", f"{_ROOT_BRANCH}:binary_hash")
+        root_hash = run_git(resolved, "show", f"{ROOT_BRANCH}:binary_hash")
         if root_hash.returncode != 0 or root_hash.stdout.strip() != digest:
             error_exit(
-                f"{_ROOT_BRANCH} binary_hash does not match the target binary",
+                f"{ROOT_BRANCH} binary_hash does not match the target binary",
                 json_mode=json_output,
             )
         if not dry_run:
-            has_branch = run_git(resolved, "rev-parse", "--verify", "--quiet", user_branch)
-            args = (
-                (user_branch,) if has_branch.returncode == 0 else ("-b", user_branch, _ROOT_BRANCH)
-            )
+            has_branch = run_git(resolved, "rev-parse", "--verify", "--quiet", branch)
+            args = (branch,) if has_branch.returncode == 0 else ("-b", branch, ROOT_BRANCH)
             _checked(run_git(resolved, "checkout", "-q", *args), json_mode=json_output)
+            _checked(
+                run_git(resolved, "config", "--local", USER_CONFIG_KEY, user_name),
+                json_mode=json_output,
+            )
         _report(
             resolved,
             cfg.target_name,
@@ -191,11 +187,14 @@ def main(
             json_mode=json_output,
         )
 
-    _checked(run_git(resolved, "checkout", "-q", "--orphan", _ROOT_BRANCH), json_mode=json_output)
+    _checked(
+        run_git(resolved, "config", "--local", USER_CONFIG_KEY, user_name), json_mode=json_output
+    )
+    _checked(run_git(resolved, "checkout", "-q", "--orphan", ROOT_BRANCH), json_mode=json_output)
     _write_root_files(resolved, digest)
     _checked(run_git(resolved, "add", "--", ".gitignore", "binary_hash"), json_mode=json_output)
     _checked(run_git(resolved, "commit", "-q", "-m", "Root commit"), json_mode=json_output)
-    _checked(run_git(resolved, "checkout", "-q", "-b", user_branch), json_mode=json_output)
+    _checked(run_git(resolved, "checkout", "-q", "-b", branch), json_mode=json_output)
 
     _report(
         resolved,

@@ -142,6 +142,7 @@ PACKAGE_EXTERNALS: dict[str, frozenset[str]] = {
             "binary_loader",
             "binsync.export",
             "binsync.importer",
+            "binsync.serial",
             "binsync.state",
             "catalog",
             "cli",

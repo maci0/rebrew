@@ -704,6 +704,17 @@ def normalize_prototype(proto: str) -> str:
     return re.sub(r"\s*([(),;*])\s*", r"\1", text)
 
 
+def normalize_comment_text(text: Any) -> str:
+    """Comment text with every whitespace run folded to one space.
+
+    declib's ``Comment`` re-wraps text at 100 columns when it loads or builds
+    an artifact, so a note that went out as one line comes back with line
+    breaks.  Comparing the folded text lets that round trip settle instead
+    of reading as a remote edit on every pull.
+    """
+    return " ".join(str(text or "").split())
+
+
 def normalize_sync_value(field: str, value: Any, *, kind: str = "function") -> Any:
     """Normalize native fields identically for baseline, push, pull and diff."""
     from rebrew.metadata import as_metadata_int
@@ -733,8 +744,17 @@ def normalize_sync_value(field: str, value: Any, *, kind: str = "function") -> A
             if isinstance(v, dict)
         }
     if field == "comments":
-        return {f"0x{int(str(k), 0):08x}": v for k, v in (value or {}).items()}
-    if field in {"note", "ghidra", "type"}:
+        return {
+            f"0x{int(str(k), 0):08x}": (
+                {**v, "comment": normalize_comment_text(v.get("comment"))}
+                if isinstance(v, dict)
+                else v
+            )
+            for k, v in (value or {}).items()
+        }
+    if field == "note":
+        return normalize_comment_text(value)
+    if field in {"ghidra", "type"}:
         return str(value or "").strip()
     if isinstance(value, str):
         return value.strip()
@@ -952,6 +972,55 @@ def acknowledge_sync(
             atomic_write_locked(path, tomlkit.dumps(doc))
 
 
+def seed_peer_baseline(cfg: ProjectConfig, state_dir: Path, peer_dir: Path) -> None:
+    """Fill a peer's baseline from what rebrew last shared through *state_dir*.
+
+    A peer branch is reconciled against its own baseline (keyed by the
+    peer's snapshot directory), so a field rebrew changed after the peer last
+    synced reads as a local edit, not as the peer reverting it.  Fields the
+    peer baseline has never recorded start from rebrew's own baseline: the
+    value rebrew published, which a peer's differing value then edited.
+    Only identities present in the peer's state are seeded.
+    """
+    from rebrew.utils import atomic_write_locked, file_lock
+
+    own = load_sync_baseline(cfg, state_dir)
+    if not own:
+        return
+    present = remote_sync_records(cfg, peer_dir).keys()
+    path = sync_baseline_path(cfg, peer_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with file_lock(path.with_suffix(".lock")):
+        baseline = load_sync_baseline(cfg, peer_dir)
+        before = {k: dict(v) for k, v in baseline.items()}
+        for key in present & own.keys():
+            baseline[key] = {**own[key], **baseline.get(key, {})}
+        if baseline != before:
+            doc = {"format": 1, "binary_hash": binary_identity(cfg), "records": baseline}
+            atomic_write_locked(path, tomlkit.dumps(doc))
+
+
+def has_state_data(state_dir: Path) -> bool:
+    """True when *state_dir* carries any artifact beyond ``metadata.toml``."""
+    from rebrew.binsync import serial
+
+    funcs = state_dir / serial.FUNCTIONS_DIR
+    structs = state_dir / serial.STRUCTS_DIR
+    return (
+        (funcs.is_dir() and any(funcs.glob("*.toml")))
+        or (structs.is_dir() and any(structs.glob("*.toml")))
+        or any(
+            (state_dir / name).is_file()
+            for name in (
+                serial.GLOBAL_VARS_FILE,
+                serial.COMMENTS_FILE,
+                serial.ENUMS_FILE,
+                serial.TYPEDEFS_FILE,
+            )
+        )
+    )
+
+
 def sync_origin(state_dir: Path) -> dict[str, str]:
     """External source facts, distinct from the rebrew command applying them."""
     import tomllib
@@ -975,8 +1044,15 @@ def sync_health(
     state_dir: Path,
     local: dict[str, dict[str, Any]],
     remote: dict[str, dict[str, Any]],
+    *,
+    peer: bool = False,
 ) -> dict[str, Any]:
-    """Actionable freshness and field decisions shared by previews and sync commands."""
+    """Actionable freshness and field decisions shared by previews and sync commands.
+
+    *peer* marks *state_dir* as another BinSync user's branch: that user holds
+    only what they synced or edited, so an identity absent from it is not a
+    removal and is left out of the field decisions.
+    """
     import json
 
     from rebrew.metadata import FORMAT_VERSION, SYNC_FIELD_RULES
@@ -998,6 +1074,8 @@ def sync_health(
     baseline = load_sync_baseline(cfg, state_dir)
     items: list[dict[str, Any]] = []
     for key in sorted(local.keys() | remote.keys()):
+        if peer and key not in remote:
+            continue
         kind = key.split(".", 1)[0]
         left, right = local.get(key, {}), remote.get(key, {})
         for field, (_attr, direction) in SYNC_FIELD_RULES[kind].items():
@@ -1142,13 +1220,14 @@ def prepare_sync_import(
     *,
     accept_binsync: bool,
     accept_local: bool,
+    peer: bool = False,
 ) -> tuple[
     dict[int, dict[str, Any]], dict[int, dict[str, Any]], set[tuple[int, str]], list[dict[str, str]]
 ]:
     """Filter incoming native fields with the same three-way decisions used by diff."""
     if accept_binsync and accept_local:
         raise ValueError("accept-binsync and accept-local are mutually exclusive")
-    health = sync_health(cfg, state_dir, local, remote)
+    health = sync_health(cfg, state_dir, local, remote, peer=peer)
     if health["blocked"]:
         raise ValueError(f"sync refused: {', '.join(health['issues'])}")
     from rebrew.metadata import SYNC_FIELD_RULES

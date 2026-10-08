@@ -34,6 +34,7 @@ import typer
 from rebrew.annotation import span_contains_factory
 from rebrew.binsync import serial
 from rebrew.binsync.git import run_git
+from rebrew.binsync.repo import checkout_user_branch, is_binsync_repo, resolve_user
 from rebrew.binsync.state import (
     acknowledge_sync,
     artifact_hash,
@@ -51,7 +52,7 @@ from rebrew.binsync.state import (
 from rebrew.catalog import scan_reversed_dir
 from rebrew.cli import TargetOption, console, error_exit, json_print, require_config, run_standalone
 from rebrew.config import ProjectConfig, inventory_path_for
-from rebrew.utils import atomic_write_locked, md5_file, strip_body
+from rebrew.utils import md5_file, strip_body
 
 app = typer.Typer(
     help="Export rebrew annotations to a BinSync state directory.",
@@ -325,6 +326,12 @@ def main(
     clean: bool = typer.Option(
         False, "--clean", help="Remove orphan function TOMLs no longer in the catalog/annotations"
     ),
+    user: str | None = typer.Option(
+        None,
+        "--user",
+        help="BinSync user to write as (default: targets.<name>.binsync_user, the user "
+        "'rebrew binsync init' recorded, else rebrew)",
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
@@ -333,6 +340,7 @@ def main(
     Produces a ``functions/`` tree, ``global_vars.toml``, and ``structs/``
     placeholders compatible with BinSync's TOML state format.
     """
+    serial.require_declib(json_mode=json_output)
     cfg = require_config(target=target, json_mode=json_output)
 
     result = export_state(
@@ -342,6 +350,7 @@ def main(
         module=module,
         git_commit=git_commit,
         clean=clean,
+        user=user,
     )
     print_export_result(result, json_output=json_output, dry_run=dry_run)
 
@@ -354,13 +363,26 @@ def export_state(
     module: str | None = None,
     git_commit: bool = False,
     clean: bool = False,
+    user: str | None = None,
 ) -> dict[str, object]:
     """Export rebrew annotations to a BinSync state directory (programmatic).
 
     Returns the result dict (counts + written paths + warnings).  ``empty``
     is True when there was nothing to export — the CLI turns that into an
     error, programmatic callers decide.
+
+    *user* (resolved by :func:`rebrew.binsync.repo.resolve_user`) is written
+    as the ``metadata.toml`` user.  When *outdir* is a BinSync repo, a real
+    export first checks out ``binsync/<user>``, so it never writes into
+    another user's branch.
+
+    Raises:
+        ValueError: the user is not a valid BinSync user, the repo cannot be
+            switched to the user's branch, or the sync is blocked.
     """
+    user = resolve_user(cfg, outdir, user)
+    if not dry_run and is_binsync_repo(outdir):
+        checkout_user_branch(outdir, user)
     entries = scan_reversed_dir(cfg.reversed_dir, cfg=cfg)
     # Optional module filter applies to both annotations and catalog entries
     if module is not None:
@@ -623,10 +645,11 @@ def export_state(
             _write_typedefs_toml(typedef_path, merged_typedefs)
         written_typedefs = str(typedef_path)
 
-    # State.parse requires metadata.toml; user is the repo identity or rebrew.
+    # State.parse requires metadata.toml; BinSync's Client reads the user from
+    # it and checks out binsync/<user>, so it is the branch's own user.
     metadata_file = ""
     if not dry_run:
-        serial.write_metadata(outdir, user=serial.state_user(outdir))
+        serial.write_metadata(outdir, user=user)
         metadata_file = str(outdir / serial.METADATA_FILE)
 
     # BinSync binds a repo to one binary through the MD5 at its root.  Emit it
@@ -714,6 +737,7 @@ def export_state(
         "manifest": manifest_hash,
         "binary_hash": binary_hash,
         "module": module,
+        "user": user,
         "empty": False,
         "health": health,
     }
@@ -791,7 +815,7 @@ def _write_manifest(
             if binary_hash or existing.get("binary_hash"):
                 doc["binary_hash"] = binary_hash or existing.get("binary_hash")
             doc["commit"] = commit_hash
-            atomic_write_locked(manifest_path, tomlkit.dumps(doc), encoding="utf-8")
+            serial.write_state_text(manifest_path, tomlkit.dumps(doc))
             return content_hash
     doc = tomlkit.document()
     doc["exported_at"] = datetime.now(UTC).isoformat()
@@ -805,7 +829,7 @@ def _write_manifest(
         doc["binary_hash"] = binary_hash
     if commit_hash:
         doc["commit"] = commit_hash
-    atomic_write_locked(manifest_path, tomlkit.dumps(doc), encoding="utf-8")
+    serial.write_state_text(manifest_path, tomlkit.dumps(doc))
     return content_hash
 
 
@@ -843,6 +867,8 @@ def print_export_result(result: dict[str, object], *, json_output: bool, dry_run
             "comments_file": result.get("comments_file"),
             "metadata_file": result.get("metadata_file"),
         }
+        if result.get("user"):
+            payload["user"] = result["user"]
         if "health" in result:
             payload["health"] = result["health"]
         if warnings_list:

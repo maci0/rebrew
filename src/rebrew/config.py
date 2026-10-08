@@ -689,6 +689,7 @@ class ProjectConfig:
     ghidra_program_path: str = ""
     ghidra_backend: str = "reva"  # "reva" (MCP) or "cli" (ghidra-cli binary)
     binsync_state_dir: str = ""  # BinSync state dir for field sync (--state-dir default)
+    binsync_user: str = ""  # BinSync user rebrew writes as (branch binsync/<user>)
     inventory_file: str = (
         ""  # Function inventory path override (default: reversed_dir/function_structure.json)
     )
@@ -857,6 +858,7 @@ class ProjectConfig:
             "ghidra_program_path": self.ghidra_program_path,
             "ghidra_backend": self.ghidra_backend,
             "binsync_state_dir": self.binsync_state_dir,
+            "binsync_user": self.binsync_user,
             "inventory_file": self.inventory_file,
             "source_ext": self.source_ext,
             "lint_naming_convention": self.lint_naming_convention,
@@ -2186,6 +2188,7 @@ KNOWN_TARGET_KEYS = {
     "ghidra_program_path",
     "ghidra_backend",
     "binsync_state_dir",
+    "binsync_user",
     "inventory_file",
     "origins",  # written by `rebrew cfg target add`; editor/UI only — NOT
     # used for annotation filtering (module filters come from the
@@ -2643,6 +2646,7 @@ def load_config(
         binsync_state_dir=_as_str(
             tgt.get("binsync_state_dir"), "", f"targets.{target}.binsync_state_dir"
         ),
+        binsync_user=_as_str(tgt.get("binsync_user"), "", f"targets.{target}.binsync_user"),
         inventory_file=_as_str(tgt.get("inventory_file"), "", f"targets.{target}.inventory_file"),
         all_targets=all_target_names,
         all_markers=set(markers_by_target.values()),

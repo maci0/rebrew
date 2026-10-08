@@ -86,6 +86,7 @@ libs = "toolchain/msvc/6.0-win32/source/VC98/Lib"
 | `layout` | `[targets.<name>].layout` | Inline position-alignment package (image base, section geometry, exports, imports) printed by `rebrew build layout --layout-config` and written to `layout/<target>/rebrew-layout.toml`. Not read by this loader: the layout tooling parses the file directly. Recognised here so a target carrying it does not warn on every invocation and no config rewriter drops the block |
 | `ghidra_backend` | `[targets.<name>].ghidra_backend` | Ghidra transport: `reva` (MCP, default) or `cli`; an unknown value is a config error |
 | `binsync_state_dir` | `[targets.<name>].binsync_state_dir` | BinSync state directory (default for `--state-dir`) |
+| `binsync_user` | `[targets.<name>].binsync_user` | BinSync user rebrew writes as: `metadata.toml` `user` and branch `binsync/<user>` (default: `--user`, else the user `rebrew binsync init` recorded in the state repo, else `rebrew`). Must be a valid git branch component without `/` |
 | `iat_thunks` / `dll_exports` / `ignored_symbols` / `r2_bogus_vas` | `[targets.<name>]` | Project-specific VA lists (`iat_thunks`, `r2_bogus_vas`: VAs with known-bad r2 size data), VA → name export map, and symbol names to ignore |
 | `compiler_profile` | `[compiler].profile` | Selects the toolchain's docker image and flag-sweep axes |
 | `compiler_includes` | `[compiler].includes` | Resolved path to include dir |

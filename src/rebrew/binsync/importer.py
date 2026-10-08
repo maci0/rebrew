@@ -29,8 +29,10 @@ from typing import Any
 
 import typer
 
+from rebrew.binsync.serial import require_declib
 from rebrew.binsync.state import (
     acknowledge_sync,
+    has_state_data,
     index_local_and_catalog,
     load_binsync_comments,
     load_binsync_enums,
@@ -40,6 +42,7 @@ from rebrew.binsync.state import (
     load_sync_baseline,
     local_sync_records,
     module_predicate,
+    normalize_comment_text,
     normalize_prototype,
     prepare_sync_import,
     record_sync_origins,
@@ -47,6 +50,7 @@ from rebrew.binsync.state import (
     result_count,
     result_paths,
     result_rows,
+    seed_peer_baseline,
     sync_action,
     sync_health,
     sync_health_messages,
@@ -241,6 +245,88 @@ def _inside_project(fp: Path, cfg: Any) -> bool:
         except (OSError, ValueError):
             continue
     return False
+
+
+#: Spellings of C types that Win32 headers and Ghidra use for the same type.
+#: Project typedefs (:func:`local_type_aliases`) extend and override these.
+_BUILTIN_TYPE_ALIASES: dict[str, str] = {
+    "BOOL": "int",
+    "BYTE": "unsigned char",
+    "CHAR": "char",
+    "DWORD": "unsigned long",
+    "HANDLE": "void *",
+    "INT": "int",
+    "LONG": "long",
+    "LPCSTR": "const char *",
+    "LPDWORD": "unsigned long *",
+    "LPSTR": "char *",
+    "LPVOID": "void *",
+    "PVOID": "void *",
+    "SHORT": "short",
+    "UCHAR": "unsigned char",
+    "UINT": "unsigned int",
+    "ULONG": "unsigned long",
+    "USHORT": "unsigned short",
+    "WORD": "unsigned short",
+    "byte": "unsigned char",
+    "uchar": "unsigned char",
+    "uint": "unsigned int",
+    "ulong": "unsigned long",
+    "ushort": "unsigned short",
+}
+
+#: An alias's underlying type must be this simple to substitute textually:
+#: words and trailing pointers, nothing a function-pointer typedef carries.
+_SIMPLE_TYPE_RE = re.compile(r"[A-Za-z_][\w ]*[\s*]*\Z")
+
+#: Ghidra's size-only placeholder types (``undefined``, ``undefined4``).
+_PLACEHOLDER_TYPE_RE = re.compile(r"\bundefined\d*\b")
+
+#: Rounds of alias substitution (an alias may name another alias).
+_ALIAS_DEPTH = 4
+
+
+def local_type_aliases(cfg: Any) -> dict[str, str]:
+    """``{alias: underlying}`` for simple typedefs, Win32 spellings included."""
+    from rebrew.binsync.state import collect_typedef_definitions
+
+    aliases = dict(_BUILTIN_TYPE_ALIASES)
+    for name, (_raw, underlying) in collect_typedef_definitions(cfg).items():
+        if underlying and _SIMPLE_TYPE_RE.match(underlying):
+            aliases[name] = underlying
+    return aliases
+
+
+def _expanded_type_key(prototype: str, aliases: dict[str, str]) -> str | None:
+    """:func:`rebrew.c_parser.prototype_type_key` with aliases substituted."""
+    from rebrew.c_parser import prototype_type_key
+
+    key = prototype_type_key(prototype)
+    if key is None:
+        return None
+    for _round in range(_ALIAS_DEPTH):
+        expanded = re.sub(r"\b[A-Za-z_]\w*\b", lambda m: aliases.get(m.group(), m.group()), key)
+        expanded = " ".join(expanded.split())
+        expanded = re.sub(r"\s*([(),*\[\]])\s*", r"\1", expanded)
+        if expanded == key:
+            break
+        key = expanded
+    return key
+
+
+def prototypes_equivalent(left: str, right: str, aliases: dict[str, str]) -> bool:
+    """True when two prototypes declare the same types under *aliases*.
+
+    Function and parameter names, spacing, an explicit ``__cdecl`` and
+    ``(void)`` versus ``()`` do not count as differences.
+    """
+    left_key = _expanded_type_key(left, aliases)
+    return left_key is not None and left_key == _expanded_type_key(right, aliases)
+
+
+def is_placeholder_prototype(prototype: str) -> bool:
+    """True when the prototype uses Ghidra's size-only ``undefined`` types."""
+    return bool(_PLACEHOLDER_TYPE_RE.search(prototype))
 
 
 def is_safe_prototype(proto: str) -> bool:
@@ -465,6 +551,7 @@ def main(
     target: str | None = TargetOption,
 ) -> None:
     """Import a BinSync state directory into rebrew metadata."""
+    require_declib(json_mode=json_output)
     if accept_binsync and accept_local:
         error_exit(
             "--accept-binsync and --accept-local are mutually exclusive", json_mode=json_output
@@ -498,12 +585,17 @@ def import_state(
     accept_binsync: bool = False,
     accept_local: bool = False,
     create_missing: bool = False,
+    peer: bool = False,
 ) -> dict[str, object]:
     """Import a BinSync state directory into rebrew metadata (programmatic).
 
     Returns the result dict (counts plus ``touched_vas`` — the VAs the import
     applied names/prototypes/globals to or created stubs for, so callers like
     ``rebrew sync pull --create-functions`` can push them to Ghidra).
+
+    *peer* marks *state_dir* as another BinSync user's branch snapshot (see
+    :func:`import_from_repo`): identities that user never synced are not
+    reported as removals.
     """
     wanted_module = preset_module_key(module) if module else None
     module_selected = module_predicate(wanted_module)
@@ -527,7 +619,7 @@ def import_state(
     local_by_va, catalog_sizes = index_local_and_catalog(cfg)
     before_sync = local_sync_records(cfg, list(local_by_va.values()))
     incoming_sync = remote_sync_records(cfg, state_dir, funcs_by_va, globals_by_va, before_sync)
-    health = sync_health(cfg, state_dir, before_sync, incoming_sync)
+    health = sync_health(cfg, state_dir, before_sync, incoming_sync, peer=peer)
     funcs_by_va, globals_by_va, remote_changes, sync_conflicts = prepare_sync_import(
         cfg,
         state_dir,
@@ -537,9 +629,12 @@ def import_state(
         globals_by_va,
         accept_binsync=accept_binsync,
         accept_local=accept_local,
+        peer=peer,
     )
     function_fields: dict[tuple[str, int], dict[str, Any]] = {}
     origin = sync_origin(state_dir)
+    type_aliases = local_type_aliases(cfg)
+    settled_prototypes: set[int] = set()
 
     # Also collect scan for module routing of globals that have no direct annotation
     # (DATA entries are in local_by_va; unannotated externs are not — but those
@@ -700,6 +795,23 @@ def import_state(
         bs_stripped = strip_cdecl_prefix(bs_name)
         local_stripped = strip_cdecl_prefix(local_name)
 
+        # A remote prototype that names the local types differently
+        # (LPVOID for void *, other parameter names, an explicit __cdecl) or
+        # only Ghidra's size placeholders (undefined4) is not an edit to
+        # apply: the source keeps its spelling, and the baseline settles on
+        # the remote text so the field stops reading as an incoming change.
+        if (
+            bs_proto
+            and local_proto
+            and normalize_prototype(bs_proto) != normalize_prototype(local_proto)
+            and (
+                prototypes_equivalent(bs_proto, local_proto, type_aliases)
+                or is_placeholder_prototype(bs_proto)
+            )
+        ):
+            settled_prototypes.add(va)
+            bs_proto = ""
+
         # Prototype import (independent of name; whitespace-normalized compare).
         # A differing local prototype is a conflict like a differing name:
         # --accept-binsync overwrites, --accept-local keeps local, otherwise
@@ -773,7 +885,9 @@ def import_state(
                 skipped += 1
             else:
                 local_note = str(get_entry(cfg.metadata_dir, va, local_mod).get("note") or "")
-                if local_note.strip() != bs_note.strip():
+                # declib re-wraps comment text at 100 columns; a re-wrapped
+                # copy of the local note is the same note.
+                if normalize_comment_text(local_note) != normalize_comment_text(bs_note):
                     if dry_run:
                         proposed.append(
                             {
@@ -1162,13 +1276,24 @@ def import_state(
                 or k.split(".", 1)[1].rsplit(".", 1)[0] == wanted_module
             }
         record_sync_origins(cfg, state_dir, before_sync, after_sync, incoming_sync)
+        for key, fields in after_sync.items():
+            if (
+                key.startswith("function.")
+                and int(key.rsplit(".", 1)[1], 16) in settled_prototypes
+                and "prototype" in incoming_sync.get(key, {})
+            ):
+                fields["prototype"] = incoming_sync[key]["prototype"]
         if marker_writes_failed:
             # A source-marker failure is not an acknowledged comment sync.
             for key in incoming_sync:
                 incoming_sync[key].pop("comments", None)
         acknowledge_sync(cfg, state_dir, after_sync, incoming_sync)
         health = sync_health(
-            cfg, state_dir, after_sync, remote_sync_records(cfg, state_dir, local=after_sync)
+            cfg,
+            state_dir,
+            after_sync,
+            remote_sync_records(cfg, state_dir, local=after_sync),
+            peer=peer,
         )
 
     return {
@@ -1194,6 +1319,105 @@ def import_state(
         "accept_local": accept_local,
         "health": health,
     }
+
+
+#: Integer counters an :func:`import_state` result carries, summed across peers.
+_IMPORT_COUNTS: tuple[str, ...] = (
+    "applied_names",
+    "applied_prototypes",
+    "applied_globals",
+    "applied_structs",
+    "applied_enums",
+    "applied_typedefs",
+    "applied_locals",
+    "applied_comments",
+    "applied_notes",
+    "conflicts",
+    "skipped",
+)
+
+#: List fields an :func:`import_state` result carries, concatenated across peers.
+_IMPORT_LISTS: tuple[str, ...] = ("proposed", "conflict_details", "marker_writes_failed")
+
+
+def import_from_repo(
+    cfg: ProjectConfig,
+    state_dir: Path,
+    *,
+    user: str | None,
+    dry_run: bool,
+    json_output: bool,
+    module: str | None = None,
+    accept_binsync: bool = False,
+    accept_local: bool = False,
+    create_missing: bool = False,
+    remote: str = "origin",
+) -> dict[str, object]:
+    """Import every other BinSync user's branch of a state repo, one at a time.
+
+    A state directory that is not a BinSync repo (no ``binsync/__root__``) is
+    imported from its working tree, as :func:`import_state` does.  In a
+    BinSync repo the working tree is rebrew's own branch, so the edits to
+    import live on the other users' branches: each ``binsync/<peer>`` (the
+    ``<remote>`` tracking ref when fetched) is checked out detached into a
+    project-local snapshot and imported against that peer's own baseline,
+    seeded from rebrew's.  Peers are imported in name order; one with no
+    artifacts is skipped.  The state repo's branches and working tree are
+    not changed.
+
+    The result has :func:`import_state`'s shape with counts summed and lists
+    concatenated, plus ``peers`` (the users imported).
+
+    Raises:
+        ValueError: the user is invalid or a git step failed.
+    """
+    from rebrew.binsync.repo import is_binsync_repo, peer_refs, peer_snapshot, resolve_user
+
+    def run(source: Path, *, peer: bool) -> dict[str, object]:
+        return import_state(
+            cfg,
+            source,
+            dry_run=dry_run,
+            json_output=json_output,
+            module=module,
+            accept_binsync=accept_binsync,
+            accept_local=accept_local,
+            create_missing=create_missing,
+            peer=peer,
+        )
+
+    if not is_binsync_repo(state_dir):
+        return run(state_dir, peer=False)
+    own = resolve_user(cfg, state_dir, user)
+    results: list[tuple[str, dict[str, object]]] = []
+    for name, ref in peer_refs(state_dir, own, remote).items():
+        with peer_snapshot(cfg, state_dir, name, ref) as snapshot:
+            if not has_state_data(snapshot):
+                continue
+            # Seeding initializes the peer's baseline from rebrew's; it never
+            # advances either, so a preview needs it as much as a write.
+            seed_peer_baseline(cfg, state_dir, snapshot)
+            results.append((name, run(snapshot, peer=True)))
+    if not results:
+        # No other user has committed: the working tree is rebrew's own state.
+        return {**run(state_dir, peer=False), "peers": []}
+    merged = dict(results[-1][1])
+    merged["state_dir"] = str(state_dir)
+    merged["peers"] = [name for name, _result in results]
+    for key in _IMPORT_COUNTS:
+        merged[key] = sum(result_count(result, key) for _name, result in results)
+    for key in _IMPORT_LISTS:
+        merged[key] = [item for _name, result in results for item in _result_items(result, key)]
+    merged["touched_vas"] = sorted(
+        {int(va) for _name, result in results for va in _result_items(result, "touched_vas")}
+    )
+    return merged
+
+
+def _result_items(result: dict[str, object], key: str) -> list[Any]:
+    """The list stored at *key* in an import result (``[]`` when absent)."""
+    value = result.get(key)
+    return list(value) if isinstance(value, list) else []
 
 
 def _route_comments(
@@ -1552,6 +1776,8 @@ def print_import_result(result: dict[str, object], *, json_output: bool, dry_run
             payload["conflict_details"] = conflict_details
         if module is not None:
             payload["module"] = module
+        if "peers" in result:
+            payload["peers"] = result["peers"]
         json_print(payload)
         if conflicts and not accept_binsync and not accept_local:
             raise typer.Exit(code=EXIT_MISMATCH)
