@@ -64,6 +64,7 @@ from rebrew.compile import (
 )
 from rebrew.compile_overrides import resolve_compile_overrides_cached
 from rebrew.config import ProjectConfig, inventory_path_for, module_marker
+from rebrew.linked_exact import linked_image_current
 from rebrew.match_semantics import EFFECTIVE_MATCH_NOTE, is_effective_match
 from rebrew.metadata import should_promote_status
 from rebrew.metadata_doc import canonical_va_key
@@ -317,6 +318,14 @@ def verify_entry(
 
     if not comparison_inputs_current(cfg, cfile, entry.comparison_inputs):
         entry.comparison_inputs = None
+    if result.status == "RELOC":
+        from rebrew.linked_exact import LINKED_MESSAGE, linked_exact_holds
+
+        kept = linked_exact_holds(cfg, entry.verification, entry.comparison_inputs)
+        if kept is not None:
+            result.status = "EXACT"
+            result.message = LINKED_MESSAGE
+            entry.comparison_inputs = kept
     if not result.matched:
         # A fenced naked source compiled without REBREW_ALLOW_NAKED produces
         # its empty #else fallback — the mismatch is the build matrix, not
@@ -418,10 +427,14 @@ app = typer.Typer(
         "  rebrew verify --compare · · · · · · · · · Compare against last run, detect regressions\n\n"
         "  rebrew verify --full --jobs 8 · · · · · · · · Force full re-verify with 8 workers\n\n"
         "  rebrew verify --summary · · · · · · · · · Show detailed STATUS breakdown table\n\n"
+        "  rebrew verify --text --raw-link · · · · · Promote RELOC to EXACT where the raw link "
+        "is byte-identical\n\n"
         "[bold]How it works:[/bold]\n\n"
         "  For each .c file in reversed_dir, compiles it, extracts the symbol, "
         "and compares the output bytes against the target binary. Reports EXACT, "
-        "RELOC (match after relocation masking), NEAR_MATCHING, STUB, or COMPILE_ERROR.\n\n"
+        "RELOC (match after relocation masking), NEAR_MATCHING, STUB, or COMPILE_ERROR. "
+        "A RELOC function whose bytes in the raw link equal the reference is EXACT "
+        "(recorded by --text --raw-link, kept until the inputs or the image change).\n\n"
         "[bold]Exit codes:[/bold]\n\n"
         "  0   All functions passed verification\n\n"
         "  1   Failures or regressions detected\n\n"
@@ -753,19 +766,23 @@ def main(
         False,
         "--raw-link",
         help="Ack that --built is the raw link, not a postlinked deliverable. "
-        "Without it or a matching configured raw_link, --data suppresses DRIFT status write-backs (a raw link's "
-        ".data divergence is postlink-supplied and would flip wrong statuses)",
+        "Without it or a matching configured raw_link, --data suppresses DRIFT status write-backs "
+        "and --text suppresses linked EXACT promotion (postlink can copy reference "
+        "bytes into the image, so agreement there is not evidence)",
     ),
     link_map: Path | None = typer.Option(
         None,
         "--link-map",
-        help="MSVC link map of --built for --data placement (default: the built image's .map "
-        "beside it). Symbols the map puts at their reference VA become EXACT, others DISPLACED",
+        help="MSVC link map of --built for --data and --text placement (default: the built "
+        "image's .map beside it). Data symbols the map puts at their reference VA become EXACT, "
+        "others DISPLACED; --text promotes only functions the map places at their VA",
     ),
     text: bool = typer.Option(
         False,
         "--text",
-        help="Check .text function placement against markers (position-alignment gate)",
+        help="Check .text function placement against markers (position-alignment gate). "
+        "With an acknowledged raw link, a RELOC function placed at its VA whose linked "
+        "bytes equal the reference becomes EXACT (linked EXACT)",
     ),
     whole_binary: bool = typer.Option(
         False,
@@ -1162,10 +1179,15 @@ def main(
                 )
 
     text_report: dict[str, Any] | None = None
+    text_built: Path | None = None
+    placement_source = ""
+    text_mapped: set[tuple[str, int]] | None = None
+    placed_vas: set[int] = set()
     if text:
         from rebrew.text_audit import audit_text, collect_actual_vas
 
         built_path = built or (cfg.root / "build" / cfg.target_name)
+        text_built = built_path
         if not built_path.exists():
             error_exit(
                 f"{built_path} not found — build the project first (or pass --built <path>)",
@@ -1177,6 +1199,24 @@ def main(
         except (RuntimeError, OSError, ValueError) as exc:
             error_exit(f"cannot inventory build objects: {exc}", json_mode=json_output)
         rows, n_ok, n_bad, n_missing = audit_text(expected, actual)
+        # Linked-EXACT placement: the link map names the symbol the linker put
+        # at each address, so prefer it over the object walk, which assumes
+        # plain concatenation in link order.
+        text_map = link_map or built_path.with_suffix(".map")
+        if text_map.is_file():
+            from rebrew.data_ownership import parse_link_map
+
+            text_mapped = {
+                (s.name, s.va)
+                for s in parse_link_map(text_map.read_text(encoding="utf-8", errors="replace"))
+                if s.is_function
+            }
+            placement_source = str(text_map)
+        elif link_map is not None:
+            error_exit(f"link map not found: {link_map}", json_mode=json_output)
+        else:
+            placed_vas = {int(r["expected"], 16) for r in rows if r["status"] == "OK"}
+            placement_source = "objects"
         text_report = {
             "functions": len(expected),
             "found": n_ok + n_bad,
@@ -1282,6 +1322,22 @@ def main(
         no_promote=no_promote,
         context=compile_context,
     )
+    if text_report is not None and text_built is not None:
+        if text_mapped is not None:
+            # Every verified function, bound library sources included: the map
+            # row names the COFF symbol the linker put at the address.
+            placed_vas = {e.va for e in batch.entries if (_entry_symbol(e), e.va) in text_mapped}
+        text_report["linked"] = _promote_linked(
+            cfg,
+            batch,
+            text_built,
+            placed_vas,
+            context_hash=compile_context.sha256 if compile_context is not None else "",
+            write=raw_link and not (dry_run or no_promote),
+            raw_link=raw_link,
+            json_output=json_output,
+        )
+        text_report["linked"]["placement"] = placement_source
     _save_report(
         cfg,
         batch,
@@ -1300,6 +1356,58 @@ def main(
         fix_sizes=fix_sizes,
         orphans_pruned=orphans_pruned,
     )
+
+
+def _promote_linked(
+    cfg: Any,
+    batch: "BatchResult",
+    built: Path,
+    placed_vas: set[int],
+    *,
+    context_hash: str,
+    write: bool,
+    raw_link: bool,
+    json_output: bool,
+) -> dict[str, Any]:
+    """``--text`` linked-image promotion: RELOC rows with identical linked bytes become EXACT.
+
+    Writes only for an acknowledged raw link outside ``--dry-run`` /
+    ``--no-promote``; a postlinked image can carry bytes copied from the
+    reference, so its agreement is not evidence.
+    """
+    from rebrew.linked_exact import promote_linked_exact
+
+    try:
+        report = promote_linked_exact(
+            cfg,
+            batch.entries,
+            batch.results,
+            built,
+            placed_vas,
+            context_hash=context_hash,
+            write=write,
+        )
+    except OSError as exc:
+        error_exit(f"cannot read the built image {built}: {exc}", json_mode=json_output)
+    if not raw_link:
+        report["raw_link_status_suppressed"] = True
+    if not json_output:
+        console.print(
+            f"linked: {report['identical']} of {report['candidates']} RELOC functions have "
+            f"identical bytes in {untrusted_ident(report['image'])}; "
+            f"{report['promoted']} promoted to EXACT"
+        )
+        if not raw_link and report["identical"]:
+            console.print(
+                "[yellow]warning:[/yellow] --built is not acknowledged as the raw link; "
+                "linked EXACT write-back suppressed (pass --raw-link)"
+            )
+        for kept in report["kept_reloc"][:_DISPLAY_ROWS_MAX]:
+            console.print(
+                f"  [dim]RELOC[/dim] {untrusted_ident(kept['name'])} ({kept['va']}): "
+                f"{untrusted_ident(kept['reason'])}"
+            )
+    return report
 
 
 @dataclass
@@ -2426,6 +2534,14 @@ def prepare_entries(
         except OSError:
             continue
         if fp.source_hash != cached_entry.source_hash:
+            continue
+        # A function with linked EXACT evidence is served from the cache only
+        # as EXACT over the same image; otherwise recompile so the object
+        # verdict and the evidence are rechecked together.
+        verification = getattr(entry, "verification", None) or {}
+        if verification.get("linked_image_hash") and not (
+            cached_entry.status == "EXACT" and linked_image_current(cfg, verification)
+        ):
             continue
 
         results.append(cached_entry.result_row())

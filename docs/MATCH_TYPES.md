@@ -32,7 +32,7 @@ UNDOCUMENTED  →  STUB  →  NEAR_MATCHING  →  RELOC  →  EXACT
 | `STUB` | <60% | `rebrew test` (demotion) | No |
 | `NEAR_MATCHING` | ≥60% | `rebrew test` | No matched-function credit |
 | `RELOC` | 100% (masked) | `rebrew test` | Yes |
-| `EXACT` | 100% (raw) | `rebrew test` | Yes |
+| `EXACT` | 100% (raw object, or raw linked image) | `rebrew test`; `rebrew verify --text --raw-link` (linked) | Yes |
 | `PROVEN` | Semantic (bytes differ) | `rebrew prove` | No (shown separately) |
 | `SKIP` | N/A | Metadata API (parked) | No byte-match credit |
 
@@ -142,6 +142,17 @@ Output:  53 8b 5c 24 08 56 57 8b 43 10 50 e8 f0 83 00 00
 
 Rare in practice for functions with external calls (since call offsets are
 linker-dependent). Common for leaf functions with no calls or global refs.
+
+### Linked EXACT
+
+A RELOC function also earns EXACT when its bytes in the raw link equal the
+reference bytes with no masking: the linker resolved every relocation to the
+reference value. `rebrew verify --text --raw-link` records it when the built
+image places the function at its reference VA. The linked bytes are identical,
+so it is a byte match like any other EXACT. The `verification` table carries
+`linked_image` and `linked_image_hash`; a later object compare of RELOC keeps
+EXACT only while the compile inputs and the image hash are unchanged. See
+[linked EXACT](CLI.md#rebrew-verify).
 
 ```toml
 ["SERVER.0x10008880"]

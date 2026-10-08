@@ -34,6 +34,14 @@ rebrew build check-data-placement --built build/<target>
 `rebrew verify` syncs STATUS (SKIP preserved, PROVEN replaced by the byte result).
 EXACT/RELOC clears BLOCKER unless the source still has `__asm`, `_asm`, or `__emit`
 (kept; lint W020). Exit 1 if any function fails. `passed` counts EXACT/RELOC only.
+
+After a link that is byte-identical to the reference (`cmp` equal, or
+`verify --whole-binary` match on the raw link), run
+`rebrew verify --text --raw-link --built <raw link>`: every RELOC function the
+image places at its VA with identical bytes becomes linked EXACT, and
+`text.linked.kept_reloc` names the rest with a reason. Without the raw-link
+acknowledgement it counts them and writes nothing. A rebuilt image with
+different bytes returns them to RELOC on the next verify; re-run the promotion.
 `rebrew lint` exit 1 on errors. Link-only files use `// SUPPORT: <MODULE> <reason>`.
 
 `verify --data` reports comparisons but suppresses all stored data verdict and
