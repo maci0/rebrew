@@ -3775,3 +3775,58 @@ class TestW037W038DataRows:
         message = found[0][3]
         assert "rebrew data set --type '0x00001000=char[36]'" in message
         assert "--size" not in message
+
+    def _view(self, va: int, name: str, type_: str, size: int, backing: str) -> str:
+        return self._row(va, name, type_, size, storage_kind="alias", backing=backing)
+
+    def test_tiled_allocation_is_silent(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """guild-rebrew `g_slot_table`: the row keeps the reference allocation's
+        full extent while the source splits it into a short leading definition
+        and separate definitions for its interior names and pads, each an alias
+        row backed by the allocation. Covering the extent exactly is a match."""
+        self._project(
+            tmp_path,
+            "unsigned char g_tab[2] = {0};\nshort g_field = 0;\nchar g_gap_4[12] = {0};\n"
+            "extern int g_peek;\nint g_next;\n",
+            self._row(0x1000, "g_tab", "unsigned char[16]", 16)
+            + self._view(0x1002, "g_field", "char[2]", 2, "g_tab")
+            + self._view(0x1004, "g_gap_4", "char[12]", 12, "g_tab")
+            + self._view(0x1008, "g_peek", "int", 4, "g_tab")
+            + self._row(0x1010, "g_next", "int", 4),
+        )
+        assert self._lint(tmp_path, monkeypatch) == []
+
+    def test_tiling_with_a_hole_names_it(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A missing piece leaves bytes of the allocation no definition owns."""
+        self._project(
+            tmp_path,
+            "unsigned char g_tab[2] = {0};\nchar g_gap_8[8] = {0};\n",
+            self._row(0x1000, "g_tab", "unsigned char[16]", 16)
+            + self._view(0x1008, "g_gap_8", "char[8]", 8, "g_tab"),
+        )
+        found = [w for w in self._lint(tmp_path, monkeypatch) if w[2] == "W037"]
+        assert len(found) == 1, found
+        message = found[0][3]
+        assert "tiled" in message
+        assert "[0x00001002, 0x00001008)" in message
+        assert "--size" not in message
+
+    def test_tiling_that_overruns_the_row_reports_its_extent(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._project(
+            tmp_path,
+            "unsigned char g_tab[2] = {0};\nchar g_gap_2[20] = {0};\n",
+            self._row(0x1000, "g_tab", "unsigned char[16]", 16)
+            + self._view(0x1002, "g_gap_2", "char[20]", 20, "g_tab"),
+        )
+        found = [w for w in self._lint(tmp_path, monkeypatch) if w[2] == "W037"]
+        assert len(found) == 1, found
+        message = found[0][3]
+        assert "tiled" in message
+        assert "22 bytes" in message
+        assert "rebrew data set --size 0x00001000=22" in message

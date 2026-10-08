@@ -852,7 +852,11 @@ per-function `cflags` (and matching `cflags_presets`) that only repeat the
 inherited ladder; `rebrew lint --fix` drops them.  **W037** compares each
 data row of the active target with the definition of its `name` in its owning
 `file` (an `extern` view for a `span` row) and reports a byte-size
-disagreement with the `rebrew data set --size` / `--type` fix; **W038** reports
+disagreement with the `rebrew data set --size` / `--type` fix.  A tiled
+allocation (a short leading definition plus separately defined interior names
+and pads, each an `alias` row in the same file whose `backing` names the
+allocation) is measured as the contiguous run of those definitions, and a hole
+in it is reported by address; **W038** reports
 named rows of one module whose extents overlap.  Environment/setup
 health is `rebrew doctor`'s job, not lint's.
 

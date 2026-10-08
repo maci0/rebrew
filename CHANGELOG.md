@@ -11,6 +11,14 @@
   exempt. A generator had shrunk guild-rebrew's `g_gap_10034644` to 36 bytes
   while its row still said `char[44]`, so the row ran over two newer rows and
   only `rebrew status` showed the 8 overlapping bytes.
+- W037 measures a tiled allocation: a row with the reference allocation's full
+  extent whose source is a short leading definition plus separately defined
+  interior names and pads, each an `alias` row in the same file whose `backing`
+  names the allocation. The leading definition plus the contiguous backed
+  definitions must cover the row exactly; a hole is reported by address.
+  guild-rebrew's `g_slot_table`, `g_entity_base`, `g_city_records`,
+  `g_save_info` and `g_connections` were reported although the tiling covers
+  each one.
 - Linked EXACT: `rebrew verify --text` with an acknowledged raw link
   (`--raw-link` or the configured `raw_link`) promotes a RELOC function to EXACT
   when the built image places it at its reference VA (the function row of the

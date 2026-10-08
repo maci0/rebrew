@@ -20,7 +20,7 @@ import re
 import shlex
 import threading
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -1158,6 +1158,18 @@ def _check_W037_data_definition(
     (``extern unsigned char g_span[0x7];``), and that view is the extent the
     file records.  A definition still wins when the file has one.
 
+    A tiled allocation is one reference allocation the source splits into a
+    short leading definition plus separate definitions for its interior names
+    and pads (guild-rebrew ``g_slot_table``: code needs the interior names as
+    separate symbols for byte-identical codegen).  Its row keeps the full
+    extent; each piece is an ``alias`` row whose ``backing`` names the
+    allocation and whose name is defined in the same file.  The source extent
+    is then the leading definition plus the pieces, walked in VA order while
+    each starts where the previous one ends; a backed row without a definition
+    here is a view and takes no part.  A hole before the next piece is
+    reported as such; a tiling that ends short of or past the row is compared
+    like a single definition.
+
     Skipped rather than guessed: a row or file without the name, a name with
     no definition (or span view) in the file, definitions that disagree with
     each other (``#if`` branches), and any size the x86_32 data model of
@@ -1185,43 +1197,104 @@ def _check_W037_data_definition(
     variables = find_extern_variables(text, include_definitions=True)
     defined, _declared, _uses = find_variable_roles(text)
     arch = str(getattr(cfg, "arch", "") or "x86_32")
-    for module, va, entry in rows:
-        name = str(entry["name"])
+
+    def source_extent(name: str, *, span: bool) -> tuple[str, int, int] | None:
+        """``(type, bytes, line)`` of *name*'s definition (or span view) here."""
         named = [v for v in variables if v.name == name]
         externs = [v for v in named if re.match(r"\s*extern\b", v.declaration)]
         if name in defined:
             candidates = [v for v in named if v not in externs] or externs
-        elif entry.get("storage_kind") == "span":
+        elif span:
             candidates = externs
         else:
-            continue
+            return None
         spellings = {_type_spelling(v.type_str) for v in candidates}
         if len(spellings) != 1:
-            continue
+            return None
         source_type = spellings.pop()
-        source_size = data_symbol_size({"type": source_type}, arch=arch)
-        if not source_size:
+        size = data_symbol_size({"type": source_type}, arch=arch)
+        return (source_type, size, candidates[0].line) if size else None
+
+    pieces: dict[tuple[str, str], list[tuple[int, str]]] = {}
+    for module, va, entry in rows:
+        if (
+            entry.get("storage_kind") == "alias"
+            and entry.get("backing")
+            and str(entry["name"]) in defined
+        ):
+            pieces.setdefault((module, str(entry["backing"])), []).append((va, str(entry["name"])))
+    for module, va, entry in rows:
+        name = str(entry["name"])
+        found = source_extent(name, span=entry.get("storage_kind") == "span")
+        if found is None:
             continue
+        source_type, source_size, line = found
         row_type = _type_spelling(str(entry.get("type") or ""))
         row_type_size = data_symbol_size({"type": row_type}, arch=arch) if row_type else 0
         row_size = data_symbol_size({"size": entry.get("size")}, arch=arch)
+        row_desc = f"type {row_type!r} ({row_type_size or '?'} bytes)" if row_type else "no type"
+        if row_size:
+            row_desc += f", size {row_size}"
+        where = f"data row {module}.0x{va:08x} {untrusted_ident(name)} says {row_desc}"
+        tiles = sorted(p for p in pieces.get((module, name), []) if p[0] > va)
+        if tiles:
+            source_size, hole = _tiled_extent(va + source_size, tiles, source_extent)
+            source_size -= va
+            if hole is not None and hole[0] < va + max(row_size, row_type_size):
+                result.warning(
+                    line,
+                    "W037",
+                    f"{where} but its tiled definition here leaves "
+                    f"[0x{hole[0]:08x}, 0x{hole[1]:08x}) uncovered before "
+                    f"{untrusted_ident(hole[2])}; define the missing piece and record it "
+                    "with rebrew data set --storage-kind 0xVA=alias and "
+                    f"rebrew data set --backing {shlex.quote(f'0xVA={name}')}",
+                )
+                continue
+            source_type = f"{source_type} plus {len(tiles)} backed definition(s)"
         fixes: list[str] = []
         if row_type_size and row_type_size != source_size:
-            fixes.append(f"rebrew data set --type {shlex.quote(f'0x{va:08x}={source_type}')}")
+            fixes.append(
+                f"rebrew data set --type 0x{va:08x}=TYPE ({source_size} bytes)"
+                if tiles
+                else f"rebrew data set --type {shlex.quote(f'0x{va:08x}={source_type}')}"
+            )
         if row_size and row_size != source_size:
             fixes.append(f"rebrew data set --size 0x{va:08x}={source_size}")
         if not fixes:
             continue
-        row_desc = f"type {row_type!r} ({row_type_size or '?'} bytes)" if row_type else "no type"
-        if row_size:
-            row_desc += f", size {row_size}"
+        kind = "tiled definition" if tiles else "definition" if name in defined else "span view"
         result.warning(
-            candidates[0].line,
+            line,
             "W037",
-            f"data row {module}.0x{va:08x} {untrusted_ident(name)} says {row_desc} "
-            f"but its {'definition' if name in defined else 'span view'} here is "
-            f"{source_type!r} ({source_size} bytes); fix: {' and '.join(fixes)}",
+            f"{where} but its {kind} here is {source_type!r} ({source_size} bytes); "
+            f"fix: {' and '.join(fixes)}",
         )
+
+
+def _tiled_extent(
+    end: int,
+    tiles: list[tuple[int, str]],
+    measure: Callable[..., tuple[str, int, int] | None],
+) -> tuple[int, tuple[int, int, str] | None]:
+    """End of a tiled allocation's contiguous definitions, and the first hole.
+
+    *end* is where the leading definition stops; *tiles* are the backed
+    ``(va, name)`` pieces in VA order.  A piece that starts inside the covered
+    bytes is skipped: the walk measures coverage, and ``rebrew verify --data``
+    checks where each definition lands.  A piece that starts later leaves a
+    hole ``(start, stop, next piece)``; an unmeasurable piece ends the walk.
+    """
+    for piece_va, piece_name in tiles:
+        if piece_va < end:
+            continue
+        if piece_va > end:
+            return end, (end, piece_va, piece_name)
+        piece = measure(piece_name, span=False)
+        if piece is None:
+            break
+        end += piece[1]
+    return end, None
 
 
 def _check_W038_data_row_overlap(cfg: ProjectConfig) -> list[LintResult]:
