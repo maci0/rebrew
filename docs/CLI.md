@@ -1581,11 +1581,13 @@ Merge multiple single-function `.c` files into one multi-function file. Preamble
 
 ### `rebrew source rehome`
 
-`rebrew source rehome 0xVA=PATH ... [--dry-run] [--json]`
+`rebrew source rehome 0xVA=PATH[:NAME] ... [--dry-run] [--json]`
 
 `rebrew source rehome --from OLD --to NEW [--dry-run] [--json]`
 
 Set a function row's `file` to PATH after a definition moved by hand between multi-function files. PATH must define the row's function (tree-sitter definition scan); the source text is not edited. `merge` and `split` retarget the rows they move themselves.
+
+`0xVA=PATH:NAME` binds the row to the definition NAME in PATH instead: the row's `name` becomes NAME and its `symbol` keeps its decoration around NAME (`_fcn_x@8` becomes `_NAME@8`). A client row whose code a shared file already defines joins that definition this way; its old placeholder definition is left for the caller to delete. `--json` adds `old_name` and `symbol` to such a row.
 
 `--from OLD --to NEW` follows a renamed or moved file (`git mv`): every function row and data row, in every module, whose stored `file` is OLD or a trailing part of it (the match `merge` uses) moves to NEW. OLD may already be gone. NEW must exist and define every moved function by name; data rows need only NEW to exist. Nothing is written unless every row passes. Each store takes one locked write, functions first; a failed data write leaves the function rows moved, and re-running the same command moves the rest. A path no row names is an error. `--json` prints `rows` (function rows) and `data` (data rows), each with `module`, `va`, `name`, `old_file`, `file`.
 

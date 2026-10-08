@@ -22,9 +22,9 @@ app = typer.Typer(
         "[bold]Examples:[/bold]\n\n"
         "  rebrew source rehome 0x1000ca90=src/game/command.c · Re-home one function\n\n"
         "  rebrew source rehome 0x1000ca90=a.c 0x1000cb20=a.c --dry-run\n\n"
+        "  rebrew source rehome 0x4f13a0=src/game/ahm.c:ahm_CountBusyWorkers -t TL · Join a shared definition\n\n"
         "  rebrew source rehome --from src/a/x.c --to src/b/y.c · After git mv\n\n"
-        "[dim]The destination must define each moved function; the definition text "
-        "is not moved.[/dim]"
+        "[dim]The destination must define each moved function (or NAME after a colon, which also renames the row); the definition text is not moved.[/dim]"
     ),
 )
 
@@ -70,14 +70,31 @@ def _rows_naming(
     )
 
 
+def _split_bind(value: str) -> tuple[str, str | None]:
+    """``PATH:NAME`` -> (PATH, NAME); a plain ``PATH`` binds no new name."""
+    from rebrew.utils import is_safe_c_ident
+
+    path, sep, name = value.rpartition(":")
+    if sep and path and is_safe_c_ident(name):
+        return path, name
+    return value, None
+
+
 def rehome_functions(cfg: Any, specs: list[str], *, dry_run: bool = False) -> list[dict[str, Any]]:
-    """Set each ``0xVA=PATH`` function row's ``file`` to PATH after checking PATH defines it."""
+    """Set each ``0xVA=PATH`` function row's ``file`` to PATH after checking PATH defines it.
+
+    ``0xVA=PATH:NAME`` binds the row to the definition NAME in PATH instead of
+    its current name: the row's ``name`` becomes NAME and its ``symbol`` keeps
+    its decoration around NAME. This is how a second module's row joins an
+    existing shared definition.
+    """
     from rebrew.metadata import (
         get_entry,
         identity_file,
         record_migrated_markers,
         validate_identity_file,
     )
+    from rebrew.rename_ops import redecorated_symbol
     from rebrew.sources import target_marker
 
     module = target_marker(cfg) or ""
@@ -88,31 +105,42 @@ def rehome_functions(cfg: Any, specs: list[str], *, dry_run: bool = False) -> li
         va_s, sep, value = spec.partition("=")
         value = value.strip()
         if not sep or not value:
-            raise ValueError(f"rehome wants 0xVA=PATH, got {spec!r}")
+            raise ValueError(f"rehome wants 0xVA=PATH or 0xVA=PATH:NAME, got {spec!r}")
         va = int(va_s, 16)
         entry = get_entry(cfg.metadata_dir, va, module)
-        name = _row_name(entry)
-        if not name:
+        old_name = _row_name(entry)
+        if not old_name:
             raise ValueError(f"no function row at {module}.0x{va:x}")
+        value, bind = _split_bind(value)
+        name = bind or old_name
         path = _source(cfg, value)
         if name not in _defined_names(path):
             raise ValueError(f"{value} does not define {name}")
         identity = validate_identity_file(identity_file(path, cfg.metadata_dir))
-        rows.append(
-            {
-                "va": f"0x{va:x}",
-                "name": name,
-                "old_file": str(entry.get("file") or ""),
-                "file": identity,
-            }
-        )
+        row: dict[str, Any] = {
+            "va": f"0x{va:x}",
+            "name": name,
+            "old_file": str(entry.get("file") or ""),
+            "file": identity,
+        }
+        if bind is not None and bind != old_name:
+            old_symbol = str(entry.get("symbol") or f"_{old_name}")
+            row["old_name"] = old_name
+            row["symbol"] = redecorated_symbol(old_symbol, bind)
+        rows.append(row)
     if not dry_run:
         record_migrated_markers(
             cfg.metadata_dir,
             [
-                {"module": module, "va": int(r["va"], 16), "identity": {"file": r["file"]}}
+                {
+                    "module": module,
+                    "va": int(r["va"], 16),
+                    "identity": {"file": r["file"]}
+                    | ({"name": r["name"], "symbol": r["symbol"]} if "symbol" in r else {}),
+                }
                 for r in rows
             ],
+            overwrite_name=True,
             updated_by="rehome",
         )
     return rows
@@ -188,7 +216,9 @@ def retarget_file(
 @app.callback(invoke_without_command=True)
 def main(
     specs: list[str] | None = typer.Argument(
-        None, metavar="0xVA=PATH", help="Function VA and its new file"
+        None,
+        metavar="0xVA=PATH[:NAME]",
+        help="Function VA and its new file; :NAME binds the row to that definition",
     ),
     from_file: str | None = typer.Option(
         None, "--from", help="Old source path: retarget every row naming it"

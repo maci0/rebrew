@@ -51,6 +51,27 @@ def test_rejects_file_without_definition(tmp_path: Path) -> None:
         rehome_functions(cfg, ["0x1000=src/c.c"])
 
 
+def test_binds_row_to_named_definition(tmp_path: Path) -> None:
+    """``PATH:NAME`` joins an existing definition: file, name and decorated symbol change."""
+    cfg = _cfg(tmp_path)
+    meta = tmp_path / "rebrew-functions.toml"
+    meta.write_text(
+        '["SERVER.0x1000"]\nname = "fcn_00001000"\nsymbol = "_fcn_00001000@8"\n'
+        'file = "src/a.c"\nmarker_type = "FUNCTION"\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "src" / "shared.c").write_text(
+        "int __stdcall gm_Shared(int a, int b)\n{\n\treturn a + b;\n}\n", encoding="utf-8"
+    )
+    rows = rehome_functions(cfg, ["0x1000=src/shared.c:gm_Shared"])
+    assert rows[0]["old_name"] == "fcn_00001000"
+    row = tomllib.loads(meta.read_text(encoding="utf-8"))["SERVER.0x1000"]
+    assert (row["name"], row["symbol"]) == ("gm_Shared", "_gm_Shared@8")
+    assert row["file"].endswith("shared.c")
+    with pytest.raises(ValueError, match="does not define gm_Other"):
+        rehome_functions(cfg, ["0x1000=src/shared.c:gm_Other"])
+
+
 def test_rejects_unknown_row(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
     (tmp_path / "src" / "b.c").write_text("int f(void)\n{\n\treturn 0;\n}\n", encoding="utf-8")

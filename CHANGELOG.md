@@ -116,6 +116,9 @@
   sort, hint/name table, `.reloc` reservation and Rich header record functions
   that `/OPT:REF` dropped, and how to reconstruct them from sibling binaries
   built from the same sources.
+- `rebrew source rehome 0xVA=PATH:NAME` binds a row to the existing definition
+  NAME in PATH: the row takes NAME and keeps its symbol decoration. A client
+  row joins a shared definition this way; no command could bind it before.
 
 ### Changed
 - **Breaking:** `lib_match.stock_lib_source` is now `lib_match.stock_lib_dir`
