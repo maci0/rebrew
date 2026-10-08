@@ -1272,6 +1272,13 @@ def import_state(
         func_comments = comments_by_func[owner_va]
         owner = local_by_va.get(owner_va)
         owner_mod = _entry_module(cfg, owner)
+        local_comments = before_sync.get(_record_key(before_sync, "function", owner_va), {}).get(
+            "comments"
+        )
+        if normalize_sync_value("comments", func_comments) == normalize_sync_value(
+            "comments", local_comments
+        ):
+            continue  # already stored and marked: a repeated pull writes nothing
         if not owner_mod:
             log.warning("skipping comments for VA 0x%x: no module marker", owner_va)
             skipped += 1

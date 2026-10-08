@@ -1190,3 +1190,32 @@ class TestStructLayouts:
         assert self._members(outdir, "Ent") == {0: ("id", "int")}
         assert "1 struct name(s) have more than one differing definition" in caplog.text
         assert ": Ent" in caplog.text
+
+
+class TestExportIdentityWarnings:
+    def test_prose_name_and_duplicate_identity_are_reported(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import json
+
+        _make_project(
+            tmp_path,
+            {
+                "a.c": "// FUNCTION: SERVER 0x10001000\n// SIZE: 4\nint foo(void) { return 1; }\n",
+                "b.c": "// FUNCTION: SERVER 0x10001000\n// SIZE: 4\nint foo2(void) { return 2; }\n",
+                "lib.c": "/* identified by its archive bytes */\n",
+            },
+        )
+        # A library row whose name is the header's prose, as an identification
+        # tool recorded it.
+        (tmp_path / "rebrew-functions.toml").write_text(
+            '["SERVER.0x10002000"]\nfile = "lib.c"\nmarker_type = "LIBRARY"\n'
+            'name = "(static, no archive symbol)"\nsize = 4\n',
+            encoding="utf-8",
+        )
+        result, outdir = _invoke(tmp_path, monkeypatch, "--json")
+        assert result.exit_code == 0, result.output
+        warnings = json.loads(result.stdout)["warnings"]
+        assert any("0x10001000 has two identities (a.c, b.c)" in w for w in warnings), warnings
+        assert any("is not a C identifier; exported as func_10002000" in w for w in warnings)
+        assert _load_func(outdir / "functions" / "10002000.toml").name == "func_10002000"

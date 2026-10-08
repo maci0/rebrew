@@ -52,7 +52,7 @@ from rebrew.binsync.state import (
 from rebrew.catalog import scan_reversed_dir
 from rebrew.cli import TargetOption, console, error_exit, json_print, require_config, run_standalone
 from rebrew.config import ProjectConfig, inventory_path_for
-from rebrew.utils import md5_file, strip_body
+from rebrew.utils import is_safe_c_ident, md5_file, strip_body
 
 app = typer.Typer(
     help="Export rebrew annotations to a BinSync state directory.",
@@ -532,9 +532,18 @@ def export_state(
     written_funcs: list[str] = []
     comment_artifacts: list[tuple[int, int, str]] = []
     metadata_comments: dict[int, tuple[int, str]] = {}
+    identity_warnings: list[str] = []
+    exported_from: dict[int, str] = {}
     for entry in all_func_entries:
         va = entry.va  # type: ignore[attr-defined]
         name = getattr(entry, "symbol", "") or getattr(entry, "name", "") or f"func_{va:08x}"
+        origin_file = str(getattr(entry, "filepath", "") or "catalog")
+        if va in exported_from:
+            identity_warnings.append(
+                f"0x{va:08x} has two identities ({exported_from[va]}, {origin_file}); "
+                "the later one is exported"
+            )
+        exported_from[va] = origin_file
 
         key = next(
             k for k in local_records if k.startswith("function.") and k.endswith(f".0x{va:x}")
@@ -543,6 +552,15 @@ def export_state(
         if fields is None:
             continue  # remote removal needs explicit resolution; do not resurrect it
         name = fields.get("name", name)
+        if not is_safe_c_ident(name):
+            # A catalog label (``fcn.<va>``) is a placeholder by design; a row's
+            # prose name (a library-header comment line) is a finding.
+            if not isinstance(entry, _CatalogFunction):
+                identity_warnings.append(
+                    f"0x{va:08x} name {name!r} ({origin_file}) is not a C identifier; "
+                    f"exported as func_{va:08x}"
+                )
+            name = f"func_{va:08x}"
         func_path = outdir / "functions" / f"{va:08x}.toml"
         if not dry_run:
             _write_function_toml(
@@ -687,11 +705,11 @@ def export_state(
             )
 
     # Validation warnings (non-fatal)
-    warnings_list: list[str] = []
+    warnings_list: list[str] = list(identity_warnings)
     if not dry_run:
-        warnings_list = _validate_binsync_dir(outdir)
-        for w in warnings_list:
-            console.print(f"[yellow]warning:[/yellow] {w}")
+        warnings_list += _validate_binsync_dir(outdir)
+    for w in warnings_list:
+        console.print(f"[yellow]warning:[/yellow] {w}", markup=False)
 
     # Freshness manifest BEFORE git so an unchanged re-export leaves a clean
     # tree (no post-commit timestamp dirt that the next --git would commit).
