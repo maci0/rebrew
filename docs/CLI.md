@@ -532,6 +532,8 @@ remaining gap instead of "no action items":
 - `exact-only`: a `RELOC` function: identical only after relocation masking,
   so the compiler/linker output on its own is not identical. Closing it means
   `EXACT`; the command is the no-masking oracle, `rebrew test <VA> --linked`.
+  When the whole raw link is already byte-identical, `rebrew verify --text
+  --raw-link` records those functions as linked EXACT in one run.
 - `postlink-mangled`: a function whose bytes in `build/<target>` differ from
   the pre-postlink `raw_link` image, i.e. a `rebrew build postlink` fixer supplied
   them. Only detected when the target configures `raw_link`.
@@ -588,7 +590,7 @@ graph TD
     Fail --> Report
     Report -->|--data| Data[byte-compare built<br/>.data/.rdata per symbol]
     Data --> Text{--text?}
-    Text -->|yes| TA[check .text placement<br/>vs markers]
+    Text -->|yes| TA[check .text placement<br/>vs markers; RELOC with identical<br/>raw-link bytes → EXACT]
     Text -->|no| Whole{--whole-binary?}
     TA --> Whole
     Whole -->|yes| WB[+ exports/imports/resources<br/>sections/header freshness]
@@ -614,8 +616,8 @@ graph TD
 | `--prune-orphans` | Delete metadata blocks whose VA has no source marker before verifying (same scan as `rebrew orphans prune`; EXACT/RELOC/PROVEN blocks held back) |
 | `--data` | Byte-compare built `.data`/`.rdata` against the reference, per metadata symbol with first-diff attribution; verdicts persist as data STATUS (`VERIFIED`/`DRIFT`/`UNCHECKED`) and surface in `status` + `todo data-drift` |
 | `--built PATH` | Built binary for `--data` / `--text` / `--whole-binary` comparison (default `build/<target>`) |
-| `--raw-link` | Ack that `--built` is the raw link, not a postlinked deliverable. Without it (or configured `raw_link`), `--data` reports comparisons but suppresses all stored data verdict/evidence writes; existing verdicts remain unchanged |
-| `--text` | Check built `.text` function placement against each function's annotated VA (the `MODULE.0xVA` row, or an unmigrated `// FUNCTION:` line) via `text-audit`; exit 1 on any misplaced function |
+| `--raw-link` | Ack that `--built` is the raw link, not a postlinked deliverable. Without it (or configured `raw_link`), `--data` reports comparisons but suppresses all stored data verdict/evidence writes, and `--text` reports linked-identical functions but promotes none; existing verdicts remain unchanged |
+| `--text` | Check built `.text` function placement against each function's annotated VA (the `MODULE.0xVA` row, or an unmigrated `// FUNCTION:` line) via `text-audit`; exit 1 on any misplaced function. Then compare each RELOC function placed at its VA: when the built image's bytes `[va, va+size)` equal the reference's with no masking, and the raw link is acknowledged, STATUS becomes EXACT (linked EXACT, see below) |
 | `--whole-binary` | Compare built binary against the reference: whole-file raw bytes, section sizes, exports, imports, PE base relocations, `.rsrc` bytes, headers, plus layout-freshness check |
 | `--context FILE` | Compile every source with these declarations merged ahead of it under `#line` directives (see `rebrew test --context`); each result and the report carry `context_hash`. Each entry records the context digest it was earned under, so a cached verdict is served only to a run pinned to the exact same context (a changed or absent digest re-verifies); context runs write back like bare runs |
 | `--dir TEXT` | Restrict to this subdirectory: project-relative first (`src/shared` scopes the shared tree), then relative to reversed_dir |
@@ -664,7 +666,9 @@ not missing functions, and reads as such in the human line.
 `mismatched`/`missing` lists with first-diff offsets); `--text` adds a `text`
 block (same shape as `text-audit`: `functions`/`found`/`correct`/`misplaced`/
 `missing` counts plus the `misplaced_list` rows, exit 1 on any misplaced
-function); `--whole-binary` adds
+function, and a `linked` block: `image`, `image_hash`, `candidates` (RELOC rows),
+`identical`, `promoted`, `kept_reloc` rows with the reason each stayed RELOC, and
+`raw_link_status_suppressed` without the raw-link acknowledgement); `--whole-binary` adds
 a `whole_binary` block (per-area verdicts for `file` (whole-file raw bytes, with
 the first differing file offset), sections, exports, imports, `relocations` (PE
 base fixups by RVA and type, with the block/directory/section byte layout),
@@ -689,6 +693,30 @@ timestamp. PROVEN is not protected: verify records the byte result over it
 like over any other status.  Only parked SKIP is never overwritten, and a
 STUB is not replaced by a placeholder SIZE_MISMATCH/MISSING_SIZE.  `passed`
 counts byte-matched (EXACT/RELOC) functions only.
+
+**Linked EXACT.** The object compare masks relocation slots, so a function with
+a relocation is RELOC there. The raw link resolves them. `rebrew verify --text`
+with an acknowledged raw link (`--raw-link`, or the configured `raw_link`)
+promotes a RELOC function to EXACT when the built image places it at its
+reference VA and its linked bytes `[va, va+size)` equal the reference bytes,
+with no masking. A linked EXACT means the linked bytes are identical; it is a
+byte match, not an inference. Functions whose source is newer than the built
+image stay RELOC (rebuild first). `--dry-run` and `--no-promote` write nothing.
+
+The promotion records the usual comparison inputs plus `linked_image` (path,
+project-relative when inside the root) and `linked_image_hash` (SHA-256 of the
+whole image) in the function's `verification` table. A later `rebrew verify` or
+`rebrew test` whose object compare is RELOC keeps EXACT while that evidence still
+holds: the same source, header, compiler, flags, defines, context and reference
+inputs, and an image at `linked_image` that still hashes to `linked_image_hash`.
+Any other object verdict (NEAR_MATCHING, STUB, ...) is recorded as usual, and a
+changed input or a rebuilt image with different bytes records RELOC until the
+next `verify --text --raw-link`. A cached verdict is served for such a function
+only while the image hash still matches.
+
+```sh
+rebrew verify --text --raw-link --built build/<target>
+```
 
 Output prefixes for unambiguous parsing:
 

@@ -161,6 +161,9 @@ class TestVerifyText:
         result = CliRunner().invoke(app, ["--text", "--json"])
         assert result.exit_code == 0  # missing is reported, not gated
         text = json.loads(result.output)["text"]
+        # The linked-EXACT block rides along; with no RELOC rows it promotes nothing.
+        linked = text.pop("linked")
+        assert (linked["candidates"], linked["promoted"]) == (0, 0)
         assert text == {
             "functions": 2,
             "found": 1,

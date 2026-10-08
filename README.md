@@ -72,6 +72,8 @@ rebrew coverage build                          # refresh the coverage dashboard'
 
 Check library attribution before implementing a function. `test` and `verify`
 earn byte verdicts, including regressions. EXACT and RELOC count as matched;
+a RELOC function whose bytes in the raw link equal the reference becomes EXACT
+through `rebrew verify --text --raw-link` (linked EXACT);
 PROVEN records semantic evidence under the proof's assumptions and earns no
 byte-match credit. See [match types](https://github.com/maci0/rebrew/blob/main/docs/MATCH_TYPES.md).
 

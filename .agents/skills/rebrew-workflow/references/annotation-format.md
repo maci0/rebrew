@@ -80,6 +80,12 @@ even when not present inline.
 STUB -> NEAR_MATCHING -> RELOC -> EXACT
            \-> PROVEN (via rebrew prove)
 
+A RELOC function also becomes EXACT (linked EXACT) when its bytes in the raw
+link equal the reference with no masking: `rebrew verify --text --raw-link`
+records it with the image path and hash in `verification`. It stays EXACT while
+the compile inputs and image hash are unchanged; otherwise the object verdict
+(RELOC or worse) is recorded.
+
 Byte verdicts come from `rebrew test` / `rebrew verify`, including regressions.
 PROVEN records bounded semantic evidence, earns no matched bytes, and the next
 byte verdict replaces it. Never edit STATUS by hand.

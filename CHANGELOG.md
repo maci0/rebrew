@@ -1,6 +1,17 @@
 ## [Unreleased]
 
 ### Added
+- Linked EXACT: `rebrew verify --text` with an acknowledged raw link
+  (`--raw-link` or the configured `raw_link`) promotes a RELOC function to EXACT
+  when the built image places it at its reference VA and its bytes there equal
+  the reference bytes with no masking. The function's `verification` table
+  records `linked_image` and `linked_image_hash` beside the comparison inputs. A
+  later `rebrew verify` / `rebrew test` object compare of RELOC keeps EXACT while
+  those inputs and the image hash are unchanged; any other verdict, an input
+  change, or a rebuilt image with different bytes records the object verdict.
+  Without the acknowledgement the `text.linked` report block counts the
+  identical functions and writes nothing. A function whose source is newer than
+  the built image stays RELOC.
 - `rebrew init --refresh-agents` keeps a project's own rules in `AGENTS.md`:
   everything from the line `<!-- rebrew: project rules below, kept by
   --refresh-agents -->` to the end of the file is kept verbatim below the

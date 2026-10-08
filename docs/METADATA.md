@@ -108,7 +108,9 @@ supplies its own tag.
 `UPDATED_BY/AT` remains the last ordinary row change. `verification` separately
 records the comparison `status`, `writer` (`test` or `verify`), `input_hash`
 (SHA256), and `measured_at`, plus available source/reference/header/compiler
-fingerprints. Function evidence is captured before compilation. Data evidence
+fingerprints. Function evidence is captured before compilation. A linked EXACT
+(`rebrew verify --text --raw-link`) adds `linked_image` and `linked_image_hash`, the
+raw link it was measured on; see [linked EXACT](CLI.md#rebrew-verify). Data evidence
 includes the definition and compared bytes. Repeating the same evidence preserves
 its time and does not replace a note editor's stamp; a changed input digest is
 recorded even if the verdict stays the same. `measured_at` is the first observation
