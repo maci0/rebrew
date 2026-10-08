@@ -90,6 +90,7 @@ from rebrew.metadata_doc import (
     metadata_write_lock,
     parse_metadata_key,
     pop_metadata_doc_cache,
+    qualified_key,
     resolve_metadata_key,
 )
 from rebrew.utils import atomic_write_locked, load_toml_for_write
@@ -292,6 +293,7 @@ __all__ = [
     "iter_data_symbols",
     "get_data_entry",
     "delete_data_entries_batch",
+    "move_data_entry",
     "module_visible_to_target",
     "set_data_field",
     "set_data_fields_batch",
@@ -701,6 +703,91 @@ def delete_data_entries_batch(directory: Path | str | Any, targets: list[tuple[s
             atomic_write_locked(path, tomlkit.dumps(doc))
             _invalidate_data_cache(path)
     return removed
+
+
+def move_data_entry(
+    directory: Path | str | Any,
+    module: str,
+    old_va: int,
+    new_va: int,
+    *,
+    dry_run: bool = False,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Re-address the ``(module, old_va)`` row to *new_va* in one locked rewrite.
+
+    Every field moves with the row except ``status``: a verdict compared the
+    reference bytes at the old address, so it is dropped and the next
+    ``rebrew verify --data`` measures the new one.  The ``verification``
+    table stays as the record of that last measurement; its
+    ``definition_hash`` names the old VA, so a reader comparing it with the
+    row sees it is stale.  The move stamps ``updated_by = "data"``.
+
+    Raises :class:`ValueError` when the VAs are equal, no row is at
+    *old_va*, a row already holds *new_va*, or the row's ``file`` still
+    carries an inline marker for *old_va* (moving only the row would leave
+    that marker naming the old address; ``rebrew source migrate-markers``
+    moves it into the store first).  Returns the move as
+    ``{module, from, to, name, status_was}``; *dry_run* checks without writing.
+    """
+    from rebrew.annotation import block_markers
+
+    module = unicodedata.normalize("NFC", module)
+    if not module:
+        raise ValueError("data metadata writes require a non-empty module")
+    if old_va == new_va:
+        raise ValueError(f"0x{old_va:x} and 0x{new_va:x} are the same address")
+    if new_va < 0:
+        raise ValueError(f"VA must be non-negative, got {new_va:#x}")
+    dir_path = resolve_metadata_dir(directory)
+    path = dir_path / DATA_METADATA_FILENAME
+    with metadata_write_lock(dir_path, DATA_METADATA_FILENAME):
+        doc = load_toml_for_write(path, "data metadata")
+        index = build_metadata_key_index(doc)
+        old_key = index.get((module, old_va))
+        if old_key is None or old_key not in doc:
+            raise ValueError(f"no data row at {module}.0x{old_va:x}")
+        new_key = index.get((module, new_va))
+        if new_key is not None and new_key in doc:
+            raise ValueError(f"{new_key} already holds a data row")
+        entry = doc[old_key]
+        if not isinstance(entry, dict):
+            raise ValueError(f"data metadata entry {old_key!r} is not a table")
+        source = dir_path / str(entry.get("file") or "")
+        if (
+            entry.get("file")
+            and source.is_file()
+            and (module, old_va)
+            in block_markers(source.read_text(encoding="utf-8", errors="replace"))
+        ):
+            raise ValueError(
+                f"{entry['file']} still marks {module} 0x{old_va:x} inline; run "
+                "rebrew source migrate-markers before moving the row"
+            )
+        moved = {
+            "module": module,
+            "from": f"0x{old_va:x}",
+            "to": f"0x{new_va:x}",
+            "name": entry.get("name"),
+            "status_was": entry.get("status"),
+        }
+        if dry_run:
+            return moved
+        fields = entry.unwrap() if hasattr(entry, "unwrap") else dict(entry)
+        fields.pop("status", None)
+        del doc[old_key]
+        table = tomlkit.table()
+        for key in _CANONICAL_ORDER:
+            if key in fields:
+                table[key] = fields.pop(key)
+        for key, value in fields.items():
+            table[key] = value
+        stamp_provenance(table, "data", now=now)
+        doc[qualified_key(module, new_va)] = table
+        stamp_format(doc)
+        atomic_write_locked(path, tomlkit.dumps(doc))
+        _invalidate_data_cache(path)
+    return moved
 
 
 def record_migrated_data_markers(

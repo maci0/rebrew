@@ -19,6 +19,14 @@
   guild-rebrew's `g_slot_table`, `g_entity_base`, `g_city_records`,
   `g_save_info` and `g_connections` were reported although the tiling covers
   each one.
+- `rebrew data move 0xOLD 0xNEW` re-addresses one data row in one locked write.
+  Every field moves, including its `verification` record; its `status` is
+  dropped. An occupied target address, a missing row, and a row whose source
+  still marks the old VA inline are refused. Moving a span took
+  `rebrew orphans drop` plus six `data set` calls and lost the record.
+- `rebrew data set --marker-type 0xVA=GLOBAL|DATA|VTABLE|STRING` and
+  `--note 0xVA=TEXT`. Both keep the stored verdict. A row `data set` created
+  had no way to get either without editing the store.
 - Linked EXACT: `rebrew verify --text` with an acknowledged raw link
   (`--raw-link` or the configured `raw_link`) promotes a RELOC function to EXACT
   when the built image places it at its reference VA (the function row of the

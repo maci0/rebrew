@@ -135,7 +135,7 @@ note        = "lookup table for sprite indices"
 | `note` | Local analysis description; native BinSync globals do not carry notes |
 | `status` | Data verdict written by `rebrew verify --data`: `VERIFIED` (built bytes match), `DRIFT` (differ), `UNCHECKED` (not compared); counted in `rebrew status` and `rebrew todo --category data-drift` |
 
-`rebrew data set` clears the previous verdict when `name`, `type`, `size`, or `section` changes: re-run verification after editing a definition. Notes and unchanged values preserve it. `rebrew source migrate-markers` fills a missing name, type, size, section, or note and leaves the verdict in place. `origins` and `verification` are nested tables for external source
+`rebrew data set` clears the previous verdict when `name`, `type`, `size`, or `section` changes: re-run verification after editing a definition. Notes (`--note`), `--marker-type`, and unchanged values preserve it. A row `data set` creates has no `marker_type` and reads as `DATA`. `rebrew data move 0xOLD 0xNEW` re-addresses a row with all its fields, drops its verdict, keeps its `verification` record, and refuses an occupied address. `rebrew source migrate-markers` fills a missing name, type, size, section, or note and leaves the verdict in place. `origins` and `verification` are nested tables for external source
 facts and comparison evidence; ordinary edit stamps remain separate. Writers
 store `size` as a non-negative integer and descriptive fields as strings; lint W031 uses the same validation. Duplicate spellings
 of one `(module, VA)` count once; W031 reports them and granular writers
