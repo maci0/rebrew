@@ -805,7 +805,7 @@ Project-specific linting rules can be configured in `rebrew-project.toml` under 
 - `indent_style`: "spaces", "tabs", or "none" (default)
 - `max_line_length`: integer (default: 200)
 
-See [ANNOTATIONS.md](ANNOTATIONS.md) for the full linter code reference (10 E-codes, 26 W-codes; unassigned numbers in the ranges are reserved, not emitted).
+See [ANNOTATIONS.md](ANNOTATIONS.md) for the full linter code reference (10 E-codes, 28 W-codes; unassigned numbers in the ranges are reserved, not emitted).
 
 `rebrew lint` is the source-corpus checker: in addition to markers and
 metadata it cross-references every FUNCTION/STUB annotation (a `MODULE.0xVA`
@@ -818,7 +818,11 @@ so import stubs and data labels never false-positive).  A byte-matched
 at an annotated function that ends at or before it: discovery merged the
 two, and the annotations tile the span.  **W029** flags
 per-function `cflags` (and matching `cflags_presets`) that only repeat the
-inherited ladder; `rebrew lint --fix` drops them.  Environment/setup
+inherited ladder; `rebrew lint --fix` drops them.  **W037** compares each
+data row of the active target with the definition of its `name` in its owning
+`file` (an `extern` view for a `span` row) and reports a byte-size
+disagreement with the `rebrew data set --size` / `--type` fix; **W038** reports
+named rows of one module whose extents overlap.  Environment/setup
 health is `rebrew doctor`'s job, not lint's.
 
 ### `rebrew blocker`
@@ -3316,7 +3320,7 @@ See [CI.md](CI.md) for workspace CI recipes (`verify --compare`,
 | Module | Purpose |
 |--------|---------|
 | `annotation.py` | Canonical annotation parser (`parse_c_file_multi`, `parse_c_file_text`) |
-| `lint.py` | Source marker linter (10 E-codes, 26 W-codes); `--fix` migrates leftover inline metadata and drops W029-redundant cflags; W005 points to `rebrew blocker set` for STUB BLOCKERs |
+| `lint.py` | Source marker linter (10 E-codes, 28 W-codes); `--fix` migrates leftover inline metadata and drops W029-redundant cflags; W005 points to `rebrew blocker set` for STUB BLOCKERs |
 | `blocker.py` | Programmatic BLOCKER writer: `rebrew blocker set/clear/show` (`--json`, `--dry-run`, `--delta`, `--va`); every write via `rebrew.metadata` (never hand-edit `rebrew-functions.toml`) |
 | `ghidra/cli.py` | Sync annotations to Ghidra via ReVa MCP; skips generic `func_` labels by default |
 

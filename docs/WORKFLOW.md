@@ -413,7 +413,7 @@ input. See
 | [CODEGEN_PATTERNS.md](CODEGEN_PATTERNS.md) | MSVC6 codegen patterns, SEH helpers, matching idioms |
 | [ONBOARDING.md](ONBOARDING.md) | Adding a new binary (incl. manual discovery without `intake`) |
 | [MATCH_TYPES.md](MATCH_TYPES.md) | EXACT / RELOC / NEAR_MATCHING explained with byte-level examples |
-| [ANNOTATIONS.md](ANNOTATIONS.md) | Full marker format reference and linter codes (E000–E023, W003–W036) |
+| [ANNOTATIONS.md](ANNOTATIONS.md) | Full marker format reference and linter codes (E000–E023, W003–W038) |
 | [BINSYNC_INTEGRATION.md](BINSYNC_INTEGRATION.md) | BinSync bridge + `rebrew sync push` feature matrix and known issues |
 | [FLIRT_SIGNATURES.md](FLIRT_SIGNATURES.md) | Obtaining, creating, and using FLIRT signatures |
 | [CLI.md](CLI.md) | All CLI commands, flags, and examples |

@@ -17,6 +17,7 @@ import bisect
 import contextlib
 import logging
 import re
+import shlex
 import threading
 from collections import Counter
 from collections.abc import Sequence
@@ -1131,6 +1132,146 @@ def _check_W036_stray_metadata_store(cfg: ProjectConfig) -> list[LintResult]:
         )
         results.append(res)
     return results
+
+
+def _type_spelling(text: str) -> str:
+    """*text* with whitespace collapsed and dropped beside punctuation."""
+    return re.sub(r"\s*([^\w\s])\s*", r"\1", " ".join(text.split()))
+
+
+def _check_W037_data_definition(
+    result: LintResult, text: str, filepath: Path, cfg: ProjectConfig
+) -> None:
+    """W037: a data row's ``type`` / ``size`` disagree with its owning source.
+
+    For every ``rebrew-data.toml`` row whose ``file`` names *filepath* and
+    whose module belongs to the active target, find the file-scope definition
+    of the row's ``name`` and compare its byte size with the extent of the
+    row.  A row's ``size`` drives layout, verification and accounting, so a
+    stale one silently claims bytes its symbol no longer owns (guild-rebrew
+    ``g_gap_10034644``: the row said ``char[44]`` after a generator shrank the
+    definition to 36 bytes, and the stale extent overlapped two globals).
+
+    ``extern`` declarations are users, not the definition, and are ignored,
+    except for ``storage_kind = "span"`` rows: a layout span has no standalone
+    owner, so its owning file may hold only an ``extern`` inventory view
+    (``extern unsigned char g_span[0x7];``), and that view is the extent the
+    file records.  A definition still wins when the file has one.
+
+    Skipped rather than guessed: a row or file without the name, a name with
+    no definition (or span view) in the file, definitions that disagree with
+    each other (``#if`` branches), and any size the x86_32 data model of
+    :func:`rebrew.data_layout.data_symbol_size` cannot compute (struct, union
+    and unknown typedef types, unsized arrays, other architectures).  Only
+    byte sizes are compared, the row's ``size`` and its ``type``'s extent each
+    against the source's: a spelling difference with equal size (``[0x104]``
+    against ``[260]``, a typedef against its expansion) is not reported.
+    """
+    from rebrew.c_parser import find_extern_variables, find_variable_roles
+    from rebrew.data_layout import data_symbol_size
+    from rebrew.data_metadata import data_rows_for_path, module_visible_to_target
+
+    try:
+        rows = data_rows_for_path(cfg.metadata_dir, filepath)
+    except (OSError, ValueError):
+        return  # W031 reports an unreadable store.
+    rows = [
+        (module, va, entry)
+        for module, va, entry in rows
+        if entry.get("name") and module_visible_to_target(module, cfg)
+    ]
+    if not rows:
+        return
+    variables = find_extern_variables(text, include_definitions=True)
+    defined, _declared, _uses = find_variable_roles(text)
+    arch = str(getattr(cfg, "arch", "") or "x86_32")
+    for module, va, entry in rows:
+        name = str(entry["name"])
+        named = [v for v in variables if v.name == name]
+        externs = [v for v in named if re.match(r"\s*extern\b", v.declaration)]
+        if name in defined:
+            candidates = [v for v in named if v not in externs] or externs
+        elif entry.get("storage_kind") == "span":
+            candidates = externs
+        else:
+            continue
+        spellings = {_type_spelling(v.type_str) for v in candidates}
+        if len(spellings) != 1:
+            continue
+        source_type = spellings.pop()
+        source_size = data_symbol_size({"type": source_type}, arch=arch)
+        if not source_size:
+            continue
+        row_type = _type_spelling(str(entry.get("type") or ""))
+        row_type_size = data_symbol_size({"type": row_type}, arch=arch) if row_type else 0
+        row_size = data_symbol_size({"size": entry.get("size")}, arch=arch)
+        fixes: list[str] = []
+        if row_type_size and row_type_size != source_size:
+            fixes.append(f"rebrew data set --type {shlex.quote(f'0x{va:08x}={source_type}')}")
+        if row_size and row_size != source_size:
+            fixes.append(f"rebrew data set --size 0x{va:08x}={source_size}")
+        if not fixes:
+            continue
+        row_desc = f"type {row_type!r} ({row_type_size or '?'} bytes)" if row_type else "no type"
+        if row_size:
+            row_desc += f", size {row_size}"
+        result.warning(
+            candidates[0].line,
+            "W037",
+            f"data row {module}.0x{va:08x} {untrusted_ident(name)} says {row_desc} "
+            f"but its {'definition' if name in defined else 'span view'} here is "
+            f"{source_type!r} ({source_size} bytes); fix: {' and '.join(fixes)}",
+        )
+
+
+def _check_W038_data_row_overlap(cfg: ProjectConfig) -> list[LintResult]:
+    """W038: two named ``rebrew-data.toml`` rows of one module overlap.
+
+    Each row's extent is ``[va, va + size)`` with the size from
+    :func:`rebrew.data_layout.data_symbol_size` (explicit ``size``, else a
+    computable ``type``); a row with no computable extent is skipped.  An
+    ``alias`` row with a ``backing`` is a view inside another allocation and
+    is excluded.  Two storage owners cannot share a byte, so an overlap is a
+    stale extent (W037 usually names which row) or a view not yet recorded
+    as one; ``rebrew status`` otherwise reports only the byte count it had to
+    discount.  Rows touching end-to-start do not overlap.
+    """
+    from rebrew.data_layout import data_symbol_size
+    from rebrew.data_metadata import DATA_METADATA_FILENAME
+
+    arch = str(getattr(cfg, "arch", "") or "x86_32")
+    by_module: dict[str, list[tuple[int, int, str]]] = {}
+    for (module, va), entry in load_data_metadata(cfg.metadata_dir).items():
+        name = str(entry.get("name") or "")
+        if not name:
+            continue
+        if entry.get("storage_kind") == "alias" and entry.get("backing"):
+            continue
+        size = data_symbol_size(entry, arch=arch)
+        if size > 0:
+            by_module.setdefault(str(module), []).append((va, va + size, name))
+    problems: list[str] = []
+    for module, spans in sorted(by_module.items()):
+        spans.sort()
+        reach: tuple[int, int, str] | None = None
+        for span in spans:
+            if reach is not None and span[0] < reach[1]:
+                shared = min(reach[1], span[1]) - span[0]
+                problems.append(
+                    f"{module}.0x{reach[0]:08x} {untrusted_ident(reach[2])} "
+                    f"[0x{reach[0]:08x}, 0x{reach[1]:08x}) overlaps "
+                    f"{module}.0x{span[0]:08x} {untrusted_ident(span[2])} by {shared} bytes; "
+                    "correct the stale size/type, or record a view with "
+                    "rebrew data set --storage-kind 0xVA=alias --backing 0xVA=GLOBAL"
+                )
+            if reach is None or span[1] > reach[1]:
+                reach = span
+    if not problems:
+        return []
+    res = LintResult((Path(cfg.metadata_dir) / DATA_METADATA_FILENAME).resolve())
+    for problem in problems:
+        res.warning(1, "W038", problem)
+    return [res]
 
 
 def _check_W032_coverage_store(cfg: ProjectConfig) -> list[LintResult]:
@@ -2401,6 +2542,8 @@ def lint_file(
     _check_W020_asm_dump(result, code_lines, _file_statuses, _file_has_blocker)
     _check_W021_duplicate_globals(result, lines, filepath, seen_globals)
     _check_W022_zero_init_bss(result, code_lines, _data_section_names)
+    if cfg is not None:
+        _check_W037_data_definition(result, text, filepath, cfg)
     _check_body_rules(
         result,
         lines,
@@ -2744,6 +2887,7 @@ def main(
             *_check_W036_stray_metadata_store(cfg),
             *_check_W034_identity_paths(cfg),
             *_check_W035_unknown_modules(cfg),
+            *_check_W038_data_row_overlap(cfg),
             *_check_W033_agent_scaffold(cfg),
         ):
             all_results.append(artifact_result)
