@@ -156,6 +156,10 @@
 - `rebrew source rename --data` renames every data row bound to the global
   (with `--all-modules` for other modules); it renamed one row and left the
   other modules' rows naming a symbol the sources no longer declared.
+- `rebrew source rename` checks the new name against the rows of the modules it
+  renames only. A row of another module (a library row of another image) no
+  longer refuses the rename; a shared source definition is still refused by the
+  source-level check.
 
 ## [2.24.0] - 2026-10-07
 

@@ -420,20 +420,33 @@ def _ordinary_collisions(project: _Project, new_name: str) -> list[tuple[Path, i
     ]
 
 
-def _row_name_collisions(project: _Project, new_name: str) -> list[str]:
-    """``MODULE.0xVA`` of every function or data row already named *new_name*."""
+def _row_name_collisions(
+    project: _Project, new_name: str, modules: set[str] | None = None
+) -> list[str]:
+    """``MODULE.0xVA`` of every function or data row already named *new_name*.
+
+    With *modules*, only rows of those modules count: each module links its
+    own image, so a row of another module with that name is not a duplicate.
+    A shared source definition is caught by the source-level check instead.
+    """
     from rebrew.metadata import load_metadata
+
+    def counted(module: str) -> bool:
+        return modules is None or module in modules
 
     taken = [
         f"{module}.0x{va:08x}"
         for (module, va), row in load_metadata(project.metadata_dir, deepcopy=False).items()
-        if row.get("name") == new_name
-        or (row.get("symbol") and c_name_from_symbol(str(row["symbol"])) == new_name)
+        if counted(module)
+        and (
+            row.get("name") == new_name
+            or (row.get("symbol") and c_name_from_symbol(str(row["symbol"])) == new_name)
+        )
     ]
     taken += [
         f"{module}.0x{va:08x}"
         for (module, va), row in project.data_rows().items()
-        if row.get("name") == new_name
+        if counted(module) and row.get("name") == new_name
     ]
     return taken
 
@@ -532,7 +545,10 @@ def plan_symbol_rename(
             "no files were changed",
             files=sorted({p for p, _line in collisions}),
         )
-    taken = _row_name_collisions(project, new_name)
+    renamed_modules = {row.module for row in plan.rows} | (
+        {selected.module} if selected is not None else set()
+    )
+    taken = _row_name_collisions(project, new_name, renamed_modules or None)
     if taken:
         raise RenameError(
             f"cannot rename {old_name} to {new_name}: rows already use {new_name} "

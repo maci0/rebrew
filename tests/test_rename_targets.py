@@ -389,6 +389,37 @@ class TestFunctionIdentity:
         assert "duplicate symbol" in result.output
         assert _snapshot(root) == before
 
+    @pytest.mark.parametrize(("module", "refused"), [("GOLDTL", False), ("SERVER", True)])
+    def test_row_name_collision_counts_only_the_renamed_module(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, module: str, refused: bool
+    ) -> None:
+        """A library row of another image may carry the new name: that image links alone."""
+        from rebrew.metadata import load_metadata, save_metadata
+
+        root = _project(tmp_path)
+        (root / "src" / "library_crt.h").write_text(
+            "/* __crtMessageBoxA: LIBCMT */\n", encoding="utf-8"
+        )
+        rows = load_metadata(root)
+        rows[(module, 0x00657000)] = {
+            "file": "src/library_crt.h",
+            "name": "__crtMessageBoxA",
+            "symbol": "___crtMessageBoxA",
+            "marker_type": "LIBRARY",
+        }
+        save_metadata(root, rows)
+        before = _snapshot(root)
+        result = _run(root, monkeypatch, "lb_SendLobbyConfig", "__crtMessageBoxA")
+        if refused:
+            assert result.exit_code != 0
+            assert "duplicate symbol" in result.output
+            assert _snapshot(root) == before
+        else:
+            assert result.exit_code == 0, result.output
+            after = _functions(root)
+            assert _row(after, "SERVER", 0x10002000)["name"] == "__crtMessageBoxA"
+            assert _row(after, "GOLDTL", 0x00657000)["symbol"] == "___crtMessageBoxA"
+
 
 class TestSourceLevelSymbol:
     def test_rowless_function_is_renamed_in_every_file(
