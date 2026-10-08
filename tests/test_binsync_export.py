@@ -1219,3 +1219,26 @@ class TestExportIdentityWarnings:
         assert any("0x10001000 has two identities (a.c, b.c)" in w for w in warnings), warnings
         assert any("is not a C identifier; exported as func_10002000" in w for w in warnings)
         assert _load_func(outdir / "functions" / "10002000.toml").name == "func_10002000"
+
+
+class TestMigratedPrototypeFallback:
+    def test_definition_the_ast_misses_reads_from_its_line(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A definition tree-sitter buries in an error node (seen with some
+        inline-asm bodies) still exports the signature its first line spells."""
+        _make_project(
+            tmp_path,
+            {
+                "server.c": "// FUNCTION: SERVER 0x10001000\n// SIZE: 16\n"
+                "int __cdecl Init(void *param)\n{\n    return 0;\n}\n",
+            },
+        )
+        monkeypatch.chdir(tmp_path)
+        migrated = runner.invoke(app, ["source", "migrate-markers"], catch_exceptions=False)
+        assert migrated.exit_code == 0, migrated.output
+        monkeypatch.setattr("rebrew.c_parser.function_signatures", lambda _source: {})
+        result, outdir = _invoke(tmp_path, monkeypatch)
+        assert result.exit_code == 0, result.output
+        init = _load_func(outdir / "functions" / "10001000.toml")
+        assert init.header.type == "int __cdecl Init(void *param)"

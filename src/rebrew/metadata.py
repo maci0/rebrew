@@ -490,7 +490,7 @@ _LOWER_METADATA_FIELDS = frozenset(METADATA_FIELD_TYPES)
 #: Native integration fields: (local attribute, direction). STATUS is absent.
 SYNC_FIELD_RULES: dict[str, dict[str, tuple[str, str]]] = {
     "function": {
-        "name": ("name", "both"),
+        "name": ("symbol", "both"),
         "prototype": ("prototype", "both"),
         "size": ("size", "push"),
         "note": ("note", "both"),
@@ -502,7 +502,7 @@ SYNC_FIELD_RULES: dict[str, dict[str, tuple[str, str]]] = {
     "enum": {"definition": ("definition", "both")},
     "typedef": {"definition": ("definition", "both")},
     "global": {
-        "name": ("name", "both"),
+        "name": ("symbol", "both"),
         "type": ("type", "both"),
         "size": ("size", "both"),
     },

@@ -2158,6 +2158,36 @@ def prototype_type_key(prototype: str) -> str | None:
     return None
 
 
+def function_signatures(source: str) -> dict[str, str]:
+    """``{name: signature}`` for every function definition in *source*.
+
+    The signature is the original text from the definition's start to its
+    body (return type, calling convention, name, parameters) with whitespace
+    runs folded to one space.  Calling conventions and ``__declspec`` are
+    masked for the parse only, so definitions tree-sitter would otherwise
+    bury in an ERROR node are found, and the text keeps them.  The first
+    definition of a name wins.
+    """
+    tree, parsed = parse_c_source(_mask_cc(source))
+    raw = source.encode("utf-8", errors="surrogateescape")
+    found: dict[str, str] = {}
+    pending = [tree.root_node]
+    while pending:
+        node = pending.pop()
+        if node.type == "function_definition":
+            declarator = node.child_by_field_name("declarator")
+            body = node.child_by_field_name("body")
+            name = find_function_name_in_node(declarator, parsed) if declarator else None
+            if name and body is not None and name not in found:
+                text = raw[node.start_byte : body.start_byte].decode(
+                    "utf-8", errors="surrogateescape"
+                )
+                found[name] = " ".join(text.split())
+            continue
+        pending.extend(reversed(node.children))
+    return found
+
+
 def replace_function_prototype(source: str, name: str, prototype: str) -> str:
     """Replace one definition's signature through the AST, preserving its body and name.
 

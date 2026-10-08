@@ -138,3 +138,19 @@ class TestGlobalNameAndType:
         cfg = SimpleNamespace(reversed_dir=src)
         assert global_name_and_type(cfg, 0x1000, "g.c") == ("g_row", "char (*)[4]")
         assert global_name_and_type(cfg, 0x2000, "g.c") == ("table", "int *[4]")
+
+
+class TestCommentWrapping:
+    def test_declib_rewrap_compares_equal(self) -> None:
+        """declib wraps comment text at 100 columns, also after a word's hyphen."""
+        from rebrew.binsync import serial
+        from rebrew.binsync.state import normalize_comment_text
+
+        note = (
+            "Frees memory allocated by m_AllocTracked. Decrements the counters in the tracking "
+            "structure and asserts that the global memory counts don't underflow. Emits fatal "
+            "error on double-free or wild pointer; length = total_length - bytes_received."
+        )
+        wrapped = serial.new_comment(0x1001, 0x1000, note).comment
+        assert "\n" in wrapped
+        assert normalize_comment_text(wrapped) == normalize_comment_text(note)

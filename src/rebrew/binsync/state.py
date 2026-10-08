@@ -715,10 +715,15 @@ def normalize_comment_text(text: Any) -> str:
 
     declib's ``Comment`` re-wraps text at 100 columns when it loads or builds
     an artifact, so a note that went out as one line comes back with line
-    breaks.  Comparing the folded text lets that round trip settle instead
-    of reading as a remote edit on every pull.
+    breaks, including one after the hyphen of a hyphenated word
+    (``double-\nfree``).  Comparing the folded text lets that round trip
+    settle instead of reading as a remote edit on every pull.
     """
-    return " ".join(str(text or "").split())
+    return " ".join(_WRAPPED_HYPHEN_RE.sub("-", str(text or "")).split())
+
+
+#: A line break textwrap inserted after a hyphen (it breaks on hyphens).
+_WRAPPED_HYPHEN_RE = re.compile(r"(?<=\w)-\n[ \t]*")
 
 
 def normalize_sync_value(field: str, value: Any, *, kind: str = "function") -> Any:
@@ -805,11 +810,17 @@ def local_sync_records(
         else:
             from rebrew.rename_ops import c_name_from_symbol
 
+            # The linker symbol's C name: undecorated for Ghidra (``_x@4`` is
+            # ``x``), the decorated spelling stays local.
             fields["name"] = (
-                fields.get("name")
-                or c_name_from_symbol(str(getattr(entry, "symbol", "") or ""))
+                c_name_from_symbol(str(fields.get("name") or ""))
+                or str(getattr(entry, "name", "") or "")
                 or f"func_{va:08x}"
             )
+            if not is_safe_c_ident(fields["name"]):
+                # A catalog label (``fcn.<va>``) or a prose row name cannot be
+                # a symbol in Ghidra; export reports the prose case.
+                fields["name"] = f"func_{va:08x}"
             # A Ghidra name that is the function's own name, decorated or not,
             # is not an alternate name.
             if normalize_sync_value("name", fields.get("ghidra")) == normalize_sync_value(

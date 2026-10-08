@@ -551,16 +551,15 @@ def export_state(
         fields = merged_records.get(key)
         if fields is None:
             continue  # remote removal needs explicit resolution; do not resurrect it
-        name = fields.get("name", name)
-        if not is_safe_c_ident(name):
+        own_name = str(getattr(entry, "name", "") or "")
+        if own_name and not is_safe_c_ident(own_name) and not isinstance(entry, _CatalogFunction):
             # A catalog label (``fcn.<va>``) is a placeholder by design; a row's
             # prose name (a library-header comment line) is a finding.
-            if not isinstance(entry, _CatalogFunction):
-                identity_warnings.append(
-                    f"0x{va:08x} name {name!r} ({origin_file}) is not a C identifier; "
-                    f"exported as func_{va:08x}"
-                )
-            name = f"func_{va:08x}"
+            identity_warnings.append(
+                f"0x{va:08x} name {own_name!r} ({origin_file}) is not a C identifier; "
+                f"exported as func_{va:08x}"
+            )
+        name = fields.get("name", name)
         func_path = outdir / "functions" / f"{va:08x}.toml"
         if not dry_run:
             _write_function_toml(
