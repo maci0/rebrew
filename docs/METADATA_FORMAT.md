@@ -182,7 +182,9 @@ or `STRING`; the identity `rebrew source migrate-markers` writes), `name`,
 the `updated_by` / `updated_at` write stamp every gated writer records.
 `record_migrated_data_markers` fills a missing name, type, size, or section
 without clearing `status`. `rebrew data set` still clears a verdict when
-those definition fields change.
+those definition fields change; `--marker-type` and `--note` keep it.
+`move_data_entry` (`rebrew data move`) re-addresses a row with every field but
+`status`.
 
 `size` is stored as a non-negative integer; the other data fields are strings.
 The writers and lint W031 share this validation. A changed `name`, `type`,

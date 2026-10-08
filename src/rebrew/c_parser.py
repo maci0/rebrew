@@ -1576,15 +1576,15 @@ def _variable_tree(source: str) -> tuple[Any, bytes]:
         opcode_row = -1
         prefix = False
         comment_row = -1
-        for asm_kind, _start, _end, token_row, word in body:
+        for asm_kind, _start, _end, node_row, word in body:
             if asm_kind == ";":
-                comment_row = token_row
-            if token_row == comment_row or asm_kind not in {"identifier", "type_identifier"}:
+                comment_row = node_row
+            if node_row == comment_row or asm_kind not in {"identifier", "type_identifier"}:
                 continue
             if word in labels or word in {"__asm", "_asm"}:
                 continue
-            if token_row != opcode_row or prefix:
-                opcode_row = token_row
+            if node_row != opcode_row or prefix:
+                opcode_row = node_row
                 prefix = word.lower() in {"rep", "repe", "repne", "repz", "repnz", "lock"}
                 continue
             if word.lower() not in registers | qualifiers:
@@ -2002,6 +2002,71 @@ def _mask_cc(source: str) -> str:
     return _DECLSPEC_PATTERN.sub(
         lambda m: " " * len(m.group()), _CC_PATTERN.sub(lambda m: " " * len(m.group()), source)
     )
+
+
+_ASM_KEYWORDS = frozenset({"__asm", "_asm"})
+
+
+def mask_msvc_syntax(source: str) -> str:
+    """Same-length copy of *source* whose MSVC extensions are blanked for parsing.
+
+    Calling conventions, ``__declspec(...)`` and inline assembly (``__asm {
+    ... }`` blocks and one-line ``__asm`` statements) become spaces; newlines
+    and comments stay. The C grammar otherwise turns ``Sample* __cdecl f(...)``
+    into an expression and ``mov edi, picks`` into a declaration of ``picks``.
+    Every byte offset of the result is the offset of the same text in
+    *source*, so a tree parsed from it addresses *source* directly.
+    """
+    masked = _mask_cc(source)
+    if not any(keyword in masked for keyword in _ASM_KEYWORDS):
+        return masked
+    tree, data = parse_c_source(masked)
+    tokens: list[tuple[str, int, int, int]] = []
+    row = 0
+    stack = [tree.root_node]
+    while stack:
+        node = stack.pop()
+        opaque = node.type in ("comment", "string_literal", "char_literal", "preproc_arg")
+        if opaque or node.child_count == 0:
+            if not node.is_missing:
+                row = node.start_point[0]
+                tokens.append((node.type, node.start_byte, node.end_byte, row))
+            continue
+        stack.extend(reversed(node.children))
+    out = bytearray(data)
+    i = 0
+    while i < len(tokens):
+        kind, start, end, row = tokens[i]
+        if data[start:end].decode("utf-8", "replace") not in _ASM_KEYWORDS or i + 1 == len(tokens):
+            i += 1
+            continue
+        if tokens[i + 1][0] == "(":  # GNU asm expressions are valid C grammar.
+            i += 1
+            continue
+        block = tokens[i + 1][0] == "{"
+        j, depth = i + 2 if block else i + 1, 1
+        while j < len(tokens):
+            node_kind, node_start, node_end, node_row = tokens[j]
+            if block:
+                depth += int(node_kind == "{") - int(node_kind == "}")
+                if depth == 0:
+                    break
+            elif (
+                node_row != row
+                or node_kind == "}"
+                or data[node_start:node_end].decode("utf-8", "replace") in _ASM_KEYWORDS
+            ):
+                j -= 1
+                break
+            j += 1
+        if block and j == len(tokens):  # an unterminated block is left to the grammar
+            i += 1
+            continue
+        for node_kind, node_start, node_end, _row in tokens[i : min(j, len(tokens) - 1) + 1]:
+            if node_kind != "comment":
+                out[node_start:node_end] = b" " * (node_end - node_start)
+        i = j + 1
+    return bytes(out).decode("utf-8", errors="surrogateescape")
 
 
 def prototype_name_span(prototype: str) -> tuple[str, int, int] | None:

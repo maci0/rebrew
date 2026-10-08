@@ -332,6 +332,8 @@ def _set_global_field(
         value = value.strip()
         if not sep:
             raise ValueError(f"{option} wants 0xVA={placeholder}, got {spec!r}")
+        if not value and field in ("note", "marker_type"):
+            raise ValueError(f"{option} wants 0xVA={placeholder}, got {spec!r}")
         if field == "name" and not is_safe_c_ident(value):
             raise ValueError(f"{option} wants a C identifier, got {value!r}")
         if allowed is not None and value not in allowed:
@@ -511,6 +513,35 @@ def set_data_sizes(
     """Correct positive byte sizes and invalidate verdicts for the old spans."""
     return _set_global_field(
         cfg, specs, option="--size", placeholder="BYTES", field="size", dry_run=dry_run
+    )
+
+
+def set_data_marker_types(
+    cfg: ProjectConfig, specs: list[str], *, dry_run: bool = False
+) -> list[dict[str, Any]]:
+    """Set the data marker word a row reads as, from ``0xVA=MARKER`` specs.
+
+    A row without one reads as ``DATA``; a row ``data set`` created has none.
+    """
+    from rebrew.annotation import DATA_MARKERS
+
+    return _set_global_field(
+        cfg,
+        specs,
+        option="--marker-type",
+        placeholder="MARKER",
+        field="marker_type",
+        allowed=tuple(sorted(DATA_MARKERS)),
+        dry_run=dry_run,
+    )
+
+
+def set_data_notes(
+    cfg: ProjectConfig, specs: list[str], *, dry_run: bool = False
+) -> list[dict[str, Any]]:
+    """Set a row's free-text note from ``0xVA=TEXT`` specs; the verdict stays."""
+    return _set_global_field(
+        cfg, specs, option="--note", placeholder="TEXT", field="note", dry_run=dry_run
     )
 
 

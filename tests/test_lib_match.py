@@ -463,7 +463,8 @@ class TestStockLib:
         assert lm.ensure_stock_lib(dest, profile="msvc-6.0-sp6", name="LIBCMT.LIB") is True
         argv = seen[0]
         assert "rebrew/msvc:6.0-sp6-win32" in argv
-        assert "/opt/msvc6.0-sp6/VC98/Lib/LIBCMT.LIB" in argv
+        assert "/opt/msvc6.0-sp6/VC98/Lib" in argv
+        assert "LIBCMT.LIB" in argv
         assert "--network=none" in argv
         # The mount source is resolved, so a relative or symlinked scratch dir
         # still names one absolute host path (docker reads a relative -v source

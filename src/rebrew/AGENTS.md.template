@@ -49,10 +49,11 @@ Use `--json` for structured output (preferred for agents).
 | `rebrew match run <file> --json` | Run GA matching engine on one function |
 | `rebrew match batch --json` | Batch GA on all STUB functions |
 | `rebrew match batch --near-miss --threshold 5` | Batch GA on NEAR_MATCHING functions with small deltas (Δ ≤ threshold) |
-| `rebrew source rename <old> <new>` | Rename function and update cross-references |
+| `rebrew source rename <old> <new>` | Rename a function, global (`--data`), type (`--type`) or member (`--field`) everywhere; `MODULE.0xVA` picks one identity, `--all-modules` renames shared rows |
 | `rebrew verify --json` | Bulk verify all reversed files |
 | `rebrew lint --json` | Validate annotations and the stores: inline metadata (W019), stale marker VAs (W028), redundant cflags (W029), function/data store shapes the writers reject (W031), data rows whose size disagrees with the owning definition (W037) or overlaps another row (W038), coverage-store hygiene — leftover `coverage.db`/grid JSON/CSV and documents the dashboards cannot serve (W032) |
 | `rebrew data list --json` | Inventory globals in .data/.rdata/.bss |
+| `rebrew data move 0xOLD 0xNEW` | Re-address a data row; drops its verdict, keeps verification history |
 | `rebrew types check` | Check struct layouts |
 | `rebrew types apply` | Rewrite signature types; preview with `--dry-run` |
 | `rebrew orphans list` | List metadata identities whose source is missing |

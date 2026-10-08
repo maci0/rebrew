@@ -27,7 +27,7 @@ DOMAIN_COMPONENTS: dict[str, tuple[CliComponent, ...]] = {
         CliComponent(
             name="rename",
             module="rebrew.rename",
-            help="Rename a function and update all cross-references.",
+            help="Rename a function, global, type or struct member and update every reference.",
             panel=Panel.DEVELOPMENT,
         ),
         CliComponent(

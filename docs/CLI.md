@@ -102,7 +102,7 @@ exit is 120, and click's is 1; `run_cli` overrides both.
 | Command | Script | Description |
 |-------------|--------|-------------|
 | `rebrew` | `main.py` | Unified CLI entry point for all subcommands |
-| `rebrew source rename` | `rename.py` | Rename a function and update all cross-references |
+| `rebrew source rename` | `rename.py` | Rename a function, global, type or struct member and update every reference |
 | `rebrew init` | `init.py` | Scaffold a new project directory and `rebrew-project.toml` |
 | `rebrew test` | `test.py` | Compile-and-compare; auto-promotes STATUS on EXACT/RELOC; `--no-promote` to skip; `--json` output |
 | `rebrew binary asm show` | `asm.py` | Dump disassembly (`--format hex`), NASM (`--format nasm`), or basic-block CFG (`--format cfg`) from target binary at a VA |
@@ -476,28 +476,88 @@ silent metadata write that the build never honours.
 
 ### `rebrew source rename`
 
-`rebrew source rename <old_ident> <new_name>`
+`rebrew source rename <old> <new>`
 
-Atomically renames a function across the entire project.
+Renames a function, a global (`--data`), a type (`--type`) or a struct/union
+member (`--field`) across every source and header, and the metadata rows bound
+to it. The whole rename is planned first; nothing is written when any part is
+refused.
 
 | Flag | Description |
 |------|-------------|
-| `--file NAME` | New filename (default: auto-rename if stem matches old name) |
-| `--data` | Rename a DATA/GLOBAL symbol instead of a function (metadata name + declaration + references; no file rename) |
+| `--data` | Rename a global: its data rows, definition, `extern` declarations and uses |
+| `--type` | Rename a struct/union/enum tag or typedef name |
+| `--field` | Rename a member; `<old>` is `STRUCT.MEMBER` |
+| `--all-modules` | Rename the rows of every module bound to the definition, and every other definition of the name |
+| `--comments` | Also rewrite whole-word occurrences inside comments |
+| `--file NAME` | New filename for the function's source (default: renamed when its stem is the old name) |
 | `--dry-run` | Preview changes without writing |
 | `--json` | Output results as JSON |
 
-Behavior:
+Choosing the symbol:
 
-- Symbol is derived automatically from the C function definition as `_<new_name>`
-- Updates the C function definition name
-- Replaces `extern` cross-references across all `.c` files
-- Renames the file itself if the stem matches the old name; a file that data
-  rows also name is renamed only with `--file`. A renamed file takes its
-  function and data rows with it
-- A file that cannot be read or written fails the whole rename with a
-  non-zero exit and names the files that still hold the old symbol; the
-  definition rename is left in place, so the tree needs a manual fix
+- `<old>` for a function is a name, symbol, file, VA (active target) or
+  `MODULE.0xVA` (any module). For `--data` it is a name, VA or `MODULE.0xVA`.
+  A name with rows in several modules prefers the active target's row.
+- A name the active target has no row for is renamed at source level: its
+  definition (one per project, or every one with `--all-modules`), every
+  declaration and use, and the rows of other modules bound to it. This covers
+  a function compiled into a target but discarded there.
+
+Modules and shared sources:
+
+- One `.c` definition is one symbol. Every row, in any module, whose `file`
+  is that source and whose name is the old name is bound to it and follows the
+  rename. A row-level rename that would carry rows of other modules refuses and
+  lists them until `--all-modules` acknowledges them; no row is left naming a
+  symbol that no longer exists.
+- Definitions of the same name in other files (per-target twins such as
+  `GOLDTL.<name>.c`) keep their name and their references; the output notes
+  the rows left alone. `--all-modules` renames every definition.
+- A reference is attributed by the modules whose rows bind its file. A header,
+  a row-less file, or a file built into targets that link different
+  definitions cannot be attributed while another definition exists, and the
+  rename refuses with the file list.
+- A `static` definition renames only within its own file.
+
+Syntax rules:
+
+- Only whole identifiers are rewritten, classified by tree-sitter after
+  calling conventions, `__declspec` and inline assembly are blanked for the
+  parse (assembly operands that name a global are still renamed). String and
+  character literals are never rewritten; comments only with `--comments`.
+- A function or global rename leaves struct members, goto labels, struct tags
+  and a macro's own name alone; macro bodies are renamed outside literals and
+  member accesses.
+- A type rename rewrites tags and typedef names, casts, `sizeof` and macro
+  bodies; it also rewrites the `type` of data rows and of function `locals`
+  that name the type. A typedef name also declared as a variable or function
+  is refused.
+- A member rename resolves each access (`p->m`, `a[i].m`, casts, member
+  chains, function returns, designated initializers, `offsetof`, and
+  `name.m` in a macro body) to its struct. When no other struct has a member
+  of that name, every access is renamed. Otherwise an access whose type cannot
+  be resolved refuses the rename and is listed by `file:line`.
+- The new name must be a C89 identifier that is not a keyword. A rename onto a
+  name already used as an identifier, macro, type, member of the same struct,
+  or by any function or data row is refused.
+
+Writes and output:
+
+- Sources are written first; if one write or the file move fails, every
+  source already written is restored and no row changes. Rows then change
+  through the locked writers (`updated_by = "rename"`). A data row whose
+  `name` or `type` changes loses its stored verdict; re-run
+  `rebrew verify --data`.
+- `--dry-run` prints every edit as `file:line:column role`, every row change
+  and the file move. `--json` returns `files[].edits[]`, `rows[]` (`store`,
+  `module`, `va`, `old`, `new`), `move`, `notes`, `files_updated` and
+  `dry_run`; a function rename also returns `module`, `va` and `new_symbol`.
+- BinSync struct artifacts are projected from the sources, so the next
+  `rebrew sync push` exports a renamed member or `struct.<new>`; a state dir
+  keeps its `struct.<old>` artifact until it is removed there.
+- `rebrew data set --name` changes only the row; use `--data` here to rename
+  the source symbol with it.
 
 ### `rebrew types`
 
@@ -783,7 +843,7 @@ automatic maps or archives leave attribution unknown; the scan never downloads
 libraries. Map addresses can differ from reference VAs, so match symbol names.
 DLL import slots, uncertain aliases, and unselected archive members are excluded.
 
-Metadata changes use `data set`: choose exactly one field (`--type`, `--name`, `--size`, `--section`, `--storage-kind`, `--backing`, or `--link-symbol`) and repeat `0xVA=VALUE` for multiple records. A size change clears stored verification. No operation treats a declaration, alias, or interior view as another storage allocation.
+Metadata changes use `data set`: choose exactly one field (`--type`, `--name`, `--size`, `--section`, `--file`, `--storage-kind`, `--backing`, `--link-symbol`, `--marker-type`, or `--note`) and repeat `0xVA=VALUE` for multiple records. A size change clears stored verification. `data move 0xOLD 0xNEW` re-addresses one row. No operation treats a declaration, alias, or interior view as another storage allocation.
 
 `data header --output/-o FILE` generates declarations; physical section grouping does not establish game/CRT ownership. Preview and reconcile the generated header with canonical subsystem and CRT headers. `data layout` separates audit, fill, own, fix-ownership, and converge. Establish full extents and provenance before emitting storage. Convergence measures the existing build; it does not re-link between rounds.
 
@@ -791,6 +851,7 @@ Metadata changes use `data set`: choose exactly one field (`--type`, `--name`, `
 | --- | --- |
 | `rebrew data list` | Inventory globals and report section summaries or conflicts. |
 | `rebrew data set` | Set one metadata field through the locked data writers. |
+| `rebrew data move` | Re-address one row, refusing an occupied target address. |
 | `rebrew data dispatch` | Decode dispatch tables and their storage extents. |
 | `rebrew data bss` | Report BSS extents and gaps. |
 | `rebrew data fix-bss` | Generate BSS padding from proven extents. |
@@ -852,7 +913,11 @@ per-function `cflags` (and matching `cflags_presets`) that only repeat the
 inherited ladder; `rebrew lint --fix` drops them.  **W037** compares each
 data row of the active target with the definition of its `name` in its owning
 `file` (an `extern` view for a `span` row) and reports a byte-size
-disagreement with the `rebrew data set --size` / `--type` fix; **W038** reports
+disagreement with the `rebrew data set --size` / `--type` fix.  A tiled
+allocation (a short leading definition plus separately defined interior names
+and pads, each an `alias` row in the same file whose `backing` names the
+allocation) is measured as the contiguous run of those definitions, and a hole
+in it is reported by address; **W038** reports
 named rows of one module whose extents overlap.  Environment/setup
 health is `rebrew doctor`'s job, not lint's.
 
@@ -1403,6 +1468,9 @@ pull it, and the member listing shows the data each one brings.
 `LIBRARY` is a path, or a `targets.<name>.external_libs` key or spec. A spec
 with a directory is project-relative; a bare spec (`LIBCMT.lib`) is the stock
 archive cached under `.scratch/`, extracted from the toolchain image when absent.
+The image's `Lib` directory is searched ignoring letter case (the image holds
+`LIBCMT.LIB`); no match, or more than one, is an error. `library match
+--stock-lib` extracts and hash-checks the same way.
 
 | Flag / Arg | Description |
 |------------|-------------|
@@ -3465,7 +3533,7 @@ Organize C sources, update markers through metadata writers, import related sour
 
 | Operation | Purpose |
 | --- | --- |
-| `rebrew source rename` | Rename a function and update cross-references. |
+| `rebrew source rename` | Rename a function, global, type or struct member and update every reference. |
 | `rebrew source migrate-markers` | Move inline function and data markers into the metadata stores (ADR 023: pure-C sources). |
 | `rebrew source fix` | Make raw decompiler output compilable (DecBench-style fixup). |
 | `rebrew source inline-strings` | Inline string-literal globals (s_<hint>_<ADDR>) from the reference binary. |
@@ -3767,12 +3835,38 @@ Set one metadata field through the locked data writers.
 | `--name` | Set a global's C identifier in rebrew-data.toml: 0xVA=NAME (repeatable) |
 | `--size` | Set a global's positive byte size: 0xVA=BYTES (decimal or hex, repeatable); clears its stored verification verdict |
 | `--section` | Set a global's PE section in rebrew-data.toml: 0xVA=.data (repeatable) |
+| `--file` | Set the source file that defines a global: 0xVA=PATH (repeatable) |
+| `--marker-type` | Set a global's marker word: 0xVA=GLOBAL\|DATA\|VTABLE\|STRING (repeatable) |
+| `--note` | Set a global's free-text note: 0xVA=TEXT (repeatable); keeps its verdict |
 | `--dry-run` | Preview changes without writing |
 | `--json` | Output results as JSON |
 | `--target` / `-t` | Target name from rebrew-project.toml (default: project default target). |
 
+One setter per call. A row `data set` creates has no `marker_type` and reads
+as `DATA` until `--marker-type` records one. `--note` and `--marker-type` take
+a non-empty value and leave the stored verdict in place.
+
 ```bash
 rebrew data set --type 0x401000=int --dry-run --json
+```
+
+### `rebrew data move`
+
+`rebrew data move OLD_VA NEW_VA [--dry-run] [--json] [--target NAME]`
+
+Re-address one row of the active target in one locked rewrite. Every field
+moves with it, including `verification`, the record of its last measurement
+(whose `definition_hash` names the old VA); `status` is dropped, because it
+compared the reference bytes at the old address, and the next
+`rebrew verify --data` measures the new one. The row is stamped
+`updated_by = "data"`. Refused, with nothing written: equal addresses, no row
+at `OLD_VA`, a row already at `NEW_VA`, and a row whose `file` still carries an
+inline marker for `OLD_VA` (run `rebrew source migrate-markers` first). The
+move checks addresses only: `rebrew lint` W038 reports an extent that now
+overlaps another row. JSON: `{dry_run, moved: {module, from, to, name, status_was}}`.
+
+```bash
+rebrew data move 0x10035400 0x10035408 --dry-run --json
 ```
 
 ### `rebrew data mark-literals`
