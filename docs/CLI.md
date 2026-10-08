@@ -102,7 +102,7 @@ exit is 120, and click's is 1; `run_cli` overrides both.
 | Command | Script | Description |
 |-------------|--------|-------------|
 | `rebrew` | `main.py` | Unified CLI entry point for all subcommands |
-| `rebrew source rename` | `rename.py` | Rename a function and update all cross-references |
+| `rebrew source rename` | `rename.py` | Rename a function, global, type or struct member and update every reference |
 | `rebrew init` | `init.py` | Scaffold a new project directory and `rebrew-project.toml` |
 | `rebrew test` | `test.py` | Compile-and-compare; auto-promotes STATUS on EXACT/RELOC; `--no-promote` to skip; `--json` output |
 | `rebrew binary asm show` | `asm.py` | Dump disassembly (`--format hex`), NASM (`--format nasm`), or basic-block CFG (`--format cfg`) from target binary at a VA |
@@ -476,28 +476,88 @@ silent metadata write that the build never honours.
 
 ### `rebrew source rename`
 
-`rebrew source rename <old_ident> <new_name>`
+`rebrew source rename <old> <new>`
 
-Atomically renames a function across the entire project.
+Renames a function, a global (`--data`), a type (`--type`) or a struct/union
+member (`--field`) across every source and header, and the metadata rows bound
+to it. The whole rename is planned first; nothing is written when any part is
+refused.
 
 | Flag | Description |
 |------|-------------|
-| `--file NAME` | New filename (default: auto-rename if stem matches old name) |
-| `--data` | Rename a DATA/GLOBAL symbol instead of a function (metadata name + declaration + references; no file rename) |
+| `--data` | Rename a global: its data rows, definition, `extern` declarations and uses |
+| `--type` | Rename a struct/union/enum tag or typedef name |
+| `--field` | Rename a member; `<old>` is `STRUCT.MEMBER` |
+| `--all-modules` | Rename the rows of every module bound to the definition, and every other definition of the name |
+| `--comments` | Also rewrite whole-word occurrences inside comments |
+| `--file NAME` | New filename for the function's source (default: renamed when its stem is the old name) |
 | `--dry-run` | Preview changes without writing |
 | `--json` | Output results as JSON |
 
-Behavior:
+Choosing the symbol:
 
-- Symbol is derived automatically from the C function definition as `_<new_name>`
-- Updates the C function definition name
-- Replaces `extern` cross-references across all `.c` files
-- Renames the file itself if the stem matches the old name; a file that data
-  rows also name is renamed only with `--file`. A renamed file takes its
-  function and data rows with it
-- A file that cannot be read or written fails the whole rename with a
-  non-zero exit and names the files that still hold the old symbol; the
-  definition rename is left in place, so the tree needs a manual fix
+- `<old>` for a function is a name, symbol, file, VA (active target) or
+  `MODULE.0xVA` (any module). For `--data` it is a name, VA or `MODULE.0xVA`.
+  A name with rows in several modules prefers the active target's row.
+- A name the active target has no row for is renamed at source level: its
+  definition (one per project, or every one with `--all-modules`), every
+  declaration and use, and the rows of other modules bound to it. This covers
+  a function compiled into a target but discarded there.
+
+Modules and shared sources:
+
+- One `.c` definition is one symbol. Every row, in any module, whose `file`
+  is that source and whose name is the old name is bound to it and follows the
+  rename. A row-level rename that would carry rows of other modules refuses and
+  lists them until `--all-modules` acknowledges them; no row is left naming a
+  symbol that no longer exists.
+- Definitions of the same name in other files (per-target twins such as
+  `GOLDTL.<name>.c`) keep their name and their references; the output notes
+  the rows left alone. `--all-modules` renames every definition.
+- A reference is attributed by the modules whose rows bind its file. A header,
+  a row-less file, or a file built into targets that link different
+  definitions cannot be attributed while another definition exists, and the
+  rename refuses with the file list.
+- A `static` definition renames only within its own file.
+
+Syntax rules:
+
+- Only whole identifiers are rewritten, classified by tree-sitter after
+  calling conventions, `__declspec` and inline assembly are blanked for the
+  parse (assembly operands that name a global are still renamed). String and
+  character literals are never rewritten; comments only with `--comments`.
+- A function or global rename leaves struct members, goto labels, struct tags
+  and a macro's own name alone; macro bodies are renamed outside literals and
+  member accesses.
+- A type rename rewrites tags and typedef names, casts, `sizeof` and macro
+  bodies; it also rewrites the `type` of data rows and of function `locals`
+  that name the type. A typedef name also declared as a variable or function
+  is refused.
+- A member rename resolves each access (`p->m`, `a[i].m`, casts, member
+  chains, function returns, designated initializers, `offsetof`, and
+  `name.m` in a macro body) to its struct. When no other struct has a member
+  of that name, every access is renamed. Otherwise an access whose type cannot
+  be resolved refuses the rename and is listed by `file:line`.
+- The new name must be a C89 identifier that is not a keyword. A rename onto a
+  name already used as an identifier, macro, type, member of the same struct,
+  or by any function or data row is refused.
+
+Writes and output:
+
+- Sources are written first; if one write or the file move fails, every
+  source already written is restored and no row changes. Rows then change
+  through the locked writers (`updated_by = "rename"`). A data row whose
+  `name` or `type` changes loses its stored verdict; re-run
+  `rebrew verify --data`.
+- `--dry-run` prints every edit as `file:line:column role`, every row change
+  and the file move. `--json` returns `files[].edits[]`, `rows[]` (`store`,
+  `module`, `va`, `old`, `new`), `move`, `notes`, `files_updated` and
+  `dry_run`; a function rename also returns `module`, `va` and `new_symbol`.
+- BinSync struct artifacts are projected from the sources, so the next
+  `rebrew sync push` exports a renamed member or `struct.<new>`; a state dir
+  keeps its `struct.<old>` artifact until it is removed there.
+- `rebrew data set --name` changes only the row; use `--data` here to rename
+  the source symbol with it.
 
 ### `rebrew types`
 
@@ -3465,7 +3525,7 @@ Organize C sources, update markers through metadata writers, import related sour
 
 | Operation | Purpose |
 | --- | --- |
-| `rebrew source rename` | Rename a function and update cross-references. |
+| `rebrew source rename` | Rename a function, global, type or struct member and update every reference. |
 | `rebrew source migrate-markers` | Move inline function and data markers into the metadata stores (ADR 023: pure-C sources). |
 | `rebrew source fix` | Make raw decompiler output compilable (DecBench-style fixup). |
 | `rebrew source inline-strings` | Inline string-literal globals (s_<hint>_<ADDR>) from the reference binary. |

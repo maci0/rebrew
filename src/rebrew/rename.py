@@ -1,11 +1,11 @@
-"""rename.py - Rename a function and update all cross-references.
+"""rename.py - Rename a function, global, type or struct member across the project.
 
-Renames a function across the entire codebase: updates ``// FUNCTION:``,
-``extern`` declarations, the C function definition, the source file name (optional),
-and any other references discovered by scanning the reversed directory.
+Plans the whole rename (source edits by file and line, metadata rows, file
+move) through :mod:`rebrew.rename_ops`, prints it, and writes it unless
+``--dry-run``. Renames are syntax-aware: string literals are never rewritten,
+comments only with ``--comments``.
 """
 
-import re
 import unicodedata
 from pathlib import Path
 from typing import Any
@@ -22,28 +22,28 @@ from rebrew.cli import (
     require_config,
 )
 from rebrew.rename_ops import (
+    KIND_DATA,
+    KIND_FUNCTION,
     RenameError,
-    collect_function_rename_files,
-    collect_matching_files,
+    RenamePlan,
+    Selection,
+    apply_rename_plan,
+    is_valid_new_name,
+    plan_field_rename,
+    plan_symbol_rename,
+    plan_type_rename,
     redecorated_symbol,
-    rename_function_everywhere,
     rename_source_name,
-    substitute_name,
 )
 from rebrew.sources import contained_path, source_roots
-from rebrew.utils import is_safe_c_ident, rel_display_path
+from rebrew.utils import rel_display_path
 
 #: Offending sources named in a rename failure, one line each.
 _RENAME_FAILURE_FILE_LIMIT = 10
 
 
 def _rename_failure(exc: RenameError) -> str:
-    """*exc*'s message plus the sources it names.
-
-    ``RenameError.files`` is the actionable half of the failure — a renamed
-    definition whose call sites are stale does not compile — and the message
-    alone says which operation failed, not which files to open.
-    """
+    """*exc*'s message plus the sources it names."""
     if not exc.files:
         return str(exc)
     shown = ", ".join(rel_display_path(f) for f in exc.files[:_RENAME_FAILURE_FILE_LIMIT])
@@ -52,587 +52,426 @@ def _rename_failure(exc: RenameError) -> str:
     return f"{exc}\n  files: {shown}"
 
 
-# C89 keywords cannot be used as function names; `is_safe_c_ident()` alone
-# would let `if`, `int`, `struct`, ... through and generate uncompilable C.
-_C_KEYWORDS = frozenset(
-    {
-        "auto",
-        "break",
-        "case",
-        "char",
-        "const",
-        "continue",
-        "default",
-        "do",
-        "double",
-        "else",
-        "enum",
-        "extern",
-        "float",
-        "for",
-        "goto",
-        "if",
-        "int",
-        "long",
-        "register",
-        "return",
-        "short",
-        "signed",
-        "sizeof",
-        "static",
-        "struct",
-        "switch",
-        "typedef",
-        "union",
-        "unsigned",
-        "void",
-        "volatile",
-        "while",
-    }
+_INVALID_NAME = (
+    "'{name}' is not a valid C identifier: use letters, digits, and underscores "
+    "(not starting with a digit, not a C keyword)."
+)
+_DUPLICATE = (
+    "'{name}' is already used by {where}; renaming would create a duplicate symbol. "
+    "Pick a different name."
 )
 
 app = typer.Typer(
-    help="Rename a function and update cross-references.",
+    help="Rename a function, global, type or struct member and update every reference.",
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew source rename old_func new_func · · · · · · Rename function\n\n"
-        "  rebrew source rename src/game/old.c new_func · · · Rename by file path\n\n"
-        "  rebrew source rename 0x10003da0 new_func · · · · · Rename by VA\n\n"
-        "  rebrew source rename old_func new_func --file new.c  Custom filename\n\n"
-        "[dim]Updates FUNCTION markers, function definitions, extern "
-        "declarations, and optionally renames the source file.[/dim]\n\n"
-        "[dim]Note: macros and string literals are NOT rewritten — "
-        "`grep` for the old name afterwards if you suspect any.[/dim]"
+        "  rebrew source rename old_func new_func · · · · · · · · · Rename function\n\n"
+        "  rebrew source rename SERVER.0x10003da0 new_func · · · · Rename one identity\n\n"
+        "  rebrew source rename gm_Init gm_Kill --all-modules · · · Shared definition\n\n"
+        "  rebrew source rename g_old g_new --data · · · · · · · · Rename a global\n\n"
+        "  rebrew source rename OldType NewType --type · · · · · · Rename a type\n\n"
+        "  rebrew source rename Rec.old_member new --field · · · · Rename a member\n\n"
+        "[dim]A name without a row in this target renames the source symbol and the rows "
+        "of other modules bound to it. String literals are never rewritten; comments only "
+        "with --comments. Preview with --dry-run.[/dim]"
     ),
 )
+
+
+def _parse_identity(ident: str) -> tuple[str, int] | None:
+    """``MODULE.0xVA`` → ``(MODULE, VA)``."""
+    module, sep, va_text = ident.rpartition(".")
+    if not sep or not module or not va_text.lower().startswith("0x"):
+        return None
+    try:
+        return module, int(va_text, 16)
+    except ValueError:
+        return None
+
+
+def _row_source(cfg: Any, stored: str) -> Path | None:
+    """The source a row's ``file`` names (relative to the metadata root), or None if it escapes.
+
+    A row path that does not exist under the metadata root is retried under
+    ``reversed_dir`` (an inline marker's scan path).
+    """
+    roots = source_roots(cfg)
+    first = contained_path((Path(cfg.metadata_dir), *roots), stored)
+    if first is not None and first.is_file():
+        return first
+    return contained_path(roots, stored) or first
+
+
+def _parse_va(ident: str) -> int | None:
+    if not ident.lower().startswith("0x"):
+        return None
+    try:
+        return int(ident, 16)
+    except ValueError:
+        return None
 
 
 @app.callback(invoke_without_command=True)
 def main(
     target_ident: str = typer.Argument(
-        ..., metavar="old_name", help="Old function name, file path, or VA"
+        ...,
+        metavar="old_name",
+        help=(
+            "Old name: function name, symbol, file, VA or MODULE.0xVA; a global with "
+            "--data; a type with --type; STRUCT.MEMBER with --field"
+        ),
     ),
-    new_name: str = typer.Argument(..., help="New function name"),
+    new_name: str = typer.Argument(..., help="New name"),
     new_file: str | None = typer.Option(None, "--file", help="New filename"),
     data: bool = typer.Option(
+        False, "--data", help="Rename a global (data row, definition, declarations, uses)"
+    ),
+    type_rename: bool = typer.Option(
+        False, "--type", help="Rename a struct/union/enum tag or typedef name"
+    ),
+    field_rename: bool = typer.Option(
+        False, "--field", help="Rename a struct/union member given as STRUCT.MEMBER"
+    ),
+    all_modules: bool = typer.Option(
         False,
-        "--data",
-        help="Rename a DATA/GLOBAL symbol instead of a function (no file rename)",
+        "--all-modules",
+        help=(
+            "Rename the rows of every module bound to the definition, and every other "
+            "definition of the name"
+        ),
+    ),
+    comments: bool = typer.Option(
+        False, "--comments", help="Also rewrite whole-word occurrences inside comments"
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
-    """Rename a function and update all cross-references."""
+    """Rename a function, global, type or struct member and update every reference."""
     cfg = require_config(target=target, json_mode=json_output)
-
-    if data:
-        if new_file is not None:
-            error_exit(
-                "--file is not supported with --data (globals have no dedicated source file)",
-                json_mode=json_output,
-                code=EXIT_ERROR,
-            )
-        _rename_data(cfg, target_ident, new_name, dry_run, json_output)
-        return
-
-    entries = scan_reversed_dir(cfg.reversed_dir, cfg=cfg)
-    # Normalize a hex VA identifier once (discovery writes zero-padded
-    # 0x000100a0; other tools accept both — rename must too).
-    va_ident: int | None = None
-    if target_ident.lower().startswith("0x"):
-        try:
-            va_ident = int(target_ident, 16)
-        except ValueError:
-            va_ident = None
-    matches = []
-    for e in entries:
-        name = getattr(e, "name", "")
-        sym = getattr(e, "symbol", "")
-        fp = getattr(e, "filepath", "")
-        va = getattr(e, "va", 0)
-
-        va_str = f"0x{va:x}"
-        va_str_upper = f"0x{va:X}"
-        # filepath is stored relative to reversed_dir ("add3.c"); also accept
-        # the project-root-relative form the help documents
-        # ("src/game/old.c") and the absolute path.
-        proj_rel = ""
-        proj_rel_native = ""
-        abs_path = ""
-        if fp:
-            # reversed_dir may be absolute (require_config) or project-
-            # relative (load_config) — normalize to the root-relative form
-            # the help documents ("src/game/old.c").
-            try:
-                rev_rel = Path(cfg.reversed_dir).relative_to(cfg.root)
-            except (ValueError, TypeError):
-                rev_rel = Path(cfg.reversed_dir)
-            proj_rel = (rev_rel / fp).as_posix()
-            proj_rel_native = str(rev_rel / fp)
-            try:
-                abs_path = str((cfg.root / rev_rel / fp).resolve())
-            except (OSError, TypeError):
-                abs_path = ""
-        target_norm = unicodedata.normalize("NFC", target_ident)
-        if target_norm in (
-            unicodedata.normalize("NFC", name),
-            unicodedata.normalize("NFC", sym),
-            unicodedata.normalize("NFC", str(fp)),
-            unicodedata.normalize("NFC", Path(str(fp)).name),
-            unicodedata.normalize("NFC", proj_rel),
-            unicodedata.normalize("NFC", proj_rel_native),
-            unicodedata.normalize("NFC", abs_path),
-            va_str,
-            va_str_upper,
-            str(va),
-        ) or (va_ident is not None and va == va_ident):
-            matches.append(e)
-
-    if not matches:
-        error_exit(f"Could not find function matching '{target_ident}'", json_mode=json_output)
-
-    if len(matches) > 1:
+    if sum((data, type_rename, field_rename)) > 1:
+        error_exit("--data, --type and --field are exclusive", json_mode=json_output)
+    if new_file is not None and (data or type_rename or field_rename):
         error_exit(
-            f"Found {len(matches)} matches for '{target_ident}'. Be more specific.",
+            "--file renames a function's source file; it does not apply here",
             json_mode=json_output,
+            code=EXIT_ERROR,
         )
+    if not is_valid_new_name(new_name):
+        error_exit(_INVALID_NAME.format(name=new_name), json_mode=json_output)
 
-    match = matches[0]
-    old_name = getattr(match, "name", "")
-    old_sym = getattr(match, "symbol", "")
-    old_fp = getattr(match, "filepath", "")
-    va = getattr(match, "va", 0)
-
-    if not old_sym:
-        old_sym = old_name
-
-    # One leading underscore is cdecl/stdcall decoration. ``hook@@12`` and
-    # ``@keeps@4`` have none; an empty stored name still names the function.
-    actual_old_name = rename_source_name(old_name, old_sym)
-
-    target_func = new_name
-    if not is_safe_c_ident(target_func) or target_func in _C_KEYWORDS:
-        error_exit(
-            f"'{target_func}' is not a valid C identifier — use letters, digits, "
-            f"and underscores (not starting with a digit, not a C keyword).",
-            json_mode=json_output,
-        )
-
-    # Guard: renaming onto an existing function/global's symbol would create a
-    # duplicate definition (same name in two files → symbol collisions at
-    # compile/compare time). Reject before any write.
-    target_sym_variants = {target_func, f"_{target_func}"}
-    for e in entries:
-        if e is match:
-            continue
-        e_name = getattr(e, "name", "") or ""
-        e_sym = getattr(e, "symbol", "") or ""
-        if (
-            e_name == target_func
-            or e_sym in target_sym_variants
-            # stdcall `_name@N`, vectorcall `name@@N`, fastcall `@name@N`.
-            or e_sym.startswith((f"_{target_func}@", f"{target_func}@@", f"@{target_func}@"))
-        ):
-            error_exit(
-                f"'{target_func}' is already used by {getattr(e, 'filepath', '?')} — "
-                f"renaming would create a duplicate symbol. Pick a different name.",
-                json_mode=json_output,
-            )
-
-    # The rename rewrites and moves this file, so it must resolve inside
-    # reversed_dir like the destination name does in rename_ops.rename_one.
-    # old_fp is metadata-supplied (MARKER_IDENTITY_FIELDS carries "file"),
-    # so an absolute or "../" value would put the write outside the project.
+    extra: dict[str, Any] = {}
     try:
-        filepath = (cfg.reversed_dir / old_fp).resolve()
-        filepath.relative_to(Path(cfg.reversed_dir).resolve())
-    except (ValueError, OSError, TypeError):
-        error_exit(
-            f"function file escapes reversed_dir: {old_fp!r}",
-            json_mode=json_output,
-        )
-
-    if not json_output:
-        if dry_run:
-            console.print(f"[dim]Dry run:[/dim] Would rename {actual_old_name} → {target_func}")
+        if type_rename:
+            plan = plan_type_rename(cfg, target_ident, new_name, comments=comments)
+        elif field_rename:
+            record, sep, member = target_ident.rpartition(".")
+            if not sep or not record or not member:
+                error_exit("--field takes STRUCT.MEMBER", json_mode=json_output)
+            plan = plan_field_rename(cfg, record, member, new_name, comments=comments)
+        elif data:
+            plan, extra = _plan_data(
+                cfg, target_ident, new_name, all_modules, comments, dry_run, json_output
+            )
         else:
-            console.print(f"Renaming {actual_old_name} to {target_func}...")
-
-    try:
-        updated = rename_function_everywhere(
-            cfg=cfg,
-            filepath=filepath,
-            old_name=old_name,
-            old_sym=old_sym,
-            target_func=target_func,
-            rename_file=True,
-            new_filename=new_file,
-            dry_run=dry_run,
-        )
-    except FileExistsError as exc:
-        error_exit(str(exc), json_mode=json_output)
-    except ValueError as exc:
+            plan, extra = _plan_function(
+                cfg, target_ident, new_name, new_file, all_modules, comments, dry_run, json_output
+            )
+    except (FileExistsError, ValueError) as exc:
         error_exit(str(exc), json_mode=json_output)
     except RenameError as exc:
-        # The definition was renamed but call sites were not: the tree does not
-        # compile, so this is a failure, not a partial success to report.  The
-        # offending sources are the actionable part, so they are named.
         error_exit(_rename_failure(exc), json_mode=json_output)
 
-    if json_output:
-        json_print(
-            {
-                "old_name": actual_old_name,
-                "new_name": target_func,
-                "new_symbol": redecorated_symbol(old_sym, new_name, underscore=True),
-                "va": f"0x{va:08x}",
-                "files_updated": updated,
-                "dry_run": dry_run,
-            }
-        )
-    else:
-        if dry_run:
-            console.print(f"[dim]Would update cross-references in {updated} files:[/dim]")
-            pattern = re.compile(r"\b" + re.escape(actual_old_name) + r"\b")
-            for p in collect_function_rename_files(cfg, filepath, pattern, actual_old_name):
-                console.print(f"  [dim]- {rel_display_path(p, cfg.root)}[/dim]")
-        else:
-            console.print(f"Updated cross-references in {updated} files.")
-        console.print("[green]Done![/green]")
+    updated = len(plan.files)
+    if not dry_run:
+        try:
+            updated = apply_rename_plan(cfg, plan)
+        except RenameError as exc:
+            error_exit(_rename_failure(exc), json_mode=json_output)
+    _report(cfg, plan, extra, updated, dry_run, json_output)
 
 
-def _rename_data(
-    cfg: Any, target_ident: str, new_name: str, dry_run: bool, json_output: bool
+def _report(
+    cfg: Any,
+    plan: RenamePlan,
+    extra: dict[str, Any],
+    updated: int,
+    dry_run: bool,
+    json_output: bool,
 ) -> None:
-    """Rename a DATA/GLOBAL symbol: metadata name + declaration + references.
-
-    No file rename (data symbols don't own files) and no STATUS semantics
-    (data verdicts are VERIFIED/DRIFT, unaffected by a label change).
-    """
-    from rebrew.data_metadata import get_data_entry, load_data_metadata, set_data_field
-
-    if not is_safe_c_ident(new_name) or new_name in _C_KEYWORDS:
-        error_exit(
-            f"'{new_name}' is not a valid C identifier — use letters, digits, "
-            "and underscores (not starting with a digit, not a C keyword).",
-            json_mode=json_output,
-        )
-
-    entries = scan_reversed_dir(cfg.reversed_dir, cfg=cfg)
-    data_entries = [e for e in entries if getattr(e, "is_data", False)]
-
-    va_ident: int | None = None
-    if target_ident.lower().startswith("0x"):
-        try:
-            va_ident = int(target_ident, 16)
-        except ValueError:
-            va_ident = None
-    target_norm = unicodedata.normalize("NFC", target_ident)
-    matches = []
-    for e in data_entries:
-        va = getattr(e, "va", 0)
-        fp = getattr(e, "filepath", "")
-        stored_name = str(
-            get_data_entry(cfg.metadata_dir, va, getattr(e, "module", "") or "").get("name") or ""
-        )
-        stored_norm = unicodedata.normalize("NFC", stored_name)
-        if target_norm in (
-            stored_norm,
-            f"0x{va:x}",
-            f"0x{va:X}",
-            str(va),
-            unicodedata.normalize("NFC", str(fp)),
-        ) or (va_ident is not None and va == va_ident):
-            matches.append(e)
-    # Metadata-only entry: the VA has a name in rebrew-data.toml but no
-    # marker in the tree (e.g. an $SG string constant referenced only by
-    # address).  Rename the metadata name; references are rewritten by the
-    # old-name pattern when the old name occurs in sources, if it occurs
-    # nowhere the rename is metadata-only.
-    metadata_only: tuple[int, str] | None = None
-    if not matches:
-        metadata = load_data_metadata(cfg.metadata_dir)
-        for (module, va), fields in metadata.items():
-            stored_name = str(fields.get("name") or "")
-            if not stored_name:
-                continue
-            stored_norm = unicodedata.normalize("NFC", stored_name)
-            if target_norm in (stored_norm, f"0x{va:x}", f"0x{va:X}", str(va)) or (
-                va_ident is not None and va == va_ident
-            ):
-                if metadata_only is not None:
-                    error_exit(
-                        f"Found multiple metadata matches for '{target_ident}'. Be more specific.",
-                        json_mode=json_output,
-                    )
-                metadata_only = (va, module)
-    if not matches and metadata_only is None:
-        error_exit(f"Could not find DATA/GLOBAL matching '{target_ident}'", json_mode=json_output)
-    if len(matches) > 1:
-        error_exit(
-            f"Found {len(matches)} matches for '{target_ident}'. Be more specific.",
-            json_mode=json_output,
-        )
-    if metadata_only is not None:
-        va, module = metadata_only
-        old_name = str(get_data_entry(cfg.metadata_dir, va, module).get("name") or "")
-        _rename_metadata_only(cfg, va, module, old_name, new_name, dry_run, json_output)
+    root = getattr(cfg, "root", None)
+    if json_output:
+        json_print({**plan.as_dict(root), **extra, "files_updated": updated, "dry_run": dry_run})
         return
-    match = matches[0]
-    va = getattr(match, "va", 0)
-    module = getattr(match, "module", "") or ""
-    old_fp = getattr(match, "filepath", "")
-    old_name = str(get_data_entry(cfg.metadata_dir, va, module).get("name") or "")
-    if not old_name:
-        error_exit(
-            f"DATA/GLOBAL 0x{va:x} has no name in rebrew-data.toml — "
-            "name it first (rebrew data list --json), then rename.",
-            json_mode=json_output,
+    verb = "Would rename" if dry_run else "Renamed"
+    console.print(
+        f"{'[dim]Dry run:[/dim] ' if dry_run else ''}{verb} {plan.old_name} → {plan.new_name}"
+    )
+    for change in plan.files:
+        shown = rel_display_path(change.path, root)
+        for edit in change.edits:
+            console.print(f"  {shown}:{edit.line}:{edit.column} [dim]{edit.role}[/dim]")
+    for row in plan.rows:
+        fields = ", ".join(f"{k} {row.old.get(k, '')!s} → {v!s}" for k, v in row.new.items())
+        console.print(f"  {row.store} row {row.module}.0x{row.va:08x}: {fields}")
+    if plan.move is not None:
+        console.print(
+            f"  move {rel_display_path(plan.move[0], root)} → {rel_display_path(plan.move[1], root)}"
         )
-
-    # Collision guard: the linker sees one namespace — refuse when any
-    # function or data symbol already uses the new name (data names come
-    # from the metadata store, not the annotation).
-    for e in entries:
-        if e is match:
-            continue
-        symbol = getattr(e, "symbol", "") or ""
-        if (
-            getattr(e, "name", "") == new_name
-            or symbol in (new_name, f"_{new_name}")
-            # stdcall `_name@N`, vectorcall `name@@N`, fastcall `@name@N`.
-            or symbol.startswith((f"_{new_name}@", f"{new_name}@@", f"@{new_name}@"))
-        ):
-            error_exit(
-                f"'{new_name}' is already used by {getattr(e, 'filepath', '?')} — "
-                "renaming would create a duplicate symbol. Pick a different name.",
-                json_mode=json_output,
-            )
-        if getattr(e, "is_data", False):
-            other = str(
-                get_data_entry(
-                    cfg.metadata_dir, getattr(e, "va", 0), getattr(e, "module", "") or ""
-                ).get("name")
-                or ""
-            )
-            if other == new_name:
-                error_exit(
-                    f"'{new_name}' is already used by {getattr(e, 'filepath', '?')} — "
-                    "renaming would create a duplicate symbol. Pick a different name.",
-                    json_mode=json_output,
-                )
-
-    # `_name_pattern`, not a bare `\b...\b`: `\b` never matches before a leading
-    # `$`, so a `$SG…` data name matched nothing while the metadata was renamed
-    # anyway (the tool still reported success).
-    pattern = _name_pattern(old_name)
-    if not old_fp:
-        error_exit(
-            f"DATA/GLOBAL '{old_name}' has no source file — cannot rewrite references.",
-            json_mode=json_output,
-        )
-    # old_fp is metadata-supplied (MARKER_IDENTITY_FIELDS carries "file"),
-    # so it is joined through the shared containment validator: an absolute or
-    # "../" value would put the rewrite outside the source roots.  Same rule
-    # as the function path in main(), one shared validator (sources.contained_path).
-    filepath = contained_path(source_roots(cfg), old_fp)
-    if filepath is None:
-        error_exit(
-            f"function file escapes the source roots: {old_fp!r}",
-            json_mode=json_output,
-        )
-    try:
-        files = collect_matching_files(cfg, filepath, pattern)
-    except RenameError as exc:
-        # A source that cannot be read is a source that will not be rewritten:
-        # renaming the metadata over it would split the store from the tree.
-        error_exit(_rename_failure(exc), json_mode=json_output)
+    for note in plan.notes:
+        console.print(f"  [yellow]note:[/yellow] {note}")
     if dry_run:
-        if json_output:
-            json_print(
-                {
-                    "old_name": old_name,
-                    "new_name": new_name,
-                    "va": f"0x{va:08x}",
-                    "files_updated": len(files),
-                    "dry_run": True,
-                }
-            )
-        else:
-            console.print(f"[dim]Dry run:[/dim] Would rename {old_name} → {new_name}")
-            for p in files:
-                console.print(f"  [dim]- {rel_display_path(p, cfg.root)}[/dim]")
-        return
-
-    from rebrew.utils import atomic_write_text, read_source_text
-
-    updated = 0
-    for src in files:
-        try:
-            content, encoding = read_source_text(src)
-        except OSError as exc:
-            # Abort before the metadata write: a skipped source leaves the
-            # old name in the tree while rebrew-data.toml already carries the
-            # new one (source/metadata split).
-            error_exit(f"Cannot read {src}: {exc}", json_mode=json_output)
-        new_content = substitute_name(pattern, new_name, content)
-        if new_content != content:
-            try:
-                atomic_write_text(src, new_content, encoding=encoding)
-                updated += 1
-            except (OSError, UnicodeEncodeError) as exc:
-                # An undefined byte in the source's encoding (e.g. CP1252 0x81
-                # read back with errors="replace" as U+FFFD) makes the write
-                # raise UnicodeEncodeError; catching only OSError let it escape
-                # as a traceback mid-rename.
-                error_exit(f"Cannot write {src}: {exc}", json_mode=json_output)
-    # `old_name` came from this same store (see above), so there is no
-    # source-vs-metadata disagreement to resolve here — the field is renamed
-    # unconditionally after the cross-references were rewritten.
-    set_data_field(cfg.metadata_dir, va, "name", new_name, module, updated_by="rename")
-    if json_output:
-        json_print(
-            {
-                "old_name": old_name,
-                "new_name": new_name,
-                "va": f"0x{va:08x}",
-                "files_updated": updated,
-                "dry_run": False,
-            }
-        )
+        console.print(f"[dim]Would update {updated} files.[/dim]")
     else:
-        console.print(f"Updated cross-references in {updated} files.")
+        console.print(f"Updated {updated} files.")
         console.print("[green]Done![/green]")
 
 
-def _rename_metadata_only(
-    cfg: Any, va: int, module: str, old_name: str, new_name: str, dry_run: bool, json_output: bool
-) -> None:
-    """Rename a metadata-only DATA entry (no marker in the tree).
-
-    Writes the new name to rebrew-data.toml and rewrites occurrences of the
-    old name across the reversed sources when any exist (e.g. an address
-    comment or a use site); a name that occurs nowhere is a pure metadata
-    rename.  The metadata collision guard from the marker path applies.
-    """
-    from rebrew.data_metadata import set_data_field
-    from rebrew.sources import iter_sources_and_headers
-    from rebrew.utils import atomic_write_text, read_source_text
-
-    entries = scan_reversed_dir(cfg.reversed_dir, cfg=cfg)
+def _check_scan_collision(entries: list[Any], skip: Any, new_name: str, json_output: bool) -> None:
+    """Refuse a new name an active-target annotation already uses (decorated or not)."""
     for e in entries:
-        if e is None:
+        if e is skip:
             continue
         name = getattr(e, "name", "") or ""
         symbol = getattr(e, "symbol", "") or ""
-        # Same namespace as the marker path: cdecl `_name`, stdcall
-        # `_name@N`, vectorcall `name@@N`, fastcall `@name@N`.
         if (
             name == new_name
             or symbol in (new_name, f"_{new_name}")
+            # stdcall `_name@N`, vectorcall `name@@N`, fastcall `@name@N`.
             or symbol.startswith((f"_{new_name}@", f"{new_name}@@", f"@{new_name}@"))
         ):
             error_exit(
-                f"'{new_name}' is already used by {getattr(e, 'filepath', '?')} — "
-                "renaming would create a duplicate symbol. Pick a different name.",
+                _DUPLICATE.format(name=new_name, where=getattr(e, "filepath", "?")),
                 json_mode=json_output,
             )
-    try:
-        from rebrew.data_metadata import load_data_metadata
 
-        for (mod, _va), fields in load_data_metadata(cfg.metadata_dir).items():
-            if (mod, _va) != (module, va) and str(fields.get("name") or "") == new_name:
-                error_exit(
-                    f"'{new_name}' is already used by DATA/GLOBAL 0x{_va:x} — "
-                    "renaming would create a duplicate symbol. Pick a different name.",
-                    json_mode=json_output,
-                )
-    except OSError as exc:
-        # Fail closed: skipping the collision check could create duplicate
-        # symbols silently.
+
+def _plan_function(
+    cfg: Any,
+    target_ident: str,
+    new_name: str,
+    new_file: str | None,
+    all_modules: bool,
+    comments: bool,
+    dry_run: bool,
+    json_output: bool,
+) -> tuple[RenamePlan, dict[str, Any]]:
+    """Resolve the function identity, then plan its rename."""
+    from rebrew.metadata import get_entry
+
+    entries = scan_reversed_dir(cfg.reversed_dir, cfg=cfg)
+    identity = _parse_identity(target_ident)
+    if identity is not None:
+        module, va = identity
+        row = get_entry(cfg.metadata_dir, va, module)
+        if not row:
+            error_exit(f"Could not find function row {target_ident}", json_mode=json_output)
+        old_name, old_sym = str(row.get("name") or ""), str(row.get("symbol") or "")
+        stored = str(row.get("file") or "")
+        filepath = _row_source(cfg, stored) if stored else None
+        if filepath is None:
+            error_exit(f"function file escapes the source roots: {stored!r}", json_mode=json_output)
+        selected = Selection(KIND_FUNCTION, module, va)
+        match = None
+    else:
+        matches = _match_functions(cfg, entries, target_ident)
+        if len(matches) > 1:
+            error_exit(
+                f"Found {len(matches)} matches for '{target_ident}'. Be more specific.",
+                json_mode=json_output,
+            )
+        if not matches:
+            return _plan_source_level(
+                cfg, entries, target_ident, new_name, all_modules, comments, dry_run, json_output
+            )
+        match = matches[0]
+        old_name = getattr(match, "name", "") or ""
+        old_sym = getattr(match, "symbol", "") or old_name
+        rel = getattr(match, "filepath", "")
+        va = getattr(match, "va", 0)
+        module = getattr(match, "module", "") or getattr(cfg, "marker", "")
+        try:
+            filepath = (Path(cfg.reversed_dir) / rel).resolve()
+            filepath.relative_to(Path(cfg.reversed_dir).resolve())
+        except (ValueError, OSError, TypeError):
+            error_exit(f"function file escapes reversed_dir: {rel!r}", json_mode=json_output)
+        selected = Selection(KIND_FUNCTION, module, va)
+    _check_scan_collision(entries, match, new_name, json_output)
+    actual_old = rename_source_name(old_name, old_sym)
+    plan = plan_symbol_rename(
+        cfg,
+        actual_old,
+        new_name,
+        store=KIND_FUNCTION,
+        selected=selected,
+        definition_file=filepath,
+        all_modules=all_modules,
+        comments=comments,
+        rename_file=True,
+        new_filename=new_file,
+        dry_run=dry_run,
+    )
+    return plan, {
+        "module": selected.module,
+        "va": f"0x{selected.va:08x}",
+        "new_symbol": redecorated_symbol(old_sym or actual_old, new_name, underscore=True),
+    }
+
+
+def _plan_source_level(
+    cfg: Any,
+    entries: list[Any],
+    old_name: str,
+    new_name: str,
+    all_modules: bool,
+    comments: bool,
+    dry_run: bool,
+    json_output: bool,
+) -> tuple[RenamePlan, dict[str, Any]]:
+    """Rename a source symbol this target has no row for."""
+    if not is_valid_new_name(old_name) or _parse_va(old_name) is not None:
+        error_exit(f"Could not find function matching '{old_name}'", json_mode=json_output)
+    _check_scan_collision(entries, None, new_name, json_output)
+    plan = plan_symbol_rename(
+        cfg,
+        old_name,
+        new_name,
+        store=KIND_FUNCTION,
+        all_modules=all_modules,
+        comments=comments,
+        dry_run=dry_run,
+    )
+    if not plan.files:
+        error_exit(f"Could not find function matching '{old_name}'", json_mode=json_output)
+    return plan, {"module": None, "va": None}
+
+
+def _match_functions(cfg: Any, entries: list[Any], target_ident: str) -> list[Any]:
+    """Active-target annotations that *target_ident* names (name, symbol, file, VA)."""
+    va_ident = _parse_va(target_ident)
+    try:
+        rev_rel = Path(cfg.reversed_dir).relative_to(cfg.root)
+    except (ValueError, TypeError, AttributeError):
+        rev_rel = Path(cfg.reversed_dir)
+    target_norm = unicodedata.normalize("NFC", target_ident)
+    matches = []
+    for e in entries:
+        if getattr(e, "is_data", False):
+            continue
+        name = getattr(e, "name", "") or ""
+        sym = getattr(e, "symbol", "") or ""
+        fp = str(getattr(e, "filepath", "") or "")
+        va = getattr(e, "va", 0)
+        forms = {name, sym, fp, Path(fp).name, f"0x{va:x}", f"0x{va:X}", str(va)}
+        if fp:
+            root = Path(getattr(cfg, "root", None) or "")
+            forms |= {
+                (rev_rel / fp).as_posix(),
+                str(rev_rel / fp),
+                str((root / rev_rel / fp).resolve()),
+            }
+        if target_norm in {unicodedata.normalize("NFC", f) for f in forms if f} or (
+            va_ident is not None and va == va_ident
+        ):
+            matches.append(e)
+    return matches
+
+
+def _plan_data(
+    cfg: Any,
+    target_ident: str,
+    new_name: str,
+    all_modules: bool,
+    comments: bool,
+    dry_run: bool,
+    json_output: bool,
+) -> tuple[RenamePlan, dict[str, Any]]:
+    """Resolve the data identity (row or source global), then plan its rename."""
+    from rebrew.data_metadata import load_data_metadata
+    from rebrew.utils import preset_module_key
+
+    entries = scan_reversed_dir(cfg.reversed_dir, cfg=cfg)
+    rows = load_data_metadata(cfg.metadata_dir)
+    scan_files = {
+        (getattr(e, "module", "") or "", getattr(e, "va", 0)): getattr(e, "filepath", "")
+        for e in entries
+        if getattr(e, "is_data", False)
+    }
+    identity = _parse_identity(target_ident)
+    va_ident = _parse_va(target_ident)
+    target_norm = unicodedata.normalize("NFC", target_ident)
+    marker = preset_module_key(getattr(cfg, "marker", "") or "")
+
+    def named(key: tuple[str, int], row: dict[str, Any]) -> bool:
+        if identity is not None:
+            return (preset_module_key(key[0]), key[1]) == (
+                preset_module_key(identity[0]),
+                identity[1],
+            )
+        stored = unicodedata.normalize("NFC", str(row.get("name") or ""))
+        return target_norm == stored or (va_ident is not None and key[1] == va_ident)
+
+    candidates = [key for key, row in rows.items() if named(key, row)]
+    own = [key for key in candidates if preset_module_key(key[0]) == marker]
+    picked = own or candidates
+    if len(picked) > 1:
+        listed = ", ".join(f"{m}.0x{v:08x}" for m, v in picked)
         error_exit(
-            f"Cannot read rebrew-data.toml for rename collision check: {exc}",
+            f"Found {len(picked)} matches for '{target_ident}' ({listed}). Be more specific: "
+            "pass MODULE.0xVA.",
             json_mode=json_output,
         )
-
-    pattern = _name_pattern(old_name)
-    files: list[Path] = []
-    for src in iter_sources_and_headers(cfg.reversed_dir, cfg):
-        try:
-            text, _ = read_source_text(src)
-        except (OSError, UnicodeDecodeError) as exc:
-            # Same abort-before-metadata rule as the write loop below: a file
-            # dropped from the candidate list is never rewritten, so the
-            # metadata rename would land with a reference left behind.
-            error_exit(f"Cannot read {src}: {exc}", json_mode=json_output)
-        if pattern.search(text):
-            files.append(src)
-
-    if dry_run:
-        if json_output:
-            json_print(
-                {
-                    "old_name": old_name,
-                    "new_name": new_name,
-                    "va": f"0x{va:08x}",
-                    "files_updated": len(files),
-                    "metadata_only": True,
-                    "dry_run": True,
-                }
+    data_scan = [e for e in entries if getattr(e, "is_data", False)]
+    if not picked:
+        if identity is not None or va_ident is not None:
+            error_exit(
+                f"Could not find DATA/GLOBAL matching '{target_ident}'", json_mode=json_output
             )
-        else:
-            console.print(
-                f"[dim]Dry run:[/dim] Would rename {old_name} → {new_name} (metadata-only)"
-            )
-            for p in files:
-                console.print(f"  [dim]- {rel_display_path(p, cfg.root)}[/dim]")
-        return
-
-    updated = 0
-    for src in files:
-        try:
-            content, encoding = read_source_text(src)
-        except OSError as exc:
-            # Same abort-before-metadata rule as the marker path: a skipped
-            # rewrite plus a renamed TOML entry splits source and store.
-            error_exit(f"Cannot read {src}: {exc}", json_mode=json_output)
-        new_content = pattern.sub(lambda _m: new_name, content)
-        if new_content != content:
-            try:
-                atomic_write_text(src, new_content, encoding=encoding)
-                updated += 1
-            except (OSError, UnicodeEncodeError) as exc:
-                # An undefined byte in the source's encoding writes as
-                # UnicodeEncodeError, not OSError; letting it escape raised a
-                # traceback from inside the rewrite loop.
-                error_exit(f"Cannot write {src}: {exc}", json_mode=json_output)
-    set_data_field(cfg.metadata_dir, va, "name", new_name, module, updated_by="rename")
-    if json_output:
-        json_print(
-            {
-                "old_name": old_name,
-                "new_name": new_name,
-                "va": f"0x{va:08x}",
-                "files_updated": updated,
-                "metadata_only": True,
-                "dry_run": False,
-            }
+        _check_scan_collision(entries, None, new_name, json_output)
+        plan = plan_symbol_rename(
+            cfg, target_ident, new_name, store=KIND_DATA, all_modules=all_modules, comments=comments
         )
-    else:
-        console.print(f"Updated cross-references in {updated} files.")
-        console.print("[green]Done![/green]")
-
-
-def _name_pattern(old_name: str) -> re.Pattern[str]:
-    """Word-boundary pattern for *old_name*, tolerant of non-word lead chars.
-
-    ``\\b`` never matches before a leading ``$`` (``$SG123``), so compiler-
-    emitted names would silently miss every occurrence.  A lookbehind covers
-    both cases: the char before must not be a word char or ``$``.
-    """
-    return re.compile(r"(?<![\w$])" + re.escape(old_name) + r"\b")
+        if not plan.files:
+            error_exit(
+                f"Could not find DATA/GLOBAL matching '{target_ident}'", json_mode=json_output
+            )
+        return plan, {"module": None, "va": None}
+    module, va = picked[0]
+    row = rows[(module, va)]
+    old_name = str(row.get("name") or "")
+    if not old_name:
+        error_exit(
+            f"DATA/GLOBAL 0x{va:x} has no name in rebrew-data.toml — name it first "
+            "(rebrew data list --json), then rename.",
+            json_mode=json_output,
+        )
+    stored = str(row.get("file") or "")
+    filepath: Path | None = None
+    if stored:
+        filepath = _row_source(cfg, stored)
+    elif scan_files.get((module, va)):
+        stored = str(scan_files[(module, va)])
+        filepath = contained_path(source_roots(cfg), stored)
+    if stored and filepath is None:
+        error_exit(f"function file escapes the source roots: {stored!r}", json_mode=json_output)
+    skip = next(
+        (e for e in data_scan if (getattr(e, "module", ""), getattr(e, "va", 0)) == (module, va)),
+        None,
+    )
+    _check_scan_collision(entries, skip, new_name, json_output)
+    plan = plan_symbol_rename(
+        cfg,
+        old_name,
+        new_name,
+        store=KIND_DATA,
+        selected=Selection(KIND_DATA, module, va),
+        definition_file=filepath if filepath is not None and filepath.is_file() else None,
+        all_modules=all_modules,
+        comments=comments,
+        dry_run=dry_run,
+    )
+    return plan, {"module": module, "va": f"0x{va:08x}"}
 
 
 def main_entry() -> None:

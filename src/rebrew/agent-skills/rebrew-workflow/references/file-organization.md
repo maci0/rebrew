@@ -14,6 +14,10 @@ rebrew match partitions --dry-run
 rebrew build link-order --check
 rebrew build layout-map
 rebrew source rename old_func new_func [--dry-run]
+rebrew source rename SERVER.0x10003da0 new_func [--all-modules] [--dry-run]
+rebrew source rename g_old g_new --data [--dry-run]
+rebrew source rename OldType NewType --type [--dry-run]
+rebrew source rename Struct.old_member new_member --field [--dry-run]
 rebrew recommend --json                   # all lanes: TU layout + hygiene + next action
 ```
 
@@ -31,6 +35,21 @@ rebrew recommend --json                   # all lanes: TU layout + hygiene + nex
   blocks and refuses divergent bodies.
 - `rebrew source import-related --shared` records the destination row on that shared file
   (`--promote` moves the file first). `rebrew source split --va` still splits an unmigrated stacked marker.
+- `rebrew source rename` rewrites whole identifiers only: never inside string
+  literals, inside comments only with `--comments`. Read the `--dry-run` list
+  (`file:line:column role` plus row changes) before writing.
+- A definition shared by several modules' rows renames only with
+  `--all-modules`; a per-target twin keeps its name unless `--all-modules`
+  is given. Pick one twin by `MODULE.0xVA`. A name with no row in the active
+  target renames the source symbol and the other modules' rows bound to it.
+- `--data` renames a global's rows, definition, `extern` declarations and
+  uses (`rebrew data set --name` changes only the row). `--type` renames a tag
+  or typedef and the `type` strings of data rows and function `locals`.
+  `--field STRUCT.MEMBER` resolves each access to its struct and refuses,
+  with `file:line`, accesses it cannot resolve while another struct has a
+  member of that name.
+- After a rename run `rebrew test --all`; after `--data` or `--type` also run
+  `rebrew verify --data`, since a changed name or type clears the row's verdict.
 
 ## Dependency graph
 
