@@ -255,3 +255,68 @@ def test_mounted_under_library() -> None:
     res = CliRunner().invoke(app, ["library", "inspect", "--help"])
     assert res.exit_code == 0
     assert "--refs" in res.output
+
+
+class TestStockExtraction:
+    def test_spec_case_differs_from_the_image_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """guild-rebrew configures ``LIBCMT = "LIBCMT.lib"`` while the image
+        holds ``VC98/Lib/LIBCMT.LIB``: a case-sensitive copy of the spelled
+        name failed with no cache present. The container command runs here
+        under ``sh`` against a stand-in Lib directory."""
+        import shutil
+        import subprocess
+
+        import rebrew.lib_match as lm
+
+        lib_dir = tmp_path / "image-lib"
+        lib_dir.mkdir()
+        (lib_dir / "LIBCMT.LIB").write_bytes(_write_lib(tmp_path).read_bytes())
+        real_run = subprocess.run
+
+        def container(argv: list[str], **kwargs: Any) -> Any:
+            out = next(a.split(":/out")[0] for a in argv if a.endswith(":/out"))
+            script = argv[argv.index("-c") + 1].replace("/out/", f"{out}/")
+            args = argv[argv.index("-c") + 2 :]
+            args = [str(lib_dir) if a.endswith("/VC98/Lib") else a for a in args]
+            return real_run(["sh", "-c", script, *args], **kwargs)
+
+        monkeypatch.setattr(lm, "container_runtime", lambda: "docker")
+        monkeypatch.setattr(shutil, "which", lambda name: f"/usr/bin/{name}")
+        monkeypatch.setattr(lm.subprocess, "run", container)
+        cfg = SimpleNamespace(
+            root=tmp_path, external_libs={"LIBCMT": "LIBCMT.lib"}, compiler_profile="msvc-6.0-sp5"
+        )
+        monkeypatch.setattr("rebrew.lib_inspect.require_config", lambda **_: cfg)
+        out = _run(["LIBCMT.lib", "--refs", "__lock"])
+        assert out["archive"] == str(tmp_path / ".scratch" / "msvc-6.0-sp5_libcmt_stock.lib")
+        assert out["members"] == ["obj\\mbctype.obj"]
+
+    def test_ambiguous_case_match_is_an_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import shutil
+        import subprocess
+
+        import rebrew.lib_match as lm
+        from rebrew.toolchain import ToolchainError
+
+        lib_dir = tmp_path / "image-lib"
+        lib_dir.mkdir()
+        (lib_dir / "LIBCMT.LIB").write_bytes(b"A")
+        (lib_dir / "libcmt.lib").write_bytes(b"B")
+        real_run = subprocess.run
+
+        def container(argv: list[str], **kwargs: Any) -> Any:
+            script = argv[argv.index("-c") + 1]
+            args = [
+                str(lib_dir) if a.endswith("/VC98/Lib") else a for a in argv[argv.index("-c") + 2 :]
+            ]
+            return real_run(["sh", "-c", script, *args], **kwargs)
+
+        monkeypatch.setattr(lm, "container_runtime", lambda: "docker")
+        monkeypatch.setattr(shutil, "which", lambda name: f"/usr/bin/{name}")
+        monkeypatch.setattr(lm.subprocess, "run", container)
+        with pytest.raises(ToolchainError, match="several"):
+            lm.ensure_stock_lib(tmp_path / "x.lib", profile="msvc-6.0-sp5", name="LIBCMT.lib")

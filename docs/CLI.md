@@ -1403,6 +1403,9 @@ pull it, and the member listing shows the data each one brings.
 `LIBRARY` is a path, or a `targets.<name>.external_libs` key or spec. A spec
 with a directory is project-relative; a bare spec (`LIBCMT.lib`) is the stock
 archive cached under `.scratch/`, extracted from the toolchain image when absent.
+The image's `Lib` directory is searched ignoring letter case (the image holds
+`LIBCMT.LIB`); no match, or more than one, is an error. `library match
+--stock-lib` extracts and hash-checks the same way.
 
 | Flag / Arg | Description |
 |------------|-------------|

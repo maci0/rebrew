@@ -82,10 +82,18 @@
   built from the same sources.
 
 ### Changed
+- **Breaking:** `lib_match.stock_lib_source` is now `lib_match.stock_lib_dir`
+  and returns the image's `Lib` directory, not the archive path; the archive is
+  found there ignoring letter case.
 - **Breaking:** `rehome.main` takes `from_file` and `to_file` after `specs`,
   and `specs` defaults to `None`. The CLI keeps its `0xVA=PATH` form.
 
 ### Fixed
+- `rebrew library inspect` and `rebrew library match` extract a stock archive
+  whose configured spelling differs in case from the toolchain image's file
+  (`LIBCMT.lib` against `VC98/Lib/LIBCMT.LIB`): the image's `Lib` directory is
+  searched ignoring case, and several matches are an error. The copy failed
+  whenever no cached archive existed.
 - `rebrew source rename --file` moves the data rows of the renamed file with
   its function rows. They kept naming the old path.
 
