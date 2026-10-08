@@ -579,6 +579,7 @@ def main(
 
     cfg = require_config(target=target, json_mode=json_output)
     va_int = parse_va(va, json_mode=json_output) if va is not None else None
+    explicit_archives = bool(lib or stock_lib)
 
     if not lib and not stock_lib:
         # Ingest the configured external archives by default (explicit
@@ -601,7 +602,11 @@ def main(
             error_exit(str(exc), json_mode=json_output, code=EXIT_ERROR)
         archives.append(cached)
 
-    objects = vendored_objects(compile_commands or (cfg.root / COMPILE_COMMANDS_DEFAULT), cfg.root)
+    objects = []
+    if compile_commands is not None or not explicit_archives:
+        objects = vendored_objects(
+            compile_commands or (cfg.root / COMPILE_COMMANDS_DEFAULT), cfg.root
+        )
     if not archives and not objects:
         error_exit(
             "nothing to check against: pass --lib (an archive the target links), --stock-lib "
