@@ -30,16 +30,18 @@ log = logging.getLogger(__name__)
 _NOTE_PREFIX = "[rebrew:note]"
 _GHIDRA_PREFIX = "[rebrew:ghidra]"
 
-#: Per-address source comment marker (line comment only).  This is the single
-#: prefix import writes and export scans; format::
+#: Per-address source comment marker.  Import writes the block-comment form,
+#: valid in C89; export and import also read the older line-comment form::
 #:
+#:     /* ANALYSIS @ 0x401010: some note */
 #:     // ANALYSIS @ 0x401010: some note
-ANALYSIS_MARKER_PREFIX = "// ANALYSIS @ "
+_ANALYSIS_MARKER_RE = re.compile(
+    r"^(?:/\*\s*ANALYSIS\s*@\s*(0x[0-9a-fA-F]+)\s*:\s?(.*?)\s*\*/"
+    r"|//\s*ANALYSIS\s*@\s*(0x[0-9a-fA-F]+)\s*:\s?(.*))$"
+)
 
-_ANALYSIS_MARKER_RE = re.compile(r"^//\s*ANALYSIS\s*@\s*(0x[0-9a-fA-F]+)\s*:\s?(.*)$")
-
-#: A comment lands inside a ``//`` line in a real source file, so it must
-#: stay on that one line.  BinSync state is written by collaborators, and a
+#: A comment lands inside one marker line in a real source file, so it must
+#: stay on that line.  BinSync state is written by collaborators, and a
 #: comment carrying a newline would add live source lines to the file.
 _MARKER_CONTROL_RE = re.compile(r"[\x00-\x08\x0a-\x1f\x7f]")
 
@@ -47,10 +49,15 @@ _MARKER_CONTROL_RE = re.compile(r"[\x00-\x08\x0a-\x1f\x7f]")
 def marker_comment_text(comment: str) -> str:
     """One-line form of a BinSync comment, safe to splice into a ``.c`` file.
 
-    Line breaks and control characters become spaces, so the text cannot end
-    the ``//`` marker line and start new source of its own.
+    Line breaks and control characters become spaces and ``*/`` is split, so
+    the text can neither end the marker comment nor start source of its own.
     """
-    return _MARKER_CONTROL_RE.sub(" ", str(comment)).rstrip()
+    return _MARKER_CONTROL_RE.sub(" ", str(comment)).replace("*/", "* /").rstrip()
+
+
+def analysis_marker(addr: int, comment: str) -> str:
+    """The source line that carries *comment* for *addr* (a C89 block comment)."""
+    return f"/* ANALYSIS @ 0x{addr:08x}: {comment} */"
 
 
 def parse_analysis_markers(text: str) -> dict[int, str]:
@@ -59,7 +66,8 @@ def parse_analysis_markers(text: str) -> dict[int, str]:
     for line in text.splitlines():
         match = _ANALYSIS_MARKER_RE.match(line.strip())
         if match:
-            out[int(match.group(1), 16)] = match.group(2).rstrip()
+            addr = match.group(1) or match.group(3)
+            out[int(addr, 16)] = (match.group(2) or match.group(4) or "").rstrip()
     return out
 
 
@@ -101,9 +109,7 @@ def write_analysis_markers(path: Path, comments: dict[int, str]) -> bool:
     ]
     while kept and not kept[-1].strip():
         kept.pop()
-    block = "\n".join(
-        f"{ANALYSIS_MARKER_PREFIX}0x{addr:08x}: {merged[addr]}" for addr in sorted(merged)
-    )
+    block = "\n".join(analysis_marker(addr, merged[addr]) for addr in sorted(merged))
     body = "\n".join(kept)
     new_text = f"{body}\n\n{block}\n" if body else f"{block}\n"
     if new_text == text:
@@ -797,8 +803,18 @@ def local_sync_records(
             fields["name"] = fields.get("name") or names.get(va) or f"g_{va:08x}"
             fields["type"] = fields.get("type") or types.get(va) or "char"
         else:
-            fields["name"] = fields.get("name") or getattr(entry, "name", "") or f"func_{va:08x}"
-            if fields.get("ghidra") == fields["name"]:
+            from rebrew.rename_ops import c_name_from_symbol
+
+            fields["name"] = (
+                fields.get("name")
+                or c_name_from_symbol(str(getattr(entry, "symbol", "") or ""))
+                or f"func_{va:08x}"
+            )
+            # A Ghidra name that is the function's own name, decorated or not,
+            # is not an alternate name.
+            if normalize_sync_value("name", fields.get("ghidra")) == normalize_sync_value(
+                "name", fields["name"]
+            ):
                 fields["ghidra"] = ""
             metadata = get_entry(cfg.metadata_dir, va, module)
             fields["stack_vars"] = metadata.get("locals") or fields.get("stack_vars") or {}
@@ -1351,64 +1367,108 @@ def merge_sync_record(
     return result
 
 
-def parse_struct_fields(typedef_text: str) -> list[dict[str, Any]]:
-    """Extract ``{name, type, offset, size}`` field dicts from a typedef-struct string.
+#: Spellings of C types that Win32 headers and Ghidra use for the same type.
+#: Project typedefs (:func:`type_aliases`) extend and override these.
+_BUILTIN_TYPE_ALIASES: dict[str, str] = {
+    "BOOL": "int",
+    "BYTE": "unsigned char",
+    "CHAR": "char",
+    "DWORD": "unsigned long",
+    "HANDLE": "void *",
+    "INT": "int",
+    "LONG": "long",
+    "LPCSTR": "const char *",
+    "LPDWORD": "unsigned long *",
+    "LPSTR": "char *",
+    "LPVOID": "void *",
+    "PVOID": "void *",
+    "SHORT": "short",
+    "UCHAR": "unsigned char",
+    "UINT": "unsigned int",
+    "ULONG": "unsigned long",
+    "USHORT": "unsigned short",
+    "WORD": "unsigned short",
+    "byte": "unsigned char",
+    "uchar": "unsigned char",
+    "uint": "unsigned int",
+    "ulong": "unsigned long",
+    "ushort": "unsigned short",
+}
 
-    Parses via the shared :mod:`rebrew.types` model (tree-sitter), which
-    supplies real member offsets and scalar sizes for the declib Struct.
-    Falls back to the legacy brace/body splitter for definitions the shared
-    model cannot size, so unrecognized declarator forms still export.
+#: An alias's underlying type must be this simple to substitute textually:
+#: words and trailing pointers, nothing a function-pointer typedef carries.
+_SIMPLE_TYPE_RE = re.compile(r"[A-Za-z_][\w ]*[\s*]*\Z")
+
+#: Rounds of alias substitution (an alias may name another alias).
+_ALIAS_DEPTH = 4
+
+_WORD_RE = re.compile(r"\b[A-Za-z_]\w*\b")
+
+
+def type_aliases(cfg: ProjectConfig) -> dict[str, str]:
+    """``{alias: underlying}`` for simple typedefs, Win32 spellings included."""
+    aliases = dict(_BUILTIN_TYPE_ALIASES)
+    for name, (_raw, underlying) in collect_typedef_definitions(cfg).items():
+        if underlying and _SIMPLE_TYPE_RE.match(underlying):
+            aliases[name] = underlying
+    return aliases
+
+
+def expand_type_aliases(text: str, aliases: dict[str, str]) -> str:
+    """*text* with every alias word replaced by its underlying type, to a fixed point."""
+    for _round in range(_ALIAS_DEPTH):
+        expanded = _WORD_RE.sub(lambda m: aliases.get(m.group(), m.group()), text)
+        if expanded == text:
+            break
+        text = expanded
+    return text
+
+
+def parse_struct_fields(
+    typedef_text: str, aliases: dict[str, str] | None = None
+) -> list[dict[str, Any]]:
+    """``{name, type, offset, size}`` field dicts of one struct definition.
+
+    Laid out by the shared :mod:`rebrew.types` model (tree-sitter, 32-bit
+    MSVC alignment) after simple typedef *aliases* are expanded, so a
+    ``DWORD`` member is sized as ``unsigned long`` and exported under that
+    spelling.  A member whose size the model cannot know (a nested or
+    unknown aggregate, a bitfield, a function pointer) ends the layout: it
+    and every later member are left out with a warning naming the struct,
+    because their offsets are unknown and declib keys members by offset.
+    Members are never guessed.
     """
-    try:
-        from rebrew.types import parse_structs, type_size
+    from rebrew.types import parse_structs, type_size
 
-        parsed = parse_structs(typedef_text)
-        if parsed:
-            struct = next(iter(parsed.values()))
-            if struct.fields:
-                return [
-                    {
-                        "name": name,
-                        "type": spelling,
-                        "offset": offset,
-                        "size": type_size(spelling) or 0,
-                    }
-                    for name, spelling, offset in struct.fields
-                ]
-    except Exception:
-        log.debug("shared struct parse failed, falling back to regex", exc_info=True)
-
-    # Regex fallback: extract body between { and } then split on ;
-    m = re.search(r"\{(.*)\}", typedef_text, flags=re.DOTALL)
-    if not m:
+    text = expand_type_aliases(typedef_text, aliases) if aliases else typedef_text
+    parsed = parse_structs(text)
+    if not parsed:
         return []
-    body = m.group(1)
-    out: list[dict[str, Any]] = []
-    for raw_field in body.split(";"):
-        raw_field = raw_field.strip()
-        if not raw_field:
-            continue
-        raw_field = raw_field.split("//")[0].strip()
-        if not raw_field:
-            continue
-        # Expect "<type> <name>[array]"
-        parts = raw_field.rsplit(None, 1)
-        if len(parts) != 2:
-            continue
-        type_part, name_part = parts
-        name_match = re.match(r"([A-Za-z_][A-Za-z0-9_]*)\s*(\[.*\])?", name_part)
-        if not name_match:
-            continue
-        fname = name_match.group(1)
-        arr = name_match.group(2) or ""
-        ftype = type_part.strip() + arr
-        out.append({"name": fname, "type": ftype})
-    return out
+    name = _struct_name(text)
+    struct = parsed.get(name) or next(iter(parsed.values()))
+    fields = [
+        {"name": field, "type": spelling, "offset": offset, "size": type_size(spelling) or 0}
+        for field, spelling, offset in struct.fields
+    ]
+    if not struct.complete:
+        after = f"after member {fields[-1]['name']}" if fields else "at its first member"
+        log.warning(
+            "struct %s: layout stops %s (a member of unknown size: nested or unknown "
+            "aggregate, bitfield, or function pointer); %d member(s) exported, the rest omitted",
+            name or "?",
+            after,
+            len(fields),
+        )
+    return fields
 
 
 def _struct_name(typedef_text: str) -> str:
-    """Struct name: the typedef alias before ``;``, else the ``struct Name {`` tag."""
-    name_match = re.search(r"\}\s*([A-Za-z_][A-Za-z0-9_]*)\s*;", typedef_text)
+    """Struct name: the typedef alias after the closing brace, else the ``struct Name {`` tag.
+
+    The alias follows the outermost ``}``; a nested member aggregate
+    (``struct { ... } check;``) closes earlier and is not the type's name.
+    """
+    name_match = re.search(r"\}\s*([A-Za-z_][A-Za-z0-9_]*)\s*;\s*\Z", typedef_text.strip())
     if name_match:
         return name_match.group(1)
     sm = re.search(r"struct\s+([A-Za-z_][A-Za-z0-9_]*)\s*\{", typedef_text)
@@ -1424,17 +1484,37 @@ def collect_struct_definitions(cfg: ProjectConfig) -> dict[str, tuple[str, list[
     from rebrew.struct_parser import extract_structs_from_file
 
     result: dict[str, tuple[str, list[dict[str, Any]]]] = {}
+    duplicates: set[str] = set()
+    aliases = type_aliases(cfg)
     for path in _iter_definition_files(cfg):
         try:
             for typedef_text in extract_structs_from_file(path):
                 name = _struct_name(typedef_text)
-                if not name or name in result:
+                if not name:
                     continue
-                result[name] = (typedef_text.strip(), parse_struct_fields(typedef_text))
+                if name in result:
+                    if " ".join(result[name][0].split()) != " ".join(typedef_text.split()):
+                        duplicates.add(name)
+                    continue
+                result[name] = (typedef_text.strip(), parse_struct_fields(typedef_text, aliases))
         except Exception:
             # One malformed file must not drop every later definition from the export.
             log.warning("struct collection failed for %s; skipped", path, exc_info=True)
+    if duplicates:
+        listed = ", ".join(sorted(duplicates)[:_DUPLICATE_LIST_LIMIT])
+        more = len(duplicates) - _DUPLICATE_LIST_LIMIT
+        log.warning(
+            "%d struct name(s) have more than one differing definition; only the first "
+            "(headers before sources) is synced: %s%s",
+            len(duplicates),
+            listed,
+            f" and {more} more" if more > 0 else "",
+        )
     return result
+
+
+#: Duplicate struct names listed by name in the collection warning.
+_DUPLICATE_LIST_LIMIT = 10
 
 
 def _iter_definition_files(cfg: ProjectConfig) -> list[Path]:

@@ -9,7 +9,7 @@ import pytest
 
 class TestAnalysisMarkerSanitizing:
     def test_comment_newline_cannot_add_source_lines(self, tmp_path: Path) -> None:
-        """A collaborator's comment must stay inside the ``//`` marker line."""
+        """A collaborator's comment must stay inside the marker comment."""
         from rebrew.binsync.state import write_analysis_markers
 
         source = tmp_path / "foo.c"
@@ -17,9 +17,19 @@ class TestAnalysisMarkerSanitizing:
         write_analysis_markers(source, {0x1000: "hi\nint injected(void) { return 1; }"})
 
         text = source.read_text(encoding="utf-8")
-        assert "int injected" not in text.split("// ANALYSIS @")[0]
+        assert "int injected" not in text.split("/* ANALYSIS @")[0]
         marker_lines = [line for line in text.splitlines() if "injected" in line]
-        assert marker_lines == ["// ANALYSIS @ 0x00001000: hi int injected(void) { return 1; }"]
+        assert marker_lines == ["/* ANALYSIS @ 0x00001000: hi int injected(void) { return 1; } */"]
+
+    def test_comment_cannot_close_the_marker(self, tmp_path: Path) -> None:
+        from rebrew.binsync.state import parse_analysis_markers, write_analysis_markers
+
+        source = tmp_path / "foo.c"
+        source.write_text("int foo(void){return 0;}\n", encoding="utf-8")
+        write_analysis_markers(source, {0x1000: "x */ int injected; /*"})
+        text = source.read_text(encoding="utf-8")
+        assert "/* ANALYSIS @ 0x00001000: x * / int injected; /* */" in text
+        assert parse_analysis_markers(text) == {0x1000: "x * / int injected; /*"}
 
     def test_marker_comment_text_flattens_control_characters(self) -> None:
         from rebrew.binsync.state import marker_comment_text

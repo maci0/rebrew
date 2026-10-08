@@ -32,6 +32,7 @@ import typer
 from rebrew.binsync.serial import require_declib
 from rebrew.binsync.state import (
     acknowledge_sync,
+    expand_type_aliases,
     has_state_data,
     index_local_and_catalog,
     load_binsync_comments,
@@ -44,6 +45,7 @@ from rebrew.binsync.state import (
     module_predicate,
     normalize_comment_text,
     normalize_prototype,
+    normalize_sync_value,
     prepare_sync_import,
     record_sync_origins,
     remote_sync_records,
@@ -56,6 +58,7 @@ from rebrew.binsync.state import (
     sync_health_messages,
     sync_origin,
     sync_value_hash,
+    type_aliases,
 )
 from rebrew.cli import (
     EXIT_MISMATCH,
@@ -142,74 +145,153 @@ def is_meaningful(name: str) -> bool:
     )
 
 
-def _global_field_updates(local: Any, bs_entry: dict[str, str]) -> list[tuple[str, str | int]]:
-    """Return ``(field, value)`` pairs where BinSync differs from *local*.
+#: Global fields a BinSync ``GlobalVariable`` carries (declib has no section).
+_GLOBAL_SYNC_FIELDS: tuple[str, ...] = ("name", "type", "size")
 
-    Shared by the drift probe and the writer so a new field cannot be checked
-    on one side and missed on the other.
+
+def _record_key(records: dict[str, dict[str, Any]], kind: str, va: int) -> str:
+    """The sync key of *kind* at *va* in *records* (``""`` when absent)."""
+    suffix = f".0x{va:x}"
+    return next((k for k in records if k.startswith(f"{kind}.") and k.endswith(suffix)), "")
+
+
+def _global_changes(record: dict[str, Any], bs_entry: dict[str, Any]) -> dict[str, Any]:
+    """Incoming global fields that differ from the local *record* after normalization.
+
+    Raises:
+        ValueError: *bs_entry* (from the untrusted remote state) carries a size
+            that is not a positive integer; the global is then not imported
+            at all, so a rename never lands without the rest of its row.
     """
-    updates: list[tuple[str, str | int]] = []
-    bs_type = (bs_entry.get("type") or "").strip()
-    if bs_type and bs_type != str(getattr(local, "type", "") or "").strip():
-        updates.append(("type", bs_type))
-    bs_size = (bs_entry.get("size") or "").strip()
-    if bs_size:
-        try:
-            size_val = int(bs_size, 0)
-        except ValueError:
-            # bs_size comes from the remote state, which is untrusted.  An
-            # unparsable value is not "no drift": reporting none would let the
-            # global be counted as synced while its SIZE stays stale, and every
-            # later byte comparison measures against the wrong length.
-            logging.getLogger(__name__).warning(
-                "ignoring unparsable BinSync size %r: expected an integer (0x/0o/0b prefixed "
-                "or decimal)",
-                bs_size,
-            )
-        else:
-            local_size = getattr(local, "size", 0) or 0
+    changes: dict[str, Any] = {}
+    for field in _GLOBAL_SYNC_FIELDS:
+        value = bs_entry.get(field)
+        if value in (None, ""):
+            continue
+        if field == "size":
             try:
-                local_val = int(local_size)
-            except (TypeError, ValueError):
-                local_val = -1
-            if size_val != local_val:
-                updates.append(("size", size_val))
-    bs_section = (bs_entry.get("section") or "").strip()
-    if bs_section and bs_section != str(getattr(local, "section", "") or "").strip():
-        updates.append(("section", bs_section))
-    return updates
+                value = int(str(value), 0)
+            except ValueError:
+                raise ValueError(f"BinSync size {value!r} is not an integer") from None
+            if value <= 0:
+                raise ValueError(f"BinSync size {value} is not a positive byte count")
+        if normalize_sync_value(field, value, kind="global") != normalize_sync_value(
+            field, record.get(field), kind="global"
+        ):
+            changes[field] = value
+    return changes
 
 
-def _apply_global_type_size(
+def _member_key(member_type: object) -> str:
+    """A member type with canonical spacing, for layout comparison."""
+    text = " ".join(str(member_type or "").split())
+    return re.sub(r"\s*([*\[\]()])\s*", r"\1", text)
+
+
+def _member_renames(
+    local: dict[str, Any], remote: dict[str, Any]
+) -> tuple[list[tuple[str, str]], bool]:
+    """Members renamed between two struct projections, matched by offset.
+
+    Returns ``(renames, names_only)``: ``(old, new)`` for each offset whose
+    member keeps its type under a different name, and whether names are the
+    only difference (same offsets, same types).
+    """
+
+    def by_offset(definition: dict[str, Any]) -> dict[int, tuple[str, str]]:
+        out: dict[int, tuple[str, str]] = {}
+        for member, fields in definition.items():
+            if isinstance(fields, dict) and "offset" in fields:
+                out[int(fields["offset"])] = (str(member), _member_key(fields.get("type")))
+        return out
+
+    left, right = by_offset(local), by_offset(remote)
+    renames = [
+        (left[offset][0], right[offset][0])
+        for offset in sorted(left.keys() & right.keys())
+        if left[offset][1] == right[offset][1] and left[offset][0] != right[offset][0]
+    ]
+    names_only = left.keys() == right.keys() and all(
+        left[offset][1] == right[offset][1] for offset in left
+    )
+    return renames, names_only
+
+
+def rename_struct_member(cfg: Any, record: str, old_name: str, new_name: str) -> str | None:
+    """Rename member *old_name* of struct *record* through the project rename engine.
+
+    Returns ``None`` on success, else the reason the rename was refused
+    (nothing is written then).
+    """
+    from rebrew.rename_ops import RenameError, apply_rename_plan, plan_field_rename
+
+    try:
+        apply_rename_plan(cfg, plan_field_rename(cfg, record, old_name, new_name))
+    except (RenameError, ValueError) as exc:
+        return str(exc)
+    return None
+
+
+def rename_global(cfg: Any, module: str, va: int, old_name: str, new_name: str) -> str | None:
+    """Rename the global bound to row ``module.va`` in the sources and the store.
+
+    Goes through the project rename engine (:mod:`rebrew.rename_ops`), so the
+    definition, declarations, references and every bound row (including the
+    native ``link_symbol``) move together.  Returns ``None`` on success, else
+    the reason the rename was refused; nothing is written then.
+    """
+    from rebrew.data_metadata import get_data_entry
+    from rebrew.rename_ops import (
+        KIND_DATA,
+        RenameError,
+        Selection,
+        apply_rename_plan,
+        plan_symbol_rename,
+    )
+    from rebrew.sources import contained_path, source_roots
+
+    stored = str(get_data_entry(cfg.metadata_dir, va, module).get("file") or "")
+    definition = contained_path(source_roots(cfg), stored) if stored else None
+    try:
+        plan = plan_symbol_rename(
+            cfg,
+            old_name,
+            new_name,
+            store=KIND_DATA,
+            selected=Selection(KIND_DATA, module, va),
+            definition_file=definition if definition is not None and definition.is_file() else None,
+            require_ack=False,
+        )
+        apply_rename_plan(cfg, plan)
+    except (RenameError, ValueError) as exc:
+        return str(exc)
+    return None
+
+
+def _apply_global_fields(
     metadata_dir: Path,
     va: int,
     module: str,
-    local: Any,
-    bs_entry: dict[str, str],
+    fields: dict[str, Any],
     *,
     origin: dict[str, str] | None = None,
 ) -> None:
-    """Write BinSync global type/size/section into rebrew-data.toml when they differ."""
-    from rebrew.data_metadata import set_data_fields_batch
+    """Write accepted BinSync global *fields* (and their origins) into rebrew-data.toml."""
+    from rebrew.data_metadata import get_data_entry, set_data_fields_batch
 
-    fields: dict[str, Any] = dict(_global_field_updates(local, bs_entry))
-    fields["name"] = bs_entry["name"]
+    entry = get_data_entry(metadata_dir, va, module)
+    writes = {k: v for k, v in fields.items() if entry.get(k) != v}
     if origin:
-        from rebrew.data_metadata import get_data_entry
-
-        entry = get_data_entry(metadata_dir, va, module)
         origins = dict(entry.get("origins") or {})
         for field, value in fields.items():
-            if entry.get(field) != value:
-                origins[field] = {
-                    **origin,
-                    "value_hash": sync_value_hash(field, value, kind="global"),
-                }
-        fields["origins"] = origins
-    set_data_fields_batch(
-        metadata_dir,
-        [{"module": module, "va": va, "fields": fields, "updated_by": "binsync-import"}],
-    )
+            origins[field] = {**origin, "value_hash": sync_value_hash(field, value, kind="global")}
+        if origins != entry.get("origins"):
+            writes["origins"] = origins
+    if writes:
+        set_data_fields_batch(
+            metadata_dir,
+            [{"module": module, "va": va, "fields": writes, "updated_by": "binsync-import"}],
+        )
 
 
 def strip_cdecl_prefix(name: str) -> str:
@@ -247,54 +329,8 @@ def _inside_project(fp: Path, cfg: Any) -> bool:
     return False
 
 
-#: Spellings of C types that Win32 headers and Ghidra use for the same type.
-#: Project typedefs (:func:`local_type_aliases`) extend and override these.
-_BUILTIN_TYPE_ALIASES: dict[str, str] = {
-    "BOOL": "int",
-    "BYTE": "unsigned char",
-    "CHAR": "char",
-    "DWORD": "unsigned long",
-    "HANDLE": "void *",
-    "INT": "int",
-    "LONG": "long",
-    "LPCSTR": "const char *",
-    "LPDWORD": "unsigned long *",
-    "LPSTR": "char *",
-    "LPVOID": "void *",
-    "PVOID": "void *",
-    "SHORT": "short",
-    "UCHAR": "unsigned char",
-    "UINT": "unsigned int",
-    "ULONG": "unsigned long",
-    "USHORT": "unsigned short",
-    "WORD": "unsigned short",
-    "byte": "unsigned char",
-    "uchar": "unsigned char",
-    "uint": "unsigned int",
-    "ulong": "unsigned long",
-    "ushort": "unsigned short",
-}
-
-#: An alias's underlying type must be this simple to substitute textually:
-#: words and trailing pointers, nothing a function-pointer typedef carries.
-_SIMPLE_TYPE_RE = re.compile(r"[A-Za-z_][\w ]*[\s*]*\Z")
-
 #: Ghidra's size-only placeholder types (``undefined``, ``undefined4``).
 _PLACEHOLDER_TYPE_RE = re.compile(r"\bundefined\d*\b")
-
-#: Rounds of alias substitution (an alias may name another alias).
-_ALIAS_DEPTH = 4
-
-
-def local_type_aliases(cfg: Any) -> dict[str, str]:
-    """``{alias: underlying}`` for simple typedefs, Win32 spellings included."""
-    from rebrew.binsync.state import collect_typedef_definitions
-
-    aliases = dict(_BUILTIN_TYPE_ALIASES)
-    for name, (_raw, underlying) in collect_typedef_definitions(cfg).items():
-        if underlying and _SIMPLE_TYPE_RE.match(underlying):
-            aliases[name] = underlying
-    return aliases
 
 
 def _expanded_type_key(prototype: str, aliases: dict[str, str]) -> str | None:
@@ -304,14 +340,8 @@ def _expanded_type_key(prototype: str, aliases: dict[str, str]) -> str | None:
     key = prototype_type_key(prototype)
     if key is None:
         return None
-    for _round in range(_ALIAS_DEPTH):
-        expanded = re.sub(r"\b[A-Za-z_]\w*\b", lambda m: aliases.get(m.group(), m.group()), key)
-        expanded = " ".join(expanded.split())
-        expanded = re.sub(r"\s*([(),*\[\]])\s*", r"\1", expanded)
-        if expanded == key:
-            break
-        key = expanded
-    return key
+    key = " ".join(expand_type_aliases(key, aliases).split())
+    return re.sub(r"\s*([(),*\[\]])\s*", r"\1", key)
 
 
 def prototypes_equivalent(left: str, right: str, aliases: dict[str, str]) -> bool:
@@ -633,7 +663,7 @@ def import_state(
     )
     function_fields: dict[tuple[str, int], dict[str, Any]] = {}
     origin = sync_origin(state_dir)
-    type_aliases = local_type_aliases(cfg)
+    aliases = type_aliases(cfg)
     settled_prototypes: set[int] = set()
 
     # Also collect scan for module routing of globals that have no direct annotation
@@ -641,6 +671,7 @@ def import_state(
     # can't be imported meaningfully anyway)
 
     proposed: list[dict[str, str]] = []  # for dry-run / json
+    skipped_details: list[dict[str, str]] = []  # skipped edits with their reason
     conflicts: list[dict[str, str]] = list(sync_conflicts)
     applied_names = 0
     applied_protos = 0
@@ -805,7 +836,7 @@ def import_state(
             and local_proto
             and normalize_prototype(bs_proto) != normalize_prototype(local_proto)
             and (
-                prototypes_equivalent(bs_proto, local_proto, type_aliases)
+                prototypes_equivalent(bs_proto, local_proto, aliases)
                 or is_placeholder_prototype(bs_proto)
             )
         ):
@@ -1024,7 +1055,12 @@ def import_state(
                 update["fields"] = fields["fields"]
             update_statuses_batch(cfg.metadata_dir, stub_statuses)
 
-    # --- Global names ---
+    # --- Global names, types and sizes ---
+    # Compared against the same local projection the baseline uses, so a
+    # global whose shared fields already agree is not rewritten (no new
+    # stamps, no origins) and a repeated pull is a no-op.
+    from rebrew.data_metadata import get_data_entry
+
     for va, bs_entry in sorted(globals_by_va.items()):
         bs_name = bs_entry.get("name", "")
         if not bs_name or not is_meaningful(bs_name):
@@ -1035,66 +1071,54 @@ def import_state(
         if local is not None and not module_selected(getattr(local, "module", "")):
             skipped += 1
             continue
-        # For DATA/GLOBAL, update rebrew-data.toml
+        mod = (
+            _entry_module(cfg, local)
+            if local is not None
+            else (wanted_module or module_marker(cfg))
+        )
+        if not mod:
+            log.warning("skipping global for VA 0x%x: no module marker", va)
+            skipped += 1
+            continue
         if local is not None:
-            local_name = getattr(local, "name", "") or getattr(local, "symbol", "") or ""
-            # fold_ident, like the function-name path above: a state written on
-            # Windows and a source checked out on macOS spell one DATA symbol
-            # two ways, and that is not a rename.
-            if fold_ident(local_name.strip()) == fold_ident(bs_name.strip()) and not (
-                _global_field_updates(local, bs_entry)
-            ):
-                continue
-            if dry_run:
-                proposed.append(
-                    {
-                        "va": f"0x{va:08x}",
-                        "field": "global_name",
-                        "local": local_name,
-                        "binsync": bs_name,
-                    }
-                )
-            if not dry_run:
-                mod = _entry_module(cfg, local)
-                if not mod:
-                    log.warning("skipping global name for VA 0x%x: no module marker", va)
-                    skipped += 1
-                else:
-                    try:
-                        _apply_global_type_size(
-                            cfg.metadata_dir, va, mod, local, bs_entry, origin=origin
-                        )
-                        applied_globals += 1
-                        touched_vas.append(va)
-                    except Exception:
-                        log.warning("global name apply failed for VA 0x%x", va, exc_info=True)
-                        skipped += 1
-            else:
-                applied_globals += 1
+            record = before_sync.get(_record_key(before_sync, "global", va), {})
         else:
-            # No local DATA entry at this VA — still create a data metadata
-            # entry under the active module filter or the project marker.
-            if dry_run:
-                proposed.append(
-                    {"va": f"0x{va:08x}", "field": "global_name", "local": "", "binsync": bs_name}
+            record = dict(get_data_entry(cfg.metadata_dir, va, mod))
+        try:
+            changes = _global_changes(record, bs_entry)
+        except ValueError as exc:
+            skipped += 1
+            skipped_details.append({"va": f"0x{va:08x}", "field": "global", "reason": str(exc)})
+            continue
+        if not changes:
+            continue
+        local_name = str(record.get("name") or "")
+        if dry_run:
+            proposed.append(
+                {
+                    "va": f"0x{va:08x}",
+                    "field": "global_name" if "name" in changes else "global",
+                    "local": local_name,
+                    "binsync": bs_name,
+                }
+            )
+            applied_globals += 1
+            continue
+        if "name" in changes and local is not None and local_name:
+            reason = rename_global(cfg, mod, va, local_name, str(changes["name"]))
+            if reason is not None:
+                skipped += 1
+                skipped_details.append(
+                    {"va": f"0x{va:08x}", "field": "global_name", "reason": reason}
                 )
-            if not dry_run:
-                mod = wanted_module or module_marker(cfg)
-                if not mod:
-                    log.warning("skipping global name for VA 0x%x: no module marker", va)
-                    skipped += 1
-                else:
-                    try:
-                        _apply_global_type_size(
-                            cfg.metadata_dir, va, mod, None, bs_entry, origin=origin
-                        )
-                        applied_globals += 1
-                        touched_vas.append(va)
-                    except Exception:
-                        log.warning("global name apply failed for VA 0x%x", va, exc_info=True)
-                        skipped += 1
-            else:
-                applied_globals += 1
+                continue
+        try:
+            _apply_global_fields(cfg.metadata_dir, va, mod, changes, origin=origin)
+            applied_globals += 1
+            touched_vas.append(va)
+        except Exception:
+            log.warning("global apply failed for VA 0x%x", va, exc_info=True)
+            skipped += 1
 
     # Type definitions use the same baseline and conflict decisions as symbols.
     type_updates: dict[str, set[str]] = {"struct": set(), "enum": set(), "typedef": set()}
@@ -1127,14 +1151,49 @@ def import_state(
             elif action == "pull" or (key in before_sync and accept_binsync):
                 type_updates[kind].add(name)
 
+    # A struct whose incoming change renames members goes through the field
+    # rename engine (definition, every access, designated initializers), not
+    # a definition rewrite that would leave the accesses on the old names.
+    applied_members = 0
+    for name in sorted(type_updates["struct"]):
+        key = f"struct.{name}"
+        renames, names_only = _member_renames(
+            before_sync.get(key, {}).get("definition") or {},
+            incoming_sync.get(key, {}).get("definition") or {},
+        )
+        if not renames:
+            continue
+        if dry_run:
+            proposed.extend(
+                {"field": "struct_member", "type": name, "local": old, "binsync": new}
+                for old, new in renames
+            )
+            applied_members += len(renames)
+        else:
+            for old, new in renames:
+                reason = rename_struct_member(cfg, name, old, new)
+                if reason is not None:
+                    skipped += 1
+                    skipped_details.append(
+                        {"type": name, "field": f"member {old} -> {new}", "reason": reason}
+                    )
+                    names_only = True  # do not rewrite a definition the rename refused
+                    break
+                applied_members += 1
+        if names_only:
+            type_updates["struct"].discard(name)
+            structs_by_name.pop(name, None)
+
     # --- Structs / enums / typedefs: unknown definitions into a local header ---
+    applied_structs = applied_members
     if structs_by_name:
-        applied_structs = import_type_definitions(
+        applied_structs += import_type_definitions(
             cfg,
             structs_by_name,
             dry_run=dry_run,
             proposed=proposed,
             update_names=type_updates["struct"],
+            skipped_details=skipped_details,
         )
     if enums_by_name:
         applied_enums = import_type_definitions(
@@ -1143,6 +1202,7 @@ def import_state(
             dry_run=dry_run,
             proposed=proposed,
             update_names=type_updates["enum"],
+            skipped_details=skipped_details,
         )
     if typedefs_by_name:
         applied_typedefs = import_type_definitions(
@@ -1151,6 +1211,7 @@ def import_state(
             dry_run=dry_run,
             proposed=proposed,
             update_names=type_updates["typedef"],
+            skipped_details=skipped_details,
         )
 
     # --- LOCALS / COMMENTS: declib stack vars + per-instruction comments ---
@@ -1313,6 +1374,7 @@ def import_state(
         "marker_writes_failed": sorted(marker_writes_failed),
         "touched_vas": sorted(set(touched_vas)),
         "proposed": proposed,
+        "skipped_details": skipped_details,
         "conflict_details": conflicts,
         "module": wanted_module,
         "accept_binsync": accept_binsync,
@@ -1337,7 +1399,12 @@ _IMPORT_COUNTS: tuple[str, ...] = (
 )
 
 #: List fields an :func:`import_state` result carries, concatenated across peers.
-_IMPORT_LISTS: tuple[str, ...] = ("proposed", "conflict_details", "marker_writes_failed")
+_IMPORT_LISTS: tuple[str, ...] = (
+    "proposed",
+    "skipped_details",
+    "conflict_details",
+    "marker_writes_failed",
+)
 
 
 def import_from_repo(
@@ -1612,6 +1679,7 @@ def import_type_definitions(
     dry_run: bool,
     proposed: list[dict[str, str]],
     update_names: set[str] | None = None,
+    skipped_details: list[dict[str, str]] | None = None,
 ) -> int:
     """Write unknown BinSync type definitions into ``binsync_types.h``.
 
@@ -1643,9 +1711,13 @@ def import_type_definitions(
                 if replacement != text:
                     candidates.append((path, replacement, encoding))
             if len(candidates) != 1:
-                log.warning(
-                    "cannot replace type %s unambiguously (%d definitions)", name, len(candidates)
+                reason = (
+                    f"cannot replace type {name} unambiguously ({len(candidates)} definitions "
+                    "in the scanned headers and sources)"
                 )
+                log.warning("%s", reason)
+                if skipped_details is not None:
+                    skipped_details.append({"type": name, "field": "definition", "reason": reason})
                 continue
             path, replacement, encoding = candidates[0]
             if dry_run:
@@ -1772,6 +1844,9 @@ def print_import_result(result: dict[str, object], *, json_output: bool, dry_run
             payload["marker_writes_failed"] = marker_writes_failed
         if proposed:
             payload["proposed"] = proposed
+        skipped_details = result_rows(result, "skipped_details")
+        if skipped_details:
+            payload["skipped_details"] = skipped_details
         if conflict_details:
             payload["conflict_details"] = conflict_details
         if module is not None:
@@ -1822,6 +1897,15 @@ def print_import_result(result: dict[str, object], *, json_output: bool, dry_run
             f"[yellow]ANALYSIS marker write failed for {len(marker_writes_failed)} file(s):[/yellow] "
             + ", ".join(marker_writes_failed[:10])
         )
+    skipped_details = result_rows(result, "skipped_details")
+    for item in skipped_details[:10]:
+        where = item.get("va") or item.get("type") or "?"
+        console.print(
+            f"[yellow]skipped[/yellow] {where} {item.get('field', '')}: {item.get('reason', '')}",
+            markup=False,
+        )
+    if len(skipped_details) > 10:
+        console.print(f"  ... and {len(skipped_details) - 10} more; see --json skipped_details")
     if conflicts:
         if accept_binsync or accept_local:
             mode = "accept-binsync" if accept_binsync else "accept-local"

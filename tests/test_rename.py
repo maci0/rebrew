@@ -868,6 +868,27 @@ class TestRenameData:
         text = (tmp_path / "src" / "use.c").read_text(encoding="utf-8")
         assert "g_new" in text and "g_old" not in text
 
+    def test_rename_data_follows_link_symbol(self, tmp_path: Path, monkeypatch) -> None:
+        """The native linker symbol of the renamed definition keeps its decoration."""
+        import typer as _typer
+        from typer.testing import CliRunner
+
+        from rebrew.data_metadata import get_data_entry
+        from rebrew.rename import main as _rename_main
+
+        app = _typer.Typer()
+        app.command()(_rename_main)
+
+        self._project(tmp_path)
+        store = tmp_path / "rebrew-data.toml"
+        store.write_text(
+            store.read_text(encoding="utf-8") + 'link_symbol = "_g_old"\n', encoding="utf-8"
+        )
+        monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: self._cfg(tmp_path))
+        res = CliRunner().invoke(app, ["g_old", "g_new", "--data"])
+        assert res.exit_code == 0, res.output
+        assert get_data_entry(tmp_path, 0x2000, "SERVER").get("link_symbol") == "_g_new"
+
     def test_rename_data_updates_header(self, tmp_path: Path, monkeypatch) -> None:
         """A header extern is a declaration of the same global and is renamed."""
         import typer as _typer

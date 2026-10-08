@@ -110,7 +110,7 @@ class TestBinsyncExportBasic:
         assert toml_file.exists()
         func = _load_func(toml_file)
         assert func.addr == 0x10001000
-        assert func.name == "_foo"
+        assert func.name == "foo"  # the C name; the decorated symbol stays local
         assert func.size == 31
 
     def test_size_zero_written(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -935,10 +935,10 @@ class TestBinaryHashAndSharedTypes:
         )
         real_parse = state_mod.parse_struct_fields
 
-        def _parse(text: str) -> list[dict[str, Any]]:
+        def _parse(text: str, aliases: dict[str, str] | None = None) -> list[dict[str, Any]]:
             if "Bad" in text:
                 raise ValueError("boom")
-            return real_parse(text)
+            return real_parse(text, aliases)
 
         monkeypatch.setattr("rebrew.binsync.state.parse_struct_fields", _parse)
         result, outdir = _invoke(tmp_path, monkeypatch)
@@ -1029,7 +1029,7 @@ class TestDeclibParse:
 
         func = Function.loads((outdir / "functions" / "10001000.toml").read_text())
         assert func.addr == 0x10001000
-        assert func.name == "_foo"
+        assert func.name == "foo"
         comments = Comment.loads_many((outdir / "comments.toml").read_text())
         assert any((c.comment or "").startswith("[rebrew:note]") for c in comments)
         gvars = GlobalVariable.loads_many((outdir / "global_vars.toml").read_text())
@@ -1129,3 +1129,64 @@ class TestMigratedPrototypes:
         assert init.header.type == "int __cdecl Init(LPVOID param)"
         pump = _load_func(outdir / "functions" / "10001010.toml")
         assert pump.header.type == "static void __stdcall Pump(int a, int b)"
+
+
+class TestStructLayouts:
+    """Exported struct members carry real names, types and offsets, never parser debris."""
+
+    _FOO = "// FUNCTION: SERVER 0x10001000\n// SIZE: 4\nint foo() { return 1; }\n"
+
+    def _members(self, outdir: Path, name: str) -> dict[int, tuple[str, str]]:
+        from rebrew.binsync.serial import load_artifact
+
+        struct = load_artifact(outdir / "structs" / f"{name}.toml", "struct")
+        assert struct is not None, name
+        return {off: (m.name, m.type) for off, m in struct.members.items()}
+
+    def test_comments_typedefs_and_nested_members(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        _make_project(tmp_path, {"foo.c": self._FOO})
+        (tmp_path / "src" / "types.h").write_text(
+            "typedef unsigned long DWORD;\n"
+            "typedef struct gz {\n"
+            "    int  z_err;   /* error code for last stream operation */\n"
+            "    DWORD crc;    /* crc32 of 'w' or 'r' data */\n"
+            "    char  mode;   /* 'w' or 'r' */\n"
+            "    struct { int adler; } check;\n"
+            "    int  after;\n"
+            "} gz;\n"
+            "typedef struct VT {\n"
+            "    int count;\n"
+            "    long (__stdcall *Release)(struct VT *self, int flags);\n"
+            "} VT;\n",
+            encoding="utf-8",
+        )
+        result, outdir = _invoke(tmp_path, monkeypatch)
+        assert result.exit_code == 0, result.output
+        assert self._members(outdir, "gz") == {
+            0: ("z_err", "int"),
+            4: ("crc", "unsigned long"),
+            8: ("mode", "char"),
+        }
+        assert self._members(outdir, "VT") == {0: ("count", "int")}
+        assert not (outdir / "structs" / "check.toml").exists()
+        assert "struct gz: layout stops after member mode" in caplog.text
+        assert "struct VT: layout stops after member count" in caplog.text
+
+    def test_differing_duplicate_definitions_are_reported(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        _make_project(
+            tmp_path,
+            {
+                "foo.c": self._FOO,
+                "a.c": "typedef struct Ent { int id; } Ent;\n",
+                "b.c": "typedef struct Ent { short id; short kind; } Ent;\n",
+            },
+        )
+        result, outdir = _invoke(tmp_path, monkeypatch)
+        assert result.exit_code == 0, result.output
+        assert self._members(outdir, "Ent") == {0: ("id", "int")}
+        assert "1 struct name(s) have more than one differing definition" in caplog.text
+        assert ": Ent" in caplog.text

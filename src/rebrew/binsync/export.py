@@ -567,7 +567,7 @@ def export_state(
             if isinstance(comment, dict):
                 metadata_comments[int(str(addr), 0)] = (va, str(comment.get("comment") or ""))
 
-    # A source ``// ANALYSIS @ 0xADDR: text`` marker wins over the metadata
+    # A source ``/* ANALYSIS @ 0xADDR: text */`` marker wins over the metadata
     # entry for the same address (the analyst edited it in source), so edits
     # flow out to comments.toml.
     merged_comments = dict(metadata_comments)
