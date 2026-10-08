@@ -146,6 +146,10 @@
   `rebrew.builtins.DOMAIN_COMPONENTS` carries the new `source rename` help text.
 
 ### Fixed
+- `rebrew library match --lib` and `--stock-lib` check only the selected archives.
+  Previously they also indexed vendored objects from `build/compile_commands.json`,
+  so a D3DX8-only scan reported unrelated zlib matches. Pass `--compile-commands`
+  explicitly to include those objects; project-wide scans still include them by default.
 - `rebrew library inspect` and `rebrew library match` extract a stock archive
   whose configured spelling differs in case from the toolchain image's file
   (`LIBCMT.lib` against `VC98/Lib/LIBCMT.LIB`): the image's `Lib` directory is

@@ -1442,7 +1442,7 @@ never ships a `.LIB`.
 |------------|-------------|
 | `--lib FILE` | Static library to check against (repeatable) |
 | `--stock-lib NAME` | Stock archive from the project toolchain's image (repeatable), e.g. `LIBCMT.LIB`. Extracted into `.scratch/` on first use, refused when it differs from the image's copy |
-| `--compile-commands FILE` | Build database used to index objects built from a source-vendored tree (default `build/compile_commands.json`, skipped when absent) |
+| `--compile-commands FILE` | Build database used to index objects built from a source-vendored tree (default `build/compile_commands.json`, skipped when absent). With explicit `--lib` or `--stock-lib`, vendored objects are included only when this option is supplied. |
 | `--va HEX` | Check a single function VA instead of every reversed function |
 | `--target NAME` | Select a target from `rebrew-project.toml` |
 | `--json` | Output results as JSON |
