@@ -98,7 +98,8 @@ processes require an explicit request. See
 `rebrew init` copies AGENTS.md, PRINCIPLES.md, and packaged skills into a project.
 `rebrew skills list --json` lists the effective packaged/user-overlaid skills;
 load the skill matching the task and only the references needed for it.
-`rebrew init --check` detects scaffold drift; `--refresh-agents` regenerates it.
+`rebrew init --check` detects scaffold drift; `--refresh-agents` regenerates it and keeps
+anything after the `<!-- rebrew: project rules below, kept by --refresh-agents -->` line.
 
 The [Python API guide](https://github.com/maci0/rebrew/blob/main/docs/PYTHON_API.md)
 covers library imports, registry views, structured errors, and injectable clients.

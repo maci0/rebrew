@@ -1645,6 +1645,27 @@ class TestRefreshAgents:
         assert exc.value.exit_code == 0
         assert "matches the packaged sources" in capsys.readouterr().err
 
+    def test_project_rules_survive_refresh(self, tmp_path: Path) -> None:
+        """Text after the project marker is the project's own and is kept."""
+        import typer
+
+        from rebrew.init import AGENTS_PROJECT_MARKER, _refresh_agents
+
+        root = self._project(tmp_path, "msvc-5.0")
+        toml = root / "rebrew-project.toml"
+        _refresh_agents(root, toml, json_output=False)
+        agents = root / "AGENTS.md"
+        rules = f"{AGENTS_PROJECT_MARKER}\n\n## Naming\n\nKeep original names.\n"
+        agents.write_text("stale header\n\n" + rules, encoding="utf-8")
+
+        _refresh_agents(root, toml, json_output=False)
+        text = agents.read_text(encoding="utf-8")
+        assert text.endswith("\n\n" + rules)
+        assert "stale header" not in text
+        with pytest.raises(typer.Exit) as exc:
+            _refresh_agents(root, toml, json_output=False, check=True)
+        assert exc.value.exit_code == 0
+
 
 class TestRefreshAgentsPrunesStaleSkills:
     """A skill the packaged tree no longer ships must not survive a refresh.

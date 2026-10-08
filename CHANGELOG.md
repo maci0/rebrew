@@ -1,6 +1,10 @@
 ## [Unreleased]
 
 ### Added
+- `rebrew init --refresh-agents` keeps a project's own rules in `AGENTS.md`:
+  everything from the line `<!-- rebrew: project rules below, kept by
+  --refresh-agents -->` to the end of the file is kept verbatim below the
+  rendered template, and `--check` does not report it as drift.
 - `rebrew binary relocs` compares the PE base relocation sites of the reference
   binary and a built image (`--built`, default `build/<target>`). It counts the
   missing and extra sites per section and lists each with its containing symbol
