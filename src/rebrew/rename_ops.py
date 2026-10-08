@@ -33,7 +33,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from rebrew.annotation import FUNCTION_MARKERS, Annotation, parse_c_file_multi
+from rebrew.annotation import (
+    FUNC_NAME_HINT_RE,
+    FUNCTION_MARKERS,
+    NEW_FUNC_CAPTURE_RE,
+    Annotation,
+    parse_c_file_multi,
+)
 from rebrew.c_rename import (
     ORDINARY_ROLES,
     ROLE_CODE,
@@ -535,6 +541,8 @@ def plan_symbol_rename(
             plan.files.append(change)
 
     _plan_symbol_rows(project, plan, chosen, rename_set, selected, store)
+    if not chosen:
+        _plan_header_marker_row(project, plan, selected, definition_file)
     _check_acknowledged(plan, selected, all_modules=all_modules, require_ack=require_ack)
 
     collisions = _ordinary_collisions(project, new_name)
@@ -687,6 +695,68 @@ def _plan_symbol_rows(
         plan.rows.append(
             RowChange("data", selected.module, selected.va, {"name": old}, {"name": new})
         )
+
+
+def _plan_header_marker_row(
+    project: _Project,
+    plan: RenamePlan,
+    selected: Selection | None,
+    definition_file: Path | None,
+) -> None:
+    """Rename a function row that only a header marker names (a library identification).
+
+    Such a row has no C definition: its name is the ``// <symbol>`` line under
+    its ``// LIBRARY: MODULE 0xVA`` marker. That line and the row are rewritten.
+    """
+    from rebrew.metadata import load_metadata
+
+    if selected is None or selected.store != KIND_FUNCTION or definition_file is None:
+        return
+    if definition_file not in project.texts:
+        return
+    stored = load_metadata(project.metadata_dir, deepcopy=False).get((selected.module, selected.va))
+    if stored is None:
+        return
+    text, encoding, _data = project.texts[definition_file]
+    lines = text.splitlines(keepends=True)
+    for index, line in enumerate(lines[:-1]):
+        marker = NEW_FUNC_CAPTURE_RE.search(line)
+        if (
+            marker is None
+            or marker["module"] != selected.module
+            or int(marker["va"], 16) != selected.va
+        ):
+            continue
+        hint = FUNC_NAME_HINT_RE.match(lines[index + 1].strip())
+        if hint is None or c_name_from_symbol(hint["name"]) != plan.old_name:
+            return
+        old_symbol = hint["name"]
+        new_symbol = redecorated_symbol(old_symbol, plan.new_name)
+        column = lines[index + 1].index(old_symbol)
+        lines[index + 1] = (
+            lines[index + 1][:column] + new_symbol + lines[index + 1][column + len(old_symbol) :]
+        )
+        plan.files.append(
+            FileChange(
+                path=definition_file,
+                old_text=text,
+                new_text="".join(lines),
+                encoding=encoding,
+                edits=[SourceEdit(index + 2, column + 1, ROLE_COMMENT)],
+            )
+        )
+        plan.rows.append(
+            RowChange(
+                "function",
+                selected.module,
+                selected.va,
+                {"name": str(stored.get("name") or ""), "symbol": str(stored.get("symbol") or "")},
+                {"name": plan.new_name, "symbol": new_symbol},
+            )
+        )
+        prefix = f"left {selected.module}.0x{selected.va:08x} "
+        plan.notes = [note for note in plan.notes if not note.startswith(prefix)]
+        return
 
 
 def _check_acknowledged(

@@ -389,6 +389,32 @@ class TestFunctionIdentity:
         assert "duplicate symbol" in result.output
         assert _snapshot(root) == before
 
+    def test_header_marker_library_row_is_renamed(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A library row named only by its header marker gets the new symbol line and row."""
+        from rebrew.metadata import load_metadata, save_metadata
+
+        root = _project(tmp_path)
+        (root / "src" / "library_crt.h").write_text(
+            "// LIBRARY: SERVER 0x10009000\n// __crtLoadWinAPI\n// SIZE: 137\n", encoding="utf-8"
+        )
+        rows = load_metadata(root)
+        rows[("SERVER", 0x10009000)] = {
+            "file": "src/library_crt.h",
+            "name": "crtLoadWinAPI",
+            "symbol": "__crtLoadWinAPI",
+            "marker_type": "LIBRARY",
+        }
+        save_metadata(root, rows)
+        result = _run(root, monkeypatch, "SERVER.0x10009000", "__crtMessageBoxA", "--json")
+        assert result.exit_code == 0, result.output
+        assert _text(root, "library_crt.h") == (
+            "// LIBRARY: SERVER 0x10009000\n// ___crtMessageBoxA\n// SIZE: 137\n"
+        )
+        row = _row(_functions(root), "SERVER", 0x10009000)
+        assert (row["name"], row["symbol"]) == ("__crtMessageBoxA", "___crtMessageBoxA")
+
     @pytest.mark.parametrize(("module", "refused"), [("GOLDTL", False), ("SERVER", True)])
     def test_row_name_collision_counts_only_the_renamed_module(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, module: str, refused: bool

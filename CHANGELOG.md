@@ -160,6 +160,10 @@
   renames only. A row of another module (a library row of another image) no
   longer refuses the rename; a shared source definition is still refused by the
   source-level check.
+- `rebrew source rename MODULE.0xVA` renames a function row that only a header
+  marker names (a `// LIBRARY:` identification with no C definition): the
+  `// <symbol>` line under the marker and the row get the new name. The row was
+  left unchanged as "bound to another definition".
 
 ## [2.24.0] - 2026-10-07
 
