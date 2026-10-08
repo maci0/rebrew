@@ -283,3 +283,36 @@ class TestStickiness:
         entry = _stored(tmp_path)
         assert entry["status"] == "EXACT"
         assert "linked_image_hash" in entry["verification"]
+
+
+def _write_map(built: Path, va: int) -> None:
+    built.with_suffix(".map").write_text(
+        " Start         Length     Name                   Class\n"
+        " 0001:00000000 00000010H .text                   CODE\n\n"
+        "  Address         Publics by Value              Rva+Base     Lib:Object\n\n"
+        f" 0001:00000000       _foo                       {va:08x} f   foo.obj\n"
+    )
+
+
+class TestLinkMapPlacement:
+    def test_map_places_function_without_object_walk(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        built = _project(tmp_path)
+        _write_map(built, _VA)
+        _mock(monkeypatch, placed=False)
+        report = _verify(tmp_path, "--text", "--raw-link")
+        assert report["text"]["linked"]["placement"] == str(built.with_suffix(".map"))
+        assert report["text"]["linked"]["promoted"] == 1
+        assert _stored(tmp_path)["status"] == "EXACT"
+
+    def test_map_placing_function_elsewhere_keeps_reloc(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        built = _project(tmp_path)
+        _write_map(built, _VA + 0x10)
+        _mock(monkeypatch)
+        report = _verify(tmp_path, "--text", "--raw-link")
+        (kept,) = report["text"]["linked"]["kept_reloc"]
+        assert kept["reason"] == "not placed at its reference VA"
+        assert _stored(tmp_path)["status"] == "RELOC"

@@ -773,8 +773,9 @@ def main(
     link_map: Path | None = typer.Option(
         None,
         "--link-map",
-        help="MSVC link map of --built for --data placement (default: the built image's .map "
-        "beside it). Symbols the map puts at their reference VA become EXACT, others DISPLACED",
+        help="MSVC link map of --built for --data and --text placement (default: the built "
+        "image's .map beside it). Data symbols the map puts at their reference VA become EXACT, "
+        "others DISPLACED; --text promotes only functions the map places at their VA",
     ),
     text: bool = typer.Option(
         False,
@@ -1179,6 +1180,8 @@ def main(
 
     text_report: dict[str, Any] | None = None
     text_built: Path | None = None
+    placement_source = ""
+    text_mapped: set[tuple[str, int]] | None = None
     placed_vas: set[int] = set()
     if text:
         from rebrew.text_audit import audit_text, collect_actual_vas
@@ -1196,7 +1199,24 @@ def main(
         except (RuntimeError, OSError, ValueError) as exc:
             error_exit(f"cannot inventory build objects: {exc}", json_mode=json_output)
         rows, n_ok, n_bad, n_missing = audit_text(expected, actual)
-        placed_vas = {int(r["expected"], 16) for r in rows if r["status"] == "OK"}
+        # Linked-EXACT placement: the link map names the symbol the linker put
+        # at each address, so prefer it over the object walk, which assumes
+        # plain concatenation in link order.
+        text_map = link_map or built_path.with_suffix(".map")
+        if text_map.is_file():
+            from rebrew.data_ownership import parse_link_map
+
+            text_mapped = {
+                (s.name, s.va)
+                for s in parse_link_map(text_map.read_text(encoding="utf-8", errors="replace"))
+                if s.is_function
+            }
+            placement_source = str(text_map)
+        elif link_map is not None:
+            error_exit(f"link map not found: {link_map}", json_mode=json_output)
+        else:
+            placed_vas = {int(r["expected"], 16) for r in rows if r["status"] == "OK"}
+            placement_source = "objects"
         text_report = {
             "functions": len(expected),
             "found": n_ok + n_bad,
@@ -1303,6 +1323,10 @@ def main(
         context=compile_context,
     )
     if text_report is not None and text_built is not None:
+        if text_mapped is not None:
+            # Every verified function, bound library sources included: the map
+            # row names the COFF symbol the linker put at the address.
+            placed_vas = {e.va for e in batch.entries if (_entry_symbol(e), e.va) in text_mapped}
         text_report["linked"] = _promote_linked(
             cfg,
             batch,
@@ -1313,6 +1337,7 @@ def main(
             raw_link=raw_link,
             json_output=json_output,
         )
+        text_report["linked"]["placement"] = placement_source
     _save_report(
         cfg,
         batch,

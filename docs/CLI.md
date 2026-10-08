@@ -617,6 +617,7 @@ graph TD
 | `--data` | Byte-compare built `.data`/`.rdata` against the reference, per metadata symbol with first-diff attribution; verdicts persist as data STATUS (`VERIFIED`/`DRIFT`/`UNCHECKED`) and surface in `status` + `todo data-drift` |
 | `--built PATH` | Built binary for `--data` / `--text` / `--whole-binary` comparison (default `build/<target>`) |
 | `--raw-link` | Ack that `--built` is the raw link, not a postlinked deliverable. Without it (or configured `raw_link`), `--data` reports comparisons but suppresses all stored data verdict/evidence writes, and `--text` reports linked-identical functions but promotes none; existing verdicts remain unchanged |
+| `--link-map PATH` | MSVC link map of `--built` (default: the built image's `.map` beside it). `--data` places data symbols from it; `--text` promotes only functions it places at their reference VA |
 | `--text` | Check built `.text` function placement against each function's annotated VA (the `MODULE.0xVA` row, or an unmigrated `// FUNCTION:` line) via `text-audit`; exit 1 on any misplaced function. Then compare each RELOC function placed at its VA: when the built image's bytes `[va, va+size)` equal the reference's with no masking, and the raw link is acknowledged, STATUS becomes EXACT (linked EXACT, see below) |
 | `--whole-binary` | Compare built binary against the reference: whole-file raw bytes, section sizes, exports, imports, PE base relocations, `.rsrc` bytes, headers, plus layout-freshness check |
 | `--context FILE` | Compile every source with these declarations merged ahead of it under `#line` directives (see `rebrew test --context`); each result and the report carry `context_hash`. Each entry records the context digest it was earned under, so a cached verdict is served only to a run pinned to the exact same context (a changed or absent digest re-verifies); context runs write back like bare runs |
@@ -668,7 +669,8 @@ block (same shape as `text-audit`: `functions`/`found`/`correct`/`misplaced`/
 `missing` counts plus the `misplaced_list` rows, exit 1 on any misplaced
 function, and a `linked` block: `image`, `image_hash`, `candidates` (RELOC rows),
 `identical`, `promoted`, `kept_reloc` rows with the reason each stayed RELOC, and
-`raw_link_status_suppressed` without the raw-link acknowledgement); `--whole-binary` adds
+`placement` (the link map path, or `objects`), and `raw_link_status_suppressed`
+without the raw-link acknowledgement); `--whole-binary` adds
 a `whole_binary` block (per-area verdicts for `file` (whole-file raw bytes, with
 the first differing file offset), sections, exports, imports, `relocations` (PE
 base fixups by RVA and type, with the block/directory/section byte layout),
@@ -698,7 +700,8 @@ counts byte-matched (EXACT/RELOC) functions only.
 a relocation is RELOC there. The raw link resolves them. `rebrew verify --text`
 with an acknowledged raw link (`--raw-link`, or the configured `raw_link`)
 promotes a RELOC function to EXACT when the built image places it at its
-reference VA and its linked bytes `[va, va+size)` equal the reference bytes,
+reference VA (the link map's function row, from `--link-map` or the `.map` beside
+the image; without a map, the `text-audit` object walk) and its linked bytes `[va, va+size)` equal the reference bytes,
 with no masking. A linked EXACT means the linked bytes are identical; it is a
 byte match, not an inference. Functions whose source is newer than the built
 image stay RELOC (rebuild first). `--dry-run` and `--no-promote` write nothing.

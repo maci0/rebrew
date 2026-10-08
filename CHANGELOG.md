@@ -3,8 +3,10 @@
 ### Added
 - Linked EXACT: `rebrew verify --text` with an acknowledged raw link
   (`--raw-link` or the configured `raw_link`) promotes a RELOC function to EXACT
-  when the built image places it at its reference VA and its bytes there equal
-  the reference bytes with no masking. The function's `verification` table
+  when the built image places it at its reference VA (the function row of the
+  link map from `--link-map` or the `.map` beside the image; the `text-audit`
+  object walk without one) and its bytes there equal the reference bytes with no
+  masking. The function's `verification` table
   records `linked_image` and `linked_image_hash` beside the comparison inputs. A
   later `rebrew verify` / `rebrew test` object compare of RELOC keeps EXACT while
   those inputs and the image hash are unchanged; any other verdict, an input
