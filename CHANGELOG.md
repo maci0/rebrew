@@ -11,6 +11,22 @@
   exempt. A generator had shrunk guild-rebrew's `g_gap_10034644` to 36 bytes
   while its row still said `char[44]`, so the row ran over two newer rows and
   only `rebrew status` showed the 8 overlapping bytes.
+- W037 measures a tiled allocation: a row with the reference allocation's full
+  extent whose source is a short leading definition plus separately defined
+  interior names and pads, each an `alias` row in the same file whose `backing`
+  names the allocation. The leading definition plus the contiguous backed
+  definitions must cover the row exactly; a hole is reported by address.
+  guild-rebrew's `g_slot_table`, `g_entity_base`, `g_city_records`,
+  `g_save_info` and `g_connections` were reported although the tiling covers
+  each one.
+- `rebrew data move 0xOLD 0xNEW` re-addresses one data row in one locked write.
+  Every field moves, including its `verification` record; its `status` is
+  dropped. An occupied target address, a missing row, and a row whose source
+  still marks the old VA inline are refused. Moving a span took
+  `rebrew orphans drop` plus six `data set` calls and lost the record.
+- `rebrew data set --marker-type 0xVA=GLOBAL|DATA|VTABLE|STRING` and
+  `--note 0xVA=TEXT`. Both keep the stored verdict. A row `data set` created
+  had no way to get either without editing the store.
 - Linked EXACT: `rebrew verify --text` with an acknowledged raw link
   (`--raw-link` or the configured `raw_link`) promotes a RELOC function to EXACT
   when the built image places it at its reference VA (the function row of the
@@ -82,10 +98,18 @@
   built from the same sources.
 
 ### Changed
+- **Breaking:** `lib_match.stock_lib_source` is now `lib_match.stock_lib_dir`
+  and returns the image's `Lib` directory, not the archive path; the archive is
+  found there ignoring letter case.
 - **Breaking:** `rehome.main` takes `from_file` and `to_file` after `specs`,
   and `specs` defaults to `None`. The CLI keeps its `0xVA=PATH` form.
 
 ### Fixed
+- `rebrew library inspect` and `rebrew library match` extract a stock archive
+  whose configured spelling differs in case from the toolchain image's file
+  (`LIBCMT.lib` against `VC98/Lib/LIBCMT.LIB`): the image's `Lib` directory is
+  searched ignoring case, and several matches are an error. The copy failed
+  whenever no cached archive existed.
 - `rebrew source rename --file` moves the data rows of the renamed file with
   its function rows. They kept naming the old path.
 

@@ -21,7 +21,7 @@ from typing import Any
 
 import typer
 
-from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
+from rebrew.cli import TargetOption, console, error_exit, json_print, parse_va, require_config
 from rebrew.config import module_marker
 from rebrew.data_scan import (
     BssReport,
@@ -57,6 +57,7 @@ app = typer.Typer(
         "  rebrew data fix-bss · · · · · · · · · Generate bss_padding.c for gaps\n\n"
         "  rebrew data header · · · · · · · · Generate rebrew_globals.h\n\n"
         "  rebrew data mark-literals --dry-run · Mark rows the link map shows are literals\n\n"
+        "  rebrew data move 0x1000 0x1004 --dry-run · Re-address one data row\n\n"
         "  rebrew data list --json · · · · · · · · · · · Output as JSON\n\n"
         "[dim]Scans reversed .c files for GLOBAL:/DATA: annotations and extern "
         "declarations, cross-references with binary data sections, and detects "
@@ -310,6 +311,8 @@ def execute_data(
     set_size: list[str] | None = None,
     set_section: list[str] | None = None,
     set_file: list[str] | None = None,
+    set_marker_type: list[str] | None = None,
+    set_note: list[str] | None = None,
     gen_header_out: Path | None = None,
     force: bool = False,
     dry_run: bool = False,
@@ -334,6 +337,8 @@ def execute_data(
     set_size = set_size or []
     set_section = set_section or []
     set_file = set_file or []
+    set_marker_type = set_marker_type or []
+    set_note = set_note or []
     if (
         sum(
             bool(value)
@@ -346,13 +351,16 @@ def execute_data(
                 set_storage_kind,
                 set_backing,
                 set_link_symbol,
+                set_marker_type,
+                set_note,
             )
         )
         > 1
     ):
         error_exit(
             "Use only one data setter per call: --type, --name, --size, "
-            "--section, --file, --storage-kind, --backing, or --link-symbol.",
+            "--section, --file, --storage-kind, --backing, --link-symbol, "
+            "--marker-type, or --note.",
             json_mode=json_output,
         )
     cfg = require_config(target=target, json_mode=json_output)
@@ -378,6 +386,28 @@ def execute_data(
             json_print({"dry_run": dry_run, "set": rows})
         else:
             console.print(f"Updated {len(rows)} data storage relationship(s).")
+        return
+
+    if set_marker_type or set_note:
+        from rebrew.data_annotate import set_data_marker_types, set_data_notes
+
+        try:
+            rows = (
+                set_data_marker_types(cfg, set_marker_type, dry_run=dry_run)
+                if set_marker_type
+                else set_data_notes(cfg, set_note, dry_run=dry_run)
+            )
+        except ValueError as exc:
+            error_exit(str(exc), json_mode=json_output)
+        if json_output:
+            json_print({"dry_run": dry_run, "set": rows})
+        else:
+            field = "marker_type" if set_marker_type else "note"
+            for row in rows:
+                console.print(
+                    f"set {field} {untrusted_ident(str(row[field]))!r} for {row['va']} "
+                    f"({untrusted_ident(row['module'])})"
+                )
         return
 
     if set_type:
@@ -917,6 +947,16 @@ def set_data(
         "--file",
         help="Set the source file that defines a global: 0xVA=PATH (repeatable)",
     ),
+    set_marker_type: list[str] = typer.Option(
+        [],
+        "--marker-type",
+        help="Set a global's marker word: 0xVA=GLOBAL|DATA|VTABLE|STRING (repeatable)",
+    ),
+    set_note: list[str] = typer.Option(
+        [],
+        "--note",
+        help="Set a global's free-text note: 0xVA=TEXT (repeatable); keeps its verdict",
+    ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
@@ -934,6 +974,8 @@ def set_data(
                 set_size,
                 set_section,
                 set_file,
+                set_marker_type,
+                set_note,
             ]
         )
         == 0
@@ -948,9 +990,46 @@ def set_data(
         set_size=set_size,
         set_section=set_section,
         set_file=set_file,
+        set_marker_type=set_marker_type,
+        set_note=set_note,
         dry_run=dry_run,
         json_output=json_output,
         target=target,
+    )
+
+
+@app.command(
+    "move",
+    epilog="Examples:\n\n  rebrew data move 0x10035400 0x10035408 --dry-run --json\n\nMetadata writes use locked writers. The row's verdict is dropped; its verification record stays.",
+)
+def move_data(
+    old_va: str = typer.Argument(..., help="Address of the row to move (hex)"),
+    new_va: str = typer.Argument(..., help="Address it moves to (hex)"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
+) -> None:
+    """Re-address one data row, refusing an occupied target address."""
+    from rebrew.data_metadata import move_data_entry
+    from rebrew.sources import target_marker
+
+    old = parse_va(old_va, json_mode=json_output)
+    new = parse_va(new_va, json_mode=json_output)
+    cfg = require_config(target=target, json_mode=json_output)
+    try:
+        moved = move_data_entry(
+            cfg.metadata_dir, target_marker(cfg) or "", old, new, dry_run=dry_run
+        )
+    except ValueError as exc:
+        error_exit(str(exc), json_mode=json_output)
+    if json_output:
+        json_print({"dry_run": dry_run, "moved": moved})
+        return
+    dropped = f"; status {moved['status_was']} dropped" if moved["status_was"] else ""
+    console.print(
+        f"{'would move' if dry_run else 'moved'} "
+        f"{untrusted_ident(str(moved['name'] or '(unnamed)'))} "
+        f"{moved['from']} -> {moved['to']} ({untrusted_ident(moved['module'])}){dropped}"
     )
 
 

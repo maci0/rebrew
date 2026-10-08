@@ -339,17 +339,36 @@ def vendored_objects(
     return found
 
 
-def stock_lib_source(profile: str, name: str) -> tuple[str, str]:
-    """``(image, in-image path)`` of a stock archive from *profile*'s image.
+#: Shell run inside the image with ``$1`` = Lib dir, ``$2`` = archive name:
+#: sets ``found`` to the one file in ``$1`` named ``$2`` in any letter case.
+#: The image's tree is DOS-era (``LIBCMT.LIB``) while a project spells the
+#: name as it likes (``LIBCMT.lib``), and Linux paths are case-sensitive.
+_FIND_STOCK_LIB = (
+    'found=$(find "$1" -maxdepth 1 -type f -iname "$2")\n'
+    'case "$found" in\n'
+    '  "") echo "no file named $2 (any case) in $1" >&2; exit 1 ;;\n'
+    '  *"\n"*) echo "several files named $2 (any case) in $1: $found" >&2; exit 1 ;;\n'
+    "esac\n"
+)
+#: Characters ``find -iname`` would read as a pattern rather than a name.
+_ARCHIVE_NAME_FORBIDDEN = frozenset("/\\*?[]")
+
+
+def stock_lib_dir(profile: str, name: str) -> tuple[str, str]:
+    """``(image, in-image Lib directory)`` holding stock archive *name*.
 
     Both halves come from the registry: the image tag, and the container tool
     directory whose sibling ``Lib`` holds the archives (the derivation
     ``image_msvc_env`` already uses).  Nothing here hardcodes an image or a
     path, so a service pack that moves its tree cannot leave a check pointing
-    at a directory that does not exist.
+    at a directory that does not exist.  The archive is looked up in that
+    directory ignoring letter case (``_FIND_STOCK_LIB``), so *name* must be a
+    plain file name.
     """
     from rebrew.toolchain import ToolchainError, get_toolchain
 
+    if not name or _ARCHIVE_NAME_FORBIDDEN & set(name):
+        raise ToolchainError(f"stock archive name {name!r} must be a plain file name")
     spec = get_toolchain(profile)
     if spec.image is None:
         raise ToolchainError(f"profile {profile!r} is host-only: no image to extract from")
@@ -357,7 +376,7 @@ def stock_lib_source(profile: str, name: str) -> tuple[str, str]:
         raise ToolchainError(
             f"profile {profile!r} declares no container tool_root, so its Lib dir cannot be derived"
         )
-    return spec.image, str(Path(spec.tool_root).parent / "Lib" / name)
+    return spec.image, str(Path(spec.tool_root).parent / "Lib")
 
 
 def ensure_stock_lib(dest: Path, *, profile: str, name: str) -> bool:
@@ -375,7 +394,7 @@ def ensure_stock_lib(dest: Path, *, profile: str, name: str) -> bool:
     runtime = container_runtime()
     if not runtime_on_path():
         return False
-    image, source = stock_lib_source(profile, name)
+    image, lib_dir = stock_lib_dir(profile, name)
     dest.parent.mkdir(parents=True, exist_ok=True)
     from rebrew.toolchain import kill_container
 
@@ -396,9 +415,10 @@ def ensure_stock_lib(dest: Path, *, profile: str, name: str) -> bool:
                 bind_mount(dest.parent, "/out"),
                 image,
                 "-c",
-                'cp "$1" "/out/$2"',
+                _FIND_STOCK_LIB + 'cp "$found" "/out/$3"',
                 "sh",
-                source,
+                lib_dir,
+                name,
                 dest.name,
             ],
             capture_output=True,
@@ -438,7 +458,7 @@ def assert_library_is_stock(
     runtime = container_runtime()
     if not runtime_on_path():
         return
-    image, source = stock_lib_source(profile, name)
+    image, lib_dir = stock_lib_dir(profile, name)
     from rebrew.toolchain import kill_container
 
     container = f"rebrew-libhash-{uuid.uuid4().hex[:12]}"
@@ -458,9 +478,10 @@ def assert_library_is_stock(
                 bind_mount(path.parent, "/out", readonly=True),
                 image,
                 "-c",
-                'md5sum "$1" "/out/$2"',
+                _FIND_STOCK_LIB + 'md5sum "$found" "/out/$3"',
                 "sh",
-                source,
+                lib_dir,
+                name,
                 path.name,
             ],
             capture_output=True,
@@ -483,7 +504,7 @@ def assert_library_is_stock(
     digests = [line.split()[0] for line in result.stdout.splitlines() if line.strip()]
     if len(digests) != 2:
         error_exit(
-            f"cannot verify {path.name} against {image} ({source}): "
+            f"cannot verify {path.name} against {image} ({lib_dir}/{name}): "
             f"{result.stderr.strip() or 'the image did not hash both files'}",
             json_mode=json_mode,
             code=EXIT_ERROR,

@@ -783,7 +783,7 @@ automatic maps or archives leave attribution unknown; the scan never downloads
 libraries. Map addresses can differ from reference VAs, so match symbol names.
 DLL import slots, uncertain aliases, and unselected archive members are excluded.
 
-Metadata changes use `data set`: choose exactly one field (`--type`, `--name`, `--size`, `--section`, `--storage-kind`, `--backing`, or `--link-symbol`) and repeat `0xVA=VALUE` for multiple records. A size change clears stored verification. No operation treats a declaration, alias, or interior view as another storage allocation.
+Metadata changes use `data set`: choose exactly one field (`--type`, `--name`, `--size`, `--section`, `--file`, `--storage-kind`, `--backing`, `--link-symbol`, `--marker-type`, or `--note`) and repeat `0xVA=VALUE` for multiple records. A size change clears stored verification. `data move 0xOLD 0xNEW` re-addresses one row. No operation treats a declaration, alias, or interior view as another storage allocation.
 
 `data header --output/-o FILE` generates declarations; physical section grouping does not establish game/CRT ownership. Preview and reconcile the generated header with canonical subsystem and CRT headers. `data layout` separates audit, fill, own, fix-ownership, and converge. Establish full extents and provenance before emitting storage. Convergence measures the existing build; it does not re-link between rounds.
 
@@ -791,6 +791,7 @@ Metadata changes use `data set`: choose exactly one field (`--type`, `--name`, `
 | --- | --- |
 | `rebrew data list` | Inventory globals and report section summaries or conflicts. |
 | `rebrew data set` | Set one metadata field through the locked data writers. |
+| `rebrew data move` | Re-address one row, refusing an occupied target address. |
 | `rebrew data dispatch` | Decode dispatch tables and their storage extents. |
 | `rebrew data bss` | Report BSS extents and gaps. |
 | `rebrew data fix-bss` | Generate BSS padding from proven extents. |
@@ -852,7 +853,11 @@ per-function `cflags` (and matching `cflags_presets`) that only repeat the
 inherited ladder; `rebrew lint --fix` drops them.  **W037** compares each
 data row of the active target with the definition of its `name` in its owning
 `file` (an `extern` view for a `span` row) and reports a byte-size
-disagreement with the `rebrew data set --size` / `--type` fix; **W038** reports
+disagreement with the `rebrew data set --size` / `--type` fix.  A tiled
+allocation (a short leading definition plus separately defined interior names
+and pads, each an `alias` row in the same file whose `backing` names the
+allocation) is measured as the contiguous run of those definitions, and a hole
+in it is reported by address; **W038** reports
 named rows of one module whose extents overlap.  Environment/setup
 health is `rebrew doctor`'s job, not lint's.
 
@@ -1403,6 +1408,9 @@ pull it, and the member listing shows the data each one brings.
 `LIBRARY` is a path, or a `targets.<name>.external_libs` key or spec. A spec
 with a directory is project-relative; a bare spec (`LIBCMT.lib`) is the stock
 archive cached under `.scratch/`, extracted from the toolchain image when absent.
+The image's `Lib` directory is searched ignoring letter case (the image holds
+`LIBCMT.LIB`); no match, or more than one, is an error. `library match
+--stock-lib` extracts and hash-checks the same way.
 
 | Flag / Arg | Description |
 |------------|-------------|
@@ -3767,12 +3775,38 @@ Set one metadata field through the locked data writers.
 | `--name` | Set a global's C identifier in rebrew-data.toml: 0xVA=NAME (repeatable) |
 | `--size` | Set a global's positive byte size: 0xVA=BYTES (decimal or hex, repeatable); clears its stored verification verdict |
 | `--section` | Set a global's PE section in rebrew-data.toml: 0xVA=.data (repeatable) |
+| `--file` | Set the source file that defines a global: 0xVA=PATH (repeatable) |
+| `--marker-type` | Set a global's marker word: 0xVA=GLOBAL\|DATA\|VTABLE\|STRING (repeatable) |
+| `--note` | Set a global's free-text note: 0xVA=TEXT (repeatable); keeps its verdict |
 | `--dry-run` | Preview changes without writing |
 | `--json` | Output results as JSON |
 | `--target` / `-t` | Target name from rebrew-project.toml (default: project default target). |
 
+One setter per call. A row `data set` creates has no `marker_type` and reads
+as `DATA` until `--marker-type` records one. `--note` and `--marker-type` take
+a non-empty value and leave the stored verdict in place.
+
 ```bash
 rebrew data set --type 0x401000=int --dry-run --json
+```
+
+### `rebrew data move`
+
+`rebrew data move OLD_VA NEW_VA [--dry-run] [--json] [--target NAME]`
+
+Re-address one row of the active target in one locked rewrite. Every field
+moves with it, including `verification`, the record of its last measurement
+(whose `definition_hash` names the old VA); `status` is dropped, because it
+compared the reference bytes at the old address, and the next
+`rebrew verify --data` measures the new one. The row is stamped
+`updated_by = "data"`. Refused, with nothing written: equal addresses, no row
+at `OLD_VA`, a row already at `NEW_VA`, and a row whose `file` still carries an
+inline marker for `OLD_VA` (run `rebrew source migrate-markers` first). The
+move checks addresses only: `rebrew lint` W038 reports an extent that now
+overlaps another row. JSON: `{dry_run, moved: {module, from, to, name, status_was}}`.
+
+```bash
+rebrew data move 0x10035400 0x10035408 --dry-run --json
 ```
 
 ### `rebrew data mark-literals`
