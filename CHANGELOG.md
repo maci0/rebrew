@@ -167,6 +167,9 @@
   marker names (a `// LIBRARY:` identification with no C definition): the
   `// <symbol>` line under the marker and the row get the new name. The row was
   left unchanged as "bound to another definition".
+- `rebrew skeleton --name NAME` on a VA that already has a row writes NAME into
+  the row with the new symbol and file. The row kept its old name, so name and
+  symbol disagreed and `source rename` refused to fix it.
 
 ## [2.24.0] - 2026-10-07
 

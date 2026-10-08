@@ -990,12 +990,13 @@ def record_function_identity(
     cflags: str = "",
     source: str = "",
     updated_by: str = "",
+    overwrite_name: bool = False,
 ) -> None:
     """Record one function's identity in ``rebrew-functions.toml``.
 
     ``size``, ``cflags``, and ``source`` are written only when set.  A
     ``source`` of ``naked`` stays in the ``.c`` and is not stored.  STATUS
-    is not written.
+    is not written.  An existing ``name`` is kept unless *overwrite_name*.
     """
     fields: dict[str, Any] = {}
     if size:
@@ -1019,6 +1020,7 @@ def record_function_identity(
                 "fields": fields,
             }
         ],
+        overwrite_name=overwrite_name,
         updated_by=updated_by,
     )
 

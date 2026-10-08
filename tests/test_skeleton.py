@@ -561,6 +561,31 @@ class TestSkeletonMetadataSize:
         assert entry.get("file") == "src/keep.c"
         assert "status" not in entry
 
+    def test_existing_name_follows_the_new_symbol(self, tmp_path: Path) -> None:
+        """An explicit --name rebinds the row: its name must follow the rewritten symbol."""
+        from rebrew.metadata import get_entry, record_function_identity
+        from rebrew.skeleton import _write_skeleton_metadata
+
+        cfg = self._cfg(tmp_path)
+        record_function_identity(
+            cfg.metadata_dir,
+            module="GAME",
+            va=0x10001000,
+            file="src/shared.c",
+            marker_type="FUNCTION",
+            name="cm_Wrong",
+            symbol="_cm_Wrong",
+        )
+        _write_skeleton_metadata(
+            cfg, cfg.reversed_dir / "own.c", 0x10001000, 42, "GAME", "own", overwrite_name=True
+        )
+        entry = get_entry(cfg.metadata_dir, 0x10001000, "GAME")
+        assert (entry.get("name"), entry.get("symbol"), entry.get("file")) == (
+            "own",
+            "_own",
+            "src/own.c",
+        )
+
 
 class TestSkeletonDryRun:
     def _cfg(self, tmp_path: Path) -> SimpleNamespace:
