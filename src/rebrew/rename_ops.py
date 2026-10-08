@@ -37,6 +37,7 @@ from rebrew.annotation import (
     FUNC_NAME_HINT_RE,
     FUNCTION_MARKERS,
     NEW_FUNC_CAPTURE_RE,
+    NEW_KV_RE,
     Annotation,
     parse_c_file_multi,
 )
@@ -541,8 +542,6 @@ def plan_symbol_rename(
             plan.files.append(change)
 
     _plan_symbol_rows(project, plan, chosen, rename_set, selected, store)
-    if not chosen:
-        _plan_header_marker_row(project, plan, selected, definition_file)
     _check_acknowledged(plan, selected, all_modules=all_modules, require_ack=require_ack)
 
     collisions = _ordinary_collisions(project, new_name)
@@ -697,66 +696,96 @@ def _plan_symbol_rows(
         )
 
 
-def _plan_header_marker_row(
-    project: _Project,
-    plan: RenamePlan,
-    selected: Selection | None,
-    definition_file: Path | None,
-) -> None:
+_HINT_LINE_RE = re.compile(r"^(?P<lead>\s*//[ \t]?)(?P<text>[^\r\n]*?)[ \t]*(?P<eol>\r?\n?)$")
+
+
+def is_decorated_symbol(name: str) -> bool:
+    """An MSVC-decorated linker name (``?f@@YAXXZ``, ``_f@8``) a header line may carry."""
+    match = FUNC_NAME_HINT_RE.match(f"// {name}")
+    return match is not None and not is_valid_new_name(name)
+
+
+def plan_header_row_rename(
+    cfg: ProjectConfig, module: str, va: int, new_name: str
+) -> RenamePlan | None:
     """Rename a function row that only a header marker names (a library identification).
 
-    Such a row has no C definition: its name is the ``// <symbol>`` line under
-    its ``// LIBRARY: MODULE 0xVA`` marker. That line and the row are rewritten.
+    Such a row has no C definition: its name is the line under its
+    ``// LIBRARY: MODULE 0xVA`` marker. That line and the row are rewritten,
+    whatever the line held before (a symbol, prose, or nothing). A C name
+    keeps the old symbol's decoration (cdecl ``_`` when the old line was no
+    symbol); a decorated *new_name* is both the row's name and its symbol, as
+    other C++ library rows store it. Returns None for a row whose file has no
+    such marker.
     """
     from rebrew.metadata import load_metadata
 
-    if selected is None or selected.store != KIND_FUNCTION or definition_file is None:
-        return
-    if definition_file not in project.texts:
-        return
-    stored = load_metadata(project.metadata_dir, deepcopy=False).get((selected.module, selected.va))
-    if stored is None:
-        return
-    text, encoding, _data = project.texts[definition_file]
+    if not (is_valid_new_name(new_name) or is_decorated_symbol(new_name)):
+        raise ValueError(f"target name {new_name!r} is neither a C identifier nor a symbol")
+    rows = load_metadata(Path(getattr(cfg, "metadata_dir", None) or cfg.reversed_dir))
+    stored = rows.get((module, va))
+    if not stored or stored.get("marker_type") != "LIBRARY" or not stored.get("file"):
+        return None
+    path = Path(cfg.root) / str(stored["file"])
+    if path.suffix.lower() not in {".h", ".hpp"} or not path.is_file():
+        return None
+    text, encoding = read_source_text(path)
     lines = text.splitlines(keepends=True)
     for index, line in enumerate(lines[:-1]):
         marker = NEW_FUNC_CAPTURE_RE.search(line)
-        if (
-            marker is None
-            or marker["module"] != selected.module
-            or int(marker["va"], 16) != selected.va
-        ):
+        if marker is None or marker["module"] != module or int(marker["va"], 16) != va:
             continue
-        hint = FUNC_NAME_HINT_RE.match(lines[index + 1].strip())
-        if hint is None or c_name_from_symbol(hint["name"]) != plan.old_name:
-            return
-        old_symbol = hint["name"]
-        new_symbol = redecorated_symbol(old_symbol, plan.new_name)
-        column = lines[index + 1].index(old_symbol)
-        lines[index + 1] = (
-            lines[index + 1][:column] + new_symbol + lines[index + 1][column + len(old_symbol) :]
+        hint = _HINT_LINE_RE.match(lines[index + 1])
+        if hint is None or NEW_FUNC_CAPTURE_RE.search(lines[index + 1]):
+            return None
+        if NEW_KV_RE.match(lines[index + 1].strip()):
+            return None  # the marker has no name line, only KEY: value lines
+        old_text = hint["text"]
+        if is_decorated_symbol(new_name):
+            new_symbol = new_name
+        elif FUNC_NAME_HINT_RE.match(f"// {old_text}"):
+            new_symbol = redecorated_symbol(old_text, new_name)
+        else:
+            new_symbol = f"_{new_name}"
+        taken = [
+            f"{m}.0x{v:08x}"
+            for (m, v), row in rows.items()
+            if m == module
+            and v != va
+            and (row.get("name") == new_name or row.get("symbol") == new_symbol)
+        ]
+        if taken:
+            raise RenameError(
+                f"cannot rename {module}.0x{va:08x} to {new_name}: rows already use it "
+                f"({', '.join(taken[:_COLLISION_SITE_LIMIT])}); renaming would create a "
+                "duplicate symbol; no files were changed",
+                files=[],
+            )
+        lines[index + 1] = f"{hint['lead'].rstrip()} {new_symbol}{hint['eol']}"
+        name = new_symbol if is_decorated_symbol(new_name) else new_name
+        plan = RenamePlan(
+            kind=KIND_FUNCTION, old_name=old_text or str(stored.get("name") or ""), new_name=name
         )
         plan.files.append(
             FileChange(
-                path=definition_file,
+                path=path,
                 old_text=text,
                 new_text="".join(lines),
                 encoding=encoding,
-                edits=[SourceEdit(index + 2, column + 1, ROLE_COMMENT)],
+                edits=[SourceEdit(index + 2, len(hint["lead"].rstrip()) + 2, ROLE_COMMENT)],
             )
         )
         plan.rows.append(
             RowChange(
                 "function",
-                selected.module,
-                selected.va,
+                module,
+                va,
                 {"name": str(stored.get("name") or ""), "symbol": str(stored.get("symbol") or "")},
-                {"name": plan.new_name, "symbol": new_symbol},
+                {"name": name, "symbol": new_symbol},
             )
         )
-        prefix = f"left {selected.module}.0x{selected.va:08x} "
-        plan.notes = [note for note in plan.notes if not note.startswith(prefix)]
-        return
+        return plan
+    return None
 
 
 def _check_acknowledged(

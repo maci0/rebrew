@@ -30,6 +30,7 @@ from rebrew.rename_ops import (
     apply_rename_plan,
     is_valid_new_name,
     plan_field_rename,
+    plan_header_row_rename,
     plan_symbol_rename,
     plan_type_rename,
     redecorated_symbol,
@@ -158,12 +159,23 @@ def main(
             json_mode=json_output,
             code=EXIT_ERROR,
         )
-    if not is_valid_new_name(new_name):
+    identity = None if (data or type_rename or field_rename) else _parse_identity(target_ident)
+    header_plan: RenamePlan | None = None
+    if identity is not None and new_file is None:
+        try:
+            header_plan = plan_header_row_rename(cfg, identity[0], identity[1], new_name)
+        except ValueError as exc:
+            error_exit(str(exc), json_mode=json_output)
+        except RenameError as exc:
+            error_exit(_rename_failure(exc, getattr(cfg, "root", None)), json_mode=json_output)
+    if header_plan is None and not is_valid_new_name(new_name):
         error_exit(_INVALID_NAME.format(name=new_name), json_mode=json_output)
 
     extra: dict[str, Any] = {}
     try:
-        if type_rename:
+        if header_plan is not None:
+            plan = header_plan
+        elif type_rename:
             plan = plan_type_rename(cfg, target_ident, new_name, comments=comments)
         elif field_rename:
             record, sep, member = target_ident.rpartition(".")

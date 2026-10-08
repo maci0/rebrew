@@ -415,6 +415,45 @@ class TestFunctionIdentity:
         row = _row(_functions(root), "SERVER", 0x10009000)
         assert (row["name"], row["symbol"]) == ("__crtMessageBoxA", "___crtMessageBoxA")
 
+    @pytest.mark.parametrize(
+        ("line", "new", "symbol"),
+        [
+            (
+                "(static, no archive symbol)",
+                "?_CallSETranslator@@YAHXZ",
+                "?_CallSETranslator@@YAHXZ",
+            ),
+            ("__cinit (crt0dat.obj, static)", "_cinit", "__cinit"),
+            ("", "_toupper_lk", "__toupper_lk"),
+        ],
+    )
+    def test_header_marker_prose_line_takes_a_name_or_symbol(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, line: str, new: str, symbol: str
+    ) -> None:
+        """A prose or empty name line under a library marker becomes the new symbol."""
+        from rebrew.metadata import load_metadata, save_metadata
+
+        root = _project(tmp_path)
+        (root / "src" / "library_crt.h").write_text(
+            f"// LIBRARY: GOLDTL 0x00650be4\n// {line}\n\n// LIBRARY: GOLDTL 0x00650c9a\n// _next\n",
+            encoding="utf-8",
+        )
+        rows = load_metadata(root)
+        rows[("GOLDTL", 0x00650BE4)] = {
+            "file": "src/library_crt.h",
+            "name": line,
+            "symbol": line,
+            "marker_type": "LIBRARY",
+        }
+        save_metadata(root, rows)
+        result = _run(root, monkeypatch, "GOLDTL.0x00650be4", new, "-t", "tl.exe")
+        assert result.exit_code == 0, result.output
+        assert _text(root, "library_crt.h") == (
+            f"// LIBRARY: GOLDTL 0x00650be4\n// {symbol}\n\n// LIBRARY: GOLDTL 0x00650c9a\n// _next\n"
+        )
+        row = _row(_functions(root), "GOLDTL", 0x00650BE4)
+        assert (row["name"], row["symbol"]) == (new, symbol)
+
     @pytest.mark.parametrize(("module", "refused"), [("GOLDTL", False), ("SERVER", True)])
     def test_row_name_collision_counts_only_the_renamed_module(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, module: str, refused: bool

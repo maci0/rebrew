@@ -164,9 +164,10 @@
   longer refuses the rename; a shared source definition is still refused by the
   source-level check.
 - `rebrew source rename MODULE.0xVA` renames a function row that only a header
-  marker names (a `// LIBRARY:` identification with no C definition): the
-  `// <symbol>` line under the marker and the row get the new name. The row was
-  left unchanged as "bound to another definition".
+  marker names (a `// LIBRARY:` identification with no C definition): the line
+  under the marker and the row get the new name, also when that line held prose
+  or nothing, and an MSVC-decorated new name is accepted there. The row was left
+  unchanged as "bound to another definition".
 - `rebrew skeleton --name NAME` on a VA that already has a row writes NAME into
   the row with the new symbol and file. The row kept its old name, so name and
   symbol disagreed and `source rename` refused to fix it.

@@ -503,6 +503,12 @@ Choosing the symbol:
   definition (one per project, or every one with `--all-modules`), every
   declaration and use, and the rows of other modules bound to it. This covers
   a function compiled into a target but discarded there.
+- `MODULE.0xVA` of a `LIBRARY` row identified by a header marker (no C
+  definition) rewrites the line under its `// LIBRARY: MODULE 0xVA` marker and
+  the row, whatever that line held (a symbol, prose or nothing). A C name keeps
+  the old symbol's decoration, or takes the cdecl `_` when the line was no
+  symbol; an MSVC-decorated `<new>` (`?f@@YAXXZ`) is stored as both name and
+  symbol. Only rows of the same module count as collisions.
 
 Modules and shared sources:
 
