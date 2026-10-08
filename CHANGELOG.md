@@ -113,9 +113,18 @@
 - `rebrew source rename` refuses a new name already used as an identifier or
   macro anywhere in the project's code, or by a function or data row of any
   module; it checked only the active target's annotations.
-- `rebrew.rename_ops`: `rename_function_everywhere` keeps its signature and is
-  built on `plan_symbol_rename` / `apply_rename_plan`; `substitute_name`,
-  `collect_matching_files` and `collect_function_rename_files` are removed.
+- **Breaking:** `rebrew.rename_ops.substitute_name`,
+  `rebrew.rename_ops.collect_matching_files` and
+  `rebrew.rename_ops.collect_function_rename_files` are removed; plan with
+  `rebrew.rename_ops.plan_symbol_rename` and write with
+  `rebrew.rename_ops.apply_rename_plan`. `rename_function_everywhere` keeps its
+  signature. The re-imports `rebrew.rename.substitute_name`,
+  `rebrew.rename.collect_matching_files` and
+  `rebrew.rename.collect_function_rename_files` go with them;
+  `rebrew.rename.is_safe_c_ident` (use `rebrew.utils.is_safe_c_ident`) and
+  `rebrew.rename_ops.find_c_function_definitions` (use
+  `rebrew.c_parser.find_c_function_definitions`) are gone too.
+  `rebrew.builtins.DOMAIN_COMPONENTS` carries the new `source rename` help text.
 
 ### Fixed
 - `rebrew source rename --file` moves the data rows of the renamed file with

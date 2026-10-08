@@ -42,11 +42,11 @@ from rebrew.utils import rel_display_path
 _RENAME_FAILURE_FILE_LIMIT = 10
 
 
-def _rename_failure(exc: RenameError) -> str:
-    """*exc*'s message plus the sources it names."""
+def _rename_failure(exc: RenameError, root: Path | None = None) -> str:
+    """*exc*'s message plus the sources it names, relative to *root*."""
     if not exc.files:
         return str(exc)
-    shown = ", ".join(rel_display_path(f) for f in exc.files[:_RENAME_FAILURE_FILE_LIMIT])
+    shown = ", ".join(rel_display_path(f, root) for f in exc.files[:_RENAME_FAILURE_FILE_LIMIT])
     if len(exc.files) > _RENAME_FAILURE_FILE_LIMIT:
         shown += f", and {len(exc.files) - _RENAME_FAILURE_FILE_LIMIT} more"
     return f"{exc}\n  files: {shown}"
@@ -181,14 +181,14 @@ def main(
     except (FileExistsError, ValueError) as exc:
         error_exit(str(exc), json_mode=json_output)
     except RenameError as exc:
-        error_exit(_rename_failure(exc), json_mode=json_output)
+        error_exit(_rename_failure(exc, getattr(cfg, "root", None)), json_mode=json_output)
 
     updated = len(plan.files)
     if not dry_run:
         try:
             updated = apply_rename_plan(cfg, plan)
         except RenameError as exc:
-            error_exit(_rename_failure(exc), json_mode=json_output)
+            error_exit(_rename_failure(exc, getattr(cfg, "root", None)), json_mode=json_output)
     _report(cfg, plan, extra, updated, dry_run, json_output)
 
 

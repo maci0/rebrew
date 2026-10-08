@@ -311,6 +311,7 @@ class TestFunctionIdentity:
         assert result.exit_code != 0
         assert "GOLDTL.0x00401000" in result.output
         assert "GOLD.0x00501000" in result.output
+        assert "src/game/spiel.c" in result.output
         assert "--all-modules" in result.output
         assert _snapshot(root) == before
 
