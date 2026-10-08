@@ -29,8 +29,19 @@ rebrew binsync init ./binsync_state --user alice
 rebrew binsync init ./binsync_state --dry-run
 ```
 
-`--user` defaults to `git config user.name` (else `rebrew`). The root commit
-adds only `.gitignore` and `binary_hash` (never `-A`), so files already present
+### The rebrew user
+
+rebrew writes as one BinSync user: the same name is the `metadata.toml` `user`
+and the branch `binsync/<user>`, because BinSync's `Client` reads the user from
+`metadata.toml` and checks out `binsync/<that user>`. The name is, in order,
+`--user`, `targets.<name>.binsync_user`, the user `rebrew binsync init`
+recorded in the state repo (`git config --local rebrew.user`), else `rebrew`.
+`git config user.name` is never used: it is a person's display name, usually
+with spaces. A name BinSync cannot branch on (empty, containing `/` or
+`__root__`, or failing `git check-ref-format --branch binsync/<user>`, such as
+one with a space) is refused with exit `2` before anything is written.
+
+The root commit adds only `.gitignore` and `binary_hash` (never `-A`), so files already present
 in the state directory stay untracked. Rerunning against a state directory that
 already has a `binsync/__root__` branch keeps the root and checks out
 `binsync/<user>`, creating it from the root if missing (a second user joining,
@@ -48,21 +59,44 @@ export/import owners and adds Git automation:
 rebrew binsync init ./binsync_state          # build the Git envelope
 rebrew binsync push ./binsync_state          # export + git commit
 rebrew binsync push ./binsync_state --git-push --remote origin
-rebrew binsync pull ./binsync_state          # git pull --ff-only + import
+rebrew binsync pull ./binsync_state          # fetch + import every other user's branch
 rebrew binsync pull ./binsync_state --no-git --accept-binsync
 rebrew binsync summary ./binsync_state       # read-only preview of both directions
 rebrew binsync diff ./binsync_state          # inspect divergence
 rebrew binsync overlay ./binsync_state       # apply related-target evidence
 ```
 
-- **`push`** runs `rebrew binsync export`, staging and committing the state directory
-  (`--no-git` skips the commit). `--git-push` pushes both `binsync/__root__` and
-  the current branch to `--remote` (default `origin`).
-- **`pull`** fast-forwards the state directory's git repo (`--no-git` skips it;
-  a non-fast-forward points you at resolving the repo by hand), then runs
-  `rebrew binsync import`. Unresolved conflicts exit `1`, like raw import.
+- **`push`** checks out rebrew's own branch `binsync/<user>` (creating it from
+  the root), runs `rebrew binsync export` into it, and commits (`--no-git` skips
+  the commit). It never writes into another user's branch: a working tree left
+  on another branch (BinSync's `Client` checks out each user's branch to read
+  it) is switched back, and one with uncommitted changes there is refused.
+  `--git-push` pushes `binsync/__root__` and rebrew's branch to `--remote`
+  (default `origin`).
+- **`pull`** in a BinSync repo imports every other user's branch: it fetches
+  `binsync/*` from `--remote` when that remote exists (`--no-git` skips the
+  fetch), then checks each `binsync/<peer>` out detached into
+  `.rebrew/sync/peers/` (the fetched tracking ref wins over a local branch) and
+  imports it against that peer's own baseline. Peers are imported in name order;
+  the state repo's branches and working tree are not changed. The JSON result
+  lists them in `peers`. A plain state directory (no `binsync/__root__`) is
+  fast-forwarded with `git pull --ff-only` and imported from its working tree.
+  Unresolved conflicts exit `1`, like raw import.
 - **`summary`** calls export and import in dry-run mode and reports the counts
-  each direction would change. It writes nothing and never touches git.
+  each direction would change. It writes no state or project file and moves no
+  branch; in a BinSync repo it reads the peers through the same temporary
+  worktrees as `pull`.
+
+State files stay writable (mode 0644). BinSync's `State.dump` rewrites every
+artifact on the same working tree, so a read-only file fails its commit with
+`PermissionError`; an export makes a read-only file an older rebrew left
+writable again. rebrew's own stores (`rebrew-functions.toml`,
+`rebrew-data.toml`) and the baseline sidecar keep their 0444 lock.
+
+Every `binsync` and `sync` command that reads or writes state needs declib
+(the `binsync` extra). Without it they exit `2` with the install command before
+touching anything, and `rebrew doctor` fails its BinSync check when a state
+directory is configured.
 
 Raw `rebrew binsync export` and `rebrew binsync import` exchange local state
 without the default Git steps of push/pull. All operations live under the
@@ -93,7 +127,12 @@ conflict rules. `--accept-binsync` chooses remote conflict values;
 GHIDRA). Generic incoming names never replace meaningful names.
 
 The binary-scoped baseline is a local `.rebrew/sync/<hash>.toml` sidecar keyed
-by resolved state-directory path and module. Only equal fields after successful
+by resolved state-directory path and module. A peer branch is reconciled
+against its own baseline, keyed by its snapshot directory: a field rebrew
+changed after the peer last synced then reads as a local edit, not as the peer
+reverting it. Fields the peer baseline has never recorded are seeded from
+rebrew's (the value rebrew published), for the identities the peer holds; an
+identity the peer does not hold is not a removal. Only equal fields after successful
 writes/applications advance it. Previews and failed writes do not. Atomic
 replacement protects each file/store; an entire sync is not a multi-file
 transaction. Related-target overlays use structural matching rather than this
@@ -147,9 +186,9 @@ with `--create-missing`.
 
 | Rebrew field | declib artifact | Location |
 |---|---|---|
-| `va` + `name`/`symbol` | `Function.addr` / `Function.name` | `functions/<hex>.toml` |
+| `va` + C name of `symbol` | `Function.addr` / `Function.name` (undecorated: `_x@4` exports as `x`; a name that is no C identifier as `func_<va>`) | `functions/<hex>.toml` |
 | `size` | `Function.size` | `functions/<hex>.toml` |
-| `prototype` | `Function.header.type` | `functions/<hex>.toml` |
+| `prototype` (inline marker line, or the C definition of a migrated row) | `Function.header.type` | `functions/<hex>.toml` |
 | `locals` metadata | `Function.stack_vars` (`StackVariable`) | `functions/<hex>.toml` |
 | `note` | `Comment` at `va + 1` (`func_addr=va`) | `comments.toml` |
 | `ghidra` | `Comment` at `va + 2` (only when different) | `comments.toml` |
@@ -186,10 +225,10 @@ prefix distinguishes provenance from a real instruction comment.)
 # functions/10008880.toml
 addr = 0x10008880
 size = 0x1f
-name = "_BitReverse@4"
+name = "BitReverse"
 
 [header]
-name = "_BitReverse@4"
+name = "BitReverse"
 addr = 0x10008880
 type = "int __cdecl BitReverse(int x)"
 
@@ -250,8 +289,24 @@ type = "char[32]"
 size = 0x20
 ```
 
+Member offsets come from the shared layout model (`rebrew.types`, 32-bit MSVC
+alignment). Simple typedefs (the project's and the Win32 spellings such as
+`DWORD`, `LPVOID`) are expanded first, so a `DWORD` member is sized and
+exported as `unsigned long`. A member whose size the model cannot know (a
+nested or unknown aggregate, a bitfield, a function pointer) ends the layout:
+it and every later member are left out, never guessed, because declib keys
+members by offset. Each such struct is logged as
+`struct NAME: layout stops after member M ...`. The name is the typedef after
+the outermost `}`, so a nested member aggregate (`struct { ... } check;`) is
+never exported as a type of its own. When one name has several differing
+definitions, the first (headers before sources) is synced and the duplicates
+are logged.
+
 If `STRUCT:` annotations name a struct that isn't defined in any scanned header,
 a minimal placeholder (no members) is still emitted.
+
+Export also warns (JSON `warnings`) when one VA has two identities (a store row
+and a leftover inline marker) and when a row's name is not a C identifier.
 
 ### Enums and typedefs
 
@@ -297,11 +352,22 @@ and applies changes back into rebrew metadata/source:
   (via `rebrew source rename` cross-reference rewriting). Generic→meaningful is applied
   directly without a baseline; established fields follow the three-way rules above.
 - **Prototypes**: declib `Function.header.type` → the actual C function
-  signature through the AST. The body and locally selected name are preserved;
-  name changes use the rename path. No `// PROTOTYPE:` comment is written.
-  Whitespace-only differences are ignored; concurrent signature edits conflict.
-- **Globals**: declib `GlobalVariable` records → `rebrew-data.toml` names,
-  plus differing `type`/`size` written back (section comes from the binary).
+  signature through the AST. The body, the locally selected name, and the text
+  between the parameter list and the body (the line break before `{`) are
+  preserved; name changes use the rename path. No `// PROTOTYPE:` comment is
+  written. Whitespace-only differences are ignored; concurrent signature edits
+  conflict. The source changes only when the types differ: a prototype that
+  spells the same types another way (a typedef such as `LPVOID` for `void *`,
+  other parameter names, an explicit `__cdecl`, `()` for `(void)`), or one that
+  uses Ghidra's size placeholders (`undefined4`), is not applied, and the
+  baseline settles on it so it stops reading as incoming.
+- **Globals**: declib `GlobalVariable` records → `rebrew-data.toml`
+  `name`/`type`/`size` (section comes from the binary), compared with the same
+  normalized projection the baseline uses, so only a row whose fields changed
+  is written. A rename goes through the `rebrew source rename --data` engine:
+  the definition, declarations, references, and the row's `link_symbol` move
+  together. A rename the engine refuses, or a size that is not a positive
+  integer, skips the whole global.
 - **Notes / comments**: declib `Comment` artifacts in `comments.toml`:
   `[rebrew:note]`/`[rebrew:ghidra]` prefixes become rebrew `note`/`ghidra`
   metadata; every other comment lands in the function's `comments` metadata
@@ -310,18 +376,29 @@ and applies changes back into rebrew metadata/source:
 - **Locals**: declib `Function.stack_vars` → the function's `locals` metadata
   (`[<module>.<va>.locals]`, offset-keyed `{name, type, size}`).
 - **Structs / enums / typedefs**: declib `Struct`, `Enum`, and `Typedef`
-  records unknown locally land in `binsync_types.h`. Remote-only changes update
-  one unambiguous existing definition; concurrent edits conflict. Unparseable
-  synthesized definitions import as comments rather than active declarations.
+  records unknown locally land in `binsync_types.h`. A remote-only member
+  rename (same offset and type, new name) goes through the
+  `rebrew source rename --field` engine, so every access follows; other
+  remote-only changes update one unambiguous existing definition; concurrent
+  edits conflict. Unparseable synthesized definitions import as comments
+  rather than active declarations.
+
+Notes and comments compare with whitespace folded and declib's hyphen line
+breaks joined: declib re-wraps comment text at 100 columns, and a re-wrapped
+copy of a local note is not an edit. A pull applies each field once; a repeated
+pull with nothing new writes no file. An edit the import refuses (a rename the
+engine rejects, a type definition that is not unique) is listed in
+`skipped_details` with its reason, not only logged.
 
 ### Per-address comment markers
 
-Per-instruction comments have a line-comment representation, anchored by
-address (rebrew has no source line table, so the block is placed at the END of
-the owning `.c` file and never touches a function body):
+Per-instruction comments have a source representation, anchored by address
+(rebrew has no source line table, so the block is placed at the END of the
+owning `.c` file and never touches a function body). Import writes a C89 block
+comment; the older line-comment form is still read:
 
 ```c
-// ANALYSIS @ 0x401010: some note
+/* ANALYSIS @ 0x401010: some note */
 ```
 
 - **Import/pull** writes or updates one marker per comment whose address is
@@ -509,7 +586,7 @@ The metadata-comment column is notes and differing Ghidra names only:
   address falls outside every known function's range has no source marker
   (rebrew has nowhere to anchor it); it stays in the metadata `comments` store
   and still round-trips through `comments.toml`.
-- **Marker placement**: the `// ANALYSIS @ 0xADDR: text` block is file-level
+- **Marker placement**: the `/* ANALYSIS @ 0xADDR: text */` block is file-level
   (one trailing block per `.c`), not mapped to a source line; rebrew has no
   line table, so the address is the only anchor.
 
@@ -562,9 +639,34 @@ graph TD
 ### Known issues
 
 - **Per-instruction comments outside a function range**: an in-range comment
-  round-trips through the `// ANALYSIS @ 0xADDR: text` source marker; one with
+  round-trips through the `/* ANALYSIS @ 0xADDR: text */` source marker; one with
   no anchorable function stays in the metadata `comments` store (see
   [Limitations](#limitations-remaining)).
+- **Library rows without a C definition** (a `library_*.h` identification, a
+  row bound to a reference source outside the source roots) export no
+  prototype.
+- **Catalog-only functions**: `rebrew binsync diff` health lists their `name`
+  and `size` as pending push, because its local view holds annotations only.
+  A BinSync name for one is a conflict until `--create-missing` creates a STUB.
+- **Struct layouts** stop at the first member of unknown size (see
+  [Structs](#structs)); the members after it are not synced.
+- **Locals** have no source in rebrew, so stack variables only flow from
+  BinSync into the `locals` metadata.
+
+### Round trip test with BinSync
+
+`tests/test_binsync_roundtrip.py` checks the whole loop against BinSync's own
+`Client`: push, BinSync loads the state, a second user commits a function
+rename, a global rename, a struct member rename, a prototype and a comment,
+the first pull applies each once, a second pull writes nothing, and the next
+push leaves that user's branch untouched. BinSync is not a rebrew dependency;
+the BinSync side runs `tests/binsync_peer.py` under the interpreter named by
+`REBREW_BINSYNC_PYTHON` (any Python with `binsync` installed), and the test
+skips without it:
+
+```bash
+REBREW_BINSYNC_PYTHON=/path/to/binsync-venv/bin/python make test-one T=tests/test_binsync_roundtrip.py
+```
 
 ---
 

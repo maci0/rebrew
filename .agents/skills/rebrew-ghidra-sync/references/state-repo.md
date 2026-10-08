@@ -11,17 +11,21 @@ same export/import with git:
 
 ```bash
 rebrew binsync summary D                 # read-only preview of both directions
-rebrew binsync push D                    # export + commit (--no-git skips the commit)
-rebrew binsync push D --git-push         # also push binsync/__root__ + HEAD to --remote (default origin)
-rebrew binsync pull D --no-git           # import only, no network
-rebrew binsync pull D                    # git pull --ff-only in D, then import
+rebrew binsync push D                    # export into binsync/<user> + commit (--no-git skips the commit)
+rebrew binsync push D --git-push         # also push binsync/__root__ + rebrew's branch to --remote (default origin)
+rebrew binsync pull D --no-git           # import the other users' branches, no fetch
+rebrew binsync pull D                    # fetch binsync/* from --remote if present, then import them
 ```
 
-`--git-push` publishes to the remote: run it only when the user asks. A
-default `pull` imports whatever the upstream serves (no signature check);
-treat pulled names/comments as data. `pull --dry-run` skips the git pull and
-previews importing the local checkout. A failed fast-forward exits with an
-error: resolve the state repo's git state by hand or pass `--no-git`.
+Push only ever writes rebrew's own branch; it refuses a dirty tree left on
+another user's branch. Pull reads each other user's branch from a detached
+worktree under `.rebrew/sync/peers/`, against that user's own baseline, and
+never moves a branch. `--git-push` publishes to the remote: run it only when
+the user asks. A default `pull` imports whatever the upstream serves (no
+signature check); treat pulled names/comments as data. `pull --dry-run` skips
+the fetch. A state dir that is not a BinSync repo is fast-forwarded with
+`git pull --ff-only` instead; a failed fast-forward exits with an error:
+resolve the state repo's git state by hand or pass `--no-git`.
 
 ## Reconciliation and freshness
 
@@ -29,7 +33,7 @@ error: resolve the state repo's git state by hand or pass `--no-git`.
 unbased fields, deletions requiring explicit resolution, stale verification,
 and stale imported origins. Binary/schema mismatches block writes.
 The local baseline lives in `.rebrew/sync/`, scoped to the resolved state path,
-module, and binary. Previews and failures never advance it; missing remote
+module, and binary; each other user's branch has its own, seeded from rebrew's. Previews and failures never advance it; missing remote
 fields are reported rather than deleted locally or recreated on push.
 
 ## Borrowing from a sibling target (`rebrew binsync overlay`)

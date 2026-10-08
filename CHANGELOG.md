@@ -1,6 +1,16 @@
 ## [Unreleased]
 
 ### Added
+- `rebrew binsync pull` (and `rebrew sync pull`) in a BinSync repo imports
+  every other user's `binsync/<user>` branch, fetched from `--remote` when it
+  exists, from a detached worktree under `.rebrew/sync/peers/`, each against
+  its own baseline seeded from rebrew's; JSON `peers` names them. Refused edits
+  are listed in `skipped_details` with their reason.
+- `targets.<name>.binsync_user` and `--user` on `binsync push`, `pull` and
+  `export` select the one BinSync user rebrew writes as.
+- `tests/test_binsync_roundtrip.py` runs push, BinSync's own `Client`, a
+  second user's edits, two pulls and a push; it needs `REBREW_BINSYNC_PYTHON`
+  (a Python with `binsync`) and skips without it.
 - `rebrew source rename` renames across modules that share sources. `MODULE.0xVA`
   selects one identity in any module. A definition whose rows span several
   modules renames only with `--all-modules`, which also renames every other
@@ -118,6 +128,20 @@
   built from the same sources.
 
 ### Changed
+- BinSync: `metadata.toml` `user` and the branch are one validated name
+  (`--user`, `binsync_user`, the user `init` recorded, else `rebrew`), never
+  `git config user.name`; a name git cannot branch on exits 2. Push checks out
+  `binsync/<user>` before writing and refuses a dirty tree on another user's
+  branch. State files are written 0644 so BinSync's own commits succeed.
+- BinSync export: functions carry their C name (the symbol undecorated), a
+  migrated row's prototype comes from its C definition, simple typedefs are
+  expanded in struct layouts, a layout stops (with a warning) at a member of
+  unknown size instead of the regex fallback, and duplicate identities,
+  differing duplicate struct names and non-identifier names are reported.
+- BinSync pull: a prototype that only respells the local types, or uses
+  Ghidra's `undefined` placeholders, leaves the source alone; a real change
+  keeps the brace layout. Global and struct member renames go through the
+  `rebrew source rename` engine. `ANALYSIS` markers are written as `/* */`.
 - **Breaking:** `lib_match.stock_lib_source` is now `lib_match.stock_lib_dir`
   and returns the image's `Lib` directory, not the archive path; the archive is
   found there ignoring letter case.
@@ -146,6 +170,17 @@
   `rebrew.builtins.DOMAIN_COMPONENTS` carries the new `source rename` help text.
 
 ### Fixed
+- BinSync: all migrated functions exported without a prototype; BinSync's
+  `Client` could not load rebrew's state (user/branch mismatch) or commit on
+  it (0444 files); a push overwrote another user's branch; a pull without an
+  upstream failed; sync commands without declib died with a traceback (now
+  exit 2; `rebrew doctor` fails the BinSync check); notes re-wrapped by declib
+  never settled; a pull rewrote every global row and every per-instruction
+  comment; a pulled global rename left the source and `link_symbol` behind; a
+  struct member rename was dropped with only a log line; nested member
+  structs were exported as top-level types.
+- `rebrew source rename --data` keeps a row's `link_symbol` in step with the
+  renamed definition.
 - `rebrew library inspect` and `rebrew library match` extract a stock archive
   whose configured spelling differs in case from the toolchain image's file
   (`LIBCMT.lib` against `VC98/Lib/LIBCMT.LIB`): the image's `Lib` directory is
