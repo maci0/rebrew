@@ -1,6 +1,16 @@
 ## [Unreleased]
 
 ### Added
+- `rebrew lint` compares data rows with their sources. **W037** reports a
+  `rebrew-data.toml` row whose `size`, or the extent of its `type`, disagrees
+  with the file-scope definition of its `name` in its owning `file`, and names
+  the `rebrew data set --size` / `--type` fix. A `span` row may be checked
+  against an `extern` view, since a span has no definition of its own. Types the
+  data size model cannot measure are skipped. **W038** reports two named rows
+  of one module whose extents overlap; an `alias` row with a `backing` is
+  exempt. A generator had shrunk guild-rebrew's `g_gap_10034644` to 36 bytes
+  while its row still said `char[44]`, so the row ran over two newer rows and
+  only `rebrew status` showed the 8 overlapping bytes.
 - `rebrew init --refresh-agents` keeps a project's own rules in `AGENTS.md`:
   everything from the line `<!-- rebrew: project rules below, kept by
   --refresh-agents -->` to the end of the file is kept verbatim below the

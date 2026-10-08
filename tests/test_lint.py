@@ -3606,3 +3606,172 @@ def test_markerless_library_binding_uses_project_root(
     unrelated.write_text(provider.read_text())
     result = lint_file(unrelated, cfg=cfg, preloaded_metadata=entries, preloaded_data_metadata={})
     assert any(code == "E001" for _, code, _ in result.errors)
+
+
+class TestW037W038DataRows:
+    """W037: a data row that disagrees with its owning definition. W038: rows
+    whose extents overlap. Driven through ``rebrew lint --json`` on a real
+    project file, the way guild-rebrew hit it: a generator shrank
+    ``g_gap_10034644`` to 36 bytes while its row still said ``char[44]``, so
+    the stale row ran over the next two globals."""
+
+    def _project(self, tmp_path: Path, source: str, rows: str) -> Path:
+        (tmp_path / "rebrew-project.toml").write_text(
+            '[project]\ndefault_target = "server.dll"\n\n'
+            '[targets."server.dll"]\nbinary = "server.dll"\nmarker = "SERVER"\n'
+            'reversed_dir = "src"\n',
+            encoding="utf-8",
+        )
+        src = tmp_path / "src"
+        src.mkdir()
+        owner = src / "bss_head2.c"
+        owner.write_text(source, encoding="utf-8")
+        (tmp_path / "rebrew-data.toml").write_text("format = 1\n" + rows, encoding="utf-8")
+        return owner
+
+    def _row(self, va: int, name: str, type_: str, size: int, **extra: str) -> str:
+        fields = "".join(f'{key} = "{value}"\n' for key, value in extra.items())
+        return (
+            f'\n["SERVER.0x{va:08x}"]\nfile = "src/bss_head2.c"\nmarker_type = "GLOBAL"\n'
+            f'name = "{name}"\ntype = "{type_}"\nsize = {size}\nsection = ".bss"\n{fields}'
+        )
+
+    def _lint(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> list[tuple[str, int, str, str]]:
+        from typer.testing import CliRunner
+
+        from rebrew.lint import app
+
+        monkeypatch.chdir(tmp_path)
+        result = CliRunner().invoke(app, ["--json"])
+        payload = json.loads(result.stdout)
+        return [
+            (entry["file"], warning["line"], warning["code"], warning["message"])
+            for entry in payload["files"]
+            for warning in entry["warnings"]
+            if warning["code"] in {"W037", "W038"}
+        ]
+
+    def test_stale_row_size_is_reported_with_the_fix(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._project(
+            tmp_path,
+            "/* layout */\nchar g_gap_10034644[36] = {0};\nvoid *g_vfs_root;\n",
+            self._row(0x10034644, "g_gap_10034644", "char[44]", 44)
+            + self._row(0x10034668, "g_vfs_root", "void*", 4),
+        )
+        found = [w for w in self._lint(tmp_path, monkeypatch) if w[2] == "W037"]
+        assert len(found) == 1, found
+        file, line, _code, message = found[0]
+        assert file.endswith("bss_head2.c")
+        assert line == 2
+        assert "SERVER.0x10034644" in message
+        assert "type 'char[44]' (44 bytes), size 44" in message
+        assert "'char[36]' (36 bytes)" in message
+        assert "rebrew data set --size 0x10034644=36" in message
+        assert "rebrew data set --type '0x10034644=char[36]'" in message
+
+    def test_matching_rows_are_silent(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Spelling differences (`void*` / `void *`, `[0x104]` / `[260]`) are
+        not a disagreement: only byte sizes are compared."""
+        self._project(
+            tmp_path,
+            "char g_gap[36] = {0};\nvoid * g_root;\nunsigned  short g_w;\nchar g_path[0x104];\n",
+            self._row(0x1000, "g_gap", "char[36]", 36)
+            + self._row(0x1024, "g_root", "void*", 4)
+            + self._row(0x1028, "g_w", "unsigned short", 2)
+            + self._row(0x102C, "g_path", "char[260]", 260),
+        )
+        assert self._lint(tmp_path, monkeypatch) == []
+
+    def test_extern_declaration_is_not_the_definition(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Only the definition is compared: an extern of another extent in the
+        owning file is a user, and a file with only the extern is skipped."""
+        self._project(
+            tmp_path,
+            "extern char g_a[];\nchar g_a[8];\nextern int g_b[4];\n",
+            self._row(0x1000, "g_a", "char[8]", 8) + self._row(0x1008, "g_b", "char[3]", 3),
+        )
+        assert self._lint(tmp_path, monkeypatch) == []
+
+    def test_unsized_types_are_skipped(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A struct the size model cannot measure is skipped, not guessed."""
+        self._project(
+            tmp_path,
+            "struct Pool { int a; };\nstruct Pool g_pool;\n",
+            self._row(0x1000, "g_pool", "struct Pool", 12),
+        )
+        assert self._lint(tmp_path, monkeypatch) == []
+
+    def test_overlapping_rows_are_reported(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._project(
+            tmp_path,
+            "char g_gap[44];\nvoid *g_root;\n",
+            self._row(0x1000, "g_gap", "char[44]", 44) + self._row(0x1024, "g_root", "void*", 4),
+        )
+        found = [w for w in self._lint(tmp_path, monkeypatch) if w[2] == "W038"]
+        assert len(found) == 1, found
+        file, _line, _code, message = found[0]
+        assert file == "rebrew-data.toml"
+        assert "SERVER.0x00001000 g_gap" in message
+        assert "SERVER.0x00001024 g_root" in message
+        assert "by 4 bytes" in message
+
+    def test_views_and_disjoint_rows_do_not_overlap(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An alias with a backing is a view of its allocation, not a second
+        owner; adjacent rows touch without intersecting."""
+        self._project(
+            tmp_path,
+            "char g_buf[16];\nint g_next;\n",
+            self._row(0x1000, "g_buf", "char[16]", 16)
+            + self._row(0x1004, "g_buf_tail", "char[4]", 4, storage_kind="alias", backing="g_buf")
+            + self._row(0x1010, "g_next", "int", 4),
+        )
+        assert self._lint(tmp_path, monkeypatch) == []
+
+    def test_span_row_is_compared_with_its_extern_view(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A span has no standalone owner: its owning file may hold only an
+        extern inventory view, and that view's extent is what the row must
+        match (guild-rebrew `g_before_g_array_count`, declared 7 bytes against
+        a 3-byte span). A non-span row with only an extern stays skipped."""
+        self._project(
+            tmp_path,
+            "extern unsigned char g_before[0x7];\nextern unsigned char g_other[0x7];\n",
+            self._row(0x1000, "g_before", "unsigned char[3]", 3, storage_kind="span")
+            + self._row(0x1010, "g_other", "unsigned char[3]", 3, storage_kind="object"),
+        )
+        found = [w for w in self._lint(tmp_path, monkeypatch) if w[2] == "W037"]
+        assert len(found) == 1, found
+        message = found[0][3]
+        assert "g_before" in message
+        assert "span view" in message
+        assert "'unsigned char[0x7]' (7 bytes)" in message
+        assert "--size 0x00001000=7" in message
+
+    def test_stale_type_alone_gets_the_type_fix(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._project(
+            tmp_path,
+            "char g_gap[36];\n",
+            self._row(0x1000, "g_gap", "char[44]", 36),
+        )
+        found = [w for w in self._lint(tmp_path, monkeypatch) if w[2] == "W037"]
+        assert len(found) == 1, found
+        message = found[0][3]
+        assert "rebrew data set --type '0x00001000=char[36]'" in message
+        assert "--size" not in message

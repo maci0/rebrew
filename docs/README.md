@@ -19,7 +19,7 @@
 | [PYTHON_API.md](PYTHON_API.md) | Library imports, toolchain registry views, structured errors, and injectable service clients |
 | [CORDIS.md](CORDIS.md) | Composition concepts, runtime API, lifecycle and failure contracts, recipes, and paper mapping |
 | [CONFIG.md](CONFIG.md) | `rebrew-project.toml` format, config loader, arch presets, compiler profiles |
-| [ANNOTATIONS.md](ANNOTATIONS.md) | Function and data identity (`MODULE.0xVA`), the legacy marker the parser still reads, `library_*.h`, and linter codes E000–E023 / W003–W036 |
+| [ANNOTATIONS.md](ANNOTATIONS.md) | Function and data identity (`MODULE.0xVA`), the legacy marker the parser still reads, `library_*.h`, and linter codes E000–E023 / W003–W038 |
 | [METADATA_FORMAT.md](METADATA_FORMAT.md) | TOML metadata files (`rebrew-functions.toml`, `rebrew-data.toml`): volatile fields, status lifecycle |
 | [METADATA.md](METADATA.md) | The full store map: canonical vs derived vs cache tiers, who owns which fact, precedence rules |
 | [MATCH_TYPES.md](MATCH_TYPES.md) | EXACT / RELOC / NEAR_MATCHING / PROVEN / SKIP: byte-level examples and relocation masking |
