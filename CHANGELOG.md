@@ -1,6 +1,26 @@
 ## [Unreleased]
 
 ### Added
+- `rebrew source rename` renames across modules that share sources. `MODULE.0xVA`
+  selects one identity in any module. A definition whose rows span several
+  modules renames only with `--all-modules`, which also renames every other
+  definition of the name (per-target twins); without it, twins and their
+  references keep their name and are listed in `notes`. A name with no row in
+  the active target renames the source symbol (definition, declarations, uses)
+  and the other modules' rows bound to it. A reference that cannot be
+  attributed to one definition refuses before any write.
+- `rebrew source rename --type OLD NEW` renames a struct/union/enum tag or
+  typedef name, its uses, and the `type` strings of data rows and function
+  `locals`. `--field STRUCT.MEMBER NEW` renames one struct's member, resolving
+  each access through declarations, casts, subscripts, member chains, function
+  returns, designated initializers, `offsetof` and macro bodies; an access it
+  cannot resolve while another struct shares the member name refuses the
+  rename with its `file:line`.
+- `rebrew source rename --comments` also rewrites whole-word occurrences in
+  comments. `--dry-run` lists every edit (`file:line:column role`), row change
+  and file move; `--json` returns them as `files`, `rows`, `move` and `notes`.
+- `rebrew.c_parser.mask_msvc_syntax` blanks calling conventions, `__declspec`
+  and inline assembly without moving any byte offset.
 - `rebrew lint` compares data rows with their sources. **W037** reports a
   `rebrew-data.toml` row whose `size`, or the extent of its `type`, disagrees
   with the file-scope definition of its `name` in its owning `file`, and names
@@ -103,6 +123,27 @@
   found there ignoring letter case.
 - **Breaking:** `rehome.main` takes `from_file` and `to_file` after `specs`,
   and `specs` defaults to `None`. The CLI keeps its `0xVA=PATH` form.
+- `rebrew source rename` no longer rewrites comments unless `--comments` is
+  given, and no longer renames struct members, goto labels or struct tags that
+  share a function's or global's name.
+- A failed source write during `rebrew source rename` restores every source
+  already written and leaves the stores unchanged; it used to leave the
+  definition renamed and name the stale files.
+- `rebrew source rename` refuses a new name already used as an identifier or
+  macro anywhere in the project's code, or by a function or data row of any
+  module; it checked only the active target's annotations.
+- **Breaking:** `rebrew.rename_ops.substitute_name`,
+  `rebrew.rename_ops.collect_matching_files` and
+  `rebrew.rename_ops.collect_function_rename_files` are removed; plan with
+  `rebrew.rename_ops.plan_symbol_rename` and write with
+  `rebrew.rename_ops.apply_rename_plan`. `rename_function_everywhere` keeps its
+  signature. The re-imports `rebrew.rename.substitute_name`,
+  `rebrew.rename.collect_matching_files` and
+  `rebrew.rename.collect_function_rename_files` go with them;
+  `rebrew.rename.is_safe_c_ident` (use `rebrew.utils.is_safe_c_ident`) and
+  `rebrew.rename_ops.find_c_function_definitions` (use
+  `rebrew.c_parser.find_c_function_definitions`) are gone too.
+  `rebrew.builtins.DOMAIN_COMPONENTS` carries the new `source rename` help text.
 
 ### Fixed
 - `rebrew library inspect` and `rebrew library match` extract a stock archive
@@ -112,6 +153,9 @@
   whenever no cached archive existed.
 - `rebrew source rename --file` moves the data rows of the renamed file with
   its function rows. They kept naming the old path.
+- `rebrew source rename --data` renames every data row bound to the global
+  (with `--all-modules` for other modules); it renamed one row and left the
+  other modules' rows naming a symbol the sources no longer declared.
 
 ## [2.24.0] - 2026-10-07
 

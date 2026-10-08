@@ -578,7 +578,7 @@ class TestRenameCli:
         stale = src / "stale.c"
         stale.write_text("extern int old_fn(void);\n", encoding="utf-8")
         monkeypatch.setattr(
-            "rebrew.rename.rename_function_everywhere",
+            "rebrew.rename.plan_symbol_rename",
             lambda *a, **kw: (_ for _ in ()).throw(
                 RenameError("call sites not rewritten", files=[stale])
             ),
@@ -597,7 +597,7 @@ class TestRenameCli:
         src = tmp_path / "src" / "SERVER"
         many = [src / f"f{i:03d}.c" for i in range(_RENAME_FAILURE_FILE_LIMIT + 5)]
         monkeypatch.setattr(
-            "rebrew.rename.rename_function_everywhere",
+            "rebrew.rename.plan_symbol_rename",
             lambda *a, **kw: (_ for _ in ()).throw(
                 RenameError("call sites not rewritten", files=many)
             ),
@@ -826,23 +826,6 @@ class TestRenameCli:
         assert "new_fn" not in f.read_text(encoding="utf-8")
 
 
-class TestCollectMatchingFiles:
-    def test_lists_primary_and_referencing_files(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        import re
-
-        from rebrew.rename_ops import collect_matching_files
-
-        a = _src(tmp_path, "func_a.c", "int func_a(void) { return 1; }\n")
-        b = _src(tmp_path, "other.c", "extern int func_a(void);\n")
-        c = _src(tmp_path, "unrelated.c", "int other(void) { return 0; }\n")
-        _patch_sources(monkeypatch, [a, b, c])
-        pattern = re.compile(r"\bfunc_a\b")
-        matched = collect_matching_files(_cfg(tmp_path), a, pattern)
-        assert set(matched) == {a, b}
-
-
 class TestRenameData:
     def _cfg(self, tmp_path: Path):
         from types import SimpleNamespace
@@ -938,7 +921,7 @@ class TestRenameData:
         def _boom(_path: Path) -> tuple[str, str]:
             raise OSError(13, "Permission denied")
 
-        monkeypatch.setattr("rebrew.utils.read_source_text", _boom)
+        monkeypatch.setattr("rebrew.rename_ops.read_source_text", _boom)
         res = CliRunner().invoke(app, ["g_old", "g_new", "--data"])
         assert res.exit_code != 0
         assert get_data_entry(tmp_path, 0x2000, "SERVER").get("name") == "g_old"
@@ -1025,16 +1008,14 @@ class TestRenameData:
             encoding="utf-8",
         )
         monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: self._cfg(tmp_path))
-        import rebrew.utils as utils_module
-
-        real_read = utils_module.read_source_text
+        real_read = rename_ops.read_source_text
 
         def _read(path: Path) -> tuple[str, str]:
             if path == locked:
                 raise PermissionError(13, "Permission denied")
             return real_read(path)
 
-        monkeypatch.setattr(utils_module, "read_source_text", _read)
+        monkeypatch.setattr(rename_ops, "read_source_text", _read)
         res = CliRunner().invoke(app, ["$SG18890", "g_100313fc", "--data"])
         assert res.exit_code != 0
         assert str(locked) in res.output
@@ -1222,40 +1203,31 @@ class TestUnderscoreNameDerivation:
 
 class TestProtectedSpans:
     def test_substitution_skips_literals_and_macro_names(self) -> None:
-        """`rebrew source rename` documents that macros and string literals are not
-        rewritten: a raw-text substitution rewrote `puts("foo")`, changing the
-        data a byte-matched function emits."""
-        import re
+        """Literals and a macro's own name are not occurrences of the function.
 
-        from rebrew.rename_ops import substitute_name
+        A raw-text substitution rewrote ``puts("foo")``, changing the data a
+        byte-matched function emits.
+        """
+        from rebrew.c_rename import ORDINARY_ROLES, ParsedSource, occurrences, rewrite
 
-        src = (
+        src = ParsedSource.parse(
             "int foo(void) { return 1; }\n"
             'void caller(void) { puts("foo"); foo(); }\n'
             "#define foo(x) ((x) + 1)\n"
         )
-        out = substitute_name(re.compile(r"\bfoo\b"), "bar", src)
+        spans = [(o.start, o.end) for o in occurrences(src, "foo") if o.role in ORDINARY_ROLES]
+        out = rewrite(src, spans, "bar")
         assert "int bar(void)" in out
         assert "bar();" in out
-        # Literal and macro definition keep the old name.
         assert 'puts("foo")' in out
         assert "#define foo(x)" in out
 
-    def test_word_boundary_is_unicode_with_or_without_literals(self) -> None:
-        """A file with a literal must match exactly like one without: a bytes
-        regex treats the UTF-8 bytes of `é` as non-word, so `\\b` split
-        `éfoo` and renamed it only when the file also held a string."""
-        import re
+    def test_word_boundary_is_unicode(self) -> None:
+        """A non-ASCII letter is part of the word: ``éfoo`` is not ``foo``."""
+        from rebrew.c_rename import ParsedSource, occurrences
 
-        from rebrew.rename_ops import substitute_name
-
-        pattern = re.compile(r"\bfoo\b")
-        plain = "/* éfoo */ int foo(void);\n"
-        with_literal = plain + 'char *s = "x";\n'
-        assert substitute_name(pattern, "bar", plain) == "/* éfoo */ int bar(void);\n"
-        assert substitute_name(pattern, "bar", with_literal) == (
-            "/* éfoo */ int bar(void);\n" + 'char *s = "x";\n'
-        )
+        src = ParsedSource.parse("int éfoo; int foo(void);\n")
+        assert [o.column for o in occurrences(src, "foo")] == [15]
 
     def test_macro_name_spans_cover_defines(self) -> None:
         from rebrew.c_parser import protected_spans
